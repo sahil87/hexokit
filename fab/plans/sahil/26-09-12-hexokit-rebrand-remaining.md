@@ -14,8 +14,11 @@ renamed the app identity itself: the command is `hexokit` (with `xk`/`rk`
 completions) and the desktop app is "HexoKit". The on-disk homes are done
 (C4). The daemon port default (C5) and R1(a)/(b) (formula/release) are done.
 R1(c) (the shll roster) is done in shll v0.1.34, and R1(d) (hexokit-site
-install surfaces) is done, so **R1 is complete**. Still on the old name: only
-the GitHub repo `sahil87/run-kit` (R2).
+install surfaces) is done, so **R1 is complete**. Still on the old name: the
+GitHub repo `sahil87/run-kit` (R2) is the only public rename surface left; two
+compatibility carry-overs from R1 stay on purpose until their follow-ups land
+(the `versions.json` row keyed `run-kit` and hexokit-site's stale-shll
+`run-kit` fallback in `/install` — see the R1 row).
 
 **Status (2026-09-28)**: **everything before Phase 3 is done except the
 announce.** A1 (shll v0.1.33) and A2 done; P1, P2, P3 merged and shipped in
@@ -28,7 +31,8 @@ homebrew-tap PR#6); R1(c) **merged** 2026-09-28 after Sahil verified the
 brew-upgrade gate ([shll#103](https://github.com/sahil87/shll/pull/103), `4def30d`),
 released as [shll v0.1.34](https://github.com/sahil87/shll/releases/tag/v0.1.34);
 R1(d) **merged** ([hexokit-site#11](https://github.com/sahil87/hexokit-site/pull/11)),
-so **R1 is complete**; R2 and X3 not started. Decisions: repos stay under `sahil87`, R2 → `sahil87/hexokit` (D15);
+so **R1 is complete** (two compatibility carry-overs stay until their
+follow-ups land — see the R1 row); R2 and X3 not started. Decisions: repos stay under `sahil87`, R2 → `sahil87/hexokit` (D15);
 binary `rk` + alias `xk` (D16); port config key (D17, now shipped).
 
 ## Rules that bind every row here (from the master decision log)
