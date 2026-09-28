@@ -230,6 +230,70 @@ func TestVerdictsRunKitRowLocalComparison(t *testing.T) {
 	}
 }
 
+// TestVerdictsHexokitSelfRow verifies the self row is recognized under the
+// roster name shll >= v0.1.34 reports (`hexokit`). shll's own verdict on the row
+// is deliberately wrong (update_available/notable false against a lagging
+// brew-visible version) so a sibling-branch fallthrough would drop the row.
+func TestVerdictsHexokitSelfRow(t *testing.T) {
+	report := CheckReport{Schema: 1, Source: "released", Tools: []CheckTool{
+		{Name: "hexokit", Formula: "sahil87/tap/hexokit", Installed: "3.9.0", Latest: "3.9.0", Notify: "minor", UpdateAvailable: false, Notable: false},
+		{Name: "fab-kit", Formula: "fab-kit", Installed: "2.17.0", Latest: "2.17.0", Notify: "minor"},
+	}}
+	// brew already carries 3.9.0 but the daemon still RUNS 3.8.1.
+	c := checkerWith(t, "3.8.1", true, report)
+	c.CheckOnceForTest()
+	snap := c.Snapshot()
+	hk := findVerdict(snap.Tools, "hexokit")
+	if hk == nil {
+		t.Fatalf("hexokit self verdict missing, tools=%v", snap.Tools)
+	}
+	if hk.Installed != "3.8.1" || hk.Latest != "3.9.0" {
+		t.Errorf("hexokit verdict versions = (%q,%q), want (3.8.1,3.9.0) — must use the RUNNING version", hk.Installed, hk.Latest)
+	}
+	if !hk.UpdateAvailable || !hk.Notable {
+		t.Errorf("hexokit verdict flags = (ua=%v,notable=%v), want both true (local comparison)", hk.UpdateAvailable, hk.Notable)
+	}
+	if snap.Current != "3.8.1" || snap.Latest != "3.9.0" {
+		t.Errorf("legacy fields = (%q,%q), want (3.8.1,3.9.0)", snap.Current, snap.Latest)
+	}
+	if snap.Key != "hexokit@3.9.0" {
+		t.Errorf("Key = %q, want hexokit@3.9.0 (the name shll reported)", snap.Key)
+	}
+
+	// The brew-install gate holds under the new name: a non-brew binary omits
+	// its own row even when shll's row claims an update.
+	gated := CheckReport{Schema: 1, Tools: []CheckTool{
+		{Name: "hexokit", Installed: "3.8.0", Latest: "3.9.0", Notify: "minor", UpdateAvailable: true, Notable: true},
+	}}
+	c2 := checkerWith(t, "3.8.1", false, gated)
+	c2.CheckOnceForTest()
+	if v := findVerdict(c2.Snapshot().Tools, "hexokit"); v != nil {
+		t.Errorf("non-brew hexokit must not list its own row, got %+v", v)
+	}
+	if hasTool(c2.Snapshot().Matched, "hexokit") {
+		t.Errorf("non-brew hexokit must not self-match")
+	}
+}
+
+// TestIsSelfTool covers the primary roster name plus the legacy names older
+// shll releases report for the same row.
+func TestIsSelfTool(t *testing.T) {
+	for name, want := range map[string]bool{
+		"hexokit":   true,
+		"run-kit":   true,
+		"rk":        true,
+		"fab-kit":   false,
+		"shll":      false,
+		"":          false,
+		"hexokit-x": false,
+		"Hexokit":   false,
+	} {
+		if got := isSelfTool(name); got != want {
+			t.Errorf("isSelfTool(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
 // TestVerdictsRunKitSubThreshold verifies the local comparison produces the
 // split verdict: a patch bump under notify:minor is update_available but NOT
 // notable — it rides Tools but never Matched/Key.

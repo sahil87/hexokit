@@ -40,6 +40,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -48,10 +49,11 @@ import (
 )
 
 const (
-	// runKitTool is the roster name for run-kit's own row — the one row compared
-	// against the RUNNING ldflags version (not the brew-visible version shll
-	// reports) and gated on this binary being a brew install.
-	runKitTool = "run-kit"
+	// selfToolName is the roster name shll (>= v0.1.34) reports for this
+	// binary's own row — the one row compared against the RUNNING ldflags
+	// version (not the brew-visible version shll reports) and gated on this
+	// binary being a brew install.
+	selfToolName = "hexokit"
 	// checkTimeout bounds the `shll check-updates` exec (Constitution I). One
 	// subprocess wraps a network fetch plus brew reads, so it gets the
 	// constitution's 30s build-op tier rather than the 10s tmux tier.
@@ -90,12 +92,22 @@ const (
 	SourceGithub = "github"
 )
 
+// selfToolLegacyNames are the roster names older shll releases (< v0.1.34)
+// report for the same row. Mirrors shll's own LegacyNames for the tool, so the
+// self row is still recognized while a box runs a pre-rename shll.
+var selfToolLegacyNames = []string{"rk", "run-kit"}
+
+// isSelfTool reports whether a roster name is this binary's own row.
+func isSelfTool(name string) bool {
+	return name == selfToolName || slices.Contains(selfToolLegacyNames, name)
+}
+
 // CheckTool is one tool's entry in the `shll check-updates --json` report
 // (vendored contract, schema 1 — see testdata/check-updates.json). A tool is
 // listed only when both installed and latest resolve. Unknown sibling fields
 // are tolerated by the decoder.
 type CheckTool struct {
-	// Name is the roster name (e.g. "run-kit", "fab-kit").
+	// Name is the roster name (e.g. "hexokit", "fab-kit").
 	Name string `json:"name"`
 	// Formula is the Homebrew formula name (informational to this caller).
 	Formula string `json:"formula"`
@@ -122,10 +134,10 @@ type CheckReport struct {
 // update (installed < latest), whether or not the bump is notable. Up-to-date
 // tools never appear.
 type ToolVerdict struct {
-	// Tool is the roster name (e.g. "run-kit", "fab-kit").
+	// Tool is the roster name (e.g. "hexokit", "fab-kit").
 	Tool string
 	// Installed is the version currently installed (the running ldflags version
-	// for the run-kit row; shll's brew-visible version for every other tool).
+	// for the self row; shll's brew-visible version for every other tool).
 	Installed string
 	// Latest is the newest published version for this tool.
 	Latest string
@@ -139,7 +151,7 @@ type ToolVerdict struct {
 // ToolUpdate is one NOTABLE tool in the verdict — the match set that drives the
 // chip, the composite dismissal key, and the scoped `shll update` argv.
 type ToolUpdate struct {
-	// Tool is the roster name (e.g. "run-kit", "fab-kit").
+	// Tool is the roster name (e.g. "hexokit", "fab-kit").
 	Tool string
 	// Installed is the version currently installed.
 	Installed string
@@ -161,11 +173,11 @@ type Result struct {
 	// chip, the dismissal Key, and the scoped `shll update` argv.
 	Matched []ToolUpdate
 	// Key is the composite dismissal key: sorted "tool@latest" pairs of the
-	// NOTABLE set, comma joined (e.g. "fab-kit@2.17.0,run-kit@3.9.0"). Empty
+	// NOTABLE set, comma joined (e.g. "fab-kit@2.17.0,hexokit@3.9.0"). Empty
 	// when nothing notable matches.
 	Key string
-	// Current and Latest are populated from the run-kit row when run-kit is in
-	// the notable match set (else empty). Retained for transitional frontend
+	// Current and Latest are populated from the self row (see isSelfTool) when
+	// it is in the notable match set (else empty). Retained for transitional frontend
 	// compat — a not-yet-reloaded client keys off a non-empty Latest.
 	Current string
 	Latest  string
@@ -351,13 +363,14 @@ func (c *Checker) checkOnce(ctx context.Context, source string) (Result, error) 
 
 // computeVerdicts maps a check report onto the verdict list. Sibling tools are
 // trusted VERBATIM (their update_available/notable arrive pre-evaluated by
-// shll); the run-kit row is re-compared locally against the RUNNING ldflags
+// shll); the self row (see isSelfTool) is re-compared locally against the RUNNING ldflags
 // version using shll's latest + notify (shll can only see the brew-installed
 // version), and additionally requires this binary to be a brew install (a
 // go-install/dev rk cannot self-update through the brew-based remediation, so
 // its row would advertise an un-actionable update). Only tools with a pending
 // update are listed; iteration is sorted by name so the verdict order is
-// deterministic regardless of report order.
+// deterministic regardless of report order. The self verdict keeps the name
+// shll reported, so the scoped `shll update` argv names a tool that shll knows.
 func (c *Checker) computeVerdicts(report CheckReport) []ToolVerdict {
 	tools := make([]CheckTool, len(report.Tools))
 	copy(tools, report.Tools)
@@ -365,7 +378,7 @@ func (c *Checker) computeVerdicts(report CheckReport) []ToolVerdict {
 
 	var verdicts []ToolVerdict
 	for _, tool := range tools {
-		if tool.Name == runKitTool {
+		if isSelfTool(tool.Name) {
 			if !c.selfBrew {
 				continue
 			}
@@ -374,7 +387,7 @@ func (c *Checker) computeVerdicts(report CheckReport) []ToolVerdict {
 				continue
 			}
 			verdicts = append(verdicts, ToolVerdict{
-				Tool:            runKitTool,
+				Tool:            tool.Name,
 				Installed:       c.current,
 				Latest:          latest,
 				UpdateAvailable: true,
@@ -540,11 +553,11 @@ func computeKey(matched []ToolUpdate) string {
 	return strings.Join(pairs, ",")
 }
 
-// runKitFields returns the (current, latest) for the run-kit row when it is in
+// runKitFields returns the (current, latest) for the self row when it is in
 // the match set — for transitional frontend compat. Empty otherwise.
 func runKitFields(matched []ToolUpdate) (current, latest string) {
 	for _, m := range matched {
-		if m.Tool == runKitTool {
+		if isSelfTool(m.Tool) {
 			return m.Installed, m.Latest
 		}
 	}

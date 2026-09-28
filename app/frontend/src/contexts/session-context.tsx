@@ -1353,10 +1353,11 @@ export function useSessionContext(): SessionContextType {
   return ctx;
 }
 
-/** The run-kit manifest/roster tool name — the single tool that keeps today's
- *  `⬆ v{latest}` chip form (any other single tool, or multiple, uses a count
- *  form). Mirrors the backend's `runKitTool` constant. */
-const RUN_KIT_TOOL = "run-kit";
+/** The roster names of this app's own row — `hexokit` (shll >= v0.1.34) plus the
+ *  legacy `rk`/`run-kit` older shll reports. The self row is the single tool
+ *  that keeps today's `⬆ v{latest}` chip form (any other single tool, or
+ *  multiple, uses a count form). Mirrors the backend's `isSelfTool` names. */
+const SELF_TOOL_NAMES: ReadonlySet<string> = new Set(["hexokit", "rk", "run-kit"]);
 
 /** Frozen module-level empty tools list — the stable fallback for
  *  `updateAvailable?.tools ?? EMPTY_TOOLS` in `useUpdateNotification`, so a
@@ -1502,7 +1503,7 @@ export function useUpdateNotification(): {
     isDev,
     updateDismissedKey,
   );
-  const singleRunKit = tools.length === 1 && tools[0].tool === RUN_KIT_TOOL;
+  const singleRunKit = tools.length === 1 && SELF_TOOL_NAMES.has(tools[0].tool);
   // The run-kit row versions, surfaced only for the single-run-kit chip/palette
   // wording (`⬆ v{latest}` / `run-kit: Update to v{latest}`). Null otherwise —
   // a multi/non-run-kit chip uses the count form and per-tool detail.

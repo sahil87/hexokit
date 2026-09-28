@@ -92,6 +92,15 @@ describe("UpdateChip", () => {
     expect(screen.getByText("⬆ v0.6.0")).toBeInTheDocument();
   });
 
+  it("keeps the single-version `⬆ v{latest}` form for a self row named `hexokit` (shll >= v0.1.34 roster name)", () => {
+    renderChip({
+      daemonVersion: "0.5.3",
+      updateAvailable: updateAvailable([{ tool: "hexokit", current: "0.5.3", latest: "0.6.0" }]),
+    });
+    expect(screen.getByText("⬆ v0.6.0")).toBeInTheDocument();
+    expect(screen.getByLabelText("Update run-kit: v0.5.3 → v0.6.0")).toBeInTheDocument();
+  });
+
   it("renders a count form + per-tool transitions in the title for a multi-tool match", () => {
     renderChip({
       daemonVersion: "3.8.0",
