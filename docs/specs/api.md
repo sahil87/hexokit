@@ -499,12 +499,12 @@ released default, so existing clients are unchanged):
 ```json
 {
   "tools": [
-    { "tool": "run-kit", "current": "3.8.1", "latest": "3.9.0",
+    { "tool": "hexokit", "current": "3.8.1", "latest": "3.9.0",
       "updateAvailable": true, "notable": true },
     { "tool": "tu", "current": "0.9.1", "latest": "0.9.2",
       "updateAvailable": true, "notable": false }
   ],
-  "key": "run-kit@3.9.0",
+  "key": "hexokit@3.9.0",
   "current": "3.8.1",
   "latest": "3.9.0",
   "source": "released"
@@ -517,8 +517,8 @@ released default, so existing clients are unchanged):
   are omitted — an empty list means everything is current.
 - `key` — composite dismissal key over the NOTABLE set (sorted `tool@latest`,
   comma-joined; empty when nothing notable).
-- `current`/`latest` — legacy run-kit-row compat fields (populated only when
-  run-kit is in the notable set).
+- `current`/`latest` — legacy self-row compat fields (populated only when the
+  HexoKit self row — `hexokit`, or legacy `rk`/`run-kit` — is in the notable set).
 - `source` — echoes the report's self-identified backend (`"released"` /
   `"github"`), so the client reacts to what actually ran. The frontend
   suppresses the `(patch — below notify threshold)` toast annotation for

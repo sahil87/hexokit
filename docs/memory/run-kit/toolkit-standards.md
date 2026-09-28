@@ -8,7 +8,7 @@ description: "run-kit's shll-toolkit-standards conformance posture — constitut
 
 ## Overview
 
-run-kit is one of the shll toolkit CLIs, and its constitution
+HexoKit (`rk`) is one of the HexoKit toolkit CLIs, and its constitution
 (§ Toolkit Standards, v1.6.0) binds it to the toolkit's published standards — the
 set enumerated at runtime by `shll standards`, each readable with
 `shll standards <name>` (PR #379) (260717-zn03-constitution-toolkit-standards).
@@ -30,9 +30,10 @@ Conformance MUST be assessed against a build of the repo at HEAD
 (`just build` → `bin/rk`, source `app/backend/cmd/rk/`), NOT the installed
 Homebrew `rk`. The installed binary lags the tree — at the audit it was
 brew `rk` v3.7.2, which rejects `rk skill` (a standard adopted at HEAD by
-PR #381) and would false-negative an already-conformant surface. The canonical
-command name is `run-kit`; `rk` is the permanent short alias (both invoke the
-same binary). (260717-c424-toolkit-standards-conformance)
+PR #381) and would false-negative an already-conformant surface. The root
+command name is `hexokit`; `rk` is the canonical short name, with `xk` and the
+legacy `run-kit` as aliases (all invoke the same binary).
+(260717-c424-toolkit-standards-conformance)
 
 #### Scenario: A standard adopted at HEAD but absent from the installed binary
 - **GIVEN** the `skill` standard, adopted at HEAD (`rk skill` + `docs/site/skill.md`)
@@ -1010,9 +1011,9 @@ holds. (nnqu)
 blockquote is
 `> Part of [HexoKit](https://hexokit.com) — see all projects there.`
 and `README.md` line 3 carries it **byte-exact** under the mandated head order
-H1 → blockquote → badges; the H1 reads `HexoKit` with the logo `src` URL
-unchanged, and the badge lines stay pointed at `sahil87/run-kit` (the GitHub
-repo rename is a later rebrand-plan row). Identifiers stay by design:
+H1 → blockquote → badges; the H1 reads `HexoKit`, and the badge lines point at
+the renamed `sahil87/hexokit` repo, while the logo `src` still uses the
+`sahil87/run-kit` raw URL (GitHub redirects it). Identifiers stay by design:
 `sahil87/tap` formula names, `github.com/sahil87/…` /
 `raw.githubusercontent.com/sahil87/…` URLs, and the constitution's
 `sahil87/shll` canonical-source reference.
@@ -1193,10 +1194,11 @@ in-place with post-upgrade side effects (daemon restart), works standalone,
 advertises + honors `--skip-brew-update`, exits 0 on success (incl.
 already-up-to-date) and non-zero only on genuine failure, self-updates via brew
 only when brew-installed (the `/Cellar/` gate with a clear non-brew degrade
-message), and satisfies the naming/release clauses (`run-kit` is one string
-across repo / roster / formula leaf / binary; `v{semver}` tags; the tap carries a
-`formula_renames.json` entry mapping the `rk` leaf to `run-kit` — the standard's
-own cited precedent). See [cli](/run-kit/architecture/cli.md) § CLI Subcommands
+message), and satisfies the naming/release clauses (`hexokit` is one string
+across repo / roster / formula leaf / binary, with `rk`/`xk`/`run-kit` as
+symlinked aliases; `v{semver}` tags; the tap's `formula_renames.json` maps the
+`rk` leaf to `run-kit` — the standard's own cited precedent — and `run-kit` to
+`hexokit`). See [cli](/run-kit/architecture/cli.md) § CLI Subcommands
 (`update` row) for the mechanism.
 
 **The umbrella holds the same conformance across all three legs** — `rk
@@ -1296,11 +1298,10 @@ only says a bounded caller "should also consider" it, and the generous bound +
 `--version` exits 0 with the version token on the first non-empty line
 (`hexokit version vX.Y.Z`, cobra's default template — the RECOMMENDED canonical
 shape, satisfying `versionPrefixRE`), responds within 2s with no network I/O
-The version line's first word is the root command name `hexokit` while the
-roster, binary, and formula names stay `run-kit` until the rebrand plan's R1/R2
-rows (`fab/plans/sahil/26-09-10-hexokit-rebrand.md`) — the standard's parse is
-`<word> version <rest>`, so shll's roster-name-keyed probes are unaffected by
-the divergence (260911-mvuv-hexokit-brand-surfaces).
+The version line's first word is the root command name `hexokit`, which is
+also the formula (`sahil87/tap/hexokit`) and shll roster name — and the
+standard's parse is `<word> version <rest>`, so shll's probes do not depend on
+that word anyway (260911-mvuv-hexokit-brand-surfaces).
 (pure local ldflags string), and the on-PATH binary name equals the tool name.
 The release-shape path is unit-pinned: `TestDisplayVersion` in `root_test.go`
 covers `displayVersion`'s three input shapes — `"1.2.3" → "v1.2.3"` (the release
@@ -1342,11 +1343,13 @@ for sibling-tool prerequisites, `shll install <tool>` + a https://shll.ai link.
 The docs half passes: `README.md` and `docs/site/` carry **no per-formula
 `brew install sahil87/tap/…` install instruction**. The audit grep
 (`grep -rn -iE 'brew install|sahil87/tap' README.md docs/site/`) is a screen, not
-a zero-hit assertion — it also matches the README's
-**`rk`→`run-kit` formula-rename note** (`README.md:40`), which explains how to
-clear a keg stranded under the old formula name. That is migration
-troubleshooting, not install guidance, and it is deliberately kept; every hit the
-grep produces must be classified, and today the rename note is the only one. The
+a zero-hit assertion — it also matches `docs/site/install.md`'s
+**formula-rename note** ("Coming from an older formula name?" — `rk` → `run-kit`
+→ `hexokit`), which explains how to clear a keg stranded under an old formula
+name, and the Linux `brew install tmux` prerequisite line. The first is migration
+troubleshooting and the second a third-party prerequisite, not per-formula
+install guidance, and both are deliberately kept; every hit the grep produces
+must be classified, and today those two are the only ones. The
 install guidance matches the wording in the conformant sibling READMEs
 (wt/hop/idea/tu):
 
@@ -1358,8 +1361,8 @@ install guidance matches the wording in the conformant sibling READMEs
   doc-carried install guidance, not the Policy-A binary hint.
 - **`docs/site/install.md`** — the Install lead-in names the bootstrap and
   carries the curl block (`curl -fsSL https://hexokit.com/install | sh -s --
-  run-kit` — the hexokit.com host per Policy B; the `run-kit` tool argument is
-  the roster name and stays) plus the PATH sentence; the
+  run-kit` — the hexokit.com host per Policy B; the roster name is `hexokit`, and
+  `run-kit` is a legacy name shll ≥ v0.1.34 still resolves) plus the PATH sentence; the
   Prerequisites `wt` bullet points at the full-toolkit shll.ai link + `shll
   install wt`. The heading
   structure is load-bearing — shll.ai extraction anchors key on it.
@@ -1377,8 +1380,9 @@ behavior/pointer/history, not install instructions — outside Policy B's reach.
 #### Scenario: An audit grep over the install docs finds no per-formula brew instruction
 - **GIVEN** `README.md` + `docs/site/`
 - **WHEN** `grep -rn -iE 'brew install|sahil87/tap' README.md docs/site/` runs
-- **THEN** its only hit is the `README.md` formula-rename troubleshooting note
-  (migration guidance, deliberately kept) — no per-formula install instruction and
+- **THEN** its only hits are the `docs/site/install.md` formula-rename
+  troubleshooting note (migration guidance, deliberately kept) and the
+  `brew install tmux` prerequisite — no per-formula install instruction and
   no `sahil87/tap/all` reference; install guidance points to the hexokit.com
   bootstrap + `shll install <tool>`
 - **AND** the desktop-app install section introduces no new hit — it leads with

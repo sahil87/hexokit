@@ -1,5 +1,5 @@
 ---
-description: "Web-based agent orchestration dashboard"
+description: "HexoKit — web-based agent orchestration dashboard"
 ---
 # run-kit Memory Domain
 
