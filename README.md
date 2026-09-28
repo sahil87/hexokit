@@ -2,7 +2,7 @@
 
 > Part of [HexoKit](https://hexokit.com) — see all projects there.
 
-[![Latest release](https://img.shields.io/github/v/release/sahil87/run-kit)](https://github.com/sahil87/run-kit/releases) [![Downloads](https://img.shields.io/github/downloads/sahil87/run-kit/total)](https://github.com/sahil87/run-kit/releases) [![Stars](https://img.shields.io/github/stars/sahil87/run-kit?style=social)](https://github.com/sahil87/run-kit/stargazers)
+[![Latest release](https://img.shields.io/github/v/release/sahil87/hexokit)](https://github.com/sahil87/hexokit/releases) [![Downloads](https://img.shields.io/github/downloads/sahil87/hexokit/total)](https://github.com/sahil87/hexokit/releases) [![Stars](https://img.shields.io/github/stars/sahil87/hexokit?style=social)](https://github.com/sahil87/hexokit/stargazers)
 
 **Your tmux, in the browser and on your phone.** HexoKit is a remote console for the machine you actually work on — every tmux session and pane as a live terminal, in a sidebar, from your desk or your couch. It's the modern, terminal-native answer to the old server web-console: nothing to configure, no database, state read straight from tmux.
 
