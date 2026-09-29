@@ -364,7 +364,8 @@ test.describe("Surface popout", () => {
 
   /**
    * Proves: a foreign (`@N/tty`) leaf pops out like a bare one — the popout
-   * titles itself with the leaf's HOME window (`Terminal · <home name>`),
+   * renders only the foreign tile, titles itself with the leaf's HOME window
+   * (`Terminal · <home name>`),
    * keeps the fixed opener route in its URL, and streams the home window's
    * pane.
    *
@@ -372,9 +373,10 @@ test.describe("Surface popout", () => {
    * 1. Create A and B; stamp B's layout `h(tty,@A/tty)` (A's terminal
    *    borrowed into B); navigate to B.
    * 2. Click the foreign tile's `Pop out Terminal`; catch the popup.
-   * 3. Assert the popup's title is `Terminal · <A name>`, its URL is B's
-   *    route with `pop=%40A%2Ftty`, and the tile streams A's pane (a typed
-   *    marker lands in A, read back via `capture-pane`).
+   * 3. Assert the popup renders the foreign tile (`surface-tile-tty-<A>`)
+   *    and no bare tty tile, its title is `Terminal · <A name>`, its URL is
+   *    B's route with `pop=%40A%2Ftty`, and the tile streams A's pane (a
+   *    typed marker lands in A, read back via `capture-pane`).
    * 4. Assert B's shared layout still reads `h(tty,@A/tty)`.
    */
   test("a foreign (@N/tty) leaf pops out titled with its home window and streams the home pane", async ({
@@ -391,8 +393,10 @@ test.describe("Surface popout", () => {
     await expect(foreign).toBeVisible({ timeout: 10_000 });
 
     const popup = await popOutTile(page, context, `surface-tile-tty-${a}`, "Terminal");
-    await expect(popup.getByTestId("surface-tile-tty")).toBeVisible({ timeout: 15_000 });
+    await expect(popup.getByTestId(`surface-tile-tty-${a}`)).toBeVisible({ timeout: 15_000 });
     await expect(popup.locator(".xterm").first()).toBeVisible({ timeout: 15_000 });
+    // The popout's one-leaf tree mounts no bare tty tile (not even hidden).
+    await expect(popup.getByTestId("surface-tile-tty")).toHaveCount(0);
     expect(await windowNameOf(page, a)).toBe(aName);
     await expect(popup).toHaveTitle(`Terminal · ${aName}`);
     // The popout is keyed to the OPENER's route window with the encoded
