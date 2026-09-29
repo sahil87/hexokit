@@ -19,6 +19,7 @@ import { COARSE_POINTER_QUERY } from "@/hooks/use-coarse-pointer";
 import { entryKey, useWindowStore } from "@/store/window-store";
 import type { CodeBridgeResult } from "@/api/client";
 import type { GuiSurfaceCommands } from "./gui-surface";
+import type { ReviewSurfaceCommands } from "./review-surface";
 import type { GuiPointerMode, GuiZoom } from "@/lib/gui-posture";
 import type { GuiPaletteAction } from "@/lib/palette/gui";
 import { focusMemoryKey, recallFocus, resetFocusMemory } from "@/lib/focus-memory";
@@ -84,6 +85,14 @@ vi.mock("@/components/iframe-window", async () => {
     },
   };
 });
+// The review tile fetches its PR on mount; the mock records the seam props.
+const reviewSpy = vi.hoisted(() => vi.fn());
+vi.mock("@/components/review-surface", () => ({
+  ReviewSurface: (props: Record<string, unknown>) => {
+    reviewSpy(props);
+    return <div data-testid="mock-review" />;
+  },
+}));
 // The gui tile is lazy-loaded (noVNC's weight); the mock's default export
 // resolves the dynamic import instantly and records the seam props.
 const guiSpy = vi.hoisted(() => vi.fn());
@@ -193,6 +202,9 @@ type LayoutOverrides = {
   onGuiToolbarVisibleChange?: (visible: boolean) => void;
   webCapture?: boolean;
   onWebCaptureChange?: (on: boolean) => void;
+  reviewCommandsRef?: { current: ReviewSurfaceCommands | null };
+  onReviewUnhandledChange?: (count: number) => void;
+  onReviewListeningChange?: (listening: boolean) => void;
 };
 
 /** The minimal WindowInfo the tty header's StatusDot consumes (260812-wfic
@@ -279,6 +291,9 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       onGuiToolbarVisibleChange={overrides.onGuiToolbarVisibleChange}
       webCapture={overrides.webCapture}
       onWebCaptureChange={overrides.onWebCaptureChange}
+      reviewCommandsRef={overrides.reviewCommandsRef}
+      onReviewUnhandledChange={overrides.onReviewUnhandledChange}
+      onReviewListeningChange={overrides.onReviewListeningChange}
       />
     </ToastProvider>
   );
@@ -3444,6 +3459,49 @@ describe("SurfaceLayout cross-tab tiles (foreign leaves)", () => {
       expect(
         useWindowStore.getState().entries.get(entryKey("srv", "@1"))?.webOverride,
       ).toBeUndefined();
+    });
+  });
+
+  describe("review tile (bare vs foreign)", () => {
+    const seams = () => ({
+      reviewCommandsRef: { current: null },
+      onReviewUnhandledChange: vi.fn(),
+      onReviewListeningChange: vi.fn(),
+    });
+
+    it("a bare review tile reads the route window's PR and binds the route seams", () => {
+      const s = seams();
+      renderLayout({
+        layout: layoutOf("h(tty,review)"),
+        window: { ...FULL_WINDOW, prUrl: "https://github.com/o/r/pull/7", prReviewUnhandled: 2 },
+        ...s,
+      });
+      const props = reviewSpy.mock.calls.at(-1)?.[0];
+      expect(props?.windowId).toBe("@1");
+      expect(props?.prUrl).toBe("https://github.com/o/r/pull/7");
+      expect(props?.digestUnhandled).toBe(2);
+      expect(props?.commandsRef).toBe(s.reviewCommandsRef);
+      expect(props?.onUnhandledChange).toBe(s.onReviewUnhandledChange);
+      expect(props?.onListeningChange).toBe(s.onReviewListeningChange);
+    });
+
+    it("a foreign review tile reads its home window's PR and binds no route seams", () => {
+      renderLayout({
+        layout: layoutOf("h(tty,@3/review)"),
+        windowsById: new Map([
+          ["@3", { ...HOME, prUrl: "https://github.com/o/r/pull/9", prReviewUnhandled: 4 }],
+        ]),
+        sessionNameByWindowId: foreignMaps.sessionNameByWindowId,
+        ...seams(),
+      });
+      expect(screen.getByTestId("surface-tile-review-@3").textContent).toContain("#9");
+      const props = reviewSpy.mock.calls.at(-1)?.[0];
+      expect(props?.windowId).toBe("@3");
+      expect(props?.prUrl).toBe("https://github.com/o/r/pull/9");
+      expect(props?.digestUnhandled).toBe(4);
+      expect(props?.commandsRef).toBeUndefined();
+      expect(props?.onUnhandledChange).toBeUndefined();
+      expect(props?.onListeningChange).toBeUndefined();
     });
   });
 
