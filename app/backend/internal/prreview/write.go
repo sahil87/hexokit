@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"rk/internal/diffrows"
 	"strconv"
 )
 
@@ -265,7 +266,7 @@ func (f *Fetcher) graphql(ctx context.Context, ref PRRef, query string, variable
 
 // GitHub's REST `side`/`start_side` and its GraphQL `DiffSide` enum both spell
 // the sides out; this package's wire and DOM vocabulary is the one-letter form
-// (SideLeft/SideRight, matching the R264/L120 anchor refs). The two are NOT
+// (diffrows.SideLeft/diffrows.SideRight, matching the R264/L120 anchor refs). The two are NOT
 // interchangeable: posting "R" fails the create-comment oneOf with
 // `R is not a member of ["LEFT", "RIGHT"]`, and the error names every other
 // subschema instead of the side, so translate at the API boundary.
@@ -275,7 +276,7 @@ const (
 )
 
 func apiSide(side string) string {
-	if side == SideLeft {
+	if side == diffrows.SideLeft {
 		return apiSideLeft
 	}
 	return apiSideRight
