@@ -1,0 +1,8 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-29T05:27:01Z"}
+{"args":"Plan doc: mark T2(b) done (hexokit-site#14); T2 complete","cmd":"fab-new","event":"command","ts":"2026-09-29T05:27:01Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-29T05:27:26Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-29T05:27:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-29T05:28:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-29T05:29:13Z"}
+{"event":"review","result":"passed","ts":"2026-09-29T05:29:13Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-29T05:29:13Z"}
