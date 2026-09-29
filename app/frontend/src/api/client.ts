@@ -1,5 +1,6 @@
 import type { ProjectSession } from "@/types";
 import type { ReviewDocument, ReviewFileBody, ReviewSide } from "@/lib/review";
+import type { WorkingSnapshot } from "@/lib/working";
 
 export type { ProjectSession };
 
@@ -2080,6 +2081,34 @@ export async function deleteCron(server: string, id: string): Promise<{ ok: bool
 // Reads GET, every mutation POST (Constitution IX). The file LIST and the file
 // BODY are separate reads on purpose: a 200-file PR renders its list without
 // tokenizing any of them.
+
+/** GET /api/diff — the working-directory tile's mount payload. One read of the
+ *  tree: two local git calls, ~50 ms, no cache behind it. */
+export async function fetchWorkingDiff(
+  server: string,
+  windowId: string,
+  signal?: AbortSignal,
+): Promise<WorkingSnapshot> {
+  const res = await fetch(
+    withServer(`/api/diff?window=${encodeURIComponent(windowId)}`, server),
+    { signal },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** GET /api/diff/file — one file's rows, with token spans. */
+export async function fetchWorkingDiffFile(
+  server: string,
+  windowId: string,
+  path: string,
+  signal?: AbortSignal,
+): Promise<ReviewFileBody> {
+  const params = new URLSearchParams({ window: windowId, path });
+  const res = await fetch(withServer(`/api/diff/file?${params.toString()}`, server), { signal });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
 
 /** GET /api/pr/review — the tile's mount payload: file list, threads, viewer
  *  login and the listener arm. Carries no file body. */
