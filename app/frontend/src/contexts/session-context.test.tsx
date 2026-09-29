@@ -433,6 +433,33 @@ describe("SessionProvider — single state socket, per-server subscriptions", ()
     expect(result.current.sessionsReceivedByServer.get("runkit")).toBe(false);
   });
 
+  it("sessionsReceived survives a socket drop + reconnect whose re-ack carries a null snapshot", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
+      setMockMatches([{ params: { server: "runkit" } }]);
+      const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+
+      act(() => { WS.forServer("runkit")!.emit("sessions", [{ name: "A", windows: [] }]); });
+      expect(result.current.sessionsReceivedByServer.get("runkit")).toBe(true);
+
+      // Drop the socket (no outage): the backoff reconnect opens a fresh socket
+      // and resubscribes; its ack arrives with no snapshot yet.
+      const dropped = MockWebSocket.current!;
+      act(() => { dropped.close(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      const reconnected = MockWebSocket.current!;
+      expect(reconnected).not.toBe(dropped);
+      expect(reconnected.active.has("server:runkit")).toBe(true);
+
+      act(() => { reconnected.ack("server", "runkit", null); });
+      expect(result.current.sessionsReceivedByServer.get("runkit")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("handles gone: clears the slice and re-queries listServers", async () => {
     vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
     setMockMatches([{ params: { server: "runkit" } }]);
