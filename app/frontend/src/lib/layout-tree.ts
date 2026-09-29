@@ -97,7 +97,7 @@ export const NOMINAL_BOX: Rect = { x: 0, y: 0, w: 1600, h: 1000 };
  */
 export const MAX_LAYOUT_LEN = 512;
 
-const SURFACE_KINDS: SurfaceKind[] = ["tty", "web", "code", "gui", "review"];
+const SURFACE_KINDS: SurfaceKind[] = ["tty", "web", "code", "gui", "review", "diff"];
 
 function isSurfaceKind(value: string): value is SurfaceKind {
   return (SURFACE_KINDS as string[]).includes(value);
@@ -747,8 +747,9 @@ export const TEMPLATES: Record<TemplateName, (slots: SurfaceKind[]) => LayoutNod
         ),
 };
 
-/** Distinct stand-in kinds for structure comparisons and slot mapping (there
- *  are exactly five kinds, and template matching runs at N ≤ 5). */
+/** Distinct stand-in kinds for structure comparisons and slot mapping. It only
+ *  has to be as long as the largest template (N ≤ 5 slots), so it does not
+ *  enumerate every surface — the entries are placeholders, not a registry. */
 const INDEX_KINDS: SurfaceKind[] = ["tty", "web", "code", "gui", "review"];
 
 export interface TemplateMatch {
