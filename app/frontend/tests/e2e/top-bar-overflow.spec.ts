@@ -512,7 +512,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     await expect(menu.getByRole("menuitem", { name: /Theme…/ })).toHaveCount(0);
     await expect(menu.getByRole("menuitem", { name: /notification/i })).toHaveCount(0);
     // The fixed version row is always present (plain `HexoKit` or `HexoKit v…`).
-    await expect(menu.getByRole("menuitem", { name: /HexoKit/ })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: /^HexoKit(\s|$)/ })).toBeVisible();
   });
 
   /**
@@ -658,7 +658,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
 
     await page.getByRole("button", { name: "More controls" }).click();
     const menu = page.getByRole("menu", { name: "More controls" });
-    const versionRow = menu.getByRole("menuitem", { name: /HexoKit/ });
+    const versionRow = menu.getByRole("menuitem", { name: /^HexoKit(\s|$)/ });
     await expect(versionRow).toBeVisible();
     const rowText = (await versionRow.textContent())?.trim() ?? "";
     await versionRow.click();
