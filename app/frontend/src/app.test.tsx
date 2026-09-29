@@ -1497,6 +1497,11 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
     return null;
   }
 
+  // Per-test overlay on the harness's session context (reset in afterEach) —
+  // the popout-posture tests model a server whose slice exists before its
+  // first real snapshot.
+  let sessionCtxOverride: Partial<import("@/contexts/session-context").SessionContextType> = {};
+
   function TerminalRouteRoot() {
     return (
       <ThemeProvider>
@@ -1573,6 +1578,7 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
                                     ["srv", true],
                                     ["other", true],
                                   ]),
+                                  ...sessionCtxOverride,
                                 }}
                               >
                                 <Outlet />
@@ -1621,6 +1627,7 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
     cleanup();
     surfaceLayoutSpy.mounts.length = 0;
     surfaceLayoutSpy.props.mockClear();
+    sessionCtxOverride = {};
   });
 
   it("a same-server window switch does NOT remount the grid; a server change does", async () => {
@@ -1855,6 +1862,38 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
       expect(localStorage.getItem("hexokit-sidebar-section-pane")).toBe("true");
       act(() => zenDispatchRef.current?.(false));
       await waitFor(() => expect(screen.queryByTestId("status-bar-window")).toBeNull());
+    });
+  });
+
+  describe("popout posture — waits for the server's first real sessions snapshot", () => {
+    const EMPTY_SRV = new Map([["srv", []], ["other", []]]);
+
+    it("holds the popout posture on a seeded slice with no snapshot yet (no shared-layout tty mount)", async () => {
+      sessionCtxOverride = {
+        sessionsByServer: EMPTY_SRV,
+        sessionsReceivedByServer: new Map([["srv", false]]),
+      };
+      const router = createRouter({
+        routeTree: testRouteTree,
+        history: createMemoryHistory({ initialEntries: ["/srv/0?pop=web"] }),
+      });
+      render(<RouterProvider router={router} />);
+      await waitFor(() => screen.getByTestId("mock-surface-layout"));
+      expect(screen.getByTestId("mock-surface-layout").dataset.leaves).toBe("web");
+    });
+
+    it("degrades to the ordinary render once a snapshot arrived without the popped window", async () => {
+      sessionCtxOverride = {
+        sessionsByServer: EMPTY_SRV,
+        sessionsReceivedByServer: new Map([["srv", true]]),
+      };
+      const router = createRouter({
+        routeTree: testRouteTree,
+        history: createMemoryHistory({ initialEntries: ["/srv/0?pop=web"] }),
+      });
+      render(<RouterProvider router={router} />);
+      await waitFor(() => screen.getByTestId("mock-surface-layout"));
+      expect(screen.getByTestId("mock-surface-layout").dataset.leaves).not.toBe("web");
     });
   });
 

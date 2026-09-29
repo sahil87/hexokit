@@ -1072,9 +1072,20 @@ function AppShell() {
   // window dies (it never navigates, and it never follows the opener's
   // navigation). A grammar-valid `pop` whose window is KNOWN-absent once the
   // payload has arrived degrades to the ordinary terminal render (the
-  // validateTerminalSearch drop-don't-error posture).
-  const payloadArrived = ctx.sessionsByServer.has(server);
-  const popWindowLive = popLeaf !== null && windowsById.has(popLeaf.windowId);
+  // validateTerminalSearch drop-don't-error posture). "Arrived" is the first
+  // REAL sessions snapshot, never the empty slice seeded on subscribe: reading
+  // that seed as known-absent drops the posture for a render, which mounts the
+  // shared layout's tty tile (kept by hide-never-unmount) whose hidden 80×24
+  // isolated attach clamps the window for every viewer. Liveness reads the RAW
+  // snapshot for the same reason: the merged `windowsById` takes its windows
+  // from the window store, which the SSE-sync effect fills one render after
+  // the snapshot lands, so it reads a live window as absent for that render.
+  const payloadArrived = ctx.sessionsReceivedByServer.get(server) === true;
+  const rawWindowIds = useMemo(
+    () => new Set(rawSessions.flatMap((s) => s.windows.map((w) => w.windowId))),
+    [rawSessions],
+  );
+  const popWindowLive = popLeaf !== null && rawWindowIds.has(popLeaf.windowId);
   const popKey = popLeaf !== null ? `${server}:${windowParam ?? ""}:${popLeaf.leafId}` : "";
   const [popWindowSeen, setPopWindowSeen] = useState(false);
   useEffect(() => {

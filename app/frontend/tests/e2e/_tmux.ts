@@ -169,6 +169,22 @@ export function listWindows(
   });
 }
 
+/** Synchronously list the server's attached clients: each client's session
+ *  and size (tmux-side truth). A server with no clients yields []. */
+export function listClients(
+  opts: TmuxOptions = {},
+): Array<{ session: string; width: number; height: number }> {
+  const out = tmux(
+    ["list-clients", "-F", "#{client_session}\t#{client_width}\t#{client_height}"],
+    opts,
+  ).trim();
+  if (!out) return [];
+  return out.split("\n").map((line) => {
+    const [session, width, height] = line.split("\t");
+    return { session, width: Number(width), height: Number(height) };
+  });
+}
+
 /** Set a user option at SESSION scope (exact-match `=name:` target — a bare
  *  `-t <session>` is a window target). Throws on failure. */
 export function setSessionOption(

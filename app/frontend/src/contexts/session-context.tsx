@@ -139,6 +139,11 @@ export type SessionContextType = {
   sessionsByServer: Map<string, ProjectSession[]>;
   sessionOrderByServer: Map<string, string[]>;
   isConnectedByServer: Map<string, boolean>;
+  /** Per-server: true once the current subscription delivered a real sessions
+   *  snapshot (a `sessions` event or an array ack snapshot). The empty slice
+   *  seeded on subscribe is NOT a payload, so `sessionsByServer.has(server)`
+   *  cannot stand in for "the first payload arrived". */
+  sessionsReceivedByServer: Map<string, boolean>;
   metricsByServer: Map<string, MetricsSnapshot | null>;
   /** Per-server map of `windowId → pane-text preview` for the tile grid. Only
    *  windows in sessions the client declared expanded (via `setPreviewScope`)
@@ -373,6 +378,7 @@ type ServerSlice = {
   isConnected: boolean;
   metrics: MetricsSnapshot | null;
   previews: Record<string, string>;
+  sessionsReceived: boolean;
 };
 
 const EMPTY_SLICE: ServerSlice = {
@@ -381,6 +387,7 @@ const EMPTY_SLICE: ServerSlice = {
   isConnected: false,
   metrics: null,
   previews: {},
+  sessionsReceived: false,
 };
 
 /** Read `currentServer` from the matched route. Returns the server param when
@@ -883,7 +890,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
         case "sessions": {
           const sessions = data as ProjectSession[];
           startTransition(() => {
-            updateSlice(key, { sessions, isConnected: true }, true);
+            updateSlice(key, { sessions, isConnected: true, sessionsReceived: true }, true);
           });
           break;
         }
@@ -1081,7 +1088,8 @@ export function SessionProvider({ children }: SessionProviderProps) {
         // frame (e.g. a sidebar server on `/`, whose cached replay preceded the
         // attach) would otherwise hold a null metrics slice until the host
         // snapshot next moves.
-        const sessions = Array.isArray(snapshot) ? (snapshot as ProjectSession[]) : [];
+        const hasSnapshot = Array.isArray(snapshot);
+        const sessions = hasSnapshot ? (snapshot as ProjectSession[]) : [];
         const seedMetrics = hostMetricsSnapRef.current;
         startTransition(() => {
           updateSlice(
@@ -1089,6 +1097,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
             {
               sessions,
               isConnected: socketConnectedRef.current,
+              ...(hasSnapshot ? { sessionsReceived: true } : {}),
               ...(seedMetrics ? { metrics: seedMetrics } : {}),
             },
             true,
@@ -1239,6 +1248,12 @@ export function SessionProvider({ children }: SessionProviderProps) {
     return m;
   }, [slicesByServer]);
 
+  const sessionsReceivedByServer = useMemo(() => {
+    const m = new Map<string, boolean>();
+    for (const [name, slice] of slicesByServer) m.set(name, slice.sessionsReceived);
+    return m;
+  }, [slicesByServer]);
+
   const metricsByServer = useMemo(() => {
     const m = new Map<string, MetricsSnapshot | null>();
     for (const [name, slice] of slicesByServer) m.set(name, slice.metrics);
@@ -1264,6 +1279,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       sessionsByServer,
       sessionOrderByServer,
       isConnectedByServer,
+      sessionsReceivedByServer,
       metricsByServer,
       previewsByServer,
       setPreviewScope,
@@ -1296,6 +1312,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       sessionsByServer,
       sessionOrderByServer,
       isConnectedByServer,
+      sessionsReceivedByServer,
       metricsByServer,
       previewsByServer,
       setPreviewScope,
@@ -1617,6 +1634,11 @@ export function StandaloneSessionContextProvider({
     sessionsByServer: value.sessionsByServer ?? new Map(),
     sessionOrderByServer: value.sessionOrderByServer ?? new Map(),
     isConnectedByServer: value.isConnectedByServer ?? new Map(),
+    // Absent ⇒ every supplied server has "received" its payload, so fixtures
+    // that hand in sessions keep modelling a post-snapshot state.
+    sessionsReceivedByServer:
+      value.sessionsReceivedByServer ??
+      new Map([...(value.sessionsByServer ?? new Map()).keys()].map((name) => [name, true])),
     metricsByServer: value.metricsByServer ?? new Map(),
     previewsByServer: value.previewsByServer ?? new Map(),
     setPreviewScope: value.setPreviewScope ?? (() => {}),

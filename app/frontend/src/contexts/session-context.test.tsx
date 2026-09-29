@@ -377,6 +377,62 @@ describe("SessionProvider — single state socket, per-server subscriptions", ()
     expect(result.current.isConnectedByServer.get("work") ?? false).toBe(false);
   });
 
+  it("sessionsReceived stays false on the seeded slice until a real snapshot arrives", async () => {
+    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
+    setMockMatches([{ params: { server: "runkit" } }]);
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+
+    // Subscribed: the empty slice exists, but it is not a payload.
+    expect(result.current.sessionsByServer.has("runkit")).toBe(true);
+    expect(result.current.sessionsReceivedByServer.get("runkit")).toBe(false);
+
+    // A null ack snapshot means "no snapshot yet" — still not a payload.
+    act(() => {
+      MockWebSocket.current!.ack("server", "runkit", null);
+    });
+    expect(result.current.sessionsReceivedByServer.get("runkit")).toBe(false);
+
+    act(() => {
+      WS.forServer("runkit")!.emit("sessions", [{ name: "A", windows: [] }]);
+    });
+    expect(result.current.sessionsReceivedByServer.get("runkit")).toBe(true);
+  });
+
+  it("an array ack snapshot alone marks sessionsReceived", async () => {
+    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
+    setMockMatches([{ params: { server: "runkit" } }]);
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+
+    act(() => {
+      MockWebSocket.current!.ack("server", "runkit", []);
+    });
+    expect(result.current.sessionsReceivedByServer.get("runkit")).toBe(true);
+  });
+
+  it("sessionsReceived re-seeds false after gone + re-subscribe", async () => {
+    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
+    setMockMatches([{ params: { server: "runkit" } }]);
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+
+    act(() => {
+      WS.forServer("runkit")!.emit("sessions", [{ name: "A", windows: [] }]);
+    });
+    expect(result.current.sessionsReceivedByServer.get("runkit")).toBe(true);
+
+    // listServers keeps returning runkit, so the diff effect re-subscribes.
+    await act(async () => {
+      WS.forServer("runkit")!.emit("server-gone", {});
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(MockWebSocket.current!.active.has("server:runkit")).toBe(true);
+    expect(result.current.sessionsReceivedByServer.get("runkit")).toBe(false);
+  });
+
   it("handles gone: clears the slice and re-queries listServers", async () => {
     vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
     setMockMatches([{ params: { server: "runkit" } }]);
@@ -1110,6 +1166,25 @@ describe("StandaloneSessionContextProvider — pending-server fallbacks", () => 
     );
     expect(screen.getByTestId("pending").textContent).toBe("null");
     expect(screen.getByTestId("loaded").textContent).toBe("false");
+  });
+});
+
+describe("StandaloneSessionContextProvider — sessionsReceived default", () => {
+  it("defaults sessionsReceivedByServer to true for every supplied sessionsByServer key", () => {
+    function Probe() {
+      const ctx = useSessionContext();
+      return (
+        <span data-testid="received">
+          {String(ctx.sessionsReceivedByServer.get("runkit"))}/{String(ctx.sessionsReceivedByServer.get("other"))}
+        </span>
+      );
+    }
+    render(
+      <StandaloneSessionContextProvider value={{ sessionsByServer: new Map([["runkit", []]]) }}>
+        <Probe />
+      </StandaloneSessionContextProvider>,
+    );
+    expect(screen.getByTestId("received").textContent).toBe("true/undefined");
   });
 });
 

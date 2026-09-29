@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-29T07:33:26Z"}
+{"args":"Fix: popping out a Web surface in the desktop shell shrinks the opener's terminal to 80x23 — gate popout posture on a real sessions-received flag so a web popout never mounts a transient tty tile / _rk-iso attach","cmd":"fab-new","event":"command","ts":"2026-09-29T07:33:26Z"}
+{"delta":"+4.0","event":"confidence","score":4,"trigger":"calc-score","ts":"2026-09-29T07:35:04Z"}
+{"delta":"+0.0","event":"confidence","score":4,"trigger":"calc-score","ts":"2026-09-29T07:35:14Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-29T07:35:52Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-29T07:36:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-29T07:36:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-29T07:45:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-29T07:49:22Z"}
+{"event":"review","result":"passed","ts":"2026-09-29T07:49:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-29T07:50:02Z"}

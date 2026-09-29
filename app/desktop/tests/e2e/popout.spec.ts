@@ -41,6 +41,7 @@ import {
   TMUX_SERVER,
   createSession,
   killSession,
+  listClients,
   listWindows,
   newWindow,
   setWindowOption,
@@ -442,7 +443,8 @@ test.describe("surface popout in the desktop shell", () => {
    * Proves: popping a web tile out MOVES its live guest into the popout
    * window — visible over the popout tile's rect, same webContents id, no
    * reload, in-page state intact (load counter, `performance.timeOrigin`, a
-   * planted marker) — and the popout's Pop back in verb returns it: the
+   * planted marker) — without the popout mounting a terminal or attaching a
+   * tmux client of its own — and the popout's Pop back in verb returns it: the
    * opener's remounting tile adopts the same guest, visible again, state
    * intact.
    * Steps:
@@ -461,6 +463,11 @@ test.describe("surface popout in the desktop shell", () => {
    *    loads + 1, and no marker). Assert the opener's web tile is hidden —
    *    a popped web leaf unmounts in the opener, so its engine parks the
    *    guest for the popout's adopt.
+   * 3a. Assert the popout mounted NO tty tile (a count — a hidden-mounted
+   *    tile would pass a visibility check) and that no client is attached to
+   *    the window's `_rk-iso-<N>` session on the rig server: a web popout
+   *    attaches no terminal, so it cannot clamp the shared tmux window below
+   *    the opener's terminal under `window-size smallest`.
    * 4. Click the popout's `Pop Web back in` and await the popout page's
    *    close (clickClosingControl); poll the window count back to
    *    1 and the opener's web tile visible again (the `closed` channel
@@ -472,7 +479,7 @@ test.describe("surface popout in the desktop shell", () => {
    */
   test("a web tile's guest moves to the popout window and back with its JS state intact", async () => {
     test.setTimeout(60_000);
-    await seedTtyWebWindow(`dp-web-${Date.now()}`);
+    const windowId = await seedTtyWebWindow(`dp-web-${Date.now()}`);
     const openerId = await app.evaluate(
       ({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.id ?? null,
     );
@@ -514,6 +521,13 @@ test.describe("surface popout in the desktop shell", () => {
         state.marker === marker,
     );
     await expect(hostPage.getByTestId("surface-tile-web")).toBeHidden();
+
+    await expect(popPage.getByTestId("surface-tile-tty")).toHaveCount(0);
+    const isoSession = `_rk-iso-${windowId.slice(1)}`;
+    expect(
+      listClients().filter((client) => client.session === isoSession),
+      "a web popout attaches no isolated terminal client",
+    ).toEqual([]);
 
     await clickClosingControl(popPage, popPage.getByTestId("surface-tile-web").getByLabel("Pop Web back in"));
     await expect.poll(windowCount, { timeout: READY_TIMEOUT }).toBe(1);
