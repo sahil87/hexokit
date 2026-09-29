@@ -6,44 +6,6 @@ import (
 	"strconv"
 )
 
-// prMeta is the PR-level read: the two shas the diff is expressed against plus
-// the display identity. Head and base shas are load-bearing twice — they key
-// the blob cache and they decide which image each row is lexed against (R5).
-type prMeta struct {
-	Title   string
-	State   string
-	HeadSha string
-	BaseSha string
-}
-
-type ghPRMeta struct {
-	Title string `json:"title"`
-	State string `json:"state"`
-	Head  struct {
-		Sha string `json:"sha"`
-	} `json:"head"`
-	Base struct {
-		Sha string `json:"sha"`
-	} `json:"base"`
-}
-
-func (f *Fetcher) fetchMeta(ctx context.Context, ref PRRef) (prMeta, error) {
-	out, err := f.ghExec(ctx, nil, f.restArgs(ref, "repos/"+ref.Repository()+"/pulls/"+strconv.Itoa(ref.Number))...)
-	if err != nil {
-		return prMeta{}, err
-	}
-	var decoded ghPRMeta
-	if err := json.Unmarshal(out, &decoded); err != nil {
-		return prMeta{}, err
-	}
-	return prMeta{
-		Title:   decoded.Title,
-		State:   decoded.State,
-		HeadSha: decoded.Head.Sha,
-		BaseSha: decoded.Base.Sha,
-	}, nil
-}
-
 type ghPRFile struct {
 	Filename         string `json:"filename"`
 	PreviousFilename string `json:"previous_filename"`

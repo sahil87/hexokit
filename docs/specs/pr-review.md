@@ -138,6 +138,20 @@ guarding the map for readers that never spans a subprocess,
 stale-while-revalidate on error, an injectable availability gate, and
 `exec.CommandContext` with explicit argv slices under a 10 s timeout.
 
+A cold document is **two gh reads, run concurrently** inside that single-flight
+pass: the file list over REST (only REST carries patches) and one GraphQL call
+answering threads, viewer login **and** the PR meta. Nothing flows between them
+— `ParsePRURL` is pure and runs before both — so serialising them only ever
+paid one round trip to wait for another. Measured on an 84-file PR, the two
+shapes back to back: **3.57–3.62 s serial against 1.29–2.22 s concurrent.**
+
+The availability gate is memoized in `internal/ghprobe` (5 min on success,
+30 s on failure — asymmetric because "gh is broken" is a fact the user is
+actively fixing). `gh auth status` is a NETWORK call: 0.34–0.39 s across ten
+consecutive runs, and twice observed at 30 s. Since `ghTimeout` is 10 s, that
+second shape turned a working tile into "gh is unavailable" — a failure caused
+entirely by re-asking a question whose answer we already had.
+
 ### R3a — GraphQL cost is DECLARED, not measured
 
 Every query this surface sends is priced by GitHub on the `first:` values it
@@ -159,6 +173,7 @@ Measured against the live API, one PR:
 | `reviewThreads(first: 50)` × `comments(first: 20)` | 11 |
 | `reviewThreads(first: 30)` × `comments(first: 10)` | 3 |
 | a query with no nested connection (file list, PR meta, `gh pr list`) | 1 |
+| `reviewThreads(first: 100)` × `comments(first: 20)` **+ 4 PR scalars** | **21** |
 
 **This is the rule that cost an account.** The detail query shipped at
 `comments(first: 100)`, so every tile mount spent 101 points; a page reload
@@ -179,6 +194,16 @@ Three rules follow, and all three are load-bearing:
 3. **Select `rateLimit { cost remaining }` on any polled query** and log it. The
    regression was invisible until the account died; GitHub's own accounting is
    one field away and is the only trustworthy source.
+
+Rule 1 reads both ways, and the second direction is worth just as much. A
+nested connection is never free because it rides an existing call — but a
+**scalar** declares no node product, so it never needs a call of its own. The
+PR's `title`, `state`, `headRefOid` and `baseRefOid` cost a whole REST round
+trip (~0.65 s on the critical path) until they were moved onto the
+`pullRequest` node the thread query already selects; measured with
+`rateLimit { cost }`, the price stayed at **21** and the call still returned in
+0.78 s. Reach for the existing node first; just never assume the reach is free
+without selecting `cost` and reading it.
 
 On which: **`gh api rate_limit` misreports both buckets.** It read
 `graphql: 0/5000 remaining` while GraphQL was fully exhausted, and `core: 0`

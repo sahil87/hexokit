@@ -321,7 +321,7 @@ func TestPRListenerDoesNotMarkOnAFailedInjection(t *testing.T) {
 	// A capture that never echoes the pasted text fails the novelty probe.
 	ops := &mockTmuxOps{capturePaneResult: "some unrelated pane output"}
 
-	var calls []string
+	var calls callRecorder
 	_, server := newPRReviewServer(t, ops, ghStub(&calls))
 	server.sessions = sf
 
@@ -334,7 +334,7 @@ func TestPRListenerDoesNotMarkOnAFailedInjection(t *testing.T) {
 	if ops.sendEnterCalled {
 		t.Error("Enter was sent despite a failed probe")
 	}
-	for _, call := range calls {
+	for _, call := range calls.all() {
 		if strings.Contains(call, "/reactions") {
 			t.Fatalf("the 👀 marker was posted after a failed injection: %s", call)
 		}
@@ -364,12 +364,12 @@ func TestPRListenerRechecksThreadStateAgainstTheDetailDocument(t *testing.T) {
 			if name == "suggestion-only" {
 				body = "```suggestion\\nreturn nil\\n```"
 			}
-			var calls []string
+			var calls callRecorder
 			ops := &mockTmuxOps{}
 			base := ghStub(&calls)
 			_, server := newPRReviewServer(t, ops, func(stdin []byte, args ...string) ([]byte, error) {
 				if strings.Contains(strings.Join(args, " "), "graphql") {
-					calls = append(calls, strings.Join(args, " ")+"\x00"+string(stdin))
+					calls.add(strings.Join(args, " ") + "\x00" + string(stdin))
 					return []byte(`{"data":{"viewer":{"login":"me"},"repository":{"pullRequest":{"reviewThreads":{"nodes":[
 						{"id":"T1",` + flags + `,"path":"a.go","line":2,"diffSide":"RIGHT",
 						 "comments":{"nodes":[{"id":"C1","databaseId":101,"body":"` + body + `","createdAt":"2026-09-19T10:00:00Z",
@@ -388,7 +388,7 @@ func TestPRListenerRechecksThreadStateAgainstTheDetailDocument(t *testing.T) {
 			if len(ops.setAgentBufferTexts) != 0 {
 				t.Error("the payload was injected for an ineligible thread")
 			}
-			for _, call := range calls {
+			for _, call := range calls.all() {
 				if strings.Contains(call, "/reactions") {
 					t.Fatalf("an ineligible thread was marked: %s", call)
 				}
@@ -400,7 +400,7 @@ func TestPRListenerRechecksThreadStateAgainstTheDetailDocument(t *testing.T) {
 // An absent target window HOLDS without marking, so nothing is lost. v1 does
 // not respawn.
 func TestPRListenerAbsentTargetHoldsWithoutMarking(t *testing.T) {
-	var calls []string
+	var calls callRecorder
 	_, server := newPRReviewServer(t, &mockTmuxOps{}, ghStub(&calls))
 	server.sessions = &mockSessionFetcher{result: nil}
 
@@ -410,7 +410,7 @@ func TestPRListenerAbsentTargetHoldsWithoutMarking(t *testing.T) {
 	if !errors.Is(err, errPRListenAbsent) {
 		t.Fatalf("delivery = %v, want errPRListenAbsent", err)
 	}
-	for _, call := range calls {
+	for _, call := range calls.all() {
 		if strings.Contains(call, "/reactions") {
 			t.Fatalf("an absent target was marked: %s", call)
 		}

@@ -1,0 +1,37 @@
+id: pr01
+name: 260929-pr01-review-first-load
+created: 2026-09-29T15:05:22Z
+created_by: asim-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: active
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: false
+    task_count: 0
+    acceptance_count: 0
+    acceptance_completed: 0
+confidence:
+    certain: 11
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 76.6
+        reversibility: 86.6
+        competence: 88.8
+        disambiguation: 82.5
+stage_metrics:
+    intake: {started_at: "2026-09-29T15:05:22Z", driver: fab-new, iterations: 1, completed_at: "2026-09-29T15:08:29Z"}
+    apply: {started_at: "2026-09-29T15:08:29Z", iterations: 1}
+prs: []
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-29T15:08:29Z

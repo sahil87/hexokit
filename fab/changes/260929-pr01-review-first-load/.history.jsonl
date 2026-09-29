@@ -1,0 +1,3 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-29T15:05:22Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-09-29T15:07:50Z"}
+{"action":"enter","event":"stage-transition","stage":"apply","ts":"2026-09-29T15:08:29Z"}

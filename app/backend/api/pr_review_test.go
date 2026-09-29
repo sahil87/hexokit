@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"rk/internal/prreview"
@@ -43,28 +44,58 @@ func newPRReviewServer(t *testing.T, ops TmuxOps, gh func(stdin []byte, args ...
 	return router, server
 }
 
-// ghStub answers the four reads one review document needs plus a generic OK for
-// every write.
-func ghStub(recorder *[]string) func(stdin []byte, args ...string) ([]byte, error) {
+// ghStub answers the three reads one review document needs plus a generic OK
+// for every write. There is deliberately NO `/pulls/7` case: the PR meta rides
+// the GraphQL node now, and a stub that still answered the REST path would let
+// a re-added meta call pass unnoticed.
+// callRecorder collects the argv+stdin of every stubbed gh invocation.
+//
+// It owns its lock because the detail fetch reads files and threads
+// CONCURRENTLY, so the stub is entered from two goroutines at once. A bare
+// slice plus a mutex at each call site does not work — the whole point is that
+// one slice has exactly one guard, wherever it is written from.
+type callRecorder struct {
+	mu    sync.Mutex
+	calls []string
+}
+
+func (r *callRecorder) add(call string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, call)
+}
+
+// all returns a copy, so a ranging caller cannot race a late write.
+func (r *callRecorder) all() []string {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.calls...)
+}
+
+func ghStub(recorder *callRecorder) func(stdin []byte, args ...string) ([]byte, error) {
 	return func(stdin []byte, args ...string) ([]byte, error) {
 		joined := strings.Join(args, " ")
-		if recorder != nil {
-			*recorder = append(*recorder, joined+"\x00"+string(stdin))
-		}
+		recorder.add(joined + "\x00" + string(stdin))
 		switch {
 		case strings.Contains(joined, "/pulls/7/files"):
 			return []byte(`[[{"filename":"a.go","status":"modified","additions":2,"deletions":1,
 				"sha":"headblob","patch":"@@ -1,2 +1,3 @@\n ctx\n-gone\n+added\n+more"}]]`), nil
 		case strings.Contains(joined, "graphql"):
-			return []byte(`{"data":{"viewer":{"login":"me"},"repository":{"pullRequest":{"reviewThreads":{"nodes":[
+			return []byte(`{"data":{"viewer":{"login":"me"},"repository":{"pullRequest":{
+				"title":"A change","state":"OPEN","headRefOid":"headsha","baseRefOid":"basesha",
+				"reviewThreads":{"nodes":[
 				{"id":"T1","isResolved":false,"isOutdated":false,"path":"a.go","line":2,"diffSide":"RIGHT",
 				 "comments":{"nodes":[{"id":"C1","databaseId":101,"body":"fix this","createdAt":"2026-09-19T10:00:00Z",
 				   "author":{"login":"reviewer"},"reactions":{"totalCount":0}}]}}
 			]}}}}}`), nil
 		case strings.Contains(joined, "/contents/"):
 			return []byte(`{"type":"file","encoding":"base64","content":"Y3R4CmFkZGVkCm1vcmUK"}`), nil
-		case strings.Contains(joined, "/pulls/7"):
-			return []byte(`{"title":"A change","state":"open","head":{"sha":"headsha"},"base":{"sha":"basesha"}}`), nil
 		}
 		return []byte(`{}`), nil
 	}
@@ -229,7 +260,7 @@ func TestPRReviewFileRefusesAPathOutsideThePR(t *testing.T) {
 
 // Constitution I: user-authored prose reaches gh on stdin, never argv.
 func TestPRReviewCommentSendsBodyOnStdin(t *testing.T) {
-	var calls []string
+	var calls callRecorder
 	router, _ := newPRReviewServer(t, &mockTmuxOps{}, ghStub(&calls))
 	body := `this is "wrong"; $(rm -rf /)`
 	payload, _ := json.Marshal(prReviewCommentBody{
@@ -241,7 +272,7 @@ func TestPRReviewCommentSendsBodyOnStdin(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	found := false
-	for _, call := range calls {
+	for _, call := range calls.all() {
 		argv, stdin, _ := strings.Cut(call, "\x00")
 		if strings.Contains(argv, "rm -rf") {
 			t.Fatalf("comment body leaked into argv: %s", argv)
@@ -251,7 +282,7 @@ func TestPRReviewCommentSendsBodyOnStdin(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("no gh call carried the body on stdin; calls = %v", calls)
+		t.Errorf("no gh call carried the body on stdin; calls = %v", calls.all())
 	}
 }
 
@@ -273,7 +304,7 @@ func TestPRReviewCommentValidatesItsBody(t *testing.T) {
 }
 
 func TestPRReviewThreadResolveUsesGraphQLOnStdin(t *testing.T) {
-	var calls []string
+	var calls callRecorder
 	router, _ := newPRReviewServer(t, &mockTmuxOps{}, ghStub(&calls))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/pr/review/thread",
@@ -282,13 +313,13 @@ func TestPRReviewThreadResolveUsesGraphQLOnStdin(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	found := false
-	for _, call := range calls {
+	for _, call := range calls.all() {
 		if _, stdin, _ := strings.Cut(call, "\x00"); strings.Contains(stdin, "resolveReviewThread") {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("no resolveReviewThread mutation was sent; calls = %v", calls)
+		t.Errorf("no resolveReviewThread mutation was sent; calls = %v", calls.all())
 	}
 }
 

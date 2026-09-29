@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"sync"
@@ -286,10 +287,16 @@ type recordedCall struct {
 func newRecordingFetcher(t *testing.T, responses map[string]string) (*Fetcher, *[]recordedCall) {
 	t.Helper()
 	calls := &[]recordedCall{}
+	// The fetch pass runs its two reads concurrently, so the recorder is shared
+	// across goroutines and must be guarded — otherwise -race fails here on a
+	// harness bug that says nothing about the code under test.
+	var mu sync.Mutex
 	f := NewFetcher()
 	f.available = func(context.Context) bool { return true }
 	f.ghExec = func(_ context.Context, stdin []byte, args ...string) ([]byte, error) {
+		mu.Lock()
 		*calls = append(*calls, recordedCall{args: args, stdin: string(stdin)})
+		mu.Unlock()
 		joined := strings.Join(args, " ")
 		for match, response := range responses {
 			if strings.Contains(joined, match) {
@@ -841,5 +848,109 @@ func TestThreadsQueryBoundsTheNestedCommentConnection(t *testing.T) {
 	// conversation nobody reads in a side panel.
 	if !strings.Contains(threadsQuery, "reviewThreads(first: 100)") {
 		t.Error("thread coverage narrowed — a missing thread is invisible feedback")
+	}
+}
+
+// THE CALL-COUNT GUARD.
+//
+// A cold document is TWO gh reads: the file list over REST (only REST carries
+// patches) and one GraphQL call that answers threads, viewer AND the PR meta.
+// The meta used to be a third read — `GET /repos/{o}/{r}/pulls/{n}` — costing
+// ~0.65 s on the critical path for four scalars the GraphQL node already had.
+//
+// Assert the argv, because re-adding that call has no other symptom: the
+// document would be identical and only the clock would know.
+func TestColdFetchMakesTwoCallsAndNoMetaCall(t *testing.T) {
+	f, calls := newRecordingFetcher(t, map[string]string{
+		"/files": `[[{"filename":"a.go","status":"modified","patch":"@@ -1 +1 @@\n-a\n+b"}]]`,
+		"graphql": `{"data":{"viewer":{"login":"me"},"repository":{"pullRequest":{
+			"title":"T","state":"OPEN","headRefOid":"head1","baseRefOid":"base1",
+			"reviewThreads":{"nodes":[]}}}}}`,
+	})
+	got, err := f.Get(context.Background(), "https://github.com/o/r/pull/7", false)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(*calls) != 2 {
+		for _, c := range *calls {
+			t.Logf("  call: %s", strings.Join(c.args, " "))
+		}
+		t.Fatalf("cold fetch made %d gh calls, want 2", len(*calls))
+	}
+	for _, c := range *calls {
+		joined := strings.Join(c.args, " ")
+		if strings.Contains(joined, "/pulls/7") && !strings.Contains(joined, "/files") {
+			t.Errorf("the PR meta is being read on its own REST call again: %s", joined)
+		}
+	}
+	// The meta reached the document off the GraphQL node.
+	if got.Title != "T" || got.HeadSha != "head1" || got.BaseSha != "base1" {
+		t.Errorf("meta = %q/%q/%q, want T/head1/base1", got.Title, got.HeadSha, got.BaseSha)
+	}
+	// GraphQL spells the enum uppercase; the wire contract is REST's lowercase.
+	if got.State != "open" {
+		t.Errorf("State = %q, want %q — GraphQL's OPEN must be normalised", got.State, "open")
+	}
+}
+
+// The two reads must actually OVERLAP, not merely be written as goroutines.
+// Each call blocks until the other has started; serial code cannot get past
+// the first, so a regression here fails as a deadlock (the 15 s fetchBudget
+// cancels it) rather than as a slow-but-passing test. Wall-clock assertions
+// would be flaky in CI; this one is deterministic.
+func TestTheTwoReadsRunConcurrently(t *testing.T) {
+	arrived := make(chan struct{}, 2)
+	release := make(chan struct{})
+	f := NewFetcher()
+	f.available = func(context.Context) bool { return true }
+	f.ghExec = func(ctx context.Context, _ []byte, args ...string) ([]byte, error) {
+		arrived <- struct{}{}
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		if strings.Contains(strings.Join(args, " "), "graphql") {
+			return []byte(`{"data":{"viewer":{"login":"me"},"repository":{"pullRequest":{
+				"headRefOid":"h","reviewThreads":{"nodes":[]}}}}}`), nil
+		}
+		return []byte(`[[]]`), nil
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := f.Get(context.Background(), "https://github.com/o/r/pull/7", false)
+		done <- err
+	}()
+
+	deadline := time.After(5 * time.Second)
+	for i := 0; i < 2; i++ {
+		select {
+		case <-arrived:
+		case <-deadline:
+			t.Fatalf("only %d of 2 reads had started; they are still serial", i)
+		}
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+}
+
+// Both reads share one ctx, so one budget expiry fails both. Which error the
+// caller sees must not depend on which goroutine lost the race, or an identical
+// failure would surface as a timeout on one run and a rate limit on the next.
+func TestFetchReportsTheFilesErrorWhenBothFail(t *testing.T) {
+	f := NewFetcher()
+	f.available = func(context.Context) bool { return true }
+	f.ghExec = func(_ context.Context, _ []byte, args ...string) ([]byte, error) {
+		if strings.Contains(strings.Join(args, " "), "graphql") {
+			return nil, errors.New("threads exploded")
+		}
+		return nil, errors.New("files exploded")
+	}
+	_, err := f.Get(context.Background(), "https://github.com/o/r/pull/7", false)
+	if err == nil || !strings.Contains(err.Error(), "files exploded") {
+		t.Fatalf("err = %v, want the files error", err)
 	}
 }

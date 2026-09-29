@@ -24,10 +24,23 @@ import (
 // twentieth comment is one nobody is reading in a side panel. 100 x 20 costs
 // 21 — a 5x cut for a truncation that effectively never fires. The listener is
 // unaffected either way: its 👀 marker rides the FIRST comment.
+//
+// The four PR SCALARS ride this query for free, and that is measured, not
+// assumed: with `title state headRefOid baseRefOid` selected, `rateLimit { cost }`
+// still reads 21 and the call still returns in ~0.78 s. A scalar is not a
+// connection, so it declares no node product and adds nothing to the price.
+// They used to cost a REST round trip of their own (~0.65 s on the critical
+// path) for no reason but habit. R3a's rule reads both ways: a nested
+// connection is never free because it rides an existing call, and a scalar
+// never needs a call of its own.
 const threadsQuery = `query($owner: String!, $repo: String!, $number: Int!) {
   viewer { login }
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $number) {
+      title
+      state
+      headRefOid
+      baseRefOid
       reviewThreads(first: 100) {
         nodes {
           id
@@ -61,6 +74,10 @@ type ghThreadsResponse struct {
 		} `json:"viewer"`
 		Repository struct {
 			PullRequest struct {
+				Title         string `json:"title"`
+				State         string `json:"state"`
+				HeadRefOid    string `json:"headRefOid"`
+				BaseRefOid    string `json:"baseRefOid"`
 				ReviewThreads struct {
 					Nodes []ghThread `json:"nodes"`
 				} `json:"reviewThreads"`
@@ -96,7 +113,19 @@ type ghThreadComment struct {
 	} `json:"reactions"`
 }
 
-func (f *Fetcher) fetchThreads(ctx context.Context, ref PRRef) ([]Thread, string, error) {
+// prMeta is the PR-level read: the two shas the diff is expressed against plus
+// the display identity. Head and base shas are load-bearing twice over — they
+// key the blob cache and they decide which image each row is lexed against (R5).
+type prMeta struct {
+	Title   string
+	State   string
+	HeadSha string
+	BaseSha string
+}
+
+// fetchThreads runs the one GraphQL read the detail document needs: the review
+// threads, the viewer login, and the PR meta, all off the same node.
+func (f *Fetcher) fetchThreads(ctx context.Context, ref PRRef) (prMeta, []Thread, string, error) {
 	args := []string{"api", "graphql"}
 	if ref.Host != "" && ref.Host != "github.com" {
 		args = append(args, "--hostname", ref.Host)
@@ -109,18 +138,29 @@ func (f *Fetcher) fetchThreads(ctx context.Context, ref PRRef) ([]Thread, string
 	)
 	out, err := f.ghExec(ctx, nil, args...)
 	if err != nil {
-		return nil, "", err
+		return prMeta{}, nil, "", err
 	}
 	var decoded ghThreadsResponse
 	if err := json.Unmarshal(out, &decoded); err != nil {
-		return nil, "", err
+		return prMeta{}, nil, "", err
 	}
-	nodes := decoded.Data.Repository.PullRequest.ReviewThreads.Nodes
+	pr := decoded.Data.Repository.PullRequest
+	nodes := pr.ReviewThreads.Nodes
 	threads := make([]Thread, 0, len(nodes))
 	for _, node := range nodes {
 		threads = append(threads, projectThread(node))
 	}
-	return threads, decoded.Data.Viewer.Login, nil
+	meta := prMeta{
+		Title: pr.Title,
+		// GraphQL spells the enum "OPEN" where REST spells it "open". The field
+		// is write-only today, which makes a silent drift MORE likely to survive
+		// unnoticed, not less — so normalise at the boundary and keep the wire
+		// byte-identical to what the REST read produced.
+		State:   strings.ToLower(pr.State),
+		HeadSha: pr.HeadRefOid,
+		BaseSha: pr.BaseRefOid,
+	}
+	return meta, threads, decoded.Data.Viewer.Login, nil
 }
 
 func projectThread(node ghThread) Thread {

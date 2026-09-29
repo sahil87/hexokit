@@ -47,10 +47,10 @@ const ghTimeout = 10 * time.Second
 
 // fetchBudget bounds ONE cold document fetch end to end.
 //
-// fetch makes three sequential gh calls, each with its own ghTimeout, so the
-// unbounded worst case was 30 s — a request the browser waits out in full
-// before showing anything. Three calls that each take 0.5 s in good weather
-// should not be allowed to become half a minute in bad; failing at 15 s leaves
+// fetch makes two CONCURRENT gh calls, each with its own ghTimeout, so the
+// unbounded worst case is 10 s — but a request the browser waits out in full
+// before showing anything is still a bad request. Calls that take ~1 s in good
+// weather should not be allowed to become ten in bad; failing at 15 s leaves
 // the reader with a retry instead of a hang, and the cached document (when
 // there is one) is served ahead of this anyway.
 const fetchBudget = 15 * time.Second
@@ -316,30 +316,52 @@ func (f *Fetcher) Invalidate(prURL string) {
 // latched internally so a long idle period pays once.
 func (f *Fetcher) Scavenge() { f.blobs.scavenge(f.now()) }
 
-// fetch runs the three gh reads one document needs: PR metadata, the file list,
-// and the review threads (the viewer login rides the thread query, so it costs
-// no call of its own).
+// fetch runs the two gh reads one document needs: the file list (REST, because
+// only REST carries patches) and the review threads (GraphQL, which also
+// carries the viewer login and the PR meta, so both cost no call of their own).
+//
+// They run CONCURRENTLY. Nothing flows between them — ParsePRURL is pure and
+// runs before either — so the serial version was simply paying one round trip
+// to wait for another. Measured on an 80-file PR: 2.54-2.96 s serial against
+// 0.86-1.56 s here.
 func (f *Fetcher) fetch(ctx context.Context, prURL string) (*Review, error) {
 	ref, err := ParsePRURL(prURL)
 	if err != nil {
 		return nil, err
 	}
-	// One budget across all three calls, not one each. A deadline already on
-	// ctx (a shorter request timeout) still wins — WithTimeout only ever
-	// tightens.
+	// One budget across both calls, not one each. A deadline already on ctx (a
+	// shorter request timeout) still wins — WithTimeout only ever tightens.
 	ctx, cancel := context.WithTimeout(ctx, fetchBudget)
 	defer cancel()
-	meta, err := f.fetchMeta(ctx, ref)
-	if err != nil {
-		return nil, err
+
+	var (
+		files      []FileEntry
+		filesErr   error
+		meta       prMeta
+		threads    []Thread
+		viewer     string
+		threadsErr error
+		wg         sync.WaitGroup
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		files, filesErr = f.fetchFiles(ctx, ref)
+	}()
+	go func() {
+		defer wg.Done()
+		meta, threads, viewer, threadsErr = f.fetchThreads(ctx, ref)
+	}()
+	wg.Wait()
+	// Files first, always. Both calls share one ctx, so a budget expiry fails
+	// both, and reporting whichever goroutine happened to lose the race would
+	// make an identical failure surface as a timeout on one run and a rate
+	// limit on the next.
+	if filesErr != nil {
+		return nil, filesErr
 	}
-	files, err := f.fetchFiles(ctx, ref)
-	if err != nil {
-		return nil, err
-	}
-	threads, viewer, err := f.fetchThreads(ctx, ref)
-	if err != nil {
-		return nil, err
+	if threadsErr != nil {
+		return nil, threadsErr
 	}
 	applyEagerBudget(files)
 	return &Review{
