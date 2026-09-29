@@ -3,6 +3,7 @@ import { INPUT_FOCUS } from "@/components/controls";
 import { ValidBoardName } from "@/components/board/board-name";
 import type { BoardSummary } from "@/api/boards";
 import { usePinActions } from "@/hooks/use-pin-actions";
+import { useOccludes } from "@/hooks/use-occludes";
 import {
   orderBoardsLastUsedFirst,
   readLastPinnedBoard,
@@ -57,6 +58,11 @@ export function PinPopover({ server, windowId, boards, boardsLoading = false, is
   const [newName, setNewName] = useState(coldStart ? DEFAULT_BOARD_NAME : "");
   const [error, setError] = useState<string | null>(null);
   const { pin, unpin } = usePinActions();
+
+  // Mounts only while open, so the registration is unconditional — popovers
+  // hold `transient` (overlay-presence) so a native guest composited above
+  // the DOM hides and the popover never paints underneath it.
+  useOccludes("transient", true);
 
   // Last-used board, read once when the popover opens (a per-client preference,
   // stable for the popover's lifetime). Order the existing-board list with a

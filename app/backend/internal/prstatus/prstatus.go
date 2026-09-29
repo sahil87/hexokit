@@ -18,7 +18,7 @@
 // Runtime state is in-memory only. Since 260809-r4vk the last-good state is ALSO
 // mirrored to one droppable startup-seed file (prstatus_disk.go) so a restart
 // while gh is slow/offline does not start blank; that cache is never
-// authoritative and is covered by Constitution §II's $XDG_STATE_HOME/run-kit/
+// authoritative and is covered by Constitution §II's $XDG_STATE_HOME/hexokit/
 // carve-out. No tmux option, no database.
 // All process execution uses exec.CommandContext with a timeout and an explicit
 // argument slice; no shell string and no user input in argv (Constitution §I).

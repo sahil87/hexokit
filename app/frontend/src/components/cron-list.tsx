@@ -23,7 +23,7 @@ import type { CronEntry } from "@/api/client";
  * and the muted/pinned/orphan flags. The at-rest order is `sortCronEntries`
  * (soonest-fire-first, undated last), expressed as the `next` column's initial
  * ascending sort over the same `compareCronEntries` comparator; a header click
- * is a per-viewer override persisted under `runkit-table-cron-list`. Muted and
+ * is a per-viewer override persisted under `hexokit-table-cron-list`. Muted and
  * orphaned rows are DIMMED, never omitted. Tapping a row opens the entry
  * detail sheet (the row-action surface); `+ New entry` opens the create
  * dialog. Data rides `useCronData` (mount fetch + the state-socket sessions

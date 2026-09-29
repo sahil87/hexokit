@@ -18,12 +18,12 @@ export type BreadcrumbDropdownItem = {
   icon?: ReactNode;
 };
 
-const FIXED_WIDTH_STORAGE_KEY = "runkit-fixed-width";
-const SIDEBAR_OPEN_STORAGE_KEY = "runkit-sidebar-open";
-const SIDEBAR_WIDTH_STORAGE_KEY = "runkit-sidebar-width";
-const TERMINAL_FONT_STORAGE_KEY = "runkit-terminal-font-size";
-const COMPOSE_STRIP_STORAGE_KEY = "runkit-compose-strip";
-const SCROLL_LOCK_STORAGE_KEY = "runkit-scroll-lock";
+const FIXED_WIDTH_STORAGE_KEY = "hexokit-fixed-width";
+const SIDEBAR_OPEN_STORAGE_KEY = "hexokit-sidebar-open";
+const SIDEBAR_WIDTH_STORAGE_KEY = "hexokit-sidebar-width";
+const TERMINAL_FONT_STORAGE_KEY = "hexokit-terminal-font-size";
+const COMPOSE_STRIP_STORAGE_KEY = "hexokit-compose-strip";
+const SCROLL_LOCK_STORAGE_KEY = "hexokit-scroll-lock";
 
 const SIDEBAR_DEFAULT_WIDTH = 220;
 const SIDEBAR_MIN_WIDTH = 160;
@@ -163,7 +163,7 @@ type ChromeState = {
    * reads and what the top-bar combo control displays. */
   terminalFontSize: number;
   /** Whether the docked compose strip is enabled — a global chrome preference
-   * persisted to `runkit-compose-strip`, ON by default. The compose surface
+   * persisted to `hexokit-compose-strip`, ON by default. The compose surface
    * always mounts; this picks the expanded strip over the collapsed tongue. */
   composeStripEnabled: boolean;
   /** True when `composeStripEnabled` came from the default rather than a
@@ -171,7 +171,7 @@ type ChromeState = {
    * one-time "on by default" notice. */
   composeStripDefaulted: boolean;
   /** Whether terminal scroll-lock is engaged — a global chrome preference
-   * persisted to `runkit-scroll-lock` so the lock survives remounts, route
+   * persisted to `hexokit-scroll-lock` so the lock survives remounts, route
    * changes, and mobile tab reloads. Every TerminalClient (single-terminal
    * and board panes) suppresses tap-to-focus while this is on. */
   scrollLocked: boolean;

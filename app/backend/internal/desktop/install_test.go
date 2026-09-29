@@ -99,8 +99,8 @@ func installRunner(t *testing.T, rec *[]cmdRecord, opts runnerOpts) Runner {
 	}
 }
 
-// makeExistingInstall creates <installDir>/Run Kit.app with a marker file so
-// tests can assert whether the pre-existing install survived.
+// makeExistingInstall creates <installDir>/<AppBundleName> with a marker file
+// so tests can assert whether the pre-existing install survived.
 func makeExistingInstall(t *testing.T, installDir string) (markerPath string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(installDir, AppBundleName), 0o755); err != nil {
@@ -425,7 +425,7 @@ func TestInstallRunningAppQuitSwapRelaunch(t *testing.T) {
 	for _, c := range rec {
 		switch c.name {
 		case "osascript":
-			if want := `tell application "Run Kit" to quit`; len(c.args) != 2 || c.args[1] != want {
+			if want := `tell application "HexoKit" to quit`; len(c.args) != 2 || c.args[1] != want {
 				t.Errorf("osascript args = %v, want [-e %q]", c.args, want)
 			}
 		case "open":
@@ -530,7 +530,92 @@ func TestInstallRelaunchFailureNonFatal(t *testing.T) {
 	}
 }
 
-// TestInstallBundleNameMismatch: a mounted bundle not named AppBundleName is
+// TestInstallRemovesLegacyBundle: a pre-rename Run Kit.app beside the install
+// target is removed once the new bundle lands — it is the same rk-installed
+// app under its old name, and leaving both yields two Dock entries.
+func TestInstallRemovesLegacyBundle(t *testing.T) {
+	srv := assetServer(t)
+	installDir := t.TempDir()
+
+	legacyDir := filepath.Join(installDir, legacyAppBundleName)
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "old-marker"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var rec []cmdRecord
+	var progress bytes.Buffer
+	ins := New()
+	ins.GOOS = "darwin"
+	ins.Client = srv.Client()
+	ins.InstallDir = installDir
+	ins.Token = ""
+	ins.Progress = &progress
+	ins.Run = installRunner(t, &rec, runnerOpts{})
+
+	rel := Release{
+		Version:   "3.13.0",
+		AssetName: "hexokit-desktop-3.13.0-arm64.dmg",
+		AssetURL:  srv.URL + "/dl",
+		Digest:    fakeDMGDigest(),
+	}
+	res, err := ins.Install(context.Background(), rel)
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if res.Path != filepath.Join(installDir, AppBundleName) {
+		t.Errorf("installed path = %q, want %q", res.Path, filepath.Join(installDir, AppBundleName))
+	}
+	if _, err := os.Stat(legacyDir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("legacy bundle still present after the install: %v", err)
+	}
+	if _, err := os.Stat(res.Path); err != nil {
+		t.Errorf("new bundle missing after the install: %v", err)
+	}
+	if !strings.Contains(progress.String(), "Removed legacy") {
+		t.Errorf("progress output missing the legacy-removal line: %q", progress.String())
+	}
+	assertNoStagedResidue(t, installDir)
+}
+
+// TestInstallLegacyBundleRenamed: a legacy-prefix DMG carries the pre-rename
+// bundle — it must install (ResolveRelease's fallback resolves it), landing
+// under the current name via the staged ditto copy.
+func TestInstallLegacyBundleRenamed(t *testing.T) {
+	srv := assetServer(t)
+	installDir := t.TempDir()
+
+	var rec []cmdRecord
+	ins := New()
+	ins.GOOS = "darwin"
+	ins.Client = srv.Client()
+	ins.InstallDir = installDir
+	ins.Token = ""
+	ins.Run = installRunner(t, &rec, runnerOpts{appName: legacyAppBundleName})
+
+	rel := Release{
+		Version:   "3.13.0",
+		AssetName: "run-kit-desktop-3.13.0-arm64.dmg",
+		AssetURL:  srv.URL + "/dl",
+		Digest:    fakeDMGDigest(),
+	}
+	res, err := ins.Install(context.Background(), rel)
+	if err != nil {
+		t.Fatalf("Install of a legacy-named bundle: %v", err)
+	}
+	if want := filepath.Join(installDir, AppBundleName); res.Path != want {
+		t.Errorf("installed path = %q, want %q (renamed to the current bundle)", res.Path, want)
+	}
+	if _, err := os.Stat(res.Path); err != nil {
+		t.Errorf("current-name bundle missing after installing the legacy DMG: %v", err)
+	}
+	assertNoStagedResidue(t, installDir)
+}
+
+// TestInstallBundleNameMismatch: a mounted bundle named neither AppBundleName
+// nor the pre-rename legacy name is
 // refused before verification/copy — the install target is derived from the
 // constant, never from the DMG's contents.
 func TestInstallBundleNameMismatch(t *testing.T) {
@@ -552,7 +637,7 @@ func TestInstallBundleNameMismatch(t *testing.T) {
 		Digest:    fakeDMGDigest(),
 	}
 	_, err := ins.Install(context.Background(), rel)
-	if err == nil || !strings.Contains(err.Error(), `expected "Run Kit.app"`) {
+	if err == nil || !strings.Contains(err.Error(), `expected "HexoKit.app"`) {
 		t.Fatalf("error = %v, want a bundle-name-mismatch error naming the expected bundle", err)
 	}
 	names := cmdNames(rec)

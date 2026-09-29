@@ -26,9 +26,9 @@ type ThemeActions = {
   cancelPreview: () => void;
 };
 
-const THEME_STORAGE_KEY = "runkit-theme";
-const THEME_DARK_STORAGE_KEY = "runkit-theme-dark";
-const THEME_LIGHT_STORAGE_KEY = "runkit-theme-light";
+const THEME_STORAGE_KEY = "hexokit-theme";
+const THEME_DARK_STORAGE_KEY = "hexokit-theme-dark";
+const THEME_LIGHT_STORAGE_KEY = "hexokit-theme-light";
 
 const ThemeStateContext = createContext<ThemeState | null>(null);
 const ThemeActionsContext = createContext<ThemeActions | null>(null);

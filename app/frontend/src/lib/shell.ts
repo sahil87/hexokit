@@ -13,6 +13,8 @@
  * sender gating), not here.
  */
 
+import type { WebNativeMode } from "./web-url";
+
 export interface RunkitShell {
   version: string;
   platform: string;
@@ -481,6 +483,13 @@ interface ShellWindowsCloseBridge extends ShellWindowsBridge {
   close: () => Promise<unknown>;
 }
 
+/** A `windows` group that also carries the optional `popout` invoker
+ *  (shells predating the shell-hosted popout windows expose only
+ *  newWindow/close). */
+interface ShellWindowsPopoutBridge extends ShellWindowsBridge {
+  popout: (payload: { route: string; width?: number; height?: number }) => Promise<unknown>;
+}
+
 function isWindowsBridge(value: unknown): value is ShellWindowsBridge {
   if (typeof value !== "object" || value === null) return false;
   if (!("newWindow" in value)) return false;
@@ -489,6 +498,25 @@ function isWindowsBridge(value: unknown): value is ShellWindowsBridge {
 
 function isWindowsCloseBridge(bridge: ShellWindowsBridge): bridge is ShellWindowsCloseBridge {
   return "close" in bridge && typeof Reflect.get(bridge, "close") === "function";
+}
+
+/**
+ * The `popout` invoker is additive to the `windows` group (shells predating
+ * the shell-hosted popout windows expose only newWindow/close), so it is
+ * narrowed separately from `isWindowsBridge` — the group stays usable without
+ * it.
+ */
+function isWindowsPopoutBridge(
+  bridge: ShellWindowsBridge,
+): bridge is ShellWindowsPopoutBridge {
+  return "popout" in bridge && typeof Reflect.get(bridge, "popout") === "function";
+}
+
+function isPopoutOk(value: unknown): value is { ok: true; windowId: number } {
+  if (typeof value !== "object" || value === null) return false;
+  if (!("ok" in value) || value.ok !== true) return false;
+  if (!("windowId" in value)) return false;
+  return typeof value.windowId === "number" && Number.isFinite(value.windowId);
 }
 
 /** The `windows` group when the bridge carries one — absent on older shells. */
@@ -508,6 +536,13 @@ export function canNewShellWindow(): boolean {
 export function canCloseShellWindow(): boolean {
   const bridge = windowsBridge();
   return bridge !== null && isWindowsCloseBridge(bridge);
+}
+
+/** True when the shell can open a shell-hosted popout window
+ *  (`windows.popout` present). */
+export function canShellPopout(): boolean {
+  const bridge = windowsBridge();
+  return bridge !== null && isWindowsPopoutBridge(bridge);
 }
 
 /**
@@ -550,6 +585,37 @@ export async function closeShellWindow(): Promise<boolean> {
   return (
     typeof result === "object" && result !== null && "ok" in result && result.ok === true
   );
+}
+
+/**
+ * Ask the shell to open a shell-hosted popout window for `route` (a
+ * pathname+search remainder like `/rk-dev/@12?pop=web`). `rect` sizes the
+ * window: positive `w`/`h` are rounded into the payload's `width`/`height`;
+ * absent or non-positive, the keys are omitted and the shell applies its
+ * 1200×800 fallback. Resolves the shell's window id on success, `null` in a
+ * plain browser, on an older shell whose `windows` group lacks the `popout`
+ * invoker, on a rejected invoke, on `{ ok: false }`, and on any result that
+ * is not structurally `{ ok: true, windowId: <finite number> }`. Never
+ * throws.
+ */
+export async function shellPopout(
+  route: string,
+  rect?: { w: number; h: number },
+): Promise<{ windowId: number } | null> {
+  const bridge = windowsBridge();
+  if (!bridge || !isWindowsPopoutBridge(bridge)) return null;
+  const payload: { route: string; width?: number; height?: number } = { route };
+  if (rect !== undefined && rect.w > 0 && rect.h > 0) {
+    payload.width = Math.round(rect.w);
+    payload.height = Math.round(rect.h);
+  }
+  let result: unknown;
+  try {
+    result = await bridge.popout(payload);
+  } catch {
+    return null;
+  }
+  return isPopoutOk(result) ? { windowId: result.windowId } : null;
 }
 
 /** The bridge's `badge` group — thin IPC invoker resolving unknown shapes. */
@@ -644,9 +710,11 @@ export interface ShellWebChord {
 /** The bridge's `web` group — the web tile's native-engine channels. Shipped
  *  whole in one shell release, so all fourteen members are required together:
  *  a bridge missing any of them narrows to null and the chrome falls back to
- *  the iframe engine rather than mounting controls the shell cannot drive. */
+ *  the iframe engine rather than mounting controls the shell cannot drive.
+ *  `create`'s third parameter is the retention identity (additive — an older
+ *  shell's create ignores the extra argument; its guest simply never parks). */
 interface ShellWebBridge {
-  create: (tabKey: string, url: string) => Promise<unknown>;
+  create: (tabKey: string, url: string, identity?: string) => Promise<unknown>;
   destroy: (tabKey: string) => Promise<unknown>;
   bounds: (tabKey: string, x: number, y: number, width: number, height: number) => Promise<unknown>;
   visible: (tabKey: string, visible: boolean) => Promise<unknown>;
@@ -709,6 +777,71 @@ export function canShellWeb(): boolean {
   return webBridge() !== null;
 }
 
+/** A `web` group that also carries the optional `mode` invoker (newer shells). */
+interface ShellWebModeBridge extends ShellWebBridge {
+  mode: () => Promise<unknown>;
+}
+
+/**
+ * The `mode` invoker is additive to the `web` group (shells predating the
+ * native engine's remote-native loading lack it), so it is narrowed separately
+ * from `isWebBridge` — the fourteen-member set stays the engine gate and the
+ * group stays usable without it.
+ */
+function isWebModeBridge(bridge: ShellWebBridge): bridge is ShellWebModeBridge {
+  return "mode" in bridge && typeof Reflect.get(bridge, "mode") === "function";
+}
+
+function isWebModeOk(value: unknown): value is { ok: true; mode: WebNativeMode } {
+  if (typeof value !== "object" || value === null) return false;
+  if (!("ok" in value) || value.ok !== true) return false;
+  if (!("mode" in value)) return false;
+  return value.mode === "direct" || value.mode === "proxy" || value.mode === "legacy";
+}
+
+/**
+ * The host's web-tile load mode (`direct`/`proxy`/`legacy`) as reported by
+ * the shell — the renderer cannot derive it from `window.location.origin`
+ * (an SSH host and the local daemon are both loopback). Resolves `"legacy"`
+ * in a plain browser, on an older shell whose `web` group lacks the `mode`
+ * invoker, on a rejected invoke, and on a malformed/denied result — today's
+ * `toProxySrc` behavior. Never throws.
+ */
+export async function shellWebMode(): Promise<WebNativeMode> {
+  const bridge = webBridge();
+  if (!bridge || !isWebModeBridge(bridge)) return "legacy";
+  let result: unknown;
+  try {
+    result = await bridge.mode();
+  } catch {
+    return "legacy";
+  }
+  return isWebModeOk(result) ? result.mode : "legacy";
+}
+
+/** A `web` group that also carries the optional `park` invoker (shells
+ *  predating native-guest retention lack it — their tile-unmount path is
+ *  destroy). */
+interface ShellWebParkBridge extends ShellWebBridge {
+  park: (tabKey: string) => Promise<unknown>;
+}
+
+/**
+ * The `park` invoker is additive to the `web` group (the `mode` precedent),
+ * so it is narrowed separately from `isWebBridge` — the fourteen-member set
+ * stays the engine gate and the group stays usable without it.
+ */
+function isWebParkBridge(bridge: ShellWebBridge): bridge is ShellWebParkBridge {
+  return "park" in bridge && typeof Reflect.get(bridge, "park") === "function";
+}
+
+/** True when the shell can retain guests across tile unmounts
+ *  (`web.park` present); on an older shell the unmount path stays destroy. */
+export function canParkShellWebView(): boolean {
+  const bridge = webBridge();
+  return bridge !== null && isWebParkBridge(bridge);
+}
+
 export interface ShellWebRect {
   x: number;
   y: number;
@@ -724,14 +857,24 @@ function isOkResult(result: unknown): boolean {
 
 /**
  * Ask the shell to create the guest view for a web tab, loading `url`.
- * Resolves `false` outside the shell, on an older shell without the `web`
- * group, or when the shell rejects/denies the call. Never throws.
+ * `identity` is the retention identity — an opaque string naming "this web
+ * tab as shown in this desktop window" (the SPA-side tuple is the tmux
+ * server + tmux window id + slot URL; main prefixes the desktop window and
+ * host id from the sender's host view). A shell holding a parked guest with
+ * a matching identity ADOPTS it instead of creating a new view; omitted (or
+ * on an older shell, which ignores the extra argument) the guest can never
+ * park. Resolves `false` outside the shell, on an older shell without the
+ * `web` group, or when the shell rejects/denies the call. Never throws.
  */
-export async function createShellWebView(tabKey: string, url: string): Promise<boolean> {
+export async function createShellWebView(
+  tabKey: string,
+  url: string,
+  identity?: string,
+): Promise<boolean> {
   const bridge = webBridge();
   if (!bridge) return false;
   try {
-    return isOkResult(await bridge.create(tabKey, url));
+    return isOkResult(await bridge.create(tabKey, url, identity));
   } catch {
     return false;
   }
@@ -746,6 +889,25 @@ export async function destroyShellWebView(tabKey: string): Promise<boolean> {
   if (!bridge) return false;
   try {
     return isOkResult(await bridge.destroy(tabKey));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Park a web tab's guest view — the tile-unmount retention path: the shell
+ * hides the guest and retains it keyed by the identity given at create,
+ * where a later `createShellWebView` with the same identity adopts it. An
+ * identity-less guest is destroyed instead. Resolves `false` outside the
+ * shell, on an older shell whose `web` group lacks the `park` invoker, or
+ * when the shell rejects/denies the call (an unknown tabKey included — a
+ * guest the chrome already destroyed parks as a no-op). Never throws.
+ */
+export async function parkShellWebView(tabKey: string): Promise<boolean> {
+  const bridge = webBridge();
+  if (!bridge || !isWebParkBridge(bridge)) return false;
+  try {
+    return isOkResult(await bridge.park(tabKey));
   } catch {
     return false;
   }

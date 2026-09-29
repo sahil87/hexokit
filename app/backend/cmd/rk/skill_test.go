@@ -178,7 +178,7 @@ func TestTutorialLayoutValuesParse(t *testing.T) {
 		t.Fatalf("read canonical %s: %v", canonicalPath, err)
 	}
 
-	layoutPattern := regexp.MustCompile(`rk tab layout ([a-z-]+:[a-z,]+)`)
+	layoutPattern := regexp.MustCompile(`rk tab layout '?([a-z(),:-]+)'?`)
 	layouts := layoutPattern.FindAllSubmatch(canonical, -1)
 	if len(layouts) == 0 {
 		t.Fatal("tutorial contains no explicit layout values")

@@ -116,7 +116,7 @@ export function HostPanel() {
   return (
     <CollapsiblePanel
       title="Host"
-      storageKey="runkit-panel-host"
+      storageKey="hexokit-panel-host"
       defaultOpen={true}
       headerRight={hostnameHeader}
       titleAction={paletteAction}

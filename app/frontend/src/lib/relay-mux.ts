@@ -50,6 +50,11 @@ export type OpenStreamOpts = {
   windowId: string;
   cols: number;
   rows: number;
+  /** Opens the stream in an isolated attach session (wire key `isolate`,
+   *  omitted when false). A foreign (cross-tab) tty tile sets this so its
+   *  attach does not share sizing/state with the home tab's own stream; bare
+   *  home-tab tty streams never send it. */
+  isolate?: boolean;
 };
 
 type StreamState = {
@@ -548,6 +553,7 @@ export class RelayMux {
       windowId: s.opts.windowId,
       cols: s.opts.cols,
       rows: s.opts.rows,
+      ...(s.opts.isolate ? { isolate: true } : {}),
     });
   }
 

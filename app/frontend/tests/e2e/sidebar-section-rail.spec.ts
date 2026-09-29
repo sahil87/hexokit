@@ -8,12 +8,12 @@ const MOBILE_VIEWPORT = { width: 375, height: 812 };
  * Section-visibility micro-rail: a horizontal row of icon-only aria-pressed
  * toggle buttons — Boards · Server · Pane · Host, in that fixed
  * order — rendered as the first child of the sidebar's <nav>. Each toggle
- * flips a persisted `runkit-sidebar-section-*` boolean; the gated section
+ * flips a persisted `hexokit-sidebar-section-*` boolean; the gated section
  * fully unmounts/remounts. Defaults (Boards/Server on, Pane/Host off)
  * reproduce the pre-rail rendering on BOTH viewports, so the mobile drawer is
  * pure nav + footer unless the user opts in. Sessions has no toggle
  * (always-on core nav), and the rail itself always renders. A stale stored
- * `runkit-sidebar-section-clock` value from the retired CLOCK section is
+ * `hexokit-sidebar-section-clock` value from the retired CLOCK section is
  * ignored — no toggle reads it.
  *
  * Shared setup: no test session needed — the rail and the PANE panel's empty

@@ -20,7 +20,7 @@ import (
 )
 
 // withResolveExe swaps resolveExeFn to return the given path/err for the test's
-// duration. Tests use this to satisfy the /Cellar/run-kit/ Homebrew-install guard
+// duration. Tests use this to satisfy the Cellar-keg Homebrew-install guard
 // without depending on the test binary's real location.
 func withResolveExe(t *testing.T, path string, err error) {
 	t.Helper()
@@ -152,7 +152,7 @@ func TestUpdate_SkipBrewUpdate_OmitsUpdateButUpgradesAndRestarts(t *testing.T) {
 	resetSkipFlag(t)
 	withNoCodeServerLeg(t)
 	withNoDesktopLeg(t)
-	withResolveExe(t, "/opt/homebrew/Cellar/run-kit/9.9.9/bin/run-kit", nil)
+	withResolveExe(t, "/opt/homebrew/Cellar/hexokit/9.9.9/bin/hexokit", nil)
 
 	var rec []string
 	// stable 9.9.9 differs from compiled-in version ("dev"), so the up-to-date
@@ -180,8 +180,58 @@ func TestUpdate_SkipBrewUpdate_OmitsUpdateButUpgradesAndRestarts(t *testing.T) {
 	if restartCalls != 1 {
 		t.Errorf("restartDaemonFn called %d times, want 1", restartCalls)
 	}
-	if !strings.HasSuffix(restartPath, "/bin/run-kit") {
-		t.Errorf("restart bin path = %q, want it to end with /bin/run-kit", restartPath)
+	if restartPath != "/opt/homebrew/bin/hexokit" {
+		t.Errorf("restart bin path = %q, want /opt/homebrew/bin/hexokit", restartPath)
+	}
+}
+
+// TestUpdate_BrewCallsTargetHexokitFormula pins the formula the CLI leg queries
+// and upgrades, for both the hexokit keg and a legacy run-kit keg: brew calls
+// always name the hexokit formula, and the restart path follows the keg the
+// binary actually lives in.
+func TestUpdate_BrewCallsTargetHexokitFormula(t *testing.T) {
+	cases := []struct{ name, exe, wantRestart string }{
+		{"hexokit keg", "/home/linuxbrew/.linuxbrew/Cellar/hexokit/9.9.9/bin/hexokit", "/home/linuxbrew/.linuxbrew/bin/hexokit"},
+		{"legacy run-kit keg", "/opt/homebrew/Cellar/run-kit/9.9.9/bin/run-kit", "/opt/homebrew/bin/run-kit"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resetSkipFlag(t)
+			withNoCodeServerLeg(t)
+			withNoDesktopLeg(t)
+			withResolveExe(t, tc.exe, nil)
+
+			var calls [][]string
+			orig := runBrewFn
+			runBrewFn = func(ctx context.Context, args ...string) ([]byte, error) {
+				calls = append(calls, args)
+				if len(args) > 0 && args[0] == "info" {
+					return []byte(brewInfoJSON("9.9.9")), nil
+				}
+				return nil, nil
+			}
+			t.Cleanup(func() { runBrewFn = orig })
+
+			var restartCalls int
+			var restartPath string
+			withRestartRecorder(t, &restartCalls, &restartPath)
+
+			skipBrewUpdate = true
+			if err := updateCmd.RunE(updateCmd, nil); err != nil {
+				t.Fatalf("updateCmd.RunE returned error: %v", err)
+			}
+
+			want := [][]string{
+				{"info", "--json=v2", "sahil87/tap/hexokit"},
+				{"upgrade", "sahil87/tap/hexokit"},
+			}
+			if fmt.Sprint(calls) != fmt.Sprint(want) {
+				t.Errorf("brew calls = %v, want %v", calls, want)
+			}
+			if restartPath != tc.wantRestart {
+				t.Errorf("restart bin path = %q, want %q", restartPath, tc.wantRestart)
+			}
+		})
 	}
 }
 
@@ -317,7 +367,7 @@ func TestUpdate_Quiet_NotBrewGuidanceSurvives(t *testing.T) {
 	if !strings.Contains(stdout.String(), "was not installed via Homebrew") {
 		t.Errorf("--quiet must keep the not-brew guidance on stdout, got: %q", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "brew install sahil87/tap/run-kit") {
+	if !strings.Contains(stdout.String(), "brew install sahil87/tap/hexokit") {
 		t.Errorf("--quiet must keep the reinstall hint, got: %q", stdout.String())
 	}
 }
@@ -363,7 +413,7 @@ func TestRunBrewFn_QuietFailureSurfacesStderrDetail(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err := runBrewFn(ctx, "upgrade", "sahil87/tap/run-kit")
+	_, err := runBrewFn(ctx, "upgrade", "sahil87/tap/hexokit")
 	if err == nil {
 		t.Fatal("failing brew under --quiet must return an error")
 	}
@@ -399,7 +449,7 @@ func installFakeBrew(t *testing.T, script string) {
 // TestNewBrewCmd_ContextCancelDeliversSIGTERM.
 func TestNewBrewCmd_GracefulCancelConfig(t *testing.T) {
 	for _, sub := range []string{"update", "upgrade"} {
-		cmd := newBrewCmd(context.Background(), sub, "sahil87/tap/run-kit")
+		cmd := newBrewCmd(context.Background(), sub, "sahil87/tap/hexokit")
 		if cmd.WaitDelay != brewCancelGrace {
 			t.Errorf("newBrewCmd(%q).WaitDelay = %v, want %v (mutating brew subcommands must get a SIGTERM grace window)", sub, cmd.WaitDelay, brewCancelGrace)
 		}
@@ -408,7 +458,7 @@ func TestNewBrewCmd_GracefulCancelConfig(t *testing.T) {
 		}
 	}
 
-	cmd := newBrewCmd(context.Background(), "info", "--json=v2", "sahil87/tap/run-kit")
+	cmd := newBrewCmd(context.Background(), "info", "--json=v2", "sahil87/tap/hexokit")
 	if cmd.WaitDelay != 0 {
 		t.Errorf("newBrewCmd(\"info\").WaitDelay = %v, want 0 (read-only queries keep default fast-fail cancel)", cmd.WaitDelay)
 	}
@@ -450,7 +500,7 @@ while :; do sleep 0.1; done
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	cmd := newBrewCmd(ctx, "upgrade", "sahil87/tap/run-kit")
+	cmd := newBrewCmd(ctx, "upgrade", "sahil87/tap/hexokit")
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start fake brew: %v", err)
 	}
@@ -545,7 +595,7 @@ func TestUpdate_Umbrella_NonBrewContinuesToDesktopLeg(t *testing.T) {
 	if !strings.Contains(stdout.String(), "was not installed via Homebrew") {
 		t.Errorf("stdout = %q, want the not-brew guidance (still data)", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "Updated Run Kit v3.12.2 -> v3.13.0") {
+	if !strings.Contains(stdout.String(), "Updated HexoKit v3.12.2 -> v3.13.0") {
 		t.Errorf("stdout = %q, want the desktop leg to have run and updated", stdout.String())
 	}
 	if assetHits != 1 {
@@ -578,7 +628,7 @@ func TestUpdate_Umbrella_NoAppSilentSkip(t *testing.T) {
 	if got := strings.Count(stdout.String(), "Already up to date"); got != 1 {
 		t.Errorf("want exactly the CLI leg's up-to-date line, got %d in %q", got, stdout.String())
 	}
-	if strings.Contains(stdout.String(), "Run Kit") {
+	if strings.Contains(stdout.String(), "HexoKit") {
 		t.Errorf("stdout = %q, want no desktop-leg output on the silent skip", stdout.String())
 	}
 	if assetHits != 0 {
@@ -645,7 +695,7 @@ func TestUpdate_Umbrella_CLIFailureStillRunsDesktopLeg(t *testing.T) {
 	if strings.Contains(err.Error(), "desktop update:") {
 		t.Errorf("error = %q, must not blame the (successful) desktop leg", err.Error())
 	}
-	if !strings.Contains(stdout.String(), "Updated Run Kit v3.12.2 -> v3.13.0") {
+	if !strings.Contains(stdout.String(), "Updated HexoKit v3.12.2 -> v3.13.0") {
 		t.Errorf("stdout = %q, want the desktop leg to have run despite the CLI failure", stdout.String())
 	}
 }
@@ -785,8 +835,8 @@ func TestUpdate_Umbrella_QuietKeepsBothLegsData(t *testing.T) {
 	}
 	for _, want := range []string{
 		"was not installed via Homebrew",
-		"Updated Run Kit v3.12.2 -> v3.13.0",
-		"Run Kit was running — restarted on the new version.",
+		"Updated HexoKit v3.12.2 -> v3.13.0",
+		"HexoKit was running — restarted on the new version.",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("--quiet must keep the data line %q on stdout, got: %q", want, stdout.String())
@@ -976,7 +1026,7 @@ func TestUpdate_Umbrella_LinuxDesktopLegUpdates(t *testing.T) {
 	if err := updateCmd.RunE(updateCmd, nil); err != nil {
 		t.Fatalf("updateCmd.RunE returned error: %v", err)
 	}
-	want := "Updated Run Kit v3.20.9 -> v3.21.0 (" + filepath.Join(root, "3.21.0") + ")"
+	want := "Updated HexoKit v3.20.9 -> v3.21.0 (" + filepath.Join(root, "3.21.0") + ")"
 	if !strings.Contains(stdout.String(), want) {
 		t.Errorf("stdout = %q, want %q", stdout.String(), want)
 	}
@@ -1008,7 +1058,7 @@ func TestUpdate_Umbrella_LinuxDesktopLegSilentSkip(t *testing.T) {
 	if err := updateCmd.RunE(updateCmd, nil); err != nil {
 		t.Fatalf("updateCmd.RunE returned error: %v", err)
 	}
-	if strings.Contains(stdout.String(), "Run Kit") {
+	if strings.Contains(stdout.String(), "HexoKit") {
 		t.Errorf("stdout = %q, want no desktop-leg output on the silent skip", stdout.String())
 	}
 	if assetHits != 0 {

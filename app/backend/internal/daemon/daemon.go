@@ -188,6 +188,15 @@ func portInUse(host string, port int) bool {
 	return true
 }
 
+// PortBusy reports whether the resolved daemon RK_HOST:RK_PORT already has a
+// listener — the serve-start home migration's live-daemon guard. Before the
+// migration, config.Load resolves an existing install's virtually pinned
+// port, which is exactly the port a still-running old-binary daemon holds.
+func PortBusy() bool {
+	cfg := config.Load()
+	return portInUse(cfg.Host, cfg.Port)
+}
+
 // guardPortAvailable refuses daemon startup when the configured RK_HOST:RK_PORT
 // already has a listener that is not the daemon itself. Runs AFTER IsRunning()
 // in Start/StartWithBinary so the "daemon already running" path takes priority.
@@ -202,7 +211,7 @@ func guardPortAvailable() error {
 	return fmt.Errorf(
 		"something is already serving on %s:%d, but not under the rk-daemon tmux session "+
 			"(likely a foreground `rk serve`, or another process holding the port). "+
-			"Stop it first, or set a different RK_PORT.",
+			"Stop it first, or set a different port (port: in ~/.config/hexokit/config.yaml, or RK_PORT).",
 		probeHost(cfg.Host), cfg.Port,
 	)
 }
@@ -392,15 +401,44 @@ func StartWithBinary(binPath string) error {
 // breaks `-c` for every new pane). This is the highest-leverage pin: the inner
 // `rk serve` runs inside this session, so its own CWD (home, via the session's
 // default start dir) is what every later server birth would inherit. `rk
-// serve` is CWD-independent (config is env-only, exe is absolute), so running
-// it from home is safe.
+// serve` is CWD-independent (config comes from config.yaml + env, the exe is
+// absolute), so running it from home is safe.
+//
+// The resolved deployment binding (RK_PORT, RK_HOST, and RK_CODE_SERVER_PORT
+// when overridden) is passed to the new session explicitly via -e, resolved in
+// THIS process at call time: the rk-daemon tmux server is long-lived
+// (sibling sessions and the _rk-ctl anchor keep it up across ordinary
+// restarts) and builds a new session's environment from the global
+// environment it was born with, not from the calling client — without -e a
+// respawned serve would re-read a stale born-with value. Always passed, so the
+// born-with value can never win. Before the birth, syncServerDeploymentEnv
+// mirrors the caller's raw deployment env into a LIVE server's global
+// environment, so rk-jobs windows (UI update/restart, rk daemon run) — whose
+// env comes from the server's global env — re-resolve the same binding.
 func startSession(exe string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
 
+	cfg := config.Load()
+	// The sync gets its own bounded context: it is best-effort and must never
+	// consume the session-creation deadline below (a probe or set-environment
+	// call spending the shared budget would make new-session run with an
+	// expired context and fail the start).
+	syncCtx, syncCancel := context.WithTimeout(context.Background(), cmdTimeout)
+	syncServerDeploymentEnv(syncCtx)
+	syncCancel()
+
 	args := []string{"new-session"}
 	if logPath, ok := resolveDaemonLogPath(); ok {
 		args = append(args, "-e", LogEnvVar+"="+logPath)
+	}
+	args = append(args, "-e", config.PortEnvVar+"="+strconv.Itoa(cfg.Port))
+	args = append(args, "-e", config.HostEnvVar+"="+cfg.Host)
+	// RK_CODE_SERVER_PORT passes only when an explicit override is set:
+	// passing the +2 convention value would turn the convention into an
+	// override.
+	if cfg.CodeServerPort != 0 {
+		args = append(args, "-e", config.CodeServerPortEnvVar+"="+strconv.Itoa(cfg.CodeServerPort))
 	}
 	args = append(args, "-d", "-s", SessionName, "-n", WindowName, exe, "serve")
 
@@ -431,6 +469,34 @@ func startSession(exe string) error {
 	ensureGUI()
 
 	return nil
+}
+
+// syncServerDeploymentEnv mirrors the caller's raw RK_PORT / RK_HOST /
+// RK_CODE_SERVER_PORT deployment env into the LIVE rk-daemon server's global
+// environment: `set-environment -g KEY VALUE` when the caller has it set
+// non-empty, otherwise `set-environment -gu KEY`. New sessions on a live
+// server build their environment from the server's global env, not from the
+// calling client, so without this mirror an rk-jobs window (the UI
+// update/restart buttons, rk daemon run) would re-resolve with a stale
+// born-with value and move the daemon back. Raw env is mirrored rather than
+// the resolved value so config-only installs stay config-driven (a later
+// config.yaml edit still applies from a job window), while an env-only
+// install keeps its env port across updates. Skipped silently when no server
+// is running — a birth takes the caller env verbatim anyway. Best-effort:
+// failures log at Debug and never fail the start.
+func syncServerDeploymentEnv(ctx context.Context) {
+	if err := tmux.ServerAlive(ctx, serverSocket); err != nil {
+		return
+	}
+	for _, key := range []string{config.PortEnvVar, config.HostEnvVar, config.CodeServerPortEnvVar} {
+		if value := os.Getenv(key); value != "" {
+			if err := runTmux(ctx, "set-environment", "-g", key, value); err != nil {
+				slog.Debug("daemon server env sync failed", "key", key, "err", err)
+			}
+		} else if err := runTmux(ctx, "set-environment", "-gu", key); err != nil {
+			slog.Debug("daemon server env unset failed", "key", key, "err", err)
+		}
+	}
 }
 
 // resolveDaemonLogPath returns the absolute path to the daemon log file and

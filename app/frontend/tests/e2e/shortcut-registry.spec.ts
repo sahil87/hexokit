@@ -7,7 +7,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // the settings dialog's Shortcuts tab (the standalone overlay shell is
 // retired; ⇧CmdOrCtrl+/ on Win/Linux hosts, demoted to ⌘/ on mac, deep-links
 // into the one Settings dialog), click-to-capture rebinding persisted as diffs
-// to localStorage["runkit-keybindings"], palette `shortcut` hints sourced from
+// to localStorage["hexokit-keybindings"], palette `shortcut` hints sourced from
 // the effective map, and browser-reserved key inertness (Playwright is a plain
 // browser host, so the shifted N/T/W defaults resolve disabled while their
 // actions stay palette-reachable). Also covers the macOS ⌘-tier demotions via
@@ -368,7 +368,7 @@ test.describe("shortcuts overlay", () => {
   /**
    * Proves: clicking a row's combo arms capture, pressing a chord rebinds the
    * action, the override persists as a diff in
-   * `localStorage["runkit-keybindings"]`, and dispatch honors the override
+   * `localStorage["hexokit-keybindings"]`, and dispatch honors the override
    * (the new chord fires; the vacated default no longer does).
    *
    * Steps:
@@ -390,8 +390,8 @@ test.describe("shortcuts overlay", () => {
     await page.getByLabel("Change binding for Next tab").click();
     await page.keyboard.press("Shift+Control+KeyU");
 
-    // The diff persisted to localStorage["runkit-keybindings"].
-    const stored = await page.evaluate(() => localStorage.getItem("runkit-keybindings"));
+    // The diff persisted to localStorage["hexokit-keybindings"].
+    const stored = await page.evaluate(() => localStorage.getItem("hexokit-keybindings"));
     expect(JSON.parse(stored ?? "{}")).toEqual({
       "window-next": { code: "KeyU", tier: "shifted" },
     });

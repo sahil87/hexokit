@@ -24,10 +24,10 @@ The gap is exactly one thing: a process inside the extension host that calls
 
 ```
 agent shell / tmux pane          unix socket (0600)                      code-server extension host
-rk code exec pr.refreshList ──▶ $XDG_STATE_HOME/run-kit/cb/<hostId>.sock ──▶ rk-code-bridge extension
+rk code exec pr.refreshList ──▶ $XDG_STATE_HOME/hexokit/cb/<hostId>.sock ──▶ rk-code-bridge extension
         │                                                                     net.createServer → executeCommand
         │  looks up host by tab, then folder                                  one per open folder/window
-        └──────────────▶ $XDG_STATE_HOME/run-kit/cb/hosts/<hostId>.json ◀─── registers on activate
+        └──────────────▶ $XDG_STATE_HOME/hexokit/cb/hosts/<hostId>.json ◀─── registers on activate
                          {hostId, folder, pid, sock, extVersion, startedAt, tab?, server?}
 ```
 
@@ -119,11 +119,11 @@ the repo when the user first opens the code surface, or ask the user to File > O
   § Tab identity) — two tabs on one folder get distinct hosts — and the first folder's `fsPath`
   otherwise. Deterministic, so a reloaded window reuses its record and socket path instead of leaking
   one per reload.
-- Socket at `$XDG_STATE_HOME/run-kit/cb/<hostId>.sock` (default `~/.local/state/run-kit/cb/`) — the
-  same state root `layout-snapshots` uses. Not `~/.config/run-kit` (config is user-authored; this is
+- Socket at `$XDG_STATE_HOME/hexokit/cb/<hostId>.sock` (default `~/.local/state/hexokit/cb/`) — the
+  same state root `layout-snapshots` uses. Not `~/.config/hexokit` (config is user-authored; this is
   runtime state) and not the legacy `~/.rk`. ~50 bytes, under the 104-byte macOS `sun_path` cap.
   Stale socket files are unlinked on activate.
-- Registry record `$XDG_STATE_HOME/run-kit/cb/hosts/<hostId>.json`:
+- Registry record `$XDG_STATE_HOME/hexokit/cb/hosts/<hostId>.json`:
   `{hostId, folder, pid, sock, extVersion, startedAt}` plus optional `tab`/`server` (present only when
   the window carries a tab identity; the six existing names unchanged). The CLI treats a record as live
   only if `kill -0 pid` succeeds **and** `__ping` answers; otherwise it removes it. `__ping`'s `info`
@@ -135,7 +135,7 @@ the repo when the user first opens the code surface, or ask the user to File > O
 ## Tab identity — one derived workspace file per tab
 
 The code lens is keyed by **tab**. rk derives one `.code-workspace` file per (server, tab, code root)
-at `$XDG_STATE_HOME/run-kit/code/<server>/<@N>-<hash6>.code-workspace`, where `hash6` is the first 6
+at `$XDG_STATE_HOME/hexokit/code/<server>/<@N>-<hash6>.code-workspace`, where `hash6` is the first 6
 lowercase hex chars of `sha256(<absolute root>)`. Its `settings` block carries `rk.tab` and `rk.server`
 — the one channel code-server hands an extension host arbitrary per-window key/value data, readable
 through the normal configuration API. The code tile opens `/code/?workspace=<file>` (the primary form,

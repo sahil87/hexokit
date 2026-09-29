@@ -18,7 +18,7 @@ import {
   windowTitle,
 } from "./window-registry";
 
-const PRODUCT = "Run Kit";
+const PRODUCT = "HexoKit";
 
 function twoHosts(): HostList {
   return {
@@ -238,10 +238,10 @@ test("hostRemovedFallback routes to welcome when no hosts remain", () => {
 test("windowListItems maps windows to checked-on-focus menu rows in order", () => {
   const items = windowListItems([
     { windowId: 1, title: "studio-mac — rk-dev", focused: false },
-    { windowId: 2, title: "Run Kit", focused: true },
+    { windowId: 2, title: "HexoKit", focused: true },
   ]);
   assert.deepEqual(items, [
     { windowId: 1, label: "studio-mac — rk-dev", focused: false },
-    { windowId: 2, label: "Run Kit", focused: true },
+    { windowId: 2, label: "HexoKit", focused: true },
   ]);
 });

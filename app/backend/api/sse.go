@@ -1776,8 +1776,9 @@ func (h *sseHub) attachPRStatus(sess []sessions.ProjectSession) {
 }
 
 // realSessionNameSet returns the set of *user-facing* session names in the
-// snapshot — excluding the board pin-sessions (_rk-pin-*) and the control-mode
-// anchor (_rk-ctl), which are not sessions a user would notice losing. Used to
+// snapshot — excluding the hidden link-target sessions (_rk-pin-*/_rk-iso-*)
+// and the control-mode anchor (_rk-ctl), which are not sessions a user would
+// notice losing. Used to
 // detect when a real session disappears between poll ticks (observability for
 // Constitution VI — tmux sessions must survive).
 func realSessionNameSet(sess []sessions.ProjectSession) map[string]bool {
@@ -1786,7 +1787,7 @@ func realSessionNameSet(sess []sessions.ProjectSession) map[string]bool {
 		if s.Name == "" {
 			continue
 		}
-		if strings.HasPrefix(s.Name, tmux.PinSessionPrefix) || s.Name == tmux.ControlAnchorSessionName {
+		if tmux.IsHiddenLinkSession(s.Name) || s.Name == tmux.ControlAnchorSessionName {
 			continue
 		}
 		out[s.Name] = true

@@ -22,7 +22,9 @@ import (
 	"rk/internal/config"
 	"rk/internal/cron"
 	"rk/internal/daemon"
+	"rk/internal/homemigrate"
 	"rk/internal/mcp"
+	"rk/internal/portpolicy"
 	"rk/internal/selfpath"
 	"rk/internal/settings"
 	"rk/internal/snapshot"
@@ -63,6 +65,20 @@ func resolveBrewInstalled() bool {
 	return selfpath.IsBrewInstalled(selfPath)
 }
 
+// warnReservedPorts warns when the daemon port or its resolved code-server
+// port lands inside a reserved block (reservedCollisions — dev builds exempt
+// the rig block, where worktree dev/e2e rigs live by design). Warn-only,
+// never refuse: a working daemon may already sit inside a block, so startup
+// proceeds. Each warning names the actual colliding footprint port(s) —
+// never the non-colliding sibling — and the env var(s) that move them.
+func warnReservedPorts(cfg config.Config) {
+	for _, b := range reservedCollisions(cfg) {
+		ports, envVars := footprintSummary(blockFootprintHits(cfg, b))
+		slog.Warn(fmt.Sprintf("port inside a reserved block — set %s outside it", strings.Join(envVars, " / ")),
+			"ports", ports, "block", b.Name, "start", b.Start, "end", b.End)
+	}
+}
+
 // Serve-time launcher re-point seams (the codeServerSelfPath package-var
 // style): tests substitute fakes so no test touches real symlinks in $HOME.
 var (
@@ -76,7 +92,7 @@ var (
 // repointLauncher re-points the rk-owned launcher symlink at the running
 // daemon's resolved binary, so hooks keep execing a live rk through the
 // post-upgrade window between Homebrew's keg cleanup and the daemon restart
-// `rk update` performs (a manual `brew upgrade run-kit` re-points at the next
+// `rk update` performs (a manual `brew upgrade hexokit` re-points at the next
 // daemon start). Daemon start is the only trigger — no timer, no watcher (the
 // tmux.EnsureConfig posture). Brew-daemons only: a dev-worktree or e2e-rig
 // `rk serve` must never re-point the machine's hooks at a throwaway build.
@@ -163,22 +179,63 @@ func setupSlog(level slog.Level) *slog.Logger {
 	return logger
 }
 
+// migrateHomes is the homemigrate.Migrate seam for the dev-gate test.
+var migrateHomes = homemigrate.Migrate
+
+// daemonPortBusyFn probes whether something already listens on the resolved
+// daemon port — the migration-deferral guard's seam (tests stub it).
+var daemonPortBusyFn = daemon.PortBusy
+
+// migrateHomesUnlessDev runs the one-time run-kit → hexokit home migration at
+// daemon start — before config.Load and tmux.EnsureConfig read anything — and
+// then re-resolves the tmux managed-conf path: tmux.DefaultConfigPath was
+// fixed at package init, before the migration could publish, so the first
+// post-upgrade boot must re-resolve or EnsureConfig would manage the legacy
+// file. Dev builds (version == "dev": just dev/air and the e2e rigs) skip the
+// migration entirely — a worktree rig shares the developer's real legacy home
+// with the live brew daemon, so a rig must never freeze a stale copy of it
+// for the real upgrade (the same gate reserved.go uses).
+//
+// The publish is also DEFERRED while the daemon port is already bound: that
+// listener is a live daemon (after a brew upgrade, typically the old binary,
+// which runs in the same rk-daemon session) that keeps reading and writing
+// the legacy home — a publish would hide it behind the new home's win in the
+// dual-read rule, and this serve would then lose the bind and exit anyway.
+// `rk daemon restart` stops the old serve before starting the new one, so the
+// normal upgrade path finds the port free. Deferral is safe: the legacy home
+// stays authoritative and the next clean start migrates.
+func migrateHomesUnlessDev() {
+	if version == "dev" {
+		return
+	}
+	if daemonPortBusyFn() {
+		slog.Warn("home migration deferred: the daemon port is already in use — restart the daemon (rk daemon restart) to migrate")
+		return
+	}
+	migrateHomes(slog.Default())
+	tmux.RefreshDefaultConfigPath()
+}
+
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the HTTP server (foreground)",
-	Long: `Start the HTTP server in the foreground.
+	Long: fmt.Sprintf(`Start the HTTP server in the foreground.
 
 Environment variables:
   RK_HOST      Host to bind (default "127.0.0.1")
-  RK_PORT      Port to bind (default 3000)
+  RK_PORT      Port to bind (default %[1]d)
+
+Port resolution (lowest to highest): default %[1]d < 'port:' in
+~/.config/hexokit/config.yaml < RK_PORT.
 
 Examples:
-  run-kit serve                              # foreground on 127.0.0.1:3000
+  run-kit serve                              # foreground on 127.0.0.1:%[1]d
   RK_HOST=0.0.0.0 RK_PORT=8080 run-kit serve # bind all interfaces, port 8080
 
 To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest of the
-'run-kit daemon' subcommand tree).`,
+'run-kit daemon' subcommand tree).`, portpolicy.DaemonDefault),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		migrateHomesUnlessDev()
 		cfg := config.Load()
 
 		// Three-state managed tmux.conf refresh before starting (daemon start is
@@ -207,7 +264,9 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		// directly to the real session), and board pin-sessions (`_rk-pin-*`) are
 		// PERSISTENT across rk restarts (Constitution VI — tmux survives the
 		// server). A persisted pin is valid state, not an orphan, so there is
-		// nothing to reap.
+		// nothing to reap. Isolated relay sessions (`_rk-iso-*`) reap themselves
+		// via destroy-unattached; one left client-less by a daemon death between
+		// ensure and attach is reused by the next isolated open of its window.
 
 		// Log level: the LOG_LEVEL env is an undocumented per-process escape
 		// that wins when set (the dev rig depends on it); otherwise the
@@ -223,6 +282,11 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		}
 		logger := setupSlog(logLevel)
 		slog.SetDefault(logger)
+
+		// After slog.SetDefault so the warning rides the configured logger
+		// (incl. the RK_DAEMON_LOG tee): daemon-start stderr is invisible on
+		// the desktop "Start & connect" and `rk update` restart paths.
+		warnReservedPorts(cfg)
 
 		// Below-floor tmux warning, after slog.SetDefault so it rides the
 		// configured logger (incl. the RK_DAEMON_LOG tee): the daemon-start
@@ -244,7 +308,7 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		// whole boot sequence counts toward uptime.
 		started := time.Now().Unix()
 
-		router, apiServer := api.NewRouterAndServer(ctx, logger)
+		router, apiServer := api.NewRouterAndServer(ctx, logger, cfg)
 
 		// Expose the running version to clients over SSE (server-global
 		// `event: version`, replayed on connect) and wire the periodic update

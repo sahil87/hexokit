@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content, viewport-fit=cover" />
-    <title>RunKit</title>
+    <title>HexoKit</title>
     <meta name="description" content="Web-based agent orchestration dashboard" />
     <meta name="theme-color" content="#1a1b1f" />
     <link rel="apple-touch-icon" href="/generated-icons/icon-192.png" />
@@ -13,7 +13,9 @@
       // Reads user preference from localStorage and resolves to "dark" or "light".
       ;(function() {
         var pref = null;
-        try { pref = localStorage.getItem("runkit-theme"); } catch(e) {}
+        // HexoKit rename: the boot copy (main.tsx) runs after this script, so
+        // the first load after upgrade must fall back to the legacy keys.
+        try { pref = localStorage.getItem("hexokit-theme") ?? localStorage.getItem("runkit-theme"); } catch(e) {}
         if (pref !== "light" && pref !== "dark" && pref !== "system") pref = "system";
         var resolved = pref;
         if (pref === "system") {
@@ -28,7 +30,8 @@
         // corrects/rewrites both the meta tag and the echo.
         var tint = null;
         try {
-          var echo = JSON.parse(localStorage.getItem("runkit-instance-color"));
+          var echoRaw = localStorage.getItem("hexokit-instance-color") ?? localStorage.getItem("runkit-instance-color");
+          var echo = JSON.parse(echoRaw);
           if (echo && typeof echo.hex === "string" && /^#[0-9a-fA-F]{6}$/.test(echo.hex)) tint = echo.hex;
         } catch(e) {}
         var tc = document.querySelector('meta[name="theme-color"]');

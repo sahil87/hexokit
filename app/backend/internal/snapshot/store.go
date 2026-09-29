@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"rk/internal/apphome"
 	"rk/internal/fsatomic"
 )
 
@@ -34,25 +35,23 @@ const (
 	jsonExt        = ".json"
 )
 
-// DefaultDir resolves the snapshot storage root: $XDG_STATE_HOME/run-kit/snapshots
-// when the env var is set, else ~/.local/state/run-kit/snapshots. State dir — not
+// DefaultDir resolves the snapshot storage root: <state home>/snapshots, where
+// the state home is apphome.StateDir ($XDG_STATE_HOME when set, else
+// ~/.local/state, with the hexokit/run-kit dual-read rule). State dir — not
 // cache — because these are recovery artifacts and caches are droppable by
 // contract. Pure resolver, no side effects: the one-time move of the legacy
 // <state-root>/rk/snapshots dir is MigrateLegacyDir, fired at store first-use.
 func DefaultDir() (string, error) {
-	if v := os.Getenv("XDG_STATE_HOME"); v != "" {
-		return filepath.Join(v, "run-kit", "snapshots"), nil
-	}
-	home, err := os.UserHomeDir()
+	root, err := apphome.StateDir()
 	if err != nil {
 		return "", fmt.Errorf("resolving snapshot dir: %w", err)
 	}
-	return filepath.Join(home, ".local", "state", "run-kit", "snapshots"), nil
+	return filepath.Join(root, "snapshots"), nil
 }
 
 // MigrateLegacyDir performs the one-time, best-effort move of the legacy
 // snapshot dir (<state-root>/rk/snapshots, same resolution root as dir with
-// "rk" in place of "run-kit") into the resolved dir, leaving a
+// "rk" in place of the resolved home name) into the resolved dir, leaving a
 // MOVED-to-run-kit breadcrumb file in the legacy <state-root>/rk/ dir that
 // names the new path. Recovery backups are worth preserving, so the move
 // fires at store first-use rather than dropping them — but it fires ONLY into

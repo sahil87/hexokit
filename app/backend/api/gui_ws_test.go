@@ -277,7 +277,7 @@ func TestGuiRelayRealXtigervnc(t *testing.T) {
 	// socket (gui.SocketPath reads XDG_STATE_HOME at call time).
 	stateHome := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", stateHome)
-	stateDir := filepath.Join(stateHome, "run-kit", "gui")
+	stateDir := filepath.Join(stateHome, "hexokit", "gui")
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

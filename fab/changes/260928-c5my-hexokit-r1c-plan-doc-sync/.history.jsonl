@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-28T16:25:18Z"}
+{"args":"Plan-doc bookkeeping: mark HexoKit R1(c) done (shll#103, shll v0.1.34) with Sahil's brew-upgrade gate evidence","cmd":"fab-new","event":"command","ts":"2026-09-28T16:25:18Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-28T16:25:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-28T16:26:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-28T16:26:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-28T16:28:34Z"}
+{"event":"review","result":"passed","ts":"2026-09-28T16:28:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-28T16:28:34Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-28T16:28:54Z"}
+{"event":"review","result":"passed","ts":"2026-09-28T16:32:15Z"}

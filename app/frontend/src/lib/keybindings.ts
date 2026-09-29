@@ -8,7 +8,7 @@
  * unchanged), the
  * claimed-key map (shell menu accelerators, OS keys, browser-reserved keys —
  * per tier), the per-device override layer
- * (`localStorage["runkit-keybindings"]`, diffs
+ * (`localStorage["hexokit-keybindings"]`, diffs
  * only), conflict detection, chord capture, and per-platform formatting.
  *
  * Everything here is pure and DOM-light (the localStorage read/write are thin
@@ -147,7 +147,7 @@ export type BindingOverride = BindingCombo | null;
 /** The persisted shape: diffs only, keyed by actionId. */
 export type BindingOverrides = Record<string, BindingOverride>;
 
-export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
+export const KEYBINDINGS_STORAGE_KEY = "hexokit-keybindings";
 
 /**
  * The default registry. Order is display order within each overlay group.
@@ -361,15 +361,16 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // nothing. Keyless on mac (`macCode: ""`, the create-session idiom) — ⌘K
   // already bubbles there via the seam's mac cmd-tier rule.
   { actionId: "command-palette-alt", aliasOf: "command-palette", code: "KeyK", macCode: "", tier: "shifted", scope: "global", kind: "builtin", label: "Command palette (alternate)", ignoreInputs: true },
-  // ⌘; layout-shape cycle (260812-ab5v-surface-layout-core R9/R11): the ▦
-  // chip's chord — the NEXT same-arity preset, order kept (tmux `next-layout`
-  // muscle memory). It joins the legacy `⌘<punctuation>` family beside ⌘K
+  // ⌘; layout-template cycle (260812-ab5v-surface-layout-core R9/R11): the ▦
+  // chip's chord — the NEXT template at the current tile count, slot order kept
+  // (tmux `next-layout` muscle memory). It joins the legacy `⌘<punctuation>`
+  // family beside ⌘K
   // and ⌘[/⌘]: Semicolon is free in every claimed set and ⌘; is not
   // browser-reserved on either platform (⌘, is the browser's Preferences
   // claim; ⌘/ is the cheatsheet). Terminal scope like its siblings — the
-  // palette body (`Layout: Cycle Shape`) exists only on window routes, so
+  // palette body (`Layout: Cycle Template`) exists only on window routes, so
   // elsewhere the chord falls through untouched.
-  { actionId: "layout-cycle", code: "Semicolon", tier: "cmd", scope: "terminal", kind: "builtin", label: "Cycle layout shape", description: "next same-arity preset, order kept", mapLabel: "layout" },
+  { actionId: "layout-cycle", code: "Semicolon", tier: "cmd", scope: "terminal", kind: "builtin", label: "Cycle layout template", description: "next template at this tile count", mapLabel: "layout" },
   // ⌘F/Ctrl+F web-tile find-in-page (260819-ie2i) — the cmd tier yields the
   // browser's own find chord on every platform, reclaimed only while the web
   // tile owns focus (the `webOnly` gate: handler absent elsewhere, so the
@@ -413,6 +414,12 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // (handler presence + the reclaim predicate) and the terminal seam never
   // refuses it; KeyG is unclaimed in the shifted tier on every host.
   { actionId: "gui-capture-toggle", code: "KeyG", tier: "shifted", scope: "terminal", kind: "builtin", label: "Keyboard capture", description: "hand every chord to the guest desktop", mapLabel: "capture", ignoreInputs: true, guiOnly: true },
+  // ⌘⇧G/Ctrl+Shift+G web keyboard capture — the gui toggle's web-tile mirror,
+  // sharing its chord: the two are surface-gated (webOnly vs guiOnly), so only
+  // the focused tile's handler is ever present (disjoint gates, never a
+  // conflict — see `findConflicts`). While latched it is the ONE chord the web
+  // tile still reclaims, so it is the keyboard route back.
+  { actionId: "web-capture-toggle", code: "KeyG", tier: "shifted", scope: "terminal", kind: "builtin", label: "Keyboard capture", description: "hand every chord to the web page", mapLabel: "capture", ignoreInputs: true, webOnly: true },
   { actionId: "board-cycle-next", code: "BracketRight", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus →" },
   { actionId: "board-cycle-prev", code: "BracketLeft", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus ←" },
 ];
@@ -606,13 +613,14 @@ export function findMatches(
  * ungated match has a global meaning. For `"code"` the result is
  * byte-identical to the pre-kind-aware predicate on every pre-ie2i binding.
  *
- * `captured` is the gui tile's keyboard-capture latch: when set, the
- * predicate narrows to the single `gui-capture-toggle` actionId — every
- * other chord returns `false` and falls through the gui canvas's
- * capture-phase gate to the guest desktop, so the release chord is the only
- * keyboard route back. Callers pass it only for kind `"gui"`; with it unset
- * (the default) the predicate is byte-identical to the pre-capture behavior
- * on every kind.
+ * `captured` is the focused tile's keyboard-capture latch (gui:
+ * `rk-gui-capture`, web: `rk-web-capture`): when set, the predicate narrows to
+ * that kind's single release actionId (`gui-capture-toggle` /
+ * `web-capture-toggle`) — every other chord returns `false` and falls through
+ * to the guest (the gui canvas's gate → the desktop; the web frame → the
+ * page), so the release chord is the only keyboard route back. Callers pass it
+ * only for kinds `"gui"` and `"web"`; with it unset (the default) the
+ * predicate is byte-identical to the pre-capture behavior on every kind.
  */
 export function hasReclaimableMatch(
   e: ChordEvent,
@@ -621,7 +629,8 @@ export function hasReclaimableMatch(
   captured = false,
 ): boolean {
   if (captured) {
-    return findMatches(e, bindings).some((b) => b.actionId === "gui-capture-toggle");
+    const release = kind === "web" ? "web-capture-toggle" : "gui-capture-toggle";
+    return findMatches(e, bindings).some((b) => b.actionId === release);
   }
   return findMatches(e, bindings).some((b) => {
     if (b.ttyOnly) return false;
@@ -634,9 +643,10 @@ export function hasReclaimableMatch(
 /**
  * Whether the terminal's custom key handler must REFUSE this keydown so it
  * bubbles to the window dispatcher instead of reaching the pane
- * (`terminal-client.tsx`). `guiOnly` matches are filtered out first: their
- * chords belong to the pane under terminal focus, so rule 3 must never fire
- * on them. Three rules:
+ * (`terminal-client.tsx`). `guiOnly` and `webOnly` matches are filtered out
+ * first: their handlers are absent under terminal focus, so their chords
+ * belong to the pane (e.g. ⇧Ctrl+G, which `web-capture-toggle` would
+ * otherwise steal through rule 1). Three rules:
  *
  * 1. Any enabled SHIFTED-tier match, on every platform (260730-g40a): legacy
  *    TTY encoding cannot distinguish Ctrl+Shift+letter from Ctrl+letter, so
@@ -666,7 +676,7 @@ export function shouldRefuseTerminalChord(
   bindings: readonly EffectiveBinding[],
   platform: BindingPlatform,
 ): boolean {
-  const matches = findMatches(e, bindings).filter((b) => !b.guiOnly);
+  const matches = findMatches(e, bindings).filter((b) => !b.guiOnly && !b.webOnly);
   if (matches.some((b) => b.tier === "shifted")) return true;
   if (platform === "mac" && e.metaKey && matches.some((b) => b.tier === "cmd")) return true;
   return platform === "mac" && e.ctrlKey && !e.metaKey && matches.some((b) => b.tier === "ctrl");
@@ -834,6 +844,14 @@ export function tiersCollide(a: BindingTier, b: BindingTier): boolean {
   return a === b || (a !== "shifted" && b !== "shifted");
 }
 
+/** The single surface a binding's handler is gated to, or null when ungated. */
+function surfaceGate(b: EffectiveBinding): "tty" | "web" | "gui" | null {
+  if (b.ttyOnly) return "tty";
+  if (b.webOnly) return "web";
+  if (b.guiOnly) return "gui";
+  return null;
+}
+
 /**
  * Pure conflict detection over an effective map: two ENABLED bindings conflict
  * when their codes are equal, their tiers collide (equal, or the overlapping
@@ -853,12 +871,15 @@ export function findConflicts(bindings: readonly EffectiveBinding[]): BindingCon
     for (let j = i + 1; j < bindings.length; j++) {
       const b = bindings[j];
       if (!b.enabled) continue;
-      // Surface-gate disjointness: a `ttyOnly` and a `webOnly` binding never
-      // have their handlers simultaneously present (each gate renders the
-      // handler absent off its surface), so a shared combo between them —
-      // the mac ⌘F that terminal-find and web-find both claim — is
-      // coexistence, not a conflict.
-      const gatesDisjoint = (a.ttyOnly && b.webOnly) || (a.webOnly && b.ttyOnly);
+      // Surface-gate disjointness: two bindings gated to DIFFERENT surfaces
+      // (`ttyOnly` / `webOnly` / `guiOnly`) never have their handlers
+      // simultaneously present (each gate renders the handler absent off its
+      // surface), so a shared combo between them is coexistence, not a
+      // conflict — the mac ⌘F that terminal-find and web-find both claim, and
+      // the ⌘⇧G that gui-capture-toggle and web-capture-toggle both claim.
+      const gateA = surfaceGate(a);
+      const gateB = surfaceGate(b);
+      const gatesDisjoint = gateA !== null && gateB !== null && gateA !== gateB;
       // An alias and the action it aliases fire the SAME handler, so a shared
       // combo between them is redundancy, not a conflict — there is no
       // ambiguity for the dispatcher to resolve. Stated as an invariant

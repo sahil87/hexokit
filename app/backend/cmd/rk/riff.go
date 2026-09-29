@@ -93,7 +93,7 @@ Presets:
   incognito' resolve against run-kit's riff_presets: three built-ins ship with
   the binary (discuss → /fab-discuss, incognito → /fab-incognito, blank → a
   bare agent), and user entries under riff_presets in
-  ~/.config/run-kit/config.yaml add to them — a name matching a built-in
+  ~/.config/hexokit/config.yaml add to them — a name matching a built-in
   overrides it. Each preset is exactly one skill pane. CLI --skill/--cmd flags
   replace the preset's pane entirely. Run 'run-kit riff --list-presets' to see
   the merged list.

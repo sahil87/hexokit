@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"rk/internal/fabconfig"
 	"rk/internal/gui"
 	"rk/internal/mcp"
+	"rk/internal/portpolicy"
 	"rk/internal/settings"
 	"rk/internal/tmux"
 
@@ -191,7 +193,92 @@ func runDoctorChecks() doctorReport {
 		}
 	}
 
+	// Ports — the effective daemon port against the reserved blocks
+	// (portpolicy). Always OK-shaped (the code-server/ephemeral posture): a
+	// collision is advisory only — warn, never refuse, never a verdict flipper.
+	report.Checks = append(report.Checks, portsDoctorCheck(config.Load()))
+
+	// Port pin — the home migration pins existing installs at the legacy
+	// daemon port; once the default moves, nudge pinned installs toward it.
+	// Advisory only, OK-shaped (the removedEnvCheck "second return false → no
+	// row" pattern): no row while the pin is dormant or overridden.
+	if c, ok := portPinCheck(settings.Load().Port, portpolicy.DaemonDefault, portpolicy.DaemonLegacy, rkPortOverride()); ok {
+		report.Checks = append(report.Checks, c)
+	}
+
 	return report
+}
+
+// portPinCheck advises an install pinned at the pre-rename daemon port how to
+// move to the current default. OK-shaped with a Note, never a verdict
+// flipper; the second return value is false when no row should appear (the
+// removedEnvCheck pattern). The row fires only when config.yaml's port equals
+// the legacy default, the current default has moved off it, and RK_PORT is
+// not overriding — so it stays dormant while DaemonDefault == DaemonLegacy.
+// Pure over its inputs so table tests can inject both policy constants.
+func portPinCheck(pinned, def, legacy int, envOverride bool) (doctorCheck, bool) {
+	if pinned != legacy || def == legacy || envOverride {
+		return doctorCheck{}, false
+	}
+	return doctorCheck{
+		Name: "port pin",
+		OK:   true,
+		Note: fmt.Sprintf("pinned at :%d (kept through the HexoKit rename); new installs default to :%d — to move: set port: %d in ~/.config/hexokit/config.yaml, rk daemon restart, then re-point Tailscale Serve, bookmarks/phone shortcuts, and MCP clients at :%d/mcp",
+			pinned, def, def, def),
+	}, true
+}
+
+// rkPortOverride reports whether RK_PORT is set to a valid port — while it
+// wins over config.yaml anyway, the pin row stays quiet.
+func rkPortOverride() bool {
+	v := os.Getenv(config.PortEnvVar)
+	if v == "" {
+		return false
+	}
+	p, err := strconv.Atoi(v)
+	return err == nil && p >= 1 && p <= 65535
+}
+
+// portsDoctorCheck reports the effective daemon port and the reserved port
+// blocks (portpolicy). Always OK-shaped, never a verdict flipper: a collision
+// leads the note with a warning naming the block(s), the actual colliding
+// footprint port(s), and the remedy env var(s), followed by the full resolved
+// footprint — a code-server-only collision is never attributed to the daemon
+// port. A working daemon may already sit inside a block, so the row stays
+// advisory. Collisions come from reservedCollisions, the same read serve and
+// `rk ports` use (dev builds exempt the rig block). Pure over the resolved
+// config for table testing.
+func portsDoctorCheck(cfg config.Config) doctorCheck {
+	check := doctorCheck{Name: "ports", OK: true}
+	daemonFrag := fmt.Sprintf("daemon :%d", cfg.Port)
+	if cfg.Port == portpolicy.DaemonDefault {
+		daemonFrag += " (default)"
+	}
+	reserved := "reserved: " + portpolicy.Summary()
+	if blocks := reservedCollisions(cfg); len(blocks) > 0 {
+		details := make([]string, len(blocks))
+		seen := map[string]bool{}
+		var envVars []string
+		for i, b := range blocks {
+			ports, envs := footprintSummary(blockFootprintHits(cfg, b))
+			details[i] = b.String() + ": " + ports
+			for _, e := range envs {
+				if !seen[e] {
+					seen[e] = true
+					envVars = append(envVars, e)
+				}
+			}
+		}
+		footprint := daemonFrag
+		if cs := cfg.ResolvedCodeServerPort(); cs != 0 {
+			footprint += fmt.Sprintf("; code-server :%d", cs)
+		}
+		check.Note = fmt.Sprintf("WARNING: port inside reserved block(s) %s — set %s outside; %s; %s",
+			strings.Join(details, "; "), strings.Join(envVars, " / "), footprint, reserved)
+		return check
+	}
+	check.Note = fmt.Sprintf("%s; %s", daemonFrag, reserved)
+	return check
 }
 
 // localeForced / daemonGlobalEnv are the seams for the locale row — tests
@@ -268,7 +355,7 @@ func cronTickerCheck() doctorCheck {
 }
 
 // removedEnvCheck flags a set-but-ignored RK_SSH_HOST: the env read was
-// removed (the ssh_host key in ~/.config/run-kit/config.yaml is the only
+// removed (the ssh_host key in ~/.config/hexokit/config.yaml is the only
 // ssh-host source), so a still-exported value silently does nothing. The
 // second return value is false when the var is unset — no row, no noise.
 func removedEnvCheck() (doctorCheck, bool) {
@@ -278,14 +365,14 @@ func removedEnvCheck() (doctorCheck, bool) {
 	return doctorCheck{
 		Name:      "RK_SSH_HOST",
 		OK:        false,
-		Hint:      "RK_SSH_HOST is no longer read — set the ssh_host key in ~/.config/run-kit/config.yaml",
+		Hint:      "RK_SSH_HOST is no longer read — set the ssh_host key in ~/.config/hexokit/config.yaml",
 		failLabel: "RK_SSH_HOST set but ignored",
 	}, true
 }
 
 // riffPresetsBlockCheck advises when the repo's fab/project/config.yaml still
 // carries a top-level riff: key — rk no longer reads it (presets live under
-// riff_presets in ~/.config/run-kit/config.yaml). WARN-shaped: OK with a Note,
+// riff_presets in ~/.config/hexokit/config.yaml). WARN-shaped: OK with a Note,
 // never a verdict flipper. The second return value is false when the key is
 // absent — no row, no noise (the removedEnvCheck pattern).
 func riffPresetsBlockCheck(repoRoot string, hasKey func(string, string) bool) (doctorCheck, bool) {
@@ -295,7 +382,7 @@ func riffPresetsBlockCheck(repoRoot string, hasKey func(string, string) bool) (d
 	return doctorCheck{
 		Name: "riff presets",
 		OK:   true,
-		Note: "fab/project/config.yaml has a riff: block that rk no longer reads — define presets under riff_presets in ~/.config/run-kit/config.yaml",
+		Note: "fab/project/config.yaml has a riff: block that rk no longer reads — define presets under riff_presets in ~/.config/hexokit/config.yaml",
 	}, true
 }
 
@@ -469,7 +556,7 @@ var tmuxUserOwnedPath = tmux.UserOwnedConfigPath
 // created after reload.
 func tmuxConfigCheck() doctorCheck {
 	check := doctorCheck{Name: "tmux config", OK: true}
-	recipe := "move your customizations into ~/.config/run-kit/tmux.d/user.conf, then run `rk mux init-conf --force` to restore the managed file"
+	recipe := "move your customizations into ~/.config/hexokit/tmux.d/user.conf, then run `rk mux init-conf --force` to restore the managed file"
 	if tmuxUserOwnedPath() {
 		check.Note = "user-owned (tmux_conf set) — unmanaged"
 		return check
@@ -642,15 +729,11 @@ var codeBridgeEmbeddedVersion = func() string {
 	return version
 }
 var codeBridgeLiveHostCount = func() (int, error) {
-	dir, err := codebridge.HostsDir()
-	if err != nil {
-		return 0, err
-	}
-	// Bounded: each ping is capped inside LiveHosts and the sweep as a whole
-	// gets a ceiling so doctor never hangs on a dead socket.
+	// Bounded: each ping is capped inside LiveHostsMerged and the sweep as a
+	// whole gets a ceiling so doctor never hangs on a dead socket.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	live, _, err := codebridge.LiveHosts(ctx, dir)
+	live, _, err := codebridge.LiveHostsMerged(ctx)
 	if err != nil {
 		return 0, err
 	}

@@ -103,7 +103,7 @@ func init() {
 	tabNewCmd.Flags().StringVar(&tabNewNameFlag, "name", "",
 		"Window name (default: tmux's own)")
 	tabNewCmd.Flags().StringVar(&tabNewLayoutFlag, "layout", "",
-		"Layout the window is born with, e.g. split-h:tty,web (validated before creation)")
+		"Layout the window is born with, e.g. h(tty,web) (tree grammar; a legacy split-h:tty,web string still parses; validated before creation)")
 	tabNewCmd.Flags().BoolVar(&tabNewJSONFlag, "json", false,
 		"Print {session, session_rung, window_id, pane_id} as JSON inside the {\"ok\",\"result\"} envelope instead of the bare @N")
 	tabNewCmd.Flags().BoolVar(&tabNewReadyFlag, "ready", false,
@@ -351,10 +351,13 @@ func runTabNew(cmd *cobra.Command, args []string) error {
 
 	var ops []tmux.WindowOptionOp
 	if tabNewLayoutFlag != "" {
-		if _, err := layoutspec.Parse(tabNewLayoutFlag); err != nil {
+		parsed, err := layoutspec.Parse(tabNewLayoutFlag)
+		if err != nil {
 			return usageError(fmt.Errorf("--layout: %w", err))
 		}
-		v := tabNewLayoutFlag
+		// Writers emit the tree form only: a legacy preset string is stored
+		// canonicalized (the rk tab layout rule), never verbatim.
+		v := parsed.String()
 		ops = append(ops, tmux.WindowOptionOp{Key: tmux.LayoutOption, Value: &v})
 	}
 

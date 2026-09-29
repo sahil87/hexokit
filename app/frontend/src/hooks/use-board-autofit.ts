@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 /** Per-board autofit-preference localStorage key prefix. */
-export const BOARD_AUTOFIT_LOCALSTORAGE_PREFIX = "runkit:board-autofit:";
+export const BOARD_AUTOFIT_LOCALSTORAGE_PREFIX = "hexokit:board-autofit:";
 
 /**
  * The single stored sentinel meaning "autofit on". Any other stored value (or

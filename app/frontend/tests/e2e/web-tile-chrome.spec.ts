@@ -189,9 +189,9 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
     });
     await gotoWebTile(page, id);
     // Count option POSTs only once the tile is up: the `?view=web` arrival may
-    // itself translate into one `@rk_win_layout` write, which is the deep
-    // link's business, not the chrome's.
-    await expect.poll(() => windowOption(id, "@rk_win_layout"), { timeout: 10_000 }).toBe("single:web");
+    // itself translate into one `@rk_win_layout` write (the tree form `web`),
+    // which is the deep link's business, not the chrome's.
+    await expect.poll(() => windowOption(id, "@rk_win_layout"), { timeout: 10_000 }).toBe("web");
     const optionPosts = trackOptionPosts(page);
 
     // The refusal state replaces a silent blank iframe (design study state 05).
@@ -234,8 +234,8 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
     stampWebTab(id, presentAddress(presentDir, TMUX_SERVER, "page-one.html"));
     await gotoWebTile(page, id);
     // Count option POSTs only once the tile is up (the arrival's translation
-    // write is the deep link's, not the chrome's).
-    await expect.poll(() => windowOption(id, "@rk_win_layout"), { timeout: 10_000 }).toBe("single:web");
+    // write — the tree form `web` — is the deep link's, not the chrome's).
+    await expect.poll(() => windowOption(id, "@rk_win_layout"), { timeout: 10_000 }).toBe("web");
     const optionPosts = trackOptionPosts(page);
 
     const frame = page.frameLocator('iframe[title="Proxied content"]');

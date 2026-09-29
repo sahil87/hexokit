@@ -83,6 +83,7 @@ type mockTmuxOps struct {
 	selectWindowInSessionCalled   bool
 	selectWindowInSessionSession  string
 	selectWindowInSessionWindowID string
+	selectWindowInSessionErr      error
 
 	listWindowsResult []tmux.WindowInfo
 	listWindowsErr    error
@@ -100,6 +101,18 @@ type mockTmuxOps struct {
 	resolveWindowSessionResult string
 	resolveWindowSessionErr    error
 	resolveWindowSessionID     string
+
+	// Relay isolation: the ensure call record plus canned results, and the
+	// client-count probe result the attach-failure rollback reads. isoMu guards
+	// the ensure fields — the relay's attachStream writes them off the test
+	// goroutine (socket-driven opens).
+	isoMu                    sync.Mutex
+	ensureIsoSessionCalled   bool
+	ensureIsoSessionWindowID string
+	ensureIsoSessionResult   string
+	ensureIsoSessionErr      error
+	sessionClientCountResult int
+	sessionClientCountErr    error
 
 	activeWindowIDResult  string
 	activeWindowIDErr     error
@@ -161,9 +174,14 @@ type mockTmuxOps struct {
 	setWindowOptionsCalled   bool
 	setWindowOptionsWindowID string
 	setWindowOptionsOps      []tmux.WindowOptionOp
-	clearWindowRoleCalled    bool
-	clearWindowRoleKeepID    string
-	clearWindowRoleResult    []string
+	// setWindowLayoutsPairs records every chained multi-window layout write
+	// (the borrow/return handlers) in call order.
+	setWindowLayoutsCalled bool
+	setWindowLayoutsPairs  []tmux.WindowLayoutWrite
+	setWindowLayoutsErr    error
+	clearWindowRoleCalled  bool
+	clearWindowRoleKeepID  string
+	clearWindowRoleResult  []string
 
 	moveInOperatorCalled   bool
 	moveInOperatorWindowID string
@@ -401,6 +419,33 @@ func (m *mockTmuxOps) ResolveWindowSession(ctx context.Context, server, windowID
 	}
 	return m.resolveWindowSessionResult, nil
 }
+func (m *mockTmuxOps) EnsureIsoSession(ctx context.Context, server, windowID string) (string, error) {
+	m.isoMu.Lock()
+	m.ensureIsoSessionCalled = true
+	m.ensureIsoSessionWindowID = windowID
+	result, err := m.ensureIsoSessionResult, m.ensureIsoSessionErr
+	m.isoMu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	if result != "" {
+		return result, nil
+	}
+	name, _ := tmux.IsoSessionName(windowID)
+	return name, nil
+}
+
+// EnsureIsoSessionWasCalled returns the recorded ensure state under isoMu (the
+// relay's attachStream writes it off the test goroutine — the KillSessionWasCalled
+// pattern).
+func (m *mockTmuxOps) EnsureIsoSessionWasCalled() (bool, string) {
+	m.isoMu.Lock()
+	defer m.isoMu.Unlock()
+	return m.ensureIsoSessionCalled, m.ensureIsoSessionWindowID
+}
+func (m *mockTmuxOps) SessionClientCount(ctx context.Context, server, session string) (int, error) {
+	return m.sessionClientCountResult, m.sessionClientCountErr
+}
 func (m *mockTmuxOps) ActiveWindowID(ctx context.Context, server, session string) (string, error) {
 	m.activeWindowIDServer = server
 	m.activeWindowIDSession = session
@@ -431,6 +476,9 @@ func (m *mockTmuxOps) SelectWindowInSession(session, windowID, server string) er
 	m.selectWindowInSessionCalled = true
 	m.selectWindowInSessionSession = session
 	m.selectWindowInSessionWindowID = windowID
+	if m.selectWindowInSessionErr != nil {
+		return m.selectWindowInSessionErr
+	}
 	return m.err
 }
 func (m *mockTmuxOps) KillActivePane(windowID, server string) error {
@@ -522,6 +570,11 @@ func (m *mockTmuxOps) SetWindowOptions(ctx context.Context, windowID, server str
 	m.setWindowOptionsWindowID = windowID
 	m.setWindowOptionsOps = ops
 	return m.err
+}
+func (m *mockTmuxOps) SetWindowLayouts(ctx context.Context, server string, pairs []tmux.WindowLayoutWrite) error {
+	m.setWindowLayoutsCalled = true
+	m.setWindowLayoutsPairs = pairs
+	return m.setWindowLayoutsErr
 }
 func (m *mockTmuxOps) ClearWindowRoleExceptOnServer(ctx context.Context, server, keepWindowID string) ([]string, error) {
 	m.clearWindowRoleCalled = true

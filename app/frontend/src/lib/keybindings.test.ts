@@ -93,6 +93,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       "focus-hop": "Backquote",
       "terminal-find": "KeyF",
       "gui-capture-toggle": "KeyG",
+      "web-capture-toggle": "KeyG",
     });
   });
 
@@ -751,7 +752,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
     }
   });
 
-  it("ships layout-cycle on ⌘; (260812-ab5v R9/R11) — the ▦ chip's same-arity shape cycle", () => {
+  it("ships layout-cycle on ⌘; (260812-ab5v R9/R11) — the ▦ chip's template cycle", () => {
     expect(byId(resolved(), "layout-cycle")).toMatchObject({
       code: "Semicolon",
       tier: "cmd",
@@ -838,12 +839,13 @@ describe("palette parity invariant", () => {
     "gui-zoom-out": ["gui-zoom-out"], // GUI: Zoom out
     "gui-zoom-fit": ["gui-zoom-fit"], // GUI: Zoom to fit
     "gui-capture-toggle": ["gui-capture-toggle"], // GUI: Capture/Release keyboard
+    "web-capture-toggle": ["web-capture-toggle"], // Web: Capture/Release keyboard
     "zen-toggle": ["view-zen-enter", "view-zen-exit"],
     "focus-hop": ["tile-focus-tty", "tile-focus-code"],
     "web-find": ["web-find"], // Web: Find in page (260819-ie2i)
     "terminal-find": ["terminal-find"], // Terminal: Find
     "web-address": ["web-address"], // Web: Focus address bar (260819-v6y4)
-    "layout-cycle": ["layout-cycle"], // Layout: Cycle Shape
+    "layout-cycle": ["layout-cycle"], // Layout: Cycle Template
     "board-cycle-next": ["board-cycle-next"], // Board: pane cycle →
     "board-cycle-prev": ["board-cycle-prev"], // Board: pane cycle ←
   };
@@ -1985,6 +1987,13 @@ describe("shouldRefuseTerminalChord (260730-n789)", () => {
     expect(shouldRefuseTerminalChord(e, resolved(SHELL_MAC), "mac")).toBe(true);
   });
 
+  it("the ⇧G capture toggles (webOnly + guiOnly) never refuse — ⇧Ctrl+G / ⇧⌘G stay with the pane", () => {
+    const other = resolved(SHELL_OTHER);
+    const mac = resolved(SHELL_MAC);
+    expect(shouldRefuseTerminalChord(chord({ code: "KeyG", ctrlKey: true, shiftKey: true }), other, "other")).toBe(false);
+    expect(shouldRefuseTerminalChord(chord({ code: "KeyG", metaKey: true, shiftKey: true }), mac, "mac")).toBe(false);
+  });
+
   it("arrow chords: mac ⌘↑/⌘↓ refuse via the cmd-tier metaKey rule; shifted arrows refuse everywhere; plain and plain-Shift arrows reach the pane", () => {
     const mac = resolved(SHELL_MAC);
     // The demoted window pair under mac terminal focus (rule 2, loss-free).
@@ -2398,9 +2407,9 @@ describe("hasReclaimableMatch — the lens-iframe reclaim carve-out (260812-wfic
 });
 
 describe("webOnly — the web-find data flag (260819-ie2i)", () => {
-  it("exactly web-find and web-address carry the flag in the shipped defaults", () => {
+  it("exactly web-find, web-address, and web-capture-toggle carry the flag in the shipped defaults", () => {
     const flagged = DEFAULT_BINDINGS.filter((b) => b.webOnly).map((b) => b.actionId);
-    expect(flagged).toEqual(["web-find", "web-address"]);
+    expect(flagged).toEqual(["web-find", "web-address", "web-capture-toggle"]);
   });
 
   it("web-find ships as ⌘F on mac and Ctrl+F on Win/Linux (cmd tier, no mac refinement)", () => {
@@ -2555,8 +2564,15 @@ describe("gui-capture-toggle — the chord gate's escape hatch", () => {
   });
 
   it("KeyG is otherwise unclaimed in the shifted tier — no registry or host-claim collision", () => {
+    // The ONE sharer is web-capture-toggle — surface-gated (webOnly vs
+    // guiOnly), so the two handlers are never simultaneously present.
     expect(
-      DEFAULT_BINDINGS.filter((b) => b.code === "KeyG" && b.actionId !== "gui-capture-toggle"),
+      DEFAULT_BINDINGS.filter(
+        (b) =>
+          b.code === "KeyG" &&
+          b.actionId !== "gui-capture-toggle" &&
+          b.actionId !== "web-capture-toggle",
+      ),
     ).toEqual([]);
     for (const host of ALL_HOSTS) {
       expect(
@@ -2567,7 +2583,7 @@ describe("gui-capture-toggle — the chord gate's escape hatch", () => {
     }
   });
 
-  it("the release chord reclaims for kind 'gui' only, captured or not", () => {
+  it("the release chord reclaims for kinds 'gui' and 'web' (each its own toggle), never 'code', captured or not", () => {
     for (const host of ALL_HOSTS) {
       const bindings = resolved(host);
       const e =
@@ -2576,8 +2592,10 @@ describe("gui-capture-toggle — the chord gate's escape hatch", () => {
           : chord({ code: "KeyG", shiftKey: true, ctrlKey: true });
       expect(hasReclaimableMatch(e, bindings, "gui")).toBe(true);
       expect(hasReclaimableMatch(e, bindings, "code")).toBe(false);
-      expect(hasReclaimableMatch(e, bindings, "web")).toBe(false);
+      // web-capture-toggle (webOnly) shares ⌘⇧G — the web tile's release.
+      expect(hasReclaimableMatch(e, bindings, "web")).toBe(true);
       expect(hasReclaimableMatch(e, bindings, "gui", true)).toBe(true);
+      expect(hasReclaimableMatch(e, bindings, "web", true)).toBe(true);
     }
   });
 

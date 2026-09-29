@@ -284,6 +284,14 @@ type TerminalClientProps = {
    */
   registerFocus?: boolean;
   /**
+   * When `true`, this terminal's relay stream opens with `isolate: true` —
+   * the backend attaches an isolated session so the stream shares no
+   * sizing/state with the home tab's own attach. Set only by a foreign
+   * (cross-tab) tty tile; bare home-tab streams omit it. Fixed for the
+   * mount's lifetime (a tile retargeting remounts).
+   */
+  isolate?: boolean;
+  /**
    * When `true`, this terminal's tile is display-hidden (P3
    * hide-never-unmount): the terminal stays mounted and streaming but must
    * not render. It is xterm's render-pause signal, delivered through the
@@ -312,6 +320,7 @@ export function TerminalClient({
   scrollback,
   transparent = false,
   registerFocus = true,
+  isolate = false,
   hidden = false,
 }: TerminalClientProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -1373,6 +1382,7 @@ export function TerminalClient({
         windowId: windowIdRef.current,
         cols: terminal.cols,
         rows: terminal.rows,
+        isolate,
       });
       currentStream = stream;
       streamRef.current = stream;

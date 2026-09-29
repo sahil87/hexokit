@@ -1,0 +1,18 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-11T17:48:52Z"}
+{"args":"Per fab/plans/sahil/26-09-10-hexokit-rebrand.md row C3 (hexokit-brand-surfaces, run-kit repo), Phase 1, gated on C1: update run-kit's own brand surfaces — README H1/tagline, docs/site identity lines + skill.md H1, Electron productName/artifactName (appId kept), hexokit cobra root name with run-kit kept as hidden alias, specs present-tense identity lines, fab/project/config.yaml project name. No GitHub rename, no release-tooling/formula changes (R1/R2).","cmd":"fab-new","event":"command","ts":"2026-09-11T17:48:52Z"}
+{"delta":"+3.3","event":"confidence","score":3.3,"trigger":"calc-score","ts":"2026-09-11T17:53:51Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-11T17:55:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-11T17:55:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-11T18:13:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-11T18:20:16Z"}
+{"event":"review","result":"passed","ts":"2026-09-11T18:20:16Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-11T18:28:05Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-11T18:31:13Z"}
+{"event":"review","result":"passed","ts":"2026-09-11T18:50:56Z"}
+{"action":"re-entry","driver":"fab-continue","event":"stage-transition","stage":"review","ts":"2026-09-26T11:49:49Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-09-26T11:50:07Z"}
+{"action":"re-entry","driver":"fab-continue","event":"stage-transition","stage":"hydrate","ts":"2026-09-26T11:54:03Z"}
+{"event":"review","result":"passed","ts":"2026-09-26T11:54:03Z"}
+{"action":"re-entry","driver":"fab-continue","event":"stage-transition","stage":"ship","ts":"2026-09-26T11:57:03Z"}
+{"action":"re-entry","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-26T11:59:03Z"}
+{"event":"review","result":"passed","ts":"2026-09-26T12:05:19Z"}

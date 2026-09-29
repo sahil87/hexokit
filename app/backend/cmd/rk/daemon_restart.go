@@ -41,7 +41,10 @@ including the sibling sessions (rk-jobs, rk-code-server, rk-remotes) and the
 control anchor — so the start births a genuinely fresh tmux server. Remote
 tunnels whose windows were up are reconnected after the start (failures are
 reported but do not fail the restart). Refuses to run from a pane inside the
-rk-daemon server, where the kill would take down the invoking pane mid-restart.`,
+rk-daemon server, where the kill would take down the invoking pane mid-restart.
+
+The daemon resolves its port from config.yaml ('port:') plus RK_PORT at start
+time, so editing either and running 'run-kit daemon restart' moves it.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		force, _ := cmd.Flags().GetBool("force")
 		full, _ := cmd.Flags().GetBool("full")

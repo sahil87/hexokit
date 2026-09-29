@@ -29,7 +29,8 @@
  * attach seam re-raises the incoming host's guests and the detach seam hides
  * the outgoing host's. The `web:*` IPC surface — create/destroy/bounds/
  * visible/load/reload plus the parity channels back/forward/find/stop-find/
- * zoom/chords/devtools — is gated on a registered-host sender that owns a
+ * zoom/chords/devtools and the per-host mode query — is gated on a
+ * registered-host sender that owns a
  * host view, plus tabKey membership under that sender. Every guest event
  * relays to the owning host webContents on the single `web:event` channel
  * (title/favicon/loading/failed/url+httpStatus/focus/find/chord/zoom). Chord
@@ -47,7 +48,7 @@
  * is no auto-start and no auto-update anywhere; the tmux/server layer stays
  * independent of this process, and the CLI (not the shell) is the updater.
  *
- * Dev override: `RK_DESKTOP_URL=http://localhost:3000 just dev-desktop`
+ * Dev override: `RK_DESKTOP_URL=http://localhost:6123 just dev-desktop`
  * loads that URL directly without persisting it to hosts.json (or
  * windows.json — sentinel windows are never persisted).
  */
@@ -61,6 +62,7 @@ import {
   nativeImage,
   nativeTheme,
   net,
+  screen,
   session,
   shell,
   webContents,
@@ -69,7 +71,7 @@ import {
 } from "electron";
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -149,11 +151,16 @@ import {
 } from "./views";
 import {
   addWebView,
+  adoptParkedWebView,
   emptyWebViews,
+  findWebViewByContents,
   findWebViewBySender,
   hostAttachPlan,
   hostDetachPlan,
   isGuestContents,
+  moveWebViewToWindow,
+  parkWebView,
+  parkWindowWebViewsInto,
   removeHostWebViews,
   removeHostWebViewsEverywhere,
   removeWebView,
@@ -161,16 +168,30 @@ import {
   setWebViewBounds,
   setWebViewChords,
   setWebViewVisible,
+  setWebViewZoomFactor,
   WebViewEntry,
   WebViewsState,
 } from "./web-views";
-import { matchChord, parseChordSpecs, ChordSpec } from "./chords";
+import { findChord, parseChordSpecs, ChordSpec } from "./chords";
+import {
+  findPopoutWindow,
+  parsePopoutPayload,
+  PopoutRecord,
+  stripPopParam,
+} from "./popout";
+import {
+  guestPartitionName,
+  settleHostProxy,
+  WebProxyMode,
+} from "./web-proxy";
+import { createLocalProxy, LocalProxy, tunnelWsUrl } from "./tunnel-proxy";
 import {
   loadWindows,
   saveWindows,
   WindowBounds,
   WindowRecord,
 } from "./windows";
+import { carryForwardLegacyUserData } from "./user-data-migration";
 import {
   captureWindowRecord,
   hostRemovedFallback,
@@ -225,6 +246,17 @@ const devUrl =
  * restore-order + menu-list order). Keyed on `BrowserWindow.id`.
  */
 const windows = new Map<number, BrowserWindow>();
+
+/**
+ * Popout windows (the SPA's Pop out verb over `shell:popout`) — keyed on
+ * `BrowserWindow.id`, dropped on `closed`. A popout is a same-host shell
+ * window showing one `?pop=` route; it is never persisted to windows.json,
+ * never switches host, and closes when its host is removed. The record's
+ * (openerWindowId, hostId, route) triple is the dedupe key (a repeat Pop
+ * out from the same opener focuses the live popout), and `openerWindowId`
+ * scopes the web-guest move between the opener and the popout (./web-views).
+ */
+const popouts = new Map<number, PopoutRecord>();
 
 /** Set by `before-quit` — a `close` during quit ACCUMULATES the window's
  *  record into `quitCaptures` (the whole set restores next launch); a user
@@ -301,7 +333,7 @@ const rawAccentReported = new Map<string, boolean>();
  *  persisted. */
 const DEV_HOST_ID = "__dev__";
 
-const PRODUCT_NAME = "Run Kit";
+const PRODUCT_NAME = "HexoKit";
 
 const userDataDir = (): string => app.getPath("userData");
 
@@ -325,7 +357,7 @@ if (!app.requestSingleInstanceLock()) {
 // .desktop filename the installer writes — without this the badge never
 // associates with the launcher entry.
 if (process.platform === "linux") {
-  app.setDesktopName("run-kit-desktop.desktop");
+  app.setDesktopName("hexokit-desktop.desktop");
 }
 
 type PingResult =
@@ -342,6 +374,17 @@ type DaemonActionResult =
 /** `servers:list` envelope — the channel name AND the `servers` key are the SPA contract. */
 type ServersListResult =
   | { ok: true; servers: HostInfo[] }
+  | { ok: false; error: string };
+
+/** `web:mode` envelope — the per-host web-tile load mode for the SPA. */
+type WebModeResult =
+  | { ok: true; mode: WebProxyMode }
+  | { ok: false; error: string };
+
+/** `shell:popout` envelope — the new popout window's id is the guest-move
+ *  target the popout's own `web:create` adoption keys on. */
+type PopoutResult =
+  | { ok: true; windowId: number }
   | { ok: false; error: string };
 
 type DaemonStatusResult =
@@ -429,6 +472,16 @@ function trackActiveId(hostId: string | null): void {
 function titleForWindow(win: BrowserWindow): string {
   const hostId = activeHostForWindow(views, win.id);
   if (hostId === null) return PRODUCT_NAME;
+  // A popout window titles from the page's DOCUMENT title (the SPA's popout
+  // posture sets `<Surface> · <window name>`), falling back to the ordinary
+  // host — leaf form before the first page-title report. Checked BEFORE the
+  // dev-sentinel special case: a popout of the dev host is still a popout.
+  if (popouts.has(win.id)) {
+    const entry = getView(views, win.id, hostId);
+    const docTitle =
+      entry && !entry.handle.webContents.isDestroyed() ? entry.handle.webContents.getTitle() : "";
+    if (docTitle !== "") return docTitle;
+  }
   if (hostId === DEV_HOST_ID) return devUrl ? (originOf(devUrl) ?? PRODUCT_NAME) : PRODUCT_NAME;
   const host = loadHosts(userDataDir()).hosts.find((h) => h.id === hostId);
   if (!host) return PRODUCT_NAME;
@@ -549,40 +602,230 @@ function hostWebPreferences(): Electron.WebPreferences {
 
 // ─── Web-tile guests (WebContentsView siblings of the host view) ────────────
 
-/** Guests run in a dedicated partition — separate from the default session
- *  the SPA runs in, so external logins persist like a browser profile and
- *  never share a jar with rk. */
-const GUEST_PARTITION = "persist:rk-web";
+/** Guests run in a dedicated PER-HOST partition (`persist:rk-web:<host.id>`)
+ *  — separate from the default session the SPA runs in, so external logins
+ *  persist like a browser profile and never share a jar with rk, and two
+ *  hosts serving the same loopback port never share one with each other.
+ *  The retired shared `persist:rk-web` partition is left on disk untouched:
+ *  per-host jars start fresh, no migration. */
 const GUEST_BACKGROUND = "#0f1117"; // the host view's boot background
 const GUEST_BORDER_RADIUS_PX = 6;
 /** The SPA's per-tab identity is bounded (the strict badge:set posture). */
 const TAB_KEY_MAX_LENGTH = 128;
+/** The retention identity embeds a slot URL, which the web-tab URL contract
+ *  leaves unbounded — so this is a payload-sanity ceiling with headroom past
+ *  practical URL lengths, never a contract bound: an over-long identity
+ *  degrades to identity-less (no parking) instead of failing web:create. */
+const WEB_IDENTITY_MAX_LENGTH = 8192;
 /** web:find text bound — the query is renderer-supplied data over IPC. */
 const WEB_FIND_TEXT_MAX_LENGTH = 1024;
 /** web:zoom sanity band — the SPA's zoom ladder is the authority; main only
  *  rejects nonsense (a negative/NaN/astronomical factor). */
 const WEB_ZOOM_FACTOR_MIN = 0.25;
 const WEB_ZOOM_FACTOR_MAX = 5;
+/** The capability probe's bounds — the `/api/health` gate shares
+ *  HEALTH_TIMEOUT_MS; this caps the tunnel WebSocket round-trip. */
+const PROXY_PROBE_TIMEOUT_MS = 5000;
 
-let guestSessionRef: Electron.Session | null = null;
-function guestSession(): Electron.Session {
-  if (guestSessionRef) return guestSessionRef;
-  const s = session.fromPartition(GUEST_PARTITION);
+/** Per-host guest sessions, keyed by partition name. */
+const guestSessions = new Map<string, Electron.Session>();
+function guestSession(host: ViewHost): Electron.Session {
+  const partition = guestPartitionName(host.id);
+  const existing = guestSessions.get(partition);
+  if (existing) return existing;
+  const s = session.fromPartition(partition);
   // Deny-by-default: a guest is an arbitrary page; nothing it asks for
   // (camera, geolocation, notifications, clipboard) is granted.
   s.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
-  guestSessionRef = s;
+  guestSessions.set(partition, s);
   return s;
 }
 
 /** Guest hardening — NO preload: a guest never sees runkitShell. */
-function guestWebPreferences(): Electron.WebPreferences {
+function guestWebPreferences(host: ViewHost): Electron.WebPreferences {
   return {
-    session: guestSession(),
+    session: guestSession(host),
     sandbox: true,
     contextIsolation: true,
     nodeIntegration: false,
   };
+}
+
+/**
+ * The proxy capability probe: a remote host earns `proxy` mode only when the
+ * tunnel path provably works end to end. Two gates, both required:
+ *  1. `GET <origin>/api/health` answers HTTP 200 (exactly — the capability
+ *     contract) with a numeric `tunnel` field (the daemon's listen port) —
+ *     absent means an older server, no probe attempted.
+ *  2. A WebSocket round-trip through `<ws-origin>/ws/tunnel?target=
+ *     127.0.0.1:<port>` (the rk host's own listen port — listening on every
+ *     rk host): send `GET /api/health` and require an `HTTP/1.1 200` status
+ *     line. This proves the whole path — the front end passes the upgrade,
+ *     rk accepts the Origin-less client, the dial works, and bytes flow
+ *     both ways.
+ * Any failure — timeout, handshake refused, non-200 — is false, never a
+ * throw.
+ */
+async function probeTunnel(host: ViewHost): Promise<boolean> {
+  let tunnelPort: number | null = null;
+  try {
+    const res = await net.fetch(`${host.url}/api/health`, {
+      signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+    });
+    if (res.status === 200) {
+      const body: unknown = await res.json();
+      if (
+        typeof body === "object" &&
+        body !== null &&
+        "tunnel" in body &&
+        typeof body.tunnel === "number" &&
+        Number.isInteger(body.tunnel) &&
+        body.tunnel >= 1 &&
+        body.tunnel <= 65535
+      ) {
+        tunnelPort = body.tunnel;
+      }
+    }
+  } catch {
+    return false;
+  }
+  if (tunnelPort === null) return false;
+  return tunnelProbeRoundTrip(host.url, tunnelPort);
+}
+
+/** The round-trip half of the probe: one binary frame carrying the HTTP
+ *  request (the server relays binary verbatim and ignores text), answered
+ *  by an `HTTP/1.1 200` status line within the deadline. */
+function tunnelProbeRoundTrip(origin: string, tunnelPort: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(tunnelWsUrl(origin, `127.0.0.1:${tunnelPort}`));
+    } catch {
+      resolve(false);
+      return;
+    }
+    ws.binaryType = "arraybuffer";
+    let settled = false;
+    let head = "";
+    const timer = setTimeout(() => finish(false), PROXY_PROBE_TIMEOUT_MS);
+    function finish(ok: boolean): void {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        ws.close();
+      } catch {
+        // Closing an already-dead probe socket.
+      }
+      resolve(ok);
+    }
+    ws.addEventListener("open", () => {
+      ws.send(
+        new TextEncoder().encode(
+          `GET /api/health HTTP/1.1\r\nHost: 127.0.0.1:${tunnelPort}\r\nConnection: close\r\n\r\n`,
+        ),
+      );
+    });
+    ws.addEventListener("message", (event) => {
+      const data: unknown = event.data;
+      if (typeof data === "string") head += data;
+      else if (data instanceof ArrayBuffer) head += Buffer.from(data).toString("utf8");
+      else return;
+      const eol = head.indexOf("\r\n");
+      if (eol === -1) return;
+      finish(head.slice(0, eol).startsWith("HTTP/1.1 200"));
+    });
+    ws.addEventListener("error", () => finish(false));
+    ws.addEventListener("close", () => finish(false));
+  });
+}
+
+/** Per-host proxy state, keyed on hosts.json id and invalidated whenever the
+ *  host's url changes (setHostUrl, SSH heal) — the cache entry carries the
+ *  url it was derived from, so a changed url recomputes lazily on the next
+ *  ensure. `pending` collapses concurrent ensures into one probe+apply; it is
+ *  keyed by host id AND url, so a probe in flight for an old url is never
+ *  reused for the new one, and a stale query neither runs side effects nor
+ *  publishes — listener creation, the setProxy apply, and the cache write
+ *  are all gated on the pending entry's identity (settleHostProxy). */
+interface HostProxyState {
+  url: string;
+  mode: WebProxyMode;
+}
+interface HostProxyPending {
+  url: string;
+  query: Promise<WebProxyMode>;
+}
+const hostProxyStates = new Map<string, HostProxyState>();
+const hostProxyPending = new Map<string, HostProxyPending>();
+
+/**
+ * Settle a host's web-proxy mode and APPLY it to the host's guest session
+ * before any guest loads: `session.setProxy` is awaited here, and
+ * `web:create` awaits this before `createWebView`, so no guest ever loads
+ * unproxied. Local hosts (the interstitialKindFor ordering, via
+ * webProxyModeFor) skip the probe entirely — `direct`.
+ */
+async function ensureHostProxy(host: ViewHost): Promise<WebProxyMode> {
+  const cached = hostProxyStates.get(host.id);
+  if (cached && cached.url === host.url) return cached.mode;
+  const pending = hostProxyPending.get(host.id);
+  if (pending && pending.url === host.url) return pending.query;
+  const url = host.url;
+  const entry = { url, query: undefined as unknown as Promise<WebProxyMode> };
+  entry.query = (async (): Promise<WebProxyMode> => {
+    const localOrigin = await localDaemonOrigin();
+    const isCurrent = () => hostProxyPending.get(host.id) === entry;
+    const mode = await settleHostProxy(host, localOrigin, {
+      probeTunnel: () => probeTunnel(host),
+      ensureListener: () => ensureHostProxyListener(host),
+      setProxy: (config) => guestSession(host).setProxy(config),
+      isCurrent,
+    });
+    if (isCurrent()) {
+      hostProxyStates.set(host.id, { url, mode });
+    }
+    return mode;
+  })();
+  hostProxyPending.set(host.id, entry);
+  try {
+    return await entry.query;
+  } finally {
+    if (hostProxyPending.get(host.id) === entry) {
+      hostProxyPending.delete(host.id);
+    }
+  }
+}
+
+/** Per-host loopback proxy listeners (createLocalProxy in tunnel-proxy.ts),
+ *  keyed on hosts.json id; the url the listener was created for rides along
+ *  so a changed url never reuses a listener pointed at the old origin. */
+const hostProxyListeners = new Map<string, { url: string; listener: LocalProxy }>();
+
+/** Start the host's loopback listener, or reuse the live one while the
+ *  host's url is unchanged. A creation failure is null — the caller
+ *  degrades the host to `legacy`. */
+async function ensureHostProxyListener(host: ViewHost): Promise<LocalProxy | null> {
+  const existing = hostProxyListeners.get(host.id);
+  if (existing && existing.url === host.url) return existing.listener;
+  closeHostProxyListener(host.id);
+  try {
+    const listener = await createLocalProxy(host.url);
+    hostProxyListeners.set(host.id, { url: host.url, listener });
+    return listener;
+  } catch {
+    return null;
+  }
+}
+
+/** Best-effort listener teardown: a close failure strands nothing the next
+ *  ensure cannot replace. */
+function closeHostProxyListener(hostId: string): void {
+  const existing = hostProxyListeners.get(hostId);
+  if (!existing) return;
+  hostProxyListeners.delete(hostId);
+  void existing.listener.close().catch(() => {});
 }
 
 /** Per-(window, host, tabKey) guest registry — pure logic in ./web-views,
@@ -809,8 +1052,9 @@ function createHostView(win: BrowserWindow, hostId: string): WebContentsView {
     fallbackCssKey = null;
     // A host-page navigation discards the SPA renderer that owned this
     // webContents' tabKeys (a reload, the interstitial commit) — its guests
-    // die with it; the fresh SPA re-creates what it mounts. The initial load
-    // fires this with zero guests (a no-op).
+    // die with it, parked ones included (the frames that would adopt them are
+    // gone); the fresh SPA re-creates what it mounts. The initial load fires
+    // this with zero guests (a no-op).
     const { state: afterGuests, removed: guests } = removeHostWebViews(webViews, contents.id);
     webViews = afterGuests;
     for (const guest of guests) destroyWebView(guest);
@@ -823,6 +1067,12 @@ function createHostView(win: BrowserWindow, hostId: string): WebContentsView {
   // (and the title leaf) without a did-navigate.
   contents.on("did-navigate-in-page", () => {
     if (!win.isDestroyed()) setWindowTitle(win);
+  });
+  // A popout window titles from the page's document title (titleForWindow's
+  // popout branch); the SPA's popout posture keeps it at `<Surface> ·
+  // <window name>` — recompute on every page-title update.
+  contents.on("page-title-updated", () => {
+    if (popouts.has(windowId) && !win.isDestroyed()) setWindowTitle(win);
   });
   // Cache the page's theme-color per view; repaint the overlay only when this
   // view is attached in ITS window (a background report must not tint the
@@ -952,6 +1202,15 @@ function attachHostView(
  * entry dies with the views.
  */
 function destroyHostViews(hostId: string): void {
+  // A removed host's popout windows CLOSE — a popout is pinned to its host
+  // and never degrades to welcome or another host. (Their guests die with
+  // them below via the window teardown; the opener-side return move finds no
+  // surviving host attachment and destroys as usual.)
+  for (const [windowId, record] of popouts) {
+    if (record.hostId !== hostId) continue;
+    const win = windows.get(windowId);
+    if (win && !win.isDestroyed()) win.close();
+  }
   // The host's guests die first, in EVERY window, before the host views close.
   const { state: afterGuests, removed: guests } = removeHostWebViewsEverywhere(webViews, hostId);
   webViews = afterGuests;
@@ -1003,27 +1262,53 @@ function destroyWindowViews(windowId: number): void {
 }
 
 /**
+ * Last relayed chrome state per guest webContents id, re-reported to the new
+ * frame on adoption: a parked guest emits no relay events (it is off the
+ * mounted set), so its title/favicon would otherwise be lost to a remounting
+ * frame until the next page event. Keyed by the guest's own webContents id —
+ * stable across park/adopt.
+ */
+const guestChrome = new Map<number, { title: string; favicons: string[] }>();
+
+function recordGuestChrome(
+  webContentsId: number,
+  patch: { title?: string; favicons?: string[] },
+): void {
+  const prev = guestChrome.get(webContentsId) ?? { title: "", favicons: [] };
+  guestChrome.set(webContentsId, { ...prev, ...patch });
+}
+
+/**
  * Relay one guest event to the OWNING host webContents on the single
  * `web:event` channel, demuxed SPA-side by `tabKey`. Skipped silently when
  * the host webContents is gone (a destroyed host's late guest event relays
  * nowhere).
  */
-function wireGuestRelay(contents: WebContents, hostContentsId: number, tabKey: string): void {
+function wireGuestRelay(contents: WebContents): void {
   const relay = (kind: string, extra: Record<string, unknown> = {}): void => {
-    // Only the registry's CURRENT guest for this (host, tabKey) may speak for
-    // it. Teardown unregisters before `webContents.close()`, and a closing
-    // renderer still emits did-stop-loading / did-fail-load / navigation
-    // events — with no identity check a replacement guest created under the
-    // same tabKey (web:create's replace-on-collision) would receive the dead
-    // guest's late events as its own.
-    const current = findWebViewBySender(webViews, hostContentsId, tabKey);
-    if (!current || current.webContentsId !== contents.id) return;
-    const host = webContents.fromId(hostContentsId);
+    // Only the registry's CURRENT entry for this guest may speak. Teardown
+    // unregisters before `webContents.close()`, and a closing renderer still
+    // emits did-stop-loading / did-fail-load / navigation events — with no
+    // identity check a replacement guest created under the same tabKey
+    // (web:create's replace-on-collision) would receive the dead guest's late
+    // events as its own. The lookup keys on the guest's own webContents id —
+    // stable across park/adopt — so an adopted guest relays under its NEW
+    // tabKey to its NEW host webContents, and a parked guest (off the mounted
+    // set) relays nothing.
+    const current = findWebViewByContents(webViews, contents.id);
+    if (!current) return;
+    const host = webContents.fromId(current.hostContentsId);
     if (!host || host.isDestroyed()) return;
-    host.send("web:event", { tabKey, kind, ...extra });
+    host.send("web:event", { tabKey: current.tabKey, kind, ...extra });
   };
-  contents.on("page-title-updated", (_event, title) => relay("title", { title }));
-  contents.on("page-favicon-updated", (_event, favicons) => relay("favicon", { favicons }));
+  contents.on("page-title-updated", (_event, title) => {
+    recordGuestChrome(contents.id, { title });
+    relay("title", { title });
+  });
+  contents.on("page-favicon-updated", (_event, favicons) => {
+    recordGuestChrome(contents.id, { favicons });
+    relay("favicon", { favicons });
+  });
   contents.on("did-start-loading", () => relay("loading", { loading: true }));
   contents.on("did-stop-loading", () => relay("loading", { loading: false }));
   // Subframe and superseded-navigation (ERR_ABORTED) failures are not relayed
@@ -1057,17 +1342,19 @@ function wireGuestRelay(contents: WebContents, hostContentsId: number, tabKey: s
   // Chord reclaim: the guest's keydowns never reach the SPA document, so the
   // SPA enumerates its reclaim predicate into a per-guest table (web:chords)
   // and main matches here. A match is preventDefaulted (the page never sees
-  // it), hops OS focus to the host webContents — on EVERY matched chord,
+  // it), hops OS focus to the host webContents — on every matched chord,
   // Escape included, so the re-dispatched chord's result (a palette input, a
-  // find bar) is usable — and relays for the SPA to re-dispatch on its
-  // document. The registry-current re-check is the relay()'s identity rule:
+  // find bar) is usable; a `keepFocus` spec (the web keyboard-capture toggle)
+  // skips the hop so the user keeps typing in the page — and relays for the
+  // SPA to re-dispatch on its document. The registry-current re-check is the relay()'s identity rule:
   // a closing guest's late input must not speak for its replacement.
   contents.on("before-input-event", (event, input) => {
-    const current = findWebViewBySender(webViews, hostContentsId, tabKey);
-    if (!current || current.webContentsId !== contents.id) return;
-    if (!matchChord(input, current.chords)) return;
+    const current = findWebViewByContents(webViews, contents.id);
+    if (!current) return;
+    const spec = findChord(input, current.chords);
+    if (!spec) return;
     event.preventDefault();
-    webContents.fromId(hostContentsId)?.focus();
+    if (!spec.keepFocus) webContents.fromId(current.hostContentsId)?.focus();
     relay("chord", {
       key: input.key,
       code: input.code,
@@ -1088,15 +1375,19 @@ function wireGuestRelay(contents: WebContents, hostContentsId: number, tabKey: s
  * never paints (Electron 43 / Linux). Adding after the host is attached lands
  * the guest above it; the attach seam (hostAttachPlan in attachHostView)
  * re-raises it on every host switch. The URL arrives http(s)-validated by the
- * `web:create` handler (a main-initiated loadURL bypasses will-navigate).
+ * `web:create` handler (a main-initiated loadURL bypasses will-navigate), and
+ * the handler has already awaited `ensureHostProxy(viewHost)` — the guest's
+ * per-host session proxy config is settled before this first loadURL.
  */
 function createWebView(
   win: BrowserWindow,
   host: ViewEntry<WebContentsView>,
+  viewHost: ViewHost,
   tabKey: string,
   url: string,
+  identity: string | null,
 ): void {
-  const view = new WebContentsView({ webPreferences: guestWebPreferences() });
+  const view = new WebContentsView({ webPreferences: guestWebPreferences(viewHost) });
   view.setBackgroundColor(GUEST_BACKGROUND);
   view.setBorderRadius(GUEST_BORDER_RADIUS_PX);
   win.contentView.addChildView(view);
@@ -1111,9 +1402,47 @@ function createWebView(
     tabKey,
     handle: view,
     webContentsId: view.webContents.id,
+    identity,
   });
-  wireGuestRelay(view.webContents, host.webContentsId, tabKey);
+  wireGuestRelay(view.webContents);
   void view.webContents.loadURL(url);
+}
+
+/**
+ * Adopt a parked guest for a remounting frame (the registry rebind already
+ * happened in the `web:create` handler): re-raise it above the host view
+ * (re-adding an existing child raises it), restore the recorded bounds +
+ * SPA-requested visibility under the painting gate, re-apply the recorded
+ * zoom factor, and re-report the current chrome state — title, favicon,
+ * url with history flags, loading — to the NEW frame over the same
+ * `web:event` shapes wireGuestRelay relays, so the chrome is right without
+ * waiting for a navigation event. The chord table needs no re-send: it lives
+ * on the registry entry the before-input-event matcher reads.
+ */
+function adoptWebView(win: BrowserWindow, entry: WebViewEntry<WebContentsView>): void {
+  win.contentView.addChildView(entry.handle);
+  if (entry.visible && isGuestHostAttached(entry)) {
+    entry.handle.setBounds(entry.bounds);
+    entry.handle.setVisible(true);
+  } else {
+    entry.handle.setVisible(false);
+  }
+  const contents = entry.handle.webContents;
+  contents.setZoomFactor(entry.zoomFactor);
+  const host = webContents.fromId(entry.hostContentsId);
+  if (!host || host.isDestroyed()) return;
+  const send = (kind: string, extra: Record<string, unknown>): void => {
+    host.send("web:event", { tabKey: entry.tabKey, kind, ...extra });
+  };
+  const chrome = guestChrome.get(entry.webContentsId);
+  send("title", { title: chrome?.title ?? contents.getTitle() });
+  send("favicon", { favicons: chrome?.favicons ?? [] });
+  send("url", {
+    url: contents.getURL(),
+    canGoBack: contents.navigationHistory.canGoBack(),
+    canGoForward: contents.navigationHistory.canGoForward(),
+  });
+  send("loading", { loading: contents.isLoading() });
 }
 
 /** The guest's owning host is the one attached in its window. Painting a
@@ -1127,12 +1456,16 @@ function isGuestHostAttached(entry: WebViewEntry<WebContentsView>): boolean {
 /**
  * Destroy one guest: unregister, detach from its window when the window is
  * alive (tolerating a view already off the tree), and close its webContents
- * (never twice). Callers: `web:destroy`, the host webContents `did-navigate`
- * seam in createHostView, destroyHostViews, destroyWindowViews.
+ * (never twice). Callers: `web:destroy`, `web:park`'s identity-less fallback
+ * and LRU evictees, the host webContents `did-navigate` seam in
+ * createHostView, destroyHostViews, destroyWindowViews. The scoped-removal
+ * callers pass already-unregistered entries (parked ones included) — the
+ * removeWebView re-removal is a no-op for them.
  */
 function destroyWebView(entry: WebViewEntry<WebContentsView>): void {
   const { state } = removeWebView(webViews, entry.hostContentsId, entry.tabKey);
   webViews = state;
+  guestChrome.delete(entry.webContentsId);
   const win = windows.get(entry.windowId);
   if (win && !win.isDestroyed()) {
     try {
@@ -1159,6 +1492,10 @@ function destroyWebView(entry: WebViewEntry<WebContentsView>): void {
  * position).
  */
 function switchToHost(win: BrowserWindow, id: string): IpcResult {
+  // A popout is pinned to the host its route belongs to — host-switch paths
+  // (the menu radio on a focused popout, `servers:switch` from a popout's
+  // renderer) are refused, never re-home it.
+  if (popouts.has(win.id)) return { ok: false, error: "Popout window" };
   const list = loadHosts(userDataDir());
   const entry = list.hosts.find((h) => h.id === id);
   if (!entry) return { ok: false, error: "Unknown host" };
@@ -1262,6 +1599,7 @@ function removeHostEverywhere(id: string): void {
   const entry = list.hosts.find((h) => h.id === id);
   if (!entry) return;
   removeHost(userDataDir(), id);
+  closeHostProxyListener(id); // the loopback listener dies with its host entry
   destroyHostViews(id); // the views die with their host entry — in every window
   rebuildMenu();
 }
@@ -1476,7 +1814,7 @@ async function showWedgedDaemonDialog(
     buttons: ["Restart Daemon", "Cancel"],
     defaultId: 1,
     cancelId: 1,
-    message: `run-kit reports running but isn't answering on ${origin}`,
+    message: `HexoKit reports running but isn't answering on ${origin}`,
     detail: "Restarting briefly interrupts local SSH tunnels; they reconnect automatically.",
   });
   if (response !== 0) return { ok: true, outcome: "declined" };
@@ -1513,7 +1851,7 @@ async function startAndConnectLocal(win: BrowserWindow): Promise<DaemonActionRes
     const probe = await probeDaemonStatus();
     if (!probe.ok) return probe;
     const status = probe.status;
-    if (!status.installed) return { ok: false, error: "run-kit is not installed" };
+    if (!status.installed) return { ok: false, error: "HexoKit is not installed" };
     if (status.state === "wedged") return showWedgedDaemonDialog(win, status.origin);
     let hostname: string;
     if (status.state === "running") {
@@ -1549,7 +1887,7 @@ async function restartAndConnectLocal(
   return runDaemonAction(full ? "restart-full" : "restart", async () => {
     const probe = await probeDaemonStatus();
     if (!probe.ok) return probe;
-    if (!probe.status.installed) return { ok: false, error: "run-kit is not installed" };
+    if (!probe.status.installed) return { ok: false, error: "HexoKit is not installed" };
     const restarted = await runRk(
       full ? ["daemon", "restart", "--full"] : ["daemon", "restart"],
       RK_DAEMON_RESTART_TIMEOUT_MS,
@@ -1577,7 +1915,7 @@ async function confirmAndStopDaemon(
     buttons: ["Stop Daemon", "Cancel"],
     defaultId: 1,
     cancelId: 1,
-    message: "Stop the local run-kit daemon?",
+    message: "Stop the local HexoKit daemon?",
     detail:
       "Only the web server stops — tmux sessions and running agents survive and reattach when the daemon starts again.",
   });
@@ -1661,13 +1999,13 @@ async function connectRemoteHost(
   const added = await runRk(["remote", "add", target], RK_REMOTE_ADD_TIMEOUT_MS);
   if (!added.ok) {
     if (added.notInstalled) {
-      return { ok: false, error: "run-kit is not installed on this machine" };
+      return { ok: false, error: "HexoKit is not installed on this machine" };
     }
     return { ok: false, error: remoteErrorMessage(added.error) };
   }
   const info = parseRemoteAddOutput(added.stdout);
   if (!info) {
-    return { ok: false, error: "Unexpected `rk remote add` output — update run-kit and retry" };
+    return { ok: false, error: "Unexpected `rk remote add` output — update HexoKit and retry" };
   }
 
   const connected = await runRkStreaming(
@@ -1689,7 +2027,13 @@ async function connectRemoteHost(
   // Dedupe on the remote name — the stable identity for SSH hosts (several
   // entries can share an origin, but one remote is one host).
   const existing = loadHosts(userDataDir()).hosts.find((h) => h.remote === info.name);
-  if (existing) return switchToHost(win, existing.id);
+  if (existing) {
+    // The tunnel origin may differ from the stored url across reconnects —
+    // drop the derived proxy state so it recomputes against the live origin.
+    hostProxyStates.delete(existing.id);
+    closeHostProxyListener(existing.id);
+    return switchToHost(win, existing.id);
+  }
   const addedHost = addHost(userDataDir(), info.name, origin, info.name);
   if (!addedHost.ok) return addedHost;
   return switchToHost(win, addedHost.host.id); // attaches the fresh view + rebuilds the menu
@@ -1753,6 +2097,10 @@ async function ensureRemoteConnected(
       return { ok: false, error };
     }
     markRemoteConnected(name);
+    // A healed tunnel can carry a fresh origin — re-derive the host's proxy
+    // state lazily on the next ensure.
+    hostProxyStates.delete(host.id);
+    closeHostProxyListener(host.id);
     reloadFailedView(windowId, host);
     return { ok: true };
   } finally {
@@ -1937,24 +2285,44 @@ function isTabKey(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= TAB_KEY_MAX_LENGTH;
 }
 
+/** The retention identity's structural shape: a non-empty string. The length
+ *  ceiling is enforced by the caller as a degrade, not a rejection. */
+function isWebIdentity(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
 function parseWebTabKeyPayload(value: unknown): { tabKey: string } | null {
   if (typeof value !== "object" || value === null) return null;
   if (!("tabKey" in value) || !isTabKey(value.tabKey)) return null;
   return { tabKey: value.tabKey };
 }
 
-function parseWebCreatePayload(value: unknown): { tabKey: string; url: string } | null {
+function parseWebCreatePayload(
+  value: unknown,
+): { tabKey: string; url: string; identity: string | null } | null {
   if (typeof value !== "object" || value === null) return null;
   if (!("tabKey" in value) || !isTabKey(value.tabKey)) return null;
   // Main-initiated loadURL bypasses will-navigate, so the scheme allowlist is
   // enforced HERE — a guest must never be pointed at a non-http(s) URL.
   if (!("url" in value) || typeof value.url !== "string" || !isHttpUrl(value.url)) return null;
-  return { tabKey: value.tabKey, url: value.url };
+  // The retention identity is OPTIONAL: an SPA predating park/adopt never
+  // sends one and simply never parks. A present-but-non-string one is
+  // rejected; an over-long one degrades to identity-less — the guest still
+  // mounts and simply never parks (the slot-URL contract imposes no length
+  // bound, so the identity ceiling must never cost a mount).
+  let identity: string | null = null;
+  if ("identity" in value && value.identity !== undefined) {
+    if (!isWebIdentity(value.identity)) return null;
+    identity = value.identity.length <= WEB_IDENTITY_MAX_LENGTH ? value.identity : null;
+  }
+  return { tabKey: value.tabKey, url: value.url, identity };
 }
 
-/** web:load carries the same {tabKey, url} shape (and http(s) rule) as web:create. */
+/** web:load carries the {tabKey, url} shape (and http(s) rule) of web:create. */
 function parseWebLoadPayload(value: unknown): { tabKey: string; url: string } | null {
-  return parseWebCreatePayload(value);
+  const parsed = parseWebCreatePayload(value);
+  if (parsed === null) return null;
+  return { tabKey: parsed.tabKey, url: parsed.url };
 }
 
 function parseWebBoundsPayload(
@@ -2279,6 +2647,9 @@ function registerIpcHandlers(): void {
       return { ok: false, error: "This host's URL is managed by its SSH connection" };
     }
     setHostUrl(userDataDir(), parsed.id, normalized.origin);
+    hostProxyStates.delete(parsed.id); // the proxy mode re-derives lazily on
+    // the next ensure against the NEW origin
+    closeHostProxyListener(parsed.id);
     destroyHostViews(parsed.id); // stale views die in EVERY window — the
     // per-window fallback (first remaining host or welcome) keeps any window
     // that displayed this host off a destroyed view
@@ -2293,6 +2664,47 @@ function registerIpcHandlers(): void {
     if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
     openDuplicateWindow(senderWindow(event));
     return { ok: true };
+  });
+
+  // shell:popout — the SPA's Pop out verb: open the validated `?pop=` route
+  // as a same-host shell window (the window-open policy stays ALL-EXTERNAL;
+  // a route remainder resolved against the SENDER host's origin makes a
+  // cross-origin target unrepresentable). Dedupe: a live popout of the same
+  // (opener, host, route) is focused (restored when minimized), not
+  // duplicated — another opener window gets its OWN popout.
+  ipcMain.handle("shell:popout", (event, payload: unknown): PopoutResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    const host = findViewByWebContentsId(views, event.sender.id);
+    if (!host) return { ok: false, error: "No host view" };
+    const opener = windows.get(host.windowId);
+    const viewHost = hostForView(host.hostId);
+    if (!opener || opener.isDestroyed() || !viewHost) {
+      return { ok: false, error: "No host view" };
+    }
+    const workArea = screen.getPrimaryDisplay().workAreaSize;
+    const parsed = parsePopoutPayload(payload, viewHost.url, {
+      width: workArea.width,
+      height: workArea.height,
+    });
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    const existing = findPopoutWindow(popouts, opener.id, host.hostId, parsed.route);
+    if (existing !== null) {
+      const win = windows.get(existing);
+      if (win && !win.isDestroyed()) {
+        if (win.isMinimized()) win.restore();
+        win.focus();
+        return { ok: true, windowId: existing };
+      }
+      popouts.delete(existing); // a stale record outliving its window
+    }
+    const win = createWindow({ width: parsed.width, height: parsed.height });
+    popouts.set(win.id, {
+      openerWindowId: opener.id,
+      hostId: host.hostId,
+      route: parsed.route,
+    });
+    attachHostView(win, viewHost, parsed.route);
+    return { ok: true, windowId: win.id };
   });
 
   // shell:close-window — the Close Window bridge channel (the SPA's ⇧⌘W
@@ -2358,21 +2770,111 @@ function registerIpcHandlers(): void {
   // validate ("Invalid request"), and the tabKey must belong to THAT sender's
   // host webContents ("Unknown tab") — two windows showing one host are two
   // host webContents, so tabKeys never cross over.
-  ipcMain.handle("web:create", (event, payload: unknown): IpcResult => {
+  ipcMain.handle("web:create", async (event, payload: unknown): Promise<IpcResult> => {
     if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
     const host = webSenderHost(event);
     if (!host) return { ok: false, error: "No host view" };
     // A host view whose window is gone is no host view at all — same rung.
     const win = windows.get(host.windowId);
     if (!win || win.isDestroyed()) return { ok: false, error: "No host view" };
+    const viewHost = hostForView(host.hostId);
+    if (!viewHost) return { ok: false, error: "No host view" };
     const parsed = parseWebCreatePayload(payload);
     if (!parsed) return { ok: false, error: "Invalid request" };
     // Replace, never stack: the SPA's mount/unmount can race (a StrictMode
     // double-mount), and a stale guest would leak a renderer.
     const existing = findWebViewBySender(webViews, event.sender.id, parsed.tabKey);
     if (existing) destroyWebView(existing);
-    createWebView(win, host, parsed.tabKey, parsed.url);
+    // Adopt before create: an identity match in the parked set — scoped to
+    // THIS (window, host), derived from the sender's host view — re-binds the
+    // retained guest instead of booting a new renderer. No ensureHostProxy
+    // await: the guest's per-host session proxy settled at its original
+    // create and parked guests die with any host re-point.
+    if (parsed.identity !== null) {
+      const { state, adopted } = adoptParkedWebView(
+        webViews,
+        win.id,
+        host.hostId,
+        parsed.identity,
+        event.sender.id,
+        parsed.tabKey,
+      );
+      if (adopted) {
+        webViews = state;
+        adoptWebView(win, adopted);
+        return { ok: true };
+      }
+      // Popout cross-window adoption: this window is a registered popout of
+      // THIS host — the popped-out web tile's guest lives in the OPENER
+      // window's scope (parked by the opener's unmount, or still mounted when
+      // this create outran the park). Move it into this window's parked scope
+      // and adopt it through the ordinary path — the guest keeps its
+      // webContents id and page state, and never paints in the opener again
+      // (the opener's attach/detach plans no longer list it). A non-popout
+      // window, another host's popout, or a popout of another opener simply
+      // never matches — the plain create path (a fresh guest) is the answer.
+      const popout = popouts.get(win.id);
+      if (popout !== undefined && popout.hostId === host.hostId) {
+        const { state: afterMove, moved, evicted } = moveWebViewToWindow(
+          webViews,
+          popout.openerWindowId,
+          win.id,
+          host.hostId,
+          parsed.identity,
+        );
+        if (moved !== null) {
+          webViews = afterMove;
+          const openerWin = windows.get(popout.openerWindowId);
+          if (openerWin && !openerWin.isDestroyed()) {
+            try {
+              openerWin.contentView.removeChildView(moved.handle);
+            } catch {
+              // Already off the opener's tree (its detach raced the move).
+            }
+          }
+          for (const stale of evicted) destroyWebView(stale);
+          const { state: afterAdopt, adopted: movedAdopted } = adoptParkedWebView(
+            webViews,
+            win.id,
+            host.hostId,
+            parsed.identity,
+            event.sender.id,
+            parsed.tabKey,
+          );
+          if (movedAdopted) {
+            webViews = afterAdopt;
+            adoptWebView(win, movedAdopted);
+            return { ok: true };
+          }
+        }
+      }
+    }
+    // setProxy is async — settle the host session's proxy config BEFORE the
+    // guest's first loadURL, so no guest ever loads unproxied.
+    await ensureHostProxy(viewHost);
+    // The await opened a race window: the window may be gone now, and a
+    // concurrent create for this tab may have landed while we probed — the
+    // replace check above predates the await, so repeat it.
+    if (win.isDestroyed()) return { ok: false, error: "No host view" };
+    const raced = findWebViewBySender(webViews, event.sender.id, parsed.tabKey);
+    if (raced) destroyWebView(raced);
+    createWebView(win, host, viewHost, parsed.tabKey, parsed.url, parsed.identity);
     return { ok: true };
+  });
+
+  // web:mode — the SPA's per-host web-mode query (additive: shells predating
+  // the channel lack the invoker, which the SPA reads as `legacy`). No
+  // payload: main resolves the host from the sender view, like every web:*
+  // handler. The answer awaits the host's proxy settle (probe included), so
+  // it is final — the SPA asks before computing the guest's load URL.
+  ipcMain.handle("web:mode", async (event): Promise<WebModeResult> => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    const host = webSenderHost(event);
+    if (!host) return { ok: false, error: "No host view" };
+    const viewHost = hostForView(host.hostId);
+    if (!viewHost) return { ok: false, error: "No host view" };
+    const mode = await ensureHostProxy(viewHost);
+    return { ok: true, mode };
   });
 
   ipcMain.handle("web:destroy", (event, payload: unknown): IpcResult => {
@@ -2383,6 +2885,31 @@ function registerIpcHandlers(): void {
     const guest = webSenderGuest(event, parsed.tabKey);
     if (!guest) return { ok: false, error: "Unknown tab" };
     destroyWebView(guest);
+    return { ok: true };
+  });
+
+  // web:park — the tile-unmount retention path: hide the guest (it must never
+  // paint again until adopted — the attach/detach plans skip parked entries)
+  // and move it to the parked set keyed by its retention identity, where a
+  // later web:create with the same identity adopts it. Parking past
+  // PARKED_WEB_VIEW_CAP evicts (destroys) the least-recently-parked guest; a
+  // stale parked entry under the same key is destroyed too. An identity-less
+  // entry cannot park — it takes the pre-park destroy path instead.
+  ipcMain.handle("web:park", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    if (!webSenderHost(event)) return { ok: false, error: "No host view" };
+    const parsed = parseWebTabKeyPayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    const guest = webSenderGuest(event, parsed.tabKey);
+    if (!guest) return { ok: false, error: "Unknown tab" };
+    const { state, parked, evicted } = parkWebView(webViews, guest.hostContentsId, guest.tabKey);
+    if (parked === null) {
+      destroyWebView(guest); // no retention identity — the pre-park behavior
+      return { ok: true };
+    }
+    webViews = state;
+    parked.handle.setVisible(false);
+    for (const stale of evicted) destroyWebView(stale);
     return { ok: true };
   });
 
@@ -2511,10 +3038,11 @@ function registerIpcHandlers(): void {
     return { ok: true };
   });
 
-  // web:zoom — apply the SPA's zoom bucket to the guest renderer. The SPA
-  // re-sends on every navigation: Chromium's per-host zoom store inside the
-  // guest partition persists and leaks between views, so main never stores or
-  // derives a factor — it only applies what it is handed.
+  // web:zoom — apply the SPA's zoom bucket to the guest renderer and record
+  // it on the entry, so adoption re-applies it after a park. The SPA re-sends
+  // on every navigation: Chromium's per-host zoom store inside the guest
+  // partition persists and leaks between views, so the factor is never
+  // derived main-side — only applied and recorded.
   ipcMain.handle("web:zoom", (event, payload: unknown): IpcResult => {
     if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
     if (!webSenderHost(event)) return { ok: false, error: "No host view" };
@@ -2522,6 +3050,7 @@ function registerIpcHandlers(): void {
     if (!parsed) return { ok: false, error: "Invalid request" };
     const guest = webSenderGuest(event, parsed.tabKey);
     if (!guest) return { ok: false, error: "Unknown tab" };
+    webViews = setWebViewZoomFactor(webViews, guest.hostContentsId, guest.tabKey, parsed.factor);
     guest.handle.webContents.setZoomFactor(parsed.factor);
     return { ok: true };
   });
@@ -2556,10 +3085,12 @@ function registerIpcHandlers(): void {
 
 /**
  * One window's contribution to windows.json — null for a window that must
- * NOT be persisted (a dev-sentinel window). The record carries the window's
- * active host (null = welcome), its current route, and its normal bounds.
+ * NOT be persisted: a dev-sentinel window, or a popout window (a popout is a
+ * viewer-posture window of the moment; relaunch restores the ordinary window
+ * set only, on both the quit and close-one-window paths).
  */
 function windowRecord(win: BrowserWindow): WindowRecord | null {
+  if (popouts.has(win.id)) return null;
   const hostId = activeHostForWindow(views, win.id);
   if (hostId === DEV_HOST_ID) return null;
   const route = hostId === null ? "" : routeForView(win, hostId);
@@ -2624,8 +3155,13 @@ function createWindow(bounds: WindowBounds | null): BrowserWindow {
   // quit keep theirs — the last save holds the whole set); a user closing
   // one of N windows drops only that window's record.
   win.on("close", () => {
-    for (const entry of views.entries.filter((e) => e.windowId === windowId)) {
-      captureLastPathForView(entry.hostId, entry.handle.webContents);
+    // A popout window's views are NOT captured: its route carries `?pop=`,
+    // which must never persist as the host's lastPath (popouts are a
+    // viewer-posture window; the opener's own windows own capture).
+    if (!popouts.has(windowId)) {
+      for (const entry of views.entries.filter((e) => e.windowId === windowId)) {
+        captureLastPathForView(entry.hostId, entry.handle.webContents);
+      }
     }
     if (quitting) {
       // Views are still alive here (teardown happens at 'closed'), so the
@@ -2634,6 +3170,36 @@ function createWindow(bounds: WindowBounds | null): BrowserWindow {
       quitCaptures = captureWindowRecord(quitCaptures, windowId, windowRecord(win));
       saveWindowSet(quitCaptures);
     } else {
+      // Pop back in: a closing popout's guests return to the OPENER window's
+      // parked set when the opener is alive and still attached to that host —
+      // the opener's remounting web tile adopts them, no reload. On quit, or
+      // with the opener gone or switched to another host, the guests are
+      // destroyed with the window as usual. Moved handles leave the closing
+      // window's contentView while it is still alive (a child of a destroyed
+      // window cannot be re-shown elsewhere).
+      const popout = popouts.get(windowId);
+      if (popout !== undefined) {
+        const opener = windows.get(popout.openerWindowId);
+        const openerHostId =
+          opener && !opener.isDestroyed() ? activeHostForWindow(views, opener.id) : null;
+        if (opener && !opener.isDestroyed() && openerHostId !== null) {
+          const { state, moved, evicted } = parkWindowWebViewsInto(
+            webViews,
+            windowId,
+            opener.id,
+            openerHostId,
+          );
+          webViews = state;
+          for (const entry of moved) {
+            try {
+              win.contentView.removeChildView(entry.handle);
+            } catch {
+              // Already off the tree (a detach raced the close).
+            }
+          }
+          for (const stale of evicted) destroyWebView(stale);
+        }
+      }
       destroyWindowViews(windowId);
       // Fresh captures of the OTHER live windows — the closing window is
       // excluded up front (its views are already torn down, so capturing it
@@ -2651,6 +3217,7 @@ function createWindow(bounds: WindowBounds | null): BrowserWindow {
   });
   win.on("closed", () => {
     windows.delete(windowId);
+    popouts.delete(windowId);
     destroyWindowViews(windowId); // idempotent — 'close' already ran it
     repaintBadge(); // the displayed set lost this window's host
     rebuildMenu(); // the mac Window-menu list
@@ -2698,11 +3265,19 @@ function restoreOrOpenInitial(): void {
 function openDuplicateWindow(sourceWin: BrowserWindow | null): void {
   const sourceHostId =
     sourceWin && !sourceWin.isDestroyed() ? activeHostForWindow(views, sourceWin.id) : null;
+  // A popout source duplicates as an ORDINARY window — the same host at the
+  // same route minus the `pop` param (the new window is no popout).
+  const isPopoutSource = sourceWin !== null && popouts.has(sourceWin.id);
   const source =
     sourceWin && !sourceWin.isDestroyed()
       ? {
           hostId: sourceHostId,
-          route: sourceHostId !== null ? routeForView(sourceWin, sourceHostId) : "",
+          route:
+            sourceHostId !== null
+              ? isPopoutSource
+                ? stripPopParam(routeForView(sourceWin, sourceHostId))
+                : routeForView(sourceWin, sourceHostId)
+              : "",
         }
       : { hostId: null, route: "" };
   const target = newWindowTarget(source);
@@ -2762,6 +3337,17 @@ app.on("web-contents-created", (_event, contents) => {
 // No 'certificate-error' handler: TLS errors fail closed (no bypass).
 
 void app.whenReady().then(() => {
+  // userData is keyed on the app name, so the rename moved the stores to a
+  // fresh directory — carry the legacy "Run Kit" sibling's stores forward
+  // once, before any loadHosts/loadWindows read (./user-data-migration).
+  const { copied } = carryForwardLegacyUserData(
+    userDataDir(),
+    join(dirname(userDataDir()), "Run Kit"),
+  );
+  if (copied.length > 0) {
+    console.log(`carried forward legacy userData stores: ${copied.join(", ")}`);
+  }
+
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
     callback(ALLOWED_PERMISSIONS.has(permission));
   });
@@ -2790,6 +3376,7 @@ app.on("before-quit", () => {
   // The next per-window 'close' handlers keep their records (the whole set
   // restores next launch) instead of dropping them one by one.
   quitting = true;
+  for (const hostId of [...hostProxyListeners.keys()]) closeHostProxyListener(hostId);
 });
 
 app.on("window-all-closed", () => {

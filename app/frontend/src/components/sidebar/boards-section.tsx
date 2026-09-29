@@ -58,7 +58,7 @@ export function BoardsSection() {
   return (
     <CollapsiblePanel
       title="Boards"
-      storageKey="runkit-panel-boards"
+      storageKey="hexokit-panel-boards"
       // Default open once boards exist so a fresh pin surfaces where it landed.
       // useLocalStorageBoolean only consults this default when no stored key
       // exists and resyncs on default change, so the panel opens live when the

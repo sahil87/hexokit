@@ -39,7 +39,7 @@ import (
 //   - Binary data frames `[u32 BE streamId][payload]` in both directions —
 //     server→client PTY output, client→server keystrokes.
 //   - JSON text frames for control:
-//       client → server: {"op":"open","id":7,"server":..,"windowId":"@42","cols":120,"rows":32}
+//       client → server: {"op":"open","id":7,"server":..,"windowId":"@42","cols":120,"rows":32,"isolate":true}
 //                        {"op":"resize","id":7,"cols":100,"rows":40}
 //                        {"op":"close","id":7}
 //       server → client: {"op":"opened","id":7}
@@ -50,14 +50,20 @@ import (
 // REST and mux entry points cannot drift; constitution §I), then session
 // resolution → session-scoped SelectWindowInSession → forceTERM →
 // pty.StartWithSize at the open op's cols/rows (the managed-only conf reload is
-// once-per-server and fully async — never a subprocess on this path). Session resolution
-// PREFERS the window's `_rk-pin-*` pin-session when it exists (a pinned window is
-// linked into both its pin-session and its home session, and attaching to the
-// pin-session leaves home's active-window pointer untouched), otherwise resolves
-// the home session via ResolveWindowSession (5s). A stream-level failure (bad
-// window, attach failure) emits a `closed` control event — the SOCKET itself
-// never closes for a single stream's failure (today's 4004/4001 WS close codes
-// become per-stream `closed` events).
+// once-per-server and fully async — never a subprocess on this path). Session
+// resolution picks pin → iso → home: the window's `_rk-pin-*` pin-session when
+// it exists (a pinned window is linked into both its pin-session and its home
+// session, and attaching to the pin-session leaves home's active-window pointer
+// untouched); else, when the open op carries `isolate: true`, the window's
+// `_rk-iso-*` session via EnsureIsoSession (the same independent-pointer effect,
+// on demand — a borrowed or popped-out tile never fights home's pointer); else
+// the home session via ResolveWindowSession (5s). The iso attach chains
+// `destroy-unattached on` onto its own argv (setting it at creation would
+// destroy the never-attached session immediately), so tmux reaps the iso
+// session when its last client leaves. A stream-level failure (bad window,
+// attach failure, ensure failure) emits a `closed` control event — the SOCKET
+// itself never closes for a single stream's failure (today's 4004/4001 WS close
+// codes become per-stream `closed` events).
 //
 // Write path (decision D3, a v1 protocol requirement — NOT an optimization):
 // per-stream bounded send queues drained by a SINGLE writer goroutine that
@@ -136,11 +142,20 @@ type openOp struct {
 	WindowID string `json:"windowId"`
 	Cols     uint16 `json:"cols"`
 	Rows     uint16 `json:"rows"`
+	// Isolate requests an attach through the window's own single-window
+	// `_rk-iso-*` session instead of its home session, giving the stream an
+	// active-window pointer independent of home's (a borrowed or popped-out
+	// tile must not fight the home tab's window). Absent ⇒ false (back-compat:
+	// a non-isolated open behaves exactly as before). Ignored for a pinned
+	// window — its pin-session already isolates.
+	Isolate bool `json:"isolate,omitempty"`
 }
 
 // controlIn is the shape read from every JSON control frame to discriminate the
 // op before unmarshalling into the specific op struct. `id`/`cols`/`rows` are
-// shared across resize/close so one decode covers them.
+// shared across resize/close so one decode covers them; `isolate` rides the
+// open op (an open is rebuilt from this decode field-by-field, so a field added
+// to openOp must be added here too or it is silently dropped).
 type controlIn struct {
 	Op       string `json:"op"`
 	ID       uint32 `json:"id"`
@@ -148,6 +163,7 @@ type controlIn struct {
 	WindowID string `json:"windowId"`
 	Cols     uint16 `json:"cols"`
 	Rows     uint16 `json:"rows"`
+	Isolate  bool   `json:"isolate,omitempty"`
 }
 
 // openedFrame / closedFrame are the server → client control frames.
@@ -430,6 +446,7 @@ func (s *Server) handleTerminalsWS(w http.ResponseWriter, r *http.Request) {
 				WindowID: ctl.WindowID,
 				Cols:     ctl.Cols,
 				Rows:     ctl.Rows,
+				Isolate:  ctl.Isolate,
 			})
 		case "resize":
 			tc.resizeStream(ctl.ID, ctl.Cols, ctl.Rows)
@@ -636,19 +653,47 @@ func (tc *terminalsConn) attachStream(op openOp, st *stream) {
 		}
 	}
 
-	// Resolve the session to attach to. A board-pinned window is a member of BOTH
-	// its home session AND its single-window `_rk-pin-*` pin-session (Pin uses
-	// link-window). Prefer the pin-session when it exists: its sole window is
-	// permanently active, so attaching there gives this stream an independent
-	// current-window pointer and — crucially — merely VIEWING a pinned window
-	// (board pane or direct URL) never moves the home session's active-window
-	// pointer. When the window is not pinned, resolve its home session and attach
-	// there as before. A missing window (resolve fails / empty) is a per-stream
-	// 4004.
+	// Resolve the session to attach to, in pick order pin → iso → home. A
+	// board-pinned window is a member of BOTH its home session AND its
+	// single-window `_rk-pin-*` pin-session (Pin uses link-window). Prefer the
+	// pin-session when it exists: its sole window is permanently active, so
+	// attaching there gives this stream an independent current-window pointer
+	// and — crucially — merely VIEWING a pinned window (board pane or direct
+	// URL) never moves the home session's active-window pointer. A pinned
+	// window already isolates, so `isolate` never creates an iso session for
+	// it. Otherwise, an `isolate: true` open ensures the window's `_rk-iso-*`
+	// session and attaches there (same independent-pointer effect, on demand);
+	// an ensure failure is a per-stream `closed` (4004 when the window is
+	// missing, 4001 otherwise) — the socket stays up. Every other open
+	// resolves the home session and attaches there as before. A missing window
+	// (resolve fails / empty) is a per-stream 4004.
 	resolveCtx, resolveCancel := context.WithTimeout(context.Background(), resolveTimeout)
 	var session string
+	var iso bool
 	if pinSession, ok := tmux.PinSessionName(op.WindowID); ok && tc.s.tmux.HasSession(resolveCtx, server, pinSession) {
 		session = pinSession
+	} else if op.Isolate {
+		ensured, err := tc.s.tmux.EnsureIsoSession(resolveCtx, server, op.WindowID)
+		if err != nil {
+			resolveCancel()
+			if !stillLive() {
+				failClosed(closeNormal, "closed")
+				return
+			}
+			// EnsureIsoSession maps a missing window to ResolveWindowSession's
+			// `window %q not found` contract; every other ensure failure is an
+			// attach-class failure.
+			if strings.Contains(err.Error(), "not found") {
+				slog.Warn("terminals: window not found", "windowID", op.WindowID, "err", err)
+				failClosed(closeWindowNotFound, "Window not found")
+			} else {
+				slog.Error("terminals: iso ensure failed", "windowID", op.WindowID, "err", err)
+				failClosed(closeAttachFailed, "Failed to create isolated session")
+			}
+			return
+		}
+		session = ensured
+		iso = true
 	} else {
 		resolved, err := tc.s.tmux.ResolveWindowSession(resolveCtx, server, op.WindowID)
 		if err != nil || resolved == "" {
@@ -665,6 +710,9 @@ func (tc *terminalsConn) attachStream(op openOp, st *stream) {
 	}
 	resolveCancel()
 	if !stillLive() {
+		if iso {
+			tc.rollbackIsoAttach(server, session)
+		}
 		failClosed(closeNormal, "closed")
 		return
 	}
@@ -677,6 +725,9 @@ func (tc *terminalsConn) attachStream(op openOp, st *stream) {
 	// active), but scoping keeps the code path uniform.
 	if err := tc.s.tmux.SelectWindowInSession(session, op.WindowID, server); err != nil {
 		slog.Error("terminals: select-window failed", "err", err, "session", session, "windowID", op.WindowID)
+		if iso {
+			tc.rollbackIsoAttach(server, session)
+		}
 		failClosed(closeWindowNotFound, "Window not found")
 		return
 	}
@@ -690,27 +741,22 @@ func (tc *terminalsConn) attachStream(op openOp, st *stream) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	var attachArgs []string
-	if server != "default" {
-		attachArgs = []string{"-L", server}
-	}
-	if confPath := tmux.ConfigPath(); confPath != "" {
-		attachArgs = append(attachArgs, "-f", confPath)
-	}
 	// Pre-attach reload so terminal-overrides (true color) and styles are live
 	// on this server. Managed servers only — rk never pushes its conf onto an
 	// external server. Once per server, fully async: never a subprocess on the
 	// attach path (the switch mask sits on this goroutine's latency).
 	tc.s.reloadConfigForAttach(server)
 
-	attachArgs = append(attachArgs, "attach-session", "-t", session)
-	cmd := exec.CommandContext(ctx, "tmux", attachArgs...)
+	cmd := exec.CommandContext(ctx, "tmux", attachArgv(server, session, iso)...)
 	cmd.Env = forceTERM(os.Environ())
 
 	ptmx, err := pty.StartWithSize(cmd, &initialSize)
 	if err != nil {
 		cancel()
 		slog.Error("terminals: pty start failed", "err", err, "session", session, "windowID", op.WindowID)
+		if iso {
+			tc.rollbackIsoAttach(server, session)
+		}
 		failClosed(closeAttachFailed, "Failed to attach to tmux session")
 		return
 	}
@@ -764,6 +810,59 @@ func (tc *terminalsConn) attachStream(op openOp, st *stream) {
 	// goroutine on the channel send (backpressure — the PTY reader pauses,
 	// pushing the stall into tmux's per-client buffering), never dropping bytes.
 	go tc.pumpPTY(st)
+}
+
+// attachArgv composes the tmux attach argv for a stream: server selection and
+// the managed conf exactly as a non-isolated attach has always used, then
+// `attach-session -t <session>`. An iso attach chains the lifecycle option onto
+// the SAME invocation — `; set-option -t <iso> destroy-unattached on` as
+// discrete argv elements (Constitution I: no shell strings; the ";" is its own
+// element). Setting destroy-unattached on a never-attached session destroys it
+// immediately (tmux 3.7c probe), so it can only be set by an attach as it
+// connects; tmux then reaps the iso session when its last client leaves —
+// stream close, socket teardown, or daemon crash — with no rk bookkeeping. The
+// set-option target is the bare session name (tmux rejects the `=name` exact
+// form here); the name derives from a validated window id, so it carries no
+// glob/injection surface. Pure for testability.
+func attachArgv(server, session string, iso bool) []string {
+	var args []string
+	if server != "default" {
+		args = []string{"-L", server}
+	}
+	if confPath := tmux.ConfigPath(); confPath != "" {
+		args = append(args, "-f", confPath)
+	}
+	args = append(args, "attach-session", "-t", session)
+	if iso {
+		args = append(args, ";", "set-option", "-t", session, "destroy-unattached", "on")
+	}
+	return args
+}
+
+// rollbackIsoAttach kills a just-ensured iso session when the attach path
+// fails before the attach argv runs — destroy-unattached was never chained, so
+// the session would otherwise leak. Every pre-attach exit after a successful
+// ensure (stream closed mid-attach, select-window failure, PTY start failure)
+// routes here. The kill is conditional on ZERO attached clients: another
+// isolated viewer may share the session, and it must never be killed out from
+// under a live stream. The kill is rooted in context.Background() — the
+// failing stream's deadlines must not no-op the teardown (Pin's rollback
+// pattern). A probe or kill failure only logs: the next ensure for the window
+// reuses the stranded session.
+func (tc *terminalsConn) rollbackIsoAttach(server, isoSession string) {
+	probeCtx, probeCancel := context.WithTimeout(context.Background(), resolveTimeout)
+	clients, err := tc.s.tmux.SessionClientCount(probeCtx, server, isoSession)
+	probeCancel()
+	if err != nil {
+		slog.Warn("terminals: iso rollback client probe failed — leaving the session for the next ensure", "session", isoSession, "err", err)
+		return
+	}
+	if clients > 0 {
+		return
+	}
+	if err := tc.s.tmux.KillSessionCtx(context.Background(), server, isoSession); err != nil {
+		slog.Warn("terminals: iso rollback kill failed", "session", isoSession, "err", err)
+	}
 }
 
 // pumpPTY reads the stream's PTY and enqueues stream-id-prefixed binary frames.

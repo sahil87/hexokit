@@ -1,0 +1,18 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-26T12:35:00Z"}
+{"args":"HexoKit rebrand Phase 3 row C4: D9 home-dir migration (config + state + localStorage), port pin + doctor nudge, tunnel range only-if-trivial, plan-doc bookkeeping","cmd":"fab-new","event":"command","ts":"2026-09-26T12:35:00Z"}
+{"delta":"+0.0","event":"confidence","score":3.2,"trigger":"calc-score","ts":"2026-09-26T12:37:24Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-26T12:37:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-26T12:37:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-26T13:19:31Z"}
+{"event":"review","result":"failed","ts":"2026-09-26T13:23:41Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-26T13:23:41Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-26T13:30:00Z"}
+{"event":"review","result":"failed","ts":"2026-09-26T13:36:08Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-26T13:36:08Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-26T13:45:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-26T13:49:30Z"}
+{"event":"review","result":"passed","ts":"2026-09-26T13:49:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-26T14:04:55Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-26T14:07:19Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-09-26T14:09:13Z"}
+{"event":"review","result":"passed","ts":"2026-09-26T14:23:11Z"}

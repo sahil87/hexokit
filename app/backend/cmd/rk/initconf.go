@@ -21,7 +21,7 @@ func newInitConfCmd(use string, deprecated bool) *cobra.Command {
 
 	c := &cobra.Command{
 		Use:   use,
-		Short: "Scaffold the rk-managed tmux.conf and tmux.d/ overrides under ~/.config/run-kit/",
+		Short: "Scaffold the rk-managed tmux.conf and tmux.d/ overrides under ~/.config/hexokit/",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := muxRejectInheritedServerFlag(cmd); err != nil {
 				return err

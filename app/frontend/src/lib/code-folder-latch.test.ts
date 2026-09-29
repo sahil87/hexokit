@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { codeRootFor, codeRootFollowTarget, codeRootSeed } from "./code-folder-latch";
 import type { Layout } from "./surface-layout";
 
-const codeOpen: Layout = { shape: "split-h", order: ["tty", "code"] };
-const codeClosed: Layout = { shape: "single", order: ["tty"] };
+const codeOpen: Layout = { dir: "h", children: [{ leaf: "tty" }, { leaf: "code" }] };
+const codeClosed: Layout = { leaf: "tty" };
 
 describe("codeRootFor", () => {
   it("prefers the shared codeRoot over the derived gitRoot", () => {

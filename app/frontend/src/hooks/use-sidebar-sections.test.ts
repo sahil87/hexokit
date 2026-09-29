@@ -25,9 +25,9 @@ describe("SIDEBAR_SECTIONS", () => {
     expect(SIDEBAR_SECTIONS.map((e) => e.label)).toEqual(["Boards", "Servers", "Pane", "Host"]);
   });
 
-  it("uses runkit-sidebar-section-{section} keys with boards/server on, pane/host off by default", () => {
+  it("uses hexokit-sidebar-section-{section} keys with boards/server on, pane/host off by default", () => {
     for (const entry of SIDEBAR_SECTIONS) {
-      expect(entry.key).toBe(`runkit-sidebar-section-${entry.section}`);
+      expect(entry.key).toBe(`hexokit-sidebar-section-${entry.section}`);
     }
     expect(SIDEBAR_SECTIONS.map((e) => e.defaultValue)).toEqual([true, true, false, false]);
   });
@@ -39,11 +39,11 @@ describe("useSidebarSectionVisible", () => {
     expect(renderSection("server").result.current[0]).toBe(true);
     expect(renderSection("pane").result.current[0]).toBe(false);
     expect(renderSection("host").result.current[0]).toBe(false);
-    expect(localStorage.getItem("runkit-sidebar-section-pane")).toBeNull();
+    expect(localStorage.getItem("hexokit-sidebar-section-pane")).toBeNull();
   });
 
   it("reads a persisted value", () => {
-    localStorage.setItem("runkit-sidebar-section-pane", "true");
+    localStorage.setItem("hexokit-sidebar-section-pane", "true");
     expect(renderSection("pane").result.current[0]).toBe(true);
   });
 
@@ -51,7 +51,7 @@ describe("useSidebarSectionVisible", () => {
     const { result } = renderSection("host");
     act(() => result.current[1](true));
     expect(result.current[0]).toBe(true);
-    expect(localStorage.getItem("runkit-sidebar-section-host")).toBe("true");
+    expect(localStorage.getItem("hexokit-sidebar-section-host")).toBe("true");
   });
 
   it("notifies sibling subscribers of the same section in the same tab", () => {

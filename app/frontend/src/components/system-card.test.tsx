@@ -54,7 +54,7 @@ afterEach(() => {
 describe("SystemCard — daemon line", () => {
   it("renders version, uptime, and port from the context fields", () => {
     renderCard();
-    const card = screen.getByLabelText("run-kit system");
+    const card = screen.getByLabelText("HexoKit system");
     expect(card).toHaveTextContent("v3.9.1");
     expect(card).toHaveTextContent("up 1d 1h");
     expect(card).toHaveTextContent(":3000");
@@ -62,7 +62,7 @@ describe("SystemCard — daemon line", () => {
 
   it("omits the uptime and port segments when the fields are null (older daemon) — no NaN/0 garbage", () => {
     renderCard({ daemonStarted: null, daemonPort: null });
-    const card = screen.getByLabelText("run-kit system");
+    const card = screen.getByLabelText("HexoKit system");
     expect(card).toHaveTextContent("v3.9.1");
     expect(card).not.toHaveTextContent("up");
     expect(card).not.toHaveTextContent(":3000");

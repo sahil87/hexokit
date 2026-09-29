@@ -16,23 +16,21 @@ import (
 	"os"
 	"path/filepath"
 
+	"rk/internal/apphome"
 	"rk/internal/validate"
 )
 
-// StateDir resolves the code-workspace state root: $XDG_STATE_HOME/run-kit/code
-// when the env var is set, else ~/.local/state/run-kit/code. It MUST mirror
-// codebridge.StateDir and snapshot.DefaultDir — one XDG rule, one leaf per
-// consumer; each package resolves its path independently, so the rules may
-// never drift apart.
+// StateDir resolves the code-workspace state root: <state home>/code, where
+// the state home is apphome.StateDir ($XDG_STATE_HOME when set, else
+// ~/.local/state). It MUST mirror codebridge.StateDir and snapshot.DefaultDir
+// — one apphome rule, one leaf per consumer; every package resolves through
+// apphome, so the rules can never drift apart.
 func StateDir() (string, error) {
-	if v := os.Getenv("XDG_STATE_HOME"); v != "" {
-		return filepath.Join(v, "run-kit", "code"), nil
-	}
-	home, err := os.UserHomeDir()
+	root, err := apphome.StateDir()
 	if err != nil {
 		return "", fmt.Errorf("resolving code-workspace state dir: %w", err)
 	}
-	return filepath.Join(home, ".local", "state", "run-kit", "code"), nil
+	return filepath.Join(root, "code"), nil
 }
 
 // Path composes <stateDir>/<server>/<windowID>-<hash6>.code-workspace, where

@@ -1,15 +1,16 @@
 /**
  * Web tile lens e2e (ui-state.md § Layout in tmux): the tile arrangement is
  * SHARED tab state — the `@rk_win_layout` window option — so a lens flip IS
- * an option write (the palette's `View: …` actions set `single:<view>`
- * through the shared POST seam), and every layout assertion here reads the
+ * an option write (the palette's `View: …` actions write the tree form — a
+ * bare `<view>` leaf — through the shared POST seam), and every layout
+ * assertion here reads the
  * option via `windowOption`, never the URL. The web lens is always tileable
  * (availability does not derive from the web tab family): an empty web tab
  * family selects the tile's onboarding content state (reduced live URL bar +
  * the three fill-path instructions) in place of the iframe, and an external
  * `@rk_win_web_1` write flips onboarding ↔ live with no user action. The
- * retired `?view=` param is inbound-only — a deep link translates to
- * `single:web` in the option once, then the URL is replaced with the bare
+ * retired `?view=` param is inbound-only — a deep link translates to the
+ * tree form `web` in the option once, then the URL is replaced with the bare
  * route.
  *
  * Shared setup: `beforeEach` route-stubs the derived dead port's
@@ -238,20 +239,20 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
   });
 
   /**
-   * Proves: a lens flip is a SHARED layout write — `View: Web` POSTs
-   * `single:web` to `@rk_win_layout` and `View: Terminal` POSTs
-   * `single:tty` (the choice is tab state, never the retired `@rk_win_lens`),
+   * Proves: a lens flip is a SHARED layout write — `View: Web` POSTs the
+   * tree form `web` to `@rk_win_layout` and `View: Terminal` POSTs `tty`
+   * (the choice is tab state, never the retired `@rk_win_lens`),
    * the URL stays bare throughout, and the flip does not destroy the window.
    *
    * Steps:
    * 1. Create a window with a stamped web tab; register a
    *    `page.on("request")` recorder for any `POST /api/windows/…/options`.
-   * 2. Navigate (the fallback layout is `single:tty` — the option is unset);
-   *    assert the terminal.
+   * 2. Navigate (the fallback layout is the bare `tty` leaf — the option is
+   *    unset); assert the terminal.
    * 3. `switchLens("Web")` — run the palette's `View: Web` action; assert
-   *    the iframe renders and the option reads `single:web`.
+   *    the iframe renders and the option reads `web`.
    * 4. `switchLens("Terminal")`; assert the terminal renders and the option
-   *    reads `single:tty`; assert the URL stayed bare.
+   *    reads `tty`; assert the URL stayed bare.
    * 5. Re-resolve the window by name; assert the id is unchanged AND the
    *    recorded /options bodies wrote ONLY `@rk_win_layout` (never the
    *    retired `@rk_win_lens`).
@@ -272,21 +273,21 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
       }
     });
 
-    // The option is unset → the single:tty fallback renders.
+    // The option is unset → the bare `tty` leaf fallback renders.
     await gotoWindow(page, id);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
 
     // Flip to web via the palette's `View: Web` action → iframe renders; the
-    // selection POSTs `single:web` to the shared option.
+    // selection POSTs the tree form `web` to the shared option.
     await switchLens(page, "Web");
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
-    await expectWindowLayout(id, "single:web");
+    await expectWindowLayout(id, "web");
 
     // Flip back to tty via `View: Terminal` → terminal renders; the option
-    // carries the explicit `single:tty`.
+    // carries the explicit `tty`.
     await switchLens(page, "Terminal");
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    await expectWindowLayout(id, "single:tty");
+    await expectWindowLayout(id, "tty");
     expectBareUrl(page);
 
     // The window still exists in the snapshot (never destroyed) and its id is
@@ -305,14 +306,14 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
    * degrading to tty, and with no stamped web tab the tile renders the
    * ONBOARDING content state in place of the iframe (the
    * availability-vs-content split; availability never adds a surface to the
-   * layout — the deep link alone selects `single:web`).
+   * layout — the deep link alone writes the tree form `web`).
    *
    * Steps:
    * 1. Create a plain window (no stamped web tab, `/tmp` cwd).
    * 2. Navigate to `…?view=web`.
    * 3. Assert the `web-tile-onboarding` panel renders, there is no iframe,
    *    the tty tile is hidden-but-mounted (hide-never-unmount), and the
-   *    option reads `single:web` (the deep link keeps its tile).
+   *    option reads `web` (the deep link keeps its tile).
    * 4. Open the palette with `View: Terminal`; assert the option is visible
    *    (web is current, so the palette offers the way back); Escape.
    */
@@ -327,10 +328,10 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await gotoWindow(page, id, "web");
     await expect(page.getByTestId("web-tile-onboarding")).toBeVisible({ timeout: 10_000 });
     await expect(iframe(page)).toHaveCount(0);
-    // The tty tile stays mounted (hidden) under single:web — the
+    // The tty tile stays mounted (hidden) under the `web` layout — the
     // hide-never-unmount rule keeps the terminal's scrollback alive.
     await expect(terminal(page)).toBeHidden();
-    await expectWindowLayout(id, "single:web");
+    await expectWindowLayout(id, "web");
     // The palette still offers the way back (web is current).
     await openPaletteWith(page, "View: Terminal");
     await expect(page.getByRole("option", { name: "View: Terminal" })).toBeVisible();
@@ -353,7 +354,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
    * 4. Assert the address input is visible with the
    *    `localhost:3000 · /present/… · https://…` placeholder, Refresh
    *    renders, and Back/Forward/Find in page/Open in browser render nowhere.
-   * 5. Assert the option reads `split-h:tty,web` (the chord added the tile
+   * 5. Assert the option reads `h(tty,web)` (the chord added the tile
    *    — 1→2 growth).
    */
   test("⌘3 on a URL-less window opens the web tile's onboarding state (260821-zqlq)", async ({
@@ -387,8 +388,8 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await expect(webTile.getByLabel("Forward")).toHaveCount(0);
     await expect(webTile.getByLabel("Find in page")).toHaveCount(0);
     await expect(webTile.getByLabel("Open in browser")).toHaveCount(0);
-    // The chord ADDED the web tile beside the terminal (1→2 split-h).
-    await expectWindowLayout(id, "split-h:tty,web");
+    // The chord ADDED the web tile beside the terminal (1→2 h-split).
+    await expectWindowLayout(id, "h(tty,web)");
   });
 
   /**
@@ -404,7 +405,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
    * 2. Fill the `URL` input with `localhost:<derived dead port>`; press Enter.
    * 3. Assert the iframe renders (the stubbed `/proxy/<port>/` page), the
    *    onboarding panel is gone, the option holds `/proxy/<port>/` in slot 1,
-   *    and the layout option still reads `single:web`.
+   *    and the layout option still reads `web`.
    */
   test("the onboarding address bar boots the tile for real (Enter → @rk_win_web_1 POST)", async ({
     page,
@@ -424,7 +425,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
     await expect(onboarding).toHaveCount(0);
     expect(windowOption(id, "@rk_win_web_1")).toBe(`/proxy/${DEAD.port}/`);
-    await expectWindowLayout(id, "single:web");
+    await expectWindowLayout(id, "web");
   });
 
   /**
@@ -466,13 +467,13 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
    * Proves: per-window SHARED persistence — a lens flip lands in A's
    * `@rk_win_layout`, switching windows targets the bare route (no params
    * anywhere), and B renders its own (unset) fallback while A re-renders its
-   * option's `single:web` on return. The A→B switch is a REAL client-side
+   * option's `web` tree on return. The A→B switch is a REAL client-side
    * navigation (sidebar row click), not a `page.goto`.
    *
    * Steps:
    * 1. Create window A (with a stamped web tab) and window B (plain).
    * 2. On A, `switchLens("Web")` (the palette's `View: Web` action); assert
-   *    the iframe and A's option reading `single:web`.
+   *    the iframe and A's option reading `web`.
    * 3. Switch to B by clicking B's row button in the `Sessions` sidebar
    *    (`[data-window-id=<idB>]` → first `button`); assert selection settles
    *    on B (`aria-current="page"`), the terminal renders, B's option stays
@@ -492,10 +493,10 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await gotoWindow(page, a);
     await switchLens(page, "Web");
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
-    await expectWindowLayout(a, "single:web");
+    await expectWindowLayout(a, "web");
 
     // Switch to B via a REAL client-side navigation (sidebar row click), not a
-    // page.goto — B renders its own (unset) layout: the single:tty fallback.
+    // page.goto — B renders its own (unset) layout: the bare `tty` fallback.
     const sidebar = page.locator("nav[aria-label='Sessions']");
     const rowB = sidebar
       .locator(`[data-window-id="${b}"]`)
@@ -510,7 +511,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     expect(windowOption(b, "@rk_win_layout")).toBe("");
     expectBareUrl(page);
 
-    // Back to A on the bare route — A's shared layout (single:web) renders
+    // Back to A on the bare route — A's shared layout (`web`) renders
     // from the option.
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(a)}`);
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
@@ -523,7 +524,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
    * single-line / no-horizontal-overflow contract), the mobile palette
    * supersedes the `View:` lens entries with `Tile: Switch to <Surface>`, the
    * top-bar Web button performs the one-tap tty→web switch by GROWING the
-   * shared layout (`split-h:tty,web` lands in the option) and setting the
+   * shared layout (`h(tty,web)` lands in the option) and setting the
    * per-viewer zoom key, and no switcher
    * chrome (`view-toggle` testid, "Window view" group) exists anywhere. The
    * lens itself still resolves and renders on mobile.
@@ -543,11 +544,11 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
    * 5. Open the palette with `View: Web`; assert NO `View: Web` option
    *    (mobile supersession). Refill with `Switch`; click `Tile: Switch to
    *    Terminal`; assert the terminal renders, the zoom key holds `tty`,
-   *    and the option reads `split-h:web,tty` — switching to a NOT-OPEN
+   *    and the option reads `h(web,tty)` — switching to a NOT-OPEN
    *    surface grows the shared layout through the add mutation (a phone
    *    posture must not collapse it).
    * 6. Click the banner's `Web tile` button; assert the iframe renders and
-   *    the option still reads `split-h:web,tty` (web is open in the grown
+   *    the option still reads `h(web,tty)` (web is open in the grown
    *    layout — a zoom-key-only switch back).
    * 7. Assert no horizontal page overflow (`body.scrollWidth <= 375`).
    * 8. Resize to the desktop viewport (1440×800); assert the ≥ lg compact
@@ -599,13 +600,13 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await paletteInput.fill("Switch");
     const switchToTty = page.getByRole("option", { name: "Tile: Switch to Terminal" });
     await expect(switchToTty).toBeVisible({ timeout: 10_000 });
-    // Switch to tty via the palette twin — tty is NOT open in `single:web`,
-    // so the switch grows the SHARED layout (`addSurface`) and sets this
-    // viewer's zoom key.
+    // Switch to tty via the palette twin — tty is NOT open in the `web`
+    // layout, so the switch grows the SHARED layout (`addSurface`) and sets
+    // this viewer's zoom key.
     await switchToTty.click();
     await expect(page.getByRole("dialog", { name: "Command palette" })).toBeHidden();
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    await expectWindowLayout(id, "split-h:web,tty");
+    await expectWindowLayout(id, "h(web,tty)");
     expect(
       await page.evaluate(
         (key) => localStorage.getItem(key),
@@ -618,7 +619,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     // untouched.
     await webToggle.click();
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
-    expect(windowOption(id, "@rk_win_layout")).toBe("split-h:web,tty");
+    expect(windowOption(id, "@rk_win_layout")).toBe("h(web,tty)");
     expect(
       await page.evaluate(
         (key) => localStorage.getItem(key),

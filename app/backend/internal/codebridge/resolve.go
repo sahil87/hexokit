@@ -89,6 +89,43 @@ func LiveHosts(ctx context.Context, dir string) (live, pruned []HostRecord, err 
 	return live, pruned, nil
 }
 
+// LiveHostsMerged composes LiveHosts over every discovery dir — the resolved
+// dir plus the legacy run-kit dual-read dir (see discoveryDirs). LiveHosts
+// prunes each dead record from the dir it was found in; the merge keeps the
+// first record per host id, so the resolved dir's record wins a collision and
+// a shadowed legacy duplicate is left on disk, invisible until the dual-read
+// window ends.
+func LiveHostsMerged(ctx context.Context) (live, pruned []HostRecord, err error) {
+	dirs, err := discoveryDirs("hosts")
+	if err != nil {
+		return nil, nil, err
+	}
+	seen := make(map[string]bool)
+	for _, dir := range dirs {
+		dirLive, dirPruned, err := LiveHosts(ctx, dir)
+		if err != nil {
+			return nil, nil, err
+		}
+		// Live hosts and pruned records both claim their host id: a dead
+		// record in a more authoritative dir still shadows the legacy one.
+		for _, rec := range dirLive {
+			if seen[rec.HostID] {
+				continue
+			}
+			seen[rec.HostID] = true
+			live = append(live, rec)
+		}
+		for _, rec := range dirPruned {
+			if seen[rec.HostID] {
+				continue
+			}
+			seen[rec.HostID] = true
+			pruned = append(pruned, rec)
+		}
+	}
+	return live, pruned, nil
+}
+
 // folderPrefixMatch reports whether folder equals target or is a
 // path-component-aware prefix of it: /repo matches /repo/x but NOT
 // /repository (a shared string prefix is not a containment).

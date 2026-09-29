@@ -18,9 +18,7 @@ import (
 //
 // It branches a live agent's conversation into a NEW tmux window rooted at the
 // SAME directory, by spawning a riff window in checkout mode whose launcher
-// carries `--resume <uuid> --fork-session`. The original agent is untouched
-// (Claude Code's fork creates a fresh session id and does not append to the
-// source transcript).
+// uses the source provider's fork command. The original conversation is untouched.
 //
 // The endpoint is WINDOW-KEYED and derives everything else server-side — the
 // client supplies only {windowId} + server, and no request body is read
@@ -41,10 +39,7 @@ import (
 // primary gate.
 var forkSessionUUIDRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-// forkProviderClaude is the only provider a fork supports in v1 — the
-// `--resume <id> --fork-session` mechanism is Claude Code's. A well-formed
-// non-claude provider is a 404-class result (the window has an agent session,
-// just not a forkable one), mirroring internal/transcript's ErrNoAdapter mapping.
+// forkProviderClaude is also used by the Claude-only closed-window resume route.
 const forkProviderClaude = "claude"
 
 // forkResolveTimeout bounds the FetchSessions read that resolves the fork source.
@@ -65,7 +60,7 @@ type forkSource struct {
 	// (sessions.ResolveAgentPane's active-pane-first rollup).
 	Provider string
 	Ref      string
-	// Cwd is the window's derived working directory (windowCwd) — the directory
+	// Cwd is the resolved agent pane's working directory — the directory
 	// the fork window is rooted at VERBATIM. It is only gate-checked against
 	// FindGitRoot, never replaced by the walked-up root: claude's transcript store
 	// is keyed by the exact cwd, so a subdirectory must stay a subdirectory.
@@ -99,13 +94,23 @@ func (s *Server) resolveForkSource(ctx context.Context, server, windowID string)
 			if w.WindowID != windowID {
 				continue
 			}
-			provider, ref, _ := sessions.ResolveAgentPane(w.Panes)
+			provider, ref, paneID := sessions.ResolveAgentPane(w.Panes)
+			// Keep the conversation and directory tied to the same pane. The
+			// active pane can be a shell in a different checkout. A missing
+			// agent cwd must fail the directory gate rather than borrow that cwd.
+			var cwd string
+			for _, pane := range w.Panes {
+				if paneID != "" && pane.PaneID == paneID {
+					cwd = pane.Cwd
+					break
+				}
+			}
 			return forkSource{
 				Session:    sess[si].Name,
 				WindowName: w.Name,
 				Provider:   provider,
 				Ref:        ref,
-				Cwd:        windowCwd(*w),
+				Cwd:        cwd,
 			}, true, nil
 		}
 	}
@@ -118,10 +123,9 @@ func (s *Server) resolveForkSource(ctx context.Context, server, windowID string)
 //	POST /api/windows/{windowId}/fork?server=<name>
 //	(no request body — every input is derived server-side)
 //	200: {"server","session","window","windowId"}  (riff's result shape)
-//	400: malformed windowId; the window's cwd is not inside a git repo; the
-//	     repo's default fab tier resolves a non-claude launcher (an engine
-//	     ExitValidation — the fork flags are Claude-only)
-//	404: no such window; no reconciled agent session; a non-claude provider; a
+//	400: malformed windowId; the window's cwd is not inside a git repo;
+//	     engine validation fails
+//	404: no such window; no reconciled agent session; an unsupported provider; a
 //	     non-UUID reconciled ref (all properties of the pane's
 //	     @rk_pane_agent_session, not server faults — internal/transcript's
 //	     ErrInvalidRef posture)
@@ -155,11 +159,11 @@ func (s *Server) handleWindowFork(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no agent session for this window — nothing to fork")
 		return
 	}
-	if src.Provider != forkProviderClaude {
+	if src.Provider != forkProviderClaude && src.Provider != "codex" {
 		// A well-formed but non-forkable provider: the window HAS an agent
 		// session, so this is deliberately a distinct message from the
 		// no-agent-session 404 above.
-		writeError(w, http.StatusNotFound, fmt.Sprintf("cannot fork a %q session — conversation fork requires provider %q", src.Provider, forkProviderClaude))
+		writeError(w, http.StatusNotFound, fmt.Sprintf("cannot fork a %q session — conversation fork requires claude or codex", src.Provider))
 		return
 	}
 	// Strict UUID gate BEFORE the ref can reach any argv/shell composition
@@ -209,6 +213,7 @@ func (s *Server) handleWindowFork(w http.ResponseWriter, r *http.Request) {
 		// so a subdirectory is a legitimate value.
 		RepoRoot:         src.Cwd,
 		ResumeSessionRef: src.Ref,
+		ForkProvider:     src.Provider,
 		WindowNameBase:   src.WindowName + forkWindowNameSuffix,
 	})
 	if err != nil {

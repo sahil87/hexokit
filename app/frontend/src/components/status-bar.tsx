@@ -32,6 +32,7 @@ import { getAgentLine, getFabParts, getPrSegments, getTmxLabel, splitDatePrefix 
 import { FAB_STATE_COLORS } from "@/components/pr-status-model";
 import { controlClass } from "@/components/control";
 import { useCopyFeedback } from "@/hooks/use-copy-feedback";
+import { useOccludes } from "@/hooks/use-occludes";
 import { formatDuration, parseFabChange } from "@/lib/format";
 import { requestQuakeTerminal } from "@/lib/quake-terminal";
 import {
@@ -444,6 +445,10 @@ function OverflowMenu({
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const { copiedKey, copy } = useCopyFeedback<"git" | "tmx" | "cwd" | "version" | "server" | "host">();
+
+  // Menus register `transient` (overlay-presence): while open, a native guest
+  // composited above the DOM hides so the menu never paints underneath it.
+  useOccludes("transient", open);
 
   // The menu's rows in DOM (= visual) order. Every rendered row is a folded
   // segment, so no visibility filtering is needed — the rows list IS the

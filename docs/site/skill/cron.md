@@ -10,7 +10,7 @@ command -v rk >/dev/null 2>&1 || exit 0
 
 ## What a cron entry is
 
-An entry is **a prompt plus a schedule**, stored in the resolved server's intent file (`$XDG_STATE_HOME/run-kit/cron/<server>.yaml`). This is not a system cron: **nothing is ever executed**. At fire time rk types the prompt into the target agent's chat through the injection engine and presses Enter, exactly as if a person had typed it — to run a command, ask the agent to run it in the prompt text. A daemon ticker evaluates the entries; an occurrence the daemon was down for is logged `missed`, never fired late — except a `--cron` entry with `--catch-up once`, which fires once late after a gap.
+An entry is **a prompt plus a schedule**, stored in the resolved server's intent file (`$XDG_STATE_HOME/hexokit/cron/<server>.yaml`). This is not a system cron: **nothing is ever executed**. At fire time rk types the prompt into the target agent's chat through the injection engine and presses Enter, exactly as if a person had typed it — to run a command, ask the agent to run it in the prompt text. A daemon ticker evaluates the entries; an occurrence the daemon was down for is logged `missed`, never fired late — except a `--cron` entry with `--catch-up once`, which fires once late after a gap.
 
 Reach for it for **periodic checks** ("check on PR #123 every 30 minutes"), **idle nudges** ("if the build session has been quiet for 5m, ask it for a status"), **wall-clock reminders** ("remind me at 9am"), and wake-on-state work — the operator tick (the operator entry fab seeds on every tmux server) fires on a backoff keyed to the agents' idle epochs, so the operator reviews when agents finish instead of polling.
 

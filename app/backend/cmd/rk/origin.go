@@ -32,8 +32,8 @@ var (
 //     server via the $TMUX socket path. The value is validated (parseable
 //     http/https URL with a non-empty host) before use; empty, unreadable, or
 //     invalid values fall through.
-//  3. Default: the config.Load() derivation (http://127.0.0.1:3000 without
-//     env) — unchanged fallback.
+//  3. Default: the config.Load() derivation (http://127.0.0.1:<portpolicy
+//     default> without env) — unchanged fallback.
 //
 // The option is pane-writable same-user state, so rung 2's validation is what
 // keeps a garbage/hostile value from becoming a request target (A-018).

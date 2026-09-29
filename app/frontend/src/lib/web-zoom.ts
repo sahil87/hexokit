@@ -15,7 +15,7 @@
  *    `proxy:{port}`, `present`/`relative` → the single viewer-origin bucket
  *    `self`. Matches browser per-origin zoom expectations.
  * 3. `readWebZoom`/`writeWebZoom` — try/catch-noop accessors over ONE
- *    localStorage key (`runkit-web-zoom`) holding a `{[bucket]: level}` map;
+ *    localStorage key (`hexokit-web-zoom`) holding a `{[bucket]: level}` map;
  *    a level of 1 removes the entry so the map stays sparse. Per-viewer
  *    state only — never POSTed (Constitution IV; spec window-views R7).
  * 4. `WEB_ZOOM_EVENT` — the document CustomEvent seam the palette actions
@@ -45,7 +45,7 @@ export const WEB_ZOOM_DEFAULT = 1;
 export const WEB_ZOOM_MIN = WEB_ZOOM_LEVELS[0];
 export const WEB_ZOOM_MAX = WEB_ZOOM_LEVELS[WEB_ZOOM_LEVELS.length - 1];
 
-const WEB_ZOOM_STORAGE_KEY = "runkit-web-zoom";
+const WEB_ZOOM_STORAGE_KEY = "hexokit-web-zoom";
 
 /** The nearest ladder level to `value` (ties break toward the lower level). */
 function nearestLevel(value: number): number {

@@ -763,7 +763,7 @@ func TestGuiSuperviseLinuxIcewmSeedsStampsAndStarts(t *testing.T) {
 		return true, nil
 	}
 
-	profileDir := filepath.Join(stateHome, "run-kit", "gui", "icewm")
+	profileDir := filepath.Join(stateHome, "hexokit", "gui", "icewm")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
@@ -829,7 +829,7 @@ func TestGuiSuperviseLinuxIcewmUnseededLogVariant(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- runGuiSuperviseCtx(ctx, "host", ":16") }()
 
-	profileDir := filepath.Join(stateHome, "run-kit", "gui", "icewm")
+	profileDir := filepath.Join(stateHome, "hexokit", "gui", "icewm")
 	waitForGuiLog(t, buf, "gui: window manager icewm-session (config "+profileDir+")")
 	if strings.Contains(buf.String(), "seeded preferences") {
 		t.Errorf("log =\n%s\nwant no seeded suffix when seeded=false", buf.String())
@@ -1075,7 +1075,7 @@ func TestGuiSuperviseLinuxLxqtSeedsAndSetsConfigDirs(t *testing.T) {
 			done := make(chan error, 1)
 			go func() { done <- runGuiSuperviseCtx(ctx, "host", display) }()
 
-			defaultsDir := filepath.Join(stateHome, "run-kit", "gui", "lxqt", "etc")
+			defaultsDir := filepath.Join(stateHome, "hexokit", "gui", "lxqt", "etc")
 			waitForGuiLog(t, buf, "gui: window manager "+wmName+" (session under dbus-run-session; defaults "+defaultsDir+", seeded)")
 
 			mu.Lock()
@@ -1135,7 +1135,7 @@ func TestGuiSuperviseLinuxLxqtUnseededLogVariant(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- runGuiSuperviseCtx(ctx, "host", ":24") }()
 
-	defaultsDir := filepath.Join(stateHome, "run-kit", "gui", "lxqt", "etc")
+	defaultsDir := filepath.Join(stateHome, "hexokit", "gui", "lxqt", "etc")
 	waitForGuiLog(t, buf, "gui: window manager startlxqt (session under dbus-run-session; defaults "+defaultsDir+")")
 	if strings.Contains(buf.String(), ", seeded)") {
 		t.Errorf("log =\n%s\nwant no seeded suffix when seeded=false", buf.String())
@@ -1175,7 +1175,7 @@ func TestGuiSuperviseLinuxLxqtSeedFailureStartsWithDefaults(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- runGuiSuperviseCtx(ctx, "host", ":25") }()
 
-	defaultsDir := filepath.Join(stateHome, "run-kit", "gui", "lxqt", "etc")
+	defaultsDir := filepath.Join(stateHome, "hexokit", "gui", "lxqt", "etc")
 	waitForGuiLog(t, buf, guiLXQtSeedFailedLine(defaultsDir, "startlxqt", os.ErrPermission))
 	waitForGuiLog(t, buf, "gui: window manager startlxqt (session under dbus-run-session)\n")
 
@@ -1211,7 +1211,7 @@ func TestGuiSuperviseLinuxIcewmSeedFailureStartsWithDefaults(t *testing.T) {
 	t.Cleanup(func() { guiSuperviseSeed = origSeed })
 	guiSuperviseSeed = func(string, string, string) (bool, error) { return false, os.ErrPermission }
 
-	profileDir := filepath.Join(stateHome, "run-kit", "gui", "icewm")
+	profileDir := filepath.Join(stateHome, "hexokit", "gui", "icewm")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)

@@ -1,0 +1,59 @@
+id: xm7k
+name: 260925-xm7k-web-tile-ws-tunnel
+created: 2026-09-25T06:33:15Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 14
+    acceptance_count: 35
+    acceptance_completed: 35
+confidence:
+    certain: 11
+    confident: 13
+    tentative: 0
+    unresolved: 0
+    score: 3.0
+    fuzzy: true
+    dimensions:
+        signal: 75.6
+        reversibility: 76.7
+        competence: 80.4
+        disambiguation: 74.2
+stage_metrics:
+    intake: {started_at: "2026-09-25T06:33:15Z", driver: fab-new, iterations: 1, completed_at: "2026-09-25T06:39:36Z"}
+    apply: {started_at: "2026-09-25T06:39:36Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T07:01:33Z"}
+    review: {started_at: "2026-09-25T07:01:33Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T07:07:35Z"}
+    hydrate: {started_at: "2026-09-25T07:07:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T07:15:48Z"}
+    ship: {started_at: "2026-09-25T07:15:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T07:18:41Z"}
+    review-pr: {started_at: "2026-09-25T07:18:41Z", driver: git-pr, iterations: 1, completed_at: "2026-09-25T08:43:26Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/1037
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 2972
+    deleted: 846
+    net: 2126
+    excluding:
+        added: 2108
+        deleted: 717
+        net: 1391
+    tests:
+        added: 1138
+        deleted: 425
+        net: 713
+    computed_at: "2026-09-25T07:18:41Z"
+    computed_at_stage: ship
+summary: 'Replaced #1033''s same-port CONNECT forward proxy with the /ws/tunnel WebSocket tunnel + desktop-local per-host proxy; forwardProxy → tunnel health field; WebSocket Origin policy (tunnel: no Origin/Sec-Fetch-Site; shared: Fetch-Metadata-first); constitution back to one §IX exception'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-25T08:43:26Z

@@ -20,7 +20,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // prChecks pass, prReview approved — the gate satisfied; @1 is the active
 // window, so the Pane panel reflects it on load) and @2 "scratch-shell" (no
 // fabChange — the gate fails). beforeEach installs both routes before
-// navigation and seeds localStorage['runkit-sidebar-section-pane'] = 'true'
+// navigation and seeds localStorage['hexokit-sidebar-section-pane'] = 'true'
 // via addInitScript — the Pane panel is visibility-gated and defaults OFF,
 // and the seed re-runs on every navigation, keeping the panel mounted through
 // the in-test goto sequences.
@@ -106,7 +106,7 @@ test.describe("Pane panel PR status", () => {
     // section in. The init script re-runs on every navigation, so the
     // in-test goto/reload sequences keep the panel mounted.
     await page.addInitScript(() => {
-      localStorage.setItem("runkit-sidebar-section-pane", "true");
+      localStorage.setItem("hexokit-sidebar-section-pane", "true");
     });
   });
 

@@ -231,7 +231,7 @@ func TestEnsureGUIDarwinNeverProbesBackend(t *testing.T) {
 func TestEnsureGUIStateDirFailureNamesThePath(t *testing.T) {
 	withGUISetting(t, true)
 	rec := withGUISeams(t, false)
-	// A FILE as XDG_STATE_HOME makes MkdirAll(<file>/run-kit/gui) fail.
+	// A FILE as XDG_STATE_HOME makes MkdirAll(<file>/hexokit/gui) fail.
 	blocker := filepath.Join(t.TempDir(), "state-home")
 	if err := os.WriteFile(blocker, []byte("not a dir"), 0o644); err != nil {
 		t.Fatal(err)

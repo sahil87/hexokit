@@ -4,7 +4,7 @@ import { TMUX_SERVER, TMUX_FAMILY, createSession, killServer, killSession } from
 
 /**
  * Behavioural contract for the sidebar's explicit sessions-pane scope
- * (localStorage `runkit-panel-sessions-scope`, `all | current`, default
+ * (localStorage `hexokit-panel-sessions-scope`, `all | current`, default
  * `all`) and its delink from the SERVER panel's expansion state. The
  * SESSIONS-header chip (`ALL`/`CUR`) is the toggle affordance; the SERVER
  * panel defaults open and its expansion no longer filters the session tree.

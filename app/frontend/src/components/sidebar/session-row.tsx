@@ -331,7 +331,9 @@ function SessionRowInner({
       // occupying the same left column as the window row's marker well (see
       // the chevron below).
       className={`flex items-center justify-between group${ghost ? "" : " coarse:pr-[56px]"} relative${tint ? "" : " hover:bg-bg-chrome-raised"} transition-colors${isDragSource ? " opacity-50" : ""}`}
-      draggable={draggable}
+      // Suspended while renaming so a pointer drag in the input selects text
+      // instead of dragging the row (the window row's guard).
+      draggable={draggable && editingSession !== session.name}
       onDragStart={
         onDragStart
           ? (e) => {

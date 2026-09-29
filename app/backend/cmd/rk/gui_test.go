@@ -562,7 +562,7 @@ func TestGuiStatusJSONDocument(t *testing.T) {
 	if st.Backend != "Xtigervnc" || st.Display != ":10" || st.Width != 1920 || st.Height != 1080 || st.Viewers != 1 {
 		t.Errorf("document = %+v, want Xtigervnc/:10/1920x1080/1 viewer", st)
 	}
-	wantSock := filepath.Join("run-kit", "gui", "host.sock")
+	wantSock := filepath.Join("hexokit", "gui", "host.sock")
 	if !strings.HasSuffix(st.Socket, wantSock) {
 		t.Errorf("socket = %q, want suffix %q", st.Socket, wantSock)
 	}
@@ -652,7 +652,7 @@ func TestGuiEnvPrintsExports(t *testing.T) {
 	if len(lines) < 2 || lines[0] != "export DISPLAY=:10" {
 		t.Errorf("stdout = %q, want the DISPLAY export first", out.String())
 	}
-	wantSockSuffix := filepath.Join("run-kit", "gui", "host.sock")
+	wantSockSuffix := filepath.Join("hexokit", "gui", "host.sock")
 	if !strings.HasPrefix(lines[1], "export RK_GUI_SOCKET='") || !strings.HasSuffix(lines[1], wantSockSuffix+"'") {
 		t.Errorf("socket export = %q, want export RK_GUI_SOCKET='<…%s>'", lines[1], wantSockSuffix)
 	}

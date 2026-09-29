@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"rk/internal/config"
-	"rk/internal/gitinfo"
 	"rk/internal/inject"
 	"rk/internal/riff"
 	"rk/internal/tmux"
@@ -37,15 +36,15 @@ import (
 // Both preconditions are HARD (exit 1): fab on PATH always; inside tmux unless
 // -L/--server names the server explicitly (the daemon-invocable form: no $TMUX,
 // every tmux call addressed with -L <name>, and a singleton hit reported
-// without any switch-client — there is no client to switch). Server mode
-// derives the window's directory from the server's user-role sessions (the
-// main-worktree root carrying the deployed fab-operator skill; $HOME only when
-// nothing qualifies — see operatorLaunchRoot) so the booted agent finds both
-// the skill and an already-trusted checkout; the interactive path keeps the
-// git-root-of-cwd rule. Unlike tutorial's fail-open posture there is no
-// default-launcher degrade for a missing fab — an operator without fab-kit is
-// meaningless (the /fab-operator skill would not exist). No tmux subprocess
-// runs before both pass.
+// without any switch-client — there is no client to switch). The window's
+// directory is deterministic: an explicit --dir wins in both modes; server
+// mode without --dir reuses the server's last operator launch directory
+// (@rk_srv_operator_root, stamped on every successful create) and falls back
+// to $HOME when none is recorded or the recorded directory is gone; the
+// interactive path keeps the git-root-of-cwd rule. Unlike tutorial's fail-open
+// posture there is no default-launcher degrade for a missing fab — an operator
+// without fab-kit is meaningless (the /fab-operator skill would not exist). No
+// tmux subprocess runs before both pass.
 //
 // The singleton probe is server-WIDE (unlike tutorial's session scope):
 // `list-windows -a` on the current server, matching @rk_win_role=operator first
@@ -109,12 +108,9 @@ var operatorJSONFlag bool
 // reports — the reason the operator window's directory was chosen (the
 // sessionRung* precedent: the key set is stable, so the token set is too).
 const (
-	dirRungSole         = "sole"
-	dirRungMostAttached = "most-attached"
-	dirRungMostWindows  = "most-windows"
-	dirRungFirst        = "first"
-	dirRungHome         = "home"
-	dirRungExplicit     = "explicit"
+	dirRungExplicit = "explicit"
+	dirRungStored   = "stored"
+	dirRungHome     = "home"
 )
 
 // operatorReceipt is the --json success document: the window id, the server
@@ -160,19 +156,17 @@ string), and an invalid value is a usage error before anything runs.
 -L/--server <name> addresses a NAMED tmux server instead of the caller's own:
 the inside-tmux precondition is waived (this is how the cron daemon invokes
 it), every tmux call runs against -L <name>, and an already-present operator
-tab is reported without switching any client. The window's working directory
-is derived from the server's own sessions: the main-worktree root of a
-user-role session that carries the deployed fab-operator skill
-(.agents/skills/fab-operator or .claude/skills/fab-operator) — the sole
-qualifying root wins, else the most attached session's root, then the most
-windows, then the earliest session — so the agent boots where the skill and
-its trust already exist. When no session qualifies the window falls back to
-your home directory and the kickoff miss is surfaced instead of silent.
+tab is reported without switching any client. Without --dir the window's
+working directory is the one recorded by the server's last operator launch
+(the server-scoped @rk_srv_operator_root option, stamped on every successful
+create); when none is recorded — or the recorded directory no longer exists —
+the window opens in your home directory.
 
 --dir <path> pins the window's working directory outright (both modes): the
 value must be an absolute path to an existing directory, and its git root
-drives agent resolution. The derivation above does not run when --dir is
-given.
+drives agent resolution. The recorded-directory lookup above does not run when
+--dir is given. Every created operator records its directory for later
+respawns.
 
 To hand the operator a templated work item (fix-tab-name, brief-me,
 spawn-task, …) from the shell, use 'rk operator request' — see
@@ -202,7 +196,7 @@ func init() {
 	operatorCmd.Flags().StringVar(&operatorWorkersFlag, "workers", "",
 		"set FAB_AGENT_WORKERS for the launched operator agent (letters, digits, '_' and '-' only)")
 	operatorCmd.Flags().StringVarP(&operatorServerFlag, "server", "L", "",
-		"address the named tmux server (no $TMUX required; the window opens in a derived project root, falling back to the home directory; an existing operator tab is reported, not switched to)")
+		"address the named tmux server (no $TMUX required; without --dir the window opens in the server's last recorded operator directory, else the home directory; an existing operator tab is reported, not switched to)")
 	operatorCmd.Flags().StringVar(&operatorDirFlag, "dir", "",
 		"pin the operator window's working directory (absolute path to an existing directory; also drives agent resolution)")
 	operatorCmd.Flags().BoolVar(&operatorJSONFlag, "json", false,
@@ -235,19 +229,20 @@ var (
 		return tmux.RunOutput(ctx, args, tmux.RunOpts{Env: env})
 	})
 	operatorResolveAgentFn = riff.ResolveAgent
-	// operatorSessionFactsFn enumerates the target server's sessions for the
-	// launch-root derivation (the tabNewSessionFactsFn pattern); tests stub it
-	// to drive the rung ladder tmux-free. An enumeration error degrades to the
-	// home fallback — the window is still worth opening.
-	operatorSessionFactsFn = func(ctx context.Context, server string) ([]tmux.SessionFacts, error) {
-		return tmux.ListSessionFacts(ctx, server)
+	// operatorGetRootFn reads the server's recorded operator launch directory
+	// (@rk_srv_operator_root) for the -L path's stored rung; tests stub it to
+	// drive the stored/home rungs tmux-free. An unset option or a read error
+	// degrades to the home fallback — the window is still worth opening.
+	operatorGetRootFn = func(ctx context.Context, server string) (string, error) {
+		return tmux.GetOperatorRoot(ctx, server)
 	}
-	// operatorMainRootFn collapses a session's start path to its main-worktree
-	// root (linked worktrees live in the sibling <repo>.worktrees/<name>
-	// directory, so only the common-dir resolution ties them to the checkout);
-	// "" means "not inside a git repository" and drops the candidate.
-	operatorMainRootFn = func(ctx context.Context, dir string) string {
-		return gitinfo.MainWorktreeRoot(ctx, dir)
+	// operatorStampRootFn records a created window's directory as the server's
+	// operator root for later -L launches. server is the -L value in server
+	// mode and the caller's socket-basename label interactively (the
+	// cliServerLabel derivation the kickoff delivery already targets). Tests
+	// stub it.
+	operatorStampRootFn = func(ctx context.Context, server, dir string) error {
+		return tmux.SetOperatorRoot(ctx, server, dir)
 	}
 )
 
@@ -370,13 +365,13 @@ func runOperator(cmd *cobra.Command) error {
 		return nil
 	}
 
-	// Directory selection: an explicit --dir wins in both modes (used verbatim;
-	// its git root — falling back to the path itself — drives agent
-	// resolution). Server mode otherwise derives the root from the server's
-	// user sessions (operatorLaunchRoot); nothing qualifying (or an
-	// enumeration error) falls back to the home directory, rung home, with the
-	// agent root left empty — the miss is surfaced by the kickoff reporting
-	// below. The interactive default keeps the git-root-of-cwd rule.
+	// Directory selection is deterministic: an explicit --dir wins in both
+	// modes (used verbatim; its git root — falling back to the path itself —
+	// drives agent resolution). Server mode without --dir reuses the server's
+	// recorded operator root (@rk_srv_operator_root) when it still validates;
+	// nothing recorded (or an unreadable/gone record) falls back to the home
+	// directory, rung home, with the agent root left empty. The interactive
+	// default keeps the git-root-of-cwd rule.
 	var windowDir, root, rung string
 	switch {
 	case operatorDirFlag != "":
@@ -387,17 +382,20 @@ func runOperator(cmd *cobra.Command) error {
 			root = operatorDirFlag
 		}
 	case serverMode:
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("run-kit operator: resolve home directory: %w", err)
-		}
-		windowDir, rung = home, dirRungHome
-		if facts, ferr := operatorSessionFactsFn(ctx, operatorServerFlag); ferr == nil {
-			if picked, pickedRung := operatorLaunchRoot(facts,
-				func(path string) string { return operatorMainRootFn(ctx, path) },
-				hasOperatorSkill); picked != "" {
-				windowDir, root, rung = picked, picked, pickedRung
+		stored, serr := operatorGetRootFn(ctx, operatorServerFlag)
+		if serr == nil && stored != "" && validateOperatorDir(stored) == nil {
+			windowDir = stored
+			rung = dirRungStored
+			root = config.FindGitRoot(stored)
+			if root == "" {
+				root = stored
 			}
+		} else {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("run-kit operator: resolve home directory: %w", err)
+			}
+			windowDir, rung = home, dirRungHome
 		}
 	default:
 		cwd, err := os.Getwd()
@@ -434,6 +432,20 @@ func runOperator(cmd *cobra.Command) error {
 	paneID, err := createMarkedOperatorWindow(ctx, runOutput, env, socketPrefix, windowDir, shellCmd)
 	if err != nil {
 		return &riff.ExitCodeError{Code: riff.ExitSubprocess, Msg: "run-kit operator: " + err.Error()}
+	}
+
+	// Record the launch directory on the server for later -L respawns (the
+	// cron argv carries no --dir). Best-effort: the window and agent already
+	// exist, so a failed stamp is a stderr note — never an exit-code or
+	// receipt change. Singleton hits returned above and never stamp. The
+	// interactive path addresses its server by the same socket-basename label
+	// the kickoff delivery uses (cliServerLabel).
+	stampServer := operatorServerFlag
+	if !serverMode {
+		stampServer = cliServerLabel(originalTMUX)
+	}
+	if err := operatorStampRootFn(ctx, stampServer, windowDir); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "run-kit operator: could not record the launch directory on the server (%v)\n", err)
 	}
 
 	if operatorJSONFlag {
@@ -581,101 +593,6 @@ func operatorShellCommand(launcher, workers string) string {
 		launcher = "FAB_AGENT_WORKERS=" + workers + " " + launcher
 	}
 	return riff.SkillPaneCommand(launcher, "")
-}
-
-// operatorSkillPaths are the two deployed fab-operator skill locations a
-// qualifying launch root must carry one of (fab sync writes both; different
-// providers read different trees, so either is sufficient).
-var operatorSkillPaths = []string{
-	filepath.Join(".agents", "skills", "fab-operator", "SKILL.md"),
-	filepath.Join(".claude", "skills", "fab-operator", "SKILL.md"),
-}
-
-// hasOperatorSkill reports whether root carries the deployed fab-operator
-// skill — the qualification test for a launch root (the skill is what the
-// booted agent needs; a fab project without a synced skill tree fails
-// identically to $HOME). os.Stat only — no subprocess per candidate.
-func hasOperatorSkill(root string) bool {
-	for _, rel := range operatorSkillPaths {
-		if _, err := os.Stat(filepath.Join(root, rel)); err == nil {
-			return true
-		}
-	}
-	return false
-}
-
-// operatorLaunchRoot picks the operator window's working directory for the
-// -L/--server path: the main-worktree root of a user-role session on the
-// server that carries the fab-operator skill. Non-user (infrastructure)
-// sessions are never candidates — their paths are $HOME by construction.
-// Each candidate's start path is collapsed to its main checkout by rootOf
-// ("" = not a repo, dropped); a root qualifies when hasOperatorSkill(root)
-// holds. Two sessions collapsing to one root are ONE root carrying the max
-// Attached/Windows across them. Ranking over qualifying distinct roots: the
-// sole one wins (rung sole); else the highest Attached (most-attached); ties
-// → highest Windows (most-windows); ties → the root whose first session
-// appears earliest in enumeration order (first). Returns ("", "") when
-// nothing qualifies — the caller falls back to the home directory (rung
-// home). Pure.
-func operatorLaunchRoot(candidates []tmux.SessionFacts, rootOf func(path string) string, hasSkill func(root string) bool) (root, rung string) {
-	type rootAgg struct {
-		root     string
-		attached int
-		windows  int
-	}
-	var roots []rootAgg
-	seen := make(map[string]int, len(candidates))
-	for _, c := range candidates {
-		if c.Role != tmux.SessionRoleUser {
-			continue
-		}
-		r := rootOf(c.Path)
-		if r == "" || !hasSkill(r) {
-			continue
-		}
-		if i, ok := seen[r]; ok {
-			roots[i].attached = max(roots[i].attached, c.Attached)
-			roots[i].windows = max(roots[i].windows, c.Windows)
-			continue
-		}
-		seen[r] = len(roots)
-		roots = append(roots, rootAgg{root: r, attached: c.Attached, windows: c.Windows})
-	}
-	switch len(roots) {
-	case 0:
-		return "", ""
-	case 1:
-		return roots[0].root, dirRungSole
-	}
-	maxAttached := 0
-	for _, r := range roots {
-		maxAttached = max(maxAttached, r.attached)
-	}
-	top := roots[:0:0]
-	for _, r := range roots {
-		if r.attached == maxAttached {
-			top = append(top, r)
-		}
-	}
-	if len(top) == 1 {
-		return top[0].root, dirRungMostAttached
-	}
-	maxWindows := 0
-	for _, r := range top {
-		maxWindows = max(maxWindows, r.windows)
-	}
-	best := top[:0:0]
-	for _, r := range top {
-		if r.windows == maxWindows {
-			best = append(best, r)
-		}
-	}
-	if len(best) == 1 {
-		return best[0].root, dirRungMostWindows
-	}
-	// Enumeration order is preserved through both filters, so best[0] is the
-	// earliest row among the full ties.
-	return best[0].root, dirRungFirst
 }
 
 // validateOperatorDir gates --dir before any subprocess: the value must be an

@@ -5,7 +5,7 @@
  * composition are unit-testable without mounting the shell. The action is
  * omitted with no mounted table (omit-not-disable), direct with one, and a
  * `…` optionPicker with two or more; applying the picker resets each picked
- * table's `runkit-table-<id>` view state (sort back to its initial order,
+ * table's `hexokit-table-<id>` view state (sort back to its initial order,
  * widths back to defaults).
  */
 import type { PaletteAction } from "@/components/command-palette";

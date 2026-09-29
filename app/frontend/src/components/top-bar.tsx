@@ -55,9 +55,10 @@ import type { GuiQuality } from "@/lib/gui-posture";
 import { GuiToolbarMobileOverflow } from "@/components/gui-toolbar";
 import { deriveCrumbsCollapsed } from "@/lib/crumb-collapse";
 import { useKeybindings } from "@/hooks/use-keybindings";
+import { useOccludes } from "@/hooks/use-occludes";
 import { formatCombo } from "@/lib/keybindings";
-import type { Layout, SurfaceKind } from "@/lib/surface-layout";
-import { SURFACE_GLYPH, SURFACE_LABEL } from "@/lib/surface-layout";
+import type { Layout, SurfaceKind, TemplateName } from "@/lib/surface-layout";
+import { applyTemplate, SURFACE_GLYPH, SURFACE_LABEL } from "@/lib/surface-layout";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
@@ -164,6 +165,19 @@ type TopBarProps = {
         available: SurfaceKind[];
         open: SurfaceKind[];
         onToggle: (surface: SurfaceKind) => void;
+        /** The size-floor add gate (replaces the retired 3-tile count cap):
+         *  false ⇒ no further split fits the floor and the unlit buttons
+         *  render disabled instead of no-oping silently. */
+        canAdd: boolean;
+        /** Per-surface "away" predicate: the surface's slot is live in
+         *  another tab (the route window's `awayIn`) — the button carries an
+         *  away marker. Absent → no markers (legacy). */
+        away?: (surface: SurfaceKind) => boolean;
+        /** Per-surface "popped" predicate: the surface's close-target leaf is
+         *  popped out for this viewer — the button carries a popped marker
+         *  (`surface-popped-<surface>`) and the `<Label> — popped out`
+         *  tooltip. Absent → no markers (legacy). */
+        popped?: (surface: SurfaceKind) => boolean;
         /** Per-surface corner-dot predicate (260821-zqlq): the dot means
          *  "has content" for web (`hasWebUrl`); every other surface stays
          *  always-on. Absent → the dot renders unconditionally (legacy). */
@@ -175,9 +189,8 @@ type TopBarProps = {
         active: SurfaceKind;
         onSwitch: (surface: SurfaceKind) => void;
         /** Per-surface disabled predicate (switch mode): a not-open surface
-         *  whose growth the shared layout cannot host (3 tiles already)
-         *  renders disabled instead of no-oping silently — the toggle mode's
-         *  full-layout affordance. */
+         *  whose growth breaks the size floor renders disabled instead of
+         *  no-oping silently — the toggle mode's canAdd affordance. */
         disabled?: (surface: SurfaceKind) => boolean;
         /** Same contract as the toggle-mode `showDot`. */
         showDot?: (surface: SurfaceKind) => boolean;
@@ -227,11 +240,16 @@ type TopBarProps = {
   onToggleAutofit?: () => void;
   /** Surface-layout machinery (260812-ab5v R9), registered by AppShell on the
    *  terminal route via the slot context: the RESOLVED layout + the shared
-   *  user-mutation path (`applyLayout`). Feed the L1 ▦ Layout chip (preset
-   *  popover, current shape marked, direct jump). Absent → no chip, no menu
+   *  user-mutation path (`applyLayout`). Feed the L1 ▦ Layout chip (template
+   *  popover, current template marked, direct jump). Absent → no chip, no menu
    *  rows. */
   layout?: Layout;
   onApplyLayout?: (next: Layout) => void;
+  /** While true (this viewer has a tile popped out) the ▦ template cycle
+   *  renders disabled — chip, chord, and menu rows (spec surface-layout.md §
+   *  Verbs → Pop out: a template resolved on the reduced render would drop
+   *  the popped leaf from the shared layout). */
+  layoutTemplatesDisabled?: boolean;
 };
 
 function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
@@ -321,12 +339,12 @@ function SidebarHead({
       <Tip label="Host">
         <a
           href="/"
-          aria-label="RunKit home"
+          aria-label="HexoKit home"
           className="rk-brand-glitch flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors"
           onMouseEnter={brandSweep.onMouseEnter}
         >
           <LogoSpinner size={20} loading={false} svgRef={brandSweep.svgRef} />
-          <span className="text-xs font-bold tracking-wide">RunKit</span>
+          <span className="text-xs font-bold tracking-wide">HexoKit</span>
         </a>
       </Tip>
       <button
@@ -461,29 +479,35 @@ type SurfaceTogglesToggle = Extract<SurfaceToggles, { mode: "toggle" }>;
  * glyphs from `SURFACE_GLYPH`, LIT (`aria-pressed`, accent-green text on a
  * green wash), the corner dot driven by the
  * caller's per-surface `showDot` predicate (web = has-content; others
- * always-on):
+ * always-on), and the live-elsewhere markers: an away marker (amber ↩,
+ * top-left) when the caller's `away` predicate says the surface's slot is
+ * live in another tab, a popped marker (amber ↗, bottom-left) when the
+ * caller's `popped` predicate says the surface's close-target leaf is popped
+ * out for this viewer:
  *
- * - TOGGLE (desktop): lit = an open tile; at 3 open tiles the unlit buttons
- *   render DISABLED with a "Close a tile first" tooltip (Tip wraps a span so
- *   the disabled button still tips — disabled controls swallow pointer
- *   events). Clicking routes through the caller's shared `togglePanel`
- *   mutation semantics (unlit → `addSurface` 1→2 `split-h` / 2→3 `main-left`,
- *   lit → `closeSurface`, closing the last tile is a null no-op there).
+ * - TOGGLE (desktop): lit = an open tile; while the caller's floor-derived
+ *   `canAdd` is false the unlit buttons render DISABLED with a "No room for
+ *   another tile" tooltip — except a POPPED surface, whose toggle reveals or
+ *   hides the placeholder (never an add) and so stays actionable at the floor
+ *   (Tip wraps a span so the disabled button still
+ *   tips — disabled controls swallow pointer events). Clicking routes through
+ *   the caller's shared `togglePanel` mutation semantics (unlit →
+ *   `addSurface`, lit → `closeSurface`, closing the last tile is a null no-op
+ *   there).
  * - SWITCH (mobile): RADIO semantics — lit = the VISIBLE tile (exactly one);
  *   tapping an unlit button runs the caller's switch-to-tile verb, tapping the
- *   lit one is a no-op. The disabled-at-3 state does not apply (switching
- *   never adds a fourth tile).
+ *   lit one is a no-op. The floor-disabled state rides the caller's
+ *   per-surface `disabled` predicate.
  *
  * Buttons are flush segments inside the group's neutral border. Non-first
  * segments carry a neutral divider, only the outer corners round, and the
  * wash-only latch changes no border geometry when state flips.
  */
 function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
-  // Max 3 tiles (Constitution IV): at 3, further adds are disallowed — the
-  // unlit buttons render disabled instead of no-oping silently. Toggle mode
-  // checks the open-tile count; switch mode asks the caller's per-surface
-  // predicate (a not-open target whose growth is disallowed disables).
-  const full = toggles.mode === "toggle" && toggles.open.length >= 3;
+  // The add gate is the per-viewport size floor (the caller's `canAdd`), no
+  // longer a tile count. Toggle mode reads the shared flag; switch mode asks
+  // the caller's per-surface predicate.
+  const full = toggles.mode === "toggle" && !toggles.canAdd;
   const shown = toggles.available;
   return (
     <span data-testid="surface-toggles" className="flex items-center gap-1.5">
@@ -495,14 +519,32 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
             toggles.mode === "toggle"
               ? toggles.open.includes(surface)
               : toggles.active === surface;
+          const away =
+            toggles.mode === "toggle" && (toggles.away?.(surface) ?? false);
+          const popped =
+            toggles.mode === "toggle" && (toggles.popped?.(surface) ?? false);
+          // The floor gate exempts a popped surface: its toggle reveals/hides
+          // the placeholder — it never adds a tile or writes the layout.
           const disabled =
             !pressed &&
+            !popped &&
             (toggles.mode === "toggle"
               ? full
               : (toggles.disabled?.(surface) ?? false));
           const label = SURFACE_LABEL[surface];
           return (
-            <Tip key={surface} label={disabled ? "Close a tile first" : label}>
+            <Tip
+              key={surface}
+              label={
+                disabled
+                  ? "No room for another tile"
+                  : popped
+                    ? `${label} — popped out`
+                    : away
+                      ? `${label} — in another tab`
+                      : label
+              }
+            >
               {/* The span wrapper keeps the tooltip alive on the DISABLED button
                   (disabled controls swallow the pointer events Tip listens for). */}
               <span className="inline-flex">
@@ -521,6 +563,29 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
                   className={`rk-glint relative w-[26px] flex items-center justify-center text-[11px] font-mono transition-colors focus-visible:outline-2 focus-visible:outline-accent-green disabled:opacity-40 disabled:cursor-not-allowed ${index > 0 ? "border-l border-border" : ""} ${index === 0 ? "rounded-l-[3px]" : ""} ${index === shown.length - 1 ? "rounded-r-[3px]" : ""} ${controlClass({ variant: "segment", flush: true, pressed, rest: "text-text-secondary hover:text-text-primary" })}`}
                 >
                   <span aria-hidden="true">{SURFACE_GLYPH[surface]}</span>
+                  {/* Away marker: the surface's slot is live in another tab.
+                      The corner dot's top-right stays the content channel. */}
+                  {away && (
+                    <span
+                      aria-hidden="true"
+                      data-testid={`surface-away-${surface}`}
+                      className="absolute top-0 left-0.5 text-[9px] leading-none text-signal-yellow"
+                    >
+                      ↩
+                    </span>
+                  )}
+                  {/* Popped marker: the surface's close-target leaf is popped
+                      out for this viewer (the away marker's bottom-left
+                      sibling corner). */}
+                  {popped && (
+                    <span
+                      aria-hidden="true"
+                      data-testid={`surface-popped-${surface}`}
+                      className="absolute bottom-0 left-0.5 text-[9px] leading-none text-signal-yellow"
+                    >
+                      ↗
+                    </span>
+                  )}
                   {/* Availability/content dot — a collapsed tile may hide
                       content, never state that wants a human. The caller's
                       per-surface predicate decides (web = hasWebUrl, others
@@ -546,17 +611,23 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
  * The group's overflow-menu form (Tiles section): one `menuitemcheckbox` row
  * per shown surface — checked = tile open (the one checked treatment: primary
  * ink + trailing green ✓ on `aria-checked`), leading `SURFACE_GLYPH` glyph (the
- * leading-glyph parity rule), disabled-at-3 like the bar buttons. Clicking a
- * row runs the same shared toggle mutation as the bar group.
+ * leading-glyph parity rule), a muted "away"/"popped" suffix when the caller
+ * marks the surface away/popped, floor-disabled like the bar buttons (with
+ * the same popped-surface exemption). Clicking
+ * a row runs the same shared toggle mutation as the bar group.
  */
 function SurfaceToggleMenuRows({ toggles }: { toggles: SurfaceTogglesToggle }) {
-  const full = toggles.open.length >= 3;
+  const full = !toggles.canAdd;
   const shown = toggles.available;
   return (
     <>
       {shown.map((surface) => {
         const isOpen = toggles.open.includes(surface);
-        const disabled = !isOpen && full;
+        const away = toggles.away?.(surface) ?? false;
+        const popped = toggles.popped?.(surface) ?? false;
+        // The floor gate exempts a popped surface — its toggle reveals/hides
+        // the placeholder, never an add.
+        const disabled = !isOpen && full && !popped;
         return (
           <button
             key={surface}
@@ -573,6 +644,22 @@ function SurfaceToggleMenuRows({ toggles }: { toggles: SurfaceTogglesToggle }) {
               {SURFACE_GLYPH[surface]}
             </span>
             <span className="flex-1">{`${SURFACE_LABEL[surface]} tile`}</span>
+            {away && (
+              <span
+                data-testid={`surface-away-${surface}`}
+                className="text-[10px] text-signal-yellow"
+              >
+                away
+              </span>
+            )}
+            {popped && (
+              <span
+                data-testid={`surface-popped-${surface}`}
+                className="text-[10px] text-signal-yellow"
+              >
+                popped
+              </span>
+            )}
             {isOpen && (
               <span aria-hidden="true" className={MENU_ROW_CHECK_MARK}>
                 ✓
@@ -610,7 +697,18 @@ export function TopBar({
   onToggleAutofit,
   layout,
   onApplyLayout,
+  layoutTemplatesDisabled = false,
 }: TopBarProps) {
+  // The ▦ chip emits a template NAME; the jump rebuilds the template's tree
+  // from the current slot order and rides the one mutation path (R16/R3).
+  const applyLayoutTemplate = useCallback(
+    (name: TemplateName) => {
+      if (!layout || !onApplyLayout) return;
+      const next = applyTemplate(layout, name);
+      if (next) onApplyLayout(next);
+    },
+    [layout, onApplyLayout],
+  );
   // `showChip` tells us whether the UpdateChip WOULD render in the bar (a
   // qualifying, undismissed, non-dev update). When it does but the chip's
   // registry entry is overflowed into the menu, the version row becomes the
@@ -919,12 +1017,12 @@ export function TopBar({
         ) : null,
     },
     // ▦ Layout chip (260812-ab5v R9) — terminal-only, L1 tier: click opens a
-    // popover of the preset-shape glyphs valid for the CURRENT tile count
-    // (current marked, direct jump via `setShape` → `onApplyLayout`); the
-    // same-arity cycle chord is the registry's `layout-cycle` binding with
-    // palette parity (`Layout: Cycle Shape`). Overflowed, its rows are one
-    // `Layout: …` radio row per arity-valid shape (LayoutMenuRows). Hidden
-    // until AppShell registers the layout slot (or off the window route).
+    // popover of the template glyphs for the CURRENT tile count (current
+    // marked, direct jump via `applyTemplate` → `onApplyLayout`); the template
+    // cycle chord is the registry's `layout-cycle` binding with palette parity
+    // (`Layout: Cycle Template`). Overflowed, its rows are one `Layout: …`
+    // radio row per template (LayoutMenuRows). Hidden until AppShell registers
+    // the layout slot (or off the window route).
     {
       id: "layout",
       modes: ["terminal"],
@@ -932,11 +1030,11 @@ export function TopBar({
       hidden: !(mode === "terminal" && currentWindow && layout && onApplyLayout),
       barRender: () =>
         layout && onApplyLayout ? (
-          <LayoutChip layout={layout} onApply={onApplyLayout} />
+          <LayoutChip layout={layout} onApply={applyLayoutTemplate} disabled={layoutTemplatesDisabled} />
         ) : null,
       menuRender: () =>
         layout && onApplyLayout ? (
-          <LayoutMenuRows layout={layout} onApply={onApplyLayout} />
+          <LayoutMenuRows layout={layout} onApply={applyLayoutTemplate} disabled={layoutTemplatesDisabled} />
         ) : null,
     },
     // Fixed-width toggle — MENU-ONLY as of 260731-oiho: a sticky per-device
@@ -1324,7 +1422,7 @@ export function TopBar({
                 first child (the breadcrumb's root — the `›` separator starts
                 after it); IS the home affordance ON ≥sm (no separate "Host"
                 crumb). Not rendered while the sidebar head is shown — the head
-                carries the brand anchor then, and `RunKit home` must stay
+                carries the brand anchor then, and `HexoKit home` must stay
                 unique in the document. Below `sm` the whole crumb is gone (the
                 `hidden sm:contents` wrapper — a wrapper, not classes on the
                 anchor, because `hidden` and CRUMB_BOX's `inline-flex` are
@@ -1337,7 +1435,7 @@ export function TopBar({
             <Tip label="Host">
             <a
               href="/"
-              aria-label="RunKit home"
+              aria-label="HexoKit home"
               className={`gap-2 shrink-0 rk-brand-glitch ${LINK_CRUMB_CLASS}`}
               onMouseEnter={brandSweep.onMouseEnter}
             >
@@ -1349,7 +1447,7 @@ export function TopBar({
                   text-decoration does not propagate into flex items, so an
                   underline-based LINK_CRUMB_CLASS would silently skip the
                   wordmark without it. No-op for non-underline variants. */}
-              <span className="text-xs [text-decoration:inherit]">RunKit</span>
+              <span className="text-xs [text-decoration:inherit]">HexoKit</span>
             </a>
             </Tip>
             </span>
@@ -2508,6 +2606,10 @@ function SplitControl({
   const chevronRef = useRef<HTMLButtonElement>(null);
   const { addToast } = useToast();
 
+  // Menus register `transient` (overlay-presence): while open, a native guest
+  // composited above the DOM hides so the menu never paints underneath it.
+  useOccludes("transient", open);
+
   const { execute, isPending } = useOptimisticAction<[boolean]>({
     action: (horizontal) => splitWindow(server, windowId, horizontal, cwd),
     onError: (err) => {
@@ -2719,7 +2821,7 @@ function RefreshButton() {
  * button hover vocabulary). Clicking the chip body triggers POST /api/update and
  * enters a disabled `updating…` state; the daemon restart then drops SSE, and
  * the reconnect's differing `version` drives the reload guard (session-context).
- * A small `✕` dismisses per-version (localStorage `runkit-update-dismissed`).
+ * A small `✕` dismisses per-version (localStorage `hexokit-update-dismissed`).
  * Renders nothing unless a qualifying, un-dismissed update is pending and the
  * daemon is not the `dev` version.
  */
@@ -2739,7 +2841,7 @@ function UpdateChip() {
   const visibleLabel = singleRunKit ? `⬆ v${latest}` : `⬆ updates (${tools.length})`;
   const restLabel =
     singleRunKit && current
-      ? `Update run-kit: v${current} → v${latest}`
+      ? `Update HexoKit: v${current} → v${latest}`
       : `Update: ${updateChipToolSummary(tools)}`;
 
   // No `hidden sm:flex` (review M2 / R14): responsive gating is 100%
@@ -2754,7 +2856,7 @@ function UpdateChip() {
         type="button"
         onClick={triggerUpdate}
         disabled={updating}
-        aria-label={updating ? "Updating run-kit" : restLabel}
+        aria-label={updating ? "Updating HexoKit" : restLabel}
         className={`flex items-center gap-1 px-1.5 rounded transition-colors text-xs disabled:opacity-60 disabled:cursor-not-allowed ${controlClass({ variant: "icon", box: "height", rest: "border border-accent-green text-accent-green hover:border-accent-green" })}`}
       >
         {updating ? (

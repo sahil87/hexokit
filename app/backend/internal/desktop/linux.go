@@ -19,8 +19,8 @@ import (
 // installed version is derived from the current symlink, never a state file):
 //
 //	<root>/<version>/    one extracted AppImage per version (the squashfs-root
-//	                     contents: AppRun, run-kit-desktop, resources/app.asar,
-//	                     run-kit-desktop.desktop, usr/…)
+//	                     contents: AppRun, hexokit-desktop, resources/app.asar,
+//	                     hexokit-desktop.desktop, usr/…)
 //	<root>/current       symlink → <version>; activation is an atomic flip
 //	                     (temp symlink + os.Rename)
 //	<root>/.staging-*    MkdirTemp staging dirs; the deterministic prefix lets
@@ -67,7 +67,7 @@ func linuxProbePattern(root string) (string, bool) {
 	}
 	// pgrep -f takes an ERE; the path is a literal (a user --path may carry
 	// regex metacharacters), so it is quoted.
-	return regexp.QuoteMeta(filepath.Join(linuxVersionDir(root, version), "run-kit-desktop")), true
+	return regexp.QuoteMeta(filepath.Join(linuxVersionDir(root, version), "hexokit-desktop")), true
 }
 
 // appRunningLinux is the linux arm of AppRunning: a best-effort `pgrep -f`
@@ -97,7 +97,7 @@ func (ins *Installer) appRunningLinux(ctx context.Context, root string) bool {
 //     Extraction needs no FUSE, so libfuse2 is not a runtime dependency of
 //     the installed app.
 //  4. Validate the extracted tree (validateExtractedTree) — the Linux
-//     analogue of the darwin "bundle is named Run Kit.app" check.
+//     analogue of the darwin "bundle is named HexoKit.app" check.
 //  5. Swap boundary: probe the running state against the pre-flip current
 //     target; when live, SIGTERM the main process and wait (bounded) for
 //     exit — aborting without swapping when the bound expires.
@@ -314,7 +314,7 @@ func startDetached(argv []string) error {
 
 // validateExtractedTree checks the extracted squashfs-root before the install
 // target is touched — the Linux analogue of the darwin "mounted bundle is
-// named Run Kit.app" check. It returns the hicolor icon size directory found
+// named HexoKit.app" check. It returns the hicolor icon size directory found
 // in the tree (e.g. "1024x1024") for the integration icon copy.
 func validateExtractedTree(dir, version string) (string, error) {
 	for _, req := range []struct {
@@ -322,9 +322,9 @@ func validateExtractedTree(dir, version string) (string, error) {
 		exec bool
 	}{
 		{"AppRun", true},
-		{"run-kit-desktop", true},
+		{"hexokit-desktop", true},
 		{filepath.Join("resources", "app.asar"), false},
-		{"run-kit-desktop.desktop", false},
+		{"hexokit-desktop.desktop", false},
 	} {
 		info, err := os.Stat(filepath.Join(dir, req.rel))
 		if err != nil || !info.Mode().IsRegular() {
@@ -338,7 +338,7 @@ func validateExtractedTree(dir, version string) (string, error) {
 	// The desktop entry's version stamp must equal the resolved release —
 	// both derive from the release job's extraMetadata.version, so a mismatch
 	// means the tree is not the build that was asked for.
-	entry, err := os.ReadFile(filepath.Join(dir, "run-kit-desktop.desktop"))
+	entry, err := os.ReadFile(filepath.Join(dir, "hexokit-desktop.desktop"))
 	if err != nil {
 		return "", err
 	}
@@ -352,9 +352,9 @@ func validateExtractedTree(dir, version string) (string, error) {
 		return "", fmt.Errorf("mounted AppImage reports version %q, expected %q — refusing to install an unexpected build", reported, version)
 	}
 
-	icons, err := filepath.Glob(filepath.Join(dir, "usr", "share", "icons", "hicolor", "*", "apps", "run-kit-desktop.png"))
+	icons, err := filepath.Glob(filepath.Join(dir, "usr", "share", "icons", "hicolor", "*", "apps", "hexokit-desktop.png"))
 	if err != nil || len(icons) == 0 {
-		return "", fmt.Errorf("extracted AppImage tree at %s carries no hicolor run-kit-desktop icon — refusing to install an unexpected build", dir)
+		return "", fmt.Errorf("extracted AppImage tree at %s carries no hicolor hexokit-desktop icon — refusing to install an unexpected build", dir)
 	}
 	iconSizeDir := filepath.Base(filepath.Dir(filepath.Dir(icons[0])))
 

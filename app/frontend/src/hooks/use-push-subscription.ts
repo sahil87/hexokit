@@ -86,7 +86,7 @@ export function usePushSubscription(): {
         return;
       }
       try {
-        new Notification("RunKit", { body: TEST_NOTIFICATION_BODY });
+        new Notification("HexoKit", { body: TEST_NOTIFICATION_BODY });
         addToast("Test notification sent — check your desktop", "info");
       } catch {
         addToast("Enable notifications first", "error");

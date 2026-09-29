@@ -332,7 +332,7 @@ export function HostOverviewPage() {
               metadata (here the live hostname) stays in the zone body at its
               original `text-xs` sizing, right below the heading. */}
           <SectionHeading label="Host Health" className="mb-2" />
-          {/* run-kit system card — the daemon read as a SYSTEM surface
+          {/* HexoKit system card — the daemon read as a SYSTEM surface
               (version/uptime/port + Restart, service rows + View deep-links).
               Renders independently of the metrics stream: the daemon serving
               this page is up by definition. */}
@@ -596,7 +596,7 @@ export function HostOverviewPage() {
             better than any other surface. */}
         {daemonVersion && (
           <div className="mt-2 text-xs text-text-secondary font-mono">
-            run-kit {displayVersion(daemonVersion)}
+            HexoKit {displayVersion(daemonVersion)}
           </div>
         )}
       </div>

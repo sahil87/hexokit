@@ -32,7 +32,7 @@ function renderShell(opts: { open?: boolean; mobile?: boolean } = {}) {
   const { open = true, mobile = false } = opts;
   // Pin the chrome preference explicitly — the unset default is
   // viewport-dependent (the shell.test.tsx pattern).
-  localStorage.setItem("runkit-sidebar-open", open ? "true" : "false");
+  localStorage.setItem("hexokit-sidebar-open", open ? "true" : "false");
   stubMatchMedia((q) => (mobile ? q.includes("max-width") : false));
   return render(
     <ChromeProvider>

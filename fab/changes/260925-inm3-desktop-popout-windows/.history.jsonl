@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-25T13:41:36Z"}
+{"args":"In the desktop shell, popouts open as shell windows on the same host (not the system browser), and a native web tile moves its live WebContentsView into the popout without reloading. (plan: fab/plans/sahil/26-09-24-surface-drag-and-popout.md Change 6)","cmd":"fab-new","event":"command","ts":"2026-09-25T13:41:36Z"}
+{"delta":"+0.0","event":"confidence","score":2.7,"trigger":"calc-score","ts":"2026-09-25T13:43:16Z"}
+{"delta":"+0.0","event":"confidence","score":2.7,"trigger":"calc-score","ts":"2026-09-25T15:08:56Z"}
+{"delta":"+1.8","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-09-25T15:09:11Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-25T15:10:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-25T15:10:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-25T15:54:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-25T15:59:25Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T15:59:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-25T16:06:13Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-25T16:12:12Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T16:29:37Z"}

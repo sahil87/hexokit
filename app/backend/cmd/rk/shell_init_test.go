@@ -33,10 +33,10 @@ func TestShellInitZshContainsBannerAndCompletion(t *testing.T) {
 		t.Fatalf("shell-init zsh: %v", err)
 	}
 	// Banner anchors.
-	if !strings.Contains(out, "# run-kit(1) zsh completion") {
-		t.Errorf("expected `# run-kit(1) zsh completion` banner, got:\n%s", out)
+	if !strings.Contains(out, "# hexokit(1) zsh completion") {
+		t.Errorf("expected `# hexokit(1) zsh completion` banner, got:\n%s", out)
 	}
-	if !strings.Contains(out, `eval "$(run-kit shell-init zsh)"`) {
+	if !strings.Contains(out, `eval "$(rk shell-init zsh)"`) {
 		t.Errorf("expected install hint with eval form, got:\n%s", out)
 	}
 	if !strings.Contains(out, "~/.zshrc") {
@@ -52,33 +52,42 @@ func TestShellInitZshContainsBannerAndCompletion(t *testing.T) {
 	if !strings.Contains(out, "autoload -Uz compinit") {
 		t.Errorf("expected `autoload -Uz compinit` in shim, got:\n%s", out)
 	}
-	// Cobra-generated compdef registration for the canonical name, PLUS the
-	// appended registration binding the same function to the `rk` short alias.
-	if !strings.Contains(out, "compdef _run-kit run-kit") {
-		t.Errorf("expected `compdef _run-kit run-kit` (cobra) registration, got:\n%s", out)
+	// Cobra-generated compdef registration for the root name, PLUS the appended
+	// registrations binding the same function to the installed invocation names
+	// `rk`, `xk`, and the legacy `run-kit` — completion under all four names.
+	if !strings.Contains(out, "compdef _hexokit hexokit") {
+		t.Errorf("expected `compdef _hexokit hexokit` (cobra) registration, got:\n%s", out)
 	}
-	if !strings.Contains(out, "compdef _run-kit rk") {
-		t.Errorf("expected appended `compdef _run-kit rk` alias registration, got:\n%s", out)
+	for _, name := range shellInitAliasNames {
+		if !strings.Contains(out, "\ncompdef _hexokit "+name+"\n") {
+			t.Errorf("expected appended `compdef _hexokit %s` registration, got:\n%s", name, out)
+		}
 	}
 }
 
+// shellInitAliasNames are the invocation names shell-init registers beside
+// cobra's own root-name binding (D16: hexokit + rk + xk + legacy run-kit).
+var shellInitAliasNames = []string{"rk", "xk", "run-kit"}
+
 func TestShellInitZshDoesNotDefineShellFunctionWrapper(t *testing.T) {
-	// Per the brief: run-kit has no bare-name dispatch or tool-form sugar, so the
-	// shell-init output must NOT define a `run-kit()` or `rk()` shell function
-	// wrapper — only the cobra completion function. Guards against accidentally
-	// copying the hop/wt wrapper pattern into run-kit.
+	// hexokit has no bare-name dispatch or tool-form sugar, so the shell-init
+	// output must NOT define a `hexokit()`, `rk()`, `xk()`, or `run-kit()` shell
+	// function wrapper — only the cobra completion function. Guards against
+	// accidentally copying the hop/wt wrapper pattern.
 	out, _, err := runShellInitCaptured(t, "zsh")
 	if err != nil {
 		t.Fatalf("shell-init zsh: %v", err)
 	}
-	// A `run-kit()` / `rk()` followed by `{` would indicate a function
-	// definition. The cobra-generated completion DOES define `_run-kit()`
-	// (leading underscore) so we anchor on the bare-name forms only.
+	// A `hexokit()` / `rk()` / `xk()` / `run-kit()` followed by `{` would indicate a
+	// function definition. The cobra-generated completion DOES define
+	// `_hexokit()` (leading underscore) so we anchor on the bare-name forms
+	// only.
 	for _, line := range strings.Split(out, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "run-kit()") || strings.HasPrefix(trimmed, "run-kit ()") ||
-			strings.HasPrefix(trimmed, "rk()") || strings.HasPrefix(trimmed, "rk ()") {
-			t.Fatalf("expected NO `run-kit()`/`rk()` shell function wrapper, got line:\n%s", line)
+		for _, name := range append([]string{"hexokit"}, shellInitAliasNames...) {
+			if strings.HasPrefix(trimmed, name+"()") || strings.HasPrefix(trimmed, name+" ()") {
+				t.Fatalf("expected NO `%s()` shell function wrapper, got line:\n%s", name, line)
+			}
 		}
 	}
 }
@@ -88,27 +97,33 @@ func TestShellInitBashContainsBannerAndCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("shell-init bash: %v", err)
 	}
-	if !strings.Contains(out, "# run-kit(1) bash completion") {
-		t.Errorf("expected `# run-kit(1) bash completion` banner, got:\n%s", out)
+	if !strings.Contains(out, "# hexokit(1) bash completion") {
+		t.Errorf("expected `# hexokit(1) bash completion` banner, got:\n%s", out)
 	}
-	if !strings.Contains(out, `eval "$(run-kit shell-init bash)"`) {
+	if !strings.Contains(out, `eval "$(rk shell-init bash)"`) {
 		t.Errorf("expected install hint for bash, got:\n%s", out)
 	}
 	if !strings.Contains(out, "~/.bashrc") {
 		t.Errorf("expected ~/.bashrc install location, got:\n%s", out)
 	}
-	// cobra V2 bash completion uses __start_run-kit as the entry function.
-	if !strings.Contains(out, "__start_run-kit") {
-		t.Errorf("expected cobra `__start_run-kit` completion fn, got:\n%s", out)
+	// cobra V2 bash completion uses __start_hexokit as the entry function.
+	if !strings.Contains(out, "__start_hexokit") {
+		t.Errorf("expected cobra `__start_hexokit` completion fn, got:\n%s", out)
 	}
-	// The cobra-generated script registers `run-kit`; we additionally append a
-	// `complete ... rk` registration binding the same entry function to the
-	// short alias.
-	if !strings.Contains(out, "-F __start_run-kit run-kit") {
-		t.Errorf("expected cobra `complete ... run-kit` registration, got:\n%s", out)
+	// The cobra-generated script registers `hexokit`; we additionally append
+	// `complete ...` registrations binding the same entry function to the
+	// installed invocation names `rk`, `xk`, and `run-kit`, in both compopt
+	// branches.
+	if !strings.Contains(out, "-F __start_hexokit hexokit") {
+		t.Errorf("expected cobra `complete ... hexokit` registration, got:\n%s", out)
 	}
-	if !strings.Contains(out, "-F __start_run-kit rk") {
-		t.Errorf("expected appended `complete ... rk` alias registration, got:\n%s", out)
+	for _, name := range shellInitAliasNames {
+		if !strings.Contains(out, "complete -o default -F __start_hexokit "+name+"\n") {
+			t.Errorf("expected appended `complete ... %s` registration, got:\n%s", name, out)
+		}
+		if !strings.Contains(out, "complete -o default -o nospace -F __start_hexokit "+name+"\n") {
+			t.Errorf("expected nospace-branch `complete ... %s` registration, got:\n%s", name, out)
+		}
 	}
 }
 

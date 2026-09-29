@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-28T18:48:05Z"}
+{"args":"Fix updatecheck self-row match after the HexoKit roster rename (runKitTool=run-kit misses shll\u003e=0.1.34 hexokit row)","cmd":"fab-new","event":"command","ts":"2026-09-28T18:48:05Z"}
+{"delta":"+0.0","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-09-28T18:49:02Z"}
+{"delta":"+0.0","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-09-28T18:49:08Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-28T18:49:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-28T18:49:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-28T18:54:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-28T18:57:46Z"}
+{"event":"review","result":"passed","ts":"2026-09-28T18:57:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-28T18:58:12Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-28T18:59:21Z"}
+{"event":"review","result":"passed","ts":"2026-09-28T19:03:27Z"}

@@ -223,7 +223,7 @@ func TestWebAddFull(t *testing.T) {
 		t.Fatalf("WebAdd on a full family: err = %v, want ErrWebTabsFull", err)
 	}
 	// The family is untouched.
-	webMustHeld(t, server, id, WebTabOption(MaxWebTabs), "/proxy/3008/")
+	webMustHeld(t, server, id, WebTabOption(MaxWebTabs), "/proxy/300"+strconv.Itoa(MaxWebTabs)+"/")
 }
 
 func TestWebRemoveMiddleShiftsURLAndRoot(t *testing.T) {
@@ -501,9 +501,9 @@ func TestMoveWebTabs(t *testing.T) {
 
 func TestRepointMoveActive(t *testing.T) {
 	tests := []struct {
-		name           string
-		active, n, to  int
-		want           int
+		name          string
+		active, n, to int
+		want          int
 	}{
 		{"moved tab lands at to", 1, 1, 3, 3},
 		{"shifted down by a forward move", 3, 1, 3, 2},
@@ -527,7 +527,7 @@ func TestWebTabOptionRange(t *testing.T) {
 	if got := WebTabOption(1); got != "@rk_win_web_1" {
 		t.Errorf("WebTabOption(1) = %q", got)
 	}
-	if got := WebTabOption(MaxWebTabs); got != "@rk_win_web_8" {
+	if got := WebTabOption(MaxWebTabs); got != "@rk_win_web_"+strconv.Itoa(MaxWebTabs) {
 		t.Errorf("WebTabOption(%d) = %q", MaxWebTabs, got)
 	}
 	if got := WebTabRootOption(3); got != "@rk_win_web_3_root" {

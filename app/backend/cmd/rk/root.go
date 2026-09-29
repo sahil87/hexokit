@@ -15,7 +15,7 @@ import (
 var version = "dev"
 
 // displayVersion prefixes a numeric version with "v" to match the shll toolkit
-// standard (e.g. "run-kit version v1.5.3"). The "dev" sentinel used for
+// standard (e.g. "hexokit version v1.5.3"). The "dev" sentinel used for
 // non-ldflags builds is left untouched so we don't end up with "vdev".
 func displayVersion() string {
 	if version == "dev" || strings.HasPrefix(version, "v") {
@@ -25,8 +25,8 @@ func displayVersion() string {
 }
 
 var rootCmd = &cobra.Command{
-	Use:     "run-kit",
-	Short:   "run-kit — tmux session manager with web UI",
+	Use:     "hexokit",
+	Short:   "hexokit — tmux session manager with web UI",
 	Version: displayVersion(),
 	// No-args invocation defaults to serve (backwards compat).
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -35,11 +35,11 @@ var rootCmd = &cobra.Command{
 	// Args is left nil so cobra's native legacyArgs/Find path prints the
 	// unknown-command error EXACTLY as before — the "unknown command %q for %q"
 	// line, the Levenshtein "Did you mean this?" suggestions, and the trailing
-	// "Run 'run-kit --help' for usage." hint. Unknown-command exit-code
+	// "Run 'hexokit --help' for usage." hint. Unknown-command exit-code
 	// classification happens centrally at the execute() seam (see exitCode's
 	// unknownCommandPrefix check), which keeps user-facing stderr byte-identical
 	// and fails safe (2→1) if cobra ever changes the message wording. A bare
-	// `run-kit` (no positional args) still descends into the serve default.
+	// `hexokit` (no positional args) still descends into the serve default.
 	SilenceUsage: true,
 }
 
@@ -60,6 +60,7 @@ func init() {
 	rootCmd.AddCommand(daemonCmd)
 	rootCmd.AddCommand(desktopCmd)
 	rootCmd.AddCommand(urlCmd)
+	rootCmd.AddCommand(portsCmd)
 	rootCmd.AddCommand(skillCmd)
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(notifyCmd)

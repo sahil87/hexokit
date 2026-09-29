@@ -4,8 +4,8 @@ import type { SurfaceKind } from "@/lib/surface-layout";
 
 /**
  * The tile-chord state machine (260819-qwr7 R4): the three-state branch table
- * (hidden / visible-unfocused / focused × arity), the gating table (no window
- * route, mobile, unavailable surface, arity-1 hide → NO handler so the chord
+ * (hidden / visible-unfocused / focused × tile count), the gating table (no window
+ * route, mobile, unavailable surface, one-tile hide → NO handler so the chord
  * falls through untouched), and the applied-mutation guards (a refused toggle
  * arms no landing flag and runs no restore).
  */
@@ -42,7 +42,7 @@ describe("tileChordHandler — gating (no handler mounts, the chord falls throug
     ).toBeUndefined();
   });
 
-  it("mounts no handler for the arity-1 hide (the palette's Tile: Hide omission on single layouts)", () => {
+  it("mounts no handler for the one-tile hide (the palette's Tile: Hide omission on single layouts)", () => {
     expect(
       tileChordHandler(
         makeSeams({ kind: "tty", panelSurfaces: ["tty"], order: ["tty"], focusedTileKind: "tty" }),
@@ -50,7 +50,7 @@ describe("tileChordHandler — gating (no handler mounts, the chord falls throug
     ).toBeUndefined();
   });
 
-  it("still mounts a handler at arity 1 when the kind is HIDDEN (the show arm stays live)", () => {
+  it("still mounts a handler with one tile when the kind is HIDDEN (the show arm stays live)", () => {
     expect(
       tileChordHandler(
         makeSeams({ kind: "code", panelSurfaces: ["tty", "code"], order: ["tty"] }),
@@ -88,7 +88,7 @@ describe("tileChordHandler — the three-state branch table", () => {
     expect(seams.restoreAfterHide).not.toHaveBeenCalled();
   });
 
-  it("focused at arity > 1 → hide via togglePanel, then restoreAfterHide with the hidden kind", () => {
+  it("focused with multiple tiles → hide via togglePanel, then restoreAfterHide with the hidden kind", () => {
     const seams = makeSeams({ focusedTileKind: "code" });
     tileChordHandler(seams)!();
     expect(seams.togglePanel).toHaveBeenCalledWith("code");
@@ -102,7 +102,7 @@ describe("tileChordHandler — the three-state branch table", () => {
     expect(seams.restoreAfterHide).not.toHaveBeenCalled();
   });
 
-  it("race guard: a focused press observed at arity 1 (the render gap before re-gating) is a no-op", () => {
+  it("race guard: a focused press observed with one tile (the render gap before re-gating) is a no-op", () => {
     // The handler closes over the seams object; simulate the layout having
     // collapsed to the focused tile ALONE before a stale handler fires.
     const order: SurfaceKind[] = ["tty", "code"];

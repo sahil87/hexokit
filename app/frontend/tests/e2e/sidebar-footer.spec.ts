@@ -56,7 +56,7 @@ test.describe("Sidebar footer — mobile-only (260815-19me)", () => {
    *    the dot's new home).
    * 3. Assert the Sessions nav is visible and contains zero
    *    [aria-label='Connected']/[aria-label='Disconnected'] elements and zero
-   *    RunKit … (copy) buttons.
+   *    HexoKit … (copy) buttons.
    * 4. Assert the status-bar host cluster shows the version readout (anchored
    *    dev / v… regex matches the version span, not the hostname parent).
    */
@@ -76,7 +76,7 @@ test.describe("Sidebar footer — mobile-only (260815-19me)", () => {
     await expect(
       nav.locator("[aria-label='Connected'], [aria-label='Disconnected']"),
     ).toHaveCount(0);
-    await expect(nav.getByRole("button", { name: /RunKit .*\(copy\)/ })).toHaveCount(0);
+    await expect(nav.getByRole("button", { name: /HexoKit .*\(copy\)/ })).toHaveCount(0);
 
     // The status bar's host cluster carries the version readout (`v0.9.3`, or
     // the bare `dev` sentinel on a dev daemon). The anchored regex matches the
@@ -124,13 +124,13 @@ test.describe("Sidebar footer — mobile-only (260815-19me)", () => {
      *
      * Steps:
      * 1. Grant clipboard permissions; gotoDrawer('/<e2e server>').
-     * 2. Wait for the RunKit … (copy) button in the drawer; read its text.
+     * 2. Wait for the HexoKit … (copy) button in the drawer; read its text.
      * 3. Click it and assert the clipboard equals the displayed text.
      */
     test("version readout copies the displayed version form", async ({ page, context }) => {
       await context.grantPermissions(["clipboard-read", "clipboard-write"]);
       const drawer = await gotoDrawer(page, `/${TMUX_SERVER}`);
-      const version = drawer.getByRole("button", { name: /RunKit .*\(copy\)/ });
+      const version = drawer.getByRole("button", { name: /HexoKit .*\(copy\)/ });
       // The readout renders only once the daemon reported a version; the SSE
       // `version` event always precedes `Connected`-gated data on this route.
       await expect(version).toBeVisible({ timeout: READY_TIMEOUT });

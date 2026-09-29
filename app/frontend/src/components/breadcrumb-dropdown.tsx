@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useLayoutEffect, useCallback, type ReactNo
 import { Tip } from "@/components/tip";
 import { controlClass } from "@/components/control";
 import { MENU_ROW_CHECK_MARK, POPOVER_SHELL } from "@/components/controls";
+import { useOccludes } from "@/hooks/use-occludes";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
 type DropdownAction = { label: string; onAction: () => void };
@@ -120,6 +121,10 @@ export function BreadcrumbDropdown({ items, label, onNavigate, action, secondary
   const toggle = useCallback(() => {
     setOpen((v) => !v);
   }, []);
+
+  // Menus register `transient` (overlay-presence): while open, a native guest
+  // composited above the DOM hides so the menu never paints underneath it.
+  useOccludes("transient", open);
 
   // Anchor the fixed menu to the trigger's current viewport rect: top-left just
   // below the trigger, mirroring the old `absolute top-full left-0 mt-1`.

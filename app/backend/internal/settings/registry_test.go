@@ -6,13 +6,17 @@ package settings
 import (
 	"encoding/json"
 	"reflect"
+	"strconv"
+	"strings"
 	"testing"
+
+	"rk/internal/portpolicy"
 )
 
 func TestRegistry_orderAndMetadata(t *testing.T) {
 	infos := Registry()
 	wantKeys := []string{
-		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host",
+		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host", "port",
 		"instance_name", "auto_name", "cron_ticker", "pr_review_listener", "easter_eggs", "gui.enabled", "gui.wm", "gui.geometry",
 		"tmux_conf", "log_level", "server_colors", "server_flairs", "board_order", "riff_presets",
 	}
@@ -44,6 +48,7 @@ func TestRegistry_orderAndMetadata(t *testing.T) {
 		{"gui.enabled", "bool", "false", "behavior", true, true, nil},
 		{"gui.wm", "string", "", "behavior", true, false, nil},
 		{"gui.geometry", "string", "1920x1080", "behavior", true, true, nil},
+		{"port", "port", strconv.Itoa(portpolicy.DaemonDefault), "connectivity", false, false, nil},
 		{"log_level", "enum", "info", "advanced", true, false, []string{"info", "debug"}},
 		{"server_colors", "map", "{}", "appearance", true, true, nil},
 		{"server_flairs", "map", "{}", "appearance", true, true, nil},
@@ -96,6 +101,7 @@ func TestReadValue_defaultSettings(t *testing.T) {
 		{"theme_light", ptr("default-light")},
 		{"instance_color", (*string)(nil)},
 		{"ssh_host", (*string)(nil)},
+		{"port", nil},
 		{"instance_name", (*string)(nil)},
 		{"auto_name", false},
 		{"cron_ticker", true},
@@ -287,6 +293,41 @@ func TestApplyValue_unknownKey(t *testing.T) {
 	s := Default()
 	if err := ApplyValue(&s, "bogus_key", json.RawMessage(`1`)); err == nil {
 		t.Fatal("ApplyValue(bogus_key) succeeded, want error")
+	}
+}
+
+// TestApplyValue_portClearsPinNote pins the pin-comment contract: any
+// successful registry write to port — set or null — clears PortPinNote (a
+// user-chosen port is no longer the migration pin); a rejected write keeps it.
+func TestApplyValue_portClearsPinNote(t *testing.T) {
+	s := parse(PortPinComment + "\nport: 3000\n")
+	if !s.PortPinNote {
+		t.Fatal("precondition: parse did not set PortPinNote")
+	}
+	if err := ApplyValue(&s, "port", json.RawMessage(`6123`)); err != nil {
+		t.Fatalf("apply port 6123: %v", err)
+	}
+	if s.Port != 6123 || s.PortPinNote {
+		t.Errorf("after set: Port = %d, PortPinNote = %v — want 6123, false", s.Port, s.PortPinNote)
+	}
+	if got := serialize(s); strings.Contains(got, PortPinComment) {
+		t.Errorf("serialize after set = %q, want no pin comment", got)
+	}
+
+	s = parse(PortPinComment + "\nport: 3000\n")
+	if err := ApplyValue(&s, "port", json.RawMessage(`null`)); err != nil {
+		t.Fatalf("apply port null: %v", err)
+	}
+	if s.Port != 0 || s.PortPinNote {
+		t.Errorf("after null: Port = %d, PortPinNote = %v — want 0, false", s.Port, s.PortPinNote)
+	}
+
+	s = parse(PortPinComment + "\nport: 3000\n")
+	if err := ApplyValue(&s, "port", json.RawMessage(`70000`)); err == nil {
+		t.Fatal("apply port 70000 succeeded, want error")
+	}
+	if s.Port != 3000 || !s.PortPinNote {
+		t.Errorf("after rejection: Port = %d, PortPinNote = %v — want unchanged 3000, true", s.Port, s.PortPinNote)
 	}
 }
 

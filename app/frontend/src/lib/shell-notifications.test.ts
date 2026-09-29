@@ -85,13 +85,13 @@ describe("shell notifications", () => {
   it("prunes expired and excess claim keys opportunistically", () => {
     vi.spyOn(Date, "now").mockReturnValue(2_000_000_000);
     for (let index = 0; index < 40; index++) {
-      localStorage.setItem(`runkit-notify-claim-old-${index}`, String(index));
+      localStorage.setItem(`hexokit-notify-claim-old-${index}`, String(index));
     }
     expect(claimNotification("fresh", localStorage)).toBe(true);
     const claimKeys = Object.keys(localStorage).filter((key) =>
-      key.startsWith("runkit-notify-claim-"),
+      key.startsWith("hexokit-notify-claim-"),
     );
-    expect(claimKeys).toEqual(["runkit-notify-claim-fresh"]);
+    expect(claimKeys).toEqual(["hexokit-notify-claim-fresh"]);
   });
 
   it("prunes claim keys even when unrelated storage entries precede them", () => {
@@ -101,15 +101,15 @@ describe("shell notifications", () => {
       localStorage.setItem(`unrelated-${index}`, "value");
     }
     for (let index = 0; index < 40; index++) {
-      localStorage.setItem(`runkit-notify-claim-existing-${index}`, String(now - index));
+      localStorage.setItem(`hexokit-notify-claim-existing-${index}`, String(now - index));
     }
 
     expect(claimNotification("fresh", localStorage)).toBe(true);
     const claimKeys = Object.keys(localStorage).filter((key) =>
-      key.startsWith("runkit-notify-claim-"),
+      key.startsWith("hexokit-notify-claim-"),
     );
     expect(claimKeys).toHaveLength(32);
-    expect(claimKeys).toContain("runkit-notify-claim-fresh");
+    expect(claimKeys).toContain("hexokit-notify-claim-fresh");
   });
 
   it("is inert outside the shell and while the pref is off", () => {
@@ -150,8 +150,8 @@ describe("shell notifications", () => {
     setShell(true);
     setShellNotificationsEnabled(true);
     vi.spyOn(Storage.prototype, "getItem").mockImplementation((key) => {
-      if (key === "runkit-shell-notifications") return "on";
-      if (key.startsWith("runkit-notify-claim-")) throw new Error("blocked");
+      if (key === "hexokit-shell-notifications") return "on";
+      if (key.startsWith("hexokit-notify-claim-")) throw new Error("blocked");
       return null;
     });
 
@@ -166,7 +166,7 @@ describe("shell notifications", () => {
     vi.spyOn(window, "focus").mockImplementation(() => {});
 
     expect(showShellNotification(null, navigate)).toBe(true);
-    expect(notifications[0].title).toBe("RunKit");
+    expect(notifications[0].title).toBe("HexoKit");
     expect(notifications[0].options?.body).toBe("");
 
     expect(showShellNotification({ id: 9, url: "/default/3" }, navigate)).toBe(true);
@@ -186,7 +186,7 @@ describe("shell notifications", () => {
 
     expect(showShellNotification(payload, vi.fn())).toBe(true);
     expect(notifications).toHaveLength(1);
-    expect(notifications[0].title).toBe("RunKit");
+    expect(notifications[0].title).toBe("HexoKit");
     expect(notifications[0].options?.body).toBe("waiting");
 
     const proxy = new Proxy(
@@ -199,6 +199,6 @@ describe("shell notifications", () => {
     );
     expect(showShellNotification(proxy, vi.fn())).toBe(true);
     expect(notifications).toHaveLength(2);
-    expect(notifications[1].title).toBe("RunKit");
+    expect(notifications[1].title).toBe("HexoKit");
   });
 });

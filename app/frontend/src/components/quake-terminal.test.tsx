@@ -395,7 +395,7 @@ describe("QuakeTerminal", () => {
 
     fireEvent.click(button);
     expect(mockStartOperator).toHaveBeenCalledTimes(1);
-    expect(mockStartOperator).toHaveBeenCalledWith("srv1");
+    expect(mockStartOperator).toHaveBeenCalledWith("srv1", undefined);
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute("aria-busy", "true");
     expect(button).toHaveTextContent("starting…");
@@ -421,6 +421,19 @@ describe("QuakeTerminal", () => {
     await screen.findByTestId("embedded-terminal");
     expect(screen.queryByTestId("quake-terminal-empty")).toBeNull();
     expect(screen.queryByTestId("quake-terminal-start-operator")).toBeNull();
+  });
+
+  it("Start operator on a same-server terminal route sends the viewed window", async () => {
+    mockStartOperator.mockResolvedValue({ windowId: "@9", server: "srv1" });
+    mockMatches = [{ params: { server: "srv1", window: "@1" } }];
+    renderQuake({
+      sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({ windowId: "@1" })] }]]]),
+    });
+    openDrawer();
+
+    fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
+
+    await waitFor(() => expect(mockStartOperator).toHaveBeenCalledWith("srv1", "@1"));
   });
 
   it("treats a 409 operator_exists as success — no error line, button stays pending", async () => {
@@ -485,7 +498,7 @@ describe("QuakeTerminal", () => {
     openDrawer();
 
     fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
-    expect(mockStartOperator).toHaveBeenCalledWith("a");
+    expect(mockStartOperator).toHaveBeenCalledWith("a", undefined);
     expect(screen.getByTestId("quake-terminal-start-operator")).toHaveTextContent("starting…");
 
     const picker = screen.getByRole("combobox", { name: "Operator server" });
@@ -628,7 +641,7 @@ describe("QuakeTerminal", () => {
     fireEvent.change(picker, { target: { value: "b" } });
     fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
     expect(mockStartOperator).toHaveBeenCalledTimes(2);
-    expect(mockStartOperator).toHaveBeenLastCalledWith("b");
+    expect(mockStartOperator).toHaveBeenLastCalledWith("b", undefined);
     expect(screen.getByTestId("quake-terminal-start-operator")).toBeDisabled();
 
     fireEvent.change(picker, { target: { value: "a" } });
@@ -1149,7 +1162,7 @@ describe("QuakeTerminal", () => {
     expect(el.style.backgroundColor).toContain("100%");
   });
 
-  const storedGeometry = () => JSON.parse(localStorage.getItem("runkit-quake-terminal-geometry")!);
+  const storedGeometry = () => JSON.parse(localStorage.getItem("hexokit-quake-terminal-geometry")!);
 
   it("dragging the bottom grip resizes only the height and persists the geometry on release", async () => {
     renderQuake();
@@ -1307,7 +1320,7 @@ describe("QuakeTerminal", () => {
     expect(el.style.width).toBe("760px");
     fireEvent.pointerUp(grip, { pointerId: 2 });
     expect(el.className).toContain("rk-quake-dragging");
-    expect(localStorage.getItem("runkit-quake-terminal-geometry")).toBeNull();
+    expect(localStorage.getItem("hexokit-quake-terminal-geometry")).toBeNull();
 
     // The first pointer still owns the drag.
     fireEvent.pointerMove(grip, { clientX: 540, clientY: 100, pointerId: 1 });
@@ -1334,7 +1347,7 @@ describe("QuakeTerminal", () => {
 
   it("double-clicking any grip resets the geometry to the defaults", async () => {
     localStorage.setItem(
-      "runkit-quake-terminal-geometry",
+      "hexokit-quake-terminal-geometry",
       JSON.stringify({ heightVh: 70, widthPx: 900, centerOffsetPx: 40 }),
     );
     renderQuake();
@@ -1353,7 +1366,7 @@ describe("QuakeTerminal", () => {
 
   it("a viewport resize re-clamps the displayed offset without writing the store", async () => {
     localStorage.setItem(
-      "runkit-quake-terminal-geometry",
+      "hexokit-quake-terminal-geometry",
       JSON.stringify({ heightVh: 55, widthPx: 760, centerOffsetPx: 100 }),
     );
     const originalWidth = window.innerWidth;

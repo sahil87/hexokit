@@ -9,9 +9,13 @@
  * Shared setup: `beforeAll` creates a dedicated session `e2e-help-<ts>` on
  * the isolated tmux server with three plain windows (`help-menu-<ts>` for the
  * menu path, `help-palette-<ts>` for the palette path — each needs a window
- * whose layout starts at `single:tty` with no web tabs — and `help-full-<ts>`
- * for the full-layout fallback, whose `@rk_win_layout` the test seeds to
- * three tty tiles before navigating); `afterAll` kills the session. `beforeEach` route-stubs `https://shll.ai/**` with a
+ * whose layout starts at the bare `tty` default (the option unset) with no
+ * web tabs — and `help-full-<ts>`
+ * for the cannot-grow fallback, whose `@rk_win_layout` the test seeds to
+ * nine tty ROWS before navigating — at the default desktop viewport every
+ * row is under the 100px height floor once split, so no add fits and the
+ * layout refuses to grow (the size floor, not a tile count, gates adds));
+ * `afterAll` kills the session. `beforeEach` route-stubs `https://hexokit.com/**` with a
  * static 200 page so the web tile's iframe never reaches the network (the
  * specs assert the stored tab and the layout, never remote content) and
  * replaces `window.open` with a recorder on `window.__openedUrls` so the
@@ -30,10 +34,14 @@ const TEST_SESSION = `e2e-help-${STAMP}`;
 const MENU_WINDOW = `help-menu-${STAMP}`;
 const PALETTE_WINDOW = `help-palette-${STAMP}`;
 const FULL_WINDOW = `help-full-${STAMP}`;
-const FULL_LAYOUT = "main-left:tty,tty,tty";
+// Nine bare tty rows: at the default 1280×720 viewport each row is ~70px
+// tall, so splitting any tile (a row split keeps its height) lands under the
+// 100px floor and every add is refused — the cannot-grow state the fallback
+// test needs. Repeated bare tty is legal.
+const FULL_LAYOUT = `v(${Array.from({ length: 9 }, () => "tty").join(",")})`;
 
-const CRON_URL = "https://shll.ai/run-kit/cron-schedule-kinds/";
-const BOARDS_URL = "https://shll.ai/run-kit/boards/";
+const CRON_URL = "https://hexokit.com/docs/cron-schedule-kinds/";
+const BOARDS_URL = "https://hexokit.com/docs/boards/";
 const TOPIC_LABELS = [
   "Status dot legend",
   "Cron schedule kinds",
@@ -89,7 +97,7 @@ test.afterAll(() => {
 });
 
 test.beforeEach(async ({ page }) => {
-  await page.route("https://shll.ai/**", (route) =>
+  await page.route("https://hexokit.com/**", (route) =>
     route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>stub</title>" }),
   );
   await stubWindowOpen(page);
@@ -99,7 +107,8 @@ test.describe("Help topics", () => {
   /**
    * Proves: on a terminal route the menu's Help topics rows carry no ↗ and
    * clicking one opens the page IN the current window's web tile — the URL is
-   * stored as web tab 1, the `single:tty` layout grows to `split-h:tty,web`,
+   * stored as web tab 1, the tty-only layout grows to `h(tty,web)` (the tree
+   * form — writers never emit the legacy preset string),
    * the tab strip shows the tab as active, and no browser tab is opened.
    *
    * Steps:
@@ -109,9 +118,9 @@ test.describe("Help topics", () => {
    *    rows render in registry order and none contains ↗.
    * 3. Click `Cron schedule kinds`; assert the menu closes.
    * 4. Poll tmux: `@rk_win_web_1` equals the topic URL, `@rk_win_web_active`
-   *    is `1`, and `@rk_win_layout` is `split-h:tty,web`.
+   *    is `1`, and `@rk_win_layout` is `h(tty,web)`.
    * 5. Assert the web-tab strip renders one selected tab titled with the
-   *    display form `shll.ai/run-kit/cron-schedule-kinds/`, and that
+   *    display form `hexokit.com/docs/cron-schedule-kinds/`, and that
    *    `window.open` was never called.
    */
   test("menu row opens the topic in the current window's web tile", async ({ page }) => {
@@ -129,12 +138,12 @@ test.describe("Help topics", () => {
 
     await expect.poll(() => windowOption(id, "@rk_win_web_1"), { timeout: 10_000 }).toBe(CRON_URL);
     await expect.poll(() => windowOption(id, "@rk_win_web_active"), { timeout: 10_000 }).toBe("1");
-    await expect.poll(() => windowOption(id, "@rk_win_layout"), { timeout: 10_000 }).toBe("split-h:tty,web");
+    await expect.poll(() => windowOption(id, "@rk_win_layout"), { timeout: 10_000 }).toBe("h(tty,web)");
 
     const strip = page.getByTestId("web-tab-strip");
     const tab = strip.getByTestId("web-tab");
     await expect(tab).toHaveCount(1);
-    await expect(tab).toHaveAttribute("title", "shll.ai/run-kit/cron-schedule-kinds/");
+    await expect(tab).toHaveAttribute("title", "hexokit.com/docs/cron-schedule-kinds/");
     await expect(tab).toHaveAttribute("aria-selected", "true");
     expect(await openedUrls(page)).toEqual([]);
   });
@@ -147,7 +156,7 @@ test.describe("Help topics", () => {
    * Steps:
    * 1. Navigate to the palette window (no web tab yet).
    * 2. Open the palette, choose `Help: Boards`; poll tmux until web tab 1 is
-   *    the boards URL and the layout is `split-h:tty,web`.
+   *    the boards URL and the layout is `h(tty,web)`.
    * 3. Open the palette and choose `Help: Boards` again.
    * 4. Assert the strip still shows exactly one tab and `@rk_win_web_2` stays
    *    unset while `@rk_win_web_active` remains `1`; `window.open` was never
@@ -167,7 +176,7 @@ test.describe("Help topics", () => {
 
     await selectBoards();
     await expect.poll(() => windowOption(id, "@rk_win_web_1"), { timeout: 10_000 }).toBe(BOARDS_URL);
-    await expect.poll(() => windowOption(id, "@rk_win_layout"), { timeout: 10_000 }).toBe("split-h:tty,web");
+    await expect.poll(() => windowOption(id, "@rk_win_layout"), { timeout: 10_000 }).toBe("h(tty,web)");
     await expect(page.getByTestId("web-tab-strip").getByTestId("web-tab")).toHaveCount(1);
 
     await selectBoards();
@@ -206,7 +215,8 @@ test.describe("Help topics", () => {
   });
 
   /**
-   * Proves: on a terminal route whose layout already holds three tiles and no
+   * Proves: on a terminal route whose layout cannot grow (every tile split
+   * breaks the size floor — nine tty rows at this viewport) and which has no
    * web surface, opening a topic still stores it as a web tab but performs
    * NO layout write and opens the page in a browser tab instead — and that
    * browser tab opens synchronously from the click, before the add request
@@ -214,16 +224,18 @@ test.describe("Help topics", () => {
    * blockers swallow it).
    *
    * Steps:
-   * 1. Seed the full window's `@rk_win_layout` to `main-left:tty,tty,tty`
-   *    (duplicate tty tiles are legal) and navigate to it; assert no web tab.
+   * 1. Seed the full window's `@rk_win_layout` to the nine-row all-tty tree
+   *    (no split fits the 150×100 px floor in this viewport, so adding a web
+   *    tile is refused — the floor gates adds, not a tile count) and navigate
+   *    to it; assert no web tab.
    * 2. Hold the `POST /api/windows/{id}/web` add request open.
    * 3. Open the menu, expand `Help topics`, click `Cron schedule kinds`;
    *    assert `window.open` recorded the topic URL while the add request is
    *    still pending.
    * 4. Release the request; poll tmux: `@rk_win_web_1` equals the topic URL
-   *    and `@rk_win_layout` is unchanged at the three-tile value.
+   *    and `@rk_win_layout` is unchanged at the seeded value.
    */
-  test("full three-tile layout keeps the tab, skips the layout write, and opens a browser tab synchronously", async ({ page }) => {
+  test("a layout that cannot grow keeps the tab, skips the layout write, and opens a browser tab synchronously", async ({ page }) => {
     const id = await resolveWindow(page, FULL_WINDOW);
     setWindowOption(id, "@rk_win_layout", FULL_LAYOUT);
     expect(windowOption(id, "@rk_win_web_1")).toBe("");

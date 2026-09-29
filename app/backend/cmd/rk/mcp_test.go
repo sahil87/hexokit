@@ -140,7 +140,7 @@ func TestMCPVisibleInHelpDump(t *testing.T) {
 	for _, child := range tree.Root.Commands {
 		if child.Name == "mcp" {
 			found = true
-			if child.Path != "run-kit mcp" {
+			if child.Path != "hexokit mcp" {
 				t.Errorf("mcp node path = %q", child.Path)
 			}
 		}

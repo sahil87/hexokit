@@ -1,8 +1,8 @@
 {
   "name": "rk-code-bridge",
   "publisher": "run-kit",
-  "displayName": "run-kit Code Bridge",
-  "description": "Serves vscode.commands.executeCommand over a same-user Unix socket so the run-kit CLI can drive the editor from a shell.",
+  "displayName": "HexoKit Code Bridge",
+  "description": "Serves vscode.commands.executeCommand over a same-user Unix socket so the HexoKit CLI can drive the editor from a shell.",
   "version": "0.0.0-dev",
   "license": "MIT",
   "private": true,
@@ -16,22 +16,22 @@
   "main": "./dist/extension.js",
   "contributes": {
     "configuration": {
-      "title": "run-kit Code Bridge",
+      "title": "HexoKit Code Bridge",
       "properties": {
         "rk.bridge.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable the run-kit code bridge Unix socket. When off, the extension activates with no side effects."
+          "description": "Enable the HexoKit code bridge Unix socket. When off, the extension activates with no side effects."
         },
         "rk.tab": {
           "type": "string",
           "default": "",
-          "description": "The run-kit tab (@N) this window belongs to — written into the derived workspace file by rk; not user-set."
+          "description": "The HexoKit tab (@N) this window belongs to — written into the derived workspace file by rk; not user-set."
         },
         "rk.server": {
           "type": "string",
           "default": "",
-          "description": "The run-kit tmux server this window belongs to — written into the derived workspace file by rk; not user-set."
+          "description": "The HexoKit tmux server this window belongs to — written into the derived workspace file by rk; not user-set."
         },
         "rk.bridge.rkPath": {
           "type": "string",
@@ -44,32 +44,32 @@
       {
         "command": "rk.openInWebTile",
         "title": "Open in Web Tile",
-        "category": "run-kit"
+        "category": "HexoKit"
       },
       {
         "command": "rk.openFolderInWebTile",
         "title": "Open Folder in Web Tile",
-        "category": "run-kit"
+        "category": "HexoKit"
       },
       {
         "command": "rk.openInWebTileAndNotify",
         "title": "Open in Web Tile and Notify",
-        "category": "run-kit"
+        "category": "HexoKit"
       },
       {
         "command": "rk.sendToAgent",
         "title": "Send to Agent",
-        "category": "run-kit"
+        "category": "HexoKit"
       },
       {
         "command": "rk.copyReferenceForAgent",
         "title": "Copy Reference for Agent",
-        "category": "run-kit"
+        "category": "HexoKit"
       },
       {
         "command": "rk.openPortInWebTile",
         "title": "Open Port in Web Tile",
-        "category": "run-kit"
+        "category": "HexoKit"
       }
     ],
     "menus": {

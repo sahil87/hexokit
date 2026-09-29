@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { _resetForTests, acquire, count, isModalOpen, subscribe } from "./overlay-presence";
+import { _resetForTests, acquire, count, isModalOpen, isOccludingOpen, subscribe } from "./overlay-presence";
 
 describe("overlay-presence", () => {
   beforeEach(() => {
@@ -48,6 +48,17 @@ describe("overlay-presence", () => {
     expect(count()).toBe(1);
     release();
     expect(count()).toBe(0);
+  });
+
+  it("isOccludingOpen reads modal + transient: either kind opens it, the last release closes it", () => {
+    expect(isOccludingOpen()).toBe(false);
+    const menu = acquire("transient");
+    expect(isOccludingOpen()).toBe(true);
+    const dialog = acquire("modal");
+    menu();
+    expect(isOccludingOpen()).toBe(true);
+    dialog();
+    expect(isOccludingOpen()).toBe(false);
   });
 
   it("count() sums both kinds", () => {

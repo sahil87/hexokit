@@ -66,6 +66,22 @@ func SeedProfile(dir, terminal, browser string) (seeded bool, err error) {
 	return seeded, nil
 }
 
+// WriteOnceSeedFiles lists the GUI-state-relative files the seeders write
+// only when absent — the user-editable seeds whose edits persist across
+// restarts: the icewm preferences and the LXQt etc defaults (lxqt panel.conf
+// is the one partial exception — its [quicklaunch] section is re-rendered on
+// every seed call, the rest keeps the user's edits). The home
+// migration carries exactly these over; the per-start regenerated files
+// (icewm toolbar/menu), sockets, and CDP profiles cold-start.
+func WriteOnceSeedFiles() []string {
+	out := make([]string, 0, len(lxqtSeedFiles)+1)
+	out = append(out, filepath.Join("icewm", "preferences"))
+	for _, rel := range lxqtSeedFiles {
+		out = append(out, filepath.Join("lxqt", "etc", filepath.FromSlash(rel)))
+	}
+	return out
+}
+
 // writeIcewmApps rewrites one generated file (0600 — WriteFile keeps an
 // existing file's mode, so the chmod is what normalizes a reused profile); a
 // partial write is acceptable on the write path — the file is regenerated on

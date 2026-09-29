@@ -60,7 +60,7 @@ function renderBottomBar(
 
 // Lock state lives in ChromeContext persisted to this key — the observable
 // for these tests alongside the chip's aria-label.
-const SCROLL_LOCK_KEY = "runkit-scroll-lock";
+const SCROLL_LOCK_KEY = "hexokit-scroll-lock";
 
 describe("BottomBar scroll-lock", () => {
   beforeEach(() => {
@@ -448,7 +448,7 @@ describe("BottomBar chip order + compose chip (260811-0f3d)", () => {
 
   it("compose chip bar is static while the strip is off — no blink class", () => {
     // The preference is on by default; "off" is an explicit stored choice.
-    localStorage.setItem("runkit-compose-strip", "false");
+    localStorage.setItem("hexokit-compose-strip", "false");
     renderBottomBar({ onOpenCompose: vi.fn() });
     const compose = screen.getByLabelText("Compose");
     expect(compose.textContent).toBe("a▏");
@@ -456,7 +456,7 @@ describe("BottomBar chip order + compose chip (260811-0f3d)", () => {
   });
 
   it("compose chip bar blinks while the strip is on — rk-compose-caret on the ▏ span", () => {
-    localStorage.setItem("runkit-compose-strip", "true");
+    localStorage.setItem("hexokit-compose-strip", "true");
     renderBottomBar({ onOpenCompose: vi.fn() });
     const compose = screen.getByLabelText("Compose");
     const bar = compose.querySelector(".rk-compose-caret");

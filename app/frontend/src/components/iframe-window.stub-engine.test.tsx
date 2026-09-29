@@ -26,6 +26,7 @@ const mockEngine = vi.hoisted(() => {
     find: vi.fn(),
     stopFind: vi.fn(),
     openDevTools: vi.fn(),
+    destroy: vi.fn(),
   };
   return {
     listeners: new Set<() => void>(),
@@ -35,6 +36,9 @@ const mockEngine = vi.hoisted(() => {
     // so the pass-through is assertable.
     chordTable: undefined as unknown,
     onZoomStep: undefined as unknown,
+    // The LAST `active` prop rendered per tab URL — the draft-deactivation
+    // rule asserts every engine renders inactive while a draft is selected.
+    activeByUrl: new Map<string, boolean>(),
   };
 });
 
@@ -49,6 +53,7 @@ vi.mock("@/components/web-frame-iframe", async (importOriginal) => {
       const [, force] = React.useReducer((x: number) => x + 1, 0);
       mockEngine.chordTable = props.chordTable;
       mockEngine.onZoomStep = props.onZoomStep;
+      mockEngine.activeByUrl.set(props.url, props.active);
       React.useEffect(() => {
         const listener = () => force();
         mockEngine.listeners.add(listener);
@@ -84,9 +89,11 @@ const mockNative = vi.hoisted(() => ({
     find: vi.fn(),
     stopFind: vi.fn(),
     openDevTools: vi.fn(),
+    destroy: vi.fn(),
   },
   chordTable: undefined as unknown,
   onZoomStep: undefined as unknown,
+  activeByUrl: new Map<string, boolean>(),
 }));
 
 vi.mock("@/components/web-frame-native", async (importOriginal) => {
@@ -97,6 +104,7 @@ vi.mock("@/components/web-frame-native", async (importOriginal) => {
     WebFrameNative: (props: import("@/lib/web-frame-engine").WebFrameEngineProps) => {
       mockNative.chordTable = props.chordTable;
       mockNative.onZoomStep = props.onZoomStep;
+      mockNative.activeByUrl.set(props.url, props.active);
       React.useEffect(() => {
         mockNative.mounts.push(props.url);
         props.registerHandle(props.url, mockNative.handle);
@@ -180,8 +188,10 @@ afterEach(cleanup);
 beforeEach(() => {
   vi.clearAllMocks();
   mockEngine.state = chromeState();
+  mockEngine.activeByUrl.clear();
   mockNative.mounts = [];
   mockNative.unmounts = [];
+  mockNative.activeByUrl.clear();
   mockShell.canShellWeb.mockReturnValue(false);
   localStorage.clear();
 });
@@ -341,6 +351,52 @@ describe("IframeWindow over a stub engine", () => {
     expect(mockEngine.handle.openDevTools).toHaveBeenCalledTimes(1);
   });
 
+  it("a selected draft renders EVERY engine active={false} and shows the blank new-tab panel", () => {
+    renderChrome({ tabs: ["/proxy/8080/docs", "https://github.com/x"], active: 1, onAddTab: vi.fn() });
+    expect(mockEngine.activeByUrl.get("/proxy/8080/docs")).toBe(true);
+    expect(mockEngine.activeByUrl.get("https://github.com/x")).toBe(false);
+
+    fireEvent.click(screen.getByTestId("web-tab-add"));
+    expect(mockEngine.activeByUrl.get("/proxy/8080/docs")).toBe(false);
+    expect(mockEngine.activeByUrl.get("https://github.com/x")).toBe(false);
+    expect(screen.getByTestId("web-draft-panel")).toBeTruthy();
+    // Both engines stay mounted (P3) — the wrapper never unmounts them.
+    expect(screen.getAllByTestId("stub-engine")).toHaveLength(2);
+  });
+
+  it("the native engine also renders active={false} while a draft is selected", () => {
+    localStorage.setItem(WEB_NATIVE_ENGINE_PREF_KEY, "true");
+    mockShell.canShellWeb.mockReturnValue(true);
+    renderChrome({ tabs: ["/proxy/8080/docs", "https://github.com/x"], active: 2, onAddTab: vi.fn() });
+    expect(mockNative.activeByUrl.get("/proxy/8080/docs")).toBe(false);
+    expect(mockNative.activeByUrl.get("https://github.com/x")).toBe(true);
+
+    fireEvent.click(screen.getByTestId("web-tab-add"));
+    expect(mockNative.activeByUrl.get("/proxy/8080/docs")).toBe(false);
+    expect(mockNative.activeByUrl.get("https://github.com/x")).toBe(false);
+    expect(screen.getByTestId("web-draft-panel")).toBeTruthy();
+  });
+
+  it("the Inspect page button renders only on a devtools-capable report and drives the handle's openDevTools", () => {
+    renderChrome({ tabs: ["/proxy/8080/docs"] });
+    expect(screen.queryByLabelText("Inspect page")).toBeNull();
+
+    pushState(chromeState({ supports: { ...ALL_SUPPORT, devtools: true } }));
+    const button = screen.getByLabelText("Inspect page");
+    expect(button.querySelector('svg[data-icon="inspect"]')).toBeTruthy();
+    fireEvent.click(button);
+    expect(mockEngine.handle.openDevTools).toHaveBeenCalledTimes(1);
+  });
+
+  it("the native engine's capability seed shows the Inspect page button, routed to the native handle", () => {
+    localStorage.setItem(WEB_NATIVE_ENGINE_PREF_KEY, "true");
+    mockShell.canShellWeb.mockReturnValue(true);
+    renderChrome({ tabs: ["/proxy/8080/docs"] });
+    fireEvent.click(screen.getByLabelText("Inspect page"));
+    expect(mockNative.handle.openDevTools).toHaveBeenCalledTimes(1);
+    expect(mockEngine.handle.openDevTools).not.toHaveBeenCalled();
+  });
+
   it("the web-inspect document event reaches the native handle when that engine is mounted", () => {
     localStorage.setItem(WEB_NATIVE_ENGINE_PREF_KEY, "true");
     mockShell.canShellWeb.mockReturnValue(true);
@@ -366,6 +422,105 @@ function PrefToggle() {
     </button>
   );
 }
+
+describe("IframeWindow chrome-owned destroys", () => {
+  // The destroy rule keys on the FAMILY diff while the window key is
+  // unchanged: a URL leaving the family (close / slot rewrite / external
+  // removal) destroys its guest through the registered handle; a window
+  // switch (window key change) parks instead of destroying.
+  const SCOPE = { server: "runkit", windowId: "@3" };
+
+  function chromeElement(props: React.ComponentProps<typeof IframeWindow>) {
+    return (
+      <StandaloneSessionContextProvider
+        value={{
+          sessionsByServer: new Map([["runkit", []]]),
+          sessionOrderByServer: new Map([["runkit", []]]),
+          isConnectedByServer: new Map([["runkit", false]]),
+          metricsByServer: new Map(),
+          currentServer: "runkit",
+          servers: [{ name: "runkit", sessionCount: 0 }],
+          refreshServers: vi.fn(),
+        }}
+      >
+        <IframeWindow {...props} />
+      </StandaloneSessionContextProvider>
+    );
+  }
+
+  it("closing a tab destroys the closed tab's handle (the click drives onCloseTab; the destroy lands when the family shrinks)", () => {
+    const onCloseTab = vi.fn();
+    const view = render(
+      chromeElement({
+        tabs: ["/proxy/8080/docs", "https://github.com/x"],
+        active: 1,
+        onCloseTab,
+        ...SCOPE,
+      }),
+    );
+    const closeButtons = screen.getAllByTestId("web-tab-close");
+    fireEvent.click(closeButtons[1]);
+    expect(onCloseTab).toHaveBeenCalledWith(2);
+    // The caller's optimistic remove lands as the next tabs prop — the
+    // destroy fires with that shrink, before the engine's unmount park.
+    expect(mockEngine.handle.destroy).not.toHaveBeenCalled();
+    view.rerender(
+      chromeElement({ tabs: ["/proxy/8080/docs"], active: 1, onCloseTab, ...SCOPE }),
+    );
+    expect(mockEngine.handle.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("a URL-slot rewrite destroys the outgoing URL's handle", () => {
+    const view = render(
+      chromeElement({ tabs: ["/proxy/8080/docs", "https://github.com/x"], active: 1, ...SCOPE }),
+    );
+    view.rerender(
+      chromeElement({ tabs: ["/proxy/8080/docs", "https://example.com/new"], active: 1, ...SCOPE }),
+    );
+    expect(mockEngine.handle.destroy).toHaveBeenCalledTimes(1);
+    // The surviving slot's engine is untouched.
+    expect(screen.getAllByTestId("stub-engine")).toHaveLength(2);
+  });
+
+  it("a reorder keeps every guest (no URL left the family)", () => {
+    const view = render(
+      chromeElement({ tabs: ["/proxy/8080/docs", "https://github.com/x"], active: 1, ...SCOPE }),
+    );
+    view.rerender(
+      chromeElement({ tabs: ["https://github.com/x", "/proxy/8080/docs"], active: 2, ...SCOPE }),
+    );
+    expect(mockEngine.handle.destroy).not.toHaveBeenCalled();
+  });
+
+  it("a window switch destroys nothing — the departing tabs park for adoption on return", () => {
+    const view = render(
+      chromeElement({ tabs: ["/proxy/8080/docs"], active: 1, ...SCOPE }),
+    );
+    view.rerender(
+      chromeElement({
+        tabs: ["/proxy/9999/other"],
+        active: 1,
+        server: "runkit",
+        windowId: "@7",
+      }),
+    );
+    expect(mockEngine.handle.destroy).not.toHaveBeenCalled();
+  });
+
+  it("the destroy reaches the native engine's handle too", () => {
+    localStorage.setItem(WEB_NATIVE_ENGINE_PREF_KEY, "true");
+    mockShell.canShellWeb.mockReturnValue(true);
+    const onCloseTab = vi.fn();
+    const view = render(
+      chromeElement({ tabs: ["/proxy/8080/docs", "https://github.com/x"], onCloseTab, ...SCOPE }),
+    );
+    view.rerender(
+      chromeElement({ tabs: ["/proxy/8080/docs"], onCloseTab, ...SCOPE }),
+    );
+    expect(mockNative.handle.destroy).toHaveBeenCalledTimes(1);
+    expect(mockEngine.handle.destroy).not.toHaveBeenCalled();
+  });
+});
 
 describe("IframeWindow engine selection", () => {
   it("mounts the iframe engine with no bridge regardless of the preference", () => {

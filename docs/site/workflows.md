@@ -53,7 +53,7 @@ rk riff --skill /a --cmd x --cmd y --layout main-vertical
 
 ## Presets
 
-Three built-in presets ship with the binary: `discuss` (→ `/fab-discuss`), `incognito` (→ `/fab-incognito`), and `blank` (a bare agent, nothing typed into it). Add your own — or override a built-in's skill — under `riff_presets` in `~/.config/run-kit/config.yaml`:
+Three built-in presets ship with the binary: `discuss` (→ `/fab-discuss`), `incognito` (→ `/fab-incognito`), and `blank` (a bare agent, nothing typed into it). Add your own — or override a built-in's skill — under `riff_presets` in `~/.config/hexokit/config.yaml`:
 
 ```yaml
 riff_presets:

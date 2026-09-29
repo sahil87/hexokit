@@ -174,12 +174,12 @@ export function activePaneCwd(win: WindowInfo | null | undefined): string {
 
 /**
  * Client-side "last app opened with" preference. Per-client only
- * (Constitution II — no backend persistence); the `runkit-*` key convention
- * mirrors `runkit-terminal-font-size` / `runkit-last-pinned-board`.
+ * (Constitution II — no backend persistence); the `hexokit-*` key convention
+ * mirrors `hexokit-terminal-font-size` / `hexokit-last-pinned-board`.
  * Reads/writes are best-effort try/catch-noop so private mode / quota / SSR
  * never throw.
  */
-export const LAST_USED_OPEN_TARGET_KEY = "runkit-open-last-used";
+export const LAST_USED_OPEN_TARGET_KEY = "hexokit-open-last-used";
 
 /** Read the last-used open-target id (`deeplink:vscode` / `host:iterm`).
  *  Returns `null` when absent or when localStorage is unavailable. NOT

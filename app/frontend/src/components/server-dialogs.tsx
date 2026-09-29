@@ -214,7 +214,7 @@ export function ServerDialogs() {
           }}
           onRestart={() => {
             void ctx.restartNow().catch((err: unknown) => {
-              addToast(err instanceof Error ? err.message : "Failed to restart run-kit");
+              addToast(err instanceof Error ? err.message : "Failed to restart HexoKit");
             });
             clearKillServerTarget();
           }}
@@ -228,7 +228,7 @@ export function ServerDialogs() {
           </p>
           {killServerTarget === DAEMON_SERVER && (
             <p className="text-signal-red mb-2.5">
-              <strong>{DAEMON_SERVER}</strong> hosts the run-kit daemon serving this dashboard — killing it takes the dashboard down.
+              <strong>{DAEMON_SERVER}</strong> hosts the HexoKit daemon serving this dashboard — killing it takes the dashboard down.
             </p>
           )}
           <div className="flex gap-2">
@@ -249,9 +249,9 @@ export function ServerDialogs() {
       )}
 
       {adoptServerTarget && (
-        <Dialog title="Adopt server into run-kit?" onClose={clearAdoptServerTarget}>
+        <Dialog title="Adopt server into HexoKit?" onClose={clearAdoptServerTarget}>
           <p className="text-text-secondary mb-2.5">
-            Adopt server <strong>{adoptServerTarget}</strong> into run-kit? run-kit's tmux config is
+            Adopt server <strong>{adoptServerTarget}</strong> into HexoKit? HexoKit's tmux config is
             applied to it now — your own config returns only when the server restarts.
           </p>
           <div className="flex gap-2">
@@ -277,7 +277,7 @@ export function ServerDialogs() {
 /** The kill confirm for PROTECTED targets (rk-daemon by derivation, or any
  *  @rk_srv_protected server). The kill action is locked behind typing the exact
  *  server name (auto-focused, Enter submits only on match, Esc cancels via the
- *  Dialog's focus trap). The daemon additionally gets the "Restart run-kit"
+ *  Dialog's focus trap). The daemon additionally gets the "Restart HexoKit"
  *  primary — the safe action — wired to the existing POST /api/restart; other
  *  protected servers keep Cancel as the safe default. */
 function ProtectedKillDialog({
@@ -325,7 +325,7 @@ function ProtectedKillDialog({
             onClick={onRestart}
             className={`flex-1 ${controlClass({ variant: "wide" })}`}
           >
-            Restart run-kit
+            Restart HexoKit
           </button>
         )}
         <button

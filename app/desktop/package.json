@@ -1,9 +1,9 @@
 {
-  "name": "run-kit-desktop",
+  "name": "hexokit-desktop",
   "version": "0.0.0",
   "private": true,
-  "description": "run-kit desktop viewer shell — loads an existing rk serve URL (client only, never spawns or supervises the daemon)",
-  "homepage": "https://github.com/sahil87/run-kit",
+  "description": "HexoKit desktop viewer shell — loads an existing rk serve URL (client only, never spawns or supervises the daemon)",
+  "homepage": "https://github.com/sahil87/hexokit",
   "main": "dist/main.js",
   "engines": {
     "node": ">=22.12.0"

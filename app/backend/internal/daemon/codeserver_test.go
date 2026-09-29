@@ -844,3 +844,95 @@ func TestCodeServerSessionCommandQueryErrorIsUncertain(t *testing.T) {
 		t.Fatalf("got (exists=%v, err=%v), want (true, non-nil) — existing but uninspectable is uncertain evidence", exists, err)
 	}
 }
+
+// --- RestartCodeServer (the lens empty state's restart action) ---
+
+func TestRestartCodeServerMissingBinarySpawnsInstallJob(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("RK_CODE_SERVER_PORT", fmt.Sprint(freeLoopbackPort(t)))
+	withDaemonGate(t, true)
+	_, jobs, _ := withCodeServerSeams(t, false)
+
+	outcome, err := RestartCodeServer()
+	if err != nil || outcome != EnsureInstallJobSpawned {
+		t.Fatalf("got (%v, %v), want (EnsureInstallJobSpawned, nil)", outcome, err)
+	}
+	if len(*jobs) != 1 {
+		t.Errorf("job spawns = %d, want 1", len(*jobs))
+	}
+}
+
+func TestRestartCodeServerWaitsForPortUp(t *testing.T) {
+	testutil.StubOnPath(t, "code-server", "#!/bin/sh\nexit 0\n")
+	t.Setenv("RK_CODE_SERVER_PORT", fmt.Sprint(freeLoopbackPort(t)))
+	withDaemonGate(t, true)
+	spawned, _, _ := withCodeServerSeams(t, false)
+	shrinkPortFreeWait(t)
+	probes := stubCodeServerPortBusy(t, func(p int) bool { return p >= 3 }) // down, down, up
+
+	outcome, err := RestartCodeServer()
+	if err != nil || outcome != EnsureStarted {
+		t.Fatalf("got (%v, %v), want (EnsureStarted, nil)", outcome, err)
+	}
+	if len(*spawned) != 1 || *probes < 3 {
+		t.Errorf("spawns = %d, probes = %d; want 1 spawn and a wait past the down reports", len(*spawned), *probes)
+	}
+}
+
+func TestRestartCodeServerNeverComesUpIsError(t *testing.T) {
+	testutil.StubOnPath(t, "code-server", "#!/bin/sh\nexit 0\n")
+	t.Setenv("RK_CODE_SERVER_PORT", fmt.Sprint(freeLoopbackPort(t)))
+	withDaemonGate(t, true)
+	withCodeServerSeams(t, false)
+	shrinkPortFreeWait(t)
+	orig := codeServerPortUpTimeout
+	t.Cleanup(func() { codeServerPortUpTimeout = orig })
+	codeServerPortUpTimeout = 20 * time.Millisecond
+	stubCodeServerPortBusy(t, func(int) bool { return false })
+
+	if _, err := RestartCodeServer(); err == nil || !strings.Contains(err.Error(), "did not come up") {
+		t.Errorf("err = %v, want a did-not-come-up error", err)
+	}
+}
+
+// A kill that spends most of the shared cmdTimeout (a hung session's
+// port-free wait) must not starve the install-job spawn that follows.
+func TestRestartCodeServerInstallJobGetsFreshBudget(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("RK_CODE_SERVER_PORT", fmt.Sprint(freeLoopbackPort(t)))
+	withDaemonGate(t, true)
+	withCodeServerSeams(t, false)
+	exists := 0
+	codeServerSessionExists = func(context.Context) bool { exists++; return exists == 1 } // live for the kill only
+	origKill := codeServerKillRun
+	t.Cleanup(func() { codeServerKillRun = origKill })
+	codeServerKillRun = func(context.Context, ...string) error { time.Sleep(1500 * time.Millisecond); return nil }
+	stubCodeServerPortBusy(t, func(int) bool { return false })
+	var remaining time.Duration
+	codeServerRunJob = func(ctx context.Context, window string, _ []string) (JobTarget, bool, error) {
+		dl, _ := ctx.Deadline()
+		remaining = time.Until(dl)
+		return JobTarget{Window: window}, true, nil
+	}
+
+	if outcome, err := RestartCodeServer(); err != nil || outcome != EnsureInstallJobSpawned {
+		t.Fatalf("got (%v, %v), want (EnsureInstallJobSpawned, nil)", outcome, err)
+	}
+	if remaining < cmdTimeout-time.Second {
+		t.Errorf("install job ctx had %v left, want a fresh ~%v budget", remaining, cmdTimeout)
+	}
+}
+
+func TestRestartCodeServerInstallJobFailureIsError(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("RK_CODE_SERVER_PORT", fmt.Sprint(freeLoopbackPort(t)))
+	withDaemonGate(t, true)
+	withCodeServerSeams(t, false)
+	codeServerRunJob = func(context.Context, string, []string) (JobTarget, bool, error) {
+		return JobTarget{}, false, context.DeadlineExceeded
+	}
+
+	if _, err := RestartCodeServer(); err == nil || !strings.Contains(err.Error(), "install job failed to start") {
+		t.Errorf("err = %v, want the install-job failure surfaced", err)
+	}
+}

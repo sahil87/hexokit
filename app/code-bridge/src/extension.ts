@@ -2,13 +2,13 @@ import * as vscode from 'vscode';
 import * as net from 'node:net';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import { startBridge, BridgeDeps } from './bridge';
 import { readTabIdentity, TabIdentity } from './tab';
 import { identityFromWorkspaceFile } from './workspace-file';
 import { ownsFile, buildBootMarker } from './ownership';
 import { resolveRkPath, runRk, RunRkResult } from './rk';
+import { stateDir } from './state-dir';
 import {
   WEB_ADD_TIMEOUT_MS,
   NOTIFY_TIMEOUT_MS,
@@ -52,7 +52,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const identity = identityFromWorkspaceFile(contents);
   if (identity === null) return;
 
-  const output = vscode.window.createOutputChannel('run-kit Code Bridge');
+  const output = vscode.window.createOutputChannel('HexoKit Code Bridge');
   context.subscriptions.push(output);
   const cbDir = stateDir();
   if (!ensurePrivateDir(cbDir, output)) return;
@@ -102,7 +102,7 @@ function startBridgeForFolder(context: vscode.ExtensionContext, folder: vscode.W
   );
   registerActions(context, () => identity);
 
-  const output = vscode.window.createOutputChannel('run-kit Code Bridge');
+  const output = vscode.window.createOutputChannel('HexoKit Code Bridge');
   context.subscriptions.push(output);
 
   const cbDir = stateDir();
@@ -238,11 +238,11 @@ function registerActions(
 
   const showRunError = (result: RunRkResult): void => {
     if (result.error === 'enoent') {
-      void vscode.window.showErrorMessage('run-kit: rk not found — set rk.bridge.rkPath');
+      void vscode.window.showErrorMessage('HexoKit: rk not found — set rk.bridge.rkPath');
       return;
     }
     const detail = firstLine(result.stderr);
-    void vscode.window.showErrorMessage(`run-kit: ${detail.length > 0 ? detail : `exit ${result.code}`}`);
+    void vscode.window.showErrorMessage(`HexoKit: ${detail.length > 0 ? detail : `exit ${result.code}`}`);
   };
 
   const openInWebTile = async (uri?: vscode.Uri): Promise<void> => {
@@ -356,12 +356,6 @@ function registerActions(
     ),
     vscode.commands.registerCommand('rk.openPortInWebTile', () => openPortInWebTile()),
   );
-}
-
-function stateDir(): string {
-  const xdg = process.env.XDG_STATE_HOME;
-  const base = typeof xdg === 'string' && xdg.length > 0 ? xdg : path.join(os.homedir(), '.local', 'state');
-  return path.join(base, 'run-kit', 'cb');
 }
 
 // The socket dir gates who can reach the bridge; group/other access means refusing to start.

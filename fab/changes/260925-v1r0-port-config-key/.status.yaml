@@ -1,0 +1,59 @@
+id: v1r0
+name: 260925-v1r0-port-config-key
+created: 2026-09-25T16:20:51Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 12
+    acceptance_count: 25
+    acceptance_completed: 25
+confidence:
+    certain: 11
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.0
+    fuzzy: true
+    dimensions:
+        signal: 72.8
+        reversibility: 85.3
+        competence: 82.8
+        disambiguation: 79.1
+stage_metrics:
+    intake: {started_at: "2026-09-25T16:20:51Z", driver: fab-new, iterations: 1, completed_at: "2026-09-25T16:25:55Z"}
+    apply: {started_at: "2026-09-25T16:55:21Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-25T17:03:52Z"}
+    review: {started_at: "2026-09-25T17:03:52Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-25T17:09:24Z"}
+    hydrate: {started_at: "2026-09-25T17:09:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T17:17:15Z"}
+    ship: {started_at: "2026-09-25T17:17:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T17:19:40Z"}
+    review-pr: {started_at: "2026-09-25T17:19:40Z", driver: git-pr, iterations: 1, completed_at: "2026-09-25T17:33:15Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/1051
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 1395
+    deleted: 95
+    net: 1300
+    excluding:
+        added: 814
+        deleted: 57
+        net: 757
+    tests:
+        added: 606
+        deleted: 25
+        net: 581
+    computed_at: "2026-09-25T17:19:40Z"
+    computed_at_stage: ship
+summary: 'settings registry gains the config.yaml port pin (3000 < port: < RK_PORT), startSession passes the resolved binding via -e and mirrors raw RK_* env into the live server''s global env, and serve handlers use startup-resolved ports; constitution IV v1.15.0'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-25T17:33:15Z

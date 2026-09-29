@@ -96,8 +96,8 @@ func TestMCPEndToEnd(t *testing.T) {
 	serverCmd.Env = append(env, "XDG_STATE_HOME="+xdgState, "RK_HOST=127.0.0.1", "RK_PORT=1")
 
 	// Seed one snapshot in the isolated store so snapshot_list round-trips a
-	// real entry (the store API writes under XDG_STATE_HOME/run-kit/snapshots).
-	store := snapshot.NewStore(filepath.Join(xdgState, "run-kit", "snapshots"))
+	// real entry (the store API writes under XDG_STATE_HOME/hexokit/snapshots).
+	store := snapshot.NewStore(filepath.Join(xdgState, "hexokit", "snapshots"))
 	written, err := store.Write(&snapshot.Snapshot{
 		Server:  "e2esnap",
 		TakenAt: time.Now().UTC(),
@@ -354,8 +354,8 @@ func TestMCPEndToEnd(t *testing.T) {
 	if err := json.Unmarshal([]byte(textOf(res)), &layoutRcpt); err != nil {
 		t.Fatalf("tab_layout text is not the receipt: %v\n%s", err, textOf(res))
 	}
-	if layoutRcpt.Window != newWin.WindowID || layoutRcpt.Layout != "split-h:tty,web" {
-		t.Errorf("tab_layout receipt = %+v, want the chained window and the set layout", layoutRcpt)
+	if layoutRcpt.Window != newWin.WindowID || layoutRcpt.Layout != "h(tty,web)" {
+		t.Errorf("tab_layout receipt = %+v, want the chained window and the set layout in tree form", layoutRcpt)
 	}
 
 	res = call("tab_web", map[string]any{"action": "add", "server": server, "window": newWin.WindowID, "target": "https://example.com"})

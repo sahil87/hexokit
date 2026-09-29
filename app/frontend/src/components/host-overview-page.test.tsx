@@ -148,7 +148,7 @@ afterEach(() => {
 });
 
 describe("HostOverviewPage — system card (HOST HEALTH zone)", () => {
-  it("renders the run-kit system card inside the Host health zone even with no metrics", () => {
+  it("renders the HexoKit system card inside the Host health zone even with no metrics", () => {
     mockHostMetrics = null;
     renderPage();
 
@@ -156,8 +156,8 @@ describe("HostOverviewPage — system card (HOST HEALTH zone)", () => {
     // The card renders independently of the metrics stream (the daemon serving
     // the page is up by definition) — with the context's null fields it
     // degrades to the version placeholder and not-running rows.
-    expect(zone.querySelector('[aria-label="run-kit system"]')).not.toBeNull();
-    expect(within(zone).getByText("run-kit")).toBeInTheDocument();
+    expect(zone.querySelector('[aria-label="HexoKit system"]')).not.toBeNull();
+    expect(within(zone).getByText("HexoKit")).toBeInTheDocument();
   });
 
   it("attaches the rk-daemon server so the service rows are live", () => {
@@ -189,7 +189,7 @@ describe("HostOverviewPage — system card (HOST HEALTH zone)", () => {
     ]);
     renderPage();
 
-    const card = screen.getByLabelText("run-kit system");
+    const card = screen.getByLabelText("HexoKit system");
     expect(within(card).getByText("1 job")).toBeInTheDocument();
     expect(within(card).getAllByText("not running")).toHaveLength(2);
     expect(within(card).getByRole("button", { name: "View" })).toBeInTheDocument();
@@ -471,7 +471,7 @@ describe("HostOverviewPage — TopBar mount moved to root (260707-4vq2)", () => 
   it("renders NO TopBar of its own — the brand crumb / controls / heading are not this component's DOM", () => {
     renderPage();
     // None of the shared TopBar's landmarks render from HostOverviewPage now.
-    expect(screen.queryByLabelText("RunKit home")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("HexoKit home")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Refresh page")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Host")).not.toBeInTheDocument();
   });

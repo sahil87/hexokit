@@ -13,6 +13,7 @@ func TestSessionRole(t *testing.T) {
 	}{
 		{"fabKit", SessionRoleUser},
 		{"_rk-pin-42", SessionRolePin},
+		{"_rk-iso-5", SessionRoleIso},
 		{"_rk-ctl", SessionRoleControl},
 		{"_rk-operator", SessionRoleOperator},
 		{"_rk-future-thing", SessionRoleReserved},
@@ -45,6 +46,7 @@ func TestBuildSessionFacts(t *testing.T) {
 		factsLine("devshell", "1", "devshell", "2", "3", "$3", "/home/y"),
 		factsLine("devshell-82", "1", "devshell", "2", "3", "$4", "/home/y"),
 		factsLine("_rk-pin-42", "0", "", "0", "1", "$5", "/home/x"),
+		factsLine("_rk-iso-7", "0", "", "0", "1", "$8", "/home/x"),
 		factsLine("_rk-operator", "0", "", "0", "1", "$6", "/home/x"),
 		factsLine("_rk-future", "0", "", "0", "1", "$7", "/home/x"),
 	}
@@ -60,6 +62,7 @@ func TestBuildSessionFacts(t *testing.T) {
 		{Name: "_rk-ctl", Role: SessionRoleControl, Attached: 0, Windows: 15, Path: "/home/x", Grouped: true},
 		{Name: "devshell", Role: SessionRoleUser, Attached: 1, Windows: 3, Path: "/home/y", Grouped: true},
 		{Name: "_rk-pin-42", Role: SessionRolePin, Attached: 0, Windows: 1, Path: "/home/x", Grouped: false},
+		{Name: "_rk-iso-7", Role: SessionRoleIso, Attached: 0, Windows: 1, Path: "/home/x", Grouped: false},
 		{Name: "_rk-operator", Role: SessionRoleOperator, Attached: 0, Windows: 1, Path: "/home/x", Grouped: false},
 		{Name: "_rk-future", Role: SessionRoleReserved, Attached: 0, Windows: 1, Path: "/home/x", Grouped: false},
 	}

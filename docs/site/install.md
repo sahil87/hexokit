@@ -7,29 +7,33 @@ How to install HexoKit, keep it up to date, check your runtime, set up a develop
 Install via the [shll toolkit](https://shll.ai) bootstrap:
 
 ```bash
-curl -fsSL https://hexokit.com/install | sh -s -- run-kit
+curl -fsSL https://hexokit.com/install | sh -s -- hexokit
 ```
 
-This installs HexoKit (plus the shll meta-CLI) via Homebrew, handling tap trust automatically, and puts the `run-kit` binary on your `PATH`. The formula also installs `rk` as a fully interchangeable short alias, so every command below works the same whether you type `run-kit` or `rk`. From there, a clean install to a working dashboard with one agent running is:
+This installs HexoKit (plus the shll meta-CLI) via Homebrew, handling tap trust automatically, and puts the `hexokit` binary on your `PATH`. The formula also installs `rk` as a fully interchangeable short alias, so every command below works the same whether you type `hexokit` or `rk`. The legacy `sh -s -- run-kit` bootstrap argument still works — shll ≥ v0.1.34 resolves `run-kit` as an alias for `hexokit`, and shll ≤ v0.1.33 knows `run-kit` natively. From there, a clean install to a working dashboard with one agent running is:
 
 ```bash
 shll setup agent                # optional, once per machine: agent busy/waiting/idle in the dashboard
-run-kit daemon start            # start the dashboard daemon on :3000
-open http://localhost:3000      # open the dashboard in your browser
+rk daemon start                 # start the dashboard daemon on :6123
+open http://localhost:6123      # open the dashboard in your browser
 
 # in a tmux session (tmux new -s work if you aren't in one):
-run-kit riff                    # spawn an agent workspace (--skill /name picks the slash-command)
+rk riff                         # spawn an agent workspace (--skill /name picks the slash-command)
 ```
 
-On macOS and Linux, the [desktop app](#desktop-app) is an alternative front door: `run-kit desktop install`, then open the app — its welcome page starts the daemon for you (one **Start & connect** click) and can also connect to HexoKit on other machines over SSH or a URL, so the `daemon start` and `open` steps above collapse into opening the app.
+The daemon listens on port **6123** by default. To move it durably, set `port: 4000` in `~/.config/hexokit/config.yaml` and run `rk daemon restart` — `RK_PORT` still wins when set (precedence: default 6123 < config.yaml < `RK_PORT`). Re-point any Tailscale Serve mapping or bookmarks after a move.
+
+> **Upgrading from before the HexoKit rename?** Your install keeps its pinned port — the one-time home migration wrote `port: 3000` into `~/.config/hexokit/config.yaml`, so nothing you pointed at it breaks. `rk doctor` shows a `port pin` row while you're pinned, with the steps to move to 6123 whenever you choose.
+
+On macOS and Linux, the [desktop app](#desktop-app) is an alternative front door: `rk desktop install`, then open the app — its welcome page starts the daemon for you (one **Start & connect** click) and can also connect to HexoKit on other machines over SSH or a URL, so the `daemon start` and `open` steps above collapse into opening the app.
 
 The last step also needs [`wt`](https://github.com/sahil87/wt) and your agent CLI on `PATH` — see [Prerequisites](#prerequisites) below.
 
-`shll setup agent` (which delegates to `run-kit agent setup`, and runs automatically at the end of a toolkit install) installs agent-harness hooks into your user-global agent configs — Claude Code, Codex, Gemini CLI, GitHub Copilot CLI, Kimi Code, OpenCode, and Antigravity CLI, each wired when its binary is on `PATH` — so windows running an agent report live **active/waiting/idle** state in the dashboard. It shows the diff and asks before writing; re-running is idempotent, and `run-kit agent setup --uninstall` removes exactly the HexoKit-owned entries. Codex additionally needs its native trust review (`/hooks` inside `codex`) before its hooks run. Until the setup has run (and agent sessions are restarted so new sessions pick up the hooks), agent state shows `—`. See the [agent hook integrations](agent-hooks.md) page for the per-harness capability matrix and [Agent state in the README](https://github.com/sahil87/run-kit/blob/main/README.md#agent-state) for how the hooks work.
+`shll setup agent` (which delegates to `rk agent setup`, and runs automatically at the end of a toolkit install) installs agent-harness hooks into your user-global agent configs — Claude Code, Codex, Gemini CLI, GitHub Copilot CLI, Kimi Code, OpenCode, and Antigravity CLI, each wired when its binary is on `PATH` — so windows running an agent report live **active/waiting/idle** state in the dashboard. It shows the diff and asks before writing; re-running is idempotent, and `rk agent setup --uninstall` removes exactly the HexoKit-owned entries. Codex additionally needs its native trust review (`/hooks` inside `codex`) before its hooks run. Until the setup has run (and agent sessions are restarted so new sessions pick up the hooks), agent state shows `—`. See the [agent hook integrations](agent-hooks.md) page for the per-harness capability matrix and [Agent state in the README](https://github.com/sahil87/hexokit/blob/main/README.md#agent-state) for how the hooks work.
 
 ## tmux version (≥ 3.4)
 
-HexoKit requires **tmux 3.4 or newer**. The version is checked at runtime against whatever `tmux` your `PATH` resolves: `run-kit daemon start` prints a one-line warning below the floor (and still starts), `run-kit doctor` reports the version on its tmux row, and `run-kit remote connect` refuses outright below 3.4 — its tunnel windows pass remote host input as tmux argv, which only ≥ 3.4 executes without going through a shell.
+HexoKit requires **tmux 3.4 or newer**. The version is checked at runtime against whatever `tmux` your `PATH` resolves: `rk daemon start` prints a one-line warning below the floor (and still starts), `rk doctor` reports the version on its tmux row, and `rk remote connect` refuses outright below 3.4 — its tunnel windows pass remote host input as tmux argv, which only ≥ 3.4 executes without going through a shell.
 
 The recommended upgrade path is Homebrew on **both** platforms:
 
@@ -46,23 +50,23 @@ Two caveats:
 ## Upgrade
 
 ```bash
-run-kit update
+rk update
 ```
 
-`run-kit update` pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately. It covers the CLI and daemon only — the desktop app updates separately, via `run-kit desktop update` or the app's **Restart to Update** menu item (see [Desktop app](#desktop-app)).
+`rk update` pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately. It covers the CLI and daemon only — the desktop app updates separately, via `rk desktop update` or the app's **Restart to Update** menu item (see [Desktop app](#desktop-app)).
 
-> **Upgrading from an earlier HexoKit?** Older installs had the agent-hook *logic* inlined in `~/.claude/settings.json`. Run `run-kit agent setup` once more to swap in the new delegating wrapper, then restart your agent sessions. Future hook fixes ship in the binary and track `run-kit update` with no re-setup.
+> **Upgrading from an earlier HexoKit?** Older installs had the agent-hook *logic* inlined in `~/.claude/settings.json`. Run `rk agent setup` once more to swap in the new delegating wrapper, then restart your agent sessions. Future hook fixes ship in the binary and track `rk update` with no re-setup.
 
-> **Coming from the old `rk` formula?** run-kit was originally published as `sahil87/tap/rk`. If brew warns that `sahil87/tap/rk was renamed to sahil87/tap/run-kit`, you have a keg installed under the old name — remove it with a benign `brew uninstall sahil87/tap/rk` (your config and the `rk` command alias are unaffected), then `brew install sahil87/tap/run-kit` if `run-kit` is no longer on your `PATH`.
+> **Coming from an older formula name?** HexoKit was published as `sahil87/tap/rk`, then `sahil87/tap/run-kit`, and is now `sahil87/tap/hexokit`; the tap's rename map carries `brew upgrade` across both renames. If brew warns that `sahil87/tap/rk` or `sahil87/tap/run-kit` `was renamed to` a newer name, you have a keg installed under the old name — remove it with a benign `brew uninstall` of that old name (your config and the `rk` command are unaffected), then `brew install sahil87/tap/hexokit` if `rk` is no longer on your `PATH`.
 
 ## Desktop app
 
 The optional desktop shell wraps your dashboard in a native window and frees the browser-reserved `⌘` keyboard tier. Install and update it with the CLI (macOS and Linux):
 
 ```bash
-run-kit desktop install    # fetch the latest release and install it
-run-kit desktop update     # same, but a no-op when already current
-run-kit desktop status     # installed vs latest version (read-only)
+rk desktop install    # fetch the latest release and install it
+rk desktop update     # same, but a no-op when already current
+rk desktop status     # installed vs latest version (read-only)
 ```
 
 The CLI path is the primary one for a reason. On macOS the DMGs are ad-hoc signed (no notarization), so a browser download is stamped with `com.apple.quarantine` and Gatekeeper blocks the app on every install and update; quarantine comes from the *downloading application* — command-line tools don't apply it — so the CLI produces a quarantine-free install that opens cleanly every time, verifying the download itself (SHA256 against the release digest, plus `codesign --verify --deep --strict`) before installing. Use `--path <dir>` to install somewhere other than `/Applications` (macOS) or `~/.rk/desktop` (Linux), and `--version <tag>` to pin a specific release.
@@ -70,27 +74,27 @@ The CLI path is the primary one for a reason. On macOS the DMGs are ad-hoc signe
 On Linux the recommended path is the toolkit installer followed by the CLI:
 
 ```bash
-curl -fsSL https://hexokit.com/install | sh -s -- run-kit   # installs the CLI
-run-kit desktop install                                     # installs the app
+curl -fsSL https://hexokit.com/install | sh -s -- hexokit   # installs the CLI
+rk desktop install                                          # installs the app
 ```
 
-`run-kit desktop install` downloads the AppImage for your architecture, verifies its release digest (a release without one is refused), extracts it once into `~/.rk/desktop/<version>/` with an atomically-flipped `current` symlink, and writes a launcher entry, the icon, and a `run-kit-desktop` symlink in `~/.local/bin`. Updates arrive via `run-kit desktop update` or the app's **Restart to Update** menu item — the running app is quit gracefully, swapped, and relaunched. `run-kit desktop uninstall` removes the install and its desktop integration (your app settings under `~/.config/run-kit-desktop` are kept).
+`rk desktop install` downloads the AppImage for your architecture, verifies its release digest (a release without one is refused), extracts it once into `~/.rk/desktop/<version>/` with an atomically-flipped `current` symlink, and writes a launcher entry, the icon, and a `hexokit-desktop` symlink in `~/.local/bin`. Updates arrive via `rk desktop update` or the app's **Restart to Update** menu item — the running app is quit gracefully, swapped, and relaunched. `rk desktop uninstall` removes the install and its desktop integration (your app settings under `~/.config/HexoKit` are kept).
 
-Without the CLI on Linux, the fallback is manual: download the AppImage for your architecture (`x86_64` or `arm64`) from [GitHub Releases](https://github.com/sahil87/run-kit/releases), `chmod +x` it, and run it — with `./run-kit-desktop-<version>-<arch>.AppImage --appimage-extract-and-run` when libfuse2 is missing. The manual path gets no launcher entry and no update notice. On macOS without the CLI: download the DMG, drag **Run Kit.app** into Applications, and clear quarantine via System Settings → Privacy & Security → **Open Anyway** (or `xattr -dr com.apple.quarantine "/Applications/Run Kit.app"`) — repeated on every manual update.
+Without the CLI on Linux, the fallback is manual: download the AppImage for your architecture (`x86_64` or `arm64`) from [GitHub Releases](https://github.com/sahil87/hexokit/releases), `chmod +x` it, and run it — with `./hexokit-desktop-<version>-<arch>.AppImage --appimage-extract-and-run` when libfuse2 is missing. The manual path gets no launcher entry and no update notice. On macOS without the CLI: download the DMG, drag **HexoKit.app** into Applications, and clear quarantine via System Settings → Privacy & Security → **Open Anyway** (or `xattr -dr com.apple.quarantine "/Applications/HexoKit.app"`) — repeated on every manual update.
 
-Inside the app, the welcome page offers three ways to connect, in descending order of "already have it here": **This Mac** / **This Machine** (detects the local install and daemon state; one **Start & connect** button starts the daemon when needed — post-connect control lives under **Hosts → Local Daemon** in the menu), **over SSH** (`run-kit remote` under the hood: registers the machine, installs HexoKit there if missing, starts its daemon, opens a tunnel), and **a URL** (any reachable `run-kit serve` instance, e.g. the Tailscale HTTPS endpoint below). The app never starts or stops the daemon on its own — every daemon action is an explicit click, and your tmux sessions survive all of them.
+Inside the app, the welcome page offers three ways to connect, in descending order of "already have it here": **This Mac** / **This Machine** (detects the local install and daemon state; one **Start & connect** button starts the daemon when needed — post-connect control lives under **Hosts → Local Daemon** in the menu), **over SSH** (`rk remote` under the hood: registers the machine, installs HexoKit there if missing, starts its daemon, opens a tunnel), and **a URL** (any reachable `rk serve` instance, e.g. the Tailscale HTTPS endpoint below). The app never starts or stops the daemon on its own — every daemon action is an explicit click, and your tmux sessions survive all of them.
 
 ## code-server (the code lens)
 
 The daemon starts a managed **code-server** beside it (its own `rk-code-server` tmux session on the same socket), powering the dashboard's `code` lens and CODE panel surface — a full editor at the window's git root, served same-origin behind the stable `/code/` route.
 
-HexoKit owns the install: on first daemon start with no code-server anywhere, a `code-server-install` window in the `rk-jobs` session downloads the latest digest-verified standalone release into `~/.rk/code-server-bin/`. The manual equivalent is `run-kit code-server install`; `run-kit code-server update` upgrades, and `run-kit update` runs that leg automatically. A code-server you installed yourself on `PATH` is respected and never touched.
+HexoKit owns the install: on first daemon start with no code-server anywhere, a `code-server-install` window in the `rk-jobs` session downloads the latest digest-verified standalone release into `~/.rk/code-server-bin/`. The manual equivalent is `rk code-server install`; `rk code-server update` upgrades, and `rk update` runs that leg automatically. A code-server you installed yourself on `PATH` is respected and never touched.
 
-It binds loopback-only on `RK_PORT+2`; set `RK_CODE_SERVER_PORT` only to point HexoKit at an externally managed instance instead. `run-kit daemon stop` deliberately leaves code-server running; `run-kit doctor` reports its presence and reachability.
+It binds loopback-only on `RK_PORT+2`; set `RK_CODE_SERVER_PORT` only to point HexoKit at an externally managed instance instead. `rk daemon stop` deliberately leaves code-server running; `rk doctor` reports its presence and reachability.
 
 ## Prerequisites
 
-`run-kit riff` requires:
+`rk riff` requires:
 
 - A running tmux session (`$TMUX` set).
 - [`wt`](https://github.com/sahil87/wt) on your `PATH` — included with the [full-toolkit install](https://shll.ai), or `shll install wt`.
@@ -100,10 +104,10 @@ It binds loopback-only on `RK_PORT+2`; set `RK_CODE_SERVER_PORT` only to point H
 When something breaks, run:
 
 ```bash
-run-kit doctor
+rk doctor
 ```
 
-`run-kit doctor` checks tmux, `wt`, the launcher binary, port availability, and prints per-dependency status. Run this first when something isn't working.
+`rk doctor` checks tmux, `wt`, the launcher binary, port availability, and prints per-dependency status. Run this first when something isn't working.
 
 ## Development
 
@@ -122,10 +126,10 @@ just prod              # run from built binary
 
 HexoKit binds to `127.0.0.1` by default. Some browser features (e.g., copy to clipboard, and Web Push notifications — see below) require a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts), and accessing HexoKit from other machines on your tailnet does too. Tailscale Serve handles both with zero TLS config.
 
-> **Web Push & secure contexts**: the `run-kit notify` command pushes OS-level
+> **Web Push & secure contexts**: the `rk notify` command pushes OS-level
 > notifications to subscribed browsers (opt in via the `Cmd+K` palette →
 > **Notifications: Enable push**). Web Push requires a secure context — **HTTPS
-> or `localhost`**. Reaching HexoKit on `localhost:3000` directly, or over the
+> or `localhost`**. Reaching HexoKit on `localhost:6123` directly, or over the
 > Tailscale HTTPS endpoint below, both qualify; plain HTTP to a remote host does
 > not, and the browser will silently refuse to register the service worker.
 
@@ -142,7 +146,7 @@ sudo tailscale set --operator=$USER
 ### Quickstart
 
 ```sh
-tailscale serve --bg http://localhost:3000
+tailscale serve --bg http://localhost:6123
 ```
 
 HexoKit is now available at:
@@ -177,7 +181,7 @@ Services need a tagged node. Do these in order:
 4. **Serve:**
 
    ```sh
-   tailscale serve --bg --service=svc:runner1 http://localhost:3000
+   tailscale serve --bg --service=svc:runner1 http://localhost:6123
    ```
 
 5. **Approve the service.** Open the [Services](https://login.tailscale.com/admin/services) page, find the pending `svc:runner1` advertisement under **Service hosts**, and click **Approve**. The service is inactive until you do.
@@ -201,7 +205,7 @@ HexoKit is now at `https://runner1.<tailnet>.ts.net`.
 To expose HexoKit to the public internet (not just your tailnet):
 
 ```sh
-tailscale funnel --bg http://localhost:3000
+tailscale funnel --bg http://localhost:6123
 ```
 
 > **Warning:** Funnel makes your terminal relay publicly accessible. Only use this if you understand the security implications.

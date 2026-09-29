@@ -26,7 +26,7 @@ import { openPalette } from "./_ready";
 // review/fabDisplayState failed, derived PR #386, branch + long cwd carrying
 // the change slug), @2 "plain-shell" (a bare shell — only L0 output), @3
 // "pr-only" (no fabChange, derived PR #999); the terminals mux WebSocket
-// (/ws/terminals) is stubbed. beforeEach seeds runkit-sidebar-section-pane =
+// (/ws/terminals) is stubbed. beforeEach seeds hexokit-sidebar-section-pane =
 // "true" via addInitScript, then installs the routes before navigation.
 //
 // The PANE panel is visibility-gated and default-off on every viewport (its
@@ -121,7 +121,7 @@ async function mockBackend(page: Page) {
 
 test.describe("PANE panel four-register view", () => {
   // The PANE panel is visibility-gated and DEFAULT-OFF (iha5 — the 260814-ldbs
-  // drawer-only fork became a `runkit-sidebar-section-pane` default): seed the
+  // drawer-only fork became a `hexokit-sidebar-section-pane` default): seed the
   // section on via addInitScript (the sidebar-panels.spec.ts idiom), run at the
   // mobile viewport, and open the drawer before asserting. `hasTouch` flips
   // both `(pointer: coarse)` and `(any-pointer: coarse)`, so `useIsMobile()`
@@ -130,7 +130,7 @@ test.describe("PANE panel four-register view", () => {
 
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
-      localStorage.setItem("runkit-sidebar-section-pane", "true");
+      localStorage.setItem("hexokit-sidebar-section-pane", "true");
     });
     await mockBackend(page);
   });
@@ -356,7 +356,7 @@ test.describe("PANE-on yields the status bar's window cluster (desktop)", () => 
    * cluster returns; reopening the sidebar yields it again.
    *
    * Steps:
-   * 1. Seed `runkit-sidebar-section-pane = "true"`; navigate to /default/1.
+   * 1. Seed `hexokit-sidebar-section-pane = "true"`; navigate to /default/1.
    * 2. Assert the PANE header is visible and `status-bar-window` count 0.
    * 3. Click `Toggle navigation`; assert the PANE header is gone and
    *    `status-bar-window` count 1.
@@ -364,7 +364,7 @@ test.describe("PANE-on yields the status bar's window cluster (desktop)", () => 
    */
   test("collapsing the sidebar with the Pane section on hands the registers back to the bar", async ({ page }) => {
     await page.addInitScript(() => {
-      localStorage.setItem("runkit-sidebar-section-pane", "true");
+      localStorage.setItem("hexokit-sidebar-section-pane", "true");
     });
     await page.goto(`/${SERVER}/1`);
     await expect(hostCluster(page)).toBeVisible({ timeout: 10_000 });
@@ -388,7 +388,7 @@ test.describe("PANE-on yields the status bar's window cluster (desktop)", () => 
    * cluster again.
    *
    * Steps:
-   * 1. Seed `runkit-sidebar-section-pane = "true"`; navigate to /default/1.
+   * 1. Seed `hexokit-sidebar-section-pane = "true"`; navigate to /default/1.
    * 2. Assert the PANE header is expanded (aria-expanded true) and
    *    `status-bar-window` count 0.
    * 3. Click the PANE header; assert aria-expanded false, the header still
@@ -398,7 +398,7 @@ test.describe("PANE-on yields the status bar's window cluster (desktop)", () => 
    */
   test("collapsing the PANE panel hands the registers back to the bar; expanding yields them", async ({ page }) => {
     await page.addInitScript(() => {
-      localStorage.setItem("runkit-sidebar-section-pane", "true");
+      localStorage.setItem("hexokit-sidebar-section-pane", "true");
     });
     await page.goto(`/${SERVER}/1`);
     await expect(hostCluster(page)).toBeVisible({ timeout: 10_000 });

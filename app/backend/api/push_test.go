@@ -145,7 +145,7 @@ func TestNotify_noSubscriptionsReturnsSummary(t *testing.T) {
 	if !found {
 		t.Fatal("connected state client received no notify event")
 	}
-	if payload.Title != "RunKit" || payload.Body != "hi" || payload.URL != "" {
+	if payload.Title != "HexoKit" || payload.Body != "hi" || payload.URL != "" {
 		t.Errorf("notify payload = %+v", payload)
 	}
 }

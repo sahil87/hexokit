@@ -64,24 +64,26 @@ Subcommands:
 See 'run-kit remote <subcommand> --help' for details.`,
 }
 
-var remoteAddCmd = &cobra.Command{
-	Use:   "add <target>",
-	Short: "Register a remote and assign its stable local port",
-	Long: `Register an SSH target as a remote host. <target> is stored verbatim — a
+var remoteAddLong = fmt.Sprintf(`Register an SSH target as a remote host. <target> is stored verbatim — a
 ~/.ssh/config alias or a user@host form — and never parsed for connecting.
 
 The name defaults to the target's host token (dots become hyphens); override
-with --name. A local tunnel port is assigned from the reserved 3100-3199
+with --name. A local tunnel port is assigned from the reserved %d-%d
 range, checked against both registered remotes and live listeners, and is
 then fixed for the remote's lifetime — a stable port keeps the local origin
 (and everything keyed on it) stable across reconnects. --local-port picks a
-specific port from the same range under the same checks.
+specific port from the same range under the same checks.`, remote.PortRangeStart, remote.PortRangeEnd) + `
 
 No SSH connection is made; add is pure registration. Re-adding an existing
 target reprints its registration and changes nothing.
 
 The stdout lines (Name:/Target:/Local:) are stable data the desktop shell
-parses.`,
+parses.`
+
+var remoteAddCmd = &cobra.Command{
+	Use:          "add <target>",
+	Short:        "Register a remote and assign its stable local port",
+	Long:         remoteAddLong,
 	Args:         cobra.ExactArgs(1),
 	SilenceUsage: true,
 	RunE:         runRemoteAdd,

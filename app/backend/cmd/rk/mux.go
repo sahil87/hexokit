@@ -73,7 +73,7 @@ var muxCmd = &cobra.Command{
 		"pane; `panes` enumerates every pane on the server, one row per pane, " +
 		"with substrate facts (window, command, cwd, reconciled agent state); " +
 		"`sessions` enumerates the server's sessions with their name-derived " +
-		"roles (user, or run-kit infrastructure: pin/control/operator/reserved). " +
+		"roles (user, or run-kit infrastructure: pin/iso/control/operator/reserved). " +
 		"`adopt` converts an external tmux server to rk-managed (stamp " +
 		"@rk_srv_managed, source the managed config, roll back the stamp when the " +
 		"reload fails). " +

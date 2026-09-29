@@ -1,0 +1,59 @@
+id: wyey
+name: 260926-wyey-hexokit-daemon-port
+created: 2026-09-26T14:54:01Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 9
+    acceptance_count: 17
+    acceptance_completed: 17
+confidence:
+    certain: 7
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 82.0
+        reversibility: 87.0
+        competence: 87.0
+        disambiguation: 84.5
+stage_metrics:
+    intake: {started_at: "2026-09-26T14:54:01Z", driver: fab-new, iterations: 1, completed_at: "2026-09-26T14:55:35Z"}
+    apply: {started_at: "2026-09-26T14:55:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-26T15:13:29Z"}
+    review: {started_at: "2026-09-26T15:13:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-26T15:17:59Z"}
+    hydrate: {started_at: "2026-09-26T15:17:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-26T15:24:15Z"}
+    ship: {started_at: "2026-09-26T15:24:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-26T15:25:36Z"}
+    review-pr: {started_at: "2026-09-26T15:25:36Z", driver: git-pr, iterations: 1, completed_at: "2026-09-26T15:33:55Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/1054
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 796
+    deleted: 153
+    net: 643
+    excluding:
+        added: 210
+        deleted: 102
+        net: 108
+    tests:
+        added: 146
+        deleted: 47
+        net: 99
+    computed_at: "2026-09-26T15:25:36Z"
+    computed_at_stage: ship
+summary: Daemon default port flips to 6123 (dev backend 6124, code-server 6125); existing installs stay pinned at DaemonLegacy 3000 and the doctor 'port pin' advisory row is live; present-truth sweep across configuration, architecture, tmux-sessions, desktop-shell, gui, pwa-and-push, dialogs-and-state, toolkit-standards memory.
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-26T15:33:55Z

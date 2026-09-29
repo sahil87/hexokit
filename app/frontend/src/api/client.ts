@@ -524,18 +524,20 @@ export async function sendServerOperatorRequest(
 /**
  * Start the server's operator via POST /api/operator/start — the daemon
  * execs its own binary as `rk operator -L <server> --json` and answers once
- * the receipt line parses. A 409 with code `operator_exists` (an operator
- * appeared between the UI's pre-check and the launch) rejects as an ApiError
- * carrying `code` and `windowId` so callers can treat it as success and
- * navigate to the reported window.
+ * the receipt line parses. The optional `windowId` names the window the user
+ * is viewing; the daemon derives its pane cwd server-side and passes it as
+ * `--dir`, so the operator starts where the user is. A 409 with code
+ * `operator_exists` (an operator appeared between the UI's pre-check and the
+ * launch) rejects as an ApiError carrying `code` and `windowId` so callers
+ * can treat it as success and navigate to the reported window.
  */
 export type OperatorStartResult = { windowId: string; server: string };
 
-export async function startOperator(server: string): Promise<OperatorStartResult> {
+export async function startOperator(server: string, windowId?: string): Promise<OperatorStartResult> {
   const res = await fetch(withServer("/api/operator/start", server), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: "{}",
+    body: JSON.stringify(windowId ? { window: windowId } : {}),
   });
   if (!res.ok) await throwOnError(res);
   return res.json();
@@ -713,6 +715,20 @@ export async function restartGui(
   return { ok: true };
 }
 
+/**
+ * POST /api/code-server/restart — the code lens empty state's restart: kill +
+ * re-ensure the daemon-managed code-server (the binary is re-resolved, a
+ * missing one spawns the install job). Resolves the outcome on 200; any
+ * non-ok response throws with the server's error text.
+ */
+export type CodeServerRestartResult = { status: "started" | "installing" | "external" };
+
+export async function restartCodeServer(): Promise<CodeServerRestartResult> {
+  const res = await deduplicatedFetch("/api/code-server/restart", { method: "POST" });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 /** The two launcher roles (spec docs/specs/gui.md § Agent verbs / § Protocol
  *  and relay — the allowlisted `POST /api/gui/{id}/launch` body). */
 export type GuiLaunchApp = "terminal" | "browser";
@@ -828,6 +844,57 @@ export async function setWindowOptions(
       body: JSON.stringify({ options }),
     },
   );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+// --- Cross-tab layout verbs (borrow/return a surface leaf between windows) ---
+
+/** Body for POST /api/layout/borrow. `to` is the window adopting the leaf,
+ *  `leaf` the address being moved (`@A/<kind>`), `tree` the adopting window's
+ *  new layout tree (already containing the leaf — the server validates it and
+ *  chains the current holder's tree-minus-leaf write with it). */
+export type LayoutBorrowBody = {
+  to: string;
+  leaf: string;
+  tree: string;
+};
+
+/** Body for POST /api/layout/return. `from` is the window currently holding
+ *  the leaf; the server recomputes both trees from current tmux state, so the
+ *  client sends no tree. A leaf not present in `from` is a 409. */
+export type LayoutReturnBody = {
+  from: string;
+  leaf: string;
+};
+
+/** Move a surface leaf into window `to`, unholding it from its current holder
+ *  in one chained server-side write. Non-2xx (400 invalid ids/tree, 409
+ *  conflicts) rejects via the shared throwOnError path. */
+export async function borrowLayout(
+  server: string,
+  body: LayoutBorrowBody,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(withServer("/api/layout/borrow", server), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** Send a held surface leaf back to its home window. Non-2xx (409 leaf not
+ *  held by `from`) rejects via the shared throwOnError path. */
+export async function returnLayout(
+  server: string,
+  body: LayoutReturnBody,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(withServer("/api/layout/return", server), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
   if (!res.ok) await throwOnError(res);
   return res.json();
 }

@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
+import { apiBase } from "./_boards";
 import { READY_TIMEOUT, gotoServerReady } from "./_ready";
 import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
@@ -88,7 +89,7 @@ test.describe("Sidebar session reorder persistence", () => {
     // the timing dependency on the hub's first-poll bootstrap. All mutating
     // endpoints are POST per constitution principle IX (no PUT/PATCH/DELETE);
     // this previously used PUT and only ever got a 405.
-    const url = `${baseURL ?? `http://localhost:${process.env.E2E_PORT ?? 3333}`}/api/sessions/order?server=${TMUX_SERVER}`;
+    const url = `${apiBase(baseURL)}/api/sessions/order?server=${TMUX_SERVER}`;
     const postResp = await request.post(url, {
       headers: { "Content-Type": "application/json" },
       data: { order: customOrder },

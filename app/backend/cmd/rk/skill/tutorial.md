@@ -50,7 +50,7 @@ Every sidebar row is an agent (or plain terminal); the dot is its state. **Have 
 rk present "$RK/tutorial/tutorial.html#ch2"
 ```
 
-Teach the phrase: end any request with **"…and present it to me"** — results arrive as live pages beside the terminal. Offer picks: *project brief · tour cheat sheet · mock KPI dashboard* — they ask in their own words, phrase included. Build it small, dark, self-contained; `rk present /tmp/rk-tutorial/<name>.html`; point at the new tab. Invite one tweak — edit, re-present: **asking again is the refresh**. Also: any URL or dev server (`:port`). Tile hidden? `rk tab layout split-h:tty,web` restores it.
+Teach the phrase: end any request with **"…and present it to me"** — results arrive as live pages beside the terminal. Offer picks: *project brief · tour cheat sheet · mock KPI dashboard* — they ask in their own words, phrase included. Build it small, dark, self-contained; `rk present /tmp/rk-tutorial/<name>.html`; point at the new tab. Invite one tweak — edit, re-present: **asking again is the refresh**. Also: any URL or dev server (`:port`). Tile hidden? `rk tab layout 'h(tty,web)'` restores it.
 
 ## Chapter 3 — Hire a second agent (`#ch3`)
 
@@ -79,7 +79,7 @@ Wait for the worker's question (`rk mux await` / `rk mux capture`; don't narrate
 rk present "$RK/tutorial/tutorial.html#ch5"
 ```
 
-Three closers, user-driven. **Phone**: same address, any device — offer `rk notify "open me on your phone" --title run-kit` (fail-silent if unsubscribed); the pull-tab **tongue** under the top bar jumps to the operator. **Habit pair**: **⌘J to ask, ⌘K to find** (⇧Ctrl+J / ⇧Ctrl+K) — have them try ⌘K: `color`, then `settings`; every action lives there. **Challenge**: start one real agent on something they actually want — ⌘J the operator ("Start a claude session on <repo>") — phrase included. Engineers: `rk skill` (+ `display`, `mux`, `code`).
+Three closers, user-driven. **Phone**: same address, any device — offer `rk notify "open me on your phone" --title HexoKit` (fail-silent if unsubscribed); the pull-tab **tongue** under the top bar jumps to the operator. **Habit pair**: **⌘J to ask, ⌘K to find** (⇧Ctrl+J / ⇧Ctrl+K) — have them try ⌘K: `color`, then `settings`; every action lives there. **Challenge**: start one real agent on something they actually want — ⌘J the operator ("Start a claude session on <repo>") — phrase included. Engineers: `rk skill` (+ `display`, `mux`, `code`).
 
 ## Cleanup and recap
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"testing"
 
+	"rk/internal/portpolicy"
 	"rk/internal/settings"
 )
 
@@ -30,7 +31,7 @@ func TestHealthEndpoint(t *testing.T) {
 		t.Errorf("Content-Type = %q, want %q", ct, "application/json")
 	}
 
-	var body map[string]string
+	var body map[string]any
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
@@ -58,7 +59,7 @@ func TestHealthEndpointEmptyHostname(t *testing.T) {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	var body map[string]string
+	var body map[string]any
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
@@ -91,7 +92,7 @@ func TestHealthEndpointSSHHost(t *testing.T) {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
-		var body map[string]string
+		var body map[string]any
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
@@ -108,7 +109,7 @@ func TestHealthEndpointSSHHost(t *testing.T) {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
-		var body map[string]string
+		var body map[string]any
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
@@ -126,7 +127,7 @@ func TestHealthEndpointSSHHost(t *testing.T) {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
-		var body map[string]string
+		var body map[string]any
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
@@ -150,7 +151,7 @@ func TestHealthEndpointSSHHost(t *testing.T) {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
-		var body map[string]string
+		var body map[string]any
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
@@ -178,7 +179,7 @@ func TestHealthEndpointInstanceName(t *testing.T) {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
-		var body map[string]string
+		var body map[string]any
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
@@ -198,7 +199,7 @@ func TestHealthEndpointInstanceName(t *testing.T) {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
-		var body map[string]string
+		var body map[string]any
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
@@ -225,7 +226,7 @@ func TestHealthEndpointSSHUser(t *testing.T) {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
-		var body map[string]string
+		var body map[string]any
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
@@ -242,12 +243,71 @@ func TestHealthEndpointSSHUser(t *testing.T) {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
-		var body map[string]string
+		var body map[string]any
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
 		if _, present := body["sshUser"]; present {
 			t.Errorf("body.sshUser present (%q), want absent", body["sshUser"])
+		}
+	})
+}
+
+// The tunnel field advertises the WebSocket tunnel endpoint's capability: it
+// is the daemon's listen port (the desktop's probe targets the tunnel at this
+// host's own listen port), a JSON number seeded at startup so it always
+// matches the bound listener, ALWAYS present on this build — its absence
+// marks an older server.
+func TestHealthEndpointTunnel(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	t.Run("carries the RK_PORT listen port as a number", func(t *testing.T) {
+		isolateSettings(t)
+		t.Setenv("RK_PORT", "3001")
+		router := NewTestRouter(logger, nil, nil, "test-host")
+
+		req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		var body map[string]any
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		port, ok := body["tunnel"].(float64)
+		if !ok {
+			t.Fatalf("body.tunnel = %v (%T), want a JSON number", body["tunnel"], body["tunnel"])
+		}
+		if port != 3001 {
+			t.Errorf("body.tunnel = %v, want 3001", port)
+		}
+		if _, present := body["forwardProxy"]; present {
+			t.Errorf("body.forwardProxy present (%v), want absent", body["forwardProxy"])
+		}
+	})
+
+	t.Run("always present, defaulting to the policy default", func(t *testing.T) {
+		isolateSettings(t)
+		t.Setenv("RK_PORT", "")
+		router := NewTestRouter(logger, nil, nil, "test-host")
+
+		req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		var body map[string]any
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		port, ok := body["tunnel"].(float64)
+		if !ok {
+			t.Fatalf("body.tunnel absent or non-numeric (%v), want present", body["tunnel"])
+		}
+		if port != float64(portpolicy.DaemonDefault) {
+			t.Errorf("body.tunnel = %v, want %d (policy default)", port, portpolicy.DaemonDefault)
+		}
+		if _, present := body["forwardProxy"]; present {
+			t.Errorf("body.forwardProxy present (%v), want absent", body["forwardProxy"])
 		}
 	})
 }

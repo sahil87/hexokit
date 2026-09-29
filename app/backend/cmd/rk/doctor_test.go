@@ -16,7 +16,9 @@ import (
 	"time"
 
 	"rk/internal/codeserver"
+	"rk/internal/config"
 	"rk/internal/gui"
+	"rk/internal/portpolicy"
 	"rk/internal/settings"
 	"rk/internal/tmux"
 )
@@ -1065,7 +1067,7 @@ func TestRemovedEnvCheckRKSSHHost(t *testing.T) {
 		if c.OK {
 			t.Error("check OK = true, want false (set-but-ignored is a failure)")
 		}
-		want := "RK_SSH_HOST is no longer read — set the ssh_host key in ~/.config/run-kit/config.yaml"
+		want := "RK_SSH_HOST is no longer read — set the ssh_host key in ~/.config/hexokit/config.yaml"
 		if c.Hint != want {
 			t.Errorf("hint = %q, want %q", c.Hint, want)
 		}
@@ -1665,7 +1667,7 @@ func TestCronTickerCheck(t *testing.T) {
 		if !c.OK {
 			t.Errorf("row must always be OK-shaped, got %+v", c)
 		}
-		wantDir := filepath.Join(stateHome, "run-kit", "cron")
+		wantDir := filepath.Join(stateHome, "hexokit", "cron")
 		if !strings.Contains(c.Note, "cron_ticker on") || !strings.Contains(c.Note, wantDir) {
 			t.Errorf("note = %q, want the setting state and the state dir %s", c.Note, wantDir)
 		}
@@ -2192,7 +2194,7 @@ func TestRiffPresetsBlockCheck(t *testing.T) {
 		if c.Name != "riff presets" {
 			t.Errorf("name = %q, want %q", c.Name, "riff presets")
 		}
-		want := "fab/project/config.yaml has a riff: block that rk no longer reads — define presets under riff_presets in ~/.config/run-kit/config.yaml"
+		want := "fab/project/config.yaml has a riff: block that rk no longer reads — define presets under riff_presets in ~/.config/hexokit/config.yaml"
 		if c.Note != want {
 			t.Errorf("note = %q, want %q", c.Note, want)
 		}
@@ -2270,6 +2272,100 @@ func TestRiffPresetsBlockRowGating(t *testing.T) {
 	})
 }
 
+// TestPortsDoctorCheck table-tests the pure ports row builder: every shape
+// stays OK (advisory only), with the default listing note and the collision
+// note leading with the warning.
+func TestPortsDoctorCheck(t *testing.T) {
+	cases := []struct {
+		name     string
+		version  string
+		cfg      config.Config
+		wantNote string
+	}{
+		{
+			name:     "default port",
+			cfg:      config.Config{Port: portpolicy.DaemonDefault},
+			wantNote: fmt.Sprintf("daemon :%d (default); reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999", portpolicy.DaemonDefault),
+		},
+		{
+			name: "tunnel collision",
+			cfg:  config.Config{Port: 3150},
+			wantNote: "WARNING: port inside reserved block(s) tunnel 3100–3199: daemon :3150, code-server :3152 — set RK_PORT outside; " +
+				"daemon :3150; code-server :3152; reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999",
+		},
+		{
+			name:    "rig collision via code-server straddle, released build",
+			version: "1.2.3",
+			cfg:     config.Config{Port: 21297},
+			wantNote: "WARNING: port inside reserved block(s) rig 21000–21299: daemon :21297, code-server :21299 — set RK_PORT outside; " +
+				"daemon :21297; code-server :21299; reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999",
+		},
+		{
+			name: "code-server-only collision via explicit override",
+			cfg:  config.Config{Port: portpolicy.DaemonDefault, CodeServerPort: 3100},
+			wantNote: fmt.Sprintf("WARNING: port inside reserved block(s) tunnel 3100–3199: code-server :3100 — set RK_CODE_SERVER_PORT outside; "+
+				"daemon :%d (default); code-server :3100; reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999", portpolicy.DaemonDefault),
+		},
+		{
+			name:     "rig port, dev build — rig block exempt",
+			cfg:      config.Config{Port: 21297},
+			wantNote: "daemon :21297; reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.version != "" {
+				orig := version
+				version = tc.version
+				t.Cleanup(func() { version = orig })
+			}
+			check := portsDoctorCheck(tc.cfg)
+			if check.Name != "ports" {
+				t.Errorf("name = %q, want ports", check.Name)
+			}
+			if !check.OK {
+				t.Errorf("OK = false; the ports row must never fail (note %q)", check.Note)
+			}
+			if check.Note != tc.wantNote {
+				t.Errorf("note = %q, want %q", check.Note, tc.wantNote)
+			}
+			// Worst-check-wins: appending the row can never flip the verdict.
+			report := doctorReport{OK: true}
+			report.Checks = append(report.Checks, check)
+			if !report.OK {
+				t.Error("ports row flipped report.OK")
+			}
+		})
+	}
+}
+
+// TestPortsRowNeverFlipsVerdict proves the advisory ports row cannot change
+// the overall report verdict (the riff-presets never-flips pattern): the same
+// machine with and without a colliding RK_PORT yields the same report.OK.
+func TestPortsRowNeverFlipsVerdict(t *testing.T) {
+	t.Setenv("RK_PORT", "")
+	without := runDoctorChecks().OK
+
+	t.Setenv("RK_PORT", "3150")
+	with := runDoctorChecks()
+	if with.OK != without {
+		t.Errorf("report.OK flipped with a colliding RK_PORT: %v → %v", without, with.OK)
+	}
+	for _, c := range with.Checks {
+		if c.Name != "ports" {
+			continue
+		}
+		if !c.OK {
+			t.Errorf("ports row not OK on collision: %+v", c)
+		}
+		if !strings.HasPrefix(c.Note, "WARNING:") || !strings.Contains(c.Note, "tunnel") {
+			t.Errorf("collision note must lead with the warning naming the block, got %q", c.Note)
+		}
+		return
+	}
+	t.Error("ports row absent from the report")
+}
+
 // TestRiffPresetsBlockRowNeverFlipsVerdict proves the advisory row cannot change
 // the overall report verdict: the same repo with and without the riff: key
 // yields the same report.OK.
@@ -2288,5 +2384,139 @@ func TestRiffPresetsBlockRowNeverFlipsVerdict(t *testing.T) {
 	}
 	if _, found := doctorHasRiffPresetsRow(with); !found {
 		t.Error("riff presets row should be present after adding the riff: key")
+	}
+}
+
+// TestPortPinCheck pins the advisory `port pin` row's gate and shape: it fires
+// only when config.yaml's port equals the legacy default, the current default
+// has moved off it, and RK_PORT is not overriding — and it is always OK-shaped
+// with a Note, never a verdict flipper.
+func TestPortPinCheck(t *testing.T) {
+	cases := []struct {
+		name        string
+		pinned      int
+		def         int
+		legacy      int
+		envOverride bool
+		wantRow     bool
+	}{
+		{"dormant while default equals legacy (today)", 3000, 3000, 3000, false, false},
+		{"fires when pinned at legacy and default moved", 3000, 6123, 3000, false, true},
+		{"RK_PORT override suppresses", 3000, 6123, 3000, true, false},
+		{"unpinned port suppresses", 4100, 6123, 3000, false, false},
+		{"no port in config.yaml suppresses", 0, 6123, 3000, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, present := portPinCheck(tc.pinned, tc.def, tc.legacy, tc.envOverride)
+			if present != tc.wantRow {
+				t.Fatalf("portPinCheck(%d, %d, %d, %v) present = %v, want %v", tc.pinned, tc.def, tc.legacy, tc.envOverride, present, tc.wantRow)
+			}
+			if !present {
+				return
+			}
+			if c.Name != "port pin" {
+				t.Errorf("name = %q, want %q", c.Name, "port pin")
+			}
+			if !c.OK {
+				t.Error("the pin row must stay OK-shaped (advisory)")
+			}
+			pinnedFrag := fmt.Sprintf("pinned at :%d", tc.pinned)
+			defFrag := fmt.Sprintf(":%d", tc.def)
+			if !strings.Contains(c.Note, pinnedFrag) || !strings.Contains(c.Note, defFrag) {
+				t.Errorf("note %q must name the pinned port and the new default", c.Note)
+			}
+			if !strings.Contains(c.Note, "rk daemon restart") {
+				t.Errorf("note %q must carry the move recipe", c.Note)
+			}
+		})
+	}
+}
+
+// TestPortPinRowRealPolicyValues runs the full report builder against the
+// embedded policy values (not injected constants): a config pinned at
+// DaemonLegacy shows the advisory `port pin` row naming the real default, a
+// config at the default or under an RK_PORT override shows none, and the
+// verdict never flips.
+func TestPortPinRowRealPolicyValues(t *testing.T) {
+	if portpolicy.DaemonDefault == portpolicy.DaemonLegacy {
+		t.Skip("DaemonDefault == DaemonLegacy: the pin row is dormant by design")
+	}
+
+	hasPinRow := func(report doctorReport) (doctorCheck, bool) {
+		for _, c := range report.Checks {
+			if c.Name == "port pin" {
+				return c, true
+			}
+		}
+		return doctorCheck{}, false
+	}
+	writePinnedConfig := func(t *testing.T, port int) {
+		t.Helper()
+		cfgDir := t.TempDir()
+		content := fmt.Sprintf("port: %d\n", port)
+		if err := os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(settings.ConfigDirEnv, cfgDir)
+	}
+
+	t.Run("pinned at the legacy port: row present, verdict unaffected", func(t *testing.T) {
+		writePinnedConfig(t, portpolicy.DaemonLegacy)
+		t.Setenv("RK_PORT", "")
+		report := runDoctorChecks()
+		row, found := hasPinRow(report)
+		if !found {
+			t.Fatal("port pin row absent for a config pinned at the legacy port")
+		}
+		if !row.OK {
+			t.Errorf("row = %+v, want OK-shaped (advisory)", row)
+		}
+		defFrag := fmt.Sprintf(":%d", portpolicy.DaemonDefault)
+		if !strings.Contains(row.Note, defFrag) || !strings.Contains(row.Note, "rk daemon restart") {
+			t.Errorf("note %q must name :%d and the move recipe", row.Note, portpolicy.DaemonDefault)
+		}
+		if !report.OK {
+			t.Error("the advisory pin row must never flip the report verdict")
+		}
+	})
+
+	t.Run("already on the default: no row", func(t *testing.T) {
+		writePinnedConfig(t, portpolicy.DaemonDefault)
+		t.Setenv("RK_PORT", "")
+		if row, found := hasPinRow(runDoctorChecks()); found {
+			t.Errorf("port pin row present for an install on the default: %+v", row)
+		}
+	})
+
+	t.Run("RK_PORT override: no row", func(t *testing.T) {
+		writePinnedConfig(t, portpolicy.DaemonLegacy)
+		t.Setenv("RK_PORT", strconv.Itoa(portpolicy.DaemonLegacy))
+		if row, found := hasPinRow(runDoctorChecks()); found {
+			t.Errorf("port pin row present under an RK_PORT override: %+v", row)
+		}
+	})
+}
+
+// TestRKPortOverride pins the valid-port rule behind the pin row's env gate:
+// only a parseable in-range RK_PORT counts as an override.
+func TestRKPortOverride(t *testing.T) {
+	cases := []struct {
+		value string
+		want  bool
+	}{
+		{"", false},
+		{"6123", true},
+		{"abc", false},
+		{"0", false},
+		{"65536", false},
+	}
+	for _, tc := range cases {
+		t.Run("RK_PORT="+tc.value, func(t *testing.T) {
+			t.Setenv("RK_PORT", tc.value)
+			if got := rkPortOverride(); got != tc.want {
+				t.Errorf("rkPortOverride() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

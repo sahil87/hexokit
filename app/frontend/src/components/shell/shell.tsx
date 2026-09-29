@@ -42,22 +42,30 @@ export { STAGE_PADDING_PX, STAGE_COLUMN_GAP_PX };
  * `ignoreInputs` (the registry default for `sidebar-toggle` — the chord
  * stays live while composing). Binding + live state held in refs so the
  * listener registers once per mount.
+ *
+ * The chord is inert when the Shell renders no sidebar children (the popout
+ * posture): `setSidebarOpen` writes the shared `hexokit-sidebar-open`
+ * preference, which a sidebar-less window must never flip.
  */
-function useSidebarKeyboardToggle(sidebarRef: RefObject<HTMLElement | null>) {
+function useSidebarKeyboardToggle(
+  sidebarRef: RefObject<HTMLElement | null>,
+  hasSidebar: boolean,
+) {
   const { byAction } = useKeybindings();
   const { sidebarOpen } = useChromeState();
   const { setSidebarOpen } = useChromeDispatch();
   const isMobile = useIsMobile();
   const bindingRef = useRef(byAction.get("sidebar-toggle"));
   bindingRef.current = byAction.get("sidebar-toggle");
-  const stateRef = useRef({ sidebarOpen, isMobile });
-  stateRef.current = { sidebarOpen, isMobile };
+  const stateRef = useRef({ sidebarOpen, isMobile, hasSidebar });
+  stateRef.current = { sidebarOpen, isMobile, hasSidebar };
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const binding = bindingRef.current;
       if (!binding?.enabled || !matchesCombo(e, binding)) return;
       if (!binding.ignoreInputs && shouldSuppressChord(e.target)) return;
+      if (!stateRef.current.hasSidebar) return;
 
       e.preventDefault();
       const { sidebarOpen: open, isMobile: mobile } = stateRef.current;
@@ -129,7 +137,8 @@ function useSidebarKeyboardToggle(sidebarRef: RefObject<HTMLElement | null>) {
  *   ground (+ 6px column-gap; the bottom seam is footer-owned, see the
  *   bottombar note) to exactly the region that floats cards. Stage areas:
  *   `"sidebar content" / "sidebar bottombar"`; rows `1fr auto`; columns
- *   `${sidebarWidth}px 1fr` when `sidebarOpen`, else `0 1fr`, with a ~150ms
+ *   `${sidebarWidth}px 1fr` when `sidebarVisible` (sidebarOpen, no zen, sidebar
+ *   children present), else `0 1fr`, with a ~150ms
  *   ease-out transition on both `grid-template-columns` and `column-gap` (the
  *   column-gap collapses with the column so a hidden sidebar leaves no stray
  *   6px seam). The transition is suppressed while `sidebarResizing` — a drag
@@ -138,7 +147,7 @@ function useSidebarKeyboardToggle(sidebarRef: RefObject<HTMLElement | null>) {
  *   styles bind to the stage's template (areas bind to direct children).
  * - The sidebar is a CARD: it floats 6px from the viewport edges and 6px
  *   above the status bar (no more flush square T-junction). It still fully
- *   unmounts on collapse (`!isMobile && sidebarOpen && !!sidebarChildren`) —
+ *   unmounts on collapse (`!isMobile && sidebarVisible && !!sidebarChildren`) —
  *   it holds no iframe state worth preserving.
  *
  * Topology (mobile, viewport < 640px):
@@ -179,7 +188,7 @@ export function Shell({
    * Zen mode (260820-o8cr R3): the terminal route's transient render-time
    * sidebar hide. Composes `sidebarOpen && !zenActive` for the desktop stage
    * columns, the aside, and the resize handle — the persisted preference
-   * (`runkit-sidebar-open`) is NEVER written on a zen path, so exiting zen
+   * (`hexokit-sidebar-open`) is NEVER written on a zen path, so exiting zen
    * restores exactly what the preference says. The column-gap collapses with
    * the column for free (the existing hidden-sidebar geometry), and the 150ms
    * ease-out transition animates the zen collapse like any sidebar toggle.
@@ -227,12 +236,14 @@ export function Shell({
   // Zen render-time override: the EFFECTIVE sidebar visibility for the desktop
   // stage. Never feeds back into `setSidebarOpen` — the chord and the ⌘B
   // keyboard toggle keep reading/writing the persisted preference untouched.
-  const sidebarVisible = sidebarOpen && !zenActive;
+  // A Shell without sidebar children (the popout posture) reserves no sidebar
+  // column at all, even when the persisted preference says open.
+  const sidebarVisible = sidebarOpen && !zenActive && sidebarChildren != null;
 
   // ⌘B / ⇧Ctrl+B — the stateful sidebar chord (show+focus / focus / hide+
   // return). Input/textarea/contenteditable suppression rules live in the
   // hook; the containment check reads the Shell-owned desktop aside.
-  useSidebarKeyboardToggle(sidebarAsideRef);
+  useSidebarKeyboardToggle(sidebarAsideRef, sidebarChildren != null);
 
   // The mobile drawer is `aria-modal`: trap Tab focus within it and close on
   // Escape while it is mounted, honoring the `role="dialog" aria-modal="true"
@@ -302,8 +313,9 @@ export function Shell({
         <div style={stageStyle} className="bg-bg-chrome">
           {/* Desktop sidebar aside (Shell-owned — 260719-rwqf). Gated the same
               way the callers used to gate their own asides (`sidebarVisible` —
-              `sidebarOpen` composed with the zen render-time override — plus
-              a `sidebarChildren` presence check), so it fully unmounts on
+              `sidebarOpen` composed with the zen render-time override and the
+              sidebar-children presence — plus a `sidebarChildren` narrowing
+              check), so it fully unmounts on
               collapse — no zero-width rail. Flush stage: the aside paints
               `bg-bg-chrome` with no border or radius — it is one column of the
               chrome ground, not a floating card; only content tiles float. */}

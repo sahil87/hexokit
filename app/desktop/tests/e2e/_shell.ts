@@ -6,10 +6,10 @@
  * Constraints the code cannot show:
  *
  * - On Linux Electron derives `appData` from `XDG_CONFIG_HOME`, so
- *   `app.getPath("userData")` becomes `<configHome>/run-kit-desktop/` (the
+ *   `app.getPath("userData")` becomes `<configHome>/hexokit-desktop/` (the
  *   package name). Seeding a two-host `hosts.json` there gives a real host
  *   switch against ONE rig (two origins: `localhost` and `127.0.0.1` on the
- *   same port) and keeps the developer's real `~/.config/run-kit-desktop/`
+ *   same port) and keeps the developer's real `~/.config/hexokit-desktop/`
  *   — and the single-instance lock a running shell holds on it — untouched.
  *   `RK_DESKTOP_URL` is never set: its sentinel host is single-host and
  *   cannot exercise a switch.
@@ -21,38 +21,49 @@
  *   `View.getBounds()`, `webContents.getURL()`) through
  *   `electronApp.evaluate` — `src/main.ts` exports nothing for tests; a hook
  *   would test the hook.
- * - Guest classification: the SPA loads a stamped loopback address through
- *   the host origin's `/proxy/<port>/` hop (web-url.ts toProxySrc), so a
- *   guest is identified by its `/proxy/<stubPort>/` URL path, NOT by the
- *   stub's origin. Host views are identified by origin (and never carry a
- *   `/proxy/` path).
+ * - Guest classification: the seeded e2e-a host IS the lane's local daemon
+ *   (`rk url` under the harness env — `RK_PORT` set, `RK_HOST` unset —
+ *   resolves `http://127.0.0.1:<E2E_PORT>`, e2e-a's origin), so its web mode
+ *   is `direct` and its guests load the stub's LITERAL URL
+ *   (`http://127.0.0.1:<stubPort>/`) straight from the guest session — no
+ *   `/proxy/<port>/` hop. A guest is therefore identified by its literal
+ *   loopback URL; host views are identified by origin (e2e-b stays
+ *   `localhost`-named, so the two origins remain distinct).
  */
 import { _electron, type ElectronApplication, type Page } from "@playwright/test";
 import http from "node:http";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { harnessPort } from "../../../frontend/tests/e2e/_harness";
 
 /** The rig's Vite port, set only by the harness (scripts/test-e2e.sh). Never
- *  read the ambient RK_PORT: direnv exports it into every shell, so 3333 is
- *  the fail-closed connect-to-nothing fallback for a bare `playwright test`
- *  (the frontend config's convention). */
-export const E2E_PORT = Number(process.env.E2E_PORT ?? "3333");
+ *  reads the ambient RK_PORT: direnv exports it into every shell, so a bare
+ *  `playwright test` resolves the policy's fail-closed sentinel instead (the
+ *  frontend config's convention — see the frontend's _harness.ts). The
+ *  desktop lane is single-rig (workers: 1, no per-worker rewrite), so a
+ *  module-level capture here is safe. */
+export const E2E_PORT = harnessPort();
 
 /** The shell's appData directory name — package.json `name`. */
-const APP_DATA_DIR = "run-kit-desktop";
+const APP_DATA_DIR = "hexokit-desktop";
 
 const DESKTOP_DIR = join(__dirname, "..", "..");
 
 /** The two host origins the seeded hosts.json registers — same rig, two
- *  origins, so `servers:switch` is a real host switch. */
+ *  origins, so `servers:switch` is a real host switch. e2e-a carries the
+ *  127.0.0.1 form deliberately: `rk url` under the harness env (`RK_PORT`
+ *  set, `RK_HOST` unset) prints `http://127.0.0.1:<E2E_PORT>`, so e2e-a is
+ *  the host the shell's local-daemon detection (`localDaemonOrigin`)
+ *  resolves as THIS machine's daemon — web mode `direct`, literal-URL
+ *  guests. */
 export function hostOrigins(): { a: string; b: string } {
   return {
-    a: `http://localhost:${E2E_PORT}`,
-    b: `http://127.0.0.1:${E2E_PORT}`,
+    a: `http://127.0.0.1:${E2E_PORT}`,
+    b: `http://localhost:${E2E_PORT}`,
   };
 }
 
-/** Seed `<configHome>/run-kit-desktop/hosts.json` with the two-host list
+/** Seed `<configHome>/hexokit-desktop/hosts.json` with the two-host list
  *  (activeId e2e-a). With no windows.json beside it, the shell's cold start
  *  opens exactly one window on e2e-a. */
 export function seedHosts(configHome: string): void {
@@ -141,15 +152,17 @@ export function viewTree(app: ElectronApplication): Promise<ViewNode[]> {
 
 /** The lane's guest content: a `node:http` stub on an ephemeral loopback
  *  port serving a titled page. A real listener is required — guest requests
- *  originate in the shell's `persist:rk-web` partition, never the host page,
- *  so a `page.route` stub cannot serve them. */
+ *  originate in the shell's per-host `persist:rk-web:<hostId>` partition,
+ *  never the host page, so a `page.route` stub cannot serve them. */
 export interface GuestStub {
   server: http.Server;
   port: number;
   /** Absolute stamped form: `http://127.0.0.1:<port>/`. */
   origin: string;
-  /** The URL-path prefix the guest actually loads through the proxy hop. */
-  proxyPath: string;
+  /** The LITERAL URL a `direct`-mode guest loads: the stamped absolute
+   *  loopback slot passes `toNativeSrc` through unchanged (no `/proxy/<port>/`
+   *  hop), so the guest URL is the stub origin verbatim. */
+  literalUrl: string;
 }
 
 export const GUEST_TITLE = "rk e2e guest";
@@ -174,7 +187,7 @@ export function startGuestStub(): Promise<GuestStub> {
         server,
         port: addr.port,
         origin: `http://127.0.0.1:${addr.port}`,
-        proxyPath: `/proxy/${addr.port}/`,
+        literalUrl: `http://127.0.0.1:${addr.port}/`,
       });
     });
   });

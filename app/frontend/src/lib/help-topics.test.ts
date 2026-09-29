@@ -30,9 +30,9 @@ describe("HELP_TOPICS registry", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("points every topic at an absolute shll.ai page", () => {
+  it("points every topic at an absolute hexokit.com page", () => {
     for (const t of HELP_TOPICS) {
-      expect(t.url.startsWith("https://shll.ai/")).toBe(true);
+      expect(t.url.startsWith("https://hexokit.com/")).toBe(true);
     }
   });
 

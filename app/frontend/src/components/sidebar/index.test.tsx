@@ -247,7 +247,7 @@ function getScopeChip(): HTMLElement {
   return screen.getByRole("button", { name: "Toggle sessions scope" });
 }
 
-describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => {
+describe("Sidebar — sessions-pane scope (hexokit-panel-sessions-scope)", () => {
   it("marks the tree as the row-discoverable sidebar scroll container", () => {
     renderSidebar();
     expect(screen.getByRole("tree")).toHaveAttribute("data-sidebar-scroll", "");
@@ -283,7 +283,7 @@ describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => 
   });
 
   it("renders only the current server's ServerGroup in `current` scope, force-opened", () => {
-    localStorage.setItem("runkit-panel-sessions-scope", "current");
+    localStorage.setItem("hexokit-panel-sessions-scope", "current");
     renderSidebar({ currentServer: "primary" });
 
     expect(getServerGroupHeader("primary")).toBeInTheDocument();
@@ -297,7 +297,7 @@ describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => 
   });
 
   it("falls back to all servers in `current` scope when currentServer is null (board route) — no hint", () => {
-    localStorage.setItem("runkit-panel-sessions-scope", "current");
+    localStorage.setItem("hexokit-panel-sessions-scope", "current");
     renderSidebar({ currentServer: null });
 
     expect(getServerGroupHeader("primary")).toBeInTheDocument();
@@ -309,7 +309,7 @@ describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => 
   });
 
   it("falls back to all servers in `current` scope when currentServer is missing from the list", () => {
-    localStorage.setItem("runkit-panel-sessions-scope", "current");
+    localStorage.setItem("hexokit-panel-sessions-scope", "current");
     // Stale/deleted route param: currentServer names a server not in `servers`.
     renderSidebar({ currentServer: "gone" });
 
@@ -319,7 +319,7 @@ describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => 
   });
 
   it("treats an unrecognized stored scope value as `all`", () => {
-    localStorage.setItem("runkit-panel-sessions-scope", "bogus");
+    localStorage.setItem("hexokit-panel-sessions-scope", "bogus");
     renderSidebar({ currentServer: "primary" });
 
     expect(getServerGroupHeader("primary")).toBeInTheDocument();
@@ -329,12 +329,12 @@ describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => 
 
   it("does not overwrite persisted per-server collapse keys when force-opening the current group", () => {
     // User has the primary group collapsed in the multi-server tree.
-    localStorage.setItem("runkit-panel-sessions-primary", "false");
-    localStorage.setItem("runkit-panel-sessions-scope", "current");
+    localStorage.setItem("hexokit-panel-sessions-primary", "false");
+    localStorage.setItem("hexokit-panel-sessions-scope", "current");
     renderSidebar({ currentServer: "primary" });
 
     // The persisted value is unchanged after rendering with force-open in effect.
-    expect(localStorage.getItem("runkit-panel-sessions-primary")).toBe("false");
+    expect(localStorage.getItem("hexokit-panel-sessions-primary")).toBe("false");
 
     // And the rendered state is open (force-open dominates).
     const primaryHeader = screen.getByRole("button", { name: /Collapse primary sessions/ });
@@ -351,7 +351,7 @@ describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => 
     fireEvent.click(getScopeChip());
 
     // Narrowed to the current server; value persisted; chip reflects state.
-    expect(localStorage.getItem("runkit-panel-sessions-scope")).toBe("current");
+    expect(localStorage.getItem("hexokit-panel-sessions-scope")).toBe("current");
     expect(getScopeChip()).toHaveTextContent("CUR");
     expect(getServerGroupHeader("primary")).toBeInTheDocument();
     expect(getServerGroupHeader("alpha")).not.toBeInTheDocument();
@@ -360,7 +360,7 @@ describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => 
     fireEvent.click(getScopeChip());
 
     // Restored: all groups return, value persisted back to `all`.
-    expect(localStorage.getItem("runkit-panel-sessions-scope")).toBe("all");
+    expect(localStorage.getItem("hexokit-panel-sessions-scope")).toBe("all");
     expect(getScopeChip()).toHaveTextContent("ALL");
     expect(getServerGroupHeader("alpha")).toBeInTheDocument();
     expect(getServerGroupHeader("beta")).toBeInTheDocument();
@@ -369,7 +369,7 @@ describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => 
   it("SERVER panel expansion no longer affects the sessions tree (delink regression)", () => {
     // The old coupling filtered the tree when the SERVER panel was open. The
     // scope state is now the only filter input — the panel key must be inert.
-    localStorage.setItem("runkit-panel-server", "true");
+    localStorage.setItem("hexokit-panel-server", "true");
     renderSidebar({ currentServer: "primary" });
 
     expect(getServerGroupHeader("primary")).toBeInTheDocument();
@@ -385,7 +385,7 @@ describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => 
   });
 
   it("falls back to 'No servers' when the server list is empty regardless of scope", () => {
-    localStorage.setItem("runkit-panel-sessions-scope", "current");
+    localStorage.setItem("hexokit-panel-sessions-scope", "current");
     renderSidebar({ servers: [], currentServer: null });
 
     // Two "No servers" empty-states render: ServerPanel's tile grid and the
@@ -680,14 +680,14 @@ describe("Sidebar — per-server group toggle under StrictMode (mss7)", () => {
       screen.getByRole("button", { name: /Collapse alpha sessions/ }),
     ).toHaveAttribute("aria-expanded", "true");
     // Side-effect ran exactly once and agrees with the rendered state.
-    expect(localStorage.getItem("runkit-panel-sessions-alpha")).toBe("true");
+    expect(localStorage.getItem("hexokit-panel-sessions-alpha")).toBe("true");
 
     // Second click: the group must collapse again (full toggle cycle).
     fireEvent.click(screen.getByRole("button", { name: /Collapse alpha sessions/ }));
     expect(
       screen.getByRole("button", { name: /Expand alpha sessions/ }),
     ).toHaveAttribute("aria-expanded", "false");
-    expect(localStorage.getItem("runkit-panel-sessions-alpha")).toBe("false");
+    expect(localStorage.getItem("hexokit-panel-sessions-alpha")).toBe("false");
   });
 });
 
@@ -885,7 +885,7 @@ describe("Sidebar — mobile drawer current-row focus bonus (R9 / T007)", () => 
   it("scroll+focuses the [aria-current=\"page\"] window row when the drawer is open on mobile", () => {
     stubMobileMatchMedia();
     // ChromeProvider seeds sidebarOpen from this key — open the drawer.
-    localStorage.setItem("runkit-sidebar-open", "true");
+    localStorage.setItem("hexokit-sidebar-open", "true");
     // Run the deferred focus synchronously instead of waiting a real frame.
     const rafSpy = vi
       .spyOn(window, "requestAnimationFrame")
@@ -1460,8 +1460,8 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
   }
   beforeEach(() => {
     stubMobilePanels();
-    localStorage.setItem("runkit-sidebar-section-pane", "true");
-    localStorage.setItem("runkit-sidebar-section-host", "true");
+    localStorage.setItem("hexokit-sidebar-section-pane", "true");
+    localStorage.setItem("hexokit-sidebar-section-host", "true");
   });
   afterEach(() => {
     vi.stubGlobal(
@@ -1483,8 +1483,8 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
     // Drop this block's opt-in seeds to exercise the defaults: with nothing
     // stored, neither panel mounts even in the mobile drawer (the drawer's
     // default is pure nav + footer).
-    localStorage.removeItem("runkit-sidebar-section-pane");
-    localStorage.removeItem("runkit-sidebar-section-host");
+    localStorage.removeItem("hexokit-sidebar-section-pane");
+    localStorage.removeItem("hexokit-sidebar-section-host");
     renderSidebar({
       currentServer: null,
       servers: boardServers,
@@ -1648,7 +1648,7 @@ describe("BottomPanels — opr register owning-session lookup", () => {
   });
 
   it("server route: the route session's stale/tick facts land on the opr register", () => {
-    localStorage.setItem("runkit-sidebar-section-pane", "true");
+    localStorage.setItem("hexokit-sidebar-section-pane", "true");
     const sessions: ProjectSession[] = [
       {
         name: "main",
@@ -1680,7 +1680,7 @@ describe("BottomPanels — opr register owning-session lookup", () => {
 
   it("board route: the focused pane's home session supplies fresh tick facts (no stale mark)", () => {
     stubMobilePanels();
-    localStorage.setItem("runkit-sidebar-section-pane", "true");
+    localStorage.setItem("hexokit-sidebar-section-pane", "true");
     const sessions: ProjectSession[] = [
       {
         name: "home",
@@ -1723,7 +1723,7 @@ describe("BottomPanels — opr register owning-session lookup", () => {
   });
 
   it("omits the register's tick segment when the owning session never ticked", () => {
-    localStorage.setItem("runkit-sidebar-section-pane", "true");
+    localStorage.setItem("hexokit-sidebar-section-pane", "true");
     const sessions: ProjectSession[] = [
       {
         name: "main",
@@ -1819,8 +1819,8 @@ describe("Sidebar — section-visibility rail + gating (iha5)", () => {
   });
 
   it("mounts PANE + HOST on the DESKTOP sidebar when their sections are toggled on (opt-in return of the ldbs panels)", () => {
-    localStorage.setItem("runkit-sidebar-section-pane", "true");
-    localStorage.setItem("runkit-sidebar-section-host", "true");
+    localStorage.setItem("hexokit-sidebar-section-pane", "true");
+    localStorage.setItem("hexokit-sidebar-section-host", "true");
     renderSidebar();
     expect(paneHeader()).toBeInTheDocument();
     expect(hostHeader()).toBeInTheDocument();
@@ -1830,32 +1830,32 @@ describe("Sidebar — section-visibility rail + gating (iha5)", () => {
     renderSidebar();
     fireEvent.click(railToggle("Boards"));
     expect(boardsHeader()).not.toBeInTheDocument();
-    expect(localStorage.getItem("runkit-sidebar-section-boards")).toBe("false");
+    expect(localStorage.getItem("hexokit-sidebar-section-boards")).toBe("false");
     fireEvent.click(railToggle("Boards"));
     expect(boardsHeader()).toBeInTheDocument();
   });
 
   it("collapse state survives a visibility round-trip untouched", () => {
-    localStorage.setItem("runkit-sidebar-section-pane", "true");
+    localStorage.setItem("hexokit-sidebar-section-pane", "true");
     renderSidebar();
     const header = paneHeader()!;
     expect(header.getAttribute("aria-expanded")).toBe("true");
 
     fireEvent.click(header); // collapse via the chevron
-    expect(localStorage.getItem("runkit-panel-window")).toBe("false");
+    expect(localStorage.getItem("hexokit-panel-window")).toBe("false");
 
     const toggle = railToggle("Pane");
     fireEvent.click(toggle); // section off — fully unmounts
     expect(paneHeader()).not.toBeInTheDocument();
     // The collapse storage key is NOT touched by visibility toggling.
-    expect(localStorage.getItem("runkit-panel-window")).toBe("false");
+    expect(localStorage.getItem("hexokit-panel-window")).toBe("false");
 
     fireEvent.click(toggle); // section on — remounts exactly as left
     expect(paneHeader()!.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("ignores a stored runkit-sidebar-section-clock value (retired section — no panel, no rail toggle, no error)", () => {
-    localStorage.setItem("runkit-sidebar-section-clock", "true");
+  it("ignores a stored hexokit-sidebar-section-clock value (retired section — no panel, no rail toggle, no error)", () => {
+    localStorage.setItem("hexokit-sidebar-section-clock", "true");
     renderSidebar();
     expect(screen.queryByRole("button", { name: /^Clock/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Toggle Clock section" })).not.toBeInTheDocument();
@@ -2578,7 +2578,7 @@ describe("sidebar footer status row (260812-d1at — readouts + quiet status slo
 
   it("renders NO action buttons — Help/Keyboard/Theme/Gear relocated to the top bar (260812-d1at)", () => {
     renderSidebar();
-    expect(screen.queryByLabelText("Help — run-kit docs")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Help — HexoKit docs")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Keyboard shortcuts" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: / theme$/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open settings" })).not.toBeInTheDocument();
@@ -2604,7 +2604,7 @@ describe("sidebar footer status row (260812-d1at — readouts + quiet status slo
 
   it("renders the version readout beside the dot and copies the displayed form on click", async () => {
     renderSidebar({ daemonVersion: "0.9.3" });
-    const version = screen.getByRole("button", { name: "RunKit v0.9.3 (copy)" });
+    const version = screen.getByRole("button", { name: "HexoKit v0.9.3 (copy)" });
     expect(version).toHaveTextContent("v0.9.3");
     fireEvent.click(version);
     await waitFor(() => expect(vi.mocked(copyToClipboard)).toHaveBeenCalledWith("v0.9.3"));
@@ -2619,7 +2619,7 @@ describe("sidebar footer status row (260812-d1at — readouts + quiet status slo
   it("lays the footer out readouts-left with no action cluster (dot → version)", () => {
     renderSidebar({ isConnected: true, daemonVersion: "0.9.3" });
     const dot = screen.getByLabelText("Connected");
-    const version = screen.getByRole("button", { name: "RunKit v0.9.3 (copy)" });
+    const version = screen.getByRole("button", { name: "HexoKit v0.9.3 (copy)" });
     const follows = (a: Element, b: Element) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(follows(dot, version)).toBe(true);
@@ -2679,14 +2679,14 @@ describe("Sidebar — brand row (mobile-only)", () => {
     stubMatchMedia((q) => q.includes("prefers-color-scheme: dark"));
   });
 
-  it("renders the RunKit wordmark anchor to / as the nav's first row on mobile", () => {
+  it("renders the HexoKit wordmark anchor to / as the nav's first row on mobile", () => {
     stubMatchMedia((q) => q.includes("max-width") || q.includes("prefers-color-scheme: dark"));
     renderSidebar();
     const nav = screen.getByRole("navigation", { name: "Sessions" });
     // The accessible name is the wordmark text — deliberately NOT the top
-    // bar's "RunKit home" aria-label, which e2e selects by label and must
+    // bar's "HexoKit home" aria-label, which e2e selects by label and must
     // stay unique on desktop.
-    const brand = within(nav).getByRole("link", { name: "RunKit" });
+    const brand = within(nav).getByRole("link", { name: "HexoKit" });
     expect(brand).toHaveAttribute("href", "/");
     expect(nav.firstElementChild).toContainElement(brand);
   });
@@ -2695,7 +2695,7 @@ describe("Sidebar — brand row (mobile-only)", () => {
     // File-default stub: desktop (no max-width / coarse match).
     renderSidebar();
     const nav = screen.getByRole("navigation", { name: "Sessions" });
-    expect(within(nav).queryByRole("link", { name: "RunKit" })).not.toBeInTheDocument();
+    expect(within(nav).queryByRole("link", { name: "HexoKit" })).not.toBeInTheDocument();
   });
 });
 
@@ -3160,7 +3160,7 @@ describe("Sidebar — operator pinned row (260813-ifya)", () => {
   it("hides the pinned row when its server group is collapsed (no floating orphan)", () => {
     // Collapse the primary group via its persisted key (scope defaults to ALL,
     // so per-server collapse applies — the current server is not force-open).
-    localStorage.setItem("runkit-panel-sessions-primary", "false");
+    localStorage.setItem("hexokit-panel-sessions-primary", "false");
     renderOperatorSidebar();
 
     expect(
@@ -3398,7 +3398,7 @@ describe("Sidebar — operator placeholder row", () => {
   });
 
   it("hides with its server group when the group is collapsed", () => {
-    localStorage.setItem("runkit-panel-sessions-primary", "false");
+    localStorage.setItem("hexokit-panel-sessions-primary", "false");
     renderSidebar({ onOperatorPlaceholder: vi.fn() });
 
     expect(screen.queryByTestId("operator-placeholder-row")).toBeNull();
@@ -3559,7 +3559,7 @@ describe("Sidebar — ⌘B row-focuser registry + Escape return (260819-qwr7 R5)
     // all render collapsed by default — expand one to have visible rows. The
     // harness's default sessions map keys its fixture rows on the current
     // server, so the sessions must be passed explicitly here.
-    localStorage.setItem("runkit-panel-sessions-primary", "true");
+    localStorage.setItem("hexokit-panel-sessions-primary", "true");
     renderSidebar({
       currentServer: null,
       sessionsByServer: new Map([["primary", PRIMARY_SESSIONS]]),

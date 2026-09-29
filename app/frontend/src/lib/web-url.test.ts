@@ -6,6 +6,7 @@ import {
   normalizeAddressInput,
   proxyPortOf,
   routeAddressSubmit,
+  toNativeSrc,
   toProxySrc,
   toWebAddTarget,
   webTabTitle,
@@ -29,8 +30,15 @@ describe("classifyAddress (260819-v6y4 R3)", () => {
     expect(classifyAddress("")).toBe("relative");
   });
 
-  it("treats portless loopback absolute URLs as external (no port to proxy)", () => {
-    expect(classifyAddress("http://localhost/")).toBe("external");
+  it("treats portless http loopback URLs as proxied port 80 (the rk present rule)", () => {
+    expect(classifyAddress("http://localhost/")).toBe("proxy");
+    expect(classifyAddress("http://localhost:80/x")).toBe("proxy");
+    expect(classifyAddress("http://127.0.0.1/x")).toBe("proxy");
+    expect(classifyAddress("http://[::1]/x")).toBe("proxy");
+  });
+
+  it("keeps portless https loopback URLs external", () => {
+    expect(classifyAddress("https://localhost/")).toBe("external");
   });
 });
 
@@ -68,6 +76,10 @@ describe("displayForm (260819-v6y4 R3)", () => {
     expect(displayForm("/proxy/3000")).toBe("localhost:3000/");
     expect(displayForm("http://localhost:8080/docs?x=1")).toBe("localhost:8080/docs?x=1");
     expect(displayForm("http://127.0.0.1:8080/docs")).toBe("localhost:8080/docs");
+    expect(displayForm("http://localhost/x?y=1")).toBe("localhost:80/x?y=1");
+    // A literal loopback URL (the native engine's direct/proxy load target)
+    // renders the same localhost form as the /proxy/ plumbing.
+    expect(displayForm("http://localhost:6000/x")).toBe("localhost:6000/x");
   });
 
   it("external: host + path, scheme omitted", () => {
@@ -92,6 +104,7 @@ describe("webTabTitle", () => {
     expect(webTabTitle("/present/@3/1/report.html?v=17&server=x")).toBe("report.html");
     expect(webTabTitle("/proxy/3000/docs/api?q=1")).toBe("localhost:3000/docs/api");
     expect(webTabTitle("http://localhost:5173/?x=1")).toBe("localhost:5173/");
+    expect(webTabTitle("http://localhost/x?y=1")).toBe("localhost:80/x");
     expect(webTabTitle("https://docs.example.com/a/b#c")).toBe("docs.example.com");
     expect(webTabTitle("/foo")).toBe("/foo");
     expect(webTabTitle("")).toBe("");
@@ -120,7 +133,12 @@ describe("proxyPortOf", () => {
   it("returns null for non-proxy addresses", () => {
     expect(proxyPortOf("/present/@320/f.html")).toBeNull();
     expect(proxyPortOf("https://shll.ai/")).toBeNull();
-    expect(proxyPortOf("http://localhost/")).toBeNull();
+    expect(proxyPortOf("https://localhost/")).toBeNull();
+  });
+
+  it("resolves portless and :80 http loopback URLs to port 80", () => {
+    expect(proxyPortOf("http://localhost/")).toBe(80);
+    expect(proxyPortOf("http://localhost:80/x")).toBe(80);
   });
 });
 
@@ -284,10 +302,17 @@ describe("toProxySrc", () => {
     expect(toProxySrc("http://localhost:8080")).toBe("/proxy/8080/");
   });
 
+  it("maps portless http loopback URLs onto /proxy/80", () => {
+    expect(toProxySrc("http://localhost/")).toBe("/proxy/80/");
+    expect(toProxySrc("http://localhost")).toBe("/proxy/80/");
+    expect(toProxySrc("http://127.0.0.1/x?a=1")).toBe("/proxy/80/x?a=1");
+    expect(toProxySrc("http://localhost:80/x")).toBe("/proxy/80/x");
+  });
+
   it("passes everything else through unchanged", () => {
     expect(toProxySrc("/proxy/8080/docs")).toBe("/proxy/8080/docs");
     expect(toProxySrc("https://shll.ai/")).toBe("https://shll.ai/");
-    expect(toProxySrc("http://localhost/")).toBe("http://localhost/");
+    expect(toProxySrc("https://localhost/")).toBe("https://localhost/");
   });
 });
 
@@ -307,5 +332,53 @@ describe("toWebAddTarget", () => {
       "/present/runKit/3f9a2c8e1b77/report.html?v=1",
     );
     expect(toWebAddTarget("/foo")).toBe("/foo");
+  });
+});
+
+describe("toNativeSrc", () => {
+  // The address-kind matrix runs against all three modes: proxy path, proxy
+  // root, absolute loopback, external, present, and plain relative.
+  it("direct/proxy: a stored /proxy/{port} slot maps to the literal loopback URL", () => {
+    for (const mode of ["direct", "proxy"] as const) {
+      expect(toNativeSrc("/proxy/6000/assets/x.js", mode)).toBe(
+        "http://localhost:6000/assets/x.js",
+      );
+      expect(toNativeSrc("/proxy/6000/docs?x=1", mode)).toBe("http://localhost:6000/docs?x=1");
+      // The root form gains its trailing slash.
+      expect(toNativeSrc("/proxy/6000", mode)).toBe("http://localhost:6000/");
+      expect(toNativeSrc("/proxy/6000/", mode)).toBe("http://localhost:6000/");
+    }
+  });
+
+  it("direct/proxy: every other address kind passes through unchanged", () => {
+    for (const mode of ["direct", "proxy"] as const) {
+      expect(toNativeSrc("http://localhost:6000/x", mode)).toBe("http://localhost:6000/x");
+      expect(toNativeSrc("http://127.0.0.1:6000/x?a=1", mode)).toBe("http://127.0.0.1:6000/x?a=1");
+      expect(toNativeSrc("https://shll.ai/rk/skill", mode)).toBe("https://shll.ai/rk/skill");
+      expect(toNativeSrc("/present/@320/report.html?server=a&v=1", mode)).toBe(
+        "/present/@320/report.html?server=a&v=1",
+      );
+      expect(toNativeSrc("/present/runKit/3f9a2c8e1b77/report.html?v=1", mode)).toBe(
+        "/present/runKit/3f9a2c8e1b77/report.html?v=1",
+      );
+      expect(toNativeSrc("/board/runKit", mode)).toBe("/board/runKit");
+    }
+  });
+
+  it("legacy: exactly toProxySrc for every address kind", () => {
+    const cases = [
+      "/proxy/6000/assets/x.js",
+      "/proxy/6000",
+      "http://localhost:6000/x",
+      "https://shll.ai/rk/skill",
+      "/present/runKit/3f9a2c8e1b77/report.html?v=1",
+      "/board/runKit",
+    ];
+    for (const url of cases) {
+      expect(toNativeSrc(url, "legacy")).toBe(toProxySrc(url));
+    }
+    // The loopback absolute case is the one where legacy differs from the
+    // other modes: it rides the same-origin proxy path.
+    expect(toNativeSrc("http://localhost:6000/x", "legacy")).toBe("/proxy/6000/x");
   });
 });

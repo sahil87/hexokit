@@ -55,7 +55,7 @@ func init() {
 
 // sendNotify POSTs {title, body} to the local server's /api/notify, targeting
 // the origin resolveOrigin() derives for the caller (explicit RK_HOST/RK_PORT
-// env → the covering tmux server's @rk_srv_origin → the 127.0.0.1:3000 default).
+// env → the covering tmux server's @rk_srv_origin → the portpolicy default).
 // It is fail-silent by design: any error (unreachable server, non-2xx,
 // timeout) is swallowed and produces no output. The return is the one fact
 // the failure path hides: true iff the POST returned 2xx.

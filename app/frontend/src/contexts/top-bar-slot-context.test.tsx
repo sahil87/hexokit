@@ -116,7 +116,7 @@ describe("TopBarSlotContext", () => {
           onNavigate: () => {},
           onToggleSidebar: () => {},
           onCreateWindow: () => {},
-          surfaceToggles: { mode: "toggle", available: ["tty", "web"], open: ["tty"], onToggle },
+          surfaceToggles: { mode: "toggle", available: ["tty", "web"], open: ["tty"], onToggle, canAdd: true },
         }),
         [],
       );

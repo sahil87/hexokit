@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, render, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { IframeWindow } from "./iframe-window";
+import { TIP_OPEN_DELAY_MS } from "./tip";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 
 // Mock the API client. The engine mounted under `IframeWindow` probes
@@ -126,6 +127,13 @@ describe("IframeWindow", () => {
       tabs: ["http://localhost:8080/docs"],
     });
     expect(screen.queryByLabelText("Switch to terminal")).toBeNull();
+  });
+
+  // The keyboard-capture verb lives in the tile header (SurfaceLayout), not
+  // the URL bar.
+  it("renders no capture button in the URL bar", () => {
+    renderIframe({ tabs: ["http://localhost:8080/docs"], webCapture: true });
+    expect(screen.queryByTestId("web-capture-toggle")).toBeNull();
   });
 
   // Find bar (260819-ie2i R5/R7/R8): open seams, counter/navigation, the
@@ -859,6 +867,56 @@ describe("IframeWindow", () => {
       expect(screen.queryByTestId("web-tab-draft")).toBeNull();
     });
 
+    it("a selected draft deactivates EVERY frame and shows the blank new-tab panel", () => {
+      renderIframe({ tabs: ["/proxy/3001/", "/proxy/3002/"], active: 1, onAddTab: vi.fn() });
+      const frames = screen.getAllByTitle("Proxied content") as HTMLIFrameElement[];
+      expect(frames.map((f) => f.hasAttribute("hidden"))).toEqual([false, true]);
+      expect(screen.queryByTestId("web-draft-panel")).toBeNull();
+
+      fireEvent.click(screen.getByTestId("web-tab-add"));
+
+      // No frame is active: both stay MOUNTED (P3), hidden.
+      const during = screen.getAllByTitle("Proxied content") as HTMLIFrameElement[];
+      expect(during.map((f) => f.hasAttribute("hidden"))).toEqual([true, true]);
+      expect(screen.getByTestId("web-draft-panel")).toBeTruthy();
+    });
+
+    it("re-selecting a real tab re-activates the SAME frame node — no remount, no reload", () => {
+      const onSelectTab = vi.fn().mockResolvedValue({ ok: true });
+      renderIframe({ tabs: ["/proxy/3001/", "/proxy/3002/"], active: 1, onAddTab: vi.fn(), onSelectTab });
+      const before = screen.getAllByTitle("Proxied content") as HTMLIFrameElement[];
+
+      fireEvent.click(screen.getByTestId("web-tab-add"));
+      expect(screen.getByTestId("web-draft-panel")).toBeTruthy();
+
+      // The draft's address input holds focus; clicking a real tab deselects
+      // the draft and the previously active frame re-activates in place.
+      fireEvent.click(screen.getAllByTestId("web-tab")[0]);
+      const after = screen.getAllByTitle("Proxied content") as HTMLIFrameElement[];
+      expect(after[0]).toBe(before[0]);
+      expect(after[1]).toBe(before[1]);
+      expect(after.map((f) => f.hasAttribute("hidden"))).toEqual([false, true]);
+      expect(screen.queryByTestId("web-draft-panel")).toBeNull();
+      expect(onSelectTab).toHaveBeenCalledWith(1);
+    });
+
+    it("keyboard-selecting a tab (Enter) also deselects the draft and re-activates its frame", () => {
+      const onSelectTab = vi.fn().mockResolvedValue({ ok: true });
+      renderIframe({ tabs: ["/proxy/3001/", "/proxy/3002/"], active: 1, onAddTab: vi.fn(), onSelectTab });
+      const before = screen.getAllByTitle("Proxied content") as HTMLIFrameElement[];
+      fireEvent.click(screen.getByTestId("web-tab-add"));
+      expect(screen.getByTestId("web-draft-panel")).toBeTruthy();
+
+      const tab = screen.getAllByTestId("web-tab")[0];
+      fireEvent.focus(tab);
+      fireEvent.keyDown(tab, { key: "Enter" });
+      const after = screen.getAllByTitle("Proxied content") as HTMLIFrameElement[];
+      expect(after[0]).toBe(before[0]);
+      expect(after[0].hasAttribute("hidden")).toBe(false);
+      expect(screen.queryByTestId("web-draft-panel")).toBeNull();
+      expect(onSelectTab).toHaveBeenCalledWith(1);
+    });
+
     it("dragging a tab past a sibling commits one exact move", () => {
       const onMoveTab = vi.fn().mockResolvedValue({ ok: true });
       const onSelectTab = vi.fn().mockResolvedValue({ ok: true });
@@ -1020,21 +1078,38 @@ describe("IframeWindow", () => {
       expect(onSelectTab).toHaveBeenCalledTimes(1);
     });
 
-    it("+ is disabled at the 8-tab family cap", () => {
-      const tabs = Array.from({ length: 8 }, (_, i) => `/proxy/${3000 + i}/`);
+    it("+ is enabled below the 16-tab family cap (15 tabs)", () => {
+      const tabs = Array.from({ length: 15 }, (_, i) => `/proxy/${3000 + i}/`);
       renderIframe({ tabs, active: 1, onAddTab: vi.fn() });
-      expect((screen.getByTestId("web-tab-add") as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByTestId("web-tab-add") as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it("+ is disabled at the 16-tab family cap, tipped `web tabs full (16)`", () => {
+      vi.useFakeTimers();
+      try {
+        const tabs = Array.from({ length: 16 }, (_, i) => `/proxy/${3000 + i}/`);
+        renderIframe({ tabs, active: 1, onAddTab: vi.fn() });
+        const add = screen.getByTestId("web-tab-add") as HTMLButtonElement;
+        expect(add.disabled).toBe(true);
+        act(() => {
+          fireEvent.mouseEnter(add);
+          vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
+        });
+        expect(screen.getByRole("tooltip")).toHaveTextContent("web tabs full (16)");
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("an onAddTab rejection surfaces the server error text in the inline alert slot", async () => {
-      const onAddTab = vi.fn().mockRejectedValue(new Error("web tabs full (8)"));
+      const onAddTab = vi.fn().mockRejectedValue(new Error("web tabs full (16)"));
       renderIframe({ tabs: ["/proxy/3001/", "/proxy/3002/"], active: 1, onAddTab });
       const input = screen.getByLabelText("URL") as HTMLInputElement;
       fireEvent.click(screen.getByTestId("web-tab-add"));
       fireEvent.change(input, { target: { value: "localhost:3003" } });
       fireEvent.keyDown(input, { key: "Enter" });
       const alert = await screen.findByRole("alert");
-      expect(alert.textContent).toBe("web tabs full (8)");
+      expect(alert.textContent).toBe("web tabs full (16)");
       expect(screen.getByTestId("web-tab-draft")).toBeTruthy();
     });
 
@@ -1129,7 +1204,7 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
     const first = renderIframe({ tabs: ["/proxy/3000/"] });
     fireEvent.click(screen.getByLabelText("Zoom in"));
     fireEvent.click(screen.getByLabelText("Zoom in"));
-    expect(localStorage.getItem("runkit-web-zoom")).toBe('{"proxy:3000":1.25}');
+    expect(localStorage.getItem("hexokit-web-zoom")).toBe('{"proxy:3000":1.25}');
     first.unmount();
     renderIframe({ tabs: ["http://localhost:3000/app"] });
     expect(readout().textContent).toBe("125%");
@@ -1151,11 +1226,11 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
 
   it("reset at 100% writes nothing; returning to 100% removes the entry", () => {
     renderIframe({ tabs: ["/proxy/3000/"] });
-    expect(localStorage.getItem("runkit-web-zoom")).toBeNull();
+    expect(localStorage.getItem("hexokit-web-zoom")).toBeNull();
     fireEvent.click(screen.getByLabelText("Zoom in"));
-    expect(localStorage.getItem("runkit-web-zoom")).toBe('{"proxy:3000":1.1}');
+    expect(localStorage.getItem("hexokit-web-zoom")).toBe('{"proxy:3000":1.1}');
     fireEvent.click(readout());
-    expect(localStorage.getItem("runkit-web-zoom")).toBe("{}");
+    expect(localStorage.getItem("hexokit-web-zoom")).toBe("{}");
   });
 
   it("the web-zoom document event steps and resets the tile", () => {
@@ -1173,7 +1248,7 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
     expect(() =>
       fireEvent(document, new CustomEvent("web-zoom", { detail: { direction: "in" } })),
     ).not.toThrow();
-    expect(localStorage.getItem("runkit-web-zoom")).toBeNull();
+    expect(localStorage.getItem("hexokit-web-zoom")).toBeNull();
   });
 
   it("ctrl-wheel on the wrapper zooms CONTINUOUSLY and is prevented; plain wheel passes through (260824-iafo R3)", () => {
@@ -1234,11 +1309,11 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
         wrapper,
         new WheelEvent("wheel", { deltaY: -60, ctrlKey: true, bubbles: true, cancelable: true }),
       );
-      expect(localStorage.getItem("runkit-web-zoom")).toBeNull();
+      expect(localStorage.getItem("hexokit-web-zoom")).toBeNull();
       // The address moves to a different bucket while the write is pending —
       // the flush belongs to the OLD bucket, and the new bucket seeds fresh.
       view.rerender(iframeElement({ tabs: ["/proxy/4000/"] }, "runkit"));
-      expect(JSON.parse(localStorage.getItem("runkit-web-zoom")!)).toEqual({ "proxy:3000": 1.82 });
+      expect(JSON.parse(localStorage.getItem("hexokit-web-zoom")!)).toEqual({ "proxy:3000": 1.82 });
       expect(readout().textContent).toBe("100%");
     } finally {
       vi.useRealTimers();
@@ -1258,14 +1333,14 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
       wheel();
       wheel();
       // Mid-gesture: nothing persisted yet.
-      expect(localStorage.getItem("runkit-web-zoom")).toBeNull();
+      expect(localStorage.getItem("hexokit-web-zoom")).toBeNull();
       vi.advanceTimersByTime(300);
       // One trailing write with the final compounded value: exp(0.6) ≈ 1.82.
-      expect(JSON.parse(localStorage.getItem("runkit-web-zoom")!)).toEqual({ "proxy:3000": 1.82 });
+      expect(JSON.parse(localStorage.getItem("hexokit-web-zoom")!)).toEqual({ "proxy:3000": 1.82 });
       // A pending write flushes (not drops) on unmount.
       wheel();
       view.unmount();
-      expect(JSON.parse(localStorage.getItem("runkit-web-zoom")!)).toEqual({ "proxy:3000": 2.46 });
+      expect(JSON.parse(localStorage.getItem("hexokit-web-zoom")!)).toEqual({ "proxy:3000": 2.46 });
     } finally {
       vi.useRealTimers();
     }

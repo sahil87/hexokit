@@ -297,7 +297,7 @@ describe("OpenButton primary tip kbd (260811-ke2s)", () => {
   });
 
   it("omits the keycap chip when open-last-used is unbound — a dead chord would lie", () => {
-    localStorage.setItem("runkit-keybindings", JSON.stringify({ "open-last-used": null }));
+    localStorage.setItem("hexokit-keybindings", JSON.stringify({ "open-last-used": null }));
     localStorage.setItem(LAST_USED_OPEN_TARGET_KEY, "host:iterm");
     renderButton([deeplinkTarget, hostTarget]);
     const primary = screen.getByRole("button", { name: "Open in iTerm" });

@@ -1,3 +1,8 @@
+// MUST stay the first import: its body copies legacy `runkit-*`/`runkit:`
+// localStorage keys to their `hexokit` counterparts before any app module
+// evaluates (see legacy-storage-boot.ts). A static import keeps the first
+// render synchronous with module evaluation.
+import "@/lib/legacy-storage-boot";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "@tanstack/react-router";

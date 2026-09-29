@@ -15,8 +15,8 @@ describe("buildServerAdoptActions", () => {
       vi.fn(),
     );
     expect(actions.map((a) => a.label)).toEqual([
-      "Server: Adopt a into run-kit",
-      "Server: Adopt c into run-kit",
+      "Server: Adopt a into HexoKit",
+      "Server: Adopt c into HexoKit",
     ]);
     expect(actions.map((a) => a.id)).toEqual([
       "adopt-server-a",
@@ -33,7 +33,7 @@ describe("buildServerAdoptActions", () => {
       [srv("a", false), srv(DAEMON_SERVER, false)],
       vi.fn(),
     );
-    expect(actions.map((a) => a.label)).toEqual(["Server: Adopt a into run-kit"]);
+    expect(actions.map((a) => a.label)).toEqual(["Server: Adopt a into HexoKit"]);
   });
 
   it("invokes onAdopt with the server name", () => {

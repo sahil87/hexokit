@@ -71,7 +71,7 @@ running ('rk gui status' has the reason); on macOS the surface mirrors your
 live session view-only, so there is no display to launch on.
 
 'launch browser --cdp [--port 9222]' adds --remote-debugging-port with a
-dedicated profile dir (<state>/run-kit/gui/cdp-<N> — the flag takes effect
+dedicated profile dir (<state>/hexokit/gui/cdp-<N> — the flag takes effect
 even when another instance of the browser is already running), waits for the
 port, and prints 'cdp http://127.0.0.1:<N>' as a second line: the Playwright
 connectOverCDP endpoint. Chromium-family only — a Firefox resolution refuses

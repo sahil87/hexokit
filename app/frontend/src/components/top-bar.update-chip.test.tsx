@@ -85,11 +85,20 @@ describe("UpdateChip", () => {
     // The rest-state aria shows the transition (both versions), not only
     // the target (260715-ifco R9). The hover hint is a styled Tip now
     // (260722-73al) — no native title attribute.
-    const chip = screen.getByLabelText("Update run-kit: v0.5.3 → v0.6.0");
+    const chip = screen.getByLabelText("Update HexoKit: v0.5.3 → v0.6.0");
     expect(chip).toBeInTheDocument();
     expect(chip).not.toHaveAttribute("title");
     // The visible chip label is unchanged — still `⬆ v{latest}`.
     expect(screen.getByText("⬆ v0.6.0")).toBeInTheDocument();
+  });
+
+  it("keeps the single-version `⬆ v{latest}` form for a self row named `hexokit` (shll >= v0.1.34 roster name)", () => {
+    renderChip({
+      daemonVersion: "0.5.3",
+      updateAvailable: updateAvailable([{ tool: "hexokit", current: "0.5.3", latest: "0.6.0" }]),
+    });
+    expect(screen.getByText("⬆ v0.6.0")).toBeInTheDocument();
+    expect(screen.getByLabelText("Update HexoKit: v0.5.3 → v0.6.0")).toBeInTheDocument();
   });
 
   it("renders a count form + per-tool transitions in the title for a multi-tool match", () => {
@@ -156,7 +165,7 @@ describe("UpdateChip", () => {
       },
     });
     expect(screen.getByText("⬆ v0.6.0")).toBeInTheDocument();
-    expect(screen.getByLabelText("Update run-kit: v0.5.3 → v0.6.0")).toBeInTheDocument();
+    expect(screen.getByLabelText("Update HexoKit: v0.5.3 → v0.6.0")).toBeInTheDocument();
   });
 
   it("hides when the daemon reports the dev version", () => {
@@ -221,7 +230,7 @@ describe("UpdateChip", () => {
       daemonVersion: "0.5.3",
       updateAvailable: updateAvailable([runKit("0.5.3", "0.6.0")]),
     });
-    const root = screen.getByLabelText("Update run-kit: v0.5.3 → v0.6.0").parentElement;
+    const root = screen.getByLabelText("Update HexoKit: v0.5.3 → v0.6.0").parentElement;
     expect(root).not.toHaveClass("hidden");
   });
 
@@ -238,11 +247,11 @@ describe("UpdateChip", () => {
       updateAvailable: updateAvailable([runKit("0.5.3", "0.6.0")]),
       updateNow,
     });
-    fireEvent.click(screen.getByLabelText("Update run-kit: v0.5.3 → v0.6.0"));
+    fireEvent.click(screen.getByLabelText("Update HexoKit: v0.5.3 → v0.6.0"));
     expect(updateNow).toHaveBeenCalledTimes(1);
-    // The chip flips to its disabled "Updating run-kit" state (accessible label);
+    // The chip flips to its disabled "Updating HexoKit" state (accessible label);
     // the ✕ dismiss button is hidden while updating.
-    await waitFor(() => expect(screen.getByLabelText("Updating run-kit")).toBeDisabled());
+    await waitFor(() => expect(screen.getByLabelText("Updating HexoKit")).toBeDisabled());
     // The VISIBLE busy label must be exactly "updating…" (real ellipsis, U+2026) —
     // guards against a JS escape sequence leaking into JSX text as literal chars.
     expect(screen.getByText("updating…")).toBeInTheDocument();
@@ -257,10 +266,10 @@ describe("UpdateChip", () => {
       updateAvailable: updateAvailable([runKit("0.5.3", "0.6.0")]),
       updateNow,
     });
-    fireEvent.click(screen.getByLabelText("Update run-kit: v0.5.3 → v0.6.0"));
+    fireEvent.click(screen.getByLabelText("Update HexoKit: v0.5.3 → v0.6.0"));
     // After the rejection settles, the chip is back to its rest label.
     await waitFor(() =>
-      expect(screen.getByLabelText("Update run-kit: v0.5.3 → v0.6.0")).toBeInTheDocument(),
+      expect(screen.getByLabelText("Update HexoKit: v0.5.3 → v0.6.0")).toBeInTheDocument(),
     );
     expect(screen.getByText("not brew-installed")).toBeInTheDocument();
   });
@@ -328,7 +337,7 @@ describe("UpdateChip", () => {
 
     fireEvent.click(screen.getByLabelText("Update: fab-kit v2.16.0 → v2.17.0"));
     resolveUpdate({ status: "updating" }); // the POST resolves 202; no reload follows (siblings-only)
-    await waitFor(() => expect(screen.getByLabelText("Updating run-kit")).toBeDisabled());
+    await waitFor(() => expect(screen.getByLabelText("Updating HexoKit")).toBeDisabled());
 
     // A later verdict with a DIFFERENT key (fab-kit now updated further) arrives.
     const after = updateAvailable([{ tool: "fab-kit", current: "2.17.0", latest: "2.18.0" }]);
@@ -370,18 +379,18 @@ describe("UpdateChip", () => {
 // therefore reflects the update-surface path whenever a qualifying update is
 // pending (the update-chip entry is "overflowed").
 describe("overflow menu version row (260715-h1ck)", () => {
-  it("shows `RunKit v{version}` and copies the displayed form on click", async () => {
+  it("shows `HexoKit v{version}` and copies the displayed form on click", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
     renderChip({ daemonVersion: "0.6.2", updateAvailable: null });
     fireEvent.click(screen.getByLabelText("More controls"));
     const menu = screen.getByRole("menu", { name: "More controls" });
-    const row = within(menu).getByText("RunKit v0.6.2").closest("button")!;
+    const row = within(menu).getByText("HexoKit v0.6.2").closest("button")!;
     fireEvent.click(row);
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("v0.6.2"));
   });
 
-  it("becomes the update surface (`RunKit v{current} → v{latest} ⬆`) for a single run-kit match when overflowed", () => {
+  it("becomes the update surface (`HexoKit v{current} → v{latest} ⬆`) for a single run-kit match when overflowed", () => {
     renderChip({
       daemonVersion: "0.5.3",
       updateAvailable: updateAvailable([runKit("0.5.3", "0.6.0")]),
@@ -390,7 +399,7 @@ describe("overflow menu version row (260715-h1ck)", () => {
     expect(screen.getByTestId("overflow-attention")).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("More controls"));
     const menu = screen.getByRole("menu", { name: "More controls" });
-    expect(within(menu).getByText("RunKit v0.5.3 → v0.6.0 ⬆")).toBeInTheDocument();
+    expect(within(menu).getByText("HexoKit v0.5.3 → v0.6.0 ⬆")).toBeInTheDocument();
     // No separate UpdateChip menu row — its function merged into the version row.
     expect(within(menu).queryByText(/⬆ v/)).not.toBeInTheDocument();
   });
@@ -418,7 +427,7 @@ describe("overflow menu version row (260715-h1ck)", () => {
     });
     fireEvent.click(screen.getByLabelText("More controls"));
     const menu = screen.getByRole("menu", { name: "More controls" });
-    fireEvent.click(within(menu).getByText("RunKit v0.5.3 → v0.6.0 ⬆").closest("button")!);
+    fireEvent.click(within(menu).getByText("HexoKit v0.5.3 → v0.6.0 ⬆").closest("button")!);
     expect(updateNow).toHaveBeenCalledTimes(1);
   });
 
@@ -427,7 +436,7 @@ describe("overflow menu version row (260715-h1ck)", () => {
     expect(screen.queryByTestId("overflow-attention")).not.toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("More controls"));
     const menu = screen.getByRole("menu", { name: "More controls" });
-    expect(within(menu).getByText("RunKit v0.6.2")).toBeInTheDocument();
+    expect(within(menu).getByText("HexoKit v0.6.2")).toBeInTheDocument();
   });
 });
 
@@ -456,7 +465,7 @@ describe("UpdateChip — manual-check feed (260807-s6zs)", () => {
       manualCheck: { tools: [manualRunKit], source: "github" },
     });
     expect(screen.getByText("⬆ v3.9.1")).toBeInTheDocument();
-    expect(screen.getByLabelText("Update run-kit: v3.8.7 → v3.9.1")).toBeInTheDocument();
+    expect(screen.getByLabelText("Update HexoKit: v3.8.7 → v3.9.1")).toBeInTheDocument();
   });
 
   it("uses the count form + per-tool aria for a multi-tool manual result", () => {
@@ -532,7 +541,7 @@ describe("UpdateChip — manual-check feed (260807-s6zs)", () => {
       updateNow,
       forceUpdateNow,
     });
-    fireEvent.click(screen.getByLabelText("Update run-kit: v3.8.7 → v3.9.1"));
+    fireEvent.click(screen.getByLabelText("Update HexoKit: v3.8.7 → v3.9.1"));
     expect(forceUpdateNow).toHaveBeenCalledTimes(1);
     expect(updateNow).not.toHaveBeenCalled();
   });
@@ -547,7 +556,7 @@ describe("UpdateChip — manual-check feed (260807-s6zs)", () => {
       updateNow,
       forceUpdateNow,
     });
-    fireEvent.click(screen.getByLabelText("Update run-kit: v0.5.3 → v0.6.0"));
+    fireEvent.click(screen.getByLabelText("Update HexoKit: v0.5.3 → v0.6.0"));
     expect(updateNow).toHaveBeenCalledTimes(1);
     expect(forceUpdateNow).not.toHaveBeenCalled();
   });
@@ -573,6 +582,6 @@ describe("UpdateChip — manual-check feed (260807-s6zs)", () => {
     });
     fireEvent.click(screen.getByLabelText("More controls"));
     const menu = screen.getByRole("menu", { name: "More controls" });
-    expect(within(menu).getByText("RunKit v3.8.7 → v3.9.1 ⬆")).toBeInTheDocument();
+    expect(within(menu).getByText("HexoKit v3.8.7 → v3.9.1 ⬆")).toBeInTheDocument();
   });
 });

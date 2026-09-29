@@ -1,0 +1,59 @@
+id: 7koz
+name: 260924-7koz-code-server-restart
+created: 2026-09-24T10:11:03Z
+created_by: ashish-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+plan:
+    generated: true
+    task_count: 1
+    acceptance_count: 1
+    acceptance_completed: 1
+confidence:
+    certain: 4
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 74.3
+        reversibility: 87.1
+        competence: 83.6
+        disambiguation: 77.1
+stage_metrics:
+    intake: {started_at: "2026-09-24T10:11:03Z", driver: fab-new, iterations: 1, completed_at: "2026-09-24T10:19:14Z"}
+    apply: {started_at: "2026-09-24T16:16:13Z", driver: fab-adopt, iterations: 2, completed_at: "2026-09-24T16:17:47Z"}
+    review: {started_at: "2026-09-24T16:17:47Z", driver: fab-adopt, iterations: 2, completed_at: "2026-09-24T16:24:34Z"}
+    hydrate: {started_at: "2026-09-24T16:24:34Z", driver: fab-adopt, iterations: 1, completed_at: "2026-09-24T16:31:08Z"}
+    ship: {started_at: "2026-09-24T16:31:08Z", driver: fab-adopt, iterations: 1, completed_at: "2026-09-24T16:33:15Z"}
+    review-pr: {started_at: "2026-09-24T16:33:15Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/1031
+base_branch: main
+summary: code lens not-running state gains a Restart code-server button (+palette row), POST /api/code-server/restart, and rk code-server restart — kill + re-ensure with install-job fallback and bounded port-up wait
+true_impact:
+    added: 652
+    deleted: 38
+    net: 614
+    excluding:
+        added: 412
+        deleted: 18
+        net: 394
+    tests:
+        added: 169
+        deleted: 6
+        net: 163
+    computed_at: "2026-09-24T16:33:15Z"
+    computed_at_stage: ship
+change_type_source: explicit
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-24T16:33:15Z

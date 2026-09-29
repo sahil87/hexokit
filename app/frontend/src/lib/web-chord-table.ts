@@ -26,6 +26,10 @@ export interface WebChordSpec {
   meta: boolean;
   shift: boolean;
   alt: false;
+  /** Skip main's host focus hop: set on the keyboard-capture toggle's arms,
+   *  whose result is "keep typing in the page" — hopping focus to the SPA
+   *  would send the next chord to rk instead of the page it was captured for. */
+  keepFocus?: true;
 }
 
 /** The combos `matchesCombo` accepts for a binding's `{code, tier}`. */
@@ -51,8 +55,18 @@ function combosFor(code: string, tier: EffectiveBinding["tier"]): WebChordSpec[]
  * binding that `hasReclaimableMatch` would reclaim under kind `"web"` —
  * ungated and `webOnly` bindings; never `ttyOnly` or `guiOnly` — expanded per
  * tier, deduped by the five-tuple, in registry order, Escape last.
+ *
+ * `captured` is the web keyboard-capture latch (`rk-web-capture`): when set
+ * the table narrows to the release binding (`web-capture-toggle`) ALONE — no
+ * other chord and no Escape — so main reclaims only that and every other key,
+ * Escape included, reaches the page (the `hasReclaimableMatch` captured
+ * narrowing, enumerated). The toggle's arms carry `keepFocus` in both states,
+ * so flipping capture from inside the page leaves OS focus in the guest.
  */
-export function buildWebChordTable(bindings: readonly EffectiveBinding[]): WebChordSpec[] {
+export function buildWebChordTable(
+  bindings: readonly EffectiveBinding[],
+  captured = false,
+): WebChordSpec[] {
   const seen = new Set<string>();
   const specs: WebChordSpec[] = [];
   const push = (spec: WebChordSpec): void => {
@@ -64,8 +78,12 @@ export function buildWebChordTable(bindings: readonly EffectiveBinding[]): WebCh
   for (const binding of bindings) {
     if (!binding.enabled || binding.ttyOnly || binding.guiOnly) continue;
     if (binding.code === "") continue;
-    for (const spec of combosFor(binding.code, binding.tier)) push(spec);
+    const toggle = binding.actionId === "web-capture-toggle";
+    if (captured && !toggle) continue;
+    for (const spec of combosFor(binding.code, binding.tier)) {
+      push(toggle ? { ...spec, keepFocus: true } : spec);
+    }
   }
-  push({ code: "Escape", ctrl: false, meta: false, shift: false, alt: false });
+  if (!captured) push({ code: "Escape", ctrl: false, meta: false, shift: false, alt: false });
   return specs;
 }

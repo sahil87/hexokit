@@ -246,7 +246,7 @@ describe("buildOperatorStartAction", () => {
   });
 
   it("is the chord-less Operator: Start operator entry", () => {
-    const action = buildOperatorStartAction("srv1", vi.fn(), vi.fn());
+    const action = buildOperatorStartAction("srv1", undefined, vi.fn(), vi.fn());
     expect(action).toMatchObject({ id: "operator-start", label: "Operator: Start operator" });
     expect(action.shortcut).toBeUndefined();
   });
@@ -255,17 +255,25 @@ describe("buildOperatorStartAction", () => {
     mockStartOperator.mockResolvedValue({ windowId: "@7", server: "srv1" });
     const onStarted = vi.fn();
     const onError = vi.fn();
-    buildOperatorStartAction("srv1", onStarted, onError).onSelect();
+    buildOperatorStartAction("srv1", undefined, onStarted, onError).onSelect();
     await vi.waitFor(() => expect(onStarted).toHaveBeenCalledWith({ windowId: "@7", server: "srv1" }));
-    expect(mockStartOperator).toHaveBeenCalledWith("srv1");
+    expect(mockStartOperator).toHaveBeenCalledWith("srv1", undefined);
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("onSelect passes the viewed window through to the POST", async () => {
+    mockStartOperator.mockResolvedValue({ windowId: "@7", server: "srv1" });
+    const onStarted = vi.fn();
+    buildOperatorStartAction("srv1", "@1", onStarted, vi.fn()).onSelect();
+    await vi.waitFor(() => expect(onStarted).toHaveBeenCalled());
+    expect(mockStartOperator).toHaveBeenCalledWith("srv1", "@1");
   });
 
   it("treats a 409 operator_exists carrying a windowId as success", async () => {
     mockStartOperator.mockRejectedValue(new ApiError("operator already present", 409, "operator_exists", "@3"));
     const onStarted = vi.fn();
     const onError = vi.fn();
-    buildOperatorStartAction("srv1", onStarted, onError).onSelect();
+    buildOperatorStartAction("srv1", undefined, onStarted, onError).onSelect();
     await vi.waitFor(() => expect(onStarted).toHaveBeenCalledWith({ windowId: "@3", server: "srv1" }));
     expect(onError).not.toHaveBeenCalled();
   });
@@ -274,7 +282,7 @@ describe("buildOperatorStartAction", () => {
     mockStartOperator.mockRejectedValue(new ApiError("fab not found on PATH", 502));
     const onStarted = vi.fn();
     const onError = vi.fn();
-    buildOperatorStartAction("srv1", onStarted, onError).onSelect();
+    buildOperatorStartAction("srv1", undefined, onStarted, onError).onSelect();
     await vi.waitFor(() => expect(onError).toHaveBeenCalledWith("fab not found on PATH"));
     expect(onStarted).not.toHaveBeenCalled();
   });

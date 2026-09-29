@@ -12,6 +12,7 @@ import {
 } from "@/lib/compose-strip-events";
 import { chordHintFor } from "@/lib/keybindings";
 import { useKeybindings } from "@/hooks/use-keybindings";
+import { useOccludes } from "@/hooks/use-occludes";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 
 type BottomBarProps = {
@@ -82,7 +83,7 @@ const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
 export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
   const { focused } = useFocusedTerminal();
   // Scroll-lock is a persisted chrome preference (ChromeContext,
-  // `runkit-scroll-lock`) so it survives remounts, route changes, and mobile
+  // `hexokit-scroll-lock`) so it survives remounts, route changes, and mobile
   // tab reloads — a per-mount useState here silently reset the lock on every
   // one of those, which is how the keyboard kept coming back mid-read.
   const { composeStripEnabled, scrollLocked } = useChromeState();
@@ -91,6 +92,9 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
   const mods = useModifierState();
   const [fnOpen, setFnOpen] = useState(false);
   const fnRef = useRef<HTMLDivElement>(null);
+  // Menus register `transient` (overlay-presence): while open, a native guest
+  // composited above the DOM hides so the menu never paints underneath it.
+  useOccludes("transient", fnOpen);
   // HOST-effective chords for the chip tips' kbd slots (the settings-gear
   // chord pattern, 260801-mqim): reflect overrides, omitted when
   // unbound/disabled (a tip advertising a dead chord would lie).

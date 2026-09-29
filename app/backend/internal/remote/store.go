@@ -1,8 +1,9 @@
 // Package remote implements the SSH-only remote-host subsystem behind the
 // `rk remote` command family: the remotes.yaml registration store, local-port
-// assignment from the reserved 3100–3199 range, ssh probe/bootstrap helpers,
-// and the tunnel-in-tmux lifecycle (socket rk-daemon, sibling session
-// rk-remotes, one window per remote).
+// assignment from the tunnel range reserved by internal/portpolicy/ports.env
+// (portpolicy.Tunnel), ssh probe/bootstrap helpers, and the tunnel-in-tmux
+// lifecycle (socket rk-daemon, sibling session rk-remotes, one window per
+// remote).
 //
 // Posture (Constitution II): the store persists ONLY the genuinely
 // underivable-when-disconnected state — name, verbatim ssh target, assigned
@@ -47,9 +48,10 @@ type Remote struct {
 	// user@host form. Never parsed for connection purposes.
 	Target string `yaml:"target"`
 	// LocalPort is the stable local tunnel port, assigned once at add-time
-	// from the reserved 3100–3199 range and immutable thereafter (a stable
-	// port keeps per-origin browser state and the desktop shell's persistent
-	// view identity across launches).
+	// from the range reserved by internal/portpolicy/ports.env
+	// (portpolicy.Tunnel) and immutable thereafter (a stable port keeps
+	// per-origin browser state and the desktop shell's persistent view
+	// identity across launches).
 	LocalPort int `yaml:"local_port"`
 }
 

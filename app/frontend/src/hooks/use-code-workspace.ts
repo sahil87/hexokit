@@ -51,11 +51,14 @@ import type { ViewWindow } from "@/lib/window-view";
 /** The one sanctioned parent re-navigation payload: a fresh `nonce` is what
  *  licenses CodeSurface to override its per-mount-generation src ref, exactly
  *  once per nonce. `root` is the folder followed to — the frame record's
- *  eviction baseline moves with it before the payload catches up. */
+ *  eviction baseline moves with it before the payload catches up. `windowId`
+ *  names the frame's window (the code TILE's window — a foreign code tile's
+ *  home, not necessarily the route window). */
 export interface CodeFollowSrc {
   src: string;
   nonce: number;
   root: string;
+  windowId: string;
 }
 
 /** Optional cross-window inputs: `windowsById` backs the `codeSrcFor` lookup
@@ -261,8 +264,8 @@ export function useCodeWorkspace(
           : null,
     codeSrcFor,
     followSrc:
-      follow && follow.key === windowKey
-        ? { src: follow.src, nonce: follow.nonce, root: follow.root }
+      follow && follow.key === windowKey && windowId !== undefined
+        ? { src: follow.src, nonce: follow.nonce, root: follow.root, windowId }
         : null,
     followFolder,
   };

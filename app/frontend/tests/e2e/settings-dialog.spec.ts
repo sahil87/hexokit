@@ -30,7 +30,7 @@ import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
  * snapshot / `afterAll` verbatim-restore (or delete-if-absent) pattern is
  * KEPT as the fallback for the interactive `just pw` lane, which runs
  * against a `just dev` rig with no RK_CONFIG_DIR — there SETTINGS_PATH is
- * the REAL ~/.config/run-kit/config.yaml and the snapshot still protects
+ * the REAL ~/.config/hexokit/config.yaml and the snapshot still protects
  * it; under the harness the same snapshot/restore is a harmless no-op on
  * the temp file — the board-list-reorder.spec.ts pattern. `beforeAll` also
  * creates an `e2e-settings-<timestamp>` tmux session on `rk-test-e2e` with

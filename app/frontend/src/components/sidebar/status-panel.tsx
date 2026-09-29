@@ -22,7 +22,7 @@ type CopyableRowKey = "tmx" | "cwd" | "git" | "fab" | "pr";
  *  (CollapsiblePanel's `storageKey`). Exported because the status bar's yield
  *  rule subscribes to the same boolean: the panel is "on screen" only while
  *  expanded, so a collapsed panel hands the window cluster back to the bar. */
-export const PANE_PANEL_OPEN_STORAGE_KEY = "runkit-panel-window";
+export const PANE_PANEL_OPEN_STORAGE_KEY = "hexokit-panel-window";
 export const PANE_PANEL_DEFAULT_OPEN = true;
 
 // How long the post-completion / throttled "checkmark" shows before reverting to

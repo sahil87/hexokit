@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { LayoutShape } from "@/lib/surface-layout";
+import { layoutRects, type LayoutNode } from "@/lib/surface-layout";
 
 /**
  * Shared top-bar control glyphs (260801-3q1z) — one definition per mirrored
@@ -146,29 +146,6 @@ export function ZoomGlyph() {
   );
 }
 
-/** Promote — square with a left-half divider (lucide panel-left shape): "make
- *  this tile slot A", the ◧ semantics. */
-export function PromoteGlyph() {
-  return (
-    <ControlGlyph name="promote">
-      <rect width="18" height="18" x="3" y="3" rx="2" />
-      <path d="M9 3v18" />
-    </ControlGlyph>
-  );
-}
-
-/** Swap — lucide arrow-left-right, the swap-with-next tile verb. */
-export function SwapGlyph() {
-  return (
-    <ControlGlyph name="swap">
-      <path d="M8 3 4 7l4 4" />
-      <path d="M4 7h16" />
-      <path d="m16 21 4-4-4-4" />
-      <path d="M20 17H4" />
-    </ControlGlyph>
-  );
-}
-
 /** Tile close — bare crossed lines. Deliberately NOT boxed: the boxed
  *  square-x is Close Pane's shape (`ClosePaneBoxedGlyph`), and the two
  *  destructive closes in one header never share a shape (the close-distinction
@@ -214,6 +191,18 @@ export function OpenExternalGlyph() {
   );
 }
 
+/** Inspect — lucide code-xml ("<>/", the page's source), the web tile URL
+ *  bar's Inspect page button. */
+export function InspectGlyph() {
+  return (
+    <ControlGlyph name="inspect">
+      <path d="m18 16 4-4-4-4" />
+      <path d="m6 8-4 4 4 4" />
+      <path d="m14.5 4-5 16" />
+    </ControlGlyph>
+  );
+}
+
 /** Refresh — lucide rotate-cw (circular arrow with a top-right arrowhead),
  *  the in-bar RefreshButton glyph. */
 export function RefreshGlyph() {
@@ -235,6 +224,31 @@ export function FollowTerminalGlyph() {
       <path d="m4 7 4 4-4 4" />
       <path d="M11 19h7" />
       <path d="m15 16 3 3-3 3" />
+    </ControlGlyph>
+  );
+}
+
+/** Send home — lucide undo-2 (the curving return arrow), a foreign tile's ↩
+ *  verb: the borrowed surface returns to its home tab. */
+export function SendHomeGlyph() {
+  return (
+    <ControlGlyph name="send-home">
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+    </ControlGlyph>
+  );
+}
+
+/** Pop out — a box with an arrow leaving its top-right corner ("the tile
+ *  leaves the layout into its own window"), the tile header's Pop out verb.
+ *  Distinct from OpenExternalGlyph's bare diagonal arrow: the box anchors the
+ *  source tile. */
+export function PopOutGlyph() {
+  return (
+    <ControlGlyph name="pop-out">
+      <path d="M15 3h6v6" />
+      <path d="m21 3-9 9" />
+      <path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6" />
     </ControlGlyph>
   );
 }
@@ -335,50 +349,34 @@ export function ExternalGlyph() {
 }
 
 /**
- * Per-shape preset glyphs (260812-ab5v R9) — the ▦ chip popover's rows and the
- * overflow menu's `Layout: …` rows, one miniaturized arrangement pictogram per
- * preset (spec § Shape presets ASCII, reduced to strokes): dividers split the
- * frame the way the shape splits the center — `split-h` one vertical divider,
- * `row` two, the `main-*` shapes an off-center A boundary plus the B/C divider
- * on A's far side. `single` is the bare frame.
+ * Mini tree glyph (the ▦ chip popover's rows and the overflow menu's
+ * `Layout: …` rows): the layout tree drawn as a tiny rect diagram — one
+ * bordered rect per leaf, positioned from `layoutRects` at the template's own
+ * default sizes (absent override ⇒ the tree's carried sizes, then equal
+ * shares), so the `main-*` templates keep their off-center main split. One
+ * renderer serves every template, plus the chip's single/custom current-state
+ * row (the live tree drawn as-is). `name` keys the kebab-case `data-icon`
+ * test seam (`layout-row`, `layout-main-left`, …).
  */
-export function LayoutShapeGlyph({ shape }: { shape: LayoutShape }) {
+const TREE_GLYPH_BOX = { x: 0, y: 0, w: 14, h: 14 };
+const TREE_GLYPH_GAP_PX = 1;
+
+export function LayoutTreeGlyph({ name, tree }: { name: string; tree: LayoutNode }) {
+  const rects = [...layoutRects(tree, TREE_GLYPH_BOX, undefined, TREE_GLYPH_GAP_PX).values()];
   return (
-    <ControlGlyph name={`layout-${shape}`} viewBox="0 0 14 14" strokeWidth={1.5}>
-      <rect x="1" y="2.5" width="12" height="9" rx="1" />
-      {shape === "split-h" && <line x1="7" y1="2.5" x2="7" y2="11.5" />}
-      {shape === "split-v" && <line x1="1" y1="7" x2="13" y2="7" />}
-      {shape === "row" && (
-        <>
-          <line x1="5" y1="2.5" x2="5" y2="11.5" />
-          <line x1="9" y1="2.5" x2="9" y2="11.5" />
-        </>
-      )}
-      {shape === "col" && (
-        <>
-          <line x1="1" y1="5.5" x2="13" y2="5.5" />
-          <line x1="1" y1="8.5" x2="13" y2="8.5" />
-        </>
-      )}
-      {shape === "main-left" && (
-        <>
-          <line x1="8.5" y1="2.5" x2="8.5" y2="11.5" />
-          <line x1="8.5" y1="7" x2="13" y2="7" />
-        </>
-      )}
-      {shape === "main-right" && (
-        <>
-          <line x1="5.5" y1="2.5" x2="5.5" y2="11.5" />
-          <line x1="1" y1="7" x2="5.5" y2="7" />
-        </>
-      )}
-      {shape === "main-top" && (
-        <>
-          <line x1="1" y1="5.5" x2="13" y2="5.5" />
-          <line x1="7" y1="5.5" x2="7" y2="11.5" />
-        </>
-      )}
-    </ControlGlyph>
+    <span
+      data-icon={`layout-${name}`}
+      aria-hidden="true"
+      className="relative inline-block w-[14px] h-[14px] shrink-0"
+    >
+      {rects.map((r) => (
+        <span
+          key={`${r.x}:${r.y}`}
+          className="absolute rounded-[1px] border border-current"
+          style={{ left: r.x, top: r.y, width: r.w, height: r.h }}
+        />
+      ))}
+    </span>
   );
 }
 

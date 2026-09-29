@@ -16,12 +16,12 @@
 // (`Input.dispatchTouchEvent`) — the closest mirror of iOS input. The xterm
 // helper textarea is located by its `.xterm-helper-textarea` class.
 import { test, expect } from "@playwright/test";
+import { harnessOrigin } from "./_harness";
 import { resolveWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
 const TEST_SESSION = `e2e-touchfocus-${Date.now()}`;
-const port = Number(process.env.E2E_PORT ?? "3333");
-const BASE = `http://localhost:${port}`;
+const BASE = harnessOrigin();
 
 // iPad portrait — the device class the phantom keyboard was reported on.
 const IPAD_VIEWPORT = { width: 820, height: 1180 };

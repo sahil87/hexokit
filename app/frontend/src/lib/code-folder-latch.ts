@@ -20,7 +20,7 @@
  */
 
 import type { ViewWindow } from "./window-view";
-import type { Layout } from "./surface-layout";
+import { leaves, type Layout } from "./surface-layout";
 
 /**
  * The folder the code surface opens: the shared code root, falling back to
@@ -44,7 +44,7 @@ export function codeRootSeed(
   win: ViewWindow | null | undefined,
   layout: Layout,
 ): string | null {
-  return layout.order.includes("code") && !win?.codeRoot && win?.gitRoot
+  return leaves(layout).includes("code") && !win?.codeRoot && win?.gitRoot
     ? win.gitRoot
     : null;
 }

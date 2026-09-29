@@ -1,4 +1,4 @@
-// Package desktop installs and updates the Run Kit desktop app (the Electron
+// Package desktop installs and updates the HexoKit desktop app (the Electron
 // viewer shell, app/desktop) from GitHub release assets: the macOS DMG and
 // the Linux AppImage.
 //
@@ -42,14 +42,22 @@ import (
 
 const (
 	// DefaultRepo is the GitHub repository the desktop DMGs are released from.
-	DefaultRepo = "sahil87/run-kit"
+	DefaultRepo = "sahil87/hexokit"
 	// AppBundleName is the installed bundle name (electron-builder's
-	// productName "Run Kit" + .app).
-	AppBundleName = "Run Kit.app"
+	// productName "HexoKit" + .app).
+	AppBundleName = "HexoKit.app"
+	// legacyAppBundleName is the pre-rename bundle name. One release window:
+	// status/install detect it so the rk-installed app upgrades in place
+	// instead of leaving two Dock entries.
+	legacyAppBundleName = "Run Kit.app"
 	// assetPrefix is the leading segment of every desktop asset name
-	// (run-kit-desktop-{version}-{arch}.{dmg,AppImage}, per the release CI's
+	// (hexokit-desktop-{version}-{arch}.{dmg,AppImage}, per the release CI's
 	// artifactName convention).
-	assetPrefix = "run-kit-desktop-"
+	assetPrefix = "hexokit-desktop-"
+	// legacyAssetPrefix covers releases published under the pre-rename
+	// artifactName (run-kit-desktop-…); matched only when no assetPrefix
+	// asset fits the host arch.
+	legacyAssetPrefix = "run-kit-desktop-"
 	// defaultAPIBase is the GitHub REST API origin.
 	defaultAPIBase = "https://api.github.com"
 )
@@ -183,7 +191,7 @@ func githubToken() string {
 	return strings.TrimSpace(string(out))
 }
 
-// AppPath returns the display path of the installed app — <root>/Run Kit.app
+// AppPath returns the display path of the installed app — <root>/HexoKit.app
 // on macOS, <root>/current on Linux. It feeds messages and the not-installed
 // error only; operations resolve the root through effectiveInstallDir and
 // surface a home-resolution failure themselves, so here it degrades to the

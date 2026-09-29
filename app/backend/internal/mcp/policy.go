@@ -9,7 +9,11 @@
 // name collides with it.
 package mcp
 
-import "time"
+import (
+	"time"
+
+	"rk/internal/tmux"
+)
 
 // ToolTimeoutCap bounds every tool call's subprocess (docs/specs/mcp.md
 // § Timeout contract: desktop MCP clients time out well under a minute). A row
@@ -215,7 +219,7 @@ const goDurationPattern = `^[0-9]+(ns|us|µs|ms|s|m|h)([0-9]+(ns|us|µs|ms|s|m|h
 // model on these rows (docs/specs/mcp.md § Policy table rules).
 const (
 	notifyDescription    = "Send a Web Push notification to the daemon's subscribed devices. Fail-silent by contract: the exit code is always 0, so the receipt's `delivered` field is the verdict — delivered:false (daemon unreachable, non-2xx, timeout) is NOT a tool error."
-	riffDescription      = "Spawn a worktree + tmux window + agent pane set (optionally a named preset — run-kit's `riff_presets`: built-ins `discuss`, `incognito`, `blank`, plus user additions in ~/.config/run-kit/config.yaml). Over MCP `server` and `repo` are REQUIRED (the executor strips $TMUX and its cwd is not the repo): `server` is the tmux server label, `repo` an absolute path that must be the git toplevel, `session` (=S exact form) defaults to the server's current session. `skill` items are slash commands (e.g. /fab-discuss) rendered for the resolved provider; repeatable, one pane per item in order. `--cmd` (shell panes) is NOT available over MCP. The receipt's `windows[]` entries carry id/name/panes/worktree/branch; panes[0] is the task pane."
+	riffDescription      = "Spawn a worktree + tmux window + agent pane set (optionally a named preset — run-kit's `riff_presets`: built-ins `discuss`, `incognito`, `blank`, plus user additions in ~/.config/hexokit/config.yaml). Over MCP `server` and `repo` are REQUIRED (the executor strips $TMUX and its cwd is not the repo): `server` is the tmux server label, `repo` an absolute path that must be the git toplevel, `session` (=S exact form) defaults to the server's current session. `skill` items are slash commands (e.g. /fab-discuss) rendered for the resolved provider; repeatable, one pane per item in order. `--cmd` (shell panes) is NOT available over MCP. The receipt's `windows[]` entries carry id/name/panes/worktree/branch; panes[0] is the task pane."
 	newWindowDescription = "Open a new idle window (no command form over MCP) in the target session and return {session, session_rung, window_id, pane_id} — `session_rung` says why that session was chosen. `session` takes the =S exact form; without it the window lands in the caller's current session inside tmux (an _rk-* infrastructure caller instead picks a user session: sole user, else the one rooted at cwd's main worktree, else the most attached), else the target server's current session — over MCP the executor strips $TMUX, so that server rung is what applies. `cwd` sets the window's working directory."
 	operatorDescription  = "Open (or ensure) the server's operator tab — a per-server singleton running the operator-tier agent. Idempotent: `created:false` means an operator already existed on that server (nothing is duplicated). Over MCP `server` is REQUIRED (the executor strips $TMUX). `workers` sets FAB_AGENT_WORKERS for the launched agent."
 	cronAddDescription   = "Schedule a prompt for an agent on a tmux server. The prompt is TEXT TYPED INTO AN AGENT at fire time, never a command. Exactly ONE schedule input (every | idle_every | backoff | cron) and exactly ONE of role / pane / session are required (the verb enforces both and rejects a bad combination). The receipt carries {id, name, schedule, target} — the id feeds cron_mute/cron_rm."
@@ -449,7 +453,7 @@ var Table = []Row{
 			{Name: "session", Flag: "--session", Type: ArgString, Pattern: `^=.+$`,
 				Description: "Session the window is created in (=S exact form; default: the server's current session)"},
 			{Name: "preset", Positional: 1, Type: ArgString,
-				Description: "Named preset from run-kit's riff_presets (built-ins: discuss, incognito, blank, plus user additions/overrides in ~/.config/run-kit/config.yaml)"},
+				Description: "Named preset from run-kit's riff_presets (built-ins: discuss, incognito, blank, plus user additions/overrides in ~/.config/hexokit/config.yaml)"},
 			{Name: "skill", Flag: "--skill", Type: ArgStringArray,
 				Description: "Slash command for a pane (repeatable, one pane per item in order; a bare item launches a blank agent)"},
 			{Name: "layout", Flag: "--layout", Type: ArgString},
@@ -529,15 +533,15 @@ var Table = []Row{
 			serverArg,
 			windowArg,
 			{Name: "layout", Positional: 2, Type: ArgString,
-				Description: "The layout value to set (<shape>:<surface,…>); omit for a read, or use one mutation input instead"},
+				Description: "The layout value to set — the tree form `h(tty,v(code,web))` or a legacy `<shape>:<surface,…>`; omit for a read, or use one mutation input instead"},
 			{Name: "add", Flag: "--add", Type: ArgString, Enum: []string{"tty", "web", "code", "gui"},
-				Description: "Append a surface to the layout (grows the shape)"},
+				Description: "Add a surface (splits the last tile along its longer axis)"},
 			{Name: "rm", Flag: "--rm", Type: ArgString, Enum: []string{"tty", "web", "code", "gui"},
-				Description: "Remove a surface from the layout (collapses the shape)"},
+				Description: "Remove a surface from the layout (its neighbours absorb the space)"},
 			{Name: "promote", Flag: "--promote", Type: ArgString, Enum: []string{"tty", "web", "code", "gui"},
 				Description: "Move a surface to slot A"},
 			{Name: "cycle", Flag: "--cycle", Type: ArgBoolean,
-				Description: "Cycle to the next same-arity shape preset"},
+				Description: "Cycle to the next template for the tile count"},
 			jsonLiteral,
 		},
 		Result:      ResultJSON,
@@ -557,12 +561,12 @@ var Table = []Row{
 			serverArg,
 			{Name: "window", Type: ArgString, Required: true, Pattern: `^@\d+$`,
 				Description: "The tab to address, by window id (@N)"},
-			{Name: "slot", Type: ArgInteger, Minimum: intPtr(1), Maximum: intPtr(8),
-				Description: "The web-tab slot (1-8); required for rm/select/mv"},
+			{Name: "slot", Type: ArgInteger, Minimum: intPtr(1), Maximum: intPtr(tmux.MaxWebTabs),
+				Description: "The web-tab slot; required for rm/select/mv"},
 			{Positional: 2, Format: "{window}[/web/{slot}]"},
 			{Name: "target", Positional: 3, Type: ArgString,
 				Description: "add's target: a URL, :port, file, or directory"},
-			{Name: "to", Positional: 4, Type: ArgInteger, Minimum: intPtr(1), Maximum: intPtr(8),
+			{Name: "to", Positional: 4, Type: ArgInteger, Minimum: intPtr(1), Maximum: intPtr(tmux.MaxWebTabs),
 				Description: "mv's destination slot"},
 			{Name: "show", Flag: "--show", Type: ArgBoolean,
 				Description: "add only: ensure the web surface is in the layout and select the tab"},

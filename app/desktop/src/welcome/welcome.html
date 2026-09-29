@@ -7,7 +7,7 @@
       content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Run Kit — Connect</title>
+    <title>HexoKit — Connect</title>
     <style>
       /* SPA design tokens (app/frontend/src/globals.css), COPIED not imported —
          the page's CSP forbids external fetches. Dark is the default; the
@@ -295,7 +295,7 @@
   <body>
     <div class="titlebar-strip" aria-hidden="true"></div>
     <main class="card">
-      <h1>run-kit</h1>
+      <h1>HexoKit</h1>
       <p id="tagline" class="tagline">Connect to a running <span>rk serve</span> instance.</p>
       <!-- "Your Hosts" top rung — registered hosts from `servers:list` (the
            page is already a privileged servers:* sender, so no new IPC);
@@ -316,7 +316,7 @@
         </div>
         <p id="local-detail" class="local-detail"></p>
         <p id="local-hint" class="local-detail" hidden>
-          Serve from this machine: <code>brew install sahil87/tap/run-kit</code>
+          Serve from this machine: <code>brew install sahil87/tap/hexokit</code>
         </p>
         <div class="local-actions">
           <button id="local-connect" type="button" hidden>Connect</button>
@@ -360,7 +360,7 @@
         <input
           id="url"
           type="text"
-          placeholder="http://100.101.2.3:3000"
+          placeholder="http://100.101.2.3:6123"
           autofocus
           spellcheck="false"
           autocomplete="off"

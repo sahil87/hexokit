@@ -22,8 +22,8 @@ import { pickImpact, radiusFor, type BreakPoint } from "@/lib/screen-break-geome
 
 export type ScreenBreakEgg = "smash" | "peek";
 
-export const SMASH_KEY = "runkit-egg-smash";
-export const PEEK_KEY = "runkit-egg-peek";
+export const SMASH_KEY = "hexokit-egg-smash";
+export const PEEK_KEY = "hexokit-egg-peek";
 
 /** The eggs need room for the shards to fall — no-op below this width. */
 const MIN_VIEWPORT_WIDTH = 640;

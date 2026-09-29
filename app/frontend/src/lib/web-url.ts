@@ -18,6 +18,9 @@
  *    (http/https absolute, root-relative; the backend remains enforcement).
  * 5. `toProxySrc` — the iframe-src mapping: absolute loopback URLs ride the
  *    same-origin proxy, everything else passes through.
+ * 6. `toNativeSrc` — the native engine's mode-aware load target: in the
+ *    host-reported `direct`/`proxy` modes a stored `/proxy/{port}` slot is
+ *    re-expressed as its literal loopback URL; `legacy` is `toProxySrc`.
  *
  * The STORED `@rk_win_web_<n>` is never rewritten by display work — the
  * display contract (`docs/site/skill/display.md`) keeps relative addresses
@@ -52,6 +55,11 @@ export const WEB_INSPECT_EVENT = "web-inspect";
 
 /** Loopback hostnames whose absolute URLs classify as proxied ports. */
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+
+/** The port a portless `http:` loopback URL targets. Mirrors the backend's
+ *  `rk present` rule (`internal/present`), which stores `http://localhost/x`
+ *  as `/proxy/80/x`; `URL.port` is also empty for an explicit `:80`. */
+const HTTP_DEFAULT_PORT = 80;
 
 /** Bare loopback `host:port[{path}]` input — no scheme (a scheme-bearing
  *  value parses as an absolute URL before this shape is consulted). */
@@ -120,21 +128,24 @@ function presentDisplayBase(segments: string[]): string | null {
   return path[path.length - 1];
 }
 
-/** Whether an absolute URL is a loopback address WITH an explicit port — the
- *  proxied-port shape (`http://localhost:3000/…`). Portless loopback is not
- *  proxied (there is no port to ride). */
+/** The proxied port of an absolute loopback URL, or null when it is not
+ *  proxied: an explicit port rides `/proxy/{port}`, a portless `http:` URL
+ *  rides port 80, and a portless `https:` URL stays external (the backend
+ *  attaches every `https://` target verbatim). */
 function loopbackPortOf(u: URL): number | null {
   if (!LOOPBACK_HOSTS.has(u.hostname)) return null;
+  if (u.port === "") return u.protocol === "http:" ? HTTP_DEFAULT_PORT : null;
   const port = Number(u.port);
   return Number.isInteger(port) && port > 0 ? port : null;
 }
 
 /**
  * Classify a stored/tracked address. Order matters: root-relative `/present/`
- * and `/proxy/` before the generic relative fallback; absolute loopback
- * http(s) URLs WITH a port are proxied ports, every other absolute http(s)
- * URL is external. Anything unrecognized (including non-allowlist schemes,
- * which the backend rejects anyway) degrades to `relative` — never throws.
+ * and `/proxy/` before the generic relative fallback; absolute loopback URLs
+ * with a proxied port (`loopbackPortOf`) are proxied ports, every other
+ * absolute http(s) URL is external. Anything unrecognized (including
+ * non-allowlist schemes, which the backend rejects anyway) degrades to
+ * `relative` — never throws.
  */
 export function classifyAddress(url: string): AddressKind {
   const abs = parseHttpUrl(url);
@@ -185,7 +196,7 @@ export function displayForm(url: string): string {
     if (kind === "proxy") {
       const abs = parseHttpUrl(url);
       if (abs) {
-        return `localhost:${abs.port}${abs.pathname}${abs.search}${abs.hash}`;
+        return `localhost:${loopbackPortOf(abs)}${abs.pathname}${abs.search}${abs.hash}`;
       }
       const port = proxyPathPort(url);
       if (port !== null) {
@@ -228,7 +239,7 @@ export function webTabTitle(url: string): string {
     }
     if (kind === "proxy") {
       const abs = parseHttpUrl(value);
-      if (abs) return `localhost:${abs.port}${abs.pathname}`;
+      if (abs) return `localhost:${loopbackPortOf(abs)}${abs.pathname}`;
       const port = proxyPathPort(value);
       if (port !== null) {
         const rest = value.replace(/^\/proxy\/\d+/, "").split(/[?#]/)[0];
@@ -351,17 +362,16 @@ export function isAllowedUrl(input: string): boolean {
 }
 
 /**
- * The iframe-src mapping: an absolute loopback URL re-expressed as the
- * same-origin `/proxy/{port}` path; every other address passes through
- * unchanged (relative addresses are already same-origin).
+ * The iframe-src mapping: an absolute loopback URL with a proxied port
+ * (`loopbackPortOf`) re-expressed as the same-origin `/proxy/{port}` path;
+ * every other address passes through unchanged (relative addresses are
+ * already same-origin).
  */
 export function toProxySrc(url: string): string {
   const abs = parseHttpUrl(url);
-  if (abs && LOOPBACK_HOSTS.has(abs.hostname)) {
-    const port = Number(abs.port);
-    if (Number.isInteger(port) && port > 0) {
-      return `/proxy/${abs.port}${abs.pathname}${abs.search}${abs.hash}`;
-    }
+  const port = abs ? loopbackPortOf(abs) : null;
+  if (abs && port !== null) {
+    return `/proxy/${port}${abs.pathname}${abs.search}${abs.hash}`;
   }
   return url;
 }
@@ -380,4 +390,23 @@ export function toWebAddTarget(url: string): string {
   if (port === null) return url;
   const rest = url.replace(/^\/proxy\/\d+/, "");
   return `http://localhost:${port}${rest === "" ? "/" : rest}`;
+}
+
+/** The native engine's host-reported load mode: `direct` when the host IS
+ *  this machine's daemon, `proxy` when a remote host's forward proxy carries
+ *  the guest session's traffic, `legacy` for anything else (older shell or a
+ *  host whose proxy capability check failed). */
+export type WebNativeMode = "direct" | "proxy" | "legacy";
+
+/**
+ * The native engine's load target for a stored address, per the host's mode.
+ * In `direct`/`proxy` the guest session resolves loopback on the rk host, so
+ * a stored `/proxy/{port}` slot is re-expressed as the literal loopback URL it
+ * rides (the `toWebAddTarget` inverse mapping — the same slot value then still
+ * works in a browser viewer's iframe engine); absolute URLs and every other
+ * address kind pass through unchanged. `legacy` is exactly `toProxySrc`.
+ */
+export function toNativeSrc(url: string, mode: WebNativeMode): string {
+  if (mode === "legacy") return toProxySrc(url);
+  return toWebAddTarget(url);
 }

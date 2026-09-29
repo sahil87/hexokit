@@ -8,7 +8,7 @@
  * ephemeral port serves a static page; windows get
  * slot-1 web tab stamped via `stampWebTab`, so the
  * tile rides the same-origin `/proxy/<port>/` path. Each test starts from a
- * fresh browser context, so `runkit-web-zoom` begins empty WITHOUT any
+ * fresh browser context, so `hexokit-web-zoom` begins empty WITHOUT any
  * `addInitScript` (deliberate — an init script would also wipe the key on the
  * persistence test's re-navigation). Navigation goes straight to the web lens
  * (`?view=web` → `single:web`) and waits for the iframe + zoom control.

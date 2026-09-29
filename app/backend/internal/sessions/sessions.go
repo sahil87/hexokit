@@ -735,6 +735,22 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 	}
 	wg.Wait()
 
+	// Away tier: per-window awayIn derivation runs ONCE across all sessions'
+	// windows (@N is unique per server, so a foreign leaf may name a window in
+	// any session of this server). Flatten, derive in place, split back.
+	var allWindows []tmux.WindowInfo
+	windowCounts := make([]int, len(data))
+	for i := range data {
+		windowCounts[i] = len(data[i].windows)
+		allWindows = append(allWindows, data[i].windows...)
+	}
+	tmux.DeriveAwayIn(allWindows)
+	pos := 0
+	for i := range data {
+		data[i].windows = allWindows[pos : pos+windowCounts[i]]
+		pos += windowCounts[i]
+	}
+
 	// Collect all pane cwds for git branch resolution.
 	var allCwds []string
 	for _, sd := range data {

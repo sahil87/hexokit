@@ -25,7 +25,7 @@ var tabWakeFn = wakeTabHub
 // (direct tmux option writes emit no control-mode event; without the wake the
 // UI waits for the safety poll). The origin comes from resolveOrigin (explicit
 // RK_HOST/RK_PORT env → the covering tmux server's @rk_srv_origin → the
-// 127.0.0.1:3000 default). Fail-silent by design: any error (unreachable
+// portpolicy default). Fail-silent by design: any error (unreachable
 // daemon, non-2xx, timeout) is swallowed with no output — the tab family
 // works with rk serve down, and the wake must never change that.
 func wakeTabHub(parent context.Context, server string) {

@@ -31,16 +31,17 @@ dev *args:
     scripts/dev.sh {{args}}
 
 # Run any rk CLI command from source (just dev-rk serve -d)
+# Port default comes from ports.env (the one source of truth).
 dev-rk *args:
-    cd app/backend && RK_PORT=$(( ${RK_PORT:-3000} + 1 )) go run ./cmd/rk {{args}}
+    . app/backend/internal/portpolicy/ports.env && cd app/backend && RK_PORT=$(( ${RK_PORT:-$PORTPOLICY_DAEMON_DEFAULT} + 1 )) go run ./cmd/rk {{args}}
 
-# Start only the Go backend with live-reload (port RK_PORT+1, default 3001)
+# Start only the Go backend with live-reload (port RK_PORT+1, default 6124)
 dev-backend:
-    cd app/backend && LOG_LEVEL=debug RK_PORT=$(( ${RK_PORT:-3000} + 1 )) air
+    . app/backend/internal/portpolicy/ports.env && cd app/backend && LOG_LEVEL=debug RK_PORT=$(( ${RK_PORT:-$PORTPOLICY_DAEMON_DEFAULT} + 1 )) air
 
-# Start only the Vite dev server (port RK_PORT, default 3000)
+# Start only the Vite dev server (port RK_PORT, default 6123)
 dev-frontend:
-    cd app/frontend && pnpm dev --port "${RK_PORT:-3000}"
+    . app/backend/internal/portpolicy/ports.env && cd app/frontend && pnpm dev --port "${RK_PORT:-$PORTPOLICY_DAEMON_DEFAULT}"
 
 # ─── Prod & Daemon mode ────────────────────────────────────────────────────
 
@@ -99,8 +100,9 @@ test-backend-race: _ensure-tmux-conf
 test-frontend:
     cd app/frontend && pnpm test
 
-# Run Playwright e2e tests on this worktree's derived port triple (3400–3699
-# block; see scripts/e2e-env.sh) with an isolated per-worktree tmux server,
+# Run Playwright e2e tests on this worktree's derived port triple (rig block
+# 21000–21299, app/backend/internal/portpolicy/ports.env; see
+# scripts/e2e-env.sh) with an isolated per-worktree tmux server,
 # serialized per worktree by a flock (a second run in the same worktree waits)
 test-e2e *args:
     scripts/test-e2e.sh {{args}}

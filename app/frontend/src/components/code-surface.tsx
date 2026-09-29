@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import type { CodeBridgeResult } from "@/api/client";
+import { useEffect, useRef, useState } from "react";
+import type { CodeBridgeResult, CodeServerRestartResult } from "@/api/client";
 import {
   CODE_BOOT_RESCUE_RECHECK_MS,
   CODE_BOOT_RESCUE_WAIT_MS,
@@ -130,6 +130,9 @@ interface CodeSurfaceProps {
   reloadNonce?: number;
   /** The host's TTL-cached code-server reachability probe result. */
   reachable: boolean;
+  /** The not-running state's Restart code-server action (kill + re-ensure,
+   *  POST /api/code-server/restart). Absent ⇒ no button. */
+  onRestart?: () => Promise<CodeServerRestartResult>;
   /** Keyboard spike: return true when the event matches a run-kit registry
    *  chord that should be reclaimed from the iframe. Absent ⇒ no reclaim. */
   shouldReclaimChord?: (e: KeyboardEvent) => boolean;
@@ -170,6 +173,7 @@ export function CodeSurface({
   followSrc,
   reloadNonce,
   reachable,
+  onRestart,
   shouldReclaimChord,
   onInteract,
   onFolderNavigated,
@@ -177,6 +181,15 @@ export function CodeSurface({
   fetchBridgeStatus,
 }: CodeSurfaceProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  // The not-running state's restart feedback: "restarting…" while the POST is
+  // in flight, then the outcome/error line. Cleared on every reachability flip
+  // so a later outage starts fresh.
+  const [restartNote, setRestartNote] = useState<string | null>(null);
+  const [restarting, setRestarting] = useState(false);
+  useEffect(() => {
+    setRestartNote(null);
+    setRestarting(false);
+  }, [reachable]);
   const reclaimRef = useRef(shouldReclaimChord);
   reclaimRef.current = shouldReclaimChord;
   const interactRef = useRef(onInteract);
@@ -485,9 +498,38 @@ export function CodeSurface({
     return (
       <div
         data-testid="code-surface-empty"
-        className="flex-1 min-h-0 flex items-center justify-center text-text-secondary text-xs font-mono select-none"
+        className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 text-text-secondary text-xs font-mono select-none"
       >
-        code-server not running — check rk doctor
+        <div>code-server not running — check rk doctor</div>
+        {onRestart ? (
+          <button
+            type="button"
+            className="border border-border rounded px-2 py-1 hover:bg-bg-inset disabled:opacity-50"
+            disabled={restarting}
+            onClick={() => {
+              setRestarting(true);
+              setRestartNote(null);
+              onRestart()
+                .then((r) => {
+                  // "started" stays "restarting…": the port is serving, so the
+                  // reachability probe flips this state away within its TTL.
+                  if (r.status === "started") return;
+                  setRestarting(false);
+                  if (r.status === "installing")
+                    setRestartNote("installing code-server — the editor appears when the download finishes");
+                  else if (r.status === "external")
+                    setRestartNote("port already serving an externally managed code-server");
+                })
+                .catch((err: Error) => {
+                  setRestartNote(err.message || "restart failed");
+                  setRestarting(false);
+                });
+            }}
+          >
+            {restarting ? "restarting…" : "Restart code-server"}
+          </button>
+        ) : null}
+        {restartNote ? <div data-testid="code-surface-restart-note">{restartNote}</div> : null}
       </div>
     );
   }

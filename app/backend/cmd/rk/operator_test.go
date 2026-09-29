@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +15,6 @@ import (
 	"rk/internal/config"
 	"rk/internal/inject"
 	"rk/internal/riff"
-	"rk/internal/tmux"
 
 	"github.com/spf13/cobra"
 )
@@ -52,8 +50,8 @@ type operatorCall struct {
 
 // operatorStub owns the stubbed seam state for one test: recorded tmux calls,
 // the list-windows probe output, the launcher-resolution inputs, the recorded
-// role-stamp sequence, the recorded kickoff delivery, and the launch-root
-// derivation inputs (session facts, main-root collapse).
+// role-stamp sequence, the recorded kickoff delivery, and the stored-root
+// read/stamp state.
 type operatorStub struct {
 	calls       []operatorCall
 	listOutput  string
@@ -73,12 +71,20 @@ type operatorStub struct {
 	deliverErr   error
 	deliverCalls []operatorDelivery
 
-	// sessionFacts/sessionFactsErr feed the operatorSessionFactsFn stub;
-	// mainRoots maps a session path to the root operatorMainRootFn serves
-	// (an absent entry collapses to "" — not a repository).
-	sessionFacts    []tmux.SessionFacts
-	sessionFactsErr error
-	mainRoots       map[string]string
+	// getRoot/getRootErr feed the operatorGetRootFn stub (the stored rung);
+	// getRootCalls counts its invocations. rootStamps records every
+	// operatorStampRootFn invocation and stampErr is the failure it returns.
+	getRoot      string
+	getRootErr   error
+	getRootCalls int
+	rootStamps   []operatorRootStamp
+	stampErr     error
+}
+
+// operatorRootStamp records one operatorStampRootFn invocation: the server
+// label and the directory stamped on it.
+type operatorRootStamp struct {
+	server, dir string
 }
 
 // operatorDelivery records one operatorDeliverFn invocation, including the
@@ -141,13 +147,15 @@ func stubOperatorSeams(t *testing.T, listOutput string) *operatorStub {
 		s.deliverCalls = append(s.deliverCalls, operatorDelivery{server: server, paneID: paneID, text: text, opts: opts})
 		return inject.ReadyByEcho, s.deliverErr
 	}
-	origFacts := operatorSessionFactsFn
-	operatorSessionFactsFn = func(_ context.Context, _ string) ([]tmux.SessionFacts, error) {
-		return s.sessionFacts, s.sessionFactsErr
+	origGetRoot := operatorGetRootFn
+	operatorGetRootFn = func(_ context.Context, _ string) (string, error) {
+		s.getRootCalls++
+		return s.getRoot, s.getRootErr
 	}
-	origMainRoot := operatorMainRootFn
-	operatorMainRootFn = func(_ context.Context, dir string) string {
-		return s.mainRoots[dir]
+	origStampRoot := operatorStampRootFn
+	operatorStampRootFn = func(_ context.Context, server, dir string) error {
+		s.rootStamps = append(s.rootStamps, operatorRootStamp{server: server, dir: dir})
+		return s.stampErr
 	}
 
 	origClear, origRoleRun := roleClearExceptFn, roleRunFn
@@ -175,8 +183,8 @@ func stubOperatorSeams(t *testing.T, listOutput string) *operatorStub {
 		operatorRunFn, operatorRunOutputFn = origRun, origOut
 		operatorResolveAgentFn = origResolve
 		operatorDeliverFn = origDeliver
-		operatorSessionFactsFn = origFacts
-		operatorMainRootFn = origMainRoot
+		operatorGetRootFn = origGetRoot
+		operatorStampRootFn = origStampRoot
 		roleClearExceptFn, roleRunFn = origClear, origRoleRun
 		roleDemoteFn, roleMoveInFn = origDemote, origMoveIn
 	})
@@ -338,6 +346,9 @@ func TestOperatorSelectsExistingRoleWindow(t *testing.T) {
 	}
 	if len(s.stampOps) != 0 {
 		t.Errorf("stamp ops = %v, want none when switching to an existing tab", s.stampOps)
+	}
+	if len(s.rootStamps) != 0 {
+		t.Errorf("root stamps = %v, want none on a singleton hit (no launch happened)", s.rootStamps)
 	}
 	if len(s.deliverCalls) != 0 {
 		t.Errorf("deliveries = %v, want none when returning to an existing tab", s.deliverCalls)
@@ -681,9 +692,10 @@ func TestOperatorTouchesNoCronState(t *testing.T) {
 //
 // With -L the inside-tmux precondition is waived, every tmux call is addressed
 // at -L <name> with no restored $TMUX, a singleton hit switches no client, and
-// a created window's directory is derived from the server's user-role sessions
-// (operatorLaunchRoot), falling back to the home directory only when nothing
-// qualifies. Without the flag every path is the interactive one above.
+// a created window's directory comes from the server's recorded operator root
+// (@rk_srv_operator_root), falling back to the home directory when none is
+// recorded or the record no longer validates. Without the flag every path is
+// the interactive one above.
 
 // resetOperatorServer restores the -L/--server package var after a test.
 func resetOperatorServer(t *testing.T) {
@@ -697,9 +709,9 @@ func resetOperatorServer(t *testing.T) {
 // operator window ⇒ the probe and new-window run with a leading "-L runKit"
 // and a nil env, the role is stamped, the kickoff is delivered addressed at
 // runKit, and no select-window/switch-client is ever recorded. With no
-// qualifying user session on the server (the stub serves none) the window
+// recorded operator root on the server (the stub serves none) the window
 // falls back to the home directory, rung home, and agent resolution receives
-// an empty root.
+// an empty root; the home directory is stamped as the server's operator root.
 func TestOperatorServerFlagCreatesWithoutTMUX(t *testing.T) {
 	resetOperatorWorkers(t)
 	resetOperatorServer(t)
@@ -748,6 +760,9 @@ func TestOperatorServerFlagCreatesWithoutTMUX(t *testing.T) {
 	if s.repoRoot != "" {
 		t.Errorf("agent-resolution root = %q, want empty on the home fallback", s.repoRoot)
 	}
+	if len(s.rootStamps) != 1 || s.rootStamps[0] != (operatorRootStamp{server: "runKit", dir: home}) {
+		t.Errorf("root stamps = %v, want one stamp of the home dir on runKit", s.rootStamps)
+	}
 	if len(s.stampOps) != 3 || s.stampOps[0] != "clear" || s.stampOps[2] != "move "+operatorTestWindow {
 		t.Errorf("stamp ops = %v, want clear → set → move (no displaced carriers)", s.stampOps)
 	} else if !strings.Contains(s.stampOps[1], "-L runKit") || !strings.Contains(s.stampOps[1], "@rk_win_role operator") {
@@ -759,21 +774,6 @@ func TestOperatorServerFlagCreatesWithoutTMUX(t *testing.T) {
 	if got := outBuf.String(); got != "Opened operator tab (window \"operator\").\n" {
 		t.Errorf("stdout = %q, want the launch report", got)
 	}
-}
-
-// writeOperatorSkillRoot materializes a qualifying launch root (the deployed
-// fab-operator skill tree) under t.TempDir and returns its path.
-func writeOperatorSkillRoot(t *testing.T) string {
-	t.Helper()
-	root := t.TempDir()
-	skillDir := filepath.Join(root, ".agents", "skills", "fab-operator")
-	if err := os.MkdirAll(skillDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: fab-operator\n---\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return root
 }
 
 // newWindowDirArg extracts the -c argument of the recorded new-window call.
@@ -794,11 +794,11 @@ func newWindowDirArg(t *testing.T, s *operatorStub) string {
 	return ""
 }
 
-// TestOperatorServerFlagDerivesLaunchRoot: a user session whose path collapses
-// to a main checkout carrying the fab-operator skill decides the window
-// directory (rung sole), the agent resolver receives that root, and the --json
-// receipt carries dir/dir_rung. Infrastructure sessions are never candidates.
-func TestOperatorServerFlagDerivesLaunchRoot(t *testing.T) {
+// TestOperatorServerFlagUsesStoredRoot: a recorded @rk_srv_operator_root that
+// still validates decides the window directory (rung stored), the agent
+// resolver receives the dir itself when it is not inside a git repository, and
+// the --json receipt carries dir/dir_rung. The create re-stamps the same root.
+func TestOperatorServerFlagUsesStoredRoot(t *testing.T) {
 	resetOperatorWorkers(t)
 	resetOperatorServer(t)
 	resetOperatorJSON(t)
@@ -809,46 +809,43 @@ func TestOperatorServerFlagDerivesLaunchRoot(t *testing.T) {
 	operatorOriginalTMUXFn = func() string { return "" }
 	t.Cleanup(func() { operatorOriginalTMUXFn = origTMUX })
 
-	root := writeOperatorSkillRoot(t)
-	worktree := filepath.Join(root+".worktrees", "feat-x")
-	s.sessionFacts = []tmux.SessionFacts{
-		{Name: "_rk-ctl", Role: tmux.SessionRoleControl, Path: "/nonexistent"},
-		{Name: "_rk-operator", Role: tmux.SessionRoleOperator, Path: "/nonexistent"},
-		{Name: "runKit", Role: tmux.SessionRoleUser, Attached: 1, Windows: 2, Path: root},
-		{Name: "completed", Role: tmux.SessionRoleUser, Attached: 0, Windows: 4, Path: worktree},
-	}
-	s.mainRoots = map[string]string{root: root, worktree: root}
+	stored := t.TempDir()
+	s.getRoot = stored
 
 	cmd, outBuf, _ := operatorTestCmd()
 	if err := runOperator(cmd); err != nil {
 		t.Fatalf("runOperator() = %v", err)
 	}
-	if got := newWindowDirArg(t, s); got != root {
-		t.Errorf("new-window -c = %q, want the derived main root %q", got, root)
+	if got := newWindowDirArg(t, s); got != stored {
+		t.Errorf("new-window -c = %q, want the stored root %q", got, stored)
 	}
-	if s.repoRoot != root {
-		t.Errorf("agent-resolution root = %q, want the derived root %q", s.repoRoot, root)
+	if s.repoRoot != stored {
+		t.Errorf("agent-resolution root = %q, want the stored dir %q (no git root found)", s.repoRoot, stored)
 	}
 	assertEnvelopeResult(t, outBuf.String(), map[string]any{
-		"window": "@42", "server": "runKit", "created": true, "dir": root, "dir_rung": "sole",
+		"window": "@42", "server": "runKit", "created": true, "dir": stored, "dir_rung": "stored",
 	})
+	if len(s.rootStamps) != 1 || s.rootStamps[0] != (operatorRootStamp{server: "runKit", dir: stored}) {
+		t.Errorf("root stamps = %v, want one stamp of %q on runKit", s.rootStamps, stored)
+	}
 }
 
-// TestOperatorServerFlagFactsErrorFallsBackHome: a session-enumeration error
-// degrades to the home fallback — the command still opens the window.
-func TestOperatorServerFlagFactsErrorFallsBackHome(t *testing.T) {
+// TestOperatorServerFlagStaleStoredRootFallsBackHome: a recorded root that no
+// longer exists (deleted since the stamp) fails validation and degrades to the
+// home fallback — the command still opens the window.
+func TestOperatorServerFlagStaleStoredRootFallsBackHome(t *testing.T) {
 	resetOperatorWorkers(t)
 	resetOperatorServer(t)
 	operatorServerFlag = "runKit"
 	s := stubOperatorSeams(t, "@3\t\tother\n")
-	s.sessionFactsErr = errors.New("tmux unreachable")
+	s.getRoot = "/nonexistent/rk-operator-stale-root"
 	origTMUX := operatorOriginalTMUXFn
 	operatorOriginalTMUXFn = func() string { return "" }
 	t.Cleanup(func() { operatorOriginalTMUXFn = origTMUX })
 
 	cmd, _, _ := operatorTestCmd()
 	if err := runOperator(cmd); err != nil {
-		t.Fatalf("runOperator() = %v, want the home fallback on an enumeration error", err)
+		t.Fatalf("runOperator() = %v, want the home fallback on a stale stored root", err)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -862,125 +859,106 @@ func TestOperatorServerFlagFactsErrorFallsBackHome(t *testing.T) {
 	}
 }
 
-// TestOperatorLaunchRoot pins the picker over its seams: rung ladder (sole →
-// most-attached → most-windows → first), worktree collapse to one root,
-// non-repo and skill-less roots dropped, infrastructure sessions never
-// candidates.
-func TestOperatorLaunchRoot(t *testing.T) {
-	user := func(name, path string, attached, windows int) tmux.SessionFacts {
-		return tmux.SessionFacts{Name: name, Role: tmux.SessionRoleUser, Attached: attached, Windows: windows, Path: path}
+// TestOperatorServerFlagRootReadErrorFallsBackHome: a stored-root read error
+// (the server unreachable) degrades to the home fallback — the command still
+// opens the window.
+func TestOperatorServerFlagRootReadErrorFallsBackHome(t *testing.T) {
+	resetOperatorWorkers(t)
+	resetOperatorServer(t)
+	operatorServerFlag = "runKit"
+	s := stubOperatorSeams(t, "@3\t\tother\n")
+	s.getRootErr = errors.New("tmux unreachable")
+	origTMUX := operatorOriginalTMUXFn
+	operatorOriginalTMUXFn = func() string { return "" }
+	t.Cleanup(func() { operatorOriginalTMUXFn = origTMUX })
+
+	cmd, _, _ := operatorTestCmd()
+	if err := runOperator(cmd); err != nil {
+		t.Fatalf("runOperator() = %v, want the home fallback on a read error", err)
 	}
-	infra := []tmux.SessionFacts{
-		{Name: "_rk-ctl", Role: tmux.SessionRoleControl, Path: "/infra"},
-		{Name: "_rk-operator", Role: tmux.SessionRoleOperator, Attached: 9, Windows: 9, Path: "/infra"},
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
 	}
+	if got := newWindowDirArg(t, s); got != home {
+		t.Errorf("new-window -c = %q, want the home fallback %q", got, home)
+	}
+	if s.repoRoot != "" {
+		t.Errorf("agent-resolution root = %q, want empty on the home fallback", s.repoRoot)
+	}
+}
+
+// TestOperatorStampsRootOnCreate: every successful create records the window
+// directory on the server the window was created on — the caller's
+// socket-basename label interactively (the cliServerLabel derivation), the -L
+// value in server mode.
+func TestOperatorStampsRootOnCreate(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
-		candidates []tmux.SessionFacts
-		roots      map[string]string // path → main root (absent = not a repo)
-		skilled    map[string]bool   // root → carries the fab-operator skill
-		wantRoot   string
-		wantRung   string
+		server     string
+		wantServer string
 	}{
-		{
-			name:       "no candidates",
-			candidates: nil,
-			wantRoot:   "",
-			wantRung:   "",
-		},
-		{
-			name:       "infrastructure sessions are never candidates",
-			candidates: infra,
-			roots:      map[string]string{"/infra": "/infra"},
-			skilled:    map[string]bool{"/infra": true},
-			wantRoot:   "",
-			wantRung:   "",
-		},
-		{
-			name:       "sole qualifying root",
-			candidates: []tmux.SessionFacts{user("a", "/p/a", 0, 1)},
-			roots:      map[string]string{"/p/a": "/p"},
-			skilled:    map[string]bool{"/p": true},
-			wantRoot:   "/p",
-			wantRung:   dirRungSole,
-		},
-		{
-			name: "two sessions collapsing to one root are one root",
-			candidates: []tmux.SessionFacts{
-				user("a", "/p", 1, 2),
-				user("b", "/p.worktrees/feat", 0, 5),
-			},
-			roots:    map[string]string{"/p": "/p", "/p.worktrees/feat": "/p"},
-			skilled:  map[string]bool{"/p": true},
-			wantRoot: "/p",
-			wantRung: dirRungSole,
-		},
-		{
-			name: "non-repo and skill-less sessions are dropped",
-			candidates: []tmux.SessionFacts{
-				user("norepo", "/tmp/scratch", 5, 5),
-				user("noskill", "/p/noskill", 5, 5),
-				user("ok", "/p/ok", 0, 1),
-			},
-			roots:    map[string]string{"/p/noskill": "/p/noskill", "/p/ok": "/p/ok"},
-			skilled:  map[string]bool{"/p/ok": true},
-			wantRoot: "/p/ok",
-			wantRung: dirRungSole,
-		},
-		{
-			name: "most attached wins",
-			candidates: []tmux.SessionFacts{
-				user("a", "/a", 0, 5),
-				user("b", "/b", 1, 2),
-			},
-			roots:    map[string]string{"/a": "/a", "/b": "/b"},
-			skilled:  map[string]bool{"/a": true, "/b": true},
-			wantRoot: "/b",
-			wantRung: dirRungMostAttached,
-		},
-		{
-			name: "attached tie breaks on windows",
-			candidates: []tmux.SessionFacts{
-				user("a", "/a", 1, 5),
-				user("b", "/b", 1, 2),
-			},
-			roots:    map[string]string{"/a": "/a", "/b": "/b"},
-			skilled:  map[string]bool{"/a": true, "/b": true},
-			wantRoot: "/a",
-			wantRung: dirRungMostWindows,
-		},
-		{
-			name: "full tie breaks on the earliest row",
-			candidates: []tmux.SessionFacts{
-				user("a", "/a", 1, 2),
-				user("b", "/b", 1, 2),
-			},
-			roots:    map[string]string{"/a": "/a", "/b": "/b"},
-			skilled:  map[string]bool{"/a": true, "/b": true},
-			wantRoot: "/a",
-			wantRung: dirRungFirst,
-		},
-		{
-			name: "max counts aggregate across a root's sessions",
-			candidates: []tmux.SessionFacts{
-				user("a", "/p", 0, 1),
-				user("b", "/p.worktrees/feat", 1, 0),
-				user("c", "/q", 1, 3),
-			},
-			roots:    map[string]string{"/p": "/p", "/p.worktrees/feat": "/p", "/q": "/q"},
-			skilled:  map[string]bool{"/p": true, "/q": true},
-			wantRoot: "/q",
-			wantRung: dirRungMostWindows,
-		},
+		{"interactive stamps the caller's server label", "", "rk-test-sock"},
+		{"server mode stamps the -L server", "runKit", "runKit"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			rootOf := func(path string) string { return tc.roots[path] }
-			hasSkill := func(root string) bool { return tc.skilled[root] }
-			root, rung := operatorLaunchRoot(tc.candidates, rootOf, hasSkill)
-			if root != tc.wantRoot || rung != tc.wantRung {
-				t.Errorf("operatorLaunchRoot() = (%q, %q), want (%q, %q)", root, rung, tc.wantRoot, tc.wantRung)
+			resetOperatorWorkers(t)
+			resetOperatorServer(t)
+			operatorServerFlag = tc.server
+			s := stubOperatorSeams(t, "@3\t\tother\n")
+			if tc.server != "" {
+				origTMUX := operatorOriginalTMUXFn
+				operatorOriginalTMUXFn = func() string { return "" }
+				t.Cleanup(func() { operatorOriginalTMUXFn = origTMUX })
+			}
+
+			cmd, _, _ := operatorTestCmd()
+			if err := runOperator(cmd); err != nil {
+				t.Fatalf("runOperator() = %v", err)
+			}
+			if len(s.rootStamps) != 1 {
+				t.Fatalf("root stamps = %v, want exactly one", s.rootStamps)
+			}
+			if s.rootStamps[0].server != tc.wantServer {
+				t.Errorf("stamp server = %q, want %q", s.rootStamps[0].server, tc.wantServer)
+			}
+			if got, want := s.rootStamps[0].dir, newWindowDirArg(t, s); got != want {
+				t.Errorf("stamp dir = %q, want the window's -c %q", got, want)
 			}
 		})
+	}
+}
+
+// TestOperatorStampFailureIsBestEffort: a failed stamp never changes the exit
+// code or the receipt — stderr gains a note and the command still succeeds.
+func TestOperatorStampFailureIsBestEffort(t *testing.T) {
+	resetOperatorWorkers(t)
+	resetOperatorServer(t)
+	resetOperatorJSON(t)
+	operatorServerFlag = "runKit"
+	operatorJSONFlag = true
+	s := stubOperatorSeams(t, "@3\t\tother\n")
+	s.stampErr = errors.New("tmux set-option failed")
+	origTMUX := operatorOriginalTMUXFn
+	operatorOriginalTMUXFn = func() string { return "" }
+	t.Cleanup(func() { operatorOriginalTMUXFn = origTMUX })
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+	cmd, outBuf, errBuf := operatorTestCmd()
+	if err := runOperator(cmd); err != nil {
+		t.Fatalf("runOperator() = %v, want nil (a stamp failure degrades, never errors)", err)
+	}
+	assertEnvelopeResult(t, outBuf.String(), map[string]any{
+		"window": "@42", "server": "runKit", "created": true, "dir": home, "dir_rung": "home",
+	})
+	if !strings.Contains(errBuf.String(), "could not record the launch directory") {
+		t.Errorf("stderr = %q, want the stamp-failure note", errBuf.String())
+	}
+	if len(s.deliverCalls) != 1 {
+		t.Errorf("deliveries = %v, want the kickoff delivery to still run", s.deliverCalls)
 	}
 }
 
@@ -1012,6 +990,9 @@ func TestOperatorServerFlagSingletonHit(t *testing.T) {
 	}
 	if len(s.stampOps) != 0 || len(s.deliverCalls) != 0 {
 		t.Errorf("stamp ops = %v, deliveries = %v, want none", s.stampOps, s.deliverCalls)
+	}
+	if len(s.rootStamps) != 0 {
+		t.Errorf("root stamps = %v, want none on a singleton hit (no launch happened)", s.rootStamps)
 	}
 }
 
@@ -1218,8 +1199,9 @@ func TestOperatorDirUsageErrors(t *testing.T) {
 }
 
 // A valid --dir is used verbatim as the window directory (rung explicit) in
-// server mode, the derivation does not run, and the agent resolver receives
-// the dir itself when it is not inside a git repository.
+// server mode, the stored-root read does not run, and the agent resolver
+// receives the dir itself when it is not inside a git repository. The create
+// stamps the explicit dir as the server's operator root.
 func TestOperatorDirExplicitOverride(t *testing.T) {
 	resetOperatorWorkers(t)
 	resetOperatorServer(t)
@@ -1233,9 +1215,6 @@ func TestOperatorDirExplicitOverride(t *testing.T) {
 	origTMUX := operatorOriginalTMUXFn
 	operatorOriginalTMUXFn = func() string { return "" }
 	t.Cleanup(func() { operatorOriginalTMUXFn = origTMUX })
-	// The derivation must not run when --dir is given: an enumeration error
-	// would degrade to home if it did.
-	s.sessionFactsErr = errors.New("must not be called")
 
 	cmd, outBuf, _ := operatorTestCmd()
 	if err := runOperator(cmd); err != nil {
@@ -1244,12 +1223,18 @@ func TestOperatorDirExplicitOverride(t *testing.T) {
 	if got := newWindowDirArg(t, s); got != dir {
 		t.Errorf("new-window -c = %q, want --dir verbatim %q", got, dir)
 	}
+	if s.getRootCalls != 0 {
+		t.Errorf("stored-root reads = %d, want none — an explicit --dir skips the read", s.getRootCalls)
+	}
 	if s.repoRoot != dir {
 		t.Errorf("agent-resolution root = %q, want the --dir value %q (no git root found)", s.repoRoot, dir)
 	}
 	assertEnvelopeResult(t, outBuf.String(), map[string]any{
 		"window": "@42", "server": "runKit", "created": true, "dir": dir, "dir_rung": "explicit",
 	})
+	if len(s.rootStamps) != 1 || s.rootStamps[0] != (operatorRootStamp{server: "runKit", dir: dir}) {
+		t.Errorf("root stamps = %v, want one stamp of the explicit dir on runKit", s.rootStamps)
+	}
 }
 
 // kickoffReason maps the delivery failure taxonomy onto the closed reason

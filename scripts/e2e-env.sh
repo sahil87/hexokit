@@ -3,7 +3,8 @@
 #
 # Sets (without exporting — consumers pass the values into child envs
 # explicitly): E2E_TOKEN, E2E_PORT, E2E_CODE_SERVER_PORT, E2E_TMUX_FAMILY,
-# E2E_TMUX_SERVER.
+# E2E_TMUX_SERVER, plus the rig-block bounds E2E_RIG_START / E2E_RIG_END /
+# E2E_RIG_TRIPLES for test-e2e.sh's rig arithmetic.
 #
 # Pure derivation: probes no ports, starts nothing, touches no files. Repeated
 # sourcing in the same worktree yields the same identity, so a later `just pw`
@@ -12,7 +13,7 @@
 # so it is stable regardless of where the sourcing command runs.
 #
 # The ambient RK_PORT is deliberately NOT an override input: direnv exports
-# RK_PORT=3000 into every shell on this box, so consulting it would mean the
+# RK_PORT into every shell on this box, so consulting it would mean the
 # derivation never applies. Overrides are dedicated: RK_E2E_PORT (port-triple
 # base), preset E2E_TMUX_SERVER / E2E_TMUX_FAMILY (socket family), and preset
 # RK_CODE_SERVER_PORT (read as an override but NEVER assigned here — the
@@ -39,16 +40,22 @@ E2E_TOKEN="$(printf '%s%02x' "$_e2e_wt" "$(( _e2e_path_hash % 256 ))")"
 # to the Go post-sweep — prefix it out of that shape.
 [[ "$E2E_TOKEN" =~ ^[0-9]+$ ]] && E2E_TOKEN="wt$E2E_TOKEN"
 
-# Port triple: deterministic cksum hash of the token into 100 triples over
-# 3400–3699. The block avoids 3000/3001 (live dev defaults), 3020/3021 (the
-# legacy shared rig), 3100–3199 (the `rk remote` SSH-tunnel range — persisted
-# in remotes.yaml), 3333 (playwright's fail-closed fallback), and 3939 (the
-# legacy code-surface stub default). Vite on E2E_PORT, Go backend on
-# E2E_PORT+1 (the justfile dev convention), code-server/stub on E2E_PORT+2.
-# The stub port is E2E_CODE_SERVER_PORT — assigning RK_CODE_SERVER_PORT here
-# would read as a genuine preset to dev.sh's externally-managed carve-out.
+# Port triple: deterministic cksum hash of the token into the e2e rig block
+# defined by the port policy — app/backend/internal/portpolicy/ports.env is
+# the single source of truth for every reserved/default port. The block holds
+# PORTPOLICY_RIG_START..PORTPOLICY_RIG_END as triples of (Vite, Go backend,
+# code-server stub): Vite on E2E_PORT, Go backend on E2E_PORT+1 (the justfile
+# dev convention), code-server/stub on E2E_PORT+2. The stub port is
+# E2E_CODE_SERVER_PORT — assigning RK_CODE_SERVER_PORT here would read as a
+# genuine preset to dev.sh's externally-managed carve-out. The policy
+# variables are temporaries; the derived bounds stay (unexported) for
+# test-e2e.sh's wrap/alignment arithmetic.
+source "$_e2e_script_dir/../app/backend/internal/portpolicy/ports.env"
+E2E_RIG_START="$PORTPOLICY_RIG_START"
+E2E_RIG_END="$PORTPOLICY_RIG_END"
+E2E_RIG_TRIPLES=$(( (PORTPOLICY_RIG_END - PORTPOLICY_RIG_START + 1) / 3 ))
 _e2e_hash="$(printf '%s' "$E2E_TOKEN" | cksum | awk '{print $1}')"
-E2E_PORT="${RK_E2E_PORT:-$(( 3400 + (_e2e_hash % 100) * 3 ))}"
+E2E_PORT="${RK_E2E_PORT:-$(( PORTPOLICY_RIG_START + (_e2e_hash % E2E_RIG_TRIPLES) * 3 ))}"
 E2E_CODE_SERVER_PORT="${RK_CODE_SERVER_PORT:-$(( E2E_PORT + 2 ))}"
 
 # Socket family: every member carries a role segment after the token — the
@@ -68,4 +75,6 @@ if [ -z "${E2E_TMUX_FAMILY:-}" ]; then
 fi
 E2E_TMUX_SERVER="${E2E_TMUX_SERVER:-${E2E_TMUX_FAMILY}0}"
 
-unset _e2e_script_dir _e2e_toplevel _e2e_wt _e2e_path_hash _e2e_hash
+unset _e2e_script_dir _e2e_toplevel _e2e_wt _e2e_path_hash _e2e_hash \
+  PORTPOLICY_DAEMON_DEFAULT PORTPOLICY_DAEMON_LEGACY PORTPOLICY_RIG_START PORTPOLICY_RIG_END \
+  PORTPOLICY_TUNNEL_START PORTPOLICY_TUNNEL_END PORTPOLICY_SENTINEL

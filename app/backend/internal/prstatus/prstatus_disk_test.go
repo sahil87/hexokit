@@ -64,25 +64,24 @@ func fixtureState(t *testing.T) SeedState {
 // TestDefaultCachePath: the cache shares the layout snapshots' state root (state
 // dir, not cache dir), one file, uniform across platforms.
 func TestDefaultCachePath(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", "/tmp/state")
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
 	got, err := DefaultCachePath()
 	if err != nil {
 		t.Fatalf("DefaultCachePath: %v", err)
 	}
-	if want := filepath.Join("/tmp/state", "run-kit", "prstatus.json"); got != want {
+	if want := filepath.Join(state, "hexokit", "prstatus.json"); got != want {
 		t.Errorf("path = %q, want %q", got, want)
 	}
 
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	t.Setenv("XDG_STATE_HOME", "")
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Skipf("no home dir in this environment: %v", err)
-	}
 	got, err = DefaultCachePath()
 	if err != nil {
 		t.Fatalf("DefaultCachePath (unset): %v", err)
 	}
-	if want := filepath.Join(home, ".local", "state", "run-kit", "prstatus.json"); got != want {
+	if want := filepath.Join(home, ".local", "state", "hexokit", "prstatus.json"); got != want {
 		t.Errorf("path = %q, want %q", got, want)
 	}
 }

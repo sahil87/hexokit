@@ -5,6 +5,7 @@
 > (2026-07-01); tool facts verified against primary sources where flagged. Star counts,
 > versions, and dates in this space drift week to week — treat them as approximate.
 > cmux entry added 2026-07-17, verified against cmux.com and the manaflow-ai/cmux README that day.
+> **Name (2026-09):** the product is now **HexoKit** (hexokit.com, binary `rk`) — renamed partly because "run-kit" was unsearchable beside the defunct RunKit Node playground ([rebrand plan](../../fab/plans/sahil/26-09-10-hexokit-rebrand.md)). "run-kit" below is the name at the time of writing; the positioning is unchanged.
 
 ---
 
@@ -221,7 +222,7 @@ TestFlight iOS companion probes the phone hook too — so agnosticism alone no l
 What no desktop app can follow is the substrate: **remote-first, multi-server, tmux sessions that
 outlive any client, state derived rather than stored**.
 
-**One-liner:** *"Cockpit for the agent era — your tmux, remote and phone-first, that happens to run N
+**One-liner:** *"HexoKit — Cockpit for the agent era — your tmux, remote and phone-first, that happens to run N
 agents in parallel."*
 
 > This positioning drives the current README framing and several backlog items (host-console home,

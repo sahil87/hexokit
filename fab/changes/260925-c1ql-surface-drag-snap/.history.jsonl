@@ -1,0 +1,16 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-25T05:22:10Z"}
+{"args":"Tiles move by dragging their header: a pointer-captured drag offers center (swap), tile-edge (split beside) and layout-edge (span a side) zones, previews the resulting tree at the viewer's sizes, and commits one @rk_win_layout write on release; Escape cancels. Promote/Swap leave the header and stay in the palette. (Change 2 of fab/plans/sahil/26-09-24-surface-drag-and-popout.md)","cmd":"fab-new","event":"command","ts":"2026-09-25T05:22:10Z"}
+{"delta":"+0.0","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-09-25T05:30:30Z"}
+{"delta":"+0.0","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-09-25T05:30:43Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-25T05:32:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-25T05:32:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-25T06:11:55Z"}
+{"event":"review","result":"failed","ts":"2026-09-25T06:17:22Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-25T06:17:22Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-25T06:38:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-25T06:41:34Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T06:41:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-25T06:47:05Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-09-25T06:48:42Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-25T06:50:59Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T07:06:30Z"}

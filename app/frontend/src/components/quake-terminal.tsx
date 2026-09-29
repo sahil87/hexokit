@@ -1192,7 +1192,14 @@ export function QuakeTerminal() {
                   new Map(prev).set(requested, { gen, startedAt: Date.now() }),
                 );
                 setStartError((prev) => (prev?.server === requested ? null : prev));
-                startOperator(requested).catch((err: unknown) => {
+                // The viewed window counts only when it lives on the server
+                // being started — the quake terminal's pinned/picked server
+                // can differ from the route's, and a window on another server
+                // is not where the operator will run.
+                startOperator(
+                  requested,
+                  routeServer === requested && routeWindow !== null ? routeWindow : undefined,
+                ).catch((err: unknown) => {
                   if (err instanceof ApiError && err.code === "operator_exists") return;
                   // An older attempt's late rejection: a newer click owns this
                   // server's slot and its outcome is still pending.

@@ -17,7 +17,7 @@ import (
 // rk present <target> — sugar over the rk tab family: the default arm is
 // exactly `rk tab web add <target> --show` on the caller's own tab (attach
 // the target, ensure web is in the tab's layout, select the tab), and
-// --window[=name] is `rk tab new --layout single:web [--name]` followed by
+// --window[=name] is `rk tab new --layout web [--name]` followed by
 // the same add on the new window. Both arms ride webAddShow — one code path,
 // no duplicated attach logic (docs/specs/ui-state.md § Web Tabs).
 //
@@ -43,7 +43,7 @@ var presentCmd = &cobra.Command{
 	Short: "Show a file, directory, port, or URL to the user as a web tile",
 	Long: "Attach web content to the user's view. Alias of\n" +
 		"'rk tab web add <target> --show' on the caller's own tab (plus\n" +
-		"--window = 'rk tab new --layout single:web' then the add, and\n" +
+		"--window = 'rk tab new --layout web' then the add, and\n" +
 		"--notify): the target attaches to the tab's web-tab strip, the web\n" +
 		"tile is ensured in the tab's layout, and the tab is selected.\n\n" +
 		"The target resolves to one of:\n" +
@@ -98,7 +98,7 @@ var (
 )
 
 // runPresent is the testable core: parse → probe → webAddShow (own tab, or a
-// fresh single:web window) → print → optionally notify. Every tmux call runs
+// fresh web-tile window) → print → optionally notify. Every tmux call runs
 // under one bounded context.
 func runPresent(cmd *cobra.Command, arg string) error {
 	cwd, err := os.Getwd()
@@ -166,13 +166,13 @@ func presentAttach(ctx context.Context, target present.Target) (url, server stri
 }
 
 // presentViaNewWindow implements the --window arm: `rk tab new --layout
-// single:web [--name]` (session resolution via the shared resolveTabNewSession)
+// web [--name]` (session resolution via the shared resolveTabNewSession)
 // followed by the same add on the new window's empty family — WebAdd arms
-// _active=1 and stores the slot's root; no --show needed, single:web already
-// shows the tile. The content-keyed /present/ URL carries no window id (the
-// (server, roothash) form), so the add composes it once from the target and
-// the add lands on the new window id creation returns (never a session:name
-// re-resolution — window names are not unique).
+// _active=1 and stores the slot's root; no --show needed, the web layout
+// already shows the tile. The content-keyed /present/ URL carries no window
+// id (the (server, roothash) form), so the add composes it once from the
+// target and the add lands on the new window id creation returns (never a
+// session:name re-resolution — window names are not unique).
 func presentViaNewWindow(ctx context.Context, cmd *cobra.Command, target present.Target) (url, server string, err error) {
 	name := presentWindowFlag
 	if name == presentFlagAuto {
@@ -190,7 +190,9 @@ func presentViaNewWindow(ctx context.Context, cmd *cobra.Command, target present
 		return "", "", err
 	}
 
-	layout := "single:web"
+	// The tree form of "the web tile alone" — writers never emit a preset
+	// string (the legacy single:web parses to the same leaf permanently).
+	layout := "web"
 	id, err := tabCreateWindowIDFn(session, name, "", server,
 		[]tmux.WindowOptionOp{{Key: tmux.LayoutOption, Value: &layout}})
 	if err != nil {

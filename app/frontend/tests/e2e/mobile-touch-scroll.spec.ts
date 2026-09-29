@@ -15,12 +15,12 @@
 // (Input.dispatchTouchEvent) rather than page.touchscreen — the raw CDP path
 // mirrors iOS input most closely.
 import { test, expect } from "@playwright/test";
+import { harnessOrigin } from "./_harness";
 import { resolveWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
 const TEST_SESSION = `e2e-scroll-${Date.now()}`;
-const port = Number(process.env.E2E_PORT ?? "3333");
-const BASE = `http://localhost:${port}`;
+const BASE = harnessOrigin();
 
 /**
  * Resolve the first window's stable tmux id (`@N`) for TEST_SESSION from the

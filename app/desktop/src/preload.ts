@@ -17,18 +17,29 @@
  *     origins + welcome) main-side; payloads are validated in main.
  *   - `windows`: `newWindow()`/`close()` invokers for `shell:new-window`
  *     (duplicates the sender's window) and `shell:close-window` (closes the
- *     sender's window). Gated like `servers:*`.
+ *     sender's window), plus `popout({route, width?, height?})` for
+ *     `shell:popout` (opens the `?pop=` route as a same-host shell window —
+ *     the SPA's Pop out verb; additive, so older shells narrow to no-Pop-out
+ *     via `canShellPopout`). Gated like `servers:*`.
  *   - `accent`: the SPA's raw instance-accent report (`accent:set`, a strict
  *     hex string) persisted per host for the switcher's edge bars — the
  *     full-strength color the theme-color meta's 35% titlebar blend cannot
  *     carry. Gated and validated exactly like `badge:*` main-side.
- *   - `web`: the web tile's native engine — create/destroy/bounds/visible/
- *     load/reload plus the parity invokers back/forward/find/stopFind/zoom/
- *     chords/devtools for the `web:*` channels, and `onEvent` on the
- *     `web:event` relay. Additive: older SPAs never call it; the SPA narrows
- *     the group's presence before use. Privileged main-side for registered-
- *     host views only (isHostsSender + a host view + tabKey membership under
- *     the sender).
+ *   - `web`: the web tile's native engine — create/destroy/park/bounds/
+ *     visible/load/reload plus the parity invokers back/forward/find/
+ *     stopFind/zoom/chords/devtools for the `web:*` channels, the per-host
+ *     load-mode query `mode` (`web:mode` — additive; the SPA narrows it
+ *     separately, so older shells without it read as `legacy`), and
+ *     `onEvent` on the `web:event` relay. `create` takes an optional
+ *     retention identity — an SPA-computed opaque string naming "this web
+ *     tab as shown in this desktop window"; main ADOPTS a parked guest whose
+ *     identity matches instead of creating a new view — and `park`
+ *     (`web:park`) retains the guest hidden on tile unmount instead of
+ *     destroying it; both are additive within the group, and an SPA that
+ *     never sends an identity simply never parks. Additive: older SPAs never
+ *     call it; the SPA narrows the group's presence before use. Privileged
+ *     main-side for registered-host views only (isHostsSender + a host view +
+ *     tabKey membership under the sender).
  *   - `__welcome`: IPC invokers used by the welcome page only. They are
  *     exposed everywhere but privileged NOWHERE except the welcome page —
  *     every `welcome:*` handler in main.ts verifies `event.senderFrame.url`
@@ -93,15 +104,24 @@ contextBridge.exposeInMainWorld("runkitShell", {
     // binding; NOT the focused-window seam the menu's Close Window rides).
     // Gated exactly like `shell:new-window`.
     close: (): Promise<unknown> => ipcRenderer.invoke("shell:close-window"),
+    // shell:popout — opens a validated `?pop=` route as a same-host shell
+    // window and resolves its window id. Gated exactly like
+    // `shell:new-window`; the payload shape is validated main-side.
+    popout: (payload: { route: string; width?: number; height?: number }): Promise<unknown> =>
+      ipcRenderer.invoke("shell:popout", payload),
   },
   accent: {
     set: (hex: string): Promise<unknown> => ipcRenderer.invoke("accent:set", hex),
   },
   web: {
-    create: (tabKey: string, url: string): Promise<unknown> =>
-      ipcRenderer.invoke("web:create", { tabKey, url }),
+    // create: `identity` is the optional retention identity (see the group
+    // doc above) — undefined is dropped by the IPC clone, so older call
+    // shapes stay intact.
+    create: (tabKey: string, url: string, identity?: string): Promise<unknown> =>
+      ipcRenderer.invoke("web:create", { tabKey, url, identity }),
     destroy: (tabKey: string): Promise<unknown> =>
       ipcRenderer.invoke("web:destroy", { tabKey }),
+    park: (tabKey: string): Promise<unknown> => ipcRenderer.invoke("web:park", { tabKey }),
     bounds: (tabKey: string, x: number, y: number, width: number, height: number): Promise<unknown> =>
       ipcRenderer.invoke("web:bounds", { tabKey, x, y, width, height }),
     visible: (tabKey: string, visible: boolean): Promise<unknown> =>
@@ -122,6 +142,10 @@ contextBridge.exposeInMainWorld("runkitShell", {
       ipcRenderer.invoke("web:chords", { tabKey, chords }),
     devtools: (tabKey: string): Promise<unknown> =>
       ipcRenderer.invoke("web:devtools", { tabKey }),
+    // The host's web-tile load mode (`direct`/`proxy`/`legacy`). Additive:
+    // the SPA narrows this invoker's presence separately from the group, so
+    // an older shell without it reads as `legacy` — today's behavior.
+    mode: (): Promise<unknown> => ipcRenderer.invoke("web:mode"),
     // Returns the unsubscribe — a subscription that cannot be dropped leaks a
     // listener per engine mount, and every relayed event then fires N times.
     onEvent: (handler: (payload: unknown) => void): (() => void) => {

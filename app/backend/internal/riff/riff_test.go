@@ -778,10 +778,10 @@ func TestResumeForkLauncher(t *testing.T) {
 		{
 			// A mixed-provider repo whose DEFAULT tier is not claude: the source
 			// window's provider gate says nothing about the destination launcher.
-			name:     "codex launcher + valid ref is a ValidationErr",
+			name:     "codex launcher forks with its subcommand",
 			launcher: "codex --yolo",
 			ref:      validRef,
-			wantErr:  true,
+			want:     "codex --yolo fork " + validRef,
 		},
 		{
 			name:     "gemini launcher + valid ref is a ValidationErr",
@@ -1974,5 +1974,65 @@ func TestRunReceiptFanOutOrder(t *testing.T) {
 		if r.WindowID != "@9" || r.WorktreePath != worktree || r.Branch != "main" {
 			t.Errorf("receipt %d = %+v", i, r)
 		}
+	}
+}
+
+func TestSpawn_ProviderFork(t *testing.T) {
+	const ref = "5d80479e-8f25-46cd-a0d4-e51435508a37"
+	for _, tc := range []struct{ name, launcher, provider, want string }{
+		{"codex", "codex --no-alt-screen", "codex", "codex --no-alt-screen fork " + ref},
+		{"absolute codex", "/opt/bin/codex --no-alt-screen", "codex", "/opt/bin/codex --no-alt-screen fork " + ref},
+		{"codex with claude default", "claude --dangerously-skip-permissions", "codex", "codex fork " + ref},
+		{"claude with codex default", "codex --no-alt-screen", "claude", "claude --resume " + ref + " --fork-session"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			repoRoot := filepath.Join(t.TempDir(), "my-checkout")
+			if err := os.MkdirAll(repoRoot, 0o755); err != nil {
+				t.Fatalf("mkdir repoRoot: %v", err)
+			}
+			newWindowLog := filepath.Join(dir, "new-window.log")
+
+			wtCalled := filepath.Join(dir, "wt-called")
+			testutil.WriteStub(t, dir, "wt", "#!/bin/sh\n: > "+wtCalled+"\nexit 1\n")
+			testutil.WriteStub(t, dir, "tmux", stubTmuxScript(newWindowLog))
+			testutil.WriteStub(t, dir, "fab", "#!/bin/sh\necho '"+tc.launcher+"'\n")
+			t.Setenv("PATH", dir)
+
+			res, err := Spawn(context.Background(), Options{
+				RepoRoot:         repoRoot,
+				Where:            "checkout",
+				ResumeSessionRef: ref,
+				ForkProvider:     tc.provider,
+				WindowNameBase:   "feature-work-fork",
+			})
+			if err != nil {
+				t.Fatalf("Spawn(fork) error: %v", err)
+			}
+			if _, statErr := os.Stat(wtCalled); statErr == nil {
+				t.Error("a fork invoked wt create; a same-worktree fork must skip wt entirely")
+			}
+
+			gotName, gotRoot := readNewWindowArgs(t, newWindowLog)
+			if want := "feature-work-fork"; gotName != want {
+				t.Errorf("fork window name = %q, want %q", gotName, want)
+			}
+			if gotRoot != repoRoot {
+				t.Errorf("fork window root (-c) = %q, want the SAME repo root %q", gotRoot, repoRoot)
+			}
+			if res.WindowName != "feature-work-fork" {
+				t.Errorf("Result.WindowName = %q, want feature-work-fork", res.WindowName)
+			}
+
+			// Assert the actual shell command supplied to tmux.
+			logged, readErr := os.ReadFile(newWindowLog)
+			if readErr != nil {
+				t.Fatalf("read new-window log: %v", readErr)
+			}
+			wantFragment := tc.want
+			if !strings.Contains(string(logged), wantFragment) {
+				t.Errorf("new-window argv missing the resume suffix %q; got %q", wantFragment, string(logged))
+			}
+		})
 	}
 }

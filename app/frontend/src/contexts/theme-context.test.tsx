@@ -99,9 +99,9 @@ describe("ThemeProvider", () => {
   });
 
   it("reads stored per-mode preferences from localStorage", () => {
-    localStorage.setItem("runkit-theme", "system");
-    localStorage.setItem("runkit-theme-dark", "dracula");
-    localStorage.setItem("runkit-theme-light", "default-light");
+    localStorage.setItem("hexokit-theme", "system");
+    localStorage.setItem("hexokit-theme-dark", "dracula");
+    localStorage.setItem("hexokit-theme-light", "default-light");
     render(
       <ThemeProvider>
         <TestConsumer />
@@ -115,7 +115,7 @@ describe("ThemeProvider", () => {
   });
 
   it("reads stored theme ID from localStorage", () => {
-    localStorage.setItem("runkit-theme", "dracula");
+    localStorage.setItem("hexokit-theme", "dracula");
     render(
       <ThemeProvider>
         <TestConsumer />
@@ -128,7 +128,7 @@ describe("ThemeProvider", () => {
   });
 
   it.each(["invalid", "dark", "light"])("treats stored %s as system", (stored) => {
-    localStorage.setItem("runkit-theme", stored);
+    localStorage.setItem("hexokit-theme", stored);
     render(
       <ThemeProvider>
         <TestConsumer />
@@ -149,8 +149,8 @@ describe("ThemeProvider", () => {
       screen.getByText("Set Light").click();
     });
     // Preference is the theme ID, per-mode slot is also updated
-    expect(localStorage.getItem("runkit-theme")).toBe("default-light");
-    expect(localStorage.getItem("runkit-theme-light")).toBe("default-light");
+    expect(localStorage.getItem("hexokit-theme")).toBe("default-light");
+    expect(localStorage.getItem("hexokit-theme-light")).toBe("default-light");
     expect(screen.getByTestId("preference").textContent).toBe("default-light");
     expect(screen.getByTestId("theme-light").textContent).toBe("default-light");
     expect(screen.getByTestId("resolved").textContent).toBe("light");
@@ -222,9 +222,9 @@ describe("ThemeProvider", () => {
   });
 
   it("uses per-mode prefs when OS changes in system mode", () => {
-    localStorage.setItem("runkit-theme", "system");
-    localStorage.setItem("runkit-theme-dark", "dracula");
-    localStorage.setItem("runkit-theme-light", "default-light");
+    localStorage.setItem("hexokit-theme", "system");
+    localStorage.setItem("hexokit-theme-dark", "dracula");
+    localStorage.setItem("hexokit-theme-light", "default-light");
     const { simulateChange } = mockMatchMedia(true);
 
     render(
@@ -244,7 +244,7 @@ describe("ThemeProvider", () => {
   });
 
   it("ignores matchMedia changes when preference is explicit theme", () => {
-    localStorage.setItem("runkit-theme", "dracula");
+    localStorage.setItem("hexokit-theme", "dracula");
     const { simulateChange } = mockMatchMedia(true);
 
     render(
@@ -278,7 +278,7 @@ describe("ThemeProvider", () => {
       expect(screen.getByTestId("theme-id").textContent).toBe("nord");
       expect(document.documentElement.style.getPropertyValue("--color-bg-primary")).toBe("#2e3440");
       // localStorage should still be "system" (the default)
-      expect(localStorage.getItem("runkit-theme")).toBeNull();
+      expect(localStorage.getItem("hexokit-theme")).toBeNull();
     });
 
     it("cancelPreview reverts to persisted theme", () => {
@@ -321,8 +321,8 @@ describe("ThemeProvider", () => {
 
       expect(screen.getByTestId("theme-id").textContent).toBe("dracula");
       // Preference is the theme ID, per-mode dark is also updated
-      expect(localStorage.getItem("runkit-theme")).toBe("dracula");
-      expect(localStorage.getItem("runkit-theme-dark")).toBe("dracula");
+      expect(localStorage.getItem("hexokit-theme")).toBe("dracula");
+      expect(localStorage.getItem("hexokit-theme-dark")).toBe("dracula");
     });
   });
 

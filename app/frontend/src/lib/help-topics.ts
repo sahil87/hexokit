@@ -17,7 +17,7 @@
  * dispatcher opens a browser tab instead.
  *
  * Every URL must be framable (no `X-Frame-Options`, no frame-ancestors CSP) —
- * shll.ai is served by GitHub Pages and sends neither — because the in-tile
+ * hexokit.com is served by GitHub Pages and sends neither — because the in-tile
  * path renders it inside the web tile's iframe.
  */
 
@@ -35,13 +35,13 @@ export type HelpTopic = {
 
 /** Display order is registry order — no grouping at this list size. */
 export const HELP_TOPICS: readonly HelpTopic[] = [
-  { id: "status-dot", label: "Status dot legend", url: "https://shll.ai/run-kit/status-dot/", tool: "run-kit" },
-  { id: "cron-schedule-kinds", label: "Cron schedule kinds", url: "https://shll.ai/run-kit/cron-schedule-kinds/", tool: "run-kit" },
-  { id: "boards", label: "Boards", url: "https://shll.ai/run-kit/boards/", tool: "run-kit" },
-  { id: "notifications", label: "Notifications", url: "https://shll.ai/run-kit/notifications/", tool: "run-kit" },
-  { id: "gui", label: "GUI desktop", url: "https://shll.ai/run-kit/gui/", tool: "run-kit" },
-  { id: "merge-topologies", label: "Merge topologies", url: "https://shll.ai/fab-kit/merge-topologies/", tool: "fab-kit" },
-  { id: "fkf", label: "FKF", url: "https://shll.ai/fab-kit/fkf/", tool: "fab-kit" },
+  { id: "status-dot", label: "Status dot legend", url: "https://hexokit.com/docs/status-dot/", tool: "run-kit" },
+  { id: "cron-schedule-kinds", label: "Cron schedule kinds", url: "https://hexokit.com/docs/cron-schedule-kinds/", tool: "run-kit" },
+  { id: "boards", label: "Boards", url: "https://hexokit.com/docs/boards/", tool: "run-kit" },
+  { id: "notifications", label: "Notifications", url: "https://hexokit.com/docs/notifications/", tool: "run-kit" },
+  { id: "gui", label: "GUI desktop", url: "https://hexokit.com/docs/gui/", tool: "run-kit" },
+  { id: "merge-topologies", label: "Merge topologies", url: "https://hexokit.com/fab-kit/merge-topologies/", tool: "fab-kit" },
+  { id: "fkf", label: "FKF", url: "https://hexokit.com/fab-kit/fkf/", tool: "fab-kit" },
 ];
 
 const ACTION_ID_PREFIX = "help-topic-";

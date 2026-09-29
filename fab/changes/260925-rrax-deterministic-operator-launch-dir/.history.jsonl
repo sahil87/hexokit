@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-25T02:59:46Z"}
+{"args":"Deterministic operator launch directory — remove the live-session ranking; Cmd+J starts from the viewed window's main checkout; persist @rk_srv_operator_root for respawns; else $HOME","cmd":"fab-new","event":"command","ts":"2026-09-25T02:59:46Z"}
+{"delta":"+0.0","event":"confidence","score":1.9,"trigger":"calc-score","ts":"2026-09-25T03:01:33Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-25T03:02:13Z"}
+{"delta":"+2.0","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-09-25T03:03:02Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-25T03:03:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-25T03:03:37Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-09-25T03:04:36Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-25T03:29:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-25T03:33:52Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T03:33:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-25T03:38:57Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-25T03:41:05Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T03:50:41Z"}

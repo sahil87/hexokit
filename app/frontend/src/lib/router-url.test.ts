@@ -112,6 +112,28 @@ describe("validateTerminalSearch (?from= pass-through)", () => {
   });
 });
 
+// The `?pop=` param names the popped-out leaf a popout window renders
+// chrome-less. It passes through as a raw string like `?from=` (the
+// leaf-grammar validation lives in the consumer, `lib/popout.ts`); empty and
+// non-string values are DROPPED.
+describe("validateTerminalSearch (?pop= pass-through)", () => {
+  it.each(["tty", "tty#2", "@12/tty"] as const)("accepts pop=%s", (pop) => {
+    expect(validateTerminalSearch({ pop })).toEqual({ pop });
+  });
+
+  it("drops empty and non-string values", () => {
+    expect(validateTerminalSearch({ pop: "" }).pop).toBeUndefined();
+    expect(validateTerminalSearch({ pop: 3 }).pop).toBeUndefined();
+  });
+
+  it("keeps pop independent of the retired params", () => {
+    expect(validateTerminalSearch({ view: "web", pop: "code" })).toEqual({
+      view: "web",
+      pop: "code",
+    });
+  });
+});
+
 // The `?tab=` param selects the operator route's segment — handled exactly
 // like `?view=`: the four known values pass, anything else is DROPPED (absent
 // reads as "terminal"), never thrown. The legacy `activity` token

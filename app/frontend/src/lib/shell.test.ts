@@ -7,10 +7,12 @@ import {
   canCloseShellWindow,
   canConfirmedRemoveShellHost,
   canNewShellWindow,
+  canParkShellWebView,
   canRemoveShellHost,
   canRenameShellHost,
   canSetShellHostUrl,
   canReorderShellHosts,
+  canShellPopout,
   canShellWeb,
   closeShellWindow,
   createShellWebView,
@@ -23,6 +25,7 @@ import {
   loadShellWebView,
   onShellWebEvent,
   openShellWebViewDevTools,
+  parkShellWebView,
   parseShellWebEvent,
   confirmedRemoveShellHost,
   newShellWindow,
@@ -39,6 +42,8 @@ import {
   setShellAccent,
   setShellBadge,
   shellInfo,
+  shellPopout,
+  shellWebMode,
   switchShellServer,
 } from "./shell";
 
@@ -350,6 +355,122 @@ describe("optional shell bridge invokers", () => {
   });
 });
 
+// The windows.popout invoker rides the same additive pattern as close: a
+// shell predating the channel narrows false and the wrapper resolves null,
+// so an older shell's popout gate falls back to hiding the Pop out verb.
+// The result is structural: only `{ ok: true, windowId: <finite number> }`
+// resolves the id — everything else is null, and the wrapper never throws.
+
+function windowsBridgeWith(windows: unknown): void {
+  window.runkitShell = { version: "1.2.3", platform: "darwin", windows };
+}
+
+const baseWindowsBridge = {
+  newWindow: () => Promise.resolve({ ok: true }),
+};
+
+describe("canShellPopout", () => {
+  it("is false in a plain browser and on a shell without the windows group", () => {
+    expect(canShellPopout()).toBe(false);
+    window.runkitShell = { version: "1.2.3", platform: "darwin" };
+    expect(canShellPopout()).toBe(false);
+  });
+
+  it("is false on a windows group without popout (older shell)", () => {
+    windowsBridgeWith(baseWindowsBridge);
+    expect(canShellPopout()).toBe(false);
+  });
+
+  it("is false when the popout member is not a function", () => {
+    windowsBridgeWith({ ...baseWindowsBridge, popout: "nope" });
+    expect(canShellPopout()).toBe(false);
+  });
+
+  it("is true when the windows group carries a popout invoker", () => {
+    windowsBridgeWith({ ...baseWindowsBridge, popout: () => Promise.resolve({ ok: true, windowId: 2 }) });
+    expect(canShellPopout()).toBe(true);
+  });
+});
+
+describe("shellPopout", () => {
+  const ROUTE = "/rk-dev/@12?pop=web";
+
+  it("resolves null in a plain browser (bridge absent)", async () => {
+    expect(await shellPopout(ROUTE)).toBeNull();
+  });
+
+  it("resolves null on a windows group without popout (older shell)", async () => {
+    windowsBridgeWith(baseWindowsBridge);
+    expect(await shellPopout(ROUTE)).toBeNull();
+  });
+
+  it("resolves null when the popout member is not a function", async () => {
+    windowsBridgeWith({ ...baseWindowsBridge, popout: 42 });
+    expect(await shellPopout(ROUTE)).toBeNull();
+  });
+
+  it("resolves null when the invoke rejects", async () => {
+    windowsBridgeWith({ ...baseWindowsBridge, popout: () => Promise.reject(new Error("ipc gone")) });
+    expect(await shellPopout(ROUTE)).toBeNull();
+  });
+
+  it("resolves null on a denied result ({ ok: false })", async () => {
+    windowsBridgeWith({
+      ...baseWindowsBridge,
+      popout: () => Promise.resolve({ ok: false, error: "Not allowed" }),
+    });
+    expect(await shellPopout(ROUTE)).toBeNull();
+  });
+
+  it("resolves null on malformed results (missing or wrong-typed windowId)", async () => {
+    for (const malformed of [
+      { ok: true },
+      { ok: true, windowId: "2" },
+      { ok: true, windowId: Number.POSITIVE_INFINITY },
+      { windowId: 2 },
+      "opened",
+    ]) {
+      windowsBridgeWith({ ...baseWindowsBridge, popout: () => Promise.resolve(malformed) });
+      expect(await shellPopout(ROUTE)).toBeNull();
+    }
+  });
+
+  it("resolves the window id on a well-formed result", async () => {
+    windowsBridgeWith({
+      ...baseWindowsBridge,
+      popout: () => Promise.resolve({ ok: true, windowId: 7 }),
+    });
+    expect(await shellPopout(ROUTE)).toEqual({ windowId: 7 });
+  });
+
+  it("maps a positive rect to rounded width/height payload keys", async () => {
+    let seen: unknown = null;
+    windowsBridgeWith({
+      ...baseWindowsBridge,
+      popout: (payload: unknown) => {
+        seen = payload;
+        return Promise.resolve({ ok: true, windowId: 7 });
+      },
+    });
+    expect(await shellPopout(ROUTE, { w: 640.4, h: 480.6 })).toEqual({ windowId: 7 });
+    expect(seen).toEqual({ route: ROUTE, width: 640, height: 481 });
+  });
+
+  it("omits width/height when the rect is absent or non-positive", async () => {
+    const seen: unknown[] = [];
+    windowsBridgeWith({
+      ...baseWindowsBridge,
+      popout: (payload: unknown) => {
+        seen.push(payload);
+        return Promise.resolve({ ok: true, windowId: 7 });
+      },
+    });
+    await shellPopout(ROUTE);
+    await shellPopout(ROUTE, { w: 0, h: 480 });
+    expect(seen).toEqual([{ route: ROUTE }, { route: ROUTE }]);
+  });
+});
+
 describe("listShellServers optional fields", () => {
   it("parses newer optional fields and older entries", async () => {
     bridgeWith({
@@ -383,9 +504,11 @@ describe("listShellServers optional fields", () => {
   });
 });
 
-// The web group backs the web tile's native engine: all seven members shipped
-// together in one shell release, so presence is all-or-nothing; the invokers
-// degrade to false and the subscription to a no-op disposer everywhere else.
+// The web group backs the web tile's native engine: the fourteen core
+// members shipped together in one shell release, so their presence is
+// all-or-nothing (the `mode` and `park` invokers are additive, narrowed
+// separately); the invokers degrade to false and the subscription to a
+// no-op disposer everywhere else.
 
 function fullWebBridge(overrides: Record<string, unknown> = {}) {
   return {
@@ -456,7 +579,7 @@ describe("web bridge invokers", () => {
     const web = fullWebBridge();
     webBridgeWith(web);
     expect(await createShellWebView("web-1", "https://github.com")).toBe(true);
-    expect(web.create).toHaveBeenCalledWith("web-1", "https://github.com");
+    expect(web.create).toHaveBeenCalledWith("web-1", "https://github.com", undefined);
     expect(await destroyShellWebView("web-1")).toBe(true);
     expect(web.destroy).toHaveBeenCalledWith("web-1");
     expect(await setShellWebViewBounds("web-1", { x: 10, y: 20, width: 300, height: 200 })).toBe(true);
@@ -529,6 +652,76 @@ describe("web bridge invokers", () => {
     expect(await reloadShellWebView("web-9")).toBe(false);
     webBridgeWith(fullWebBridge({ visible: () => Promise.resolve("shown") }));
     expect(await setShellWebViewVisible("web-1", true)).toBe(false);
+  });
+});
+
+describe("parkShellWebView", () => {
+  it("is unavailable outside the shell and on a shell whose web group lacks the additive park invoker", async () => {
+    expect(canParkShellWebView()).toBe(false);
+    expect(await parkShellWebView("web-1")).toBe(false);
+    webBridgeWith(fullWebBridge());
+    expect(canParkShellWebView()).toBe(false);
+    expect(await parkShellWebView("web-1")).toBe(false);
+  });
+
+  it("narrows a non-function park member out (the group stays usable, park reads absent)", async () => {
+    webBridgeWith(fullWebBridge({ park: "nope" }));
+    expect(canShellWeb()).toBe(true);
+    expect(canParkShellWebView()).toBe(false);
+    expect(await parkShellWebView("web-1")).toBe(false);
+  });
+
+  it("forwards the tabKey and resolves true on { ok: true } when park is present", async () => {
+    const park = vi.fn(() => Promise.resolve({ ok: true }));
+    webBridgeWith(fullWebBridge({ park }));
+    expect(canParkShellWebView()).toBe(true);
+    expect(await parkShellWebView("web-1")).toBe(true);
+    expect(park).toHaveBeenCalledWith("web-1");
+  });
+
+  it("resolves false on a rejected invoke and a non-{ok:true} result, never throwing", async () => {
+    webBridgeWith(fullWebBridge({ park: () => Promise.reject(new Error("ipc gone")) }));
+    expect(await parkShellWebView("web-1")).toBe(false);
+    webBridgeWith(fullWebBridge({ park: () => Promise.resolve({ ok: false, error: "Unknown tab" }) }));
+    expect(await parkShellWebView("web-1")).toBe(false);
+  });
+});
+
+describe("shellWebMode", () => {
+  it("resolves the reported mode on an { ok: true } result", async () => {
+    for (const mode of ["direct", "proxy", "legacy"] as const) {
+      const modeFn = vi.fn(() => Promise.resolve({ ok: true, mode }));
+      webBridgeWith(fullWebBridge({ mode: modeFn }));
+      expect(await shellWebMode()).toBe(mode);
+      expect(modeFn).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("resolves legacy outside the shell and on an older shell without the mode invoker", async () => {
+    expect(await shellWebMode()).toBe("legacy");
+    window.runkitShell = { version: "1.2.3", platform: "darwin" };
+    expect(await shellWebMode()).toBe("legacy");
+    webBridgeWith(fullWebBridge());
+    expect(await shellWebMode()).toBe("legacy");
+  });
+
+  it("resolves legacy on a rejected invoke and on malformed/denied results, never throwing", async () => {
+    webBridgeWith(fullWebBridge({ mode: () => Promise.reject(new Error("ipc gone")) }));
+    expect(await shellWebMode()).toBe("legacy");
+    webBridgeWith(fullWebBridge({ mode: () => Promise.resolve({ ok: false, error: "denied" }) }));
+    expect(await shellWebMode()).toBe("legacy");
+    webBridgeWith(fullWebBridge({ mode: () => Promise.resolve({ ok: true, mode: "turbo" }) }));
+    expect(await shellWebMode()).toBe("legacy");
+    webBridgeWith(fullWebBridge({ mode: () => Promise.resolve({ ok: true }) }));
+    expect(await shellWebMode()).toBe("legacy");
+    webBridgeWith(fullWebBridge({ mode: () => Promise.resolve("direct") }));
+    expect(await shellWebMode()).toBe("legacy");
+  });
+
+  it("a non-function mode member does not poison the group (mode reads as legacy)", async () => {
+    webBridgeWith(fullWebBridge({ mode: "nope" }));
+    expect(canShellWeb()).toBe(true);
+    expect(await shellWebMode()).toBe("legacy");
   });
 });
 

@@ -33,7 +33,7 @@ unioned with every live `@rk_srv_ephemeral`-marked server under `--ephemeral`;
 full contract in [tmux-sessions](/run-kit/tmux-sessions.md) § `rk mux reap`), `rk mux snapshot list|show|restore`
 (layout recovery, [layout-snapshots](/run-kit/layout-snapshots.md)),
 `rk mux init-conf` (scaffolds the rk-managed tmux.conf and the
-`tmux.d/user.conf` override starter under `~/.config/run-kit/`), `rk mux adopt` (converts an
+`tmux.d/user.conf` override starter under `~/.config/hexokit/`), `rk mux adopt` (converts an
 external tmux server to rk-managed — stamps `@rk_srv_managed` then sources the
 managed conf, rolling the stamp back on a failed reload; idempotent, and the
 bulk-migration path for rk-born servers that predate the stamp), and `rk mux guard` (fronts the real
@@ -628,8 +628,9 @@ a query against a server, does NOT call `muxRejectInheritedServerFlag`.
 Enumeration reuses `tmux.ListSessions` + `tmux.ListWindows` (whose panes already
 carry the reconciled agent-state value via the `paneFormat` new-wins dual-read —
 see [agent-state](/run-kit/agent-state.md)) through the `parseSessions` chokepoint,
-so `_rk-pin-*` pin-sessions and the `_rk-ctl` anchor contribute no rows and a
-pinned window lists exactly once, via its home session. Rows carry **substrate
+so `_rk-pin-*` pin-sessions, `_rk-iso-*` isolated relay sessions and the `_rk-ctl`
+anchor contribute no rows and a pinned or isolated window lists exactly once, via its home
+session. Rows carry **substrate
 facts only** — no change/stage/display-state keys (choreography enrichment is
 the fab layer's job, per cli-layering Part 8). The default output is an aligned
 one-pane-per-row table (session, window `index:name`, pane ID, active markers,
@@ -693,7 +694,7 @@ server — one row per session, no positional target (an enumeration query like
 `role`, `attached`, `windows`, `path`, `grouped` — substrate facts only. The
 role derives from the session NAME at request time via `tmux.SessionRole`
 (never a stamped option): `user`, or the infrastructure kinds `pin`
-(`_rk-pin-*`), `control` (`_rk-ctl`), `operator` (`_rk-operator`), and
+(`_rk-pin-*`), `iso` (`_rk-iso-*`), `control` (`_rk-ctl`), `operator` (`_rk-operator`), and
 `reserved` (any other `_rk-*` name — see
 [tmux-sessions](/run-kit/tmux-sessions.md) § Session Role Taxonomy). The
 default listing is `role: user` rows only — the spawn-candidate set an external
@@ -705,7 +706,7 @@ landing session is picked from them in this enumeration order (see
 labeled with their roles. Enumeration (`tmux.ListSessionFacts` →
 `buildSessionFacts`) reads raw `list-sessions` on the shared
 `sessionListFormat` fields: user rows follow `parseSessions`' keep decision
-exactly (group copies fold onto the leader, `grouped: true`), pin/control rows
+exactly (group copies fold onto the leader, `grouped: true`), pin/iso/control rows
 are re-included from their raw lines, and `attached` counts size-arbitrating
 human clients via the `ListClients` group-key join (control-mode/ignore-size
 attaches excluded, group-copy viewers credited to the leader). Output and exit
@@ -795,7 +796,7 @@ HTTP twin `POST /api/servers/adopt` ([tmux-sessions](/run-kit/tmux-sessions.md)
 
 ### Requirement: `rk mux init-conf` — managed tmux.conf scaffold
 `rk mux init-conf [--force]` SHALL write the rk-managed tmux.conf to
-`~/.config/run-kit/tmux.conf` through the shared managed write path
+`~/.config/hexokit/tmux.conf` through the shared managed write path
 (`tmux.ForceWriteConfig` — the hash-stamped header + embed body; see
 [configuration](/run-kit/configuration.md) § Managed tmux.conf), ensure the
 `tmux.d/` drop-in dir, and scaffold `tmux.d/user.conf` as a commented starter
@@ -1029,8 +1030,8 @@ artifacts (contradicts Constitution II and status-pyramid.md).
 
 ### `panes` enumerates the `parseSessions`-filtered view
 **Decision**: `rk mux panes` lists the same filtered view the dashboard shows —
-`_rk-pin-*` pin-sessions and the `_rk-ctl` anchor are skipped, and a
-dual-membership (pinned) window appears once, via its home session.
+`_rk-pin-*` pin-sessions, `_rk-iso-*` isolated relay sessions and the `_rk-ctl`
+anchor are skipped, and a dual-membership (pinned/isolated) window appears once, via its home session.
 **Why**: matches the dashboard's user-facing truth and avoids duplicate rows
 for pinned windows; an enrichment consumer wants one row per real pane.
 **Rejected**: raw unfiltered enumeration (duplicates pinned windows, leaks

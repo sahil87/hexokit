@@ -1,0 +1,59 @@
+id: ckpm
+name: 260925-ckpm-web-tile-native-retention-fixes
+created: 2026-09-25T10:15:43Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 11
+    acceptance_count: 31
+    acceptance_completed: 31
+confidence:
+    certain: 12
+    confident: 8
+    tentative: 0
+    unresolved: 0
+    score: 3.5
+    fuzzy: true
+    dimensions:
+        signal: 79.5
+        reversibility: 79.8
+        competence: 81.3
+        disambiguation: 77.3
+stage_metrics:
+    intake: {started_at: "2026-09-25T10:15:43Z", driver: fab-new, iterations: 1, completed_at: "2026-09-25T10:18:41Z"}
+    apply: {started_at: "2026-09-25T10:18:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T10:57:02Z"}
+    review: {started_at: "2026-09-25T10:57:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T11:03:02Z"}
+    hydrate: {started_at: "2026-09-25T11:03:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T11:13:50Z"}
+    ship: {started_at: "2026-09-25T11:13:50Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T11:15:17Z"}
+    review-pr: {started_at: "2026-09-25T11:15:17Z", driver: git-pr, iterations: 1, completed_at: "2026-09-25T11:33:45Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/1040
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 2966
+    deleted: 397
+    net: 2569
+    excluding:
+        added: 2347
+        deleted: 329
+        net: 2018
+    tests:
+        added: 987
+        deleted: 108
+        net: 879
+    computed_at: "2026-09-25T11:15:18Z"
+    computed_at_stage: ship
+summary: 'Web tile fixes: native guest park/adopt retention (LRU-4 parked set, stable SPA-computed identity, chrome-owned destroys), web-tab cap 16 with MaxWebTabs-derived parser offsets, draft tab deactivates every frame behind a blank new-tab panel, click-opened menus register transient and hide the native view (tooltips/hover flyouts excluded)'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-25T11:33:45Z

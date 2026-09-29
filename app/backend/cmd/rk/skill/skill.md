@@ -30,17 +30,17 @@ command -v rk >/dev/null 2>&1 && [ -n "$TMUX_PANE" ] || exit 0
 
 If either check fails, skip every HexoKit step silently. Never error, never warn — fall back to describing output in text.
 
-> `rk` is the short alias; `run-kit` is the full binary name. Both work everywhere.
+> `rk` is the short alias; `hexokit` is the full binary name. Both work everywhere.
 
 ## Capabilities
 
 One line each, keyed to the subcommand or tmux option that does it:
 
 - `rk notify <message> [--title <t>]` — Web Push a message to every subscribed browser/device. Fail-silent by contract (see Output contracts).
-- `rk url` — print the HexoKit **server URL** (config-derived: RK_HOST/RK_PORT, default `http://127.0.0.1:3000`). It is a heuristic, not a liveness probe. Run it at use-time; never hardcode the value.
+- `rk url` — print the HexoKit **server URL** (config-derived: `port:` in config.yaml or the RK_HOST/RK_PORT env, default `http://127.0.0.1:6123`). It is a heuristic, not a liveness probe. Run it at use-time; never hardcode the value.
 - `rk present <path|url>` — attach web content beside your own terminal: a file, a directory, a `:port`, a localhost URL, or an external URL. Prints the resolved URL to stdout. Alias of `rk tab web add <target> --show` — it also opens the web tile. Depth: `rk skill display`.
 - `rk tab new [--layout L] [--name N] [--json] [--ready] [-- CMD…]` — create a window (born with a layout when given); prints `@N`. A command after `--` is argv, never a shell string — each token reaches the process as one literal word; for in-window shell expansion pass `-- sh -c "…"`. The pane drops into an interactive shell when the command exits (`--no-shell-fallback` lets it die instead). `--json` prints the standard envelope `{"ok":true,"result":{session, window_id, pane_id}}`; `--ready` (requires `--json` + a command) waits for boot readiness and adds the verdict as `"ready"` inside `result` (a `gone` verdict reads `ok:false` with the object still carried in `result`).
-- `rk tab layout [@N] [L|--add S|--rm S|--promote S|--cycle]` — read or mutate the tab's surface layout (`split-h:tty,web`, …); unset reads as `single:tty`.
+- `rk tab layout [@N] [L|--add S|--rm S|--promote S|--cycle]` — read or mutate the tab's surface layout, a split tree (quote it for the shell: `'h(tty,web)'`, …; a legacy `split-h:tty,web` string still parses and rewrites to the tree); unset reads as `tty`.
 - `rk tab web add|rm|select|ls` — manage the tab's web-tab strip (add takes a `present` target; rm/select address `@N/web/<n>` or bare `<n>`; `ls [--json]` lists — the JSON rides the envelope as `{"ok":true,"result":{…}}`).
 - `rk tab code set [@N] <folder>` — point the tab's code surface at a folder; `rk tab show [@N] [--json]` dumps every `@rk_win_*` option (`--json` wraps the options object: `{"ok":true,"result":{…}}`).
 - `rk board show [name] [--json]` · `pin|unpin <name> <@N>` · `reorder <name> <@N> [--before @N] [--after @N]` — pin windows onto the cross-server board dashboards (`--json` rides the envelope); needs `rk serve` up (it rides the daemon, unlike `rk tab`).

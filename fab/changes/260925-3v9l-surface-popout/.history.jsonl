@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-25T12:20:39Z"}
+{"args":"Any tile can pop out into its own browser window showing that one surface; the opener hides the popped tile for this viewer only and reflows; closing the popout or Tile: Pop Back In restores it. A popped-out terminal attaches an isolated session. (plan: fab/plans/sahil/26-09-24-surface-drag-and-popout.md Change 5)","cmd":"fab-new","event":"command","ts":"2026-09-25T12:20:39Z"}
+{"delta":"+0.0","event":"confidence","score":3.1,"trigger":"calc-score","ts":"2026-09-25T12:22:24Z"}
+{"delta":"+0.8","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-09-25T12:24:47Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-25T12:25:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-25T12:25:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-25T13:00:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-25T13:05:39Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T13:05:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-25T13:11:01Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-25T13:12:31Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T13:25:15Z"}

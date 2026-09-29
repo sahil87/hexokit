@@ -107,6 +107,34 @@ and the layering model are specified by the study
 [`docs/memory/run-kit/desktop-shell.md`](../memory/run-kit/desktop-shell.md)
 § Web Views.
 
+The native engine's URL loading is per-host, in one of three modes the desktop
+shell reports over the `runkitShell.web` bridge (`web.mode()`, additive — an
+absent invoker reads as `legacy`):
+
+- **`direct`** — the host is this machine's daemon: the engine loads literal
+  URLs (`http://localhost:6000/…`) with no proxy.
+- **`proxy`** — a remote host whose capability probe passed: the engine loads
+  literal URLs, and ALL guest traffic — DNS included — resolves on the rk host
+  through a WebSocket tunnel ([`api.md`](api.md) § Tunnel). Each host
+  runs in its own `persist:rk-web:<host.id>` session partition whose
+  `session.setProxy` `{ fixed_servers, proxyBypassRules: "<-loopback>" }`
+  points at a desktop-local loopback proxy (`http://127.0.0.1:<ephemeral>`,
+  one listener per host); the local proxy terminates Chromium's proxy protocol
+  and rides each connection over a WebSocket to the host's `/ws/tunnel`, which
+  dials `host:port` from the rk host and pipes bytes. Because only WebSocket
+  upgrades need to traverse the path, remote-native mode works behind ANY
+  front end that passes WebSockets (Tailscale Serve, nginx, Cloudflare Tunnel
+  — origin-form reverse proxies that reject CONNECT) with no raw-port or
+  tailnet special case. Accepted cons: all web-tile egress leaves from the remote host
+  (its IP and latency), and the viewer's own localhost, LAN, and VPN are
+  unreachable from the native tile in this mode — the iframe-engine opt-out
+  remains the viewer-local escape hatch.
+- **`legacy`** — the fallback: today's same-origin `/proxy/{port}` path.
+
+Stored `@rk_win_web_<n>` slot values stay in `/proxy/N/…` form; in `direct` and
+`proxy` modes the native engine maps them back to literal loopback URLs at load
+time, so the same tab stays portable to browser viewers' iframe engines.
+
 ---
 
 ## Rules
@@ -200,6 +228,59 @@ view's URL bar) and choosing *which lenses the tab shows* (`@rk_win_layout`)
 are both substrate state — shared tmux window options, POSTed, visible to
 every viewer and agent. Only render postures stay local to the viewer: tile
 zoom (`rk-layout-zoom:*`), divider ratios (`rk-layout-ratios:*`), and focus.
+
+### R8 — The native engine retains guests across tile unmounts
+
+When the web tile unmounts — window/route switch, layout change dropping the
+tile, host switch within the desktop window — the native engine's guest is
+**parked, not destroyed**: the desktop shell hides it (`setVisible(false)`,
+off the visible z-stack per the existing detach discipline) and holds it in
+the Electron main process under a **stable retention identity** — the desktop
+window, the host, the tmux server, the tmux window id (`@N`), and the web-tab
+slot URL. The guest renderer keeps running: page state, JS state, and
+WebSocket connections survive. A guest's own in-page navigation (tracked
+location drifting from the slot URL) never changes the identity.
+
+A frame mounting with an identity matching a parked guest **adopts** it
+instead of creating a new one: re-bind it to the new frame, re-show it,
+re-apply bounds, re-send the chord table and zoom factor, and re-report the
+current title / favicon / tracked URL / loading state so the chrome shows the
+right values without waiting for a navigation event.
+
+At most **4** parked views (a named constant, not a setting — Constitution
+IV); parking a fifth evicts (destroys) the least-recently-parked one, and
+mounted views never count toward the cap. A guest is destroyed immediately —
+never parked — when its tab is closed or removed from the window's web-tab
+family, its URL slot changes, its host is removed, its desktop window closes,
+its host's SPA reloads, or it is LRU-evicted. A killed tmux window's parked
+guests receive no signal and simply age out through the LRU cap.
+Existing hide rules (overlay hiding per R10, `tileError`, drag-hide, host
+detach/attach) apply unchanged to an adopted view; parked views of a detached
+host stay hidden when that host re-attaches — only mounted views re-show.
+
+Retention is **native-engine only**: the iframe engine is unchanged —
+retaining iframes across tile unmounts would need the code tile's
+DOM-retention machinery, which a hidden `WebContentsView` never needs.
+
+### R9 — A selected draft tab shows no frame
+
+While a draft ("+") tab is selected, **no frame is active**: every engine
+hides its frame (the native guest hides; iframe frames hide — per P3, never
+unmount), and the content area renders a minimal blank new-tab panel in the
+empty-tile onboarding visual language instead of the previous page.
+Re-selecting a real tab (click, keyboard, or submitting a URL that lands in
+an existing slot) re-activates its frame **without a reload**; submitting the
+draft materializes a tab and activates the new frame.
+
+### R10 — Click-opened menus hide the native view
+
+The native guest is composited above the SPA's DOM, so any overlay that can
+overlap a tile must hide it. Click-opened menus, dropdowns, popovers, and
+context menus register with the overlay-presence registry under the
+**`transient`** kind, and the native view hides while a modal **or** transient
+overlay is open — the modal rule extended to one more kind. Tooltips and
+hover-opened flyout cards are **excluded**: hiding on hover would flicker the
+page.
 
 ---
 

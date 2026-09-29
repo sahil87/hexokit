@@ -46,8 +46,8 @@ func childByName(n node, name string) (node, bool) {
 func TestBuildDumpTopLevelShape(t *testing.T) {
 	doc := buildDump(rootCmd, displayVersion())
 
-	if doc.Tool != "run-kit" {
-		t.Errorf("tool = %q, want %q", doc.Tool, "run-kit")
+	if doc.Tool != "hexokit" {
+		t.Errorf("tool = %q, want %q", doc.Tool, "hexokit")
 	}
 	if doc.SchemaVersion != 1 {
 		t.Errorf("schema_version = %d, want 1", doc.SchemaVersion)
@@ -55,11 +55,11 @@ func TestBuildDumpTopLevelShape(t *testing.T) {
 	if doc.Version == "" {
 		t.Error("version is empty, want non-empty")
 	}
-	if doc.Root.Name != "run-kit" {
-		t.Errorf("root.name = %q, want %q", doc.Root.Name, "run-kit")
+	if doc.Root.Name != "hexokit" {
+		t.Errorf("root.name = %q, want %q", doc.Root.Name, "hexokit")
 	}
-	if doc.Root.Path != "run-kit" {
-		t.Errorf("root.path = %q, want %q", doc.Root.Path, "run-kit")
+	if doc.Root.Path != "hexokit" {
+		t.Errorf("root.path = %q, want %q", doc.Root.Path, "hexokit")
 	}
 	if len(doc.Root.Commands) == 0 {
 		t.Error("root.commands is empty, want visible subcommands captured")

@@ -5,6 +5,7 @@ import { Tip, TipGroup } from "@/components/tip";
 import { FindBar } from "@/components/find-bar";
 import {
   FindGlyph,
+  InspectGlyph,
   OpenExternalGlyph,
   RefreshGlyph,
   WebBackGlyph,
@@ -63,6 +64,13 @@ import type {
 interface IframeWindowProps {
   /** Dense web-tab family (the window's `webTabs ?? []`). */
   tabs: string[];
+  /** The tile's tmux identity — the server name and window id (`@N`) of the
+   *  window this tile renders. Feeds the native engine's retention identity
+   *  (joined with the slot URL) and scopes the chrome-owned destroy rule: a
+   *  URL leaving the family of THIS window destroys its guest, while a window
+   *  switch parks. Absent ⇒ no retention (guests destroy on unmount). */
+  server?: string;
+  windowId?: string;
   /** 1-based active slot (the window's `webActive`); 0/undefined with a
    *  non-empty family selects slot 1, out-of-range clamps. */
   active?: number;
@@ -109,14 +117,20 @@ interface IframeWindowProps {
    *  its content's title — the `onInteract`/`onFolderNavigated`
    *  callback-seam shape. Absent ⇒ no reporting. */
   onPageMeta?: (meta: { title: string | null }) => void;
+  /** The web keyboard-capture latch (`rk-web-capture`, owned by app.tsx).
+   *  While set the native engine's chord table narrows to the release binding
+   *  (`buildWebChordTable(bindings, true)`); the iframe engine's narrowing
+   *  rides `shouldReclaimChord`. The toggle verb lives in the tile header
+   *  (SurfaceLayout), not this chrome. */
+  webCapture?: boolean;
 }
 
 /** Trailing debounce for persisting gesture-driven zoom — a pinch emits
  *  dozens of events; one write after quiescence is enough (260824-iafo R4). */
 const ZOOM_PERSIST_DEBOUNCE_MS = 250;
 
-/** Backend family cap (`@rk_win_web_1..8`) — bounds the mounted frames. */
-const WEB_TAB_FAMILY_CAP = 8;
+/** Backend family cap (`@rk_win_web_1..16`) — bounds the mounted frames. */
+const WEB_TAB_FAMILY_CAP = 16;
 
 /** Sub-pixels of movement that keep a pointer-drag a click (the select
  *  gesture) instead of a reorder commit. */
@@ -188,6 +202,8 @@ function sameFind(a: FrameChromeState["find"], b: FrameChromeState["find"]): boo
 export function IframeWindow({
   tabs,
   active,
+  server,
+  windowId,
   onWriteUrl,
   onSelectTab,
   onCloseTab,
@@ -196,13 +212,15 @@ export function IframeWindow({
   onInteract,
   shouldReclaimChord,
   onPageMeta,
+  webCapture = false,
 }: IframeWindowProps) {
   // Engine selection: bridge presence × the per-viewer preference (the pure
   // rule shared with the palette entry). canShellWeb() is read per render —
   // the preload injects the bridge before any SPA script runs, so it is
   // stable; the read is cheap. A preference flip remounts every tab on the
   // other engine (the kind-qualified key below); the outgoing native engines
-  // destroy their guests in cleanup.
+  // park their guests in cleanup (bounded by the shell's parked-set LRU —
+  // a flip-back adopts them).
   const [nativeEnabled] = useLocalStorageBoolean(
     WEB_NATIVE_ENGINE_PREF_KEY,
     WEB_NATIVE_ENGINE_DEFAULT,
@@ -252,7 +270,12 @@ export function IframeWindow({
   // re-derives the table; the iframe engine ignores the prop — its reclaim
   // runs in-document.
   const { bindings } = useKeybindings();
-  const chordTable = useMemo(() => buildWebChordTable(bindings), [bindings]);
+  // The capture latch narrows the native engine's table to the release chord;
+  // the engine re-uploads on every table change, so a flip takes effect live.
+  const chordTable = useMemo(
+    () => buildWebChordTable(bindings, webCapture),
+    [bindings, webCapture],
+  );
 
   // ── per-frame state (P3: one chrome, N frames) ──────────────────────────
   // Each engine reports its chrome slice up; the map is keyed by URL (the
@@ -291,6 +314,32 @@ export function IframeWindow({
   const unregisterHandle = useCallback((frameUrl: string) => {
     frameHandles.current.delete(frameUrl);
   }, []);
+
+  // Chrome-owned explicit destroys. An engine's unmount cleanup PARKS its
+  // guest (retention), and the engine cannot tell "the tile went away" from
+  // "this tab is gone" — but the chrome owns the family and knows exactly:
+  // a URL present in the previous `tabs` and absent from the next, with the
+  // tile still on the SAME window, is a tab close / URL-slot rewrite /
+  // external removal, so its guest is destroyed through the registered
+  // handle (engines with nothing to retain omit the verb — a no-op here).
+  // Render-phase on purpose: the destroy must be issued before the outgoing
+  // engine's commit-phase unmount park, and an effect would run after it;
+  // the engine's handle ALSO suppresses its own park once destroy fired, so
+  // the pair is order-proof. A window switch (the window key changes)
+  // destroys nothing — the departing tabs' engines park on unmount and their
+  // identities adopt on return.
+  const windowKey = `${server}:${windowId}`;
+  const familyRef = useRef({ windowKey, tabs });
+  const prevFamily = familyRef.current;
+  if (prevFamily.windowKey !== windowKey || prevFamily.tabs !== tabs) {
+    familyRef.current = { windowKey, tabs };
+    if (prevFamily.windowKey === windowKey) {
+      const declared = new Set(tabs);
+      for (const oldUrl of prevFamily.tabs) {
+        if (!declared.has(oldUrl)) frameHandles.current.get(oldUrl)?.destroy?.();
+      }
+    }
+  }
 
   const activeChrome = url !== "" ? chromeStates.get(url) : undefined;
   const activeLoading = activeChrome?.loading ?? !onboarding;
@@ -528,12 +577,15 @@ export function IframeWindow({
   // dispatches one document CustomEvent; the mounted web tile opens DevTools
   // on the ACTIVE tab's engine (engines without the capability no-op — the
   // entry itself is gated on the native engine upstream). Single receiver,
-  // same shape as the seams above.
-  useEffect(() => {
-    const inspect = () => frameHandles.current.get(url)?.openDevTools?.();
-    document.addEventListener(WEB_INSPECT_EVENT, inspect);
-    return () => document.removeEventListener(WEB_INSPECT_EVENT, inspect);
+  // same shape as the seams above. The URL bar's Inspect button calls the
+  // same handler directly.
+  const handleInspect = useCallback(() => {
+    frameHandles.current.get(url)?.openDevTools?.();
   }, [url]);
+  useEffect(() => {
+    document.addEventListener(WEB_INSPECT_EVENT, handleInspect);
+    return () => document.removeEventListener(WEB_INSPECT_EVENT, handleInspect);
+  }, [handleInspect]);
 
   // The `web-zoom` seam (R5): the three `Web: Zoom` palette actions dispatch
   // one document CustomEvent (`detail.direction`); the mounted web tile is
@@ -906,6 +958,8 @@ export function IframeWindow({
       case "Enter":
       case " ":
         e.preventDefault();
+        // Same draft-deselection rule as the tab click path.
+        setSelectedDraft(null);
         onSelectTab?.(current);
         return;
       case "Delete":
@@ -972,6 +1026,10 @@ export function IframeWindow({
                     clickSuppressRef.current = false;
                     return;
                   }
+                  // Selecting a real tab deselects any draft — the draft's
+                  // deactivation of every frame ends and this tab's frame
+                  // (still mounted) re-activates.
+                  setSelectedDraft(null);
                   onSelectTab?.(n);
                 }}
                 onFocus={() => setFocusedTab(n)}
@@ -1129,7 +1187,8 @@ export function IframeWindow({
       </TipGroup>
 
       {/* URL Bar — one warm-tip cluster (260722-73al). Button order per the
-          approved design study: ◀ ▶ ↻ [address] ⌕ ↗ (the `>_` switch-to-
+          approved design study: ◀ ▶ ↻ [address] ⌕ − % + <> ↗ (`<>` Inspect
+          renders only on an engine reporting `supports.devtools`; the `>_` switch-to-
           terminal button was removed, 260819-v6y4 R13 — the top-bar surface
           toggles own view switching). Every Tip here (and the strip's above)
           flips UPWARD (placement="top"): a bottom-placed tip would render
@@ -1253,6 +1312,17 @@ export function IframeWindow({
                 </button>
               </Tip>
             </div>
+            {supports.devtools && (
+              <Tip label="Inspect page" placement="top">
+                <button
+                  onClick={handleInspect}
+                  className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary"
+                  aria-label="Inspect page"
+                >
+                  <InspectGlyph />
+                </button>
+              </Tip>
+            )}
             <Tip label="Open in browser" placement="top">
               <button
                 onClick={handleOpenExternal}
@@ -1382,7 +1452,7 @@ export function IframeWindow({
                 <code className="bg-bg-inset border border-border rounded px-[5px] text-[10.5px] text-text-primary whitespace-nowrap">
                   localhost:3000
                 </code>{" "}
-                in the address bar above (proxied through run-kit, works from any device) — or have the agent run{" "}
+                in the address bar above (proxied through HexoKit, works from any device) — or have the agent run{" "}
                 <code className="bg-bg-inset border border-border rounded px-[5px] text-[10.5px] text-text-primary whitespace-nowrap">
                   rk present :3000
                 </code>
@@ -1412,8 +1482,11 @@ export function IframeWindow({
         // document. At s = 1 no transform is applied — identical layout to
         // before. Every tab's frame stays mounted (P3 — hidden, never
         // unmounted); a selection change re-keys nothing and rewrites no src.
+        // A selected draft activates NO frame — the previous page stays
+        // mounted underneath, hidden — and the blank new-tab panel paints
+        // over the wrapper.
         <div
-          className="flex-1 min-h-0 overflow-hidden"
+          className="relative flex-1 min-h-0 overflow-hidden"
           data-testid="web-zoom-frame-wrapper"
           data-zoom={zoom}
         >
@@ -1421,7 +1494,7 @@ export function IframeWindow({
             <Engine
               key={`${engineKind}:${tabUrl}`}
               url={tabUrl}
-              active={i + 1 === activeIndex}
+              active={selectedDraft === null && i + 1 === activeIndex}
               zoom={zoom}
               wireGestureListeners={wireGestureListeners}
               onState={handleChromeState}
@@ -1432,8 +1505,32 @@ export function IframeWindow({
               reclaimRef={reclaimRef}
               onZoomStep={applyZoom}
               chordTable={chordTable}
+              // The native engine's retention identity = scope + slot URL;
+              // absent scope ⇒ the guest destroys on unmount (no retention).
+              retentionScope={
+                server !== undefined && windowId !== undefined
+                  ? { server, windowId }
+                  : undefined
+              }
             />
           ))}
+          {selectedDraft !== null && (
+            <div
+              className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 px-6 py-6 bg-bg-primary"
+              data-testid="web-draft-panel"
+            >
+              <span
+                className="text-[26px] tracking-widest text-text-secondary/55 select-none mb-2"
+                aria-hidden="true"
+              >
+                ://
+              </span>
+              <span className="text-text-primary text-[13px]">New tab</span>
+              <span className="text-text-secondary text-[11px] text-center">
+                type an address above — Enter opens it here, Esc discards
+              </span>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -215,9 +215,9 @@ export function resolveFromOrigin(
 /** localStorage key for the desktop drawer geometry
  *  (`{heightVh, widthPx, centerOffsetPx}`; a stored record without the offset
  *  reads as offset 0). */
-export const QUAKE_GEOMETRY_KEY = "runkit-quake-terminal-geometry";
+export const QUAKE_GEOMETRY_KEY = "hexokit-quake-terminal-geometry";
 /** localStorage key for the desktop drawer background opacity. */
-export const QUAKE_OPACITY_KEY = "runkit-quake-terminal-opacity";
+export const QUAKE_OPACITY_KEY = "hexokit-quake-terminal-opacity";
 /** Retired key names; read as a fallback so viewers keep their drawer size
  *  and glass, removed on the next write (the fallback is one-shot). */
 export const LEGACY_QUAKE_GEOMETRY_KEY = "runkit-operator-console-geometry";

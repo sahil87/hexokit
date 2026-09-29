@@ -506,7 +506,7 @@ export function SettingsShortcutsPanel({
   };
 
   const handleDeleteMacro = (macro: MacroAction) => {
-    removeMacro(macro.actionId); // also drops its runkit-keybindings diff
+    removeMacro(macro.actionId); // also drops its hexokit-keybindings diff
     if (capturingId === macro.actionId) setCapturingId(null);
     if (notice?.actionId === macro.actionId) setNotice(null);
   };
@@ -1107,7 +1107,7 @@ export function SettingsShortcutsPanel({
       <div className="flex items-center gap-2.5 py-3 border-t border-border text-[11px] text-text-secondary flex-wrap">
         <span>
           app &amp; custom bindings are stored in this browser{" "}
-          <span className="opacity-60">(localStorage · runkit-keybindings)</span> · tmux keys
+          <span className="opacity-60">(localStorage · hexokit-keybindings)</span> · tmux keys
           are read live from the server
         </span>
         <span className="flex-1" />

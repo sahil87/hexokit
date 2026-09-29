@@ -4,7 +4,7 @@
 // (HasTopLevelKey). It provides best-effort accessors that return empty values
 // rather than errors when the file is absent, malformed, or missing keys — the
 // same best-effort stance internal/config takes for its RK_* env vars and
-// internal/settings takes for ~/.config/run-kit/config.yaml.
+// internal/settings takes for ~/.config/hexokit/config.yaml.
 //
 // The agent launcher is NOT read here: `rk riff` resolves it by shelling out
 // to `fab agent -o yaml` (see riff.ResolveAgent), so rk never parses fab-kit's

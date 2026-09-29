@@ -255,9 +255,9 @@ stamps @rk_gui_display/@rk_gui_backend/@rk_gui_wm on the rk-gui session, and
 launches the window manager — the gui.wm pin, else the first ladder rung on
 PATH (icewm-session first, then openbox, xfwm4, i3, kwin_x11,
 x-session-manager). The icewm rung gets a seeded profile under
-<state>/run-kit/gui/icewm (passed as ICEWM_PRIVCFG; preferences is write-once,
+<state>/hexokit/gui/icewm (passed as ICEWM_PRIVCFG; preferences is write-once,
 toolbar/menu regenerate on every start). The LXQt rungs (startlxqt,
-lxqt-session) get seeded defaults under <state>/run-kit/gui/lxqt/etc,
+lxqt-session) get seeded defaults under <state>/hexokit/gui/lxqt/etc,
 prepended to XDG_CONFIG_DIRS (the five files are write-once; the panel's
 quick-launch entries regenerate on every start). macOS: spawns nothing and
 logs the Screen Sharing probe once a minute.

@@ -717,7 +717,11 @@ function WindowRowInner({
       // row's own handlers below are never overridden.
       ref={flyout.setReference}
       {...flyout.referenceProps}
-      draggable={dragEnabled}
+      // Not draggable while renaming: a pointer drag inside an input under a
+      // `draggable` ancestor starts the ancestor's HTML5 drag instead of
+      // selecting text (the input's mousedown stopPropagation cannot stop it).
+      // The row stays a drop target.
+      draggable={dragEnabled && !isEditing}
       onDragStart={
         dragEnabled && onDragStart
           ? (e) => {

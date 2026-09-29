@@ -1,11 +1,11 @@
 // Package selfpath resolves the running binary's own on-disk executable path and
-// detects a Homebrew ("brew") install via its Cellar path marker. Both the CLI
+// detects a Homebrew ("brew") install via its Cellar keg path. Both the CLI
 // upgrade command (cmd/rk/upgrade.go) and the web update handler (api/update.go)
 // share these so the brew-install detection cannot drift between the two entry
 // points into the same self-upgrade behavior.
 //
 // Three resolvers, three audiences. Resolve names the binary that is actually
-// running — the input brew detection needs (the Cellar marker) and the path the
+// running — the input brew detection needs (the Cellar keg) and the path the
 // daemon's own respawn wants. Stable names the path that survives a
 // `brew upgrade` as a whole: on a Homebrew install the old keg is deleted, so
 // any process spawned to outlive this binary's version (a tmux session's argv,
@@ -29,10 +29,29 @@ import (
 	"syscall"
 )
 
-// CellarMarker is the Cellar path segment that identifies a Homebrew-installed
-// run-kit binary (e.g. /opt/homebrew/Cellar/run-kit/0.5.3/bin/run-kit). A daemon
-// not installed via brew cannot self-upgrade through `brew upgrade`.
-const CellarMarker = "/Cellar/run-kit/"
+// BrewKegs are the Homebrew keg names a brew-installed binary can live under,
+// primary first: the `hexokit` formula, then the pre-rename `run-kit` keg a
+// binary may still occupy if brew's formula-rename migration left it in place.
+// Each keg installs a brew-prefix symlink named after itself, which is what
+// StableFor maps to. A daemon not installed via brew cannot self-upgrade
+// through `brew upgrade`.
+var BrewKegs = []string{"hexokit", "run-kit"}
+
+// BrewFormula is the fully qualified formula `rk update` queries and upgrades,
+// and the one install guidance names. Qualified because the shll toolkit
+// always installs from the tap, never homebrew-core.
+const BrewFormula = "sahil87/tap/hexokit"
+
+// cellarKeg returns the index of the "/Cellar/<keg>/" segment in resolved and
+// the matched keg, or -1 when resolved is not under any BrewKegs keg.
+func cellarKeg(resolved string) (int, string) {
+	for _, keg := range BrewKegs {
+		if idx := strings.Index(resolved, "/Cellar/"+keg+"/"); idx != -1 {
+			return idx, keg
+		}
+	}
+	return -1, ""
+}
 
 // Resolve returns this binary's on-disk executable path, following symlinks. It
 // is the default behind both upgrade.go's resolveExeFn and update.go's
@@ -51,23 +70,24 @@ func Resolve() (string, error) {
 }
 
 // IsBrewInstalled reports whether the given resolved executable path is a
-// Homebrew install (contains CellarMarker).
+// Homebrew install (lives under a BrewKegs Cellar keg).
 func IsBrewInstalled(resolvedPath string) bool {
-	return strings.Contains(resolvedPath, CellarMarker)
+	idx, _ := cellarKeg(resolvedPath)
+	return idx != -1
 }
 
 // StableFor maps a resolved executable path to the path that survives a
-// Homebrew upgrade. A Cellar path (…/Cellar/run-kit/<version>/bin/run-kit)
-// becomes the brew-prefix symlink <prefix>/bin/run-kit, which brew repoints on
+// Homebrew upgrade. A Cellar path (…/Cellar/<keg>/<version>/bin/<name>) becomes
+// the keg's own brew-prefix symlink <prefix>/bin/<keg>, which brew repoints on
 // every upgrade; any other path is returned unchanged. Pure string derivation —
 // it never stats the result, because during `brew upgrade` the stable symlink
 // dangles for a moment and a stat-then-fallback would re-pin the Cellar path.
 func StableFor(resolved string) string {
-	idx := strings.Index(resolved, CellarMarker)
+	idx, keg := cellarKeg(resolved)
 	if idx == -1 {
 		return resolved
 	}
-	return resolved[:idx] + "/bin/run-kit"
+	return resolved[:idx] + "/bin/" + keg
 }
 
 // Stable is Resolve followed by StableFor: the path to hand to processes that

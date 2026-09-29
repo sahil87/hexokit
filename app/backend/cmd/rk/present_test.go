@@ -393,6 +393,30 @@ func TestPresentAndTabWebAddUseRunKitOrigin(t *testing.T) {
 	})
 }
 
+// --show gates on the BARE web leaf (HasBare, the frontend toggle's
+// semantics): a window whose layout shows web only as a foreign @N/web tile
+// still grows its own bare web slot.
+func TestTabWebAddShowForeignWebDoesNotSuppressBareSlot(t *testing.T) {
+	f := installPresentFakes(t)
+	t.Setenv("TMUX_PANE", "%3")
+	f.family = tmux.WebTabFamily{Layout: "h(tty,@3/web)"}
+
+	if _, _, err := runTabCmd(t, "web", "add", "https://example.com", "--show"); err != nil {
+		t.Fatalf("web add --show: %v", err)
+	}
+	if len(f.layoutWrites) != 1 {
+		t.Fatalf("layout writes = %+v, want exactly one (the bare web slot add)", f.layoutWrites)
+	}
+	w := f.layoutWrites[0]
+	if w.windowID != "@7" {
+		t.Errorf("write window = %q, want @7", w.windowID)
+	}
+	if len(w.ops) != 1 || w.ops[0].Key != tmux.LayoutOption || w.ops[0].Value == nil ||
+		*w.ops[0].Value != "h(tty,v(@3/web,web))" {
+		t.Errorf("write ops = %+v, want @rk_win_layout = h(tty,v(@3/web,web))", w.ops)
+	}
+}
+
 func TestPresentURLStillPrintsUnderQuiet(t *testing.T) {
 	installPresentFakes(t)
 	t.Setenv("TMUX_PANE", "%3")
@@ -464,8 +488,8 @@ func TestPresentWindowExternalURL(t *testing.T) {
 	}
 	// Creation carries the layout alone; the URL lands via WebAdd on the new
 	// window's empty family (slot 1 + _active=1, WebAdd's invariant).
-	if tp, ok := opValue(c.ops, tmux.LayoutOption); !ok || tp != "single:web" {
-		t.Errorf("@rk_win_layout = %q (set=%v), want single:web", tp, ok)
+	if tp, ok := opValue(c.ops, tmux.LayoutOption); !ok || tp != "web" {
+		t.Errorf("@rk_win_layout = %q (set=%v), want web", tp, ok)
 	}
 	if len(c.ops) != 1 {
 		t.Errorf("creation ops = %+v, want @rk_win_layout alone (the URL follows via WebAdd)", c.ops)
@@ -594,9 +618,9 @@ func TestPresentEquivalentToWebAddShow(t *testing.T) {
 	}
 }
 
-// TestPresentShowsWebTile: presenting onto a fresh single:tty window now
-// writes @rk_win_layout (split-h:tty,web) and selects the added slot — the
-// documented behaviour change (R12).
+// TestPresentShowsWebTile: presenting onto a fresh tty-only window writes
+// @rk_win_layout (h(tty,web)) and selects the added slot — the documented
+// behaviour change (R12).
 func TestPresentShowsWebTile(t *testing.T) {
 	env := withTabTestServer(t)
 	port := tabTestListener(t)
@@ -609,8 +633,8 @@ func TestPresentShowsWebTile(t *testing.T) {
 		t.Errorf("stdout = %q, want %q", stdout, want)
 	}
 	id := env.bootID
-	if got := tabWindowOption(t, env.server, id, tmux.LayoutOption); got != "split-h:tty,web" {
-		t.Errorf("@rk_win_layout = %q, want split-h:tty,web", got)
+	if got := tabWindowOption(t, env.server, id, tmux.LayoutOption); got != "h(tty,web)" {
+		t.Errorf("@rk_win_layout = %q, want h(tty,web)", got)
 	}
 	if got := tabWindowOption(t, env.server, id, tmux.WebActiveOption); got != "1" {
 		t.Errorf("@rk_win_web_active = %q, want 1", got)

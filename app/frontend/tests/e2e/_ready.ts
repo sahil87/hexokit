@@ -217,8 +217,8 @@ export async function seedComposeStrip(page: Page, on: boolean): Promise<void> {
   // test itself stored (a chip click, a palette toggle) survives a reload,
   // which is exactly what a persistence assertion needs to observe.
   await page.addInitScript((value) => {
-    if (localStorage.getItem("runkit-compose-strip") === null) {
-      localStorage.setItem("runkit-compose-strip", value);
+    if (localStorage.getItem("hexokit-compose-strip") === null) {
+      localStorage.setItem("hexokit-compose-strip", value);
     }
   }, on ? "true" : "false");
 }

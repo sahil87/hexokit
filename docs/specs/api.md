@@ -8,7 +8,7 @@
 
 ## Design Principles
 
-1. **POST for all mutations** — every write operation uses POST. Intent communicated by URL path, not HTTP method. Simplifies the client, avoids CORS preflight for non-simple methods. One documented exception: `/mcp` (§ MCP) is bound by the MCP streamable-HTTP transport to `POST` + `GET` + `DELETE` on a single path. The exception is scoped to that route alone and does not extend to `/api/*`.
+1. **POST for all mutations** — every write operation uses POST. Intent communicated by URL path, not HTTP method. Simplifies the client, avoids CORS preflight for non-simple methods. One documented exception: `/mcp` (§ MCP) is bound by the MCP streamable-HTTP transport to `POST` + `GET` + `DELETE` on a single path. The exception is transport-scoped and does not extend to `/api/*`.
 2. **GET for all reads** — session listing, directory autocomplete, SSE stream, health check.
 3. **Consistent error shape** — every error returns `{ "error": "<message>" }` with an appropriate HTTP status.
 4. **Validated at the boundary** — all user input validated before reaching tmux; invalid input never touches a subprocess.
@@ -19,13 +19,13 @@
 
 ## Base Configuration
 
-The override order is `code default < config.yaml < env < CLI flag`. Env forms exist only for the deployment-bootstrap keys below; per-instance preference keys (the settings registry) resolve `defaults → ~/.config/run-kit/config.yaml` only — no env form, no CLI flag. The config root `~/.config/run-kit/` is fixed: it is built from `$HOME` alone and never consults `XDG_CONFIG_HOME`.
+The override order is `code default < config.yaml < env < CLI flag`. Env forms exist only for the deployment-bootstrap keys below; per-instance preference keys (the settings registry) resolve `defaults → ~/.config/hexokit/config.yaml` only — no env form, no CLI flag — with one exception: the daemon port is also a config.yaml key (`port` in the settings registry, `ui: false`) that keeps its `RK_PORT` env form, so an install can pin the port durably while env still wins. The config root `~/.config/hexokit/` is fixed: it is built from `$HOME` alone and never consults `XDG_CONFIG_HOME`.
 
 | Setting | Default | Override order |
 |---------|---------|----------------|
-| Port | `3000` | defaults → env `RK_PORT` → CLI `-port` |
-| Host | `127.0.0.1` | defaults → env `RK_HOST` → CLI `-host` |
-| Code-server port | RK_PORT + 2 | defaults → env `RK_CODE_SERVER_PORT` |
+| Port | `6123` | defaults → config.yaml `port` → env `RK_PORT` |
+| Host | `127.0.0.1` | defaults → env `RK_HOST` |
+| Code-server port | resolved daemon port + 2 | defaults → env `RK_CODE_SERVER_PORT` |
 
 ---
 
@@ -49,8 +49,13 @@ Supervisor health check. No authentication.
 
 **Response** `200`:
 ```json
-{ "status": "ok" }
+{ "status": "ok", "tunnel": 3001 }
 ```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | `string` | Always `"ok"` |
+| `tunnel` | `number` | The daemon's listen port, advertised so the desktop shell can self-test the tunnel against the host's own listen port (§ Tunnel). Older daemons omit the field; its absence reads as no tunnel capability |
 
 ---
 
@@ -277,17 +282,23 @@ Send a message into a window's resolved pane — the compose strip's single deli
 
 #### `POST /api/operator/start`
 
-Start the server's operator — the UI door (the quake terminal's Start operator button, the `Operator: Start operator` palette entry) onto the same launch the cron daemon's respawn path runs: the daemon execs its OWN binary (the `resolveSelfPathFn` seam — never a PATH-resolved `rk`) as `rk operator -L <server> --json`, which owns creation, role-stamping, singleton probing, agent resolution, and kickoff delivery. Server scope rides the `?server=` query (`serverFromRequest`); the body is ignored (`{}` by convention).
+Start the server's operator — the UI door (the quake terminal's Start operator button, the `Operator: Start operator` palette entry) onto the same launch the cron daemon's respawn path runs: the daemon execs its OWN binary (the `resolveSelfPathFn` seam — never a PATH-resolved `rk`) as `rk operator -L <server> --json`, which owns creation, role-stamping, singleton probing, agent resolution, and kickoff delivery. Server scope rides the `?server=` query (`serverFromRequest`).
+
+**Request body** (optional): `{ "window": "@7" }` — the id of the window the user is viewing (the Terminal route's window, sent only when its server is the one being started). `{}` or an empty body means "no viewed window". The body carries ONLY the window identity — never a filesystem path.
 
 **Behavior:**
 - One `FetchSessions` pre-check: an existing `role === "operator"` window short-circuits with `409 operator_exists` (the UI hides its Start affordances when an operator exists; this is the race backstop).
+- With a `window` in the body, the daemon looks it up in the already-fetched sessions slice (no second fetch), takes its active-pane cwd (`worktreePath`, from `#{pane_current_path}`), collapses it to the main checkout via `gitinfo.MainWorktreeRoot` (a linked worktree maps to `<repo>`; a non-repo cwd is used verbatim — deterministic, it is where the user is), and appends `--dir <derived>` to the argv: `[rk, operator, -L, server, --dir, <derived>, --json]`. The derived directory must pass an absolute/exists/is-dir pre-check before exec.
+- A well-formed `window` that is not on the server (closed between the click and the request), an empty pane cwd, or a derived directory failing the pre-check degrades to the no-window argv — never a failed start.
+- With no `window`, the argv is unchanged and the CLI's own rule decides: the server's last recorded operator launch directory (`@rk_srv_operator_root`, stamped by `rk operator` on every successful create), else the home directory.
 - The exec runs under a process context DETACHED from the request (90s — the bound the cron respawn uses for the identical launch), so a client disconnect never kills the launch.
 - The handler answers as soon as the CLI's `--json` receipt line (`{"ok":true,"result":{"window","server","created"}}`) parses off stdout (30s bound): `rk operator` prints the receipt right after creating and role-stamping the window, before its best-effort kickoff delivery, so waiting for exit would make the button feel hung. The process finishes its kickoff after the response; a non-zero exit is logged, not surfaced.
 - On a created receipt the SSE hub is woken for the server so the new window paints in one tick.
-- Constitution I: argv slice, bounded contexts; `server` is validated by `serverFromRequest`. Constitution IX: a mutation ⇒ POST.
+- Constitution I: argv slice, bounded contexts; `server` is validated by `serverFromRequest`, and the only client-supplied field is a `validate.ValidateWindowID`-checked window id. Constitution IX: a mutation ⇒ POST.
 
 **Responses:**
 - `202` `{ "windowId": "@7", "server": "default" }` — the receipt's `created: true`
+- `400` `{ "error": "…" }` — malformed JSON body, or a `window` value that is not a well-formed window id
 - `409` `{ "error": "operator already present", "code": "operator_exists", "windowId": "@7" }` — the pre-check found an operator, or the receipt reported `created: false` (a race the pre-check missed); the UI treats it as success
 - `502` `{ "error": "<first non-empty stderr line>" }` — non-zero exit before a receipt (e.g. the CLI's `fab` precondition failure)
 - `504` `{ "error": "operator start timed out" }` — no receipt within the 30s bound; the process is killed
@@ -395,19 +406,35 @@ PTY output, client→server keystrokes). JSON text frames for control:
 
 | Direction | Frame |
 |-----------|-------|
-| Client → Server | `{"op":"open","id":7,"server":"<tmux server>","windowId":"@42","cols":120,"rows":32}` |
+| Client → Server | `{"op":"open","id":7,"server":"<tmux server>","windowId":"@42","cols":120,"rows":32,"isolate":true}` |
 | Client → Server | `{"op":"resize","id":7,"cols":100,"rows":40}` |
 | Client → Server | `{"op":"close","id":7}` |
 | Server → Client | `{"op":"opened","id":7}` |
 | Server → Client | `{"op":"closed","id":7,"code":4004\|4001\|1000,"reason":"..."}` |
 
+`open`'s `isolate` field is optional (default `false`, absent decodes false).
+When `true`, the stream attaches through the window's own single-window
+`_rk-iso-<windowDigits>` session — created on demand with the window LINKED in
+(it stays a member of its home session) — giving the stream an active-window
+pointer independent of home's, so a borrowed or popped-out tile never fights the
+home tab over the window. **Session pick order: pin → iso → home.** A pinned
+window's `_rk-pin-*` session wins regardless of `isolate` (a pin already
+isolates; no iso session is created for it); otherwise `isolate: true` ensures
+and attaches the iso session; otherwise the home session is resolved as before.
+The iso attach chains `destroy-unattached on` onto the attach invocation itself
+(setting it at creation would destroy the never-attached session immediately),
+so tmux reaps the iso session when its last client leaves — stream close, socket
+teardown, or daemon crash — with no rk bookkeeping. An ensure failure is a
+per-stream `closed` (4004 when the window is missing, 4001 otherwise); if the
+PTY attach fails after a successful ensure, the relay kills the iso session only
+when it has zero attached clients (another isolated viewer may share it).
+
 **Per-stream lifecycle** (each `open` reproduces the former `handleRelay`
 per-connection semantics, per stream):
 1. Validate `windowId` (shared `validate.ValidateWindowID`) — a bad id yields a
    per-stream `closed` 4004, never a socket teardown.
-2. `ResolveWindowSession` (5s) → session-scoped `SelectWindowInSession` (the
-   move-based model: each window lives in exactly one session — home or
-   `_rk-pin-*` — and select+attach must agree).
+2. Session pick per the pin → iso → home order above → session-scoped
+   `SelectWindowInSession` (select+attach must agree on the session).
 3. `forceTERM` (`TERM=xterm-256color`), best-effort `tmux.ReloadConfig`, then
    `pty.StartWithSize` at the open op's initial `cols`/`rows` (no
    wait-for-first-resize dance).
@@ -424,8 +451,10 @@ queue pauses that stream's PTY reader (backpressure), never dropping bytes.
 
 **Per-stream `closed` codes** (the socket itself stays open for stream-level
 failures):
-- `4004` — window not found (resolve/select failed) or malformed window id
-- `4001` — failed to attach to the tmux session (`pty.StartWithSize`)
+- `4004` — window not found (resolve/select failed, or an isolated open's
+  ensure found no window) or malformed window id
+- `4001` — failed to attach to the tmux session (`pty.StartWithSize`) or an
+  isolated open's ensure failed for another reason
 - `1000` — graceful close (client `close` op or PTY EOF)
 
 ---
@@ -434,7 +463,7 @@ failures):
 
 Toolkit update surface. The daemon's periodic checker delegates the check to
 one exec of `shll check-updates --json` (per-tool verdicts consumed
-from its JSON; run-kit's own row re-compared locally against the running
+from its JSON; HexoKit's own row re-compared locally against the running
 ldflags version).
 
 #### `POST /api/updates/check`
@@ -470,12 +499,12 @@ released default, so existing clients are unchanged):
 ```json
 {
   "tools": [
-    { "tool": "run-kit", "current": "3.8.1", "latest": "3.9.0",
+    { "tool": "hexokit", "current": "3.8.1", "latest": "3.9.0",
       "updateAvailable": true, "notable": true },
     { "tool": "tu", "current": "0.9.1", "latest": "0.9.2",
       "updateAvailable": true, "notable": false }
   ],
-  "key": "run-kit@3.9.0",
+  "key": "hexokit@3.9.0",
   "current": "3.8.1",
   "latest": "3.9.0",
   "source": "released"
@@ -488,8 +517,8 @@ released default, so existing clients are unchanged):
   are omitted — an empty list means everything is current.
 - `key` — composite dismissal key over the NOTABLE set (sorted `tool@latest`,
   comma-joined; empty when nothing notable).
-- `current`/`latest` — legacy run-kit-row compat fields (populated only when
-  run-kit is in the notable set).
+- `current`/`latest` — legacy self-row compat fields (populated only when the
+  HexoKit self row — `hexokit`, or legacy `rk`/`run-kit` — is in the notable set).
 - `source` — echoes the report's self-identified backend (`"released"` /
   `"github"`), so the client reacts to what actually ran. The frontend
   suppresses the `(patch — below notify threshold)` toast annotation for
@@ -538,7 +567,7 @@ code of our own.
 **Stance:**
 - **Tailnet-only, no auth of its own** — the same posture as every other daemon
   route; never exposed publicly. Its clients are MCP clients already on the tailnet
-  (Claude Code and kin); the Claude Desktop app reaches run-kit over stdio via
+  (Claude Code and kin); the Claude Desktop app reaches HexoKit over stdio via
   `ssh <box> rk mcp`, not this route.
 - **Origin validation** — when a request carries an `Origin` header, the handler
   rejects it unless the origin's scheme, host, and port match an allowlist derived
@@ -557,6 +586,117 @@ verb other than `GET`/`POST`. The transport mandates all three methods on one pa
 bending the transport would mean a non-conformant server no client could use. The
 exception is recorded here, where the route table lives, so the constraint stays
 visible; it grants nothing to any `/api/*` route.
+
+---
+
+### Tunnel
+
+The daemon carries byte tunnels over a WebSocket so the desktop shell's native
+web engine can route guest traffic through the rk host
+([`window-views.md`](window-views.md) § Engines) behind ANY front end that
+passes WebSocket upgrades. The endpoint lives under `/ws/*` beside the other
+sockets: every front end rk works behind already passes WebSockets there (the
+terminal relay and state socket depend on it), the Vite dev proxy upgrades
+only `/ws`, and path-scoped WebSocket front-end configs (`location /ws/ { … }`)
+already match.
+
+#### `GET /ws/tunnel?target=<host>:<port>` (Upgrade: websocket)
+
+An ordinary `GET` upgrade — no Principle IX exception. Handled by
+`tunnel_ws.go` with its own dedicated upgrader. Every rejection happens BEFORE
+the upgrade, as a plain HTTP error in the `{ "error": "..." }` shape, in this
+order:
+
+| Step | Check | Failure |
+|------|-------|---------|
+| 1 | Origin policy (§ WebSocket Origin policy below): the request carries NO `Origin` and NO `Sec-Fetch-Site` header | `403` |
+| 2 | `target` parses via `net.SplitHostPort`, non-empty host, numeric port 1–65535 | `400` |
+| 3 | Dial `target` with a `net.Dialer` timeout (10 s, a named constant) via `DialContext` on the request context; hostnames resolve on the rk host (Go's resolver — Docker service names, internal DNS, `*.localhost` all work) | `502` |
+| 4 | Upgrade via the dedicated tunnel upgrader | gorilla's own handshake error |
+
+**Dial before upgrade** — a completed handshake signals "connected", so the
+desktop maps handshake open/failure directly onto Chromium's `200 Connection
+Established` / `502 Bad Gateway` with no in-band signalling.
+
+**Byte pipe** — modeled on the `gui_ws.go` WS↔TCP relay:
+- Binary frames both ways. A TCP→WS pump goroutine is the ONLY WebSocket
+  writer, reading 64 KiB chunks and writing each as one binary message;
+  upstream EOF sends a normal close frame, then teardown.
+- WS→TCP: binary messages are written verbatim to the TCP conn; text frames
+  are ignored (forward-compat). A 1 MiB `SetReadLimit` bounds one inbound
+  message (memory-DoS, the `guiReadLimit` rationale).
+- Cleanup is close-driven and leak-free: either side ending closes BOTH the
+  TCP conn and the WebSocket, and the handler waits for the pump goroutine —
+  no goroutine or socket outlives the handler. NO idle cap and no fixed
+  deadline on an established tunnel — HMR WebSockets and long-polls are
+  long-lived. WebSocket has no half-close, so an upstream FIN ends the
+  tunnel.
+
+**Ping keepalive** — the server sends a WS ping control frame every 30 s (a
+named constant) on an established tunnel, so front-end idle timeouts (nginx
+`proxy_read_timeout` 60 s default, Cloudflare ~100 s) do not sever an idle HMR
+socket inside the tunnel. `WriteControl` is safe concurrently with the pump
+writer; the Node/undici client answers pings automatically.
+
+**Destination policy: NONE.** The tunnel dials any destination — loopback,
+LAN, internet — with no allowlist or blocklist. Rationale: anyone who can
+reach rk already has a shell on the host through the terminal relay (rk has
+no auth — Tailnet-only / SSH-tunnel-only by deployment), so restricting
+destinations is security theater and adds no exposure beyond what rk already
+grants. Browser pages cannot reach it at all (§ WebSocket Origin policy).
+
+**Constitution stance** — no exception needed: a WebSocket upgrade is an
+ordinary `GET`. The tunnel spawns no subprocess (net dialing only,
+Constitution I) and holds no state beyond live connections (Constitution II).
+`/proxy/{port}` and `/code` are untouched — they remain for the iframe
+engine and browser viewers.
+
+**Capability advertisement** — `GET /api/health` carries `tunnel` (a JSON
+number, the daemon's listen port); older daemons omit the field (§ Health).
+The desktop shell gates proxy mode on this field plus a live tunnel
+round-trip to the host's own listen port.
+
+#### WebSocket Origin policy
+
+Browsers do not apply CORS to WebSockets, so each upgrader enforces its own
+Origin policy. All rejections answer `403`.
+
+**Tunnel upgrader** (`/ws/tunnel`) — the strictest acceptable policy: accept
+ONLY requests carrying NO `Origin` header AND NO `Sec-Fetch-Site` header. The
+tunnel's sole client is the Electron main process (a non-browser client);
+every browser WebSocket carries an unsuppressable `Origin`, so this rejects
+all browser pages — cross-site, same-site, and DNS-rebinding alike. rk's own
+origin is rejected too (the SPA never opens the tunnel). The no-Origin rule
+makes the tunnel immune to DNS rebinding.
+
+**Shared upgrader** (`/ws/state`, `/ws/terminals`, `/ws/gui/{id}`) —
+Fetch-Metadata-first same-origin policy:
+
+| Step | Condition | Verdict |
+|------|-----------|---------|
+| 1 | `Sec-Fetch-Site: same-origin` | allow |
+| 2 | `Sec-Fetch-Site` present with any other value (`cross-site`, `same-site`, …) | reject |
+| 3 | `Sec-Fetch-Site` absent, `Origin` absent | allow (non-browser clients: Go/Node tooling, tests) |
+| 4 | `Origin` host[:port] equals (case-insensitive, default ports 80/443 normalized) the first `X-Forwarded-Host` value when present, else the request's `Host` | allow |
+| 5 | Anything else, including a malformed `Origin` | reject |
+
+Scheme is not compared — a TLS front end terminates TLS, so `Origin:
+https://…` meets a plain-http hop. The browser computes `Sec-Fetch-Site`
+against the URL IT connected to, so a Host-rewriting front end (nginx
+default, Tailscale Serve, load balancers) cannot break the SPA's own
+sockets. Trusting `X-Forwarded-Host` is safe here: the browser `WebSocket`
+API cannot set custom request headers, and a non-browser client can simply
+omit `Origin`.
+
+**Known limitations:**
+- **DNS rebinding** is not stopped by the shared upgrader's Host-match rule
+  (under rebinding both `Origin` and `Host` carry the attacker's name). The
+  tunnel is immune via its no-Origin rule; the MCP transport's bind-derived
+  allowlist is the precedent if the shared sockets ever need one.
+- **CORS stays allow-all** (`AllowedOrigins: ["*"]`), so cross-site pages
+  can still call `/api/*`. The WebSocket tightening is defense-in-depth for
+  the socket surface, not a closure of the cross-site hole; CORS tightening
+  is a follow-up.
 
 ---
 
@@ -639,7 +779,10 @@ visible; it grants nothing to any `/api/*` route.
 | `POST` | `/api/update` | `update.go` | One-click toolkit upgrade (scoped/force) |
 | `POST` | `/api/updates/check` | `update.go` | On-demand update check (inline checker pass, synchronous verdict) |
 | `WS` | `/ws/terminals` | `terminals_ws.go` | Terminals mux (all pane relays, one socket/tab) |
+| `WS` | `/ws/tunnel` | `tunnel_ws.go` | Byte tunnel to `host:port` for the desktop web tile (§ Tunnel) |
 | `POST` | `/api/windows/:windowId/send` | `send.go` | Compose-strip send into a window's pane (the injection engine's HTTP door) |
+| `POST` | `/api/layout/borrow` | `layout_borrow.go` | Move a surface leaf into a tab (`{to, leaf, tree}`); the current holder's tree-minus-leaf and the target's tree write in one chained tmux invocation |
+| `POST` | `/api/layout/return` | `layout_borrow.go` | Send a held surface leaf home (`{from, leaf}`); the server recomputes both trees from live tmux state and re-adds a dismissed home slot |
 | `POST` | `/api/windows/:windowId/operator-request` | `operator.go` | Window-scoped operator request (closed template registry; busy ⇒ 202 queued) |
 | `POST` | `/api/operator-request` | `operator.go` | Server-scoped operator request (same registry) |
 | `POST` | `/api/operator/start` | `operator_start.go` | Start the server operator (execs `rk operator -L <server> --json`; answers on the receipt line) |

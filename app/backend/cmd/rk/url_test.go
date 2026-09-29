@@ -2,7 +2,11 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
+
+	"rk/internal/portpolicy"
+	"rk/internal/settings"
 )
 
 // runURL drives `rk url` through the real cobra Execute() seam — not urlCmd.RunE
@@ -54,12 +58,15 @@ func TestURLCommandRegistered(t *testing.T) {
 func TestURLDefault(t *testing.T) {
 	t.Setenv("RK_HOST", "")
 	t.Setenv("RK_PORT", "")
+	// Isolate the config root so the developer's real config.yaml port (and
+	// any legacy-home virtual pin) cannot leak into config.Load.
+	t.Setenv(settings.ConfigDirEnv, t.TempDir())
 	// Outside any pane and no stamp: falls through to the default.
 	stubOriginSeams(t, "", "", nil)
 
 	stdout, stderr := runURL(t)
 
-	if want := "http://127.0.0.1:3000\n"; stdout != want {
+	if want := fmt.Sprintf("http://127.0.0.1:%d\n", portpolicy.DaemonDefault); stdout != want {
 		t.Errorf("stdout = %q, want %q", stdout, want)
 	}
 	if stderr != "" {
@@ -87,7 +94,7 @@ func TestURLFromEnv(t *testing.T) {
 }
 
 // TestURLFromTmuxOption asserts a pane in a covered server (no explicit env)
-// prints the daemon-stamped @rk_srv_origin instead of the 3000 default.
+// prints the daemon-stamped @rk_srv_origin instead of the config default.
 func TestURLFromTmuxOption(t *testing.T) {
 	t.Setenv("RK_HOST", "")
 	t.Setenv("RK_PORT", "")

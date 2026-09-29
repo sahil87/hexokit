@@ -22,8 +22,8 @@ import { stubProxyPorts } from "./_web-tile";
  * the view registry through the palette's `View: Code` action and the
  * tileable code surface (`Code tile` top-bar toggle —
  * the right rail is REMOVED, its toggles moved into the top bar's
- * `surface-toggles` group; `?panel=code` → `split-h:tty,code` via the same
- * translation), with availability =
+ * `surface-toggles` group; `?panel=code` → the tree form `h(tty,code)` via
+ * the same translation), with availability =
  * gitRoot derived (the port resolves by convention — `RK_CODE_SERVER_PORT`
  * preset, else `RK_PORT+2` — and no longer gates), and code-server
  * reachability governing only the surface CONTENT (live iframe vs the
@@ -79,8 +79,8 @@ import { stubProxyPorts } from "./_web-tile";
  *   `holdWorkspaceFetch(page)` route-holds the frontend's GET so the
  *   pending → iframe transition is observable regardless of box load.
  * - The first-boot-rescue tests write fake pid-alive bridge registry files —
- *   a host record into `${XDG_STATE_HOME}/run-kit/cb/hosts/` (the negative
- *   arm) and an empty-boot marker into `${XDG_STATE_HOME}/run-kit/cb/boots/`
+ *   a host record into `${XDG_STATE_HOME}/hexokit/cb/hosts/` (the negative
+ *   arm) and an empty-boot marker into `${XDG_STATE_HOME}/hexokit/cb/boots/`
  *   (the positive arm) — after the tile's baseline status read, using the
  *   harness's per-run state home (forwarded from the harness, so the backend
  *   reads the SAME dir), and count `Code editor` iframe loads via an
@@ -401,8 +401,9 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
 
   /**
    * Proves: the retired `?panel=code` deep link translates inbound (a bare
-   * panel value maps against the tty default slot A → `split-h:tty,code`,
-   * written to `@rk_win_layout` once, params dropped from the URL); the tile's
+   * panel value maps against the tty default slot A → the tree form
+   * `h(tty,code)`, written to `@rk_win_layout` once, params dropped from the
+   * URL); the tile's
    * renderer iframes the derived RELATIVE `/code/?workspace=<path>` URL (never
    * an absolute origin; the port never appears) with the sandbox set (incl.
    * `allow-downloads`); and the workspace file behind that path exists on disk
@@ -413,7 +414,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
    * Steps:
    * 1. Create a repo-cwd window; navigate with `?panel=code`.
    * 2. Assert the `surface-tile-code` tile and the `Code editor` iframe are
-   *    visible, the option reads `split-h:tty,code`, and the URL is bare.
+   *    visible, the option reads `h(tty,code)`, and the URL is bare.
    * 3. GET the window's code-workspace; assert the iframe `src` attribute is
    *    exactly `/code/?workspace=<url-encoded path>`, the GET's `root` is the
    *    git root, and the sandbox contains `allow-downloads`.
@@ -428,12 +429,13 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await gotoWindow(page, id, "?panel=code");
 
     // The retired ?panel= param translates inbound (bare panel value →
-    // split-h:tty,code, one option write). The code TILE renders its iframe
+    // h(tty,code), one option write in the tree form). The code TILE renders
+    // its iframe
     // (stub reachable) at the fully DERIVED relative src on the STABLE /code/
     // route — never an absolute origin, and the port never
     // appears (it's a server-side implementation detail).
     await expect(codeTile(page)).toBeVisible({ timeout: 10_000 });
-    await expectWindowLayout(id, "split-h:tty,code");
+    await expectWindowLayout(id, "h(tty,code)");
     await expect.poll(() => new URL(page.url()).search, { timeout: 10_000 }).toBe("");
     const iframe = codeIframe(page);
     await expect(iframe).toBeVisible({ timeout: READY_TIMEOUT });
@@ -500,7 +502,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await expect(codeToggle(page)).toBeVisible();
 
     // Open web, then code — tiles are ADDITIVE now (R10 growth): both
-    // iframes render simultaneously (main-left:tty,web,code).
+    // iframes render simultaneously (a 3-tile tree).
     await webToggle(page).click();
     const webIframe = page.getByTitle("Proxied content");
     await expect(webIframe).toBeVisible({ timeout: 10_000 });
@@ -617,7 +619,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
    *    compare stale.
    * 3. Write the fake host record `{hostId, folder, pid: process.pid, sock,
    *    extVersion, startedAt: <now>, tab: <window id>, server: <E2E tmux
-   *    server>}` into `${XDG_STATE_HOME}/run-kit/cb/hosts/` (read from
+   *    server>}` into `${XDG_STATE_HOME}/hexokit/cb/hosts/` (read from
    *    process.env, never hardcoded) and register it for afterEach cleanup.
    * 4. Wait CODE_BOOT_RESCUE_WAIT_MS + 2 s, then assert the load counter is
    *    exactly 1 (a rescue reload would have fired a second `load`).
@@ -663,7 +665,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
 
     // Step 3: the confirming record — pid-alive (this process), tab-keyed to
     // the window under test, stamped now (newer than the empty baseline).
-    const hostsDir = join(stateHome, "run-kit", "cb", "hosts");
+    const hostsDir = join(stateHome, "hexokit", "cb", "hosts");
     mkdirSync(hostsDir, { recursive: true });
     const hostId = `e2e-rescue-${id.slice(1)}`;
     const recordPath = join(hostsDir, `${hostId}.json`);
@@ -673,7 +675,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
         hostId,
         folder: GIT_ROOT,
         pid: process.pid,
-        sock: join(stateHome, "run-kit", "cb", `${hostId}.sock`),
+        sock: join(stateHome, "hexokit", "cb", `${hostId}.sock`),
         extVersion: "0.0.0-e2e",
         startedAt: new Date().toISOString(),
         tab: id,
@@ -709,7 +711,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
    *    exist before the baseline read, or it would BE the baseline.
    * 3. Write the fake marker `{hostId, workspaceFile, tab: <window id>,
    *    server: <E2E tmux server>, pid: process.pid, extVersion, startedAt:
-   *    <now>}` into `${XDG_STATE_HOME}/run-kit/cb/boots/` and register it for
+   *    <now>}` into `${XDG_STATE_HOME}/hexokit/cb/boots/` and register it for
    *    afterEach cleanup.
    * 4. Wait out the verdict AND re-check windows (WAIT + RECHECK + slack),
    *    then assert the load counter is exactly 2: the initial mount and the
@@ -754,7 +756,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     // The positive empty-boot signal: pid-alive (this process), tab-keyed to
     // the window under test, stamped now — newer than the empty baseline.
     const ws = await fetchWorkspace(page, id);
-    const bootsDir = join(stateHome, "run-kit", "cb", "boots");
+    const bootsDir = join(stateHome, "hexokit", "cb", "boots");
     mkdirSync(bootsDir, { recursive: true });
     const hostId = `e2e-boot-${id.slice(1)}`;
     const markerPath = join(bootsDir, `${hostId}.json`);
@@ -859,7 +861,8 @@ test.describe("Code lens & CODE surface (phase 2) — stub down", () => {
    * Proves: reachability governs CONTENT, not availability — with the stub
    * down, the top-bar toggle still renders (capability signals are stable) but
    * the code tile shows the terse portless `code-server not running — check rk
-   * doctor` empty state instead of a dead iframe. Neither code-tile header
+   * doctor` empty state, with its `Restart code-server` recovery button,
+   * instead of a dead iframe. Neither code-tile header
    * verb renders on that state: `Reload editor` has no mounted frame to
    * reload, and `Follow terminal` has no drift (the latched root and the
    * derivation agree).
@@ -868,9 +871,11 @@ test.describe("Code lens & CODE surface (phase 2) — stub down", () => {
    * 1. (Stub is closed — this describe never binds the port.)
    * 2. Create a repo-cwd window; navigate with `?panel=code`; assert the `Code
    *    tile` top-bar toggle is visible.
-   * 3. Assert the `code-surface-empty` state reads `code-server not running —
-   *    check rk doctor` (30s budget — the backend's ~5s probe TTL must expire
-   *    first) and no `Code editor` iframe exists.
+   * 3. Assert the `code-surface-empty` state contains `code-server not running
+   *    — check rk doctor` (30s budget — the backend's ~5s probe TTL must expire
+   *    first; contains, since the state also holds the button), that it offers
+   *    the `Restart code-server` button (not clicked — a click would respawn
+   *    the rig daemon's code-server), and that no `Code editor` iframe exists.
    * 4. Assert the `Reload editor` and `Follow terminal` verbs are both absent
    *    from the tile header.
    */
@@ -884,12 +889,13 @@ test.describe("Code lens & CODE surface (phase 2) — stub down", () => {
     // the top-bar toggle renders; only the CONTENT is the empty state. Generous
     // timeout: the backend's ~5s probe TTL must expire before the flip lands.
     await expect(codeToggle(page)).toBeVisible({ timeout: READY_TIMEOUT });
-    await expect(notRunning(page)).toHaveText(
+    await expect(notRunning(page)).toContainText(
       "code-server not running — check rk doctor",
       {
         timeout: 30_000,
       },
     );
+    await expect(notRunning(page).getByRole("button", { name: "Restart code-server" })).toBeVisible();
     await expect(codeIframe(page)).toHaveCount(0);
     // No frame and no drift: neither header verb renders on the empty state.
     await expect(codeTile(page).getByRole("button", { name: "Reload editor" })).toBeHidden();

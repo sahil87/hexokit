@@ -31,7 +31,7 @@ package prstatus
 //     SeedCache.collectorRefreshed).
 //
 // Constitution §II legitimizes this class of file explicitly (the
-// `$XDG_STATE_HOME/run-kit/` carve-out: write-only recovery backups and never-
+// `$XDG_STATE_HOME/hexokit/` carve-out: write-only recovery backups and never-
 // authoritative startup seed caches). Constitution §I is untouched — no new
 // subprocess, no shell string; file IO uses os + fsatomic.
 
@@ -46,6 +46,7 @@ import (
 	"sync"
 	"time"
 
+	"rk/internal/apphome"
 	"rk/internal/fsatomic"
 )
 
@@ -69,22 +70,19 @@ const (
 	cacheDirMode  = 0o700
 )
 
-// DefaultCachePath resolves the PR-status cache file: $XDG_STATE_HOME/run-kit/prstatus.json
-// when the env var is set, else ~/.local/state/run-kit/prstatus.json. Mirrors
-// snapshot.DefaultDir() minus the per-server subdirectory — state dir, not cache
-// dir, because it shares a root with the recovery artifacts and the path stays
-// uniform across platforms. The legacy <state-root>/rk/prstatus.json is left
-// behind, unmoved: a seed cache regenerates on the next refresh, so a move
-// would buy at most one cold-start latency hit.
+// DefaultCachePath resolves the PR-status cache file: <state home>/prstatus.json,
+// where the state home is apphome.StateDir. Mirrors snapshot.DefaultDir() minus
+// the per-server subdirectory — state dir, not cache dir, because it shares a
+// root with the recovery artifacts and the path stays uniform across platforms.
+// The legacy <state-root>/rk/prstatus.json is left behind, unmoved: a seed
+// cache regenerates on the next refresh, so a move would buy at most one
+// cold-start latency hit.
 func DefaultCachePath() (string, error) {
-	if v := os.Getenv("XDG_STATE_HOME"); v != "" {
-		return filepath.Join(v, "run-kit", cacheFileName), nil
-	}
-	home, err := os.UserHomeDir()
+	root, err := apphome.StateDir()
 	if err != nil {
 		return "", fmt.Errorf("resolving prstatus cache path: %w", err)
 	}
-	return filepath.Join(home, ".local", "state", "run-kit", cacheFileName), nil
+	return filepath.Join(root, cacheFileName), nil
 }
 
 // SeedState is the in-memory shape of one cache generation: everything a fresh

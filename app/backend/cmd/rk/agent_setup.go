@@ -179,7 +179,7 @@ func agentStateHookCommandJSON(launcherPath, stablePath, state, provider string)
 }
 
 // resolveRkPath returns the absolute path to embed in the installed hook. It
-// prefers exec.LookPath("run-kit") — the canonical command name — then
+// prefers exec.LookPath("run-kit") — a long alias the formula installs — then
 // exec.LookPath("rk") (the permanent short alias); on a Homebrew machine either
 // yields the STABLE symlink (/home/linuxbrew/.linuxbrew/bin/run-kit or
 // /opt/homebrew/bin/run-kit, and likewise for rk), NOT the version-pinned Cellar

@@ -1,0 +1,59 @@
+id: r2mn
+name: 260929-r2mn-web-popout-shrinks-opener-terminal
+created: 2026-09-29T07:33:26Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 14
+    acceptance_completed: 14
+confidence:
+    certain: 6
+    confident: 7
+    tentative: 0
+    unresolved: 0
+    score: 4.0
+    fuzzy: true
+    dimensions:
+        signal: 72.7
+        reversibility: 87.3
+        competence: 81.2
+        disambiguation: 75.8
+stage_metrics:
+    intake: {started_at: "2026-09-29T07:33:26Z", driver: fab-new, iterations: 1, completed_at: "2026-09-29T07:36:41Z"}
+    apply: {started_at: "2026-09-29T07:36:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-29T07:45:24Z"}
+    review: {started_at: "2026-09-29T07:45:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-29T07:49:22Z"}
+    hydrate: {started_at: "2026-09-29T07:49:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-29T07:50:02Z"}
+    ship: {started_at: "2026-09-29T07:50:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-29T07:51:41Z"}
+    review-pr: {started_at: "2026-09-29T07:51:41Z", driver: git-pr, iterations: 1, completed_at: "2026-09-29T07:59:29Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1068
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 536
+    deleted: 10
+    net: 526
+    excluding:
+        added: 184
+        deleted: 7
+        net: 177
+    tests:
+        added: 16
+        deleted: 2
+        net: 14
+    computed_at: "2026-09-29T07:51:41Z"
+    computed_at_stage: ship
+summary: 'Web popouts no longer mount a hidden terminal that clamps the opener''s tmux window: the popout posture waits for the first real sessions snapshot (sessionsReceivedByServer) and judges its window on the raw snapshot'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-29T07:59:29Z

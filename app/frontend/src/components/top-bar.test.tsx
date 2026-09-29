@@ -9,7 +9,7 @@ import { ThemeProvider } from "@/contexts/theme-context";
 import { SettingsDialogProvider, useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { ToastProvider } from "@/components/toast";
 import type { ProjectSession, WindowInfo } from "@/types";
-import type { SurfaceKind } from "@/lib/surface-layout";
+import type { Layout, SurfaceKind } from "@/lib/surface-layout";
 import { buildGuiActions, type GuiPaletteInput } from "@/lib/palette/gui";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import { setQuakeMachineState } from "@/lib/quake-terminal";
@@ -389,7 +389,7 @@ describe("TopBar", () => {
 
   it("names each crumb's level via a styled Tip — no native title attributes (260722-73al)", () => {
     renderTopBar();
-    const brand = screen.getByLabelText("RunKit home");
+    const brand = screen.getByLabelText("HexoKit home");
     const serverCrumb = getVisibleCrumbText("runkit").closest("a");
     const windowSwitch = screen.getByLabelText("Switch tab");
     // The session crumb is now a NON-interactive static chip (260813-kvk7) — a
@@ -418,9 +418,9 @@ describe("TopBar", () => {
     expect(screen.getByLabelText("tmux Server runkit")).toBeInTheDocument();
   });
 
-  it("renders the brand as the left-most root crumb linking to / (and no right-side RunKit anchor)", () => {
+  it("renders the brand as the left-most root crumb linking to / (and no right-side HexoKit anchor)", () => {
     const { container } = renderTopBar();
-    const brand = screen.getByLabelText("RunKit home");
+    const brand = screen.getByLabelText("HexoKit home");
     expect(brand.tagName).toBe("A");
     expect(brand).toHaveAttribute("href", "/");
     // The brand sits inside the nav's FIRST element child \u2014 the `hidden
@@ -431,7 +431,7 @@ describe("TopBar", () => {
     expect(nav.firstElementChild).toContainElement(brand);
     expect(nav.firstElementChild!.className).toContain("sm:contents");
     // There is exactly ONE anchor to "/" (the left brand) \u2014 the old right-side
-    // RunKit anchor is gone.
+    // HexoKit anchor is gone.
     const homeAnchors = Array.from(container.querySelectorAll('a[href="/"]'));
     expect(homeAnchors).toHaveLength(1);
   });
@@ -504,10 +504,10 @@ describe("TopBar", () => {
       );
     beforeEach(() => {
       stubDesktop();
-      localStorage.setItem("runkit-sidebar-width", "220");
+      localStorage.setItem("hexokit-sidebar-width", "220");
     });
     afterEach(() => {
-      localStorage.removeItem("runkit-sidebar-width");
+      localStorage.removeItem("hexokit-sidebar-width");
     });
 
     /** The head is the header's direct absolutely-positioned child. */
@@ -517,18 +517,18 @@ describe("TopBar", () => {
 
     it("paints the head over the bar's left end: brand link + toggle inside it, each exactly once in the document", () => {
       const { container } = renderTopBar({ sidebarOpen: true });
-      expect(screen.getAllByLabelText("RunKit home")).toHaveLength(1);
+      expect(screen.getAllByLabelText("HexoKit home")).toHaveLength(1);
       expect(screen.getAllByLabelText("Toggle navigation")).toHaveLength(1);
       const head = headOf(container)!;
       expect(head).not.toBeNull();
-      expect(head).toContainElement(screen.getByLabelText("RunKit home"));
+      expect(head).toContainElement(screen.getByLabelText("HexoKit home"));
       expect(head).toContainElement(screen.getByLabelText("Toggle navigation"));
       // The left cluster carries neither control while the head shows: the
       // history arrows lead it and the nav holds no brand crumb.
       const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
       const cluster = nav.parentElement!;
       expect(cluster).not.toContainElement(screen.getByLabelText("Toggle navigation"));
-      expect(within(nav).queryByLabelText("RunKit home")).not.toBeInTheDocument();
+      expect(within(nav).queryByLabelText("HexoKit home")).not.toBeInTheDocument();
     });
 
     it("yields the head when the bar would keep less than HEAD_MIN_BAR_PX beside it: classic bar, no inset", () => {
@@ -541,7 +541,7 @@ describe("TopBar", () => {
       const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
       const cluster = nav.parentElement!;
       expect(cluster).toContainElement(screen.getByLabelText("Toggle navigation"));
-      expect(within(nav).getByLabelText("RunKit home")).toBeInTheDocument();
+      expect(within(nav).getByLabelText("HexoKit home")).toBeInTheDocument();
       // And the nav keeps its desktop floor.
       expect(nav.className).toContain("sm:min-w-[150px]");
     });
@@ -555,7 +555,7 @@ describe("TopBar", () => {
 
     it("keeps the head's brand link and toggle as real Tab stops (anchor to /, button — no tabIndex removal)", () => {
       renderTopBar({ sidebarOpen: true });
-      const brand = screen.getByLabelText("RunKit home");
+      const brand = screen.getByLabelText("HexoKit home");
       const toggle = screen.getByLabelText("Toggle navigation");
       expect(brand.tagName).toBe("A");
       expect(brand).toHaveAttribute("href", "/");
@@ -605,7 +605,7 @@ describe("TopBar", () => {
       expect(container.querySelector("header")!.style.paddingLeft).toBe("");
       const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
       expect(nav.parentElement!.firstElementChild).toBe(screen.getByLabelText("Toggle navigation"));
-      expect(nav.firstElementChild).toContainElement(screen.getByLabelText("RunKit home"));
+      expect(nav.firstElementChild).toContainElement(screen.getByLabelText("HexoKit home"));
     });
 
     it("renders no head on the Host page even with the sidebar preference open", () => {
@@ -624,7 +624,7 @@ describe("TopBar", () => {
       expect(container.querySelector("header")!.style.paddingLeft).toBe("");
       // The brand stays in the breadcrumb nav (the bar is exactly today's).
       expect(
-        screen.getByLabelText("RunKit home").closest('nav[aria-label="Breadcrumb"]'),
+        screen.getByLabelText("HexoKit home").closest('nav[aria-label="Breadcrumb"]'),
       ).not.toBeNull();
     });
 
@@ -702,7 +702,7 @@ describe("TopBar", () => {
     // bell is gone entirely. (The menu itself mounts only when open.)
     expect(screen.queryByLabelText(/Notifications/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/theme/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Help — run-kit docs")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Help — HexoKit docs")).not.toBeInTheDocument();
     expect(cluster.querySelector('[role="status"]')).toBeNull();
   });
 
@@ -750,12 +750,12 @@ describe("TopBar", () => {
     it("renders the brand link and the surviving L3 always-block (Refresh), without erroring on empty props", () => {
       renderHost();
       // Brand root crumb links home.
-      expect(screen.getByLabelText("RunKit home")).toHaveAttribute("href", "/");
+      expect(screen.getByLabelText("HexoKit home")).toHaveAttribute("href", "/");
       // Refresh is the surviving L3 always-block control; theme + help moved to
       // the sidebar footer (260724-6j1v) and never render in the bar.
       expect(screen.getByLabelText("Refresh page")).toBeInTheDocument();
       expect(screen.queryByLabelText(/theme/i)).not.toBeInTheDocument();
-      expect(screen.queryByLabelText("Help — run-kit docs")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Help — HexoKit docs")).not.toBeInTheDocument();
       // The fixed-width BUTTON is terminal-only now (260704-9o7k).
       expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
     });
@@ -778,7 +778,7 @@ describe("TopBar", () => {
     // popover form was deleted outright (260814-6b0j — reset lives in the
     // settings dialog and the palette's Increase/Decrease/Reset actions). The
     // chevron menu's stepper row (TerminalFontMenuRow) is the top-bar surface.
-    const FONT_KEY = "runkit-terminal-font-size";
+    const FONT_KEY = "hexokit-terminal-font-size";
 
     afterEach(() => {
       localStorage.clear();
@@ -880,9 +880,9 @@ describe("TopBar", () => {
     expect(slotFillOpacity()).toBe("0");
   });
 
-  it("renders 'RunKit' branding text", () => {
+  it("renders 'HexoKit' branding text", () => {
     renderTopBar();
-    expect(screen.getByText("RunKit")).toBeInTheDocument();
+    expect(screen.getByText("HexoKit")).toBeInTheDocument();
   });
 
   it("does not render Line 2 elements", () => {
@@ -1326,7 +1326,7 @@ describe("TopBar", () => {
       });
 
       it("omits a row's keycap when its binding is disabled — a dead chord would lie (board)", () => {
-        localStorage.setItem("runkit-keybindings", JSON.stringify({ "split-vertical": null }));
+        localStorage.setItem("hexokit-keybindings", JSON.stringify({ "split-vertical": null }));
         renderBoardSplit();
         act(() => fireEvent.click(screen.getByLabelText("Split… (choose direction)")));
         const rows = Array.from(splitDirectionMenu()!.querySelectorAll('[role="menuitem"]'));
@@ -1486,12 +1486,12 @@ describe("TopBar", () => {
       // dialog, 260724-6j1v); Theme… is gone too — theme switching lives in
       // the settings dialog's inline picker and the palette (260819-qkow).
       expect(within(menu).getByRole("menuitem", { name: "Settings" })).toBeInTheDocument();
-      expect(within(menu).getByRole("menuitem", { name: /Help — run-kit docs/ })).toBeInTheDocument();
+      expect(within(menu).getByRole("menuitem", { name: /Help — HexoKit docs/ })).toBeInTheDocument();
       expect(within(menu).getByRole("menuitem", { name: /Keyboard shortcuts/ })).toBeInTheDocument();
       expect(within(menu).queryByRole("menuitem", { name: /Theme…/ })).not.toBeInTheDocument();
       expect(within(menu).queryByText("Enable notifications")).not.toBeInTheDocument();
       // The fixed version row is always present (last).
-      expect(within(menu).getByText("RunKit")).toBeInTheDocument();
+      expect(within(menu).getByText("HexoKit")).toBeInTheDocument();
     });
 
     it("groups menu rows under View / Window / App uppercase section labels (260731-oiho)", () => {
@@ -1515,7 +1515,7 @@ describe("TopBar", () => {
       const splitRow = within(menu).getByRole("menuitem", { name: "Split vertical" });
       const refreshRow = within(menu).getByRole("menuitem", { name: "Refresh page" });
       const settingsRow = within(menu).getByRole("menuitem", { name: "Settings" });
-      const helpRow = within(menu).getByRole("menuitem", { name: /Help — run-kit docs/ });
+      const helpRow = within(menu).getByRole("menuitem", { name: /Help — HexoKit docs/ });
       const keyboardRow = within(menu).getByRole("menuitem", { name: /Keyboard shortcuts/ });
       expect(follows(viewLabel, fixedWidthRow)).toBe(true);
       expect(follows(fixedWidthRow, windowLabel)).toBe(true);
@@ -1526,7 +1526,7 @@ describe("TopBar", () => {
       expect(follows(settingsRow, helpRow)).toBe(true);
       expect(follows(helpRow, keyboardRow)).toBe(true);
       // The fixed version row rides the App section's tail.
-      expect(follows(keyboardRow, within(menu).getByText("RunKit"))).toBe(true);
+      expect(follows(keyboardRow, within(menu).getByText("HexoKit"))).toBe(true);
     });
 
     it("renders NO section labels when the menu holds only the version row", () => {
@@ -1544,7 +1544,7 @@ describe("TopBar", () => {
       );
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
-      expect(within(menu).getByText("RunKit")).toBeInTheDocument();
+      expect(within(menu).getByText("HexoKit")).toBeInTheDocument();
       expect(within(menu).queryByText("View", { exact: true })).not.toBeInTheDocument();
       expect(within(menu).queryByText("Tab", { exact: true })).not.toBeInTheDocument();
       expect(within(menu).queryByText("App", { exact: true })).not.toBeInTheDocument();
@@ -1625,11 +1625,11 @@ describe("TopBar", () => {
   });
 
   describe("overflow menu version row (260715-h1ck)", () => {
-    it("shows plain `RunKit` when the daemon version is unknown (no vundefined)", () => {
+    it("shows plain `HexoKit` when the daemon version is unknown (no vundefined)", () => {
       renderTopBar(); // no SessionProvider → daemonVersion null
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
-      const versionRow = within(menu).getByText("RunKit");
+      const versionRow = within(menu).getByText("HexoKit");
       expect(versionRow).toBeInTheDocument();
       expect(within(menu).queryByText(/vundefined/)).not.toBeInTheDocument();
     });
@@ -1805,11 +1805,17 @@ describe("TopBar", () => {
       available: SurfaceKind[];
       open: SurfaceKind[];
       onToggle: (surface: SurfaceKind) => void;
+      canAdd: boolean;
+      away: (surface: SurfaceKind) => boolean;
+      popped: (surface: SurfaceKind) => boolean;
     }> = {}) => ({
       mode: "toggle" as const,
       available: overrides.available ?? ["tty", "web", "code"],
       open: overrides.open ?? ["tty"],
       onToggle: overrides.onToggle ?? vi.fn(),
+      canAdd: overrides.canAdd ?? true,
+      ...(overrides.away ? { away: overrides.away } : {}),
+      ...(overrides.popped ? { popped: overrides.popped } : {}),
     });
 
     it("renders no toggle group anywhere when surfaceToggles is absent (board/host/unregistered)", () => {
@@ -1868,20 +1874,101 @@ describe("TopBar", () => {
       expect(onToggle).toHaveBeenCalledWith("web");
     });
 
-    it("at 3 open tiles the remaining unlit rows render DISABLED; a lit row stays enabled", () => {
+    it("the disable follows the floor-derived canAdd, not the open-tile count", () => {
       const onToggle = vi.fn();
-      // Three open tiles with a fourth surface unlit needs a duplicate tty
-      // tile (legal — the muxed relay supports N clients per pane).
-      renderTopBar({ surfaceToggles: toggles({ available: ["tty", "web", "code"], open: ["tty", "tty", "code"], onToggle }) });
+      // canAdd false with a single open tile: the floor, not a count, gates.
+      renderTopBar({ surfaceToggles: toggles({ open: ["tty"], canAdd: false, onToggle }) });
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
       const web = within(menu).getByRole("menuitemcheckbox", { name: "Web tile" });
       expect(web).toHaveProperty("disabled", true);
-      // A lit row stays enabled at 3 tiles (closing is always allowed).
-      expect(within(menu).getByRole("menuitemcheckbox", { name: "Code tile" })).toHaveProperty("disabled", false);
+      // A lit row stays enabled (closing is always allowed).
+      expect(within(menu).getByRole("menuitemcheckbox", { name: "Terminal tile" })).toHaveProperty("disabled", false);
       // A disabled row never fires the toggle.
       fireEvent.click(web);
       expect(onToggle).not.toHaveBeenCalled();
+      cleanup();
+
+      // Three open tiles with canAdd still true: adds stay enabled.
+      renderTopBar({ surfaceToggles: toggles({ open: ["tty", "tty", "code"], canAdd: true }) });
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu2 = screen.getByRole("menu", { name: "More controls" });
+      expect(within(menu2).getByRole("menuitemcheckbox", { name: "Web tile" })).toHaveProperty("disabled", false);
+    });
+
+    it("marks away surfaces (the slot is live in another tab) on the bar button and the menu row", () => {
+      renderTopBar({
+        surfaceToggles: toggles({ away: (surface) => surface === "tty" }),
+      });
+      const group = screen.getAllByTestId("surface-toggles")[0];
+      expect(within(group).getByTestId("surface-away-tty")).toBeTruthy();
+      expect(within(group).queryByTestId("surface-away-web")).toBeNull();
+      expect(within(group).queryByTestId("surface-away-code")).toBeNull();
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      const tty = within(menu).getByRole("menuitemcheckbox", { name: "Terminal tile" });
+      expect(within(tty).getByTestId("surface-away-tty").textContent).toBe("away");
+      expect(within(within(menu).getByRole("menuitemcheckbox", { name: "Web tile" })).queryByTestId("surface-away-web")).toBeNull();
+    });
+
+    it("marks popped surfaces (the close-target leaf is popped out for this viewer) on the bar button and the menu row", () => {
+      renderTopBar({
+        surfaceToggles: toggles({
+          open: ["web", "code"],
+          popped: (surface) => surface === "tty",
+        }),
+      });
+      const group = screen.getAllByTestId("surface-toggles")[0];
+      expect(within(group).getByTestId("surface-popped-tty")).toBeTruthy();
+      expect(within(group).queryByTestId("surface-popped-web")).toBeNull();
+      expect(within(group).queryByTestId("surface-popped-code")).toBeNull();
+      // A popped, unrevealed kind is not pressed (open reads revealed-only).
+      expect(within(group).getByLabelText("Terminal tile").getAttribute("aria-pressed")).toBe("false");
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      const tty = within(menu).getByRole("menuitemcheckbox", { name: "Terminal tile" });
+      expect(within(tty).getByTestId("surface-popped-tty").textContent).toBe("popped");
+      expect(tty.getAttribute("aria-checked")).toBe("false");
+      expect(within(within(menu).getByRole("menuitemcheckbox", { name: "Web tile" })).queryByTestId("surface-popped-web")).toBeNull();
+    });
+
+    it("exempts a popped surface from the full-layout disable — its toggle reveals the placeholder, never an add", () => {
+      const onToggle = vi.fn();
+      renderTopBar({
+        surfaceToggles: toggles({
+          open: ["web"],
+          canAdd: false,
+          popped: (surface) => surface === "tty",
+          onToggle,
+        }),
+      });
+      // Bar form: the popped button stays actionable at the floor; a plain
+      // unlit surface (code) is still disabled.
+      const group = screen.getAllByTestId("surface-toggles")[0];
+      const ttyButton = within(group).getByLabelText("Terminal tile");
+      expect(ttyButton).toHaveProperty("disabled", false);
+      expect(within(group).getByLabelText("Code tile")).toHaveProperty("disabled", true);
+      fireEvent.click(ttyButton);
+      expect(onToggle).toHaveBeenCalledWith("tty");
+      cleanup();
+      onToggle.mockClear();
+
+      // Menu-row form: same exemption.
+      renderTopBar({
+        surfaceToggles: toggles({
+          open: ["web"],
+          canAdd: false,
+          popped: (surface) => surface === "tty",
+          onToggle,
+        }),
+      });
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      const tty = within(menu).getByRole("menuitemcheckbox", { name: "Terminal tile" });
+      expect(tty).toHaveProperty("disabled", false);
+      expect(within(menu).getByRole("menuitemcheckbox", { name: "Code tile" })).toHaveProperty("disabled", true);
+      fireEvent.click(tty);
+      expect(onToggle).toHaveBeenCalledWith("tty");
     });
 
     // Corner-dot predicate (260821-zqlq): the web button always renders, so
@@ -2049,7 +2136,7 @@ describe("TopBar", () => {
       cleanup();
       // Desktop toggle mode: no block either.
       renderTopBar({
-        surfaceToggles: { mode: "toggle", available: ["tty", "gui"], open: ["tty", "gui"], onToggle: vi.fn() },
+        surfaceToggles: { mode: "toggle", available: ["tty", "gui"], open: ["tty", "gui"], onToggle: vi.fn(), canAdd: true },
         guiToolbar: guiToolbar(),
       });
       expect(screen.queryByTestId("gui-toolbar-overflow")).toBeNull();
@@ -2173,9 +2260,9 @@ describe("TopBar", () => {
       renderTopBar();
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
-      const help = within(menu).getByRole("menuitem", { name: /Help — run-kit docs/ });
+      const help = within(menu).getByRole("menuitem", { name: /Help — HexoKit docs/ });
       expect(help.tagName).toBe("A");
-      expect(help).toHaveAttribute("href", "https://shll.ai/run-kit");
+      expect(help).toHaveAttribute("href", "https://hexokit.com/docs/");
       expect(help).toHaveAttribute("target", "_blank");
       const rel = help.getAttribute("rel") ?? "";
       expect(rel).toContain("noopener");
@@ -2387,14 +2474,15 @@ describe("WindowHeading (centered, editable, terminal mode)", () => {
 });
 
 /**
- * ▦ Layout chip (260812-ab5v-surface-layout-core R9) — the terminal-route L1
- * registry entry fed by AppShell's `layout`/`onApplyLayout` slot props. In
- * jsdom the fit candidates render only in the aria-hidden measurement probe
+ * ▦ Layout chip — the terminal-route L1 registry entry fed by AppShell's
+ * `layout`/`onApplyLayout` slot props (templates, not presets: the popover
+ * lists `templatesFor(n)` and a pick rides `applyTemplate` → `onApplyLayout`).
+ * In jsdom the fit candidates render only in the aria-hidden measurement probe
  * (zero widths → everything overflows), so the chip button is located by
  * `getByLabelText("Layout")` and its popover by attribute — the established
  * SplitControl direction-menu test pattern.
  */
-describe("TopBar layout chip (260812-ab5v R9)", () => {
+describe("TopBar layout chip", () => {
   beforeEach(() => {
     stubMatchMedia((query) => !query.includes("pointer: coarse"));
   });
@@ -2403,16 +2491,21 @@ describe("TopBar layout chip (260812-ab5v R9)", () => {
     cleanup();
   });
 
-  const splitLayout = { shape: "split-h", order: ["tty", "code"] } as const;
-  const mainLeftLayout = { shape: "main-left", order: ["tty", "code", "web"] } as const;
+  const splitLayout: Layout = { dir: "h", children: [{ leaf: "tty" }, { leaf: "code" }] };
+  const mainLeftLayout: Layout = {
+    dir: "h",
+    children: [{ leaf: "tty" }, { dir: "v", children: [{ leaf: "code" }, { leaf: "web" }] }],
+  };
+  /** `col` applied to the split layout's slot order. */
+  const colSplitLayout: Layout = { dir: "v", children: [{ leaf: "tty" }, { leaf: "code" }] };
 
-  /** The chip's shape popover — by attribute (jsdom keeps the control inside
+  /** The chip's template popover — by attribute (jsdom keeps the control inside
    *  the aria-hidden probe, which role queries exclude). */
   const layoutMenu = () =>
-    document.querySelector<HTMLElement>('[role="menu"][aria-label="Layout presets"]');
+    document.querySelector<HTMLElement>('[role="menu"][aria-label="Layout templates"]');
 
   it("renders the chip on a terminal window route when layout props register; hidden without them", () => {
-    renderTopBar({ layout: { ...splitLayout, order: [...splitLayout.order] }, onApplyLayout: vi.fn() });
+    renderTopBar({ layout: splitLayout, onApplyLayout: vi.fn() });
     expect(screen.getByLabelText("Layout")).toBeInTheDocument();
     expect(screen.getByLabelText("Layout")).toHaveAttribute("data-testid", "layout-chip");
 
@@ -2421,51 +2514,61 @@ describe("TopBar layout chip (260812-ab5v R9)", () => {
     expect(screen.queryByLabelText("Layout")).not.toBeInTheDocument();
   });
 
-  it("popover lists exactly the CURRENT arity's presets, current shape marked", () => {
-    renderTopBar({ layout: { ...splitLayout, order: [...splitLayout.order] }, onApplyLayout: vi.fn() });
+  it("popover lists exactly the CURRENT tile count's templates, current template marked", () => {
+    renderTopBar({ layout: splitLayout, onApplyLayout: vi.fn() });
     act(() => fireEvent.click(screen.getByLabelText("Layout")));
     const menu = layoutMenu();
     expect(menu).not.toBeNull();
-    const rows = Array.from(menu!.querySelectorAll("[data-testid^='layout-shape-']"));
-    // Arity 2 → the two splits only (never single / the 3-tile presets).
+    const rows = Array.from(menu!.querySelectorAll("[data-testid^='layout-template-']"));
+    // Two tiles → Row and Column only (never the 3-tile templates).
     expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual([
-      "layout-shape-split-h",
-      "layout-shape-split-v",
+      "layout-template-row",
+      "layout-template-col",
     ]);
-    // Current shape marked (menuitemradio aria-checked + the trailing ✓).
+    // Current template marked (menuitemradio aria-checked + the trailing ✓).
     expect(rows[0].getAttribute("aria-checked")).toBe("true");
     expect(rows[0].textContent).toContain("✓");
     expect(rows[1].getAttribute("aria-checked")).toBe("false");
   });
 
-  it("a 3-tile layout lists the five 3-tile presets", () => {
-    renderTopBar({ layout: { ...mainLeftLayout, order: [...mainLeftLayout.order] }, onApplyLayout: vi.fn() });
+  it("a 3-tile layout lists the six 3-tile templates", () => {
+    renderTopBar({ layout: mainLeftLayout, onApplyLayout: vi.fn() });
     act(() => fireEvent.click(screen.getByLabelText("Layout")));
-    const rows = Array.from(layoutMenu()!.querySelectorAll("[data-testid^='layout-shape-']"));
+    const rows = Array.from(layoutMenu()!.querySelectorAll("[data-testid^='layout-template-']"));
     expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual([
-      "layout-shape-row",
-      "layout-shape-col",
-      "layout-shape-main-left",
-      "layout-shape-main-right",
-      "layout-shape-main-top",
+      "layout-template-row",
+      "layout-template-col",
+      "layout-template-main-left",
+      "layout-template-main-right",
+      "layout-template-main-top",
+      "layout-template-main-bottom",
     ]);
     expect(rows[2].getAttribute("aria-checked")).toBe("true");
   });
 
-  it("clicking a glyph jumps DIRECTLY via setShape → onApplyLayout, and closes the popover", () => {
+  it("clicking a glyph jumps DIRECTLY via applyTemplate → onApplyLayout, and closes the popover", () => {
     const onApplyLayout = vi.fn();
-    renderTopBar({ layout: { ...splitLayout, order: [...splitLayout.order] }, onApplyLayout });
+    renderTopBar({ layout: splitLayout, onApplyLayout });
     act(() => fireEvent.click(screen.getByLabelText("Layout")));
     act(() =>
-      fireEvent.click(layoutMenu()!.querySelector("[data-testid='layout-shape-split-v']")!),
+      fireEvent.click(layoutMenu()!.querySelector("[data-testid='layout-template-col']")!),
     );
-    // Shape jump keeps the order; arity never changes.
-    expect(onApplyLayout).toHaveBeenCalledWith({ shape: "split-v", order: ["tty", "code"] });
+    // A template jump keeps the slot order; the tile count never changes.
+    expect(onApplyLayout).toHaveBeenCalledWith(colSplitLayout);
     expect(layoutMenu()).toBeNull();
   });
 
+  it("a one-tile layout renders its marked `single` state row (no templates exist at one tile)", () => {
+    renderTopBar({ layout: { leaf: "tty" }, onApplyLayout: vi.fn() });
+    act(() => fireEvent.click(screen.getByLabelText("Layout")));
+    const rows = Array.from(layoutMenu()!.querySelectorAll("[data-testid^='layout-template-']"));
+    expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual(["layout-template-single"]);
+    expect(rows[0].getAttribute("aria-checked")).toBe("true");
+    expect(rows[0].textContent).toContain("Single");
+  });
+
   it("Escape closes the popover and refocuses the chip", () => {
-    renderTopBar({ layout: { ...splitLayout, order: [...splitLayout.order] }, onApplyLayout: vi.fn() });
+    renderTopBar({ layout: splitLayout, onApplyLayout: vi.fn() });
     const chip = screen.getByLabelText("Layout");
     act(() => fireEvent.click(chip));
     expect(layoutMenu()).not.toBeNull();
@@ -2476,15 +2579,15 @@ describe("TopBar layout chip (260812-ab5v R9)", () => {
 
   it("the overflow (chevron) menu carries the chip's `Layout: …` radio rows", () => {
     const onApplyLayout = vi.fn();
-    renderTopBar({ layout: { ...splitLayout, order: [...splitLayout.order] }, onApplyLayout });
+    renderTopBar({ layout: splitLayout, onApplyLayout });
     act(() => fireEvent.click(screen.getByLabelText("More controls")));
     const menu = screen.getByRole("menu", { name: "More controls" });
-    const current = within(menu).getByRole("menuitemradio", { name: "Layout: Split Horizontal" });
-    const other = within(menu).getByRole("menuitemradio", { name: "Layout: Split Vertical" });
+    const current = within(menu).getByRole("menuitemradio", { name: "Layout: Row" });
+    const other = within(menu).getByRole("menuitemradio", { name: "Layout: Column" });
     expect(current.getAttribute("aria-checked")).toBe("true");
     expect(other.getAttribute("aria-checked")).toBe("false");
     act(() => fireEvent.click(other));
-    expect(onApplyLayout).toHaveBeenCalledWith({ shape: "split-v", order: ["tty", "code"] });
+    expect(onApplyLayout).toHaveBeenCalledWith(colSplitLayout);
   });
 
   it("the chip is terminal-mode only (no chip on the server route)", () => {
@@ -2494,7 +2597,7 @@ describe("TopBar layout chip (260812-ab5v R9)", () => {
       windowName: "",
       currentSession: null,
       currentWindow: null,
-      layout: { shape: "single", order: ["tty"] },
+      layout: { leaf: "tty" },
       onApplyLayout: vi.fn(),
     });
     expect(screen.queryByLabelText("Layout")).not.toBeInTheDocument();

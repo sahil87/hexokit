@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Operator messaging into the server's operator window over three lanes: direct chat (compose-send allow+probe), templated chat (`chatDelivery` — one addressee header + the user's text in a bare fence), and templated requests (busy ⇒ enqueue 202, drained on idle). Covers the closed template registry and its agent-directed siblings, fact derivation with transcript fill, the `conversationAvailable` gate, structured 409s, auto-name dispatch, and the `rk operator request` CLI door."
+description: "Operator messaging into the server's operator window over three lanes: direct chat (compose-send allow+probe), templated chat (`chatDelivery` templates — addressee header + user text, busy gate and queue skipped), and templated requests (busy ⇒ enqueue 202, drained on idle). Covers the closed template registry (+ agent-directed siblings), fact derivation with transcript fill, the `conversationAvailable` gate, structured 409s, auto-name dispatch, and the `rk operator request` CLI door."
 ---
 # Operator Actuation
 
@@ -558,7 +558,7 @@ process-memory only (a daemon restart forgets cooldowns, Constitution II) and
 reaped on the post-loop retain seam, scoped to successfully-polled-or-dead
 servers exactly like `waitingPushTracker.retain`. The feature is strictly
 OPT-IN: the `auto_name` key in the settings store (`internal/settings`,
-`~/.config/run-kit/config.yaml` — tolerant `ParseBool` read, default off, serialized
+`~/.config/hexokit/config.yaml` — tolerant `ParseBool` read, default off, serialized
 only when true), `live: true` in the registry (5r41). The construction-time
 seed (`Server.autoNameEnabled` from `settings.Load()`) is only `initSSEHub`'s
 initial apply: a successful `POST /api/settings` whose body contains

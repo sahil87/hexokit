@@ -452,7 +452,7 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
   });
 
   it("renders macro rows with the command preview and an unbound state", () => {
-    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    localStorage.setItem("hexokit-macros", JSON.stringify([DISCUSS]));
     renderWithTargets();
     expect(screen.getByText("CUSTOM")).toBeInTheDocument();
     expect(screen.getByText("riff: discuss")).toBeInTheDocument();
@@ -464,7 +464,7 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
 
   it("shows the missing-preset badge when the preset is absent from the known list", () => {
     localStorage.setItem(
-      "runkit-macros",
+      "hexokit-macros",
       JSON.stringify([{ ...DISCUSS, target: { type: "riff", preset: "gone" } }]),
     );
     renderWithTargets({ presets: ["discuss"] });
@@ -472,7 +472,7 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
   });
 
   it("shows no missing-preset badge when the preset list is unknown (null)", () => {
-    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    localStorage.setItem("hexokit-macros", JSON.stringify([DISCUSS]));
     renderWithTargets({ presets: null });
     expect(screen.queryByText("missing preset")).toBeNull();
   });
@@ -489,7 +489,7 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
     expect(screen.getByLabelText("Macro name")).toHaveValue("riff: discuss");
     fireEvent.click(screen.getByText("add + capture key"));
 
-    const stored = JSON.parse(localStorage.getItem("runkit-macros") ?? "[]");
+    const stored = JSON.parse(localStorage.getItem("hexokit-macros") ?? "[]");
     expect(stored).toEqual([
       {
         actionId: "macro:riff-discuss",
@@ -508,7 +508,7 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
   });
 
   it("delete removes the macro definition and its keybindings diff", () => {
-    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    localStorage.setItem("hexokit-macros", JSON.stringify([DISCUSS]));
     localStorage.setItem(
       KEYBINDINGS_STORAGE_KEY,
       JSON.stringify({ "macro:discuss": { code: "KeyD", tier: "shifted" } }),
@@ -516,12 +516,12 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
     renderWithTargets();
     fireEvent.click(screen.getByLabelText("Delete macro riff: discuss"));
     expect(screen.queryByText("rk riff --preset discuss")).toBeNull();
-    expect(localStorage.getItem("runkit-macros")).toBeNull();
+    expect(localStorage.getItem("hexokit-macros")).toBeNull();
     expect(localStorage.getItem(KEYBINDINGS_STORAGE_KEY)).toBeNull();
   });
 
   it("capturing a builtin's combo for a macro steals it and flags the victim", () => {
-    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    localStorage.setItem("hexokit-macros", JSON.stringify([DISCUSS]));
     renderWithTargets();
     fireEvent.click(screen.getByTitle("unbound — click to bind"));
     fireEvent.keyDown(window, { code: "ArrowDown", key: "ArrowDown", shiftKey: true, ctrlKey: true });
@@ -534,7 +534,7 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
   });
 
   it("hides the add row when no paletteTargets prop is provided (board mount)", () => {
-    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    localStorage.setItem("hexokit-macros", JSON.stringify([DISCUSS]));
     renderPanel();
     // Rows still render (view/rebind/delete), but no add flow.
     expect(screen.getByText("rk riff --preset discuss")).toBeInTheDocument();

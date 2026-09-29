@@ -745,7 +745,7 @@ func viewerIndexKey(hostRepo, headRef string) string {
 // collector's byURL rebuild: a PR that aged out of the batch simply stops being
 // an index candidate, so there is no eviction logic. The live index is in-memory
 // only; a fresh process may PRE-FILL it from the droppable startup seed
-// (SeedViewerIndex — Constitution §II's $XDG_STATE_HOME/run-kit/ carve-out), which this
+// (SeedViewerIndex — Constitution §II's $XDG_STATE_HOME/hexokit/ carve-out), which this
 // method then replaces on the first successful fetch.
 //
 // A NON-EMPTY store signals the coalescing wake channel, so a seed that lands

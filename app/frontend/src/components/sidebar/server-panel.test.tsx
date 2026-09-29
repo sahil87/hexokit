@@ -70,7 +70,7 @@ function renderPanel(overrides: {
 // The panel defaults open (defaultOpen=true) — tests that need a collapsed
 // start seed the persisted key before rendering.
 function seedCollapsed() {
-  localStorage.setItem("runkit-panel-server", "false");
+  localStorage.setItem("hexokit-panel-server", "false");
 }
 
 beforeEach(() => {
@@ -274,7 +274,7 @@ describe("ServerPanel", () => {
       });
       hoverTile(/ext/);
       expect(screen.getByTestId("row-flyout-card")).toHaveTextContent(
-        "tmux -L ext · 2 sessions · external — not started by run-kit",
+        "tmux -L ext · 2 sessions · external — not started by HexoKit",
       );
 
       cleanup();

@@ -16,22 +16,51 @@ import {
   runFind,
 } from "@/lib/terminal-find";
 import {
-  SHAPE_ARITY,
   SURFACE_GLYPH,
   SURFACE_LABEL,
-  readStoredRatios,
+  leafIds,
+  leaves,
+  layoutRects,
+  readStoredSizes,
   readStoredZoom,
-  writeStoredRatios,
+  serializeLayoutTree,
+  structureSig,
+  writeStoredSizes,
   writeStoredZoom,
+  zoomLeafKind,
+  NOMINAL_BOX,
+  SPLIT_GAP_PX,
   type Layout,
-  type LayoutRatios,
-  type LayoutShape,
+  type LayoutSizes,
+  type Rect,
   type SurfaceKind,
 } from "@/lib/surface-layout";
-import { clampBoundary } from "@/lib/right-panel";
+import {
+  isLeaf,
+  layoutDividers,
+  parseLeafAddress,
+  sizesOf,
+  templateSizes,
+  type DividerLine,
+  type LayoutLeaf,
+  type LayoutNode,
+  type SplitDir,
+} from "@/lib/layout-tree";
+import {
+  DRAG_THRESHOLD_PX,
+  hitTest,
+  resolveDrop,
+  zoneRegion,
+  type DropHit,
+  type DropResult,
+} from "@/lib/layout-drop";
+import { WINDOW_DRAG_MIME } from "@/components/sidebar/boards-section";
+import { SurfacePlaceholder } from "@/components/surface-placeholder";
+import { clampSiblingFraction } from "@/lib/right-panel";
 import { TileDragContext } from "@/lib/tile-drag-context";
 import { codeRootFollowTarget, codeRootFor } from "@/lib/code-folder-latch";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
+import { useOccludes } from "@/hooks/use-occludes";
 import type { CodeFollowSrc } from "@/hooks/use-code-workspace";
 import type { GuiSignal } from "@/contexts/session-context";
 import type { GuiPointerMode, GuiQuality, GuiZoom } from "@/lib/gui-posture";
@@ -55,16 +84,19 @@ import {
   FindGlyph,
   FollowTerminalGlyph,
   FullscreenGlyph,
-  PromoteGlyph,
+  KeyboardGlyph,
+  PopOutGlyph,
   RefreshGlyph,
+  SendHomeGlyph,
   SplitHorizontalGlyph,
   SplitVerticalGlyph,
-  SwapGlyph,
   TileCloseGlyph,
   ZoomGlyph,
 } from "@/components/top-bar-icons";
 import type { ViewWindow } from "@/lib/window-view";
 import { activeWebUrl } from "@/lib/window-view";
+import { useKeybindings } from "@/hooks/use-keybindings";
+import { formatCombo } from "@/lib/keybindings";
 import {
   IDLE_PROGRESS,
   isValuedProgress,
@@ -72,6 +104,7 @@ import {
   type TtyProgress,
 } from "@/lib/tty-progress";
 import { classifyAddress, displayForm, proxyPortOf, toWebAddTarget } from "@/lib/web-url";
+import { canShellPopout } from "@/lib/shell";
 import type { WindowInfo } from "@/types";
 import type { Terminal } from "@xterm/xterm";
 import type { SerializeAddon } from "@xterm/addon-serialize";
@@ -84,7 +117,7 @@ import {
   selectWebTab,
   setWindowOptions,
 } from "@/api/client";
-import type { CodeBridgeResult } from "@/api/client";
+import type { CodeBridgeResult, CodeServerRestartResult } from "@/api/client";
 import { useToast } from "@/components/toast";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import {
@@ -105,24 +138,36 @@ import {
 } from "@/lib/terminal-export";
 
 /**
- * SurfaceLayout — the tile grid renderer for the terminal route's center
- * (change 260812-ab5v-surface-layout-core; spec docs/specs/surface-layout.md
- * § Shape presets, § Verbs). Replaces the legacy exclusive-lens render branch
- * AND the right-panel surface slot: the resolved `(shape, order)` layout
- * renders as 1–3 TILES, each mounting an EXISTING renderer unchanged —
- * `TerminalClient` (tty), `IframeWindow` (web), `CodeSurface` (code),
- * `GuiSurface` (gui — lazy-loaded: noVNC's ~150 KB core is paid only by tabs
- * that open the tile).
+ * SurfaceLayout — the tile renderer for the terminal route's center (spec
+ * docs/specs/surface-layout.md § The Model, § Verbs). Replaces the legacy
+ * exclusive-lens render branch AND the right-panel surface slot: the resolved
+ * layout — a canonical split TREE (`lib/layout-tree.ts`) — renders as 1–N
+ * TILES (offers gated by the per-viewport size floor), each mounting an
+ * EXISTING renderer unchanged — `TerminalClient`
+ * (tty), `IframeWindow` (web), `CodeSurface` (code), `GuiSurface` (gui —
+ * lazy-loaded: noVNC's ~150 KB core is paid only by tabs that open the tile).
+ * A tile may also point at ANOTHER tab's surface (a foreign leaf, `@N/<kind>`
+ * — see the duplicate/foreign bullet below), and a bare leaf whose surface is
+ * live in another tab renders the AWAY PLACEHOLDER instead of mounting the
+ * surface.
  *
+ * - **Flat rect-positioned leaves**: every leaf of the tree renders as an
+ *   absolutely positioned tile in ONE flat sibling list keyed by leaf id,
+ *   placed from `layoutRects(tree, containerBox, sizes, SPLIT_GAP_PX)` over a
+ *   ResizeObserver-measured container (NOMINAL_BOX proportions until the first
+ *   measure, so an unmeasured jsdom mount still lays out sanely). A
+ *   restructure never unmounts or re-keys a surviving tile — an iframe
+ *   re-parent/reload is the hazard this avoids.
  * - **Tile chrome (R7, redesigned in 260812-wfic; gap-seam 260814-011r)**: the
- *   desktop grid floats tiles as cards — 6px gutters (`gap-[6px]`), each tile
- *   a 6px-radius card (`rounded-md`) whose REST border is the dimmed
+ *   desktop layout floats tiles as cards — 6px gutters (the SPLIT_GAP_PX seam
+ *   between sibling rects), each tile a 6px-radius card (`rounded-md`) whose
+ *   REST border is the dimmed
  *   `rk-card-border` (a 55% color-mix: the gap does the separating, the border
  *   only defines the card edge). The outer 6px ground inset and the
  *   `bg-bg-inset` ground itself are provided by the Shell STAGE
- *   (260814-ldbs) — this grid ceded its own `p-[6px]`/`bg-bg-inset` so the
- *   tiles and the rail card share ONE continuous ground. Each tile carries a
- *   35px header painted on the tile's own `bg-bg-primary` surface (32px
+ *   (260814-ldbs) — this container ceded its own `p-[6px]`/`bg-bg-inset` so
+ *   the tiles and the rail card share ONE continuous ground. Each tile carries
+ *   a 35px header painted on the tile's own `bg-bg-primary` surface (32px
  *   content + 3px bottom rule, aligned with the sidebar rail's
  *   `border-t-[3px]` seam) — the rule separates header from content, never a
  *   second surface color, so header, content and compose strip read as one
@@ -131,45 +176,67 @@ import {
  *   kind glyph (`SURFACE_GLYPH`) + surface name + the small meta as an inset
  *   chip (code-root basename for code, the active web tab's host for web) — with
  *   rest-visible boxed verb buttons (24×24, 26×26 coarse; 14px SVG glyphs
- *   from the `top-bar-icons.tsx` register): zoom, promote, swap-with-next,
- *   ✕ close (a hairline rule separates ✕ from the safe verbs; its hover turns
- *   `text-signal-red`). While a tile is zoomed its zoom verb stays
- *   `accent-green` and its promote/swap verbs hide (no-ops there).
- *   `single` layouts render NO layout verbs (promote/swap are meaningless and
- *   closing the last tile is disallowed). The tty header also mounts the
+ *   from the `top-bar-icons.tsx` register): zoom and ✕ close (a hairline rule
+ *   separates ✕ from the safe verbs; its hover turns `text-signal-red`).
+ *   While a tile is zoomed its zoom verb stays `accent-green`.
+ *   Single-leaf layouts render NO layout verbs (closing the last tile is
+ *   disallowed and zooming one tile is meaningless). The tty header also mounts the
  *   shared `StatusDot` (agent state) when the parent passes `statusWindow`.
  *   Tty headers additionally carry a bordered PANE SEGMENT (260813-w1lf
  *   content verbs — Split H · Split V · Close Pane) at ANY arity, including
- *   `single:tty`, and visible while zoomed; a hairline separates it from the
- *   layout-verb cluster when that renders. Its verbs call the parent's
- *   `onSplitPane`/`onClosePane` callbacks. The code tile carries the same
- *   per-kind content-verb structure: Follow terminal (only while the latched
- *   code root drifts from the live derivation — the verb's presence IS the
- *   drift indicator) and Reload editor (only while the active window's frame
- *   is mounted), before the layout-verb cluster; both are palette-registered
- *   through `codeCommandsRef` (Constitution V).
- * - **Focused tile (260812-wfic R2)**: transient component state — the slot
+ *   the bare `tty` leaf, and visible while zoomed; a hairline separates it
+ *   from the layout-verb cluster when that renders. Its verbs call the
+ *   parent's `onSplitPane`/`onClosePane` callbacks. The code tile carries the
+ *   same per-kind content-verb structure: Follow terminal (only while the
+ *   latched code root drifts from the live derivation — the verb's presence IS
+ *   the drift indicator) and Reload editor (only while the active window's
+ *   frame is mounted), before the layout-verb cluster; both are
+ *   palette-registered through `codeCommandsRef` (Constitution V).
+ * - **Header drag — drop to snap**: a primary-button press on a tile header's
+ *   background (never its buttons, pane segment, code verbs, meta chip, or
+ *   menus) arms a drag; past DRAG_THRESHOLD_PX the header captures the
+ *   pointer and the drag snapshots the tree, sizes, layout box, and leaf
+ *   rects. Hit-testing (`lib/layout-drop.ts`) offers the hovered tile's center
+ *   (swap), its edge bands (split beside), and the layout box's outer 18px
+ *   (span a side at 50%); the overlay previews the RESULT tree at the
+ *   viewer's sizes (the dragged destination filled accent-green), marks a
+ *   same-arrangement drop "no change", and refuses a drop that breaks the
+ *   150×100 floor with a red "too small". Release on a `move` commits exactly
+ *   one write: the viewer's sizes under the new structure signature, then
+ *   `onApplyLayout(result.tree)` (the parent's ONE mutation path); focus
+ *   lands on the dragged tile's new position. Escape, release outside/over
+ *   the dragged tile, `pointercancel`, a window switch, and a mid-drag
+ *   `layout` prop change (a stale snapshot) all cancel with no write. The
+ *   drag never arms on a coarse pointer, a zoomed render, or a single-leaf
+ *   layout (and the mobile branch renders one tile). The native web engine
+ *   hides its guest for the drag's duration (the `move` posture — the overlay
+ *   cannot paint over a composited WebContentsView).
+ * - **Focused tile (260812-wfic R2)**: transient component state — the LEAF
  *   that last received pointer/keyboard interaction (pointerdown-capture +
  *   focusin seams on the tile wrapper for parent-DOM interaction; the iframe
  *   tiles — `CodeSurface`, `IframeWindow` — report in-frame interaction via
  *   `onInteract`, since no parent-document event fires when focus enters
  *   iframe content). The focused tile's border
  *   and kind glyph turn `accent-green` (the tmux active-pane metaphor);
- *   suppressed at arity 1. Default = slot A; falls back to slot A when the
- *   focused slot leaves the layout. The focused KIND is reported upward via
- *   `onFocusedKindChange` (app.tsx mirrors it for the `ttyOnly` shortcut
- *   gate) and settable by kind through the `focusTileRef` seam (the
- *   `zoomToggleRef` pattern — the palette's `Tile: Focus <Surface>`).
+ *   suppressed at arity 1. Default = the first leaf in reading order; falls
+ *   back there when the focused leaf leaves the layout. The focused KIND is
+ *   reported upward via `onFocusedKindChange` (app.tsx mirrors it for the
+ *   `ttyOnly` shortcut gate), the focused leaf id via `onFocusedLeafChange`
+ *   (the palette's directional swaps act on the focused leaf), and focus is
+ *   settable by kind through the `focusTileRef` seam (the `zoomToggleRef`
+ *   pattern — the palette's `Tile: Focus <Surface>`, first leaf of the kind).
  * - **Zoom (R6)**: one tile full-center, the others hidden at display level.
- *   Per-viewer state, persisted as the zoomed surface KIND under
+ *   Per-viewer state, persisted as the zoomed LEAF ID under
  *   `rk-layout-zoom:{server}:{@N}` (the mobile switch group reads the same
- *   key); the toggle renders only when arity > 1.
- * - **Hide-never-unmount (P3)**: a surface opened earlier this route visit
- *   stays mounted (`hidden` class) when closed or zoomed away, so iframe /
- *   terminal state survives. The "ever opened" bookkeeping is keyed by
- *   surface kind and is per-window — `app.tsx` keys this component by
- *   server, so the set (with the other per-window transient state) resets via
- *   the `[server, windowId]` reset effect on a window switch.
+ *   key; its kind writes double as a unique bare leaf's id, and an exact id
+ *   that left the tree resolves to its kind's first leaf); the toggle renders
+ *   only when arity > 1.
+ * - **Hide-never-unmount (P3)**: a leaf opened earlier this route visit stays
+ *   mounted (`hidden` class) when closed or zoomed away, so iframe /
+ *   terminal state survives. The "ever opened" bookkeeping is keyed by leaf
+ *   id and is per-window — `app.tsx` keys this component by server, so the set
+ *   (with the other per-window transient state) resets via the
+ *   `[server, windowId]` reset effect on a window switch.
  * - **Code-frame retention (the P3 cross-window half)**: the `code` tile
  *   additionally survives a same-server WINDOW switch — the component keeps a
  *   per-server ordered list of live frame records (`{windowId, src, root}`,
@@ -180,31 +247,73 @@ import {
  *   a page unload — code-server disposes the connection and kills the
  *   workbench's extension host (~250–320 MB each, hence the bound), and a
  *   fresh boot costs seconds while a display-hidden frame re-shows in ~16 ms.
- * - **Dividers (R5; gap-seam sash 260814-011r)**: drag mutates RATIOS only
- *   (never shape/order), clamped via `clampBoundary` (280px floor both
- *   sides on the boundary's own axis; sibling chaining on row/col only —
- *   a main-* shape's two ratios live on different axes and clamp
- *   independently), persisted per
- *   (window, shape) ON RELEASE ONLY. Tiles stay live mid-drag — no
- *   suspension/unmount (the board pane-resize bug class); tile content gets
- *   `pointer-events: none` so iframes cannot swallow pointermove (the
- *   RightPanel drag-handle pattern). The chrome is the gap-seam three-state
- *   treatment (`rk-divider`/`rk-sash`/`rk-grips` in globals.css): 3 rest grip
- *   dots, a rounded accent-green sash pill on hover (~150ms anti-flicker
- *   delay) and drag (immediate), on a 14px hit zone. In `main-*` shapes a
- *   `surface-divider-intersection` zone at the T-junction lights BOTH sashes
- *   on hover and drags BOTH ratios at once (pointer x/y → the shape's two
- *   ratio indices, each clamped independently).
- * - **Duplicate tty**: the muxed relay supports N clients per pane, so two
- *   tty tiles are legal. Only the FIRST tty tile receives the shared
- *   `wsRef`/`focusRef` (and registers as the shell's focused terminal);
- *   duplicates mount extra TerminalClients without those refs.
+ * - **Dividers**: one divider per adjacent sibling pair of every split
+ *   (`layoutDividers`), rendered in the 6px gutter with a 14px hit zone
+ *   centered on the seam. Drag mutates SIZES only (never the tree): the
+ *   pointer position maps to the FIRST sibling's fraction of the pair's
+ *   combined extent, clamped via `clampSiblingFraction` (280px floor both
+ *   sides on the divider's own axis), the pair's sum held constant, and the
+ *   full sizes persist per (window, structure signature) ON RELEASE ONLY.
+ *   Tiles stay live mid-drag — no suspension/unmount (the board pane-resize
+ *   bug class); tile content gets `pointer-events: none` so iframes cannot
+ *   swallow pointermove (the RightPanel drag-handle pattern). The chrome is
+ *   the gap-seam three-state treatment (`rk-divider`/`rk-sash`/`rk-grips` in
+ *   globals.css): 3 rest grip dots, a rounded accent-green sash pill on hover
+ *   (~150ms anti-flicker delay) and drag (immediate). Where a divider's end
+ *   meets a perpendicular divider, a `surface-divider-intersection` zone
+ *   lights BOTH sashes on hover and drags BOTH fraction pairs at once (each
+ *   clamped on its own axis), persisted on release.
+ * - **Duplicate and foreign tty tiles**: the muxed relay supports N clients
+ *   per pane, so two bare tty tiles are legal (`tty`, `tty#2` by
+ *   reading-order occurrence), and a foreign leaf (`@12/tty`) tiles ANOTHER
+ *   window's terminal — its relay stream opens with the home window id and
+ *   `isolate: true` (the `_rk-iso-*` attach, never fighting the home tab).
+ *   Only the FIRST BARE tty leaf in reading order receives the shared
+ *   `wsRef`/`focusRef` holder (a foreign tty never takes it); every tty tile
+ *   mounts its own stream bucket, and the FOCUSED tty tile — bare or foreign
+ *   — registers as the shell's focused terminal with its own
+ *   server/session/window/wsRef, so the compose strip, bottom bar, and focus
+ *   memory follow the tile the user is in.
+ * - **Away placeholder**: a BARE leaf whose kind is named by the route
+ *   window's server-derived `awayIn` (a live holder exists) renders
+ *   `SurfacePlaceholder` INSTEAD of the surface — the mount is gated, so an
+ *   away tty opens no relay stream. The placeholder carries bring back (the
+ *   parent's `onSendHome` with from = the holder), go to the holder
+ *   (`onGoToWindow`), the tty status dot, and ✕ (hidden when it is the only
+ *   leaf — a layout never renders empty). A foreign tile's header identifies
+ *   its home tab (name chip) and carries a ↩ verb (`onSendHome` with from =
+ *   the route window), disabled while the home window is dead.
+ * - **Popout (per viewer)**: a tile can pop out into its own browser window —
+ *   the opener's parent hands the REDUCED tree (popped minus revealed) plus
+ *   this viewer's popped leaf ids (`popped`), which disarm the header drag (a
+ *   drop resolved on the reduced tree would drop the popped leaf from the
+ *   SHARED layout), unzoom a popped zoomed leaf, and evict a popped code
+ *   leaf's retained frame (the popout boots its own extension host). A
+ *   REVEALED popped leaf (`revealedPoppedIds`) stays in the rendered tree and
+ *   mounts the popped `SurfacePlaceholder` under the away placeholder's mount
+ *   gate (no header, no surface mount — the popout owns the live surface).
+ *   The header's Pop out verb sits in
+ *   the content-verb family ahead of the layout-verb cluster. The popout
+ *   window itself mounts this component with `popoutLeafId` on a one-leaf
+ *   tree: chrome-less, the layout-verb cluster replaced by a single Pop back
+ *   in verb, and a tty tile's relay stream opening with `isolate: true` (the
+ *   `_rk-iso-*` attach — the popout keeps its window while the opener's
+ *   session switches windows).
+ * - **Sidebar row-drag borrow**: a window-row HTML5 drag (WINDOW_DRAG_MIME)
+ *   in flight arms a drop-catcher overlay above all tiles — window-level
+ *   dragstart/dragend listeners (the payload is readable at dragstart), the
+ *   header drag's mid-drag seam, and the external-leaf mode of
+ *   `hitTest`/`resolveDrop`. Edge zones insert `@<dragged>/tty` and commit
+ *   through `onBorrowDrop` (the parent's borrow helper); the center zone and
+ *   the refused drops (route window's own row, address already in the layout,
+ *   cross-server) preview "no change" and write nothing.
  *
- * Presentational by contract (the view-switcher/right-panel precedent):
- * (shape, order) state lives in `app.tsx` and arrives as the `layout` prop;
- * verbs call the parent's callbacks (`onPromote`/`onSwap`/`onClose`), which
- * run the pure mutations + persistence/URL mirroring. The component owns only
- * transient interaction state: zoom, the in-flight ratio drag, and the
+ * Presentational by contract (the view-switcher/right-panel precedent): the
+ * tree lives in `app.tsx` and arrives as the `layout` prop; verbs call the
+ * parent's callbacks (`onClose` addressed by LEAF ID, `onApplyLayout` handed
+ * the drop's result tree), which run the pure mutations + persistence/URL
+ * mirroring. The component owns
+ * only transient interaction state: zoom, the in-flight drags, and the
  * mount-once bookkeeping.
  */
 
@@ -241,21 +350,137 @@ export interface CodeTileCommands {
   reload: () => void;
 }
 
-/** One grid entry: a visible slot, an ever-opened-but-closed kind, or a
+/** Split a leaf id into kind + occurrence (+ home for a foreign leaf): an
+ *  address id (`@12/tty`) yields the address's kind and home; a bare id is
+ *  the kind itself for a unique kind, `tty`, `tty#2`, … by reading-order
+ *  occurrence for duplicate tty leaves. */
+function leafIdParts(leafId: string): { kind: SurfaceKind; occ: number; home?: string } {
+  const foreign = parseLeafAddress(leafId);
+  if (foreign !== null) return { kind: foreign.kind, occ: 0, home: foreign.home };
+  const kind = zoomLeafKind(leafId) ?? "tty";
+  const hash = leafId.indexOf("#");
+  const n = hash < 0 ? 1 : Number(leafId.slice(hash + 1));
+  return { kind, occ: Number.isFinite(n) && n >= 1 ? n - 1 : 0 };
+}
+
+/** The window a tile's surface belongs to (the tile's OWN window): a foreign
+ *  leaf's home window, the route window for a bare leaf. Every per-tile
+ *  read/write — relay stream, focus registration, progress slot, web tabs,
+ *  code root — targets this window, never implicitly the route's. */
+function tileWindowIdOf(leafId: string, routeWindowId: string): string {
+  return leafIdParts(leafId).home ?? routeWindowId;
+}
+
+/** Resolve a stored zoom leaf id to a live leaf: the exact id when the leaf
+ *  survives, else the kind's first leaf in reading order (a shared restructure
+ *  moves the zoom with its surface), else null (the zoom clears). */
+function resolveZoomLeaf(layout: LayoutNode, stored: string): string | null {
+  const ids = leafIds(layout);
+  if (ids.includes(stored)) return stored;
+  const i = leaves(layout).indexOf(leafIdParts(stored).kind);
+  return i >= 0 ? ids[i] : null;
+}
+
+/** One tile entry: a visible leaf, an ever-opened-but-closed leaf id, or a
  *  retained code frame from a non-active window (all rendered through the
  *  same flat list so the visible↔hidden transition never remounts). */
 interface TileModel {
   kind: SurfaceKind;
-  slot: number;
+  /** The leaf id of a visible tile, or the id a hidden tile last held (a
+   *  re-opened leaf reclaims it — unique kinds keep their kind as id). */
+  leafId: string;
+  /** Duplicate-tty occurrence (0 for the first/only), driving the testid and
+   *  key suffixes. */
   occ: number;
+  /** True when the leaf is in the current tree (hidden/retained entries are
+   *  not — the old `slot >= 0` gate). */
+  visible: boolean;
   /** The frame this tile renders (code tiles only): the active window's
    *  record when one exists, or a retained record for a non-active window.
    *  Undefined ⇒ the active window's code tile with no record yet. */
   frame?: CodeFrameRecord;
 }
 
+/** The render's concrete per-split fractions (pre-order): the override where
+ *  it is well-shaped for its split, else the split's own sizes, else equal
+ *  shares — `layoutRects`' per-split fallback, materialized so a drag always
+ *  has a full array to edit. */
+function resolveSizes(tree: LayoutNode, override: LayoutSizes | undefined): LayoutSizes {
+  const out: LayoutSizes = [];
+  const walk = (n: LayoutNode): void => {
+    if (isLeaf(n)) return;
+    const o = override?.[out.length];
+    out.push(
+      o !== undefined &&
+        o.length === n.children.length &&
+        o.every((f) => Number.isFinite(f) && f > 0)
+        ? [...o]
+        : [...sizesOf(n)],
+    );
+    n.children.forEach(walk);
+  };
+  walk(tree);
+  return out;
+}
+
+/** Per-divider drag frame, in `layoutDividers`' enumeration order: the
+ *  split's pre-order sizes index, the boundary (index of the child AFTER the
+ *  divider), and the joined pair's geometry on the split axis — the pair's
+ *  start and its combined child extent in px (the gutter between the two
+ *  siblings excluded), the drag math's coordinate frame. */
+interface DividerFrame {
+  splitIndex: number;
+  boundary: number;
+  dir: SplitDir;
+  start: number;
+  len: number;
+}
+
+/** Same walk as `layoutDividers` (child order, pre-order sizes indexing), so
+ *  frame i always describes divider i. `sizes` must be the RESOLVED sizes
+ *  (every split present). */
+function dividerFrames(
+  tree: LayoutNode,
+  box: Rect,
+  sizes: LayoutSizes,
+  gap: number,
+): DividerFrame[] {
+  const frames: DividerFrame[] = [];
+  let si = 0;
+  const walk = (n: LayoutNode, b: Rect): void => {
+    if (isLeaf(n)) return;
+    const fractions = sizes[si];
+    const index = si;
+    si++;
+    const horiz = n.dir === "h";
+    const avail = (horiz ? b.w : b.h) - gap * (n.children.length - 1);
+    let at = horiz ? b.x : b.y;
+    let prevLen = 0;
+    n.children.forEach((k, i) => {
+      const len = avail * fractions[i];
+      if (i > 0) {
+        frames.push({
+          splitIndex: index,
+          boundary: i,
+          dir: n.dir,
+          start: at - gap - prevLen,
+          len: prevLen + len,
+        });
+      }
+      walk(
+        k,
+        horiz ? { x: at, y: b.y, w: len, h: b.h } : { x: b.x, y: at, w: b.w, h: len },
+      );
+      prevLen = len;
+      at += len + gap;
+    });
+  };
+  walk(tree, box);
+  return frames;
+}
+
 interface SurfaceLayoutProps {
-  /** The RESOLVED layout (app.tsx ran the ladder + degradation). */
+  /** The RESOLVED layout tree (app.tsx ran the parse + degradation). */
   layout: Layout;
   server: string;
   /** The route window id (`@N`). */
@@ -272,14 +497,24 @@ interface SurfaceLayoutProps {
    *  code root) narrow from it; an unavailable kind renders an empty tile body
    *  (degradation should already have dropped it). */
   window: ViewWindow | null;
-  /** Below `isMobileViewport()` only ONE slot renders (R13) — no dividers, no
-   *  verb chrome. `mobileActiveSlot` picks WHICH slot: the top-bar switch
-   *  group swaps the shown surface via the per-viewer zoom key WITHOUT
-   *  mutating the shared layout for an already-open surface (the layout stays
-   *  desktop's arrangement). Absent/out-of-range → slot 0. */
+  /** The route server's windows by id (payload-derived) — a FOREIGN leaf's
+   *  tile resolves its home window's record from this map (name, status dot,
+   *  code root, web tabs); a home absent from the map is dead. */
+  windowsById?: ReadonlyMap<string, WindowInfo>;
+  /** The owning session name per window id on the route server
+   *  (payload-derived) — a foreign tile's TerminalClient connects under its
+   *  HOME session and registers focus with it. Absent ⇒ foreign tiles fall
+   *  back to the route session name. */
+  sessionNameByWindowId?: ReadonlyMap<string, string>;
+  /** Below `isMobileViewport()` only ONE leaf renders (R13) — no dividers, no
+   *  verb chrome. `mobileActiveSlot` picks WHICH leaf (its index in reading
+   *  order): the top-bar switch group swaps the shown surface via the
+   *  per-viewer zoom key WITHOUT mutating the shared layout for an
+   *  already-open surface (the layout stays desktop's arrangement).
+   *  Absent/out-of-range → leaf 0. */
   isMobile: boolean;
   mobileActiveSlot?: number;
-  /** Shared terminal plumbing — handed to the FIRST tty tile only. */
+  /** Shared terminal plumbing — handed to the FIRST tty leaf only. */
   wsRef: React.MutableRefObject<WebSocket | null>;
   focusRef: React.MutableRefObject<(() => void) | null>;
   scrollLocked: boolean;
@@ -312,6 +547,14 @@ interface SurfaceLayoutProps {
    *  set, the gui header's meta chip reads `keys → desktop` and the pinned
    *  block's capture verb latches. */
   guiCapture?: boolean;
+  /** The web tile's keyboard-capture latch (`rk-web-capture`, owned by
+   *  app.tsx) — while set, the web header shows a `keys → page` chip and its
+   *  capture verb latches; both web engines hand every chord but the release
+   *  binding to the page. */
+  webCapture?: boolean;
+  /** Flip the web capture latch (the header verb's click seam). Absent ⇒ the
+   *  verb is not rendered. */
+  onWebCaptureChange?: (on: boolean) => void;
   guiResizeLocked?: boolean;
   guiQuality?: GuiQuality;
   guiStatsVisible?: boolean;
@@ -322,6 +565,9 @@ interface SurfaceLayoutProps {
   /** Restart supervisor verb for the gui empty state (POSTs the restart
    *  route; a 409 arrives as `{ ok: false, disabled: true }`). */
   onGuiRestart?: () => Promise<GuiRestartResult>;
+  /** The code lens empty state's Restart code-server action (app.tsx passes
+   *  the API client's `restartCodeServer`). Absent ⇒ no button. */
+  onCodeServerRestart?: () => Promise<CodeServerRestartResult>;
   /** Open the supervisor logs (navigates to the rk-gui pane). */
   onGuiOpenLogs?: () => void;
   /** Filled with the gui tile's imperative seams (paste/reconnect) while an
@@ -356,6 +602,11 @@ interface SurfaceLayoutProps {
    *  `zoomToggleRef` pattern) — the palette's `Code: Follow Terminal` /
    *  `Code: Reload Editor` rows drive them (Constitution V). */
   codeCommandsRef?: React.MutableRefObject<CodeTileCommands | null>;
+  /** Filled with a getter returning the CURRENT leaf-id→Rect map (latest
+   *  measured container + live sizes, NOMINAL_BOX before the first measure),
+   *  cleared on unmount (the `codeCommandsRef` refill pattern) — app.tsx's
+   *  add/directional-swap verbs read their real geometry through it. */
+  layoutRectsRef?: React.MutableRefObject<(() => Map<string, Rect>) | null>;
   /** Per-window lookup over the parent's resolved srcs (the hook's map): the
    *  active window's src reads through it (null ⇒ the tile renders its
    *  pending state), so a revisit resolves synchronously. Retained frames
@@ -396,36 +647,99 @@ interface SurfaceLayoutProps {
    *  decides — armed guard + remembered kind ≠ `code` ⇒ revert and return
    *  `true`; anything else ⇒ `false` (the focus stands). Absent ⇒ no guard. */
   onProgrammaticFocus?: () => boolean;
-  /** Verb callbacks — the parent applies the pure mutation + persistence +
-   *  URL mirroring (R3 write discipline). */
-  onPromote: (surface: SurfaceKind) => void;
-  onSwap: (surface: SurfaceKind) => void;
-  onClose: (surface: SurfaceKind) => void;
+  /** Verb callbacks — the parent applies the pure tree mutation + persistence
+   *  (R3 write discipline). Verbs address their tile by LEAF ID — duplicate
+   *  tty tiles are distinct leaves. A disallowed close (the last leaf) is a
+   *  null no-op in the parent's mutation. */
+  onClose: (leafId: string) => void;
+  /** The header drag-to-snap commit seam: a released drop whose resolution is
+   *  a `move` calls this ONCE with the result tree (the parent's
+   *  `applyLayout` — the one `@rk_win_layout` write path); the viewer's sizes
+   *  for the new structure signature are already written when it fires. */
+  onApplyLayout: (next: Layout) => void;
+  /** Popout posture (spec surface-layout.md § Verbs → Pop out): this render
+   *  IS the popout window — a one-leaf tree, chrome-less. The tile header
+   *  replaces the layout-verb cluster (zoom/↩/✕) with a single Pop back in
+   *  verb, and a tty tile's relay stream opens with `isolate: true`. */
+  popoutLeafId?: string;
+  /** The popout header's Pop back in verb — the parent's close seam (the
+   *  popout posts `closed` and closes its window). */
+  onPopBackIn?: () => void;
+  /** Opener posture: this viewer's popped leaf ids for the window. A popped
+   *  leaf is absent from the RENDERED tree unless revealed (the parent reduced
+   *  it by `popped − revealedPoppedIds`), so here
+   *  the set governs what the reduction hides: header drag stays disarmed
+   *  while any leaf is popped (a drop resolved on the reduced tree would drop
+   *  the popped leaf from the SHARED layout for every viewer), a popped
+   *  zoomed leaf renders unzoomed, and a popped code leaf's retained frame is
+   *  evicted (one extension host, not two — the popout boots its own). */
+  popped?: string[];
+  /** The header's Pop out verb (content-verb family, before the layout
+   *  cluster). Absent ⇒ not offered (the caller gates mobile, coarse
+   *  pointers, and a desktop shell without the `windows.popout` channel). */
+  onPopOut?: (leafId: string, rect?: Rect) => void;
+  /** Opener posture: the REVEALED subset of `popped` — the popped leaves this
+   *  viewer asked to see. A revealed leaf stays in the rendered tree and
+   *  mounts the popped `SurfacePlaceholder` INSTEAD of its surface (the away
+   *  placeholder's mount gate: no header, no relay stream, no code frame, no
+   *  web guest — the popout owns the live surface), and gets no hidden-tile
+   *  retention entry. */
+  revealedPoppedIds?: string[];
+  /** The popped placeholder's bring back verb — the parent's popIn. */
+  onPopIn?: (leafId: string) => void;
+  /** The popped placeholder's go to window verb — focuses the live popout
+   *  without reloading it. */
+  onFocusPopout?: (leafId: string) => void;
+  /** The popped placeholder's ✕ — removes the leaf from the revealed set
+   *  only (never a layout close). */
+  onHidePopped?: (leafId: string) => void;
+  /** Send a held surface back to its home window (the parent's `sendHome` —
+   *  `POST /api/layout/return`): the placeholder's bring back passes
+   *  from = the HOLDER, the foreign tile header's ↩ passes from = the ROUTE
+   *  window. `leafAddr` is the leaf's address (`@3/tty`). Absent ⇒ those
+   *  verbs render disabled. */
+  onSendHome?: (from: string, leafAddr: string) => void;
+  /** Navigate to another tab's route — the placeholder's "go to <holder>". */
+  onGoToWindow?: (windowId: string) => void;
+  /** The sidebar row-drag borrow's commit seam (the parent's `borrowInto`):
+   *  a drop whose resolution is a `move` calls this ONCE with the new leaf's
+   *  address and the result tree; the viewer's sizes for the new structure
+   *  signature are already written when it fires. */
+  onBorrowDrop?: (leafAddr: string, tree: Layout) => void;
   /** Pane-segment callbacks (260813-w1lf content verbs — tty tiles only):
    *  the parent routes these through its `executeSplit`/`executeClosePane`
    *  optimistic actions (the palette split/close path). Both required for
-   *  the segment to render. */
-  onSplitPane?: (horizontal: boolean) => void;
-  onClosePane?: () => void;
-  /** Optional ratio observers — fired during a drag (per move) and on release
-   *  (commit). The component owns ratio state + persistence itself; these let
-   *  a parent/e2e observe without owning anything. */
+   *  the segment to render. The second argument is the TILE's own window id
+   *  (a foreign tty tile's home) — pane verbs act on the tile's window, never
+   *  implicitly the route's. */
+  onSplitPane?: (horizontal: boolean, tileWindowId: string) => void;
+  onClosePane?: (tileWindowId: string) => void;
+  /** Optional divider observers — fired during a drag (per move, with the
+   *  divider's index in `layoutDividers` order and the FIRST sibling's
+   *  percentage of its pair) and on release (commit). The component owns
+   *  sizes state + persistence itself; these let a parent/e2e observe without
+   *  owning anything. */
   onRatioChange?: (index: number, pct: number) => void;
   onRatioCommit?: () => void;
   /** ⏶ Zoom palette seam (T012/R11): zoom is component-owned state persisted
    *  to the per-viewer zoom key, but the palette's `Layout: Expand`/`Restore`
    *  entries must observe and trigger it. The component registers a
-   *  FOCUSED-slot zoom toggle into this ref (260819-qwr7 R7 — cleared on
+   *  FOCUSED-leaf zoom toggle into this ref (260819-qwr7 R7 — cleared on
    *  unmount) and reports zoom flips via `onZoomChange` so the palette list
    *  rebuilds. */
   zoomToggleRef?: React.MutableRefObject<(() => void) | null>;
   onZoomChange?: (zoomed: boolean) => void;
-  /** Focused-tile reporting (260812-wfic R2): fired with the focused slot's
-   *  KIND whenever it changes (default slot A). Arity-1 still reports — the
-   *  shell's `ttyOnly` shortcut gate treats `single:tty` as tty-focused. */
+  /** Focused-tile reporting (260812-wfic R2): fired with the focused leaf's
+   *  KIND whenever it changes (default: the first leaf in reading order).
+   *  Arity-1 still reports — the shell's `ttyOnly` shortcut gate treats the
+   *  bare `tty` leaf as tty-focused. */
   onFocusedKindChange?: (kind: SurfaceKind) => void;
+  /** The focused-tile report's leaf half: fired alongside
+   *  `onFocusedKindChange` with the focused LEAF ID — the palette's
+   *  directional `Tile: Swap …` rows act on the focused leaf. */
+  onFocusedLeafChange?: (leafId: string) => void;
   /** `Tile: Focus <Surface>` palette seam (260812-wfic R10): the component
-   *  registers a focus-by-kind setter here (the FIRST slot of that kind),
+   *  registers a focus-by-kind setter here (the FIRST leaf of that kind),
    *  cleared on unmount — the `zoomToggleRef` pattern. */
   focusTileRef?: React.MutableRefObject<((kind: SurfaceKind) => void) | null>;
   /** The SSE `WindowInfo` for the tty header's status dot (260812-wfic R6).
@@ -435,7 +749,7 @@ interface SurfaceLayoutProps {
   /** In-tile compose-strip dock (260813-j3jb): an opaque node the parent
    *  (app.tsx) hands over when the strip belongs INSIDE the tile — the
    *  desktop terminal route's single-send mode. Rendered as the last child of
-   *  the FIRST tty tile's flex column (below the terminal body, inside the
+   *  the FIRST tty leaf's flex column (below the terminal body, inside the
    *  frame), so the target is self-evident and zoom/hide/close carries the
    *  strip for free; the flex column shrinks the terminal body, and the
    *  existing ResizeObserver fit refits — no new resize plumbing. The parent
@@ -447,14 +761,6 @@ interface SurfaceLayoutProps {
    *  it. Optional with a default-theme fallback so provider-less harnesses
    *  (unit tests) still render. */
   themePalette?: ThemePalette;
-}
-
-/** Equal-split default ratios (cumulative boundary percentages): arity 2 →
- *  [50]; arity 3 → [33.3…, 66.6…]. */
-function defaultRatios(arity: 1 | 2 | 3): LayoutRatios {
-  if (arity === 1) return [];
-  if (arity === 2) return [50];
-  return [100 / 3, 200 / 3];
 }
 
 /** Verb button chrome: fixed-size boxed buttons — 24×24 (WCAG 2.2 SC 2.5.8
@@ -490,183 +796,20 @@ const PROGRESS_BAR_CLASS = {
   paused: "bg-signal-yellow",
 } as const;
 
-/** The ratios a (window, shape) render starts from: the persisted value when
- *  it is well-formed for the shape's arity (right length, finite, strictly
- *  increasing, inside (0, 100)), else equal splits. Garbage never reaches the
- *  grid (untrusted-localStorage discipline: validate on read). */
-function initialRatios(
-  server: string,
-  windowId: string,
-  shape: LayoutShape,
-): LayoutRatios {
-  const arity = SHAPE_ARITY[shape];
-  const stored = readStoredRatios(server, windowId, shape);
-  if (
-    stored &&
-    stored.length === arity - 1 &&
-    stored.every((n, i) => n > 0 && n < 100 && (i === 0 || n > stored[i - 1]))
-  ) {
-    return stored;
-  }
-  return defaultRatios(arity);
-}
-
-/** The grid template for a shape at the given ratios (spec § Shape presets
- *  ASCII). Ratios are cumulative boundary percentages of the container along
- *  the split axis; tracks are `fr` factors proportional to each slot's share
- *  so rounding never opens gaps. A zoomed render collapses to one cell. */
-function gridStyle(
-  shape: LayoutShape,
-  ratios: LayoutRatios,
-  zoomed: boolean,
-): React.CSSProperties {
-  if (zoomed || shape === "single") {
-    return { gridTemplateColumns: "1fr", gridTemplateRows: "1fr" };
-  }
-  const [r0, r1] = ratios;
-  switch (shape) {
-    case "split-h":
-      return { gridTemplateColumns: `${r0}fr ${100 - r0}fr`, gridTemplateRows: "1fr" };
-    case "split-v":
-      return { gridTemplateColumns: "1fr", gridTemplateRows: `${r0}fr ${100 - r0}fr` };
-    case "row":
-      return {
-        gridTemplateColumns: `${r0}fr ${r1 - r0}fr ${100 - r1}fr`,
-        gridTemplateRows: "1fr",
-      };
-    case "col":
-      return {
-        gridTemplateColumns: "1fr",
-        gridTemplateRows: `${r0}fr ${r1 - r0}fr ${100 - r1}fr`,
-      };
-    // main-left / main-right share the template (slot placement mirrors);
-    // ratio 0 is the A|(B,C) column boundary, ratio 1 the B/C row boundary.
-    case "main-left":
-    case "main-right":
-      return {
-        gridTemplateColumns: `${r0}fr ${100 - r0}fr`,
-        gridTemplateRows: `${r1}fr ${100 - r1}fr`,
-      };
-    // main-top: ratio 0 is the A|(B,C) row boundary, ratio 1 the B/C column
-    // boundary.
-    case "main-top":
-      return {
-        gridTemplateColumns: `${r1}fr ${100 - r1}fr`,
-        gridTemplateRows: `${r0}fr ${100 - r0}fr`,
-      };
-  }
-}
-
-/** A slot's grid placement (spec § Shape presets — slot A = order[0], the
- *  main slot in `main-*` shapes). Zoom overrides every tile to the single
- *  cell. */
-function slotStyle(
-  shape: LayoutShape,
-  slot: number,
-  zoomed: boolean,
-): React.CSSProperties {
-  if (zoomed || shape === "single") return { gridColumn: "1", gridRow: "1" };
-  switch (shape) {
-    case "split-h":
-    case "row":
-      return { gridColumn: String(slot + 1), gridRow: "1" };
-    case "split-v":
-    case "col":
-      return { gridColumn: "1", gridRow: String(slot + 1) };
-    case "main-left":
-      return slot === 0
-        ? { gridColumn: "1", gridRow: "1 / span 2" }
-        : { gridColumn: "2", gridRow: String(slot) };
-    case "main-right":
-      return slot === 0
-        ? { gridColumn: "2", gridRow: "1 / span 2" }
-        : { gridColumn: "1", gridRow: String(slot) };
-    case "main-top":
-      return slot === 0
-        ? { gridRow: "1", gridColumn: "1 / span 2" }
-        : { gridRow: "2", gridColumn: String(slot) };
-  }
-}
-
-interface DividerSpec {
-  /** The ratio index this divider governs (boundary BEFORE the slot group
-   *  after it — index 0 is the first boundary). */
-  index: number;
-  /** The split axis: "x" = vertical divider (drag changes columns). */
-  axis: "x" | "y";
-  style: React.CSSProperties;
-}
-
-/** Divider placement per shape (R5/R6): one divider per ratio, absolutely
- *  positioned ON its boundary inside the relatively-positioned grid. In
- *  `main-*` shapes the B/C divider is confined to its side of the A boundary
- *  (main-left: the B/C split lives in the right column, …). */
-function dividerSpecs(shape: LayoutShape, ratios: LayoutRatios): DividerSpec[] {
-  const [r0, r1] = ratios;
-  switch (shape) {
-    case "single":
-      return [];
-    case "split-h":
-      return [{ index: 0, axis: "x", style: { left: `${r0}%`, top: 0, bottom: 0 } }];
-    case "split-v":
-      return [{ index: 0, axis: "y", style: { top: `${r0}%`, left: 0, right: 0 } }];
-    case "row":
-      return [
-        { index: 0, axis: "x", style: { left: `${r0}%`, top: 0, bottom: 0 } },
-        { index: 1, axis: "x", style: { left: `${r1}%`, top: 0, bottom: 0 } },
-      ];
-    case "col":
-      return [
-        { index: 0, axis: "y", style: { top: `${r0}%`, left: 0, right: 0 } },
-        { index: 1, axis: "y", style: { top: `${r1}%`, left: 0, right: 0 } },
-      ];
-    case "main-left":
-      return [
-        { index: 0, axis: "x", style: { left: `${r0}%`, top: 0, bottom: 0 } },
-        { index: 1, axis: "y", style: { top: `${r1}%`, left: `${r0}%`, right: 0 } },
-      ];
-    case "main-right":
-      return [
-        { index: 0, axis: "x", style: { left: `${r0}%`, top: 0, bottom: 0 } },
-        { index: 1, axis: "y", style: { top: `${r1}%`, left: 0, right: `${100 - r0}%` } },
-      ];
-    case "main-top":
-      return [
-        { index: 0, axis: "y", style: { top: `${r0}%`, left: 0, right: 0 } },
-        { index: 1, axis: "x", style: { left: `${r1}%`, top: `${r0}%`, bottom: 0 } },
-      ];
-  }
-}
-
-/** The T-junction point of a `main-*` shape, derived from the divider
- *  geometry (single-sourced — the junction is where the two boundaries
- *  cross): the x-divider's boundary × the y-divider's boundary. Shapes with
- *  fewer than two dividers (single/split-*) or two PARALLEL dividers
- *  (row/col) have no junction. */
-function junctionPoint(specs: DividerSpec[]): { left: string; top: string } | null {
-  if (specs.length !== 2) return null;
-  const xSpec = specs.find((s) => s.axis === "x");
-  const ySpec = specs.find((s) => s.axis === "y");
-  if (!xSpec || !ySpec) return null;
-  const left = xSpec.style.left;
-  const top = ySpec.style.top;
-  if (typeof left !== "string" || typeof top !== "string") return null;
-  return { left, top };
-}
-
-/** The intersection zone's two-axis mapping (`main-*` shapes only): which
- *  pointer axis drives which ratio index. main-left/right: x → ratio 0 (the
- *  A|(B,C) column boundary), y → ratio 1 (the B/C row boundary); main-top:
- *  y → ratio 0 (the A|(B,C) row boundary), x → ratio 1. */
-function intersectionAxes(shape: LayoutShape): { xIndex: number; yIndex: number } | null {
-  switch (shape) {
-    case "main-left":
-    case "main-right":
-      return { xIndex: 0, yIndex: 1 };
-    case "main-top":
-      return { xIndex: 1, yIndex: 0 };
-    default:
-      return null;
+/** The resolution cache key for a hit: one resolver run per ZONE CHANGE, not
+ *  per pointermove (a drag caches its resolution per hit kind + target +
+ *  side). */
+function dropHitKey(hit: DropHit | null): string {
+  if (hit === null) return "none";
+  switch (hit.kind) {
+    case "self":
+      return "self";
+    case "root":
+      return `root:${hit.side}`;
+    case "center":
+      return `center:${hit.targetId}`;
+    case "edge":
+      return `edge:${hit.targetId}:${hit.side}`;
   }
 }
 
@@ -702,6 +845,199 @@ function tileMeta(kind: SurfaceKind, win: ViewWindow | null, gui?: GuiSignal | n
   return null;
 }
 
+/** The web tile's content mount — one instance per web TILE, keyed by the
+ *  tile's own window: a foreign `@N/web` tile reads and writes its HOME
+ *  window's tab family (`@rk_win_web_<n>` options, the optimistic
+ *  `webOverride` keyed `entryKey(server, home)`), never the route window's.
+ *
+ *  Select/remove/move ride the window store's per-entry `webOverride` (the
+ *  pendingName/killed precedent): the optimistic write repaints the strip
+ *  immediately while the POST is in flight; the SSE tick is authoritative and
+ *  the reconcile effect drops the override once the payload matches. A
+ *  rejection reverts the override and toasts. Add is NOT optimistic — the
+ *  slot index is server-assigned. */
+function WebTileContent({
+  server,
+  sessionName,
+  windowId,
+  win,
+  visible,
+  onInteract,
+  onPageTitle,
+  shouldReclaimChord,
+  webCapture,
+}: {
+  server: string;
+  /** The tile window's owning session (the override entry's session half). */
+  sessionName: string;
+  /** The tile's OWN window id — the home window for a foreign web leaf. */
+  windowId: string;
+  /** The tile window's payload record; null renders nothing. */
+  win: ViewWindow | null;
+  visible: boolean;
+  onInteract?: () => void;
+  onPageTitle: (title: string | null) => void;
+  shouldReclaimChord?: (e: KeyboardEvent) => boolean;
+  /** The web keyboard-capture latch (SurfaceLayout prop) — narrows the
+   *  native engine's chord table. */
+  webCapture?: boolean;
+}) {
+  const { addToast } = useToast();
+  const webOverride = useWindowStore(
+    (s) => s.entries.get(entryKey(server, windowId))?.webOverride,
+  );
+  const setWebOverride = useWindowStore((s) => s.setWebOverride);
+  const clearWebOverride = useWindowStore((s) => s.clearWebOverride);
+  // Ref writes are synchronous, so two gestures in the same render compound
+  // against the first optimistic family instead of both reading the same SSE
+  // payload. The POST queue preserves that ordering at the tmux writer and
+  // invalidates dependent moves when an earlier request fails.
+  const webOverrideRef = useRef(webOverride);
+  webOverrideRef.current = webOverride;
+  const webMoveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
+  const applyWebOverride = (override: WebTabOverride) => {
+    webOverrideRef.current = { ...webOverrideRef.current, ...override };
+    setWebOverride(server, sessionName, windowId, override);
+  };
+  const revertWebOverride = () => {
+    webOverrideRef.current = undefined;
+    clearWebOverride(server, sessionName, windowId);
+  };
+
+  const { execute: selectWebTabOptimistic } = useOptimisticAction<[number]>({
+    action: (n) => selectWebTab(server, windowId, n),
+    onOptimistic: (n) => applyWebOverride({ webActive: n }),
+    onAlwaysRollback: revertWebOverride,
+    onError: (err) => addToast(err.message || "Failed to select web tab", "error"),
+  });
+
+  const { execute: removeWebTabOptimistic } = useOptimisticAction<[number]>({
+    action: (n) => removeWebTab(server, windowId, n),
+    onOptimistic: (n) => {
+      // Compound on any in-flight override so back-to-back strip clicks
+      // shift the family the user is looking at, not the stale payload.
+      const tabs = webOverrideRef.current?.webTabs ?? win?.webTabs ?? [];
+      const active = webOverrideRef.current?.webActive ?? win?.webActive ?? 0;
+      applyWebOverride(webFamilyAfterRemove(tabs, active, n));
+    },
+    onAlwaysRollback: revertWebOverride,
+    onError: (err) => addToast(err.message || "Failed to close web tab", "error"),
+  });
+
+  const { execute: moveWebTabOptimistic } = useOptimisticAction<[number, number]>({
+    action: (n, to) => {
+      const predecessor = webMoveQueueRef.current;
+      const queued = predecessor.then(async (chainAlive) => {
+        if (!chainAlive) return false;
+        try {
+          await moveWebTab(server, windowId, n, to);
+          return true;
+        } catch (err) {
+          // Already-enqueued moves retain their failed predecessor and cancel
+          // silently. A later gesture starts a fresh chain after rollback.
+          webMoveQueueRef.current = Promise.resolve(true);
+          throw err;
+        }
+      });
+      webMoveQueueRef.current = queued.catch(() => false);
+      return queued.then(() => undefined);
+    },
+    onOptimistic: (n, to) => {
+      // Compound on any in-flight override so back-to-back reorder drop the
+      // family the user sees, not the stale payload (the remove precedent).
+      const tabs = webOverrideRef.current?.webTabs ?? win?.webTabs ?? [];
+      const active = webOverrideRef.current?.webActive ?? win?.webActive ?? 0;
+      applyWebOverride(webFamilyAfterMove(tabs, active, n, to));
+    },
+    onAlwaysRollback: revertWebOverride,
+    onError: (err) => addToast(err.message || "Failed to move web tab", "error"),
+  });
+
+  // Reconcile: the options write wakes the SSE hub, so the confirming tick
+  // lands within ~1–2s; once the payload matches, the override has nothing
+  // left to say.
+  useEffect(() => {
+    if (!webOverride || !win) return;
+    const payloadTabs = win.webTabs ?? [];
+    const tabsSettled =
+      webOverride.webTabs === undefined ||
+      (webOverride.webTabs.length === payloadTabs.length &&
+        webOverride.webTabs.every((url, i) => url === payloadTabs[i]));
+    const activeSettled =
+      webOverride.webActive === undefined ||
+      webOverride.webActive === (win.webActive ?? 0);
+    if (tabsSettled && activeSettled) clearWebOverride(server, sessionName, windowId);
+  }, [webOverride, win, server, sessionName, windowId, clearWebOverride]);
+
+  // Unmount/window-switch cleanup: drop any in-flight override for the window
+  // left behind, and start the move queue fresh — a failed or still-pending
+  // move chain must not cancel the window's next reorder or strand its
+  // optimistic override.
+  useEffect(
+    () => () => {
+      clearWebOverride(server, sessionName, windowId);
+      webMoveQueueRef.current = Promise.resolve(true);
+    },
+    [server, sessionName, windowId, clearWebOverride],
+  );
+
+  // Web availability is unconditional (260821-zqlq): an empty active web tab
+  // renders IframeWindow's onboarding content branch, so the tile mounts
+  // regardless — the `win` guard narrows for the props.
+  return win ? (
+    <IframeWindow
+      tabs={webOverride?.webTabs ?? win.webTabs ?? []}
+      active={webOverride?.webActive ?? win.webActive}
+      webCapture={webCapture}
+      // The tile's tmux identity — scopes the native engine's guest retention
+      // (park/adopt) and the chrome-owned destroy rule. A foreign tile passes
+      // its HOME window, so the surface keeps one guest wherever it is shown.
+      server={server}
+      windowId={windowId}
+      // Address-bar write seam: the ACTIVE web slot's option write
+      // (n = webActive, slot 1 while the pointer is unset) — the component
+      // stays payload-shape agnostic. The active pointer is read through the
+      // same optimistic override the strip renders, so a submit during an
+      // in-flight select/remove targets the tab the user is looking at, not
+      // the stale payload slot.
+      onWriteUrl={(url) => {
+        const active = webOverride?.webActive ?? win.webActive;
+        const n = active !== undefined && active >= 1 ? active : 1;
+        return setWindowOptions(server, windowId, { [`@rk_win_web_${n}`]: url });
+      }}
+      // Strip verbs: select/remove are optimistic (the webOverride block
+      // above); add is NOT optimistic — the slot index is server-assigned,
+      // the SSE tick repaints the family. The component types the verbs as
+      // promise-returning (the `+` flow chains onSelectTab after onAddTab
+      // resolves); the optimistic executors are fire-and-forget, so the
+      // wrappers resolve at once. The add route resolves targets like
+      // `rk present`, so the component's relative /proxy/ draft is
+      // re-expressed as the absolute loopback URL (toWebAddTarget) the
+      // backend parses.
+      onSelectTab={(n) => {
+        selectWebTabOptimistic(n);
+        return Promise.resolve();
+      }}
+      onCloseTab={(n) => {
+        removeWebTabOptimistic(n);
+        return Promise.resolve();
+      }}
+      onAddTab={(target) => addWebTab(server, windowId, toWebAddTarget(target))}
+      onMoveTab={(n, to) => {
+        moveWebTabOptimistic(n, to);
+        return Promise.resolve();
+      }}
+      onInteract={visible ? onInteract : undefined}
+      // Page-title seam (260819-v6y4 R10): the header render is the parent's,
+      // but only the mounted iframe can read the same-origin
+      // contentDocument.title — reported up on each load, keyed by the tile's
+      // window.
+      onPageMeta={(m) => onPageTitle(m.title)}
+      shouldReclaimChord={shouldReclaimChord}
+    />
+  ) : null;
+}
+
 export function SurfaceLayout({
   layout,
   server,
@@ -709,6 +1045,8 @@ export function SurfaceLayout({
   clearOnWindowChange = false,
   sessionName,
   window: win,
+  windowsById,
+  sessionNameByWindowId,
   isMobile,
   mobileActiveSlot,
   wsRef,
@@ -727,6 +1065,8 @@ export function SurfaceLayout({
   guiToolbarVisible = false,
   onGuiToolbarVisibleChange,
   guiCapture = false,
+  webCapture = false,
+  onWebCaptureChange,
   guiResizeLocked = false,
   guiQuality = "balanced",
   guiStatsVisible = false,
@@ -734,6 +1074,7 @@ export function SurfaceLayout({
   onGuiStatsVisibleChange,
   onGuiConnection,
   onGuiRestart,
+  onCodeServerRestart,
   onGuiOpenLogs,
   guiCommandsRef,
   guiActions = [],
@@ -743,6 +1084,7 @@ export function SurfaceLayout({
   reviewCommandsRef,
   onReviewUnhandledChange,
   onReviewListeningChange,
+  layoutRectsRef,
   codeSrcFor,
   liveWindowIds,
   codeRootForWindow,
@@ -750,9 +1092,19 @@ export function SurfaceLayout({
   fetchBridgeStatusFor,
   shouldReclaimChord,
   onProgrammaticFocus,
-  onPromote,
-  onSwap,
   onClose,
+  onApplyLayout,
+  popoutLeafId,
+  onPopBackIn,
+  popped,
+  onPopOut,
+  revealedPoppedIds,
+  onPopIn,
+  onFocusPopout,
+  onHidePopped,
+  onSendHome,
+  onGoToWindow,
+  onBorrowDrop,
   onSplitPane,
   onClosePane,
   onRatioChange,
@@ -760,12 +1112,52 @@ export function SurfaceLayout({
   zoomToggleRef,
   onZoomChange,
   onFocusedKindChange,
+  onFocusedLeafChange,
   focusTileRef,
   statusWindow,
   ttyDockContent,
   themePalette = DEFAULT_DARK_THEME.palette,
 }: SurfaceLayoutProps) {
-  const arity = SHAPE_ARITY[layout.shape];
+  // The web header capture verb's tooltip chord — only while the binding is
+  // live (a keycap advertising a dead chord would lie; the gui toolbar's
+  // kbdFor rule).
+  const { byAction: bindingsByAction, host: bindingHost } = useKeybindings();
+  const webCaptureBinding = bindingsByAction.get("web-capture-toggle");
+  const webCaptureKbd = webCaptureBinding?.enabled
+    ? formatCombo({ code: webCaptureBinding.code, tier: webCaptureBinding.tier }, bindingHost.platform)
+    : undefined;
+  // The tree's reading-order view for this render: leaf ids, kinds, the
+  // structure signature (the sizes storage key), and the leaf count.
+  const layoutLeafIds = leafIds(layout);
+  const layoutKinds = leaves(layout);
+  const layoutSig = structureSig(layout);
+  const arity = layoutLeafIds.length;
+  // The popout/opener postures (spec surface-layout.md § Verbs → Pop out /
+  // Pop back in). `popoutLeafId` set ⇒ this render IS the popout window — a
+  // one-leaf tree, chrome-less; the header trades the layout-verb cluster for
+  // a single Pop back in verb. `popped` ⇒ the opener's per-viewer popped set:
+  // the parent renders the REDUCED tree, and here the set disarms the header
+  // drag (a drop resolved on the reduced tree would drop the popped leaf from
+  // the SHARED layout for every viewer), unzooms a popped zoomed leaf, and
+  // evicts a popped code leaf's retained frame (the popout boots its own
+  // extension host — one, not two).
+  const popoutTile = popoutLeafId !== undefined;
+  const poppedIdsKey = (popped ?? []).join("\n");
+  const poppedSet = useMemo(
+    () => new Set(popped ?? []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [poppedIdsKey],
+  );
+  const revealedPoppedIdsKey = (revealedPoppedIds ?? []).join("\n");
+  const revealedPoppedSet = useMemo(
+    () => new Set(revealedPoppedIds ?? []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [revealedPoppedIdsKey],
+  );
+  // Render-mirrored for the row-drag's dragstart listener (the effect keys on
+  // server/window, not the set — the latest-closure pattern).
+  const poppedSetRef = useRef(poppedSet);
+  poppedSetRef.current = poppedSet;
   // The focus-memory key for this window (spec right-panel.md § The code
   // lens): the recording seams below write the user's focus choice under it,
   // and the steal guard consults it. This component is keyed by server and
@@ -777,10 +1169,40 @@ export function SurfaceLayout({
   // viewer never drives SetDesktopSize).
   const coarsePointer = useCoarsePointer();
 
-  // Dummy ws bucket for DUPLICATE tty tiles — TerminalClient types `wsRef` as
-  // required, but only the first tty tile owns the shared refs (the shell's
-  // bottom bar / compose strip read them).
-  const extraTtyWsRef = useRef<WebSocket | null>(null);
+  // The payload record a tile reads: the route window for a bare leaf, the
+  // home window's map entry for a foreign leaf. A foreign home absent from
+  // the map is dead — dead leaves are pruned before render, so a null here is
+  // only the transient between a kill and the next payload.
+  const windowRecordFor = (id: string): ViewWindow | null =>
+    id === windowId ? win : (windowsById?.get(id) ?? null);
+  // A foreign tty tile's session: its home window's owning session (the relay
+  // stream's connection identity and the focus registration's session half).
+  const tileSessionFor = (id: string): string =>
+    id === windowId ? sessionName : (sessionNameByWindowId?.get(id) ?? "");
+
+  // The away derivation (server-computed `awayIn` on the route window's
+  // record): a BARE leaf whose kind names a LIVE holder renders the
+  // placeholder instead of mounting the surface. A holder absent from the
+  // window map is dead — the surface is back, so the leaf renders live.
+  const awayHolderFor = (kind: SurfaceKind): string | undefined => {
+    const holder = windowsById?.get(windowId)?.awayIn?.[kind];
+    return holder !== undefined && (windowsById?.has(holder) ?? false) ? holder : undefined;
+  };
+
+  // Per-leaf ws buckets for NON-PRIMARY tty tiles — TerminalClient types
+  // `wsRef` as required and fills it with its stream's adapter; the focused
+  // tty tile (bare or foreign) registers with its own bucket so the shell's
+  // bottom bar / compose strip reach the focused tile's stream. Only the
+  // first bare tty leaf owns the shared refs.
+  const ttyWsRefsRef = useRef(new Map<string, React.MutableRefObject<WebSocket | null>>());
+  const ttyWsRefFor = (leafId: string): React.MutableRefObject<WebSocket | null> => {
+    let bucket = ttyWsRefsRef.current.get(leafId);
+    if (!bucket) {
+      bucket = { current: null };
+      ttyWsRefsRef.current.set(leafId, bucket);
+    }
+    return bucket;
+  };
 
   // ── tty find state ───────────────────────────────────────────────────────
   // The tile layer drives the scaffold's passive SearchAddon through the
@@ -885,6 +1307,9 @@ export function SurfaceLayout({
   const [exportMenuPos, setExportMenuPos] = useState<{ top: number; right: number } | null>(null);
   const exportButtonRef = useRef<HTMLButtonElement | null>(null);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
+  // Menus register `transient` (overlay-presence): while open, a native guest
+  // composited above the DOM hides so the menu never paints underneath it.
+  useOccludes("transient", exportMenuPos !== null);
 
   const runExport = useCallback(
     async (action: ExportAction) => {
@@ -1007,18 +1432,17 @@ export function SurfaceLayout({
   };
 
 
-  // Hide-never-unmount (P3): kinds opened earlier this route visit stay
+  // Hide-never-unmount (P3): leaf ids opened earlier this route visit stay
   // mounted at display level. Per-window: the reset effect re-seeds the set
   // from the new window's layout on a window switch.
-  const [everOpened, setEverOpened] = useState<SurfaceKind[]>(() => [
-    ...new Set(layout.order),
-  ]);
+  const [everOpened, setEverOpened] = useState<string[]>(() => leafIds(layout));
   useEffect(() => {
+    const ids = leafIds(layout);
     setEverOpened((prev) => {
-      const missing = layout.order.filter((k) => !prev.includes(k));
+      const missing = ids.filter((id) => !prev.includes(id));
       return missing.length > 0 ? [...prev, ...missing] : prev;
     });
-  }, [layout.order]);
+  }, [layout]);
 
   // ── Code-frame retention (the P3 cross-window half) ─────────────────────
   // An ordered list of live code-frame records, most-recently-shown LAST.
@@ -1034,38 +1458,87 @@ export function SurfaceLayout({
   const codeFramesRef = useRef<CodeFrameRecord[]>(codeFrames);
   codeFramesRef.current = codeFrames;
   const codeFrameCap = isMobile ? CODE_FRAME_CAP_MOBILE : CODE_FRAME_CAP_DESKTOP;
-  const activeCodeSrc = codeSrcFor?.(windowId) ?? null;
-  const activeCodeRoot = codeRootFor(win);
-  const activeCodeTileOpen = layout.order.includes("code");
+  // The visible code leaves' tile windows in reading order: the bare `code`
+  // leaf resolves to the route window, a foreign `@N/code` leaf to its home.
+  // Frame records key on these — a borrowed code tile reuses its home
+  // window's retained frame when one exists. A REVEALED popped code leaf is
+  // excluded: its slot mounts the popped placeholder (no frame), and the show
+  // bookkeeping must not re-create the record the popped-frame eviction
+  // dropped — the popout owns the live frame.
+  const codeTileWindowIds = layoutLeafIds
+    .filter((id) => leafIdParts(id).kind === "code" && !revealedPoppedSet.has(id))
+    .map((id) => tileWindowIdOf(id, windowId));
+  const codeTileWindowsKey = codeTileWindowIds.join(",");
+  const activeCodeTileOpen = codeTileWindowIds.length > 0;
+  // A frame record's lookup by its window.
+  const frameForWindow = (id: string) => codeFrames.find((r) => r.windowId === id);
+  // The hidden-tile leaf set: ever-opened ids, plus a forced `code` slot when
+  // the ROUTE window has a frame record but no code leaf in the set — the
+  // per-window reset re-seeds `everOpened` from the new window's layout, so
+  // returning to a window whose code tile is CLOSED would otherwise drop the
+  // tile here while `retainedCodeTiles` filters the record out as claimed —
+  // unmounting (killing) a frame the close-tile rule says stays retained and
+  // counted.
+  const hiddenLeafIds: string[] =
+    frameForWindow(windowId) && !everOpened.includes("code")
+      ? [...everOpened, "code"]
+      : everOpened;
+  // Code windows with a tile mounted this route visit (visible or hidden):
+  // their frame records are claimed by those tiles — never by the retained
+  // list — and are protected from cap eviction.
+  const mountedCodeWindowIds = [
+    ...new Set(
+      [...layoutLeafIds, ...hiddenLeafIds]
+        .filter((id) => leafIdParts(id).kind === "code")
+        .map((id) => tileWindowIdOf(id, windowId)),
+    ),
+  ];
+  const mountedCodeWindowsKey = mountedCodeWindowIds.join(",");
 
-  // Show bookkeeping: the active window's record is created on first resolve
-  // and bumped to most-recently-shown on every show; overflow evicts the
-  // least-recently-shown record (the list head — the active window's record
-  // is last here, so it is never this eviction's victim). A retained frame
-  // never bumps itself: it cannot become visible without being the active
-  // window. Gated on reachability — an unreachable host holds no frames (the
-  // eviction effect below drops them on the true→false flip).
+  // Show bookkeeping: each visible code tile's record is created on first
+  // resolve and bumped to most-recently-shown on every show; overflow evicts
+  // least-recently-shown NON-VISIBLE records first (an on-screen frame is
+  // never the victim). A retained frame never bumps itself: it cannot become
+  // visible without a tile claiming its window. Gated on reachability — an
+  // unreachable host holds no frames (the eviction effect below drops them on
+  // the true→false flip).
   useEffect(() => {
-    if (!codeReachable || !activeCodeTileOpen || activeCodeSrc === null) return;
-    if (activeCodeRoot === "") return;
+    if (!codeReachable) return;
     setCodeFrames((prev) => {
-      const at = prev.findIndex((r) => r.windowId === windowId);
       let next = prev;
-      if (at < 0) {
-        next = [...prev, { windowId, src: activeCodeSrc, root: activeCodeRoot }];
-      } else if (at === prev.length - 1) {
-        return prev; // already most-recently-shown
-      } else {
-        next = [...prev.slice(0, at), ...prev.slice(at + 1), prev[at]];
+      let changed = false;
+      for (const id of codeTileWindowIds) {
+        const src = codeSrcFor?.(id) ?? null;
+        if (src === null) continue;
+        const root = codeRootFor(windowRecordFor(id));
+        if (root === "") continue;
+        const at = next.findIndex((r) => r.windowId === id);
+        if (at >= 0 && at === next.length - 1) continue; // already most-recently-shown
+        next =
+          at < 0
+            ? [...next, { windowId: id, src, root }]
+            : [...next.slice(0, at), ...next.slice(at + 1), next[at]];
+        changed = true;
       }
-      if (next.length > codeFrameCap) next = next.slice(next.length - codeFrameCap);
+      if (!changed) return prev;
+      if (next.length > codeFrameCap) {
+        let excess = next.length - codeFrameCap;
+        next = next.filter((r) => {
+          if (excess > 0 && !codeTileWindowIds.includes(r.windowId)) {
+            excess -= 1;
+            return false;
+          }
+          return true;
+        });
+      }
       return next;
     });
     // `codeFrames` is a dep so an eviction (or a follow's in-place baseline
-    // move) re-runs the check: a dropped active record is re-created at the
-    // CURRENT src on the next render. Idempotent — a present, most-recent
-    // record returns `prev` unchanged.
-  }, [server, windowId, activeCodeSrc, activeCodeRoot, activeCodeTileOpen, codeReachable, codeFrameCap, codeFrames]);
+    // move) re-runs the check: a dropped visible record is re-created at the
+    // CURRENT src on the next render. Idempotent — present, most-recent
+    // records return `prev` unchanged.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [server, codeTileWindowsKey, codeSrcFor, codeReachable, codeFrameCap, codeFrames, windowsById, win, windowId]);
 
   // A follow is never an eviction. The pending follow target is recorded
   // SYNCHRONOUSLY at report time by the shared `requestCodeFollow` wrapper
@@ -1115,39 +1588,48 @@ export function SurfaceLayout({
   // second click would re-POST and produce a second nonce/re-navigation.
   const [codeFollowInFlight, setCodeFollowInFlight] = useState(false);
   const [codeReload, setCodeReload] = useState<{ windowId: string; nonce: number } | null>(null);
-  // The ACTIVE window's payload record feeds the drift predicate — a retained
-  // (other-window) frame is never offered the verb (its tile renders no
-  // header; slot -1 gates the render below). The verb's presence IS the
-  // drift indicator — no other badge or copy.
-  const codeFollowTarget = codeRootFollowTarget(win);
-  // A frame record exists only once the active window's src resolved and the
+  // The Follow drift predicate reads the TILE window's payload record (a
+  // foreign code tile drifts against its home window's derivation) — a
+  // retained frame is never offered the verb (its tile renders no header;
+  // `visible` gates the render below). The verb's presence IS the drift
+  // indicator — no other badge or copy.
+  const codeFollowTargetFor = (tileWindowId: string): string | null =>
+    codeRootFollowTarget(windowRecordFor(tileWindowId));
+  // A frame record exists only once the tile window's src resolved and the
   // iframe mounted — pending or unreachable tiles show no Reload verb (there
   // is no frame to reload).
-  const codeFrameMounted =
-    codeReachable && codeFrames.some((r) => r.windowId === windowId);
+  const codeFrameMountedFor = (tileWindowId: string): boolean =>
+    codeReachable && codeFrames.some((r) => r.windowId === tileWindowId);
 
-  const followCodeTerminal = () => {
-    if (codeFollowTarget === null || codeFollowInFlight) return;
+  const followCodeTerminal = (tileWindowId: string) => {
+    const target = codeFollowTargetFor(tileWindowId);
+    if (target === null || codeFollowInFlight) return;
     setCodeFollowInFlight(true);
-    void requestCodeFollow(windowId, codeFollowTarget, onCodeFollowTerminal).finally(() => {
+    void requestCodeFollow(tileWindowId, target, onCodeFollowTerminal).finally(() => {
       setCodeFollowInFlight(false);
     });
   };
-  const reloadActiveCodeFrame = () => {
-    if (!codeFrameMounted) return;
-    setCodeReload((r) => ({ windowId, nonce: (r?.nonce ?? 0) + 1 }));
+  const reloadCodeFrame = (tileWindowId: string) => {
+    if (!codeFrameMountedFor(tileWindowId)) return;
+    setCodeReload((r) => ({ windowId: tileWindowId, nonce: (r?.nonce ?? 0) + 1 }));
   };
 
   // Palette command seam (Constitution V): the `Code: Follow Terminal` /
-  // `Code: Reload Editor` rows run the same bodies as the header verbs.
-  // Filled while the active window's code tile is open, null otherwise and on
-  // unmount — the `zoomToggleRef` pattern. Refilled after EVERY render so the
-  // bodies always close over the current drift/in-flight/frame state.
+  // `Code: Reload Editor` rows run the same bodies as the header verbs — the
+  // FIRST visible code tile's, matching the parent's code-root write target.
+  // Filled while a code tile is open, null otherwise and on unmount — the
+  // `zoomToggleRef` pattern. Refilled after EVERY render so the bodies always
+  // close over the current drift/in-flight/frame state.
   useEffect(() => {
     if (!codeCommandsRef) return;
-    codeCommandsRef.current = activeCodeTileOpen
-      ? { followTerminal: followCodeTerminal, reload: reloadActiveCodeFrame }
-      : null;
+    const firstCodeWindow = codeTileWindowIds[0];
+    codeCommandsRef.current =
+      activeCodeTileOpen && firstCodeWindow !== undefined
+        ? {
+            followTerminal: () => followCodeTerminal(firstCodeWindow),
+            reload: () => reloadCodeFrame(firstCodeWindow),
+          }
+        : null;
     return () => {
       codeCommandsRef.current = null;
     };
@@ -1158,10 +1640,11 @@ export function SurfaceLayout({
   // code root diverged from the record's baseline by anything OTHER than a
   // follow (a transient empty read never evicts); (c) reachability flipped
   // true→false — every frame is dead with the host; plus a runtime cap
-  // decrease (an isMobile flip) evicts down immediately, oldest NON-ACTIVE
-  // records first — the active window's record is protected even when its
-  // code tile is closed (a closed tile keeps its frame counted, and the
-  // show-bookkeeping effect can't bump it to the tail while it is).
+  // decrease (an isMobile flip) evicts down immediately, oldest records NOT
+  // claimed by a visible code tile first — a visible tile's record is
+  // protected even when its code tile is closed (a closed tile keeps its
+  // frame counted, and the show-bookkeeping effect can't bump it to the tail
+  // while it is).
   //
   // The `setCodeFrames` updater MUST stay pure: React may invoke it more
   // than once for a single update (StrictMode double-invocation, or the
@@ -1219,7 +1702,7 @@ export function SurfaceLayout({
       if (next.length > codeFrameCap) {
         let excess = next.length - codeFrameCap;
         next = next.filter((r) => {
-          if (excess > 0 && r.windowId !== windowId) {
+          if (excess > 0 && !mountedCodeWindowIds.includes(r.windowId)) {
             excess -= 1;
             return false;
           }
@@ -1250,7 +1733,8 @@ export function SurfaceLayout({
       const d = reconcile(prev);
       return d.changed ? d.next : prev;
     });
-  }, [codeReachable, liveWindowIds, codeRootForWindow, codeFrameCap, windowId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codeReachable, liveWindowIds, codeRootForWindow, codeFrameCap, mountedCodeWindowsKey]);
 
   // The nonce half of the follow: when the parent's re-derivation GET lands
   // before the payload tick, the baseline moves here instead (the eviction
@@ -1266,45 +1750,64 @@ export function SurfaceLayout({
     if (!codeFollowSrc || codeFollowSrc.nonce === codeFollowNonceRef.current) return;
     codeFollowNonceRef.current = codeFollowSrc.nonce;
     const followRoot = codeFollowSrc.root;
+    const followWindowId = codeFollowSrc.windowId;
     setCodeFrames((prev) =>
-      prev.some((r) => r.windowId === windowId && r.root !== followRoot)
-        ? prev.map((r) => (r.windowId === windowId ? { ...r, root: followRoot } : r))
+      prev.some((r) => r.windowId === followWindowId && r.root !== followRoot)
+        ? prev.map((r) => (r.windowId === followWindowId ? { ...r, root: followRoot } : r))
         : prev,
     );
-  }, [codeFollowSrc, windowId]);
+  }, [codeFollowSrc]);
 
-  // ⏶ Zoom: one surface fills the layout area; the shared layout is
-  // untouched. Per-viewer and PERSISTED as the zoomed surface KIND under
+  // A popped code leaf evicts the opener's retained frame for its window
+  // (spec surface-layout.md § Verbs → Pop out): the popout boots its own
+  // extension host, so a kept hidden frame would double the ~250–320 MB cost
+  // the LRU exists to bound. The show-bookkeeping effect never re-creates the
+  // record while the leaf is popped — the REDUCED render tree holds no code
+  // leaf claiming that window — and popping back in re-mounts fresh (a
+  // workbench boot is the accepted cost of the return).
+  const poppedCodeWindowsKey = [...poppedSet]
+    .filter((id) => leafIdParts(id).kind === "code")
+    .map((id) => tileWindowIdOf(id, windowId))
+    .join("\n");
+  useEffect(() => {
+    if (poppedCodeWindowsKey === "") return;
+    const evict = new Set(poppedCodeWindowsKey.split("\n"));
+    setCodeFrames((prev) => {
+      const next = prev.filter((r) => !evict.has(r.windowId));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [poppedCodeWindowsKey]);
+
+  // ⏶ Zoom: one leaf fills the layout area; the shared layout tree is
+  // untouched. Per-viewer and PERSISTED as the zoomed LEAF ID under
   // `rk-layout-zoom:{server}:{@N}` — the same key the mobile switch group
-  // reads. The KIND is the identity (`zoomedKindRef`); the rendered slot is
-  // derived from it, so a shared reorder (promote/swap from any viewer) moves
-  // the zoom with its surface instead of leaving it on whichever kind now
-  // occupies the old index. Duplicate tty tiles resolve to the first slot.
-  // Cleared (state AND key) when the layout can no longer host the zoom: a
-  // close collapsed the arity, or the zoomed kind left `layout.order`.
-  const [zoomedIndex, setZoomedIndex] = useState<number | null>(() => {
-    const kind = readStoredZoom(server, windowId);
-    if (!kind) return null;
-    const slot = layout.order.indexOf(kind);
-    return slot >= 0 ? slot : null;
+  // reads (its kind writes double as a unique bare leaf's id). The leaf id is
+  // the identity: a foreign leaf's address survives any restructure, and a
+  // bare id (`code`, `tty#2`) falls back to the kind's FIRST leaf in reading
+  // order when its exact leaf left the tree, so a shared restructure
+  // (promote/swap from any viewer) moves the zoom with its surface. Cleared
+  // (state AND key) when the layout can no longer host the zoom: a close
+  // collapsed the arity, or the zoomed kind left the tree.
+  const [zoomedLeafId, setZoomedLeafId] = useState<string | null>(() => {
+    const stored = readStoredZoom(server, windowId);
+    return stored ? resolveZoomLeaf(layout, stored) : null;
   });
   const zoomedKindRef = useRef<SurfaceKind | null>(
-    zoomedIndex !== null ? (layout.order[zoomedIndex] ?? null) : null,
+    zoomedLeafId !== null ? leafIdParts(zoomedLeafId).kind : null,
   );
-  // Every zoom flip writes the key through this one seam (the zoomed slot's
-  // kind; `null` on unzoom). Flip initiators only: mount with no zoom writes
+  // Every zoom flip writes the key through this one seam (the zoomed leaf's
+  // id; `null` on unzoom). Flip initiators only: mount with no zoom writes
   // nothing, so the mobile switch group's writes to the same key are never
   // clobbered by a steady-state unzoomed desktop render.
-  const zoomedIndexRef = useRef(zoomedIndex);
-  zoomedIndexRef.current = zoomedIndex;
+  const zoomedLeafIdRef = useRef(zoomedLeafId);
+  zoomedLeafIdRef.current = zoomedLeafId;
   const flipZoom = useCallback(
-    (slot: number | null) => {
-      setZoomedIndex(slot);
-      const kind = slot !== null ? layout.order[slot] : undefined;
-      zoomedKindRef.current = kind ?? null;
-      writeStoredZoom(server, windowId, kind ?? null);
+    (leafId: string | null) => {
+      setZoomedLeafId(leafId);
+      zoomedKindRef.current = leafId !== null ? leafIdParts(leafId).kind : null;
+      writeStoredZoom(server, windowId, leafId);
     },
-    [layout.order, server, windowId],
+    [server, windowId],
   );
   // The window the zoom STATE belongs to. On a windowId change this effect
   // runs (flipZoom's identity changes) BEFORE the per-window reset effect
@@ -1316,54 +1819,76 @@ export function SurfaceLayout({
   const zoomOwnerRef = useRef(`${server}:${windowId}`);
   useEffect(() => {
     if (zoomOwnerRef.current !== `${server}:${windowId}`) return;
-    if (zoomedIndex === null) return;
-    const kind = zoomedKindRef.current;
-    const slot = kind === null ? -1 : layout.order.indexOf(kind);
-    if (layout.order.length <= 1 || slot < 0) {
+    if (zoomedLeafId === null) return;
+    if (layoutKinds.length <= 1) {
       flipZoom(null);
       return;
     }
-    // A reorder moved the zoomed kind: follow it (the key already holds the
-    // kind, so no write).
-    if (slot !== zoomedIndex) setZoomedIndex(slot);
-  }, [zoomedIndex, layout.order, flipZoom, server, windowId]);
-  const zoomed = zoomedIndex !== null;
+    // The exact leaf survives any restructure — nothing to do.
+    if (layoutLeafIds.includes(zoomedLeafId)) return;
+    // Its exact leaf left the tree: follow the zoom to the kind's first leaf
+    // (the key already holds an id of that kind, so no write), or clear when
+    // the kind itself is gone.
+    const kind = zoomedKindRef.current;
+    const i = kind === null ? -1 : layoutKinds.indexOf(kind);
+    if (i < 0) {
+      flipZoom(null);
+      return;
+    }
+    setZoomedLeafId(layoutLeafIds[i]);
+  }, [zoomedLeafId, layout, flipZoom, server, windowId]);
+  // A popped zoomed leaf renders unzoomed: the reduced tree no longer holds
+  // its tile, so the zoom would pin a hidden tile full-center. Clearing goes
+  // through flipZoom so the persisted key clears too.
+  useEffect(() => {
+    if (zoomedLeafId !== null && poppedSet.has(zoomedLeafId)) flipZoom(null);
+  }, [zoomedLeafId, poppedSet, flipZoom]);
+  const zoomed = zoomedLeafId !== null;
 
   // Zoom flip reporting for the palette seam (T012/R11): the `Layout: Expand`/
   // `Layout: Restore` entries rebuild on every flip. The toggle registration itself
-  // lives below the focused-slot state (it reads the focused slot).
+  // lives below the focused-leaf state (it reads the focused leaf).
   useEffect(() => {
     onZoomChange?.(zoomed);
   }, [zoomed, onZoomChange]);
 
   // Web tile page title (260819-v6y4 R10): reported by IframeWindow's
   // onPageMeta on each same-origin frame load; null (cross-origin, pre-load,
-  // or empty) falls the header back to the address's display form. Per-window:
-  // the reset effect clears it on a window switch.
-  const [webPageTitle, setWebPageTitle] = useState<string | null>(null);
+  // or empty) falls the header back to the address's display form. Keyed by
+  // the tile's OWN window (a foreign web tile's title never headlines the
+  // route window's tile); the reset effect clears the map on a window switch.
+  const [webPageTitles, setWebPageTitles] = useState<ReadonlyMap<string, string | null>>(
+    () => new Map(),
+  );
   // The gui tile's element-fullscreen state, reported up from GuiSurface
   // (the fullscreen verb targets the TILE): latches the header's ⤢ and
   // suppresses the gui tile's layout verbs while it lasts.
   const [guiTileFullscreen, setGuiTileFullscreen] = useState(false);
   // Tty task progress (260819-1vxq): OSC 9;4 events lifted from the
-  // scaffold's `onProgressChange` seam into ONE per-window slot — every tty
-  // tile shows the same window, so one slot serves all of them (the
-  // webPageTitle precedent), and duplicate-tile firings fold idempotently.
+  // scaffold's `onProgressChange` seam into ONE slot PER TILE WINDOW — tiles
+  // of the same window (duplicate bare ttys) share its slot and their firings
+  // fold idempotently, while a foreign tty's progress renders on its own tile
+  // and never touches the route window's slot.
   // Events reduce immediately (retention semantics need event order) but
   // commit at most once per animation frame, so bursty emitters cannot
   // re-render storm the grid. Per-viewer ephemeral by design: component
   // state only, reset to idle by the per-window reset effect on a window
   // switch — a stale value with no updates is left as-is (the emitter owns
   // lifecycle via state 0).
-  const [ttyProgress, setTtyProgress] = useState<TtyProgress>(IDLE_PROGRESS);
-  const ttyProgressRef = useRef<TtyProgress>(IDLE_PROGRESS);
+  const [ttyProgressByWindow, setTtyProgressByWindow] = useState<ReadonlyMap<string, TtyProgress>>(
+    () => new Map(),
+  );
+  const ttyProgressRef = useRef(new Map<string, TtyProgress>());
   const ttyProgressRafRef = useRef<number | null>(null);
-  const handleTtyProgress = useCallback((state: number, value: number) => {
-    ttyProgressRef.current = reduceProgress(ttyProgressRef.current, state, value);
+  const handleTtyProgress = useCallback((tileWindowId: string, state: number, value: number) => {
+    ttyProgressRef.current.set(
+      tileWindowId,
+      reduceProgress(ttyProgressRef.current.get(tileWindowId) ?? IDLE_PROGRESS, state, value),
+    );
     if (ttyProgressRafRef.current !== null) return;
     ttyProgressRafRef.current = requestAnimationFrame(() => {
       ttyProgressRafRef.current = null;
-      setTtyProgress(ttyProgressRef.current);
+      setTtyProgressByWindow(new Map(ttyProgressRef.current));
     });
   }, []);
   useEffect(
@@ -1374,48 +1899,47 @@ export function SurfaceLayout({
     },
     [],
   );
-  // The header chip renders only for the value-carrying states (1/2/4) —
-  // indeterminate sweeps with no percentage, idle removes it.
-  const ttyChip = isValuedProgress(ttyProgress)
-    ? { value: ttyProgress.value, cls: PROGRESS_CHIP_CLASS[ttyProgress.kind] }
-    : null;
 
-  // Focused tile (260812-wfic R2) — transient, like zoom: the slot that last
-  // received pointer/keyboard interaction. Default slot A; falls back to slot
-  // A when the focused slot leaves the layout (a close collapsed the arity).
-  // Per-window: the reset effect returns it to slot A on a window switch.
-  const [focusedSlot, setFocusedSlot] = useState(0);
+  // Focused tile (260812-wfic R2) — transient, like zoom: the LEAF that last
+  // received pointer/keyboard interaction. Default: the first leaf in reading
+  // order; falls back there when the focused leaf leaves the layout (a close
+  // removed it). Per-window: the reset effect returns it to the first leaf on
+  // a window switch.
+  const [focusedLeafId, setFocusedLeafId] = useState(() => leafIds(layout)[0]);
   useEffect(() => {
-    setFocusedSlot((s) => (s >= layout.order.length ? 0 : s));
-  }, [layout.order.length]);
-  // Render-time clamp mirrors the ratio fallback: the clearing effect lands a
-  // beat after the render carrying the shrunken order.
-  const focusedKind = layout.order[Math.min(focusedSlot, layout.order.length - 1)];
-  // Interaction seams report SYNCHRONOUSLY (`focusSlot` below): the shell's
+    setFocusedLeafId((id) => (leafIds(layout).includes(id) ? id : leafIds(layout)[0]));
+  }, [layout]);
+  // Render-time clamp: the clearing effect lands a beat after the render
+  // carrying the tree the focused leaf left.
+  const focusedId = layoutLeafIds.includes(focusedLeafId) ? focusedLeafId : layoutLeafIds[0];
+  const focusedKind = layoutKinds[layoutLeafIds.indexOf(focusedId)];
+  // Interaction seams report SYNCHRONOUSLY (`focusLeaf` below): the shell's
   // `ttyOnly` chord gate consumes the reported kind, and discrete-event
   // flushing guarantees the dispatcher's handler map reflects the click
   // before the next keydown — reporting only via this effect would leave a
   // two-render gap where the focused border shows but the chord still fires.
-  // The effect remains for the non-interaction transitions: the slot-A
-  // default on mount and the fallback when the focused slot leaves. The ref
+  // The effect remains for the non-interaction transitions: the first-leaf
+  // default on mount and the fallback when the focused leaf leaves. The ref
   // dedupes the two seams — a sync interaction report and the effect firing
-  // after the same state update hand up the kind exactly once.
-  const lastReportedKindRef = useRef<SurfaceKind | null>(null);
-  const reportFocusedKind = useCallback(
-    (kind: SurfaceKind) => {
-      if (kind === lastReportedKindRef.current) return;
-      lastReportedKindRef.current = kind;
+  // after the same state update hand up the focus exactly once.
+  const lastReportedFocusRef = useRef<{ leafId: string; kind: SurfaceKind } | null>(null);
+  const reportFocus = useCallback(
+    (leafId: string, kind: SurfaceKind) => {
+      const last = lastReportedFocusRef.current;
+      if (last !== null && last.leafId === leafId && last.kind === kind) return;
+      lastReportedFocusRef.current = { leafId, kind };
       onFocusedKindChange?.(kind);
+      onFocusedLeafChange?.(leafId);
     },
-    [onFocusedKindChange],
+    [onFocusedKindChange, onFocusedLeafChange],
   );
-  const focusSlot = (slot: number) => {
-    setFocusedSlot(slot);
-    const kind = layout.order[slot];
-    if (kind) reportFocusedKind(kind);
+  const focusLeaf = (leafId: string) => {
+    setFocusedLeafId(leafId);
+    const kind = layoutKinds[layoutLeafIds.indexOf(leafId)];
+    if (kind) reportFocus(leafId, kind);
   };
   // Focus-memory write seam for `tty` (spec right-panel.md § The code lens).
-  // It lives on the POINTERDOWN seam, not in `focusSlot` and not on the
+  // It lives on the POINTERDOWN seam, not in `focusLeaf` and not on the
   // wrapper's `onFocus`: the in-tile compose strip docks INSIDE the tty tile,
   // and a focusin bubbles target-first — the textarea's own `onFocus` (which
   // records `compose`) runs BEFORE the wrapper's, so a tty write there would
@@ -1424,129 +1948,238 @@ export function SurfaceLayout({
   // deliberately never recorded here either: a programmatic grab produces no
   // pointerdown (the anti-steal asymmetry — `code` records only via
   // `onInteract`).
-  const recordTtySlot = (slot: number) => {
-    focusSlot(slot);
-    if (layout.order[slot] === "tty") recordFocus(focusKey, "tty");
+  const recordTtyLeaf = (leafId: string) => {
+    focusLeaf(leafId);
+    if (layoutKinds[layoutLeafIds.indexOf(leafId)] === "tty") recordFocus(focusKey, "tty");
   };
   // The pointerdown variant, event-aware: a press landing INSIDE the docked
   // compose strip is strip interaction, not terminal focus. The record is
   // skipped for it (the textarea's `onFocus` owns the `compose` write) — a
   // re-click on an already-focused textarea fires no focus event, so without
   // this carve-out the tty write would clobber `compose` with no correction.
-  // The focused-SLOT highlight still follows the press (the strip is part of
+  // The focused-LEAF highlight still follows the press (the strip is part of
   // the tty tile's frame).
-  const focusSlotFromPointer = (slot: number, target: EventTarget | null) => {
-    focusSlot(slot);
+  const focusLeafFromPointer = (leafId: string, target: EventTarget | null) => {
+    focusLeaf(leafId);
     if (target instanceof HTMLElement && target.closest("[data-compose-strip]")) {
       return;
     }
-    if (layout.order[slot] === "tty") recordFocus(focusKey, "tty");
+    if (layoutKinds[layoutLeafIds.indexOf(leafId)] === "tty") recordFocus(focusKey, "tty");
   };
   useEffect(() => {
-    if (focusedKind) reportFocusedKind(focusedKind);
-  }, [focusedKind, reportFocusedKind]);
+    if (focusedKind) reportFocus(focusedId, focusedKind);
+  }, [focusedId, focusedKind, reportFocus]);
 
   // Zoom palette/chord seam (T012/R11 + 260819-qwr7 R7): register the toggle
   // for the parent's `Layout: Expand`/`Restore` palette entries and the ⇧⌘⏎
   // zen chord (flips report via the `onZoomChange` effect above, so those
-  // entries rebuild). The toggle zooms the FOCUSED slot (R7: the chord acts
-  // on the tile the user is in) and is a no-op on single layouts (the
-  // clearing effect above immediately unsets an index that no longer fits).
-  // Declared after the focused-slot state — the toggle reads it via a ref.
-  const focusedSlotRef = useRef(focusedSlot);
-  focusedSlotRef.current = focusedSlot;
+  // entries rebuild). The toggle zooms the FOCUSED leaf (R7: the chord acts
+  // on the tile the user is in) and is a no-op on single-leaf layouts (the
+  // clearing effect above immediately unzooms a zoom the tree no longer
+  // hosts). Declared after the focused-leaf state — the toggle reads it via a
+  // ref.
+  const focusedIdRef = useRef(focusedId);
+  focusedIdRef.current = focusedId;
   useEffect(() => {
     if (!zoomToggleRef) return;
     zoomToggleRef.current = () =>
-      flipZoom(
-        zoomedIndexRef.current === null
-          ? Math.min(focusedSlotRef.current, layout.order.length - 1)
-          : null,
-      );
+      flipZoom(zoomedLeafIdRef.current === null ? focusedIdRef.current : null);
     return () => {
       zoomToggleRef.current = null;
     };
-  }, [zoomToggleRef, layout.order.length, flipZoom]);
+  }, [zoomToggleRef, flipZoom]);
 
   // Palette focus seam (R10): `Tile: Focus <Surface>` routes through this
-  // ref — focus the FIRST slot of the given kind (duplicate tty tiles: slot A
-  // wins). No-op for a kind that is not open.
+  // ref — focus the FIRST leaf of the given kind. No-op for a kind that is
+  // not open.
   useEffect(() => {
     if (!focusTileRef) return;
     focusTileRef.current = (kind: SurfaceKind) => {
-      const slot = layout.order.indexOf(kind);
+      const i = leaves(layout).indexOf(kind);
       // An explicit palette choice is a genuine user choice — record it too.
-      if (slot >= 0) recordTtySlot(slot);
+      if (i >= 0) recordTtyLeaf(leafIds(layout)[i]);
     };
     return () => {
       focusTileRef.current = null;
     };
-  }, [focusTileRef, layout.order]);
+  }, [focusTileRef, layout]);
 
-  // Ratios (R5): read per (window, shape), normalized for the shape's arity;
-  // persisted ON DRAG RELEASE ONLY.
-  const [ratios, setRatios] = useState<LayoutRatios>(() =>
-    initialRatios(server, windowId, layout.shape),
-  );
-  useEffect(() => {
-    setRatios(initialRatios(server, windowId, layout.shape));
-  }, [server, windowId, layout.shape]);
-  // Render-time fallback: the shape-change effect lands a beat after the
-  // render that carries the new shape — never index a stale-length array.
-  const effRatios =
-    ratios.length === arity - 1 ? ratios : defaultRatios(arity);
-  const ratiosRef = useRef(effRatios);
-  ratiosRef.current = effRatios;
-
-  // Divider drag (R5) — the RightPanel drag-handle pattern, hardened: pointer
-  // capture on the handle starts the drag, but mid-drag move/release/cancel
-  // are handled by WINDOW-level listeners (the effects below), not the
-  // handle's own events — engines can drop element pointer capture while the
-  // pointer crosses iframe content (observed on macOS Safari: the seam stops
-  // following an up-drag over the web tile), and a window listener still
-  // hears every event the parent document gets. Tile content gets
-  // `pointer-events: none` mid-drag so iframes can't become the target and
-  // steal events into their own document. Tiles stay MOUNTED AND LIVE the
-  // whole time (the board pane-resize bug class — no suspension).
+  // ── Container measure + geometry ─────────────────────────────────────────
+  // Tiles are absolutely positioned from `layoutRects` over the measured
+  // container; until the first measure (jsdom has no layout) the NOMINAL_BOX
+  // proportions render as percentage styles, so an unmeasured mount still
+  // lays out sanely.
   const gridRef = useRef<HTMLDivElement>(null);
-  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
+  const [containerBox, setContainerBox] = useState<Rect | null>(null);
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      setContainerBox(
+        r.width > 0 && r.height > 0 ? { x: 0, y: 0, w: r.width, h: r.height } : null,
+      );
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const measured = containerBox !== null;
+  const box = containerBox ?? NOMINAL_BOX;
+
+  // Sizes: the viewer's stored fractions for this STRUCTURE (keyed by the
+  // structure signature — a swap keeps sizes with positions), else the
+  // template's own defaults, else equal shares. A drag edits the state live;
+  // the persist happens ON RELEASE ONLY. The state carries its signature so a
+  // render landing ahead of the reset effect (a restructure beat) falls back
+  // instead of misapplying another structure's fractions. The reset keys on
+  // the signature STRING — the layout prop's identity changes with every SSE
+  // tick, and a same-structure tick must not disturb a live drag.
+  const [sizesState, setSizesState] = useState<{ sig: string; sizes: LayoutSizes }>(() => ({
+    sig: layoutSig,
+    sizes: resolveSizes(layout, readStoredSizes(server, windowId, layout) ?? templateSizes(layout)),
+  }));
+  useEffect(() => {
+    setSizesState({
+      sig: layoutSig,
+      sizes: resolveSizes(
+        layout,
+        readStoredSizes(server, windowId, layout) ?? templateSizes(layout),
+      ),
+    });
+    // Keyed on the structure signature, not the layout identity — a
+    // same-structure SSE tick must not disturb a live drag.
+  }, [server, windowId, layoutSig]);
+  const effSizes =
+    sizesState.sig === layoutSig ? sizesState.sizes : resolveSizes(layout, templateSizes(layout));
+  const sizesRef = useRef(effSizes);
+  sizesRef.current = effSizes;
+  const sigRef = useRef(layoutSig);
+  sigRef.current = layoutSig;
+
+  const rects = layoutRects(layout, box, effSizes, SPLIT_GAP_PX);
+  const { dividers, intersections } = layoutDividers(layout, box, effSizes, SPLIT_GAP_PX);
+  // Drag frames in `dividers`' enumeration order (the same walk).
+  const frames = dividerFrames(layout, box, effSizes, SPLIT_GAP_PX);
+  const framesRef = useRef(frames);
+  framesRef.current = frames;
+  const intersectionsRef = useRef(intersections);
+  intersectionsRef.current = intersections;
+
+  // Leaf-rect seam for app.tsx (add + directional swap read real geometry):
+  // refilled after EVERY render so the getter always closes over the latest
+  // tree, container, and live sizes — the `codeCommandsRef` pattern.
+  useEffect(() => {
+    if (!layoutRectsRef) return;
+    const tree = layout;
+    const currentBox = box;
+    const currentSizes = effSizes;
+    layoutRectsRef.current = () => layoutRects(tree, currentBox, currentSizes, SPLIT_GAP_PX);
+    return () => {
+      layoutRectsRef.current = null;
+    };
+  });
+
+  // Absolute placement for a computed rect: px over the measured container,
+  // NOMINAL_BOX proportions (percentages) before the first measure.
+  const rectStyle = (r: Rect): React.CSSProperties =>
+    measured
+      ? { left: r.x, top: r.y, width: r.w, height: r.h }
+      : {
+          left: `${(r.x / NOMINAL_BOX.w) * 100}%`,
+          top: `${(r.y / NOMINAL_BOX.h) * 100}%`,
+          width: `${(r.w / NOMINAL_BOX.w) * 100}%`,
+          height: `${(r.h / NOMINAL_BOX.h) * 100}%`,
+        };
+
+  // A divider's style: the 14px hit zone centered on the gutter's seam,
+  // spanning the split's extent on the perpendicular axis.
+  const dividerStyle = (d: DividerLine): React.CSSProperties => {
+    const style = rectStyle(d.rect);
+    if (d.dir === "h") {
+      // An `h` split's divider is a VERTICAL line: center on x, span y.
+      const center = d.rect.x + d.rect.w / 2;
+      return {
+        ...style,
+        left: measured ? center : `${(center / NOMINAL_BOX.w) * 100}%`,
+        width: undefined,
+      };
+    }
+    const center = d.rect.y + d.rect.h / 2;
+    return {
+      ...style,
+      top: measured ? center : `${(center / NOMINAL_BOX.h) * 100}%`,
+      height: undefined,
+    };
+  };
+
+  // The first sibling's percentage of the pair — the separator's
+  // aria-valuenow.
+  const dividerValueNow = (index: number): number => {
+    const frame = frames[index];
+    const fractions = effSizes[frame.splitIndex];
+    const combined = fractions[frame.boundary - 1] + fractions[frame.boundary];
+    return Math.round((fractions[frame.boundary - 1] / combined) * 100);
+  };
+
+  // Divider drag (R15) — the RightPanel drag-handle pattern, hardened:
+  // pointer capture on the handle starts the drag, but mid-drag
+  // move/release/cancel are handled by WINDOW-level listeners (the effects
+  // below), not the handle's own events — engines can drop element pointer
+  // capture while the pointer crosses iframe content (observed on macOS
+  // Safari: the seam stops following an up-drag over the web tile), and a
+  // window listener still hears every event the parent document gets. Tile
+  // content gets `pointer-events: none` mid-drag so iframes can't become the
+  // target and steal events into their own document. Tiles stay MOUNTED AND
+  // LIVE the whole time (the board pane-resize bug class — no suspension).
+  const [draggingDivider, setDraggingDivider] = useState<number | null>(null);
   const dragRef = useRef<{
     index: number;
-    axis: "x" | "y";
     el: HTMLElement;
     pointerId: number;
   } | null>(null);
 
+  // The one drag edit: the pointer's axis position maps to the FIRST
+  // sibling's fraction of the pair's combined extent, clamped to the 280px
+  // floor on both sides; the pair's sum stays constant and no other split or
+  // sibling moves. sizesRef is updated SYNCHRONOUSLY (not left for the next
+  // render): the intersection drag edits two pairs in one event, and the
+  // second edit must compound on the first.
+  const applyDividerDrag = (index: number, pointer: number) => {
+    const frame = framesRef.current[index];
+    if (!frame || frame.len <= 0) return;
+    const first = clampSiblingFraction((pointer - frame.start) / frame.len, frame.len);
+    const cur = sizesRef.current;
+    const arr = cur[frame.splitIndex];
+    const combined = arr[frame.boundary - 1] + arr[frame.boundary];
+    const next = cur.map((a, i) => (i === frame.splitIndex ? [...a] : a));
+    next[frame.splitIndex][frame.boundary - 1] = first * combined;
+    next[frame.splitIndex][frame.boundary] = (1 - first) * combined;
+    sizesRef.current = next;
+    setSizesState({ sig: sigRef.current, sizes: next });
+    onRatioChange?.(index, first * 100);
+  };
+
   const onDividerPointerDown =
-    (spec: DividerSpec) => (e: React.PointerEvent<HTMLDivElement>) => {
+    (index: number) => (e: React.PointerEvent<HTMLDivElement>) => {
       e.preventDefault();
       e.currentTarget.setPointerCapture(e.pointerId);
-      dragRef.current = {
-        index: spec.index,
-        axis: spec.axis,
-        el: e.currentTarget,
-        pointerId: e.pointerId,
-      };
-      setDraggingIndex(spec.index);
+      dragRef.current = { index, el: e.currentTarget, pointerId: e.pointerId };
+      setDraggingDivider(index);
     };
 
   const onDividerPointerMove = (e: { clientX: number; clientY: number }) => {
     const drag = dragRef.current;
     const grid = gridRef.current;
     if (!drag || !grid) return;
+    const frame = framesRef.current[drag.index];
+    if (!frame) return;
     const rect = grid.getBoundingClientRect();
-    const sizePx = drag.axis === "x" ? rect.width : rect.height;
-    if (sizePx <= 0) return; // unmeasured (jsdom) — no math to do
-    const rawPct =
-      (((drag.axis === "x" ? e.clientX - rect.left : e.clientY - rect.top) /
-        sizePx) *
-        100);
-    const cur = ratiosRef.current;
-    const pct = clampBoundary(layout.shape, cur, drag.index, rawPct, sizePx);
-    const nextRatios = [...cur];
-    nextRatios[drag.index] = pct;
-    setRatios(nextRatios);
-    onRatioChange?.(drag.index, pct);
+    const axisSize = frame.dir === "h" ? rect.width : rect.height;
+    if (axisSize <= 0) return; // unmeasured (jsdom) — no math to do
+    applyDividerDrag(drag.index, frame.dir === "h" ? e.clientX - rect.left : e.clientY - rect.top);
   };
 
   const endDividerDrag = () => {
@@ -1558,22 +2191,22 @@ export function SurfaceLayout({
     if (drag.el.hasPointerCapture(drag.pointerId)) {
       drag.el.releasePointerCapture(drag.pointerId);
     }
-    setDraggingIndex(null);
-    writeStoredRatios(server, windowId, layout.shape, ratiosRef.current);
+    setDraggingDivider(null);
+    writeStoredSizes(server, windowId, sigRef.current, sizesRef.current);
     onRatioCommit?.();
   };
 
   // Latest-closure refs for the window listeners: the effects key on the
   // dragging FLAG only, so without these they would hold the closures from
-  // the render the drag started in (stale ratios are already avoided via
-  // ratiosRef, but writeStoredRatios reads server/windowId/shape props).
+  // the render the drag started in (stale sizes are already avoided via
+  // sizesRef, but writeStoredSizes reads server/windowId props).
   const dividerMoveRef = useRef(onDividerPointerMove);
   dividerMoveRef.current = onDividerPointerMove;
   const dividerEndRef = useRef(endDividerDrag);
   dividerEndRef.current = endDividerDrag;
 
   useEffect(() => {
-    if (draggingIndex === null) return;
+    if (draggingDivider === null) return;
     // Window listeners hear EVERY pointer — gate on the captured pointerId so
     // a second touch/pen pointer can't move the seam or end the drag.
     const move = (e: PointerEvent) => {
@@ -1592,64 +2225,46 @@ export function SurfaceLayout({
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", end);
     };
-  }, [draggingIndex]);
+  }, [draggingDivider]);
 
-  // Intersection zone (260814-011r R3) — the main-* T-junction's two-axis
-  // handle: a ~20px zone centered where the two dividers cross, z-ordered
-  // above them so it wins the junction hit-test. Hover lights BOTH sashes
-  // (`intersectionHot` → `rk-sash-lit` on both dividers); drag moves BOTH
-  // ratios at once (pointer x/y → the shape's two ratio indices, each
-  // clamped independently by the shared per-boundary clamp), persisted on
-  // release via the same writeStoredRatios path. Own pointer handlers — the
-  // single-axis machinery above stays untouched — but the same window-level
-  // mid-drag routing (and for the same reason).
-  const [intersectionHot, setIntersectionHot] = useState(false);
-  const [draggingIntersection, setDraggingIntersection] = useState(false);
+  // Intersection zones (260814-011r R3, generalised): one ~20px two-axis
+  // handle per point where a divider's end meets a perpendicular divider,
+  // z-ordered above the dividers so it wins the junction hit-test. Hover
+  // lights BOTH linked sashes (`hotIntersection` → `rk-sash-hot`); drag moves
+  // BOTH fraction pairs at once (pointer x/y → each divider on its own axis,
+  // each clamped independently), persisted on release via the same
+  // writeStoredSizes path. Own pointer handlers — the single-axis machinery
+  // above stays untouched — but the same window-level mid-drag routing (and
+  // for the same reason).
+  const [hotIntersection, setHotIntersection] = useState<number | null>(null);
+  const [draggingIntersection, setDraggingIntersection] = useState<number | null>(null);
   const intersectionDragRef = useRef<{
-    xIndex: number;
-    yIndex: number;
+    index: number;
     el: HTMLElement;
     pointerId: number;
   } | null>(null);
 
   const onIntersectionPointerDown =
-    (axes: { xIndex: number; yIndex: number }) =>
-    (e: React.PointerEvent<HTMLDivElement>) => {
+    (index: number) => (e: React.PointerEvent<HTMLDivElement>) => {
       e.preventDefault();
       e.currentTarget.setPointerCapture(e.pointerId);
-      intersectionDragRef.current = {
-        ...axes,
-        el: e.currentTarget,
-        pointerId: e.pointerId,
-      };
-      setDraggingIntersection(true);
+      intersectionDragRef.current = { index, el: e.currentTarget, pointerId: e.pointerId };
+      setDraggingIntersection(index);
     };
 
   const onIntersectionPointerMove = (e: { clientX: number; clientY: number }) => {
-    const axes = intersectionDragRef.current;
+    const drag = intersectionDragRef.current;
     const grid = gridRef.current;
-    if (!axes || !grid) return;
+    if (!drag || !grid) return;
     const rect = grid.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return; // unmeasured (jsdom)
-    const cur = ratiosRef.current;
-    const nextRatios = [...cur];
-    nextRatios[axes.xIndex] = clampBoundary(
-      layout.shape,
-      cur,
-      axes.xIndex,
-      ((e.clientX - rect.left) / rect.width) * 100,
-      rect.width,
-    );
-    nextRatios[axes.yIndex] = clampBoundary(
-      layout.shape,
-      cur,
-      axes.yIndex,
-      ((e.clientY - rect.top) / rect.height) * 100,
-      rect.height,
-    );
-    setRatios(nextRatios);
-    onRatioChange?.(axes.xIndex, nextRatios[axes.xIndex]);
-    onRatioChange?.(axes.yIndex, nextRatios[axes.yIndex]);
+    const inter = intersectionsRef.current[drag.index];
+    if (!inter) return;
+    for (const di of inter.dividers) {
+      const frame = framesRef.current[di];
+      if (!frame) continue;
+      applyDividerDrag(di, frame.dir === "h" ? e.clientX - rect.left : e.clientY - rect.top);
+    }
   };
 
   const endIntersectionDrag = (e: { clientX: number; clientY: number }) => {
@@ -1661,21 +2276,21 @@ export function SurfaceLayout({
       drag.el.releasePointerCapture(drag.pointerId);
     }
     // Capture suppresses the zone's enter/leave for the whole drag, so
-    // `intersectionHot` cannot be trusted at release: a drag that clamped
+    // `hotIntersection` cannot be trusted at release: a drag that clamped
     // (junction stops following the pointer) ends with the pointer off the
     // junction and would strand BOTH sashes hot. Recompute from the release
     // point — an unmeasured rect (jsdom) has no geometry to test.
     const zone = drag.el.getBoundingClientRect();
     if (zone.width > 0 && zone.height > 0) {
-      setIntersectionHot(
+      const inside =
         e.clientX >= zone.left &&
-          e.clientX <= zone.right &&
-          e.clientY >= zone.top &&
-          e.clientY <= zone.bottom,
-      );
+        e.clientX <= zone.right &&
+        e.clientY >= zone.top &&
+        e.clientY <= zone.bottom;
+      setHotIntersection(inside ? drag.index : null);
     }
-    setDraggingIntersection(false);
-    writeStoredRatios(server, windowId, layout.shape, ratiosRef.current);
+    setDraggingIntersection(null);
+    writeStoredSizes(server, windowId, sigRef.current, sizesRef.current);
     onRatioCommit?.();
   };
 
@@ -1686,7 +2301,7 @@ export function SurfaceLayout({
   intersectionEndRef.current = endIntersectionDrag;
 
   useEffect(() => {
-    if (!draggingIntersection) return;
+    if (draggingIntersection === null) return;
     // Same captured-pointerId gate as the single-axis drag effect.
     const move = (e: PointerEvent) => {
       if (e.pointerId !== intersectionDragRef.current?.pointerId) return;
@@ -1706,6 +2321,411 @@ export function SurfaceLayout({
     };
   }, [draggingIntersection]);
 
+  // ── Header drag (drop to snap) ───────────────────────────────────────────
+  // A primary-button press on a tile header's BACKGROUND arms a drag; the
+  // drag starts only past DRAG_THRESHOLD_PX (below it the press stays the
+  // focus click the pointerdown-capture seam already delivered). On start the
+  // header captures the pointer and the drag snapshots the tree, the
+  // effective sizes, the layout box, and the leaf rects — hit-testing and the
+  // resolver run against that snapshot for the drag's duration, with one
+  // resolution cached per zone (keyed by hit kind + target + side). Mid-drag
+  // routing follows the divider drag's hardening: window-level move/up/cancel
+  // gated on the captured pointerId (engines can drop element capture over
+  // iframe content), plus a window CAPTURE keydown for Escape. While the drag
+  // runs the TileDragContext posture is `move` (the native web guest hides so
+  // the overlay can paint over its tile) and tile content goes
+  // pointer-events-none.
+  const [dragArmedLeaf, setDragArmedLeaf] = useState<string | null>(null);
+  const [draggingTile, setDraggingTile] = useState<string | null>(null);
+  // The overlay's render input: the latest hit + resolution plus the drag's
+  // geometry snapshot (container-relative coordinates).
+  const [dropState, setDropState] = useState<{
+    hit: DropHit | null;
+    result: DropResult;
+    rects: Map<string, Rect>;
+    box: Rect;
+  } | null>(null);
+  const tileDragRef = useRef<{
+    leafId: string;
+    pointerId: number;
+    el: HTMLElement;
+    startX: number;
+    startY: number;
+    started: boolean;
+    originX: number;
+    originY: number;
+    box: Rect;
+    rects: Map<string, Rect>;
+    layout: Layout;
+    sizes: LayoutSizes;
+    lastKey: string | null;
+    result: DropResult;
+  } | null>(null);
+  // The snapshot reads the CURRENT tree/sizes at threshold-crossing time via
+  // refs (the window-listener closures belong to the arming render).
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
+
+  // A drag can start on any desktop, unzoomed, multi-tile render with a fine
+  // pointer (the mobile branch renders one tile and never arms) — and only
+  // while this viewer has nothing popped: the resolver would run on the
+  // reduced tree and the commit would drop the popped leaf from the shared
+  // layout for every viewer.
+  const canDragTiles =
+    !isMobile && !coarsePointer && !zoomed && arity > 1 && poppedSet.size === 0;
+
+  const onTileDragPointerDown = (leafId: string) => (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const target = e.target;
+    if (!(target instanceof HTMLElement)) return;
+    // Only the header's background arms a drag — buttons, menus, the meta
+    // chip, and the pane segment keep their own press behavior.
+    if (target.closest("button, [role='menu'], [data-no-tile-drag]")) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    tileDragRef.current = {
+      leafId,
+      pointerId: e.pointerId,
+      el: e.currentTarget,
+      startX: e.clientX,
+      startY: e.clientY,
+      started: false,
+      originX: 0,
+      originY: 0,
+      box: NOMINAL_BOX,
+      rects: new Map(),
+      layout,
+      sizes: [],
+      lastKey: null,
+      result: { kind: "cancel" },
+    };
+    setDragArmedLeaf(leafId);
+  };
+
+  /** Cross the threshold: snapshot the geometry and enter the drag posture.
+   *  False when the container is unmeasured (jsdom) — no geometry to hit-test. */
+  const startTileDrag = (d: NonNullable<typeof tileDragRef.current>): boolean => {
+    const grid = gridRef.current;
+    if (!grid) return false;
+    const rect = grid.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    d.layout = layoutRef.current;
+    d.sizes = sizesRef.current;
+    d.originX = rect.left;
+    d.originY = rect.top;
+    d.box = { x: 0, y: 0, w: rect.width, h: rect.height };
+    d.rects = layoutRects(d.layout, d.box, d.sizes, SPLIT_GAP_PX);
+    d.started = true;
+    setDraggingTile(d.leafId);
+    return true;
+  };
+
+  const onTileDragMove = (e: { clientX: number; clientY: number }) => {
+    const d = tileDragRef.current;
+    if (!d) return;
+    if (!d.started) {
+      if (Math.hypot(e.clientX - d.startX, e.clientY - d.startY) < DRAG_THRESHOLD_PX) return;
+      if (!startTileDrag(d)) return;
+    }
+    const point = { x: e.clientX - d.originX, y: e.clientY - d.originY };
+    const hit = hitTest(d.rects, d.box, point, d.leafId);
+    const key = dropHitKey(hit);
+    if (key === d.lastKey) return;
+    d.lastKey = key;
+    d.result = resolveDrop(d.layout, d.sizes, d.leafId, hit, d.box);
+    setDropState({ hit, result: d.result, rects: d.rects, box: d.box });
+  };
+
+  /** End the drag: commit only when asked AND the cached resolution is a
+   *  `move` (cancel/noop/too-small releases write nothing). Sizes go down
+   *  BEFORE the layout write so the first render under the new structure
+   *  signature reads them; focus lands on the dragged tile's new position. */
+  const endTileDrag = (commit: boolean) => {
+    const d = tileDragRef.current;
+    if (!d) return;
+    tileDragRef.current = null;
+    setDragArmedLeaf(null);
+    // `pointercancel` has already released the capture implicitly — releasing
+    // again throws NotFoundError (the RightPanel endDrag lesson).
+    if (d.el.hasPointerCapture(d.pointerId)) d.el.releasePointerCapture(d.pointerId);
+    if (!d.started) return;
+    const result = d.result;
+    setDraggingTile(null);
+    setDropState(null);
+    if (!commit || result.kind !== "move") return;
+    writeStoredSizes(server, windowId, structureSig(result.tree), result.sizes);
+    onApplyLayout(result.tree);
+    focusLeaf(result.destId);
+  };
+
+  // Latest-closure refs for the window listeners (the divider drag's
+  // pattern): the effect keys on the armed flag only.
+  const tileDragMoveRef = useRef(onTileDragMove);
+  tileDragMoveRef.current = onTileDragMove;
+  const tileDragEndRef = useRef(endTileDrag);
+  tileDragEndRef.current = endTileDrag;
+
+  useEffect(() => {
+    if (dragArmedLeaf === null) return;
+    // Window listeners hear EVERY pointer — gate on the captured pointerId so
+    // a second touch/pen pointer can't steer or end the drag.
+    const move = (e: PointerEvent) => {
+      if (e.pointerId !== tileDragRef.current?.pointerId) return;
+      tileDragMoveRef.current(e);
+    };
+    const up = (e: PointerEvent) => {
+      if (e.pointerId !== tileDragRef.current?.pointerId) return;
+      tileDragEndRef.current(true);
+    };
+    const cancel = (e: PointerEvent) => {
+      if (e.pointerId !== tileDragRef.current?.pointerId) return;
+      tileDragEndRef.current(false);
+    };
+    // Capture phase + stopped propagation: the Escape never reaches the
+    // terminal (or any other keydown consumer).
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || tileDragRef.current?.started !== true) return;
+      e.preventDefault();
+      e.stopPropagation();
+      tileDragEndRef.current(false);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("keydown", key, true);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("keydown", key, true);
+    };
+  }, [dragArmedLeaf]);
+
+  // A layout change mid-drag (another viewer's write) makes the snapshot
+  // stale — cancel. Compared by SERIALIZED form: the prop's identity turns
+  // over with every SSE tick, and a same-structure tick must not disturb a
+  // live drag (the sizes effect's signature-keyed precedent).
+  useEffect(() => {
+    const d = tileDragRef.current;
+    if (d?.started && serializeLayoutTree(layout) !== serializeLayoutTree(d.layout)) {
+      tileDragEndRef.current(false);
+    }
+  }, [layout]);
+
+  // ── Sidebar row-drag borrow (drop-catcher) ──────────────────────────────
+  // A window-row HTML5 drag (WINDOW_DRAG_MIME — the sidebar's payload is
+  // `{server, session, index, windowId, name}` under application/json) arms a
+  // transparent catcher overlay above every tile, reusing the header drag's
+  // mid-drag seam (tiles pointer-events-none, the native web guest hidden via
+  // the TileDragContext `move` posture) and its snapshot discipline: the
+  // tree, sizes, layout box and leaf rects are frozen at dragstart, and
+  // dragover hit-tests against them with the EXTERNAL-leaf mode of
+  // `hitTest`/`resolveDrop` (the dragged tab's `@<windowId>/tty`). The payload
+  // is readable at dragstart (sealed only during dragover), so the catcher
+  // parses it there. Refused drops preview "no change": the dragged window IS
+  // the route window, its `@N/tty` is already in the layout, or the drag's
+  // server differs from the route's. The drop writes through `onBorrowDrop`
+  // (the parent's borrow helper: plain apply when unheld, the borrow endpoint
+  // when held). The sidebar's own consumers (reorder, move-to-session, board
+  // pin) are untouched — this only listens.
+  const [rowDragActive, setRowDragActive] = useState(false);
+  const [rowDropState, setRowDropState] = useState<{
+    hit: DropHit | null;
+    result: DropResult;
+    rects: Map<string, Rect>;
+    box: Rect;
+  } | null>(null);
+  const rowDragRef = useRef<{
+    leaf: LayoutLeaf;
+    addr: string;
+    refused: boolean;
+    originX: number;
+    originY: number;
+    box: Rect;
+    rects: Map<string, Rect>;
+    layout: Layout;
+    sizes: LayoutSizes;
+    lastKey: string | null;
+    result: DropResult;
+  } | null>(null);
+
+  const endRowDrag = () => {
+    rowDragRef.current = null;
+    setRowDragActive(false);
+    setRowDropState(null);
+  };
+  const rowDragEndRef = useRef(endRowDrag);
+  rowDragEndRef.current = endRowDrag;
+
+  useEffect(() => {
+    const onDragStart = (e: DragEvent) => {
+      const dt = e.dataTransfer;
+      if (dt === null || !Array.from(dt.types).includes(WINDOW_DRAG_MIME)) return;
+      // While this viewer has a leaf popped the drop would resolve on the
+      // REDUCED tree and the commit would drop the popped leaf from the
+      // shared layout — the borrow drag stays disarmed (the header drag's
+      // rule). The palette's `Tile: Bring … here` remains available — it
+      // computes from the full tree.
+      if (poppedSetRef.current.size > 0) return;
+      const raw = dt.getData("application/json");
+      let serverField: string | null = null;
+      let windowField: string | null = null;
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (typeof parsed === "object" && parsed !== null) {
+          if ("server" in parsed && typeof parsed.server === "string") {
+            serverField = parsed.server;
+          }
+          if ("windowId" in parsed && typeof parsed.windowId === "string") {
+            windowField = parsed.windowId;
+          }
+        }
+      } catch {
+        return; // a foreign JSON payload is not a window row
+      }
+      if (windowField === null) return;
+      const grid = gridRef.current;
+      if (!grid) return;
+      const rect = grid.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return; // unmeasured (jsdom)
+      const tree = layoutRef.current;
+      const addr = `${windowField}/tty`;
+      rowDragRef.current = {
+        leaf: { leaf: "tty", home: windowField },
+        addr,
+        refused:
+          serverField !== server ||
+          windowField === windowId ||
+          leafIds(tree).includes(addr),
+        originX: rect.left,
+        originY: rect.top,
+        box: { x: 0, y: 0, w: rect.width, h: rect.height },
+        rects: layoutRects(tree, { x: 0, y: 0, w: rect.width, h: rect.height }, sizesRef.current, SPLIT_GAP_PX),
+        layout: tree,
+        sizes: sizesRef.current,
+        lastKey: null,
+        result: { kind: "cancel" },
+      };
+      setRowDragActive(true);
+    };
+    const onDragEnd = () => rowDragEndRef.current();
+    window.addEventListener("dragstart", onDragStart);
+    window.addEventListener("dragend", onDragEnd);
+    return () => {
+      window.removeEventListener("dragstart", onDragStart);
+      window.removeEventListener("dragend", onDragEnd);
+    };
+  }, [server, windowId]);
+
+  // The row-drag snapshot goes stale on a mid-drag layout change, exactly
+  // like the header drag — cancel with no write.
+  useEffect(() => {
+    const d = rowDragRef.current;
+    if (d !== null && serializeLayoutTree(layout) !== serializeLayoutTree(d.layout)) {
+      rowDragEndRef.current();
+    }
+  }, [layout]);
+
+  const onRowDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    const d = rowDragRef.current;
+    if (!d) return;
+    e.preventDefault(); // the catcher accepts the drop — a refused one no-ops
+    const point = { x: e.clientX - d.originX, y: e.clientY - d.originY };
+    const hit = hitTest(d.rects, d.box, point, d.leaf);
+    const result: DropResult = d.refused
+      ? hit === null
+        ? { kind: "cancel" }
+        : { kind: "noop" }
+      : resolveDrop(d.layout, d.sizes, d.leaf, hit, d.box);
+    d.result = result;
+    e.dataTransfer.dropEffect = result.kind === "move" ? "copy" : "none";
+    const key = `${d.refused}:${dropHitKey(hit)}`;
+    if (key === d.lastKey) return;
+    d.lastKey = key;
+    setRowDropState({ hit, result, rects: d.rects, box: d.box });
+  };
+
+  const onRowDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    const d = rowDragRef.current;
+    if (!d) return;
+    e.preventDefault();
+    const result = d.result;
+    const addr = d.addr;
+    endRowDrag();
+    if (result.kind !== "move") return;
+    // Sizes go down BEFORE the layout write so the first render under the
+    // new structure signature reads them (the header drag's commit order).
+    writeStoredSizes(server, windowId, structureSig(result.tree), result.sizes);
+    onBorrowDrop?.(addr, result.tree);
+    focusLeaf(result.destId);
+  };
+
+  // The result-preview overlay: the drop's OUTCOME drawn in the layout
+  // container's coordinate space (a same-arrangement drop would lie as a
+  // half-tile highlight whenever siblings reshape). `move` draws every leaf
+  // rect of the result tree at the result sizes, the dragged tile's
+  // destination filled accent-green; `noop`/`too-small` highlight the hovered
+  // zone's region; `cancel` draws nothing. One renderer serves both drag
+  // species — the tile header drag's state and the sidebar row-drag's.
+  const dropOverlay = (() => {
+    const state = draggingTile !== null ? dropState : rowDropState;
+    if (state === null || state.result.kind === "cancel") {
+      return null;
+    }
+    const { hit, result, rects: snapRects, box: snapBox } = state;
+    if (result.kind === "move") {
+      const resultRects = layoutRects(result.tree, snapBox, result.sizes, SPLIT_GAP_PX);
+      const resultIds = leafIds(result.tree);
+      const resultKinds = leaves(result.tree);
+      return (
+        <div
+          data-testid="tile-drop-overlay"
+          className="absolute inset-0 z-30 pointer-events-none"
+        >
+          {resultIds.map((id, i) => {
+            const r = resultRects.get(id);
+            if (!r) return null;
+            const dest = id === result.destId;
+            return (
+              <div
+                key={id}
+                data-testid={dest ? "tile-drop-dest" : undefined}
+                className={`absolute flex items-center justify-center rounded-md border font-mono text-[11px] ${
+                  dest
+                    ? "border-accent-green bg-accent-green/15 text-accent-green"
+                    : "border-border bg-bg-primary/60 text-text-secondary"
+                }`}
+                style={{ left: r.x, top: r.y, width: r.w, height: r.h }}
+              >
+                {SURFACE_GLYPH[resultKinds[i]]} {SURFACE_LABEL[resultKinds[i]]}
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+    const region = zoneRegion(hit, snapRects, snapBox);
+    if (!region) return null;
+    const tooSmall = result.kind === "too-small";
+    return (
+      <div
+        data-testid="tile-drop-overlay"
+        className="absolute inset-0 z-30 pointer-events-none"
+      >
+        <div
+          data-testid={tooSmall ? "tile-drop-too-small" : "tile-drop-noop"}
+          className={`absolute flex items-center justify-center rounded-md border font-mono text-[11px] ${
+            tooSmall
+              ? "border-signal-red bg-signal-red/10 text-signal-red"
+              : "border-border bg-bg-inset/60 text-text-secondary"
+          }`}
+          style={{ left: region.x, top: region.y, width: region.w, height: region.h }}
+        >
+          {tooSmall ? "Too small" : "No change"}
+        </div>
+      </div>
+    );
+  })();
+
   // ── Per-window transient-state reset ─────────────────────────────────────
   // The parent keys this component by SERVER (a same-server window switch
   // re-renders the mounted grid with a new `windowId` prop — the tty tile's
@@ -1714,46 +2734,47 @@ export function SurfaceLayout({
   // therefore resets HERE, in one effect keyed on [server, windowId], guarded
   // against first mount (the useState initializers already seed the first
   // window's values — re-running them would double-report the focused kind).
-  // Ratios and the web-tab override keep their own keyed effects (ratios also
-  // key on layout.shape; the override cleanup runs on dep change).
+  // Sizes keep their own keyed effect (they key on the structure signature,
+  // not the window alone); the web-tab override's cleanup runs on dep change.
   const prevWindowKeyRef = useRef(`${server}:${windowId}`);
   useEffect(() => {
     const key = `${server}:${windowId}`;
     if (prevWindowKeyRef.current === key) return; // first mount
     prevWindowKeyRef.current = key;
 
-    // Hide-never-unmount set: exactly the new window's layout kinds.
-    setEverOpened([...new Set(layout.order)]);
+    // Hide-never-unmount set: exactly the new window's layout leaf ids.
+    setEverOpened(leafIds(layout));
 
     // Zoom: re-derived from the new window's stored key — the same derivation
     // as the useState initializer, WITHOUT writing the key back (it already
-    // holds this kind; the old window keeps its own zoom).
-    const storedKind = readStoredZoom(server, windowId);
-    const zoomSlot = storedKind ? layout.order.indexOf(storedKind) : -1;
-    setZoomedIndex(zoomSlot >= 0 ? zoomSlot : null);
-    zoomedKindRef.current = zoomSlot >= 0 && storedKind ? storedKind : null;
+    // holds this leaf id; the old window keeps its own zoom).
+    const storedZoom = readStoredZoom(server, windowId);
+    const zoomLeaf = storedZoom ? resolveZoomLeaf(layout, storedZoom) : null;
+    setZoomedLeafId(zoomLeaf);
+    zoomedKindRef.current = zoomLeaf !== null ? leafIdParts(zoomLeaf).kind : null;
     // Hand the zoom state over to this window — the reconciliation effect
     // above stays inert until this runs.
     zoomOwnerRef.current = key;
 
-    // Focused slot: back to slot A, re-reported through the deduped seam —
-    // the ref clear makes the report fire even when the kind is unchanged
-    // (the parent's mirror was reset on the switch).
-    lastReportedKindRef.current = null;
-    focusSlot(0);
+    // Focused leaf: back to the first leaf in reading order, re-reported
+    // through the deduped seam — the ref clear makes the report fire even
+    // when the kind is unchanged (the parent's mirror was reset on the
+    // switch).
+    lastReportedFocusRef.current = null;
+    focusLeaf(leafIds(layout)[0]);
 
-    // Web page title (reported up from the iframe on each load): the old
-    // window's title must not headline the new window's web tile.
-    setWebPageTitle(null);
+    // Web page titles (reported up from the iframes on each load): the old
+    // window's titles must not headline the new window's web tiles.
+    setWebPageTitles(new Map());
 
-    // Tty progress: idle, and cancel a pending rAF commit so a stale value
-    // can't land after the reset.
+    // Tty progress: every slot idle, and cancel a pending rAF commit so a
+    // stale value can't land after the reset.
     if (ttyProgressRafRef.current !== null) {
       cancelAnimationFrame(ttyProgressRafRef.current);
       ttyProgressRafRef.current = null;
     }
-    ttyProgressRef.current = IDLE_PROGRESS;
-    setTtyProgress(IDLE_PROGRESS);
+    ttyProgressRef.current.clear();
+    setTtyProgressByWindow(new Map());
 
     // Find state: closed and cleared. The SearchAddon instance persists with
     // the terminal across the ride, so the old window's decorations must be
@@ -1767,120 +2788,17 @@ export function SurfaceLayout({
 
     // Interaction state mid-gesture belongs to the window it started on: a
     // divider or intersection drag in flight would otherwise persist its
-    // release under the NEW window's ratio key, and an open ⇩ export menu
+    // release under the NEW window's sizes key, and an open ⇩ export menu
     // would offer the old window's buffer.
     dragRef.current = null;
-    setDraggingIndex(null);
+    setDraggingDivider(null);
     intersectionDragRef.current = null;
-    setDraggingIntersection(false);
+    setDraggingIntersection(null);
     setExportMenuPos(null);
-  }, [server, windowId, layout.order]);
-
-  // ── Web-tab strip verbs (optimistic select/remove/move) ────────────────
-  // Select/remove/move ride the window store's per-entry `webOverride` (the
-  // pendingName/killed precedent): the optimistic write repaints the strip
-  // immediately while the POST is in flight; the SSE tick is authoritative
-  // and the reconcile effect drops the override once the payload matches. A
-  // rejection reverts the override and toasts. Add is NOT optimistic — the
-  // slot index is server-assigned.
-  const webOverride = useWindowStore(
-    (s) => s.entries.get(entryKey(server, windowId))?.webOverride,
-  );
-  const setWebOverride = useWindowStore((s) => s.setWebOverride);
-  const clearWebOverride = useWindowStore((s) => s.clearWebOverride);
-  // Ref writes are synchronous, so two gestures in the same render compound
-  // against the first optimistic family instead of both reading the same SSE
-  // payload. The POST queue preserves that ordering at the tmux writer and
-  // invalidates dependent moves when an earlier request fails.
-  const webOverrideRef = useRef(webOverride);
-  webOverrideRef.current = webOverride;
-  const webMoveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
-  const applyWebOverride = (override: WebTabOverride) => {
-    webOverrideRef.current = { ...webOverrideRef.current, ...override };
-    setWebOverride(server, sessionName, windowId, override);
-  };
-  const revertWebOverride = () => {
-    webOverrideRef.current = undefined;
-    clearWebOverride(server, sessionName, windowId);
-  };
-
-  const { execute: selectWebTabOptimistic } = useOptimisticAction<[number]>({
-    action: (n) => selectWebTab(server, windowId, n),
-    onOptimistic: (n) => applyWebOverride({ webActive: n }),
-    onAlwaysRollback: revertWebOverride,
-    onError: (err) => addToast(err.message || "Failed to select web tab", "error"),
-  });
-
-  const { execute: removeWebTabOptimistic } = useOptimisticAction<[number]>({
-    action: (n) => removeWebTab(server, windowId, n),
-    onOptimistic: (n) => {
-      // Compound on any in-flight override so back-to-back strip clicks
-      // shift the family the user is looking at, not the stale payload.
-      const tabs = webOverrideRef.current?.webTabs ?? win?.webTabs ?? [];
-      const active = webOverrideRef.current?.webActive ?? win?.webActive ?? 0;
-      applyWebOverride(webFamilyAfterRemove(tabs, active, n));
-    },
-    onAlwaysRollback: revertWebOverride,
-    onError: (err) => addToast(err.message || "Failed to close web tab", "error"),
-  });
-
-  const { execute: moveWebTabOptimistic } = useOptimisticAction<[number, number]>({
-    action: (n, to) => {
-      const predecessor = webMoveQueueRef.current;
-      const queued = predecessor.then(async (chainAlive) => {
-        if (!chainAlive) return false;
-        try {
-          await moveWebTab(server, windowId, n, to);
-          return true;
-        } catch (err) {
-          // Already-enqueued moves retain their failed predecessor and cancel
-          // silently. A later gesture starts a fresh chain after rollback.
-          webMoveQueueRef.current = Promise.resolve(true);
-          throw err;
-        }
-      });
-      webMoveQueueRef.current = queued.catch(() => false);
-      return queued.then(() => undefined);
-    },
-    onOptimistic: (n, to) => {
-      // Compound on any in-flight override so back-to-back reorder drop the
-      // family the user sees, not the stale payload (the remove precedent).
-      const tabs = webOverrideRef.current?.webTabs ?? win?.webTabs ?? [];
-      const active = webOverrideRef.current?.webActive ?? win?.webActive ?? 0;
-      applyWebOverride(webFamilyAfterMove(tabs, active, n, to));
-    },
-    onAlwaysRollback: revertWebOverride,
-    onError: (err) => addToast(err.message || "Failed to move web tab", "error"),
-  });
-
-  // Reconcile: the options write wakes the SSE hub, so the confirming tick
-  // lands within ~1–2s; once the payload matches, the override has nothing
-  // left to say.
-  useEffect(() => {
-    if (!webOverride || !win) return;
-    const payloadTabs = win.webTabs ?? [];
-    const tabsSettled =
-      webOverride.webTabs === undefined ||
-      (webOverride.webTabs.length === payloadTabs.length &&
-        webOverride.webTabs.every((url, i) => url === payloadTabs[i]));
-    const activeSettled =
-      webOverride.webActive === undefined ||
-      webOverride.webActive === (win.webActive ?? 0);
-    if (tabsSettled && activeSettled) clearWebOverride(server, sessionName, windowId);
-  }, [webOverride, win, server, sessionName, windowId, clearWebOverride]);
-
-  // A window switch re-runs this effect's cleanup (the deps change — the
-  // component is keyed by server, not remounted): drop any in-flight override
-  // for the window left behind, and start the move queue fresh — a failed or
-  // still-pending move chain from the old window must not cancel the new
-  // window's first reorder or strand its optimistic override.
-  useEffect(
-    () => () => {
-      clearWebOverride(server, sessionName, windowId);
-      webMoveQueueRef.current = Promise.resolve(true);
-    },
-    [server, sessionName, windowId, clearWebOverride],
-  );
+    // An armed or in-flight tile drag belongs to the window it started on —
+    // the normal end path (capture release included), never a commit.
+    tileDragEndRef.current(false);
+  }, [server, windowId, layout]);
 
   /** A tile's renderer, unchanged from the legacy lens/panel mounts. The
    *  iframe tiles (code, web) also wire the focus seam (260812-wfic R2):
@@ -1888,106 +2806,96 @@ export function SurfaceLayout({
    *  focus into a frame fires NO focusin in the parent, so each iframe
    *  surface reports its own interaction via `onInteract` (contentDocument
    *  listeners same-origin; `IframeWindow` adds a window-blur fallback for
-   *  cross-origin content). A code tile carrying a frame RECORD binds that
-   *  record's window (never the active one). */
+   *  cross-origin content). Every per-tile read/write targets the tile's OWN
+   *  window (`tileWindowIdOf` — a foreign leaf's home): the tty tile's relay
+   *  stream, focus registration and progress slot; the web tile's tab family;
+   *  the code tile's root and frame record. */
   const renderContent = (
     tile: TileModel,
-    primaryTty: boolean,
     hidden: boolean,
   ) => {
-    const { kind, slot } = tile;
+    const { kind, leafId, visible } = tile;
+    const tileWinId = tileWindowIdOf(leafId, windowId);
+    const foreign = leafIdParts(leafId).home !== undefined;
     switch (kind) {
-      case "tty":
+      case "tty": {
+        const primaryTty = visible && leafId === firstBareTtyLeafId;
+        // The FOCUSED tty tile (bare or foreign) registers as the shell's
+        // focused terminal with its own server/session/window/wsRef bucket, so
+        // the compose strip's send target, the bottom bar's keys, and focus
+        // memory follow it. While a non-tty tile is focused the primary bare
+        // tty holds the slot (the pre-cross-tab behavior — the strip keeps a
+        // target); a foreign tty never takes the shared wsRef/focusRef holder.
+        const registersFocus =
+          visible && (focusedKind === "tty" ? leafId === focusedId : primaryTty);
         return (
           <div className="flex-1 min-h-0 py-0.5 px-1 flex flex-col">
             <TerminalClient
-              sessionName={sessionName}
-              windowId={windowId}
+              sessionName={tileSessionFor(tileWinId)}
+              windowId={tileWinId}
               server={server}
+              // A foreign tile's stream opens isolated (its home window's
+              // `_rk-iso-*` session) so it never fights the home tab's own
+              // attach; bare streams omit the flag. A POPOUT's stream
+              // isolates too (popoutTile): the popout keeps its window while
+              // the opener's session switches windows. Fixed per mount — a
+              // tile retargeting remounts (the leaf's home is in its React
+              // key).
+              isolate={foreign || popoutTile}
               switchReceiptSource={primaryTty}
               clearOnRide={clearOnWindowChange}
               hidden={hidden}
-              wsRef={primaryTty ? wsRef : extraTtyWsRef}
+              wsRef={primaryTty ? wsRef : ttyWsRefFor(leafId)}
               onSessionNotFound={primaryTty ? onSessionNotFound : undefined}
               focusRef={primaryTty ? focusRef : undefined}
               searchAddonRef={primaryTty ? searchAddonRef : undefined}
               serializeAddonRef={primaryTty ? serializeAddonRef : undefined}
               terminalRef={primaryTty ? ttyTerminalRef : undefined}
               scrollLocked={scrollLocked}
-              // Only the primary tty registers as the shell's focused
-              // terminal — duplicates must not fight over the slot (the
-              // board-pane rule).
-              registerFocus={primaryTty}
-              // Every tty mount feeds the shared progress slot (260819-1vxq):
-              // duplicates parse the same stream, so their firings fold
-              // idempotently, and the signal survives a hidden primary.
-              onProgressChange={handleTtyProgress}
+              registerFocus={registersFocus}
+              // Every tty mount feeds its TILE WINDOW's progress slot:
+              // duplicates of one window fold idempotently into it, and a
+              // foreign tty's progress renders on its own tile.
+              onProgressChange={(state, value) => handleTtyProgress(tileWinId, state, value)}
             />
           </div>
         );
+      }
       case "web":
-        // Web availability is unconditional (260821-zqlq): an empty active
-        // web tab renders IframeWindow's onboarding content branch, so the
-        // tile mounts regardless — the `win` guard narrows for the props.
-        return win ? (
-          <IframeWindow
-            tabs={webOverride?.webTabs ?? win.webTabs ?? []}
-            active={webOverride?.webActive ?? win.webActive}
-            // Address-bar write seam: the ACTIVE web slot's option write
-            // (n = webActive, slot 1 while the pointer is unset) — the
-            // component stays payload-shape agnostic. The active pointer is
-            // read through the same optimistic override the strip renders,
-            // so a submit during an in-flight select/remove targets the tab
-            // the user is looking at, not the stale payload slot.
-            onWriteUrl={(url) => {
-              const active = webOverride?.webActive ?? win.webActive;
-              const n = active !== undefined && active >= 1 ? active : 1;
-              return setWindowOptions(server, windowId, { [`@rk_win_web_${n}`]: url });
-            }}
-            // Strip verbs: select/remove are optimistic (the webOverride
-            // block above); add is NOT optimistic — the slot index is
-            // server-assigned, the SSE tick repaints the family. The
-            // component types the verbs as promise-returning (the `+` flow
-            // chains onSelectTab after onAddTab resolves); the optimistic
-            // executors are fire-and-forget, so the wrappers resolve at once.
-            // The add route resolves targets like `rk present`, so the
-            // component's relative /proxy/ draft is re-expressed as the
-            // absolute loopback URL (toWebAddTarget) the backend parses.
-            onSelectTab={(n) => {
-              selectWebTabOptimistic(n);
-              return Promise.resolve();
-            }}
-            onCloseTab={(n) => {
-              removeWebTabOptimistic(n);
-              return Promise.resolve();
-            }}
-            onAddTab={(target) => addWebTab(server, windowId, toWebAddTarget(target))}
-            onMoveTab={(n, to) => {
-              moveWebTabOptimistic(n, to);
-              return Promise.resolve();
-            }}
-            onInteract={slot >= 0 ? () => focusSlot(slot) : undefined}
-            // Page-title seam (260819-v6y4 R10): the header render is this
-            // component's, but only the mounted iframe can read the
-            // same-origin contentDocument.title — reported up on each load.
-            // At most one web tile per layout, so one state slot serves.
-            onPageMeta={(m) => setWebPageTitle(m.title)}
+        return (
+          <WebTileContent
+            server={server}
+            sessionName={tileSessionFor(tileWinId)}
+            windowId={tileWinId}
+            win={windowRecordFor(tileWinId)}
+            visible={visible}
+            webCapture={webCapture}
+            onInteract={() => focusLeaf(leafId)}
+            onPageTitle={(title) =>
+              setWebPageTitles((prev) => {
+                if (prev.get(tileWinId) === title) return prev;
+                const next = new Map(prev);
+                next.set(tileWinId, title);
+                return next;
+              })
+            }
             // Web-kind reclaim predicate (260819-ie2i R3): the single
-            // renderContent site is the ONLY IframeWindow mount, so every
-            // slot/zoom/panel rendering inherits the wiring with no fork.
+            // renderContent site is the ONLY IframeWindow mount path, so every
+            // leaf/zoom rendering inherits the wiring with no fork.
             shouldReclaimChord={shouldReclaimChord?.("web")}
           />
-        ) : null;
+        );
       case "code": {
         const frame = tile.frame;
-        const frameWindowId = frame?.windowId ?? windowId;
-        const isActiveWindowFrame = frameWindowId === windowId;
+        const frameWindowId = frame?.windowId ?? tileWinId;
+        const isTileWindowFrame = frameWindowId === tileWinId;
         // The code root (`codeRootFor`): the shared `@rk_win_code_root` when
         // set, the derived gitRoot pre-seed — a pane switch can neither null
         // this tile nor retarget the editor; the live derivation only ever
         // seeds it (the parent's seed effect, on first code-tile render). A
-        // retained frame keeps ITS window's baseline root.
-        const codeRoot = frame ? frame.root : activeCodeRoot;
+        // retained frame keeps ITS window's baseline root. A foreign code
+        // tile reads its HOME window's record.
+        const codeRoot = frame ? frame.root : codeRootFor(windowRecordFor(tileWinId));
         return codeRoot ? (
           <CodeSurface
             gitRoot={codeRoot}
@@ -1996,8 +2904,13 @@ export function SurfaceLayout({
             // record exists the tile pends (null), exactly the pre-retention
             // pending state.
             workspaceSrc={frame ? frame.src : null}
-            // The follow override only ever targets the active window's frame.
-            followSrc={isActiveWindowFrame ? (codeFollowSrc ?? null) : null}
+            // The follow override only ever targets the frame of the window
+            // the follow was issued for (carried on the payload).
+            followSrc={
+              isTileWindowFrame && codeFollowSrc && codeFollowSrc.windowId === frameWindowId
+                ? codeFollowSrc
+                : null
+            }
             // The Reload editor verb's nonce reaches only the frame it
             // targeted — every other frame receives undefined, and a frame
             // created later pre-sees the current value at mount (CodeSurface
@@ -2010,11 +2923,12 @@ export function SurfaceLayout({
             // bridge status.
             fetchBridgeStatus={fetchBridgeStatusFor?.(frameWindowId)}
             reachable={codeReachable}
+            onRestart={onCodeServerRestart}
             shouldReclaimChord={shouldReclaimChord?.("code")}
             onInteract={
-              slot >= 0
+              visible
                 ? () => {
-                    focusSlot(slot);
+                    focusLeaf(leafId);
                     // An in-frame keydown/pointerdown is GENUINE interaction
                     // — the only seam allowed to record `code` (a
                     // programmatic grab never produces one) — and it ends
@@ -2024,13 +2938,13 @@ export function SurfaceLayout({
                   }
                 : undefined
             }
-            // A retained (other-window) frame is display-hidden and can
+            // A retained (other-tile-window) frame is display-hidden and can
             // neither receive focus nor navigate — its focus/follow seams
-            // stay unbound so nothing can ever record against the ACTIVE
+            // stay unbound so nothing can ever record against the ROUTE
             // window's focus-memory key from a hidden frame.
-            onProgrammaticFocus={isActiveWindowFrame ? onProgrammaticFocus : undefined}
+            onProgrammaticFocus={isTileWindowFrame ? onProgrammaticFocus : undefined}
             onFolderNavigated={
-              isActiveWindowFrame
+              isTileWindowFrame
                 ? // The shared follow wrapper records the pending target
                   // synchronously with the report — the eviction effect's
                   // read of it decides follow-vs-external-divergence.
@@ -2043,19 +2957,24 @@ export function SurfaceLayout({
       case "review": {
         // PR-backed only: availability upstream guarantees a prUrl, so a
         // missing one renders nothing rather than an empty-state the toggle
-        // should never have offered.
-        const prUrl = win?.prUrl ?? "";
+        // should never have offered. A foreign review tile reads its HOME
+        // window's PR and digest.
+        const reviewWin = windowRecordFor(tileWinId);
+        const prUrl = reviewWin?.prUrl ?? "";
         if (!prUrl) return null;
         return (
           <ReviewSurface
             server={server}
-            windowId={windowId}
+            windowId={tileWinId}
             prUrl={prUrl}
             // The SSE tick's revalidation signal (pushed, never polled).
-            digestUnhandled={win?.prReviewUnhandled ?? 0}
-            commandsRef={reviewCommandsRef}
-            onUnhandledChange={onReviewUnhandledChange}
-            onListeningChange={onReviewListeningChange}
+            digestUnhandled={reviewWin?.prReviewUnhandled ?? 0}
+            // The palette's `Review:` verbs and the surface toggle's dot are
+            // the ROUTE window's: only the bare tile binds them, so a foreign
+            // review tile can never clobber the seams.
+            commandsRef={foreign ? undefined : reviewCommandsRef}
+            onUnhandledChange={foreign ? undefined : onReviewUnhandledChange}
+            onListeningChange={foreign ? undefined : onReviewListeningChange}
           />
         );
       }
@@ -2082,8 +3001,8 @@ export function SurfaceLayout({
           >
             <GuiSurface
               gui={gui}
-              visible={!hidden && slot >= 0}
-              focused={slot >= 0 && slot === focusedSlot}
+              visible={!hidden && tile.visible}
+              focused={tile.visible && leafId === focusedId}
               coarsePointer={coarsePointer}
               zoom={guiZoom}
               pointerMode={guiPointerMode ?? (coarsePointer ? "trackpad" : "touch")}
@@ -2104,9 +3023,9 @@ export function SurfaceLayout({
               commandsRef={guiCommandsRef}
               shouldReclaimChord={shouldReclaimChord?.("gui")}
               onInteract={
-                slot >= 0
+                tile.visible
                   ? () => {
-                      focusSlot(slot);
+                      focusLeaf(leafId);
                       // Canvas pointerdown/keydown is GENUINE interaction —
                       // the same seam that records `code` records `gui`.
                       recordFocus(focusKey, "gui");
@@ -2121,69 +3040,149 @@ export function SurfaceLayout({
     }
   };
 
-  // Tile models: every VISIBLE slot plus every ever-opened kind that is
-  // currently closed (hidden), plus every RETAINED code frame (a record
-  // belonging to a non-active window). The React key is stable per (kind,
-  // occurrence) across the visible↔hidden transition — THAT is what makes
-  // hide-never-unmount survive React reconciliation. The tty tile's key is
-  // additionally WINDOW-INDEPENDENT: it must survive a same-server window
-  // switch (the grid is keyed by server) so the terminal's same-session ride
-  // keeps its xterm instance and stream. The code tile is likewise
-  // window-independent, keyed by its frame record (`code:<windowId>:<src>` —
-  // the src is fixed at creation; the window id rides along because the
-  // `?folder=` degrade form is folder-keyed, so src alone is not unique): a
-  // same-server switch re-renders the mounted frame instead of
-  // unmounting it (an iframe unmount is a page unload — code-server kills the
-  // workbench). A code tile with no record yet (src pending) keys as
-  // `code:pending` — no iframe exists to lose on the pending→resolved
-  // remount. web/gui tiles keep `windowId` in their key (per-url iframes,
-  // the gui RFB session — content identity changes with the window).
-  const activeCodeFrame = codeFrames.find((r) => r.windowId === windowId);
-  let ttySeen = 0;
-  const visibleTiles: TileModel[] = layout.order.map((kind, slot) => {
-    const occ = kind === "tty" ? ttySeen++ : 0;
-    return { kind, slot, occ, frame: kind === "code" ? activeCodeFrame : undefined };
+  // Tile models: every VISIBLE leaf plus every ever-opened leaf id that is
+  // currently closed (hidden), plus every RETAINED code frame (a record no
+  // mounted code tile claims). The React key is stable per leaf id across the
+  // visible↔hidden transition — THAT is what makes hide-never-unmount survive
+  // React reconciliation. A bare tty tile's key is additionally
+  // WINDOW-INDEPENDENT: it must survive a same-server window switch (the grid
+  // is keyed by server) so the terminal's same-session ride keeps its xterm
+  // instance and stream; a FOREIGN tty tile's key carries its home window — a
+  // retargeted leaf remounts (its isolated stream's window is fixed at
+  // mount). The code tile is likewise window-independent, keyed by its frame
+  // record (`code:<windowId>:<src>` — the src is fixed at creation; the
+  // window id rides along because the `?folder=` degrade form is
+  // folder-keyed, so src alone is not unique): a same-server switch re-renders
+  // the mounted frame instead of unmounting it (an iframe unmount is a page
+  // unload — code-server kills the workbench). A code tile with no record yet
+  // (src pending) keys as `code:pending:<window>` — no iframe exists to lose
+  // on the pending→resolved remount. web/gui tiles keep their TILE window in
+  // the key (per-url iframes, the gui RFB session — content identity changes
+  // with the tile's window).
+  const visibleTiles: TileModel[] = layoutLeafIds.map((leafId, i) => {
+    const kind = layoutKinds[i];
+    return {
+      kind,
+      leafId,
+      occ: leafIdParts(leafId).occ,
+      visible: true,
+      frame: kind === "code" ? frameForWindow(tileWindowIdOf(leafId, windowId)) : undefined,
+    };
   });
-  const firstTtySlot = layout.order.indexOf("tty");
-  // The active window's frame record forces a `code` hidden tile even when
-  // `everOpened` omits it: the per-window reset re-seeds that set from the
-  // new window's layout, so returning to a window whose code tile is CLOSED
-  // would otherwise drop the tile here while `retainedCodeTiles` below
-  // filters the record out as active — unmounting (killing) a frame the
-  // close-tile rule says stays retained and counted.
-  const hiddenKinds: SurfaceKind[] =
-    activeCodeFrame && !everOpened.includes("code")
-      ? [...everOpened, "code"]
-      : everOpened;
-  const hiddenTiles: TileModel[] = hiddenKinds
-    .filter((kind) => !layout.order.includes(kind))
-    .map((kind) => ({ kind, slot: -1, occ: 0, frame: kind === "code" ? activeCodeFrame : undefined }));
+  const ttyLeafIds = layoutLeafIds.filter((id) => leafIdParts(id).kind === "tty");
+  // The primary tty — the shared wsRef/focusRef/find/export seams' holder — is
+  // the first BARE tty leaf; a foreign tty opens its own isolated stream and
+  // never takes the holder.
+  const firstBareTtyLeafId =
+    ttyLeafIds.find((id) => leafIdParts(id).home === undefined) ?? null;
+  // The in-tile compose dock's host: the first bare tty when one exists, else
+  // the first tty leaf — a layout of only foreign tty tiles still docks the
+  // strip in-tile (its send target follows the focused terminal).
+  const dockTtyLeafId = firstBareTtyLeafId ?? ttyLeafIds[0] ?? null;
+  const hiddenTiles: TileModel[] = hiddenLeafIds
+    .filter((id) => !layoutLeafIds.includes(id))
+    // A popped code leaf renders NO hidden tile: its retained frame is
+    // evicted (the popout boots its own extension host), so there is nothing
+    // to keep mounted. A popped web leaf under a shell with the popout
+    // channel unmounts the same way: its native guest PARKS on unmount and
+    // the popout window adopts the live guest — a mounted-hidden tile would
+    // keep the guest's tabKey binding and block the move, and its hide
+    // would stale the guest's visibility record. Other popped leaves keep
+    // the hide-never-unmount posture (the hidden gui tile's RFB disconnects
+    // via its visibility gate).
+    .filter(
+      (id) =>
+        !(
+          poppedSet.has(id) &&
+          (leafIdParts(id).kind === "code" ||
+            (leafIdParts(id).kind === "web" && canShellPopout()))
+        ),
+    )
+    .map((leafId) => ({
+      kind: leafIdParts(leafId).kind,
+      leafId,
+      occ: leafIdParts(leafId).occ,
+      visible: false,
+      frame:
+        leafIdParts(leafId).kind === "code"
+          ? frameForWindow(tileWindowIdOf(leafId, windowId))
+          : undefined,
+    }));
   // Retained frames render as display-hidden tiles through the same flat
   // list — closing the code tile in a window keeps its frame retained (it
   // keeps counting toward the cap), and a switch away demotes the visible
   // tile to here WITHOUT a key change.
   const retainedCodeTiles: TileModel[] = codeFrames
-    .filter((r) => r.windowId !== windowId)
-    .map((record) => ({ kind: "code", slot: -1, occ: 0, frame: record }));
+    .filter((r) => !mountedCodeWindowIds.includes(r.windowId))
+    .map((record) => ({ kind: "code", leafId: "code", occ: 0, visible: false, frame: record }));
 
   const renderTile = (
     tile: TileModel,
     hidden: boolean,
     mobile: boolean,
   ) => {
-    const { kind, slot, occ } = tile;
-    const suffix = occ > 0 ? `-${occ + 1}` : "";
-    // A retained (other-window) code frame must NOT share the active tile's
-    // testid — `surface-tile-code` stays unique for locators; the retained
-    // wrapper disambiguates by `data-window-id`.
-    const retainedCode = kind === "code" && tile.frame !== undefined && tile.frame.windowId !== windowId;
+    const { kind, leafId, occ } = tile;
+    const leafHome = leafIdParts(leafId).home;
+    const tileWinId = tileWindowIdOf(leafId, windowId);
+    const tileWin = windowRecordFor(tileWinId);
+    // A bare leaf whose surface is live in another tab renders the away
+    // placeholder INSTEAD of the surface — the mount itself is gated here, so
+    // an away tty opens no relay stream.
+    const awayHolderId =
+      tile.visible && leafHome === undefined ? awayHolderFor(kind) : undefined;
+    // A revealed popped leaf renders the popped placeholder under the same
+    // mount gate: no header, no relay stream, no code frame, no web guest —
+    // the popout owns the live surface.
+    const poppedPlaceholder = tile.visible && revealedPoppedSet.has(leafId);
+    // The foreign tile's home tab: its record (dead when absent from the map)
+    // and display name — the header identifies the home by it.
+    const homeWindow = leafHome !== undefined ? (windowsById?.get(leafHome) ?? null) : null;
+    const homeName = leafHome === undefined ? "" : (homeWindow?.name ?? leafHome);
+    // The home-tab identification chip (R14): a foreign tile's header names
+    // the tab its surface belongs to.
+    const homeChip =
+      leafHome === undefined ? null : (
+        <span
+          data-no-tile-drag
+          data-testid="tile-home"
+          className="shrink-0 truncate rounded px-1.5 text-[10px] bg-bg-card text-text-secondary"
+        >
+          {homeName}
+        </span>
+      );
+    // Locator/testid suffix: a foreign leaf carries its home (`-@3`); a
+    // duplicate bare tty its occurrence (`-2`). Never both — foreign
+    // addresses are unique per layout.
+    const suffix = leafHome !== undefined ? `-${leafHome}` : occ > 0 ? `-${occ + 1}` : "";
+    // A retained (unclaimed-window) code frame must NOT share a mounted
+    // tile's testid — `surface-tile-code` stays unique for locators; the
+    // retained wrapper disambiguates by `data-window-id`.
+    const retainedCode =
+      kind === "code" && tile.frame !== undefined && !mountedCodeWindowIds.includes(tile.frame.windowId);
     const testId = retainedCode ? "surface-tile-code-retained" : `surface-tile-${kind}${suffix}`;
     const label = SURFACE_LABEL[kind];
     // The keyboard-capture latch swaps the gui meta chip to its CONSEQUENCE
     // label — words, not hue alone: green wash + ink, no ring (a label, not
     // a control).
     const guiCaptured = kind === "gui" && guiCapture;
-    const meta = guiCaptured ? "keys → desktop" : tileMeta(kind, win, gui);
+    const meta = guiCaptured ? "keys → desktop" : tileMeta(kind, tileWin, gui);
+    // The web capture latch renders its own consequence chip (`keys → page`)
+    // — the web header's meta slot doubles as the page-title fallback, so the
+    // gui's meta-swap can't carry it; same styling (a label, not a control).
+    const webCaptured = kind === "web" && webCapture;
+    // The tile window's progress slot (a foreign tty's chip/line render on
+    // its own tile, never the route window's).
+    const tileProgress =
+      kind === "tty" ? (ttyProgressByWindow.get(tileWinId) ?? IDLE_PROGRESS) : IDLE_PROGRESS;
+    // The header chip renders only for the value-carrying states (1/2/4) —
+    // indeterminate sweeps with no percentage, idle removes it.
+    const ttyChip = isValuedProgress(tileProgress)
+      ? { value: tileProgress.value, cls: PROGRESS_CHIP_CLASS[tileProgress.kind] }
+      : null;
+    // The tty header's status dot reads the TILE window's record (a foreign
+    // tty shows its home window's status).
+    const tileStatusWindow: WindowInfo | null =
+      kind !== "tty" ? null : tileWinId === windowId ? (statusWindow ?? null) : (windowsById?.get(tileWinId) ?? null);
     // Web tile header (260819-v6y4 R10): a kind badge (hues per the approved
     // design study — green=present, amber=proxied port, blue=external) plus
     // the page title reported up from the iframe, falling back to the
@@ -2192,8 +3191,12 @@ export function SurfaceLayout({
     // (empty/whitespace active web tab, 260821-zqlq) renders the plain
     // `://  Web` label — no badge, no page title, no meta chip; the badge
     // derivation is trimmed-keyed so empty input never reaches
-    // classifyAddress.
-    const webUrl = activeWebUrl(win).trim();
+    // classifyAddress. All inputs read the TILE window's record.
+    const webUrl = activeWebUrl(tileWin).trim();
+    // The code tile's per-window verb predicates (the tile window's own
+    // drift/frame state — a foreign code tile reads its home window).
+    const tileCodeFollowTarget = kind === "code" ? codeFollowTargetFor(tileWinId) : null;
+    const tileCodeFrameMounted = kind === "code" && codeFrameMountedFor(tileWinId);
     const webBadge: { text: string; cls: string } | null = (() => {
       if (kind !== "web" || webUrl === "") return null;
       const kindOf = classifyAddress(webUrl);
@@ -2212,10 +3215,28 @@ export function SurfaceLayout({
       }
       return null;
     })();
-    const isZoomed = zoomed && slot === zoomedIndex;
+    const isZoomed = zoomed && tile.visible && leafId === zoomedLeafId;
     // The fullscreened gui tile suppresses its layout verbs (the zoomed-tile
     // precedent) — ⤢ latched green is the exit.
-    const showVerbs = !mobile && arity > 1 && slot >= 0 && !(kind === "gui" && guiTileFullscreen);
+    const showVerbs = !mobile && arity > 1 && tile.visible && !(kind === "gui" && guiTileFullscreen);
+    // Pop out (spec surface-layout.md § Verbs → Pop out): a content-verb
+    // family member rendered ahead of the layout-verb cluster, at ANY arity —
+    // popping the only tile lands the opener on the all-popped placeholder.
+    // Fine pointers only, and LIVE tiles only — the away placeholder renders
+    // no header at all (the mount gate above), and a foreign tile whose home
+    // window died has nothing to pop (the read-time prune drops it on the
+    // next payload). A shell without the `windows.popout` channel gates
+    // upstream (the caller omits onPopOut): the shell's window.open policy
+    // sends everything to the system browser, which shares neither
+    // localStorage nor the BroadcastChannel with the opener.
+    const canPopOutTile =
+      !popoutTile &&
+      !mobile &&
+      tile.visible &&
+      !(kind === "gui" && guiTileFullscreen) &&
+      !coarsePointer &&
+      onPopOut !== undefined &&
+      !(leafHome !== undefined && homeWindow === null);
     // Focused-tile highlight (260812-wfic R2): accent-green border + kind
     // glyph, suppressed at arity 1 (no verbs, no highlight — the tmux
     // active-pane metaphor). Focus assignment: the wrapper's pointerdown
@@ -2223,32 +3244,49 @@ export function SurfaceLayout({
     // parent-document event fires when the user clicks or types inside an
     // iframe — so the iframe tiles (code, web) report in-frame interaction
     // via their `onInteract` callbacks.
-    const isFocused = !mobile && arity > 1 && slot >= 0 && slot === focusedSlot;
+    const isFocused = !mobile && arity > 1 && tile.visible && leafId === focusedId;
     // The header ⤢ fires the palette's `gui-fullscreen` row by id (D9 — no
     // header-only action).
     const guiFullscreenRow =
       kind === "gui" ? guiActions.find((a) => a.id === "gui-fullscreen") : undefined;
+    // Absolute placement from the leaf's rect; a zoomed render fills the
+    // container. Mobile tiles are flex-sized instead (see the className).
+    const rect = rects.get(leafId);
+    const positionStyle: React.CSSProperties | undefined =
+      hidden || mobile
+        ? undefined
+        : isZoomed
+          ? { left: 0, top: 0, width: "100%", height: "100%" }
+          : rectStyle(rect ?? box);
     return (
       <div
         key={
           kind === "tty"
-            ? `${kind}${suffix}`
+            ? // A bare tty's key is window-independent (the same-session ride
+              // survives a window switch); a foreign tty's carries its home —
+              // a retargeted leaf remounts, since the isolated stream's
+              // window is fixed at mount.
+              leafHome !== undefined
+              ? `tty:${leafHome}`
+              : `${kind}${suffix}`
             : kind === "code"
               ? // The frame's window id is in the key: `?workspace=` srcs are
                 // tab-keyed but the `?folder=` degrade form is FOLDER-keyed —
                 // two windows rooted at the same folder whose derivations both
-                // degrade would otherwise produce identical keys.
-                `code${suffix}:${tile.frame ? `${tile.frame.windowId}:${tile.frame.src}` : "pending"}`
-              : `${kind}${suffix}:${windowId}`
+                // degrade would otherwise produce identical keys. No leaf
+                // suffix: one frame per window, so a borrowed code tile keeps
+                // the home window's retained frame mounted (no remount).
+                `code:${tile.frame ? `${tile.frame.windowId}:${tile.frame.src}` : `pending:${tileWinId}`}`
+              : `${kind}${suffix}:${tileWinId}`
         }
         data-testid={testId}
         {...(retainedCode ? { "data-window-id": tile.frame?.windowId } : {})}
-        // Mobile tiles MUST carry flex-1: the single visible slot fills the
+        // Mobile tiles MUST carry flex-1: the single visible leaf fills the
         // column. Without it the tile is content-sized — xterm's own canvas
         // becomes the measure, a stable fixed point (canvas sizes tile sizes
         // fit sizes canvas) that pins the terminal at its 80×24 default and
         // makes it deaf to every viewport change (iOS keyboard collapse).
-        // Desktop tiles are sized by the grid via slotStyle instead.
+        // Desktop tiles are absolutely positioned from their leaf rects.
         className={`group min-w-0 min-h-0 flex-col overflow-hidden ${hidden ? "hidden" : "flex"}${
           mobile
             ? " flex-1"
@@ -2256,18 +3294,22 @@ export function SurfaceLayout({
               // the dimmed 55% `rk-card-border` (the gap separates, the border
               // defines the card edge) — the focused tile keeps the full
               // accent-green frame (260812-wfic R2, suppressed at arity 1).
-              ` border rounded-md ${isFocused ? "border-accent-green" : "rk-card-border"}`
+              ` absolute border rounded-md ${isFocused ? "border-accent-green" : "rk-card-border"}${
+                // The dragged tile dims for the drag's duration — the overlay
+                // previews where it lands.
+                draggingTile === leafId ? " opacity-50" : ""
+              }`
         }`}
-        style={hidden || mobile ? undefined : slotStyle(layout.shape, slot, zoomed)}
+        style={positionStyle}
         onPointerDownCapture={
-          slot >= 0 ? (e) => focusSlotFromPointer(slot, e.target) : undefined
+          tile.visible ? (e) => focusLeafFromPointer(leafId, e.target) : undefined
         }
         onFocus={
-          slot >= 0
+          tile.visible
             ? () => {
                 // Steal guard (no-flip half): Chromium fires NO parent-side
                 // iframe event for a script `focus()` grab, but engines that
-                // do would flip the focused slot to `code` here — while the
+                // do would flip the focused leaf to `code` here — while the
                 // guard is armed and the remembered kind is not `code`, an
                 // iframe focusin is the grab, not a user choice, so skip the
                 // flip (the `onProgrammaticFocus` revert restores the
@@ -2281,7 +3323,7 @@ export function SurfaceLayout({
                 ) {
                   return;
                 }
-                focusSlot(slot);
+                focusLeaf(leafId);
               }
             : undefined
         }
@@ -2293,10 +3335,20 @@ export function SurfaceLayout({
             rail is 32px tall and the panel below it opens with border-t-[3px],
             so both horizontal rules start 32px below the card top at the same
             chrome-rule weight (top bar, bottom bar, and sidebar panels all use
-            3px rules). */}
-        {!mobile && (
-          <div className="flex items-center gap-1.5 px-1.5 h-[35px] shrink-0 border-b-[3px] border-border bg-bg-primary font-mono text-[11px] text-text-secondary select-none">
-            {kind === "tty" && statusWindow && <StatusDot win={statusWindow} />}
+            3px rules). The background is the drag-to-snap grip surface:
+            cursor-grab when a drag can arm, grabbing mid-drag. */}
+        {!mobile && awayHolderId === undefined && !poppedPlaceholder && (
+          <div
+            onPointerDown={canDragTiles ? onTileDragPointerDown(leafId) : undefined}
+            className={`flex items-center gap-1.5 px-1.5 h-[35px] shrink-0 border-b-[3px] border-border bg-bg-primary font-mono text-[11px] text-text-secondary select-none ${
+              draggingTile === leafId
+                ? "cursor-grabbing"
+                : canDragTiles
+                  ? "cursor-grab"
+                  : ""
+            }`}
+          >
+            {kind === "tty" && tileStatusWindow && <StatusDot win={tileStatusWindow} />}
             {kind === "tty" && ttyChip && (
               <span
                 data-testid="progress-chip"
@@ -2320,14 +3372,17 @@ export function SurfaceLayout({
                   {webBadge.text}
                 </span>
                 <span className="min-w-0 truncate text-text-primary">
-                  {webPageTitle ?? meta}
+                  {webPageTitles.get(tileWinId) ?? meta}
                 </span>
+                {homeChip}
               </>
             ) : (
               <>
                 <span className="shrink-0 text-text-primary">{label}</span>
+                {homeChip}
                 {meta && (
                   <span
+                    data-no-tile-drag
                     className={`min-w-0 truncate rounded px-1.5 text-[10px] ${
                       guiCaptured
                         ? "bg-accent-green/15 text-accent-green"
@@ -2338,6 +3393,15 @@ export function SurfaceLayout({
                   </span>
                 )}
               </>
+            )}
+            {webCaptured && (
+              <span
+                data-testid="web-capture-chip"
+                data-no-tile-drag
+                className="shrink-0 rounded px-1.5 text-[10px] bg-accent-green/15 text-accent-green"
+              >
+                keys → page
+              </span>
             )}
             {/* rk-slot: gui-fold — the gui tile's session controls live in
                 the header spring as a measured priority fold (gui-toolbar.tsx,
@@ -2364,7 +3428,7 @@ export function SurfaceLayout({
                 find button — any arity, latched green while the tile is
                 fullscreen (the layout verbs suppress instead). One hairline
                 separates the session cluster from the tile verbs. */}
-            {kind === "gui" && gui && slot >= 0 && (
+            {kind === "gui" && gui && tile.visible && (
               <>
                 <span aria-hidden="true" className="mx-0.5 h-3.5 w-px bg-border" />
                 <Tip label={guiTileFullscreen ? "Exit fullscreen" : "Enter fullscreen"}>
@@ -2390,9 +3454,9 @@ export function SurfaceLayout({
             )}
             {/* rk-slot: find-button — ⌕ opens the tty find bar (the web ⌕
                 vocabulary: aria-pressed + accent-green while open). Primary
-                tty tile only — duplicate tty tiles and other kinds render no
+                tty leaf only — duplicate tty tiles and other kinds render no
                 find affordance (the wsRef/focusRef primary-only precedent). */}
-            {kind === "tty" && slot === firstTtySlot && (
+            {kind === "tty" && leafId === firstBareTtyLeafId && (
               <Tip label="Find in terminal">
                 <button
                   type="button"
@@ -2411,7 +3475,7 @@ export function SurfaceLayout({
                 </button>
               </Tip>
             )}
-            {kind === "tty" && slot >= 0 && slot === firstTtySlot && (
+            {kind === "tty" && tile.visible && leafId === firstBareTtyLeafId && (
               <>
                 <Tip label="Export terminal output">
                   <button
@@ -2499,20 +3563,21 @@ export function SurfaceLayout({
             )}
             {/* Pane segment (260813-w1lf content verbs): tty tiles carry a
                 bordered group of PANE verbs — Split H · Split V · Close Pane —
-                at ANY arity (including `single:tty`, which renders no layout
-                verbs), visible while zoomed. A hairline separates it from the
-                layout-verb cluster when that renders (arity > 1). */}
-            {!mobile && kind === "tty" && slot >= 0 && onSplitPane && onClosePane && (
+                at ANY arity (including the bare `tty` leaf, which renders no
+                layout verbs), visible while zoomed. A hairline separates it
+                from the layout-verb cluster when that renders (arity > 1). */}
+            {!mobile && kind === "tty" && tile.visible && onSplitPane && onClosePane && (
               <>
                 <div
                   data-testid="pane-segment"
+                  data-no-tile-drag
                   className="inline-flex items-center h-[26px] rounded border border-border"
                 >
                   <Tip label="Split pane horizontally">
                     <button
                       type="button"
                       aria-label="Split pane horizontally"
-                      onClick={() => onSplitPane(true)}
+                      onClick={() => onSplitPane(true, tileWinId)}
                       className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
                     >
                       <SplitHorizontalGlyph />
@@ -2522,7 +3587,7 @@ export function SurfaceLayout({
                     <button
                       type="button"
                       aria-label="Split pane vertically"
-                      onClick={() => onSplitPane(false)}
+                      onClick={() => onSplitPane(false, tileWinId)}
                       className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
                     >
                       <SplitVerticalGlyph />
@@ -2532,7 +3597,7 @@ export function SurfaceLayout({
                     <button
                       type="button"
                       aria-label="Close pane"
-                      onClick={() => onClosePane()}
+                      onClick={() => onClosePane(tileWinId)}
                       className={`${VERB_BUTTON_CLASS} hover:text-signal-red`}
                     >
                       <ClosePaneBoxedGlyph />
@@ -2546,33 +3611,34 @@ export function SurfaceLayout({
             )}
             {/* Code-tile content verbs (the gui fullscreen verb's per-kind
                 structure, any arity): Follow terminal renders ONLY while the
-                latched root drifts from the live derivation — its presence IS
-                the drift indicator; Reload editor renders while the active
-                window's frame is mounted. One hairline separates them from
-                the layout-verb cluster when that renders. */}
-            {kind === "code" && slot >= 0 && (codeFollowTarget !== null || codeFrameMounted) && (
+                latched root drifts from the tile window's live derivation —
+                its presence IS the drift indicator; Reload editor renders
+                while the tile window's frame is mounted. One hairline
+                separates them from the layout-verb cluster when that
+                renders. */}
+            {kind === "code" && tile.visible && (tileCodeFollowTarget !== null || tileCodeFrameMounted) && (
               <>
-                {codeFollowTarget !== null && (
+                {tileCodeFollowTarget !== null && (
                   <Tip
-                    label={`Follow terminal — reopen the editor at ${codeFollowTarget.split("/").filter(Boolean).pop() ?? codeFollowTarget}`}
+                    label={`Follow terminal — reopen the editor at ${tileCodeFollowTarget.split("/").filter(Boolean).pop() ?? tileCodeFollowTarget}`}
                   >
                     <button
                       type="button"
                       aria-label="Follow terminal"
                       disabled={codeFollowInFlight}
-                      onClick={followCodeTerminal}
+                      onClick={() => followCodeTerminal(tileWinId)}
                       className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
                     >
                       <FollowTerminalGlyph />
                     </button>
                   </Tip>
                 )}
-                {codeFrameMounted && (
+                {tileCodeFrameMounted && (
                   <Tip label="Reload editor — reboots this tab's workbench">
                     <button
                       type="button"
                       aria-label="Reload editor"
-                      onClick={reloadActiveCodeFrame}
+                      onClick={() => reloadCodeFrame(tileWinId)}
                       className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
                     >
                       <RefreshGlyph />
@@ -2584,14 +3650,87 @@ export function SurfaceLayout({
                 )}
               </>
             )}
-            {showVerbs && (
+            {/* Web-tile keyboard capture (the gui header's pinned capture
+                verb, mirrored): while latched every chord but the release
+                binding reaches the page on both engines. Renders only with
+                page content (an onboarding tile has nothing to capture for —
+                the chord and palette verb share the gate) and never on
+                mobile (touch input never reaches the reclaim the verb
+                toggles). A hairline separates it from the layout verbs. */}
+            {!mobile && kind === "web" && tile.visible && webUrl !== "" && onWebCaptureChange && (
               <>
+                <Tip label="Keyboard capture" kbd={webCaptureKbd}>
+                  <button
+                    type="button"
+                    data-testid="web-capture-toggle"
+                    data-no-tile-drag
+                    aria-label="Keyboard capture"
+                    aria-pressed={webCapture}
+                    onClick={() => onWebCaptureChange(!webCapture)}
+                    className={controlClass({
+                      variant: "toggle",
+                      base: VERB_BUTTON_BASE,
+                      rest: "hover:bg-bg-card hover:text-text-primary",
+                      ringed: true,
+                      pressed: webCapture,
+                    })}
+                  >
+                    <KeyboardGlyph />
+                  </button>
+                </Tip>
+                {showVerbs && (
+                  <span aria-hidden="true" className="mx-0.5 h-3.5 w-px bg-border" />
+                )}
+              </>
+            )}
+            {/* Pop out (content-verb family, ahead of the layout-verb
+                cluster — at arity 1 it renders alone): hands the leaf id +
+                the tile's rendered rect to the parent's popOut (the popup's
+                size); the mark lands optimistically before window.open
+                returns. The hairline renders only when the layout-verb
+                cluster follows. */}
+            {canPopOutTile && (
+              <>
+                <Tip label={`Pop out ${label}`}>
+                  <button
+                    type="button"
+                    aria-label={`Pop out ${label}`}
+                    onClick={() => onPopOut?.(leafId, rects.get(leafId))}
+                    className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
+                  >
+                    <PopOutGlyph />
+                  </button>
+                </Tip>
+                {showVerbs && (
+                  <span aria-hidden="true" className="mx-0.5 h-3.5 w-px bg-border" />
+                )}
+              </>
+            )}
+            {showVerbs && !popoutTile && (
+              <>
+                {/* ↩ send home (R14): FOREIGN leaves only, whose home ≠ the
+                    route window (a self-address is grammar-invalid, guarded
+                    anyway); disabled while the home window is dead — the
+                    transient between a kill and the read-time prune. */}
+                {leafHome !== undefined && leafHome !== windowId && (
+                  <Tip label={`Send ${label} back to ${homeName}`}>
+                    <button
+                      type="button"
+                      aria-label={`Send ${label} back to ${homeName}`}
+                      disabled={homeWindow === null || !onSendHome}
+                      onClick={() => onSendHome?.(windowId, leafId)}
+                      className={`${VERB_BUTTON_CLASS} hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent`}
+                    >
+                      <SendHomeGlyph />
+                    </button>
+                  </Tip>
+                )}
                 <Tip label={isZoomed ? `Restore ${label}` : `Expand ${label}`}>
                   <button
                     type="button"
                     aria-label={isZoomed ? `Restore ${label}` : `Expand ${label}`}
                     aria-pressed={isZoomed}
-                    onClick={() => flipZoom(isZoomed ? null : slot)}
+                    onClick={() => flipZoom(isZoomed ? null : leafId)}
                     className={controlClass({
                       variant: "toggle",
                       base: VERB_BUTTON_BASE,
@@ -2603,32 +3742,6 @@ export function SurfaceLayout({
                     <ZoomGlyph />
                   </button>
                 </Tip>
-                {/* Promote/swap are no-ops on a zoomed render — hidden while
-                    this tile is zoomed (R5 feedback; ✕ stays). */}
-                {!isZoomed && (
-                  <>
-                    <Tip label={`Promote ${label}`}>
-                      <button
-                        type="button"
-                        aria-label={`Promote ${label}`}
-                        onClick={() => onPromote(kind)}
-                        className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
-                      >
-                        <PromoteGlyph />
-                      </button>
-                    </Tip>
-                    <Tip label={`Swap ${label}`}>
-                      <button
-                        type="button"
-                        aria-label={`Swap ${label}`}
-                        onClick={() => onSwap(kind)}
-                        className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
-                      >
-                        <SwapGlyph />
-                      </button>
-                    </Tip>
-                  </>
-                )}
                 {/* A 1px hairline separates the destructive ✕ from the safe
                     verbs; its hover turns signal-red. */}
                 <span aria-hidden="true" className="mx-0.5 h-3.5 w-px bg-border" />
@@ -2636,7 +3749,7 @@ export function SurfaceLayout({
                   <button
                     type="button"
                     aria-label={`Close ${label}`}
-                    onClick={() => onClose(kind)}
+                    onClick={() => onClose(leafId)}
                     className={`${VERB_BUTTON_CLASS} hover:text-signal-red`}
                   >
                     <TileCloseGlyph />
@@ -2644,13 +3757,30 @@ export function SurfaceLayout({
                 </Tip>
               </>
             )}
+            {/* The popout window's one layout verb: Pop back in replaces the
+                whole layout-verb cluster (zoom/↩/✕/Pop out) — the popout
+                renders one tile, so the layout verbs are meaningless here.
+                The content-verb families (pane segment, code verbs, find)
+                keep rendering. */}
+            {popoutTile && (
+              <Tip label={`Pop ${label} back in`}>
+                <button
+                  type="button"
+                  aria-label={`Pop ${label} back in`}
+                  onClick={() => onPopBackIn?.()}
+                  className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
+                >
+                  <SendHomeGlyph />
+                </button>
+              </Tip>
+            )}
           </div>
         )}
         {/* rk-slot: find-bar-row — the tty find bar below the header (the web
             tile's below-URL-row pattern), shared FindBar with terminal-native
             Aa / .* toggles and the client-buffer scope note once a search has
-            run. Primary tty tile only. */}
-        {kind === "tty" && slot === firstTtySlot && findOpen && (
+            run. Primary tty leaf only. */}
+        {kind === "tty" && awayHolderId === undefined && !poppedPlaceholder && leafId === firstBareTtyLeafId && findOpen && (
           <FindBar
             query={findQuery}
             matchIndex={
@@ -2703,8 +3833,8 @@ export function SurfaceLayout({
         {/* Progress line (260819-1vxq R2): a zero-height wrapper whose
             absolute 2px bar OVERLAYS the content's top edge — an in-flow
             strip would resize the terminal container and fire fit → PTY
-            resize churn on every task start/stop. */}
-        {kind === "tty" && ttyProgress.kind !== "idle" && (
+            resize churn on every task start/stop. The tile window's slot. */}
+        {kind === "tty" && awayHolderId === undefined && !poppedPlaceholder && tileProgress.kind !== "idle" && (
           <div
             className="rk-tty-progress"
             data-testid="progress-line"
@@ -2713,40 +3843,64 @@ export function SurfaceLayout({
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={
-              ttyProgress.kind === "indeterminate" ? undefined : ttyProgress.value
+              tileProgress.kind === "indeterminate" ? undefined : tileProgress.value
             }
           >
-            {ttyProgress.kind === "indeterminate" ? (
+            {tileProgress.kind === "indeterminate" ? (
               <span className="rk-tty-progress-bar rk-tty-progress-indeterminate" />
             ) : (
               <span
-                className={`rk-tty-progress-bar ${PROGRESS_BAR_CLASS[ttyProgress.kind]}`}
-                style={{ width: `${ttyProgress.value}%` }}
+                className={`rk-tty-progress-bar ${PROGRESS_BAR_CLASS[tileProgress.kind]}`}
+                style={{ width: `${tileProgress.value}%` }}
               />
             )}
           </div>
         )}
+        {awayHolderId !== undefined ? (
+          <SurfacePlaceholder
+            kind={kind}
+            holderName={windowsById?.get(awayHolderId)?.name ?? awayHolderId}
+            statusWindow={statusWindow ?? null}
+            showClose={arity > 1}
+            onBringBack={() => onSendHome?.(awayHolderId, `${windowId}/${kind}`)}
+            onGoTo={() => onGoToWindow?.(awayHolderId)}
+            onClose={() => onClose(leafId)}
+          />
+        ) : poppedPlaceholder ? (
+          <SurfacePlaceholder
+            variant="popped"
+            kind={kind}
+            statusWindow={tileStatusWindow}
+            showClose={arity > 1}
+            onBringBack={() => onPopIn?.(leafId)}
+            onGoTo={() => onFocusPopout?.(leafId)}
+            onClose={() => onHidePopped?.(leafId)}
+          />
+        ) : (
         <div
           // Mid-drag the iframe/xterm content must not swallow pointermove
-          // (the drag would stall at the iframe boundary). Applies to both
-          // drag kinds — single-axis divider and the two-axis intersection.
-          className={`flex-1 min-h-0 flex flex-col ${draggingIndex !== null || draggingIntersection ? "pointer-events-none" : ""}`}
+          // (the drag would stall at the iframe boundary). Applies to every
+          // drag posture — divider, intersection, tile header drag, and the
+          // sidebar row-drag (its drop-catcher overlay sits above all tiles).
+          className={`flex-1 min-h-0 flex flex-col ${draggingDivider !== null || draggingIntersection !== null || draggingTile !== null || rowDragActive ? "pointer-events-none" : ""}`}
         >
-          {renderContent(tile, tile.slot === firstTtySlot, hidden)}
-          {/* In-tile compose-strip dock (260813-j3jb): desktop only, first
-              tty tile only — the strip sits below the terminal body, inside
-              the tile frame. */}
-          {!mobile && slot === firstTtySlot ? ttyDockContent : null}
+          {renderContent(tile, hidden)}
+          {/* In-tile compose-strip dock (260813-j3jb): desktop only, in the
+              dock tty tile (the first BARE tty, else the first tty leaf) —
+              the strip sits below the terminal body, inside the tile frame. */}
+          {!mobile && leafId === dockTtyLeafId ? ttyDockContent : null}
         </div>
+        )}
       </div>
     );
   };
 
-  // Mobile (R13): ONE slot only, full-width, no verb chrome, no dividers.
-  // Which slot is `mobileActiveSlot` — the top-bar switch group swaps the
-  // shown surface via the per-viewer zoom key, touching the shared layout
-  // only when the target surface is not open (an `addSurface` growth). All
-  // resolved surfaces stay mounted-hidden so switching loses no state.
+  // Mobile (R13): ONE leaf only, full-width, no verb chrome, no dividers.
+  // Which leaf is `mobileActiveSlot` (a reading-order index) — the top-bar
+  // switch group swaps the shown surface via the per-viewer zoom key,
+  // touching the shared layout only when the target surface is not open (an
+  // `addSurface` growth). All resolved surfaces stay mounted-hidden so
+  // switching loses no state.
   //
   // IMPORTANT (both branches): visible + hidden + retained tiles render from
   // ONE flat array. Two separate `{arr1}{arr2}` expression slots reconcile
@@ -2759,18 +3913,21 @@ export function SurfaceLayout({
     const mobileSlot =
       mobileActiveSlot !== undefined &&
       mobileActiveSlot >= 0 &&
-      mobileActiveSlot < layout.order.length
+      mobileActiveSlot < layoutLeafIds.length
         ? mobileActiveSlot
         : 0;
     const allTiles = [
-      ...visibleTiles.map((tile) => ({ tile, hidden: tile.slot !== mobileSlot })),
+      ...visibleTiles.map((tile, i) => ({
+        tile,
+        hidden: i !== mobileSlot || (poppedSet.has(tile.leafId) && !revealedPoppedSet.has(tile.leafId)),
+      })),
       ...hiddenTiles.map((tile) => ({ tile, hidden: true })),
       ...retainedCodeTiles.map((tile) => ({ tile, hidden: true })),
     ];
     return (
-      // The drag flag crosses to the native web engine as a context (the
+      // The drag posture crosses to the native web engine as a context (the
       // mobile branch drags nothing, but the provider stays uniform).
-      <TileDragContext.Provider value={false}>
+      <TileDragContext.Provider value="idle">
         <div
           data-testid="surface-layout"
           className="flex-1 min-h-0 min-w-0 flex flex-col"
@@ -2784,96 +3941,127 @@ export function SurfaceLayout({
   const allTiles = [
     ...visibleTiles.map((tile) => ({
       tile,
-      hidden: zoomed && tile.slot !== zoomedIndex,
+      // A popped leaf never renders live: the parent usually hands the
+      // REDUCED tree (the leaf is absent), but the all-popped placeholder
+      // render passes the full tree and hides every tile through this flag.
+      // A REVEALED popped leaf stays visible — its slot renders the popped
+      // placeholder instead of the surface.
+      hidden:
+        (zoomed && tile.leafId !== zoomedLeafId) ||
+        (poppedSet.has(tile.leafId) && !revealedPoppedSet.has(tile.leafId)),
     })),
     ...hiddenTiles.map((tile) => ({ tile, hidden: true })),
     ...retainedCodeTiles.map((tile) => ({ tile, hidden: true })),
   ];
-  const specs = dividerSpecs(layout.shape, effRatios);
-  // The main-* T-junction: geometry single-sourced from the divider specs,
-  // the axis mapping from the shape. Null everywhere else (single/split-*/
-  // row/col), so the zone renders exactly when a junction exists.
-  const junction = junctionPoint(specs);
-  const axes = intersectionAxes(layout.shape);
   return (
     // The same expression that drives the tiles' mid-drag pointer-events-none
-    // class also feeds the native web engine's live-resize loop.
-    <TileDragContext.Provider value={draggingIndex !== null || draggingIntersection}>
+    // class also feeds the native web engine's posture (live-resize on
+    // `resize`, hide on `move`).
+    <TileDragContext.Provider
+      value={
+        draggingTile !== null || rowDragActive
+          ? "move"
+          : draggingDivider !== null || draggingIntersection !== null
+            ? "resize"
+            : "idle"
+      }
+    >
     <div
       ref={gridRef}
       data-testid="surface-layout"
-      // Gap-seam grid (260814-011r R1, was the 260812-wfic 3px framed grid):
-      // the 6px gutter floats the tiles as separate cards — the GAP is the
-      // separation, so the tile borders dim (rk-card-border). The outer inset
-      // + ground moved OUT to the Shell stage in 260814-ldbs (this container
-      // dropped its own `p-[6px]`/`bg-bg-inset`): the stage provides the 6px
-      // ground inset at every edge, so net tile geometry is unchanged. The
-      // absolutely-positioned dividers keep their ratio-boundary placement;
-      // their 14px hit zones cover the 6px gutter plus slop, so drag
-      // mechanics are unchanged.
-      className="relative flex-1 min-h-0 min-w-0 grid gap-[6px]"
-      style={gridStyle(layout.shape, effRatios, zoomed)}
+      // Flat rect-positioned leaf container: every tile is an absolutely
+      // positioned card placed from its `layoutRects` rect — the GAP between
+      // sibling rects (SPLIT_GAP_PX) is the separation, so the tile borders
+      // dim (rk-card-border). The outer inset + ground moved OUT to the Shell
+      // stage in 260814-ldbs: the stage provides the 6px ground inset at
+      // every edge, so net tile geometry is unchanged. The absolutely
+      // positioned dividers sit in the gutters; their 14px hit zones cover
+      // the 6px gutter plus slop.
+      className="relative flex-1 min-h-0 min-w-0"
     >
       {allTiles.map(({ tile, hidden }) => renderTile(tile, hidden, false))}
       {!zoomed &&
-        specs.map((spec) => (
-          <div
-            key={spec.index}
-            role="separator"
-            aria-orientation={spec.axis === "x" ? "vertical" : "horizontal"}
-            aria-label="Resize tiles"
-            aria-valuenow={Math.round(effRatios[spec.index])}
-            data-testid={`surface-divider-${spec.index}`}
-            // Move/up/cancel are window-level while dragging (see the drag
-            // effect) — only the drag START binds here.
-            onPointerDown={onDividerPointerDown(spec)}
-            // rk-divider + the gap-seam children (rk-sash pill, rk-grips dots)
-            // carry the rest/hover/drag treatment — see globals.css.
-            // `rk-sash-lit` = the zero-delay JS-lit state (this divider
-            // mid-drag, or EITHER divider while the intersection zone is
-            // dragged); `rk-sash-hot` = the intersection-HOVER state — both
-            // sashes light together with the same 150ms anti-flicker delay as
-            // a direct seam hover.
-            className={`rk-divider absolute z-10 ${
-              spec.axis === "x"
-                ? "w-3.5 -translate-x-1/2 cursor-col-resize"
-                : "h-3.5 -translate-y-1/2 cursor-row-resize"
-            } ${
-              draggingIndex === spec.index || draggingIntersection
-                ? "rk-sash-lit"
-                : intersectionHot
-                  ? "rk-sash-hot"
-                  : ""
-            }`}
-            style={{ ...spec.style, touchAction: "none" }}
-          >
-            <span
-              aria-hidden="true"
-              className={`rk-sash pointer-events-none ${spec.axis === "x" ? "rk-sash-v" : "rk-sash-h"}`}
-            />
-            <span
-              aria-hidden="true"
-              className={`rk-grips pointer-events-none ${spec.axis === "x" ? "rk-grips-v" : "rk-grips-h"}`}
+        dividers.map((d, i) => {
+          // rk-divider + the gap-seam children (rk-sash pill, rk-grips dots)
+          // carry the rest/hover/drag treatment — see globals.css.
+          // `rk-sash-lit` = the zero-delay JS-lit state (this divider
+          // mid-drag, or EITHER linked divider while its intersection zone is
+          // dragged); `rk-sash-hot` = the intersection-HOVER state — both
+          // sashes light together with the same 150ms anti-flicker delay as
+          // a direct seam hover.
+          const lit =
+            draggingDivider === i ||
+            (draggingIntersection !== null &&
+              (intersections[draggingIntersection]?.dividers.includes(i) ?? false));
+          const hot =
+            !lit &&
+            hotIntersection !== null &&
+            (intersections[hotIntersection]?.dividers.includes(i) ?? false);
+          return (
+            <div
+              key={`${d.splitPath.join(".")}:${d.boundary}`}
+              role="separator"
+              aria-orientation={d.dir === "h" ? "vertical" : "horizontal"}
+              aria-label="Resize tiles"
+              aria-valuenow={dividerValueNow(i)}
+              data-testid={`surface-divider-${i}`}
+              // Move/up/cancel are window-level while dragging (see the drag
+              // effect) — only the drag START binds here.
+              onPointerDown={onDividerPointerDown(i)}
+              className={`rk-divider absolute z-10 ${
+                d.dir === "h"
+                  ? "w-3.5 -translate-x-1/2 cursor-col-resize"
+                  : "h-3.5 -translate-y-1/2 cursor-row-resize"
+              } ${lit ? "rk-sash-lit" : hot ? "rk-sash-hot" : ""}`}
+              style={{ ...dividerStyle(d), touchAction: "none" }}
             >
-              <i />
-              <i />
-              <i />
-            </span>
-          </div>
+              <span
+                aria-hidden="true"
+                className={`rk-sash pointer-events-none ${d.dir === "h" ? "rk-sash-v" : "rk-sash-h"}`}
+              />
+              <span
+                aria-hidden="true"
+                className={`rk-grips pointer-events-none ${d.dir === "h" ? "rk-grips-v" : "rk-grips-h"}`}
+              >
+                <i />
+                <i />
+                <i />
+              </span>
+            </div>
+          );
+        })}
+      {/* Intersection zones: one ~20px two-axis handle per point where a
+          divider's end meets a perpendicular divider, z-20 so it wins the
+          hit-test over both dividers. Desktop-only by branch, never zoomed. */}
+      {!zoomed &&
+        intersections.map((inter, i) => (
+          <div
+            key={i}
+            data-testid="surface-divider-intersection"
+            aria-label="Resize tiles (both directions)"
+            onPointerDown={onIntersectionPointerDown(i)}
+            onPointerEnter={() => setHotIntersection(i)}
+            onPointerLeave={() => setHotIntersection((h) => (h === i ? null : h))}
+            className="absolute z-20 w-5 h-5 -translate-x-1/2 -translate-y-1/2 cursor-move"
+            style={{
+              left: measured ? inter.x : `${(inter.x / NOMINAL_BOX.w) * 100}%`,
+              top: measured ? inter.y : `${(inter.y / NOMINAL_BOX.h) * 100}%`,
+              touchAction: "none",
+            }}
+          />
         ))}
-      {/* Intersection zone (260814-011r R3): the ~20px two-axis handle at the
-          main-* T-junction, z-20 so it wins the hit-test over both dividers.
-          Desktop-only by branch, never zoomed, main-* only (junction/axes are
-          null elsewhere). */}
-      {!zoomed && junction && axes && (
+      {/* The header/row drag's result preview — z-30, above tiles and
+          dividers, never a pointer target. */}
+      {dropOverlay}
+      {/* The sidebar row-drag's drop catcher — z-40, above the preview (which
+          is pointer-events-none), the ONLY drop target while a window-row
+          drag is in flight over the tiles. */}
+      {rowDragActive && (
         <div
-          data-testid="surface-divider-intersection"
-          aria-label="Resize tiles (both directions)"
-          onPointerDown={onIntersectionPointerDown(axes)}
-          onPointerEnter={() => setIntersectionHot(true)}
-          onPointerLeave={() => setIntersectionHot(false)}
-          className="absolute z-20 w-5 h-5 -translate-x-1/2 -translate-y-1/2 cursor-move"
-          style={{ left: junction.left, top: junction.top, touchAction: "none" }}
+          data-testid="row-drop-catcher"
+          className="absolute inset-0 z-40"
+          onDragOver={onRowDragOver}
+          onDrop={onRowDrop}
         />
       )}
     </div>

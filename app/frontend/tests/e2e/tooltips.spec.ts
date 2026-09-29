@@ -62,7 +62,7 @@ test.describe("Tier-1 tooltips (Tip)", () => {
    * 1. Navigate to `/${TMUX_SERVER}` and wait for the Refresh page button
    *    (top-bar chrome rendered).
    * 2. Press Tab (bounded loop, ≤12 presses, keyboard modality from a
-   *    fresh page) until the brand link (`RunKit home`) is
+   *    fresh page) until the brand link (`HexoKit home`) is
    *    `document.activeElement`. At this desktop viewport with the sidebar
    *    open, that link is the sidebar head's brand anchor over the bar's
    *    left end (the nav's brand crumb renders only while the head does
@@ -79,7 +79,7 @@ test.describe("Tier-1 tooltips (Tip)", () => {
     // Tab from a fresh page (keyboard modality) until the brand link has
     // focus — its Tip names the link's level ("Host"). Bounded loop: the
     // brand link is among the first few tab stops on every route.
-    const brand = page.getByRole("link", { name: "RunKit home" });
+    const brand = page.getByRole("link", { name: "HexoKit home" });
     let focused = false;
     for (let i = 0; i < 12 && !focused; i++) {
       await page.keyboard.press("Tab");

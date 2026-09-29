@@ -44,6 +44,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
+import { harnessOrigin } from "./_harness";
 import { resolveWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
@@ -56,8 +57,7 @@ const BURST_SESSION = `e2e-burst-${Date.now()}`;
 // generator alongside `cat`, so it gets its own window to keep the idle echo
 // session's measurements clean.
 const LOAD_SESSION = `e2e-echo-load-${Date.now()}`;
-const port = Number(process.env.E2E_PORT ?? "3333");
-const BASE = `http://localhost:${port}`;
+const BASE = harnessOrigin();
 
 // Trial counts. Kept modest so the file stays well within the per-test budget
 // on a shared CI runner while still yielding a stable-enough distribution.

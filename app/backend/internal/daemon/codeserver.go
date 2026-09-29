@@ -204,8 +204,13 @@ const (
 	EnsureInstallJobSpawned
 )
 
+// errCodeServerMissing is the CLI-posture missing-binary error — a sentinel so
+// RestartCodeServer can branch into the install job instead of failing.
+var errCodeServerMissing = errors.New("code-server binary not found — install it with `rk code-server install`")
+
 // ensureCodeServerCore is the shared ensure path behind the daemon's
-// ensureCodeServer (cli=false) and the CLI's StartCodeServer (cli=true). The
+// ensureCodeServer (cli=false) and the CLI-posture StartCodeServer and
+// RestartCodeServer (cli=true; Restart branches on errCodeServerMissing). The
 // postures differ only on failure: the daemon warns and continues (an editor
 // must never block the dashboard) and, on a missing binary, spawns the
 // rk-jobs install job; the CLI returns operational errors instead. The skip
@@ -245,9 +250,9 @@ func ensureCodeServerCore(cli bool) (EnsureOutcome, error) {
 	}
 	if binary == "" {
 		if cli {
-			return EnsureAlreadyRunning, fmt.Errorf("code-server binary not found — install it with `rk code-server install`")
+			return EnsureAlreadyRunning, errCodeServerMissing
 		}
-		spawnCodeServerInstallJob(ctx)
+		_ = spawnCodeServerInstallJob(ctx) // warn-and-continue: logged inside
 		return EnsureInstallJobSpawned, nil
 	}
 
@@ -300,12 +305,14 @@ func ensureCodeServerCore(cli bool) (EnsureOutcome, error) {
 // live window of the same name ⇒ no second spawn) is the duplicate-job guard;
 // a dead window from a failed prior run respawns naturally here on the next
 // daemon start. The chain's && IS the B→C sequencing (daemon start is
-// one-shot; no supervisor loop, Constitution VI).
-func spawnCodeServerInstallJob(ctx context.Context) {
+// one-shot; no supervisor loop, Constitution VI). Failures are logged AND
+// returned: the daemon ignores the error (warn-and-continue); RestartCodeServer
+// reports it so it never claims a job that does not exist.
+func spawnCodeServerInstallJob(ctx context.Context) error {
 	exe, err := codeServerInstallSelfPath()
 	if err != nil {
 		slog.Warn("code-server install job skipped: could not resolve the rk binary path — run `rk code-server install` manually", "err", err)
-		return
+		return fmt.Errorf("code-server binary not found and the rk path is unresolvable — run `rk code-server install`: %w", err)
 	}
 	// tmux joins the trailing argv words with spaces into its own sh -c, so the
 	// chain is one argv element and the exe path is single-quoted (the
@@ -316,11 +323,13 @@ func spawnCodeServerInstallJob(ctx context.Context) {
 	switch {
 	case err != nil:
 		slog.Warn("code-server binary not found and the install job failed to start — run `rk code-server install` manually", "err", err)
+		return fmt.Errorf("code-server binary not found and the install job failed to start — run `rk code-server install`: %w", err)
 	case !started:
 		slog.Info("code-server binary not found; the install job is already running", "window", target.Window)
 	default:
 		slog.Info("code-server binary not found; spawned the install job — the editor appears when the download finishes", "window", target.Window)
 	}
+	return nil
 }
 
 // ensureCodeServer starts the daemon-managed code-server beside the daemon on
@@ -490,4 +499,49 @@ func KillCodeServerSession() (killed bool, err error) {
 	}
 	waitForCodeServerPortFree()
 	return true, nil
+}
+
+// codeServerPortUpTimeout bounds RestartCodeServer's wait for the respawned
+// instance to bind its port. A var so tests shrink it.
+var codeServerPortUpTimeout = 15 * time.Second
+
+// RestartCodeServer is the lens empty state's "Restart code-server" action
+// (POST /api/code-server/restart): kill the session (a hung or stale instance —
+// e.g. one spawned from a binary path a `brew upgrade` has since removed), then
+// re-run the full ensure ladder, so the binary and RK_BIN are re-resolved from
+// scratch. A missing binary spawns the install-then-start job (the daemon
+// posture) and reports EnsureInstallJobSpawned. On EnsureStarted it blocks —
+// bounded by codeServerPortUpTimeout — until the port serves, so a spawn that
+// dies on boot is an error rather than a silent success.
+func RestartCodeServer() (EnsureOutcome, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	if !jobDaemonRunning(ctx) {
+		return EnsureAlreadyRunning, fmt.Errorf("rk daemon is not running — start it with `rk serve -d`")
+	}
+	if _, err := KillCodeServerSession(); err != nil {
+		return EnsureAlreadyRunning, err
+	}
+	outcome, err := ensureCodeServerCore(true)
+	if errors.Is(err, errCodeServerMissing) {
+		// A fresh budget: the kill above may have spent ctx's on its
+		// port-free wait (a hung session), and an expired ctx fails the spawn.
+		jobCtx, jobCancel := context.WithTimeout(context.Background(), cmdTimeout)
+		defer jobCancel()
+		if err := spawnCodeServerInstallJob(jobCtx); err != nil {
+			return EnsureAlreadyRunning, err
+		}
+		return EnsureInstallJobSpawned, nil
+	}
+	if err != nil || outcome != EnsureStarted {
+		return outcome, err
+	}
+	deadline := time.Now().Add(codeServerPortUpTimeout)
+	for !codeServerPortBusy() {
+		if time.Now().After(deadline) {
+			return outcome, fmt.Errorf("code-server did not come up within %s — attach the %s tmux session or run `rk doctor`", codeServerPortUpTimeout, CodeServerSessionName)
+		}
+		time.Sleep(codeServerPortFreePoll)
+	}
+	return outcome, nil
 }

@@ -7,7 +7,7 @@ import type { KeyBinding } from "@/lib/keybindings";
  * `POST /api/riff` seam) or a command-palette action (dispatched in-place).
  * Macros NEVER carry shell strings — the riff target is a preset NAME only;
  * the skill lives in the preset definition under `riff_presets` in run-kit's
- * `~/.config/run-kit/config.yaml` (built-ins ship in the binary), and presets
+ * `~/.config/hexokit/config.yaml` (built-ins ship in the binary), and presets
  * are skill-only so the settings-API-writable file never contributes a raw
  * shell string (Constitution I).
  *
@@ -16,9 +16,9 @@ import type { KeyBinding } from "@/lib/keybindings";
  * (`composePanes` in internal/riff), so per-macro dynamic args are not
  * expressible without a backend extension. Encode arguments in the preset.
  *
- * Persistence is per-device: definitions in `localStorage["runkit-macros"]`
+ * Persistence is per-device: definitions in `localStorage["hexokit-macros"]`
  * (a JSON array of MacroAction); each macro's key combo lives as an ordinary
- * override entry in `localStorage["runkit-keybindings"]` keyed by the macro's
+ * override entry in `localStorage["hexokit-keybindings"]` keyed by the macro's
  * actionId (see `hooks/use-keybindings.ts`) — a macro without an entry is
  * unbound. Pure + DOM-light, the `lib/keybindings.ts` convention; React
  * integration is `hooks/use-macros.ts`.
@@ -38,7 +38,7 @@ export type MacroAction = {
   target: MacroTarget;
 };
 
-export const MACROS_STORAGE_KEY = "runkit-macros";
+export const MACROS_STORAGE_KEY = "hexokit-macros";
 export const MACRO_ID_PREFIX = "macro:";
 
 /** Whether an actionId belongs to a macro (used to exclude macros from target
@@ -146,7 +146,7 @@ export function makeMacroActionId(label: string, existingIds: Iterable<string>):
 
 /**
  * Project a macro into a registry KeyBinding. Macros ship NO default combo —
- * `code: ""` resolves unbound unless a `runkit-keybindings` override supplies
+ * `code: ""` resolves unbound unless a `hexokit-keybindings` override supplies
  * one (see `resolveBindings`). Global scope: applicability is handler presence
  * at each dispatcher mount, exactly like the builtins.
  */

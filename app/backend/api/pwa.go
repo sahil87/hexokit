@@ -2,7 +2,7 @@ package api
 
 // PWA identity assets — dynamic serving of /manifest.json and the
 // /generated-icons/* assets so the per-instance accent color
-// (~/.config/run-kit/config.yaml instance_color, see api/settings.go) tints the
+// (~/.config/hexokit/config.yaml instance_color, see api/settings.go) tints the
 // installed PWA's Dock/Cmd-Tab icon and the tab favicon. Routes are
 // registered in router.go BEFORE the SPA catch-all; with no owned accent
 // every route serves the stock bytes byte-identically, so zero-config

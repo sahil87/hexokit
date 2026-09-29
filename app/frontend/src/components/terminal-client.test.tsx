@@ -1567,7 +1567,7 @@ describe("TerminalClient terminal-font change syncs the grid to tmux", () => {
   beforeEach(() => {
     stubConnectionEnv();
     vi.mocked(FitAddon).mockClear();
-    try { localStorage.removeItem("runkit-terminal-font-size"); } catch { /* noop */ }
+    try { localStorage.removeItem("hexokit-terminal-font-size"); } catch { /* noop */ }
   });
 
   afterEach(() => {

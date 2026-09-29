@@ -1146,3 +1146,50 @@ func TestFetchSessionsWatchlistSlug(t *testing.T) {
 		}
 	})
 }
+
+// TestFetchSessionsDerivesAwayIn drives the awayIn tier end-to-end through
+// FetchSessions against the fetch seams: the derivation spans ALL sessions'
+// windows in one pass (@N is unique per server), so a holder in one session
+// marks the home window in another.
+func TestFetchSessionsDerivesAwayIn(t *testing.T) {
+	origSessions, origClients, origWindows, origSocket := listSessionsFn, listClientsFn, listWindowsFn, socketPathFn
+	t.Cleanup(func() {
+		listSessionsFn, listClientsFn, listWindowsFn, socketPathFn = origSessions, origClients, origWindows, origSocket
+	})
+	listSessionsFn = func(context.Context, string) ([]tmux.SessionInfo, error) {
+		return []tmux.SessionInfo{{Name: "one", Windows: 2}, {Name: "two", Windows: 1}}, nil
+	}
+	listClientsFn = func(context.Context, string) ([]tmux.ClientInfo, error) {
+		return nil, nil
+	}
+	listWindowsFn = func(_ context.Context, session, _ string) ([]tmux.WindowInfo, error) {
+		switch session {
+		case "one":
+			return []tmux.WindowInfo{
+				{Index: 0, WindowID: "@3", Name: "home", Layout: "tty"},
+				{Index: 1, WindowID: "@7", Name: "holder", Layout: "h(tty,@3/tty)"},
+			}, nil
+		default:
+			return []tmux.WindowInfo{
+				{Index: 0, WindowID: "@9", Name: "dead-ref", Layout: "h(tty,@44/tty)"},
+			}, nil
+		}
+	}
+	socketPathFn = func(context.Context, string) (string, error) {
+		return "", fmt.Errorf("no server running")
+	}
+
+	got, err := FetchSessions(context.Background(), "srv", nil, nil)
+	if err != nil {
+		t.Fatalf("FetchSessions() error: %v", err)
+	}
+	home := got[0].Windows[0]
+	if home.AwayIn["tty"] != "@7" {
+		t.Errorf("home window awayIn = %v, want tty held by @7 (cross-session)", home.AwayIn)
+	}
+	for _, w := range []tmux.WindowInfo{got[0].Windows[1], got[1].Windows[0]} {
+		if w.AwayIn != nil {
+			t.Errorf("window %s awayIn = %v, want empty", w.WindowID, w.AwayIn)
+		}
+	}
+}

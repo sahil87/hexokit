@@ -117,4 +117,60 @@ describe("buildWebChordTable over the default registry", () => {
     expect(table.find((s) => s.code === "Equal")).toBeUndefined();
     expect(table.find((s) => s.code === "Minus" && s.ctrl && !s.shift)).toBeUndefined();
   });
+
+  it("uncaptured carries the web-capture-toggle release chord (⌘⇧G) alongside the rest", () => {
+    const table = buildWebChordTable(bindings);
+    expect(table).toContainEqual({ code: "KeyG", ctrl: true, meta: false, shift: true, alt: false, keepFocus: true });
+    expect(table).toContainEqual({ code: "KeyG", ctrl: false, meta: true, shift: true, alt: false, keepFocus: true });
+  });
+
+  it("only the capture toggle's arms carry keepFocus (every other reclaim hops focus to rk)", () => {
+    const table = buildWebChordTable(bindings);
+    expect(table.filter((s) => s.keepFocus).map((s) => s.code)).toEqual(["KeyG", "KeyG"]);
+  });
+});
+
+describe("buildWebChordTable captured (web keyboard capture)", () => {
+  const bindings = resolveBindings(DEFAULT_BINDINGS, {}, { platform: "other", shell: true });
+
+  it("narrows to the release chord ALONE — both ⌘⇧G arms, nothing else", () => {
+    const table = buildWebChordTable(bindings, true);
+    expect(table).toEqual([
+      { code: "KeyG", ctrl: true, meta: false, shift: true, alt: false, keepFocus: true },
+      { code: "KeyG", ctrl: false, meta: true, shift: true, alt: false, keepFocus: true },
+    ]);
+  });
+
+  it("drops Escape while captured, so the page receives it", () => {
+    const table = buildWebChordTable(bindings, true);
+    expect(table.find((s) => s.code === "Escape")).toBeUndefined();
+  });
+
+  it("the palette ⌘K and webOnly ⌘F no longer reclaim once captured", () => {
+    const table = buildWebChordTable(bindings, true);
+    expect(table.find((s) => s.code === "KeyK")).toBeUndefined();
+    expect(table.find((s) => s.code === "KeyF")).toBeUndefined();
+  });
+
+  it("follows a remapped release binding", () => {
+    const remapped = resolveBindings(
+      DEFAULT_BINDINGS,
+      { "web-capture-toggle": { code: "KeyU", tier: "shifted" } },
+      { platform: "other", shell: true },
+    );
+    const table = buildWebChordTable(remapped, true);
+    expect(table).toEqual([
+      { code: "KeyU", ctrl: true, meta: false, shift: true, alt: false, keepFocus: true },
+      { code: "KeyU", ctrl: false, meta: true, shift: true, alt: false, keepFocus: true },
+    ]);
+  });
+
+  it("an unbound release binding leaves an empty captured table (no route back but the verb/palette)", () => {
+    const unbound = resolveBindings(
+      DEFAULT_BINDINGS,
+      { "web-capture-toggle": null },
+      { platform: "other", shell: true },
+    );
+    expect(buildWebChordTable(unbound, true)).toEqual([]);
+  });
 });

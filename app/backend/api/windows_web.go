@@ -3,7 +3,7 @@ package api
 // The web-tab verb routes (POST only, Constitution §IX): add/remove/move/select on
 // the window's indexed @rk_win_web_<n> family, backed one-for-one by the
 // internal/tmux Web* verbs. Each gates {windowId} (parseWindowID) and the
-// slot {n} (^[1-8]$) before any tmux call, scope by ?server=
+// slot {n} (1..tmux.MaxWebTabs) before any tmux call, scope by ?server=
 // (serverFromRequest), and wake the SSE hub on success — set-option is
 // invisible to the tmuxctl control-mode parser (the /options precedent).
 
@@ -131,14 +131,14 @@ func (s *Server) handleWindowWebAdd(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// webSlotParam reads and gates the {n} route param (^[1-8]$) BEFORE any tmux
-// call (Constitution §I — pattern-gated before any subprocess).
+// webSlotParam reads and gates the {n} route param (1..tmux.MaxWebTabs)
+// BEFORE any tmux call (Constitution §I — gated before any subprocess).
 func webSlotParam(r *http.Request) (int, bool) {
 	raw := chi.URLParam(r, "n")
-	if !presentSlotPattern.MatchString(raw) {
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 || n > tmux.MaxWebTabs {
 		return 0, false
 	}
-	n, _ := strconv.Atoi(raw)
 	return n, true
 }
 
@@ -152,7 +152,7 @@ func (s *Server) handleWindowWebRemove(w http.ResponseWriter, r *http.Request) {
 	}
 	n, ok := webSlotParam(r)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "web tab index must be 1..8")
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("web tab index must be 1..%d", tmux.MaxWebTabs))
 		return
 	}
 
@@ -186,7 +186,7 @@ func (s *Server) handleWindowWebMove(w http.ResponseWriter, r *http.Request) {
 	}
 	n, ok := webSlotParam(r)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "web tab index must be 1..8")
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("web tab index must be 1..%d", tmux.MaxWebTabs))
 		return
 	}
 	var body struct {
@@ -197,7 +197,7 @@ func (s *Server) handleWindowWebMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.To < 1 || body.To > tmux.MaxWebTabs {
-		writeError(w, http.StatusBadRequest, "web tab destination must be 1..8")
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("web tab destination must be 1..%d", tmux.MaxWebTabs))
 		return
 	}
 
@@ -229,7 +229,7 @@ func (s *Server) handleWindowWebSelect(w http.ResponseWriter, r *http.Request) {
 	}
 	n, ok := webSlotParam(r)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "web tab index must be 1..8")
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("web tab index must be 1..%d", tmux.MaxWebTabs))
 		return
 	}
 

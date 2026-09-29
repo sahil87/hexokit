@@ -5,7 +5,7 @@
 # deterministic by construction (e2e-env.sh probes nothing). Ambient RK_PORT
 # is not consulted; RK_E2E_PORT / preset E2E_TMUX_SERVER override. Playwright
 # reads the base port from E2E_PORT (a variable only the harness sets, so a
-# bare `playwright test` falls back to the connect-to-nothing :3333); RK_PORT
+# bare `playwright test` falls back to the connect-to-nothing :21999 sentinel); RK_PORT
 # is still exported for any non-Playwright reader in the child env.
 set -euo pipefail
 

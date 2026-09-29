@@ -21,8 +21,8 @@ import (
 // pattern).
 //
 // Enumeration flows through the same ListSessions/parseSessions chokepoint as
-// the dashboard, so `_rk-pin-*` pin-sessions and the `_rk-ctl` anchor
-// contribute no rows and a pinned window appears exactly once, via its home
+// the dashboard, so `_rk-pin-*` pin-sessions, `_rk-iso-*` isolated relay
+// sessions and the `_rk-ctl` anchor contribute no rows and a pinned window appears exactly once, via its home
 // session. As a query it CONSUMES the family's inherited -L/--server (it does
 // not call muxRejectInheritedServerFlag).
 //
@@ -51,7 +51,7 @@ var muxPanesCmd = &cobra.Command{
 	Long: "List one row per pane across all sessions of the resolved tmux server: " +
 		"session, window (index:name), pane id, active markers, command, cwd, and " +
 		"the pane's reconciled " + tmux.AgentStateOption + " with idle/waiting duration. " +
-		"Internal sessions (`_rk-pin-*` pin-sessions, the `_rk-ctl` anchor) are " +
+		"Internal sessions (`_rk-pin-*` pin-sessions, `_rk-iso-*` isolated relay sessions, the `_rk-ctl` anchor) are " +
 		"excluded; a pinned window lists once, via its home session. Substrate " +
 		"facts only — no change/stage fields. Under --json each row also carries " +
 		"has_agent: true/false for shell-foreground panes (a process-tree walk for " +

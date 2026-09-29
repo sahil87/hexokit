@@ -9,7 +9,7 @@ import { buildCodeActions } from "./code";
  * pattern.
  */
 
-const base = { onFollowTerminal: vi.fn(), onReload: vi.fn() };
+const base = { onFollowTerminal: vi.fn(), onReload: vi.fn(), unreachable: false, onRestartServer: vi.fn() };
 
 describe("buildCodeActions — gating", () => {
   it("offers both rows when the tile is open with drift and a mounted frame", () => {
@@ -42,6 +42,19 @@ describe("buildCodeActions — gating", () => {
     expect(actions.map((a) => a.id)).toEqual(["code-follow-terminal"]);
   });
 
+  it("offers Restart code-server only while code-server is unreachable", () => {
+    const actions = buildCodeActions({
+      ...base,
+      codeTileOpen: true,
+      followTarget: null,
+      frameMounted: false,
+      unreachable: true,
+    });
+    expect(actions.map((a) => a.id)).toEqual(["code-restart-server"]);
+    actions[0].onSelect();
+    expect(base.onRestartServer).toHaveBeenCalledTimes(1);
+  });
+
   it("offers nothing when the code tile is closed", () => {
     expect(
       buildCodeActions({ ...base, codeTileOpen: false, followTarget: "/other", frameMounted: true }),
@@ -70,6 +83,8 @@ describe("buildCodeActions — row shape", () => {
       frameMounted: true,
       onFollowTerminal,
       onReload,
+      unreachable: false,
+      onRestartServer: vi.fn(),
     });
     follow.onSelect();
     reload.onSelect();

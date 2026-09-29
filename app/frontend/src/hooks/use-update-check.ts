@@ -11,7 +11,7 @@ import { composeCheckToast, filterCheckRelevantTools } from "@/lib/palette/updat
 const DEV_VERSION = "dev";
 
 /**
- * Shared behavior for the two palette check commands (`run-kit: Check for
+ * Shared behavior for the two palette check commands (`HexoKit: Check for
  * Updates` / `… (incl. patches)`), consumed by BOTH palette mounts — AppShell
  * (app.tsx) and the board route (board-page.tsx, which mounts its own palette
  * and does not render AppShell). Extracted so the POST→toast flow (result
@@ -29,7 +29,7 @@ const DEV_VERSION = "dev";
  *     echoed `source` rides into the toast composition so the sub-threshold
  *     annotation keys off what actually ran;
  *   - when something updatable was reported AND the daemon can actually update
- *     (brew install, non-dev — the same gate as the palette's `run-kit: Update
+ *     (brew install, non-dev — the same gate as the palette's `HexoKit: Update
  *     Now` entry), the toast's action slot carries "Update Now", triggering the
  *     same force-update flow;
  *   - on a failed check (502 shll-missing, 409 dev, network) an error toast

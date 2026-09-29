@@ -8,27 +8,39 @@ import (
 )
 
 func TestDefaultDirXDGOverride(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", "/tmp/xdg-test")
+	xdg := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", xdg)
 	dir, err := DefaultDir()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join("/tmp/xdg-test", "run-kit", "cron"); dir != want {
+	if want := filepath.Join(xdg, "hexokit", "cron"); dir != want {
 		t.Errorf("dir = %q, want %q", dir, want)
+	}
+
+	// A pre-migration install (only the legacy home exists) still resolves
+	// there — the dual-read window.
+	if err := os.MkdirAll(filepath.Join(xdg, "run-kit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dir, err = DefaultDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(xdg, "run-kit", "cron"); dir != want {
+		t.Errorf("dir with only the legacy home = %q, want %q", dir, want)
 	}
 }
 
 func TestDefaultDirFallback(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	t.Setenv("XDG_STATE_HOME", "")
 	dir, err := DefaultDir()
 	if err != nil {
 		t.Fatal(err)
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Skip("no home dir")
-	}
-	if want := filepath.Join(home, ".local", "state", "run-kit", "cron"); dir != want {
+	if want := filepath.Join(home, ".local", "state", "hexokit", "cron"); dir != want {
 		t.Errorf("dir = %q, want %q", dir, want)
 	}
 }

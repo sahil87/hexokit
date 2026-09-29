@@ -22,7 +22,7 @@
 >
 > Companions: [`surface-layout.md`](surface-layout.md) (the tile model, the
 > surface registry, and its view-state test — this spec adds one kind and
-> changes nothing about arity),
+> changes nothing about the tile model),
 > [`window-views.md`](window-views.md) (availability derivation —
 > `review` follows the `code` pattern exactly),
 > [`api.md`](api.md) (the HTTP surface),
@@ -73,10 +73,13 @@ no comment ever needs a run-kit-owned store (Constitution II).
 
 ### R1 — One kind, appended to a closed registry
 
-`layoutspec.surfaceKinds` gains `"review"`; `ViewName` gains `"review"`. The
+`layoutspec.surfaceKindList` gains `"review"`; `ViewName` gains `"review"`. The
 registry's own comment already states that extending it is appending one entry.
-Tile **arity is unchanged** — still ≤3 tiles (Constitution IV); this adds a
-kind, not a slot.
+The **tile model is unchanged** — growth is still bounded by the per-viewport
+size floor, not a tile count (Constitution IV); this adds a kind, not a slot.
+Like every kind but `gui`, a review tile may be borrowed into another tab as a
+foreign `@N/review` leaf: it reads its home window's PR and digest, and binds
+none of the route window's `Review:` palette seams or toggle dot.
 
 The internal kind is `review`, **not** `changes`. This repo already means
 something specific by "changes" (`fab/changes/`, the change slug in the sidebar
@@ -592,7 +595,7 @@ is the anti-pattern that key exists to prevent.
   state is a tmux option; viewed state is per-viewer localStorage. The in-memory
   caches are caches, and a cold start re-derives everything.
 - **IV** — no new route; one new surface kind in the existing terminal route;
-  arity still ≤3 tiles. One new settings-registry key, no new settings surface.
+  tile growth still bounded by the size floor. One new settings-registry key, no new settings surface.
 - **V** — every verb (toggle listen, next/previous file, expand, comment, reply,
   resolve, mark viewed, refresh) is palette-reachable.
 - **IX** — reads are GET, every mutation is POST.

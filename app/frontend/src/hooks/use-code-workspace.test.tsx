@@ -11,7 +11,7 @@ vi.mock("@/api/client", () => ({
 import { useCodeWorkspace } from "./use-code-workspace";
 import { codeServerSrc, codeServerWorkspaceSrc } from "@/components/code-surface";
 
-const WS_PATH = "/state/run-kit/code/default/@7-3fa1c9.code-workspace";
+const WS_PATH = "/state/hexokit/code/default/@7-3fa1c9.code-workspace";
 const WIN = { gitRoot: "/repo", codeRoot: "/repo" };
 
 beforeEach(() => {
@@ -113,7 +113,7 @@ describe("useCodeWorkspace — mount gating", () => {
       expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_PATH)),
     );
 
-    const otherPath = "/state/run-kit/code/default/@7-bbbbbb.code-workspace";
+    const otherPath = "/state/hexokit/code/default/@7-bbbbbb.code-workspace";
     fetchCodeWorkspace.mockResolvedValue({ status: "ok", path: otherPath, root: "/other" });
     rerender({ win: { gitRoot: "/other", codeRoot: "/other" } });
     await waitFor(() =>
@@ -130,7 +130,7 @@ describe("useCodeWorkspace — follow rule", () => {
       expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_PATH)),
     );
 
-    const newPath = "/state/run-kit/code/default/@7-cccccc.code-workspace";
+    const newPath = "/state/hexokit/code/default/@7-cccccc.code-workspace";
     fetchCodeWorkspace.mockResolvedValue({ status: "ok", path: newPath, root: "/other" });
     act(() => { void result.current.followFolder("/other"); });
     await waitFor(() =>
@@ -138,6 +138,7 @@ describe("useCodeWorkspace — follow rule", () => {
         src: codeServerWorkspaceSrc(newPath),
         nonce: 1,
         root: "/other",
+        windowId: "@7",
       }),
     );
     // A second navigation bumps the nonce — each follow is a fresh license.
@@ -174,6 +175,7 @@ describe("useCodeWorkspace — follow rule", () => {
         src: codeServerSrc("/other"),
         nonce: 1,
         root: "/other",
+        windowId: "@7",
       }),
     );
     expect(warn).toHaveBeenCalledTimes(1);
@@ -217,7 +219,7 @@ describe("useCodeWorkspace — follow rule", () => {
       expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_PATH)),
     );
 
-    const newPath = "/state/run-kit/code/default/@7-dddddd.code-workspace";
+    const newPath = "/state/hexokit/code/default/@7-dddddd.code-workspace";
     let resolveFollow!: (v: unknown) => void;
     fetchCodeWorkspace.mockReturnValue(new Promise((r) => { resolveFollow = r; }));
     let settled = false;
@@ -335,8 +337,8 @@ describe("useCodeWorkspace — seed-refusal degrade", () => {
 describe("useCodeWorkspace — per-window map", () => {
   const WIN_A = { gitRoot: "/repo-a", codeRoot: "/repo-a" };
   const WIN_B = { gitRoot: "/repo-b", codeRoot: "/repo-b" };
-  const WS_A = "/state/run-kit/code/default/@7-aaaaaa.code-workspace";
-  const WS_B = "/state/run-kit/code/default/@8-bbbbbb.code-workspace";
+  const WS_A = "/state/hexokit/code/default/@7-aaaaaa.code-workspace";
+  const WS_B = "/state/hexokit/code/default/@8-bbbbbb.code-workspace";
   const windowsById = () =>
     new Map<string, { gitRoot: string; codeRoot: string }>([
       ["@7", WIN_A],
@@ -438,7 +440,7 @@ describe("useCodeWorkspace — per-window map", () => {
       options: { windowsById: windowsById() },
     });
 
-    const followPath = "/state/run-kit/code/default/@7-cccccc.code-workspace";
+    const followPath = "/state/hexokit/code/default/@7-cccccc.code-workspace";
     fetchCodeWorkspace.mockResolvedValue({ status: "ok", path: followPath, root: "/other" });
     act(() => { void result.current.followFolder("/other"); });
     await waitFor(() => expect(result.current.followSrc?.nonce).toBe(1));

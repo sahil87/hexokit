@@ -224,6 +224,13 @@ export type WindowInfo = {
    *  Read-side is tolerant: the raw value rides through unvalidated (validation
    *  is write-side; consumers parse). */
   layout?: string;
+  /** Where each of this window's surfaces is currently held when borrowed into
+   *  another tab: surface kind (`tty`/`web`/`code`) → holder window id (e.g.
+   *  `@7`). Derived server-side from every window's parsed layout (a foreign
+   *  leaf `@A/<kind>` in window W's layout sets `A.awayIn[kind] = W`);
+   *  absent when nothing is away (the backend's omitempty) and on payloads
+   *  from an older backend. */
+  awayIn?: Record<string, string>;
   /** The dense `@rk_win_web_<n>` family: slots 1..N walked in order, stopping
    *  at the first empty (a hand-written gap degrades to the prefix). Index 0 is
    *  tmux slot 1. */

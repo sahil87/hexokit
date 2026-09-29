@@ -16,8 +16,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-
-	"rk/internal/config"
 )
 
 // proxyCache holds per-route ReverseProxy instances. Keyed by route prefix AND
@@ -70,11 +68,12 @@ func newPrefixProxy(port int, stripPrefix string, pathFor func(matchedPort int) 
 
 // cachedPrefixProxy returns a cached ReverseProxy for the given route prefix
 // and target port, creating one on demand if absent. The port is part of the
-// key because /code's prefix is FIXED while its target resolves per request:
-// keying on the prefix alone would pin whichever port resolved first for the
-// rest of the process, misrouting every later request (and making package
-// tests order-dependent). For /proxy/{port} the port is already in the prefix,
-// so it only makes the key's contract explicit.
+// key because /code's prefix is FIXED while its target port is seeded once at
+// startup: keying on the prefix alone would pin whichever port a process (or
+// an earlier package test) seeded first for the rest of the process,
+// misrouting every later request (and making package tests order-dependent).
+// For /proxy/{port} the port is already in the prefix, so it only makes the
+// key's contract explicit.
 func cachedPrefixProxy(port int, stripPrefix string, pathFor func(matchedPort int) string) *httputil.ReverseProxy {
 	key := fmt.Sprintf("%s|%d", stripPrefix, port)
 	if cached, ok := proxyCache.Load(key); ok {
@@ -213,14 +212,16 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleCode is the HTTP handler for /code/* — the stable code-server route
-// (260811-a2bo). It reverse-proxies to 127.0.0.1:{resolved code-server port}
-// via the same machinery as /proxy/{port}, but the path is FIXED: code-server
-// keys browser-side workspace state (tabs, layout, IndexedDB) by the proxy
-// pathname, so the port is a private implementation detail and /code/ never
-// changes. The port is resolved per request (Constitution II — env is
-// process-lifetime stable, so this is four getenvs, not a config re-read).
+// (260811-a2bo). It reverse-proxies to 127.0.0.1:{startup-resolved
+// code-server port} via the same machinery as /proxy/{port}, but the path is
+// FIXED: code-server keys browser-side workspace state (tabs, layout,
+// IndexedDB) by the proxy pathname, so the port is a private implementation
+// detail and /code/ never changes. The target port is the Server's
+// startup-seeded codeServerPort (the same one the SSE hub probes) — never
+// re-resolved per request, so a mid-run config.yaml edit cannot move the
+// proxy target away from the code-server the daemon ensured at startup.
 func (s *Server) handleCode(w http.ResponseWriter, r *http.Request) {
-	port := config.Load().ResolvedCodeServerPort()
+	port := s.codeServerPort
 	if port == 0 {
 		writeError(w, http.StatusServiceUnavailable, "code-server port not resolvable")
 		return

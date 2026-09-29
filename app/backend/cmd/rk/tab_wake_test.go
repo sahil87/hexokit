@@ -83,7 +83,7 @@ func TestTabMutation_FailSilentWakeModes(t *testing.T) {
 		pointOriginAt(t, "127.0.0.1", ts.Listener.Addr().(*net.TCPAddr).Port)
 
 		stdout, stderr := runLayoutSet(t, "split-h:tty,web")
-		if stdout != "split-h:tty,web\n" || stderr != "" {
+		if stdout != "h(tty,web)\n" || stderr != "" {
 			t.Errorf("output changed under a 500 wake: stdout=%q stderr=%q", stdout, stderr)
 		}
 	})
@@ -111,7 +111,7 @@ func TestTabMutation_FailSilentWakeModes(t *testing.T) {
 		if elapsed := time.Since(start); elapsed > time.Second {
 			t.Errorf("verb took %v against a hung daemon, want the wake bounded at ~50ms", elapsed)
 		}
-		if stdout != "single:tty\n" || stderr != "" {
+		if stdout != "tty\n" || stderr != "" {
 			t.Errorf("output changed under a hung wake: stdout=%q stderr=%q", stdout, stderr)
 		}
 	})
@@ -126,7 +126,7 @@ func TestTabMutation_FailSilentWakeModes(t *testing.T) {
 		pointOriginAt(t, "127.0.0.1", port)
 
 		stdout, stderr := runLayoutSet(t, "split-v:tty,web")
-		if stdout != "split-v:tty,web\n" || stderr != "" {
+		if stdout != "v(tty,web)\n" || stderr != "" {
 			t.Errorf("output changed under a refused wake: stdout=%q stderr=%q", stdout, stderr)
 		}
 	})

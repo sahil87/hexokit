@@ -397,12 +397,15 @@ export function useGlobalPaletteActions(): PaletteAction[] {
   // window (degrade to absent, never disabled), on both form factors: it is
   // the mobile Start path (no drawer exists there). Success (or a racing
   // 409 carrying the window) navigates to the operator window's route — the
-  // palette has no drawer to retarget.
+  // palette has no drawer to retarget. The POST carries the viewed window
+  // when the Terminal route's server is the one being started, so the
+  // operator opens where the user is.
   const operatorStartEntry: PaletteAction | null = useMemo(
     () =>
       quakeCtx.server && !quakeCtx.target
         ? buildOperatorStartAction(
             quakeCtx.server,
+            windowParam !== undefined && serverParam === quakeCtx.server ? windowParam : undefined,
             (result) =>
               void navigate({
                 to: "/$server/$window",
@@ -411,7 +414,7 @@ export function useGlobalPaletteActions(): PaletteAction[] {
             (message) => addToast(message, "error"),
           )
         : null,
-    [quakeCtx.server, quakeCtx.target, navigate, addToast],
+    [quakeCtx.server, quakeCtx.target, serverParam, windowParam, navigate, addToast],
   );
 
   // Host switcher (260820-nv0o) — opens the desktop-shell titlebar strip's
@@ -441,7 +444,7 @@ export function useGlobalPaletteActions(): PaletteAction[] {
   // update chip. Gated on a qualifying pending update (dev version suppressed).
   // Only the Dismiss action remains here (mirroring the chip's `✕` for
   // keyboard users; it deliberately IGNORES chip dismissal — the palette is
-  // deliberate discovery). `run-kit: Update Now` (maintenanceActions) is THE
+  // deliberate discovery). `HexoKit: Update Now` (maintenanceActions) is THE
   // single update action, and version detail lives in the check-result toasts
   // + chip summary. Below `sm` the top-bar cluster is hidden, so the palette
   // is a phone user's only update surface — layout-level so boards get it too.
@@ -459,7 +462,7 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     [updateQualifies, updateTools, dismissUpdate],
   );
 
-  // Check actions — the two on-demand check commands (`run-kit: Check for
+  // Check actions — the two on-demand check commands (`HexoKit: Check for
   // Updates` / `… (incl. patches)`). One POST /api/updates/check, client-side
   // filtering, single result toast (shared flow: useUpdateCheck). Dev-gated
   // inside buildCheckActions, same pattern as the maintenance entries.

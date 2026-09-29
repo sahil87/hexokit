@@ -37,7 +37,27 @@ func stubOperatorStartRun(t *testing.T, run func(ctx context.Context, argv []str
 }
 
 func operatorStartRequest(server string) (*httptest.ResponseRecorder, *http.Request) {
-	return httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/operator/start?server="+server, strings.NewReader(`{}`))
+	return operatorStartRequestBody(server, "{}")
+}
+
+// operatorStartRequestBody builds the POST with an explicit raw body; "" means
+// a truly empty body (no reader).
+func operatorStartRequestBody(server, body string) (*httptest.ResponseRecorder, *http.Request) {
+	var rdr io.Reader
+	if body != "" {
+		rdr = strings.NewReader(body)
+	}
+	return httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/operator/start?server="+server, rdr)
+}
+
+// stubOperatorStartMainRoot swaps the main-worktree collapse seam for the
+// test's duration; roots maps a pane cwd to the served main root (an absent
+// entry collapses to "" — not a repository).
+func stubOperatorStartMainRoot(t *testing.T, roots map[string]string) {
+	t.Helper()
+	prev := operatorStartMainRootFn
+	operatorStartMainRootFn = func(_ context.Context, dir string) string { return roots[dir] }
+	t.Cleanup(func() { operatorStartMainRootFn = prev })
 }
 
 func decodeOperatorStartBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]string {
@@ -74,6 +94,140 @@ func TestOperatorStart_CreatedReturns202WakesHub(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	if got := tracker.count.Load(); got != afterPreCheck+1 {
 		t.Errorf("FetchSessions count = %d, want %d (pre-check + exactly one wake-driven pass)", got, afterPreCheck+1)
+	}
+}
+
+// An empty body keeps the pre-change shape: the exec argv carries no --dir.
+func TestOperatorStart_EmptyBodyKeepsBareArgv(t *testing.T) {
+	fetcher := &mockSessionFetcher{result: []sessions.ProjectSession{{Name: "s1"}}}
+	router := NewTestRouter(slog.New(slog.NewTextHandler(io.Discard, nil)), fetcher, &mockTmuxOps{}, "test-host")
+	gotArgv := stubOperatorStartRun(t, func(ctx context.Context, argv []string, onExit operatorStartExitFn) (operatorStartReceipt, string, error) {
+		return operatorStartReceipt{Window: "@7", Server: "default", Created: true}, "", nil
+	})
+
+	rec, req := operatorStartRequestBody("default", "")
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202; body=%s", rec.Code, rec.Body.String())
+	}
+	if want := []string{"/fake/rk", "operator", "-L", "default", "--json"}; strings.Join(*gotArgv, " ") != strings.Join(want, " ") {
+		t.Errorf("argv = %v, want %v", *gotArgv, want)
+	}
+}
+
+// Malformed JSON and a malformed window id are 400s before any exec.
+func TestOperatorStart_BadBodyIs400(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"malformed JSON", "{"},
+		{"malformed window id", `{"window":"7"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fetcher := &mockSessionFetcher{result: []sessions.ProjectSession{{Name: "s1"}}}
+			router := NewTestRouter(slog.New(slog.NewTextHandler(io.Discard, nil)), fetcher, &mockTmuxOps{}, "test-host")
+			stubOperatorStartRun(t, func(ctx context.Context, argv []string, onExit operatorStartExitFn) (operatorStartReceipt, string, error) {
+				t.Error("exec seam called despite the invalid body")
+				return operatorStartReceipt{}, "", nil
+			})
+
+			rec, req := operatorStartRequestBody("default", tc.body)
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+// A viewed window's pane cwd collapses to its main-worktree root and rides
+// the argv as --dir.
+func TestOperatorStart_ViewedWindowDerivesDir(t *testing.T) {
+	mainRoot := t.TempDir()
+	worktreeCwd := filepath.Join(mainRoot+".worktrees", "feat-x")
+	fetcher := &mockSessionFetcher{result: []sessions.ProjectSession{{
+		Name:    "s1",
+		Windows: []tmux.WindowInfo{{WindowID: "@1", WorktreePath: worktreeCwd}},
+	}}}
+	router := NewTestRouter(slog.New(slog.NewTextHandler(io.Discard, nil)), fetcher, &mockTmuxOps{}, "test-host")
+	stubOperatorStartMainRoot(t, map[string]string{worktreeCwd: mainRoot})
+	gotArgv := stubOperatorStartRun(t, func(ctx context.Context, argv []string, onExit operatorStartExitFn) (operatorStartReceipt, string, error) {
+		return operatorStartReceipt{Window: "@9", Server: "default", Created: true}, "", nil
+	})
+
+	rec, req := operatorStartRequestBody("default", `{"window":"@1"}`)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202; body=%s", rec.Code, rec.Body.String())
+	}
+	want := []string{"/fake/rk", "operator", "-L", "default", "--dir", mainRoot, "--json"}
+	if strings.Join(*gotArgv, " ") != strings.Join(want, " ") {
+		t.Errorf("argv = %v, want %v", *gotArgv, want)
+	}
+}
+
+// A viewed window whose cwd is not inside a git repository passes the cwd
+// verbatim (deterministic — it is where the user is).
+func TestOperatorStart_ViewedWindowNonRepoUsesCwdVerbatim(t *testing.T) {
+	cwd := t.TempDir()
+	fetcher := &mockSessionFetcher{result: []sessions.ProjectSession{{
+		Name:    "s1",
+		Windows: []tmux.WindowInfo{{WindowID: "@1", WorktreePath: cwd}},
+	}}}
+	router := NewTestRouter(slog.New(slog.NewTextHandler(io.Discard, nil)), fetcher, &mockTmuxOps{}, "test-host")
+	stubOperatorStartMainRoot(t, map[string]string{})
+	gotArgv := stubOperatorStartRun(t, func(ctx context.Context, argv []string, onExit operatorStartExitFn) (operatorStartReceipt, string, error) {
+		return operatorStartReceipt{Window: "@9", Server: "default", Created: true}, "", nil
+	})
+
+	rec, req := operatorStartRequestBody("default", `{"window":"@1"}`)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202; body=%s", rec.Code, rec.Body.String())
+	}
+	want := []string{"/fake/rk", "operator", "-L", "default", "--dir", cwd, "--json"}
+	if strings.Join(*gotArgv, " ") != strings.Join(want, " ") {
+		t.Errorf("argv = %v, want %v", *gotArgv, want)
+	}
+}
+
+// A well-formed window the server does not have (closed between the click and
+// the request), a window with an empty pane cwd, or a derived directory that
+// no longer exists all degrade to the no-window argv instead of failing the
+// start.
+func TestOperatorStart_UnresolvableWindowKeepsBareArgv(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		windows []tmux.WindowInfo
+		body    string
+	}{
+		{"unknown window", []tmux.WindowInfo{{WindowID: "@1", WorktreePath: "/tmp/x"}}, `{"window":"@99"}`},
+		{"empty pane cwd", []tmux.WindowInfo{{WindowID: "@1", WorktreePath: ""}}, `{"window":"@1"}`},
+		{"derived dir gone", []tmux.WindowInfo{{WindowID: "@1", WorktreePath: "/nonexistent/rk-start-gone"}}, `{"window":"@1"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fetcher := &mockSessionFetcher{result: []sessions.ProjectSession{{Name: "s1", Windows: tc.windows}}}
+			router := NewTestRouter(slog.New(slog.NewTextHandler(io.Discard, nil)), fetcher, &mockTmuxOps{}, "test-host")
+			stubOperatorStartMainRoot(t, map[string]string{})
+			gotArgv := stubOperatorStartRun(t, func(ctx context.Context, argv []string, onExit operatorStartExitFn) (operatorStartReceipt, string, error) {
+				return operatorStartReceipt{Window: "@9", Server: "default", Created: true}, "", nil
+			})
+
+			rec, req := operatorStartRequestBody("default", tc.body)
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusAccepted {
+				t.Fatalf("status = %d, want 202; body=%s", rec.Code, rec.Body.String())
+			}
+			if want := []string{"/fake/rk", "operator", "-L", "default", "--json"}; strings.Join(*gotArgv, " ") != strings.Join(want, " ") {
+				t.Errorf("argv = %v, want %v", *gotArgv, want)
+			}
+		})
 	}
 }
 
@@ -253,7 +407,7 @@ func TestRunOperatorStartExec(t *testing.T) {
 
 	t.Run("onExit fires after the exit with the receipt and full stderr", func(t *testing.T) {
 		dir := t.TempDir()
-		testutil.WriteStub(t, dir, "rk", "#!/bin/sh\nprintf '%s\n' '{' '  \"ok\": true,' '  \"result\": { \"window\": \"@7\", \"server\": \"default\", \"created\": true, \"dir\": \"/home/u/proj\", \"dir_rung\": \"worktree\" }' '}'\necho 'kickoff: undelivered reason=parked prompt=\"/fab-operator\" dir=\"/home/u/proj\"' >&2\nexit 0\n")
+		testutil.WriteStub(t, dir, "rk", "#!/bin/sh\nprintf '%s\n' '{' '  \"ok\": true,' '  \"result\": { \"window\": \"@7\", \"server\": \"default\", \"created\": true, \"dir\": \"/home/u/proj\", \"dir_rung\": \"stored\" }' '}'\necho 'kickoff: undelivered reason=parked prompt=\"/fab-operator\" dir=\"/home/u/proj\"' >&2\nexit 0\n")
 		type exitCall struct {
 			receipt operatorStartReceipt
 			stderr  string
@@ -266,7 +420,7 @@ func TestRunOperatorStartExec(t *testing.T) {
 		if err != nil {
 			t.Fatalf("err = %v, want nil", err)
 		}
-		if receipt.Dir != "/home/u/proj" || receipt.DirRung != "worktree" {
+		if receipt.Dir != "/home/u/proj" || receipt.DirRung != "stored" {
 			t.Errorf("receipt = %+v, want the dir/dir_rung fields parsed", receipt)
 		}
 		select {
@@ -529,11 +683,11 @@ func TestOperatorKickoffExit(t *testing.T) {
 
 func TestOperatorStartReceiptParsesKickoffFields(t *testing.T) {
 	receipt, complete, ok := parseOperatorStartEnvelope([]byte(
-		"{\n  \"ok\": true,\n  \"result\": {\n    \"window\": \"@7\",\n    \"server\": \"default\",\n    \"created\": true,\n    \"dir\": \"/home/u/proj\",\n    \"dir_rung\": \"worktree\"\n  }\n}"))
+		"{\n  \"ok\": true,\n  \"result\": {\n    \"window\": \"@7\",\n    \"server\": \"default\",\n    \"created\": true,\n    \"dir\": \"/home/u/proj\",\n    \"dir_rung\": \"stored\"\n  }\n}"))
 	if !complete || !ok {
 		t.Fatalf("complete, ok = %v, %v, want true, true", complete, ok)
 	}
-	if receipt.Dir != "/home/u/proj" || receipt.DirRung != "worktree" {
+	if receipt.Dir != "/home/u/proj" || receipt.DirRung != "stored" {
 		t.Errorf("receipt = %+v, want dir and dir_rung parsed", receipt)
 	}
 }

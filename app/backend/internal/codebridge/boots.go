@@ -22,3 +22,14 @@ type BootMarker struct {
 func ReadBootMarkers(dir string) ([]BootMarker, error) {
 	return readJSONDir(dir, func(m BootMarker) string { return m.HostID })
 }
+
+// ReadBootMarkersMerged enumerates boot markers across every discovery dir —
+// the resolved dir plus the legacy run-kit dual-read dir (see discoveryDirs).
+// On a hostId collision the resolved dir's marker wins.
+func ReadBootMarkersMerged() ([]BootMarker, error) {
+	dirs, err := discoveryDirs("boots")
+	if err != nil {
+		return nil, err
+	}
+	return readMergedDirs(dirs, ReadBootMarkers, func(m BootMarker) string { return m.HostID })
+}

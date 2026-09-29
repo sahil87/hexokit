@@ -95,7 +95,7 @@ export const FLYOUT_WARM_WINDOW_MS = 500;
  * (Migrated verbatim from the retired status-dot-tip.tsx.)
  */
 export const STATUS_DOT_DOCS_URL =
-  "https://github.com/sahil87/run-kit/blob/main/docs/site/status-dot.md";
+  "https://github.com/sahil87/hexokit/blob/main/docs/site/status-dot.md";
 
 // ── Shared warm-window / single-open coordination ──────────────────────────
 //
@@ -404,24 +404,14 @@ export function NoteLine({ win }: { win: WindowInfo }) {
   );
 }
 
-/**
- * Provider whose conversations can be forked. The fork mechanism is Claude
- * Code's `--resume <id> --fork-session`, so the affordance is gated on the same
- * `agentProvider` field the agent session identity carries — no new data
- * plumbing (the field already rides `/api/sessions` + SSE).
- */
-const FORKABLE_AGENT_PROVIDER = "claude";
-
 /** Tooltip/aria copy for the fork affordance. Names the SAME-DIRECTORY semantics
  *  explicitly — that is what distinguishes a fork (branch this conversation
  *  here) from the spawn dialog (a fresh agent, usually in a new worktree). */
 export const FORK_TOOLTIP = "Fork conversation — new tab, same directory";
 
-/** True when this window's conversation can be forked: it carries a reconciled
- *  claude agent session identity. An equality guard, not a cast — a `codex`
- *  window and a plain shell pane both fall through to false. */
+/** Fork support follows the window's reconciled conversation provider. */
 export function canForkWindow(win: WindowInfo): boolean {
-  return win.agentProvider === FORKABLE_AGENT_PROVIDER;
+  return win.agentProvider === "claude" || win.agentProvider === "codex";
 }
 
 /**

@@ -725,7 +725,7 @@ test.describe("Quake terminal", () => {
   /**
    * Proves: the Cron List header row sorts the registry on click (a per-viewer
    * override over the at-rest soonest-first order), and the chosen order
-   * survives a page reload via the `runkit-table-cron-list` view state.
+   * survives a page reload via the `hexokit-table-cron-list` view state.
    *
    * Steps:
    * 1. Mock the backend with an operator window; override the cron stub with
@@ -1624,7 +1624,7 @@ test.describe("Quake terminal", () => {
   });
   /**
    * Proves: the full-width bottom grip drags the drawer's height (clamped at
-   * 85vh), the new geometry persists to `runkit-quake-terminal-geometry`,
+   * 85vh), the new geometry persists to `hexokit-quake-terminal-geometry`,
    * and a reload reopens the drawer at the persisted size.
    *
    * Steps:
@@ -1663,7 +1663,7 @@ test.describe("Quake terminal", () => {
     const during = await el.boundingBox();
     expect(during!.height).toBeGreaterThan(before!.height);
     const stored = await page.evaluate(() =>
-      localStorage.getItem("runkit-quake-terminal-geometry"),
+      localStorage.getItem("hexokit-quake-terminal-geometry"),
     );
     expect(stored).toContain('"heightVh":85');
 
@@ -1723,7 +1723,7 @@ test.describe("Quake terminal", () => {
     expect(after!.width - before!.width).toBeGreaterThan(110);
 
     const stored = await page.evaluate(() =>
-      JSON.parse(localStorage.getItem("runkit-quake-terminal-geometry") ?? "{}"),
+      JSON.parse(localStorage.getItem("hexokit-quake-terminal-geometry") ?? "{}"),
     );
     expect(stored.centerOffsetPx).toBeGreaterThan(0);
     expect(stored.widthPx).toBe(Math.round(before!.width) + 120);
@@ -1786,7 +1786,7 @@ test.describe("Quake terminal", () => {
     await slider.press("ArrowDown");
     await expect.poll(readAlpha).toBe(0.9);
     await expect
-      .poll(() => page.evaluate(() => localStorage.getItem("runkit-quake-terminal-opacity")))
+      .poll(() => page.evaluate(() => localStorage.getItem("hexokit-quake-terminal-opacity")))
       .toBe("0.9");
 
     await slider.press("End");
@@ -1937,7 +1937,7 @@ test.describe("Quake terminal", () => {
    *
    * Steps:
    * 1. Set the 375×812 viewport; pre-enable the compose strip
-   *    (`runkit-compose-strip`); mock the backend with an operator window;
+   *    (`hexokit-compose-strip`); mock the backend with an operator window;
    *    land on the @1 terminal route.
    * 2. Tap the tongue; assert the operator route with `?from=@1` and the
    *    chip naming @1 "feature-work".
@@ -1949,7 +1949,7 @@ test.describe("Quake terminal", () => {
     page,
   }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
-    await page.addInitScript(() => localStorage.setItem("runkit-compose-strip", "true"));
+    await page.addInitScript(() => localStorage.setItem("hexokit-compose-strip", "true"));
     const { sendBodies, requestCalls } = await mockBackend(page, true);
     await gotoWindowMobile(page);
 
@@ -1997,7 +1997,7 @@ test.describe("Quake terminal", () => {
    */
   test("mobile: the ?from= chip label navigates back to the origin window", async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
-    await page.addInitScript(() => localStorage.setItem("runkit-compose-strip", "true"));
+    await page.addInitScript(() => localStorage.setItem("hexokit-compose-strip", "true"));
     await mockBackend(page, true);
     await gotoWindowMobile(page);
 
@@ -2036,7 +2036,7 @@ test.describe("Quake terminal", () => {
     page,
   }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
-    await page.addInitScript(() => localStorage.setItem("runkit-compose-strip", "true"));
+    await page.addInitScript(() => localStorage.setItem("hexokit-compose-strip", "true"));
     const { sendBodies, requestCalls } = await mockBackend(page, true);
     await page.goto(operatorUrl("@1"));
     await expect
@@ -2083,7 +2083,7 @@ test.describe("Quake terminal", () => {
    */
   test("mobile: an unknown ?from= window renders no chip and sends direct", async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
-    await page.addInitScript(() => localStorage.setItem("runkit-compose-strip", "true"));
+    await page.addInitScript(() => localStorage.setItem("hexokit-compose-strip", "true"));
     const { sendBodies, requestCalls } = await mockBackend(page, true);
     await page.goto(operatorUrl("@42"));
     await expect
@@ -2192,7 +2192,7 @@ test.describe("Quake terminal", () => {
     page,
   }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
-    await page.addInitScript(() => localStorage.setItem("runkit-compose-strip", "true"));
+    await page.addInitScript(() => localStorage.setItem("hexokit-compose-strip", "true"));
     const { sendBodies, requestCalls } = await mockBackend(page, true);
     await gotoWindowMobile(page);
 

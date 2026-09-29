@@ -65,29 +65,81 @@ const surfaceLayoutSpy = vi.hoisted(() => ({
   mounts: [] as Array<"mount" | "unmount">,
   props: vi.fn(),
 }));
-vi.mock("@/components/surface-layout", () => ({
-  SurfaceLayout: (props: { server: string; windowId: string }) => {
-    surfaceLayoutSpy.props({ server: props.server, windowId: props.windowId });
-    useEffect(() => {
-      surfaceLayoutSpy.mounts.push("mount");
-      return () => {
-        surfaceLayoutSpy.mounts.push("unmount");
-      };
-    }, []);
-    return <div data-testid="mock-surface-layout" />;
-  },
-}));
+vi.mock("@/components/surface-layout", async () => {
+  const tree = await vi.importActual<typeof import("@/lib/layout-tree")>(
+    "@/lib/layout-tree",
+  );
+  const { useRef: useLatestRef } = await vi.importActual<typeof import("react")>("react");
+  return {
+    SurfaceLayout: (props: {
+      server: string;
+      windowId: string;
+      layout?: import("@/lib/layout-tree").LayoutNode;
+      revealedPoppedIds?: string[];
+      layoutRectsRef?: { current: (() => Map<string, import("@/lib/layout-tree").Rect>) | null };
+      onFocusedKindChange?: (kind: import("@/lib/layout-tree").SurfaceKind) => void;
+      onFocusedLeafChange?: (leafId: string) => void;
+    }) => {
+      surfaceLayoutSpy.props({ server: props.server, windowId: props.windowId });
+      const { layout, layoutRectsRef, onFocusedKindChange, onFocusedLeafChange, windowId } =
+        props;
+      // The child's per-window seams, simulated: refill the rects getter and
+      // re-report the focused leaf (the LAST leaf, the stand-in for user
+      // interaction) once per window — the real component's
+      // `[server, windowId]` reset effect re-reports the same way.
+      const latest = useLatestRef({ layout, layoutRectsRef, onFocusedKindChange, onFocusedLeafChange });
+      latest.current = { layout, layoutRectsRef, onFocusedKindChange, onFocusedLeafChange };
+      useEffect(() => {
+        const {
+          layout: current,
+          layoutRectsRef: rectsRef,
+          onFocusedKindChange: reportKind,
+          onFocusedLeafChange: reportLeaf,
+        } = latest.current;
+        if (!current) return;
+        if (rectsRef) {
+          rectsRef.current = () => tree.layoutRects(current, tree.NOMINAL_BOX);
+        }
+        const ids = tree.leafIds(current);
+        const kinds = tree.leaves(current);
+        reportKind?.(kinds[kinds.length - 1]);
+        reportLeaf?.(ids[ids.length - 1]);
+        // Once per window AND layout arrival: the parent's report callbacks
+        // change identity per render, so depending on them would loop
+        // (report → re-render → re-report); the latest props ride the ref.
+      }, [windowId, layout]);
+      useEffect(() => {
+        surfaceLayoutSpy.mounts.push("mount");
+        return () => {
+          surfaceLayoutSpy.mounts.push("unmount");
+        };
+      }, []);
+      return (
+        <div
+          data-testid="mock-surface-layout"
+          data-leaves={layout ? tree.leafIds(layout).join(",") : ""}
+          data-revealed={(props.revealedPoppedIds ?? []).join(",")}
+        />
+      );
+    },
+  };
+});
 
 // The host-global signal hooks read nested contexts only the real
 // SessionProvider fills (it owns the state socket — never opened in tests).
 // Everything else in the module stays real: the controlled session value
-// arrives through the real StandaloneSessionContextProvider below.
+// arrives through the real StandaloneSessionContextProvider below. `useGui`
+// reads a hoisted mutable (default null — every pre-existing test's posture)
+// so a test can arm the gui tile's availability gate.
+const guiSignalMock = vi.hoisted(() => ({
+  current: null as import("@/contexts/session-context").GuiSignal | null,
+}));
 vi.mock("@/contexts/session-context", async (importOriginal) => {
   const mod = await importOriginal<typeof import("@/contexts/session-context")>();
   return {
     ...mod,
     useCodeServer: () => ({ reachable: false }),
-    useGui: () => null,
+    useGui: () => guiSignalMock.current,
   };
 });
 
@@ -95,6 +147,9 @@ vi.mock("@/contexts/session-context", async (importOriginal) => {
 // (constants, error classes, pure helpers) and stub only the fetchers that
 // fire on this route's mount/navigation: list getters resolve [], the rest
 // resolve a benign `{ ok: true }`.
+const apiSpies = vi.hoisted(() => ({
+  setWindowOptions: vi.fn(),
+}));
 vi.mock("@/api/client", async (importOriginal) => {
   const mod = await importOriginal<typeof import("@/api/client")>();
   const ok = () => Promise.resolve({ ok: true });
@@ -107,7 +162,10 @@ vi.mock("@/api/client", async (importOriginal) => {
     getSessions: () => Promise.resolve([]),
     getDirectories: () => Promise.resolve([]),
     selectWindow: ok,
-    setWindowOptions: ok,
+    setWindowOptions: (...args: unknown[]) => {
+      apiSpies.setWindowOptions(...args);
+      return ok();
+    },
     postSettings: ok,
   };
 });
@@ -1372,9 +1430,9 @@ describe("operator page — the operator window's route wears the quake surface 
 
     await waitFor(() => screen.getByTestId("mock-surface-layout"));
     expect(screen.getByTestId("terminal-activity-tabs")).toBeInTheDocument();
-    // The strip is the page's input by definition — the `runkit-compose-strip`
+    // The strip is the page's input by definition — the `hexokit-compose-strip`
     // preference (absent here) does not gate it on the operator page.
-    expect(localStorage.getItem("runkit-compose-strip")).toBeNull();
+    expect(localStorage.getItem("hexokit-compose-strip")).toBeNull();
     expect(screen.getByTestId("compose-strip-input")).toBeInTheDocument();
   });
 
@@ -1430,6 +1488,20 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
     return null;
   }
 
+  // The registered top-bar slot, mirrored per render — the popped-toggle
+  // wiring test drives `surfaceToggles.onToggle` (AppShell's `togglePanel`
+  // seam) and reads the open/popped derivations without mounting a TopBar.
+  const topBarSlotRef: { current: ReturnType<typeof useTopBarSlot> } = { current: null };
+  function TopBarSlotProbe() {
+    topBarSlotRef.current = useTopBarSlot();
+    return null;
+  }
+
+  // Per-test overlay on the harness's session context (reset in afterEach) —
+  // the popout-posture tests model a server whose slice exists before its
+  // first real snapshot.
+  let sessionCtxOverride: Partial<import("@/contexts/session-context").SessionContextType> = {};
+
   function TerminalRouteRoot() {
     return (
       <ThemeProvider>
@@ -1441,6 +1513,7 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
                 <FocusedTerminalProvider>
                   <OptimisticProvider>
                     <TopBarSlotProvider>
+                      <TopBarSlotProbe />
                       <FocusedPaneProvider>
                         <ServerDialogsProvider>
                           <PaletteActionsProvider globalActions={[]}>
@@ -1468,8 +1541,19 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
                                               windowId: "@0",
                                               index: 0,
                                               isActiveWindow: true,
+                                              layout: "h(tty,web)",
                                             }),
-                                            makeWindow({ windowId: "@1", index: 1 }),
+                                            makeWindow({
+                                              windowId: "@1",
+                                              index: 1,
+                                              layout: "h(tty,web)",
+                                            }),
+                                            makeWindow({
+                                              windowId: "@2",
+                                              index: 2,
+                                              codeRoot: "/home/user/code/run-kit",
+                                              layout: "h(tty,code)",
+                                            }),
                                           ],
                                         }),
                                       ],
@@ -1494,6 +1578,7 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
                                     ["srv", true],
                                     ["other", true],
                                   ]),
+                                  ...sessionCtxOverride,
                                 }}
                               >
                                 <Outlet />
@@ -1542,6 +1627,7 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
     cleanup();
     surfaceLayoutSpy.mounts.length = 0;
     surfaceLayoutSpy.props.mockClear();
+    sessionCtxOverride = {};
   });
 
   it("a same-server window switch does NOT remount the grid; a server change does", async () => {
@@ -1592,6 +1678,98 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
     expect(surfaceLayoutSpy.mounts).toEqual(["mount", "unmount", "mount"]);
   });
 
+  it("the focused-tile mirror survives mount AND a same-server window switch — the palette's directional swap targets the REPORTED leaf", async () => {
+    // The child reports its focused leaf stamped with the window key; the
+    // mirror counts the report only for that window (a clearing effect would
+    // wipe the child's fresh report — parent effects run after child
+    // effects). The stub reports the LAST leaf (web in h(tty,web)); the
+    // slot-A fallback would be tty, whose only swap row is "Tile: Swap Right"
+    // — "Tile: Swap Left" exists only while web's report holds.
+    // The palette mounts in AppLayout (ServerShell's parent layout route), so
+    // this test's tree interposes it — the rest of the harness is unchanged.
+    // AppLayout also reads the instance accent (the wash-wrapper harness's
+    // provider).
+    const noAccent: InstanceAccent = {
+      color: null,
+      isExplicit: false,
+      stripeHex: null,
+      washHex: null,
+      titlebarHex: null,
+      setColor: () => {},
+    };
+    const paletteRootRoute = createRootRoute({
+      component: () => (
+        <InstanceAccentValueProvider value={noAccent}>
+          <TerminalRouteRoot />
+        </InstanceAccentValueProvider>
+      ),
+    });
+    const appLayoutRoute = createRoute({
+      getParentRoute: () => paletteRootRoute,
+      id: "app-layout",
+      component: AppLayout,
+    });
+    const paletteServerRoute = createRoute({
+      getParentRoute: () => appLayoutRoute,
+      path: "/$server",
+      component: ServerShell,
+    });
+    const paletteTerminalRoute = createRoute({
+      getParentRoute: () => paletteServerRoute,
+      path: "/$window",
+      validateSearch: validateTerminalSearch,
+      params: {
+        parse: (params) => ({ window: urlSegmentToWindowId(params.window) }),
+        stringify: (params) => ({ window: windowIdToUrlSegment(params.window) }),
+      },
+    });
+    const paletteRouteTree = paletteRootRoute.addChildren([
+      appLayoutRoute.addChildren([paletteServerRoute.addChildren([paletteTerminalRoute])]),
+    ]);
+    const router = createRouter({
+      routeTree: paletteRouteTree,
+      history: createMemoryHistory({ initialEntries: ["/srv/0"] }),
+    });
+    render(<RouterProvider router={router} />);
+    await waitFor(() => screen.getByTestId("mock-surface-layout"));
+
+    // The palette is lazy-mounted — press the chord until its input appears
+    // (an early press can precede the listener's mount).
+    const openAppPalette = async () => {
+      await waitFor(
+        () => {
+          if (!screen.queryByPlaceholderText(/^Type a command/)) openPalette();
+          expect(screen.queryByPlaceholderText(/^Type a command/)).toBeTruthy();
+        },
+        { timeout: 5000 },
+      );
+    };
+
+    await openAppPalette();
+    await waitFor(() => screen.getByRole("option", { name: /^Tile: Swap Left/ }));
+    expect(screen.queryByRole("option", { name: /^Tile: Swap Right/ })).toBeNull();
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    // Same-server switch @0 → @1: the child's fresh report for the new
+    // window must hold (its key stamp matches), so the rows still target web.
+    await act(async () => {
+      await router.navigate({
+        to: "/$server/$window",
+        params: { server: "srv", window: "@1" },
+        search: {},
+      });
+    });
+    await waitFor(() =>
+      expect(surfaceLayoutSpy.props).toHaveBeenLastCalledWith({
+        server: "srv",
+        windowId: "@1",
+      }),
+    );
+    await openAppPalette();
+    await waitFor(() => screen.getByRole("option", { name: /^Tile: Swap Left/ }));
+    expect(screen.queryByRole("option", { name: /^Tile: Swap Right/ })).toBeNull();
+  });
+
   describe("status bar window cluster yields to an on-screen PANE panel", () => {
     // The register view has one desktop home at a time: the bar's window
     // cluster (`status-bar-window`) renders iff the PANE panel is NOT on
@@ -1620,15 +1798,15 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
     });
 
     it("yields the window cluster while the PANE section is on and the sidebar open; the host cluster stays", async () => {
-      localStorage.setItem("runkit-sidebar-section-pane", "true");
+      localStorage.setItem("hexokit-sidebar-section-pane", "true");
       await renderTerminalRoute();
       expect(screen.queryByTestId("status-bar-window")).toBeNull();
       expect(screen.getByTestId("status-bar-host")).toBeInTheDocument();
     });
 
     it("keeps the window cluster when the PANE section is on but the sidebar is collapsed", async () => {
-      localStorage.setItem("runkit-sidebar-section-pane", "true");
-      localStorage.setItem("runkit-sidebar-open", "false");
+      localStorage.setItem("hexokit-sidebar-section-pane", "true");
+      localStorage.setItem("hexokit-sidebar-open", "false");
       await renderTerminalRoute();
       expect(screen.getByTestId("status-bar-window")).toBeInTheDocument();
     });
@@ -1637,15 +1815,15 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
       // A collapsed panel header shows no registers, so the panel is not "on
       // screen" — the bar must keep the cluster exactly as when the section
       // is off. Seeds the panel's own persisted open state.
-      localStorage.setItem("runkit-sidebar-section-pane", "true");
-      localStorage.setItem("runkit-panel-window", "false");
+      localStorage.setItem("hexokit-sidebar-section-pane", "true");
+      localStorage.setItem("hexokit-panel-window", "false");
       await renderTerminalRoute();
       expect(screen.getByTestId("status-bar-window")).toBeInTheDocument();
       expect(screen.getByTestId("status-bar-host")).toBeInTheDocument();
     });
 
     it("flips live with the PANE header chevron — collapse hands the cluster back, expand yields it", async () => {
-      localStorage.setItem("runkit-sidebar-section-pane", "true");
+      localStorage.setItem("hexokit-sidebar-section-pane", "true");
       await renderTerminalRoute();
       expect(screen.queryByTestId("status-bar-window")).toBeNull();
       const header = screen.getByRole("button", { name: /^Pane/ });
@@ -1675,15 +1853,158 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
       // Zen hides the sidebar without touching the section preference, so the
       // panel is off screen: the bar must show the cluster (host cluster too)
       // or zen would be the one desktop state with no register view.
-      localStorage.setItem("runkit-sidebar-section-pane", "true");
+      localStorage.setItem("hexokit-sidebar-section-pane", "true");
       await renderTerminalRoute();
       expect(screen.queryByTestId("status-bar-window")).toBeNull();
       act(() => zenDispatchRef.current?.(true));
       await waitFor(() => expect(screen.getByTestId("status-bar-window")).toBeInTheDocument());
       expect(screen.getByTestId("status-bar-host")).toBeInTheDocument();
-      expect(localStorage.getItem("runkit-sidebar-section-pane")).toBe("true");
+      expect(localStorage.getItem("hexokit-sidebar-section-pane")).toBe("true");
       act(() => zenDispatchRef.current?.(false));
       await waitFor(() => expect(screen.queryByTestId("status-bar-window")).toBeNull());
+    });
+  });
+
+  describe("popout posture — waits for the server's first real sessions snapshot", () => {
+    const EMPTY_SRV = new Map([["srv", []], ["other", []]]);
+
+    it("holds the popout posture on a seeded slice with no snapshot yet (no shared-layout tty mount)", async () => {
+      sessionCtxOverride = {
+        sessionsByServer: EMPTY_SRV,
+        sessionsReceivedByServer: new Map([["srv", false]]),
+      };
+      const router = createRouter({
+        routeTree: testRouteTree,
+        history: createMemoryHistory({ initialEntries: ["/srv/0?pop=web"] }),
+      });
+      render(<RouterProvider router={router} />);
+      await waitFor(() => screen.getByTestId("mock-surface-layout"));
+      expect(screen.getByTestId("mock-surface-layout").dataset.leaves).toBe("web");
+    });
+
+    it("degrades to the ordinary render once a snapshot arrived without the popped window", async () => {
+      sessionCtxOverride = {
+        sessionsByServer: EMPTY_SRV,
+        sessionsReceivedByServer: new Map([["srv", true]]),
+      };
+      const router = createRouter({
+        routeTree: testRouteTree,
+        history: createMemoryHistory({ initialEntries: ["/srv/0?pop=web"] }),
+      });
+      render(<RouterProvider router={router} />);
+      await waitFor(() => screen.getByTestId("mock-surface-layout"));
+      expect(screen.getByTestId("mock-surface-layout").dataset.leaves).not.toBe("web");
+    });
+  });
+
+  describe("popped-toggle wiring — togglePanel guards the shared layout", () => {
+    // Drives the registered top-bar slot's `onToggle` (AppShell's
+    // `togglePanel`) against a viewer-popped leaf: the guard must flip the
+    // leaf's revealed membership and NEVER write `@rk_win_layout`. The popped
+    // mark is seeded in the viewer key (`rk-layout-popped:srv:@0`) — jsdom has
+    // no BroadcastChannel, so the hook runs storage-only.
+    afterEach(() => {
+      localStorage.clear();
+      apiSpies.setWindowOptions.mockClear();
+    });
+
+    const toggleSlot = () => {
+      const toggles = topBarSlotRef.current?.surfaceToggles;
+      if (!toggles || toggles.mode !== "toggle") {
+        throw new Error("expected the desktop surface-toggle slot");
+      }
+      return toggles;
+    };
+
+    it("toggle on a popped close-target leaf reveals then hides the placeholder — no layout write; a non-popped kind still writes", async () => {
+      localStorage.setItem("rk-layout-popped:srv:@0", JSON.stringify(["tty"]));
+      const router = createRouter({
+        routeTree: testRouteTree,
+        history: createMemoryHistory({ initialEntries: ["/srv/0"] }),
+      });
+      render(<RouterProvider router={router} />);
+      await waitFor(() => screen.getByTestId("mock-surface-layout"));
+      await waitFor(() => toggleSlot());
+
+      // Popped and unrevealed: the kind reads CLOSED in the toggle group, the
+      // rendered tree is reduced (tty absent), and the popped predicate marks it.
+      expect(toggleSlot().open).toEqual(["web"]);
+      expect(toggleSlot().popped?.("tty")).toBe(true);
+      expect(toggleSlot().popped?.("web")).toBe(false);
+      expect(screen.getByTestId("mock-surface-layout").dataset.leaves).toBe("web");
+      apiSpies.setWindowOptions.mockClear();
+
+      // Toggle → reveal: no `@rk_win_layout` write; the leaf returns to the
+      // rendered tree carrying its revealed mark, and the kind reads open.
+      act(() => toggleSlot().onToggle("tty"));
+      expect(apiSpies.setWindowOptions).not.toHaveBeenCalled();
+      expect(screen.getByTestId("mock-surface-layout").dataset.leaves).toBe("tty,web");
+      expect(screen.getByTestId("mock-surface-layout").dataset.revealed).toBe("tty");
+      expect(toggleSlot().open).toEqual(["tty", "web"]);
+
+      // Toggle → hide: still no write, back to the reduced render.
+      act(() => toggleSlot().onToggle("tty"));
+      expect(apiSpies.setWindowOptions).not.toHaveBeenCalled();
+      expect(screen.getByTestId("mock-surface-layout").dataset.leaves).toBe("web");
+      expect(screen.getByTestId("mock-surface-layout").dataset.revealed).toBe("");
+      expect(toggleSlot().open).toEqual(["web"]);
+
+      // A non-popped kind keeps the shared toggle semantics: the close writes
+      // `@rk_win_layout`.
+      act(() => toggleSlot().onToggle("web"));
+      expect(apiSpies.setWindowOptions).toHaveBeenCalledWith("srv", "@0", {
+        "@rk_win_layout": "tty",
+      });
+    });
+  });
+
+  describe("focus-hop reveals a popped code tile", () => {
+    // ⌃`/⇧Ctrl+` judges code's visibility against the RENDERED tree: a popped,
+    // unrevealed code leaf is absent from it, so the chord routes through
+    // `togglePanel`'s popped guard (reveal — no layout write) instead of
+    // dead-ending on the focus seam. The chord fires through the real
+    // keybinding dispatch (jsdom resolves the non-mac shifted tier,
+    // ⇧Ctrl+Backquote); window @2 carries the code-capable h(tty,code)
+    // layout, with the code leaf marked popped for this viewer.
+    afterEach(() => {
+      localStorage.clear();
+      apiSpies.setWindowOptions.mockClear();
+    });
+
+    it("focus-hop on a popped, unrevealed code leaf reveals its placeholder — no layout write", async () => {
+      localStorage.setItem("rk-layout-popped:srv:@2", JSON.stringify(["code"]));
+      const router = createRouter({
+        routeTree: testRouteTree,
+        history: createMemoryHistory({ initialEntries: ["/srv/2"] }),
+      });
+      render(<RouterProvider router={router} />);
+      await waitFor(() => screen.getByTestId("mock-surface-layout"));
+
+      // Popped and unrevealed: the rendered tree is reduced (code absent).
+      await waitFor(() =>
+        expect(screen.getByTestId("mock-surface-layout").dataset.leaves).toBe("tty"),
+      );
+      expect(screen.getByTestId("mock-surface-layout").dataset.revealed).toBe("");
+      apiSpies.setWindowOptions.mockClear();
+
+      // The chord reveals the placeholder: code returns to the rendered tree
+      // carrying its revealed mark, and `@rk_win_layout` is never written.
+      act(() => {
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            code: "Backquote",
+            ctrlKey: true,
+            shiftKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await waitFor(() =>
+        expect(screen.getByTestId("mock-surface-layout").dataset.leaves).toBe("tty,code"),
+      );
+      expect(screen.getByTestId("mock-surface-layout").dataset.revealed).toBe("code");
+      expect(apiSpies.setWindowOptions).not.toHaveBeenCalled();
     });
   });
 });
@@ -1957,5 +2278,202 @@ describe("absent-server route — the not-found fallback settles", () => {
 
     await awaitText(container, "Server not found");
     expect(await countProbeRendersOver(300)).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("⇧Ctrl+G capture chord — gui-capture-toggle / web-capture-toggle flip only the focused tile kind's latch", () => {
+  // Both bindings claim ⇧⌘G/⇧Ctrl+G, surface-gated (guiOnly / webOnly), so
+  // at most one handler is present for the focused tile. The SurfaceLayout
+  // module mock above reports the LAST layout leaf as the focused tile kind,
+  // so the fixture layout selects the arm: `h(tty,web)` → web focus (the
+  // web handler also needs page content — `webTabs`), `h(tty,gui)` → gui
+  // focus (the gui leaf survives degradeLayout only with the host signal
+  // armed through guiSignalMock), and bare `tty` / `h(tty,code)` → no
+  // handler. The latch writes land in localStorage (`rk-gui-capture` /
+  // `rk-web-capture`) synchronously inside the chord handler.
+  stubMatchMedia(() => false);
+
+  const GUI_ON: import("@/contexts/session-context").GuiSignal = {
+    id: "gui",
+    enabled: true,
+    backend: "test",
+    reachable: true,
+    display: ":0",
+    width: 1280,
+    height: 800,
+    viewers: 0,
+    wm: "",
+    locked: false,
+    geometry: "",
+  };
+
+  function CaptureRouteRoot({
+    layout,
+    gitRoot,
+    webTabs,
+  }: {
+    layout: string;
+    gitRoot?: string;
+    webTabs?: string[];
+  }) {
+    return (
+      <ThemeProvider>
+        <ToastProvider>
+          <InstanceNameProvider>
+            <ChromeProvider>
+              <ZenProvider>
+                <FocusedTerminalProvider>
+                  <OptimisticProvider>
+                    <TopBarSlotProvider>
+                      <FocusedPaneProvider>
+                        <ServerDialogsProvider>
+                          <PaletteActionsProvider globalActions={[]}>
+                            <GuiOffRequestProvider value={undefined}>
+                              <MetricsProvider value={null}>
+                                <HostMetricsProvider value={null}>
+                                  <StandaloneSessionContextProvider
+                                    value={{
+                                      currentServer: null,
+                                      servers: [{ name: "srv", sessionCount: 1 }] as ServerInfo[],
+                                      serversLoaded: true,
+                                      sessionsByServer: new Map([
+                                        [
+                                          "srv",
+                                          [
+                                            makeSession({
+                                              name: "alpha",
+                                              windows: [
+                                                makeWindow({
+                                                  windowId: "@0",
+                                                  index: 0,
+                                                  isActiveWindow: true,
+                                                  layout,
+                                                  ...(gitRoot ? { gitRoot } : {}),
+                                                  ...(webTabs ? { webTabs, webActive: 1 } : {}),
+                                                }),
+                                              ],
+                                            }),
+                                          ],
+                                        ],
+                                      ]),
+                                      isConnectedByServer: new Map([["srv", true]]),
+                                    }}
+                                  >
+                                    <Outlet />
+                                  </StandaloneSessionContextProvider>
+                                </HostMetricsProvider>
+                              </MetricsProvider>
+                            </GuiOffRequestProvider>
+                          </PaletteActionsProvider>
+                        </ServerDialogsProvider>
+                      </FocusedPaneProvider>
+                    </TopBarSlotProvider>
+                  </OptimisticProvider>
+                </FocusedTerminalProvider>
+              </ZenProvider>
+            </ChromeProvider>
+          </InstanceNameProvider>
+        </ToastProvider>
+      </ThemeProvider>
+    );
+  }
+
+  function renderCaptureRoute(layout: string, opts: { gitRoot?: string; webTabs?: string[] } = {}) {
+    const rootRoute = createRootRoute({
+      component: () => (
+        <CaptureRouteRoot layout={layout} gitRoot={opts.gitRoot} webTabs={opts.webTabs} />
+      ),
+    });
+    const serverRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: "/$server",
+      component: ServerShell,
+    });
+    const serverIndexRoute = createRoute({
+      getParentRoute: () => serverRoute,
+      path: "/",
+    });
+    const terminalRoute = createRoute({
+      getParentRoute: () => serverRoute,
+      path: "/$window",
+      validateSearch: validateTerminalSearch,
+      params: {
+        parse: (params) => ({ window: urlSegmentToWindowId(params.window) }),
+        stringify: (params) => ({ window: windowIdToUrlSegment(params.window) }),
+      },
+    });
+    const routeTree = rootRoute.addChildren([
+      serverRoute.addChildren([serverIndexRoute, terminalRoute]),
+    ]);
+    const router = createRouter({
+      routeTree,
+      history: createMemoryHistory({ initialEntries: ["/srv/0"] }),
+    });
+    render(<RouterProvider router={router} />);
+  }
+
+  const pressToggleChord = () =>
+    fireEvent.keyDown(document, { key: "G", code: "KeyG", ctrlKey: true, shiftKey: true });
+
+  beforeEach(() => localStorage.clear());
+  afterEach(() => {
+    cleanup();
+    guiSignalMock.current = null;
+    localStorage.clear();
+  });
+
+  it("web-tile focus flips ONLY rk-web-capture (and toggles it back off)", async () => {
+    renderCaptureRoute("h(tty,web)", { webTabs: ["http://localhost:4000/"] });
+    await waitFor(() => screen.getByTestId("mock-surface-layout"));
+    await act(async () => {});
+
+    pressToggleChord();
+    expect(localStorage.getItem("rk-web-capture")).toBe("1");
+    expect(localStorage.getItem("rk-gui-capture")).toBeNull();
+
+    pressToggleChord();
+    expect(localStorage.getItem("rk-web-capture")).toBeNull();
+    expect(localStorage.getItem("rk-gui-capture")).toBeNull();
+  });
+
+  it("gui-tile focus flips ONLY rk-gui-capture", async () => {
+    guiSignalMock.current = GUI_ON;
+    renderCaptureRoute("h(tty,gui)");
+    await waitFor(() => screen.getByTestId("mock-surface-layout"));
+    await act(async () => {});
+
+    pressToggleChord();
+    expect(localStorage.getItem("rk-gui-capture")).toBe("1");
+    expect(localStorage.getItem("rk-web-capture")).toBeNull();
+  });
+
+  it("an onboarding web tile (no page) mounts no handler — no latch change", async () => {
+    renderCaptureRoute("h(tty,web)");
+    await waitFor(() => screen.getByTestId("mock-surface-layout"));
+    await act(async () => {});
+
+    pressToggleChord();
+    expect(localStorage.getItem("rk-web-capture")).toBeNull();
+    expect(localStorage.getItem("rk-gui-capture")).toBeNull();
+  });
+
+  it("tty focus mounts no handler — the chord falls through with no latch change", async () => {
+    renderCaptureRoute("tty");
+    await waitFor(() => screen.getByTestId("mock-surface-layout"));
+    await act(async () => {});
+
+    pressToggleChord();
+    expect(localStorage.getItem("rk-gui-capture")).toBeNull();
+    expect(localStorage.getItem("rk-web-capture")).toBeNull();
+  });
+
+  it("code-tile focus mounts no handler — the chord falls through with no latch change", async () => {
+    renderCaptureRoute("h(tty,code)", { gitRoot: "/repo" });
+    await waitFor(() => screen.getByTestId("mock-surface-layout"));
+    await act(async () => {});
+
+    pressToggleChord();
+    expect(localStorage.getItem("rk-gui-capture")).toBeNull();
+    expect(localStorage.getItem("rk-web-capture")).toBeNull();
   });
 });

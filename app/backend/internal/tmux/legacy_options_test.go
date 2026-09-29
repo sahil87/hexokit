@@ -314,7 +314,7 @@ func TestMarkThenReportSweep_composes(t *testing.T) {
 // successor ("" for the unset-only @rk_ctl_keepalive row), the value seeded
 // under the OLD name, the value expected under the NEW name after the sweep
 // (differs from oldVal for value-mapped rows like @rk_type=iframe →
-// @rk_win_layout=single:web), and the show-options args selecting the scope it
+// @rk_win_layout=web), and the show-options args selecting the scope it
 // is legitimate at.
 type legacySeed struct {
 	old, oldVal, new, newVal string
@@ -335,10 +335,10 @@ func TestMigrateLegacyOptions_scopePrefixRename(t *testing.T) {
 	id := windowID(t, server, "boot:0")
 
 	windowSeeds := []legacySeed{
-		// @rk_type=iframe chains to @rk_win_lens → @rk_win_layout=single:web in
+		// @rk_type=iframe chains to @rk_win_lens → @rk_win_layout=web in
 		// one sweep (the lens has no live reader). @rk_url → @rk_win_url is a
 		// terminal dual-read (never swept to web_1) — asserted separately below.
-		{legacyTypeOption, "iframe", LayoutOption, "single:web", []string{"-w", "-t", id}},
+		{legacyTypeOption, "iframe", LayoutOption, "web", []string{"-w", "-t", id}},
 		{legacyURLOption, "https://example.test/app", legacyWinURLOption, "https://example.test/app", []string{"-w", "-t", id}},
 		{"@rk_present_root", "/srv/root", WebTabRootOption(1), "/srv/root", []string{"-w", "-t", id}},
 		{"@rk_marker", "solid", MarkerOption, "solid", []string{"-w", "-t", id}},
@@ -607,7 +607,7 @@ func TestMigrateLegacyOptions_serverRowsMoveFully(t *testing.T) {
 // TestMigrateLegacyOptions_windowFamilyConverges: a window carrying the two
 // retired web names with no live reader (@rk_win_present_root + @rk_win_lens)
 // converges onto the indexed family in one sweep — web_1_root +
-// layout=single:web (the Transform value map) — with the retired names gone
+// layout=web (the Transform value map) — with the retired names gone
 // and a second sweep issuing zero set/unset calls. @rk_win_url is NOT swept
 // (dual-read, never unset — see the table comment); a pre-set web_1 proves the
 // sweep leaves the family alone.
@@ -632,7 +632,7 @@ func TestMigrateLegacyOptions_windowFamilyConverges(t *testing.T) {
 		WebTabOption(1):     "/proxy/1/",
 		WebTabRootOption(1): "/tmp",
 		WebActiveOption:     "1",
-		LayoutOption:        "single:web",
+		LayoutOption:        "web",
 	} {
 		if v, ok := legacyHeld(t, server, "-w", "-t", id, opt); !ok || v != want {
 			t.Errorf("%s = %q (held=%v), want %q", opt, v, ok, want)
@@ -701,7 +701,7 @@ func TestMigrateLegacyOptions_lensNonIframeDropped(t *testing.T) {
 // TestMigrateLegacyOptions_doublyLegacyConvergesInOneSweep: a window carrying
 // the unscoped pre-rename names (@rk_url + @rk_type=iframe) converges in ONE
 // sweep — @rk_url → @rk_win_url (dual-read by the frontend) and @rk_type →
-// @rk_win_lens → @rk_win_layout=single:web (the lens has no live reader, so
+// @rk_win_lens → @rk_win_layout=web (the lens has no live reader, so
 // its sweep row converges it the same pass).
 func TestMigrateLegacyOptions_doublyLegacyConvergesInOneSweep(t *testing.T) {
 	server := withSessionOrderTmux(t)
@@ -718,8 +718,8 @@ func TestMigrateLegacyOptions_doublyLegacyConvergesInOneSweep(t *testing.T) {
 		t.Errorf("%s = %q (held=%v), want \"/proxy/1/\" after ONE sweep", legacyWinURLOption, v, ok)
 	}
 	// @rk_type → @rk_win_lens → @rk_win_layout in the same pass.
-	if v, ok := legacyHeld(t, server, "-w", "-t", id, LayoutOption); !ok || v != "single:web" {
-		t.Errorf("%s = %q (held=%v), want \"single:web\" after ONE sweep", LayoutOption, v, ok)
+	if v, ok := legacyHeld(t, server, "-w", "-t", id, LayoutOption); !ok || v != "web" {
+		t.Errorf("%s = %q (held=%v), want \"web\" after ONE sweep", LayoutOption, v, ok)
 	}
 	for _, old := range []string{legacyURLOption, legacyTypeOption, legacyWinLensOption} {
 		if v, ok := legacyHeld(t, server, "-w", "-t", id, old); ok {

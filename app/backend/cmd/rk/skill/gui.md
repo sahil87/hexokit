@@ -101,7 +101,7 @@ The argument is a **role, never an arbitrary command** (that is `rk gui exec`). 
 
 ## The IceWM profile directory
 
-With IceWM (the window-manager ladder head) the desktop runs off a seeded profile at `$XDG_STATE_HOME/run-kit/gui/icewm/` (dir 0700, files 0600), passed to icewm as `ICEWM_PRIVCFG`. Two file classes: `preferences` is **write-once** — seeded when absent, the user's edits persist, delete it to re-seed; `toolbar` and `menu` are **regenerated on every `rk gui supervise` start** from the launcher ladders — edit `preferences` instead. Deleting the whole directory restores every default on the next start.
+With IceWM (the window-manager ladder head) the desktop runs off a seeded profile at `$XDG_STATE_HOME/hexokit/gui/icewm/` (dir 0700, files 0600), passed to icewm as `ICEWM_PRIVCFG`. Two file classes: `preferences` is **write-once** — seeded when absent, the user's edits persist, delete it to re-seed; `toolbar` and `menu` are **regenerated on every `rk gui supervise` start** from the launcher ladders — edit `preferences` instead. Deleting the whole directory restores every default on the next start.
 
 ## Recipe: the agent loop
 

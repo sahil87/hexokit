@@ -57,7 +57,7 @@ func newSnapshotCmd(deprecated bool) *cobra.Command {
 		Short: "Inspect and restore tmux server layout snapshots",
 		Long: `The run-kit daemon periodically snapshots the layout of every tmux server it
 covers — sessions, windows, pane working directories, and run-kit presentation
-options — into ` + "`~/.local/state/run-kit/snapshots/`" + ` (recovery backups; live state is
+options — into ` + "`~/.local/state/hexokit/snapshots/`" + ` (recovery backups; live state is
 still derived from tmux — the /api/recovery endpoints serve them read-only). When a server dies, its last snapshot
 is kept as a ` + "`{server}.died-{ts}.json`" + ` tombstone.
 

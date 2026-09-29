@@ -31,6 +31,7 @@ var newCodeServerInstallerFn = func() *codeserver.Installer { return codeserver.
 // tests drive the update respawn without a live tmux server.
 var codeServerStartFn = daemon.StartCodeServer
 var codeServerKillFn = daemon.KillCodeServerSession
+var codeServerRestartFn = daemon.RestartCodeServer
 
 // codeServerDaemonRunningFn / codeServerSessionCommandFn are the package seams
 // over the daemon-liveness probe and the session start-command reader, so
@@ -122,6 +123,22 @@ managed instance) is a skip, not an error. A missing binary IS an error here
 	RunE:         runCodeServerStart,
 }
 
+var codeServerRestartCmd = &cobra.Command{
+	Use:   "restart",
+	Short: "Kill and respawn the daemon-managed code-server session",
+	Long: `Kill the rk-code-server session (if any) and re-run the start path from
+scratch: the binary (managed install, then PATH) and RK_BIN are re-resolved,
+so a hung instance or one spawned from a since-removed binary path (e.g. after
+'brew upgrade') recovers. Waits up to 15s for the port to serve and errors if
+it never does. A missing binary spawns the install-then-start job in rk-jobs.
+The same action as the /code lens's "Restart code-server" button.
+
+Gated on the daemon running — start it with 'rk serve -d' first.`,
+	Args:         cobra.NoArgs,
+	SilenceUsage: true,
+	RunE:         runCodeServerRestart,
+}
+
 var codeServerUpdateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update the managed code-server to the latest release",
@@ -145,6 +162,7 @@ and the session is NOT restarted.
 func init() {
 	codeServerCmd.AddCommand(codeServerInstallCmd)
 	codeServerCmd.AddCommand(codeServerStartCmd)
+	codeServerCmd.AddCommand(codeServerRestartCmd)
 	codeServerCmd.AddCommand(codeServerUpdateCmd)
 
 	// Arg-count violations on the children are usage-class (exit 2). root.go's
@@ -358,6 +376,23 @@ func runCodeServerStart(cmd *cobra.Command, _ []string) error {
 		sink.Dataf("code-server port already serving; respecting the externally managed instance.\n")
 	case daemon.EnsureStarted:
 		sink.Dataf("Started code-server (%s session).\n", daemon.CodeServerSessionName)
+	}
+	return nil
+}
+
+func runCodeServerRestart(cmd *cobra.Command, _ []string) error {
+	sink := newSink(cmd)
+	outcome, err := codeServerRestartFn()
+	if err != nil {
+		return err
+	}
+	switch outcome {
+	case daemon.EnsureExternallyManaged:
+		sink.Dataf("code-server port already serving; respecting the externally managed instance.\n")
+	case daemon.EnsureInstallJobSpawned:
+		sink.Dataf("code-server binary not found; spawned the %s job in rk-jobs.\n", daemon.CodeServerInstallJobWindow)
+	default:
+		sink.Dataf("Restarted code-server (%s session).\n", daemon.CodeServerSessionName)
 	}
 	return nil
 }

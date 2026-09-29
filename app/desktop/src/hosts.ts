@@ -67,7 +67,7 @@ export function normalizeOrigin(input: string): NormalizeResult {
   try {
     url = new URL(input.trim());
   } catch {
-    return { ok: false, error: "Not a valid URL — include the scheme, e.g. http://host:3000" };
+    return { ok: false, error: "Not a valid URL — include the scheme, e.g. http://host:6123" };
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     return { ok: false, error: `Unsupported scheme "${url.protocol}" — only http and https work` };

@@ -2,13 +2,13 @@ import type { BoardSummary } from "@/api/boards";
 
 /**
  * Client-side "last board a window was pinned to" preference. Per-client only
- * (Constitution II — no backend persistence); the `runkit-*` key convention
- * mirrors existing preference keys (`runkit-terminal-font-size`,
- * `runkit-update-dismissed`). Reads/writes are best-effort with the
+ * (Constitution II — no backend persistence); the `hexokit-*` key convention
+ * mirrors existing preference keys (`hexokit-terminal-font-size`,
+ * `hexokit-update-dismissed`). Reads/writes are best-effort with the
  * try/catch-noop pattern from `lib/window-view.ts` so private mode / quota /
  * SSR never throw.
  */
-export const LAST_PINNED_BOARD_KEY = "runkit-last-pinned-board";
+export const LAST_PINNED_BOARD_KEY = "hexokit-last-pinned-board";
 
 /**
  * Read the last board pinned to. Returns `null` when absent or when

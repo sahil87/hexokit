@@ -151,7 +151,7 @@ running the native `opencode export --sanitize -- <sessionID>` (verified
 1.18.25) and materializing the JSON AT REQUEST TIME ONLY — never on the derive
 tick. The ref guard `^ses_[0-9a-f]{12}[A-Za-z0-9]{14}$` matches the native
 mixed-case id shape, and argv carries the `--` end-of-options separator.
-Artifacts land in the user-private `$XDG_STATE_HOME/run-kit/opencode-export/`
+Artifacts land in the user-private `opencode-export/` dir under the `internal/apphome`-resolved state home (`${XDG_STATE_HOME:-~/.local/state}/hexokit/opencode-export/`; dual-read with the legacy `run-kit` home for one release, cold-started by the home migration)
 directory (0700; a symlink or foreign-owned dir is refused; too-open perms are
 tightened; writes are CreateTemp O_EXCL 0600 siblings committed by atomic
 rename — a preplaced symlink target is replaced, never followed; 32 MiB stdout

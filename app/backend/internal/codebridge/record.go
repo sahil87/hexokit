@@ -39,6 +39,41 @@ func ReadRecords(dir string) ([]HostRecord, error) {
 	return readJSONDir(dir, func(rec HostRecord) string { return rec.HostID })
 }
 
+// ReadRecordsMerged enumerates host records across every discovery dir — the
+// resolved dir plus the legacy run-kit dual-read dir (see discoveryDirs). On
+// a hostId collision the resolved dir's record wins.
+func ReadRecordsMerged() ([]HostRecord, error) {
+	dirs, err := discoveryDirs("hosts")
+	if err != nil {
+		return nil, err
+	}
+	return readMergedDirs(dirs, ReadRecords, func(rec HostRecord) string { return rec.HostID })
+}
+
+// readMergedDirs reads each dir in priority order and keeps the first record
+// per host id, so an earlier (more authoritative) dir wins a collision. The
+// result is sorted by host id for deterministic listing.
+func readMergedDirs[T any](dirs []string, read func(string) ([]T, error), hostID func(T) string) ([]T, error) {
+	seen := make(map[string]bool)
+	var out []T
+	for _, dir := range dirs {
+		items, err := read(dir)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range items {
+			id := hostID(item)
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			out = append(out, item)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return hostID(out[i]) < hostID(out[j]) })
+	return out, nil
+}
+
 // readJSONDir is the one registry enumeration loop: every *.json file under
 // dir decoded into T, sorted by host id for deterministic listing. A missing
 // dir is an empty list, not an error; unreadable or undecodable files are

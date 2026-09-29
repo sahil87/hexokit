@@ -10,10 +10,16 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"rk/internal/gitinfo"
+	"rk/internal/sessions"
+	"rk/internal/validate"
 )
 
 // operatorStartProcessTimeout bounds the spawned `rk operator` process itself.
@@ -50,19 +56,104 @@ type operatorStartReceipt struct {
 type operatorStartExitFn func(receipt operatorStartReceipt, stderr string, exitErr error)
 
 // operatorStartRunFn is the exec seam behind POST /api/operator/start: run argv
-// (the daemon's own binary + `operator -L <server> --json`), returning the
-// parsed receipt, the captured stderr, and the failure (errOperatorStartTimeout
-// on a receipt timeout). onExit fires from the post-receipt Wait goroutine.
-// Package var seam (the resolveSelfPathFn precedent) so handler tests stub the
-// exec; the default owns the process lifetime.
+// (the daemon's own binary + `operator -L <server> [--dir <dir>] --json`),
+// returning the parsed receipt, the captured stderr, and the failure
+// (errOperatorStartTimeout on a receipt timeout). onExit fires from the
+// post-receipt Wait goroutine. Package var seam (the resolveSelfPathFn
+// precedent) so handler tests stub the exec; the default owns the process
+// lifetime.
 var operatorStartRunFn = runOperatorStartExec
+
+// operatorStartMainRootFn collapses the viewed window's pane cwd to its
+// main-worktree root ("" when not inside a repository — the cwd is then used
+// verbatim). Package var seam (the operatorStartRunFn precedent) so handler
+// tests stub the git subprocess.
+var operatorStartMainRootFn = gitinfo.MainWorktreeRoot
+
+// operatorStartBody is the optional request body: the id of the window the
+// user is viewing when they start the operator. The body carries ONLY the
+// window identity — the daemon derives the directory from tmux itself
+// (Constitution II), never from a client-supplied path.
+type operatorStartBody struct {
+	Window string `json:"window"`
+}
+
+// parseOperatorStartBody reads the optional {"window": "@N"} body. ok=false
+// means the response has already been written (400): malformed JSON or a
+// malformed window id. An empty body decodes as the zero value ("no viewed
+// window") — the pre-change shape.
+func parseOperatorStartBody(w http.ResponseWriter, r *http.Request) (operatorStartBody, bool) {
+	var body operatorStartBody
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(&body); err != nil {
+		if errors.Is(err, io.EOF) {
+			return body, true
+		}
+		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return body, false
+	}
+	// One value is the whole contract: trailing garbage or a second
+	// concatenated value is malformed JSON (400), not a tolerated suffix.
+	var extra any
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid JSON body: unexpected data after the JSON value")
+		return body, false
+	}
+	if body.Window != "" {
+		if errMsg := validate.ValidateWindowID(body.Window, "Window ID"); errMsg != "" {
+			writeError(w, http.StatusBadRequest, errMsg)
+			return body, false
+		}
+	}
+	return body, true
+}
+
+// validOperatorStartDir is the handler-side equivalent of the CLI's
+// validateOperatorDir gate: the derived --dir value must be an absolute path
+// to an existing directory, or the exec would fail with the CLI's usage
+// error.
+func validOperatorStartDir(dir string) bool {
+	if !filepath.IsAbs(dir) {
+		return false
+	}
+	st, err := os.Stat(dir)
+	return err == nil && st.IsDir()
+}
+
+// operatorStartDir derives the --dir value for the launch from the viewed
+// window's active-pane cwd (WindowInfo.WorktreePath) in the already-fetched
+// sessions slice — no second fetch. The cwd is collapsed to its main-worktree
+// root (a linked worktree maps to the main checkout) or used verbatim when it
+// is not inside a git repository. ok=false — the window unknown to the
+// server, an empty cwd, or a derived directory failing the pre-check —
+// degrades the launch to the no-window argv rather than failing the start: a
+// raced close must not break Start, and the pre-check keeps a doomed exec
+// from surfacing the CLI's usage error as a 502.
+func operatorStartDir(ctx context.Context, sess []sessions.ProjectSession, windowID string) (string, bool) {
+	win := findOperatorSubject(sess, windowID)
+	if win == nil || win.WorktreePath == "" {
+		return "", false
+	}
+	dir := win.WorktreePath
+	if root := operatorStartMainRootFn(ctx, dir); root != "" {
+		dir = root
+	}
+	if !validOperatorStartDir(dir) {
+		return "", false
+	}
+	return dir, true
+}
 
 // handleOperatorStart serves POST /api/operator/start?server= — start the
 // server's operator window by exec'ing this daemon's own binary as
 // `rk operator -L <server> --json`, responding once the receipt line parses.
-// POST per Constitution IX; the body is ignored.
+// POST per Constitution IX. The optional body {"window": "@N"} names the
+// window the user is viewing: its active-pane cwd (collapsed to the main
+// checkout) rides the argv as --dir, so the operator starts where the user
+// is. No window in the body (or one that cannot be resolved) keeps the bare
+// argv — the CLI's recorded-directory → home rule decides.
 //
-// POST /api/operator/start → 202 {"windowId","server"} | 409 {code:operator_exists,windowId} | 500/502/504 {"error"}
+// POST /api/operator/start → 202 {"windowId","server"} | 400 {"error"} | 409 {code:operator_exists,windowId} | 500/502/504 {"error"}
 func (s *Server) handleOperatorStart(w http.ResponseWriter, r *http.Request) {
 	server := serverFromRequest(r)
 
@@ -76,13 +167,27 @@ func (s *Server) handleOperatorStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	body, ok := parseOperatorStartBody(w, r)
+	if !ok {
+		return
+	}
+
 	selfPath, err := resolveSelfPathFn()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not determine executable path")
 		return
 	}
 
-	receipt, stderr, err := operatorStartRunFn(r.Context(), []string{selfPath, "operator", "-L", server, "--json"}, s.operatorKickoffExit(server))
+	argv := []string{selfPath, "operator", "-L", server, "--json"}
+	if body.Window != "" {
+		// The derivation outlives the request like the exec below it
+		// (runOperatorStartExec detaches): a client disconnect must not
+		// silently degrade the main-root collapse to the verbatim pane cwd.
+		if dir, ok := operatorStartDir(context.WithoutCancel(r.Context()), sess, body.Window); ok {
+			argv = []string{selfPath, "operator", "-L", server, "--dir", dir, "--json"}
+		}
+	}
+	receipt, stderr, err := operatorStartRunFn(r.Context(), argv, s.operatorKickoffExit(server))
 	if err != nil {
 		if errors.Is(err, errOperatorStartTimeout) {
 			writeError(w, http.StatusGatewayTimeout, errOperatorStartTimeout.Error())

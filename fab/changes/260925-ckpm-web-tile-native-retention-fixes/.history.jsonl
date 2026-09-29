@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-25T10:15:43Z"}
+{"args":"web tile fixes — keep native views alive across tile unmounts (parked LRU 4), raise web-tab cap 8→16, blank draft tab hides previous guest, menus hide the native view","cmd":"fab-new","event":"command","ts":"2026-09-25T10:15:43Z"}
+{"delta":"+0.8","event":"confidence","score":0.8,"trigger":"calc-score","ts":"2026-09-25T10:17:51Z"}
+{"delta":"+2.7","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-09-25T10:18:23Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-25T10:18:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-25T10:18:41Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-09-25T10:19:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-25T10:57:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-25T11:03:02Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T11:03:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-25T11:13:50Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-09-25T11:14:05Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-25T11:15:17Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T11:33:45Z"}

@@ -1,0 +1,56 @@
+id: s57a
+name: 260926-s57a-hexokit-r1-plan-doc-sync
+created: 2026-09-26T16:25:10Z
+created_by: sahil-noon
+change_type: docs
+issues: []
+progress:
+    intake: ready
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 4
+    acceptance_count: 7
+    acceptance_completed: 7
+confidence:
+    certain: 2
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 85.0
+        reversibility: 90.0
+        competence: 90.0
+        disambiguation: 86.7
+stage_metrics:
+    intake: {started_at: "2026-09-26T16:25:10Z", driver: fab-new, iterations: 1}
+    apply: {started_at: "2026-09-26T16:26:30Z", iterations: 1, completed_at: "2026-09-26T16:27:41Z"}
+    review: {started_at: "2026-09-26T16:27:41Z", iterations: 1, completed_at: "2026-09-26T16:27:46Z"}
+    hydrate: {started_at: "2026-09-26T16:27:46Z", iterations: 1, completed_at: "2026-09-26T16:27:51Z"}
+    ship: {started_at: "2026-09-26T16:27:51Z", iterations: 1, completed_at: "2026-09-26T16:28:46Z"}
+    review-pr: {started_at: "2026-09-26T16:28:46Z", driver: git-pr, iterations: 1, completed_at: "2026-09-26T16:31:40Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/1056
+true_impact:
+    added: 236
+    deleted: 5
+    net: 231
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-26T16:28:46Z"
+    computed_at_stage: ship
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-26T16:31:40Z

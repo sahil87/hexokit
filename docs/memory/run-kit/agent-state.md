@@ -519,7 +519,7 @@ exits 0 — the trailing echo is the last command. (nnqu)
 
 **Install-time path resolution** (`resolveRkPath()`): the `<stable>` path
 embedded in the wrapper is resolved once per `runAgentSetup` invocation. It prefers
-`exec.LookPath("run-kit")` (the canonical name), then falls back to
+`exec.LookPath("run-kit")` (a long alias the formula installs), then falls back to
 `exec.LookPath("rk")`, then `os.Executable()`. Either LookPath hit yields the
 STABLE Homebrew symlink (`/home/linuxbrew/.linuxbrew/bin/{run-kit,rk}` or
 `/opt/homebrew/bin/{run-kit,rk}`, NOT the version-pinned Cellar path) — both

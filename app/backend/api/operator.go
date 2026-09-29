@@ -128,6 +128,9 @@ type operatorTemplate struct {
 
 // operatorTemplates is the closed in-code template registry. An id outside
 // this map is a 400 — the /options key-allowlist posture (Constitution I).
+// It is not the complete set of agent-directed payloads: the PR-review
+// listener's pr-review-thread payload (pr_review_listener.go) is a sibling
+// outside it, since it is never user-requestable by id.
 var operatorTemplates = map[string]operatorTemplate{
 	// fix-tab-name: the operator reads the subject tab's recent JSONL turns and
 	// renames the window through its own shell; the result arrives via the

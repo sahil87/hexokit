@@ -8,7 +8,7 @@ description: "run-kit's shll-toolkit-standards conformance posture — constitut
 
 ## Overview
 
-run-kit is one of the shll toolkit CLIs, and its constitution
+HexoKit (`rk`) is one of the HexoKit toolkit CLIs, and its constitution
 (§ Toolkit Standards, v1.6.0) binds it to the toolkit's published standards — the
 set enumerated at runtime by `shll standards`, each readable with
 `shll standards <name>` (PR #379) (260717-zn03-constitution-toolkit-standards).
@@ -30,9 +30,10 @@ Conformance MUST be assessed against a build of the repo at HEAD
 (`just build` → `bin/rk`, source `app/backend/cmd/rk/`), NOT the installed
 Homebrew `rk`. The installed binary lags the tree — at the audit it was
 brew `rk` v3.7.2, which rejects `rk skill` (a standard adopted at HEAD by
-PR #381) and would false-negative an already-conformant surface. The canonical
-command name is `run-kit`; `rk` is the permanent short alias (both invoke the
-same binary). (260717-c424-toolkit-standards-conformance)
+PR #381) and would false-negative an already-conformant surface. The root
+command name is `hexokit`; `rk` is the canonical short name, with `xk` and the
+legacy `run-kit` as aliases (all invoke the same binary).
+(260717-c424-toolkit-standards-conformance)
 
 #### Scenario: A standard adopted at HEAD but absent from the installed binary
 - **GIVEN** the `skill` standard, adopted at HEAD (`rk skill` + `docs/site/skill.md`)
@@ -216,25 +217,27 @@ fourth surface measured against the same two checks
   not inside tmux, tmux failure) flow through `RunE` to stderr with a non-zero
   exit.
 
-The `rk code-server` group (`install`/`start`/`update` — see
+The `rk code-server` group (`install`/`start`/`restart`/`update` — see
 [cli](/run-kit/architecture/cli.md) § CLI Subcommands, `code-server` row)
 is the fifth surface measured against the same two checks
-(260813-oid2-own-code-server-install):
+(260813-oid2-own-code-server-install) (260924-7koz-code-server-restart):
 
-- **help-dump: platform-stable registration.** The parent and all three
+- **help-dump: platform-stable registration.** The parent and all four
   children are registered unconditionally on `rootCmd` (`root.go`'s `init()`)
   and every node carries a `Long:` block, so the cobra tree walk picks the
   subtree up with no help-dump code change and the dumped contract is
-  identical on every platform — the `start` verb's daemon-running gate and the
-  `update` verb's managed-install gate are operational outcomes at run time,
-  not registration conditions. The help-dump goldens cover the
+  identical on every platform — the `start`/`restart` verbs' daemon-running
+  gate and the `update` verb's managed-install gate are operational outcomes
+  at run time, not registration conditions. The help-dump goldens cover the
   subtree.
 - **Principle 9: outcome lines are data, acquisition narration is chatter.**
   Every verb routes through `newSink(cmd)`, and the `internal/codeserver`
   installer's `Progress` writer is bound to `sink.chatter`, so
   resolve/download/extract progress vanishes under `--quiet` while the outcome
   lines — `install`'s already-current / installed lines, `start`'s
-  already-running / externally-managed / started lines, `update`'s
+  already-running / externally-managed / started lines, `restart`'s
+  `Restarted code-server (rk-code-server session).` / externally-managed /
+  install-job-spawned lines, `update`'s
   not-managed skip and `Updated code-server vX -> vY` line — are `Dataf` on
   stdout and survive: silence there would misreport a no-op as success or hide
   a mutation. The respawn additions (260813-2s4u-respawn-aware-code-server-install)
@@ -249,8 +252,9 @@ is the fifth surface measured against the same two checks
   validators with `usageArgs` in `code_server.go`'s `init()` — root's central
   wrap loop covers only `rootCmd`'s **direct** children (the `desktop` /
   `remote` reason) — so an arg-count violation is a usage error (exit 2),
-  while a down daemon (`start` names `rk serve -d`), a missing binary on
-  `start` (names `rk code-server install`), and download/verify failures are
+  while a down daemon (`start`/`restart` name `rk serve -d`), a missing binary on
+  `start` (names `rk code-server install`), a `restart` whose respawn never
+  binds the port (the 15s `codeServerPortUpTimeout` error), and download/verify failures are
   operational (1).
 - **The `rk skill` bundle stays untouched**, for the same reason as
   `desktop`/`remote`/`daemon run`/`role`: the bundle is a capability briefing,
@@ -831,7 +835,7 @@ The `rk gui` family (`gui.go` + `gui_supervise.go` + `gui_exec.go` + `gui_shot.g
 - **Principle 9: outcome lines and the status document are data; hints are errors.** `on`'s outcome lines (`started (<bin> :N)` / `already running` / the daemon-down and no-backend lines), `off`'s `gui off` confirmation, `restart`'s `restarted (<bin> :N)`, `env`'s two `export` lines, `status`'s human line / `--json` document, `exec --detach`'s `started <pid> on :N` line, `shot`'s absolute PNG path, `launch`'s `started <name> (pid <pid>) on :N` line, `wm --list`'s candidate table (the pickers' `NAME LABEL KIND INSTALLED HINT` derivation), and `wm --list --json`'s `wm_candidates` array are each the verb's one bounded stdout datum (Dataf via the sink, surviving `--quiet`; `--list` is read-only — LookPath only, no settings write, no tmux); a foreground `exec` replaces the process, so the command's own output contract applies. The WM chatter after `on`/`restart` (`  window manager: <wm>` or the two-line bare-display install hint) is `Notef` on stderr, so `--quiet` and scripts keep the one-line datum. The `off` refusal (`re-run with --yes`), the disabled/not-running hints, the macOS refusals, `not found on PATH`, `launch`'s ladder-miss install line, and `aborted` ride stderr with non-zero exits.
 - **Exit-code convention (P4)**: 0 success (including the daemon-down `rk gui on` and every `status` state — state, not verdict), 1 operational (refusals without `--yes` on a non-tty, declined confirms, disabled/daemon-down `restart`, `env`/`exec`/`shot`/`launch` when off or not running, the macOS refusals, an unknown program, a failed or missing screenshot tool, a `launch` ladder miss or start failure), 2 usage (arg-count violations via the family's `usageArgs` re-wrap — root's central wrap loop covers only `rootCmd`'s direct children — including `exec` with no command word and `launch` with a role outside `terminal`/`browser`; `wm`'s `--json` without `--list`, `--list` with a positional argument, and `--list` combined with `--restart`/`--force` go through the CLI-local `usageError`).
 - **The `skill` standard covers the `gui` topic page** — canonical `docs/site/skill/gui.md` (≤150 lines), synced to the embedded copy by `scripts/sync-skill.sh`, drift-guarded and budget-tested by the shared `TestSkillTopics*` tables, and registered as `skillTopics["gui"]` so the `Topics:` help line and `rk skill topics` enumerate it; the page teaches `rk gui launch` (the allowlisted launcher) and the seeded profile directory beside `exec`/`shot`, and the core bundle carries the topic-index line plus one capability row for `rk gui exec <cmd…>` / `rk gui shot [--out f.png]` (gated on the user's `gui.enabled` switch). (bbv1) (2jl3)
-- **readme-extraction: the README and docs/site carry the GUI surface.** The README's `## GUI — the host's desktop in a tile` section (between the boards section and the phone section) links `docs/site/gui.md` naturally, and § Command reference carries a `rk gui` row; `docs/site/gui.md` is the human GUI guide (the boards/notifications guide shape — H1, the absolute back-link to the README, ten sections from *What it is* to *Troubleshooting*) and names only commands present in `rk help-dump`; `docs/site/install.md` § Prerequisites carries the optional-GUI bullet (`tigervnc-standalone-server icewm` on Debian/Ubuntu) with a relative `gui.md` link. Links between `docs/site` pages are relative; anything leaving the published set is an absolute `https://github.com/sahil87/run-kit/blob/main/…` URL. (91px)
+- **readme-extraction: the README and docs/site carry the GUI surface.** The README's `## GUI — the host's desktop in a tile` section (between the boards section and the phone section) links `docs/site/gui.md` naturally, and § Command reference carries a `rk gui` row; `docs/site/gui.md` is the human GUI guide (the boards/notifications guide shape — H1, the absolute back-link to the README, ten sections from *What it is* to *Troubleshooting*) and names only commands present in `rk help-dump`; `docs/site/install.md` § Prerequisites carries the optional-GUI bullet (`tigervnc-standalone-server icewm` on Debian/Ubuntu) with a relative `gui.md` link. Links between `docs/site` pages are relative; anything leaving the published set is an absolute `https://github.com/sahil87/hexokit/blob/main/…` URL. (91px)
 
 The `rk mcp` verb (`mcp.go` — see
 [cli](/run-kit/architecture/cli.md) § CLI Subcommands, `mcp` row; the
@@ -986,10 +990,10 @@ slice + `docs/site/**`), so none 404s on the rendered shll.ai page. The two link
 that would have escaped are absolute:
 - `README.md`'s link to `docs/specs/agent-state.md` (outside the published set) is
   the absolute
-  `https://github.com/sahil87/run-kit/blob/main/docs/specs/agent-state.md`.
+  `https://github.com/sahil87/hexokit/blob/main/docs/specs/agent-state.md`.
 - `docs/site/install.md`'s link to the README anchor (a `..` escape out of
   `docs/site/`) is the absolute
-  `https://github.com/sahil87/run-kit/blob/main/README.md#agent-state--run-kit-agent-setup`.
+  `https://github.com/sahil87/hexokit/blob/main/README.md#agent-state`.
 
 The remaining relative forms are correct and stay relative: README →
 `docs/site/*.md` hub links, and between-`docs/site/` links. A closure sweep over
@@ -1007,11 +1011,9 @@ holds. (nnqu)
 blockquote is
 `> Part of [HexoKit](https://hexokit.com) — see all projects there.`
 and `README.md` line 3 carries it **byte-exact** under the mandated head order
-H1 → blockquote → badges; the H1 reads `HexoKit` with the logo `src` URL
-unchanged, and the badge lines stay pointed at `sahil87/run-kit` (the GitHub
-repo rename is a later rebrand-plan row). Identifiers stay by design:
-`sahil87/tap` formula names, `github.com/sahil87/…` /
-`raw.githubusercontent.com/sahil87/…` URLs, and the constitution's
+H1 → blockquote → badges; the H1 reads `HexoKit`, and the badge lines point at
+the renamed `sahil87/hexokit` repo, as does the logo `src` raw URL.
+Identifiers stay by design: `sahil87/tap` formula names and the constitution's
 `sahil87/shll` canonical-source reference.
 (260718-oa9b-shll-toolkit-rename, 260911-mljj-hexokit-brand-prose)
 
@@ -1190,10 +1192,11 @@ in-place with post-upgrade side effects (daemon restart), works standalone,
 advertises + honors `--skip-brew-update`, exits 0 on success (incl.
 already-up-to-date) and non-zero only on genuine failure, self-updates via brew
 only when brew-installed (the `/Cellar/` gate with a clear non-brew degrade
-message), and satisfies the naming/release clauses (`run-kit` is one string
-across repo / roster / formula leaf / binary; `v{semver}` tags; the tap carries a
-`formula_renames.json` entry mapping the `rk` leaf to `run-kit` — the standard's
-own cited precedent). See [cli](/run-kit/architecture/cli.md) § CLI Subcommands
+message), and satisfies the naming/release clauses (`hexokit` is one string
+across repo / roster / formula leaf / binary, with `rk`/`xk`/`run-kit` as
+symlinked aliases; `v{semver}` tags; the tap's `formula_renames.json` maps the
+`rk` leaf to `run-kit` — the standard's own cited precedent — and `run-kit` to
+`hexokit`). See [cli](/run-kit/architecture/cli.md) § CLI Subcommands
 (`update` row) for the mechanism.
 
 **The umbrella holds the same conformance across all three legs** — `rk
@@ -1281,7 +1284,7 @@ only says a bounded caller "should also consider" it, and the generous bound +
 `SIGTERM` already satisfies the SHOULD (trivially addable later if wanted).
 
 #### Scenario: A mid-transaction stall terminates gracefully, never mid-swap
-- **GIVEN** a `brew upgrade sahil87/tap/run-kit` that stalls past its bound on an
+- **GIVEN** a `brew upgrade sahil87/tap/hexokit` that stalls past its bound on an
   un-timed `api.github.com` call
 - **WHEN** the (30-minute) context finally expires
 - **THEN** brew receives a trappable `SIGTERM` (not `SIGKILL`) and a 30s grace
@@ -1291,8 +1294,12 @@ only says a bounded caller "should also consider" it, and the generous bound +
 
 ### version — PASS
 `--version` exits 0 with the version token on the first non-empty line
-(`run-kit version vX.Y.Z`, cobra's default template — the RECOMMENDED canonical
+(`hexokit version vX.Y.Z`, cobra's default template — the RECOMMENDED canonical
 shape, satisfying `versionPrefixRE`), responds within 2s with no network I/O
+The version line's first word is the root command name `hexokit`, which is
+also the formula (`sahil87/tap/hexokit`) and shll roster name — and the
+standard's parse is `<word> version <rest>`, so shll's probes do not depend on
+that word anyway (260911-mvuv-hexokit-brand-surfaces).
 (pure local ldflags string), and the on-PATH binary name equals the tool name.
 The release-shape path is unit-pinned: `TestDisplayVersion` in `root_test.go`
 covers `displayVersion`'s three input shapes — `"1.2.3" → "v1.2.3"` (the release
@@ -1334,11 +1341,13 @@ for sibling-tool prerequisites, `shll install <tool>` + a https://shll.ai link.
 The docs half passes: `README.md` and `docs/site/` carry **no per-formula
 `brew install sahil87/tap/…` install instruction**. The audit grep
 (`grep -rn -iE 'brew install|sahil87/tap' README.md docs/site/`) is a screen, not
-a zero-hit assertion — it also matches the README's
-**`rk`→`run-kit` formula-rename note** (`README.md:40`), which explains how to
-clear a keg stranded under the old formula name. That is migration
-troubleshooting, not install guidance, and it is deliberately kept; every hit the
-grep produces must be classified, and today the rename note is the only one. The
+a zero-hit assertion — it also matches `docs/site/install.md`'s
+**formula-rename note** ("Coming from an older formula name?" — `rk` → `run-kit`
+→ `hexokit`), which explains how to clear a keg stranded under an old formula
+name, and the Linux `brew install tmux` prerequisite line. The first is migration
+troubleshooting and the second a third-party prerequisite, not per-formula
+install guidance, and both are deliberately kept; every hit the grep produces
+must be classified, and today those two are the only ones. The
 install guidance matches the wording in the conformant sibling READMEs
 (wt/hop/idea/tu):
 
@@ -1350,8 +1359,8 @@ install guidance matches the wording in the conformant sibling READMEs
   doc-carried install guidance, not the Policy-A binary hint.
 - **`docs/site/install.md`** — the Install lead-in names the bootstrap and
   carries the curl block (`curl -fsSL https://hexokit.com/install | sh -s --
-  run-kit` — the hexokit.com host per Policy B; the `run-kit` tool argument is
-  the roster name and stays) plus the PATH sentence; the
+  run-kit` — the hexokit.com host per Policy B; the roster name is `hexokit`, and
+  `run-kit` is a legacy name shll ≥ v0.1.34 still resolves) plus the PATH sentence; the
   Prerequisites `wt` bullet points at the full-toolkit shll.ai link + `shll
   install wt`. The heading
   structure is load-bearing — shll.ai extraction anchors key on it.
@@ -1369,15 +1378,16 @@ behavior/pointer/history, not install instructions — outside Policy B's reach.
 #### Scenario: An audit grep over the install docs finds no per-formula brew instruction
 - **GIVEN** `README.md` + `docs/site/`
 - **WHEN** `grep -rn -iE 'brew install|sahil87/tap' README.md docs/site/` runs
-- **THEN** its only hit is the `README.md` formula-rename troubleshooting note
-  (migration guidance, deliberately kept) — no per-formula install instruction and
+- **THEN** its only hits are the `docs/site/install.md` formula-rename
+  troubleshooting note (migration guidance, deliberately kept) and the
+  `brew install tmux` prerequisite — no per-formula install instruction and
   no `sahil87/tap/all` reference; install guidance points to the hexokit.com
   bootstrap + `shll install <tool>`
 - **AND** the desktop-app install section introduces no new hit — it leads with
   `run-kit desktop install` and its manual fallback is a GitHub Releases download,
   never a brew formula (260730-pl4v-rk-desktop-install)
 - **AND** the Policy-A binary hint in `app/backend/cmd/rk/upgrade.go` still prints
-  `brew install sahil87/tap/run-kit` on a non-brew install — conformant binary
+  `brew install sahil87/tap/hexokit` on a non-brew install — conformant binary
   output (Policy A mandates the hint there; Policy B binds docs only)
 
 ### install-composition — Policy A (binary half) PASS
@@ -1387,7 +1397,7 @@ folder's `conformance-report.md`, lifted into the PR body per the
 report-lives-in-PR-body convention. All three checklist items of the standard's
 "Verifying conformance" section hold:
 
-- **Formula**: `sahil87/tap/run-kit` declares zero `depends_on` of any class
+- **Formula**: `sahil87/tap/hexokit` declares zero `depends_on` of any class
   (`brew info --json=v2` + tap source). The formula's only `depends_on` text is
   a comment explaining two deliberate non-declarations — code-server (rk manages
   its own digest-verified install; brew's formula is deprecated/pinned) and tmux
@@ -1406,7 +1416,7 @@ report-lives-in-PR-body convention. All three checklist items of the standard's
   crash-capable sibling path exists**; the standard's failure mode (one tool's
   absence crashing another) occurs nowhere.
 - **Hints**: the non-brew self-install hint (`cmd/rk/upgrade.go`,
-  `brew install sahil87/tap/run-kit`; HTTP twin in `api/update.go`'s 409 body)
+  `brew install sahil87/tap/hexokit`; HTTP twin in `api/update.go`'s 409 body)
   is live-verified conformant. Two hint strings fall short of the standard's
   actionable shape (`<tool> is not installed. Install it: brew install
   sahil87/tap/<tool>`) and are deferred as backlog `[gq7f]`: riff's wt-absent
@@ -1420,7 +1430,7 @@ report-lives-in-PR-body convention. All three checklist items of the standard's
   `run-kit riff: wt not found on PATH (required companion tool — see
   https://github.com/sahil87/wt)` (hint-shape alignment deferred to `[gq7f]`)
 - **AND GIVEN** a non-Homebrew `bin/rk`, `rk update` prints the manual-update
-  guidance ending `brew install sahil87/tap/run-kit` and exits 0 (a leg skip,
+  guidance ending `brew install sahil87/tap/hexokit` and exits 0 (a leg skip,
   not a failure)
 
 ## Design Decisions
@@ -1562,7 +1572,7 @@ every Environment value is derivable by the agent directly (`$TMUX_PANE`, `tmux
 display-message`, env-backed config), so the command was pure duplication once the
 topic page existed. The one derivation that earns a stable command seam is the
 server URL → **`rk url`** (a resolver over explicit `RK_HOST`/`RK_PORT` env →
-the pane server's `@rk_srv_origin` tmux option → the `127.0.0.1:3000` default, so
+the pane server's `@rk_srv_origin` tmux option → the `127.0.0.1:6123` default, so
 it stays accurate on non-default deployments where panes carry no `RK_*` env;
 ecosystem precedent
 `gh browse --no-browser` / `docker port` / `minikube service --url`), which also

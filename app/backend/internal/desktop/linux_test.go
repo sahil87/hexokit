@@ -61,15 +61,15 @@ func writeLinuxTree(t *testing.T, dir string, o linuxTreeOpts) {
 	if o.nonExecELF {
 		elfPerm = 0o644
 	}
-	mk("run-kit-desktop", "fake-elf", elfPerm)
+	mk("hexokit-desktop", "fake-elf", elfPerm)
 	if !o.noAsar {
 		mk(filepath.Join("resources", "app.asar"), "fake-asar", 0o644)
 	}
 	if !o.noDesktop {
-		mk("run-kit-desktop.desktop",
-			"[Desktop Entry]\nName=Run Kit\nExec=AppRun --no-sandbox %U\nX-AppImage-Version="+o.version+"\n", 0o644)
+		mk("hexokit-desktop.desktop",
+			"[Desktop Entry]\nName=HexoKit\nExec=AppRun --no-sandbox %U\nX-AppImage-Version="+o.version+"\n", 0o644)
 	}
-	iconRel := filepath.Join("usr", "share", "icons", "hicolor", o.iconSizeDir, "apps", "run-kit-desktop.png")
+	iconRel := filepath.Join("usr", "share", "icons", "hicolor", o.iconSizeDir, "apps", "hexokit-desktop.png")
 	mk(iconRel, "fake-png", 0o644)
 	// The shipped .DirIcon symlink — inside the tree, must pass containment.
 	if err := os.Symlink(iconRel, filepath.Join(dir, ".DirIcon")); err != nil {
@@ -162,7 +162,7 @@ func linuxInstaller(t *testing.T, rig *linuxRig) (ins *Installer, root, home str
 func linuxRelease(srv *httptest.Server, version, digest string) Release {
 	return Release{
 		Version:   version,
-		AssetName: fmt.Sprintf("run-kit-desktop-%s-x86_64.AppImage", version),
+		AssetName: fmt.Sprintf("hexokit-desktop-%s-x86_64.AppImage", version),
 		AssetURL:  srv.URL + "/dl/app",
 		Digest:    digest,
 	}
@@ -187,7 +187,7 @@ func TestInstallLinuxHappyPath(t *testing.T) {
 
 	// Layout: the version dir holds the tree, current points at it, the
 	// staging dir and the AppImage file are gone.
-	for _, rel := range []string{"AppRun", "run-kit-desktop", filepath.Join("resources", "app.asar"), "run-kit-desktop.desktop"} {
+	for _, rel := range []string{"AppRun", "hexokit-desktop", filepath.Join("resources", "app.asar"), "hexokit-desktop.desktop"} {
 		if _, err := os.Stat(filepath.Join(root, "3.21.0", rel)); err != nil {
 			t.Errorf("installed tree missing %s: %v", rel, err)
 		}
@@ -207,28 +207,28 @@ func TestInstallLinuxHappyPath(t *testing.T) {
 	}
 
 	// Integration: launcher entry (exact keys, quoted Exec), icon, bin symlink.
-	entry, err := os.ReadFile(filepath.Join(home, ".local", "share", "applications", "run-kit-desktop.desktop"))
+	entry, err := os.ReadFile(filepath.Join(home, ".local", "share", "applications", "hexokit-desktop.desktop"))
 	if err != nil {
 		t.Fatalf("launcher entry: %v", err)
 	}
 	for _, want := range []string{
-		"Name=Run Kit\n",
+		"Name=HexoKit\n",
 		"Exec=\"" + filepath.Join(root, "current", "AppRun") + "\" %U\n",
 		"Terminal=false\n",
 		"Type=Application\n",
-		"Icon=run-kit-desktop\n",
-		"StartupWMClass=Run Kit\n",
+		"Icon=hexokit-desktop\n",
+		"StartupWMClass=HexoKit\n",
 		"Categories=Development;\n",
 	} {
 		if !strings.Contains(string(entry), want) {
 			t.Errorf("launcher entry missing %q:\n%s", want, entry)
 		}
 	}
-	icon := filepath.Join(home, ".local", "share", "icons", "hicolor", "1024x1024", "apps", "run-kit-desktop.png")
+	icon := filepath.Join(home, ".local", "share", "icons", "hicolor", "1024x1024", "apps", "hexokit-desktop.png")
 	if data, err := os.ReadFile(icon); err != nil || string(data) != "fake-png" {
 		t.Errorf("icon at %s = %v, want the bundled copy", icon, err)
 	}
-	link := filepath.Join(home, ".local", "bin", "run-kit-desktop")
+	link := filepath.Join(home, ".local", "bin", "hexokit-desktop")
 	if target, err := os.Readlink(link); err != nil || target != filepath.Join(root, "current", "AppRun") {
 		t.Errorf("bin symlink -> %q (%v), want %s", target, err, filepath.Join(root, "current", "AppRun"))
 	}
@@ -281,9 +281,9 @@ func TestInstallLinuxInvalidTreeRefused(t *testing.T) {
 		want string
 	}{
 		{"missing asar", linuxTreeOpts{version: "3.21.0", noAsar: true}, "missing " + filepath.Join("resources", "app.asar")},
-		{"missing desktop entry", linuxTreeOpts{version: "3.21.0", noDesktop: true}, "missing run-kit-desktop.desktop"},
+		{"missing desktop entry", linuxTreeOpts{version: "3.21.0", noDesktop: true}, "missing hexokit-desktop.desktop"},
 		{"missing AppRun", linuxTreeOpts{version: "3.21.0", noAppRun: true}, "missing AppRun"},
-		{"non-executable ELF", linuxTreeOpts{version: "3.21.0", nonExecELF: true}, "non-executable run-kit-desktop"},
+		{"non-executable ELF", linuxTreeOpts{version: "3.21.0", nonExecELF: true}, "non-executable hexokit-desktop"},
 		{"non-executable AppRun", linuxTreeOpts{version: "3.21.0", nonExecAppRun: true}, "non-executable AppRun"},
 		{"version mismatch", linuxTreeOpts{version: "3.20.7"}, `mounted AppImage reports version "3.20.7", expected "3.21.0"`},
 		{"escaping symlink", linuxTreeOpts{version: "3.21.0", escapeLink: true}, "refusing symlink escaping the install dir"},
@@ -340,7 +340,7 @@ func TestInstallLinuxRunningAppRestarts(t *testing.T) {
 		t.Errorf("signals = %v, want one SIGTERM to pid 4242", rig.signals)
 	}
 	// pgrep probed the OLD version dir's ELF path (pre-flip current target).
-	oldPattern := regexp.QuoteMeta(filepath.Join(old, "run-kit-desktop"))
+	oldPattern := regexp.QuoteMeta(filepath.Join(old, "hexokit-desktop"))
 	if len(rig.pgrepArgs) == 0 || rig.pgrepArgs[0][len(rig.pgrepArgs[0])-1] != oldPattern {
 		t.Errorf("pgrep args = %v, want probes against %s", rig.pgrepArgs, oldPattern)
 	}
@@ -513,7 +513,7 @@ func TestAppRunningLinux(t *testing.T) {
 	if !ins.AppRunning(context.Background()) {
 		t.Error("AppRunning = false with a matching pgrep")
 	}
-	want := regexp.QuoteMeta(filepath.Join(linuxVersionDir(root, "3.20.8"), "run-kit-desktop"))
+	want := regexp.QuoteMeta(filepath.Join(linuxVersionDir(root, "3.20.8"), "hexokit-desktop"))
 	if got := rig.pgrepArgs[0]; len(got) != 2 || got[0] != "-f" || got[1] != want {
 		t.Errorf("pgrep args = %v, want [-f %s]", got, want)
 	}
@@ -544,9 +544,9 @@ func TestUninstallLinuxHappyPath(t *testing.T) {
 		t.Errorf("install root still present after uninstall")
 	}
 	for _, p := range []string{
-		filepath.Join(home, ".local", "bin", "run-kit-desktop"),
-		filepath.Join(home, ".local", "share", "applications", "run-kit-desktop.desktop"),
-		filepath.Join(home, ".local", "share", "icons", "hicolor", "1024x1024", "apps", "run-kit-desktop.png"),
+		filepath.Join(home, ".local", "bin", "hexokit-desktop"),
+		filepath.Join(home, ".local", "share", "applications", "hexokit-desktop.desktop"),
+		filepath.Join(home, ".local", "share", "icons", "hicolor", "1024x1024", "apps", "hexokit-desktop.png"),
 	} {
 		if _, err := os.Lstat(p); !os.IsNotExist(err) {
 			t.Errorf("%s still present after uninstall", p)
@@ -561,7 +561,7 @@ func TestUninstallLinuxNotInstalled(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := ins.Uninstall(context.Background())
-	want := "Run Kit is not installed at " + linuxCurrentPath(root)
+	want := "HexoKit is not installed at " + linuxCurrentPath(root)
 	if err == nil || err.Error() != want {
 		t.Errorf("error = %v, want %q", err, want)
 	}
@@ -577,7 +577,7 @@ func TestUninstallLinuxRunningRefuses(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := ins.Uninstall(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "Run Kit is running — quit it") {
+	if err == nil || !strings.Contains(err.Error(), "HexoKit is running — quit it") {
 		t.Fatalf("error = %v, want the running refusal", err)
 	}
 	if _, statErr := os.Stat(linuxVersionDir(root, "3.20.8")); statErr != nil {
@@ -596,19 +596,19 @@ func TestUninstallLinuxForeignSymlinkLeftAlone(t *testing.T) {
 	if _, err := ins.Install(context.Background(), linuxRelease(srv, "3.21.0", digest)); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	// A foreign run-kit-desktop — points OUTSIDE the root; uninstall must not
+	// A foreign hexokit-desktop — points OUTSIDE the root; uninstall must not
 	// touch it.
-	link := filepath.Join(home, ".local", "bin", "run-kit-desktop")
+	link := filepath.Join(home, ".local", "bin", "hexokit-desktop")
 	if err := os.Remove(link); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("/usr/local/bin/other-run-kit-desktop", link); err != nil {
+	if err := os.Symlink("/usr/local/bin/other-hexokit-desktop", link); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ins.Uninstall(context.Background()); err != nil {
 		t.Fatalf("Uninstall: %v", err)
 	}
-	if target, err := os.Readlink(link); err != nil || target != "/usr/local/bin/other-run-kit-desktop" {
+	if target, err := os.Readlink(link); err != nil || target != "/usr/local/bin/other-hexokit-desktop" {
 		t.Errorf("foreign symlink = %q (%v), want left alone", target, err)
 	}
 }

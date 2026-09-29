@@ -1,21 +1,26 @@
-// Package settings owns the run-kit preference store at
-// ~/.config/run-kit/config.yaml — the single registry-driven settings
+// Package settings owns the hexokit preference store at
+// ~/.config/hexokit/config.yaml — the single registry-driven settings
 // surface.
 //
 // Override order: code default < config.yaml < env < CLI flag. Env forms
 // exist ONLY for deployment-bootstrap keys (RK_PORT, RK_HOST,
-// RK_CODE_SERVER_PORT); the only other env reads are the undocumented
-// per-process escapes RK_TMUX_CONF, LOG_LEVEL, and RK_CONFIG_DIR (below),
-// which win over their config.yaml keys but are never user-facing.
+// RK_CODE_SERVER_PORT); the daemon port is the one bootstrap binding that is
+// also a config.yaml key here (the `port` entry — RK_PORT still wins over
+// it). RK_HOST and RK_CODE_SERVER_PORT stay env-only. The only other env
+// reads are the undocumented per-process escapes RK_TMUX_CONF, LOG_LEVEL, and
+// RK_CONFIG_DIR (below), which win over their config.yaml keys but are never
+// user-facing.
 //
-// The config root is fixed at $HOME/.config/run-kit — never
-// $XDG_CONFIG_HOME, never os.UserConfigDir: rk runs as daemon + CLI +
-// agents-in-panes, and an env-dependent path would silently fork which file
-// each context reads. Only $HOME moves the root, with one test-only
-// carve-out: RK_CONFIG_DIR (ConfigDirEnv) relocates the root verbatim so the
-// e2e harness can isolate per-run config state — the same class of
-// in-package, unset-means-production-identical escape as RK_SERVER_ALLOWLIST
-// and RK_TMUX_CONF, never user-facing deployment configuration.
+// The config root is fixed under $HOME/.config — never $XDG_CONFIG_HOME,
+// never os.UserConfigDir: rk runs as daemon + CLI + agents-in-panes, and an
+// env-dependent path would silently fork which file each context reads. Only
+// $HOME moves the root, with one test-only carve-out: RK_CONFIG_DIR
+// (ConfigDirEnv) relocates the root verbatim so the e2e harness can isolate
+// per-run config state — the same class of in-package,
+// unset-means-production-identical escape as RK_SERVER_ALLOWLIST and
+// RK_TMUX_CONF, never user-facing deployment configuration. The home dir name
+// itself resolves through internal/apphome (hexokit, dual-reading the legacy
+// run-kit dir for one release).
 package settings
 
 import (
@@ -28,11 +33,13 @@ import (
 	"strconv"
 	"strings"
 
+	"rk/internal/apphome"
 	"rk/internal/gui"
+	"rk/internal/portpolicy"
 	"rk/internal/validate"
 )
 
-// Settings holds user preferences persisted at ~/.config/run-kit/config.yaml
+// Settings holds user preferences persisted at ~/.config/hexokit/config.yaml
 // (a legacy ~/.rk/settings.yaml is fallback-read and migrated on first save).
 type Settings struct {
 	Theme      string
@@ -50,6 +57,17 @@ type Settings struct {
 	// Empty means "unset": /api/health then omits sshHost (this key is the
 	// only ssh-host surface — no env form exists). Scalar, like InstanceColor.
 	SSHHost string
+	// Port is the daemon listen port pinned in config.yaml. 0 means "unset":
+	// the effective port falls back to the code default (portpolicy.DaemonDefault).
+	// RK_PORT, when set to a valid port, wins over this key. Read at serve
+	// startup (and by every CLI that resolves the origin), so a change applies
+	// on the next daemon restart.
+	Port int
+	// PortPinNote records that the file carried the migration's pin comment
+	// (PortPinComment) above the port key, so serialize re-emits it. Any
+	// registry write to port clears the flag: a user-chosen port is no longer
+	// the migration pin.
+	PortPinNote bool
 	// InstanceName is the display-name override for this run-kit instance.
 	// Empty means "unset": display surfaces derive the name from os.Hostname()
 	// (via /api/health `hostname`). Scalar, like InstanceColor.
@@ -138,26 +156,38 @@ func Default() Settings {
 // never a user-facing deployment key.
 const ConfigDirEnv = "RK_CONFIG_DIR"
 
-// Dir returns the config root: the fixed $HOME/.config/run-kit/, unless the
-// test-only RK_CONFIG_DIR override is set (see ConfigDirEnv and the package
-// doc comment). The only other environment input is $HOME.
+// minPort/maxPort bound the valid TCP port range accepted by the port key's
+// parse and apply hooks.
+const (
+	minPort = 1
+	maxPort = 65535
+)
+
+// PortPinComment is the one-line note the home migration writes directly
+// above a pinned `port:` key. parse recognizes the exact line and sets
+// Settings.PortPinNote so serialize can re-emit it — without the round-trip
+// the comment would vanish on the first whole-file Save.
+const PortPinComment = "# port pinned during the HexoKit rename so remote access keeps working (fresh installs use the new default; see rk doctor)"
+
+// Dir returns the config root: the resolved home under the fixed
+// $HOME/.config (apphome.ConfigDir — the dual-read rule picks the legacy
+// run-kit dir while an install is unmigrated), unless the test-only
+// RK_CONFIG_DIR override is set, which wins over the rule (see ConfigDirEnv
+// and the package doc comment). The only other environment input is $HOME.
 func Dir() (string, error) {
-	if configRootOverridden() {
+	if ConfigRootOverridden() {
 		return os.Getenv(ConfigDirEnv), nil
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".config", "run-kit"), nil
+	return apphome.ConfigDir()
 }
 
-// configRootOverridden reports whether the RK_CONFIG_DIR test override is
+// ConfigRootOverridden reports whether the RK_CONFIG_DIR test override is
 // active (set to a non-whitespace value). While active, the legacy
 // ~/.rk/settings.yaml fallback-read and migration rename are suppressed too —
 // an isolated run must neither import the developer's real legacy settings
-// nor rename a file in the real $HOME.
-func configRootOverridden() bool {
+// nor rename a file in the real $HOME. The same suppression gates the
+// home migration and the legacy-home virtual port pin.
+func ConfigRootOverridden() bool {
 	return strings.TrimSpace(os.Getenv(ConfigDirEnv)) != ""
 }
 
@@ -197,7 +227,7 @@ func resolveSource() (string, bool) {
 	if readableFile(p) {
 		return p, true
 	}
-	if configRootOverridden() {
+	if ConfigRootOverridden() {
 		return "", false
 	}
 	legacy, lerr := legacySettingsPath()
@@ -235,6 +265,13 @@ func Load() Settings {
 	if err != nil {
 		return Default()
 	}
+	return parse(string(data))
+}
+
+// ParseBytes runs the config.yaml parser over raw bytes without touching the
+// filesystem or home resolution — the home migration's pin decision reads the
+// legacy file's port this way so the parse rules can never drift.
+func ParseBytes(data []byte) Settings {
 	return parse(string(data))
 }
 
@@ -278,7 +315,7 @@ func Save(s Settings) error {
 	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
 		return err
 	}
-	if !configRootOverridden() {
+	if !ConfigRootOverridden() {
 		if legacy, err := legacySettingsPath(); err == nil {
 			_ = os.Rename(legacy, legacy+".migrated")
 		}
@@ -413,6 +450,61 @@ var registry = []registryEntry{
 		serialize: quotedScalar("ssh_host", func(s *Settings) *string { return &s.SSHHost }),
 		read:      emptyableString(func(s *Settings) *string { return &s.SSHHost }),
 		apply:     validatedScalar(func(s *Settings) *string { return &s.SSHHost }, validate.ValidateSSHHost, ""),
+	},
+	{
+		key: "port", kind: "port", def: strconv.Itoa(portpolicy.DaemonDefault),
+		desc:     "Daemon listen port. RK_PORT wins when set. Takes effect on the next daemon restart (rk daemon restart); re-point Tailscale Serve / bookmarks after a move.",
+		category: "connectivity", ui: false, live: false,
+		// Tolerant read: quote-stripped, trimmed, kept only when a valid port;
+		// anything else stays unset and never errors.
+		parse: func(s *Settings, value string) {
+			if n, err := strconv.Atoi(strings.TrimSpace(strings.Trim(value, "\""))); err == nil && n >= minPort && n <= maxPort {
+				s.Port = n
+			}
+		},
+		// Serialize-when-set, INCLUDING a value equal to the default: the key
+		// is a pin, and Save rewrites the whole file — omit-at-default would
+		// silently drop a `port: 3000` pin on any settings save. Port == 0
+		// (unset) emits nothing, so an untouched file round-trips
+		// byte-identically. The migration's pin comment (PortPinComment) is
+		// re-emitted directly above the key while PortPinNote holds.
+		serialize: func(s *Settings) string {
+			if s.Port != 0 {
+				if s.PortPinNote {
+					return PortPinComment + "\nport: " + strconv.Itoa(s.Port) + "\n"
+				}
+				return "port: " + strconv.Itoa(s.Port) + "\n"
+			}
+			return ""
+		},
+		// Natural JSON shape: the number when set, null when unset.
+		read: func(s *Settings) any {
+			if s.Port != 0 {
+				return s.Port
+			}
+			return nil
+		},
+		// Strict write: JSON integers in range only (no numeric strings) —
+		// the registry's strict-write/tolerant-read posture. Any successful
+		// write, set or null, clears PortPinNote: a user-chosen port is no
+		// longer the migration pin.
+		apply: func(s *Settings, raw json.RawMessage) error {
+			if jsonNull(raw) {
+				s.Port = 0
+				s.PortPinNote = false
+				return nil
+			}
+			var n int
+			if err := json.Unmarshal(raw, &n); err != nil {
+				return fmt.Errorf("port must be an integer %d-%d or null: %w", minPort, maxPort, err)
+			}
+			if n < minPort || n > maxPort {
+				return fmt.Errorf("port must be an integer %d-%d, got %d", minPort, maxPort, n)
+			}
+			s.Port = n
+			s.PortPinNote = false
+			return nil
+		},
 	},
 	{
 		key: "instance_name", kind: "string", def: "",
@@ -1066,6 +1158,10 @@ func parse(data string) Settings {
 	for _, line := range strings.Split(data, "\n") {
 		raw := line
 		trimmed := strings.TrimSpace(raw)
+		if trimmed == PortPinComment {
+			s.PortPinNote = true
+			continue
+		}
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}

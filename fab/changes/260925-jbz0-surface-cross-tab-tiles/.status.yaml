@@ -1,0 +1,59 @@
+id: jbz0
+name: 260925-jbz0-surface-cross-tab-tiles
+created: 2026-09-25T08:43:35Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 26
+    acceptance_count: 35
+    acceptance_completed: 35
+confidence:
+    certain: 15
+    confident: 9
+    tentative: 0
+    unresolved: 0
+    score: 3.5
+    fuzzy: true
+    dimensions:
+        signal: 82.3
+        reversibility: 78.1
+        competence: 82.7
+        disambiguation: 80.8
+stage_metrics:
+    intake: {started_at: "2026-09-25T08:43:35Z", driver: fab-new, iterations: 1, completed_at: "2026-09-25T09:12:19Z"}
+    apply: {started_at: "2026-09-25T11:22:55Z", driver: fab-fff, iterations: 4, completed_at: "2026-09-25T11:26:22Z"}
+    review: {started_at: "2026-09-25T11:26:22Z", driver: fab-fff, iterations: 4, completed_at: "2026-09-25T11:31:22Z"}
+    hydrate: {started_at: "2026-09-25T11:31:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T11:43:49Z"}
+    ship: {started_at: "2026-09-25T11:43:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T11:45:38Z"}
+    review-pr: {started_at: "2026-09-25T11:45:38Z", driver: git-pr, iterations: 1, completed_at: "2026-09-25T12:03:14Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/1041
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 6648
+    deleted: 972
+    net: 5676
+    excluding:
+        added: 5796
+        deleted: 860
+        net: 4936
+    tests:
+        added: 2344
+        deleted: 100
+        net: 2244
+    computed_at: "2026-09-25T11:45:38Z"
+    computed_at_stage: ship
+summary: 'memory: cross-tab tiles — foreign @N/<kind> leaves, away placeholder, borrow/return endpoints + holder check, size floor over tile cap, isolate streams, per-tile-window focus'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-25T12:03:14Z

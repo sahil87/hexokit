@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   CHORD_CODE_MAX_LENGTH,
+  findChord,
   matchChord,
   parseChordSpecs,
   WEB_CHORDS_MAX,
@@ -108,4 +109,28 @@ test("non-boolean modifiers are rejected", () => {
   assert.equal(parseChordSpecs([{ ...spec(), meta: "yes" }]), null);
   assert.equal(parseChordSpecs([{ ...spec(), shift: undefined }]), null);
   assert.equal(parseChordSpecs([{ ...spec(), alt: null }]), null);
+});
+
+// ── keepFocus (web keyboard-capture toggle) ─────────────────────────────────
+
+test("keepFocus survives the parse when true and is omitted otherwise", () => {
+  const parsed = parseChordSpecs([
+    spec({ code: "KeyG", shift: true, ctrl: true, keepFocus: true }),
+    spec({ keepFocus: false }),
+    spec(),
+  ]);
+  assert.equal(parsed?.[0]?.keepFocus, true);
+  assert.equal("keepFocus" in (parsed?.[1] ?? {}), false);
+  assert.equal("keepFocus" in (parsed?.[2] ?? {}), false);
+});
+
+test("a non-boolean keepFocus rejects the whole payload", () => {
+  assert.equal(parseChordSpecs([{ ...spec(), keepFocus: "yes" }]), null);
+});
+
+test("findChord returns the matched spec so main can read keepFocus", () => {
+  const table = [spec({ ctrl: true }), spec({ code: "KeyG", ctrl: true, shift: true, keepFocus: true })];
+  assert.equal(findChord(input({ code: "KeyG", control: true, shift: true }), table)?.keepFocus, true);
+  assert.equal(findChord(input({ control: true }), table)?.keepFocus, undefined);
+  assert.equal(findChord(input({ code: "KeyZ" }), table), undefined);
 });

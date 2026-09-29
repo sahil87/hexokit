@@ -255,7 +255,7 @@ describe("gui stats overlay visibility (rk-gui-stats-visible)", () => {
   });
 });
 
-describe("gui bare-WM strip dismissal (runkit-gui-wm-strip-dismissed)", () => {
+describe("gui bare-WM strip dismissal (hexokit-gui-wm-strip-dismissed)", () => {
   it("defaults to not dismissed when absent", () => {
     expect(readGuiWmStripDismissed()).toBe(false);
   });
@@ -263,10 +263,10 @@ describe("gui bare-WM strip dismissal (runkit-gui-wm-strip-dismissed)", () => {
   it("round-trips the dismissal; clearing removes the key", () => {
     writeGuiWmStripDismissed(true);
     expect(readGuiWmStripDismissed()).toBe(true);
-    expect(localStorage.getItem("runkit-gui-wm-strip-dismissed")).toBe("1");
+    expect(localStorage.getItem("hexokit-gui-wm-strip-dismissed")).toBe("1");
     writeGuiWmStripDismissed(false);
     expect(readGuiWmStripDismissed()).toBe(false);
-    expect(localStorage.getItem("runkit-gui-wm-strip-dismissed")).toBeNull();
+    expect(localStorage.getItem("hexokit-gui-wm-strip-dismissed")).toBeNull();
   });
 
   it("swallows a localStorage read failure, returning not dismissed", () => {

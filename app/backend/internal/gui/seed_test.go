@@ -3,6 +3,7 @@ package gui
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -181,5 +182,24 @@ func TestSeedProfileNormalizesLooseModes(t *testing.T) {
 	}
 	if string(prefs) != "user content\n" {
 		t.Errorf("preferences rewritten to %q, want the user's content kept", prefs)
+	}
+}
+
+// TestWriteOnceSeedFiles pins the exact write-once seeded set (GUI-state
+// relative) the home migration carries over: the icewm preferences plus the
+// LXQt etc defaults. The per-start regenerated icewm toolbar/menu must never
+// appear here — adding a file to this list opts it into home migration.
+func TestWriteOnceSeedFiles(t *testing.T) {
+	want := []string{
+		filepath.Join("icewm", "preferences"),
+		filepath.Join("lxqt", "etc", "lxqt", "session.conf"),
+		filepath.Join("lxqt", "etc", "lxqt", "panel.conf"),
+		filepath.Join("lxqt", "etc", "lxqt", "lxqt.conf"),
+		filepath.Join("lxqt", "etc", "pcmanfm-qt", "lxqt", "settings.conf"),
+		filepath.Join("lxqt", "etc", "autostart", "lxqt-xscreensaver-autostart.desktop"),
+	}
+	got := WriteOnceSeedFiles()
+	if !slices.Equal(got, want) {
+		t.Errorf("WriteOnceSeedFiles() = %v, want %v", got, want)
 	}
 }

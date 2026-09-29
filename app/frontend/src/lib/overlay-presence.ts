@@ -3,8 +3,8 @@
  *
  * A native web view (the desktop shell's `WebContentsView`) is composited
  * above the SPA's DOM, so nothing the SPA draws can appear over it. A surface
- * that cannot be painted over reads this registry to hide itself while a
- * modal-class overlay is open. The signal is a COUNT of mounted occluding
+ * that cannot be painted over reads this registry to hide itself while an
+ * occluding overlay is open. The signal is a COUNT of mounted occluding
  * overlays, never a focus read: focus is stolen by iframes and native views
  * exactly when the signal is needed, and nested modals (a create dialog over
  * a detail sheet, a confirm inside the quake drawer) need a count to stay
@@ -16,9 +16,12 @@
  * touches no DOM, `window`, or storage, so it is importable anywhere.
  *
  * Kinds: `modal` (palette, dialogs, quake drawer, screen-break egg, mobile
- * drawer) is the only kind that feeds `isModalOpen()`. `transient` (tips,
- * flyouts, popovers) is counted and subscribable for the clip rule, which is
- * a later consumer; nothing registers it yet.
+ * drawer) and `transient` (click-opened menus, dropdowns, popovers, context
+ * menus) BOTH feed the native surface's hide signal — `isOccludingOpen()`
+ * reads modal + transient. The registration rule: a click-opened menu,
+ * dropdown, popover or context menu registers `transient` while open;
+ * tooltips (`tip.tsx`) and hover-opened flyout cards register NOTHING —
+ * hiding the native view on every hover would flicker the page.
  */
 
 export type OverlayKind = "modal" | "transient";
@@ -56,6 +59,15 @@ export function count(kind?: OverlayKind): number {
  *  overlay is open. A held `transient` alone leaves it false. */
 export function isModalOpen(): boolean {
   return counts.modal > 0;
+}
+
+/** The native surface's full hide signal: true while any occluding overlay
+ *  is open — modal-class surfaces AND click-opened menus/popovers
+ *  (`transient`). Anything composited above the DOM (the desktop shell's
+ *  `WebContentsView`) hides on this, since a menu would paint underneath it
+ *  exactly like a dialog. */
+export function isOccludingOpen(): boolean {
+  return counts.modal + counts.transient > 0;
 }
 
 /** Notified synchronously after every count change (acquire or effective

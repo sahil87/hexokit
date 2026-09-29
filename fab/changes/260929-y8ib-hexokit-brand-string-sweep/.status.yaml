@@ -1,0 +1,59 @@
+id: y8ib
+name: 260929-y8ib-hexokit-brand-string-sweep
+created: 2026-09-29T04:46:26Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 21
+    acceptance_count: 25
+    acceptance_completed: 25
+confidence:
+    certain: 7
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 81.5
+        reversibility: 82.5
+        competence: 85.0
+        disambiguation: 81.5
+stage_metrics:
+    intake: {started_at: "2026-09-29T04:46:26Z", driver: fab-new, iterations: 1, completed_at: "2026-09-29T04:50:32Z"}
+    apply: {started_at: "2026-09-29T04:50:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-29T05:12:22Z"}
+    review: {started_at: "2026-09-29T05:12:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-29T05:19:11Z"}
+    hydrate: {started_at: "2026-09-29T05:19:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-29T05:29:04Z"}
+    ship: {started_at: "2026-09-29T05:29:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-29T05:30:54Z"}
+    review-pr: {started_at: "2026-09-29T05:30:54Z", driver: git-pr, iterations: 1, completed_at: "2026-09-29T05:43:29Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1067
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 996
+    deleted: 505
+    net: 491
+    excluding:
+        added: 361
+        deleted: 361
+        net: 0
+    tests:
+        added: 102
+        deleted: 102
+        net: 0
+    computed_at: "2026-09-29T05:30:54Z"
+    computed_at_stage: ship
+summary: 'Brand-string sweep hydrate: memory present-truth lines now read HexoKit (wordmark, HexoKit home, HexoKit v{version} rows, HexoKit: palette labels, HexoKit system card, notification default title, manifest name, document.title), help URLs at hexokit.com/docs|fab-kit, sahil87/hexokit repo links, hexokit-desktop Linux AppImage tree/.desktop/icon/bin names + e2e userData dir, HexoKit Code Bridge display strings (publisher run-kit + rk-code-bridge kept); new Design Decisions for the no-fallback Linux rename and the kept extension ID.'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-29T05:43:29Z

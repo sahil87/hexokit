@@ -181,29 +181,15 @@ type Options struct {
 	// Tier is the fab agent tier resolved for the launcher (`fab agent <tier>
 	// -o yaml`). Empty = the default tier (`fab agent -o yaml`, today's path).
 	Tier string
-	// ResumeSessionRef, when non-empty, is the Claude session uuid this spawn
-	// FORKS: the resolved launcher gains `--resume <uuid> --fork-session`, so the
-	// new pane's agent starts from a copy of that conversation's history under a
-	// fresh session id (the conversation-fork mechanism — 260806-s4av). Paired
-	// with Where:"checkout" it is a same-directory fork. Empty = an ordinary
-	// spawn, byte-identical to today. The CLI never sets this.
-	//
-	// The uuid is shape-validated at the API layer BEFORE it reaches here, and
-	// re-validated defensively at the launcher-composition seam
-	// (resumeForkLauncher) because it enters the deliberately-unescaped launcher
-	// string (constitution §I).
-	//
-	// `--resume`/`--fork-session` are Claude-only flags while ResolveLauncher
-	// returns a provider-opaque string, so a non-empty ref whose resolved launcher
-	// is NOT a claude invocation is a ValidationErr — never a silent plain spawn
-	// and never claude flags handed to another binary. Lives on Options only (no
-	// EffectiveSpec copy) — the Tier precedent for launcher-seam-consumed inputs.
+	// ResumeSessionRef identifies the conversation to fork (or resume with
+	// ResumePlain). Validated again at the launcher composition seam.
 	ResumeSessionRef string
-	// ResumePlain selects the resume suffix shape when ResumeSessionRef is set:
-	// true composes `--resume <uuid>` alone (the conversation re-attached under
-	// the SAME session id); false/unset composes the fork form `--resume <uuid>
-	// --fork-session`, byte-identical to today. Meaningless without
-	// ResumeSessionRef. Options-only, same seam precedent as ResumeSessionRef.
+	// ForkProvider pins a conversation fork to its source provider. When the
+	// configured launcher differs, use the provider executable with its own
+	// defaults. Empty preserves existing resume consumers' launcher validation.
+	ForkProvider string
+	// ResumePlain reattaches a Claude conversation under the same session ID
+	// using --resume. False selects a fork. Incompatible with ForkProvider.
 	ResumePlain bool
 	// WindowNameBase, when non-empty, replaces the derived `riff-<basename>`
 	// window-name base — the fork endpoint passes `<sourceWindowName>-fork`. The
@@ -252,18 +238,29 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 		return Result{}, ValidationErr("run-kit riff: repo root is empty")
 	}
 
-	// A non-empty ResumeSessionRef reattaches this spawn to the referenced
-	// conversation: the resolved launcher gains `--resume <uuid> --fork-session`
-	// (fork form, the default — a copy of the conversation under a fresh session
-	// id), or `--resume <uuid>` alone when ResumePlain is set (plain form — the
-	// conversation itself, re-attached under the SAME session id). Composed once
-	// here, at the single seam where the launcher is produced, so every pane of
-	// the window inherits it and the argv builders stay pure functions of the spec.
-	// resumeForkLauncher re-validates the uuid shape, is a no-op on an empty or
-	// malformed ref (constitution §I — the launcher is the unescaped element), and
-	// errors when the resolved launcher is not a claude invocation (the flags are
-	// Claude-only; failing beats a silent unresumed spawn — ExitValidation → 400).
+	// Preserve configured launcher options when they match the source provider.
+	// A fork must never hand a source session ID to another provider.
 	agent := ResolveAgent(ctx, opts.RepoRoot, opts.Tier)
+	if opts.ForkProvider != "" {
+		if opts.ResumePlain || !sessionUUIDRe.MatchString(opts.ResumeSessionRef) {
+			return Result{}, ValidationErr("run-kit riff: fork requires a valid session UUID and fork mode")
+		}
+		switch opts.ForkProvider {
+		case "claude", "codex":
+		default:
+			return Result{}, ValidationErr("run-kit riff: unsupported fork provider %q", opts.ForkProvider)
+		}
+		if launcherCommandName(agent.Launcher) != opts.ForkProvider {
+			agent = ResolvedAgent{Launcher: opts.ForkProvider, SkillPrefix: "/"}
+			if opts.ForkProvider == "codex" {
+				agent.SkillPrefix = "$"
+			}
+		}
+	}
+	// Older resume consumers carry Claude IDs without an explicit provider.
+	if opts.ForkProvider == "" && sessionUUIDRe.MatchString(opts.ResumeSessionRef) && launcherCommandName(agent.Launcher) != "claude" {
+		return Result{}, ValidationErr("run-kit riff: cannot resume a Claude conversation with launcher %q", agent.Launcher)
+	}
 	launcher, err := resumeForkLauncher(agent.Launcher, opts.ResumeSessionRef, opts.ResumePlain)
 	if err != nil {
 		return Result{}, err

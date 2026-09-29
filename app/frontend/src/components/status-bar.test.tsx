@@ -416,7 +416,7 @@ describe("StatusBar (260814-ldbs)", () => {
       const onOpenCompose = vi.fn();
       // The preference is on by default; seed the explicit opt-out so the
       // chip's pressed state has an "off" to mirror.
-      localStorage.setItem("runkit-compose-strip", "false");
+      localStorage.setItem("hexokit-compose-strip", "false");
       renderBar({ onOpenCompose });
       const chip = screen.getByTestId("status-bar-compose");
       expect(chip).toHaveAttribute("aria-pressed", "false");

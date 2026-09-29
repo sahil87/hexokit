@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-25T17:39:00Z"}
+{"args":"Popout follow-ups: toggle-on-popped shared close, empty sidebar column in popout, shell dedupe by opener, popped placeholder, single-tile pop out","cmd":"fab-new","event":"command","ts":"2026-09-25T17:39:00Z"}
+{"delta":"+4.5","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-09-25T17:40:30Z"}
+{"delta":"+0.0","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-09-25T17:40:38Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-25T18:17:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-25T18:19:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-25T19:13:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-25T19:19:43Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T19:19:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-25T19:25:35Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-09-25T19:26:05Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-25T19:27:35Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T19:53:56Z"}

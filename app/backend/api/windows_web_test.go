@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -121,7 +122,7 @@ func TestWindowWebAddFull(t *testing.T) {
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusConflict, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "web tabs full (8)") {
+	if !strings.Contains(rec.Body.String(), fmt.Sprintf("web tabs full (%d)", tmux.MaxWebTabs)) {
 		t.Errorf("body = %s, want the cap message", rec.Body.String())
 	}
 }
@@ -138,17 +139,22 @@ func TestWindowWebAddBadTarget(t *testing.T) {
 	}
 }
 
-// The slot gate (^[1-8]$) fires before any tmux call; an out-of-family slot
-// maps ErrWebTabRange to 400; a good select/remove is 200 {"ok":true}.
+// The slot gate (1..tmux.MaxWebTabs) fires before any tmux call; an
+// out-of-family slot maps ErrWebTabRange to 400; a good select/remove is 200
+// {"ok":true}.
 func TestWindowWebRemoveSelect(t *testing.T) {
-	t.Run("slot 9 gated", func(t *testing.T) {
+	t.Run("slot above the cap gated", func(t *testing.T) {
 		called := false
 		prevR, prevS := webRemoveFn, webSelectFn
 		webRemoveFn = func(context.Context, string, string, int) error { called = true; return nil }
 		webSelectFn = func(context.Context, string, string, int) error { called = true; return nil }
 		t.Cleanup(func() { webRemoveFn, webSelectFn = prevR, prevS })
 		router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-		for _, path := range []string{"/api/windows/@5/web/9/remove", "/api/windows/@5/web/9/select"} {
+		over := tmux.MaxWebTabs + 1
+		for _, path := range []string{
+			fmt.Sprintf("/api/windows/@5/web/%d/remove", over),
+			fmt.Sprintf("/api/windows/@5/web/%d/select", over),
+		} {
 			rec := postWebVerb(t, router, path, "")
 			if rec.Code != http.StatusBadRequest {
 				t.Errorf("%s: status = %d, want %d", path, rec.Code, http.StatusBadRequest)
@@ -156,6 +162,20 @@ func TestWindowWebRemoveSelect(t *testing.T) {
 		}
 		if called {
 			t.Error("tmux verb seam called for a gated slot — gate must fire first")
+		}
+	})
+	t.Run("top slot passes the gate", func(t *testing.T) {
+		var gotN int
+		prevR := webRemoveFn
+		webRemoveFn = func(_ context.Context, _, _ string, n int) error { gotN = n; return nil }
+		t.Cleanup(func() { webRemoveFn = prevR })
+		router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+		rec := postWebVerb(t, router, fmt.Sprintf("/api/windows/@5/web/%d/remove", tmux.MaxWebTabs), "")
+		if rec.Code != http.StatusOK {
+			t.Errorf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+		}
+		if gotN != tmux.MaxWebTabs {
+			t.Errorf("remove seam n = %d, want %d", gotN, tmux.MaxWebTabs)
 		}
 	})
 	t.Run("range error is 400", func(t *testing.T) {
@@ -229,13 +249,13 @@ func TestWindowWebAddFamilyReadError(t *testing.T) {
 // body, ErrWebTabRange maps to 400, and a successful move resolves as
 // {"ok":true}.
 func TestWindowWebMove(t *testing.T) {
-	t.Run("slot 9 gated before any tmux call", func(t *testing.T) {
+	t.Run("slot above the cap gated before any tmux call", func(t *testing.T) {
 		called := false
 		prev := webMoveFn
 		webMoveFn = func(context.Context, string, string, int, int) error { called = true; return nil }
 		t.Cleanup(func() { webMoveFn = prev })
 		router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-		rec := postWebVerb(t, router, "/api/windows/@5/web/9/move", `{"to":1}`)
+		rec := postWebVerb(t, router, fmt.Sprintf("/api/windows/@5/web/%d/move", tmux.MaxWebTabs+1), `{"to":1}`)
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 		}
@@ -267,20 +287,20 @@ func TestWindowWebMove(t *testing.T) {
 			t.Error("move seam called for an undecodable body — decode must gate first")
 		}
 	})
-	t.Run("destination outside 1..8 is gated before any tmux call", func(t *testing.T) {
+	t.Run("destination outside the cap is gated before any tmux call", func(t *testing.T) {
 		called := false
 		prev := webMoveFn
 		webMoveFn = func(context.Context, string, string, int, int) error { called = true; return nil }
 		t.Cleanup(func() { webMoveFn = prev })
 		router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-		for _, body := range []string{`{"to":0}`, `{"to":9}`} {
+		for _, body := range []string{`{"to":0}`, fmt.Sprintf(`{"to":%d}`, tmux.MaxWebTabs+1)} {
 			rec := postWebVerb(t, router, "/api/windows/@5/web/2/move", body)
 			if rec.Code != http.StatusBadRequest {
 				t.Errorf("body=%s: status = %d, want %d", body, rec.Code, http.StatusBadRequest)
 			}
 		}
 		if called {
-			t.Error("move seam called for a destination outside 1..8")
+			t.Error("move seam called for a destination outside 1..MaxWebTabs")
 		}
 	})
 	t.Run("success carries n and to", func(t *testing.T) {

@@ -89,6 +89,12 @@ export interface WebFrameEngineHandle {
   find: (query: string, opts: FindOptions) => void;
   stopFind: () => void;
   openDevTools?: () => void;
+  /** Immediate teardown of the frame's content, chrome-initiated: the chrome
+   *  owns the tab family and alone knows when a tab DIES (close, URL-slot
+   *  rewrite) versus the tile merely going away. An engine whose content
+   *  survives unmount (the native engine parks its guest) implements this so
+   *  the dead tab is never retained; engines with nothing to retain omit it. */
+  destroy?: () => void;
 }
 
 /** Props every engine component accepts — the chrome mounts one engine per
@@ -124,6 +130,12 @@ export interface WebFrameEngineProps {
    *  Only engines whose content's keydowns cannot run the predicate at event
    *  time (the native engine) consume it; the iframe engine ignores it. */
   chordTable?: readonly WebChordSpec[];
+  /** The tile's tmux scope (server + window id `@N`) — the native engine
+   *  joins it with the slot `url` into the guest's stable retention identity
+   *  (main prefixes the desktop window + host id from the sender's host view).
+   *  Absent ⇒ the guest never parks: unmount destroys it. The iframe engine
+   *  ignores it. */
+  retentionScope?: { server: string; windowId: string };
 }
 
 /** The modifier + key slice a reclaimed chord carries across the engine

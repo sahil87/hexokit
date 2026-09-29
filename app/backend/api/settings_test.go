@@ -8,16 +8,18 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"rk/internal/daemon"
+	"rk/internal/portpolicy"
 	"rk/internal/settings"
 )
 
 // isolateSettings points settings persistence at a throwaway HOME so the tests
-// neither read nor clobber the developer's real ~/.config/run-kit/config.yaml.
+// neither read nor clobber the developer's real ~/.config/hexokit/config.yaml.
 func isolateSettings(t *testing.T) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
@@ -69,7 +71,7 @@ func TestGetSettings_registryOrderAndDefaults(t *testing.T) {
 
 	entries := getSettingsList(t, router)
 	wantKeys := []string{
-		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host",
+		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host", "port",
 		"instance_name", "auto_name", "cron_ticker", "pr_review_listener", "easter_eggs", "gui.enabled", "gui.wm", "gui.geometry",
 		"tmux_conf",
 		"log_level", "server_colors", "server_flairs", "board_order", "riff_presets",
@@ -99,6 +101,10 @@ func TestGetSettings_registryOrderAndDefaults(t *testing.T) {
 	}
 	if got := byKey["ssh_host"].Value; got != nil {
 		t.Errorf("ssh_host.value = %v, want null", got)
+	}
+	portDefault := strconv.Itoa(portpolicy.DaemonDefault)
+	if e := byKey["port"]; e.Kind != "port" || e.Default != portDefault || e.UI != false || e.Live != false || e.Value != nil {
+		t.Errorf("port entry = %+v, want kind=port default=%s ui=false live=false value=null", e, portDefault)
 	}
 	if got, ok := byKey["server_colors"].Value.(map[string]any); !ok || len(got) != 0 {
 		t.Errorf("server_colors.value = %v, want {}", byKey["server_colors"].Value)

@@ -11,7 +11,7 @@ import { TMUX_SERVER, createSession, killSession, listWindows, stampWebTab } fro
  * `Compose: Toggle` palette action, persisted as a chrome preference and ON BY
  * DEFAULT (only an explicit stored "false" reads off), sending to the LIVE
  * focused pane. The tests in the main describe start from the explicit
- * opt-out — a `beforeEach` seeds `runkit-compose-strip=false` — so their
+ * opt-out — a `beforeEach` seeds `hexokit-compose-strip=false` — so their
  * "enable via the chip" flows stay literal; the nested "on by default"
  * describe drops that seed and proves the default itself (the first-render
  * notice, the desktop first-visit focus landing in the textarea, the
@@ -166,7 +166,7 @@ test.describe("Docked compose strip", () => {
    * 4. Click the chip; assert `aria-pressed="true"`, the textarea is visible and
    *    the tongue is gone.
    * 5. Reload the page; assert the chip is still pressed and the textarea still
-   *    visible (the `runkit-compose-strip` preference was persisted and
+   *    visible (the `hexokit-compose-strip` preference was persisted and
    *    rehydrated).
    * 6. Open the palette (`openPalette`), click `Compose: Toggle`; assert the chip
    *    returns to `aria-pressed="false"`, the textarea is gone and the tongue is
@@ -290,7 +290,7 @@ test.describe("Docked compose strip", () => {
    * shared globally: a draft typed for window A never shows while window B is
    * targeted (the draft does not "travel"), navigating back to A recalls A's
    * draft, and a page reload preserves the draft text (persisted to
-   * localStorage under `runkit-compose-drafts`).
+   * localStorage under `hexokit-compose-drafts`).
    *
    * Steps:
    * 1. Resolve the `cs-alpha` and `cs-bravo` window IDs from the board session.
@@ -977,7 +977,7 @@ test.describe("Docked compose strip", () => {
    * registers as the focused terminal.
    *
    * Steps:
-   * 1. Seed `runkit-compose-strip=true` via an init script; navigate to
+   * 1. Seed `hexokit-compose-strip=true` via an init script; navigate to
    *    `/<server>`; wait for the status bar to report Connected.
    * 2. Assert `compose-tongue` is a descendant of `<footer>` with
    *    `data-state="no-target"` and `role="status"`, reading
@@ -988,7 +988,7 @@ test.describe("Docked compose strip", () => {
   test("an enabled strip with no focused terminal shows the inert no-target tongue at the footer dock", async ({ page }) => {
     test.setTimeout(60_000);
     await page.setViewportSize({ width: 1440, height: 800 });
-    await page.addInitScript(() => localStorage.setItem("runkit-compose-strip", "true"));
+    await page.addInitScript(() => localStorage.setItem("hexokit-compose-strip", "true"));
     await page.goto(`/${TMUX_SERVER}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("status-bar").locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
 
@@ -1012,7 +1012,7 @@ test.describe("Docked compose strip", () => {
    * strip replaces the tongue with that pane as its target.
    *
    * Steps:
-   * 1. Seed `runkit-compose-strip=true` via an init script; navigate to a
+   * 1. Seed `hexokit-compose-strip=true` via an init script; navigate to a
    *    fresh, empty per-run board (`csnt<digits>`); wait for its empty-state
    *    copy ("No panes pinned to this board yet").
    * 2. Assert `compose-tongue` inside `<footer>` has `data-state="no-target"`
@@ -1025,7 +1025,7 @@ test.describe("Docked compose strip", () => {
   test("board route: an empty board shows the no-target tongue; pinning a pane swaps in the expanded strip", async ({ page }) => {
     test.setTimeout(60_000);
     await page.setViewportSize({ width: 1440, height: 800 });
-    await page.addInitScript(() => localStorage.setItem("runkit-compose-strip", "true"));
+    await page.addInitScript(() => localStorage.setItem("hexokit-compose-strip", "true"));
     const board = `csnt${Date.now().toString().slice(-6)}`;
     const alpha = await resolveWindowId(page, BOARD_SESSION, "cs-alpha");
 
@@ -1133,7 +1133,7 @@ test.describe("Docked compose strip", () => {
      *    absent, and `compose-strip-input` becomes `document.activeElement`.
      * 3. Type a marker; assert it is the textarea's value and NOT in the pane.
      * 4. Assert the toast `Compose is on by default — Shift+Ctrl+E hides it`
-     *    is visible, and `runkit-compose-default-notice` is `"1"`.
+     *    is visible, and `hexokit-compose-default-notice` is `"1"`.
      * 5. Reload; assert the textarea is focused again and no toast appears.
      */
     test("a fresh navigation lands focus in the textarea and shows the one-time notice", async ({ page }) => {
@@ -1159,7 +1159,7 @@ test.describe("Docked compose strip", () => {
       expect(tmuxCapture(TERM_SESSION)).not.toContain(marker);
 
       await expect(page.getByText("Compose is on by default — Shift+Ctrl+E hides it")).toBeVisible();
-      expect(await page.evaluate(() => localStorage.getItem("runkit-compose-default-notice"))).toBe("1");
+      expect(await page.evaluate(() => localStorage.getItem("hexokit-compose-default-notice"))).toBe("1");
 
       await page.reload({ waitUntil: "domcontentloaded" });
       await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 15_000 });
@@ -1252,7 +1252,7 @@ test.describe("Docked compose strip", () => {
      * 1. Navigate to the `cat` window; assert the chip is `aria-pressed="true"`
      *    and the textarea is visible.
      * 2. Click the chip; assert the tongue shows and
-     *    `localStorage["runkit-compose-strip"] === "false"`.
+     *    `localStorage["hexokit-compose-strip"] === "false"`.
      * 3. Reload; assert the tongue still shows and the chip reads
      *    `aria-pressed="false"`.
      * 4. Open the palette and click `Compose: Toggle`; assert the textarea is
@@ -1271,7 +1271,7 @@ test.describe("Docked compose strip", () => {
 
       await chip.click();
       await expect(page.getByTestId("compose-tongue")).toBeVisible();
-      expect(await page.evaluate(() => localStorage.getItem("runkit-compose-strip"))).toBe("false");
+      expect(await page.evaluate(() => localStorage.getItem("hexokit-compose-strip"))).toBe("false");
 
       await page.reload({ waitUntil: "domcontentloaded" });
       await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 15_000 });

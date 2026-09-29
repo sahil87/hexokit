@@ -27,7 +27,7 @@ import (
 //
 // wrapper (installed by `run-kit agent setup`), and ALL logic — the
 // comm-validated ancestor walk, the value formatting — lives here in Go where it
-// is testable and tracks the binary on `brew upgrade run-kit`, with no settings
+// is testable and tracks the binary on `brew upgrade hexokit`, with no settings
 // churn and no agent session restarts. The @rk_agent_state VALUE SCHEMA is
 // unchanged, so every reader (internal/tmux, internal/sessions, the frontend) is
 // untouched.
@@ -96,7 +96,7 @@ func newAgentHookCmd(use string) *cobra.Command {
 			"run-kit can show this agent's active/waiting/idle state. This is the " +
 			"stable interface installed by `run-kit agent setup` — the harness config " +
 			"carries only a thin wrapper and all logic lives in the binary, so hook " +
-			"behavior tracks `brew upgrade run-kit` with no settings changes or session " +
+			"behavior tracks `brew upgrade hexokit` with no settings changes or session " +
 			"restarts. It no-ops outside tmux and always exits 0 (a hook must never " +
 			"fail or block the agent).",
 		// Args is deliberately ArbitraryArgs (not ExactArgs(1)): cobra's arg-count

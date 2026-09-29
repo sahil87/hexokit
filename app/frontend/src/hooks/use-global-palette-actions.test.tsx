@@ -248,11 +248,11 @@ describe("useGlobalPaletteActions", () => {
 
     // Defaults: boards/server on, pane/host off.
     act(() => byId.get("panel-toggle-pane")?.onSelect());
-    expect(localStorage.getItem("runkit-sidebar-section-pane")).toBe("true");
-    expect(localStorage.getItem("runkit-sidebar-section-host")).toBeNull();
+    expect(localStorage.getItem("hexokit-sidebar-section-pane")).toBe("true");
+    expect(localStorage.getItem("hexokit-sidebar-section-host")).toBeNull();
 
     act(() => byId.get("panel-toggle-boards")?.onSelect());
-    expect(localStorage.getItem("runkit-sidebar-section-boards")).toBe("false");
+    expect(localStorage.getItem("hexokit-sidebar-section-boards")).toBe("false");
   });
 
   it("Sidebar: Toggle flips the persisted visibility; Sidebar: Focus is the show+focus arm", () => {
@@ -274,9 +274,9 @@ describe("useGlobalPaletteActions", () => {
 
     // Toggle flips the persisted boolean both ways (jsdom default: open).
     act(() => fire("sidebar-toggle"));
-    expect(localStorage.getItem("runkit-sidebar-open")).toBe("false");
+    expect(localStorage.getItem("hexokit-sidebar-open")).toBe("false");
     act(() => fire("sidebar-toggle"));
-    expect(localStorage.getItem("runkit-sidebar-open")).toBe("true");
+    expect(localStorage.getItem("hexokit-sidebar-open")).toBe("true");
 
     // Focus on a visible sidebar routes through the registered row focuser
     // without touching visibility.
@@ -284,15 +284,15 @@ describe("useGlobalPaletteActions", () => {
     const unregister = registerSidebarRowFocuser(focus);
     act(() => fire("sidebar-focus"));
     expect(focus).toHaveBeenCalledOnce();
-    expect(localStorage.getItem("runkit-sidebar-open")).toBe("true");
+    expect(localStorage.getItem("hexokit-sidebar-open")).toBe("true");
 
     // Focus on a hidden sidebar opens it first, then focuses on the deferred
     // frame (the focuser registers on the sidebar's mount).
     focus.mockClear();
     act(() => fire("sidebar-toggle")); // hide
-    expect(localStorage.getItem("runkit-sidebar-open")).toBe("false");
+    expect(localStorage.getItem("hexokit-sidebar-open")).toBe("false");
     act(() => fire("sidebar-focus"));
-    expect(localStorage.getItem("runkit-sidebar-open")).toBe("true");
+    expect(localStorage.getItem("hexokit-sidebar-open")).toBe("true");
     expect(focus).toHaveBeenCalledOnce();
     unregister();
   });
@@ -451,8 +451,11 @@ describe("useGlobalPaletteActions — operator page entries", () => {
     { name: "_rk-operator", hidden: true, windows: [win({ windowId: "@9", name: "operator", role: "operator" })] },
   ];
 
-  function renderWithSessions(sessionsByServer: Map<string, ProjectSession[]>) {
-    mockMatches = [{ params: { server: "srv1" } }];
+  function renderWithSessions(
+    sessionsByServer: Map<string, ProjectSession[]>,
+    matches?: Array<{ params: Record<string, string> }>,
+  ) {
+    mockMatches = matches ?? [{ params: { server: "srv1" } }];
     render(
       <ToastProvider>
         <ChromeProvider>
@@ -508,7 +511,16 @@ describe("useGlobalPaletteActions — operator page entries", () => {
         params: { server: "srv1", window: "@7" },
       }),
     );
-    expect(mockStartOperator).toHaveBeenCalledWith("srv1");
+    expect(mockStartOperator).toHaveBeenCalledWith("srv1", undefined);
+  });
+
+  it("Start operator on a same-server terminal route posts the viewed window", async () => {
+    mockStartOperator.mockResolvedValue({ windowId: "@7", server: "srv1" });
+    renderWithSessions(new Map([["srv1", NO_OPERATOR]]), [{ params: { server: "srv1", window: "@1" } }]);
+
+    act(() => captured.find((a) => a.id === "operator-start")?.onSelect());
+
+    await waitFor(() => expect(mockStartOperator).toHaveBeenCalledWith("srv1", "@1"));
   });
 
   it("lists Operator: Open as tab only while the machine is open with a resolved target, after the pin entry", () => {

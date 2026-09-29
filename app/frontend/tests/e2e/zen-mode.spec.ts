@@ -8,7 +8,7 @@
  * killed in `afterAll`; windows are created per test via `_tmux.newWindow`
  * and resolved through the SSE snapshot (`_ready.resolveWindow`). Desktop
  * viewport (1440×800) — zen is desktop-only. `beforeEach` seeds localStorage
- * `runkit-sidebar-open = "true"` via `page.addInitScript` so the round-trip
+ * `hexokit-sidebar-open = "true"` via `page.addInitScript` so the round-trip
  * test asserts a KNOWN persisted preference survives untouched. The chord
  * resolves on the Linux browser host as `Shift+Control+Enter` (the mac ⇧⌘⏎
  * form is unit-tested in `keybindings.test.ts`). The ⇧⌘⏎ chord fires from the
@@ -29,7 +29,7 @@ const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 // (base shifted tier — the mac ⇧⌘⏎ form is unit-tested in keybindings.test.ts).
 const CHORD_ZEN = "Shift+Control+Enter";
 
-const SIDEBAR_PREF_KEY = "runkit-sidebar-open";
+const SIDEBAR_PREF_KEY = "hexokit-sidebar-open";
 
 const sidebarAside = (page: Page) => page.locator('aside[aria-label="Sidebar"]');
 const topBar = (page: Page) => page.getByRole("banner");
@@ -100,7 +100,7 @@ test.beforeEach(async ({ page }) => {
  * 3. Click into the xterm and press ⇧Ctrl+⏎; assert the top bar and sidebar
  *    hide, the status bar stays visible, and the `status-bar-exit-zen` button
  *    appears.
- * 4. Assert localStorage `runkit-sidebar-open` still reads `"true"` mid-zen.
+ * 4. Assert localStorage `hexokit-sidebar-open` still reads `"true"` mid-zen.
  * 5. Click the exit button; assert top bar + sidebar return, the exit button
  *    disappears, and the preference still reads `"true"`.
  */

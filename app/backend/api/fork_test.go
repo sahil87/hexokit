@@ -87,6 +87,9 @@ func TestForkSuccess(t *testing.T) {
 	if got.RepoRoot != repo {
 		t.Errorf("engine RepoRoot = %q, want the pane cwd %q", got.RepoRoot, repo)
 	}
+	if got.ForkProvider != "claude" {
+		t.Errorf("fork provider = %q", got.ForkProvider)
+	}
 	if got.ResumeSessionRef != testForkRef {
 		t.Errorf("engine ResumeSessionRef = %q, want the resolved uuid %q", got.ResumeSessionRef, testForkRef)
 	}
@@ -176,11 +179,11 @@ func TestForkNoAgentSession(t *testing.T) {
 	}
 }
 
-// TestForkNonClaudeProvider: a well-formed but non-forkable provider is a 404
+// TestForkUnsupportedProvider: a well-formed but non-forkable provider is a 404
 // with a message DISTINCT from the no-agent-session case (the window has an
 // agent session, just not one --fork-session applies to).
-func TestForkNonClaudeProvider(t *testing.T) {
-	sf := &mockSessionFetcher{result: forkSessions("dev", "@7", "w", "codex", testForkRef, gitRepoDir(t))}
+func TestForkUnsupportedProvider(t *testing.T) {
+	sf := &mockSessionFetcher{result: forkSessions("dev", "@7", "w", "gemini", testForkRef, gitRepoDir(t))}
 	engine := &mockRiffEngine{}
 
 	rec := postFork(t, sf, engine, "@7")
@@ -189,7 +192,7 @@ func TestForkNonClaudeProvider(t *testing.T) {
 		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "codex") || strings.Contains(body, "no agent session") {
+	if !strings.Contains(body, "gemini") || strings.Contains(body, "no agent session") {
 		t.Errorf("body = %q, want a provider-specific message distinct from the no-agent-session one", body)
 	}
 	if engine.called {
@@ -305,5 +308,57 @@ func TestForkEngineErrorMapping(t *testing.T) {
 				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.want, rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestForkCodexSuccess(t *testing.T) {
+	repo := gitRepoDir(t)
+	sf := &mockSessionFetcher{result: forkSessions("dev", "@7", "codex-work", "codex", testForkRef, repo)}
+	engine := &mockRiffEngine{}
+	rec := postFork(t, sf, engine, "@7")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	if engine.gotOpts.ForkProvider != "codex" || engine.gotOpts.ResumeSessionRef != testForkRef || engine.gotOpts.RepoRoot != repo || engine.gotOpts.Where != "checkout" {
+		t.Fatalf("unexpected fork options: %+v", engine.gotOpts)
+	}
+}
+
+func TestForkUsesResolvedAgentPaneDirectory(t *testing.T) {
+	for _, provider := range []string{"claude", "codex"} {
+		for _, cwdKind := range []string{"repo", "outside repo", "missing"} {
+			t.Run(provider+"/"+cwdKind, func(t *testing.T) {
+				repo := gitRepoDir(t)
+				agentCwd := repo + "/app/backend"
+				wantStatus := http.StatusOK
+				switch cwdKind {
+				case "outside repo":
+					agentCwd = t.TempDir()
+					wantStatus = http.StatusBadRequest
+				case "missing":
+					agentCwd = ""
+					wantStatus = http.StatusBadRequest
+				}
+				sess := forkSessions("dev", "@7", "work", provider, testForkRef, repo)
+				sess[0].Windows[0].Panes = []tmux.PaneInfo{
+					{PaneID: "%1", IsActive: true, Cwd: repo},
+					{PaneID: "%2", Cwd: agentCwd, AgentProvider: provider, AgentSessionRef: testForkRef},
+				}
+				engine := &mockRiffEngine{}
+				rec := postFork(t, &mockSessionFetcher{result: sess}, engine, "@7")
+				if rec.Code != wantStatus {
+					t.Fatalf("status = %d, want %d; body=%s", rec.Code, wantStatus, rec.Body.String())
+				}
+				if wantStatus != http.StatusOK {
+					if engine.called {
+						t.Fatal("spawn called without a valid agent directory")
+					}
+					return
+				}
+				if engine.gotOpts.RepoRoot != agentCwd || engine.gotOpts.ForkProvider != provider || engine.gotOpts.ResumeSessionRef != testForkRef {
+					t.Fatalf("fork inputs must all come from the agent pane: %+v", engine.gotOpts)
+				}
+			})
+		}
 	}
 }

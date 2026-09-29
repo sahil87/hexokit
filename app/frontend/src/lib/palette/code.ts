@@ -17,6 +17,8 @@
  *  - `Code: Reload Editor`  — code tile open AND a frame is mounted
  *    (`frameMounted`: reachable with a resolved src); reboots the ACTIVE
  *    window's frame via the `reloadNonce` seam — retained frames untouched.
+ *  - `Code: Restart code-server` — code tile open AND code-server unreachable;
+ *    the not-running empty state's Restart button's twin (same client call).
  */
 
 export type CodePaletteAction = {
@@ -28,7 +30,7 @@ export type CodePaletteAction = {
 
 export type CodePaletteOptions = {
   /** The resolved layout includes the code tile (the caller reads
-   *  `layout.order.includes("code")`). */
+   *  `leaves(layout).includes("code")`). */
   codeTileOpen: boolean;
   /** `codeRootFollowTarget(effectiveWindow)` — the drift target (derived
    *  `gitRoot`), or null when the roots agree or either is empty. */
@@ -39,6 +41,10 @@ export type CodePaletteOptions = {
   onFollowTerminal: () => void;
   /** The header verb's body — bumps the active frame's reload nonce. */
   onReload: () => void;
+  /** The code-server reachability probe reports down (the empty state shows). */
+  unreachable: boolean;
+  /** The empty state's Restart button body — POSTs the restart route. */
+  onRestartServer: () => void;
 };
 
 /** Build the `Code:` entries for the current code-tile state. */
@@ -60,6 +66,13 @@ export function buildCodeActions(opts: CodePaletteOptions): CodePaletteAction[] 
       id: "code-reload-editor",
       label: "Code: Reload Editor",
       onSelect: opts.onReload,
+    });
+  }
+  if (opts.unreachable) {
+    actions.push({
+      id: "code-restart-server",
+      label: "Code: Restart code-server",
+      onSelect: opts.onRestartServer,
     });
   }
   return actions;

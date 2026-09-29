@@ -14,7 +14,7 @@ import (
 // XDG_STATE_HOME with the given tab/server/pid/stamp.
 func writeHostRecord(t *testing.T, stateHome, hostID, tab, server string, pid int, startedAt string) {
 	t.Helper()
-	dir := filepath.Join(stateHome, "run-kit", "cb", "hosts")
+	dir := filepath.Join(stateHome, "hexokit", "cb", "hosts")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func writeHostRecord(t *testing.T, stateHome, hostID, tab, server string, pid in
 // XDG_STATE_HOME with the given tab/server/pid/stamp.
 func writeBootMarker(t *testing.T, stateHome, hostID, tab, server string, pid int, startedAt string) {
 	t.Helper()
-	dir := filepath.Join(stateHome, "run-kit", "cb", "boots")
+	dir := filepath.Join(stateHome, "hexokit", "cb", "boots")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestCodeBridgeInstalledFromExtensionsDir(t *testing.T) {
 }
 
 func TestCodeBridgeMissingHostsDir(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir()) // no run-kit/cb/hosts at all
+	t.Setenv("XDG_STATE_HOME", t.TempDir()) // no hexokit/cb/hosts at all
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 

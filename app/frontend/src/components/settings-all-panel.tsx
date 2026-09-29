@@ -31,8 +31,8 @@ import { GuiWMPicker } from "@/components/gui-wm-picker";
  */
 
 /** The fixed config-root path — displayable as a constant because Phase 1
- *  pinned the root (`~/.config/run-kit/`); no API resolves it. */
-const CONFIG_YAML_PATH = "~/.config/run-kit/config.yaml";
+ *  pinned the root (`~/.config/hexokit/`); no API resolves it. */
+const CONFIG_YAML_PATH = "~/.config/hexokit/config.yaml";
 
 function titleCase(s: string): string {
   return s.length === 0 ? s : s.charAt(0).toUpperCase() + s.slice(1);

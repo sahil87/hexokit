@@ -440,7 +440,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
    * rows, horizontal first), the overflowed ▦ Layout chip's
    * `Layout: Single` radio row (one row per arity-valid shape; this 1-tile
    * window has just the one), the menuOnly trio's rows, and the relocated
-   * App-section chrome rows (Help — run-kit docs, Keyboard shortcuts; the
+   * App-section chrome rows (Help — HexoKit docs, Keyboard shortcuts; the
    * Theme… row is gone — theme switching lives in the settings dialog and
    * the palette), plus the always-present version row — grouped under the
    * View / Tab / App uppercase section labels. The TILES section is ABSENT
@@ -453,7 +453,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
    * 1. At 375px open the `More controls` menu.
    * 2. Assert the Split horizontal / Split vertical / `Layout: Single`
    *    (radio) / Fixed width (checkbox) / Terminal font (stepper group) /
-   *    Close pane rows are present, plus a `RunKit` version row; assert NO
+   *    Close pane rows are present, plus a `HexoKit` version row; assert NO
    *    `Tiles` section label and NO `Terminal tile` checkbox row (the
    *    mobile switch mode registers no menu rows); assert the View / Tab /
    *    App section labels render; assert the Help / Keyboard shortcuts rows
@@ -507,12 +507,12 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     // in the settings dialog, 260724-6j1v), and so does Theme… — theme
     // switching lives in the settings dialog's inline picker and the palette
     // (260819-qkow).
-    await expect(menu.getByRole("menuitem", { name: /Help — run-kit docs/ })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: /Help — HexoKit docs/ })).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: "Keyboard shortcuts" })).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: /Theme…/ })).toHaveCount(0);
     await expect(menu.getByRole("menuitem", { name: /notification/i })).toHaveCount(0);
-    // The fixed version row is always present (plain `RunKit` or `RunKit v…`).
-    await expect(menu.getByRole("menuitem", { name: /RunKit/ })).toBeVisible();
+    // The fixed version row is always present (plain `HexoKit` or `HexoKit v…`).
+    await expect(menu.getByRole("menuitem", { name: /^HexoKit(\s|$)/ })).toBeVisible();
   });
 
   /**
@@ -567,7 +567,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     expect(tileBox.x, "toggle group left of the ▦ Layout chip").toBeLessThan(layoutBox.x);
     // …but never the demoted set (split included) nor the chrome rows.
     expect(await inBarCount(page, MENU_ONLY)).toBe(0);
-    expect(await inBarCount(page, ["Help — run-kit docs", "Keyboard shortcuts"])).toBe(0);
+    expect(await inBarCount(page, ["Help — HexoKit docs", "Keyboard shortcuts"])).toBe(0);
     // The Settings gear IS in-bar (a real fit candidate), immediately left of
     // the chevron (Refresh · Gear · chevron order).
     const gear = byRoleName(page, "Open settings");
@@ -584,7 +584,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     await expect(menu.getByRole("menuitemcheckbox", { name: /Fixed width/ })).toBeVisible();
     await expect(menu.getByRole("group", { name: "Terminal font size" })).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: "Close pane" })).toBeVisible();
-    await expect(menu.getByRole("menuitem", { name: /Help — run-kit docs/ })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: /Help — HexoKit docs/ })).toBeVisible();
     await expect(menu.getByRole("menuitem", { name: "Keyboard shortcuts" })).toBeVisible();
     // The split rows are menuOnly in terminal mode (260813-w1lf) — ALWAYS in
     // the menu, wide width included (the mobile path + muscle-memory fallback).
@@ -622,8 +622,8 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     await expect(menu).toBeVisible();
 
     // Help — an external-link row (never unloads the live dashboard).
-    const help = menu.getByRole("menuitem", { name: /Help — run-kit docs/ });
-    await expect(help).toHaveAttribute("href", "https://shll.ai/run-kit");
+    const help = menu.getByRole("menuitem", { name: /Help — HexoKit docs/ });
+    await expect(help).toHaveAttribute("href", "https://hexokit.com/docs/");
     await expect(help).toHaveAttribute("target", "_blank");
     await expect(help).toHaveAttribute("rel", /noopener/);
 
@@ -643,8 +643,8 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
    * Steps:
    * 1. Grant clipboard permissions; open the menu at 375px.
    * 2. Read the version row's text; click it.
-   * 3. If the row shows `RunKit v…` (a version was reported), assert the
-   *    clipboard holds the `v…` form; if it is the plain `RunKit` (no
+   * 3. If the row shows `HexoKit v…` (a version was reported), assert the
+   *    clipboard holds the `v…` form; if it is the plain `HexoKit` (no
    *    version yet), the copy is a no-op and the clipboard assertion is
    *    skipped.
    */
@@ -658,15 +658,15 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
 
     await page.getByRole("button", { name: "More controls" }).click();
     const menu = page.getByRole("menu", { name: "More controls" });
-    const versionRow = menu.getByRole("menuitem", { name: /RunKit/ });
+    const versionRow = menu.getByRole("menuitem", { name: /^HexoKit(\s|$)/ });
     await expect(versionRow).toBeVisible();
     const rowText = (await versionRow.textContent())?.trim() ?? "";
     await versionRow.click();
 
-    // If the daemon reported a version (`RunKit v…`), the clipboard holds the
-    // displayed `v…` form. If it is the plain `RunKit` (no version yet), the row
+    // If the daemon reported a version (`HexoKit v…`), the clipboard holds the
+    // displayed `v…` form. If it is the plain `HexoKit` (no version yet), the row
     // is a no-op copy — skip the clipboard assertion in that case.
-    if (/^RunKit v/.test(rowText)) {
+    if (/^HexoKit v/.test(rowText)) {
       const copied = await page.evaluate(() => navigator.clipboard.readText());
       expect(copied).toMatch(/^v?\d/);
     }
@@ -922,7 +922,7 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
    * Proves: the palette is a fully functional lens switcher at a WIDE width
    * — the distinguishing case (the bar has room, yet the menu holds no
    * `View:` rows): running the palette's `View: Web` action switches the
-   * lens (the selection becomes a `single:web` layout through the shared
+   * lens (the selection becomes a single-tile `web` layout through the shared
    * mutation path, POSTed to the window's `@rk_win_layout` option — the URL
    * stays bare).
    *
@@ -930,7 +930,7 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
    * 1. Navigate to the web-capable window; set 1440×800; gate on the
    *    renamable heading.
    * 2. Open the palette (`openPalette`); fill `View: Web`; click the `View: Web` option.
-   * 3. Assert the window's `@rk_win_layout` option reads `single:web` and
+   * 3. Assert the window's `@rk_win_layout` option reads `web` (the tree form) and
    *    the proxied iframe (`title="Proxied content"`) renders.
    */
   test("a palette `View:` action switches the lens — even at a wide width", async ({
@@ -944,7 +944,7 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     await expect(heading).toBeVisible({ timeout: 10_000 });
 
     // The command palette's `View: Web` action switches the lens: the selection
-    // becomes a `single:web` layout POSTed to the shared option (the URL never
+    // becomes a single-tile `web` layout POSTed to the shared option (the URL never
     // carries it).
     const paletteInput = await openPalette(page);
     await paletteInput.fill("View: Web");
@@ -953,7 +953,7 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     await webOption.click();
     await expect
       .poll(() => windowOption(viewWindowId, "@rk_win_layout"), { timeout: 10_000 })
-      .toBe("single:web");
+      .toBe("web");
     expect(new URL(page.url()).search).toBe("");
     await expect(page.getByTitle("Proxied content")).toBeVisible({ timeout: 10_000 });
   });

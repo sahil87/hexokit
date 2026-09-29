@@ -25,7 +25,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # socket SUB-family (${E2E_TMUX_FAMILY}w<i>-) and its backend's allowlist is
 # that sub-family, so rig A's server list never shows rig B's sessions — the
 # SSE cross-talk that forces the single-rig lane serial. The extra rigs take
-# the next port triples (+3 per rig) inside the 3400–3699 block; those
+# the next port triples (+3 per rig) inside the rig block (E2E_RIG_START –
+# E2E_RIG_END); those
 # triples belong to OTHER worktrees' derivations on a shared dev box, which
 # is why this lane is meant for CI (one worktree per VM).
 E2E_WORKERS="${RK_E2E_WORKERS:-1}"
@@ -42,10 +43,11 @@ if [ "${RK_E2E_LANE:-web}" = desktop ]; then
 else
   PLAYWRIGHT_DIR="app/frontend"
 fi
-# The rig table wraps inside a 100-triple block (see the rig loop below), so
-# more rigs than triples would alias rig 100 onto rig 0's ports undetected.
-if [ "$E2E_WORKERS" -gt 100 ]; then
-  echo "ERROR: RK_E2E_WORKERS=$E2E_WORKERS exceeds the 100 port triples of the e2e block (3400-3699); one rig per triple." >&2
+# The rig table wraps inside the rig block's triples (see the rig loop
+# below), so more rigs than triples would alias a rig onto rig 0's ports
+# undetected.
+if [ "$E2E_WORKERS" -gt "$E2E_RIG_TRIPLES" ]; then
+  echo "ERROR: RK_E2E_WORKERS=$E2E_WORKERS exceeds the $E2E_RIG_TRIPLES port triples of the e2e block ($E2E_RIG_START-$E2E_RIG_END); one rig per triple." >&2
   exit 1
 fi
 
@@ -100,11 +102,11 @@ without_lock_fd() {
 
 # Hermetic per-run state: the backend's disk carve-outs (layout snapshots, the
 # PR-status seed cache) land under this temp dir instead of the developer's
-# real $XDG_STATE_HOME/run-kit, and the EXIT trap removes it. The config root
+# real $XDG_STATE_HOME/hexokit, and the EXIT trap removes it. The config root
 # is isolated too: RK_CONFIG_DIR (exported to the backend launch and the
 # playwright run below) points settings reads/writes at the per-run
 # $E2E_STATE_HOME/config instead of the developer's real
-# ~/.config/run-kit/config.yaml, so parallel worktree runs cannot race on it.
+# ~/.config/hexokit/config.yaml, so parallel worktree runs cannot race on it.
 # Specs that touch the file keep their snapshot/restore pattern as the
 # fallback for the interactive `just pw` lane, which sets no RK_CONFIG_DIR.
 E2E_STATE_HOME="$(mktemp -d)"
@@ -209,10 +211,10 @@ sleep 1
 _steps=0
 # Step forward by 3 only when a derived port is STILL busy after the kill —
 # an unkillable foreign owner (e.g. another user's process); a port this
-# worktree owns dies to the kill above. Bounded to the 3400–3699 block.
+# worktree owns dies to the kill above. Bounded to the rig block.
 while triple_busy; do
-  if [ $(( E2E_PORT + 3 + 2 )) -gt 3699 ] || [ "$_steps" -ge 20 ]; then
-    echo "ERROR: no free port triple in the e2e block (3400-3699); set RK_E2E_PORT explicitly." >&2
+  if [ $(( E2E_PORT + 3 + 2 )) -gt "$E2E_RIG_END" ] || [ "$_steps" -ge 20 ]; then
+    echo "ERROR: no free port triple in the e2e block ($E2E_RIG_START-$E2E_RIG_END); set RK_E2E_PORT explicitly." >&2
     exit 1
   fi
   E2E_PORT=$(( E2E_PORT + 3 ))
@@ -248,20 +250,20 @@ if [ "$E2E_WORKERS" -eq 1 ]; then
 else
   for (( i=0; i<E2E_WORKERS; i++ )); do
     # Rig i takes the i-th triple after the derived one, WRAPPING inside the
-    # 100-triple 3400–3699 block so a worktree that hashes to the last triple
-    # still gets a valid rig 1 (3697 → 3400), rather than falling off the end.
-    # A preset RK_E2E_PORT outside (or misaligned inside) the block is the
-    # caller's range: plain +3 per rig there.
+    # rig block so a worktree that hashes to the last triple still gets a
+    # valid rig 1 (last triple → block start), rather than falling off the
+    # end. A preset RK_E2E_PORT outside (or misaligned inside) the block is
+    # the caller's range: plain +3 per rig there.
     if [ "$i" -eq 0 ]; then
       _rig_port="$E2E_PORT"
-    elif [ "$E2E_PORT" -ge 3400 ] && [ "$E2E_PORT" -le 3697 ] && [ $(( (E2E_PORT - 3400) % 3 )) -eq 0 ]; then
-      _rig_port=$(( 3400 + ( ( (E2E_PORT - 3400) / 3 + i ) % 100 ) * 3 ))
+    elif [ "$E2E_PORT" -ge "$E2E_RIG_START" ] && [ "$E2E_PORT" -le $(( E2E_RIG_END - 2 )) ] && [ $(( (E2E_PORT - E2E_RIG_START) % 3 )) -eq 0 ]; then
+      _rig_port=$(( E2E_RIG_START + ( ( (E2E_PORT - E2E_RIG_START) / 3 + i ) % E2E_RIG_TRIPLES ) * 3 ))
     else
       _rig_port=$(( E2E_PORT + 3 * i ))
     fi
     if [ "$i" -gt 0 ]; then
       # Rig 0's triple was reclaimed above because it is this worktree's by
-      # construction. The extra triples are NOT: in the 3400–3699 block they
+      # construction. The extra triples are NOT: in the rig block they
       # are other worktrees' derived triples, so nothing here may kill a
       # listener on them — a busy extra triple is a foreign owner (or a
       # sibling's live rig) and the run fails loud instead. On CI (one
@@ -397,8 +399,8 @@ else
   (cd "$REPO_ROOT/app/backend" && go build -o "$E2E_STATE_HOME/rk" ./cmd/rk)
   for (( i=0; i<E2E_WORKERS; i++ )); do
     _p="${RIG_PORT[$i]}"; _f="${RIG_FAMILY[$i]}"; _s="${RIG_STATE[$i]}"
-    spawn_group "cd $REPO_ROOT/app/backend && RK_PORT=$(( _p + 1 )) RK_HOST=0.0.0.0 LOG_LEVEL=debug RK_SERVER_ALLOWLIST=$_f E2E_TMUX_FAMILY=$_f RK_CODE_SERVER_PORT=${RIG_CODE_PORT[$i]} XDG_STATE_HOME=$_s XDG_DATA_HOME=$_s/data RK_CONFIG_DIR=$_s/config exec $E2E_STATE_HOME/rk"
-    spawn_group "cd $REPO_ROOT/app/frontend && RK_PORT=$_p RK_HOST=0.0.0.0 VITE_CACHE_DIR=$_s/vite exec pnpm dev --port $_p"
+    spawn_group "cd $REPO_ROOT/app/backend && RK_PORT=$(( _p + 1 )) RK_HOST=127.0.0.1 LOG_LEVEL=debug RK_SERVER_ALLOWLIST=$_f E2E_TMUX_FAMILY=$_f RK_CODE_SERVER_PORT=${RIG_CODE_PORT[$i]} XDG_STATE_HOME=$_s XDG_DATA_HOME=$_s/data RK_CONFIG_DIR=$_s/config exec $E2E_STATE_HOME/rk"
+    spawn_group "cd $REPO_ROOT/app/frontend && RK_PORT=$_p RK_HOST=127.0.0.1 VITE_CACHE_DIR=$_s/vite exec pnpm dev --port $_p"
   done
 fi
 
@@ -445,8 +447,8 @@ E2E_RIGS+="]"
 # args ("$@") to playwright so callers can scope the run (e.g. `just test-e2e
 # mobile-layout`) against the same seeded test server. Playwright reads the
 # base port from E2E_PORT — a variable only the harness sets (ambient direnv
-# exports RK_PORT, so a spec-side RK_PORT read would defeat the :3333
-# fail-closed fallback on a bare `playwright test`); RK_PORT is still passed
+# exports RK_PORT, so a spec-side RK_PORT read would defeat the :21999
+# fail-closed sentinel on a bare `playwright test`); RK_PORT is still passed
 # for any non-Playwright reader in the child env. XDG_STATE_HOME is forwarded
 # so a spec can write into the SAME per-run state home the backend reads
 # (e.g. a fake code-bridge host record under run-kit/cb/hosts/).

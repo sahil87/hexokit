@@ -38,7 +38,7 @@ import { zoomedHostSize } from "@/lib/gui-posture";
  *   status document's `wm_hint` install line (fetched ONCE per bare
  *   transition, the reason-fetch grammar), a Copy of the line, the empty
  *   state's Restart supervisor action, and a per-viewer dismiss
- *   (`runkit-gui-wm-strip-dismissed`, cleared whenever `wm` turns non-empty).
+ *   (`hexokit-gui-wm-strip-dismissed`, cleared whenever `wm` turns non-empty).
  * - **Connection lifecycle**: connect/disconnect report through
  *   `onConnectionChange` (the top-bar dot). An RFB disconnect while
  *   `reachable` stays true re-dials on a 1s→2s→4s→8s backoff (reset on

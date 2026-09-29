@@ -120,7 +120,7 @@ export function ServerPanel({
   return (
     <CollapsiblePanel
       title="Servers"
-      storageKey="runkit-panel-server"
+      storageKey="hexokit-panel-server"
       defaultOpen={true}
       onToggle={handleToggle}
       headerRight={headerRight}

@@ -427,7 +427,7 @@ describe("RowFlyout card content", () => {
 });
 
 describe("Fork action row (260806-s4av)", () => {
-  // The fork action row is DOUBLE-gated: the window must carry a claude agent
+  // The fork action row is DOUBLE-gated: the window must carry a supported agent
   // session AND the consumer must have wired a handler. Both halves are asserted, plus
   // the stopPropagation contract (forking must never also select the row) and
   // the in-flight guard (the POST creates a tmux window, so N clicks would
@@ -468,8 +468,8 @@ describe("Fork action row (260806-s4av)", () => {
     expect(screen.getByTestId("row-flyout-docs-link")).toBeInTheDocument();
   });
 
-  it("is absent for a non-claude provider (fork is a Claude Code mechanism)", () => {
-    render(<Row win={makeWindow({ agentProvider: "codex" })} onFork={forkResolved()} />);
+  it("is absent for an unsupported provider", () => {
+    render(<Row win={makeWindow({ agentProvider: "gemini" })} onFork={forkResolved()} />);
     hoverOpen();
     expect(screen.queryByTestId("row-flyout-fork-action")).toBeNull();
   });
@@ -480,10 +480,10 @@ describe("Fork action row (260806-s4av)", () => {
     expect(screen.queryByTestId("row-flyout-fork-action")).toBeNull();
   });
 
-  it("clicking calls the handler and does not bubble to the row", () => {
+  it.each(["claude", "codex"])("%s fork calls the handler and does not bubble to the row", (agentProvider) => {
     const onFork = forkResolved();
     const onRowClick = vi.fn();
-    render(<Row win={makeWindow({ agentProvider: "claude" })} onFork={onFork} onRowClick={onRowClick} />);
+    render(<Row win={makeWindow({ agentProvider })} onFork={onFork} onRowClick={onRowClick} />);
     hoverOpen();
 
     act(() => {
@@ -530,9 +530,10 @@ describe("Fork action row (260806-s4av)", () => {
     expect(screen.getByTestId("row-flyout-fork-action")).toBeEnabled();
   });
 
-  it("canForkWindow gates on the claude provider exactly", () => {
+  it("canForkWindow supports Claude and Codex", () => {
     expect(canForkWindow(makeWindow({ agentProvider: "claude" }))).toBe(true);
-    expect(canForkWindow(makeWindow({ agentProvider: "codex" }))).toBe(false);
+    expect(canForkWindow(makeWindow({ agentProvider: "codex" }))).toBe(true);
+    expect(canForkWindow(makeWindow({ agentProvider: "gemini" }))).toBe(false);
     expect(canForkWindow(makeWindow({}))).toBe(false);
   });
 });
