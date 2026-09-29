@@ -79,7 +79,7 @@ Wait for the worker's question (`rk mux await` / `rk mux capture`; don't narrate
 rk present "$RK/tutorial/tutorial.html#ch5"
 ```
 
-Three closers, user-driven. **Phone**: same address, any device — offer `rk notify "open me on your phone" --title run-kit` (fail-silent if unsubscribed); the pull-tab **tongue** under the top bar jumps to the operator. **Habit pair**: **⌘J to ask, ⌘K to find** (⇧Ctrl+J / ⇧Ctrl+K) — have them try ⌘K: `color`, then `settings`; every action lives there. **Challenge**: start one real agent on something they actually want — ⌘J the operator ("Start a claude session on <repo>") — phrase included. Engineers: `rk skill` (+ `display`, `mux`, `code`).
+Three closers, user-driven. **Phone**: same address, any device — offer `rk notify "open me on your phone" --title HexoKit` (fail-silent if unsubscribed); the pull-tab **tongue** under the top bar jumps to the operator. **Habit pair**: **⌘J to ask, ⌘K to find** (⇧Ctrl+J / ⇧Ctrl+K) — have them try ⌘K: `color`, then `settings`; every action lives there. **Challenge**: start one real agent on something they actually want — ⌘J the operator ("Start a claude session on <repo>") — phrase included. Engineers: `rk skill` (+ `display`, `mux`, `code`).
 
 ## Cleanup and recap
 

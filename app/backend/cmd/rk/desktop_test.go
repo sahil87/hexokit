@@ -599,11 +599,11 @@ func writeLinuxFixtureTree(t *testing.T, dir, version string) {
 		}
 	}
 	mk("AppRun", "#!/bin/sh\nexit 0\n", 0o755)
-	mk("run-kit-desktop", "fake-elf", 0o755)
+	mk("hexokit-desktop", "fake-elf", 0o755)
 	mk(filepath.Join("resources", "app.asar"), "fake-asar", 0o644)
-	mk("run-kit-desktop.desktop",
+	mk("hexokit-desktop.desktop",
 		"[Desktop Entry]\nName=HexoKit\nExec=AppRun --no-sandbox %U\nX-AppImage-Version="+version+"\n", 0o644)
-	mk(filepath.Join("usr", "share", "icons", "hicolor", "1024x1024", "apps", "run-kit-desktop.png"), "fake-png", 0o644)
+	mk(filepath.Join("usr", "share", "icons", "hicolor", "1024x1024", "apps", "hexokit-desktop.png"), "fake-png", 0o644)
 }
 
 // linuxDesktopReleaseServer serves a latest-release document with
@@ -711,7 +711,7 @@ func TestDesktopLinuxInstallUpdateStatus(t *testing.T) {
 		t.Errorf("current -> %q (%v), want 3.21.0", target, err)
 	}
 	// Desktop integration landed under the pinned home.
-	if _, err := os.Stat(filepath.Join(home, ".local", "share", "applications", "run-kit-desktop.desktop")); err != nil {
+	if _, err := os.Stat(filepath.Join(home, ".local", "share", "applications", "hexokit-desktop.desktop")); err != nil {
 		t.Errorf("launcher entry missing: %v", err)
 	}
 
@@ -793,7 +793,7 @@ func TestDesktopLinuxUninstall(t *testing.T) {
 	if _, err := os.Stat(root); !os.IsNotExist(err) {
 		t.Error("install root still present after uninstall")
 	}
-	if _, err := os.Lstat(filepath.Join(home, ".local", "bin", "run-kit-desktop")); !os.IsNotExist(err) {
+	if _, err := os.Lstat(filepath.Join(home, ".local", "bin", "hexokit-desktop")); !os.IsNotExist(err) {
 		t.Error("bin symlink still present after uninstall")
 	}
 }

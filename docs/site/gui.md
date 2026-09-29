@@ -1,6 +1,6 @@
 # GUI — the host's desktop in a tile
 
-> [← Back to the README](https://github.com/sahil87/run-kit/blob/main/README.md)
+> [← Back to the README](https://github.com/sahil87/hexokit/blob/main/README.md)
 
 ## What it is
 

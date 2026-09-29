@@ -137,7 +137,7 @@ async function mockBackend(page: Page): Promise<void> {
 // sidebar open it is the sidebar head's anchor over the bar's left end;
 // otherwise it is the breadcrumb nav's root crumb. Selecting by label keeps
 // this helper true in both positions.
-const brand = (page: Page) => page.getByLabel("RunKit home");
+const brand = (page: Page) => page.getByLabel("HexoKit home");
 
 test.describe("TopBar persistence across routes (260707-4vq2)", () => {
   test.beforeEach(async ({ page }) => {
@@ -152,14 +152,14 @@ test.describe("TopBar persistence across routes (260707-4vq2)", () => {
    * lazy chunk loads.
    *
    * Steps:
-   * 1. `goto("/")`; assert the solo `Host` heading and the `RunKit home`
+   * 1. `goto("/")`; assert the solo `Host` heading and the `HexoKit home`
    *    brand link are visible.
    * 2. Click the `spare` server tile (scoped to the "Tmux servers" region;
    *    `spare` has no sessions, so the switch resolves no landing window —
    *    see the header note). Assert URL `/spare`, heading
    *    `tmux Server spare`, brand link visible, and the previous `Host`
    *    heading is gone (count 0 — the mode is route-derived, not stacked).
-   * 3. (Reload boundary) Click the `RunKit home` brand link — a full
+   * 3. (Reload boundary) Click the `HexoKit home` brand link — a full
    *    document reload, not client-side nav. Assert URL `/`, the
    *    persistent-layout chrome remounts with the `Host` heading, brand
    *    crumb visible, and the `tmux Server spare` heading gone.

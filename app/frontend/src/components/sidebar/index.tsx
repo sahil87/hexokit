@@ -1712,8 +1712,8 @@ export function Sidebar({
           sidebar is open (and in the bar's left crumb while it is closed), so
           the row is not rendered and the section rail is the sidebar's first
           row. Carries the same glitch + ring-sweep hover treatments.
-          Accessible name comes from the wordmark text ("RunKit") —
-          deliberately NOT the top-bar's "RunKit home" aria-label, which e2e
+          Accessible name comes from the wordmark text ("HexoKit") —
+          deliberately NOT the top-bar's "HexoKit home" aria-label, which e2e
           selects by label and must stay unique on desktop. */}
       {isMobile && <SidebarBrand />}
 
@@ -2066,7 +2066,7 @@ function SidebarBrand() {
       onMouseEnter={sweep.onMouseEnter}
     >
       <LogoSpinner size={18} loading={false} svgRef={sweep.svgRef} />
-      <span className="text-xs font-bold tracking-wide">RunKit</span>
+      <span className="text-xs font-bold tracking-wide">HexoKit</span>
     </a>
   );
 }
@@ -2081,7 +2081,7 @@ function SidebarFooter({ isConnected }: { isConnected: boolean }) {
   const dotTitle = !isConnected
     ? "Disconnected"
     : daemonVersion
-      ? `Connected — run-kit ${displayVersion(daemonVersion)}`
+      ? `Connected — HexoKit ${displayVersion(daemonVersion)}`
       : "Connected";
 
   const versionText = daemonVersion ? displayVersion(daemonVersion) : null;
@@ -2123,7 +2123,7 @@ function SidebarFooter({ isConnected }: { isConnected: boolean }) {
             <button
               type="button"
               onClick={handleCopyVersion}
-              aria-label={`RunKit ${versionText} (copy)`}
+              aria-label={`HexoKit ${versionText} (copy)`}
               className="text-[10px] text-text-secondary hover:text-text-primary transition-colors truncate"
             >
               {versionText}

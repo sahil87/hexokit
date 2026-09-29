@@ -30,7 +30,7 @@ command -v rk >/dev/null 2>&1 && [ -n "$TMUX_PANE" ] || exit 0
 
 If either check fails, skip every HexoKit step silently. Never error, never warn — fall back to describing output in text.
 
-> `rk` is the short alias; `run-kit` is the full binary name. Both work everywhere.
+> `rk` is the short alias; `hexokit` is the full binary name. Both work everywhere.
 
 ## Capabilities
 

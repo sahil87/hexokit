@@ -1,11 +1,11 @@
-// RunKit service worker — Web Push delivery.
+// HexoKit service worker — Web Push delivery.
 //
 // Served at the origin root (/sw.js) so its scope covers the whole app. It is
 // registered on app load (see src/lib/push.ts). Web Push requires a secure
 // context (HTTPS or localhost); registration is skipped silently otherwise.
 
 const DEFAULT_ICON = "/generated-icons/icon-192.png";
-const DEFAULT_TITLE = "RunKit";
+const DEFAULT_TITLE = "HexoKit";
 
 // Normalize an untrusted deep-link value to a same-origin path, else "/".
 // Accepts only strings starting with "/" but not "//" (a protocol-relative
@@ -54,7 +54,7 @@ self.addEventListener("push", (event) => {
   );
 });
 
-// `notificationclick`: focus an already-open RunKit tab and navigate it to the
+// `notificationclick`: focus an already-open HexoKit tab and navigate it to the
 // notification's deep-link target if one exists; otherwise open a new window at
 // that target (falling back to the app root when no target was carried).
 self.addEventListener("notificationclick", (event) => {

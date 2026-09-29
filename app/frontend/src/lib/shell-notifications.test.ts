@@ -166,7 +166,7 @@ describe("shell notifications", () => {
     vi.spyOn(window, "focus").mockImplementation(() => {});
 
     expect(showShellNotification(null, navigate)).toBe(true);
-    expect(notifications[0].title).toBe("RunKit");
+    expect(notifications[0].title).toBe("HexoKit");
     expect(notifications[0].options?.body).toBe("");
 
     expect(showShellNotification({ id: 9, url: "/default/3" }, navigate)).toBe(true);
@@ -186,7 +186,7 @@ describe("shell notifications", () => {
 
     expect(showShellNotification(payload, vi.fn())).toBe(true);
     expect(notifications).toHaveLength(1);
-    expect(notifications[0].title).toBe("RunKit");
+    expect(notifications[0].title).toBe("HexoKit");
     expect(notifications[0].options?.body).toBe("waiting");
 
     const proxy = new Proxy(
@@ -199,6 +199,6 @@ describe("shell notifications", () => {
     );
     expect(showShellNotification(proxy, vi.fn())).toBe(true);
     expect(notifications).toHaveLength(2);
-    expect(notifications[1].title).toBe("RunKit");
+    expect(notifications[1].title).toBe("HexoKit");
   });
 });

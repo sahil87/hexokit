@@ -389,7 +389,7 @@ describe("TopBar", () => {
 
   it("names each crumb's level via a styled Tip — no native title attributes (260722-73al)", () => {
     renderTopBar();
-    const brand = screen.getByLabelText("RunKit home");
+    const brand = screen.getByLabelText("HexoKit home");
     const serverCrumb = getVisibleCrumbText("runkit").closest("a");
     const windowSwitch = screen.getByLabelText("Switch tab");
     // The session crumb is now a NON-interactive static chip (260813-kvk7) — a
@@ -418,9 +418,9 @@ describe("TopBar", () => {
     expect(screen.getByLabelText("tmux Server runkit")).toBeInTheDocument();
   });
 
-  it("renders the brand as the left-most root crumb linking to / (and no right-side RunKit anchor)", () => {
+  it("renders the brand as the left-most root crumb linking to / (and no right-side HexoKit anchor)", () => {
     const { container } = renderTopBar();
-    const brand = screen.getByLabelText("RunKit home");
+    const brand = screen.getByLabelText("HexoKit home");
     expect(brand.tagName).toBe("A");
     expect(brand).toHaveAttribute("href", "/");
     // The brand sits inside the nav's FIRST element child \u2014 the `hidden
@@ -431,7 +431,7 @@ describe("TopBar", () => {
     expect(nav.firstElementChild).toContainElement(brand);
     expect(nav.firstElementChild!.className).toContain("sm:contents");
     // There is exactly ONE anchor to "/" (the left brand) \u2014 the old right-side
-    // RunKit anchor is gone.
+    // HexoKit anchor is gone.
     const homeAnchors = Array.from(container.querySelectorAll('a[href="/"]'));
     expect(homeAnchors).toHaveLength(1);
   });
@@ -517,18 +517,18 @@ describe("TopBar", () => {
 
     it("paints the head over the bar's left end: brand link + toggle inside it, each exactly once in the document", () => {
       const { container } = renderTopBar({ sidebarOpen: true });
-      expect(screen.getAllByLabelText("RunKit home")).toHaveLength(1);
+      expect(screen.getAllByLabelText("HexoKit home")).toHaveLength(1);
       expect(screen.getAllByLabelText("Toggle navigation")).toHaveLength(1);
       const head = headOf(container)!;
       expect(head).not.toBeNull();
-      expect(head).toContainElement(screen.getByLabelText("RunKit home"));
+      expect(head).toContainElement(screen.getByLabelText("HexoKit home"));
       expect(head).toContainElement(screen.getByLabelText("Toggle navigation"));
       // The left cluster carries neither control while the head shows: the
       // history arrows lead it and the nav holds no brand crumb.
       const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
       const cluster = nav.parentElement!;
       expect(cluster).not.toContainElement(screen.getByLabelText("Toggle navigation"));
-      expect(within(nav).queryByLabelText("RunKit home")).not.toBeInTheDocument();
+      expect(within(nav).queryByLabelText("HexoKit home")).not.toBeInTheDocument();
     });
 
     it("yields the head when the bar would keep less than HEAD_MIN_BAR_PX beside it: classic bar, no inset", () => {
@@ -541,7 +541,7 @@ describe("TopBar", () => {
       const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
       const cluster = nav.parentElement!;
       expect(cluster).toContainElement(screen.getByLabelText("Toggle navigation"));
-      expect(within(nav).getByLabelText("RunKit home")).toBeInTheDocument();
+      expect(within(nav).getByLabelText("HexoKit home")).toBeInTheDocument();
       // And the nav keeps its desktop floor.
       expect(nav.className).toContain("sm:min-w-[150px]");
     });
@@ -555,7 +555,7 @@ describe("TopBar", () => {
 
     it("keeps the head's brand link and toggle as real Tab stops (anchor to /, button — no tabIndex removal)", () => {
       renderTopBar({ sidebarOpen: true });
-      const brand = screen.getByLabelText("RunKit home");
+      const brand = screen.getByLabelText("HexoKit home");
       const toggle = screen.getByLabelText("Toggle navigation");
       expect(brand.tagName).toBe("A");
       expect(brand).toHaveAttribute("href", "/");
@@ -605,7 +605,7 @@ describe("TopBar", () => {
       expect(container.querySelector("header")!.style.paddingLeft).toBe("");
       const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
       expect(nav.parentElement!.firstElementChild).toBe(screen.getByLabelText("Toggle navigation"));
-      expect(nav.firstElementChild).toContainElement(screen.getByLabelText("RunKit home"));
+      expect(nav.firstElementChild).toContainElement(screen.getByLabelText("HexoKit home"));
     });
 
     it("renders no head on the Host page even with the sidebar preference open", () => {
@@ -624,7 +624,7 @@ describe("TopBar", () => {
       expect(container.querySelector("header")!.style.paddingLeft).toBe("");
       // The brand stays in the breadcrumb nav (the bar is exactly today's).
       expect(
-        screen.getByLabelText("RunKit home").closest('nav[aria-label="Breadcrumb"]'),
+        screen.getByLabelText("HexoKit home").closest('nav[aria-label="Breadcrumb"]'),
       ).not.toBeNull();
     });
 
@@ -702,7 +702,7 @@ describe("TopBar", () => {
     // bell is gone entirely. (The menu itself mounts only when open.)
     expect(screen.queryByLabelText(/Notifications/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/theme/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Help — run-kit docs")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Help — HexoKit docs")).not.toBeInTheDocument();
     expect(cluster.querySelector('[role="status"]')).toBeNull();
   });
 
@@ -750,12 +750,12 @@ describe("TopBar", () => {
     it("renders the brand link and the surviving L3 always-block (Refresh), without erroring on empty props", () => {
       renderHost();
       // Brand root crumb links home.
-      expect(screen.getByLabelText("RunKit home")).toHaveAttribute("href", "/");
+      expect(screen.getByLabelText("HexoKit home")).toHaveAttribute("href", "/");
       // Refresh is the surviving L3 always-block control; theme + help moved to
       // the sidebar footer (260724-6j1v) and never render in the bar.
       expect(screen.getByLabelText("Refresh page")).toBeInTheDocument();
       expect(screen.queryByLabelText(/theme/i)).not.toBeInTheDocument();
-      expect(screen.queryByLabelText("Help — run-kit docs")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Help — HexoKit docs")).not.toBeInTheDocument();
       // The fixed-width BUTTON is terminal-only now (260704-9o7k).
       expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
     });
@@ -880,9 +880,9 @@ describe("TopBar", () => {
     expect(slotFillOpacity()).toBe("0");
   });
 
-  it("renders 'RunKit' branding text", () => {
+  it("renders 'HexoKit' branding text", () => {
     renderTopBar();
-    expect(screen.getByText("RunKit")).toBeInTheDocument();
+    expect(screen.getByText("HexoKit")).toBeInTheDocument();
   });
 
   it("does not render Line 2 elements", () => {
@@ -1486,12 +1486,12 @@ describe("TopBar", () => {
       // dialog, 260724-6j1v); Theme… is gone too — theme switching lives in
       // the settings dialog's inline picker and the palette (260819-qkow).
       expect(within(menu).getByRole("menuitem", { name: "Settings" })).toBeInTheDocument();
-      expect(within(menu).getByRole("menuitem", { name: /Help — run-kit docs/ })).toBeInTheDocument();
+      expect(within(menu).getByRole("menuitem", { name: /Help — HexoKit docs/ })).toBeInTheDocument();
       expect(within(menu).getByRole("menuitem", { name: /Keyboard shortcuts/ })).toBeInTheDocument();
       expect(within(menu).queryByRole("menuitem", { name: /Theme…/ })).not.toBeInTheDocument();
       expect(within(menu).queryByText("Enable notifications")).not.toBeInTheDocument();
       // The fixed version row is always present (last).
-      expect(within(menu).getByText("RunKit")).toBeInTheDocument();
+      expect(within(menu).getByText("HexoKit")).toBeInTheDocument();
     });
 
     it("groups menu rows under View / Window / App uppercase section labels (260731-oiho)", () => {
@@ -1515,7 +1515,7 @@ describe("TopBar", () => {
       const splitRow = within(menu).getByRole("menuitem", { name: "Split vertical" });
       const refreshRow = within(menu).getByRole("menuitem", { name: "Refresh page" });
       const settingsRow = within(menu).getByRole("menuitem", { name: "Settings" });
-      const helpRow = within(menu).getByRole("menuitem", { name: /Help — run-kit docs/ });
+      const helpRow = within(menu).getByRole("menuitem", { name: /Help — HexoKit docs/ });
       const keyboardRow = within(menu).getByRole("menuitem", { name: /Keyboard shortcuts/ });
       expect(follows(viewLabel, fixedWidthRow)).toBe(true);
       expect(follows(fixedWidthRow, windowLabel)).toBe(true);
@@ -1526,7 +1526,7 @@ describe("TopBar", () => {
       expect(follows(settingsRow, helpRow)).toBe(true);
       expect(follows(helpRow, keyboardRow)).toBe(true);
       // The fixed version row rides the App section's tail.
-      expect(follows(keyboardRow, within(menu).getByText("RunKit"))).toBe(true);
+      expect(follows(keyboardRow, within(menu).getByText("HexoKit"))).toBe(true);
     });
 
     it("renders NO section labels when the menu holds only the version row", () => {
@@ -1544,7 +1544,7 @@ describe("TopBar", () => {
       );
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
-      expect(within(menu).getByText("RunKit")).toBeInTheDocument();
+      expect(within(menu).getByText("HexoKit")).toBeInTheDocument();
       expect(within(menu).queryByText("View", { exact: true })).not.toBeInTheDocument();
       expect(within(menu).queryByText("Tab", { exact: true })).not.toBeInTheDocument();
       expect(within(menu).queryByText("App", { exact: true })).not.toBeInTheDocument();
@@ -1625,11 +1625,11 @@ describe("TopBar", () => {
   });
 
   describe("overflow menu version row (260715-h1ck)", () => {
-    it("shows plain `RunKit` when the daemon version is unknown (no vundefined)", () => {
+    it("shows plain `HexoKit` when the daemon version is unknown (no vundefined)", () => {
       renderTopBar(); // no SessionProvider → daemonVersion null
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
-      const versionRow = within(menu).getByText("RunKit");
+      const versionRow = within(menu).getByText("HexoKit");
       expect(versionRow).toBeInTheDocument();
       expect(within(menu).queryByText(/vundefined/)).not.toBeInTheDocument();
     });
@@ -2260,9 +2260,9 @@ describe("TopBar", () => {
       renderTopBar();
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
-      const help = within(menu).getByRole("menuitem", { name: /Help — run-kit docs/ });
+      const help = within(menu).getByRole("menuitem", { name: /Help — HexoKit docs/ });
       expect(help.tagName).toBe("A");
-      expect(help).toHaveAttribute("href", "https://shll.ai/run-kit");
+      expect(help).toHaveAttribute("href", "https://hexokit.com/docs/");
       expect(help).toHaveAttribute("target", "_blank");
       const rel = help.getAttribute("rel") ?? "";
       expect(rel).toContain("noopener");

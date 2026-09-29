@@ -444,7 +444,7 @@ export function useGlobalPaletteActions(): PaletteAction[] {
   // update chip. Gated on a qualifying pending update (dev version suppressed).
   // Only the Dismiss action remains here (mirroring the chip's `✕` for
   // keyboard users; it deliberately IGNORES chip dismissal — the palette is
-  // deliberate discovery). `run-kit: Update Now` (maintenanceActions) is THE
+  // deliberate discovery). `HexoKit: Update Now` (maintenanceActions) is THE
   // single update action, and version detail lives in the check-result toasts
   // + chip summary. Below `sm` the top-bar cluster is hidden, so the palette
   // is a phone user's only update surface — layout-level so boards get it too.
@@ -462,7 +462,7 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     [updateQualifies, updateTools, dismissUpdate],
   );
 
-  // Check actions — the two on-demand check commands (`run-kit: Check for
+  // Check actions — the two on-demand check commands (`HexoKit: Check for
   // Updates` / `… (incl. patches)`). One POST /api/updates/check, client-side
   // filtering, single result toast (shared flow: useUpdateCheck). Dev-gated
   // inside buildCheckActions, same pattern as the maintenance entries.

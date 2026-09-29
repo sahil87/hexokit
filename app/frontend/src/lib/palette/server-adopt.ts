@@ -1,6 +1,6 @@
 /**
  * Pure builder for the command-palette per-server adopt actions
- * (`Server: Adopt <name> into run-kit`). Follows the
+ * (`Server: Adopt <name> into HexoKit`). Follows the
  * lib/palette/server-protect.ts / server-kill.ts pattern (pure,
  * dependency-free, unit-testable) so the enumeration and label composition
  * are verifiable without mounting the whole shell. The action body is a thin
@@ -18,7 +18,7 @@ import type { PaletteAction } from "@/components/command-palette";
 import { DAEMON_SERVER, type ServerInfo } from "@/api/client";
 
 /**
- * Build one `Server: Adopt <name> into run-kit` palette action per EXTERNAL
+ * Build one `Server: Adopt <name> into HexoKit` palette action per EXTERNAL
  * server (`managed === false`), driven by the server list's `managed` payload
  * flag.
  *
@@ -33,7 +33,7 @@ export function buildServerAdoptActions(
     .filter((s) => s.name !== DAEMON_SERVER && s.managed === false)
     .map((s) => ({
       id: `adopt-server-${s.name}`,
-      label: `Server: Adopt ${s.name} into run-kit`,
+      label: `Server: Adopt ${s.name} into HexoKit`,
       onSelect: () => onAdopt(s.name),
     }));
 }

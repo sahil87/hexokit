@@ -2578,7 +2578,7 @@ describe("sidebar footer status row (260812-d1at — readouts + quiet status slo
 
   it("renders NO action buttons — Help/Keyboard/Theme/Gear relocated to the top bar (260812-d1at)", () => {
     renderSidebar();
-    expect(screen.queryByLabelText("Help — run-kit docs")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Help — HexoKit docs")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Keyboard shortcuts" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: / theme$/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open settings" })).not.toBeInTheDocument();
@@ -2604,7 +2604,7 @@ describe("sidebar footer status row (260812-d1at — readouts + quiet status slo
 
   it("renders the version readout beside the dot and copies the displayed form on click", async () => {
     renderSidebar({ daemonVersion: "0.9.3" });
-    const version = screen.getByRole("button", { name: "RunKit v0.9.3 (copy)" });
+    const version = screen.getByRole("button", { name: "HexoKit v0.9.3 (copy)" });
     expect(version).toHaveTextContent("v0.9.3");
     fireEvent.click(version);
     await waitFor(() => expect(vi.mocked(copyToClipboard)).toHaveBeenCalledWith("v0.9.3"));
@@ -2619,7 +2619,7 @@ describe("sidebar footer status row (260812-d1at — readouts + quiet status slo
   it("lays the footer out readouts-left with no action cluster (dot → version)", () => {
     renderSidebar({ isConnected: true, daemonVersion: "0.9.3" });
     const dot = screen.getByLabelText("Connected");
-    const version = screen.getByRole("button", { name: "RunKit v0.9.3 (copy)" });
+    const version = screen.getByRole("button", { name: "HexoKit v0.9.3 (copy)" });
     const follows = (a: Element, b: Element) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(follows(dot, version)).toBe(true);
@@ -2679,14 +2679,14 @@ describe("Sidebar — brand row (mobile-only)", () => {
     stubMatchMedia((q) => q.includes("prefers-color-scheme: dark"));
   });
 
-  it("renders the RunKit wordmark anchor to / as the nav's first row on mobile", () => {
+  it("renders the HexoKit wordmark anchor to / as the nav's first row on mobile", () => {
     stubMatchMedia((q) => q.includes("max-width") || q.includes("prefers-color-scheme: dark"));
     renderSidebar();
     const nav = screen.getByRole("navigation", { name: "Sessions" });
     // The accessible name is the wordmark text — deliberately NOT the top
-    // bar's "RunKit home" aria-label, which e2e selects by label and must
+    // bar's "HexoKit home" aria-label, which e2e selects by label and must
     // stay unique on desktop.
-    const brand = within(nav).getByRole("link", { name: "RunKit" });
+    const brand = within(nav).getByRole("link", { name: "HexoKit" });
     expect(brand).toHaveAttribute("href", "/");
     expect(nav.firstElementChild).toContainElement(brand);
   });
@@ -2695,7 +2695,7 @@ describe("Sidebar — brand row (mobile-only)", () => {
     // File-default stub: desktop (no max-width / coarse match).
     renderSidebar();
     const nav = screen.getByRole("navigation", { name: "Sessions" });
-    expect(within(nav).queryByRole("link", { name: "RunKit" })).not.toBeInTheDocument();
+    expect(within(nav).queryByRole("link", { name: "HexoKit" })).not.toBeInTheDocument();
   });
 });
 

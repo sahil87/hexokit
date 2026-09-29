@@ -1,5 +1,5 @@
 {
-  "name": "run-kit-desktop",
+  "name": "hexokit-desktop",
   "version": "0.0.0",
   "private": true,
   "description": "HexoKit desktop viewer shell — loads an existing rk serve URL (client only, never spawns or supervises the daemon)",

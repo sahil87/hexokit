@@ -95,7 +95,7 @@ export const FLYOUT_WARM_WINDOW_MS = 500;
  * (Migrated verbatim from the retired status-dot-tip.tsx.)
  */
 export const STATUS_DOT_DOCS_URL =
-  "https://github.com/sahil87/run-kit/blob/main/docs/site/status-dot.md";
+  "https://github.com/sahil87/hexokit/blob/main/docs/site/status-dot.md";
 
 // ── Shared warm-window / single-open coordination ──────────────────────────
 //

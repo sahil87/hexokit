@@ -42,7 +42,7 @@ import (
 
 const (
 	// DefaultRepo is the GitHub repository the desktop DMGs are released from.
-	DefaultRepo = "sahil87/run-kit"
+	DefaultRepo = "sahil87/hexokit"
 	// AppBundleName is the installed bundle name (electron-builder's
 	// productName "HexoKit" + .app).
 	AppBundleName = "HexoKit.app"

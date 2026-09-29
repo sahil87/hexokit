@@ -31,7 +31,7 @@ export function ServerCardContent({
 }: {
   server: string;
   sessionCount: number;
-  /** External (not run-kit-managed) servers append the provenance suffix to
+  /** External (not HexoKit-managed) servers append the provenance suffix to
    *  the facts line. */
   external?: boolean;
   serverProtected?: boolean;
@@ -58,7 +58,7 @@ export function ServerCardContent({
           frontend-side. */}
       <span className="text-text-secondary break-words">
         {`tmux -L ${server} · ${sessionCount} session${sessionCount === 1 ? "" : "s"}`}
-        {external && " · external — not started by run-kit"}
+        {external && " · external — not started by HexoKit"}
       </span>
       <CardActionList>
         {onChangeColorAction && (

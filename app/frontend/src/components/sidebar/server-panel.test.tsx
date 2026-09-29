@@ -274,7 +274,7 @@ describe("ServerPanel", () => {
       });
       hoverTile(/ext/);
       expect(screen.getByTestId("row-flyout-card")).toHaveTextContent(
-        "tmux -L ext · 2 sessions · external — not started by run-kit",
+        "tmux -L ext · 2 sessions · external — not started by HexoKit",
       );
 
       cleanup();

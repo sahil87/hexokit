@@ -301,7 +301,7 @@ test.describe("Row flyout card (fine pointer)", () => {
     await expect(docsLink).toBeVisible();
     await expect(docsLink).toHaveAttribute(
       "href",
-      "https://github.com/sahil87/run-kit/blob/main/docs/site/status-dot.md",
+      "https://github.com/sahil87/hexokit/blob/main/docs/site/status-dot.md",
     );
 
     // Fixed-x anchor: the card sits at (right of) the sidebar's right edge,

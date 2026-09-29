@@ -77,8 +77,8 @@ func TestResolveReleaseLatestSelectsArchAsset(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ResolveRelease: %v", err)
 			}
-			if gotPath != "/repos/sahil87/run-kit/releases/latest" {
-				t.Errorf("request path = %q, want /repos/sahil87/run-kit/releases/latest", gotPath)
+			if gotPath != "/repos/sahil87/hexokit/releases/latest" {
+				t.Errorf("request path = %q, want /repos/sahil87/hexokit/releases/latest", gotPath)
 			}
 			if rel.Version != "3.13.0" {
 				t.Errorf("version = %q, want 3.13.0", rel.Version)
@@ -171,7 +171,7 @@ func TestResolveReleaseTagNormalizesBareSemver(t *testing.T) {
 	if _, err := ins.ResolveRelease(context.Background(), "3.13.0"); err != nil {
 		t.Fatalf("ResolveRelease: %v", err)
 	}
-	if gotPath != "/repos/sahil87/run-kit/releases/tags/v3.13.0" {
+	if gotPath != "/repos/sahil87/hexokit/releases/tags/v3.13.0" {
 		t.Errorf("request path = %q, want the v-prefixed tag endpoint", gotPath)
 	}
 }

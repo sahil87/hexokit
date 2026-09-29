@@ -1,4 +1,4 @@
-# <img src="https://raw.githubusercontent.com/sahil87/run-kit/main/assets/logo.svg" alt="HexoKit logo" width="32" height="32"> HexoKit
+# <img src="https://raw.githubusercontent.com/sahil87/hexokit/main/assets/logo.svg" alt="HexoKit logo" width="32" height="32"> HexoKit
 
 > Part of [HexoKit](https://hexokit.com) — see all projects there.
 
@@ -61,7 +61,7 @@ To upgrade later, `rk update` pulls the latest version via Homebrew and restarts
 
 <img alt="Desktop — terminal session with sidebar (servers, sessions, panes) and host stats" src="https://github.com/user-attachments/assets/fbbe6171-e265-424a-b3fa-1a3194de3a09" />
 
-<img alt="Desktop — driving an AI coding agent from the dashboard: boards and sessions in the sidebar, a live agent pane mid-task, host stats" src="https://raw.githubusercontent.com/sahil87/run-kit/main/docs/img/dashboard-agent-session.webp" />
+<img alt="Desktop — driving an AI coding agent from the dashboard: boards and sessions in the sidebar, a live agent pane mid-task, host stats" src="https://raw.githubusercontent.com/sahil87/hexokit/main/docs/img/dashboard-agent-session.webp" />
 
 <p>
   <img width="32%" alt="Mobile menu — drawer with servers, sessions, and panes" src="https://github.com/user-attachments/assets/1326355e-6031-4620-9ce9-355b82bf8313" />
@@ -124,7 +124,7 @@ Each window in the sidebar, dashboard, and pane panel carries a single **status 
 - **Overlays = additive flags**: a small **red center** flags a failed review/review-pr — inside the ring at rest, or as a **bullseye** (dark gap ring) over a solid while a rework agent is live; a **yellow halo** means an agent is waiting on you; a neutral **underbar** beneath the dot (sidebar row only) means the window is on the fab operator's watchlist.
 - **PR glyph** (right edge): the branch's PR on GitHub — green open · yellow checks running · red failing · purple merged · gray draft. The dot never renders PR state.
 
-![StatusDot compositional reference](https://raw.githubusercontent.com/sahil87/run-kit/main/docs/img/status-dot-reference.svg)
+![StatusDot compositional reference](https://raw.githubusercontent.com/sahil87/hexokit/main/docs/img/status-dot-reference.svg)
 
 See the [status dot reference](docs/site/status-dot.md) for the full legend, the per-state rendering, and the design rationale.
 
@@ -142,7 +142,7 @@ It delegates the hook install to `rk agent setup`, which shows the settings diff
 
 The setup installs agent-harness hooks into your user-global agent configs — Claude Code, Codex, Gemini CLI, GitHub Copilot CLI, Kimi Code, OpenCode, and Antigravity CLI, each wired when its binary is on `PATH` — that stamp a `@rk_pane_agent_state` tmux pane option on lifecycle events. Each hook is a thin wrapper delegating to `rk agent hook`, so hook fixes ship in the binary and track `rk update` — no settings changes, no session restarts. Hooks work for any session, in any repo, under any workflow; re-running the setup is idempotent and never touches your other hooks. Until it's run (and agent sessions are restarted), agent state shows `—`. Codex additionally needs its native trust review: open `codex` and trust the HexoKit entries via `/hooks`.
 
-The per-harness capability matrix (verified versions, event mappings, transcript support, honest gaps) lives in the [agent hook integrations guide](docs/site/agent-hooks.md); the cross-repo convention is documented in [`docs/specs/agent-state.md`](https://github.com/sahil87/run-kit/blob/main/docs/specs/agent-state.md); upgrading from an older hook generation is covered in the [install & access guide](docs/site/install.md#upgrade).
+The per-harness capability matrix (verified versions, event mappings, transcript support, honest gaps) lives in the [agent hook integrations guide](docs/site/agent-hooks.md); the cross-repo convention is documented in [`docs/specs/agent-state.md`](https://github.com/sahil87/hexokit/blob/main/docs/specs/agent-state.md); upgrading from an older hook generation is covered in the [install & access guide](docs/site/install.md#upgrade).
 
 ## The operator — one agent to run the server
 
@@ -177,7 +177,7 @@ rk desktop update     # same, but a no-op when already current
 rk desktop status     # installed vs latest version (read-only)
 ```
 
-The CLI path matters: on macOS it produces a quarantine-free, digest-verified install that opens cleanly — a browser-downloaded DMG gets blocked by Gatekeeper on every install and update. On Linux it downloads the AppImage, verifies the release digest, extracts it into `~/.rk/desktop`, and writes a launcher entry plus a `run-kit-desktop` symlink in `~/.local/bin` (`rk desktop uninstall` removes it). Updates ship through `rk desktop update` or the app's **Restart to Update** menu item — the app never updates itself.
+The CLI path matters: on macOS it produces a quarantine-free, digest-verified install that opens cleanly — a browser-downloaded DMG gets blocked by Gatekeeper on every install and update. On Linux it downloads the AppImage, verifies the release digest, extracts it into `~/.rk/desktop`, and writes a launcher entry plus a `hexokit-desktop` symlink in `~/.local/bin` (`rk desktop uninstall` removes it). Updates ship through `rk desktop update` or the app's **Restart to Update** menu item — the app never updates itself.
 
 The app's welcome page connects three ways: **This Mac / This Machine** (one-click daemon start), **over SSH** (bootstraps HexoKit on the remote box via `rk remote`), or **a URL**. It never starts, stops, or updates anything on its own, and your tmux sessions survive every daemon action. Details and the manual fallback are in the [install & access guide](docs/site/install.md#desktop-app).
 
@@ -193,7 +193,7 @@ It's **fail-silent**: if the server is unreachable it exits 0 and prints nothing
 
 ## Shell completion
 
-`shll setup shell` wires tab-completion for every installed shll tool — including `run-kit` and the `rk` alias — into your rc file (zsh, bash), and runs automatically at the end of a toolkit install. Re-running is a no-op when the block is already present.
+`shll setup shell` wires tab-completion for every installed shll tool — including `hexokit` and the `rk` alias — into your rc file (zsh, bash), and runs automatically at the end of a toolkit install. Re-running is a no-op when the block is already present.
 
 Prefer wiring just this tool by hand? `rk shell-init <shell>` emits the eval-safe block on its own:
 
@@ -232,7 +232,7 @@ eval "$(rk shell-init zsh)"   # in ~/.zshrc — also: bash, fish, powershell
 | `rk remote` | Use SSH-only machines as HexoKit hosts (`add`, `connect`, `list`, `status`, `disconnect`, `remove`). |
 | `rk completion` | Generate shell completion scripts (or use `rk shell-init` for eval-safe output). |
 
-Run `rk <command> --help` for full flag details, or see the [full command reference](https://shll.ai/run-kit/commands/) for every command and flag.
+Run `rk <command> --help` for full flag details, or see the [full command reference](https://hexokit.com/docs/commands/) for every command and flag.
 
 ## Troubleshooting
 

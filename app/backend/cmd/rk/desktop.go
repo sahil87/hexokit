@@ -49,7 +49,7 @@ the app bundle.
 On Linux the AppImage is extracted once into ~/.rk/desktop/<version>/ with a
 'current' symlink flipped atomically, the release digest is the hard
 verification gate (a release without one is refused), and a launcher entry,
-icon, and ~/.local/bin/run-kit-desktop symlink are written for desktop
+icon, and ~/.local/bin/hexokit-desktop symlink are written for desktop
 integration.
 
 A running app does not block install/update: the new version is downloaded,
@@ -83,7 +83,7 @@ release digest. On macOS the app bundle additionally passes
 codesign --verify --deep --strict; on Linux the digest is the only gate and a
 release without one is refused. On Linux the AppImage is extracted once into
 ~/.rk/desktop/<version>/ with an atomically-flipped 'current' symlink, plus a
-launcher entry, icon, and ~/.local/bin/run-kit-desktop symlink. The new
+launcher entry, icon, and ~/.local/bin/hexokit-desktop symlink. The new
 version is staged next to the install target and swapped in atomically, so a
 failed download or copy never destroys an existing install.
 
@@ -154,8 +154,8 @@ var desktopUninstallCmd = &cobra.Command{
 
 Refuses while the app is running (quit it first). Removes every installed
 version under the install root, the 'current' symlink, the launcher entry, the
-icon, and the ~/.local/bin/run-kit-desktop symlink. App settings and host
-registrations (~/.config/run-kit-desktop) are user data and are NOT removed.
+icon, and the ~/.local/bin/hexokit-desktop symlink. App settings and host
+registrations (~/.config/HexoKit) are user data and are NOT removed.
 
 --path targets an install outside the default root (~/.rk/desktop).`,
 	Args:         cobra.NoArgs,

@@ -339,12 +339,12 @@ function SidebarHead({
       <Tip label="Host">
         <a
           href="/"
-          aria-label="RunKit home"
+          aria-label="HexoKit home"
           className="rk-brand-glitch flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors"
           onMouseEnter={brandSweep.onMouseEnter}
         >
           <LogoSpinner size={20} loading={false} svgRef={brandSweep.svgRef} />
-          <span className="text-xs font-bold tracking-wide">RunKit</span>
+          <span className="text-xs font-bold tracking-wide">HexoKit</span>
         </a>
       </Tip>
       <button
@@ -1422,7 +1422,7 @@ export function TopBar({
                 first child (the breadcrumb's root — the `›` separator starts
                 after it); IS the home affordance ON ≥sm (no separate "Host"
                 crumb). Not rendered while the sidebar head is shown — the head
-                carries the brand anchor then, and `RunKit home` must stay
+                carries the brand anchor then, and `HexoKit home` must stay
                 unique in the document. Below `sm` the whole crumb is gone (the
                 `hidden sm:contents` wrapper — a wrapper, not classes on the
                 anchor, because `hidden` and CRUMB_BOX's `inline-flex` are
@@ -1435,7 +1435,7 @@ export function TopBar({
             <Tip label="Host">
             <a
               href="/"
-              aria-label="RunKit home"
+              aria-label="HexoKit home"
               className={`gap-2 shrink-0 rk-brand-glitch ${LINK_CRUMB_CLASS}`}
               onMouseEnter={brandSweep.onMouseEnter}
             >
@@ -1447,7 +1447,7 @@ export function TopBar({
                   text-decoration does not propagate into flex items, so an
                   underline-based LINK_CRUMB_CLASS would silently skip the
                   wordmark without it. No-op for non-underline variants. */}
-              <span className="text-xs [text-decoration:inherit]">RunKit</span>
+              <span className="text-xs [text-decoration:inherit]">HexoKit</span>
             </a>
             </Tip>
             </span>
@@ -2841,7 +2841,7 @@ function UpdateChip() {
   const visibleLabel = singleRunKit ? `⬆ v${latest}` : `⬆ updates (${tools.length})`;
   const restLabel =
     singleRunKit && current
-      ? `Update run-kit: v${current} → v${latest}`
+      ? `Update HexoKit: v${current} → v${latest}`
       : `Update: ${updateChipToolSummary(tools)}`;
 
   // No `hidden sm:flex` (review M2 / R14): responsive gating is 100%
@@ -2856,7 +2856,7 @@ function UpdateChip() {
         type="button"
         onClick={triggerUpdate}
         disabled={updating}
-        aria-label={updating ? "Updating run-kit" : restLabel}
+        aria-label={updating ? "Updating HexoKit" : restLabel}
         className={`flex items-center gap-1 px-1.5 rounded transition-colors text-xs disabled:opacity-60 disabled:cursor-not-allowed ${controlClass({ variant: "icon", box: "height", rest: "border border-accent-green text-accent-green hover:border-accent-green" })}`}
       >
         {updating ? (

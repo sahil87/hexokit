@@ -130,7 +130,7 @@ describe("ServerDialogs", () => {
     // from the payload alone), so the typed-name guard cannot be bypassed.
     renderDialogs({ servers: [{ name: "alpha", sessionCount: 1, protected: false }] });
     fireEvent.click(screen.getByText("kill-daemon"));
-    expect(screen.getByText("Restart run-kit")).toBeInTheDocument();
+    expect(screen.getByText("Restart HexoKit")).toBeInTheDocument();
     expect(screen.getByText("Force kill")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Cancel"));
 
@@ -182,7 +182,7 @@ describe("ServerDialogs", () => {
 
     const forceKill = screen.getByText("Force kill");
     expect(forceKill).toBeDisabled();
-    expect(screen.queryByText("Restart run-kit")).not.toBeInTheDocument();
+    expect(screen.queryByText("Restart HexoKit")).not.toBeInTheDocument();
 
     // Wrong name keeps the button locked.
     const input = screen.getByLabelText(/Type the server name/);
@@ -228,7 +228,7 @@ describe("ServerDialogs", () => {
     expect(screen.getByText(/kills the dashboard, 1 running job, code-server, 2 remote tunnels/)).toBeInTheDocument();
 
     // Restart primary fires restartNow and closes — no kill.
-    fireEvent.click(screen.getByText("Restart run-kit"));
+    fireEvent.click(screen.getByText("Restart HexoKit"));
     await waitFor(() => expect(restartNow).toHaveBeenCalled());
     expect(killServer).not.toHaveBeenCalled();
 
@@ -243,8 +243,8 @@ describe("ServerDialogs", () => {
   it("opens the adopt dialog via the context trigger and states the semi-irreversibility", () => {
     renderDialogs();
     fireEvent.click(screen.getByText("adopt-alpha"));
-    expect(screen.getByText("Adopt server into run-kit?")).toBeInTheDocument();
-    // The copy must state that run-kit's tmux config applies now and the
+    expect(screen.getByText("Adopt server into HexoKit?")).toBeInTheDocument();
+    // The copy must state that HexoKit's tmux config applies now and the
     // user's own config returns only on server restart.
     expect(screen.getByText(/your own config returns only when the server restarts/)).toBeInTheDocument();
     expect(screen.getByText("Adopt")).toBeInTheDocument();
@@ -256,7 +256,7 @@ describe("ServerDialogs", () => {
     renderDialogs({ refreshServers });
     fireEvent.click(screen.getByText("adopt-alpha"));
     fireEvent.click(screen.getByText("Adopt"));
-    expect(screen.queryByText("Adopt server into run-kit?")).not.toBeInTheDocument();
+    expect(screen.queryByText("Adopt server into HexoKit?")).not.toBeInTheDocument();
     await waitFor(() => expect(adoptServer).toHaveBeenCalledWith("alpha"));
     await waitFor(() => expect(refreshServers).toHaveBeenCalled());
     expect(mockNavigate).not.toHaveBeenCalled();
@@ -266,7 +266,7 @@ describe("ServerDialogs", () => {
     renderDialogs();
     fireEvent.click(screen.getByText("adopt-alpha"));
     fireEvent.click(screen.getByText("Cancel"));
-    await waitFor(() => expect(screen.queryByText("Adopt server into run-kit?")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("Adopt server into HexoKit?")).not.toBeInTheDocument());
     expect(adoptServer).not.toHaveBeenCalled();
   });
 

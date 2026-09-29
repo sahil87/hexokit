@@ -52,7 +52,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const identity = identityFromWorkspaceFile(contents);
   if (identity === null) return;
 
-  const output = vscode.window.createOutputChannel('run-kit Code Bridge');
+  const output = vscode.window.createOutputChannel('HexoKit Code Bridge');
   context.subscriptions.push(output);
   const cbDir = stateDir();
   if (!ensurePrivateDir(cbDir, output)) return;
@@ -102,7 +102,7 @@ function startBridgeForFolder(context: vscode.ExtensionContext, folder: vscode.W
   );
   registerActions(context, () => identity);
 
-  const output = vscode.window.createOutputChannel('run-kit Code Bridge');
+  const output = vscode.window.createOutputChannel('HexoKit Code Bridge');
   context.subscriptions.push(output);
 
   const cbDir = stateDir();
@@ -238,11 +238,11 @@ function registerActions(
 
   const showRunError = (result: RunRkResult): void => {
     if (result.error === 'enoent') {
-      void vscode.window.showErrorMessage('run-kit: rk not found — set rk.bridge.rkPath');
+      void vscode.window.showErrorMessage('HexoKit: rk not found — set rk.bridge.rkPath');
       return;
     }
     const detail = firstLine(result.stderr);
-    void vscode.window.showErrorMessage(`run-kit: ${detail.length > 0 ? detail : `exit ${result.code}`}`);
+    void vscode.window.showErrorMessage(`HexoKit: ${detail.length > 0 ? detail : `exit ${result.code}`}`);
   };
 
   const openInWebTile = async (uri?: vscode.Uri): Promise<void> => {

@@ -25,7 +25,7 @@ describe("buildUpdateActions (Dismiss-only after the Update-to-vX deletion)", ()
     const onDismiss = vi.fn();
     const actions = buildUpdateActions(true, runKitOnly, onDismiss);
 
-    expect(actions.map((a) => a.label)).toEqual(["run-kit: Dismiss Update Notice"]);
+    expect(actions.map((a) => a.label)).toEqual(["HexoKit: Dismiss Update Notice"]);
     expect(actions.map((a) => a.id)).toEqual(["run-kit-dismiss-update"]);
     // The deleted label shapes must never reappear.
     expect(actions.some((a) => /Update to v|Update \d+ tools|Update .* to v/.test(a.label))).toBe(
@@ -78,8 +78,8 @@ describe("buildCheckActions", () => {
   it("builds the two check entries for a non-dev version", () => {
     const actions = buildCheckActions("0.5.3", vi.fn(), vi.fn());
     expect(actions.map((a) => a.label)).toEqual([
-      "run-kit: Check for Updates",
-      "run-kit: Check for Updates (incl. patches)",
+      "HexoKit: Check for Updates",
+      "HexoKit: Check for Updates (incl. patches)",
     ]);
     expect(actions.map((a) => a.id)).toEqual([
       "run-kit-check-updates",
@@ -262,15 +262,15 @@ describe("buildMaintenanceActions", () => {
   it("includes both Update Now and Restart Daemon when brew and non-dev", () => {
     const actions = buildMaintenanceActions(true, "0.5.3", vi.fn(), vi.fn());
     expect(actions.map((a) => a.label)).toEqual([
-      "run-kit: Update Now",
-      "run-kit: Restart Daemon",
+      "HexoKit: Update Now",
+      "HexoKit: Restart Daemon",
     ]);
     expect(actions.map((a) => a.id)).toEqual(["run-kit-force-update", "run-kit-restart"]);
   });
 
   it("omits Update Now when not a brew install, but keeps Restart Daemon", () => {
     const actions = buildMaintenanceActions(false, "0.5.3", vi.fn(), vi.fn());
-    expect(actions.map((a) => a.label)).toEqual(["run-kit: Restart Daemon"]);
+    expect(actions.map((a) => a.label)).toEqual(["HexoKit: Restart Daemon"]);
   });
 
   it("omits BOTH entries on the dev version, even when brew is true", () => {
@@ -283,11 +283,11 @@ describe("buildMaintenanceActions", () => {
 
   it("treats a null version (no version event yet) as non-dev: Restart shows, Update Now gated on brew", () => {
     expect(buildMaintenanceActions(false, null, vi.fn(), vi.fn()).map((a) => a.label)).toEqual([
-      "run-kit: Restart Daemon",
+      "HexoKit: Restart Daemon",
     ]);
     expect(buildMaintenanceActions(true, null, vi.fn(), vi.fn()).map((a) => a.label)).toEqual([
-      "run-kit: Update Now",
-      "run-kit: Restart Daemon",
+      "HexoKit: Update Now",
+      "HexoKit: Restart Daemon",
     ]);
   });
 

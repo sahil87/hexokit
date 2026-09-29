@@ -3,7 +3,7 @@ import { useEffect } from "react";
 /**
  * Sets document.title based on route params and hostname.
  *
- * Dashboard: "RunKit — {hostname}" or "RunKit" if hostname is empty.
+ * Dashboard: "HexoKit — {hostname}" or "HexoKit" if hostname is empty.
  * Terminal:  "{session}/{window} — {hostname}" or "{session}/{window}" if empty.
  * `override` (the popout window's "<Surface> · <window name>") wins outright
  * when present.
@@ -26,7 +26,7 @@ export function useBrowserTitle(
     if (sessionName && windowIndex) {
       document.title = `${sessionName}/${windowIndex}${suffix}`;
     } else {
-      document.title = `RunKit${suffix}`;
+      document.title = `HexoKit${suffix}`;
     }
   }, [sessionName, windowIndex, hostname, override]);
 }

@@ -1452,7 +1452,7 @@ export function IframeWindow({
                 <code className="bg-bg-inset border border-border rounded px-[5px] text-[10.5px] text-text-primary whitespace-nowrap">
                   localhost:3000
                 </code>{" "}
-                in the address bar above (proxied through run-kit, works from any device) — or have the agent run{" "}
+                in the address bar above (proxied through HexoKit, works from any device) — or have the agent run{" "}
                 <code className="bg-bg-inset border border-border rounded px-[5px] text-[10.5px] text-text-primary whitespace-nowrap">
                   rk present :3000
                 </code>

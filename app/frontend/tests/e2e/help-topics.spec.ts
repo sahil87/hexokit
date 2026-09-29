@@ -15,7 +15,7 @@
  * nine tty ROWS before navigating — at the default desktop viewport every
  * row is under the 100px height floor once split, so no add fits and the
  * layout refuses to grow (the size floor, not a tile count, gates adds));
- * `afterAll` kills the session. `beforeEach` route-stubs `https://shll.ai/**` with a
+ * `afterAll` kills the session. `beforeEach` route-stubs `https://hexokit.com/**` with a
  * static 200 page so the web tile's iframe never reaches the network (the
  * specs assert the stored tab and the layout, never remote content) and
  * replaces `window.open` with a recorder on `window.__openedUrls` so the
@@ -40,8 +40,8 @@ const FULL_WINDOW = `help-full-${STAMP}`;
 // test needs. Repeated bare tty is legal.
 const FULL_LAYOUT = `v(${Array.from({ length: 9 }, () => "tty").join(",")})`;
 
-const CRON_URL = "https://shll.ai/run-kit/cron-schedule-kinds/";
-const BOARDS_URL = "https://shll.ai/run-kit/boards/";
+const CRON_URL = "https://hexokit.com/docs/cron-schedule-kinds/";
+const BOARDS_URL = "https://hexokit.com/docs/boards/";
 const TOPIC_LABELS = [
   "Status dot legend",
   "Cron schedule kinds",
@@ -97,7 +97,7 @@ test.afterAll(() => {
 });
 
 test.beforeEach(async ({ page }) => {
-  await page.route("https://shll.ai/**", (route) =>
+  await page.route("https://hexokit.com/**", (route) =>
     route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>stub</title>" }),
   );
   await stubWindowOpen(page);
@@ -120,7 +120,7 @@ test.describe("Help topics", () => {
    * 4. Poll tmux: `@rk_win_web_1` equals the topic URL, `@rk_win_web_active`
    *    is `1`, and `@rk_win_layout` is `h(tty,web)`.
    * 5. Assert the web-tab strip renders one selected tab titled with the
-   *    display form `shll.ai/run-kit/cron-schedule-kinds/`, and that
+   *    display form `hexokit.com/docs/cron-schedule-kinds/`, and that
    *    `window.open` was never called.
    */
   test("menu row opens the topic in the current window's web tile", async ({ page }) => {
@@ -143,7 +143,7 @@ test.describe("Help topics", () => {
     const strip = page.getByTestId("web-tab-strip");
     const tab = strip.getByTestId("web-tab");
     await expect(tab).toHaveCount(1);
-    await expect(tab).toHaveAttribute("title", "shll.ai/run-kit/cron-schedule-kinds/");
+    await expect(tab).toHaveAttribute("title", "hexokit.com/docs/cron-schedule-kinds/");
     await expect(tab).toHaveAttribute("aria-selected", "true");
     expect(await openedUrls(page)).toEqual([]);
   });

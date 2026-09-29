@@ -86,7 +86,7 @@ describe("usePushSubscription", () => {
     });
 
     expect(notifications).toHaveLength(1);
-    expect(notifications[0].title).toBe("RunKit");
+    expect(notifications[0].title).toBe("HexoKit");
     expect(notifications[0].options?.body).toContain("delivery works");
     expect(sendTestNotification).not.toHaveBeenCalled();
     expect(screen.getByRole("alert")).toHaveTextContent(

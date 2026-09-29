@@ -1,6 +1,6 @@
 /**
- * Pure builders for the command-palette update surface (`run-kit: Check for
- * Updates` / `… (incl. patches)`, `run-kit: Dismiss Update Notice`, and the
+ * Pure builders for the command-palette update surface (`HexoKit: Check for
+ * Updates` / `… (incl. patches)`, `HexoKit: Dismiss Update Notice`, and the
  * maintenance entries) plus the check-result toast composition. Extracted from
  * app.tsx so the gating and label/summary composition are unit-testable without
  * mounting the whole shell — mirroring lib/palette/move.ts. The action bodies
@@ -57,9 +57,9 @@ export type UpdatePaletteAction = {
 
 /**
  * Build the qualifying-gated update palette actions. Since the dynamic
- * `run-kit: Update to v{X}` entry was deleted (multi-tool ambiguous + stale
- * between checks — `run-kit: Update Now` in buildMaintenanceActions is THE
- * single update action), only `run-kit: Dismiss Update Notice` remains: the
+ * `HexoKit: Update to v{X}` entry was deleted (multi-tool ambiguous + stale
+ * between checks — `HexoKit: Update Now` in buildMaintenanceActions is THE
+ * single update action), only `HexoKit: Dismiss Update Notice` remains: the
  * keyboard mirror of the chip's `✕`. Returns an empty array when no qualifying
  * update is pending (`qualifies` false, or `tools` empty — e.g. the `dev`
  * version or no update-available event yet).
@@ -73,7 +73,7 @@ export function buildUpdateActions(
   return [
     {
       id: "run-kit-dismiss-update",
-      label: "run-kit: Dismiss Update Notice",
+      label: "HexoKit: Dismiss Update Notice",
       onSelect: onDismiss,
     },
   ];
@@ -155,13 +155,13 @@ const DEV_VERSION = "dev";
 /**
  * Build the always-available maintenance palette actions, independent of the
  * qualifying-update gate (unlike buildUpdateActions):
- *   - `run-kit: Update Now` — THE single update action: a force update
+ *   - `HexoKit: Update Now` — THE single update action: a force update
  *     (full-roster `shll update`; idempotent, and it picks up patch-only bumps
  *     a scoped match set would skip). Included ONLY when the daemon is a
  *     Homebrew install (`brew`) AND the version is not the `dev` sentinel. NOT
  *     gated on a qualifying update, so it reaches patch releases and works
  *     before any check has run.
- *   - `run-kit: Restart Daemon` — bounce the daemon. Included whenever the
+ *   - `HexoKit: Restart Daemon` — bounce the daemon. Included whenever the
  *     version is not `dev` (no brew requirement).
  * Both fire immediately on select (no confirmation dialog).
  */
@@ -176,14 +176,14 @@ export function buildMaintenanceActions(
   if (brew && !isDev) {
     actions.push({
       id: "run-kit-force-update",
-      label: "run-kit: Update Now",
+      label: "HexoKit: Update Now",
       onSelect: onForceUpdate,
     });
   }
   if (!isDev) {
     actions.push({
       id: "run-kit-restart",
-      label: "run-kit: Restart Daemon",
+      label: "HexoKit: Restart Daemon",
       onSelect: onRestart,
     });
   }
@@ -192,9 +192,9 @@ export function buildMaintenanceActions(
 
 /**
  * Build the two on-demand check palette actions:
- *   - `run-kit: Check for Updates` — reports tools crossing their notify
+ *   - `HexoKit: Check for Updates` — reports tools crossing their notify
  *     threshold (`notable`);
- *   - `run-kit: Check for Updates (incl. patches)` — reports every tool with
+ *   - `HexoKit: Check for Updates (incl. patches)` — reports every tool with
  *     any pending update, annotating sub-threshold rows.
  * Both POST the same /api/updates/check (the difference is client-side
  * filtering — see composeCheckToast) and report via toast. Hidden on the `dev`
@@ -211,12 +211,12 @@ export function buildCheckActions(
   return [
     {
       id: "run-kit-check-updates",
-      label: "run-kit: Check for Updates",
+      label: "HexoKit: Check for Updates",
       onSelect: onCheck,
     },
     {
       id: "run-kit-check-updates-patches",
-      label: "run-kit: Check for Updates (incl. patches)",
+      label: "HexoKit: Check for Updates (incl. patches)",
       onSelect: onCheckIncludingPatches,
     },
   ];

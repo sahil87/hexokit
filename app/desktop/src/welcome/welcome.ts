@@ -598,8 +598,8 @@ function wireLocalSection(els: WelcomeElements, daemon: DaemonBridge, heading: s
     } else if (status.state === "wedged") {
       els.localDot.className = "dot wedged";
       els.localStatus.textContent = `not responding${versionSuffix}`;
-      els.localDetail.textContent = `run-kit is running but isn't answering on ${status.origin}`;
-      els.localConnect.textContent = "Restart run-kit";
+      els.localDetail.textContent = `HexoKit is running but isn't answering on ${status.origin}`;
+      els.localConnect.textContent = "Restart HexoKit";
       els.localStop.hidden = true;
     } else {
       els.localDot.className = "dot";

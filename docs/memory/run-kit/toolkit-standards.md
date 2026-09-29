@@ -835,7 +835,7 @@ The `rk gui` family (`gui.go` + `gui_supervise.go` + `gui_exec.go` + `gui_shot.g
 - **Principle 9: outcome lines and the status document are data; hints are errors.** `on`'s outcome lines (`started (<bin> :N)` / `already running` / the daemon-down and no-backend lines), `off`'s `gui off` confirmation, `restart`'s `restarted (<bin> :N)`, `env`'s two `export` lines, `status`'s human line / `--json` document, `exec --detach`'s `started <pid> on :N` line, `shot`'s absolute PNG path, `launch`'s `started <name> (pid <pid>) on :N` line, `wm --list`'s candidate table (the pickers' `NAME LABEL KIND INSTALLED HINT` derivation), and `wm --list --json`'s `wm_candidates` array are each the verb's one bounded stdout datum (Dataf via the sink, surviving `--quiet`; `--list` is read-only — LookPath only, no settings write, no tmux); a foreground `exec` replaces the process, so the command's own output contract applies. The WM chatter after `on`/`restart` (`  window manager: <wm>` or the two-line bare-display install hint) is `Notef` on stderr, so `--quiet` and scripts keep the one-line datum. The `off` refusal (`re-run with --yes`), the disabled/not-running hints, the macOS refusals, `not found on PATH`, `launch`'s ladder-miss install line, and `aborted` ride stderr with non-zero exits.
 - **Exit-code convention (P4)**: 0 success (including the daemon-down `rk gui on` and every `status` state — state, not verdict), 1 operational (refusals without `--yes` on a non-tty, declined confirms, disabled/daemon-down `restart`, `env`/`exec`/`shot`/`launch` when off or not running, the macOS refusals, an unknown program, a failed or missing screenshot tool, a `launch` ladder miss or start failure), 2 usage (arg-count violations via the family's `usageArgs` re-wrap — root's central wrap loop covers only `rootCmd`'s direct children — including `exec` with no command word and `launch` with a role outside `terminal`/`browser`; `wm`'s `--json` without `--list`, `--list` with a positional argument, and `--list` combined with `--restart`/`--force` go through the CLI-local `usageError`).
 - **The `skill` standard covers the `gui` topic page** — canonical `docs/site/skill/gui.md` (≤150 lines), synced to the embedded copy by `scripts/sync-skill.sh`, drift-guarded and budget-tested by the shared `TestSkillTopics*` tables, and registered as `skillTopics["gui"]` so the `Topics:` help line and `rk skill topics` enumerate it; the page teaches `rk gui launch` (the allowlisted launcher) and the seeded profile directory beside `exec`/`shot`, and the core bundle carries the topic-index line plus one capability row for `rk gui exec <cmd…>` / `rk gui shot [--out f.png]` (gated on the user's `gui.enabled` switch). (bbv1) (2jl3)
-- **readme-extraction: the README and docs/site carry the GUI surface.** The README's `## GUI — the host's desktop in a tile` section (between the boards section and the phone section) links `docs/site/gui.md` naturally, and § Command reference carries a `rk gui` row; `docs/site/gui.md` is the human GUI guide (the boards/notifications guide shape — H1, the absolute back-link to the README, ten sections from *What it is* to *Troubleshooting*) and names only commands present in `rk help-dump`; `docs/site/install.md` § Prerequisites carries the optional-GUI bullet (`tigervnc-standalone-server icewm` on Debian/Ubuntu) with a relative `gui.md` link. Links between `docs/site` pages are relative; anything leaving the published set is an absolute `https://github.com/sahil87/run-kit/blob/main/…` URL. (91px)
+- **readme-extraction: the README and docs/site carry the GUI surface.** The README's `## GUI — the host's desktop in a tile` section (between the boards section and the phone section) links `docs/site/gui.md` naturally, and § Command reference carries a `rk gui` row; `docs/site/gui.md` is the human GUI guide (the boards/notifications guide shape — H1, the absolute back-link to the README, ten sections from *What it is* to *Troubleshooting*) and names only commands present in `rk help-dump`; `docs/site/install.md` § Prerequisites carries the optional-GUI bullet (`tigervnc-standalone-server icewm` on Debian/Ubuntu) with a relative `gui.md` link. Links between `docs/site` pages are relative; anything leaving the published set is an absolute `https://github.com/sahil87/hexokit/blob/main/…` URL. (91px)
 
 The `rk mcp` verb (`mcp.go` — see
 [cli](/run-kit/architecture/cli.md) § CLI Subcommands, `mcp` row; the
@@ -990,10 +990,10 @@ slice + `docs/site/**`), so none 404s on the rendered shll.ai page. The two link
 that would have escaped are absolute:
 - `README.md`'s link to `docs/specs/agent-state.md` (outside the published set) is
   the absolute
-  `https://github.com/sahil87/run-kit/blob/main/docs/specs/agent-state.md`.
+  `https://github.com/sahil87/hexokit/blob/main/docs/specs/agent-state.md`.
 - `docs/site/install.md`'s link to the README anchor (a `..` escape out of
   `docs/site/`) is the absolute
-  `https://github.com/sahil87/run-kit/blob/main/README.md#agent-state--run-kit-agent-setup`.
+  `https://github.com/sahil87/hexokit/blob/main/README.md#agent-state`.
 
 The remaining relative forms are correct and stay relative: README →
 `docs/site/*.md` hub links, and between-`docs/site/` links. A closure sweep over
@@ -1012,10 +1012,8 @@ blockquote is
 `> Part of [HexoKit](https://hexokit.com) — see all projects there.`
 and `README.md` line 3 carries it **byte-exact** under the mandated head order
 H1 → blockquote → badges; the H1 reads `HexoKit`, and the badge lines point at
-the renamed `sahil87/hexokit` repo, while the logo `src` still uses the
-`sahil87/run-kit` raw URL (GitHub redirects it). Identifiers stay by design:
-`sahil87/tap` formula names, `github.com/sahil87/…` /
-`raw.githubusercontent.com/sahil87/…` URLs, and the constitution's
+the renamed `sahil87/hexokit` repo, as does the logo `src` raw URL.
+Identifiers stay by design: `sahil87/tap` formula names and the constitution's
 `sahil87/shll` canonical-source reference.
 (260718-oa9b-shll-toolkit-rename, 260911-mljj-hexokit-brand-prose)
 

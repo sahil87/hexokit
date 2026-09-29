@@ -6,10 +6,10 @@
  * Constraints the code cannot show:
  *
  * - On Linux Electron derives `appData` from `XDG_CONFIG_HOME`, so
- *   `app.getPath("userData")` becomes `<configHome>/run-kit-desktop/` (the
+ *   `app.getPath("userData")` becomes `<configHome>/hexokit-desktop/` (the
  *   package name). Seeding a two-host `hosts.json` there gives a real host
  *   switch against ONE rig (two origins: `localhost` and `127.0.0.1` on the
- *   same port) and keeps the developer's real `~/.config/run-kit-desktop/`
+ *   same port) and keeps the developer's real `~/.config/hexokit-desktop/`
  *   — and the single-instance lock a running shell holds on it — untouched.
  *   `RK_DESKTOP_URL` is never set: its sentinel host is single-host and
  *   cannot exercise a switch.
@@ -45,7 +45,7 @@ import { harnessPort } from "../../../frontend/tests/e2e/_harness";
 export const E2E_PORT = harnessPort();
 
 /** The shell's appData directory name — package.json `name`. */
-const APP_DATA_DIR = "run-kit-desktop";
+const APP_DATA_DIR = "hexokit-desktop";
 
 const DESKTOP_DIR = join(__dirname, "..", "..");
 
@@ -63,7 +63,7 @@ export function hostOrigins(): { a: string; b: string } {
   };
 }
 
-/** Seed `<configHome>/run-kit-desktop/hosts.json` with the two-host list
+/** Seed `<configHome>/hexokit-desktop/hosts.json` with the two-host list
  *  (activeId e2e-a). With no windows.json beside it, the shell's cold start
  *  opens exactly one window on e2e-a. */
 export function seedHosts(configHome: string): void {

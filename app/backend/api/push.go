@@ -67,7 +67,7 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 	}
 	title := body.Title
 	if strings.TrimSpace(title) == "" {
-		title = "RunKit"
+		title = "HexoKit"
 	}
 	// The generic /api/notify path carries no deep-link URL (empty ⇒ the SW
 	// falls back to the app root on click). Shell broadcast goes first: the

@@ -81,7 +81,7 @@ async function mockBackend(page: Page) {
   });
 }
 
-test.describe("run-kit system card (HOST HEALTH zone)", () => {
+test.describe("HexoKit system card (HOST HEALTH zone)", () => {
   /**
    * Proves: the system card renders inside the Host health zone with the
    * version/uptime/port daemon line and a Restart control; the service rows
@@ -92,7 +92,7 @@ test.describe("run-kit system card (HOST HEALTH zone)", () => {
    *
    * Steps:
    * 1. Install the mocked backend, navigate to `/`.
-   * 2. Assert the `run-kit system` card is visible inside the `Host health` region.
+   * 2. Assert the `HexoKit system` card is visible inside the `Host health` region.
    * 3. Assert the daemon line shows `v3.9.1`, an `up 1h…` uptime, and `:3000`.
    * 4. Assert the Restart button is visible.
    * 5. Assert the service rows: `1 job` and `2 tunnels` visible, one
@@ -109,7 +109,7 @@ test.describe("run-kit system card (HOST HEALTH zone)", () => {
     // The card renders inside the Host health zone (no metrics slot was
     // mocked — the card is independent of the metrics stream).
     const zone = page.getByRole("region", { name: "Host health" });
-    const card = zone.getByLabel("run-kit system");
+    const card = zone.getByLabel("HexoKit system");
     await expect(card).toBeVisible({ timeout: 10_000 });
     await expect(card).toContainText("v3.9.1");
     await expect(card).toContainText("up 1h");
@@ -147,7 +147,7 @@ test.describe("run-kit system card (HOST HEALTH zone)", () => {
     await mockBackend(page);
     await page.goto("/");
 
-    const card = page.getByLabel("run-kit system");
+    const card = page.getByLabel("HexoKit system");
     await expect(card).toBeVisible({ timeout: 10_000 });
 
     // The jobs row's View targets rk-jobs' active window @7 → /rk-daemon/7.

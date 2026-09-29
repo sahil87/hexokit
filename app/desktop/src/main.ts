@@ -357,7 +357,7 @@ if (!app.requestSingleInstanceLock()) {
 // .desktop filename the installer writes — without this the badge never
 // associates with the launcher entry.
 if (process.platform === "linux") {
-  app.setDesktopName("run-kit-desktop.desktop");
+  app.setDesktopName("hexokit-desktop.desktop");
 }
 
 type PingResult =
@@ -1814,7 +1814,7 @@ async function showWedgedDaemonDialog(
     buttons: ["Restart Daemon", "Cancel"],
     defaultId: 1,
     cancelId: 1,
-    message: `run-kit reports running but isn't answering on ${origin}`,
+    message: `HexoKit reports running but isn't answering on ${origin}`,
     detail: "Restarting briefly interrupts local SSH tunnels; they reconnect automatically.",
   });
   if (response !== 0) return { ok: true, outcome: "declined" };
@@ -1851,7 +1851,7 @@ async function startAndConnectLocal(win: BrowserWindow): Promise<DaemonActionRes
     const probe = await probeDaemonStatus();
     if (!probe.ok) return probe;
     const status = probe.status;
-    if (!status.installed) return { ok: false, error: "run-kit is not installed" };
+    if (!status.installed) return { ok: false, error: "HexoKit is not installed" };
     if (status.state === "wedged") return showWedgedDaemonDialog(win, status.origin);
     let hostname: string;
     if (status.state === "running") {
@@ -1887,7 +1887,7 @@ async function restartAndConnectLocal(
   return runDaemonAction(full ? "restart-full" : "restart", async () => {
     const probe = await probeDaemonStatus();
     if (!probe.ok) return probe;
-    if (!probe.status.installed) return { ok: false, error: "run-kit is not installed" };
+    if (!probe.status.installed) return { ok: false, error: "HexoKit is not installed" };
     const restarted = await runRk(
       full ? ["daemon", "restart", "--full"] : ["daemon", "restart"],
       RK_DAEMON_RESTART_TIMEOUT_MS,
@@ -1915,7 +1915,7 @@ async function confirmAndStopDaemon(
     buttons: ["Stop Daemon", "Cancel"],
     defaultId: 1,
     cancelId: 1,
-    message: "Stop the local run-kit daemon?",
+    message: "Stop the local HexoKit daemon?",
     detail:
       "Only the web server stops — tmux sessions and running agents survive and reattach when the daemon starts again.",
   });
@@ -1999,13 +1999,13 @@ async function connectRemoteHost(
   const added = await runRk(["remote", "add", target], RK_REMOTE_ADD_TIMEOUT_MS);
   if (!added.ok) {
     if (added.notInstalled) {
-      return { ok: false, error: "run-kit is not installed on this machine" };
+      return { ok: false, error: "HexoKit is not installed on this machine" };
     }
     return { ok: false, error: remoteErrorMessage(added.error) };
   }
   const info = parseRemoteAddOutput(added.stdout);
   if (!info) {
-    return { ok: false, error: "Unexpected `rk remote add` output — update run-kit and retry" };
+    return { ok: false, error: "Unexpected `rk remote add` output — update HexoKit and retry" };
   }
 
   const connected = await runRkStreaming(

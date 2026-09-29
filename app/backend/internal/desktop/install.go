@@ -78,7 +78,7 @@ func (ins *Installer) installDarwin(ctx context.Context, rel Release) (InstallRe
 	if err != nil {
 		return InstallResult{}, err
 	}
-	dmgFile, err := os.CreateTemp("", "run-kit-desktop-*.dmg")
+	dmgFile, err := os.CreateTemp("", "hexokit-desktop-*.dmg")
 	if err != nil {
 		return InstallResult{}, fmt.Errorf("creating temp file: %w", err)
 	}
@@ -96,7 +96,7 @@ func (ins *Installer) installDarwin(ctx context.Context, rel Release) (InstallRe
 		return InstallResult{}, fmt.Errorf("checksum mismatch for %s: downloaded sha256:%s, release digest sha256:%s — discarding download", rel.AssetName, sum, rel.Digest)
 	}
 
-	mount, err := os.MkdirTemp("", "run-kit-desktop-mnt-")
+	mount, err := os.MkdirTemp("", "hexokit-desktop-mnt-")
 	if err != nil {
 		return InstallResult{}, fmt.Errorf("creating mountpoint: %w", err)
 	}

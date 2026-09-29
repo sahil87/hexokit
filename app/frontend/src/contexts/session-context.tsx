@@ -234,7 +234,7 @@ export type SessionContextType = {
   dismissUpdate: () => void;
   /** Whether the daemon is a Homebrew install, from the server-global
    *  `event: version` `brew` field. `false` until the first version event —
-   *  gates the palette-only `run-kit: Update Now` (force-update) entry. */
+   *  gates the palette-only `HexoKit: Update Now` (force-update) entry. */
   brew: boolean;
   /** Force a self-upgrade regardless of the qualifying snapshot: POST
    *  /api/update `{"force":true}`. Best-effort — the ensuing restart drops the
@@ -442,7 +442,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
   const [daemonPort, setDaemonPort] = useState<number | null>(null);
   // Whether the daemon is a Homebrew install, from the server-global
   // `event: version` `brew` field. `false` until the first version event (the
-  // brew-gated `run-kit: Update Now` palette entry stays hidden until observed).
+  // brew-gated `HexoKit: Update Now` palette entry stays hidden until observed).
   const [isBrew, setIsBrew] = useState(false);
   // Pending toolkit update from the server-global `event: update-available`.
   const [updateAvailable, setUpdateAvailable] = useState<UpdateAvailable | null>(null);

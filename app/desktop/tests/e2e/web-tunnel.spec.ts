@@ -96,7 +96,7 @@ const LAN_HOST = lanIPv4();
 
 /** The shell's appData directory name — package.json `name` (the _shell.ts
  *  seeding mechanism). */
-const APP_DATA_DIR = "run-kit-desktop";
+const APP_DATA_DIR = "hexokit-desktop";
 
 interface ReverseProxy {
   server: http.Server;

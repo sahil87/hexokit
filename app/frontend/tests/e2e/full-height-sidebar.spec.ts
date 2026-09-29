@@ -78,7 +78,7 @@ test.describe("Full-height sidebar — the sidebar head over the bar's left end"
 
   /**
    * Proves: with the desktop sidebar open, the top bar's left end carries the
-   * sidebar head — the `RunKit home` brand anchor and the `Toggle navigation`
+   * sidebar head — the `HexoKit home` brand anchor and the `Toggle navigation`
    * button — sized exactly over the sidebar track plus the stage gap, with
    * the toggle still left of the sidebar's right edge.
    *
@@ -97,11 +97,11 @@ test.describe("Full-height sidebar — the sidebar head over the bar's left end"
     await gotoTerminal(page);
 
     await expect(head(page)).toBeVisible();
-    const brand = page.getByRole("link", { name: "RunKit home" });
+    const brand = page.getByRole("link", { name: "HexoKit home" });
     const toggle = page.getByRole("button", { name: "Toggle navigation" });
     await expect(brand).toBeVisible();
     await expect(toggle).toBeVisible();
-    expect(await head(page).locator('a[aria-label="RunKit home"]').count()).toBe(1);
+    expect(await head(page).locator('a[aria-label="HexoKit home"]').count()).toBe(1);
     expect(await head(page).locator('button[aria-label="Toggle navigation"]').count()).toBe(1);
 
     const headBox = (await head(page).boundingBox())!;
@@ -156,7 +156,7 @@ test.describe("Full-height sidebar — the sidebar head over the bar's left end"
    *
    * Steps:
    * 1. Navigate to `/default/1` at 1440×900; wait for the sidebar aside.
-   * 2. Assert the breadcrumb nav holds no `RunKit home` link (it is the
+   * 2. Assert the breadcrumb nav holds no `HexoKit home` link (it is the
    *    head's anchor now, and the label is unique in the document).
    * 3. Read the nav's first rendered child; assert its text does not begin
    *    with the `›` separator glyph.
@@ -167,8 +167,8 @@ test.describe("Full-height sidebar — the sidebar head over the bar's left end"
     await gotoTerminal(page);
 
     const nav = page.getByRole("navigation", { name: "Breadcrumb" });
-    await expect(nav.getByLabel("RunKit home")).toHaveCount(0);
-    await expect(page.getByLabel("RunKit home")).toHaveCount(1);
+    await expect(nav.getByLabel("HexoKit home")).toHaveCount(0);
+    await expect(page.getByLabel("HexoKit home")).toHaveCount(1);
     const firstText = await nav.evaluate(
       (el) => el.firstElementChild?.textContent ?? "",
     );
@@ -183,13 +183,13 @@ test.describe("Full-height sidebar — the sidebar head over the bar's left end"
    * Steps:
    * 1. Navigate to `/default/1` at 1440×900; wait for the sidebar aside.
    * 2. Press Tab (bounded loop, ≤12 presses, keyboard modality from a fresh
-   *    page) until the `RunKit home` link is `document.activeElement`.
+   *    page) until the `HexoKit home` link is `document.activeElement`.
    * 3. Press Tab once more; assert the `Toggle navigation` button has focus.
    */
   test("Tab reaches the head's brand link, then its toggle, in order", async ({ page }) => {
     await gotoTerminal(page);
 
-    const brand = page.getByRole("link", { name: "RunKit home" });
+    const brand = page.getByRole("link", { name: "HexoKit home" });
     let focused = false;
     for (let i = 0; i < 12 && !focused; i++) {
       await page.keyboard.press("Tab");

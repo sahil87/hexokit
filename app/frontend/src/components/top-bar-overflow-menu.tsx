@@ -90,7 +90,7 @@ export function HelpMenuRow() {
       className={controlClass({ variant: "menu-row" })}
     >
       <HelpIcon />
-      <span className="flex-1">Help — run-kit docs</span>
+      <span className="flex-1">Help — HexoKit docs</span>
       <span aria-hidden="true">↗</span>
     </a>
   );
@@ -283,7 +283,7 @@ type Props = {
  * also lights the chevron's accent attention badge (R7). At rest the row is the
  * unified update button's resting form (260720-ml7k): version + a dev-gated ⟳
  * "Check for updates" affordance running the incl.-patches check (the palette's
- * `run-kit: Check for Updates (incl. patches)` behavior) — placement
+ * `HexoKit: Check for Updates (incl. patches)` behavior) — placement
  * between this row and the in-bar chip is always DERIVED from the verdict
  * state, never imperatively moved.
  */
@@ -427,13 +427,13 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
   // handler so a menu-row click dismisses the panel like BreadcrumbDropdown.
   const close = useCallback(() => setOpen(false), []);
 
-  // Version-row plain form: `RunKit v{version}` (plain `RunKit` when the
+  // Version-row plain form: `HexoKit v{version}` (plain `HexoKit` when the
   // version is unknown — no `event: version` yet — never `vundefined`).
-  const versionText = daemonVersion ? `RunKit ${displayVersion(daemonVersion)}` : "RunKit";
+  const versionText = daemonVersion ? `HexoKit ${displayVersion(daemonVersion)}` : "HexoKit";
 
   // Copy the displayed version form (matches app.tsx buildVersionAction body).
   const handleCopy = useCallback(() => {
-    if (!daemonVersion) return; // plain `RunKit` — nothing meaningful to copy
+    if (!daemonVersion) return; // plain `HexoKit` — nothing meaningful to copy
     void copyToClipboard(displayVersion(daemonVersion)).then((ok) => {
       addToast(ok ? "Version copied" : "Copy failed", ok ? "info" : "error");
     });
@@ -453,7 +453,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
   // surface is showing, EXCEPT on the dev sentinel (a dev daemon never checks —
   // same gate as the palette check entries; a null version counts as non-dev).
   const showCheck = !asUpdateSurface && daemonVersion !== DEV_VERSION;
-  // Single run-kit match keeps today's `RunKit v{current} → v{latest} ⬆` row +
+  // Single run-kit match keeps today's `HexoKit v{current} → v{latest} ⬆` row +
   // aria; any other single tool or multiple tools show a count row naming each
   // per-tool transition in the aria (R15). The row triggers a SCOPED update of
   // exactly the matched tools. The per-tool summary is the shared
@@ -462,11 +462,11 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
   const toolSummary = updateChipToolSummary(tools);
   const updateRowText =
     singleRunKit && current && latest
-      ? `RunKit v${current} → v${latest} ⬆`
+      ? `HexoKit v${current} → v${latest} ⬆`
       : `Toolkit updates (${tools.length}) ⬆`;
   const updateLabel =
     singleRunKit && current
-      ? `Update run-kit: v${current} → v${latest}`
+      ? `Update HexoKit: v${current} → v${latest}`
       : `Update: ${toolSummary}`;
 
   // Section partition (260731-oiho): non-empty sections render in the fixed
@@ -493,7 +493,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
       onBlur={() => setVersionRowFocused(false)}
       disabled={updating}
       onClick={triggerUpdate}
-      aria-label={updating ? "Updating run-kit" : updateLabel}
+      aria-label={updating ? "Updating HexoKit" : updateLabel}
       className={`${controlClass({ variant: "menu-row", bare: true })} text-accent-green hover:bg-bg-card disabled:opacity-60 disabled:cursor-not-allowed`}
     >
       {updating ? (
@@ -522,7 +522,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
           onFocus={() => setVersionRowFocused(true)}
           onBlur={() => setVersionRowFocused(false)}
           onClick={handleCopy}
-          aria-label={daemonVersion ? `${versionText} (copy)` : "RunKit"}
+          aria-label={daemonVersion ? `${versionText} (copy)` : "HexoKit"}
           className={controlClass({ variant: "menu-row", className: "w-auto! flex-1 min-w-0" })}
         >
           {versionText}

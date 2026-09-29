@@ -158,27 +158,27 @@
       els.action.disabled = false;
       els.dot.className = "dot";
       if (!status.installed) {
-        els.headline.textContent = "run-kit is not installed";
+        els.headline.textContent = "HexoKit is not installed";
         els.detail.textContent = "Install it on this machine, then retry.";
         els.hint.textContent = "brew install sahil87/tap/hexokit";
         els.hint.hidden = false;
         return;
       }
       if (status.state === "running") {
-        els.headline.textContent = "run-kit is answering again";
+        els.headline.textContent = "HexoKit is answering again";
         els.detail.textContent = `waiting for ${hostPort(status.origin)} to reload`;
         return;
       }
       els.action.hidden = false;
       if (status.state === "wedged") {
         els.dot.className = "dot wedged";
-        els.headline.textContent = "run-kit is not responding";
-        els.detail.textContent = `run-kit is running but isn't answering on ${status.origin}`;
-        els.action.textContent = "Restart run-kit";
+        els.headline.textContent = "HexoKit is not responding";
+        els.detail.textContent = `HexoKit is running but isn't answering on ${status.origin}`;
+        els.action.textContent = "Restart HexoKit";
       } else {
-        els.headline.textContent = "run-kit isn't running on this Mac";
+        els.headline.textContent = "HexoKit isn't running on this Mac";
         els.detail.textContent = `Start it and wait for ${hostPort(status.origin)} to answer.`;
-        els.action.textContent = "Start run-kit";
+        els.action.textContent = "Start HexoKit";
       }
     };
 
