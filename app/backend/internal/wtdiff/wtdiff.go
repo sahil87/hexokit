@@ -246,49 +246,12 @@ func (r *Reader) FileRows(ctx context.Context, root string, file *FileEntry) (di
 		patch = out
 	}
 	rows := diffrows.LineRowsFromPatch(diffrows.ParsePatch(patch))
-	body := diffrows.FileBody{Path: file.Path, Rows: rows}
-	colourRows(file.Path, rows)
-	return body, nil
-}
-
-// colourRows lexes each contiguous run of same-side lines in place.
-//
-// The working tree needs no blob fetch to do this — unlike the PR surface,
-// whose lexer has to pull the file from GitHub, the post-image IS the file on
-// disk and the patch already carries its text. So there is no tier ladder here
-// and no refinement pass: one lex, from the rows themselves.
-func colourRows(path string, rows []diffrows.LineRow) {
-	lexer := diffrows.LexerFor(path)
-	if lexer == nil {
-		return
-	}
-	var run []string
-	var at []int
-	flush := func() {
-		if len(run) == 0 {
-			return
-		}
-		spans := diffrows.LexLines(lexer, run)
-		for i, idx := range at {
-			if i < len(spans) && len(spans[i]) > 0 {
-				rows[idx].Spans = spans[i]
-			}
-		}
-		run, at = run[:0], at[:0]
-	}
-	for i := range rows {
-		if rows[i].Kind == diffrows.RowHunk {
-			flush()
-			continue
-		}
-		text := ""
-		if len(rows[i].Spans) > 0 {
-			text = rows[i].Spans[0].Text
-		}
-		run = append(run, text)
-		at = append(at, i)
-	}
-	flush()
+	// The same pass the PR surface's R5 tier 0.5 runs — shared, because a patch
+	// is a patch. Here it is the ONLY colour there is: the post image is the
+	// file on disk and the patch already carries its text, so there is nothing
+	// a blob fetch would add and no refinement tier to climb to.
+	diffrows.LexPatchRows(file.Path, rows)
+	return diffrows.FileBody{Path: file.Path, Rows: rows}, nil
 }
 
 func (r *Reader) expandUntracked(ctx context.Context, root string, files []FileEntry) {
@@ -348,7 +311,7 @@ func applyEagerBudget(files []FileEntry) {
 			file.Collapsed = CollapsedBudget
 		default:
 			file.Rows = diffrows.LineRowsFromPatch(patchRows)
-			colourRows(file.Path, file.Rows)
+			diffrows.LexPatchRows(file.Path, file.Rows)
 			rows += file.RowCount
 			expanded++
 		}
