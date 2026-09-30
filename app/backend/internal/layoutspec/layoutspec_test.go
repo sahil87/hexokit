@@ -392,7 +392,7 @@ func TestReviewSurfaceKind(t *testing.T) {
 }
 
 func TestIsSurface(t *testing.T) {
-	for _, kind := range []string{"tty", "web", "code", "gui", "review"} {
+	for _, kind := range []string{"tty", "web", "code", "gui", "review", "diff"} {
 		if !IsSurface(kind) {
 			t.Errorf("IsSurface(%q) = false", kind)
 		}
@@ -400,6 +400,26 @@ func TestIsSurface(t *testing.T) {
 	for _, kind := range []string{"", "desktop", "agents", "terminal", "chat"} {
 		if IsSurface(kind) {
 			t.Errorf("IsSurface(%q) = true", kind)
+		}
+	}
+}
+
+// THE REGISTRY-PARITY GUARD.
+//
+// A surface the frontend can WRITE but this package refuses to PARSE is the
+// worst shape this bug takes: the toggle writes `@rk_win_layout`, the daemon
+// rejects the string, and the user gets `unknown surface at byte N` from a
+// button that looks like it should just work. It happened with `diff`, and the
+// only reason it survived review is that the e2e mocks the options POST, so the
+// validator never ran in a test.
+//
+// Every kind the frontend offers must parse here. When a surface is added,
+// this list is the second place to change and the failure names itself.
+func TestEveryShippedSurfaceParsesInALayout(t *testing.T) {
+	for _, kind := range []string{"tty", "web", "code", "gui", "review", "diff"} {
+		spec := "h(tty," + kind + ")"
+		if _, err := Parse(spec); err != nil {
+			t.Errorf("Parse(%q) = %v — the frontend can write this and the daemon would reject it", spec, err)
 		}
 	}
 }
