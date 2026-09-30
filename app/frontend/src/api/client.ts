@@ -2097,6 +2097,24 @@ export async function fetchWorkingDiff(
   return res.json();
 }
 
+/** GET /api/diff/digest — one fingerprint of everything the tile renders.
+ *
+ *  The tile polls this instead of the whole document: ~70 bytes against a
+ *  megabyte, so a tree nobody is touching costs almost nothing per tick. */
+export async function fetchWorkingDiffDigest(
+  server: string,
+  windowId: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const res = await fetch(
+    withServer(`/api/diff/digest?window=${encodeURIComponent(windowId)}`, server),
+    { signal },
+  );
+  if (!res.ok) await throwOnError(res);
+  const body = (await res.json()) as { digest: string };
+  return body.digest;
+}
+
 /** GET /api/diff/file — one file's rows, with token spans. */
 export async function fetchWorkingDiffFile(
   server: string,

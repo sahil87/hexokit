@@ -33,6 +33,9 @@ export interface WorkingFile {
 }
 
 export interface WorkingSnapshot {
+  /** Fingerprints everything the tile renders. The tile polls this and re-reads
+   *  only when it moves. */
+  digest: string;
   root: string;
   files: WorkingFile[];
   readAt: string;

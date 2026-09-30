@@ -115,20 +115,44 @@ changed-file list. That closed set is the authorization and is not optional:
 without it the route serves any file in the repository, and through a `..`
 segment, any file outside it. Identical reasoning to `handlePRReviewFile`.
 
-## W6 — Freshness is a button, not a protocol
+## W6 — Freshness is polled, because nothing pushes it
 
-The PR surface revalidates off the SSE thread digest, because a gh read is
-expensive and a comment landing late is invisible. Here a read is 0.05 s and
-there is no equivalent push signal for a filesystem.
+The PR surface owns no timer: its refresh costs GraphQL points, so freshness
+there is PUSHED off the SSE thread digest. **Neither half of that reasoning
+reaches this surface.** A working-tree read is two local subprocesses and no API
+budget at all, and — the decisive part — **a file edit produces no tmux event**,
+so the SSE tick would not carry the signal even if the digest rode the window
+payload. The tick is control-mode driven with a 12 s safety net; an edit made in
+an editor rather than in a pane moves nothing on it.
 
-v1 refreshes on mount, on identity change, and on an explicit refresh verb. A
-refresh **must not re-seed the open set** — the reader's expand state is theirs,
-not the server's, and collapsing the file they were reading is the bug that
-seeding on every load would cause.
+So the tile asks. `GET /api/diff/digest` answers one fingerprint of everything
+the tile renders (~70 bytes), the tile polls it every 2 s while mounted, and it
+re-reads the document only when the fingerprint moves.
 
-A filesystem watcher is deliberately out of scope: it is a new capability and a
-new failure mode. At 0.05 s a tick-poll is affordable and is the obvious
-follow-up.
+**The digest hashes the diff, not the status.** This is the part that is wrong
+if guessed: `git status --porcelain` output is **byte-identical** before and
+after a file that is *already modified* is edited again — verified directly —
+which is the commonest change there is. A status-only fingerprint would sit
+still through exactly the case the feature exists for. It therefore hashes the
+status output, the full `git diff HEAD` output, and — because an untracked
+file's content appears in neither — each untracked path's size and mtime.
+
+**The poll pauses while the page is hidden** and re-checks immediately on
+return: a backgrounded tab has no reader to serve, and the first thing a
+returning reader wants is the current state, not a state up to two seconds old.
+
+**A revalidation never re-seeds the open set.** The reader's expand state is
+theirs; collapsing the file they are reading because a build touched another one
+would be its own bug. A failed poll paints nothing — the document on screen is
+still the last good one, and the next tick retries.
+
+The explicit refresh verb stays, as the "now" affordance.
+
+> A filesystem watcher would cut the latency below 2 s, and is deliberately not
+> here: recursive watches over a repo mean ignoring `.git` and every gitignored
+> tree, thousands of inotify registrations against a per-user limit, and a
+> debounce of its own — a new capability and a new failure mode, to improve on a
+> number no reader can perceive.
 
 ## Package split
 

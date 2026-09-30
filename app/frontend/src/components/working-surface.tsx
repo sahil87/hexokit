@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { fetchWorkingDiff, fetchWorkingDiffFile } from "@/api/client";
+import { fetchWorkingDiff, fetchWorkingDiffDigest, fetchWorkingDiffFile } from "@/api/client";
 import { ReviewDiff } from "@/components/review-diff";
 import { ReviewTree } from "@/components/review-tree";
 import type { ReviewFileBody } from "@/lib/review";
@@ -21,6 +21,22 @@ import { statusLetter, type WorkingFile, type WorkingSnapshot } from "@/lib/work
 
 /** Rows of file header the virtualizer keeps mounted beyond the viewport. */
 const FILE_ROW_HEIGHT = 28;
+
+/**
+ * How often a mounted tile asks whether the tree has moved.
+ *
+ * The PR surface owns no timer on purpose — its refresh costs GraphQL points,
+ * so freshness there is PUSHED off the SSE thread digest. Neither half of that
+ * reasoning reaches here: a working-tree read is two local subprocesses and no
+ * API budget, and a file edit produces no tmux event at all, so the SSE tick
+ * would never carry the signal. Asking is both affordable and the only thing
+ * that sees a change made in an editor rather than in a pane.
+ *
+ * What is polled is the DIGEST (~70 bytes), never the document. The tile
+ * re-reads only when it moves, so a tree nobody is touching costs one small
+ * response per tick.
+ */
+const POLL_MS = 2000;
 
 export interface WorkingSurfaceProps {
   server: string;
@@ -94,6 +110,55 @@ export function WorkingSurface({ server, windowId, gitRoot }: WorkingSurfaceProp
     void load(true, controller.signal);
     return () => controller.abort();
   }, [load, gitRoot]);
+
+  // Freshness. The poll is paused while the page is hidden — a backgrounded tab
+  // has no reader to serve, and waking every two seconds to ask git about a
+  // tree nobody is looking at is pure waste. Becoming visible re-checks
+  // immediately rather than waiting out a tick, because the first thing a
+  // returning reader wants is the current state.
+  const digestRef = useRef<string | null>(null);
+  useEffect(() => {
+    digestRef.current = snapshot?.digest ?? null;
+  }, [snapshot?.digest]);
+
+  // Keyed on WHETHER there is a snapshot, never on the snapshot itself: every
+  // successful poll replaces it, and depending on the object would tear the
+  // interval down and restart its two seconds on each one.
+  const polling = snapshot !== null;
+  useEffect(() => {
+    if (!polling) return;
+    let stopped = false;
+    const controller = new AbortController();
+
+    const check = async () => {
+      if (stopped || document.hidden) return;
+      try {
+        const next = await fetchWorkingDiffDigest(server, windowId, controller.signal);
+        // A REVALIDATION, never a re-seed: the reader's open/closed set is
+        // theirs, and collapsing the file they are reading because someone
+        // saved another one would be its own bug.
+        if (!stopped && digestRef.current !== null && next !== digestRef.current) {
+          digestRef.current = next;
+          void load();
+        }
+      } catch {
+        // A failed poll is not a failure the reader needs to see: the document
+        // on screen is still the last good one, and the next tick retries.
+      }
+    };
+
+    const timer = window.setInterval(() => void check(), POLL_MS);
+    const onVisible = () => {
+      if (!document.hidden) void check();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      stopped = true;
+      controller.abort();
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [polling, server, windowId, load]);
 
   const files = snapshot?.files ?? [];
   const tree = useMemo(() => buildReviewTree(files), [files]);

@@ -251,3 +251,117 @@ func itoa(n int) string {
 	}
 	return string(b)
 }
+
+// THE DIGEST GUARD.
+//
+// A digest that misses a change is worse than no digest: the tile sits there
+// showing stale code and nothing ever tells it. Each case below is a change a
+// cheaper fingerprint would have missed, and the last two are why this one
+// hashes the diff and stats untracked files rather than hashing `git status`.
+func TestDigestMovesOnEveryChangeThatAltersTheTile(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	root := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reader := NewReader()
+	digest := func() string {
+		t.Helper()
+		got, err := reader.Digest(context.Background(), root)
+		if err != nil {
+			t.Fatalf("Digest: %v", err)
+		}
+		return got
+	}
+
+	run("init", "-q", ".")
+	write("a.go", "package a\n\nfunc A() int { return 1 }\n")
+	run("add", "-A")
+	run("commit", "-qm", "base")
+
+	clean := digest()
+	if clean == "" {
+		t.Fatal("empty digest")
+	}
+	if again := digest(); again != clean {
+		t.Fatalf("digest is not stable on an unchanged tree: %q then %q", clean, again)
+	}
+
+	steps := []struct {
+		name string
+		do   func()
+	}{
+		{"a tracked file is modified", func() { write("a.go", "package a\n\nfunc A() int { return 2 }\n") }},
+		// THE CASE A STATUS HASH MISSES. The file was already modified, so the
+		// porcelain output is byte-identical before and after this edit —
+		// verified directly against git. Only hashing the diff sees it.
+		{"an ALREADY-modified file is edited again", func() { write("a.go", "package a\n\nfunc A() int { return 3 }\n") }},
+		{"a new untracked file appears", func() { write("new.txt", "one\n") }},
+		// THE SECOND CASE A DIFF HASH MISSES. An untracked file's content is in
+		// neither the status output nor `git diff HEAD`; its stat stands in.
+		{"an untracked file's content changes", func() { write("new.txt", "one\ntwo\n") }},
+		{"a change is staged", func() { run("add", "a.go") }},
+		{"a file is deleted", func() { os.Remove(filepath.Join(root, "a.go")) }},
+	}
+	prev := clean
+	for _, step := range steps {
+		step.do()
+		got := digest()
+		if got == prev {
+			t.Errorf("digest did not move when %s — the tile would show stale content", step.name)
+		}
+		prev = got
+	}
+
+	// And it comes back: committing everything returns the tree to a state the
+	// digest already described, so it must read the same as it did then.
+	run("add", "-A")
+	run("commit", "-qm", "all")
+	if got := digest(); got != clean {
+		t.Errorf("a committed tree digests %q, want the original clean %q", got, clean)
+	}
+}
+
+// Read's snapshot carries the same digest a bare Digest() call answers, so the
+// client's first poll after a load cannot spuriously report a change.
+func TestSnapshotDigestMatchesTheDigestCall(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	root := t.TempDir()
+	cmd := exec.Command("git", "-C", root, "init", "-q", ".")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("init: %v\n%s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(root, "x.txt"), []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reader := NewReader()
+	snap, err := reader.Read(context.Background(), root)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	standalone, err := reader.Digest(context.Background(), root)
+	if err != nil {
+		t.Fatalf("Digest: %v", err)
+	}
+	if snap.Digest != standalone {
+		t.Errorf("snapshot digest %q != Digest() %q — the first poll would refetch for nothing",
+			snap.Digest, standalone)
+	}
+}

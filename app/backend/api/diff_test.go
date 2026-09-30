@@ -123,6 +123,49 @@ func TestDiffFileRefusesAPathOutsideTheChangeSet(t *testing.T) {
 	}
 }
 
+// The freshness seam: a fingerprint, not the document. The tile polls this on a
+// short cadence, so it must stay small and must not carry the file list.
+func TestDiffDigestAnswersAFingerprintNotTheDocument(t *testing.T) {
+	router, _ := newDiffServer(t, gitStub)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/diff/digest?window=@1", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Digest string `json:"digest"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Digest == "" {
+		t.Error("empty digest")
+	}
+	if strings.Contains(rec.Body.String(), "a.go") {
+		t.Errorf("the digest response carried the file list: %s", rec.Body.String())
+	}
+	// Small enough to poll. The document it stands in for is a megabyte.
+	if rec.Body.Len() > 128 {
+		t.Errorf("digest response is %d bytes; it is polled every few seconds", rec.Body.Len())
+	}
+	// Same window, unchanged tree — the client must not refetch for nothing.
+	rec2 := httptest.NewRecorder()
+	router.ServeHTTP(rec2, httptest.NewRequest(http.MethodGet, "/api/diff/digest?window=@1", nil))
+	if rec2.Body.String() != rec.Body.String() {
+		t.Errorf("digest is unstable on an unchanged tree: %s then %s", rec.Body.String(), rec2.Body.String())
+	}
+}
+
+// A window outside a repo has no tile, so it has no freshness seam either.
+func TestDiffDigestOnAWindowWithNoRepoIs404(t *testing.T) {
+	router, _ := newDiffServer(t, gitStub)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/diff/digest?window=@2", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rec.Code)
+	}
+}
+
 // A subprocess error reaches the client as a banner it can act on, never as
 // "exit status 128".
 func TestDiffClassifiesGitFailures(t *testing.T) {

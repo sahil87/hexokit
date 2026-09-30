@@ -1054,6 +1054,7 @@ func (s *Server) buildRouter() chi.Router {
 	// separate reads so a 200-file PR renders without tokenizing any of them.
 	r.Get("/api/diff", s.handleDiff)
 	r.Get("/api/diff/file", s.handleDiffFile)
+	r.Get("/api/diff/digest", s.handleDiffDigest)
 	r.Get("/api/pr/review", s.handlePRReview)
 	r.Get("/api/pr/review/file", s.handlePRReviewFile)
 	r.Post("/api/pr/review/comment", s.handlePRReviewComment)

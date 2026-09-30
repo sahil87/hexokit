@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 
 import type { WorkingSnapshot } from "@/lib/working";
 
 const fetchWorkingDiffMock = vi.fn();
 const fetchWorkingDiffFileMock = vi.fn();
+const fetchWorkingDiffDigestMock = vi.fn();
 
 vi.mock("@/api/client", async () => {
   const actual = await vi.importActual<typeof import("@/api/client")>("@/api/client");
@@ -12,12 +13,14 @@ vi.mock("@/api/client", async () => {
     ...actual,
     fetchWorkingDiff: (...args: unknown[]) => fetchWorkingDiffMock(...args),
     fetchWorkingDiffFile: (...args: unknown[]) => fetchWorkingDiffFileMock(...args),
+    fetchWorkingDiffDigest: (...args: unknown[]) => fetchWorkingDiffDigestMock(...args),
   };
 });
 
 import { WorkingSurface } from "@/components/working-surface";
 
 const dirty: WorkingSnapshot = {
+  digest: "d1",
   root: "/repo",
   readAt: "2026-09-29T12:00:00Z",
   clean: false,
@@ -64,6 +67,7 @@ function fileRow(path: string): HTMLElement {
 }
 
 beforeEach(() => {
+  fetchWorkingDiffDigestMock.mockReset().mockResolvedValue("d1");
   fetchWorkingDiffMock.mockReset().mockResolvedValue(dirty);
   fetchWorkingDiffFileMock.mockReset().mockResolvedValue({
     path: "fresh.txt",
@@ -150,5 +154,74 @@ describe("WorkingSurface", () => {
     fireEvent.click(screen.getByTestId("working-refresh"));
     await waitFor(() => expect(fetchWorkingDiffMock).toHaveBeenCalledTimes(2));
     expect(fileRow("app/a.go").getAttribute("aria-expanded")).toBe("false");
+  });
+});
+
+describe("WorkingSurface freshness", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // The whole point: no reload button press, no SSE event — the tile notices on
+  // its own. It polls the DIGEST, and only re-reads the document when it moves.
+  it("re-reads the tree when the digest moves, and not before", async () => {
+    fetchWorkingDiffDigestMock.mockResolvedValue("d1");
+    renderSurface();
+    await waitFor(() => expect(screen.getByTestId("working-surface")).toBeTruthy());
+    expect(fetchWorkingDiffMock).toHaveBeenCalledTimes(1);
+
+    // An unchanged tree: polled, but never re-read.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6000);
+    });
+    expect(fetchWorkingDiffDigestMock.mock.calls.length).toBeGreaterThan(1);
+    expect(fetchWorkingDiffMock).toHaveBeenCalledTimes(1);
+
+    // Someone saves a file.
+    fetchWorkingDiffDigestMock.mockResolvedValue("d2");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    await waitFor(() => expect(fetchWorkingDiffMock).toHaveBeenCalledTimes(2));
+  });
+
+  // A backgrounded tab has no reader to serve. Waking every two seconds to ask
+  // git about a tree nobody is looking at is pure waste.
+  it("pauses while the page is hidden and re-checks on return", async () => {
+    fetchWorkingDiffDigestMock.mockResolvedValue("d1");
+    renderSurface();
+    await waitFor(() => expect(screen.getByTestId("working-surface")).toBeTruthy());
+
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    fetchWorkingDiffDigestMock.mockClear();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6000);
+    });
+    expect(fetchWorkingDiffDigestMock).not.toHaveBeenCalled();
+
+    // Coming back re-checks at once rather than waiting out a tick.
+    hidden.mockReturnValue(false);
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await waitFor(() => expect(fetchWorkingDiffDigestMock).toHaveBeenCalled());
+    hidden.mockRestore();
+  });
+
+  // A poll that fails is not a failure the reader needs to see: the document on
+  // screen is still the last good one, and the next tick retries.
+  it("a failed poll leaves the document alone and does not paint an error", async () => {
+    fetchWorkingDiffDigestMock.mockRejectedValue(new Error("git exploded"));
+    renderSurface();
+    await waitFor(() => expect(screen.getByTestId("working-surface")).toBeTruthy());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(screen.queryByTestId("working-error")).toBeNull();
+    expect(screen.getByTestId("working-surface")).toBeTruthy();
+    expect(fetchWorkingDiffMock).toHaveBeenCalledTimes(1);
   });
 });

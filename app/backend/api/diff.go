@@ -78,6 +78,40 @@ func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, snapshot)
 }
 
+// GET /api/diff/digest?window={id}
+//
+// The tile's freshness seam. It answers one fingerprint of everything the tile
+// renders, so a client can ask "has anything changed?" on a short cadence
+// without pulling the document each time.
+//
+// The PR surface deliberately owns no timer — its refresh costs GraphQL points,
+// so freshness there is PUSHED off the SSE thread digest. Neither half of that
+// reasoning survives here: a working-tree read is two local subprocesses and no
+// API budget at all, and a file edit produces no tmux event, so the SSE tick
+// would not carry the signal even if we put it there. Asking is both affordable
+// and the only thing that actually sees an editor-side change.
+func (s *Server) handleDiffDigest(w http.ResponseWriter, r *http.Request) {
+	windowID, ok := windowIDParam(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "Invalid window ID")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), diffRequestTimeout)
+	defer cancel()
+
+	root, err := s.resolveDiffRoot(ctx, r, windowID)
+	if err != nil {
+		writeDiffError(w, err)
+		return
+	}
+	digest, err := s.diffReader().Digest(ctx, root)
+	if err != nil {
+		writeDiffError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"digest": digest})
+}
+
 // GET /api/diff/file?window={id}&path=…
 //
 // `path` is shape-validated here and then checked against the snapshot's OWN

@@ -19,6 +19,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 const SERVER = "default";
 
 const SNAPSHOT = {
+  digest: "stable",
   root: "/repo",
   readAt: "2026-09-29T12:00:00Z",
   clean: false,
@@ -90,6 +91,15 @@ async function mockBackend(page: Page, body: unknown = SNAPSHOT) {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify([{ name: SERVER, sessionCount: 1 }]),
+    }),
+  );
+  // The tile polls this every couple of seconds. It is registered before the
+  // list route for the same reason /file is: the more specific path must win.
+  await page.route("**/api/diff/digest*", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ digest: "stable" }),
     }),
   );
   await page.route("**/api/diff/file*", (route) =>

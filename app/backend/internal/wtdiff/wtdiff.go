@@ -14,8 +14,13 @@ package wtdiff
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -97,6 +102,10 @@ type FileEntry struct {
 
 // Snapshot is one read of the working tree.
 type Snapshot struct {
+	// Digest fingerprints everything the tile renders. The client polls it and
+	// re-reads only when it moves, so a tree nobody is touching costs one small
+	// response per tick instead of the whole document.
+	Digest string      `json:"digest"`
 	Root   string      `json:"root"`
 	Files  []FileEntry `json:"files"`
 	ReadAt time.Time   `json:"readAt"`
@@ -143,9 +152,11 @@ func (r *Reader) Read(ctx context.Context, root string) (*Snapshot, error) {
 	// A repository with no commits has no HEAD, and that is not an error — it
 	// is a tree where everything is untracked.
 	patches := map[string]string{}
+	var diffRaw []byte
 	if len(trackedPaths(entries)) > 0 {
 		diff, diffErr := r.gitExec(ctx, root, "diff", "HEAD", "--no-color", "--no-ext-diff", "-M")
 		if diffErr == nil {
+			diffRaw = diff
 			patches = splitPatches(string(diff))
 		}
 	}
@@ -163,11 +174,60 @@ func (r *Reader) Read(ctx context.Context, root string) (*Snapshot, error) {
 	applyEagerBudget(files)
 
 	return &Snapshot{
+		Digest: digestOf(status, diffRaw, files, root),
 		Root:   root,
 		Files:  files,
 		ReadAt: r.now(),
 		Clean:  len(files) == 0,
 	}, nil
+}
+
+// Digest fingerprints the working tree without building the document.
+//
+// It runs the SAME two reads Read does, because anything cheaper is wrong: a
+// `git status` hash alone does not move when a file that is ALREADY modified is
+// edited again, which is the commonest change there is. Verified directly —
+// editing a tracked file's content leaves the porcelain output byte-identical.
+//
+// What it saves is the WIRE, not the work: ~70 bytes instead of a megabyte, so
+// a client can ask "has anything changed?" on a short cadence and pull the
+// document only when the answer is yes.
+func (r *Reader) Digest(ctx context.Context, root string) (string, error) {
+	status, err := r.gitExec(ctx, root, "status", "--porcelain=v1", "-z")
+	if err != nil {
+		return "", err
+	}
+	entries := parseStatus(string(status))
+	var diffRaw []byte
+	if len(trackedPaths(entries)) > 0 {
+		diffRaw, _ = r.gitExec(ctx, root, "diff", "HEAD", "--no-color", "--no-ext-diff", "-M")
+	}
+	return digestOf(status, diffRaw, entries, root), nil
+}
+
+// digestOf hashes the three things that decide what the tile shows.
+//
+// The third is not obvious and is load-bearing: an UNTRACKED file's content
+// appears in neither the status output (which carries only its path) nor
+// `git diff HEAD` (which does not see it at all), so editing a new file would
+// otherwise never move the digest. Its size and mtime stand in for its content
+// — one stat per untracked path, microseconds, and no extra subprocess.
+func digestOf(status, diff []byte, files []FileEntry, root string) string {
+	h := sha256.New()
+	h.Write(status)
+	h.Write([]byte{0})
+	h.Write(diff)
+	for _, file := range files {
+		if file.Status != StatusUntracked {
+			continue
+		}
+		h.Write([]byte{0})
+		h.Write([]byte(file.Path))
+		if info, err := os.Stat(filepath.Join(root, file.Path)); err == nil {
+			fmt.Fprintf(h, ":%d:%d", info.Size(), info.ModTime().UnixNano())
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)[:16])
 }
 
 // FileRows serves one file's rows, with token spans.
