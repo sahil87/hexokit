@@ -708,7 +708,14 @@ func TestEagerBudgetExpandsThePrefixAndCollapsesTheRest(t *testing.T) {
 		}
 	})
 
-	t.Run("eager rows carry TEXT but no colour", func(t *testing.T) {
+	t.Run("eager rows carry TEXT, and now colour too", func(t *testing.T) {
+		// This assertion used to read "text but NO colour", on the reasoning
+		// that colour "costs a gh blob fetch". That reasoning was about the
+		// NETWORK, and it still holds for the blob-backed rungs — but tier 0.5
+		// lexes the patch's own text and fetches nothing, so the premise no
+		// longer reaches it. The cold-fetch call-count guard elsewhere in this
+		// file is what keeps the network promise honest; this one is about what
+		// the rows carry.
 		files := []FileEntry{{Path: "a.go", HasPatch: true, Patch: patchWithRows(5)}}
 		applyEagerBudget(files)
 		for _, row := range files[0].Rows {
@@ -720,14 +727,6 @@ func TestEagerBudgetExpandsThePrefixAndCollapsesTheRest(t *testing.T) {
 			// empty rows.
 			if len(row.Spans) == 0 {
 				t.Fatal("eager row has no spans — it would render as a blank line")
-			}
-			// Colour is NOT: it costs a gh blob fetch and stays a separate,
-			// viewport-driven read.
-			for _, span := range row.Spans {
-				if span.Class != "" {
-					t.Fatalf("eager row is coloured (%q) — tokenizing at mount is the "+
-						"cost the digest/detail split exists to avoid", span.Class)
-				}
 			}
 		}
 	})
@@ -814,11 +813,18 @@ func TestEagerBudgetShipsReadableRows(t *testing.T) {
 	if files[0].Collapsed != "" {
 		t.Fatalf("file collapsed = %q, want expanded", files[0].Collapsed)
 	}
+	// One string PER ROW, not per span: tier 0.5 splits a line into several
+	// classed spans, so the line is their concatenation.
 	var text []string
 	for _, row := range files[0].Rows {
-		for _, span := range row.Spans {
-			text = append(text, span.Text)
+		if row.Kind == RowHunk {
+			continue
 		}
+		var line string
+		for _, span := range row.Spans {
+			line += span.Text
+		}
+		text = append(text, line)
 	}
 	if len(text) != 2 || text[0] != "package main" || text[1] != "// hi" {
 		t.Errorf("eager rows carry %q — an expanded file must not render blank", text)
@@ -952,5 +958,112 @@ func TestFetchReportsTheFilesErrorWhenBothFail(t *testing.T) {
 	_, err := f.Get(context.Background(), "https://github.com/o/r/pull/7", false)
 	if err == nil || !strings.Contains(err.Error(), "files exploded") {
 		t.Fatalf("err = %v, want the files error", err)
+	}
+}
+
+// R5 TIER 0.5 — colour on first paint, for no request at all.
+//
+// The rows the tile mounts from arrive coloured, lexed from the patch's own
+// text. The blob-backed rungs still correct them as each file approaches the
+// viewport; this is only about what the reader sees in the gap.
+func TestEagerRowsArriveColoured(t *testing.T) {
+	files := []FileEntry{{
+		Path:     "a.go",
+		HasPatch: true,
+		Patch:    "@@ -1,3 +1,4 @@\n package main\n-var Old = 1\n+var New = 2\n+// trailing",
+	}}
+	applyEagerBudget(files)
+	if files[0].Collapsed != "" {
+		t.Fatalf("collapsed = %q, want expanded", files[0].Collapsed)
+	}
+
+	classed := 0
+	for i, row := range files[0].Rows {
+		if row.Kind == RowHunk {
+			// The header renders from Header; spans there would be drawn twice.
+			if len(row.Spans) != 0 {
+				t.Errorf("hunk row %d carries spans %+v", i, row.Spans)
+			}
+			continue
+		}
+		for _, span := range row.Spans {
+			if span.Class != "" {
+				classed++
+				break
+			}
+		}
+	}
+	if classed == 0 {
+		t.Error("no row carried a token class — the .go lexer did not run over the patch text")
+	}
+}
+
+// THE CORRUPTION GUARD, and the one that matters most here.
+//
+// Colouring rewrites a row's spans. If the lexer ever drops, reorders or
+// duplicates a character, the reader sees WRONG CODE — not merely wrong colour
+// — and nothing else in this suite would notice. So: concatenating a coloured
+// row's spans must reproduce the tier-0 line exactly, byte for byte.
+func TestColouringNeverChangesRowText(t *testing.T) {
+	const patch = "@@ -1,5 +1,6 @@\n package main\n \n-func Old() string { return \"x\" }\n+func New() string { return \"héllo\\tworld\" }\n+// a comment with  double  spaces\n \t"
+	plain := LineRowsFromPatch(ParsePatch(patch))
+	want := make([]string, len(plain))
+	for i, row := range plain {
+		for _, span := range row.Spans {
+			want[i] += span.Text
+		}
+	}
+
+	files := []FileEntry{{Path: "a.go", HasPatch: true, Patch: patch}}
+	applyEagerBudget(files)
+	got := files[0].Rows
+	if len(got) != len(plain) {
+		t.Fatalf("coloured rows = %d, plain rows = %d", len(got), len(plain))
+	}
+	for i := range got {
+		var joined string
+		for _, span := range got[i].Spans {
+			joined += span.Text
+		}
+		if joined != want[i] {
+			t.Errorf("row %d text = %q after colouring, want %q", i, joined, want[i])
+		}
+	}
+}
+
+// A file no Chroma lexer matches keeps its tier-0 plain rows. That is the
+// common case (lockfiles, data), and the ladder degrades to absent colour, not
+// to an error or to a blank row.
+func TestAFileWithNoLexerStaysPlain(t *testing.T) {
+	files := []FileEntry{{
+		Path:     "go.sum.lock.unknownext",
+		HasPatch: true,
+		Patch:    "@@ -1 +1 @@\n-a\n+b",
+	}}
+	applyEagerBudget(files)
+	for i, row := range files[0].Rows {
+		if row.Kind == RowHunk {
+			continue
+		}
+		if len(row.Spans) != 1 || row.Spans[0].Class != "" {
+			t.Errorf("row %d = %+v, want one classless span", i, row.Spans)
+		}
+		if row.Spans[0].Text == "" {
+			t.Errorf("row %d lost its text", i)
+		}
+	}
+}
+
+// A collapsed file is never lexed: it has no rows, and spending the pass on it
+// is exactly what the budget exists to avoid.
+func TestCollapsedFilesAreNotColoured(t *testing.T) {
+	big := "@@ -1,600 +1,600 @@\n" + strings.Repeat(" ctx\n", maxEagerRowsPerFile+10)
+	files := []FileEntry{{Path: "big.go", HasPatch: true, Patch: big}}
+	applyEagerBudget(files)
+	if files[0].Collapsed != CollapsedLarge {
+		t.Fatalf("collapsed = %q, want %q", files[0].Collapsed, CollapsedLarge)
+	}
+	if len(files[0].Rows) != 0 {
+		t.Errorf("a collapsed file shipped %d rows", len(files[0].Rows))
 	}
 }

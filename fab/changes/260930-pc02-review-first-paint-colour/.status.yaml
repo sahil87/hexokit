@@ -1,0 +1,37 @@
+id: pc02
+name: 260930-pc02-review-first-paint-colour
+created: 2026-09-30T02:39:58Z
+created_by: asim-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: active
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: false
+    task_count: 0
+    acceptance_count: 0
+    acceptance_completed: 0
+confidence:
+    certain: 11
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 80.8
+        reversibility: 86.7
+        competence: 88.8
+        disambiguation: 85.0
+stage_metrics:
+    intake: {started_at: "2026-09-30T02:39:58Z", driver: fab-new, iterations: 1, completed_at: "2026-09-30T02:40:21Z"}
+    apply: {started_at: "2026-09-30T02:40:21Z", iterations: 1}
+prs: []
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-30T02:40:21Z

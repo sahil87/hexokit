@@ -200,7 +200,14 @@ export function ReviewSurface({
           headSha: next.headSha,
           baseSha: next.baseSha,
           totalLines: 0,
-          highlighted: false,
+          // The server lexed these from the patch's own text before sending
+          // them (R5 tier 0.5), so they ARE highlighted.
+          highlighted: true,
+          // `refine` stays false, and that is load-bearing: ReviewDiff fires
+          // onLoadRange() on mount when it is true, so setting it here would
+          // make a 31-file PR issue 31 body requests the instant the tile
+          // mounts — the exact storm the list/body split exists to prevent.
+          // The blob-backed correction is the viewport pump's job below.
           refine: false,
         };
         if (!readViewed(next.url, next.headSha, file.path)) open.add(file.path);

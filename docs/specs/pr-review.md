@@ -272,7 +272,27 @@ carried rather than solving them: the 100–300 KB bundle, async highlighter ini
 theme whose colours assume a flat ground the diff tint then sits under.
 
 **Windowed lexing with dual-tier refinement.** Chroma lexers run well under
-1 MB/s, so whole-file tokenization on open is off the table. Two tiers:
+1 MB/s, so whole-file tokenization on open is off the table. Three rungs:
+
+- **Tier 0.5 (the list read, no fetch at all).** The eagerly-expanded rows are
+  lexed from the PATCH'S OWN TEXT before they go on the wire. The patch already
+  carries every line it renders, so this costs no blob and no request — only
+  CPU. It is not the whole file, so a hunk opening inside a block comment or a
+  raw string lexes wrong; measured on an 84-file PR it is right for **4,561 of
+  4,916 rows (92%)**, costs **+71 ms** across the file set (one goroutine per
+  file, capped by the eager budget's own `maxEagerFiles`), and roughly doubles
+  the list payload (560 KB → 1,113 KB).
+
+  It exists because the rungs below it all need a round trip: before it, the
+  first paint was monochrome and colour arrived over ~6 s of `SPANS_CONCURRENCY`-
+  bounded blob fetches. It is a RUNG, not a replacement — the other 8% is real,
+  and tier 1 is what corrects it.
+
+  **Tier 0.5 must NOT set `refine`.** The client fires `onLoadRange()` on mount
+  when a body carries `refine: true`, so setting it would make a 31-file PR
+  issue 31 body requests the instant the tile mounts — exactly the storm the
+  list/body split exists to prevent. The correction rides the client's existing
+  viewport pump instead, which is viewport-driven and concurrency-bounded.
 
 - **Tier 1 (always).** Lex a bounded window — the requested lines padded with
   context on each side — and slice out the target lines. The leading pad puts

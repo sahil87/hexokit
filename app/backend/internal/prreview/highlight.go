@@ -122,6 +122,62 @@ func appendSpan(spans []Span, class, text string) []Span {
 	return append(spans, Span{Class: class, Text: text})
 }
 
+// lexPatchRows is R5's tier 0.5: colour built from the PATCH's own text, with
+// no blob and no request at all.
+//
+// The patch already carries every line it renders. That is not the whole file,
+// so a hunk opening inside a block comment or a raw string lexes wrong — but on
+// a real PR it is right for 93% of rows (4,566 of 4,895, measured on #1027) and
+// costs ~72 ms of CPU across the file set instead of one ~0.6 s blob fetch per
+// file. It is what the reader sees in the gap before the blob-backed rungs
+// arrive, which is why it is a RUNG and not a replacement: the client's
+// viewport pump still upgrades each file as it approaches, and that is what
+// fixes the other 7%.
+//
+// Runs break at every hunk header, because the header is not code and the rows
+// either side of it are not contiguous in the file — lexing across the gap
+// would carry lexer state that does not belong.
+//
+// A file with no Chroma lexer is left exactly as it is: tier-0 plain rows. That
+// is the common case for lockfiles and data, and the ladder degrades to absent
+// colour rather than to an error.
+func lexPatchRows(path string, rows []LineRow) {
+	lexer := lexerFor(path)
+	if lexer == nil {
+		return
+	}
+	var run []string
+	var at []int
+	flush := func() {
+		if len(run) == 0 {
+			return
+		}
+		spans := lexLines(lexer, run)
+		for i, idx := range at {
+			// A line the lexer produced nothing for keeps its tier-0 span: an
+			// empty span list would render the row blank, which is strictly
+			// worse than rendering it uncoloured.
+			if i < len(spans) && len(spans[i]) > 0 {
+				rows[idx].Spans = spans[i]
+			}
+		}
+		run, at = run[:0], at[:0]
+	}
+	for i := range rows {
+		if rows[i].Kind == RowHunk {
+			flush()
+			continue
+		}
+		text := ""
+		if len(rows[i].Spans) > 0 {
+			text = rows[i].Spans[0].Text
+		}
+		run = append(run, text)
+		at = append(at, i)
+	}
+	flush()
+}
+
 // lexWindow is R5's tier 1: lex a bounded window around the requested lines and
 // slice the target rows out of it.
 //

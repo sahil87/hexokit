@@ -102,7 +102,8 @@ func ghStub(recorder *callRecorder) func(stdin []byte, args ...string) ([]byte, 
 }
 
 func TestPRReviewListServesFilesThreadsAndViewer(t *testing.T) {
-	router, _ := newPRReviewServer(t, &mockTmuxOps{}, ghStub(nil))
+	var calls callRecorder
+	router, _ := newPRReviewServer(t, &mockTmuxOps{}, ghStub(&calls))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/pr/review?window=@1", nil))
 	if rec.Code != http.StatusOK {
@@ -131,23 +132,34 @@ func TestPRReviewListServesFilesThreadsAndViewer(t *testing.T) {
 	if len(body.Threads) != 1 || body.Threads[0].ID != "T1" || len(body.Threads[0].Comments) != 1 {
 		t.Errorf("threads = %+v", body.Threads)
 	}
-	// The list DOES carry structure for the files inside the eager budget — that
-	// is what lets the tile open expanded on one request (§ R6a), and it is free
-	// because the patch is already in the cached document. What it must never
-	// carry is SPANS: tokenizing a 200-file PR at mount is the cost the whole
-	// digest/detail split exists to avoid, and colour is a viewport-driven read.
-	// Plain spans MUST be there — a LineRow has no text field, so rows without
-	// them render as blank lines and the expanded file shows nothing.
+	// The list carries structure for the files inside the eager budget — that is
+	// what lets the tile open expanded on one request (§ R6a) — and, since R5's
+	// tier 0.5, colour too.
+	//
+	// Text MUST be there: a LineRow has no text field, so rows without spans
+	// render as blank lines and the expanded file shows nothing.
 	if !strings.Contains(rec.Body.String(), `"t":`) {
 		t.Error("the list response carries no text; every eager row would render blank")
 	}
-	// Coloured ones must NOT: a class (`"c":`) means the row was tokenized, and
-	// tokenizing at mount is the cost the digest/detail split exists to avoid.
-	if strings.Contains(rec.Body.String(), `"c":`) {
-		t.Error("the list response carried token classes; colour is a separate, viewport-driven read")
+	// Classes must be there too. This assertion used to be its exact inverse, on
+	// the reasoning that "tokenizing at mount is the cost the digest/detail split
+	// exists to avoid" — but that cost was the blob FETCH, and tier 0.5 lexes the
+	// patch text the response already holds. The call count below is what still
+	// holds that promise; the class is now just colour the reader gets for free.
+	if !strings.Contains(rec.Body.String(), `"c":`) {
+		t.Error("the list response carries no token classes; the first paint would be monochrome")
 	}
 	if body.Listening {
 		t.Error("listening = true; the fixture window is disarmed")
+	}
+	// THE COST PROMISE. Colour on the list read is only defensible because it
+	// costs no round trip: a cold document is the file list plus one GraphQL
+	// call, and nothing tier 0.5 does may add to that.
+	if got := len(calls.all()); got != 2 {
+		for _, call := range calls.all() {
+			t.Logf("  call: %s", call)
+		}
+		t.Errorf("the list read made %d gh calls, want 2", got)
 	}
 }
 
