@@ -1,2 +1,6 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-30T02:39:58Z"}
 {"action":"enter","event":"stage-transition","stage":"apply","ts":"2026-09-30T02:40:21Z"}
+{"action":"enter","event":"stage-transition","stage":"review","ts":"2026-09-30T03:07:37Z"}
+{"action":"enter","event":"stage-transition","stage":"hydrate","ts":"2026-09-30T03:07:37Z"}
+{"event":"review","result":"passed","ts":"2026-09-30T03:07:37Z"}
+{"action":"enter","event":"stage-transition","stage":"ship","ts":"2026-09-30T03:07:37Z"}
