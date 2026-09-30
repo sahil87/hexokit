@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"rk/internal/layoutspec"
 	"slices"
 	"strings"
 	"testing"
@@ -366,5 +367,32 @@ func TestMutationAnnotations(t *testing.T) {
 		if row := findRow(t, tool); row.Annotations != (Annotations{}) {
 			t.Errorf("row %q annotations = %+v, want all false", tool, row.Annotations)
 		}
+	}
+}
+
+// The tab tool's surface enums are DERIVED from the layout registry, not
+// restated. They were a hand-kept copy, and by the time this was noticed they
+// still read {tty, web, code, gui} — so an agent driving run-kit over MCP could
+// not add or remove the review or working tiles, while `rk tab layout --add`
+// from a terminal could. This pins the derivation so the copy cannot come back.
+func TestTabSurfaceEnumsTrackTheRegistry(t *testing.T) {
+	want := layoutspec.SurfaceKinds()
+	if len(want) < 5 {
+		t.Fatalf("registry looks wrong: %v", want)
+	}
+	seen := 0
+	for _, row := range Table {
+		for _, arg := range row.Args {
+			switch arg.Name {
+			case "add", "rm", "promote":
+				seen++
+				if !slices.Equal(arg.Enum, want) {
+					t.Errorf("%s.%s enum = %v, want the registry %v", row.Tool, arg.Name, arg.Enum, want)
+				}
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatal("found no add/rm/promote surface args to check — has the tool been renamed?")
 	}
 }

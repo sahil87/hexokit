@@ -61,6 +61,18 @@ var nominalBox = rect{w: 1600, h: 1000}
 // frontend ships them, and extending the registry is appending one entry.
 var surfaceKindList = []string{"tty", "web", "code", "gui", "review", "diff"}
 
+// SurfaceKinds returns the registry, in its canonical order.
+//
+// It exists so other packages can DERIVE their surface lists instead of
+// restating them: the MCP tool schema's enums do, and before that they were a
+// hand-kept copy that still said {tty,web,code,gui} two surfaces later. A
+// caller that copies this slice has reintroduced the problem.
+func SurfaceKinds() []string {
+	out := make([]string, len(surfaceKindList))
+	copy(out, surfaceKindList)
+	return out
+}
+
 // IsSurface reports whether kind is in the surface registry.
 func IsSurface(kind string) bool {
 	for _, k := range surfaceKindList {
