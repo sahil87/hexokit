@@ -38,6 +38,7 @@ import (
 	"sync"
 	"time"
 
+	"rk/internal/diffrows"
 	"rk/internal/ghprobe"
 )
 
@@ -84,6 +85,27 @@ var ErrTimeout = errors.New("github timed out")
 // worth its own sentinel because the remedy is time, not retry: nothing the
 // reader does will help until the window rolls over.
 var ErrRateLimited = errors.New("github rate limit exceeded")
+
+// The row/span vocabulary lives in internal/diffrows now — it is
+// substrate-agnostic (a unified patch is a unified patch, whether gh or git
+// produced it) while everything else in this package is bound to a network and
+// a cache. These aliases are identical types, so every existing consumer of
+// prreview.LineRow / .Span / .FileBody keeps compiling untouched.
+const (
+	RowHunk   = diffrows.RowHunk
+	RowCtx    = diffrows.RowCtx
+	RowAdd    = diffrows.RowAdd
+	RowDel    = diffrows.RowDel
+	SideLeft  = diffrows.SideLeft
+	SideRight = diffrows.SideRight
+)
+
+type (
+	LineRow  = diffrows.LineRow
+	Span     = diffrows.Span
+	FileBody = diffrows.FileBody
+	PatchRow = diffrows.PatchRow
+)
 
 // PRRef is a pull request's identity parsed out of its canonical URL. The host
 // is carried because a GHE remote resolves through the same gh binary with a
@@ -422,7 +444,7 @@ func applyEagerBudget(files []FileEntry) {
 		if !file.HasPatch {
 			continue
 		}
-		patchRows := ParsePatch(file.Patch)
+		patchRows := diffrows.ParsePatch(file.Patch)
 		file.RowCount = len(patchRows)
 		switch {
 		case file.RowCount > maxEagerRowsPerFile:
@@ -430,7 +452,7 @@ func applyEagerBudget(files []FileEntry) {
 		case expanded >= maxEagerFiles || rows+file.RowCount > maxEagerRows:
 			file.Collapsed = CollapsedBudget
 		default:
-			file.Rows = LineRowsFromPatch(patchRows)
+			file.Rows = diffrows.LineRowsFromPatch(patchRows)
 			coloured = append(coloured, i)
 			rows += file.RowCount
 			expanded++
@@ -438,7 +460,7 @@ func applyEagerBudget(files []FileEntry) {
 	}
 
 	// R5 tier 0.5: colour the expanded rows from the patch's own text, before
-	// they go on the wire. It costs no request at all — see lexPatchRows.
+	// they go on the wire. It costs no request at all — see diffrows.LexPatchRows.
 	//
 	// One goroutine per file, which needs no pool: the set is already capped at
 	// maxEagerFiles, the work is pure CPU with no shared state (each goroutine
@@ -452,7 +474,7 @@ func applyEagerBudget(files []FileEntry) {
 	for _, i := range coloured {
 		go func(file *FileEntry) {
 			defer wg.Done()
-			lexPatchRows(file.Path, file.Rows)
+			diffrows.LexPatchRows(file.Path, file.Rows)
 		}(&files[i])
 	}
 	wg.Wait()

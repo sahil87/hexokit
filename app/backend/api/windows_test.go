@@ -2091,3 +2091,28 @@ func TestWindowKillNilStoreStillKills(t *testing.T) {
 		t.Errorf("body = %q, want exactly {\"ok\":true}", body)
 	}
 }
+
+// THE WRITE-PATH GUARD, at the exact call that failed.
+//
+// The surface toggle grows the layout by POSTing @rk_win_layout. This
+// validator is what rejected `h(tty,diff)` with "unknown surface at byte 6"
+// while the frontend happily offered the button — the toggle wrote a string the
+// daemon would not accept, and the reader saw a parse error from a click.
+//
+// The e2e suites mock this endpoint (there is no real tmux window behind them),
+// so nothing above this level can catch it. Every surface the frontend can
+// toggle has to be accepted here.
+func TestLayoutOptionAcceptsEveryShippedSurface(t *testing.T) {
+	for _, kind := range []string{"tty", "web", "code", "gui", "review", "diff"} {
+		spec := "h(tty," + kind + ")"
+		if msg := validateWindowOption("@rk_win_layout", &spec, tmux.WebTabFamily{}, false); msg != "" {
+			t.Errorf("layout %q rejected: %s", spec, msg)
+		}
+	}
+	// A kind the frontend does NOT ship is still refused — the registry is
+	// closed, and that is the half of this contract worth keeping.
+	bogus := "h(tty,chat)"
+	if msg := validateWindowOption("@rk_win_layout", &bogus, tmux.WebTabFamily{}, false); msg == "" {
+		t.Error("an unknown surface was accepted; the registry is meant to be closed")
+	}
+}
