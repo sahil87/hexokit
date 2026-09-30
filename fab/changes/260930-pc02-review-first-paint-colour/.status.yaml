@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: false
     task_count: 0
@@ -33,12 +33,13 @@ stage_metrics:
     apply: {started_at: "2026-09-30T02:40:21Z", iterations: 1, completed_at: "2026-09-30T03:07:37Z"}
     review: {started_at: "2026-09-30T03:07:37Z", iterations: 1, completed_at: "2026-09-30T03:07:37Z"}
     hydrate: {started_at: "2026-09-30T03:07:37Z", iterations: 1, completed_at: "2026-09-30T03:07:37Z"}
-    ship: {started_at: "2026-09-30T03:07:37Z", iterations: 1}
+    ship: {started_at: "2026-09-30T03:07:37Z", iterations: 1, completed_at: "2026-09-30T03:08:06Z"}
+    review-pr: {started_at: "2026-09-30T03:08:06Z", iterations: 1}
 prs: []
 true_impact:
-    added: 412
+    added: 433
     deleted: 24
-    net: 388
+    net: 409
     excluding:
         added: 233
         deleted: 23
@@ -47,8 +48,8 @@ true_impact:
         added: 147
         deleted: 22
         net: 125
-    computed_at: "2026-09-30T03:07:37Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-09-30T03:08:06Z"
+    computed_at_stage: ship
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-30T03:07:37Z
+last_updated: 2026-09-30T03:08:06Z
