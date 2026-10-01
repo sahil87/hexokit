@@ -41,6 +41,10 @@ export type FocusedTerminal = {
    *  store only covers servers whose sidebar group has delivered sessions, so
    *  without this fallback other panes label as `@N`. */
   windowName?: string;
+  /** Hand DOM keyboard focus to this terminal's xterm. Both real registrants
+   *  (TerminalClient, BoardPane) supply it; optional only so test fixtures
+   *  can omit it. */
+  focus?: () => void;
 } | null;
 
 type FocusedTerminalContextValue = {

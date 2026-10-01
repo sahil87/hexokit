@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { READY_TIMEOUT, openPalette, resolveWindow as resolveWindowRaw } from "./_ready";
+import { READY_TIMEOUT, expectActiveElement, openPalette, resolveWindow as resolveWindowRaw } from "./_ready";
 import {
   TMUX_SERVER,
   createSession,
@@ -638,6 +638,57 @@ test.describe("Surface layout — ladder, verbs, history, sizes, mobile", () => 
     await expect(
       tile(page, "tty").getByRole("button", { name: "Close Terminal" }),
     ).toBeVisible();
+  });
+
+  /**
+   * Proves: a split hands keyboard focus back to the terminal — from the tty
+   * tile header's Split pane horizontally button and from the top-bar
+   * chevron menu's Split vertical row — so typing right after a split lands
+   * in the new (tmux-active) pane without clicking into the terminal first.
+   *
+   * Steps:
+   * 1. Create a window; navigate; assert the terminal.
+   * 2. Click the tty tile header's `Split pane horizontally`; assert the
+   *    pane count grows to 2 and `document.activeElement` is inside `.xterm`.
+   * 3. Type `echo rkok$((6*7))` + Enter; assert the active pane's capture
+   *    carries the evaluated `rkok42` output line.
+   * 4. Open the `More controls` chevron menu, click `Split vertical`; assert
+   *    the pane count grows to 3 and `document.activeElement` is inside
+   *    `.xterm` again.
+   */
+  test("a split focuses the terminal: tile-header button and chevron-menu row", async ({ page }) => {
+    test.setTimeout(40_000);
+    const id = await makeWindow(page, `sl-splitfocus-${Date.now()}`);
+    await gotoWindow(page, id);
+    await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
+
+    await tile(page, "tty")
+      .getByTestId("pane-segment")
+      .getByRole("button", { name: "Split pane horizontally" })
+      .click();
+    await expect.poll(() => paneCount(id), { timeout: 10_000 }).toBe(2);
+    await expectActiveElement(page, "xterm");
+
+    // Assert on the command's OUTPUT, not the echoed input: the half-width
+    // pane wraps a long prompt + input line, and only the shell evaluating
+    // `$((6*7))` proves the keys reached the new pane's shell.
+    await page.keyboard.type("echo rkok$((6*7))");
+    await page.keyboard.press("Enter");
+    await expect
+      .poll(
+        () =>
+          execFileSync("tmux", ["-L", TMUX_SERVER, "capture-pane", "-p", "-J", "-t", id]).toString(),
+        { timeout: 10_000 },
+      )
+      .toMatch(/^rkok42$/m);
+
+    await page.getByRole("banner").getByRole("button", { name: "More controls" }).click();
+    await page
+      .getByRole("menu", { name: "More controls" })
+      .getByRole("menuitem", { name: "Split vertical" })
+      .click();
+    await expect.poll(() => paneCount(id), { timeout: 10_000 }).toBe(3);
+    await expectActiveElement(page, "xterm");
   });
 
   /**

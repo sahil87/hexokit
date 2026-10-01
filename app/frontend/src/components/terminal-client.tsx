@@ -374,7 +374,7 @@ export function TerminalClient({
   // based on its focused-pane state.
   useEffect(() => {
     if (!registerFocus) return;
-    setFocused({ wsRef, containerRef, server, session: sessionName, windowId });
+    setFocused({ wsRef, containerRef, server, session: sessionName, windowId, focus: () => xtermRef.current?.focus() });
     return () => {
       setFocused(null);
     };

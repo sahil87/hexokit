@@ -8,6 +8,7 @@ import { ChromeProvider } from "@/contexts/chrome-context";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { SettingsDialogProvider, useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { ToastProvider } from "@/components/toast";
+import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { Layout, SurfaceKind } from "@/lib/surface-layout";
 import { buildGuiActions, type GuiPaletteInput } from "@/lib/palette/gui";
@@ -89,6 +90,7 @@ const sessions: ProjectSession[] = [
 function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = {}) {
   return render(
     <ToastProvider>
+      <FocusedTerminalProvider>
       <ThemeProvider>
         {/* SettingsDialogProvider: the top-bar Settings gear (260812-d1at)
             consumes useSettingsDialog(); the dialog itself is not mounted
@@ -111,6 +113,7 @@ function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = 
         </ChromeProvider>
         </SettingsDialogProvider>
       </ThemeProvider>
+      </FocusedTerminalProvider>
     </ToastProvider>,
   );
 }
@@ -1535,11 +1538,13 @@ describe("TopBar", () => {
       // version-row-only state is only reachable component-level).
       render(
         <ToastProvider>
+          <FocusedTerminalProvider>
           <ThemeProvider>
             <ChromeProvider>
               <TopBarOverflowMenu rows={[]} updateOverflowed={false} />
             </ChromeProvider>
           </ThemeProvider>
+          </FocusedTerminalProvider>
         </ToastProvider>,
       );
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
@@ -2189,6 +2194,7 @@ describe("TopBar", () => {
     ) {
       return render(
         <ToastProvider>
+          <FocusedTerminalProvider>
           <ThemeProvider>
             <SettingsDialogProvider>
               <ChromeProvider>
@@ -2209,6 +2215,7 @@ describe("TopBar", () => {
               </ChromeProvider>
             </SettingsDialogProvider>
           </ThemeProvider>
+          </FocusedTerminalProvider>
         </ToastProvider>,
       );
     }

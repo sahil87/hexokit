@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useRouter } from "@tanstack/react-router";
 import { useBoardEntries, useBoards } from "@/hooks/use-boards";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useSplitPane } from "@/hooks/use-split-pane";
 import { usePaneWidths, BOARD_PANE_DEFAULT_WIDTH } from "@/hooks/use-pane-widths";
 import { useBoardAutofit } from "@/hooks/use-board-autofit";
 import { usePinActions } from "@/hooks/use-pin-actions";
@@ -20,7 +21,7 @@ import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
 import { useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { useRegisterFocusedPane } from "@/contexts/focused-pane-context";
-import { createSession, createWindow as createWindowApi, splitWindow, killWindow } from "@/api/client";
+import { createSession, createWindow as createWindowApi, killWindow } from "@/api/client";
 import { setBoardOrder } from "@/api/boards";
 import { computeMoveOrder } from "@/lib/palette/move";
 import { Dialog } from "@/components/dialog";
@@ -448,17 +449,15 @@ function BoardPageContent({ name }: { name: string }) {
   // hidden, so the layout palette is still a phone board user's only update
   // surface, now without the twin.
 
-  // Palette-surface split/close executors (Constitution V; 260715-6jwn). Mirror
-  // the terminal palette's wiring (app.tsx — useOptimisticAction-wrapped
-  // splitWindow/closePane with error toasts). Declared ABOVE `boardRouteActions`
+  // Palette-surface split/close executors (Constitution V). Split
+  // is the shared `useSplitPane`; close mirrors the terminal palette's wiring
+  // (app.tsx — useOptimisticAction-wrapped closePane with an error toast).
+  // Declared ABOVE `boardRouteActions`
   // so the memo can list them in its dep array. The board palette mirrors the
   // terminal PALETTE's `horizontal` mapping (Vertical → horizontal: true), a
   // pre-existing top-bar-chip-vs-palette divergence left out of scope. Close
   // schedules a self-heal refetch (`onSettled`) like the top-bar ✕.
-  const { execute: executeSplit } = useOptimisticAction<[string, string, boolean, string | undefined]>({
-    action: (srv, windowId, horizontal, cwd) => splitWindow(srv, windowId, horizontal, cwd),
-    onError: (err) => addToast(err.message || "Failed to split pane"),
-  });
+  const { split: executeSplit } = useSplitPane();
 
   // The focused tile's kill/split target — the SINGLE source of truth for the
   // focused window shared by the top-bar SplitControl + Kill-row slot AND the three

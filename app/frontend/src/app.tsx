@@ -188,6 +188,7 @@ import { ToastProvider } from "@/components/toast";
 import { OptimisticProvider } from "@/contexts/optimistic-context";
 import { useDialogState } from "@/hooks/use-dialog-state";
 import { useOccludes } from "@/hooks/use-occludes";
+import { useSplitPane } from "@/hooks/use-split-pane";
 import { useRecentlyClosed, buildReopenWindowAction, pushRecentlyClosed, popRecentlyClosed } from "@/hooks/use-recently-closed";
 import { useSessionsScope } from "@/hooks/use-sessions-scope";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -237,7 +238,7 @@ import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 import type { ProjectSession, WindowInfo } from "@/types";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, borrowLayout, returnLayout, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, launchGuiApp, getSettingsEntries, fetchGuiStatus, resizeGui, fetchCodeBridge, restartCodeServer, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
+import { selectWindow, createSession, createWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, borrowLayout, returnLayout, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, launchGuiApp, getSettingsEntries, fetchGuiStatus, resizeGui, fetchCodeBridge, restartCodeServer, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
 import { useCronData } from "@/hooks/use-cron";
 import { buildCronActions, type CronActionHandlers } from "@/lib/palette/cron";
 import { buildDataTableActions } from "@/lib/palette/data-table";
@@ -2499,10 +2500,7 @@ function AppShell() {
   }, [server, rawSessions, setWindowsForSession]);
 
   // Palette split/close actions (button loading not visible since palette closes, but we need error toasts)
-  const { execute: executeSplit } = useOptimisticAction<[string, string, boolean, string | undefined]>({
-    action: (srv, windowId, horizontal, cwd) => splitWindow(srv, windowId, horizontal, cwd),
-    onError: (err) => addToast(err.message || "Failed to split pane"),
-  });
+  const { split: executeSplit } = useSplitPane();
   const { execute: executeClosePane } = useOptimisticAction<[string, string]>({
     action: (srv, windowId) => closePane(srv, windowId),
     onError: (err) => addToast(err.message || "Failed to close pane"),
