@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 7
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-10-06T21:53:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-06T22:19:38Z"}
     review: {started_at: "2026-10-06T22:19:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-06T22:29:23Z"}
     hydrate: {started_at: "2026-10-06T22:29:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-06T22:41:28Z"}
-    ship: {started_at: "2026-10-06T22:41:28Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-10-06T22:41:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-06T22:43:06Z"}
+    review-pr: {started_at: "2026-10-06T22:43:06Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1077
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1062
+    deleted: 450
+    net: 612
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 758
+        deleted: 403
+        net: 355
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-10-06T22:41:28Z"
-    computed_at_stage: hydrate
+        added: 430
+        deleted: 252
+        net: 178
+    computed_at: "2026-10-06T22:43:06Z"
+    computed_at_stage: ship
 summary: Delete the stale run-kit config/state homes at daemon start behind per-home guards (shared with new rk doctor rows), close the code-bridge legacy cb read window, keep the skip-release migration code
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-10-06T22:41:28Z
+last_updated: 2026-10-06T22:43:06Z
