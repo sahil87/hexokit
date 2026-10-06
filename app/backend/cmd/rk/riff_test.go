@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"rk/internal/config"
 	"rk/internal/riff"
 	"rk/internal/settings"
 	"rk/internal/testutil"
@@ -473,6 +474,117 @@ func TestRiffJSONPreconditionEnvelope(t *testing.T) {
 	}
 	if doc.OK || doc.Error.Code != "operational" || !strings.Contains(doc.Error.Message, "not inside a tmux session") {
 		t.Errorf("envelope = %q, want ok:false operational naming the precondition", stdout.String())
+	}
+}
+
+// riffNonGitFixture returns a temp cwd outside any git repo and a PATH dir whose
+// wt/tmux/fab stubs append their name to the returned log when invoked — the
+// git-repo precondition must fire before any of them runs.
+func riffNonGitFixture(t *testing.T) (cwd, binDir, invokedLog string) {
+	t.Helper()
+	cwd = t.TempDir()
+	if root := config.FindGitRoot(cwd); root != "" {
+		t.Skipf("temp dir %q is inside git repo %q", cwd, root)
+	}
+	binDir = t.TempDir()
+	invokedLog = filepath.Join(binDir, "invoked.log")
+	for _, name := range []string{"wt", "tmux", "fab"} {
+		testutil.WriteStub(t, binDir, name, "#!/bin/sh\necho "+name+" >> "+invokedLog+"\nexit 1\n")
+	}
+	return cwd, binDir, invokedLog
+}
+
+// TestRiffGitRepoPrecondition: with no --repo and a cwd outside any git repo,
+// runRiff fails with ExitPrecondition naming the fix, before any subprocess.
+// -L waives the $TMUX check so only the git-repo precondition can fire.
+func TestRiffGitRepoPrecondition(t *testing.T) {
+	cwd, binDir, invokedLog := riffNonGitFixture(t)
+	t.Setenv("PATH", binDir)
+	defer chdir(t, cwd)()
+
+	origServer, origRepo, origList := riffServerFlag, riffRepoFlag, riffListPresetsFlg
+	riffServerFlag = "scratch"
+	riffRepoFlag = ""
+	riffListPresetsFlg = false
+	t.Cleanup(func() { riffServerFlag, riffRepoFlag, riffListPresetsFlg = origServer, origRepo, origList })
+
+	cmd := &cobra.Command{}
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetContext(context.Background())
+	err := runRiff(cmd, nil, nil)
+
+	var ece *riff.ExitCodeError
+	if !errors.As(err, &ece) || ece.Code != riff.ExitPrecondition {
+		t.Fatalf("runRiff err = %v, want ExitCodeError{Code: ExitPrecondition}", err)
+	}
+	if !strings.Contains(ece.Msg, "not inside a git repository") || !strings.Contains(ece.Msg, "--repo") {
+		t.Errorf("message = %q, want it to name the git-repo precondition and --repo", ece.Msg)
+	}
+	if data, readErr := os.ReadFile(invokedLog); readErr == nil {
+		t.Errorf("subprocesses ran before the precondition: %q", data)
+	}
+
+	t.Run("--list-presets still works outside a repo", func(t *testing.T) {
+		t.Setenv("RK_CONFIG_DIR", t.TempDir())
+		riffListPresetsFlg = true
+		defer func() { riffListPresetsFlg = false }()
+		if err := runRiff(cmd, nil, nil); err != nil {
+			t.Errorf("runRiff --list-presets: %v", err)
+		}
+	})
+}
+
+// TestRiffJSONGitRepoPreconditionEnvelope: `rk riff -L scratch --json` from a
+// non-git cwd exits 1 with the operational envelope on stdout — observed out of
+// process because the wrapper os.Exits.
+func TestRiffJSONGitRepoPreconditionEnvelope(t *testing.T) {
+	if os.Getenv("RK_RIFF_SUBPROC") == "json-git-precondition" {
+		rootCmd.SetArgs([]string{"riff", "-L", "scratch", "--json"})
+		execute()
+		os.Exit(0) // unreachable when the precondition fired
+	}
+	cwd, binDir, invokedLog := riffNonGitFixture(t)
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
+	cmd := exec.Command(exe, "-test.run", "^TestRiffJSONGitRepoPreconditionEnvelope$")
+	cmd.Dir = cwd
+	var env []string
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "PATH=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	cmd.Env = append(env, "PATH="+binDir, "RK_RIFF_SUBPROC=json-git-precondition")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) {
+		t.Fatalf("expected the child to exit non-zero, got err=%v (stdout %q, stderr %q)", err, stdout.String(), stderr.String())
+	}
+	if got := ee.ExitCode(); got != 1 {
+		t.Errorf("exit code = %d, want 1 (precondition); stderr %q", got, stderr.String())
+	}
+	var doc struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if jsonErr := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &doc); jsonErr != nil {
+		t.Fatalf("child stdout is not one JSON document: %v (%q)", jsonErr, stdout.String())
+	}
+	if doc.OK || doc.Error.Code != "operational" || !strings.Contains(doc.Error.Message, "not inside a git repository") {
+		t.Errorf("envelope = %q, want ok:false operational naming the git-repo precondition", stdout.String())
+	}
+	if data, readErr := os.ReadFile(invokedLog); readErr == nil {
+		t.Errorf("subprocesses ran before the precondition: %q", data)
 	}
 }
 

@@ -62,10 +62,11 @@ const (
 // The numeric values conform to the shll toolkit exit-code convention
 // (Principle 4): 1 = operational failure, 2 = usage error, 3 = the documented
 // subprocess class. ExitValidation (usage: bad flags/args/preset/layout/count)
-// is 2; ExitPrecondition (operational: $TMUX unset, wt missing) is 1.
+// is 2; ExitPrecondition (operational: $TMUX unset, wt missing, not in a git
+// repo) is 1.
 const (
 	ExitValidation   = 2 // usage: unknown layout, invalid count, unknown/conflicting preset (CLI flag-parse errors are tagged usageError in cmd/rk/riff.go, not emitted here)
-	ExitPrecondition = 1 // operational: $TMUX unset, wt not on PATH (CLI-only preconditions)
+	ExitPrecondition = 1 // operational: $TMUX unset, wt not on PATH, not in a git repo (CLI-only preconditions)
 	ExitSubprocess   = 3 // operational: wt/tmux non-zero exit, output parse failure, timeouts
 )
 
@@ -136,7 +137,7 @@ type EffectiveSpec struct {
 	// first. The CLI never sets this, so it is always the worktree default there.
 	Where string
 	// WorktreeName, when non-empty in worktree mode, is forwarded to
-	// `wt create --worktree-name`. Empty = wt generates the name (today's path).
+	// `wt create --name`. Empty = wt generates the name (today's path).
 	// Ignored in checkout mode. The CLI never sets this.
 	WorktreeName string
 	// WindowNameBase, when non-empty, replaces the derived `riff-<basename>`
@@ -175,7 +176,7 @@ type Options struct {
 	// (no worktree); "worktree" or "" (default) creates a worktree first.
 	Where string
 	// WorktreeName, when non-empty in worktree mode, names the created worktree
-	// (`wt create --worktree-name`). Empty = wt auto-generates. Ignored in
+	// (`wt create --name`). Empty = wt auto-generates. Ignored in
 	// checkout mode.
 	WorktreeName string
 	// Tier is the fab agent tier resolved for the launcher (`fab agent <tier>
@@ -225,7 +226,7 @@ var loadRiffPresets = settings.LoadRiffPresets
 //   - task empty, no preset → a single BARE skill pane (blank agent).
 //
 // Isolation (opts.Where):
-//   - "worktree" (or "", default) → `wt create` (optionally --worktree-name) then
+//   - "worktree" (or "", default) → `wt create` (optionally --name) then
 //     a tmux window rooted at the new worktree (base riff-<worktree-basename>).
 //   - "checkout"                  → NO wt call; a tmux window rooted at
 //     opts.RepoRoot (base riff-<repoRoot-basename>).
@@ -568,25 +569,25 @@ func parseFabAgentOutput(stdout string, err error) (string, bool) {
 }
 
 // buildWtCreateArgs returns the argv (after "wt") for worktree creation:
-// `create [--worktree-name <name>] --non-interactive --worktree-open skip
-// <passthrough...>`. A non-empty WorktreeName (worktree mode only) is prepended
-// as `--worktree-name <name>` so it skips wt's name prompt; an empty name yields
-// the byte-identical pre-feature argv. The `spec.Where != whereCheckout` guard
-// keeps the helper self-contained (Spawn already blanks a checkout-mode name,
-// and checkout never reaches wt anyway; the CLI/fan-out paths pass no name). Pure.
+// `create [--name <name>] --non-interactive --open skip <passthrough...>`. A
+// non-empty WorktreeName (worktree mode only) is prepended as `--name <name>` so
+// it skips wt's name prompt; an empty name omits the element and wt generates
+// one. The `spec.Where != whereCheckout` guard keeps the helper self-contained
+// (Spawn already blanks a checkout-mode name, and checkout never reaches wt
+// anyway; the CLI/fan-out paths pass no name). Long flag forms keep the argv
+// self-describing; they need wt >= v0.1.0. Pure.
 func buildWtCreateArgs(spec EffectiveSpec, passthrough []string) []string {
 	argv := []string{"create"}
 	if spec.Where != whereCheckout && spec.WorktreeName != "" {
-		argv = append(argv, "--worktree-name", spec.WorktreeName)
+		argv = append(argv, "--name", spec.WorktreeName)
 	}
-	argv = append(argv, "--non-interactive", "--worktree-open", "skip")
+	argv = append(argv, "--non-interactive", "--open", "skip")
 	return append(argv, passthrough...)
 }
 
-// runWtCreate invokes `wt create [--worktree-name <name>] --non-interactive
-// --worktree-open skip <passthrough...>` (with Dir=RepoRoot when set) and parses
-// the `Path:` line for the worktree path. Returns a SubprocessErr on
-// failure/parse-miss/timeout.
+// runWtCreate invokes `wt create [--name <name>] --non-interactive --open skip
+// <passthrough...>` (with Dir=RepoRoot when set) and parses the `Path:` line
+// for the worktree path. Returns a SubprocessErr on failure/parse-miss/timeout.
 func runWtCreate(parent context.Context, spec EffectiveSpec, passthrough []string) (string, error) {
 	ctx, cancel := context.WithTimeout(parent, WtTimeout)
 	defer cancel()

@@ -23,11 +23,11 @@ import (
 
 // The spawn engine lives in internal/riff (extracted by 260713-sbk1). This file
 // is the CLI FRONTEND: it parses flags, checks CLI-only preconditions ($TMUX
-// set, wt on PATH), derives the repo root from the process cwd, resolves the
-// effective spec + launcher via the engine's exported helpers, and hands off to
-// riff.Run with an EMPTY server label (target the user's current tmux server via
-// the restored $TMUX). The engine owns the wt+tmux spawn mechanics, fan-out,
-// and rollback.
+// set, wt on PATH, inside a git repo), derives the repo root from --repo or the
+// process cwd, resolves the effective spec + launcher via the engine's exported
+// helpers, and hands off to riff.Run with an EMPTY server label (target the
+// user's current tmux server via the restored $TMUX). The engine owns the
+// wt+tmux spawn mechanics, fan-out, and rollback.
 
 var (
 	// riffPaneSpecs is the shared ordered list of pane specs accumulated from
@@ -67,13 +67,14 @@ run-kit's riff_presets, and parallel spawning across N worktrees via --count.
 
 Prerequisites:
   - You must be inside a tmux session ($TMUX set).
+  - You must be inside a git repository (or pass --repo <path>).
   - 'wt' must be on your PATH (https://github.com/sahil87/wt).
   - The resolved launcher command (default: claude --dangerously-skip-permissions) must be available.
   - 'fab' on PATH is optional: it is used to resolve the launcher (see below);
     when absent, the default launcher is used.
 
 Flags before -- are parsed by run-kit; flags after -- are forwarded verbatim to
-wt create (e.g., --worktree-name, --base, --reuse). Run 'wt create --help' to
+wt create (e.g., --name, --base, --reuse). Run 'wt create --help' to
 see the available passthrough flags.
 
 Pane array model:
@@ -113,11 +114,11 @@ Examples:
   run-kit riff incognito                                 # invoke the 'incognito' built-in preset
   run-kit riff --preset blank                            # named-flag preset alias
   run-kit riff discuss --count 3                         # 3 parallel discuss workspaces (also: -N 3)
-  run-kit riff -- --worktree-name pacing-canyon          # name the worktree
+  run-kit riff -- --name pacing-canyon                   # name the worktree
 
 Exit codes:
   0  success
-  1  precondition failure ($TMUX unset, wt not found)
+  1  precondition failure ($TMUX unset, wt not found, not in a git repository)
   2  validation/usage error (unknown layout, invalid --count, unknown/conflicting preset, bad flag)
   3  subprocess failure (wt or tmux non-zero, output parse failure, timeout)`,
 	// Interspersed=false so the "--" separator terminates cobra's flag parsing
@@ -245,7 +246,7 @@ func runRiffWithExitCode(cmd *cobra.Command, args []string) error {
 // runRiff orchestrates the CLI flow:
 //  0. Targeting flags (-L/--session/--repo) — pure validation, no subprocess
 //  1. --list-presets short-circuit (before any other work — never side-effects)
-//  2. Preconditions ($TMUX set unless -L names the server, wt on PATH)
+//  2. Preconditions ($TMUX set unless -L names the server, wt on PATH, repo root resolved)
 //  3. Signal wrap on root context
 //  4. Layout / count / preset-conflict validation (fail-fast, no subprocess)
 //  5. Launcher resolution (engine helper, rooted at the repo root)
@@ -284,10 +285,10 @@ func runRiff(cmd *cobra.Command, args, wtArgs []string) error {
 		return printPresets(settings.LoadRiffPresets(), cmd.OutOrStdout())
 	}
 
-	// Step 2: preconditions (fast-fail order: $TMUX first, wt second). An
-	// explicit -L waives the $TMUX check (the daemon-invocable form — every
-	// tmux call is addressed with -L <name>).
-	if err := checkPreconditions(riffServerFlag); err != nil {
+	// Step 2: preconditions (fast-fail order: $TMUX, wt, git repo). An explicit
+	// -L waives the $TMUX check (the daemon-invocable form — every tmux call is
+	// addressed with -L <name>).
+	if err := checkPreconditions(riffServerFlag, repoRoot); err != nil {
 		return err
 	}
 
@@ -399,8 +400,9 @@ func printRiffReceipts(cmd *cobra.Command, receipts []riff.SpawnReceipt) {
 
 // riffRepoRoot resolves the repo root: --repo (a cwd-relative or absolute path
 // that MUST be the git toplevel — a nested directory is a usage error) wins;
-// else the process-cwd derivation (empty tolerated, as before — the engine
-// then runs subprocesses in the inherited cwd).
+// else the process-cwd derivation. An empty result (cwd outside any repo) is
+// returned without error so --list-presets still works there; checkPreconditions
+// rejects it before any subprocess runs.
 func riffRepoRoot() (string, error) {
 	if riffRepoFlag == "" {
 		repoRoot := ""
@@ -441,15 +443,19 @@ var riffCurrentSessionFn = func(ctx context.Context, server string) (string, err
 }
 
 // checkPreconditions validates the CLI-only preconditions: inside tmux (waived
-// when -L names the server explicitly) and wt on PATH — $TMUX first, wt
-// second; fast-fail on the first miss. internal/tmux's init() strips $TMUX; we
-// read the original via tmux.OriginalTMUX (captured pre-init).
-func checkPreconditions(server string) error {
+// when -L names the server explicitly), wt on PATH, and a resolved repo root
+// (wt create fails outside a git repo with an opaque exit 3) — in that order,
+// fast-fail on the first miss. internal/tmux's init() strips $TMUX; we read the
+// original via tmux.OriginalTMUX (captured pre-init).
+func checkPreconditions(server, repoRoot string) error {
 	if server == "" && tmux.OriginalTMUX == "" {
 		return &riff.ExitCodeError{Code: riff.ExitPrecondition, Msg: "run-kit riff: not inside a tmux session ($TMUX unset) — start tmux first (or pass -L <server> to address a server by name)"}
 	}
 	if _, err := exec.LookPath("wt"); err != nil {
 		return &riff.ExitCodeError{Code: riff.ExitPrecondition, Msg: "run-kit riff: wt not found on PATH (required companion tool — see https://github.com/sahil87/wt)"}
+	}
+	if repoRoot == "" {
+		return &riff.ExitCodeError{Code: riff.ExitPrecondition, Msg: "run-kit riff: not inside a git repository — cd into a repo or pass --repo <path>"}
 	}
 	return nil
 }

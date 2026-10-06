@@ -510,10 +510,10 @@ func TestResolveLauncher_StubFab(t *testing.T) {
 	})
 }
 
-// TestBuildWtCreateArgs covers the mockup-v2 --worktree-name passthrough: an
-// empty name is byte-identical to the pre-feature argv; a name in worktree mode
-// prepends `--worktree-name <name>`; a name in checkout mode is defensively
-// ignored (checkout never reaches wt, and the name is rejected at the API).
+// TestBuildWtCreateArgs covers the worktree naming argv: an empty name yields the
+// plain `create --non-interactive --open skip` argv; a name in worktree mode
+// prepends `--name <name>`; a name in checkout mode is defensively ignored
+// (checkout never reaches wt, and the name is rejected at the API).
 func TestBuildWtCreateArgs(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -523,27 +523,27 @@ func TestBuildWtCreateArgs(t *testing.T) {
 		want        []string
 	}{
 		{
-			name: "no name → byte-identical pre-feature argv",
-			want: []string{"create", "--non-interactive", "--worktree-open", "skip"},
+			name: "no name → plain argv",
+			want: []string{"create", "--non-interactive", "--open", "skip"},
 		},
 		{
 			name:   "worktree mode with name",
 			where:  "worktree",
 			wtName: "my-agent",
-			want:   []string{"create", "--worktree-name", "my-agent", "--non-interactive", "--worktree-open", "skip"},
+			want:   []string{"create", "--name", "my-agent", "--non-interactive", "--open", "skip"},
 		},
 		{
 			name:        "name + passthrough",
 			where:       "worktree",
 			wtName:      "my-agent",
 			passthrough: []string{"--base", "main"},
-			want:        []string{"create", "--worktree-name", "my-agent", "--non-interactive", "--worktree-open", "skip", "--base", "main"},
+			want:        []string{"create", "--name", "my-agent", "--non-interactive", "--open", "skip", "--base", "main"},
 		},
 		{
 			name:   "checkout mode ignores name",
 			where:  "checkout",
 			wtName: "ignored",
-			want:   []string{"create", "--non-interactive", "--worktree-open", "skip"},
+			want:   []string{"create", "--non-interactive", "--open", "skip"},
 		},
 	}
 	for _, tc := range cases {

@@ -433,7 +433,7 @@ func ValidateIdentifier(name, label string) string {
 // hardening over the shared tmux-safe ValidateName rule (which the session/window
 // callers also use — that shared rule is deliberately left unchanged). The extra
 // rejections address how a worktree name is consumed downstream of riff: it
-// becomes a `wt create --worktree-name` argv element (a leading `-` could look
+// becomes a `wt create --name` argv element (a leading `-` could look
 // like a flag), a worktree directory basename (a `/` would split the path), and
 // a `riff-<name>` tmux window name (a leading space is a surprising, error-prone
 // name). Returns empty string if valid, an error message otherwise.
