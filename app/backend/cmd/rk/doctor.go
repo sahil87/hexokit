@@ -611,11 +611,13 @@ func tmuxConfigCheck() doctorCheck {
 // rkHomeCheck reports the one-shot ~/.rk → state-home move's end state
 // (261006-3ht0). Always OK-shaped (the code-server/ephemeral posture — doctor
 // diagnoses, the move at daemon start heals): absent is a clean pass; a
-// held-back tenant (its source still present while the destination exists)
-// warns in the note naming both paths; with MOVED.md the note lists the
-// remaining user-owned files; present without MOVED.md means the move has not
-// run yet. It reads $HOME/.rk and resolves the state home via apphome, so
-// tests redirect HOME and XDG_STATE_HOME into temp dirs.
+// held-back tenant warns in the note naming both paths — its source still
+// present while the destination exists or, once MOVED.md is written, while
+// the destination is missing (the source is then the only copy); with
+// MOVED.md the note lists the remaining user-owned files; present without
+// MOVED.md means the move has not run yet. It reads $HOME/.rk and resolves
+// the state home via apphome, so tests redirect HOME and XDG_STATE_HOME into
+// temp dirs.
 func rkHomeCheck(home string) doctorCheck {
 	check := doctorCheck{Name: "~/.rk", OK: true}
 	rkDir := filepath.Join(home, ".rk")
@@ -634,12 +636,24 @@ func rkHomeCheck(home string) doctorCheck {
 		return check
 	}
 
+	movedNote := rkHomeExists(filepath.Join(rkDir, "MOVED.md"))
 	var held []string
 	hold := func(name, dstLeaf string) {
 		src := filepath.Join(rkDir, name)
 		dst := filepath.Join(state, dstLeaf)
-		if rkHomeExists(src) && rkHomeExists(dst) {
+		if !rkHomeExists(src) {
+			return
+		}
+		if rkHomeExists(dst) {
 			held = append(held, fmt.Sprintf("%s still present while %s exists", src, dst))
+			return
+		}
+		// With MOVED.md written, a managed source whose destination never
+		// arrived is the only copy left — the tenant filter below hides it
+		// from the remaining-files list, so it must be held back here or the
+		// row would read "safe to delete" over the sole VAPID keypair.
+		if movedNote {
+			held = append(held, fmt.Sprintf("%s still present and %s is missing — the source is the only copy", src, dst))
 		}
 	}
 	// The move's own tenant table, so a tenant added there is reported here.
@@ -659,15 +673,10 @@ func rkHomeCheck(home string) doctorCheck {
 		return check
 	}
 
-	movedNote := false
 	var remaining []string
 	for _, e := range entries {
 		name := e.Name()
-		if name == "MOVED.md" {
-			movedNote = true
-			continue
-		}
-		if rkHomeTenantName(name) {
+		if name == "MOVED.md" || rkHomeTenantName(name) {
 			continue
 		}
 		remaining = append(remaining, name)

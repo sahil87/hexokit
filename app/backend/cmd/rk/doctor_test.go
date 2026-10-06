@@ -1281,7 +1281,6 @@ func TestRKHomeCheckStates(t *testing.T) {
 			"tmux.conf":              "# hand-tuned\n",
 			"settings.yaml":          "port: 3000\n",
 			"notes.txt":              "mine\n",
-			"update.log":             "a tenant-shaped leftover, not user-owned\n",
 			"settings.yaml.migrated": "breadcrumb\n",
 		} {
 			p := filepath.Join(rkDir, name)
@@ -1307,10 +1306,12 @@ func TestRKHomeCheckStates(t *testing.T) {
 		if strings.Contains(c.Note, "WARNING") {
 			t.Errorf("note = %q, a MOVED.md listing carries no warning", c.Note)
 		}
-		// Tenant-shaped leftovers are not user-owned: update.log and the
-		// breadcrumb must not appear in the remaining-files list.
-		if strings.Contains(c.Note, "update.log") || strings.Contains(c.Note, "settings.yaml.migrated") {
-			t.Errorf("note = %q, tenant-shaped entries must be excluded from the user-owned list", c.Note)
+		// Migration breadcrumbs are not user-owned: settings.yaml.migrated must
+		// not appear in the remaining-files list. (A tenant-shaped leftover like
+		// update.log never reaches this branch — with MOVED.md written it is
+		// always held back as a warning, covered by the subtests above.)
+		if strings.Contains(c.Note, "settings.yaml.migrated") {
+			t.Errorf("note = %q, breadcrumbs must be excluded from the user-owned list", c.Note)
 		}
 	})
 
@@ -1358,6 +1359,37 @@ func TestRKHomeCheckStates(t *testing.T) {
 		dst := filepath.Join(state, "vapid.json")
 		if !strings.Contains(c.Note, src) || !strings.Contains(c.Note, dst) {
 			t.Errorf("note = %q, want it to name both %q and %q", c.Note, src, dst)
+		}
+	})
+
+	t.Run("MOVED.md with a tenant left behind and no destination warns", func(t *testing.T) {
+		home, state := setupRKHomeRow(t)
+		rkDir := filepath.Join(home, ".rk")
+		if err := os.MkdirAll(rkDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(rkDir, "MOVED.md"), []byte("# moved\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// The move marked itself done but vapid.json never arrived at the
+		// state home — the ~/.rk copy is the only one, so the row must warn
+		// rather than report safe-to-delete.
+		if err := os.WriteFile(filepath.Join(rkDir, "vapid.json"), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(state, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		c := rkHomeCheck(home)
+		if !c.OK {
+			t.Errorf("the row must warn but stay OK, got %+v", c)
+		}
+		if !strings.Contains(c.Note, "WARNING") || strings.Contains(c.Note, "safe to delete") {
+			t.Errorf("note = %q, want a warning, never safe-to-delete", c.Note)
+		}
+		src := filepath.Join(rkDir, "vapid.json")
+		if !strings.Contains(c.Note, src) {
+			t.Errorf("note = %q, want it to name the held-back source %q", c.Note, src)
 		}
 	})
 

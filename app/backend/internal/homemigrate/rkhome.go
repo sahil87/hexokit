@@ -100,15 +100,10 @@ func MoveRKTenants(logger *slog.Logger) {
 	}
 	// The target is always the NEW state home, never the resolved one: moving
 	// into a legacy run-kit dir would strand the tenants where change lwt6
-	// deletes. A missing new dir means the state-home migration did not run
-	// this boot — skip the whole step.
+	// deletes.
 	newState, err := apphome.NewStateDir()
 	if err != nil {
 		logger.Warn("~/.rk move skipped: state home unresolvable", "err", err)
-		return
-	}
-	if !isDir(newState) {
-		logger.Warn("~/.rk move skipped: the hexokit state home does not exist (the state-home migration did not run this boot)", "path", newState)
 		return
 	}
 	home, err := os.UserHomeDir()
@@ -119,6 +114,23 @@ func MoveRKTenants(logger *slog.Logger) {
 	rkDir := filepath.Join(home, ".rk")
 	if !exists(rkDir) {
 		return
+	}
+	if !isDir(newState) {
+		// A legacy run-kit state home still standing means the state-home
+		// migration did not run or failed — defer to it (only its atomic
+		// publish may create the new dir while the legacy one is active).
+		// With no legacy home there is nothing to defer for: the new consumers
+		// resolve to the new dir either way and would seed fresh state (a new
+		// VAPID keypair) that strands the ~/.rk tenants behind the
+		// never-overwrite rule, so the move creates the home itself.
+		if legacy, err := apphome.LegacyStateDir(); err == nil && isDir(legacy) {
+			logger.Warn("~/.rk move skipped: the hexokit state home does not exist (the state-home migration did not run this boot)", "path", newState)
+			return
+		}
+		if err := os.MkdirAll(newState, 0o700); err != nil {
+			logger.Warn("~/.rk move skipped: creating the hexokit state home failed", "path", newState, "err", err)
+			return
+		}
 	}
 	progress := moveProgressWriter{logger: logger}
 

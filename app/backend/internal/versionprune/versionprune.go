@@ -112,9 +112,12 @@ func (h writerHandler) Handle(_ context.Context, r slog.Record) error {
 func (h writerHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
 func (h writerHandler) WithGroup(string) slog.Handler      { return h }
 
-// highestBelow returns the highest-semver entry strictly below current, or ""
-// when none qualifies (or current itself is not a version — then no fallback
-// previous exists and only the current target is kept).
+// highestBelow returns the highest-semver version dir strictly below current,
+// or "" when none qualifies (or current itself is not a version — then no
+// fallback previous exists and only the current target is kept). Symlinked and
+// regular-file entries are unmanaged (Prune never deletes them), so one must
+// never become the rollback candidate — that would keep it while every real
+// rollback dir is deleted.
 func highestBelow(entries []os.DirEntry, current string) string {
 	cur, ok := parseVersion(current)
 	if !ok {
@@ -123,6 +126,9 @@ func highestBelow(entries []os.DirEntry, current string) string {
 	best := ""
 	var bestV version
 	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
 		v, ok := parseVersion(e.Name())
 		if !ok || compare(v, cur) >= 0 {
 			continue

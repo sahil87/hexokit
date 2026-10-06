@@ -251,9 +251,15 @@ func TestMoveRKTenantsEXDEVFallback(t *testing.T) {
 	}
 }
 
+// TestMoveRKTenantsSkipsWhenStateHomeMissing: with the new state home absent
+// and a legacy run-kit state home still standing, the state-home migration
+// owns the publish — the move defers to it and skips.
 func TestMoveRKTenantsSkipsWhenStateHomeMissing(t *testing.T) {
 	rkDir, newState, calls := isolateRKMove(t)
 	if err := os.RemoveAll(newState); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(filepath.Dir(newState), "run-kit"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(rkDir, "vapid.json"), "x", 0o600)
@@ -272,6 +278,33 @@ func TestMoveRKTenantsSkipsWhenStateHomeMissing(t *testing.T) {
 	}
 	if len(*calls) != 0 {
 		t.Errorf("seam calls = %v, want none", *calls)
+	}
+}
+
+// TestMoveRKTenantsCreatesStateHomeWithoutLegacy: with neither state home
+// present there is no migration to defer to — the move creates the new home
+// itself, or the consumers would seed fresh state and strand the tenants.
+func TestMoveRKTenantsCreatesStateHomeWithoutLegacy(t *testing.T) {
+	rkDir, newState, calls := isolateRKMove(t)
+	if err := os.RemoveAll(newState); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(rkDir, "vapid.json"), `{"priv":"x"}`, 0o600)
+
+	MoveRKTenants(discardLogger())
+
+	fi, err := os.Lstat(filepath.Join(newState, "vapid.json"))
+	if err != nil {
+		t.Fatalf("vapid.json missing at the created state home: %v", err)
+	}
+	if got := fi.Mode().Perm(); got != 0o600 {
+		t.Errorf("vapid.json mode = %o, want 600", got)
+	}
+	if exists(rkDir) {
+		t.Error("~/.rk must be removed when empty after the move")
+	}
+	if len(*calls) != 0 {
+		t.Errorf("seam calls = %v, want none (no code-server tenants)", *calls)
 	}
 }
 

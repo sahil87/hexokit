@@ -150,6 +150,30 @@ func TestPruneLeavesSymlinkedVersionEntryInPlace(t *testing.T) {
 	}
 }
 
+// TestPruneFallbackIgnoresUnmanagedEntries: a symlinked or regular-file
+// version-named entry is never the fallback previous — otherwise it would be
+// kept while the real rollback dirs are deleted.
+func TestPruneFallbackIgnoresUnmanagedEntries(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	mkVersion(t, root, "4.134.0")
+	mkVersion(t, root, "4.139.1")
+	flip(t, root, "4.139.1")
+	if err := os.Symlink(outside, filepath.Join(root, "4.138.0")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "4.137.0"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	Prune(root, "", discardLogger())
+
+	want := []string{"4.134.0", "4.137.0", "4.138.0", "4.139.1", "current"}
+	if got := entries(t, root); !slices.Equal(got, want) {
+		t.Errorf("entries = %v, want %v (4.134.0 is the fallback previous; the symlink and file are unmanaged)", got, want)
+	}
+}
+
 func TestPruneMissingRootIsNoOp(t *testing.T) {
 	Prune(filepath.Join(t.TempDir(), "nope"), "", discardLogger())
 }
