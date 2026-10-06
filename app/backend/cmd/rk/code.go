@@ -243,11 +243,14 @@ func codeRequestID() string {
 	return hex.EncodeToString(b[:])
 }
 
-// codeLiveHosts enumerates the live hosts (both cb discovery dirs — the
-// resolved one and the legacy dual-read one), printing a prune notice per
-// dead record (Notef — chatter; --quiet drops it).
+// codeLiveHosts enumerates the live hosts from the resolved cb hosts dir,
+// printing a prune notice per dead record (Notef — chatter; --quiet drops it).
 func codeLiveHosts(ctx context.Context, sink outputSink) ([]codebridge.HostRecord, error) {
-	live, pruned, err := codebridge.LiveHostsMerged(ctx)
+	dir, err := codebridge.HostsDir()
+	if err != nil {
+		return nil, err
+	}
+	live, pruned, err := codebridge.LiveHosts(ctx, dir)
 	if err != nil {
 		return nil, err
 	}

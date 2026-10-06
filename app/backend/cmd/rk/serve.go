@@ -187,6 +187,11 @@ var migrateHomes = homemigrate.Migrate
 // its gates (dev build skip, port-busy deferral).
 var moveRKTenants = homemigrate.MoveRKTenants
 
+// deleteLegacyHomes is the homemigrate.DeleteLegacyHomes seam — the stale
+// run-kit config/state homes are deleted right after the ~/.rk move and
+// inherit its gates exactly (dev build skip, port-busy deferral).
+var deleteLegacyHomes = homemigrate.DeleteLegacyHomes
+
 // daemonPortBusyFn probes whether something already listens on the resolved
 // daemon port — the migration-deferral guard's seam (tests stub it).
 var daemonPortBusyFn = daemon.PortBusy
@@ -196,10 +201,12 @@ var daemonPortBusyFn = daemon.PortBusy
 // then re-resolves the tmux managed-conf path: tmux.DefaultConfigPath was
 // fixed at package init, before the migration could publish, so the first
 // post-upgrade boot must re-resolve or EnsureConfig would manage the legacy
-// file. Dev builds (version == "dev": just dev/air and the e2e rigs) skip the
-// migration entirely — a worktree rig shares the developer's real legacy home
-// with the live brew daemon, so a rig must never freeze a stale copy of it
-// for the real upgrade (the same gate reserved.go uses).
+// file. The ~/.rk move and the stale legacy-home deletion run right after the
+// migration and inherit its gates exactly. Dev builds (version == "dev": just
+// dev/air and the e2e rigs) skip all three — a worktree rig shares the
+// developer's real legacy home with the live brew daemon, so a rig must never
+// freeze a stale copy of it for the real upgrade (the same gate reserved.go
+// uses).
 //
 // The publish is also DEFERRED while the daemon port is already bound: that
 // listener is a live daemon (after a brew upgrade, typically the old binary,
@@ -219,6 +226,7 @@ func migrateHomesUnlessDev() {
 	}
 	migrateHomes(slog.Default())
 	moveRKTenants(slog.Default())
+	deleteLegacyHomes(slog.Default())
 	tmux.RefreshDefaultConfigPath()
 }
 

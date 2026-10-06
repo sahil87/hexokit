@@ -52,8 +52,8 @@ func (s *Server) handleCodeBridge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	startedAt := ""
-	if _, err := codebridge.StateDir(); err == nil {
-		records, err := codebridge.ReadRecordsMerged()
+	if dir, err := codebridge.HostsDir(); err == nil {
+		records, err := codebridge.ReadRecords(dir)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -62,8 +62,8 @@ func (s *Server) handleCodeBridge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	emptyBootAt := ""
-	if _, err := codebridge.StateDir(); err == nil {
-		markers, err := codebridge.ReadBootMarkersMerged()
+	if dir, err := codebridge.BootsDir(); err == nil {
+		markers, err := codebridge.ReadBootMarkers(dir)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

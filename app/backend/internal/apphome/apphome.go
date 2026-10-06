@@ -8,12 +8,12 @@
 // env-dependent path would silently fork which file each context reads. The
 // state root follows the XDG rule with the ~/.local/state fallback.
 //
-// Both homes apply the same dual-read rule for one release after the
-// run-kit → hexokit rename: the new dir when it exists (migrated or fresh
-// install), else the legacy dir when it exists (an existing install that has
-// not migrated yet), else the new dir. Nothing but the migration's atomic
-// publish may create the new dir while the legacy dir is the active one, so
-// "new dir exists" needs no marker file.
+// Both homes apply the same dual-read rule — the skip-release path for a
+// pre-rename install jumping straight to a current release: the new dir when
+// it exists (migrated or fresh install), else the legacy dir when it exists
+// (an existing install that has not migrated yet), else the new dir. Nothing
+// but the migration's atomic publish may create the new dir while the legacy
+// dir is the active one, so "new dir exists" needs no marker file.
 package apphome
 
 import (
@@ -24,7 +24,8 @@ import (
 const (
 	// Name is the current home dir name.
 	Name = "hexokit"
-	// LegacyName is the pre-rename home dir name, dual-read for one release.
+	// LegacyName is the pre-rename home dir name, kept for the skip-release
+	// dual-read path.
 	LegacyName = "run-kit"
 )
 

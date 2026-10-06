@@ -65,7 +65,7 @@ import (
 // TestHomeMigrationPickupE2E seeds a pre-rename install, proves the CLI
 // dual-reads the legacy homes, boots serve once, and proves the new homes
 // hold the migrated content, the pin, and the refreshed managed conf — with
-// the legacy trees byte-unchanged.
+// the stale legacy homes deleted by the same boot.
 func TestHomeMigrationPickupE2E(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go not available — skipping home migration e2e test")
@@ -159,9 +159,9 @@ func TestHomeMigrationPickupE2E(t *testing.T) {
 	}
 	hmWriteFile(t, filepath.Join(legacyState, "prstatus.json"), []byte("{\"prs\":[]}\n"), 0o600)
 
-	// The byte-unchanged baseline for both legacy trees, taken after seeding
-	// and compared after every operation below.
-	legacyDigestBefore := hmHashTrees(t, legacyConfig, legacyState)
+	// The seeded snapshot bytes, captured pre-boot: post-boot the legacy trees
+	// are deleted, so the migrated copy is compared against these.
+	legacySnap := hmReadFile(t, filepath.Join(legacyState, "snapshots", "e2esnap.json"))
 
 	// ── Pre-migration: the CLI dual-reads the legacy homes ───────────────
 	cliEnv := hmChildEnv(home, stateHome)
@@ -281,7 +281,6 @@ func TestHomeMigrationPickupE2E(t *testing.T) {
 	if got := hmReadFile(t, filepath.Join(newState, "cron", "e2epickup.yaml")); !reflect.DeepEqual(got, cronEntryYAML) {
 		t.Errorf("migrated cron entry = %q, want %q", got, cronEntryYAML)
 	}
-	legacySnap := hmReadFile(t, filepath.Join(legacyState, "snapshots", "e2esnap.json"))
 	if got := hmReadFile(t, filepath.Join(newState, "snapshots", "e2esnap.json")); !reflect.DeepEqual(got, legacySnap) {
 		t.Errorf("migrated snapshot differs from the legacy original")
 	}
@@ -320,22 +319,11 @@ func TestHomeMigrationPickupE2E(t *testing.T) {
 		t.Fatalf("serve did not shut down within 15s of SIGTERM — logs:\n%s", serveLogs())
 	}
 
-	// ── The legacy trees are byte-unchanged ──────────────────────────────
-	legacyDigestAfter := hmHashTrees(t, legacyConfig, legacyState)
-	if !reflect.DeepEqual(legacyDigestBefore, legacyDigestAfter) {
-		for path, before := range legacyDigestBefore {
-			if after, ok := legacyDigestAfter[path]; !ok {
-				t.Errorf("legacy entry %s vanished", path)
-			} else if before != after {
-				t.Errorf("legacy entry %s changed: %+v → %+v", path, before, after)
-			}
+	// ── The stale legacy homes are deleted on the same boot ────────────────
+	for _, dir := range []string{legacyConfig, legacyState} {
+		if _, err := os.Lstat(dir); !os.IsNotExist(err) {
+			t.Errorf("legacy home %s must be deleted by the serve boot (stat err = %v)", dir, err)
 		}
-		for path := range legacyDigestAfter {
-			if _, ok := legacyDigestBefore[path]; !ok {
-				t.Errorf("legacy entry %s appeared", path)
-			}
-		}
-		t.Fatal("legacy homes must stay byte-unchanged for one release")
 	}
 }
 
@@ -506,60 +494,4 @@ func hmReadFile(t *testing.T, path string) []byte {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return data
-}
-
-// hmDigestEntry is one tree node in the byte-unchanged digest: kind,
-// permission bits, and the content hash (files) or link target (symlinks).
-type hmDigestEntry struct {
-	Kind string
-	Perm string
-	Sum  string
-	Link string
-}
-
-// hmHashTrees digests every root into one relpath-keyed map.
-func hmHashTrees(t *testing.T, roots ...string) map[string]hmDigestEntry {
-	t.Helper()
-	out := map[string]hmDigestEntry{}
-	for _, root := range roots {
-		err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			rel, err := filepath.Rel(root, p)
-			if err != nil || rel == "." {
-				return err
-			}
-			key := filepath.Join(root, rel)
-			info, err := os.Lstat(p)
-			if err != nil {
-				return err
-			}
-			perm := fmt.Sprintf("0%o", info.Mode().Perm())
-			switch {
-			case info.Mode()&os.ModeSymlink != 0:
-				target, err := os.Readlink(p)
-				if err != nil {
-					return err
-				}
-				out[key] = hmDigestEntry{Kind: "symlink", Perm: perm, Link: target}
-			case info.IsDir():
-				out[key] = hmDigestEntry{Kind: "dir", Perm: perm}
-			case info.Mode().IsRegular():
-				data, err := os.ReadFile(p)
-				if err != nil {
-					return err
-				}
-				sum := sha256.Sum256(data)
-				out[key] = hmDigestEntry{Kind: "file", Perm: perm, Sum: hex.EncodeToString(sum[:])}
-			default:
-				out[key] = hmDigestEntry{Kind: "special", Perm: perm}
-			}
-			return nil
-		})
-		if err != nil {
-			t.Fatalf("digest %s: %v", root, err)
-		}
-	}
-	return out
 }

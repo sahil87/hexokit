@@ -18,6 +18,7 @@ import (
 	"rk/internal/codeserver"
 	"rk/internal/config"
 	"rk/internal/gui"
+	"rk/internal/homemigrate"
 	"rk/internal/portpolicy"
 	"rk/internal/settings"
 	"rk/internal/tmux"
@@ -1410,6 +1411,87 @@ func TestRKHomeCheckStates(t *testing.T) {
 			t.Errorf("note = %q, a pending move carries no warning", c.Note)
 		}
 	})
+}
+
+// --- legacy run-kit homes rows --------------------------------------------------
+
+// TestLegacyHomeNote pins the four note shapes: absent when the home is gone;
+// the path plus the guard reason when a guard holds it back; the retained cb/
+// when a live code-bridge host is registered; and the pending deletion. Every
+// shape is OK — doctor diagnoses, the daemon start heals.
+func TestLegacyHomeNote(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		st   homemigrate.LegacyHomeState
+		want []string // every fragment must appear in the note
+	}{
+		{
+			name: "absent",
+			st:   homemigrate.LegacyHomeState{Label: "config", Path: "/h/.config/run-kit"},
+			want: []string{"absent"},
+		},
+		{
+			name: "held back names the path and the guard",
+			st: homemigrate.LegacyHomeState{
+				Label: "config", Path: "/h/.config/run-kit", Present: true,
+				Hold: "symlink /h/.config/hexokit/tmux.d/x.conf in the hexokit config home points into the legacy home",
+			},
+			want: []string{"/h/.config/run-kit", "held back", "/h/.config/hexokit/tmux.d/x.conf"},
+		},
+		{
+			name: "retained cb names the live host",
+			st:   homemigrate.LegacyHomeState{Label: "state", Path: "/s/run-kit", Present: true, KeepCB: true},
+			want: []string{"/s/run-kit", "cb/", "live code-bridge host"},
+		},
+		{
+			name: "deletable names the next daemon start",
+			st:   homemigrate.LegacyHomeState{Label: "state", Path: "/s/run-kit", Present: true},
+			want: []string{"/s/run-kit", "deleted at the next daemon start"},
+		},
+		{
+			name: "unresolvable",
+			st:   homemigrate.LegacyHomeState{Label: "config", Hold: "the legacy config home path is unresolvable: no home"},
+			want: []string{"unresolvable", "no home"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := legacyHomeCheck(tc.st)
+			if !c.OK {
+				t.Errorf("the legacy-home row must always stay OK, got %+v", c)
+			}
+			if c.Name != "legacy "+tc.st.Label+" home" {
+				t.Errorf("row name = %q, want %q", c.Name, "legacy "+tc.st.Label+" home")
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(c.Note, want) {
+					t.Errorf("note = %q, want it to contain %q", c.Note, want)
+				}
+			}
+		})
+	}
+}
+
+// TestLegacyHomeRowsInReport proves runDoctorChecks appends one row per legacy
+// home, fed by the homemigrate.LegacyHomes seam.
+func TestLegacyHomeRowsInReport(t *testing.T) {
+	orig := legacyHomesFn
+	legacyHomesFn = func(context.Context) []homemigrate.LegacyHomeState {
+		return []homemigrate.LegacyHomeState{
+			{Label: "config", Path: "/h/.config/run-kit"},
+			{Label: "state", Path: "/s/run-kit", Present: true},
+		}
+	}
+	t.Cleanup(func() { legacyHomesFn = orig })
+
+	var names []string
+	for _, c := range runDoctorChecks().Checks {
+		names = append(names, c.Name)
+	}
+	for _, want := range []string{"legacy config home", "legacy state home"} {
+		if !slices.Contains(names, want) {
+			t.Errorf("runDoctorChecks checks = %v, want a %q row", names, want)
+		}
+	}
 }
 
 // --- code bridge row ----------------------------------------------------------
