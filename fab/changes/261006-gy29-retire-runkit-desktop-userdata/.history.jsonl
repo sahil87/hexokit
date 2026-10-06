@@ -1,3 +1,9 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-10-06T20:25:08Z"}
 {"args":"Retire the run-kit-desktop Electron userData (split from 3ht0)","cmd":"fab-new","event":"command","ts":"2026-10-06T20:25:08Z"}
 {"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-10-06T20:26:29Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-10-06T21:50:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-10-06T21:51:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-10-06T21:52:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-10-06T21:56:50Z"}
+{"event":"review","result":"passed","ts":"2026-10-06T21:56:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-10-06T21:57:08Z"}
