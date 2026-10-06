@@ -1,3 +1,7 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-10-06T04:46:26Z"}
 {"args":"Consolidate rk's on-disk homes to exactly two (config ~/.config/hexokit/, state ~/.local/state/hexokit/) — scope per the discussion above","cmd":"fab-new","event":"command","ts":"2026-10-06T04:46:26Z"}
 {"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-10-06T04:48:41Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-10-06T04:53:35Z"}
+{"delta":"+0.8","event":"confidence","score":0.8,"trigger":"calc-score","ts":"2026-10-06T05:20:27Z"}
+{"delta":"+0.6","event":"confidence","score":1.4,"trigger":"calc-score","ts":"2026-10-06T07:15:17Z"}
+{"delta":"+2.4","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-10-06T20:26:29Z"}
