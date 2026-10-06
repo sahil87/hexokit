@@ -17,7 +17,7 @@ import (
 
 // codeServerUserHomeFn resolves the user's home for the managed-install
 // paths. A package seam (mirroring resolveExeFn) so tests point the managed
-// dir at a temp dir and never touch the real ~/.rk.
+// dir at a temp dir and never touch the real state home.
 var codeServerUserHomeFn = os.UserHomeDir
 
 // newCodeServerInstallerFn constructs the installer for the code-server
@@ -59,14 +59,16 @@ var codeServerCmd = &cobra.Command{
 
 run-kit installs code-server itself: the official standalone release tarball
 (SHA256-verified against the GitHub release digest) lands under
-~/.rk/code-server-bin/<version>/, activated by an atomic 'current' symlink
-flip. The daemon installs it automatically on first start (a code-server-install
-window in the rk-jobs session) when neither the managed install nor a
-code-server on PATH resolves; these subcommands are the manual surface for the
-same paths — and the only ones a remote host without Homebrew needs.
+~/.local/state/hexokit/code-server/bin/<version>/, activated by an atomic
+'current' symlink flip. The daemon installs it automatically on first start (a
+code-server-install window in the rk-jobs session) when neither the managed
+install nor a code-server on PATH resolves; these subcommands are the manual
+surface for the same paths — and the only ones a remote host without Homebrew
+needs.
 
 A code-server you installed yourself on PATH is always respected and never
-touched: 'update' acts only when ~/.rk/code-server-bin exists.
+touched: 'update' acts only when ~/.local/state/hexokit/code-server/bin
+exists.
 
 Subcommands:
   install  Download the latest release and activate it (idempotent)
@@ -82,7 +84,8 @@ var codeServerInstallCmd = &cobra.Command{
 	Long: `Download the latest standalone code-server release tarball for this host
 (linux/macos, amd64/arm64) from the official GitHub releases, verify its
 SHA256 against the release digest, and activate it under
-~/.rk/code-server-bin/<version>/ via an atomic 'current' symlink flip.
+~/.local/state/hexokit/code-server/bin/<version>/ via an atomic 'current'
+symlink flip.
 
 Idempotent: when the managed install already matches the latest release,
 nothing is downloaded and the command prints the already-current outcome. A
@@ -148,9 +151,10 @@ binary (code-server's hot exit preserves unsaved buffers; the /code lens
 reconnects briefly). The respawn requires the daemon to be running — with it
 down, nothing is killed and the command prints the manual recovery instead.
 
-Ownership posture: with no ~/.rk/code-server-bin, the command is a skip (exit
-0 with a data line) — a code-server you installed yourself on PATH is never
-touched. When the managed install is already current, nothing is downloaded
+Ownership posture: with no ~/.local/state/hexokit/code-server/bin, the command
+is a skip (exit 0 with a data line) — a code-server you installed yourself on
+PATH is never touched. When the managed install is already current, nothing is
+downloaded
 and the session is NOT restarted.
 
 'rk update' runs this leg automatically (best-effort) after upgrading the CLI.`,

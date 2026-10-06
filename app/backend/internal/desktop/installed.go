@@ -17,7 +17,7 @@ import (
 func (ins *Installer) legacyAppPath() string {
 	root, err := ins.effectiveInstallDir()
 	if err != nil {
-		root = DefaultInstallDirFor(ins.GOOS, "~")
+		root = defaultInstallDirDisplay(ins.GOOS)
 	}
 	return filepath.Join(root, legacyAppBundleName)
 }

@@ -216,7 +216,7 @@ func TestDesktopRegisteredWithChildrenAndFlags(t *testing.T) {
 		if f.DefValue != "" {
 			t.Errorf("%s --path default = %q, want empty (resolved per platform at runtime)", c.Name(), f.DefValue)
 		}
-		if !strings.Contains(f.Usage, "/Applications on macOS, ~/.rk/desktop on Linux") {
+		if !strings.Contains(f.Usage, "/Applications on macOS, ~/.local/state/hexokit/desktop on Linux") {
 			t.Errorf("%s --path usage %q should name both platform defaults", c.Name(), f.Usage)
 		}
 	}
@@ -631,13 +631,23 @@ func linuxDesktopReleaseServer(t *testing.T, version *string, assetHits *int) *h
 	return srv
 }
 
-// withLinuxDesktopStub pins the gate to linux and wires the factory: the
-// UserHome seam points at the given temp home, RunInDir is the fake
+// linuxDesktopDefaultRoot is the path the platform default install root
+// resolves to under a stub-pinned home: <state>/hexokit/desktop per apphome
+// (with XDG_STATE_HOME pinned to <home>/.local/state).
+func linuxDesktopDefaultRoot(home string) string {
+	return filepath.Join(home, ".local", "state", "hexokit", "desktop")
+}
+
+// withLinuxDesktopStub pins the gate to linux and wires the factory: HOME and
+// XDG_STATE_HOME point at the given temp home so the platform default root
+// resolves through apphome (InstallDir is left EMPTY), the UserHome seam
+// points at the same home for the integration paths, RunInDir is the fake
 // extractor, Run records pgrep and answers update-desktop-database, Signal is
-// recorded. InstallDir is left EMPTY so the platform default
-// (~/.rk/desktop under the pinned home) resolves through the UserHome seam.
+// recorded.
 func withLinuxDesktopStub(t *testing.T, srv *httptest.Server, home string, version *string, running *bool) {
 	t.Helper()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
 	origGOOS := desktopGOOS
 	desktopGOOS = "linux"
 	origFactory := newDesktopInstallerFn
@@ -689,7 +699,7 @@ func TestDesktopLinuxInstallUpdateStatus(t *testing.T) {
 	home := t.TempDir()
 	running := false
 	withLinuxDesktopStub(t, srv, home, &version, &running)
-	root := filepath.Join(home, ".rk", "desktop")
+	root := linuxDesktopDefaultRoot(home)
 
 	// status before install: read-only report off the default root.
 	stdout, _, err := execDesktop(t, "desktop", "status")
@@ -733,8 +743,19 @@ func TestDesktopLinuxInstallUpdateStatus(t *testing.T) {
 	if !strings.Contains(stdout, want) {
 		t.Errorf("update stdout = %q, want %q", stdout, want)
 	}
+	// The pre-flip version survives as the rollback; the next update prunes it.
+	if _, err := os.Stat(filepath.Join(root, "3.21.0")); err != nil {
+		t.Errorf("previous version dir pruned after the flip — it is the kept rollback: %v", err)
+	}
+	version = "3.23.0"
+	if _, _, err := execDesktop(t, "desktop", "update"); err != nil {
+		t.Fatalf("second update: %v", err)
+	}
 	if _, err := os.Stat(filepath.Join(root, "3.21.0")); !os.IsNotExist(err) {
-		t.Error("the old version dir survived the flip")
+		t.Error("the pre-previous version dir survived the second flip")
+	}
+	if _, err := os.Stat(filepath.Join(root, "3.22.0")); err != nil {
+		t.Errorf("previous version dir missing after the second flip: %v", err)
 	}
 }
 
@@ -748,7 +769,7 @@ func TestDesktopLinuxUpdateRestartsRunningApp(t *testing.T) {
 	home := t.TempDir()
 	running := false
 	withLinuxDesktopStub(t, srv, home, &version, &running)
-	root := filepath.Join(home, ".rk", "desktop")
+	root := linuxDesktopDefaultRoot(home)
 
 	if _, _, err := execDesktop(t, "desktop", "install"); err != nil {
 		t.Fatalf("install: %v", err)
@@ -778,7 +799,7 @@ func TestDesktopLinuxUninstall(t *testing.T) {
 	home := t.TempDir()
 	running := false
 	withLinuxDesktopStub(t, srv, home, &version, &running)
-	root := filepath.Join(home, ".rk", "desktop")
+	root := linuxDesktopDefaultRoot(home)
 
 	if _, _, err := execDesktop(t, "desktop", "install"); err != nil {
 		t.Fatalf("install: %v", err)
@@ -834,8 +855,8 @@ func TestDesktopUninstallDarwinRefusal(t *testing.T) {
 }
 
 // TestDesktopLinuxDefaultPathResolution: with no --path, the linux default
-// root resolves through the UserHome seam — a pre-existing install under
-// <home>/.rk/desktop is what status reports.
+// root resolves through apphome (the pinned HOME/XDG_STATE_HOME) — a
+// pre-existing install under <state>/hexokit/desktop is what status reports.
 func TestDesktopLinuxDefaultPathResolution(t *testing.T) {
 	version := "3.21.0"
 	var assetHits int
@@ -844,7 +865,7 @@ func TestDesktopLinuxDefaultPathResolution(t *testing.T) {
 	running := false
 	withLinuxDesktopStub(t, srv, home, &version, &running)
 
-	root := filepath.Join(home, ".rk", "desktop")
+	root := linuxDesktopDefaultRoot(home)
 	if err := os.MkdirAll(filepath.Join(root, "3.20.7"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -856,6 +877,6 @@ func TestDesktopLinuxDefaultPathResolution(t *testing.T) {
 		t.Fatalf("status: %v", err)
 	}
 	if !strings.Contains(stdout, "Installed: v3.20.7") {
-		t.Errorf("status stdout = %q, want the install under ~/.rk/desktop reported", stdout)
+		t.Errorf("status stdout = %q, want the install under <state>/hexokit/desktop reported", stdout)
 	}
 }

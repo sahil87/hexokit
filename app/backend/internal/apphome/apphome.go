@@ -48,6 +48,57 @@ func StateDir() (string, error) {
 	return resolve(root), nil
 }
 
+// The leaf resolvers below locate rk-managed assets under the resolved state
+// home: the VAPID keypair, push subscriptions, the managed code-server
+// install and profile, job logs, and the Linux desktop install. Every
+// consumer resolves through these so the state-home layout lives in one
+// place. All code-server files group under <state>/code-server/.
+
+// VAPIDPath is the web-push VAPID keypair file. It is moved by the home
+// migration, never regenerated (a new keypair invalidates every existing
+// push subscription); writers keep mode 0600.
+func VAPIDPath() (string, error) {
+	return stateLeaf("vapid.json")
+}
+
+// PushSubscriptionsPath is the web-push subscription store.
+func PushSubscriptionsPath() (string, error) {
+	return stateLeaf("push-subscriptions.json")
+}
+
+// CodeServerBinDir is the managed code-server install root,
+// <state>/code-server/bin, holding one <version>/ dir per installed release
+// plus the `current` symlink.
+func CodeServerBinDir() (string, error) {
+	return stateLeaf("code-server", "bin")
+}
+
+// CodeServerProfileDir is the code-server --user-data-dir (seeded
+// settings.json, extensions, hot-exit state).
+func CodeServerProfileDir() (string, error) {
+	return stateLeaf("code-server", "profile")
+}
+
+// LogsDir holds per-window job logs, <state>/logs/<window>.log.
+func LogsDir() (string, error) {
+	return stateLeaf("logs")
+}
+
+// DesktopDir is the Linux desktop install root, <state>/desktop (macOS
+// installs to /Applications and never resolves here).
+func DesktopDir() (string, error) {
+	return stateLeaf("desktop")
+}
+
+// stateLeaf joins the resolved state home with the given path elements.
+func stateLeaf(parts ...string) (string, error) {
+	dir, err := StateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(append([]string{dir}, parts...)...), nil
+}
+
 // UnmigratedExistingInstall reports whether this is a pre-rename install that
 // has not migrated yet: the new config dir is absent AND (the legacy config
 // dir OR the legacy state dir exists). This is the ONE existing-install test

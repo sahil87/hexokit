@@ -182,6 +182,11 @@ func setupSlog(level slog.Level) *slog.Logger {
 // migrateHomes is the homemigrate.Migrate seam for the dev-gate test.
 var migrateHomes = homemigrate.Migrate
 
+// moveRKTenants is the homemigrate.MoveRKTenants seam for the dev-gate test —
+// the one-shot ~/.rk move runs right after migrateHomes and therefore shares
+// its gates (dev build skip, port-busy deferral).
+var moveRKTenants = homemigrate.MoveRKTenants
+
 // daemonPortBusyFn probes whether something already listens on the resolved
 // daemon port — the migration-deferral guard's seam (tests stub it).
 var daemonPortBusyFn = daemon.PortBusy
@@ -213,6 +218,7 @@ func migrateHomesUnlessDev() {
 		return
 	}
 	migrateHomes(slog.Default())
+	moveRKTenants(slog.Default())
 	tmux.RefreshDefaultConfigPath()
 }
 

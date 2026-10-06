@@ -6,13 +6,22 @@ import (
 	"testing"
 )
 
-// isolateHome points ~/.rk persistence at a throwaway HOME so tests neither
-// read nor clobber the developer's real ~/.rk files.
+// isolateHome points state-home persistence at a throwaway HOME and
+// XDG_STATE_HOME so tests neither read nor clobber the developer's real
+// state files.
 func isolateHome(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, ".local", "state"))
 	return dir
+}
+
+// stateFile returns the expected path of a state-home leaf under the
+// isolated HOME.
+func stateFile(t *testing.T, home string, parts ...string) string {
+	t.Helper()
+	return filepath.Join(append([]string{home, ".local", "state", "hexokit"}, parts...)...)
 }
 
 func TestVAPIDKeys_generateOnceAndReuse(t *testing.T) {
@@ -35,12 +44,17 @@ func TestVAPIDKeys_generateOnceAndReuse(t *testing.T) {
 	}
 
 	// The private key file must be mode 0600.
-	info, err := os.Stat(filepath.Join(home, ".rk", "vapid.json"))
+	info, err := os.Stat(stateFile(t, home, "vapid.json"))
 	if err != nil {
 		t.Fatalf("stat vapid.json: %v", err)
 	}
 	if perm := info.Mode().Perm(); perm != 0600 {
 		t.Errorf("vapid.json mode = %o, want 0600", perm)
+	}
+
+	// Fresh install must never create ~/.rk.
+	if _, err := os.Stat(filepath.Join(home, ".rk")); !os.IsNotExist(err) {
+		t.Errorf("~/.rk should not exist on a fresh install, stat err = %v", err)
 	}
 }
 
@@ -124,10 +138,11 @@ func TestLoadSubscriptions_tolerantOfMissingAndCorrupt(t *testing.T) {
 	}
 
 	// Corrupt file → empty list, no error.
-	if err := os.MkdirAll(filepath.Join(home, ".rk"), 0755); err != nil {
+	p := stateFile(t, home, "push-subscriptions.json")
+	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(home, ".rk", "push-subscriptions.json"), []byte("not json{"), 0644); err != nil {
+	if err := os.WriteFile(p, []byte("not json{"), 0644); err != nil {
 		t.Fatalf("write corrupt: %v", err)
 	}
 	if got := LoadSubscriptions(); len(got) != 0 {

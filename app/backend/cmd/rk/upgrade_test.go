@@ -30,13 +30,16 @@ func withResolveExe(t *testing.T, path string, err error) {
 }
 
 // withNoCodeServerLeg pins the umbrella's code-server leg off (home pointed at
-// an empty temp dir ⇒ no ~/.rk/code-server-bin ⇒ silent skip) for tests that
+// an empty temp dir ⇒ no managed install root ⇒ silent skip) for tests that
 // exercise the other legs in isolation — without it, a test run on a machine
 // WITH a managed code-server install would let the leg hit the real GitHub
-// API. Mirrors withNoDesktopLeg.
+// API. HOME and XDG_STATE_HOME are redirected too: codeserver.BinDir resolves
+// from the environment (apphome), not the home seam. Mirrors withNoDesktopLeg.
 func withNoCodeServerLeg(t *testing.T) {
 	t.Helper()
 	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", "") // force the ~/.local/state fallback under the temp home
 	orig := codeServerUserHomeFn
 	codeServerUserHomeFn = func() (string, error) { return home, nil }
 	t.Cleanup(func() { codeServerUserHomeFn = orig })
@@ -878,8 +881,9 @@ func withManagedCodeServer(t *testing.T, srv *httptest.Server, installedVersion 
 }
 
 // TestUpdate_CodeServerLeg_NotManagedSilentSkip pins the ownership gate: no
-// ~/.rk/code-server-bin ⇒ the leg is a SILENT exit-0 skip (no output, no
-// installer construction, no session touch).
+// managed install (~/.local/state/hexokit/code-server/bin) ⇒ the leg is a
+// SILENT exit-0 skip (no output, no installer construction, no session
+// touch).
 func TestUpdate_CodeServerLeg_NotManagedSilentSkip(t *testing.T) {
 	withNoCodeServerLeg(t) // empty temp home — no managed dir
 
@@ -908,12 +912,17 @@ func TestUpdate_CodeServerLeg_NotManagedSilentSkip(t *testing.T) {
 // and still never joins the exit code.
 func TestUpdate_CodeServerLeg_StatErrorWarns(t *testing.T) {
 	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", "") // codeserver.BinDir resolves from the environment (apphome)
 	orig := codeServerUserHomeFn
 	codeServerUserHomeFn = func() (string, error) { return home, nil }
 	t.Cleanup(func() { codeServerUserHomeFn = orig })
-	// A regular file where the .rk directory would be makes Stat on
-	// .rk/code-server-bin fail with ENOTDIR — a real error, not ENOENT.
-	if err := os.WriteFile(filepath.Join(home, ".rk"), nil, 0o644); err != nil {
+	// A regular file where the hexokit state dir would be makes Stat on
+	// <state>/code-server/bin fail with ENOTDIR — a real error, not ENOENT.
+	if err := os.MkdirAll(filepath.Join(home, ".local", "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".local", "state", "hexokit"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -997,9 +1006,9 @@ func TestUpdate_CodeServerLeg_AlreadyCurrentSkipsRespawn(t *testing.T) {
 }
 
 // TestUpdate_Umbrella_LinuxDesktopLegUpdates pins R8 on linux: the desktop
-// leg runs against the platform default root (~/.rk/desktop under the pinned
-// home — the factory deliberately sets NO InstallDir), updates a stale
-// install, and prints the shared outcome line.
+// leg runs against the platform default root (<state>/hexokit/desktop under
+// the pinned home — the factory deliberately sets NO InstallDir), updates a
+// stale install, and prints the shared outcome line.
 func TestUpdate_Umbrella_LinuxDesktopLegUpdates(t *testing.T) {
 	resetSkipFlag(t)
 	withNoCodeServerLeg(t)
@@ -1012,7 +1021,7 @@ func TestUpdate_Umbrella_LinuxDesktopLegUpdates(t *testing.T) {
 	running := false
 	withLinuxDesktopStub(t, srv, home, &version, &running)
 
-	root := filepath.Join(home, ".rk", "desktop")
+	root := linuxDesktopDefaultRoot(home)
 	if err := os.MkdirAll(filepath.Join(root, "3.20.9"), 0o755); err != nil {
 		t.Fatal(err)
 	}

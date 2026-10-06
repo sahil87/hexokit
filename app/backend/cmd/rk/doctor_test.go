@@ -956,8 +956,11 @@ func TestLegacyOptionsScanSkipsFailingServer(t *testing.T) {
 // guidance, never brew.
 func TestCodeServerCheckAbsentBinaryIsWarnNotFail(t *testing.T) {
 	t.Setenv("RK_CODE_SERVER_PORT", "3939")
+	home := t.TempDir() // no managed install under this home
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", "") // codeserver paths resolve from the environment (apphome)
 	c := codeServerCheck(
-		t.TempDir(), // no managed install under this home
+		home,
 		func(string) (string, error) { return "", fmt.Errorf("not found") },
 		func(string) bool { return false },
 	)
@@ -985,6 +988,8 @@ func TestCodeServerCheckManagedVersion(t *testing.T) {
 	t.Setenv("RK_PORT", "3000")
 	t.Setenv("RK_CODE_SERVER_PORT", "")
 	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", "") // codeserver paths resolve from the environment (apphome)
 	bin := filepath.Join(codeserver.VersionDir(home, "4.132.0"), "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatal(err)
@@ -1004,6 +1009,12 @@ func TestCodeServerCheckManagedVersion(t *testing.T) {
 	if !c.OK || !strings.Contains(c.Note, "managed v4.132.0") {
 		t.Errorf("note = %q, want the managed version (rung 1 wins over PATH)", c.Note)
 	}
+	if !strings.Contains(c.Note, codeserver.BinDir(home)) {
+		t.Errorf("note = %q, want the managed install root %q (<state>/code-server/bin)", c.Note, codeserver.BinDir(home))
+	}
+	if strings.Contains(c.Note, ".rk/code-server-bin") {
+		t.Errorf("note = %q, must not name the retired ~/.rk/code-server-bin path", c.Note)
+	}
 	if !strings.Contains(c.Note, "reachable on 127.0.0.1:3002") {
 		t.Errorf("note = %q, want reachability alongside the version", c.Note)
 	}
@@ -1015,6 +1026,8 @@ func TestCodeServerCheckManagedVersion(t *testing.T) {
 func TestCodeServerCheckReachabilityNotes(t *testing.T) {
 	t.Setenv("RK_PORT", "3000")
 	t.Setenv("RK_CODE_SERVER_PORT", "")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", "") // codeserver paths resolve from the environment (apphome)
 	lookPath := func(string) (string, error) { return "/usr/bin/code-server", nil }
 
 	up := codeServerCheck(t.TempDir(), lookPath, func(string) bool { return true })
@@ -1226,6 +1239,177 @@ func TestTmuxConfigCheckNeverFlipsVerdict(t *testing.T) {
 	if !found {
 		t.Error("runDoctorChecks must append the tmux config row unconditionally")
 	}
+}
+
+// --- ~/.rk row ---------------------------------------------------------------
+
+// setupRKHomeRow redirects HOME and XDG_STATE_HOME into temp dirs (the
+// hermeticity rule: apphome resolves the state home from the environment, so
+// env redirection — not a home-string seam — is what keeps the test off the
+// real ~/.rk and ~/.local/state) and returns (home, stateDir).
+func setupRKHomeRow(t *testing.T) (string, string) {
+	t.Helper()
+	home := t.TempDir()
+	state := filepath.Join(t.TempDir(), "state", "hexokit")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", filepath.Dir(state))
+	return home, state
+}
+
+// TestRKHomeCheckStates pins the three R10 row shapes plus the move-pending
+// state: absent is a clean OK with no warning; MOVED.md lists the remaining
+// user-owned files (tenant-shaped names and MOVED.md itself excluded); a
+// held-back tenant warns, naming the ~/.rk source and the existing state-home
+// destination. Every state stays OK — the row must never flip the verdict.
+func TestRKHomeCheckStates(t *testing.T) {
+	t.Run("absent is a clean pass with no warning", func(t *testing.T) {
+		home, _ := setupRKHomeRow(t)
+		c := rkHomeCheck(home)
+		if !c.OK {
+			t.Errorf("absent row must stay OK, got %+v", c)
+		}
+		if !strings.Contains(c.Note, "absent") || strings.Contains(c.Note, "WARNING") {
+			t.Errorf("note = %q, want 'absent' with no warning", c.Note)
+		}
+	})
+
+	t.Run("MOVED.md lists the remaining user-owned files", func(t *testing.T) {
+		home, state := setupRKHomeRow(t)
+		rkDir := filepath.Join(home, ".rk")
+		for name, content := range map[string]string{
+			"MOVED.md":               "# moved\n",
+			"tmux.conf":              "# hand-tuned\n",
+			"settings.yaml":          "port: 3000\n",
+			"notes.txt":              "mine\n",
+			"settings.yaml.migrated": "breadcrumb\n",
+		} {
+			p := filepath.Join(rkDir, name)
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		c := rkHomeCheck(home)
+		if !c.OK {
+			t.Errorf("MOVED.md row must stay OK, got %+v", c)
+		}
+		for _, want := range []string{"tmux.conf", "settings.yaml", "notes.txt", "MOVED.md"} {
+			if !strings.Contains(c.Note, want) {
+				t.Errorf("note = %q, want it to name %q", c.Note, want)
+			}
+		}
+		if !strings.Contains(c.Note, state) {
+			t.Errorf("note = %q, want it to name the state home %q", c.Note, state)
+		}
+		if strings.Contains(c.Note, "WARNING") {
+			t.Errorf("note = %q, a MOVED.md listing carries no warning", c.Note)
+		}
+		// Migration breadcrumbs are not user-owned: settings.yaml.migrated must
+		// not appear in the remaining-files list. (A tenant-shaped leftover like
+		// update.log never reaches this branch — with MOVED.md written it is
+		// always held back as a warning, covered by the subtests above.)
+		if strings.Contains(c.Note, "settings.yaml.migrated") {
+			t.Errorf("note = %q, breadcrumbs must be excluded from the user-owned list", c.Note)
+		}
+	})
+
+	t.Run("MOVED.md with nothing else left is safe-to-delete", func(t *testing.T) {
+		home, _ := setupRKHomeRow(t)
+		rkDir := filepath.Join(home, ".rk")
+		if err := os.MkdirAll(rkDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(rkDir, "MOVED.md"), []byte("# moved\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		c := rkHomeCheck(home)
+		if !c.OK || !strings.Contains(c.Note, "safe to delete") {
+			t.Errorf("note = %q, want OK + the safe-to-delete state", c.Note)
+		}
+	})
+
+	t.Run("held-back tenant warns, naming both paths", func(t *testing.T) {
+		home, state := setupRKHomeRow(t)
+		rkDir := filepath.Join(home, ".rk")
+		if err := os.MkdirAll(rkDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(rkDir, "vapid.json"), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(rkDir, "MOVED.md"), []byte("# moved\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(state, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(state, "vapid.json"), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		c := rkHomeCheck(home)
+		if !c.OK {
+			t.Errorf("held-back row must warn but stay OK, got %+v", c)
+		}
+		if !strings.Contains(c.Note, "WARNING") {
+			t.Errorf("note = %q, want a warning for the held-back tenant", c.Note)
+		}
+		src := filepath.Join(rkDir, "vapid.json")
+		dst := filepath.Join(state, "vapid.json")
+		if !strings.Contains(c.Note, src) || !strings.Contains(c.Note, dst) {
+			t.Errorf("note = %q, want it to name both %q and %q", c.Note, src, dst)
+		}
+	})
+
+	t.Run("MOVED.md with a tenant left behind and no destination warns", func(t *testing.T) {
+		home, state := setupRKHomeRow(t)
+		rkDir := filepath.Join(home, ".rk")
+		if err := os.MkdirAll(rkDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(rkDir, "MOVED.md"), []byte("# moved\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// The move marked itself done but vapid.json never arrived at the
+		// state home — the ~/.rk copy is the only one, so the row must warn
+		// rather than report safe-to-delete.
+		if err := os.WriteFile(filepath.Join(rkDir, "vapid.json"), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(state, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		c := rkHomeCheck(home)
+		if !c.OK {
+			t.Errorf("the row must warn but stay OK, got %+v", c)
+		}
+		if !strings.Contains(c.Note, "WARNING") || strings.Contains(c.Note, "safe to delete") {
+			t.Errorf("note = %q, want a warning, never safe-to-delete", c.Note)
+		}
+		src := filepath.Join(rkDir, "vapid.json")
+		if !strings.Contains(c.Note, src) {
+			t.Errorf("note = %q, want it to name the held-back source %q", c.Note, src)
+		}
+	})
+
+	t.Run("present without MOVED.md reports the pending move", func(t *testing.T) {
+		home, _ := setupRKHomeRow(t)
+		rkDir := filepath.Join(home, ".rk")
+		if err := os.MkdirAll(rkDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(rkDir, "vapid.json"), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		c := rkHomeCheck(home)
+		if !c.OK || !strings.Contains(c.Note, "daemon") {
+			t.Errorf("note = %q, want OK + the move-pending state naming the daemon start", c.Note)
+		}
+		if strings.Contains(c.Note, "WARNING") {
+			t.Errorf("note = %q, a pending move carries no warning", c.Note)
+		}
+	})
 }
 
 // --- code bridge row ----------------------------------------------------------

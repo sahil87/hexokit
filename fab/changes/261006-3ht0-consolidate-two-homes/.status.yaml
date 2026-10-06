@@ -5,32 +5,53 @@ created_by: sahil-noon
 change_type: refactor
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
-    review-pr: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 18
+    acceptance_count: 23
+    acceptance_completed: 23
 confidence:
     certain: 1
-    confident: 13
-    tentative: 2
+    confident: 11
+    tentative: 0
     unresolved: 0
-    score: 0.0
+    score: 3.8
     fuzzy: true
     dimensions:
-        signal: 64.4
-        reversibility: 55.9
-        competence: 68.8
-        disambiguation: 65.3
+        signal: 86.3
+        reversibility: 61.7
+        competence: 72.5
+        disambiguation: 83.3
 stage_metrics:
-    intake: {started_at: "2026-10-06T04:46:26Z", driver: fab-new, iterations: 1}
-prs: []
+    intake: {started_at: "2026-10-06T04:46:26Z", driver: fab-new, iterations: 1, completed_at: "2026-10-06T20:26:55Z"}
+    apply: {started_at: "2026-10-06T20:26:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-06T21:06:04Z"}
+    review: {started_at: "2026-10-06T21:06:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-06T21:11:39Z"}
+    hydrate: {started_at: "2026-10-06T21:11:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-06T21:19:38Z"}
+    ship: {started_at: "2026-10-06T21:19:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-06T21:21:02Z"}
+    review-pr: {started_at: "2026-10-06T21:21:02Z", driver: git-pr, iterations: 1, completed_at: "2026-10-06T21:40:06Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1075
+true_impact:
+    added: 3042
+    deleted: 516
+    net: 2526
+    excluding:
+        added: 2270
+        deleted: 364
+        net: 1906
+    tests:
+        added: 1257
+        deleted: 162
+        net: 1095
+    computed_at: "2026-10-06T21:21:02Z"
+    computed_at_stage: ship
+summary: moved ~/.rk tenants (VAPID keypair, push subscriptions, code-server bin/profile, job logs, Linux desktop install) into the hexokit state home behind homemigrate.MoveRKTenants, added internal/versionprune current+previous pruning, rk doctor ~/.rk row, and PATCH-amended Constitution II with the state-vs-config placement rule
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-10-06T04:49:09Z
+last_updated: 2026-10-06T21:40:06Z

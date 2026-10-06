@@ -86,7 +86,7 @@ func installServer(t *testing.T, version string, payload []byte, digest string) 
 }
 
 func TestInstallHappyPath(t *testing.T) {
-	home := t.TempDir()
+	home := isolateHome(t)
 	payload := buildTarball(t, "4.132.0")
 	srv := installServer(t, "4.132.0", payload, "")
 
@@ -133,7 +133,7 @@ func TestInstallHappyPath(t *testing.T) {
 }
 
 func TestInstallAlreadyCurrentSkipsDownload(t *testing.T) {
-	home := t.TempDir()
+	home := isolateHome(t)
 	payload := buildTarball(t, "4.132.0")
 	srv := installServer(t, "4.132.0", payload, "")
 
@@ -163,7 +163,7 @@ func TestInstallAlreadyCurrentSkipsDownload(t *testing.T) {
 }
 
 func TestInstallDigestMismatchFailsClosed(t *testing.T) {
-	home := t.TempDir()
+	home := isolateHome(t)
 	payload := buildTarball(t, "4.133.0")
 	// Advertise a digest that does not match the payload.
 	srv := installServer(t, "4.133.0", payload, strings.Repeat("0", 64))
@@ -182,7 +182,7 @@ func TestInstallDigestMismatchFailsClosed(t *testing.T) {
 }
 
 func TestInstallMissingDigestFailsClosed(t *testing.T) {
-	home := t.TempDir()
+	home := isolateHome(t)
 	payload := buildTarball(t, "4.133.0")
 	srv := installServer(t, "4.133.0", payload, "NONE")
 
@@ -196,9 +196,13 @@ func TestInstallMissingDigestFailsClosed(t *testing.T) {
 }
 
 func TestInstallUpgradeFlipsSymlink(t *testing.T) {
-	home := t.TempDir()
+	home := isolateHome(t)
 	srv := installServer(t, "4.132.0", buildTarball(t, "4.132.0"), "")
 	if _, err := testInstaller(srv, "linux", "amd64").Install(context.Background(), home); err != nil {
+		t.Fatal(err)
+	}
+	// A superseded version left over from before the previous install.
+	if err := os.MkdirAll(filepath.Join(VersionDir(home, "4.131.0"), "bin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -214,9 +218,13 @@ func TestInstallUpgradeFlipsSymlink(t *testing.T) {
 	if got != "4.133.0" {
 		t.Errorf("InstalledVersion = %q, want 4.133.0 after the flip", got)
 	}
-	// Both version dirs coexist (no GC in this change); the flip is what moved.
+	// The post-flip prune keeps exactly current + the pre-flip target (the
+	// rollback version): 4.132.0 stays, 4.131.0 is gone.
 	if _, err := os.Stat(filepath.Join(VersionDir(home, "4.132.0"), "bin", "code-server")); err != nil {
-		t.Error("old version dir removed — GC is out of scope")
+		t.Errorf("previous version dir pruned — it is the rollback the flip keeps: %v", err)
+	}
+	if _, err := os.Stat(VersionDir(home, "4.131.0")); !os.IsNotExist(err) {
+		t.Errorf("superseded version dir survived the flip (stat err = %v)", err)
 	}
 }
 

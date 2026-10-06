@@ -17,15 +17,18 @@ import (
 
 // withCodeServerSeams substitutes the session-exists, spawn, home-dir,
 // job-spawn, and self-path seams for one test, returning recorders for the
-// spawn argv and job argv plus the temp home the profile paths resolve under.
-// Stubbing home here — for every test, not only the profile-focused ones —
-// guarantees no test can ever write to the real ~/.rk. Restores via
-// t.Cleanup.
+// spawn argv and job argv plus the temp home the managed-install paths resolve
+// under. HOME and XDG_STATE_HOME are also redirected so the apphome-resolved
+// profile dir lands in the temp home; stubbing every path source — for every
+// test, not only the profile-focused ones — guarantees no test can ever write
+// to the real ~/.rk or state home. Restores via t.Cleanup.
 func withCodeServerSeams(t *testing.T, sessionExists bool) (spawned *[][]string, jobs *[][]string, home string) {
 	t.Helper()
 	spawned = &[][]string{}
 	jobs = &[][]string{}
 	home = t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", "") // force the ~/.local/state fallback under the temp home
 
 	origExists, origSpawn, origHome := codeServerSessionExists, codeServerSpawn, codeServerUserHomeDir
 	origJob, origSelf, origInstallSelf := codeServerRunJob, codeServerSelfPath, codeServerInstallSelfPath
@@ -61,9 +64,16 @@ func freeLoopbackPort(t *testing.T) int {
 	return port
 }
 
+// profileDirFor is the profile dir a test home resolves to:
+// <home>/.local/state/hexokit/code-server/profile (the apphome state home with
+// the XDG fallback and neither dual-read dir present).
+func profileDirFor(home string) string {
+	return filepath.Join(home, ".local", "state", "hexokit", "code-server", "profile")
+}
+
 // seededSettingsPath is the profile settings file under a test home.
 func seededSettingsPath(home string) string {
-	return filepath.Join(home, ".rk", "code-server-profile", "User", "settings.json")
+	return filepath.Join(profileDirFor(home), "User", "settings.json")
 }
 
 func TestEnsureCodeServerSpawnsSiblingSession(t *testing.T) {
@@ -83,7 +93,7 @@ func TestEnsureCodeServerSpawnsSiblingSession(t *testing.T) {
 		"new-session -d -s rk-code-server -n code-server env -u VSCODE_IPC_HOOK_CLI RK_BIN=/usr/local/bin/rk %s --bind-addr 127.0.0.1:%d --auth none --disable-telemetry --disable-update-check --disable-workspace-trust --disable-getting-started-override --app-name run-kit --user-data-dir %s --extensions-dir %s",
 		filepath.Join(stubDir, "code-server"), // the ladder's PATH rung resolves absolute
 		port,
-		filepath.Join(home, ".rk", "code-server-profile"),
+		profileDirFor(home),
 		filepath.Join(home, ".local", "share", "code-server", "extensions"),
 	)
 	if got != want {
@@ -280,10 +290,14 @@ func TestEnsureCodeServerSeedFailureKeepsProfileFlags(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", "") // deterministic extensions-dir fallback
 	spawned, _, home := withCodeServerSeams(t, false)
 
-	// A FILE at ~/.rk makes MkdirAll under it fail — the seed errors, but the
-	// spawn must still carry both profile flags (code-server creates its own
-	// user-data-dir; the only degradation is an unseeded profile).
-	if err := os.WriteFile(filepath.Join(home, ".rk"), []byte("not a dir"), 0o644); err != nil {
+	// A FILE at <home>/.local/state makes MkdirAll under it fail — the seed
+	// errors, but the spawn must still carry both profile flags (code-server
+	// creates its own user-data-dir; the only degradation is an unseeded
+	// profile).
+	if err := os.MkdirAll(filepath.Join(home, ".local"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".local", "state"), []byte("not a dir"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -293,7 +307,7 @@ func TestEnsureCodeServerSeedFailureKeepsProfileFlags(t *testing.T) {
 		t.Fatalf("spawn calls = %d, want 1", len(*spawned))
 	}
 	got := strings.Join((*spawned)[0], " ")
-	if !strings.Contains(got, "--user-data-dir "+filepath.Join(home, ".rk", "code-server-profile")) {
+	if !strings.Contains(got, "--user-data-dir "+profileDirFor(home)) {
 		t.Errorf("spawn argv = %q, want --user-data-dir despite the failed seed", got)
 	}
 	if !strings.Contains(got, "--extensions-dir "+filepath.Join(home, ".local", "share", "code-server", "extensions")) {
@@ -392,7 +406,7 @@ func TestEnsureCodeServerSpawnFailureNeverPropagates(t *testing.T) {
 // --- R6: the two-rung resolution ladder ---
 
 // installManagedBinary materializes a managed install under the test home:
-// <home>/.rk/code-server-bin/<version>/bin/code-server (executable) with the
+// <state>/code-server/bin/<version>/bin/code-server (executable) with the
 // current symlink flipped to it. Returns the SPAWNED path — the ladder hands
 // back the current-symlink path (a flipped symlink + respawn picks up the new
 // version), not the version dir.
@@ -460,59 +474,46 @@ func TestEnsureCodeServerSpawnsManagedAbsolutePath(t *testing.T) {
 	}
 }
 
-// --- R7: one-shot profile migration ---
+// --- profile dir resolution through the apphome state home ---
 
-func TestMigrateCodeServerProfileRenames(t *testing.T) {
-	_, _, home := withCodeServerSeams(t, false)
-	oldDir := codeServerLegacyProfileDir(home)
-	marker := filepath.Join(oldDir, "User", "settings.json")
-	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(marker, []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+func TestEnsureCodeServerProfileDirHonorsXDGStateHome(t *testing.T) {
+	testutil.StubOnPath(t, "code-server", "#!/bin/sh\nexit 0\n")
+	t.Setenv("RK_CODE_SERVER_PORT", fmt.Sprint(freeLoopbackPort(t)))
+	spawned, _, _ := withCodeServerSeams(t, false)
+	xdg := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", xdg)
 
-	if err := migrateCodeServerProfile(home); err != nil {
-		t.Fatal(err)
-	}
+	ensureCodeServer()
 
-	if _, err := os.Stat(oldDir); !os.IsNotExist(err) {
-		t.Error("legacy dir still present after migration")
+	if len(*spawned) != 1 {
+		t.Fatalf("spawn calls = %d, want 1", len(*spawned))
 	}
-	if _, err := os.Stat(filepath.Join(codeServerProfileDir(home), "User", "settings.json")); err != nil {
-		t.Errorf("settings.json did not survive the rename: %v", err)
+	profileDir := filepath.Join(xdg, "hexokit", "code-server", "profile")
+	got := strings.Join((*spawned)[0], " ")
+	if !strings.Contains(got, "--user-data-dir "+profileDir) {
+		t.Errorf("spawn argv = %q, want --user-data-dir %q", got, profileDir)
+	}
+	if _, err := os.Stat(filepath.Join(profileDir, "User", "settings.json")); err != nil {
+		t.Errorf("settings.json not seeded under the XDG state home: %v", err)
 	}
 }
 
-func TestMigrateCodeServerProfileBothExistLeavesBoth(t *testing.T) {
-	_, _, home := withCodeServerSeams(t, false)
-	for _, dir := range []string{codeServerLegacyProfileDir(home), codeServerProfileDir(home)} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
+func TestEnsureCodeServerProfileDirFallsBackToLocalState(t *testing.T) {
+	testutil.StubOnPath(t, "code-server", "#!/bin/sh\nexit 0\n")
+	t.Setenv("RK_CODE_SERVER_PORT", fmt.Sprint(freeLoopbackPort(t)))
+	spawned, _, home := withCodeServerSeams(t, false) // XDG_STATE_HOME cleared by the seam helper
 
-	if err := migrateCodeServerProfile(home); err != nil {
-		t.Fatal(err)
-	}
+	ensureCodeServer()
 
-	// New wins; the legacy dir is left untouched (never destroyed).
-	for _, dir := range []string{codeServerLegacyProfileDir(home), codeServerProfileDir(home)} {
-		if _, err := os.Stat(dir); err != nil {
-			t.Errorf("%s missing after the both-exist no-op: %v", dir, err)
-		}
+	if len(*spawned) != 1 {
+		t.Fatalf("spawn calls = %d, want 1", len(*spawned))
 	}
-}
-
-func TestMigrateCodeServerProfileFreshHostNoOp(t *testing.T) {
-	_, _, home := withCodeServerSeams(t, false)
-
-	if err := migrateCodeServerProfile(home); err != nil {
-		t.Fatal(err)
+	got := strings.Join((*spawned)[0], " ")
+	if !strings.Contains(got, "--user-data-dir "+profileDirFor(home)) {
+		t.Errorf("spawn argv = %q, want --user-data-dir %q", got, profileDirFor(home))
 	}
-	if _, err := os.Stat(codeServerProfileDir(home)); !os.IsNotExist(err) {
-		t.Error("profile dir created by migration — the seed owns creation on a fresh host")
+	if _, err := os.Stat(seededSettingsPath(home)); err != nil {
+		t.Errorf("settings.json not seeded under the ~/.local/state fallback: %v", err)
 	}
 }
 

@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"rk/internal/versionprune"
 )
 
 // Linux layout (the internal/codeserver layout idiom, Constitution II — the
@@ -102,8 +104,9 @@ func (ins *Installer) appRunningLinux(ctx context.Context, root string) bool {
 //     target; when live, SIGTERM the main process and wait (bounded) for
 //     exit — aborting without swapping when the bound expires.
 //  6. Rename squashfs-root → <root>/<version>, flip current atomically, then
-//     remove every other version dir (a failed flip leaves the existing
-//     install untouched; the staging dir is removed on every path).
+//     prune superseded version dirs (keep current + the pre-flip target; a
+//     failed flip leaves the existing install untouched; the staging dir is
+//     removed on every path).
 //  7. Write the user-scope desktop integration (integrate.go) — failures
 //     after a successful flip are warnings, not install errors.
 //  8. Relaunch <root>/current/AppRun detached when the app was running —
@@ -179,12 +182,15 @@ func (ins *Installer) installLinux(ctx context.Context, rel Release) (InstallRes
 	// inside staging (same filesystem, so the rename is atomic) so a failed
 	// activation can put it back, instead of destroying it first. Any other
 	// pre-existing dest is a leftover from a run that never flipped current.
-	previous := ""
-	if installed, _ := installedVersionLinux(root); installed == rel.Version {
+	// previousVersion is the pre-flip current target — the rollback version the
+	// post-flip prune keeps.
+	previousVersion, _ := installedVersionLinux(root)
+	setAside := ""
+	if previousVersion == rel.Version {
 		aside := filepath.Join(staging, "previous")
 		switch err := os.Rename(dest, aside); {
 		case err == nil:
-			previous = aside
+			setAside = aside
 		case errors.Is(err, fs.ErrNotExist):
 			// current dangles at a missing dir — nothing live to preserve.
 		default:
@@ -194,7 +200,7 @@ func (ins *Installer) installLinux(ctx context.Context, rel Release) (InstallRes
 		return InstallResult{}, fmt.Errorf("clearing leftover version dir %s: %w", dest, err)
 	}
 	if err := os.Rename(tree, dest); err != nil {
-		restoreLinuxSwap(ins.Progress, dest, previous)
+		restoreLinuxSwap(ins.Progress, dest, setAside)
 		return InstallResult{}, fmt.Errorf("promoting extracted tree to %s: %w", dest, err)
 	}
 
@@ -204,17 +210,17 @@ func (ins *Installer) installLinux(ctx context.Context, rel Release) (InstallRes
 	// removed on every path.
 	tmp := filepath.Join(staging, currentLinkName)
 	if err := os.Symlink(rel.Version, tmp); err != nil {
-		restoreLinuxSwap(ins.Progress, dest, previous)
+		restoreLinuxSwap(ins.Progress, dest, setAside)
 		return InstallResult{}, fmt.Errorf("creating temp symlink: %w", err)
 	}
 	if err := os.Rename(tmp, linuxCurrentPath(root)); err != nil {
-		restoreLinuxSwap(ins.Progress, dest, previous)
+		restoreLinuxSwap(ins.Progress, dest, setAside)
 		return InstallResult{}, fmt.Errorf("flipping the current symlink: %w", err)
 	}
 
 	// Post-flip bookkeeping — the app is installed and launchable from here
 	// on, so failures are chatter warnings, not install errors.
-	pruneLinuxVersions(ins.Progress, root, rel.Version)
+	versionprune.Prune(root, previousVersion, versionprune.WriterLogger(ins.Progress))
 	ins.integrateLinux(ctx, root, iconSizeDir)
 
 	restarted := false
@@ -246,26 +252,6 @@ func restoreLinuxSwap(progress io.Writer, dest, previous string) {
 	}
 	if err := os.Rename(previous, dest); err != nil {
 		fmt.Fprintf(progress, "warning: restoring the previous %s: %v\n", dest, err)
-	}
-}
-
-// pruneLinuxVersions removes every version dir under root other than keep, so
-// the root holds exactly current + one version. Runs only after a successful
-// flip — a leftover version dir proves its run never flipped. Staging dirs
-// (self-reclaiming by name) and the current symlink are untouched.
-func pruneLinuxVersions(progress io.Writer, root, keep string) {
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		fmt.Fprintf(progress, "warning: pruning old versions under %s: %v\n", root, err)
-		return
-	}
-	for _, e := range entries {
-		if !e.IsDir() || e.Name() == keep || strings.HasPrefix(e.Name(), linuxStagingPrefix) {
-			continue
-		}
-		if err := os.RemoveAll(filepath.Join(root, e.Name())); err != nil {
-			fmt.Fprintf(progress, "warning: removing old version dir %s: %v\n", e.Name(), err)
-		}
 	}
 }
 

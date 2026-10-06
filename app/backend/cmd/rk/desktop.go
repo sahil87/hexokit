@@ -46,11 +46,11 @@ attribute. The installer verifies the download itself before installing —
 SHA256 against the release digest, plus codesign --verify --deep --strict on
 the app bundle.
 
-On Linux the AppImage is extracted once into ~/.rk/desktop/<version>/ with a
-'current' symlink flipped atomically, the release digest is the hard
-verification gate (a release without one is refused), and a launcher entry,
-icon, and ~/.local/bin/hexokit-desktop symlink are written for desktop
-integration.
+On Linux the AppImage is extracted once into
+~/.local/state/hexokit/desktop/<version>/ with a 'current' symlink flipped
+atomically, the release digest is the hard verification gate (a release
+without one is refused), and a launcher entry, icon, and
+~/.local/bin/hexokit-desktop symlink are written for desktop integration.
 
 A running app does not block install/update: the new version is downloaded,
 verified, and staged while the app runs, then the app is asked to quit
@@ -82,8 +82,9 @@ The download is verified before anything is touched: SHA256 against the
 release digest. On macOS the app bundle additionally passes
 codesign --verify --deep --strict; on Linux the digest is the only gate and a
 release without one is refused. On Linux the AppImage is extracted once into
-~/.rk/desktop/<version>/ with an atomically-flipped 'current' symlink, plus a
-launcher entry, icon, and ~/.local/bin/hexokit-desktop symlink. The new
+~/.local/state/hexokit/desktop/<version>/ with an atomically-flipped 'current'
+symlink, plus a launcher entry, icon, and ~/.local/bin/hexokit-desktop
+symlink. The new
 version is staged next to the install target and swapped in atomically, so a
 failed download or copy never destroys an existing install.
 
@@ -96,8 +97,8 @@ When the resolved version is already installed, the command is a no-op;
 change how a running app is handled (quit, swap, relaunch).
 
 --path installs somewhere other than the default root (/Applications on macOS,
-~/.rk/desktop on Linux) — e.g. ~/Applications on a managed Mac where
-/Applications is not writable.`,
+~/.local/state/hexokit/desktop on Linux) — e.g. ~/Applications on a managed
+Mac where /Applications is not writable.`,
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE:         runDesktopInstall,
@@ -125,7 +126,8 @@ app untouched.
 — it does not change how a running app is handled (quit, swap, relaunch).
 
 --path targets an install outside the default root (/Applications on macOS,
-~/.rk/desktop on Linux) — e.g. ~/Applications on a managed Mac.`,
+~/.local/state/hexokit/desktop on Linux) — e.g. ~/Applications on a managed
+Mac.`,
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE:         runDesktopUpdate,
@@ -140,7 +142,7 @@ or modified. The report is the requested result (data), so --quiet changes
 nothing.
 
 --path points at an install outside the default root (/Applications on macOS,
-~/.rk/desktop on Linux).`,
+~/.local/state/hexokit/desktop on Linux).`,
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE:         runDesktopStatus,
@@ -157,7 +159,8 @@ version under the install root, the 'current' symlink, the launcher entry, the
 icon, and the ~/.local/bin/hexokit-desktop symlink. App settings and host
 registrations (~/.config/HexoKit) are user data and are NOT removed.
 
---path targets an install outside the default root (~/.rk/desktop).`,
+--path targets an install outside the default root
+(~/.local/state/hexokit/desktop).`,
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE:         runDesktopUninstall,
@@ -166,11 +169,11 @@ registrations (~/.config/HexoKit) are user data and are NOT removed.
 func init() {
 	desktopInstallCmd.Flags().String("version", "", "install a specific release tag instead of the latest (e.g. v3.13.0)")
 	desktopInstallCmd.Flags().Bool("force", false, "reinstall even when the requested version is already installed")
-	desktopInstallCmd.Flags().String("path", "", "install directory (default: /Applications on macOS, ~/.rk/desktop on Linux)")
+	desktopInstallCmd.Flags().String("path", "", "install directory (default: /Applications on macOS, ~/.local/state/hexokit/desktop on Linux)")
 	desktopUpdateCmd.Flags().Bool("force", false, "reinstall even when already current")
-	desktopUpdateCmd.Flags().String("path", "", "install directory (default: /Applications on macOS, ~/.rk/desktop on Linux)")
-	desktopStatusCmd.Flags().String("path", "", "install directory (default: /Applications on macOS, ~/.rk/desktop on Linux)")
-	desktopUninstallCmd.Flags().String("path", "", "install directory (default: /Applications on macOS, ~/.rk/desktop on Linux)")
+	desktopUpdateCmd.Flags().String("path", "", "install directory (default: /Applications on macOS, ~/.local/state/hexokit/desktop on Linux)")
+	desktopStatusCmd.Flags().String("path", "", "install directory (default: /Applications on macOS, ~/.local/state/hexokit/desktop on Linux)")
+	desktopUninstallCmd.Flags().String("path", "", "install directory (default: /Applications on macOS, ~/.local/state/hexokit/desktop on Linux)")
 
 	desktopCmd.AddCommand(desktopInstallCmd)
 	desktopCmd.AddCommand(desktopUpdateCmd)
@@ -203,7 +206,7 @@ func desktopInstaller(cmd *cobra.Command, sink outputSink) (*desktop.Installer, 
 	// Validate before constructing: the usage error must not require the
 	// installer factory to run.
 	if cmd.Flags().Changed("path") && p == "" {
-		return nil, usageError(fmt.Errorf("--path requires a non-empty directory (omit the flag for the platform default install root: /Applications on macOS, ~/.rk/desktop on Linux)"))
+		return nil, usageError(fmt.Errorf("--path requires a non-empty directory (omit the flag for the platform default install root: /Applications on macOS, ~/.local/state/hexokit/desktop on Linux)"))
 	}
 	ins := newDesktopInstallerFn()
 	ins.GOOS = desktopGOOS

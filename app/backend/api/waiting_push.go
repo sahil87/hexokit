@@ -70,8 +70,9 @@ type waitingPushTracker struct {
 	notify   func(ctx context.Context, title, body, url string) error // push seam for tests
 	// sends counts in-flight detached notify goroutines. Production code never
 	// waits on it; tests drain it before returning so the fire-and-forget
-	// writer cannot outlive a t.TempDir HOME (the push store lives under ~/.rk,
-	// and a write racing the TempDir cleanup fails it "directory not empty").
+	// writer cannot outlive a t.TempDir HOME (the push store lives under
+	// ~/.local/state/hexokit, and a write racing the TempDir cleanup fails it
+	// "directory not empty").
 	sends sync.WaitGroup
 }
 

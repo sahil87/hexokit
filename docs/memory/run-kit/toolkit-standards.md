@@ -1220,10 +1220,11 @@ Requirement: A new command surface is checked against help-dump and Principle
 **The code-server third leg is best-effort by design**
 (260813-oid2-own-code-server-install); mechanism in
 [cli](/run-kit/architecture/cli.md) § CLI Subcommands, `update` row. It
-runs **only when `~/.rk/code-server-bin` exists** — the ownership gate, the
+runs **only when the managed install root exists** — `apphome.CodeServerBinDir()`,
+`<state>/code-server/bin` where `<state>` is `${XDG_STATE_HOME:-~/.local/state}/hexokit/` — the ownership gate, the
 mirror of the standard's "self-update only when brew-installed" clause; a
 user-managed PATH install is never touched, and no managed dir is a silent
-skip. It shares `runCodeServerUpdateFlow` with `rk code-server update`
+skip. (3ht0) It shares `runCodeServerUpdateFlow` with `rk code-server update`
 in-process (no subprocess self-call): install the latest digest-verified
 release, then kill and respawn the `rk-code-server` session on a version
 change so the flipped `current` symlink takes effect (the daemon restart

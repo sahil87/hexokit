@@ -6,9 +6,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"rk/internal/shellq"
 )
 
 // jobCall records one seam invocation: the tmux argv (minus the runner's own
@@ -38,6 +41,8 @@ type jobFixture struct {
 	outputFn func(args []string) ([]byte, error)
 	// output is what the output seam returns (the spawned window id).
 	output string
+	// stateHome is the temp XDG_STATE_HOME the test resolves against.
+	stateHome string
 }
 
 func withJobSeams(t *testing.T, f *jobFixture) {
@@ -48,16 +53,16 @@ func withJobSeams(t *testing.T, f *jobFixture) {
 	}
 
 	origRunning, origSession, origState := jobDaemonRunning, jobSessionExists, jobWindowState
-	origRun, origOutput, origHome := jobRunTmux, jobRunTmuxOutput, jobUserHomeDir
+	origRun, origOutput := jobRunTmux, jobRunTmuxOutput
 	t.Cleanup(func() {
 		jobDaemonRunning, jobSessionExists, jobWindowState = origRunning, origSession, origState
-		jobRunTmux, jobRunTmuxOutput, jobUserHomeDir = origRun, origOutput, origHome
+		jobRunTmux, jobRunTmuxOutput = origRun, origOutput
 	})
 
-	// Home is stubbed for every test so none can ever write to the real ~/.rk
-	// (the withCodeServerSeams guarantee).
-	home := t.TempDir()
-	jobUserHomeDir = func() (string, error) { return home, nil }
+	// The state home is temp-rooted for every test so the pipe-pane tee can
+	// never write to the real state home (the withCodeServerSeams guarantee).
+	f.stateHome = t.TempDir()
+	t.Setenv("XDG_STATE_HOME", f.stateHome)
 	jobDaemonRunning = func(context.Context) bool { return f.daemonRunning }
 	jobSessionExists = func(context.Context, string) bool { return f.sessionExists }
 	jobWindowState = func(_ context.Context, target string) (string, bool, bool) {
@@ -137,9 +142,13 @@ func TestRunJobFreshSpawnEnsuresSessionAndSpawns(t *testing.T) {
 	if got := strings.Join(runs[0], " "); got != "set-option -w -t =rk-jobs:=update remain-on-exit on" {
 		t.Errorf("remain-on-exit argv = %q", got)
 	}
-	pipe := strings.Join(runs[1], " ")
-	if !strings.HasPrefix(pipe, "pipe-pane -o -t =rk-jobs:=update cat >> '") || !strings.HasSuffix(pipe, ".rk/update.log'") {
-		t.Errorf("pipe-pane argv = %q, want a cat >> '…/.rk/update.log' tee on the exact-match target", pipe)
+	wantLog := filepath.Join(f.stateHome, "hexokit", "logs", "update.log")
+	wantPipe := []string{"pipe-pane", "-o", "-t", "=rk-jobs:=update", "cat >> " + shellq.Quote(wantLog)}
+	if got := runs[1]; !slices.Equal(got, wantPipe) {
+		t.Errorf("pipe-pane argv = %v, want %v — the tee targets <state>/logs/<window>.log", got, wantPipe)
+	}
+	if info, err := os.Stat(filepath.Dir(wantLog)); err != nil || !info.IsDir() {
+		t.Errorf("logs dir not created: stat %s = (%v, %v)", filepath.Dir(wantLog), info, err)
 	}
 
 	outputs := callsOf(*f.calls, "output")
@@ -158,9 +167,10 @@ func TestRunJobFreshSpawnEnsuresSessionAndSpawns(t *testing.T) {
 func TestRunJobQuotesLogPathForPipePane(t *testing.T) {
 	f := &jobFixture{daemonRunning: true, sessionExists: true}
 	withJobSeams(t, f)
-	// A home with a space (e.g. /Users/Jane Doe) must not break the shell-
-	// interpreted pipe-pane redirection — the path is single-quoted.
-	jobUserHomeDir = func() (string, error) { return "/Users/Jane Doe", nil }
+	// A state home with a space (e.g. under /Users/Jane Doe) must not break
+	// the shell-interpreted pipe-pane redirection — the path is single-quoted.
+	spacey := filepath.Join(t.TempDir(), "Jane Doe", "state")
+	t.Setenv("XDG_STATE_HOME", spacey)
 
 	if _, _, err := RunJob(context.Background(), "update", []string{"shll", "update"}); err != nil {
 		t.Fatalf("RunJob: %v", err)
@@ -175,7 +185,7 @@ func TestRunJobQuotesLogPathForPipePane(t *testing.T) {
 	if pipe == nil {
 		t.Fatal("no pipe-pane call recorded")
 	}
-	want := "cat >> '/Users/Jane Doe/.rk/update.log'"
+	want := "cat >> '" + filepath.Join(spacey, "hexokit", "logs", "update.log") + "'"
 	if got := pipe[len(pipe)-1]; got != want {
 		t.Errorf("pipe-pane command = %q, want %q", got, want)
 	}
@@ -350,7 +360,7 @@ func TestRunJobRejectsEmptyArgv(t *testing.T) {
 // jobsIntegrationSocket spins up an isolated tmux server carrying a stand-in
 // rk-daemon session (so the real jobDaemonRunning gate passes) and points the
 // package's serverSocket at it. Every tmux-facing seam stays REAL; only the
-// home dir is stubbed so pipe-pane can never touch the real ~/.rk.
+// state home is temp-rooted so pipe-pane can never touch the real state home.
 func jobsIntegrationSocket(t *testing.T) string {
 	t.Helper()
 	if !hasTmux() {
@@ -366,10 +376,7 @@ func jobsIntegrationSocket(t *testing.T) string {
 	if err := startOn(socket, SessionName); err != nil {
 		t.Fatalf("starting stand-in daemon session: %v", err)
 	}
-	origHome := jobUserHomeDir
-	home := t.TempDir()
-	jobUserHomeDir = func() (string, error) { return home, nil }
-	t.Cleanup(func() { jobUserHomeDir = origHome })
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	return socket
 }
 

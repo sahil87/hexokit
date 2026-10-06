@@ -26,7 +26,8 @@ const devVersion = "dev"
 //
 // Accepted caveat (user-decided): if daemon.Start() fails after the stop, the
 // web UI is down and SSH is needed — a narrow, accepted failure window; the
-// job window's remained pane and ~/.rk/restart.log tee make it diagnosable.
+// job window's remained pane and the ~/.local/state/hexokit/logs/restart.log
+// tee make it diagnosable.
 //
 // POST /api/restart → 202/200 {"status":...,"watch":{...}} | 409 {"error":...} | 502 {"error":...}
 func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
