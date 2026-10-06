@@ -112,6 +112,45 @@ test("logs and ignores a copy failure — fresh-install degradation", () => {
   }
 });
 
+test("a failure after a partial copy rolls back, and the next start retries", () => {
+  const { newDir, legacyDir } = fixture();
+  mkdirSync(legacyDir, { recursive: true });
+  writeFileSync(join(legacyDir, "hosts.json"), '{"version":1}');
+  const windows = join(legacyDir, "windows.json");
+  writeFileSync(windows, '{"version":1,"windows":[]}');
+  chmodSync(windows, 0o000); // hosts.json copies, then windows.json throws
+
+  try {
+    const { result, warnings } = captureWarnings(() =>
+      carryForwardLegacyUserData(newDir, legacyDir),
+    );
+    assert.deepEqual(result, { copied: [], failed: true });
+    assert.equal(warnings.length, 1);
+    assert.ok(!existsSync(join(newDir, "hosts.json")), "the partial copy must be rolled back");
+    assert.deepEqual(retireLegacyUserData(newDir, legacyDir), { removed: false });
+  } finally {
+    chmodSync(windows, 0o644);
+  }
+
+  const retried = carryForwardLegacyUserData(newDir, legacyDir);
+  assert.equal(retried.failed, false);
+  assert.deepEqual(retried.copied.sort(), ["hosts.json", "windows.json"]);
+});
+
+test("skips a store the new dir already has instead of failing", () => {
+  const { newDir, legacyDir } = fixture();
+  mkdirSync(newDir, { recursive: true });
+  mkdirSync(legacyDir, { recursive: true });
+  writeFileSync(join(newDir, "windows.json"), '{"version":1,"windows":["new"]}');
+  writeFileSync(join(legacyDir, "hosts.json"), '{"version":1}');
+  writeFileSync(join(legacyDir, "windows.json"), '{"version":1,"windows":[]}');
+
+  const { copied, failed } = carryForwardLegacyUserData(newDir, legacyDir);
+  assert.equal(failed, false);
+  assert.deepEqual(copied, ["hosts.json"]);
+  assert.equal(readFileSync(join(newDir, "windows.json"), "utf8"), '{"version":1,"windows":["new"]}');
+});
+
 test("retire removes the legacy dir recursively once the new dir has hosts.json", () => {
   const { newDir, legacyDir } = fixture();
   mkdirSync(newDir, { recursive: true });

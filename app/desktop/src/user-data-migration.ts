@@ -26,11 +26,13 @@ const CARRIED_FILES = ["hosts.json", "windows.json"];
 /**
  * Copy the store files from legacyDir into newDir — only when newDir has no
  * hosts.json of its own (an existing one means the new-name app already ran
- * here, and nothing may be overwritten). COPYFILE_EXCL double-guards the
- * never-overwrite rule. Every failure (unreadable legacy dir, permissions)
- * is logged and ignored: the app then behaves as a fresh install, exactly as
- * it does today with a missing store. `failed` tells the caller a copy may be
- * partial, so the legacy dir must not be retired this start.
+ * here, and nothing may be overwritten). A store newDir already has is
+ * skipped, and COPYFILE_EXCL double-guards the never-overwrite rule. The copy
+ * is all-or-nothing: a failure unlinks this attempt's copies, so newDir never
+ * gains a hosts.json — the retirement gate — without the rest of the stores,
+ * and the next start retries. Every failure (unreadable legacy dir,
+ * permissions) is logged and ignored: the app then behaves as a fresh
+ * install, exactly as it does today with a missing store.
  */
 export function carryForwardLegacyUserData(
   newDir: string,
@@ -43,18 +45,27 @@ export function carryForwardLegacyUserData(
     mkdirSync(newDir, { recursive: true });
     for (const name of CARRIED_FILES) {
       const src = join(legacyDir, name);
-      if (!existsSync(src)) continue;
-      copyFileSync(src, join(newDir, name), constants.COPYFILE_EXCL);
+      const dest = join(newDir, name);
+      if (!existsSync(src) || existsSync(dest)) continue;
+      copyFileSync(src, dest, constants.COPYFILE_EXCL);
       copied.push(name);
     }
   } catch (err) {
     // Fresh-install degradation — never block startup on the carry-forward,
-    // but the failure must be diagnosable (intake: logged and ignored).
+    // but the failure must be diagnosable.
+    const kept = copied.filter((name) => {
+      try {
+        unlinkSync(join(newDir, name));
+        return false;
+      } catch {
+        return true;
+      }
+    });
     console.warn(
-      `userData carry-forward failed after copying ${copied.length} file(s) — continuing as a fresh install:`,
+      `userData carry-forward failed (rolled back ${copied.length - kept.length} of ${copied.length} copied file(s)) — continuing as a fresh install:`,
       err,
     );
-    return { copied, failed: true };
+    return { copied: kept, failed: true };
   }
   return { copied, failed: false };
 }

@@ -22,7 +22,7 @@ On app start, after `carryForwardLegacyUserData`, the desktop main process SHALL
 - **THEN** the legacy sibling is left in place
 
 #### R2: A pre-rename jump carries forward, then retires, on one start
-The retirement SHALL run after the carry-forward in the same start, so a user jumping from a pre-rename build gets their stores copied and the legacy folder removed on the first start. The retirement SHALL NOT run on a start whose carry-forward reported a failure, so a partial copy never loses the uncopied legacy store.
+The retirement SHALL run after the carry-forward in the same start, so a user jumping from a pre-rename build gets their stores copied and the legacy folder removed on the first start. The retirement SHALL NOT run on a start whose carry-forward reported a failure, and a failed carry-forward SHALL roll back that attempt's copies (skipping, not failing on, a store the new dir already has), so a partial copy never satisfies the `hosts.json` gate on a later start and never loses the uncopied legacy store.
 
 - **GIVEN** a fresh new userData dir and a legacy dir with `hosts.json` and `windows.json`
 - **WHEN** the app starts
