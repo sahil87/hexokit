@@ -1,3 +1,9 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-10-06T04:35:59Z"}
 {"args":"rk riff: align with wt v0.1.7 flags (--name/--open) and fail fast outside a git repo","cmd":"fab-new","event":"command","ts":"2026-10-06T04:35:59Z"}
 {"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-10-06T04:37:00Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-10-06T04:53:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-10-06T04:54:15Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-10-06T05:03:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-10-06T05:07:12Z"}
+{"event":"review","result":"passed","ts":"2026-10-06T05:07:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-10-06T05:08:07Z"}

@@ -5,17 +5,17 @@ created_by: sahil-noon
 change_type: fix
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 5
+    acceptance_count: 14
+    acceptance_completed: 14
 confidence:
     certain: 9
     confident: 1
@@ -29,10 +29,29 @@ confidence:
         competence: 88.5
         disambiguation: 84.5
 stage_metrics:
-    intake: {started_at: "2026-10-06T04:35:59Z", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-10-06T04:35:59Z", driver: fab-new, iterations: 1, completed_at: "2026-10-06T04:54:15Z"}
+    apply: {started_at: "2026-10-06T04:54:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-06T05:03:39Z"}
+    review: {started_at: "2026-10-06T05:03:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-06T05:07:12Z"}
+    hydrate: {started_at: "2026-10-06T05:07:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-06T05:08:07Z"}
+    ship: {started_at: "2026-10-06T05:08:07Z", driver: fab-fff, iterations: 1}
 prs: []
 change_type_source: explicit
 base_branch: main
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-10-06T05:08:07Z"
+    computed_at_stage: hydrate
+summary: 'rk riff: wt create argv uses --name/--open (wt >= v0.1.0); CLI fails fast with exit 1 when not inside a git repository'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-10-06T04:37:05Z
+last_updated: 2026-10-06T05:08:07Z

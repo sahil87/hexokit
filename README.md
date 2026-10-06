@@ -91,14 +91,14 @@ One invocation gives you a git worktree, a tmux window inside it, and one or mor
 - **Layouts**: `--layout` picks `auto` (default), `tiled`, `even-*`, or `main-*`.
 - **Presets**: built-ins `discuss`, `incognito`, `blank` ship in the binary; add or override skills under `riff_presets` in `~/.config/hexokit/config.yaml`; invoke as `rk riff <name>`.
 - **Parallel**: `-N <N>` spawns N workspaces; failures roll back before exiting.
-- **wt passthrough**: flags after `--` go to `wt create` verbatim (e.g. `--base`, `--worktree-name`).
+- **wt passthrough**: flags after `--` go to `wt create` verbatim (e.g. `--base`, `--name`).
 
 ```bash
 rk riff --skill /fab-fff --cmd "just dev"       # 2 panes (agent + dev server)
 rk riff discuss -N 3                            # 3 parallel 'discuss' preset workspaces
 ```
 
-**Prerequisites:** must be inside a tmux session, with [`wt`](https://github.com/sahil87/wt) and the launcher (default `claude --dangerously-skip-permissions`) on `PATH`. In a fab-kit project, the launcher is resolved per-project through `fab agent` (the `providers` / `agent` tables in `fab/project/config.yaml`) — point it at any agent CLI, or any command at all.
+**Prerequisites:** must be inside a tmux session and a git repository (or pass `--repo <path>`), with [`wt`](https://github.com/sahil87/wt) and the launcher (default `claude --dangerously-skip-permissions`) on `PATH`. In a fab-kit project, the launcher is resolved per-project through `fab agent` (the `providers` / `agent` tables in `fab/project/config.yaml`) — point it at any agent CLI, or any command at all.
 
 See the [riff guide](docs/site/workflows.md) for the full reference.
 
@@ -238,6 +238,7 @@ Run `rk <command> --help` for full flag details, or see the [full command refere
 
 - **`rk riff` fails with "not in a tmux session"** — riff requires `$TMUX` to be set. Start tmux first (`tmux new -s work`), then run `rk riff` inside it.
 - **`rk riff` fails with "wt not found"** — install `wt` via `shll install wt`, or install the full toolkit from [https://shll.ai](https://shll.ai).
+- **`rk riff` fails with "not inside a git repository"** — riff creates a worktree, so it needs a repo. `cd` into one, or pass `--repo <path>` naming the repo's top-level directory.
 - **Agent state shows `—` for every window** — run `shll setup agent` once on the machine, then start a fresh agent session (hooks apply to new sessions, not already-running ones). A pane sitting at a plain shell also reads `—` by design.
 - **Daemon misbehaving and a plain restart doesn't help** — `rk daemon restart --full` kills the entire rk-daemon tmux server (including the `rk-jobs`, `rk-code-server`, and `rk-remotes` sibling sessions) so the start births a genuinely fresh server, then reconnects any remote tunnels that were up. It refuses to run from a pane inside the rk-daemon server itself, where the kill would take down the invoking pane mid-restart.
 - **Anything else broken** — run `rk doctor`. It checks tmux, `wt`, the launcher binary, port availability, and prints per-dependency status.
