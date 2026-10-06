@@ -5,3 +5,9 @@
 {"delta":"+0.8","event":"confidence","score":0.8,"trigger":"calc-score","ts":"2026-10-06T05:20:27Z"}
 {"delta":"+0.6","event":"confidence","score":1.4,"trigger":"calc-score","ts":"2026-10-06T07:15:17Z"}
 {"delta":"+2.4","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-10-06T20:26:29Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-10-06T20:26:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-10-06T20:26:55Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-10-06T21:06:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-10-06T21:11:39Z"}
+{"event":"review","result":"passed","ts":"2026-10-06T21:11:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-10-06T21:19:38Z"}

@@ -105,7 +105,7 @@ func TestInstalledBridgeVersionMalformedManifest(t *testing.T) {
 }
 
 func TestInstallBridgeExtensionInstallsWhenAbsent(t *testing.T) {
-	home := t.TempDir()
+	home := isolateHome(t)
 	t.Setenv("XDG_DATA_HOME", "") // force the ~/.local/share fallback
 	record := fakeManagedCodeServer(t, home, 0)
 	extDir := ExtensionsDir(home)
@@ -140,7 +140,7 @@ func TestInstallBridgeExtensionInstallsWhenAbsent(t *testing.T) {
 }
 
 func TestInstallBridgeExtensionSkipsWhenSameVersion(t *testing.T) {
-	home := t.TempDir()
+	home := isolateHome(t)
 	xdg := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", xdg)
 	record := fakeManagedCodeServer(t, home, 0)
@@ -160,7 +160,7 @@ func TestInstallBridgeExtensionSkipsWhenSameVersion(t *testing.T) {
 }
 
 func TestInstallBridgeExtensionUpgradesWhenOlder(t *testing.T) {
-	home := t.TempDir()
+	home := isolateHome(t)
 	t.Setenv("XDG_DATA_HOME", "") // force the ~/.local/share fallback
 	record := fakeManagedCodeServer(t, home, 0)
 	writeBridgeFixture(t, ExtensionsDir(home), "1.2.3")
@@ -177,7 +177,7 @@ func TestInstallBridgeExtensionUpgradesWhenOlder(t *testing.T) {
 }
 
 func TestInstallBridgeExtensionFailureIsReturned(t *testing.T) {
-	home := t.TempDir()
+	home := isolateHome(t)
 	t.Setenv("XDG_DATA_HOME", "")
 	fakeManagedCodeServer(t, home, 1)
 
@@ -191,7 +191,7 @@ func TestInstallBridgeExtensionFailureIsReturned(t *testing.T) {
 }
 
 func TestInstallBridgeExtensionNoManagedBinary(t *testing.T) {
-	home := t.TempDir() // no managed install at all
+	home := isolateHome(t) // no managed install at all
 	t.Setenv("XDG_DATA_HOME", "")
 	changed, err := InstallBridgeExtension(context.Background(), home, []byte("VSIX"), "1.2.3", &bytes.Buffer{})
 	if err == nil || changed {

@@ -62,7 +62,7 @@ Browser clients ignore the state-socket notification event, and shell clients do
 
 **Secure-context constraint**: service workers and `PushManager` require a **secure context — HTTPS or `localhost`**. The user typically hits run-kit on `localhost:6123` (or behind a TLS reverse proxy such as Tailscale Serve), both secure contexts, so it is satisfied in practice — but raw-IP / plaintext non-localhost access cannot subscribe (registration is skipped silently, no error).
 
-**State persistence** (Constitution §II — No Database): the `internal/push` package owns two JSON files under `~/.rk/` — `vapid.json` (the VAPID keypair, private key written mode **`0600`**, never served) and `push-subscriptions.json` (the subscription array, de-duped by `endpoint`). See § Backend Libraries. There is no `/api/push/unsubscribe` in v1; dead subscriptions are pruned server-side on `404`/`410` during send.
+**State persistence** (Constitution §II — No Database): the `internal/push` package owns two JSON files in the state home (`${XDG_STATE_HOME:-~/.local/state}/hexokit/`), resolved through `internal/apphome` leaf resolvers built on `StateDir()` — `VAPIDPath` gives `vapid.json` (the VAPID keypair, private key written mode **`0600`**, never served; created once and never regenerated — a fresh keypair invalidates every stored push subscription) and `PushSubscriptionsPath` gives `push-subscriptions.json` (the subscription array, de-duped by `endpoint`). The daemon-start home migration (`homemigrate.MoveRKTenants`) relocates legacy `~/.rk` copies of both files into the state home rather than regenerating them. There is no `/api/push/unsubscribe` in v1; dead subscriptions are pruned server-side on `404`/`410` during send. (3ht0)
 
 **Fail-silent discipline** (end-to-end, constitution-aligned): every layer fails silently on its own prerequisite being absent. `rk notify` exits 0 with no output on any failure (server unreachable / non-2xx / timeout) so a notify failure never stalls the operator loop; the send fan-out tolerates individual subscription failures and prunes dead endpoints; the frontend subscribe flow aborts silently when permission is denied or the context is insecure / unsupported. The opt-in is a Cmd+K palette action with a terminal-themed label (NOT a bell) — see `ui/updates-and-notifications.md` § Notifications (Web Push opt-in).
 
@@ -73,3 +73,9 @@ Browser clients ignore the state-socket notification event, and shell clients do
 **Why**: an open browser tab already has the service-worker delivery leg and would double-notify if it also displayed socket events. Persistent shell renderers have a live state socket but no browser push-service backend.
 **Rejected**: visibility-based browser suppression; disabling Web Push while a browser tab is open; adding a third-party push-service dependency to the shell.
 *Introduced by*: 260902-ziki-shell-os-notifications
+
+### The VAPID keypair lives in the state home, not the config home
+**Decision**: the VAPID keypair and the push-subscription store are state-class files in the state home (`<state>/vapid.json`, `<state>/push-subscriptions.json`), resolved via `internal/apphome` (`VAPIDPath`/`PushSubscriptionsPath`), alongside the other rk-managed assets there.
+**Why**: the config home is often dotfiles-managed, so a private key stored there could leak into a repo. The keypair and subscriptions are machine-local runtime state, not user-edited configuration, and neither is a state store in Principle II's sense.
+**Rejected**: storing the keypair alongside `config.yaml` in the config home; regenerating the keypair during home migration (a new keypair invalidates every existing push subscription).
+*Introduced by*: 261006-3ht0-consolidate-two-homes

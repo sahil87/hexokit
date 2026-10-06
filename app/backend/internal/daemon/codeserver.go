@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"rk/internal/apphome"
 	"rk/internal/codeserver"
 	"rk/internal/config"
 	"rk/internal/selfpath"
@@ -55,10 +56,11 @@ var codeServerSpawn = func(ctx context.Context, args ...string) error {
 // host's PATH contents.
 var codeServerLookPath = exec.LookPath
 
-// codeServerUserHomeDir resolves the user's home directory for the rk-owned
-// profile and managed-install paths. A package seam (os.UserHomeDir reads
-// platform-specific env) so tests point the profile at a temp dir and never
-// touch the real ~/.rk.
+// codeServerUserHomeDir resolves the user's home directory for the managed-
+// install and extensions-dir paths. A package seam (os.UserHomeDir reads
+// platform-specific env) so tests point those paths at a temp dir and never
+// touch the real state home. The profile dir resolves through apphome instead
+// — tests redirect HOME/XDG_STATE_HOME for it.
 var codeServerUserHomeDir = os.UserHomeDir
 
 // codeServerRunJob is the package seam over RunJob for the install-job spawn
@@ -109,40 +111,11 @@ const codeServerSeedSettings = `{
 }
 `
 
-// codeServerProfileDir is the rk-owned --user-data-dir: ~/.rk/
-// code-server-profile (the ~/.rk/tmux.conf config-namespace precedent — the
-// seeded settings.json is the user-editable artifact here). The pre-260813
-// path was ~/.rk/code-server; migrateCodeServerProfile renames it one-shot.
-func codeServerProfileDir(home string) string {
-	return filepath.Join(home, ".rk", "code-server-profile")
-}
-
-// codeServerLegacyProfileDir is the pre-260813 profile path, kept solely as
-// the migration source.
-func codeServerLegacyProfileDir(home string) string {
-	return filepath.Join(home, ".rk", "code-server")
-}
-
-// migrateCodeServerProfile performs the one-shot rename of the legacy
-// ~/.rk/code-server profile dir to ~/.rk/code-server-profile, preserving
-// settings and hot-exit state across the path change. Old-exists ∧ new-absent
-// ⇒ os.Rename; both-exist leaves both untouched (new wins); old-absent is a
-// no-op. Runs before the seed so the write-once logic only ever sees the new
-// path.
-func migrateCodeServerProfile(home string) error {
-	newDir := codeServerProfileDir(home)
-	if _, err := os.Stat(newDir); err == nil {
-		return nil // new exists — leave both untouched
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	oldDir := codeServerLegacyProfileDir(home)
-	if _, err := os.Stat(oldDir); errors.Is(err, fs.ErrNotExist) {
-		return nil // fresh host — nothing to migrate
-	} else if err != nil {
-		return err
-	}
-	return os.Rename(oldDir, newDir)
+// codeServerProfileDir is the rk-owned --user-data-dir:
+// <state>/code-server/profile under the apphome state home (the seeded
+// settings.json is the user-editable artifact).
+func codeServerProfileDir() (string, error) {
+	return apphome.CodeServerProfileDir()
 }
 
 // seedCodeServerSettings writes the baseline User/settings.json into the
@@ -170,7 +143,7 @@ func seedCodeServerSettings(profileDir string) error {
 }
 
 // resolveCodeServerBinary is the two-rung resolution ladder: (1) the managed
-// install's absolute path (~/.rk/code-server-bin/current/bin/code-server,
+// install's absolute path (<state>/code-server/bin/current/bin/code-server,
 // verified executable — the tmux window's PATH is not rk's), then (2) a
 // user-managed code-server on PATH (same spirit as the externally-managed-port
 // carve-out). Returns "" when neither rung resolves.
@@ -278,14 +251,16 @@ func ensureCodeServerCore(cli bool) (EnsureOutcome, error) {
 		"--disable-getting-started-override", "--app-name", "run-kit",
 	)
 	if homeErr == nil {
-		profileDir := codeServerProfileDir(home)
-		if err := migrateCodeServerProfile(home); err != nil {
-			slog.Warn("code-server profile migration failed; continuing with the current profile state", "err", err)
+		profileDir, err := codeServerProfileDir()
+		if err != nil {
+			slog.Warn("code-server profile dir unresolvable; spawning with only the extensions dir", "err", err)
+			args = append(args, "--extensions-dir", codeserver.ExtensionsDir(home))
+		} else {
+			if err := seedCodeServerSettings(profileDir); err != nil {
+				slog.Warn("code-server settings seed failed; continuing with an unseeded profile", "err", err)
+			}
+			args = append(args, "--user-data-dir", profileDir, "--extensions-dir", codeserver.ExtensionsDir(home))
 		}
-		if err := seedCodeServerSettings(profileDir); err != nil {
-			slog.Warn("code-server settings seed failed; continuing with an unseeded profile", "err", err)
-		}
-		args = append(args, "--user-data-dir", profileDir, "--extensions-dir", codeserver.ExtensionsDir(home))
 	}
 	if err := codeServerSpawn(ctx, args...); err != nil {
 		if cli {
@@ -367,8 +342,8 @@ func spawnCodeServerInstallJob(ctx context.Context) error {
 // externally-managed skip below is unchanged.
 //
 // The spawn also carries the rk-owned profile (260812-71bv): --user-data-dir
-// ~/.rk/code-server-profile (the legacy ~/.rk/code-server is renamed one-shot
-// first), seeded write-once with settings that have no CLI flags
+// <state>/code-server/profile under the apphome state home, seeded write-once
+// with settings that have no CLI flags
 // (codeServerSeedSettings), plus --extensions-dir pinned back to code-server's
 // default location so the user's installed extensions stay visible. Both
 // degrade best-effort: a failed seed keeps the flags (code-server creates its

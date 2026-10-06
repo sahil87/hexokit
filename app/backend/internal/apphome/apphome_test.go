@@ -178,6 +178,50 @@ func TestFixedHomes(t *testing.T) {
 	}
 }
 
+// TestStateLeaves pins the state-home leaf layout: every rk-managed asset
+// resolves under the resolved state home, with all code-server files grouped
+// under code-server/.
+func TestStateLeaves(t *testing.T) {
+	home := t.TempDir()
+	xdg := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", xdg)
+	seedHomes(t, xdg, Name)
+	state := filepath.Join(xdg, Name)
+
+	checks := []struct {
+		name string
+		fn   func() (string, error)
+		want string
+	}{
+		{"VAPIDPath", VAPIDPath, filepath.Join(state, "vapid.json")},
+		{"PushSubscriptionsPath", PushSubscriptionsPath, filepath.Join(state, "push-subscriptions.json")},
+		{"CodeServerBinDir", CodeServerBinDir, filepath.Join(state, "code-server", "bin")},
+		{"CodeServerProfileDir", CodeServerProfileDir, filepath.Join(state, "code-server", "profile")},
+		{"LogsDir", LogsDir, filepath.Join(state, "logs")},
+		{"DesktopDir", DesktopDir, filepath.Join(state, "desktop")},
+	}
+	for _, c := range checks {
+		got, err := c.fn()
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got != c.want {
+			t.Errorf("%s() = %q, want %q", c.name, got, c.want)
+		}
+	}
+
+	// XDG_STATE_HOME unset: leaves follow the ~/.local/state fallback.
+	t.Setenv("XDG_STATE_HOME", "")
+	got, err := LogsDir()
+	if err != nil {
+		t.Fatalf("LogsDir (xdg unset): %v", err)
+	}
+	if want := filepath.Join(home, ".local", "state", Name, "logs"); got != want {
+		t.Errorf("LogsDir() = %q, want %q", got, want)
+	}
+}
+
 // TestUnmigratedExistingInstall covers the shared pin predicate: new config
 // dir absent AND (legacy config OR legacy state present). Both port pins (the
 // migration's and config's virtual pin) key on it, so the table pins every

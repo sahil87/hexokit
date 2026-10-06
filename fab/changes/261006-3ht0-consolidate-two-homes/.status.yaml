@@ -5,17 +5,17 @@ created_by: sahil-noon
 change_type: refactor
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 18
+    acceptance_count: 23
+    acceptance_completed: 23
 confidence:
     certain: 1
     confident: 11
@@ -29,8 +29,27 @@ confidence:
         competence: 72.5
         disambiguation: 83.3
 stage_metrics:
-    intake: {started_at: "2026-10-06T04:46:26Z", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-10-06T04:46:26Z", driver: fab-new, iterations: 1, completed_at: "2026-10-06T20:26:55Z"}
+    apply: {started_at: "2026-10-06T20:26:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-06T21:06:04Z"}
+    review: {started_at: "2026-10-06T21:06:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-06T21:11:39Z"}
+    hydrate: {started_at: "2026-10-06T21:11:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-06T21:19:38Z"}
+    ship: {started_at: "2026-10-06T21:19:38Z", driver: fab-fff, iterations: 1}
 prs: []
+true_impact:
+    added: 317
+    deleted: 80
+    net: 237
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-10-06T21:19:38Z"
+    computed_at_stage: hydrate
+summary: moved ~/.rk tenants (VAPID keypair, push subscriptions, code-server bin/profile, job logs, Linux desktop install) into the hexokit state home behind homemigrate.MoveRKTenants, added internal/versionprune current+previous pruning, rk doctor ~/.rk row, and PATCH-amended Constitution II with the state-vs-config placement rule
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-10-06T20:26:29Z
+last_updated: 2026-10-06T21:19:38Z

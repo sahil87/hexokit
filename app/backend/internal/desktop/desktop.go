@@ -38,6 +38,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"rk/internal/apphome"
 )
 
 const (
@@ -63,11 +65,22 @@ const (
 )
 
 // DefaultInstallDirFor returns the platform's default install root:
-// /Applications on macOS, <home>/.rk/desktop on Linux. Overridable via the
+// /Applications on macOS, the state-home desktop dir on Linux
+// (apphome.DesktopDir() — <state>/desktop). Overridable via the
 // --path flag for managed-Mac / non-writable scenarios.
-func DefaultInstallDirFor(goos, home string) string {
+func DefaultInstallDirFor(goos string) (string, error) {
 	if goos == "linux" {
-		return filepath.Join(home, ".rk", "desktop")
+		return apphome.DesktopDir()
+	}
+	return "/Applications", nil
+}
+
+// defaultInstallDirDisplay is the degraded spelling of the default root for
+// messages when the real resolution failed — display only, never a filesystem
+// target.
+func defaultInstallDirDisplay(goos string) string {
+	if goos == "linux" {
+		return filepath.Join("~", ".local", "state", "hexokit", "desktop")
 	}
 	return "/Applications"
 }
@@ -119,9 +132,11 @@ type Installer struct {
 	// struct field so tests record the delivery instead of signaling real
 	// processes.
 	Signal func(pid int, sig syscall.Signal) error
-	// UserHome resolves the user's home directory for the Linux default
-	// install root (the codeServerUserHomeFn idiom; no env key — Constitution
-	// IV restricts env to deployment-bootstrap keys).
+	// UserHome resolves the user's home directory for the Linux desktop
+	// integration paths (~/.local/share, ~/.local/bin — the
+	// codeServerUserHomeFn idiom; no env key — Constitution IV restricts env
+	// to deployment-bootstrap keys). The default install root does not read
+	// it: that resolves through apphome.DesktopDir.
 	UserHome func() (string, error)
 	// Repo is the {owner}/{repo} the releases are resolved from.
 	Repo string
@@ -199,7 +214,7 @@ func githubToken() string {
 func (ins *Installer) AppPath() string {
 	root, err := ins.effectiveInstallDir()
 	if err != nil {
-		root = DefaultInstallDirFor(ins.GOOS, "~")
+		root = defaultInstallDirDisplay(ins.GOOS)
 	}
 	if ins.GOOS == "linux" {
 		return filepath.Join(root, currentLinkName)
@@ -208,8 +223,8 @@ func (ins *Installer) AppPath() string {
 }
 
 // effectiveInstallDir resolves the install root: an explicit InstallDir
-// (--path) wins; empty means the platform default (DefaultInstallDirFor),
-// which on Linux needs the user's home via the UserHome seam.
+// (--path) wins; empty means the platform default (DefaultInstallDirFor) —
+// the apphome state-home desktop dir on Linux.
 func (ins *Installer) effectiveInstallDir() (string, error) {
 	if ins.InstallDir != "" {
 		// Absolute so the desktop entry, the PATH symlink, and the running-app
@@ -221,14 +236,11 @@ func (ins *Installer) effectiveInstallDir() (string, error) {
 		}
 		return abs, nil
 	}
-	if ins.GOOS != "linux" {
-		return DefaultInstallDirFor(ins.GOOS, ""), nil
-	}
-	home, err := ins.UserHome()
+	root, err := DefaultInstallDirFor(ins.GOOS)
 	if err != nil {
-		return "", fmt.Errorf("resolving the home directory for the default install root: %w", err)
+		return "", fmt.Errorf("resolving the default install root: %w", err)
 	}
-	return DefaultInstallDirFor(ins.GOOS, home), nil
+	return root, nil
 }
 
 // runCommand is the default Runner: exec.CommandContext with an argument

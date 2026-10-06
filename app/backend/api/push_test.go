@@ -10,8 +10,8 @@ import (
 	"testing"
 )
 
-// isolatePush points ~/.rk persistence at a throwaway HOME so push tests
-// neither read nor clobber the developer's real ~/.rk files.
+// isolatePush points state-home persistence at a throwaway HOME so push tests
+// neither read nor clobber the developer's real ~/.local/state/hexokit files.
 func isolatePush(t *testing.T) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())

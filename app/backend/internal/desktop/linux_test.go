@@ -354,9 +354,10 @@ func TestInstallLinuxRunningAppRestarts(t *testing.T) {
 	if !foundOldestProbe {
 		t.Errorf("pgrep calls = %v, want a pgrep -o -f probe for the quit target", rig.pgrepArgs)
 	}
-	// The old version dir is pruned and current points at the new one.
-	if _, err := os.Stat(old); !os.IsNotExist(err) {
-		t.Errorf("old version dir still present after the flip")
+	// The pre-flip target survives as the rollback version; current points at
+	// the new one.
+	if _, err := os.Stat(old); err != nil {
+		t.Errorf("old version dir pruned after the flip — it is the kept rollback: %v", err)
 	}
 	if target, _ := os.Readlink(linuxCurrentPath(root)); target != "3.21.0" {
 		t.Errorf("current -> %q, want 3.21.0", target)
@@ -396,7 +397,7 @@ func TestInstallLinuxQuitTimeoutAbortsBeforeSwap(t *testing.T) {
 	}
 }
 
-func TestInstallLinuxPrunesOtherVersionDirs(t *testing.T) {
+func TestInstallLinuxPruneKeepsCurrentAndPrevious(t *testing.T) {
 	rig := &linuxRig{t: t, tree: linuxTreeOpts{version: "3.21.0"}}
 	ins, root, _ := linuxInstaller(t, rig)
 	srv := assetServer(t)
@@ -427,11 +428,11 @@ func TestInstallLinuxPrunesOtherVersionDirs(t *testing.T) {
 	for _, e := range entries {
 		got[e.Name()] = true
 	}
-	if got["3.20.8"] || got["3.20.9"] {
-		t.Errorf("old version dirs survived the flip: %v", got)
+	if got["3.20.8"] {
+		t.Errorf("superseded version dir survived the flip: %v", got)
 	}
-	if !got["3.21.0"] || !got["current"] || !got[linuxStagingPrefix+"stale"] {
-		t.Errorf("root after install = %v, want 3.21.0 + current (+ staging leftover)", got)
+	if !got["3.20.9"] || !got["3.21.0"] || !got["current"] || !got[linuxStagingPrefix+"stale"] {
+		t.Errorf("root after install = %v, want current 3.21.0 + previous 3.20.9 (+ staging leftover)", got)
 	}
 }
 
@@ -626,32 +627,52 @@ func TestValidateExtractedTreeIconSize(t *testing.T) {
 }
 
 func TestDefaultInstallDirFor(t *testing.T) {
-	if got := DefaultInstallDirFor("darwin", "/home/u"); got != "/Applications" {
-		t.Errorf("darwin default = %q, want /Applications", got)
+	if got, err := DefaultInstallDirFor("darwin"); err != nil || got != "/Applications" {
+		t.Errorf("darwin default = %q, %v — want /Applications, nil", got, err)
 	}
-	if got := DefaultInstallDirFor("linux", "/home/u"); got != "/home/u/.rk/desktop" {
-		t.Errorf("linux default = %q, want /home/u/.rk/desktop", got)
+
+	// XDG_STATE_HOME wins when set.
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	if got, err := DefaultInstallDirFor("linux"); err != nil || got != filepath.Join(state, "hexokit", "desktop") {
+		t.Errorf("linux default = %q, %v — want <XDG_STATE_HOME>/hexokit/desktop", got, err)
+	}
+
+	// The XDG fallback: no XDG_STATE_HOME → ~/.local/state/hexokit/desktop.
+	home := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", "")
+	t.Setenv("HOME", home)
+	if got, err := DefaultInstallDirFor("linux"); err != nil || got != filepath.Join(home, ".local", "state", "hexokit", "desktop") {
+		t.Errorf("linux default = %q, %v — want ~/.local/state/hexokit/desktop", got, err)
 	}
 }
 
 func TestEffectiveInstallDirLinuxDefault(t *testing.T) {
-	home := t.TempDir()
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
 	ins := New()
 	ins.GOOS = "linux"
-	ins.UserHome = func() (string, error) { return home, nil }
 	root, err := ins.effectiveInstallDir()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if root != filepath.Join(home, ".rk", "desktop") {
-		t.Errorf("root = %q, want <home>/.rk/desktop", root)
+	want := filepath.Join(state, "hexokit", "desktop")
+	if root != want {
+		t.Errorf("root = %q, want <XDG_STATE_HOME>/hexokit/desktop", root)
 	}
-	if got := ins.AppPath(); got != filepath.Join(home, ".rk", "desktop", "current") {
+	if got := ins.AppPath(); got != filepath.Join(want, "current") {
 		t.Errorf("AppPath = %q, want <root>/current", got)
 	}
-	ins.UserHome = func() (string, error) { return "", errors.New("no home") }
+
+	// With neither XDG_STATE_HOME nor HOME resolvable, the default root fails
+	// and AppPath degrades to the display spelling.
+	t.Setenv("XDG_STATE_HOME", "")
+	t.Setenv("HOME", "")
 	if _, err := ins.effectiveInstallDir(); err == nil {
 		t.Error("expected a home-resolution error, got nil")
+	}
+	if got, want := ins.AppPath(), filepath.Join("~", ".local", "state", "hexokit", "desktop", "current"); got != want {
+		t.Errorf("AppPath = %q, want the degraded spelling %q", got, want)
 	}
 }
 

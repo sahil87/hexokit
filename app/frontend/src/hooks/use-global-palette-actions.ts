@@ -481,8 +481,8 @@ export function useGlobalPaletteActions(): PaletteAction[] {
   // Always available (independent of the qualifying-update gate): force update
   // reaches patch releases; restart bounces a wedged daemon without SSH. Both
   // fire immediately (no confirmation) — the SSE drop + boot/version reload IS
-  // the feedback; failures land in ~/.rk logs and a toast. Dev-gated + (for
-  // force) brew-gated inside buildMaintenanceActions.
+  // the feedback; failures land in ~/.local/state/hexokit/logs and a toast.
+  // Dev-gated + (for force) brew-gated inside buildMaintenanceActions.
   const maintenanceActions: PaletteAction[] = useMemo(
     () =>
       buildMaintenanceActions(

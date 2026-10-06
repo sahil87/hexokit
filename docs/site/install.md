@@ -69,7 +69,7 @@ rk desktop update     # same, but a no-op when already current
 rk desktop status     # installed vs latest version (read-only)
 ```
 
-The CLI path is the primary one for a reason. On macOS the DMGs are ad-hoc signed (no notarization), so a browser download is stamped with `com.apple.quarantine` and Gatekeeper blocks the app on every install and update; quarantine comes from the *downloading application* — command-line tools don't apply it — so the CLI produces a quarantine-free install that opens cleanly every time, verifying the download itself (SHA256 against the release digest, plus `codesign --verify --deep --strict`) before installing. Use `--path <dir>` to install somewhere other than `/Applications` (macOS) or `~/.rk/desktop` (Linux), and `--version <tag>` to pin a specific release.
+The CLI path is the primary one for a reason. On macOS the DMGs are ad-hoc signed (no notarization), so a browser download is stamped with `com.apple.quarantine` and Gatekeeper blocks the app on every install and update; quarantine comes from the *downloading application* — command-line tools don't apply it — so the CLI produces a quarantine-free install that opens cleanly every time, verifying the download itself (SHA256 against the release digest, plus `codesign --verify --deep --strict`) before installing. Use `--path <dir>` to install somewhere other than `/Applications` (macOS) or `~/.local/state/hexokit/desktop` (Linux), and `--version <tag>` to pin a specific release.
 
 On Linux the recommended path is the toolkit installer followed by the CLI:
 
@@ -78,7 +78,7 @@ curl -fsSL https://hexokit.com/install | sh -s -- hexokit   # installs the CLI
 rk desktop install                                          # installs the app
 ```
 
-`rk desktop install` downloads the AppImage for your architecture, verifies its release digest (a release without one is refused), extracts it once into `~/.rk/desktop/<version>/` with an atomically-flipped `current` symlink, and writes a launcher entry, the icon, and a `hexokit-desktop` symlink in `~/.local/bin`. Updates arrive via `rk desktop update` or the app's **Restart to Update** menu item — the running app is quit gracefully, swapped, and relaunched. `rk desktop uninstall` removes the install and its desktop integration (your app settings under `~/.config/HexoKit` are kept).
+`rk desktop install` downloads the AppImage for your architecture, verifies its release digest (a release without one is refused), extracts it once into `~/.local/state/hexokit/desktop/<version>/` with an atomically-flipped `current` symlink, and writes a launcher entry, the icon, and a `hexokit-desktop` symlink in `~/.local/bin`. Updates arrive via `rk desktop update` or the app's **Restart to Update** menu item — the running app is quit gracefully, swapped, and relaunched. `rk desktop uninstall` removes the install and its desktop integration (your app settings under `~/.config/HexoKit` are kept).
 
 Without the CLI on Linux, the fallback is manual: download the AppImage for your architecture (`x86_64` or `arm64`) from [GitHub Releases](https://github.com/sahil87/hexokit/releases), `chmod +x` it, and run it — with `./hexokit-desktop-<version>-<arch>.AppImage --appimage-extract-and-run` when libfuse2 is missing. The manual path gets no launcher entry and no update notice. On macOS without the CLI: download the DMG, drag **HexoKit.app** into Applications, and clear quarantine via System Settings → Privacy & Security → **Open Anyway** (or `xattr -dr com.apple.quarantine "/Applications/HexoKit.app"`) — repeated on every manual update.
 
@@ -88,7 +88,7 @@ Inside the app, the welcome page offers three ways to connect, in descending ord
 
 The daemon starts a managed **code-server** beside it (its own `rk-code-server` tmux session on the same socket), powering the dashboard's `code` lens and CODE panel surface — a full editor at the window's git root, served same-origin behind the stable `/code/` route.
 
-HexoKit owns the install: on first daemon start with no code-server anywhere, a `code-server-install` window in the `rk-jobs` session downloads the latest digest-verified standalone release into `~/.rk/code-server-bin/`. The manual equivalent is `rk code-server install`; `rk code-server update` upgrades, and `rk update` runs that leg automatically. A code-server you installed yourself on `PATH` is respected and never touched.
+HexoKit owns the install: on first daemon start with no code-server anywhere, a `code-server-install` window in the `rk-jobs` session downloads the latest digest-verified standalone release into `~/.local/state/hexokit/code-server/bin/` (it keeps the current and previous versions). The manual equivalent is `rk code-server install`; `rk code-server update` upgrades, and `rk update` runs that leg automatically. A code-server you installed yourself on `PATH` is respected and never touched.
 
 It binds loopback-only on `RK_PORT+2`; set `RK_CODE_SERVER_PORT` only to point HexoKit at an externally managed instance instead. `rk daemon stop` deliberately leaves code-server running; `rk doctor` reports its presence and reachability.
 

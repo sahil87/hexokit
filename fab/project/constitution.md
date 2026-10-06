@@ -10,6 +10,8 @@ State MUST be derived from tmux and the filesystem at request time. HexoKit SHAL
 
 Two bounded disk carve-outs exist under `$XDG_STATE_HOME/hexokit/`: **recovery backups** (layout snapshots — artifacts about the past; a user-facing recovery reader MAY serve them read-only — listing restorable snapshots and their stored layouts, and driving user-initiated restore — but live state never derives from a backup: no live-state query is ever answered from one) and **startup seed caches**, which MAY pre-fill in-memory derived state at process start but are NEVER authoritative — state is still derived from tmux, the filesystem, and `gh`; a fresh derivation always overwrites a seeded value, and deleting any of these files changes nothing but cold-start latency. Neither class is a state store: no request-time read path may treat one as the source of truth, and a corrupt or absent file MUST degrade to the same behavior as a cold start.
 
+The line is drawn by *whose* state it is. Terminal session data and rk's own session state are derived from tmux and the filesystem. Integrations such as code-server keep their own state by their own means (code-server's extensions dir stays at its own default location). rk-managed assets — the VAPID keypair and push subscriptions, downloaded binaries (the managed code-server install, the Linux desktop install), and job logs — live in the state home under `$XDG_STATE_HOME/hexokit/` alongside the two carve-outs above (`vapid.json`, `push-subscriptions.json`, `code-server/{bin,profile}/`, `logs/`, `desktop/`). None of these is a state store in the principle's sense: no request-time read path treats them as the source of truth for session state. The VAPID keypair sits in the state home, not the config home, because the config home is often dotfiles-managed and a private key there could leak into a repo.
+
 ### III. Wrap, Don't Reinvent
 Existing fab-kit utilities (`wt-create`, `wt-list`, `wt-delete`, `idea`, `changeman.sh`, `statusman.sh`) MUST be used via wrapper functions in `internal/` (Go). HexoKit SHALL NOT reimplement worktree management, change management, or backlog management. When a fab-kit script does what you need, call it.
 
@@ -57,4 +59,4 @@ This tool is part of the shll toolkit and MUST conform to the toolkit's publishe
 
 ## Governance
 
-**Version**: 1.15.2 | **Ratified**: 2026-03-02 | **Last Amended**: 2026-09-29
+**Version**: 1.15.3 | **Ratified**: 2026-03-02 | **Last Amended**: 2026-10-07

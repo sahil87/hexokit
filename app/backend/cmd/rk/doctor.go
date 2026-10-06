@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"rk/internal/apphome"
 	"rk/internal/codebridge"
 	"rk/internal/codeserver"
 	"rk/internal/config"
@@ -23,6 +24,7 @@ import (
 	"rk/internal/daemon"
 	"rk/internal/fabconfig"
 	"rk/internal/gui"
+	"rk/internal/homemigrate"
 	"rk/internal/mcp"
 	"rk/internal/portpolicy"
 	"rk/internal/settings"
@@ -155,6 +157,13 @@ func runDoctorChecks() doctorReport {
 	// tmux config — the managed-conf ownership/drift row, always OK-shaped
 	// (informational only: remediation is the note's recipe, never a failure).
 	report.Checks = append(report.Checks, tmuxConfigCheck())
+
+	// ~/.rk — the one-shot move's end state: absent, a held-back
+	// tenant (warn in the note), or MOVED.md with the remaining user-owned
+	// files. Always OK-shaped — doctor diagnoses, the daemon-start move heals.
+	if home != "" {
+		report.Checks = append(report.Checks, rkHomeCheck(home))
+	}
 
 	// Cron ticker — configuration + disk facts only (the setting state and
 	// the cron state dir's resolvability), always OK-shaped: doctor runs in a
@@ -597,6 +606,102 @@ func tmuxConfigCheck() doctorCheck {
 	return check
 }
 
+// --- ~/.rk row ---------------------------------------------------------------
+
+// rkHomeCheck reports the one-shot ~/.rk → state-home move's end state
+// (261006-3ht0). Always OK-shaped (the code-server/ephemeral posture — doctor
+// diagnoses, the move at daemon start heals): absent is a clean pass; a
+// held-back tenant (its source still present while the destination exists)
+// warns in the note naming both paths; with MOVED.md the note lists the
+// remaining user-owned files; present without MOVED.md means the move has not
+// run yet. It reads $HOME/.rk and resolves the state home via apphome, so
+// tests redirect HOME and XDG_STATE_HOME into temp dirs.
+func rkHomeCheck(home string) doctorCheck {
+	check := doctorCheck{Name: "~/.rk", OK: true}
+	rkDir := filepath.Join(home, ".rk")
+	entries, err := os.ReadDir(rkDir)
+	switch {
+	case os.IsNotExist(err):
+		check.Note = "absent"
+		return check
+	case err != nil:
+		check.Note = fmt.Sprintf("state unreadable: %v", err)
+		return check
+	}
+	state, err := apphome.NewStateDir()
+	if err != nil {
+		check.Note = fmt.Sprintf("present, but the state home is unresolvable: %v", err)
+		return check
+	}
+
+	var held []string
+	hold := func(name, dstLeaf string) {
+		src := filepath.Join(rkDir, name)
+		dst := filepath.Join(state, dstLeaf)
+		if rkHomeExists(src) && rkHomeExists(dst) {
+			held = append(held, fmt.Sprintf("%s still present while %s exists", src, dst))
+		}
+	}
+	// The move's own tenant table, so a tenant added there is reported here.
+	for _, t := range homemigrate.RKTenants {
+		if t.LinuxOnly && runtime.GOOS != "linux" {
+			continue
+		}
+		hold(t.Src, t.Dst)
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".log") {
+			hold(e.Name(), filepath.Join("logs", e.Name()))
+		}
+	}
+	if len(held) > 0 {
+		check.Note = "WARNING: " + strings.Join(held, "; ") + " — the move never overwrites; reconcile by hand, then remove the ~/.rk copy"
+		return check
+	}
+
+	movedNote := false
+	var remaining []string
+	for _, e := range entries {
+		name := e.Name()
+		if name == "MOVED.md" {
+			movedNote = true
+			continue
+		}
+		if rkHomeTenantName(name) {
+			continue
+		}
+		remaining = append(remaining, name)
+	}
+	if !movedNote {
+		check.Note = fmt.Sprintf("present — the one-shot move into %s runs at daemon start (`rk daemon restart`)", state)
+		return check
+	}
+	if len(remaining) == 0 {
+		check.Note = "moved to the state home — only MOVED.md remains; ~/.rk is safe to delete"
+		return check
+	}
+	check.Note = fmt.Sprintf("moved to %s — the remaining files are yours: %s (see ~/.rk/MOVED.md; the folder is safe to delete once handled)", state, strings.Join(remaining, ", "))
+	return check
+}
+
+// rkHomeTenantName reports whether a top-level ~/.rk entry is one the move
+// owns (a tenant source, a per-window job log, or a migration breadcrumb)
+// rather than a user-owned file the MOVED.md branch lists.
+func rkHomeTenantName(name string) bool {
+	switch name {
+	case "vapid.json", "push-subscriptions.json", "code-server-bin", "code-server-profile", "code-server", "desktop", "settings.yaml.migrated", "tmux.d.migrated":
+		return true
+	}
+	return strings.HasSuffix(name, ".log")
+}
+
+// rkHomeExists is the row's stat probe (a seam-free os.Stat — doctor is
+// read-only, so a bare existence check is the whole contract).
+func rkHomeExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
 // guiCheck reports the GUI surface's state: off (the default), on+reachable
 // with the resolved backend/display/geometry/viewer count/window manager and
 // the resolution pin — the geometry segment carries the gui.geometry setting's
@@ -673,12 +778,13 @@ func dialTCP(addr string) bool {
 }
 
 // codeServerCheck reports the daemon-managed code-server's state: install
-// source (rk-managed under ~/.rk/code-server-bin, else a user-managed PATH
-// install), the resolved port (preset RK_CODE_SERVER_PORT, else RK_PORT+2),
-// and reachability. Pure over an injected (home, lookPath, dial) triple so
-// tests never depend on the host. Never OK=false — absence is the WARN case
-// (the daemon warns and continues without it, spawning the install job), so
-// the row carries a remediation Note.
+// source (rk-managed under <state>/code-server/bin — display:
+// ~/.local/state/hexokit/code-server/bin — else a user-managed PATH install),
+// the resolved port (preset RK_CODE_SERVER_PORT, else RK_PORT+2), and
+// reachability. Pure over an injected (home, lookPath, dial) triple so tests
+// never depend on the host. Never OK=false — absence is the WARN case (the
+// daemon warns and continues without it, spawning the install job), so the row
+// carries a remediation Note.
 func codeServerCheck(home string, lookPath func(string) (string, error), dial func(string) bool) doctorCheck {
 	port := config.Load().ResolvedCodeServerPort()
 	check := doctorCheck{Name: "code-server", OK: true}
@@ -703,7 +809,7 @@ func codeServerCheck(home string, lookPath func(string) (string, error), dial fu
 			if err != nil || version == "" {
 				version = "unknown"
 			}
-			check.Note = fmt.Sprintf("managed v%s; %s", version, reachability())
+			check.Note = fmt.Sprintf("managed v%s at %s; %s", version, codeserver.BinDir(home), reachability())
 			return check
 		}
 	}

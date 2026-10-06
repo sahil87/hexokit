@@ -177,7 +177,7 @@ rk desktop update     # same, but a no-op when already current
 rk desktop status     # installed vs latest version (read-only)
 ```
 
-The CLI path matters: on macOS it produces a quarantine-free, digest-verified install that opens cleanly — a browser-downloaded DMG gets blocked by Gatekeeper on every install and update. On Linux it downloads the AppImage, verifies the release digest, extracts it into `~/.rk/desktop`, and writes a launcher entry plus a `hexokit-desktop` symlink in `~/.local/bin` (`rk desktop uninstall` removes it). Updates ship through `rk desktop update` or the app's **Restart to Update** menu item — the app never updates itself.
+The CLI path matters: on macOS it produces a quarantine-free, digest-verified install that opens cleanly — a browser-downloaded DMG gets blocked by Gatekeeper on every install and update. On Linux it downloads the AppImage, verifies the release digest, extracts it into `~/.local/state/hexokit/desktop`, and writes a launcher entry plus a `hexokit-desktop` symlink in `~/.local/bin` (`rk desktop uninstall` removes it). Updates ship through `rk desktop update` or the app's **Restart to Update** menu item — the app never updates itself.
 
 The app's welcome page connects three ways: **This Mac / This Machine** (one-click daemon start), **over SSH** (bootstraps HexoKit on the remote box via `rk remote`), or **a URL**. It never starts, stops, or updates anything on its own, and your tmux sessions survive every daemon action. Details and the manual fallback are in the [install & access guide](docs/site/install.md#desktop-app).
 
