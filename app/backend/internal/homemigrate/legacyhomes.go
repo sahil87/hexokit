@@ -10,13 +10,16 @@ import (
 
 	"rk/internal/apphome"
 	"rk/internal/codebridge"
+	"rk/internal/gui"
 	"rk/internal/settings"
 )
 
 // legacyLiveHostsFn is the seam for the live code-bridge host check under the
 // legacy state home's cb/ registry — tests substitute it so no test dials a
-// socket. The default is codebridge.LiveHosts itself (pid alive AND __ping).
-var legacyLiveHostsFn = codebridge.LiveHosts
+// socket. The default is codebridge.ProbeLiveHosts itself (pid alive AND
+// __ping, strict and non-pruning: an unreadable record is an error, and no
+// record file is ever removed from a registry the guard only inspects).
+var legacyLiveHostsFn = codebridge.ProbeLiveHosts
 
 // LegacyHomeState is the read-only guard evaluation for one legacy run-kit
 // home: whether anything sits at the path, whether the home root is itself a
@@ -34,10 +37,11 @@ type LegacyHomeState struct {
 }
 
 // LegacyHomes evaluates the deletion guards for both legacy run-kit homes
-// without touching the disk (the one probe with a side effect is
-// codebridge.LiveHosts's pruning of dead legacy cb records — the same sweep
-// `rk code hosts` performs). Every guard is evaluated per home, so a held
-// config home never holds back the state home.
+// without touching the disk — the cb registry probe is the strict,
+// non-pruning codebridge.ProbeLiveHosts, so even a symlinked legacy root is
+// only read, never mutated (pruning stays with ordinary discovery, the same
+// sweep `rk code hosts` performs). Every guard is evaluated per home, so a
+// held config home never holds back the state home.
 func LegacyHomes(ctx context.Context) []LegacyHomeState {
 	var out []LegacyHomeState
 	for _, h := range []struct {
@@ -65,10 +69,12 @@ func LegacyHomes(ctx context.Context) []LegacyHomeState {
 // evalLegacyHome applies the per-home guards in order: the hexokit home must
 // exist (a failed migration leaves the legacy home authoritative), the hexokit
 // home must not resolve into the legacy tree, no symlink inside the hexokit
-// home may point into the legacy tree, and (state only) no live code-bridge
-// host may be registered under the legacy cb/ registry. Every unresolvable or
-// unreadable step holds the home back — a deletion that cannot prove its
-// guards never runs.
+// home may point into the legacy tree, (config only) the effective custom
+// tmux conf path must not point into the legacy home, and (state only) the
+// migrated user data must be present in the hexokit home and no live
+// code-bridge host may be registered under the legacy cb/ registry. Every
+// unresolvable or unreadable step holds the home back — a deletion that
+// cannot prove its guards never runs.
 func evalLegacyHome(ctx context.Context, label, legacy, newDir string) LegacyHomeState {
 	st := LegacyHomeState{Label: label, Path: legacy}
 	fi, err := os.Lstat(legacy)
@@ -97,6 +103,18 @@ func evalLegacyHome(ctx context.Context, label, legacy, newDir string) LegacyHom
 	if link != "" {
 		st.Hold = fmt.Sprintf("symlink %s in the hexokit %s home points into the legacy home", link, label)
 		return st
+	}
+	if label == "config" {
+		if hold := tmuxConfIntoLegacyHold(legacy, newDir); hold != "" {
+			st.Hold = hold
+			return st
+		}
+	}
+	if label == "state" {
+		if hold := stateHomeDataHold(legacy, newDir); hold != "" {
+			st.Hold = hold
+			return st
+		}
 	}
 	if label == "state" && legacyCBLive(ctx, legacy) {
 		if st.SymlinkedRoot {
@@ -130,11 +148,19 @@ func newHomeRealPathHold(label, legacy, newDir string) string {
 
 // linkIntoLegacy walks the hexokit home and returns the first symlink whose
 // target resolves — lexically, relative targets against the link's own dir —
-// to the legacy home or a path inside it, or "" when none does. A walk failure
-// (an unreadable tree) is an error, not an empty result.
+// to the legacy home or a path inside it, or "" when none does. The walk
+// starts at the home's RESOLVED root: WalkDir never descends a symlinked
+// root, so a hexokit home linking out to a dotfiles dir would hide that
+// dir's inner links (the root link itself stays covered by the real-path
+// guard above). A walk failure (an unreadable tree) is an error, not an
+// empty result.
 func linkIntoLegacy(legacy, newDir string) (string, error) {
+	root, err := filepath.EvalSymlinks(newDir)
+	if err != nil {
+		return "", err
+	}
 	var found string
-	err := filepath.WalkDir(newDir, func(path string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -154,12 +180,87 @@ func linkIntoLegacy(legacy, newDir string) (string, error) {
 	return found, err
 }
 
+// tmuxConfIntoLegacyHold holds the config home back while the effective
+// custom tmux conf path — RK_TMUX_CONF when set, else the tmux_conf key of
+// the hexokit config.yaml — resolves inside the legacy config home. The
+// migration copies the key unchanged and tmux leaves a user-owned path
+// untouched (tmux.RefreshDefaultConfigPath), so new tmux servers and
+// ReloadConfig still load that file: deleting the home would remove it.
+func tmuxConfIntoLegacyHold(legacy, newDir string) string {
+	conf := os.Getenv("RK_TMUX_CONF")
+	if conf == "" {
+		p := filepath.Join(newDir, "config.yaml")
+		data, err := os.ReadFile(p)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return ""
+			}
+			return fmt.Sprintf("the hexokit config %s is unreadable: %v", p, err)
+		}
+		conf = settings.ParseBytes(data).TmuxConf
+	}
+	if conf == "" {
+		return ""
+	}
+	if !filepath.IsAbs(conf) {
+		abs, err := filepath.Abs(conf)
+		if err != nil {
+			return fmt.Sprintf("the tmux conf path %s is unresolvable: %v", conf, err)
+		}
+		conf = abs
+	}
+	if linkStaysInside(legacy, legacy, conf) {
+		return fmt.Sprintf("the tmux conf path %s points into the legacy config home", conf)
+	}
+	return ""
+}
+
+// stateHomeDataHold holds the state home back when the legacy home still
+// holds the only copy of migrated user data. "The hexokit state home exists"
+// no longer proves the migration ran: the extension can create
+// <state>/hexokit/cb before it, and migrateStateHome then skips the copy. The
+// evidence is the migration's own copy set (stateCopySet dirs and the GUI's
+// write-once seed files) — any of them present under the legacy home but
+// missing from the hexokit home means the legacy copy was never carried over.
+// An unreadable entry holds too: unknown is not preserved.
+func stateHomeDataHold(legacy, newDir string) string {
+	for _, leaf := range stateCopySet {
+		legacyLeaf := filepath.Join(legacy, leaf)
+		fi, err := os.Lstat(legacyLeaf)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				return fmt.Sprintf("the legacy state home entry %s is unreadable: %v", legacyLeaf, err)
+			}
+			continue
+		}
+		if !fi.IsDir() {
+			continue // only dirs migrate; a file-shaped leaf cold-starts
+		}
+		if !exists(filepath.Join(newDir, leaf)) {
+			return fmt.Sprintf("the hexokit state home lacks %s/ — the legacy copy was never migrated", leaf)
+		}
+	}
+	for _, rel := range gui.WriteOnceSeedFiles() {
+		src := filepath.Join(legacy, "gui", rel)
+		if _, err := os.Lstat(src); err != nil {
+			if !os.IsNotExist(err) {
+				return fmt.Sprintf("the legacy state home entry %s is unreadable: %v", src, err)
+			}
+			continue
+		}
+		if !exists(filepath.Join(newDir, "gui", rel)) {
+			return fmt.Sprintf("the hexokit state home lacks gui/%s — the legacy copy was never migrated", rel)
+		}
+	}
+	return ""
+}
+
 // legacyCBLive reports whether a live code-bridge host is registered under the
 // legacy state home's cb/ registry. An unreadable registry (other than absent,
 // which reads empty) counts as live: deleting under a maybe-live host is worse
 // than keeping cb/ for one more boot.
 func legacyCBLive(ctx context.Context, legacy string) bool {
-	live, _, err := legacyLiveHostsFn(ctx, filepath.Join(legacy, "cb", "hosts"))
+	live, err := legacyLiveHostsFn(ctx, filepath.Join(legacy, "cb", "hosts"))
 	return err != nil || len(live) > 0
 }
 

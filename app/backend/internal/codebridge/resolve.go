@@ -89,6 +89,26 @@ func LiveHosts(ctx context.Context, dir string) (live, pruned []HostRecord, err 
 	return live, pruned, nil
 }
 
+// ProbeLiveHosts is the strict, non-pruning variant of LiveHosts for deletion
+// guards: a record file that cannot be read or decoded is an error (unknown —
+// never silently "no hosts"), and dead records are left on disk for ordinary
+// discovery (LiveHosts) to prune. A guard probe must never mutate the registry
+// it inspects: the dir it probes may sit behind a symlink the guard is about
+// to rule on, so pruning there would remove files outside the probe's tree.
+func ProbeLiveHosts(ctx context.Context, dir string) ([]HostRecord, error) {
+	records, err := ReadRecordsStrict(dir)
+	if err != nil {
+		return nil, err
+	}
+	var live []HostRecord
+	for _, rec := range records {
+		if pidAlive(rec.PID) && pingable(ctx, rec.Sock) {
+			live = append(live, rec)
+		}
+	}
+	return live, nil
+}
+
 // folderPrefixMatch reports whether folder equals target or is a
 // path-component-aware prefix of it: /repo matches /repo/x but NOT
 // /repository (a shared string prefix is not a containment).
