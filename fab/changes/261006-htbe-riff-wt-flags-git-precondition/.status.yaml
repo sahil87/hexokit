@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 5
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-10-06T05:03:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-06T05:07:12Z"}
     hydrate: {started_at: "2026-10-06T05:07:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-06T05:08:07Z"}
     ship: {started_at: "2026-10-06T05:08:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-06T05:09:47Z"}
-    review-pr: {started_at: "2026-10-06T05:09:47Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-10-06T05:09:47Z", driver: git-pr, iterations: 1, completed_at: "2026-10-06T05:14:01Z"}
 prs:
     - https://github.com/sahil87/hexokit/pull/1074
 change_type_source: explicit
@@ -56,4 +56,4 @@ true_impact:
 summary: 'rk riff: wt create argv uses --name/--open (wt >= v0.1.0); CLI fails fast with exit 1 when not inside a git repository'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-10-06T05:09:47Z
+last_updated: 2026-10-06T05:14:01Z
