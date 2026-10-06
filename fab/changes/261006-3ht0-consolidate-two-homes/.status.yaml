@@ -1,0 +1,36 @@
+id: 3ht0
+name: 261006-3ht0-consolidate-two-homes
+created: 2026-10-06T04:46:26Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: ready
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: false
+    task_count: 0
+    acceptance_count: 0
+    acceptance_completed: 0
+confidence:
+    certain: 1
+    confident: 13
+    tentative: 2
+    unresolved: 0
+    score: 0.0
+    fuzzy: true
+    dimensions:
+        signal: 64.4
+        reversibility: 55.9
+        competence: 68.8
+        disambiguation: 65.3
+stage_metrics:
+    intake: {started_at: "2026-10-06T04:46:26Z", driver: fab-new, iterations: 1}
+prs: []
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-10-06T04:49:09Z
