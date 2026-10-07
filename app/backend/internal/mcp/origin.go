@@ -122,7 +122,9 @@ type TailnetIdentity struct {
 // (and its first DNS label when hostname is qualified), http://<ip>:<port> for
 // every non-loopback unicast interface address (IPv6 bracketed), and the
 // tailnet DNSName / IPs at the same port. Scheme is http: the daemon serves
-// plain HTTP. The result is deduplicated and sorted.
+// plain HTTP. The one https entry is https://<tailnet DNSName>:443 — the
+// origin a browser sends through `tailscale serve`, whose certificate is
+// issued for exactly that name. The result is deduplicated and sorted.
 func DeriveAllowedOrigins(bindHost string, port int, hostname string, addrs []net.Addr, tailnet TailnetIdentity) []string {
 	seen := make(map[string]struct{})
 	var out []string
@@ -165,9 +167,13 @@ func DeriveAllowedOrigins(bindHost string, port int, hostname string, addrs []ne
 			add(ip.String())
 		}
 	}
-	add(strings.TrimSuffix(tailnet.DNSName, "."))
+	dnsName := strings.TrimSuffix(tailnet.DNSName, ".")
+	add(dnsName)
 	for _, ip := range tailnet.IPs {
 		add(ip)
+	}
+	if dnsName != "" {
+		out = append(out, "https://"+net.JoinHostPort(dnsName, "443"))
 	}
 	sort.Strings(out)
 	return out

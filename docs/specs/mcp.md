@@ -369,11 +369,16 @@ The SDK's streamable-HTTP handler, mounted on the daemon router and sharing
 - **Origin validation.** When a request carries an `Origin` header, the handler MUST
   reject it unless the origin's scheme, host, and port match an entry in an
   **allowlist derived from the daemon's own bind configuration** — the configured
-  `RK_HOST`:`RK_PORT` origin and the host's tailnet hostname and IP at that port —
-  with an explicit loopback exception. The request's `Host` header is **never** the
-  reference: under DNS rebinding an attacker-controlled name resolves to the daemon
-  and both headers carry the attacker's name, so `Origin == Host` defends nothing.
-  This is the MCP transport's DNS-rebinding guard (Constitution I). The root router's
+  `RK_HOST`:`RK_PORT` origin and the host's tailnet hostname and IP at that port,
+  plus `https://<tailnet DNS name>:443` (the origin a browser sends through
+  `tailscale serve`) — with an explicit loopback exception. The request's `Host`
+  header is **never** the reference: under DNS rebinding an attacker-controlled name
+  resolves to the daemon and both headers carry the attacker's name, so
+  `Origin == Host` defends nothing. This is the MCP transport's DNS-rebinding guard
+  (Constitution I). The SDK's own Host-keyed checks are therefore off — its
+  cross-origin protection and its localhost protection (which 403s a loopback
+  arrival carrying a non-loopback `Host`, i.e. every request through a reverse proxy
+  such as `tailscale serve` in front of a `127.0.0.1` bind). The root router's
   CORS allowlist `[GET, POST, OPTIONS]` is **unchanged**: MCP clients are not browsers,
   and CORS governs only browser preflights.
 - **Verb-shape exception.** The transport requires `POST` (client→server messages),
@@ -383,6 +388,10 @@ The SDK's streamable-HTTP handler, mounted on the daemon router and sharing
   grants nothing to `/api/*`.
 - `rk url --mcp` prints the `/mcp` URL for the resolved daemon origin (a new flag on
   the existing `url` verb); `rk doctor` gains a row for the route.
+- The dashboard shows the endpoint read-only in Settings → General (**This host**)
+  with a copy button, plus a `Copy: MCP Endpoint` palette entry. Its value is the
+  page's own origin + `/mcp` — the address that reached the daemon from that device,
+  through any proxy — not the daemon's bind address `rk url --mcp` reports.
 - The handler holds per-connection SDK session state in memory for the connection's
   life only; nothing persists (Constitution II).
 

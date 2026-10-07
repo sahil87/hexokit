@@ -138,6 +138,7 @@ import { readLastPinnedBoard } from "@/lib/last-pinned-board";
 import { buildOpenActions, buildOpenLastUsedAction, buildOpenPrAction } from "@/lib/palette/open";
 import { activePaneCwd, buildOpenTargets, readLastUsedOpenTarget, resolveLastUsedTarget } from "@/lib/open-in-app";
 import { copyToClipboard } from "@/lib/clipboard";
+import { mcpEndpointUrl } from "@/lib/mcp-endpoint";
 import { parseFabChange } from "@/lib/format";
 import { useOpenTargets } from "@/hooks/use-open-targets";
 import { useRunOpenTarget } from "@/components/open-button";
@@ -5099,6 +5100,8 @@ function AppShell() {
       ...(instanceDisplayName
         ? [copyPaletteEntry("copy-host-name", "Copy: Host Name", "Host name", instanceDisplayName)]
         : []),
+      // Palette parity for the Settings → General MCP endpoint row.
+      copyPaletteEntry("copy-mcp-endpoint", "Copy: MCP Endpoint", "MCP endpoint", mcpEndpointUrl()),
       // Per-server kill entries (bylc): with the hover ✕ removed from the
       // SERVER-panel tiles, this listing is the keyboard escape hatch that
       // keeps every server killable — including non-current servers, which

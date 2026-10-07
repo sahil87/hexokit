@@ -55,6 +55,13 @@ export default defineConfig({
         target: backendWsTarget,
         ws: true,
       },
+      // The MCP streamable-HTTP route, so the endpoint Settings → General shows
+      // (the page origin + /mcp) resolves under the dev rig too. Anchored: a
+      // bare "/mcp" prefix key would also swallow SPA routes for a tmux server
+      // named e.g. "mcp-test".
+      "^/mcp(?:$|[/?])": {
+        target: backendTarget,
+      },
       // NO changeOrigin here (deliberate asymmetry with /api): rk's proxy
       // derives X-Forwarded-Host from the INBOUND Host, and proxied apps
       // (code-server) compare it against the browser's Origin on WebSocket

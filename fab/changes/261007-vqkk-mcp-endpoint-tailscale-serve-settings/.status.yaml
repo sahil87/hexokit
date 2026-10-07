@@ -1,0 +1,56 @@
+id: vqkk
+name: 261007-vqkk-mcp-endpoint-tailscale-serve-settings
+created: 2026-10-07T18:34:31Z
+created_by: Sahil Ahuja
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 17
+    acceptance_completed: 17
+confidence:
+    certain: 7
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 79.4
+        reversibility: 87.8
+        competence: 83.3
+        disambiguation: 82.2
+stage_metrics:
+    intake: {started_at: "2026-10-07T18:34:31Z", driver: fab-new, iterations: 1, completed_at: "2026-10-07T19:11:12Z"}
+    apply: {started_at: "2026-10-07T19:11:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-07T19:19:53Z"}
+    review: {started_at: "2026-10-07T19:19:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-07T19:24:26Z"}
+    hydrate: {started_at: "2026-10-07T19:24:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-07T19:25:29Z"}
+    ship: {started_at: "2026-10-07T19:25:29Z", driver: fab-fff, iterations: 1}
+prs: []
+base_branch: main
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-10-07T19:25:29Z"
+    computed_at_stage: hydrate
+summary: /mcp works behind tailscale serve (SDK Host check off, tailnet https origin) and Settings → General + palette show the endpoint from the page origin
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-10-07T19:25:29Z

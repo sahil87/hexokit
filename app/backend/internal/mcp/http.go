@@ -22,18 +22,20 @@ const HTTPSessionIdleTimeout = 30 * time.Minute
 // in the Origin allowlist guard. Every session shares the one SDK server (and
 // so the one policy table and executor); per-session state lives inside the
 // SDK handler for the session's life only. Stateful mode: the GET SSE stream
-// and DELETE termination exist only there. CrossOriginProtection stays nil
-// (deprecated, and its Origin == Host fail-open is the reference the spec
-// forbids — originGuard replaces it) and DisableLocalhostProtection stays
-// false (the SDK's loopback-arrival/non-loopback-Host 403 is an additive
-// guard; a tailnet request arrives on the tailnet address, so it never trips
-// for legitimate clients).
+// and DELETE termination exist only there. originGuard is the only
+// DNS-rebinding guard, so both SDK Host-keyed checks are off:
+// CrossOriginProtection stays nil (deprecated, and its Origin == Host
+// fail-open is the reference the spec forbids) and DisableLocalhostProtection
+// is true — its loopback-arrival/non-loopback-Host 403 rejects every request
+// behind a loopback-terminating reverse proxy (`tailscale serve` in front of a
+// 127.0.0.1 bind), and Host is never a trustworthy reference anyway.
 func (s *Server) HTTPHandler(policy OriginPolicy, logger *slog.Logger) http.Handler {
 	h := mcpsdk.NewStreamableHTTPHandler(
 		func(*http.Request) *mcpsdk.Server { return s.sdk },
 		&mcpsdk.StreamableHTTPOptions{
-			SessionTimeout: HTTPSessionIdleTimeout,
-			Logger:         logger,
+			SessionTimeout:             HTTPSessionIdleTimeout,
+			Logger:                     logger,
+			DisableLocalhostProtection: true,
 		},
 	)
 	return originGuard(policy, logger, h)
