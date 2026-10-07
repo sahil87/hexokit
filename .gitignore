@@ -163,6 +163,8 @@ app/desktop/release/
 tmp
 .uploads/
 test-results/
+app/frontend/test-results-demo/
+.demo/
 app/backend/rk
 
 # Go embed requires build/frontend/ to exist for compilation; track the .gitkeep

@@ -22,7 +22,7 @@ The pane-boards view (`/board/$name`) is a deliberate exception: it is a root-le
 
 ## Data Model
 
-**No database.** State derived at request time from:
+**No database server; the daemon is disposable** (Constitution II — Disposable Daemon). It may hold in-memory state for speed under two rules — a daemon-originated write reaches a durable source before the request succeeds, and external writers win on conflict — while request-path state is derived at request time from:
 - **tmux server** — `tmux list-sessions`, `tmux list-windows` via `internal/tmux/tmux.go`. Project roots derived from window 0's `pane_current_path`. Read-path functions (`ListSessions`, `ListWindows`, `ListServers`) accept `context.Context` from HTTP handlers for request cancellation propagation. Mutation functions (Create/Kill/Rename) use `context.Background()` — user-initiated actions complete regardless of client disconnect
 - **`config.FindGitRoot()`** (`internal/config/gitroot.go`) — walk-up helper from `pane_current_path` looking for `.git`; live callers (`internal/sessions`, `ProjectRoot`). Session color lives in the tmux `@rk_ses_color` option (below)
 - **tmux `@rk_win_color` / `@rk_ses_color` user options (color storage)** (260615-6rnr-expand-swatch-palette-blends) — per-window color in the `@rk_win_color` user option (`#{@rk_win_color}` is field 8 of the `ListWindows()` format string); per-session color in the `@rk_ses_color` option (field 5 of `ListSessions()`'s format string — a distinct name from window `@rk_win_color` so hierarchical format lookup never leaks one scope's value into the other). Both are ephemeral (survive session lifetime, not tmux-server restarts). The stored value is a **string color-value descriptor** in one of four forms: a legacy numeric/blend form `"4"` (single ANSI index) or `"1+3"` (two-hue blend, NOT a bare integer, though a legacy bare int is still accepted on read); a plain owned-family name `"blue"`; or a `-dark`-/`-light`-suffixed shade (`"blue-dark"` / `"blue-light"`). All forms round-trip; the numeric forms remain valid forever (see § validate closed sets). Window color set via `SetWindowColor`/`UnsetWindowColor` (`set-option -w -t {windowID} @rk_win_color {value}` / `-wu`); session color set via `SetSessionColor(session, value, server)` / `UnsetSessionColor` (`set-option -t {session} @rk_ses_color {value}` / `-u`). Both parse the raw option through `validate.NormalizeColorValue` (accepts legacy int OR descriptor, normalizes to the canonical string, drops on malformed) into `WindowInfo.Color *string` / `SessionInfo.Color *string` (nil when unset/malformed); `SessionInfo.Color` surfaces to the SSE snapshot as `ProjectSession.SessionColor` in `internal/sessions`. Pre-namespaced color keys migrate through `MigrateLegacyOptions` — see [tmux-sessions](/run-kit/tmux-sessions.md) § Legacy Option Migration. Both `-t` targets are self-contained (window ID; session name) — no `session:index` string
@@ -35,7 +35,7 @@ The pane-boards view (`/board/$name`) is a deliberate exception: it is a root-le
 
 ### Performance Caching
 
-One in-memory cache reduces subprocess spawning on the SSE hot path (justified per code-quality.md performance carve-out — not general-purpose caching):
+One in-memory cache reduces subprocess spawning on the SSE hot path (Constitution II's in-memory tier — a read-through copy whose tmux/fab durable sources stay authoritative):
 
 | Cache | Location | TTL | Key | Purpose |
 |-------|----------|-----|-----|---------|
@@ -200,7 +200,7 @@ Both modes include SPA fallback (serve `index.html` for non-matching paths), API
 
 ### Tmux user-defined options for web content state over database/config file
 **Decision**: the web-tab family (`@rk_win_web_<n>` + `_root` + `_active`), `@rk_win_layout`, and `@rk_win_code_root` are tmux window options.
-**Why**: preserves constitution principles II (no database) and VI (sessions survive restarts). State is co-located with the tmux window lifecycle — kill the window, lose the metadata. Reactive via existing SSE polling (no new transport).
+**Why**: preserves constitution principles II (no database server) and VI (sessions survive restarts). State is co-located with the tmux window lifecycle — kill the window, lose the metadata. Reactive via existing SSE polling (no new transport).
 **Rejected**: database/config file (violates constitution), window name encoding (fragile).
 *Introduced by*: 260416-6b0h-iframe-proxy-windows
 

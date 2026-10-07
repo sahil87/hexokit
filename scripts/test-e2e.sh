@@ -11,7 +11,14 @@ set -euo pipefail
 #
 # RK_E2E_LANE selects which Playwright project runs against the rig: `web`
 # (default) is app/frontend's suite; `desktop` (via scripts/test-desktop-e2e.sh)
-# is app/desktop's Electron lane — one rig, one lock, one cleanup for both.
+# is app/desktop's Electron lane; `demo` (via scripts/demo.sh) is app/frontend's
+# recording lane under playwright.demo.config.ts — one rig, one lock, one
+# cleanup for all three.
+#
+# RK_E2E_APP_ROOT redirects the single-rig `just dev` launch to another
+# checkout (the demo lane's --before pass serves a base ref's code from a
+# temporary worktree); the harness itself — identity, lock, cleanup, and the
+# Playwright run — always belongs to THIS tree.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/e2e-env.sh"
 RK_CODE_SERVER_PORT="$E2E_CODE_SERVER_PORT"
@@ -36,13 +43,24 @@ E2E_WORKERS="${RK_E2E_WORKERS:-1}"
 # The desktop lane (RK_E2E_LANE=desktop, scripts/test-desktop-e2e.sh) is
 # single-rig by construction — one shell over one rig's two-origin host pair —
 # so it always runs one worker against app/desktop's Playwright project. The
-# web lane is unchanged.
-if [ "${RK_E2E_LANE:-web}" = desktop ]; then
-  E2E_WORKERS=1
-  PLAYWRIGHT_DIR="app/desktop"
-else
-  PLAYWRIGHT_DIR="app/frontend"
-fi
+# demo lane (RK_E2E_LANE=demo, scripts/demo.sh) is likewise single-rig: a
+# recording is a serial, human-paced run against app/frontend under
+# playwright.demo.config.ts. The web lane is unchanged.
+PLAYWRIGHT_CONFIG_ARGS=()
+case "${RK_E2E_LANE:-web}" in
+  desktop)
+    E2E_WORKERS=1
+    PLAYWRIGHT_DIR="app/desktop"
+    ;;
+  demo)
+    E2E_WORKERS=1
+    PLAYWRIGHT_DIR="app/frontend"
+    PLAYWRIGHT_CONFIG_ARGS=(--config playwright.demo.config.ts)
+    ;;
+  *)
+    PLAYWRIGHT_DIR="app/frontend"
+    ;;
+esac
 # The rig table wraps inside the rig block's triples (see the rig loop
 # below), so more rigs than triples would alias a rig onto rig 0's ports
 # undetected.
@@ -384,7 +402,11 @@ spawn_group() {
 }
 
 if [ "$E2E_WORKERS" -eq 1 ]; then
-  spawn_group "RK_PORT=$E2E_PORT RK_SERVER_ALLOWLIST=$E2E_TMUX_FAMILY E2E_TMUX_FAMILY=$E2E_TMUX_FAMILY RK_CODE_SERVER_PORT=$RK_CODE_SERVER_PORT XDG_STATE_HOME=$E2E_STATE_HOME XDG_DATA_HOME=$E2E_DATA_HOME RK_CONFIG_DIR=$RK_CONFIG_DIR E2E_HARNESS=1 exec just dev"
+  # RK_E2E_APP_ROOT (the demo lane's --before pass) serves another checkout's
+  # code: `just dev` must resolve THAT tree's justfile, so the launch cds
+  # there first. Unset, it is this tree — the web/desktop lanes' behavior is
+  # byte-identical to before.
+  spawn_group "cd \"${RK_E2E_APP_ROOT:-$REPO_ROOT}\" && RK_PORT=$E2E_PORT RK_SERVER_ALLOWLIST=$E2E_TMUX_FAMILY E2E_TMUX_FAMILY=$E2E_TMUX_FAMILY RK_CODE_SERVER_PORT=$RK_CODE_SERVER_PORT XDG_STATE_HOME=$E2E_STATE_HOME XDG_DATA_HOME=$E2E_DATA_HOME RK_CONFIG_DIR=$RK_CONFIG_DIR E2E_HARNESS=1 exec just dev"
 else
   # Multi-rig lane: `just dev` cannot run twice in one worktree — every air
   # instance builds to the same app/backend/tmp/rk — so the backend is built
@@ -459,7 +481,7 @@ E2E_RIGS+="]"
 # E2E_TMUX_FAMILY stays the worktree-level anchor so global teardown sweeps
 # every rig's sub-family; the other vars describe rig 0.
 run_playwright() {
-  cd "$PLAYWRIGHT_DIR" && RK_PORT=$E2E_PORT E2E_PORT=$E2E_PORT E2E_TMUX_SERVER="$E2E_TMUX_SERVER" E2E_TMUX_FAMILY="$E2E_TMUX_FAMILY" RK_CODE_SERVER_PORT="$RK_CODE_SERVER_PORT" XDG_STATE_HOME="${RIG_STATE[0]}" RK_CONFIG_DIR="$RK_CONFIG_DIR" E2E_RIGS="$E2E_RIGS" RK_E2E_WORKERS="$E2E_WORKERS" without_lock_fd pnpm exec playwright test "$@"
+  cd "$PLAYWRIGHT_DIR" && RK_PORT=$E2E_PORT E2E_PORT=$E2E_PORT E2E_TMUX_SERVER="$E2E_TMUX_SERVER" E2E_TMUX_FAMILY="$E2E_TMUX_FAMILY" RK_CODE_SERVER_PORT="$RK_CODE_SERVER_PORT" XDG_STATE_HOME="${RIG_STATE[0]}" RK_CONFIG_DIR="$RK_CONFIG_DIR" E2E_RIGS="$E2E_RIGS" RK_E2E_WORKERS="$E2E_WORKERS" without_lock_fd pnpm exec playwright test ${PLAYWRIGHT_CONFIG_ARGS[@]+"${PLAYWRIGHT_CONFIG_ARGS[@]}"} "$@"
 }
 
 # Concurrency throttle (load, not correctness — the derived identity already

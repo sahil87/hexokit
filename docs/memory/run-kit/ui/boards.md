@@ -304,7 +304,7 @@ The five routes are also reachable from a CLI door (`rk board` — see [cli](/ru
 
 ### Constitution Alignment
 
-- **II (No Database)** — pin state lives only in tmux: the `_rk-pin-*` session structure + its `@rk_ses_pin_board`/`@rk_ses_pin_home`/`@rk_ses_pin_order` session vars (tmux session structure IS the record — not a derived server-option value) (260602-qn62-move-based-board-pin-sessions). Browser `localStorage` holds only view-local pane widths
+- **II (Disposable Daemon)** — pin state lives only in tmux: the `_rk-pin-*` session structure + its `@rk_ses_pin_board`/`@rk_ses_pin_home`/`@rk_ses_pin_order` session vars (tmux session structure IS the record — not a derived server-option value) (260602-qn62-move-based-board-pin-sessions). Browser `localStorage` holds only view-local pane widths
 - **IV (Minimal Surface Area)** — adds exactly one route (`/board/$name`) with one rendering path (`TerminalClient`/`/relay/{windowId}`); no relay ephemeral subsystem, no `@rk_ses_pin_board` encoding, no startup sweep, no SSE board-cleanup/bootstrap (260602-qn62-move-based-board-pin-sessions)
 - **V (Keyboard-First)** — pin/unpin/switch/cycle reachable via Cmd+K palette; pane focus cycle via Cmd+[/]
 - **VI (Tmux Sessions Survive Server Restarts)** — pin state persists with the tmux server across rk-go restarts, so there is NO restore-sweep (260602-qn62-move-based-board-pin-sessions); `tmux kill-server` loses the boards on that server (expected and acceptable). An emptied home session (its only window pinned away) persists via the `exit-empty off` backstop (260602-a1wo-prevent-exit-empty-server-death) so unpin can restore the window to it
