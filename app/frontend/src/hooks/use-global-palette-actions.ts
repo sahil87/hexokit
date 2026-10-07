@@ -25,6 +25,7 @@ import { buildVersionAction, displayVersion } from "@/lib/palette/version";
 import { buildEasterEggActions } from "@/lib/palette/easter-eggs";
 import { fire as fireScreenBreak } from "@/lib/screen-break-store";
 import { copyToClipboard } from "@/lib/clipboard";
+import { mcpEndpointUrl } from "@/lib/mcp-endpoint";
 
 /**
  * Layout-level global palette groups (260811-239r) — built ONCE for the single
@@ -524,6 +525,22 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     [daemonVersion, addToast],
   );
 
+  // MCP endpoint copy — palette parity for the Settings → General row's Copy
+  // button. Layout-global because the Settings dialog (and so the button)
+  // mounts on every route; the value is the page origin + /mcp.
+  const mcpEndpointEntry: PaletteAction = useMemo(
+    () => ({
+      id: "copy-mcp-endpoint",
+      label: "Copy: MCP Endpoint",
+      onSelect: () => {
+        void copyToClipboard(mcpEndpointUrl()).then((ok) => {
+          addToast(ok ? "MCP endpoint copied" : "Copy failed", ok ? "info" : "error");
+        });
+      },
+    }),
+    [addToast],
+  );
+
   // App-window pair (260820-lfla) — the SPA-side claims on ⌘N (new app
   // window) and ⇧⌘W (close app window) inside the mac desktop shell, riding
   // the `windows` bridge group (shell:new-window / shell:close-window). The
@@ -569,10 +586,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...(quakeMachine === "open" && quakeTerminalOpenAsTabEntry ? [quakeTerminalOpenAsTabEntry] : []), ...(operatorStartEntry ? [operatorStartEntry] : []), ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, ...easterEggActions],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...(quakeMachine === "open" && quakeTerminalOpenAsTabEntry ? [quakeTerminalOpenAsTabEntry] : []), ...(operatorStartEntry ? [operatorStartEntry] : []), ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, mcpEndpointEntry, ...easterEggActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, quakeTerminalOpenAsTabEntry, operatorStartEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, easterEggActions, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, quakeTerminalOpenAsTabEntry, operatorStartEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, mcpEndpointEntry, easterEggActions, bindingByAction, bindingHost],
   );
 }

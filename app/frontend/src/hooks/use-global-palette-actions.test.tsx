@@ -46,6 +46,12 @@ import type { ProjectSession, WindowInfo } from "@/types";
 
 // The help-topic twins' only seam is `openHelpTopic`; the registry stays real
 // so the ids/labels under test are the shipped ones.
+// The MCP endpoint copy entry — assert the write, never the OS clipboard.
+vi.mock("@/lib/clipboard", () => ({
+  copyToClipboard: vi.fn().mockResolvedValue(true),
+}));
+import { copyToClipboard } from "@/lib/clipboard";
+
 vi.mock("@/lib/help-topics", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/help-topics")>();
   return { ...actual, openHelpTopic: vi.fn() };
@@ -235,6 +241,16 @@ describe("useGlobalPaletteActions", () => {
     expect(fire).toHaveBeenLastCalledWith("peek", { force: true });
     fire.mockRestore();
     screenBreakStore._resetForTests();
+  });
+
+  it("registers Copy: MCP Endpoint on every route, copying the page origin + /mcp", async () => {
+    renderHook();
+    const entry = captured.find((a) => a.id === "copy-mcp-endpoint");
+    expect(entry?.label).toBe("Copy: MCP Endpoint");
+    act(() => entry?.onSelect());
+    await waitFor(() =>
+      expect(copyToClipboard).toHaveBeenCalledExactlyOnceWith(`${window.location.origin}/mcp`),
+    );
   });
 
   it("registers the four Panel: Toggle actions, each flipping its section's persisted boolean (iha5 R6, wuiu R13)", () => {
