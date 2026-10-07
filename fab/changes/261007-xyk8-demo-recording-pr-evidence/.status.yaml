@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 8
@@ -33,25 +33,27 @@ stage_metrics:
     apply: {started_at: "2026-10-07T19:47:22Z", driver: fab-fff, iterations: 2, completed_at: "2026-10-07T19:53:31Z"}
     review: {started_at: "2026-10-07T19:53:31Z", driver: fab-fff, iterations: 2, completed_at: "2026-10-07T19:57:02Z"}
     hydrate: {started_at: "2026-10-07T19:57:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-07T20:00:43Z"}
-    ship: {started_at: "2026-10-07T20:00:43Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-10-07T20:00:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-07T20:03:38Z"}
+    review-pr: {started_at: "2026-10-07T20:03:38Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1079
 change_type_source: explicit
 base_branch: main
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 961
+    deleted: 28
+    net: 933
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 533
+        deleted: 10
+        net: 523
     tests:
         added: 0
         deleted: 0
         net: 0
-    computed_at: "2026-10-07T20:00:44Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-10-07T20:03:38Z"
+    computed_at_stage: ship
 summary: Added the just demo PR-evidence recording lane (RK_E2E_LANE=demo in test-e2e.sh, playwright.demo.config.ts, tests/demo/ + _demo.ts video fixture, scripts/demo.sh with --before temp-worktree before/after, .demo/ outputs + gh pr edit --attach hand-off) and amended the constitution to 2.0.0 (Principle II Disposable Daemon, § PR Evidence)
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-10-07T20:00:44Z
+last_updated: 2026-10-07T20:03:38Z
