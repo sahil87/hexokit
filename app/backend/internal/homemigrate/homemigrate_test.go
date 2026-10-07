@@ -28,6 +28,7 @@ func isolateHomes(t *testing.T) (configRoot, stateRoot string) {
 	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
 	t.Setenv(settings.ConfigDirEnv, "")
 	t.Setenv("RK_PORT", "")
+	t.Setenv("RK_TMUX_CONF", "")
 	return filepath.Join(home, ".config"), filepath.Join(home, "state")
 }
 

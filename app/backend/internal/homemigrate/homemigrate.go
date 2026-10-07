@@ -5,10 +5,14 @@
 // marker — no marker file, and a crash mid-copy leaves at most a temp dir,
 // never a half-formed home.
 //
+// The migration is the skip-release path: it serves a pre-rename install
+// jumping straight to a current release. Once the publish lands, the daemon
+// start's DeleteLegacyHomes removes the stale legacy homes on the same boot
+// behind per-home guards (see legacyhomes.go).
+//
 // Everything here is best-effort and non-fatal: any failure logs a warning,
 // removes the temp dir, and leaves the legacy home authoritative (the
-// apphome dual-read rule still resolves it). The legacy trees are left
-// byte-unchanged so a downgrade keeps working. The migration runs at release
+// apphome dual-read rule still resolves it). The migration runs at release
 // daemon start only (the dev-build gate lives at the call site); it is
 // skipped entirely under the RK_CONFIG_DIR test override — an isolated run
 // must never write the real $HOME.

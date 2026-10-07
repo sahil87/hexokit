@@ -89,41 +89,24 @@ func LiveHosts(ctx context.Context, dir string) (live, pruned []HostRecord, err 
 	return live, pruned, nil
 }
 
-// LiveHostsMerged composes LiveHosts over every discovery dir — the resolved
-// dir plus the legacy run-kit dual-read dir (see discoveryDirs). LiveHosts
-// prunes each dead record from the dir it was found in; the merge keeps the
-// first record per host id, so the resolved dir's record wins a collision and
-// a shadowed legacy duplicate is left on disk, invisible until the dual-read
-// window ends.
-func LiveHostsMerged(ctx context.Context) (live, pruned []HostRecord, err error) {
-	dirs, err := discoveryDirs("hosts")
+// ProbeLiveHosts is the strict, non-pruning variant of LiveHosts for deletion
+// guards: a record file that cannot be read or decoded is an error (unknown —
+// never silently "no hosts"), and dead records are left on disk for ordinary
+// discovery (LiveHosts) to prune. A guard probe must never mutate the registry
+// it inspects: the dir it probes may sit behind a symlink the guard is about
+// to rule on, so pruning there would remove files outside the probe's tree.
+func ProbeLiveHosts(ctx context.Context, dir string) ([]HostRecord, error) {
+	records, err := ReadRecordsStrict(dir)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	seen := make(map[string]bool)
-	for _, dir := range dirs {
-		dirLive, dirPruned, err := LiveHosts(ctx, dir)
-		if err != nil {
-			return nil, nil, err
-		}
-		// Live hosts and pruned records both claim their host id: a dead
-		// record in a more authoritative dir still shadows the legacy one.
-		for _, rec := range dirLive {
-			if seen[rec.HostID] {
-				continue
-			}
-			seen[rec.HostID] = true
+	var live []HostRecord
+	for _, rec := range records {
+		if pidAlive(rec.PID) && pingable(ctx, rec.Sock) {
 			live = append(live, rec)
 		}
-		for _, rec := range dirPruned {
-			if seen[rec.HostID] {
-				continue
-			}
-			seen[rec.HostID] = true
-			pruned = append(pruned, rec)
-		}
 	}
-	return live, pruned, nil
+	return live, nil
 }
 
 // folderPrefixMatch reports whether folder equals target or is a

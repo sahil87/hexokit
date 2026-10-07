@@ -165,6 +165,18 @@ func runDoctorChecks() doctorReport {
 		report.Checks = append(report.Checks, rkHomeCheck(home))
 	}
 
+	// Legacy run-kit homes — the daemon-start deletion's guard evaluation,
+	// read-only here: absent, present with the guard that holds it back, cb/
+	// retained for a live code-bridge host, or pending deletion. Always
+	// OK-shaped (doctor diagnoses, the daemon start heals).
+	{
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		for _, st := range legacyHomesFn(ctx) {
+			report.Checks = append(report.Checks, legacyHomeCheck(st))
+		}
+		cancel()
+	}
+
 	// Cron ticker — configuration + disk facts only (the setting state and
 	// the cron state dir's resolvability), always OK-shaped: doctor runs in a
 	// separate process from the daemon, so live goroutine state is not
@@ -711,6 +723,36 @@ func rkHomeExists(p string) bool {
 	return err == nil
 }
 
+// --- legacy run-kit homes rows ------------------------------------------------
+
+// legacyHomesFn is the seam for the legacy-home guard evaluation — tests
+// substitute it so doctor never reads the real homes or pings a cb socket.
+var legacyHomesFn = homemigrate.LegacyHomes
+
+// legacyHomeCheck renders one legacy run-kit home's guard evaluation as an
+// OK-shaped row named `legacy <config|state> home`.
+func legacyHomeCheck(st homemigrate.LegacyHomeState) doctorCheck {
+	return doctorCheck{Name: "legacy " + st.Label + " home", OK: true, Note: legacyHomeNote(st)}
+}
+
+// legacyHomeNote is the rows' pure note formatter: absent when the home is
+// gone; otherwise the path plus the guard that holds it back, the retained
+// cb/ (a live code-bridge host), or the pending deletion.
+func legacyHomeNote(st homemigrate.LegacyHomeState) string {
+	switch {
+	case st.Hold != "" && !st.Present:
+		return "unresolvable: " + st.Hold
+	case st.Hold != "":
+		return fmt.Sprintf("%s — held back: %s", st.Path, st.Hold)
+	case !st.Present:
+		return "absent"
+	case st.KeepCB:
+		return fmt.Sprintf("%s — a live code-bridge host is registered under cb/; cb/ is kept, the rest deletes at the next daemon start", st.Path)
+	default:
+		return fmt.Sprintf("%s — will be deleted at the next daemon start", st.Path)
+	}
+}
+
 // guiCheck reports the GUI surface's state: off (the default), on+reachable
 // with the resolved backend/display/geometry/viewer count/window manager and
 // the resolution pin — the geometry segment carries the gui.geometry setting's
@@ -844,11 +886,15 @@ var codeBridgeEmbeddedVersion = func() string {
 	return version
 }
 var codeBridgeLiveHostCount = func() (int, error) {
-	// Bounded: each ping is capped inside LiveHostsMerged and the sweep as a
+	// Bounded: each ping is capped inside LiveHosts and the sweep as a
 	// whole gets a ceiling so doctor never hangs on a dead socket.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	live, _, err := codebridge.LiveHostsMerged(ctx)
+	dir, err := codebridge.HostsDir()
+	if err != nil {
+		return 0, err
+	}
+	live, _, err := codebridge.LiveHosts(ctx, dir)
 	if err != nil {
 		return 0, err
 	}

@@ -20,16 +20,5 @@ type BootMarker struct {
 // the ReadRecords posture: a missing dir is an empty list, not an error, and
 // unreadable or undecodable files are skipped.
 func ReadBootMarkers(dir string) ([]BootMarker, error) {
-	return readJSONDir(dir, func(m BootMarker) string { return m.HostID })
-}
-
-// ReadBootMarkersMerged enumerates boot markers across every discovery dir —
-// the resolved dir plus the legacy run-kit dual-read dir (see discoveryDirs).
-// On a hostId collision the resolved dir's marker wins.
-func ReadBootMarkersMerged() ([]BootMarker, error) {
-	dirs, err := discoveryDirs("boots")
-	if err != nil {
-		return nil, err
-	}
-	return readMergedDirs(dirs, ReadBootMarkers, func(m BootMarker) string { return m.HostID })
+	return readJSONDir(dir, func(m BootMarker) string { return m.HostID }, false)
 }

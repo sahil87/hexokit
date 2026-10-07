@@ -20,10 +20,10 @@ test('stateDir: fresh install (neither home exists) resolves the hexokit dir', (
   });
 });
 
-test('stateDir: legacy-only home keeps resolving the run-kit dir', () => {
+test('stateDir: a legacy-only home still resolves the hexokit dir', () => {
   withBase((base) => {
     fs.mkdirSync(path.join(base, 'run-kit'));
-    assert.equal(stateDir({ XDG_STATE_HOME: base }), path.join(base, 'run-kit', 'cb'));
+    assert.equal(stateDir({ XDG_STATE_HOME: base }), path.join(base, 'hexokit', 'cb'));
   });
 });
 
@@ -42,7 +42,7 @@ test('stateDir: XDG_STATE_HOME unset falls back to ~/.local/state', () => {
     fs.mkdirSync(path.join(home, '.local', 'state', 'run-kit'), { recursive: true });
     assert.equal(
       stateDir({}, () => home),
-      path.join(home, '.local', 'state', 'run-kit', 'cb'),
+      path.join(home, '.local', 'state', 'hexokit', 'cb'),
     );
   });
 });

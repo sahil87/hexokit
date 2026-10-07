@@ -20,7 +20,7 @@
 // unset-means-production-identical escape as RK_SERVER_ALLOWLIST and
 // RK_TMUX_CONF, never user-facing deployment configuration. The home dir name
 // itself resolves through internal/apphome (hexokit, dual-reading the legacy
-// run-kit dir for one release).
+// run-kit dir on the skip-release path).
 package settings
 
 import (

@@ -99,8 +99,8 @@ func MoveRKTenants(logger *slog.Logger) {
 		return
 	}
 	// The target is always the NEW state home, never the resolved one: moving
-	// into a legacy run-kit dir would strand the tenants where change lwt6
-	// deletes.
+	// into a legacy run-kit dir would strand the tenants where the daemon
+	// start's legacy-home deletion removes.
 	newState, err := apphome.NewStateDir()
 	if err != nil {
 		logger.Warn("~/.rk move skipped: state home unresolvable", "err", err)
