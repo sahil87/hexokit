@@ -191,7 +191,7 @@ import {
   WindowBounds,
   WindowRecord,
 } from "./windows";
-import { carryForwardLegacyUserData } from "./user-data-migration";
+import { carryForwardLegacyUserData, retireLegacyUserData } from "./user-data-migration";
 import {
   captureWindowRecord,
   hostRemovedFallback,
@@ -3339,13 +3339,16 @@ app.on("web-contents-created", (_event, contents) => {
 void app.whenReady().then(() => {
   // userData is keyed on the app name, so the rename moved the stores to a
   // fresh directory — carry the legacy "Run Kit" sibling's stores forward
-  // once, before any loadHosts/loadWindows read (./user-data-migration).
-  const { copied } = carryForwardLegacyUserData(
-    userDataDir(),
-    join(dirname(userDataDir()), "Run Kit"),
-  );
+  // once, before any loadHosts/loadWindows read, then retire the sibling
+  // (./user-data-migration). A failed carry-forward may be partial, so the
+  // sibling survives that start.
+  const legacyUserDataDir = join(dirname(userDataDir()), "Run Kit");
+  const { copied, failed } = carryForwardLegacyUserData(userDataDir(), legacyUserDataDir);
   if (copied.length > 0) {
     console.log(`carried forward legacy userData stores: ${copied.join(", ")}`);
+  }
+  if (!failed && retireLegacyUserData(userDataDir(), legacyUserDataDir).removed) {
+    console.log(`removed legacy userData dir: ${legacyUserDataDir}`);
   }
 
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
