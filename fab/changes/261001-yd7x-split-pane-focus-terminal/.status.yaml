@@ -1,0 +1,59 @@
+id: yd7x
+name: 261001-yd7x-split-pane-focus-terminal
+created: 2026-10-01T08:20:27Z
+created_by: ashish-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 12
+    acceptance_completed: 12
+confidence:
+    certain: 5
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 76.9
+        reversibility: 87.5
+        competence: 85.0
+        disambiguation: 82.5
+stage_metrics:
+    intake: {started_at: "2026-10-01T08:20:27Z", driver: fab-new, iterations: 1, completed_at: "2026-10-01T08:21:57Z"}
+    apply: {started_at: "2026-10-01T08:21:57Z", driver: fab-ff, iterations: 1, completed_at: "2026-10-01T08:32:53Z"}
+    review: {started_at: "2026-10-01T08:32:53Z", driver: fab-ff, iterations: 1, completed_at: "2026-10-01T08:39:55Z"}
+    hydrate: {started_at: "2026-10-01T08:39:55Z", driver: fab-ff, iterations: 1, completed_at: "2026-10-01T08:40:35Z"}
+    ship: {started_at: "2026-10-01T08:40:35Z", driver: fab-ff, iterations: 1, completed_at: "2026-10-01T09:53:13Z"}
+    review-pr: {started_at: "2026-10-01T09:53:13Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1073
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 573
+    deleted: 35
+    net: 538
+    excluding:
+        added: 188
+        deleted: 30
+        net: 158
+    tests:
+        added: 48
+        deleted: 1
+        net: 47
+    computed_at: "2026-10-01T09:53:13Z"
+    computed_at_stage: ship
+summary: 'Split pane now hands keyboard focus to the terminal: every split entry point routes through a shared useSplitPane hook that focuses the FocusedTerminal registration'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-10-01T09:53:13Z

@@ -5,11 +5,12 @@ import { LogoSpinner, useBrandLogoSweep } from "@/components/logo-spinner";
 import { useChromeState, useChromeDispatch, TERMINAL_FONT_BOUNDS } from "@/contexts/chrome-context";
 import { STAGE_COLUMN_GAP_PX, STAGE_PADDING_PX } from "@/components/shell/shell";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
+import { useSplitPane } from "@/hooks/use-split-pane";
 import { useToast } from "@/components/toast";
 import { useUpdateClick } from "@/hooks/use-update-click";
 import { useUpdateNotification } from "@/contexts/session-context";
 import { updateChipToolSummary } from "@/lib/palette/update";
-import { splitWindow, closePane } from "@/api/client";
+import { closePane } from "@/api/client";
 import { useWindowRename } from "@/hooks/use-window-rename";
 import { finalizeSafeName, toSafeWindowName } from "@/lib/names";
 import { prefersReducedMotion } from "@/lib/motion";
@@ -2604,18 +2605,12 @@ function SplitControl({
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const chevronRef = useRef<HTMLButtonElement>(null);
-  const { addToast } = useToast();
 
   // Menus register `transient` (overlay-presence): while open, a native guest
   // composited above the DOM hides so the menu never paints underneath it.
   useOccludes("transient", open);
 
-  const { execute, isPending } = useOptimisticAction<[boolean]>({
-    action: (horizontal) => splitWindow(server, windowId, horizontal, cwd),
-    onError: (err) => {
-      addToast(err.message || "Failed to split pane");
-    },
-  });
+  const { split, isPending } = useSplitPane();
 
   // Outside-click + Escape close (the OpenButton popover pattern).
   useEffect(() => {
@@ -2642,7 +2637,7 @@ function SplitControl({
 
   const run = (horizontal: boolean) => {
     setOpen(false);
-    execute(horizontal);
+    split(server, windowId, horizontal, cwd);
   };
 
   // Host-effective split chords for the primary tip's kbd slot and the
@@ -2944,11 +2939,7 @@ function SplitMenuRow({
   cwd?: string;
 }) {
   const label = horizontal ? "Split horizontal" : "Split vertical";
-  const { addToast } = useToast();
-  const { execute, isPending } = useOptimisticAction<[]>({
-    action: () => splitWindow(server, windowId, !!horizontal, cwd),
-    onError: (err) => addToast(err.message || "Failed to split pane"),
-  });
+  const { split, isPending } = useSplitPane();
   // Trailing keycap (260811-0f3d): the effective chord for this direction,
   // registry-derived and omitted when unbound — the SplitControl popover-row
   // treatment applied to the overflow menu's split rows.
@@ -2958,7 +2949,7 @@ function SplitMenuRow({
     ? formatCombo({ code: binding.code, tier: binding.tier }, keybindingHost.platform)
     : undefined;
   return (
-    <button type="button" role="menuitem" tabIndex={-1} disabled={isPending} onClick={() => execute()} className={controlClass({ variant: "menu-row" })}>
+    <button type="button" role="menuitem" tabIndex={-1} disabled={isPending} onClick={() => split(server, windowId, !!horizontal, cwd)} className={controlClass({ variant: "menu-row" })}>
       {horizontal ? <SplitHorizontalGlyph /> : <SplitVerticalGlyph />}
       {label}
       {chord && (

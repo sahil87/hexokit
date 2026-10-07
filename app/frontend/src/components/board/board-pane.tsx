@@ -125,6 +125,7 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
       session: entry.session,
       windowId: entry.windowId,
       windowName: entry.windowName,
+      focus: () => focusFnRef.current?.(),
     });
   }, [isFocused, setFocused, entry.server, entry.session, entry.windowId, entry.windowName]);
 
