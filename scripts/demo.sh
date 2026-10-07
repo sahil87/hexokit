@@ -74,9 +74,12 @@ if [[ -z "$name" ]]; then
   exit 2
 fi
 
-# The name becomes a filename segment — no path separators, no parent refs.
-if [[ "$name" == */* || "$name" == *..* ]]; then
-  echo "ERROR: invalid demo name: $name" >&2
+# The name becomes a filename segment and lands unquoted in the printed attach
+# line and the Markdown image references, so it must be a shell- and
+# Markdown-safe basename: letters, digits, '.', '_', '-', never a leading dash
+# (a dash-prefixed name would reach commands as an option, not an operand).
+if [[ ! "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+  echo "ERROR: invalid demo name: $name (letters, digits, '.', '_', '-'; no leading '-')" >&2
   exit 2
 fi
 
