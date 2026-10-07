@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 5
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-10-07T19:19:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-07T19:24:26Z"}
     hydrate: {started_at: "2026-10-07T19:24:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-07T19:25:29Z"}
     ship: {started_at: "2026-10-07T19:25:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-07T19:26:49Z"}
-    review-pr: {started_at: "2026-10-07T19:26:49Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-10-07T19:26:49Z", driver: git-pr, iterations: 1, completed_at: "2026-10-07T19:34:11Z"}
 prs:
     - https://github.com/sahil87/hexokit/pull/1078
 base_branch: main
@@ -55,4 +55,4 @@ true_impact:
 summary: /mcp works behind tailscale serve (SDK Host check off, tailnet https origin) and Settings → General + palette show the endpoint from the page origin
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-10-07T19:26:49Z
+last_updated: 2026-10-07T19:34:11Z
