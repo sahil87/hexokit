@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-10-08T04:55:29Z"}
+{"args":"Near-instant PR event awareness: conditional REST (ETag/If-None-Match) change detector gating the existing GraphQL PR-status refresh","cmd":"fab-new","event":"command","ts":"2026-10-08T04:55:29Z"}
+{"delta":"+2.4","event":"confidence","score":2.4,"trigger":"calc-score","ts":"2026-10-08T04:57:23Z"}
+{"delta":"+0.4","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-10-08T04:57:56Z"}
+{"delta":"+0.0","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-10-08T04:58:02Z"}
+{"delta":"+0.8","event":"confidence","score":3.6,"trigger":"calc-score","ts":"2026-10-08T05:33:27Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-10-08T05:33:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-10-08T05:33:51Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-10-08T05:34:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-10-08T05:45:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-10-08T05:51:46Z"}
+{"event":"review","result":"passed","ts":"2026-10-08T05:51:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-10-08T06:00:35Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-10-08T06:01:06Z"}

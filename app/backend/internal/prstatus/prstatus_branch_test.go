@@ -2359,3 +2359,78 @@ func TestBranchRefresher_SeededNegativeStillQueries(t *testing.T) {
 		t.Errorf("seeded pr==nil entry execs = %d, want 1 (no TTL clock without a gh confirmation)", calls)
 	}
 }
+
+// TestBranchRefresher_RefreshURLsTargeted: RefreshURLs re-resolves only the
+// registered pairs whose current entry points at one of the given PR URLs —
+// every other pair costs no subprocess.
+func TestBranchRefresher_RefreshURLsTargeted(t *testing.T) {
+	var calls []string
+	urlFor := map[string]string{
+		"a": ghPRURL("o/r", 1),
+		"b": ghPRURL("o/r", 2),
+		"c": ghPRURL("o/r", 3),
+	}
+	numFor := map[string]int{"a": 1, "b": 2, "c": 3}
+	r := newTestRefresher(true, func(_ context.Context, _, branch string) ([]byte, error) {
+		calls = append(calls, branch)
+		return branchListJSON(branchNode(numFor[branch], urlFor[branch], "2026-07-01T00:00:00Z")), nil
+	})
+	for _, br := range []string{"a", "b", "c"} {
+		r.Register("/repo", br)
+	}
+	r.refresh(context.Background())
+	if len(calls) != 3 {
+		t.Fatalf("initial refresh execs = %v, want one per pair", calls)
+	}
+
+	calls = nil
+	r.RefreshURLs(context.Background(), []string{urlFor["b"]})
+	if len(calls) != 1 || calls[0] != "b" {
+		t.Fatalf("RefreshURLs execs = %v, want [b]", calls)
+	}
+}
+
+// TestBranchRefresher_RefreshURLsUpdatesEntry: a targeted re-resolve writes
+// the fresh result to the pair's entry (here: the PR merged between passes).
+func TestBranchRefresher_RefreshURLsUpdatesEntry(t *testing.T) {
+	url := ghPRURL("o/r", 2)
+	merged := false
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		state := "OPEN"
+		if merged {
+			state = "MERGED"
+		}
+		return branchListJSON(branchNodeState(2, url, state, "2026-07-01T00:00:00Z")), nil
+	})
+	r.Register("/repo", "b")
+	r.refresh(context.Background())
+
+	merged = true
+	r.RefreshURLs(context.Background(), []string{url})
+	pr, ok := r.Snapshot("/repo", "b")
+	if !ok || pr == nil {
+		t.Fatalf("entry missing after RefreshURLs")
+	}
+	if pr.State != "MERGED" {
+		t.Errorf("entry state = %q, want MERGED after the targeted re-resolve", pr.State)
+	}
+}
+
+// TestBranchRefresher_RefreshURLsNoMatch: an empty set, and a set naming no
+// current entry, are both no-ops — no exec, no entry churn.
+func TestBranchRefresher_RefreshURLsNoMatch(t *testing.T) {
+	calls := 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		calls++
+		return branchListJSON(branchNode(1, ghPRURL("o/r", 1), "2026-07-01T00:00:00Z")), nil
+	})
+	r.Register("/repo", "a")
+	r.refresh(context.Background())
+
+	r.RefreshURLs(context.Background(), nil)
+	r.RefreshURLs(context.Background(), []string{})
+	r.RefreshURLs(context.Background(), []string{ghPRURL("o/r", 99)})
+	if calls != 1 {
+		t.Errorf("execs = %d, want 1 (the initial refresh only)", calls)
+	}
+}
