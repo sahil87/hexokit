@@ -572,10 +572,12 @@ code of our own.
 - **Origin validation** — when a request carries an `Origin` header, the handler
   rejects it unless the origin's scheme, host, and port match an allowlist derived
   from the daemon's own bind configuration (the configured `RK_HOST`:`RK_PORT`
-  origin and the host's tailnet hostname and IP at that port), with an explicit
-  loopback exception. The request `Host` header is never the reference — under DNS
-  rebinding both headers carry the attacker's name (the MCP transport's
-  DNS-rebinding guard, Constitution I).
+  origin and the host's tailnet hostname and IP at that port, plus the tailnet DNS
+  name's `https` origin at 443 for `tailscale serve`), with an explicit loopback
+  exception. The request `Host` header is never the reference — under DNS rebinding
+  both headers carry the attacker's name (the MCP transport's DNS-rebinding guard,
+  Constitution I) — so the SDK's Host-keyed localhost protection is disabled: it
+  would 403 every request reaching a `127.0.0.1` bind through a reverse proxy.
 - **CORS allowlist unchanged** — § Middleware's `GET POST OPTIONS` stays as is. MCP
   clients are not browsers; CORS governs only browser preflights.
 - **Session state** — per-connection SDK state in memory for the connection's life

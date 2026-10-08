@@ -27,7 +27,8 @@ import {
 import { isMacroActionId } from "@/lib/macros";
 import { isShell } from "@/lib/shell";
 import { useSettingsRegistry, type SettingsRegistry } from "@/components/settings-registry-seam";
-import { SettingsAllPanel, BoolToggle } from "@/components/settings-all-panel";
+import { SettingsAllPanel, BoolToggle, CopyValueButton } from "@/components/settings-all-panel";
+import { mcpEndpointUrl } from "@/lib/mcp-endpoint";
 import { controlClass } from "@/components/control";
 import {
   useTextSettingDraft,
@@ -41,7 +42,7 @@ import {
  * 260724-6j1v; TABBED in 260818-bncw), rendered ONCE in `AppLayout` so it
  * exists on every page — server routes, terminals, boards, and the host page.
  *
- * Three topic tabs — **General** (instance name, SSH host, notifications),
+ * Three topic tabs — **General** (instance name, SSH host, MCP endpoint, notifications),
  * **Appearance** (theme pair, accent color, terminal font size), **Shortcuts**
  * (the ported shortcuts-overlay body, `SettingsShortcutsPanel`) — each keeping
  * the persistence-scope `ScopeHeading` groups inside the tab (both General and
@@ -529,6 +530,25 @@ function SettingsDialogBody({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** Read-only: the MCP streamable-HTTP endpoint as this browser reaches the
+ *  daemon (display-only — no registry key behind it). */
+function McpEndpointRow() {
+  const url = mcpEndpointUrl();
+  return (
+    <PreferenceRow
+      label="MCP endpoint"
+      sublabel="For MCP clients on your tailnet (Claude Code). Claude Desktop uses ssh <host> rk mcp instead."
+    >
+      <div className="flex items-start gap-2 min-[480px]:pt-0.5">
+        <code data-testid="settings-mcp-endpoint" className="min-w-0 break-all text-xs text-text-primary pt-1">
+          {url}
+        </code>
+        <CopyValueButton value={url} label="Copy MCP endpoint" />
+      </div>
+    </PreferenceRow>
+  );
+}
+
 function GeneralPanel({
   hostname,
   instanceName,
@@ -564,6 +584,7 @@ function GeneralPanel({
             hint="Used verbatim in editor deeplinks; empty derives user@hostname"
             commit={(trimmed) => registry.commitSetting("ssh_host", trimmed === "" ? null : trimmed)}
           />
+          <McpEndpointRow />
           <PreferenceRow
             label="Auto-name tabs"
             sublabel={autoNameEntry?.description}

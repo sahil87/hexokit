@@ -338,9 +338,9 @@ function RegistryRow({ entry, registry }: { entry: SettingsEntry; registry: Sett
   );
 }
 
-/** The escape-hatch footer: the constant config path, a copy button, and a
- *  hint that map/list keys and comments are edited there. */
-function ConfigYamlFooter() {
+/** A Copy button for a fixed value: writes it via `copyToClipboard` and
+ *  flips its text to "Copied" for 1.5 s (the timer is cleared on unmount). */
+export function CopyValueButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -350,26 +350,34 @@ function ConfigYamlFooter() {
     [],
   );
   return (
+    <Tip label={label}>
+      <button
+        type="button"
+        aria-label={label}
+        onClick={() => {
+          void copyToClipboard(value).then((ok) => {
+            if (!ok) return;
+            setCopied(true);
+            if (timer.current) clearTimeout(timer.current);
+            timer.current = setTimeout(() => setCopied(false), 1500);
+          });
+        }}
+        className="shrink-0 px-2 py-1 border border-border rounded text-xs text-text-secondary hover:border-text-secondary hover:text-text-primary transition-colors"
+      >
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </Tip>
+  );
+}
+
+/** The escape-hatch footer: the constant config path, a copy button, and a
+ *  hint that map/list keys and comments are edited there. */
+function ConfigYamlFooter() {
+  return (
     <div data-testid="settings-config-path-footer" className="mt-6 border-t border-border pt-3">
       <div className="flex items-center gap-2">
         <code className="text-xs text-text-primary">{CONFIG_YAML_PATH}</code>
-        <Tip label="Copy config path">
-          <button
-            type="button"
-            aria-label="Copy config path"
-            onClick={() => {
-              void copyToClipboard(CONFIG_YAML_PATH).then((ok) => {
-                if (!ok) return;
-                setCopied(true);
-                if (timer.current) clearTimeout(timer.current);
-                timer.current = setTimeout(() => setCopied(false), 1500);
-              });
-            }}
-            className="px-2 py-1 border border-border rounded text-xs text-text-secondary hover:border-text-secondary hover:text-text-primary transition-colors"
-          >
-            {copied ? "Copied" : "Copy"}
-          </button>
-        </Tip>
+        <CopyValueButton value={CONFIG_YAML_PATH} label="Copy config path" />
       </div>
       <p className="text-[10px] text-text-secondary mt-1">
         Map/list keys and comments are edited directly in config.yaml.

@@ -88,6 +88,41 @@ func TestHTTPHandlerRoundTrip(t *testing.T) {
 	}
 }
 
+// hostRewriter forwards every request with its Host header replaced — the
+// shape a reverse proxy in front of a loopback bind produces.
+type hostRewriter struct {
+	host string
+	next http.RoundTripper
+}
+
+func (h hostRewriter) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	r.Host = h.host
+	return h.next.RoundTrip(r)
+}
+
+// TestHTTPHandlerProxiedHostRoundTrip: a full client session (initialize,
+// ListTools, DELETE) succeeds when every request reaches the loopback
+// listener carrying a non-loopback Host, as behind `tailscale serve`.
+func TestHTTPHandlerProxiedHostRoundTrip(t *testing.T) {
+	_, ts := newHTTPTestServer(t, NewOriginPolicy(nil), discardLogger())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	httpClient := &http.Client{Transport: hostRewriter{host: "box.tail1234.ts.net", next: ts.Client().Transport}}
+	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "mcp-http-test"}, nil)
+	cs, err := client.Connect(ctx, &mcpsdk.StreamableClientTransport{Endpoint: ts.URL + HTTPRoutePath, HTTPClient: httpClient}, nil)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if _, err := cs.ListTools(ctx, nil); err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	if err := cs.Close(); err != nil {
+		t.Errorf("Close (transport DELETE): %v", err)
+	}
+}
+
 // TestHTTPHandlerOriginGuard: raw-request cases over the guard. An allowed,
 // absent, or loopback Origin passes through to the SDK (observable as its
 // session-less GET 400, never a 403); a disallowed Origin — including the
@@ -168,6 +203,23 @@ func TestHTTPHandlerOriginGuard(t *testing.T) {
 			t.Errorf("body = %q", body)
 		}
 	})
+	t.Run("proxied non-loopback Host with no origin passes", func(t *testing.T) {
+		// The tailscale-serve shape: the request arrives on the loopback
+		// listener carrying the tailnet name as Host.
+		status, body := do(t, http.MethodGet, "", "box.tail1234.ts.net")
+		if status != http.StatusBadRequest {
+			t.Errorf("status = %d, want 400 — a loopback arrival with a tailnet Host must not trip a Host check; body %q", status, body)
+		}
+	})
+	t.Run("disallowed origin behind a proxied Host is 403 JSON", func(t *testing.T) {
+		status, body := do(t, http.MethodGet, "http://evil.example:3000", "box.tail1234.ts.net")
+		if status != http.StatusForbidden {
+			t.Errorf("status = %d, want 403", status)
+		}
+		if body != `{"error":"origin not allowed"}` {
+			t.Errorf("body = %q", body)
+		}
+	})
 	t.Run("malformed origin is 403", func(t *testing.T) {
 		for _, origin := range []string{"http://box:3000/path", "ftp://box:3000", "http://user@box:3000"} {
 			if status, _ := do(t, http.MethodGet, origin, ""); status != http.StatusForbidden {
@@ -182,9 +234,10 @@ func TestHTTPHandlerOriginGuard(t *testing.T) {
 		}
 	})
 
-	// Exactly one WARN per rejection, each naming its origin: the four
-	// rejection cases above (disallowed, rebinding, and the three malformed).
-	if got, want := strings.Count(logBuf.String(), "mcp: origin rejected"), 5; got != want {
+	// Exactly one WARN per rejection, each naming its origin: the rejection
+	// cases above (disallowed, rebinding, proxied-Host disallowed, and the
+	// three malformed).
+	if got, want := strings.Count(logBuf.String(), "mcp: origin rejected"), 6; got != want {
 		t.Errorf("WARN lines = %d, want %d; log:\n%s", got, want, logBuf.String())
 	}
 	if !strings.Contains(logBuf.String(), `origin=http://evil.example:3000`) {

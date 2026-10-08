@@ -552,6 +552,18 @@ describe("SettingsDialog", () => {
     expect(input.value).toBe("dev box");
   });
 
+  it("General → This host shows the MCP endpoint from the page origin and copies it", async () => {
+    renderDialog();
+    const expected = `${window.location.origin}/mcp`;
+    const hostSection = screen.getByRole("region", { name: "This host settings" });
+    expect(within(hostSection).getByTestId("settings-mcp-endpoint")).toHaveTextContent(expected);
+
+    const button = within(hostSection).getByRole("button", { name: "Copy MCP endpoint" });
+    fireEvent.click(button);
+    await waitFor(() => expect(copyToClipboard).toHaveBeenCalledWith(expected));
+    await waitFor(() => expect(button).toHaveTextContent("Copied"));
+  });
+
   it("commits the instance name through the context (empty clears)", async () => {
     const value = makeInstanceName({ instanceName: "old-name", displayName: "old-name" });
     renderDialog(value);
