@@ -24,6 +24,7 @@ Record the actual identities; examples here are placeholders, never facts to ass
 | Discover | `inventory {}` | Observation time, server names, operator pane/window if present |
 | Create | `new_server {"name":"payments-retry"}` | `{report:"created",server,ephemeral:false}` |
 | Open operator | `operator {"server":"payments-retry","dir":"/abs/repo"}` | `{window,server,created,dir?,dir_rung?}` |
+| Check operator | `inventory {"server":"payments-retry"}`; `capture {"server":"payments-retry","target":"@N"}` if needed | Live agent evidence and any boot/trust/login wall; creation alone is not readiness |
 | Hand off | `operator_request {"server":"payments-retry","template":"user-message","window":"@N","text":"…"}` | Request receipt; replace `@N` with the returned operator window |
 | Inspect | `inventory {"server":"payments-retry","agents_only":true}` | Live identities, cwd, lifecycle and errors |
 | Ask for status | `operator_request {"server":"payments-retry","template":"brief-me"}` | Submission receipt; operator's subsequent report is separate |
@@ -33,6 +34,11 @@ and can be bulk reaped. A live name collision is a refusal, not a successful reu
 Inspect before retrying creation or a timed-out operator launch: it may already exist.
 An existing operator is returned with `created:false`; `dir` does not relocate it.
 Verify its pane cwd and existing assignment before handing it a new project.
+Operator creation receipts do not certify boot or kickoff delivery. MCP can time
+out at 45s while the CLI's kickoff wait is longer; inspect the existing window
+before retrying. Wait for a live agent and judge any wall with `capture` before
+handoff. Resolve trust/geometry issues; escalate login walls to the human. Do not
+run a readiness sentinel after the CLI may already have delivered its kickoff.
 Server creation needs tmux; launching the operator needs fab and its configured provider.
 `operator_request` needs the daemon. Report a missing dependency or login wall precisely;
 do not create credentials or silently redirect the job to another host.
@@ -73,6 +79,8 @@ by queueing. A successful request means accepted/queued, not that the work finis
    selected remote and record the target head SHA. Create a separate integration
    worktree/branch from that SHA using the repository's supported worktree tool.
    Keep the user's checkout intact. Operate with explicit worktree paths.
+   If the integration branch or artifact directory already exists, reconcile its
+   recorded target and worker state before resuming; never reset it or duplicate it.
 2. Create only useful workers, with bounded tasks and separate worktrees/branches
    based on the integration branch. Give each worker scope, acceptance checks and
    an absolute result-file path. Use `rk riff`/fab per repository conventions;
