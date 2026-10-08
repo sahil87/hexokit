@@ -1,5 +1,5 @@
 ---
-description: "The window-view lens model (tty/web/code/gui/review), surface layouts (foreign @N tiles, borrow/return, size floor), drag-to-snap, per-viewer popout (?pop=, placeholder reveal, shell bridge), renderers. Web chrome/engine seam, guest park/adopt, address bar, drafts, zoom; code src map, code-root seed/follow, tile verbs, frame LRU, restart affordance; gui noVNC canvas, geometry/zoom/HiDPI, trackpad, key bar, key capture; review diff rows; tty progress/export; tile focus/steal seams."
+description: "The window-view lens model (tty/web/code/gui/review/diff), surface layouts (foreign @N tiles, borrow/return, size floor), drag-to-snap, per-viewer popout (?pop=, placeholder reveal, shell bridge), renderers. Web chrome/engine seam, guest park/adopt, address bar, drafts, zoom; code src map, code-root seed/follow, tile verbs, frame LRU, restart affordance; gui noVNC canvas, geometry/zoom/HiDPI, trackpad, key bar, key capture; review diff rows; tty progress/export; tile focus/steal seams."
 type: memory
 ---
 # run-kit UI — Lenses & Surface Layout

@@ -59,7 +59,19 @@ var nominalBox = rect{w: 1600, h: 1000}
 // surfaceKindList is the closed surface registry — the frontend's ViewName
 // set; spec'd-but-unshipped surfaces (desktop, agents) are rejected until the
 // frontend ships them, and extending the registry is appending one entry.
-var surfaceKindList = []string{"tty", "web", "code", "gui", "review"}
+var surfaceKindList = []string{"tty", "web", "code", "gui", "review", "diff"}
+
+// SurfaceKinds returns the registry, in its canonical order.
+//
+// It exists so other packages can DERIVE their surface lists instead of
+// restating them: the MCP tool schema's enums do, and before that they were a
+// hand-kept copy that still said {tty,web,code,gui} two surfaces later. A
+// caller that copies this slice has reintroduced the problem.
+func SurfaceKinds() []string {
+	out := make([]string, len(surfaceKindList))
+	copy(out, surfaceKindList)
+	return out
+}
 
 // IsSurface reports whether kind is in the surface registry.
 func IsSurface(kind string) bool {
@@ -681,7 +693,9 @@ func swapLeaves(n Node, a, b string) Node {
 var templateNames = []string{"row", "col", "main-left", "main-right", "main-top", "main-bottom"}
 
 // indexKinds are distinct stand-in kinds for structure comparisons and slot
-// mapping (there are exactly five kinds, and template matching runs at N ≤ 5).
+// mapping. It is NOT the surface registry — surfaceKindList is — and it only
+// has to be as long as the largest template, which matches at N ≤ 5. Adding a
+// surface does not belong here.
 var indexKinds = []string{"tty", "web", "code", "gui", "review"}
 
 // buildTemplate builds a template's tree for any N from a slot order; slot 0

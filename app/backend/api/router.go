@@ -33,6 +33,7 @@ import (
 	"rk/internal/updatecheck"
 	"rk/internal/validate"
 	"rk/internal/wt"
+	"rk/internal/wtdiff"
 )
 
 const (
@@ -245,8 +246,13 @@ type Server struct {
 	// prReviewRefresh its per-PR forced-refresh choke point. Both are built
 	// lazily on first use (api/pr_review.go): a daemon whose user never opens a
 	// review tile allocates neither.
-	prReview            *prreview.Fetcher
-	prReviewOnce        sync.Once
+	prReview     *prreview.Fetcher
+	prReviewOnce sync.Once
+	// wtDiff is the working-directory surface's git reader. It holds no cache
+	// — a working-tree read is two local subprocesses and ~50 ms — so it is
+	// here only to avoid rebuilding the seam per request.
+	wtDiff              *wtdiff.Reader
+	wtDiffOnce          sync.Once
 	prReviewRefresh     *prReviewRefreshState
 	prReviewRefreshOnce sync.Once
 	updateChecker       *updatecheck.Checker
@@ -1046,6 +1052,9 @@ func (s *Server) buildRouter() chi.Router {
 	// The `review` surface (docs/specs/pr-review.md § R4). Reads GET, every
 	// mutation POST (Constitution IX); the file list and the file body are
 	// separate reads so a 200-file PR renders without tokenizing any of them.
+	r.Get("/api/diff", s.handleDiff)
+	r.Get("/api/diff/file", s.handleDiffFile)
+	r.Get("/api/diff/digest", s.handleDiffDigest)
 	r.Get("/api/pr/review", s.handlePRReview)
 	r.Get("/api/pr/review/file", s.handlePRReviewFile)
 	r.Post("/api/pr/review/comment", s.handlePRReviewComment)

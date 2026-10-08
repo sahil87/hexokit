@@ -169,7 +169,7 @@ export const KEYBINDINGS_STORAGE_KEY = "hexokit-keybindings";
  * tier on every mac host (interceptable in browsers — ⌘B bold is
  * the same class as the shipped ⌘[/⌘]/⌘/ and ⌘D interceptions, not
  * reserved like ⌘N/T/W); the window-cycle arrows (⌘↑/⌘↓), the positional
- * surface digits (⌘1 tty / ⌘2 code / ⌘3 web / ⌘4 gui / ⌘5 changes), and ⌘I compose demote the same
+ * surface digits (⌘1 tty / ⌘2 code / ⌘3 web / ⌘4 gui / ⌘5 changes / ⌘6 working), and ⌘I compose demote the same
  * way. T/W and , demote on every mac host, and the tab-model letters also
  * refine their CODES (`macCode`): reopen-window rides ⇧⌘T, the two
  * keyless-base app-window actions spend ⌘N/⇧⌘W, and settings rides ⌘,.
@@ -326,7 +326,7 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // Positional surface digits — ⌘1–5 on mac, ⇧Ctrl+1–5 on win/linux —
   // toggle the tty/code/web/gui/review tiles in tile order. Same demotion class as ⌘B
   // (page-interceptable). In a mac BROWSER the cmd-tier
-  // Digit1–9 tab claims (MAC_BROWSER_CMD_CLAIMS below) resolve all five
+  // Digit1–9 tab claims (MAC_BROWSER_CMD_CLAIMS below) resolve all six
   // reserved — palette-reachable only there. The win/linux digits were freed
   // by the shell switcher's move to Alt+1–9, outside every tier (the mac ⌥⌘
   // precedent — Alt is no tier). Terminal scope: the tiles exist only on
@@ -336,6 +336,7 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   { actionId: "web-toggle", code: "Digit3", tier: "shifted", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Toggle web view", description: "open/close the web tile", mapLabel: "web", ignoreInputs: true },
   { actionId: "gui-toggle", code: "Digit4", tier: "shifted", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Toggle GUI", description: "open/close the GUI tile", mapLabel: "gui", ignoreInputs: true },
   { actionId: "review-toggle", code: "Digit5", tier: "shifted", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Toggle changes", description: "open/close the PR review tile", mapLabel: "chg", ignoreInputs: true },
+  { actionId: "diff-toggle", code: "Digit6", tier: "shifted", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Toggle working diff", description: "open/close the working-directory tile", mapLabel: "wrk", ignoreInputs: true },
   // ⇧⌘⏎/⇧Ctrl+Enter zen toggle — shifted on BOTH platforms (no macTier):
   // exact-modifier matching keeps the chord disjoint from the
   // classifier-owned ⌘Enter/Ctrl+Enter compose-submit chords, which never

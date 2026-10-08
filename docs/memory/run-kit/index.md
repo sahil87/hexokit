@@ -39,6 +39,7 @@ description: "HexoKit — web-based agent orchestration dashboard"
 | [tmux-sessions](tmux-sessions.md) | Session enumeration + group filtering; list-clients viewers; direct-attach relay + 90 s liveness deadline; pin/iso link sessions (_rk-pin-*/_rk-iso-*); operator home _rk-operator; _rk-* role taxonomy; server-birth CWD pin; @N addressing; exact-match =name: targets; sort-windows; auto-naming; SSE dead-server reap; @rk_srv_* provenance; @rk_<scope>_<name> option registry (incl. @rk_gui_* stamps) + migration sweep; fab-tier + operator-watchlist window derivations. |
 | [toolkit-standards](toolkit-standards.md) | run-kit's shll-toolkit-standards conformance posture — constitution binding, HEAD-build audit rule, per-standard PASS (help-dump, skill, principles, update, version, install-composition). Covers P9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator` (incl. `operator request`)/`gui`/`mcp`/`board` + the `mux` and `cron` families. |
 | [ui-patterns](ui-patterns.md) | Map file — the UI patterns moved to the ui/ sub-domain; routes old ui-patterns.md section references (historical logs, code comments) to their new homes. |
+| [working-diff](working-diff.md) | — |
 
 ## Sub-Domains
 

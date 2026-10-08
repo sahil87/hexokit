@@ -101,7 +101,7 @@ describe("availableViews", () => {
   // or the derived gitRoot); reachability governs content, not availability.
   it("offers code when gitRoot is set", () => {
     const codeWin: ViewWindow = { gitRoot: "/repo" };
-    expect(availableViews(codeWin)).toEqual(["code", "web", "tty"]);
+    expect(availableViews(codeWin)).toEqual(["code", "diff", "web", "tty"]);
   });
 
   it("gates code off without a gitRoot or codeRoot", () => {
@@ -114,7 +114,7 @@ describe("availableViews", () => {
       gitRoot: "/repo",
       webTabs: ["http://localhost:8080"],
     };
-    expect(availableViews(all)).toEqual(["code", "web", "tty"]);
+    expect(availableViews(all)).toEqual(["code", "diff", "web", "tty"]);
   });
 
   // The `gui` lens: a per-host capability keyed off the signal's `enabled`,
@@ -130,6 +130,8 @@ describe("availableViews", () => {
   });
 
   it("gates gui off when the host is disabled, unreachable-only, or absent", () => {
+    // codeRoot alone: code is available, the WORKING lens is not — it gates on
+    // gitRoot, which a shared code root does not imply.
     const codeWin: ViewWindow = { codeRoot: "/repo" };
     expect(availableViews(codeWin, { enabled: false })).toEqual([
       "code",

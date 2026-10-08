@@ -10,6 +10,7 @@
 package mcp
 
 import (
+	"rk/internal/layoutspec"
 	"time"
 
 	"rk/internal/tmux"
@@ -534,11 +535,11 @@ var Table = []Row{
 			windowArg,
 			{Name: "layout", Positional: 2, Type: ArgString,
 				Description: "The layout value to set — the tree form `h(tty,v(code,web))` or a legacy `<shape>:<surface,…>`; omit for a read, or use one mutation input instead"},
-			{Name: "add", Flag: "--add", Type: ArgString, Enum: []string{"tty", "web", "code", "gui"},
+			{Name: "add", Flag: "--add", Type: ArgString, Enum: layoutspec.SurfaceKinds(),
 				Description: "Add a surface (splits the last tile along its longer axis)"},
-			{Name: "rm", Flag: "--rm", Type: ArgString, Enum: []string{"tty", "web", "code", "gui"},
+			{Name: "rm", Flag: "--rm", Type: ArgString, Enum: layoutspec.SurfaceKinds(),
 				Description: "Remove a surface from the layout (its neighbours absorb the space)"},
-			{Name: "promote", Flag: "--promote", Type: ArgString, Enum: []string{"tty", "web", "code", "gui"},
+			{Name: "promote", Flag: "--promote", Type: ArgString, Enum: layoutspec.SurfaceKinds(),
 				Description: "Move a surface to slot A"},
 			{Name: "cycle", Flag: "--cycle", Type: ArgBoolean,
 				Description: "Cycle to the next template for the tile count"},

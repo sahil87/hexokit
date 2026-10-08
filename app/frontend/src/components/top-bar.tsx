@@ -1640,7 +1640,7 @@ export function TopBar({
             260715-q8ey: the OUTER cell deliberately has NO `min-w-0` — that let
             the `auto` column compress below the heading's content floor and
             produced center-side overlap. The floor is already bounded (name
-            spans `max-w-[16ch] sm:max-w-[28ch] truncate` + fixed-width
+            spans `max-w-[12ch] sm:max-w-[28ch] truncate` + fixed-width
             `shrink-0` controls + the inner `sm:min-w-[28ch]` anchor), so
             dropping `min-w-0` protects the center without a magic pixel min. Do
             NOT re-add `min-w-0` here. */}
@@ -2371,7 +2371,15 @@ function WindowHeading({
         // green lives ONLY on the per-cell churn/cursor spans (SweepCells), so
         // resolved cells settle to `text-text-primary` as the cursor passes
         // rather than the whole name flashing accent-green (260704-pr0p rework).
-        className="max-w-[16ch] sm:max-w-[28ch] text-sm font-semibold text-text-primary inline-flex items-center coarse:min-h-[30px]"
+        //
+        // The MOBILE floor is 12ch, not 16ch (260929-wd01). At 375px the
+        // surface switch group is PINNED — it is the primary mobile tile
+        // affordance, so the fit pipeline drops other chips before it — and a
+        // sixth surface widened it by ~16px, which is exactly enough for the
+        // tab ▾ to collide with the group's left edge. The heading is what
+        // yields, because that is what the ladder says yields; this is the
+        // documented knob for it. `sm:` and up are unchanged.
+        className="max-w-[12ch] sm:max-w-[28ch] text-sm font-semibold text-text-primary inline-flex items-center coarse:min-h-[30px]"
       >
         {/* Truncation lives on an inner span, NOT the button: text-overflow is
             inert on a flex container, and the flex centering clipped long names

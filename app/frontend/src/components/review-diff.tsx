@@ -54,20 +54,29 @@ import type {
  */
 export interface ReviewDiffProps {
   body: ReviewFileBody;
-  threads: ReviewThread[];
+  /**
+   * READ-ONLY MODE. The comment seams are optional, and when `onComment` is
+   * absent the hover gutter and the composer do not render at all.
+   *
+   * This exists for the working-directory surface, which shows the same rows
+   * with no comment layer: a working-tree line has no GitHub address to anchor
+   * a thread to, so the affordance would be a button that cannot work. Making
+   * four props optional was the better trade against a second diff renderer.
+   */
+  threads?: ReviewThread[];
   /** Comments the viewer batched into an unsubmitted review, for this file. */
   pending?: PendingReviewComment[];
   busy?: boolean;
   /** Re-request this file. `range` present = a context expansion. */
   onLoadRange: (range?: { start: number; count: number }) => void | Promise<void>;
-  onComment: (
+  onComment?: (
     side: ReviewSide,
     line: number,
     text: string,
     mode: "single" | "review",
   ) => void | Promise<void>;
-  onReply: (thread: ReviewThread, body: string) => void | Promise<void>;
-  onResolve: (thread: ReviewThread, resolved: boolean) => void | Promise<void>;
+  onReply?: (thread: ReviewThread, body: string) => void | Promise<void>;
+  onResolve?: (thread: ReviewThread, resolved: boolean) => void | Promise<void>;
   onApplySuggestion?: (thread: ReviewThread, comment: ReviewComment, body: string) => void;
 }
 
@@ -80,7 +89,7 @@ const REVIEW_MARK_CLASS = "rk-review-mark";
 
 export function ReviewDiff({
   body,
-  threads,
+  threads = [],
   pending = [],
   busy = false,
   onLoadRange,
@@ -144,10 +153,16 @@ export function ReviewDiff({
     return () => undecorate(container, REVIEW_MARK_CLASS);
   }, [body.rows, threads]);
 
-  const openComposer = useCallback((row: ReviewRow) => {
-    const address = rowAddress(row);
-    if (address) setComposerAt(address);
-  }, []);
+  // In read-only mode there is no composer to open, so the row offers no
+  // affordance at all rather than one that opens a box with nowhere to post.
+  const openComposer = useCallback(
+    (row: ReviewRow) => {
+      if (!onComment) return;
+      const address = rowAddress(row);
+      if (address) setComposerAt(address);
+    },
+    [onComment],
+  );
 
   const firstRendered = firstRenderedLine(body.rows);
 
@@ -208,16 +223,18 @@ export function ReviewDiff({
               )}
             </div>
 
-            {rowThreads.map((thread) => (
-              <ReviewThreadCard
-                key={thread.id}
-                thread={thread}
-                busy={busy}
-                onReply={onReply}
-                onResolve={onResolve}
-                onApplySuggestion={onApplySuggestion}
-              />
-            ))}
+            {onReply &&
+              onResolve &&
+              rowThreads.map((thread) => (
+                <ReviewThreadCard
+                  key={thread.id}
+                  thread={thread}
+                  busy={busy}
+                  onReply={onReply}
+                  onResolve={onResolve}
+                  onApplySuggestion={onApplySuggestion}
+                />
+              ))}
 
             {pending
               .filter(
@@ -228,7 +245,7 @@ export function ReviewDiff({
                 <PendingReviewCard key={`pending-${i}`} comment={entry} />
               ))}
 
-            {anchored && composerAt && (
+            {anchored && composerAt && onComment && (
               <ReviewComposer
                 side={composerAt.side}
                 line={composerAt.line}

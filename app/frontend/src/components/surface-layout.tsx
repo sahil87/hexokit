@@ -6,6 +6,7 @@ import { TerminalClient } from "@/components/terminal-client";
 import { FindBar } from "@/components/find-bar";
 import { CodeSurface } from "@/components/code-surface";
 import { ReviewSurface, type ReviewSurfaceCommands } from "@/components/review-surface";
+import { WorkingSurface } from "@/components/working-surface";
 import { IframeWindow } from "@/components/iframe-window";
 import { StatusDot } from "@/components/status-dot";
 import { DEFAULT_DARK_THEME, type ThemePalette } from "@/themes";
@@ -832,6 +833,13 @@ function tileMeta(kind: SurfaceKind, win: ViewWindow | null, gui?: GuiSignal | n
     if (!prUrl) return null;
     const number = prUrl.split("/").pop() ?? "";
     return number ? `#${number}` : null;
+  }
+  // The working tile's meta is the repo whose tree it is showing.
+  if (kind === "diff") {
+    const root = win?.gitRoot ?? "";
+    if (!root) return null;
+    const parts = root.split("/").filter(Boolean);
+    return parts.length > 0 ? parts[parts.length - 1] : null;
   }
   const codeRoot = kind === "code" ? codeRootFor(win) : "";
   if (codeRoot) {
@@ -2977,6 +2985,16 @@ export function SurfaceLayout({
             onListeningChange={foreign ? undefined : onReviewListeningChange}
           />
         );
+      }
+      case "diff": {
+        // Repo-backed only: availability upstream guarantees a gitRoot, so a
+        // missing one renders nothing rather than an empty state the toggle
+        // should never have offered. A foreign working tile reads its HOME
+        // window's repo, which is the tree that window is actually sitting in.
+        const diffWin = windowRecordFor(tileWinId);
+        const gitRoot = diffWin?.gitRoot ?? "";
+        if (!gitRoot) return null;
+        return <WorkingSurface server={server} windowId={tileWinId} gitRoot={gitRoot} />;
       }
       case "gui": {
         // The gui tile mirrors the code seam grammar, minus the steal guard

@@ -88,7 +88,7 @@ describe("availableTiles", () => {
   it("always lists tty + web, then code per capability — web availability is unconditional", () => {
     expect(availableTiles(plain)).toEqual(["tty", "web"]);
     expect(availableTiles(webWin)).toEqual(["tty", "web"]);
-    expect(availableTiles(fullWin)).toEqual(["tty", "code", "web"]);
+    expect(availableTiles(fullWin)).toEqual(["tty", "code", "web", "diff"]);
     expect(availableTiles(null)).toEqual(["tty", "web"]);
   });
 
@@ -98,14 +98,15 @@ describe("availableTiles", () => {
       "code",
       "web",
       "gui",
+      "diff",
     ]);
     expect(availableTiles(plain, { enabled: true })).toEqual(["tty", "web", "gui"]);
   });
 
   it("omits gui when the host is disabled or the signal is absent", () => {
-    expect(availableTiles(fullWin, { enabled: false })).toEqual(["tty", "code", "web"]);
-    expect(availableTiles(fullWin, null)).toEqual(["tty", "code", "web"]);
-    expect(availableTiles(fullWin)).toEqual(["tty", "code", "web"]);
+    expect(availableTiles(fullWin, { enabled: false })).toEqual(["tty", "code", "web", "diff"]);
+    expect(availableTiles(fullWin, null)).toEqual(["tty", "code", "web", "diff"]);
+    expect(availableTiles(fullWin)).toEqual(["tty", "code", "web", "diff"]);
   });
 });
 
