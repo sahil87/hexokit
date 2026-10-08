@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 8
@@ -33,25 +33,27 @@ stage_metrics:
     apply: {started_at: "2026-10-08T05:33:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-08T05:45:41Z"}
     review: {started_at: "2026-10-08T05:45:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-08T05:51:46Z"}
     hydrate: {started_at: "2026-10-08T05:51:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-08T06:00:35Z"}
-    ship: {started_at: "2026-10-08T06:00:35Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-10-08T06:00:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-08T06:02:29Z"}
+    review-pr: {started_at: "2026-10-08T06:02:29Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1080
 base_branch: main
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 2428
+    deleted: 45
+    net: 2383
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1882
+        deleted: 30
+        net: 1852
     tests:
-        added: 0
+        added: 923
         deleted: 0
-        net: 0
-    computed_at: "2026-10-08T06:00:35Z"
-    computed_at_stage: hydrate
+        net: 923
+    computed_at: "2026-10-08T06:02:29Z"
+    computed_at_stage: ship
 summary: pr-status memory gains the conditional-REST change detector section + design decisions, api-and-sockets the wakeAll seam note; stale digest-cadence claims corrected in pr-review, backend-packages, daemon-lifecycle, sidebar
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-10-08T06:00:35Z
+last_updated: 2026-10-08T06:02:29Z
