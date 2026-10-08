@@ -164,6 +164,7 @@ tmp
 .uploads/
 test-results/
 app/frontend/test-results-demo/
+app/desktop/test-results-demo/
 .demo/
 app/backend/rk
 

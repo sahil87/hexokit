@@ -12,8 +12,9 @@ set -euo pipefail
 # RK_E2E_LANE selects which Playwright project runs against the rig: `web`
 # (default) is app/frontend's suite; `desktop` (via scripts/test-desktop-e2e.sh)
 # is app/desktop's Electron lane; `demo` (via scripts/demo.sh) is app/frontend's
-# recording lane under playwright.demo.config.ts — one rig, one lock, one
-# cleanup for all three.
+# recording lane under playwright.demo.config.ts; `shell-demo` (via
+# scripts/demo.sh) is app/desktop's recording lane under
+# playwright.demo.config.ts — one rig, one lock, one cleanup for all four.
 #
 # RK_E2E_APP_ROOT redirects the single-rig `just dev` launch to another
 # checkout (the demo lane's --before pass serves a base ref's code from a
@@ -43,9 +44,10 @@ E2E_WORKERS="${RK_E2E_WORKERS:-1}"
 # The desktop lane (RK_E2E_LANE=desktop, scripts/test-desktop-e2e.sh) is
 # single-rig by construction — one shell over one rig's two-origin host pair —
 # so it always runs one worker against app/desktop's Playwright project. The
-# demo lane (RK_E2E_LANE=demo, scripts/demo.sh) is likewise single-rig: a
-# recording is a serial, human-paced run against app/frontend under
-# playwright.demo.config.ts. The web lane is unchanged.
+# demo lanes (RK_E2E_LANE=demo / shell-demo, scripts/demo.sh) are likewise
+# single-rig: a recording is a serial, human-paced run under the lane's
+# playwright.demo.config.ts (app/frontend's and app/desktop's respectively).
+# The web lane is unchanged.
 PLAYWRIGHT_CONFIG_ARGS=()
 case "${RK_E2E_LANE:-web}" in
   desktop)
@@ -55,6 +57,11 @@ case "${RK_E2E_LANE:-web}" in
   demo)
     E2E_WORKERS=1
     PLAYWRIGHT_DIR="app/frontend"
+    PLAYWRIGHT_CONFIG_ARGS=(--config playwright.demo.config.ts)
+    ;;
+  shell-demo)
+    E2E_WORKERS=1
+    PLAYWRIGHT_DIR="app/desktop"
     PLAYWRIGHT_CONFIG_ARGS=(--config playwright.demo.config.ts)
     ;;
   *)

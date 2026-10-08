@@ -9,5 +9,5 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -z "${DISPLAY:-}" ] && command -v xvfb-run >/dev/null 2>&1; then
   exec xvfb-run -a "$0" "$@"
 fi
-( cd "$SCRIPT_DIR/../app/desktop" && { [ -d node_modules ] || pnpm install; } && pnpm run compile )
+"$SCRIPT_DIR/compile-desktop.sh" "$SCRIPT_DIR/../app/desktop"
 RK_E2E_LANE=desktop exec "$SCRIPT_DIR/test-e2e.sh" "$@"

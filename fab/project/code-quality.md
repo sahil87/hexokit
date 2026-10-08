@@ -8,7 +8,7 @@
 - **Go backend**: Use `exec.CommandContext` with timeouts for all subprocess calls — never shell strings
 - **Frontend**: Type narrowing over type assertions — prefer `if` guards and discriminated unions over `as` casts
 - Disposable daemon (Constitution II) — in-memory state MAY serve reads, but writes are durable (tmux/filesystem) before acknowledgement and the in-memory copy yields to external changes; never write-behind
-- User-visible UI changes ship with a `just demo` recording attached to the PR (Constitution § PR Evidence)
+- User-visible UI changes ship with a `just demo` recording attached to the PR (Constitution § PR Evidence) — a shell recording (spec under `app/desktop/tests/demo/`) for desktop-shell changes
 - New features and bug fixes MUST include tests covering the added/changed behavior
 - UI changes SHOULD include Playwright e2e tests where possible
 
