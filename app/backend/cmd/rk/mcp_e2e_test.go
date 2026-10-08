@@ -124,7 +124,7 @@ func TestMCPEndToEnd(t *testing.T) {
 		t.Errorf("instructions mismatch: got %d bytes, want the %d-byte skill bundle", len(got), len(skillBundle))
 	}
 
-	// ListTools: exactly the thirty allowlisted tools, with annotations and schemas.
+	// ListTools: exactly the thirty-one allowlisted tools, with annotations and schemas.
 	tools, err := session.ListTools(connectCtx, nil)
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
@@ -136,7 +136,7 @@ func TestMCPEndToEnd(t *testing.T) {
 		names = append(names, tool.Name)
 	}
 	sort.Strings(names)
-	want := []string{"answer", "await", "board", "capture", "code_exec", "cron_add", "cron_list", "cron_mute", "cron_rm", "gui_exec", "gui_shot", "gui_status", "inventory", "kill", "new_window", "notify", "operator", "operator_request", "panes", "process", "riff", "send", "sessions", "snapshot_list", "status", "tab_code", "tab_layout", "tab_show", "tab_web", "tab_web_ls"}
+	want := []string{"answer", "await", "board", "capture", "code_exec", "cron_add", "cron_list", "cron_mute", "cron_rm", "gui_exec", "gui_shot", "gui_status", "inventory", "kill", "new_server", "new_window", "notify", "operator", "operator_request", "panes", "process", "riff", "send", "sessions", "snapshot_list", "status", "tab_code", "tab_layout", "tab_show", "tab_web", "tab_web_ls"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Fatalf("tools = %v, want %v", names, want)
 	}
@@ -241,6 +241,93 @@ func TestMCPEndToEnd(t *testing.T) {
 	res = call("inventory", map[string]any{"server": server, "limit": 0})
 	if !res.IsError {
 		t.Fatal("inventory accepted limit 0")
+	}
+
+	// Bootstrap a second disposable server through the real proxy. Collision
+	// must refuse without disturbing its existing session or pane.
+	changeServer := server + "-change"
+	t.Cleanup(func() {
+		killCtx, killCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer killCancel()
+		_ = exec.CommandContext(killCtx, "tmux", "-L", changeServer, "kill-server").Run()
+	})
+	res = call("new_server", map[string]any{"name": changeServer})
+	if res.IsError {
+		t.Fatalf("new_server IsError: %s", textOf(res))
+	}
+	var created muxNewReceipt
+	if err := json.Unmarshal([]byte(textOf(res)), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Report != "created" || created.Server != changeServer || created.Ephemeral {
+		t.Fatalf("new_server receipt = %+v", created)
+	}
+	defaultMarkCtx, defaultMarkCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer defaultMarkCancel()
+	if ephemeral, err := tmux.IsEphemeralServer(defaultMarkCtx, changeServer); err != nil || ephemeral {
+		t.Fatalf("durable default: ephemeral=%v err=%v", ephemeral, err)
+	}
+	res = call("inventory", map[string]any{"server": changeServer})
+	if res.IsError {
+		t.Fatalf("new server inventory: %s", textOf(res))
+	}
+	if err := json.Unmarshal([]byte(textOf(res)), &inventory); err != nil {
+		t.Fatal(err)
+	}
+	if inventory.Partial || len(inventory.Servers) != 1 || len(inventory.Servers[0].Panes) != 1 {
+		t.Fatalf("new server inventory = %+v", inventory)
+	}
+	createdPane := inventory.Servers[0].Panes[0].Pane
+	res = call("new_server", map[string]any{"name": changeServer})
+	if !res.IsError || !strings.Contains(textOf(res), "already running") {
+		t.Fatalf("collision must refuse: %+v", res)
+	}
+	res = call("inventory", map[string]any{"server": changeServer})
+	if err := json.Unmarshal([]byte(textOf(res)), &inventory); err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError || inventory.Partial || len(inventory.Servers) != 1 || len(inventory.Servers[0].Panes) != 1 || inventory.Servers[0].Panes[0].Pane != createdPane {
+		t.Fatalf("collision disturbed server: %+v", inventory)
+	}
+	// Verify the opt-in against tmux itself, not just the echoed receipt.
+	scratchServer := server + "-scratch"
+	t.Cleanup(func() {
+		killCtx, killCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer killCancel()
+		_ = exec.CommandContext(killCtx, "tmux", "-L", scratchServer, "kill-server").Run()
+	})
+	res = call("new_server", map[string]any{"name": scratchServer, "ephemeral": true})
+	if res.IsError {
+		t.Fatalf("scratch new_server: %s", textOf(res))
+	}
+	markCtx, markCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer markCancel()
+	if ephemeral, err := tmux.IsEphemeralServer(markCtx, scratchServer); err != nil || !ephemeral {
+		t.Fatalf("scratch mark: ephemeral=%v err=%v", ephemeral, err)
+	}
+	// --dir reaches the CLI's filesystem validation before it can launch fab
+	// or mutate a window. A relative path is rejected by the schema itself.
+	fixtureDir := t.TempDir()
+	fixtureFile := filepath.Join(fixtureDir, "file")
+	if err := os.WriteFile(fixtureFile, []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ dir, message string }{
+		{"relative/repo", "must match ^/"},
+		{filepath.Join(fixtureDir, "missing"), "does not exist"},
+		{fixtureFile, "not a directory"},
+	} {
+		res = call("operator", map[string]any{"server": changeServer, "dir": tc.dir})
+		if !res.IsError || !strings.Contains(textOf(res), tc.message) {
+			t.Fatalf("operator directory %q: want %q error, got %+v", tc.dir, tc.message, res)
+		}
+	}
+	res = call("inventory", map[string]any{"server": changeServer})
+	if err := json.Unmarshal([]byte(textOf(res)), &inventory); err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError || inventory.Partial || len(inventory.Servers) != 1 || len(inventory.Servers[0].Panes) != 1 || inventory.Servers[0].Panes[0].Pane != createdPane {
+		t.Fatalf("invalid operator dir mutated server: %+v", inventory)
 	}
 
 	// send: an uninstrumented shell pane is unknown-state — the verb warns on

@@ -253,6 +253,22 @@ func TestMuxNewJSONReceipt(t *testing.T) {
 	assertEnvelopeResult(t, stdout, map[string]any{"report": "created", "server": "scratch1", "ephemeral": false})
 }
 
+// Dash-prefixed labels remain positional after the MCP end-of-flags separator.
+func TestMuxNewDashPrefixedLabel(t *testing.T) {
+	f := &muxNewFake{aliveErr: deadSocket}
+	installMuxNewFakes(t, f)
+	// The MCP row emits this exact end-of-flags form. Exercise Cobra too:
+	// the label must not select the json flag or become a missing argument.
+	stdout, _, err := runMuxCmd(t, "new", "--json", "--", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEnvelopeResult(t, stdout, map[string]any{"report": "created", "server": "--json", "ephemeral": false})
+	if len(f.createCalls) != 1 || f.createCalls[0] != "--json" {
+		t.Fatalf("create calls = %v, want literal label --json", f.createCalls)
+	}
+}
+
 // TestMuxNewJSONCollision: a live-server refusal under --json emits the
 // operational error envelope on stdout with exit 1.
 func TestMuxNewJSONCollision(t *testing.T) {

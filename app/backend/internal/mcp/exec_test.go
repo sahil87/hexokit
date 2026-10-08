@@ -41,6 +41,38 @@ func TestBuildArgvSeededNewRows(t *testing.T) {
 	}
 }
 
+// Server labels and directory paths remain literal argv tokens; a valid
+// dash-prefixed label cannot become a CLI flag.
+func TestChangeBootstrapArgs(t *testing.T) {
+	for _, tc := range []struct {
+		tool  string
+		input string
+		argv  []string
+	}{
+		{"new_server", `{"name":"change-payments"}`, []string{"mux", "new", "--json", "--", "change-payments"}},
+		{"new_server", `{"name":"scratch","ephemeral":true}`, []string{"mux", "new", "--ephemeral", "--json", "--", "scratch"}},
+		{"new_server", `{"name":"--json"}`, []string{"mux", "new", "--json", "--", "--json"}},
+		{"operator", `{"server":"change-payments","dir":"/tmp/repo with spaces","workers":"codex"}`, []string{"operator", "-L", "change-payments", "--workers", "codex", "--dir", "/tmp/repo with spaces", "--json"}},
+	} {
+		row := findRow(t, tc.tool)
+		args, err := ValidateArgs(row, json.RawMessage(tc.input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := BuildArgv(row, args); !reflect.DeepEqual(got, tc.argv) {
+			t.Errorf("%s argv=%v want=%v", tc.tool, got, tc.argv)
+		}
+	}
+	for _, input := range []string{`{}`, `{"name":""}`, `{"name":"bad/name"}`, `{"name":"x; touch /tmp/sentinel"}`, `{"name":"` + strings.Repeat("a", 65) + `"}`} {
+		if _, err := ValidateArgs(findRow(t, "new_server"), json.RawMessage(input)); err == nil {
+			t.Errorf("new_server accepted %s", input)
+		}
+	}
+	if _, err := ValidateArgs(findRow(t, "operator"), json.RawMessage(`{"server":"change-payments","dir":"relative/repo"}`)); err == nil {
+		t.Error("operator accepted relative dir")
+	}
+}
+
 // Fleet discovery must omit -L rather than inherit the default-server scope;
 // all input validation happens before the one CLI child is started.
 func TestInventoryArgvAndBounds(t *testing.T) {

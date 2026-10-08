@@ -34,7 +34,7 @@ lands in a verb, so every pane agent gets it for free.
    never a special tool.
 2. **Allowlist, default-excluded.** A verb is exposed if and only if it has a row in
    the compiled-in policy table (§ Policy table). New verbs ship unexposed. The budget
-   is **≤ 40 tools** (clients degrade above that); v1 ships 30.
+   is **≤ 40 tools** (clients degrade above that); v1 ships 31.
 3. **Flat tools.** One tool per verb, named in `snake_case` from the verb path with the
    family prefix dropped where unambiguous (`mux sessions` → `sessions`, `cron list`
    → `cron_list`, `tab web ls` → `tab_web_ls`). Exactly two tools take an action enum
@@ -84,6 +84,7 @@ The MCP server has no pane, no `$TMUX`, no `$TMUX_PANE`. Therefore:
   `inventory` and pass each returned server name alongside its pane/window ids
   on later calls; ids are scoped to their server. Recovery snapshots do not
   establish live server state.
+- **Change bootstrap.** `new_server` takes a required positional `name`, not an inherited `server`/`-L`. Names match `^[A-Za-z0-9_-]{1,64}$`; `ephemeral` is optional and defaults to false in the CLI. Durable change servers stay persistent. `operator.dir` is an optional absolute existing directory validated by the CLI, selecting repo-local agent configuration for a new operator. Omission uses the recorded server directory then home; an existing singleton is never relocated. `rk skill change` defines the operator-led integration workflow, and the core MCP instructions carry its bootstrap.
 - No tool takes a shell string, a raw tmux target expression beyond the three forms
   above, or a filesystem path beyond what the verb already validates. `riff`'s
   `--cmd` (a pane shell command; its bare form drops into `$SHELL`) is therefore
@@ -139,8 +140,8 @@ below are the contract; a verb MAY add fields, never rename these.
 | Talk | `operator request` | `{"template":"<id>","window":"@N"?,"queued":bool}` — `queued:true` ⇔ the daemon answered `202` |
 | Spawn | `riff` | `{"windows":[{"id":"@N","name":"…","server":"…","panes":["%N",…],"worktree":"/abs/path","branch":"…"}]}` — one element per spawned window (`--count N` ⇒ N elements, in index order); `panes[0]` is the task pane. The verb gains `-L`/`--session =S`/`--repo` targeting flags so the tool is satisfiable with `$TMUX` stripped |
 | Spawn | `tab new` | `{"session":"<name>","session_rung":"explicit"\|"caller"\|"server"\|"sole-user"\|"cwd-root"\|"most-attached","window_id":"@N","pane_id":"%N"[,"ready":…]}` — the shipped document, verbatim inside `result` (the envelope wraps, never reshapes); `session_rung` (always present) says why the landing session was chosen (ui-state.md § `rk tab`) |
-| Spawn | `mux new` | `{"report":"created","server":"<name>","ephemeral":bool}` |
-| Spawn | `operator` | `{"window":"@N","server":"…","created":bool}` — idempotent; `created:false` when the operator tab already existed |
+| Spawn | `mux new` | `{"report":"created","server":"…","ephemeral":bool}` — not idempotent; a live collision fails without mutation |
+| Spawn | `operator` | `{"window":"@N","server":"…","created":bool,"dir":"/abs/path"?,"dir_rung":"explicit\|stored\|home"?}` — idempotent; existing operators return `created:false` and omit directory fields |
 | Spawn | `cron add` | `{"id":"<entry id>","name":"…","schedule":"…","target":"…"}` (the four fields the human line already prints, as the same strings) |
 | Steer UI | `tab layout` | `{"window":"@N","layout":"<shape>:<surfaces>"}` — read and mutate forms alike |
 | Steer UI | `tab web *` | `{"window":"@N","index":n,"url":"<resolved>"?,"tabs":[{"index","url","root"?},…]}` — `index` is the affected slot (mv: the destination), `url` is add's resolved target, `tabs` is the post-mutation family in the `tab web ls --json` entry shape; a failed read-back is a stderr note with `tabs` omitted, never an error |
@@ -233,7 +234,7 @@ Rules:
   required); every tool's `annotations` are declared here, so a client can drive its
   confirmation UX from `destructiveHint` without reading a verb.
 
-### Allowlist v1 (30 tools)
+### Allowlist v1 (31 tools)
 
 Annotations: **ro** = `readOnlyHint`, **destr** = `destructiveHint`, **idem** =
 `idempotentHint`. **Structured today** = the verb emits machine output at the time of
@@ -261,8 +262,9 @@ not this spec's.
 | Talk | `notify` | `notify <message> [--title]` | — | yes (`--json`) |
 | Talk | `operator_request` | `operator request <template> [--window @N] [--text] [--session]` | — | yes |
 | Spawn | `riff` | `riff [preset] [--skill…] [--layout] [--count]` (no `--cmd`) | — | yes (`--json`; plus `-L`/`--session`/`--repo` targeting flags) |
+| Spawn | `new_server` | `mux new <name> [--ephemeral] --json` | — | yes (envelope; live collision refuses) |
 | Spawn | `new_window` | `tab new [--session =S] [--cwd] [--name] [--layout]` | — | yes (`--json`; a bare document until the envelope lands) |
-| Spawn | `operator` | `operator [--workers] [-L]` | idem | yes (`--json`) |
+| Spawn | `operator` | `operator [--workers] [--dir /abs/path] [-L]` | idem | yes (`--json`) |
 | Spawn | `cron_add` | `cron add <prompt> (--every\|--backoff\|--cron) (--pane\|--session\|--role)` | — | yes (`--json`) |
 | Steer UI | `tab_layout` | `tab layout @N [L \| --add S \| --rm S \| --promote S \| --cycle]` | — | yes (`--json`) |
 | Steer UI | `tab_web` | `tab web add\|rm\|select\|mv` (action enum) | — | yes (`--json`) |
