@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"os"
 	"os/user"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -258,6 +260,12 @@ type Server struct {
 	updateChecker       *updatecheck.Checker
 	sseHub              *sseHub
 	sseOnce             sync.Once
+	// sseHubRef mirrors sseHub for goroutines that must NOT create the hub
+	// just to read it — the PR change detector's wake path. Written inside
+	// sseOnce.Do (so the store happens-before any load that observes it), nil
+	// until the first client-driven init; a nil load means no SSE client has
+	// ever connected, so there is nobody to wake.
+	sseHubRef atomic.Pointer[sseHub]
 	// attachReloaded guards the pre-attach managed-conf reload: at most one
 	// attempt per tmux server (keys are server names) per daemon lifetime.
 	// The entry is released on a managed-check read failure so a transient
@@ -385,7 +393,21 @@ func (s *Server) initSSEHub() {
 		listener.unhandled = s.prReviewUnhandled
 		listener.enabled = func() bool { return settings.Load().PrReviewListener }
 		listener.disarm = s.disarmPRReviewListener
+		s.sseHubRef.Store(s.sseHub)
 	})
+}
+
+// wakeAllSSE wakes every server the SSE hub is polling, so a
+// detector-triggered PR refresh reaches clients immediately instead of waiting
+// out the safety tick. Nil-guarded through sseHubRef: a daemon whose hub was
+// never created has nobody to wake, and this path must not create the hub just
+// to wake it.
+func (s *Server) wakeAllSSE() {
+	h := s.sseHubRef.Load()
+	if h == nil {
+		return
+	}
+	h.wakeAll()
 }
 
 // operatorQueueDeliver fetches fresh sessions inside the detached delivery
@@ -872,6 +894,58 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger, cfg config.Con
 		}
 	}
 	s.refreshBranchFn = prstatus.DefaultBranchRefresher.RefreshNow
+
+	// Conditional-REST change detector: polls the live OPEN PRs' REST
+	// endpoints with ETag/If-None-Match at a tight cadence (304s are free
+	// against the primary rate limit) and, on a flip, drives the existing
+	// re-derivation chain — one batched collector refresh, a TARGETED branch
+	// re-resolve of the changed URLs (never a full RefreshNow: that is one
+	// `gh pr list` per registered pair), a thread-digest refresh only when
+	// comments/reviews moved, and a hub wake so clients see the new snapshot
+	// without waiting out the SSE safety tick. The detector writes no PR
+	// state itself; the timed pollers stay the reconciliation safety net.
+	// NewTestRouter leaves this unwired — unit tests never touch the network.
+	det := prstatus.NewDetector(prChangeDetectInterval)
+	det.SetSource(func() []string {
+		entries := prstatus.DefaultBranchRefresher.ObservedEntries()
+		snap := pc.Snapshot()
+		urls := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			if entry.PR.URL == "" {
+				continue
+			}
+			// OPEN-only: the branch channel's state, overridden by the
+			// collector snapshot on a URL hit (the collector is the fresher
+			// authority for PRs it covers). A merged/closed PR drops out of
+			// the set here, so the detector stops polling it.
+			state := entry.PR.State
+			if st, ok := snap[entry.PR.URL]; ok {
+				state = st.State
+			}
+			if !strings.EqualFold(state, "open") {
+				continue
+			}
+			urls = append(urls, entry.PR.URL)
+		}
+		return urls
+	})
+	det.SetOnChange(func(ctx context.Context, changed []prstatus.DetectedChange) {
+		urls := make([]string, 0, len(changed))
+		threadsRelevant := false
+		for _, ch := range changed {
+			urls = append(urls, ch.URL)
+			if ch.ThreadsRelevant() {
+				threadsRelevant = true
+			}
+		}
+		pc.RefreshNow(ctx)
+		prstatus.DefaultBranchRefresher.RefreshURLs(ctx, urls)
+		if threadsRelevant {
+			pc.RefreshThreadsNow(ctx)
+		}
+		s.wakeAllSSE()
+	})
+	det.Start(ctx)
 	return s.buildRouter(), s
 }
 

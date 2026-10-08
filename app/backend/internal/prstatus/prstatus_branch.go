@@ -591,6 +591,35 @@ func (r *BranchRefresher) PositiveEntries() []SeedBranchPR {
 	return out
 }
 
+// ObservedEntries returns the positive derivations a LIVE window currently
+// registers: observedAt within branchPRObservedTTL and not seed-originated.
+// PositiveEntries is the persistence snapshot — it retains unobserved entries
+// for the presence hold and stamps seeds at load time, so an idle daemon would
+// read previously cached PRs from it; ObservedEntries is the change detector's
+// source set, where an idle daemon must yield nothing. A seeded entry whose
+// window re-registers joins the set once a refresh resolves it under this
+// process (which clears the seed mark).
+func (r *BranchRefresher) ObservedEntries() []SeedBranchPR {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	now := r.now()
+	out := make([]SeedBranchPR, 0, len(r.entries))
+	for key, e := range r.entries {
+		if e.pr == nil || e.seeded || now.Sub(e.observedAt) > branchPRObservedTTL {
+			continue
+		}
+		repoDir, branch := splitBranchPRKey(key)
+		if repoDir == "" || branch == "" {
+			continue
+		}
+		out = append(out, SeedBranchPR{RepoDir: repoDir, Branch: branch, PR: *e.pr})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // DiscardSeeded clears the PR of every entry still marked seed-originated. It is
 // the account-switch invalidation step: called once, from the tail of the first
 // successful fetch that reports a DIFFERENT gh viewer login than the loaded cache
@@ -819,6 +848,30 @@ func (r *BranchRefresher) RefreshNow(ctx context.Context) {
 	r.refresh(ctx)
 }
 
+// RefreshURLs re-resolves ONLY the registered pairs whose last-good entry
+// currently points at one of the given PR URLs — the change detector's
+// targeted path, so a flip re-derives the affected branch links without paying
+// one `gh pr list` per registered pair (what a full RefreshNow would cost).
+// Pairs resolve with the tick's exact order and rules (default-branch
+// exclusion → viewer head-index join → `gh pr list` fallback) under the same
+// refreshMu single-flight. The full-tick-only work (pair age-out, per-repo
+// verdict pruning) does not run on this path. An empty set is a no-op.
+func (r *BranchRefresher) RefreshURLs(ctx context.Context, urls []string) {
+	if len(urls) == 0 {
+		return
+	}
+	set := make(map[string]bool, len(urls))
+	for _, u := range urls {
+		if u != "" {
+			set[u] = true
+		}
+	}
+	if len(set) == 0 {
+		return
+	}
+	r.refreshWhere(ctx, set)
+}
+
 // Start begins the background refresh goroutine. It runs one refresh
 // immediately (so the snapshot warms before the first tick) then ticks on the
 // interval, exiting when ctx is cancelled — the same lifecycle as
@@ -880,14 +933,25 @@ func (r *BranchRefresher) settle(ctx context.Context) bool {
 	}
 }
 
-// refresh re-resolves every currently-registered pair and ages out pairs no
-// longer observed. Per pair it tries three resolvers IN ORDER — default-branch
-// exclusion, viewer head-index join, per-pair `gh pr list` fallback (see the loop
-// body) — so the gh subprocess runs only for pairs the already-fetched batch does
-// not cover. Availability is checked at most ONCE per pass, LAZILY: the probe
-// (itself a subprocess) runs only when a pair actually reaches the gh fallback, so
-// a pass resolved entirely by exclusions and index hits issues zero gh
-// subprocesses.
+// refresh runs the full tick pass over every currently-registered pair.
+func (r *BranchRefresher) refresh(ctx context.Context) {
+	r.refreshWhere(ctx, nil)
+}
+
+// refreshWhere is the shared pass implementation. When onlyURLs is nil it is
+// the full tick: every observed pair is re-resolved, unobserved pairs age out,
+// and stale per-repo verdicts are pruned. When onlyURLs is non-nil it is the
+// detector's targeted pass (RefreshURLs): only registered pairs whose
+// last-good entry points at one of those URLs are re-resolved, and the
+// age-out/pruning sweeps are skipped — they belong to the tick.
+//
+// Per pair it tries three resolvers IN ORDER — default-branch exclusion,
+// viewer head-index join, per-pair `gh pr list` fallback (see the loop body) —
+// so the gh subprocess runs only for pairs the already-fetched batch does not
+// cover. Availability is checked at most ONCE per pass, LAZILY: the probe
+// (itself a subprocess) runs only when a pair actually reaches the gh
+// fallback, so a pass resolved entirely by exclusions and index hits issues
+// zero gh subprocesses.
 // Resolution rules for the gh path:
 //   - transient exec error → KEEP the last-good entry (true stale-while-revalidate;
 //     never fail-to-negative)
@@ -898,17 +962,18 @@ func (r *BranchRefresher) settle(ctx context.Context) bool {
 // every pass — its done-square is durable STATELESSLY (no grace clock, no
 // negative-stamp retention). Only a genuine empty/no-PR result clears the entry.
 //
-// It is SINGLE-FLIGHTED (refreshMu): a tick/wake pass and an on-demand RefreshNow
-// serialize instead of interleaving, so a pass blocked in a slow `gh pr list` can
-// no longer come back with a stale parsed-empty result and clear an entry a
-// concurrent pass just resolved positively.
-func (r *BranchRefresher) refresh(ctx context.Context) {
+// It is SINGLE-FLIGHTED (refreshMu): a tick/wake pass and an on-demand
+// RefreshNow/RefreshURLs serialize instead of interleaving, so a pass blocked
+// in a slow `gh pr list` can no longer come back with a stale parsed-empty
+// result and clear an entry a concurrent pass just resolved positively.
+func (r *BranchRefresher) refreshWhere(ctx context.Context, onlyURLs map[string]bool) {
 	r.refreshMu.Lock()
 	defer r.refreshMu.Unlock()
 
 	now := r.now()
 
-	// Age out unobserved pairs and collect the live keys to resolve. Done under
+	// Age out unobserved pairs and collect the live keys to resolve (full tick
+	// only — a targeted pass touches none of this). Done under
 	// the lock; the (cheap) resolution loop below runs the gh calls WITHOUT the
 	// lock held so Register/Snapshot never block on a hung gh. The set of live
 	// repoDirs is collected here too, so stale per-repo default-branch entries
@@ -926,6 +991,17 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 	var todo []pending
 	liveRepos := make(map[string]struct{})
 	for key, e := range r.entries {
+		if onlyURLs != nil {
+			// Targeted pass: only positive entries currently pointing at a
+			// changed URL. A positive entry never carries a fresh negative
+			// (the gh-negative clock zeroes on every positive write).
+			if e.pr == nil || !onlyURLs[e.pr.URL] {
+				continue
+			}
+			repoDir, branch := splitBranchPRKey(key)
+			todo = append(todo, pending{key: key, repoDir: repoDir, branch: branch})
+			continue
+		}
 		age := now.Sub(e.observedAt)
 		if age > branchPRRetainTTL {
 			delete(r.entries, key)
@@ -949,22 +1025,25 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 	// anymore. Best-effort, timestamp-guarded: a repo whose newest verdict is
 	// still within branchDefaultBranchTTL is kept (it may be re-observed within
 	// the window and re-used), so this never fights an in-flight re-probe.
-	for repoDir, e := range r.defaultBranches {
-		if _, live := liveRepos[repoDir]; live {
-			continue
+	// Full-tick only: a targeted pass reasons about URLs, not liveness.
+	if onlyURLs == nil {
+		for repoDir, e := range r.defaultBranches {
+			if _, live := liveRepos[repoDir]; live {
+				continue
+			}
+			if now.Sub(e.at) > branchDefaultBranchTTL {
+				delete(r.defaultBranches, repoDir)
+			}
 		}
-		if now.Sub(e.at) > branchDefaultBranchTTL {
-			delete(r.defaultBranches, repoDir)
-		}
-	}
-	// Prune per-repo origin-identity verdicts the same way, on the same guard —
-	// the two caches share a lifecycle (Constitution §II: bounded in-memory maps).
-	for repoDir, e := range r.origins {
-		if _, live := liveRepos[repoDir]; live {
-			continue
-		}
-		if now.Sub(e.at) > branchOriginTTL {
-			delete(r.origins, repoDir)
+		// Prune per-repo origin-identity verdicts the same way, on the same guard —
+		// the two caches share a lifecycle (Constitution §II: bounded in-memory maps).
+		for repoDir, e := range r.origins {
+			if _, live := liveRepos[repoDir]; live {
+				continue
+			}
+			if now.Sub(e.at) > branchOriginTTL {
+				delete(r.origins, repoDir)
+			}
 		}
 	}
 	r.mu.Unlock()

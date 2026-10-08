@@ -111,7 +111,13 @@ const (
 	// cadence. On-demand refresh (POST /api/status/refresh) covers the
 	// "I want it now" case.
 	prStatusPollInterval = 90 * time.Second
-	sseCacheTTL          = 500 * time.Millisecond
+	// prChangeDetectInterval is the conditional-REST change detector's cadence
+	// (internal/prstatus Detector). A 304 costs nothing against GitHub's
+	// primary rate limit, so this can sit far below the GraphQL pollers it
+	// gates: a flip triggers the existing refresh chain instead of waiting
+	// out their ticks.
+	prChangeDetectInterval = 15 * time.Second
+	sseCacheTTL            = 500 * time.Millisecond
 	// ssePollConcurrency bounds how many per-server poll units run
 	// concurrently. Parallelism is across servers, NEVER within one tmux
 	// server (its command channel serializes anyway — concurrent execs
@@ -2496,6 +2502,28 @@ func (h *sseHub) wake(server string) {
 		// Already closed — a wake is already pending; coalesce.
 	default:
 		close(ch)
+	}
+}
+
+// wakeAll wakes every server the hub is currently polling — the change
+// detector's broadcast path, so a detector-triggered refresh reaches clients
+// now rather than on the safety tick. The metrics-only sentinel is skipped: it
+// has no tmux server to re-derive (its session work is nil) and its
+// host-global broadcasts are not PR-driven. wake's own allocation gate and
+// coalescing apply per server, so this is safe to call after every detector
+// flip round.
+func (h *sseHub) wakeAll() {
+	h.mu.RLock()
+	servers := make([]string, 0, len(h.clients))
+	for server := range h.clients {
+		if server == metricsOnlyServer {
+			continue
+		}
+		servers = append(servers, server)
+	}
+	h.mu.RUnlock()
+	for _, server := range servers {
+		h.wake(server)
 	}
 }
 

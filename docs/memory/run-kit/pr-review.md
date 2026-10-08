@@ -13,7 +13,7 @@ A window's branch already resolves to a pull request ([pr-status](/run-kit/archi
 The surface is **PR-backed only**. No PR on the branch ⇒ no toggle, no tile, and no way to comment — which keeps the diff, the comments and the listener's input on **one substrate** and means no comment ever needs a run-kit-owned store (Constitution II).
 
 ```
- branch ──prstatus.BranchRefresher──▶ PR ──┬──▶ digest   (in the existing 90 s batch)
+ branch ──prstatus.BranchRefresher──▶ PR ──┬──▶ digest   (scoped poll: 3-min tick + on-demand triggers)
                                            └──▶ detail  (on demand, tile mounted)
                                                   │
  review tile ◀────────────────────────────────────┘
@@ -31,7 +31,7 @@ The surface is **PR-backed only**. No PR on the branch ⇒ no toggle, no tile, a
 
 **Availability** is `hasReview(win) ≡ (win?.prUrl ?? "").length > 0` — the branch-derived `prUrl` already rides the SSE window payload, so the lens adds no server-side derivation and no availability field. `availableTiles` pushes `review` last (the ⌘5 position); `HINT_ORDER` is `[code, gui, review, web, tty]`.
 
-The toggle's **dot is not availability**. It means "threads are waiting on a human", so it reads the unhandled-thread count, which a closed tile cannot report. `WindowInfo.PrReviewUnhandled` (JSON `prReviewUnhandled`) carries it, joined by `sseHub.attachPRStatus` from the R3 digest as a pure in-memory read — collector-join-owned like `PrChecks`/`PrReview` (zeroed on every pass, re-attached for any window with a PR URL). A mounted tile's own count wins, because it reads the detail document rather than the 90 s digest. Full toggle mechanics: [top-bar](/run-kit/ui/top-bar.md) § Surface toggles; the renderer sits in [lenses-and-layout](/run-kit/ui/lenses-and-layout.md) § Review Surface.
+The toggle's **dot is not availability**. It means "threads are waiting on a human", so it reads the unhandled-thread count, which a closed tile cannot report. `WindowInfo.PrReviewUnhandled` (JSON `prReviewUnhandled`) carries it, joined by `sseHub.attachPRStatus` from the R3 digest as a pure in-memory read — collector-join-owned like `PrChecks`/`PrReview` (zeroed on every pass, re-attached for any window with a PR URL). A mounted tile's own count wins, because it reads the detail document rather than the digest. Full toggle mechanics: [top-bar](/run-kit/ui/top-bar.md) § Surface toggles; the renderer sits in [lenses-and-layout](/run-kit/ui/lenses-and-layout.md) § Review Surface.
 
 ## Two Cadences, Two Packages
 
@@ -40,14 +40,14 @@ The digest and the detail have opposite cost profiles and do not share a package
 | | Digest | Detail |
 |---|---|---|
 | Lives in | `internal/prstatus` (`prstatus_threads.go`) | `internal/prreview` |
-| Cadence | every 90 s, every PR the viewer owns | on demand, only while a tile is mounted |
+| Cadence | every 3 min on its own tick (`DefaultThreadInterval`), plus on demand — arming the listener, and comment/review flips observed by the conditional-REST change detector ([pr-status](/run-kit/architecture/pr-status.md) § The Conditional-REST Change Detector) | on demand, only while a tile is mounted |
 | Carries | `id`, `isResolved`, `isOutdated`, `path`, `line`, first comment's `id` + `databaseId` + `author.login` + 👀 count | file list, patches, full thread bodies, blobs, token spans |
 | Keyed by | PR URL (`threadsByURL`) | PR URL, entry-carried head sha; blobs key `(blobSha, path)` |
-| Extra `gh` subprocesses | none — rides the existing `viewer.pullRequests` query | one per mount, plus one per blob (shared between context expansion and lexing) |
+| `gh` cost per pass | one scoped `nodes(ids:)` GraphQL call (~5 points), OPEN PRs live windows resolve to | one per mount, plus one per blob (shared between context expansion and lexing) |
 
-Full bodies in the batch would multiply that payload by comment count across a 100-PR window every 90 s. Serving the listener from the detail fetcher would make the listener depend on a tile being open. Both package doc comments state the split so it does not read as duplication.
+Full bodies in the digest would multiply its payload by comment count across every polled PR. Serving the listener from the detail fetcher would make the listener depend on a tile being open. Both package doc comments state the split so it does not read as duplication.
 
-**`internal/prstatus`'s digest half** adds a `reviewThreads(first: 100) { … comments(first: 1) { … reactions(content: EYES, first: 1) } }` selection to the one batched `ghQuery`, and `refresh` rebuilds `threadsByURL` wholesale in the same critical section as `byURL`, so one snapshot always describes one batch. Readers: `Collector.ReviewThreads(prURL)` (copy of the slice) and `Collector.UnhandledThreads(prURL)` (predicate-filtered, gh order — oldest first, so a review dispatches in the order it was written). A thread with no comments is skipped: it has no marker target and cannot be described to an agent.
+**`internal/prstatus`'s digest half** fetches threads through a SCOPED query — `nodes(ids:)` over the OPEN PRs live windows resolve to (`SetLivePRSource`), deliberately NOT nested in the batched `viewer.pullRequests` query: GraphQL bills a query on the `first:` values it DECLARES, so nesting `reviewThreads(first: 100)` in the batch cost ~100 points per pass against a 5 000/hour budget, where the scoped form costs ~5 (measured pricing table in § Known Limits). `refreshThreads` runs on its own 3-min tick plus on-demand `RefreshThreadsNow` calls, rebuilding `threadsByURL` wholesale per pass. Readers: `Collector.ReviewThreads(prURL)` (copy of the slice) and `Collector.UnhandledThreads(prURL)` (predicate-filtered, gh order — oldest first, so a review dispatches in the order it was written). A thread with no comments is skipped: it has no marker target and cannot be described to an agent.
 
 The patch→rows→spans pipeline is **no longer this package's**: `ParsePatch`, the row model, the line runs and the Chroma lexing — tier 0.5's `LexPatchRows` included, since it touches neither a network nor a cache — live in `internal/diffrows`, shared with the working-directory surface ([working-diff](/run-kit/working-diff.md)). The split line is **"does it touch a network or a cache"** — `spansFor`, `refinedSpans`, `queueRefine` and `refinePassByteCap` stayed because they are bound to the blob cache and the gh fetch. `prreview` keeps type and const aliases for everything that crossed, so no consumer churned.
 
@@ -241,7 +241,7 @@ This is not academic. The detail query shipped at `comments(first: 100)`, so **e
 
 Two rules fall out, both learned the expensive way. **Never reason about cost in `gh` calls** — "it rides an existing call, so it is free" is true of subprocesses and false of points, and counting subprocesses is precisely what hid this: ~9 calls per reload looked far too cheap to be spending 100 points, because *one* of them declared a 10 000-node product. And **`gh api rate_limit` misreports both buckets** — it read `graphql: 0/5000 remaining` while GraphQL was fully exhausted, and `core: 0` while the REST header said 355; only `rateLimit { }` *inside* a GraphQL query and the `X-RateLimit-*` response headers are truthful. Polled queries therefore select `rateLimit { cost remaining }` and log it, warning below 1 000 remaining.
 
-Steady-state burn, measured: idle ~206 points/hour (the digest's own 3-minute tick plus the branch refresher); a reload ~23; a daemon restart ~200 once, as every `(repoDir, branch)` pair is first-sight and resolves — which in development means every `just dev` rebuild.
+Steady-state burn, measured: idle ~206 points/hour (the digest's own 3-minute tick plus the branch refresher); a reload ~23; a daemon restart ~200 once, as every `(repoDir, branch)` pair is first-sight and resolves — which in development means every `just dev` rebuild. The conditional-REST change detector adds no idle spend — its 304s are free against the primary rate limit — and spends GraphQL only on a real flip, bounded by its 10 s minimum refresh interval.
 
 **A tier-2 refine swap can be missed for the life of a mount.** `review-diff.tsx` re-requests a file exactly once on `refine: true` and latches that it has done so. On a large blob (under `refinePassByteCap`) the background pass can still be lexing when the retry arrives, in which case the server answers `refine: true` from tier 1 again and the tile keeps the possibly-guessed tier-1 colours until it remounts — on exactly the large files tier 2 exists for.
 
