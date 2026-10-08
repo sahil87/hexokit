@@ -614,8 +614,18 @@ func TestGuiSuperviseLinuxBackendExitStaysIdle(t *testing.T) {
 	go func() { done <- runGuiSuperviseCtx(ctx, "host", ":10") }()
 
 	waitForGuiLog(t, buf, "gui: Xtigervnc exited (status 3) — display :10 is down; run 'rk gui restart' or turn the GUI off")
-	if _, err := os.Stat(sock); !os.IsNotExist(err) {
-		t.Errorf("socket still present after the backend exit: %v", err)
+	// The exit line is logged before the socket is removed, so poll rather
+	// than stat once — a single stat races the teardown.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		_, err := os.Stat(sock)
+		if os.IsNotExist(err) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("socket still present 5s after the backend exit: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	// R6: the supervisor BLOCKS after the backend's own exit — no auto-respawn,
 	// no process exit, so the pane keeps the exit line readable.
