@@ -118,6 +118,10 @@ test-desktop-e2e *args:
 pw *args:
     scripts/pw.sh {{args}}
 
+# Record a demo spec (app/frontend/tests/demo/<name>.demo.ts) on this worktree's throwaway rig → .demo/<name>[-before|-after]-<desktop|mobile>.webm
+demo *args:
+    scripts/demo.sh {{args}}
+
 # Idle-CPU probe against a LIVE daemon (just perf-idle-cpu /runKit 30, just perf-idle-cpu /runKit/@99 --reduced-motion)
 # Loads one rk route, idles N seconds, prints per-process CPU %, renderer
 # main-thread breakdown, running animations, per-socket msg/s + kB/s by event

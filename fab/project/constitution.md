@@ -5,12 +5,19 @@
 ### I. Security First
 All process execution MUST use `exec.CommandContext` with explicit argument slices — never shell strings or `exec.Command` without a context/timeout. Shell injection is a show-stopper. User-provided input (session names, window names, paths) SHALL be validated before passing to any subprocess. This mirrors AO's security posture and is non-negotiable.
 
-### II. No Database
-State MUST be derived from tmux and the filesystem at request time. HexoKit SHALL NOT introduce a database, ORM, migration system, or persistent state store. Session metadata comes from `tmux list-sessions`/`tmux list-windows`. Fab state comes from `.status.yaml` and `fab/current`. If you can't derive it from these sources, you don't need it.
+### II. Disposable Daemon
+The daemon MUST be killable at any instant — crash, restart, deploy — without losing anything a user or agent depends on, and a fresh daemon MUST rebuild its full working state from durable sources alone: tmux (sessions, windows, panes, `@rk_*` options), the filesystem (`.status.yaml`, `fab/current`, the state home under `$XDG_STATE_HOME/hexokit/`), git, and `gh`. Recoverability is the invariant; where state is *held* while the daemon runs is not.
 
-Two bounded disk carve-outs exist under `$XDG_STATE_HOME/hexokit/`: **recovery backups** (layout snapshots — artifacts about the past; a user-facing recovery reader MAY serve them read-only — listing restorable snapshots and their stored layouts, and driving user-initiated restore — but live state never derives from a backup: no live-state query is ever answered from one) and **startup seed caches**, which MAY pre-fill in-memory derived state at process start but are NEVER authoritative — state is still derived from tmux, the filesystem, and `gh`; a fresh derivation always overwrites a seeded value, and deleting any of these files changes nothing but cold-start latency. Neither class is a state store: no request-time read path may treat one as the source of truth, and a corrupt or absent file MUST degrade to the same behavior as a cold start.
+The daemon MAY hold any state in memory for speed — indexes, caches, a working copy of the durable sources — under two rules:
 
-The line is drawn by *whose* state it is. Terminal session data and rk's own session state are derived from tmux and the filesystem. Integrations such as code-server keep their own state by their own means (code-server's extensions dir stays at its own default location). rk-managed assets — the VAPID keypair and push subscriptions, downloaded binaries (the managed code-server install, the Linux desktop install), and job logs — live in the state home under `$XDG_STATE_HOME/hexokit/` alongside the two carve-outs above (`vapid.json`, `push-subscriptions.json`, `code-server/{bin,profile}/`, `logs/`, `desktop/`). None of these is a state store in the principle's sense: no request-time read path treats them as the source of truth for session state. The VAPID keypair sits in the state home, not the config home, because the config home is often dotfiles-managed and a private key there could leak into a repo.
+1. **Durable before acknowledged.** State the daemon originates (a user action, a setting, a layout change) MUST reach a durable source before the request that produced it succeeds. Memory is never the only copy: no write-behind, no periodic flush.
+2. **External writes win.** The durable sources are shared with other writers — fab-kit, agent hooks, `wt`, a user's own `tmux` commands. The in-memory copy MUST reconcile against them and yield on conflict; it SHALL NOT overwrite an external change with a stale value.
+
+Ephemeral process state — open connections, subscriptions, in-flight requests — is exempt; it dies with the process by nature. HexoKit SHALL NOT introduce a database server, ORM, or migration system: durable state the daemon owns lives as plain files.
+
+Two bounded disk carve-outs exist under `$XDG_STATE_HOME/hexokit/`: **recovery backups** (layout snapshots — artifacts about the past; a user-facing recovery reader MAY serve them read-only — listing restorable snapshots and their stored layouts, and driving user-initiated restore — but live state never derives from a backup: no live-state query is ever answered from one) and **startup seed caches**, which MAY pre-fill in-memory state at process start but are NEVER authoritative — a fresh read of the durable sources always overwrites a seeded value, and deleting any of these files changes nothing but cold-start latency. A corrupt or absent carve-out file MUST degrade to the same behavior as a cold start.
+
+The line is drawn by *whose* state it is. Terminal session data and rk's own session state live in tmux and the filesystem. Integrations such as code-server keep their own state by their own means (code-server's extensions dir stays at its own default location). rk-managed assets — the VAPID keypair and push subscriptions, downloaded binaries (the managed code-server install, the Linux desktop install), and job logs — live in the state home under `$XDG_STATE_HOME/hexokit/` alongside the two carve-outs above (`vapid.json`, `push-subscriptions.json`, `code-server/{bin,profile}/`, `logs/`, `desktop/`). None of these is a source of truth for session state. The VAPID keypair sits in the state home, not the config home, because the config home is often dotfiles-managed and a private key there could leak into a repo.
 
 ### III. Wrap, Don't Reinvent
 Existing fab-kit utilities (`wt-create`, `wt-list`, `wt-delete`, `idea`, `changeman.sh`, `statusman.sh`) MUST be used via wrapper functions in `internal/` (Go). HexoKit SHALL NOT reimplement worktree management, change management, or backlog management. When a fab-kit script does what you need, call it.
@@ -51,6 +58,9 @@ Every Playwright `test()` in `app/frontend/tests/e2e/*.spec.ts` and `app/desktop
 ### Process Execution
 All `exec.CommandContext` calls MUST use a context with timeout (default 5-10 seconds for tmux operations, 30 seconds for build operations). Zombie processes from hung tmux commands MUST NOT block the server.
 
+### PR Evidence
+Every PR that changes user-visible behavior of the web UI — feature or bug fix — MUST carry a short screen recording of the change, produced with `just demo` against a throwaway rig (never a live `rk serve` instance or the user's tmux server) and attached to the PR body with `gh pr create --attach` / `gh pr edit --attach`, so it is uploaded as a GitHub attachment and never committed to the repository. The video reference MUST stand alone in its own paragraph so it renders as a player. Bug fixes MUST show before (the base branch) and after, where the bug is visible. Recordings MUST cover both the desktop and the mobile viewport unless the changed surface does not render on mobile. Changes with nothing visible to record (backend-only, CLI-only, docs, pure refactors) are exempt, but the PR body SHALL state `No recording: <reason>` rather than omit it silently. Desktop-shell changes are out of scope until `just demo` gains an Electron recording path; their PRs state `No recording: desktop shell recording not yet supported by just demo`.
+
 ### Self-Improvement Safety
 The restart mechanism uses tmux-based kill-and-restart: `rk serve --restart` sends `C-c` to the daemon tmux pane, waits for graceful shutdown, then sends a fresh `rk serve` command. There is no supervisor loop, no `.restart-requested` signal file, and no automatic file-change watching. Rollback MUST be atomic (`git revert HEAD`).
 
@@ -59,4 +69,4 @@ This tool is part of the shll toolkit and MUST conform to the toolkit's publishe
 
 ## Governance
 
-**Version**: 1.15.3 | **Ratified**: 2026-03-02 | **Last Amended**: 2026-10-07
+**Version**: 2.0.0 | **Ratified**: 2026-03-02 | **Last Amended**: 2026-10-08

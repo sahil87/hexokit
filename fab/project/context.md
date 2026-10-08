@@ -50,7 +50,7 @@ Task runner: `just` (see `justfile`). Frontend deps managed by pnpm (in `app/fro
 
 ## Conventions
 
-- State derived from tmux + filesystem at request time — no database, no in-memory caches
+- Disposable daemon (Constitution II) — in-memory state is fine for speed, but every daemon-originated write reaches tmux/the filesystem before the request succeeds, and external writers (fab-kit, agent hooks, a user's own `tmux`) win on conflict; no database server
 - All Go subprocess calls use `exec.CommandContext` with timeouts — never shell strings
 - Three-mode theme (system/light/dark), monospace everywhere
 - Hover-animation vocabulary: one treatment per element category — glitch=brand (the logo ring rides it with a JS-driven white glow detach-orbit-land sweep over the border segments — useBrandLogoSweep in logo-spinner.tsx), boot-sweep=top-bar page heading (one inverse-video cursor sweeps the `PageType: name` string: TypedLabel-style typed cursor over the prefix flowing into a decode glyph-churn over the instance name, ~28ms/cell; reuses the `rk-typed-*` cell classes + DECODE_* constants), brackets+caret=section headings (SectionHeading — the label keeps its typed-sweep inside the brackets), typed-sweep=section labels (TypedLabel — an inverse-video cursor types the label out in ~350ms), CRT glint=buttons (green sweep + the hovered chip's border/glyph flip green) — animated elements turn accent-green; `rk-*` utility classes in `globals.css`; under `prefers-reduced-motion` animations are zeroed and JS treatments skip themselves (classes and static hover colors remain)
@@ -72,6 +72,9 @@ Always run tests through `just` recipes — never invoke `go test`, `pnpm test`,
 - `just test-frontend` — Vitest unit tests only
 - `just test-e2e` — Playwright e2e tests (derived per-worktree ports + socket family)
 - `just pw` — ad-hoc Playwright commands against the worktree's derived rig (e.g., `just pw test mobile-layout`)
+- `just demo <name>` — record a PR-evidence video of `app/frontend/tests/demo/<name>.demo.ts` (see below)
+
+PR-evidence recordings (Constitution § PR Evidence — required for user-visible UI changes): `just demo <name>` runs the demo spec on the same throwaway rig via `scripts/demo.sh` (`RK_E2E_LANE=demo` — single rig, never a live `rk serve`), recording human-watchable video (motion on, ~250 ms slowMo) on BOTH the desktop (1280×800) and mobile (375×812) Playwright projects; `--desktop-only` / `--mobile-only` narrow to one. Videos land at `.demo/<name>-<desktop|mobile>.webm` (gitignored). `--before [<ref>]` also records the base (default: merge-base with the change's base branch) via a temporary worktree served through `RK_E2E_APP_ROOT`, producing `<name>-before-*` / `<name>-after-*` pairs; `--mp4` converts via ffmpeg. On completion the script prints each file with size, a ready PR-body Markdown block (each video reference standalone in its own paragraph), and a single `gh pr edit --attach …` line.
 
 The Playwright fallback port is the policy's fail-closed sentinel 21999 (not 3000) — Playwright reads its base port from `E2E_PORT`, a variable only the harness scripts set, so a direct Playwright run fails to connect rather than hitting a live `rk serve` instance; the ambient `RK_PORT` (direnv-exported on this box) is never consulted by Playwright. Explicit `RK_E2E_PORT` / `E2E_TMUX_SERVER` env vars override the derivation.
 
