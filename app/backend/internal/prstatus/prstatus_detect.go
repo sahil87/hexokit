@@ -14,9 +14,9 @@ package prstatus
 //     from one http.Client.
 //   - The Authorization header must never reach a host other than the derived
 //     API host: the shared client refuses all redirects.
-//   - All state (ETags, head SHAs, tokens, backoff deadlines) is in-memory
-//     only and disposable: losing it costs one baseline 200 per endpoint per
-//     PR, which by rule triggers nothing.
+//   - All state (ETags, head SHAs, tokens, backoff deadlines, drop tombstones)
+//     is in-memory only and disposable: losing it costs one baseline 200 per
+//     endpoint per PR, which by rule triggers nothing.
 //   - Fail-silent posture: gh absent/unauthenticated, a paused host, or a
 //     transient error all degrade to "behave as if nothing changed" — the
 //     timed pollers carry on untouched.
@@ -104,10 +104,14 @@ type prWatch struct {
 	reviewComments int
 }
 
-// tokenEntry is a per-host cached gh token with its taken-at time.
+// tokenEntry is a per-host cached gh token with its taken-at time. A non-nil
+// err is a negatively cached acquisition failure, replayed until the TTL so a
+// host gh cannot authorize costs one `gh auth token` subprocess per TTL, not
+// one per tracked PR per pass.
 type tokenEntry struct {
 	token string
 	at    time.Time
+	err   error
 }
 
 // hostBackoff is a host-wide pause: requests to the host are skipped until
@@ -199,6 +203,7 @@ type Detector struct {
 	tokens      map[string]tokenEntry     // host → cached token
 	backoffs    map[string]hostBackoff    // host → pause deadline + ladder rung
 	stoodDown   map[string]bool           // hosts stood down this pass (401 twice)
+	dropped     map[string]bool           // tombstoned PR URLs (404/403-drop) — skipped until they leave the source set
 	pending     map[string]DetectedChange // carried-forward flips (rate guard)
 	lastTrigger time.Time
 }
@@ -226,12 +231,13 @@ func NewDetector(interval time.Duration) *Detector {
 		tokens:      map[string]tokenEntry{},
 		backoffs:    map[string]hostBackoff{},
 		stoodDown:   map[string]bool{},
+		dropped:     map[string]bool{},
 		pending:     map[string]DetectedChange{},
 	}
 }
 
 // SetSource installs the callback naming the OPEN PR URLs worth polling —
-// wired to the branch refresher's PositiveEntries with the collector's state
+// wired to the branch refresher's ObservedEntries with the collector's state
 // overriding on a URL hit. Nil means the detector polls nothing.
 func (d *Detector) SetSource(fn func() []string) {
 	d.mu.Lock()
@@ -430,11 +436,19 @@ func (d *Detector) pass(ctx context.Context) {
 			delete(d.backoffs, h)
 		}
 	}
+	// A tombstone outlives the drop but not the source membership: a dropped
+	// URL still in the source stays skipped (its 404 would otherwise repeat
+	// every pass), while one that departed and later re-enters baselines fresh.
+	for u := range d.dropped {
+		if _, ok := live[u]; !ok {
+			delete(d.dropped, u)
+		}
+	}
 
 	budget := &passBudget{}
 	for _, u := range order {
 		id := live[u]
-		if d.hostPaused(id.host) || d.stoodDown[id.host] {
+		if d.dropped[u] || d.hostPaused(id.host) || d.stoodDown[id.host] {
 			continue
 		}
 		if change, flipped := d.checkPR(ctx, u, id, budget); flipped {
@@ -522,24 +536,29 @@ func (d *Detector) recordBackoff(host string, hdr http.Header) {
 }
 
 // token returns the cached token for host, fetching through tokenFn when
-// absent or past the TTL. Gated on the memoized gh-availability probe so a
-// gh-less or logged-out machine is a silent no-op rather than a per-pass
-// subprocess. The host is validated before it can reach argv.
+// absent or past the TTL — an acquisition failure is cached on the same TTL
+// and replays its error without a subprocess. Gated on the memoized
+// gh-availability probe so a gh-less or logged-out machine is a silent no-op
+// rather than a per-pass subprocess. The host is validated before it can reach
+// argv.
 func (d *Detector) token(ctx context.Context, host string) (string, error) {
 	if !validTokenHost(host) {
 		return "", fmt.Errorf("prstatus detect: invalid host %q", host)
 	}
 	if entry, ok := d.tokens[host]; ok && d.now().Sub(entry.at) < detectTokenTTL {
-		return entry.token, nil
+		return entry.token, entry.err
 	}
 	if d.available != nil && !d.available(ctx) {
 		return "", errors.New("gh unavailable")
 	}
 	token, err := d.tokenFn(ctx, host)
+	// A failure is cached too (err non-nil, empty token): with several PRs on
+	// one host an uncached failure would retry the subprocess per PR per pass,
+	// breaking the per-host subprocess bound the TTL exists to provide.
+	d.tokens[host] = tokenEntry{token: token, at: d.now(), err: err}
 	if err != nil {
 		return "", err
 	}
-	d.tokens[host] = tokenEntry{token: token, at: d.now()}
 	return token, nil
 }
 
@@ -696,7 +715,12 @@ func (d *Detector) checkPR(ctx context.Context, prURL string, id prIdentity, bud
 		// endpoints against a stored SHA adds requests with no fresh signal.
 		return change, false
 	case outcomeDrop:
+		// Tombstone, not just eviction: the URL typically stays in the source
+		// set (a stale branch mapping or lost repo access), so deleting the
+		// watch alone would re-request the 404 every pass. The tombstone lifts
+		// when the URL leaves the source.
 		delete(d.watches, prURL)
+		d.dropped[prURL] = true
 		return change, false
 	case outcomeBaseline, outcomeFlipped:
 		var meta prMeta
@@ -768,6 +792,7 @@ func (d *Detector) checkPR(ctx context.Context, prURL string, id prIdentity, bud
 			}
 		case outcomeDrop:
 			delete(d.watches, prURL)
+			d.dropped[prURL] = true
 		case outcomeBackoff:
 			d.recordBackoff(id.host, res.header)
 		}

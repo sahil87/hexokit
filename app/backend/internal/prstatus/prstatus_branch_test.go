@@ -2137,6 +2137,48 @@ func TestBranchRefresher_PositiveEntriesOmitsNegatives(t *testing.T) {
 	}
 }
 
+// TestBranchRefresher_ObservedEntriesLiveWindowsOnly: the change detector's
+// source set is the LIVE set — a positive entry counts only while a window
+// keeps registering it (observedAt within branchPRObservedTTL). Retained
+// unobserved entries (the presence hold) and seed-originated entries are
+// excluded, so an idle daemon polls nothing.
+func TestBranchRefresher_ObservedEntriesLiveWindowsOnly(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(branchNode(3, ghPRURL("o/r", 3), "2026-08-01T00:00:00Z")), nil
+	})
+	now := time.Unix(1_000_000, 0)
+	r.now = func() time.Time { return now }
+
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+
+	got := r.ObservedEntries()
+	if len(got) != 1 || got[0].Branch != "feat" || got[0].PR.Number != 3 {
+		t.Fatalf("ObservedEntries = %+v, want the live positive entry", got)
+	}
+
+	// Past the observed TTL the entry is retained — PositiveEntries still
+	// serves it for the persistence snapshot — but no longer live.
+	now = now.Add(branchPRObservedTTL + time.Second)
+	if got := r.ObservedEntries(); len(got) != 0 {
+		t.Errorf("ObservedEntries past the observed TTL = %+v, want empty", got)
+	}
+	if got := r.PositiveEntries(); len(got) != 1 {
+		t.Errorf("PositiveEntries past the observed TTL = %+v, want the retained entry", got)
+	}
+
+	// A seed-originated entry is never live, even freshly stamped at load.
+	r2 := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return nil, errors.New("gh offline at startup")
+	})
+	r2.SeedEntries([]SeedBranchPR{
+		seedBranch("/repo", "seeded", 7, ghPRURL("o/r", 7), "OPEN", ts(t, "2026-08-01T00:00:00Z")),
+	})
+	if got := r2.ObservedEntries(); len(got) != 0 {
+		t.Errorf("ObservedEntries with a seeded entry = %+v, want empty", got)
+	}
+}
+
 // TestBranchRefresher_RefreshIsSingleFlighted: the interval/wake pass and an
 // on-demand RefreshNow SERIALIZE (mirroring Collector.refresh's T019 fix). Without
 // this, a pass blocked in a slow `gh pr list` could return a stale parsed-empty

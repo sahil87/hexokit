@@ -907,7 +907,7 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger, cfg config.Con
 	// NewTestRouter leaves this unwired — unit tests never touch the network.
 	det := prstatus.NewDetector(prChangeDetectInterval)
 	det.SetSource(func() []string {
-		entries := prstatus.DefaultBranchRefresher.PositiveEntries()
+		entries := prstatus.DefaultBranchRefresher.ObservedEntries()
 		snap := pc.Snapshot()
 		urls := make([]string, 0, len(entries))
 		for _, entry := range entries {

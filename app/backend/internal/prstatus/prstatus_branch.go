@@ -591,6 +591,35 @@ func (r *BranchRefresher) PositiveEntries() []SeedBranchPR {
 	return out
 }
 
+// ObservedEntries returns the positive derivations a LIVE window currently
+// registers: observedAt within branchPRObservedTTL and not seed-originated.
+// PositiveEntries is the persistence snapshot — it retains unobserved entries
+// for the presence hold and stamps seeds at load time, so an idle daemon would
+// read previously cached PRs from it; ObservedEntries is the change detector's
+// source set, where an idle daemon must yield nothing. A seeded entry whose
+// window re-registers joins the set once a refresh resolves it under this
+// process (which clears the seed mark).
+func (r *BranchRefresher) ObservedEntries() []SeedBranchPR {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	now := r.now()
+	out := make([]SeedBranchPR, 0, len(r.entries))
+	for key, e := range r.entries {
+		if e.pr == nil || e.seeded || now.Sub(e.observedAt) > branchPRObservedTTL {
+			continue
+		}
+		repoDir, branch := splitBranchPRKey(key)
+		if repoDir == "" || branch == "" {
+			continue
+		}
+		out = append(out, SeedBranchPR{RepoDir: repoDir, Branch: branch, PR: *e.pr})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // DiscardSeeded clears the PR of every entry still marked seed-originated. It is
 // the account-switch invalidation step: called once, from the tail of the first
 // successful fetch that reports a DIFFERENT gh viewer login than the loaded cache

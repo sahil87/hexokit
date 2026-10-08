@@ -371,14 +371,28 @@ func TestDetector404DropsPRSilently(t *testing.T) {
 		t.Fatalf("404 pass made %d requests, want 1 (the CI endpoints must be skipped)", got)
 	}
 
-	// A PR that reappears is a fresh first sight: baseline, no trigger.
+	// The URL stays in the source set (a stale branch mapping or lost repo
+	// access): the tombstone skips it — no re-request, even now the endpoint
+	// would answer again.
 	f.mutate(func() { eps.pr.status = 0 })
+	f.resetRequests()
+	h.pass()
+	if got := len(f.recorded()); got != 0 {
+		t.Fatalf("tombstoned PR re-requested %d times while still in the source set", got)
+	}
+
+	// Once the URL leaves the source set the tombstone lifts: a later re-entry
+	// is a fresh first sight — baseline, no trigger.
+	urls = nil
+	h.pass()
+	urls = []string{"https://github.com/o/r/pull/1"}
+	f.resetRequests()
 	h.pass()
 	if len(h.onChangeCalls) != 0 {
-		t.Fatalf("reappeared PR's fresh baseline triggered onChange")
+		t.Fatalf("re-entered PR's fresh baseline triggered onChange")
 	}
 	if _, ok := h.d.watches["https://github.com/o/r/pull/1"]; !ok {
-		t.Errorf("reappeared PR was not re-baselined")
+		t.Errorf("re-entered PR was not re-baselined")
 	}
 }
 
@@ -386,11 +400,12 @@ func TestDetector403WithoutRateLimitSignalDropsPR(t *testing.T) {
 	f, srv := newFakeAPI()
 	defer srv.Close()
 	eps := f.handlePR("o", "r", 1, "sha1")
+	f.handlePR("o", "r", 2, "sha2")
 	h := newDetectHarness(srv)
-	urls := []string{"https://github.com/o/r/pull/1"}
+	urls := []string{"https://github.com/o/r/pull/1", "https://github.com/o/r/pull/2"}
 	h.sourceFrom(&urls)
 
-	h.pass() // baseline
+	h.pass() // baselines
 	f.mutate(func() { eps.pr.status = http.StatusForbidden })
 	f.resetRequests()
 	h.pass()
@@ -402,16 +417,30 @@ func TestDetector403WithoutRateLimitSignalDropsPR(t *testing.T) {
 		t.Errorf("plain 403 did not drop the PR's watch state")
 	}
 
-	// A permission 403 is per-PR, not a host backoff: the next pass still
-	// reaches the API.
+	// A permission 403 is per-PR, not a host backoff: the sibling PR on the
+	// same host is still polled while the dropped PR sits tombstoned.
 	f.mutate(func() { eps.pr.status = 0 })
 	f.resetRequests()
 	h.pass()
-	if len(f.recorded()) == 0 {
-		t.Fatalf("plain 403 put the host into backoff; next pass made no requests")
+	if got := f.countPath("/repos/o/r/pulls/2"); got == 0 {
+		t.Errorf("plain 403 put the host into backoff; sibling PR not polled")
 	}
+	if got := f.countPath("/repos/o/r/pulls/1"); got != 0 {
+		t.Errorf("tombstoned PR re-requested %d times while still in the source set", got)
+	}
+
+	// Leaving and re-entering the source set lifts the tombstone: fresh
+	// baseline, no trigger.
+	urls = urls[1:]
+	h.pass()
+	urls = []string{"https://github.com/o/r/pull/1", "https://github.com/o/r/pull/2"}
+	f.resetRequests()
+	h.pass()
 	if len(h.onChangeCalls) != 0 {
-		t.Fatalf("re-baselined PR after a plain 403 triggered onChange")
+		t.Fatalf("re-entered PR after a plain 403 triggered onChange")
+	}
+	if got := f.countPath("/repos/o/r/pulls/1"); got == 0 {
+		t.Errorf("re-entered PR was not re-baselined")
 	}
 }
 
@@ -844,5 +873,50 @@ func TestDetectorTokenCachedPerHostWithinTTL(t *testing.T) {
 	h.pass()
 	if got := len(h.tokenCalls); got != 2 {
 		t.Fatalf("pass past the TTL did not re-fetch (calls=%d)", got)
+	}
+}
+
+func TestDetectorTokenFailureNegativelyCached(t *testing.T) {
+	f, srv := newFakeAPI()
+	defer srv.Close()
+	f.handlePR("o", "r", 1, "sha1")
+	f.handlePR("o", "r", 2, "sha2")
+	h := newDetectHarness(srv)
+	fail := true
+	h.d.tokenFn = func(_ context.Context, host string) (string, error) {
+		h.tokenCalls = append(h.tokenCalls, host)
+		if fail {
+			return "", fmt.Errorf("gh auth token: not logged in")
+		}
+		return "test-token", nil
+	}
+	urls := []string{"https://github.com/o/r/pull/1", "https://github.com/o/r/pull/2"}
+	h.sourceFrom(&urls)
+
+	// One failed acquisition per HOST, not per PR — and no requests.
+	h.pass()
+	if got := len(h.tokenCalls); got != 1 {
+		t.Fatalf("token failure called tokenFn %d times for two same-host PRs, want 1", got)
+	}
+	if got := len(f.recorded()); got != 0 {
+		t.Fatalf("token-less pass made %d requests", got)
+	}
+
+	// Inside the TTL the failure replays from the cache: no subprocess.
+	h.advance(time.Minute)
+	h.pass()
+	if got := len(h.tokenCalls); got != 1 {
+		t.Fatalf("pass inside the TTL re-ran tokenFn (calls=%d)", got)
+	}
+
+	// Past the TTL the host is retried; a now-working tokenFn resumes polling.
+	fail = false
+	h.advance(detectTokenTTL + time.Second)
+	h.pass()
+	if got := len(h.tokenCalls); got != 2 {
+		t.Fatalf("pass past the TTL did not retry tokenFn (calls=%d)", got)
+	}
+	if got := len(f.recorded()); got == 0 {
+		t.Fatalf("host with a working token was not polled after the TTL")
 	}
 }
