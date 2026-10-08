@@ -1915,6 +1915,16 @@ var paneFormat = strings.Join([]string{
 // Pane data is populated from a separate list-panes call; failure of that call
 // is non-fatal — windows are returned with empty Panes fields.
 func ListWindows(ctx context.Context, session string, server string) ([]WindowInfo, error) {
+	return listWindows(ctx, session, server, false)
+}
+
+// ListWindowsStrict preserves list-windows/list-panes errors for live CLI
+// inventories. Dashboard callers keep ListWindows' session-disappeared tolerance.
+func ListWindowsStrict(ctx context.Context, session string, server string) ([]WindowInfo, error) {
+	return listWindows(ctx, session, server, true)
+}
+
+func listWindows(ctx context.Context, session string, server string, strict bool) ([]WindowInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
@@ -1965,7 +1975,7 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 		// Undelimited output is present but unparseable and must not read as
 		// a window-less session; every other error is the session-gone-mid-tick
 		// tolerance.
-		if errors.Is(err, ErrNoFieldDelimiter) {
+		if strict || errors.Is(err, ErrNoFieldDelimiter) {
 			return nil, err
 		}
 		return nil, nil
@@ -1975,6 +1985,12 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 
 	// Fetch pane data — non-fatal if list-panes fails (e.g., session disappears mid-tick).
 	paneLines, paneErr := tmuxExecServer(ctx, server, "list-panes", "-s", "-t", ExactSessionTarget(session), "-F", paneFormat)
+	if strict && paneErr == nil {
+		paneErr = checkDelimited(paneLines)
+	}
+	if strict && paneErr != nil {
+		return nil, fmt.Errorf("list panes: %w", paneErr)
+	}
 	if paneErr == nil {
 		byWindow := parsePanes(paneLines)
 		if byWindow != nil {
@@ -3495,9 +3511,20 @@ const LockSocketSuffix = ".lock"
 // socket-dir candidate-collection convention, shared by ListServers (which
 // skips the `.lock` entries — see ListServers) and the reaper.
 func ScanSocketDir(ctx context.Context) ([]string, error) {
+	return scanSocketDir(ctx, false)
+}
+
+func scanSocketDir(ctx context.Context, strict bool) ([]string, error) {
+	if err := ctx.Err(); strict && err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(socketDirPath())
 	if err != nil {
-		// Directory doesn't exist or can't be read — no servers running
+		// Missing directory means no servers; strict inventory must distinguish
+		// an unreadable directory from an empty estate.
+		if strict && !os.IsNotExist(err) {
+			return nil, err
+		}
 		return nil, nil
 	}
 	return filterSocketEntries(entries), nil
@@ -3685,7 +3712,23 @@ func ServerAllowed(name string) bool {
 // var UNSET, so this branch is a no-op there and the "surface every server"
 // contract (see IsTestServerName / tmux.go:1332) is preserved byte-for-byte.
 func ListServers(ctx context.Context) ([]string, error) {
-	candidates, err := ScanSocketDir(ctx)
+	return listServers(ctx, false)
+}
+
+// ListServersStrict discovers live sockets without treating an unreadable
+// socket directory or cancelled discovery as an empty fleet.
+func ListServersStrict(ctx context.Context) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if _, err := exec.LookPath("tmux"); err != nil {
+		return nil, fmt.Errorf("discover tmux servers: %w", err)
+	}
+	return listServers(ctx, true)
+}
+
+func listServers(ctx context.Context, strict bool) ([]string, error) {
+	candidates, err := scanSocketDir(ctx, strict)
 	if err != nil {
 		return nil, err
 	}
@@ -3716,6 +3759,9 @@ func ListServers(ctx context.Context) ([]string, error) {
 		}(name)
 	}
 	wg.Wait()
+	if strict && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 
 	// Env-gated test-isolation filter (via the shared ServerAllowed predicate).
 	// Applied AFTER the liveness probe so only matching LIVE servers survive.

@@ -41,6 +41,32 @@ func TestBuildArgvSeededNewRows(t *testing.T) {
 	}
 }
 
+// Fleet discovery must omit -L rather than inherit the default-server scope;
+// all input validation happens before the one CLI child is started.
+func TestInventoryArgvAndBounds(t *testing.T) {
+	row := findRow(t, "inventory")
+	for _, tc := range []struct {
+		input string
+		argv  []string
+	}{
+		{`{}`, []string{"mux", "inventory", "--limit", "500", "--json"}},
+		{`{"server":"work","agents_only":true,"limit":25}`, []string{"mux", "inventory", "-L", "work", "--agents-only", "--limit", "25", "--json"}},
+	} {
+		args, err := ValidateArgs(row, json.RawMessage(tc.input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := BuildArgv(row, args); !reflect.DeepEqual(got, tc.argv) {
+			t.Errorf("argv=%v want=%v", got, tc.argv)
+		}
+	}
+	for _, input := range []string{`{"server":""}`, `{"server":"bad/name"}`, `{"limit":0}`, `{"limit":5001}`, `{"limit":1.5}`} {
+		if _, err := ValidateArgs(row, json.RawMessage(input)); err == nil {
+			t.Errorf("accepted %s", input)
+		}
+	}
+}
+
 // TestValidateArgsSnapshotListServer: the positional server filter rejects
 // anything ValidateServerName would, before exec.
 func TestValidateArgsSnapshotListServer(t *testing.T) {

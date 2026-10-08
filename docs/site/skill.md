@@ -8,7 +8,7 @@ Depth for a specific job lives in topic pages — pull one at use-time:
 
 - **panes, iframes & visual display** → `rk skill display`
 - **agent-to-agent messaging concepts** (which channel for write/read/wait, spawn-then-deliver past trust walls — the `ready`/`parked` readiness standard) → `rk skill messaging`
-- **`rk mux` verb reference** (send/await/capture/kill/process/panes/sessions flags, gates, report words) → `rk skill mux`
+- **`rk mux` verb reference** (send/await/capture/kill/process/panes/sessions/inventory flags, gates, report words) → `rk skill mux`; start fleet inspection with `rk mux inventory --json` (MCP: `inventory`), then address panes by returned server + id
 - **act inside the `code` lens editor** (run VS Code palette commands in the open code-server window from the shell) → `rk skill code`
 - **drive and screenshot the host GUI display** (launch apps with DISPLAY set, take a PNG the human also sees in the GUI tile) → `rk skill gui`
 - **schedule a prompt for later or on a cadence** (user says "check on this every 30 min", "nudge me when…", "remind me at 9") → `rk skill cron`
@@ -22,13 +22,13 @@ You are an agent working inside a tmux pane, and HexoKit may be managing it. Rea
 - **Notify the human out-of-band** — surface a result or a question to their browser/phone without blocking your loop.
 - **Show web content visually** — render generated HTML, a diagram, a report, or a local dev server as a window the user can see, instead of describing it in text.
 
-Gate first — HexoKit is optional and may be absent:
+For own-pane and UI helpers, gate first — HexoKit is optional and may be absent:
 
 ```sh
 command -v rk >/dev/null 2>&1 && [ -n "$TMUX_PANE" ] || exit 0
 ```
 
-If either check fails, skip every HexoKit step silently. Never error, never warn — fall back to describing output in text.
+If either check fails, skip own-pane/UI helpers silently and describe output in text. Live fleet queries (`rk mux inventory` and MCP `inventory`) work outside a tmux pane, with no daemon dependency.
 
 > `rk` is the short alias; `hexokit` is the full binary name. Both work everywhere.
 
