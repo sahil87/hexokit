@@ -54,20 +54,39 @@ rk operator request user-message -L payments-retry --window @N --text '<handoff>
 
 ## Handoff contract
 
-Send one work item containing repository path, server label, target remote/branch,
-integration branch, scope, acceptance checks and the next authorized action.
-Tell the operator to read this topic and own coordination through completion:
+Send one work item with resolved identities, scope, checks, worker budget, artifact
+path and one completion mode. Derive values from the user and repository; choose a
+small worker cap from available capacity when none was supplied. Resolve all
+placeholders before delivery. Default to `prepare-pr` when merge permission is
+absent; use `merge-after-checks` only when the user has authorized that merge.
+Preserve authorization already given; do not ask again merely to repeat it.
 
-> Work on /abs/repo on server payments-retry. Target origin/main; integrate on
-> change/payments-retry. Implement <scope>; prove <acceptance checks>. Read
-> `rk skill change`. Create an isolated integration worktree from the verified
-> target head. Split useful independent work into worker branches/worktrees,
-> collect their result artifacts, integrate completed work, resolve conflicts,
-> run combined validation and raise one integration PR. Report blockers and the
-> PR URL. <Merge when checks pass if authorized, otherwise return it for review.>
-> Keep the server, panes and worktrees until cleanup is requested.
+> Coordinate this change through completion. Read `rk skill change`.
+> Change ID: <stable identity>; host: <host>; server: <server>.
+> Repository: <absolute repository path>; target: <remote>/<branch>.
+> Integration branch: <branch>; status artifact: <absolute file path>.
+> Scope: <requested behavior and relevant exclusions>.
+> Acceptance: <observable outcomes and required validation>.
+> Worker limit: <maximum concurrent workers>.
+> Completion mode: <prepare-pr OR merge-after-checks, choose one>.
+> Merge authorization: <user's instruction granting this merge, or not granted>.
+>
+> Inspect existing work and instructions, record the target SHA, and create or
+> resume the isolated integration worktree without resetting existing work.
+> Report the plan and identities, then continue; a plan alone is not completion.
+> Give each useful worker a bounded task, base SHA, worktree, checks and result
+> path. Workers return committed branches and evidence to you; they must not
+> merge the target branch. Coordinate overlaps and dependencies. Collect results,
+> integrate ready work, resolve conflicts and validate the combined PR head.
+> Push the integration branch and create/update one integration PR. In prepare-pr
+> mode, return it for review. In merge-after-checks mode, follow repository merge
+> policy after required checks/reviews pass and verify the merge in the remote target.
+> Update the status artifact at milestones. Report branch/head, worker outcomes,
+> exact checks and results, PR URL, blockers and the next action; after a merge,
+> include its verified target commit. Report missing prerequisites precisely.
+> Keep server, panes and worktrees until cleanup is requested. Include archive
+> changes only when requested.
 
-Resolve the bracketed choices from the user's instructions before delivery.
 After bootstrap the user steers the operator; the operator coordinates workers.
 Do not send the same request to worker panes as well. Use `user-message` for
 conversation; it is never queued. Other fitting templates protect a busy operator
@@ -98,7 +117,7 @@ by queueing. A successful request means accepted/queued, not that the work finis
    description covers the final behavior, worker contributions and validation.
    Archive completed changes only when requested and according to repo rules;
    review and validate the combined archive diff in the integration PR too.
-6. If merging is authorized, verify the current PR head, required checks/reviews,
+6. In authorized `merge-after-checks` mode, verify the current PR head, required checks/reviews,
    branch policy and conflicts, then use the repository's normal merge method.
    Record the merged commit and verify it is in the remote target. Otherwise
    report the reviewable PR and the exact remaining action. Never force push main.
