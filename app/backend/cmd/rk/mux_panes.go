@@ -125,9 +125,53 @@ func runMuxPanes(cmd *cobra.Command) error {
 	server := muxServer()
 	sink := newSink(cmd)
 
+	rows, err := collectMuxPanes(ctx, server, muxPanesNowFn().Unix())
+	if err != nil {
+		return err
+	}
+
+	if muxPanesJSONFlag {
+		return sink.Envelope(rows, nil)
+	}
+
+	w := tabwriter.NewWriter(sink.data, 2, 8, 2, ' ', 0)
+	fmt.Fprintln(w, "SESSION\tWINDOW\tPANE\tACTIVE\tAGENT\tCOMMAND\tCWD")
+	for _, r := range rows {
+		active := "-"
+		switch {
+		case r.WindowActive && r.PaneActive:
+			active = "window+pane"
+		case r.WindowActive:
+			active = "window"
+		case r.PaneActive:
+			active = "pane"
+		}
+		agent := "-"
+		if r.AgentState != nil {
+			agent = *r.AgentState
+			if r.AgentStateDuration != nil {
+				agent += " (" + *r.AgentStateDuration + ")"
+			}
+		}
+		fmt.Fprintf(w, "%s\t%d:%s\t%s\t%s\t%s\t%s\t%s\n",
+			r.Session, r.WindowIndex, r.WindowName, r.Pane, active, agent, r.Command, r.CWD)
+	}
+	return w.Flush()
+}
+
+// collectMuxPanes is shared by the single-server panes query and the live
+// inventory. Keep visibility, state reconciliation and lazy liveness identical.
+// A failure preserves rows already observed so an inventory can report partial
+// results without presenting an unread session as empty.
+func collectMuxPanes(ctx context.Context, server string, nowUnix int64) ([]muxPanesRow, error) {
+	return collectMuxPanesWith(ctx, server, nowUnix, muxPanesWindowsFn)
+}
+
+func collectMuxPanesWith(ctx context.Context, server string, nowUnix int64, windowsFn func(context.Context, string, string) ([]tmux.WindowInfo, error)) ([]muxPanesRow, error) {
+	rows := []muxPanesRow{}
 	sessionInfos, err := muxPanesSessionsFn(ctx, server)
 	if err != nil {
-		return fmt.Errorf("list sessions: %w", err)
+		return rows, fmt.Errorf("list sessions: %w", err)
 	}
 	// ListSessions degrades a dead socket to (nil, nil) for its dashboard
 	// callers; for a CLI query a dead server is an operational failure, so an
@@ -135,16 +179,14 @@ func runMuxPanes(cmd *cobra.Command) error {
 	// tmux's diagnostic) from "alive, nothing to list" (exit 0, empty output).
 	if len(sessionInfos) == 0 {
 		if err := muxPanesAliveFn(ctx, server); err != nil {
-			return fmt.Errorf("list sessions: %w", err)
+			return rows, fmt.Errorf("list sessions: %w", err)
 		}
 	}
 
-	nowUnix := muxPanesNowFn().Unix()
-	rows := []muxPanesRow{}
 	for _, si := range sessionInfos {
-		windows, err := muxPanesWindowsFn(ctx, si.Name, server)
+		windows, err := windowsFn(ctx, si.Name, server)
 		if err != nil {
-			return fmt.Errorf("list windows (%s): %w", si.Name, err)
+			return rows, fmt.Errorf("list windows (%s): %w", si.Name, err)
 		}
 		for _, w := range windows {
 			for _, p := range w.Panes {
@@ -189,31 +231,5 @@ func runMuxPanes(cmd *cobra.Command) error {
 		}
 	}
 
-	if muxPanesJSONFlag {
-		return sink.Envelope(rows, nil)
-	}
-
-	w := tabwriter.NewWriter(sink.data, 2, 8, 2, ' ', 0)
-	fmt.Fprintln(w, "SESSION\tWINDOW\tPANE\tACTIVE\tAGENT\tCOMMAND\tCWD")
-	for _, r := range rows {
-		active := "-"
-		switch {
-		case r.WindowActive && r.PaneActive:
-			active = "window+pane"
-		case r.WindowActive:
-			active = "window"
-		case r.PaneActive:
-			active = "pane"
-		}
-		agent := "-"
-		if r.AgentState != nil {
-			agent = *r.AgentState
-			if r.AgentStateDuration != nil {
-				agent += " (" + *r.AgentStateDuration + ")"
-			}
-		}
-		fmt.Fprintf(w, "%s\t%d:%s\t%s\t%s\t%s\t%s\t%s\n",
-			r.Session, r.WindowIndex, r.WindowName, r.Pane, active, agent, r.Command, r.CWD)
-	}
-	return w.Flush()
+	return rows, nil
 }

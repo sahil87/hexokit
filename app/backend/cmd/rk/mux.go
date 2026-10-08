@@ -12,7 +12,7 @@ import (
 
 // rk mux — the tmux-substrate command family (docs/specs/cli-layering.md):
 // operations that talk to tmux directly from the caller's context, with no
-// daemon dependency. Thirteen members in two tiers, presented in three help
+// daemon dependency. Fourteen members in two tiers, presented in three help
 // groups (messaging / pane mechanics / server ops — the discoverability
 // grouping docs/specs/agent-messaging.md settles). The pane-scoped tier takes the
 // family's strict target grammar: `send` (deliver a message into an agent
@@ -22,7 +22,7 @@ import (
 // removal), and `process` (the pane's process tree with agent cross-check) are
 // the substrate twins; `panes` and `sessions` are the server-wide enumeration
 // queries — one row per pane / per session (with the name-derived role), no
-// target. The operator tier: `new` creates a detached tmux
+// target. `inventory` combines session/pane facts across live servers. The operator tier: `new` creates a detached tmux
 // server on a named socket, optionally marked @rk_ephemeral for the reap
 // sweep; `adopt` converts an external server to rk-managed (stamp @rk_srv_managed,
 // source the managed conf); `reap` is the operator-invoked janitor for leaked
@@ -44,7 +44,8 @@ import (
 // so it does not call muxRejectInheritedServerFlag. Server resolution order:
 // -L wins, else the caller's own server derived from the original $TMUX
 // (socket basename — the same name ListServers and the -L primitives use),
-// else the default server.
+// else the default server. `inventory` instead discovers all live servers
+// when -L is omitted.
 
 var muxServerFlag string
 
@@ -64,7 +65,7 @@ var muxCmd = &cobra.Command{
 		"context — no daemon dependency. `new` creates a detached tmux server on a " +
 		"named socket, optionally marked ephemeral for the reap sweep; `send` " +
 		"delivers a message into an agent's " +
-		"pane gated on its "+tmux.AgentStateOption+", paste-probing before Enter and " +
+		"pane gated on its " + tmux.AgentStateOption + ", paste-probing before Enter and " +
 		"detecting post-Enter non-submission; `await` " +
 		"blocks until a pane's agent state (or a file signal) fires; `capture` " +
 		"prints a pane's scrollback with substrate context (cwd, reconciled agent " +
@@ -74,6 +75,7 @@ var muxCmd = &cobra.Command{
 		"with substrate facts (window, command, cwd, reconciled agent state); " +
 		"`sessions` enumerates the server's sessions with their name-derived " +
 		"roles (user, or run-kit infrastructure: pin/iso/control/operator/reserved). " +
+		"`inventory` reads sessions and panes across all live servers in one bounded query. " +
 		"`adopt` converts an external tmux server to rk-managed (stamp " +
 		"@rk_srv_managed, source the managed config, roll back the stamp when the " +
 		"reload fails). " +
@@ -86,7 +88,7 @@ var muxCmd = &cobra.Command{
 
 func init() {
 	muxCmd.PersistentFlags().StringVarP(&muxServerFlag, "server", "L", "",
-		"tmux server name (pane-scoped verbs: send/await/capture/kill/process, and the panes/sessions enumerations; default: the caller's own server from $TMUX, else the default server)")
+		"tmux server name (pane-scoped verbs: send/await/capture/kill/process, and panes/sessions/inventory; inventory defaults to all live servers, other queries default: the caller's own server from $TMUX, else the default server)")
 	muxCmd.AddGroup(
 		&cobra.Group{ID: muxGroupMessaging, Title: "Messaging:"},
 		&cobra.Group{ID: muxGroupMechanics, Title: "Pane mechanics:"},
@@ -101,7 +103,7 @@ func init() {
 	for _, c := range []*cobra.Command{muxSendCmd, muxAwaitCmd} {
 		c.GroupID = muxGroupMessaging
 	}
-	for _, c := range []*cobra.Command{muxCaptureCmd, muxKillCmd, muxProcessCmd, muxPanesCmd, muxSessionsCmd} {
+	for _, c := range []*cobra.Command{muxCaptureCmd, muxKillCmd, muxProcessCmd, muxPanesCmd, muxSessionsCmd, muxInventoryCmd} {
 		c.GroupID = muxGroupMechanics
 	}
 	for _, c := range []*cobra.Command{muxNewCmd, muxAdoptCmd, reapFamilyCmd, snapshotFamilyCmd, initConfFamilyCmd, muxGuardFamilyCmd} {
@@ -114,6 +116,7 @@ func init() {
 	muxCmd.AddCommand(muxProcessCmd)
 	muxCmd.AddCommand(muxPanesCmd)
 	muxCmd.AddCommand(muxSessionsCmd)
+	muxCmd.AddCommand(muxInventoryCmd)
 	muxCmd.AddCommand(muxNewCmd)
 	muxCmd.AddCommand(muxAdoptCmd)
 	muxCmd.AddCommand(reapFamilyCmd)

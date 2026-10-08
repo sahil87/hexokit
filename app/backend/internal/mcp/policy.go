@@ -158,7 +158,7 @@ func intPtr(n int) *int { return &n }
 // statusDescription overrides `status`'s Cobra help because the verb
 // hard-codes the runkit server and its help does not say so — terminal prose
 // that would mislead a model (docs/specs/mcp.md § Policy table rules).
-const statusDescription = "Session summary of the `runkit` tmux server only (the verb takes no server flag); use `sessions`/`panes` for any other server."
+const statusDescription = "Session summary of the `runkit` tmux server only (the verb takes no server flag); use `inventory` to discover all live servers or `sessions`/`panes` for a named server."
 
 // sendDescription overrides `mux send`'s Cobra help for the model: it names
 // the receipt's fields and keeps the load-bearing caveat — `delivered` is the
@@ -248,6 +248,17 @@ var Table = []Row{
 	{
 		Tool: "panes", Path: "mux panes",
 		Args:        []Arg{serverArg, jsonLiteral},
+		Result:      ResultJSON,
+		Annotations: readOnlyAnn,
+	},
+	{
+		Tool: "inventory", Path: "mux inventory",
+		Args: []Arg{
+			{Name: "server", Flag: "-L", Type: ArgString, Pattern: `^[A-Za-z0-9_-]{1,64}$`, Description: "One tmux server to inspect; omitted discovers all live servers"},
+			{Name: "agents_only", Flag: "--agents-only", Type: ArgBoolean},
+			{Name: "limit", Flag: "--limit", Type: ArgInteger, Minimum: intPtr(1), Maximum: intPtr(5000), Default: "500"},
+			jsonLiteral,
+		},
 		Result:      ResultJSON,
 		Annotations: readOnlyAnn,
 	},

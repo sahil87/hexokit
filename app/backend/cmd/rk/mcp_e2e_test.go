@@ -15,6 +15,7 @@ import (
 
 	"rk/internal/snapshot"
 	"rk/internal/testutil"
+	"rk/internal/tmux"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -86,14 +87,14 @@ func TestMCPEndToEnd(t *testing.T) {
 	env := make([]string, 0, len(os.Environ()))
 	for _, kv := range os.Environ() {
 		if strings.HasPrefix(kv, "TMUX=") || strings.HasPrefix(kv, "TMUX_PANE=") || strings.HasPrefix(kv, "XDG_STATE_HOME=") ||
-			strings.HasPrefix(kv, "RK_HOST=") || strings.HasPrefix(kv, "RK_PORT=") {
+			strings.HasPrefix(kv, "RK_HOST=") || strings.HasPrefix(kv, "RK_PORT=") || strings.HasPrefix(kv, tmux.ServerAllowlistEnv+"=") {
 			continue
 		}
 		env = append(env, kv)
 	}
 	// The cron tools write under XDG_STATE_HOME too; notify must find no daemon,
 	// so its origin resolves to a refused loopback port.
-	serverCmd.Env = append(env, "XDG_STATE_HOME="+xdgState, "RK_HOST=127.0.0.1", "RK_PORT=1")
+	serverCmd.Env = append(env, "XDG_STATE_HOME="+xdgState, "RK_HOST=127.0.0.1", "RK_PORT=1", tmux.ServerAllowlistEnv+"="+server)
 
 	// Seed one snapshot in the isolated store so snapshot_list round-trips a
 	// real entry (the store API writes under XDG_STATE_HOME/hexokit/snapshots).
@@ -123,7 +124,7 @@ func TestMCPEndToEnd(t *testing.T) {
 		t.Errorf("instructions mismatch: got %d bytes, want the %d-byte skill bundle", len(got), len(skillBundle))
 	}
 
-	// ListTools: exactly the thirteen seeded tools, with annotations and schemas.
+	// ListTools: exactly the thirty allowlisted tools, with annotations and schemas.
 	tools, err := session.ListTools(connectCtx, nil)
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
@@ -135,7 +136,7 @@ func TestMCPEndToEnd(t *testing.T) {
 		names = append(names, tool.Name)
 	}
 	sort.Strings(names)
-	want := []string{"answer", "await", "board", "capture", "code_exec", "cron_add", "cron_list", "cron_mute", "cron_rm", "gui_exec", "gui_shot", "gui_status", "kill", "new_window", "notify", "operator", "operator_request", "panes", "process", "riff", "send", "sessions", "snapshot_list", "status", "tab_code", "tab_layout", "tab_show", "tab_web", "tab_web_ls"}
+	want := []string{"answer", "await", "board", "capture", "code_exec", "cron_add", "cron_list", "cron_mute", "cron_rm", "gui_exec", "gui_shot", "gui_status", "inventory", "kill", "new_window", "notify", "operator", "operator_request", "panes", "process", "riff", "send", "sessions", "snapshot_list", "status", "tab_code", "tab_layout", "tab_show", "tab_web", "tab_web_ls"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Fatalf("tools = %v, want %v", names, want)
 	}
@@ -144,7 +145,7 @@ func TestMCPEndToEnd(t *testing.T) {
 			t.Errorf("never-tool %q must not be listed", banned)
 		}
 	}
-	for _, name := range []string{"sessions", "capture", "await"} {
+	for _, name := range []string{"sessions", "inventory", "capture", "await"} {
 		ann := byName[name].Annotations
 		if ann == nil || !ann.ReadOnlyHint {
 			t.Errorf("%s must carry readOnlyHint:true", name)
@@ -211,6 +212,35 @@ func TestMCPEndToEnd(t *testing.T) {
 	}
 	if !foundBoot {
 		t.Errorf("sessions rows = %v, want one named boot", sessionRows)
+	}
+
+	// inventory: one argv invocation reads the isolated server and retains pane identity.
+	res = call("inventory", map[string]any{"server": server, "limit": 1})
+	if res.IsError {
+		t.Fatalf("inventory IsError: %s", textOf(res))
+	}
+	var inventory muxInventoryResult
+	if err := json.Unmarshal([]byte(textOf(res)), &inventory); err != nil {
+		t.Fatal(err)
+	}
+	if inventory.Partial || inventory.ObservedAt == "" || len(inventory.Servers) != 1 || inventory.Servers[0].Server != server || len(inventory.Servers[0].Panes) != 1 || inventory.Servers[0].Panes[0].Pane != pane {
+		t.Fatalf("inventory = %+v", inventory)
+	}
+	// Unscoped discovery must find the live socket, not the seeded recovery
+	// snapshot. The child allowlist excludes any unrelated local servers.
+	res = call("inventory", map[string]any{})
+	if res.IsError {
+		t.Fatalf("fleet inventory IsError: %s", textOf(res))
+	}
+	if err := json.Unmarshal([]byte(textOf(res)), &inventory); err != nil {
+		t.Fatal(err)
+	}
+	if inventory.Partial || len(inventory.Servers) != 1 || inventory.Servers[0].Server != server {
+		t.Fatalf("live discovery = %+v", inventory)
+	}
+	res = call("inventory", map[string]any{"server": server, "limit": 0})
+	if !res.IsError {
+		t.Fatal("inventory accepted limit 0")
 	}
 
 	// send: an uninstrumented shell pane is unknown-state — the verb warns on

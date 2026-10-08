@@ -8,12 +8,12 @@ import (
 	"time"
 )
 
-// TestTableShape pins the seeded allowlist: exactly the twenty-nine tools (the
-// ten W1 seeds, board, operator_request, the answer/await messaging pair,
+// TestTableShape pins the seeded allowlist: exactly the thirty tools (the
+// ten W1 seeds, inventory, board, operator_request, the answer/await messaging pair,
 // snapshot_list, gui_shot, and the thirteen W2c rows), every timeout within the
 // cap, and no row exposing a forbidden flag form.
 func TestTableShape(t *testing.T) {
-	want := []string{"sessions", "panes", "capture", "process", "status", "cron_list", "gui_status", "tab_show", "tab_web_ls", "send", "board", "operator_request", "answer", "await", "snapshot_list", "gui_shot", "notify", "riff", "new_window", "operator", "cron_add", "tab_layout", "tab_web", "tab_code", "code_exec", "gui_exec", "kill", "cron_rm", "cron_mute"}
+	want := []string{"sessions", "panes", "inventory", "capture", "process", "status", "cron_list", "gui_status", "tab_show", "tab_web_ls", "send", "board", "operator_request", "answer", "await", "snapshot_list", "gui_shot", "notify", "riff", "new_window", "operator", "cron_add", "tab_layout", "tab_web", "tab_code", "code_exec", "gui_exec", "kill", "cron_rm", "cron_mute"}
 	if len(Table) != len(want) {
 		t.Fatalf("Table has %d rows, want %d", len(Table), len(want))
 	}
@@ -343,8 +343,8 @@ func TestReadOnlyAnnotations(t *testing.T) {
 			t.Errorf("row %q result = %v, want %v", row.Tool, row.Result, wantResult)
 		}
 	}
-	if seen != 12 {
-		t.Errorf("%d read-only rows, want the nine See rows plus await, snapshot_list and gui_shot", seen)
+	if seen != 13 {
+		t.Errorf("%d read-only rows, want the nine See rows plus inventory, await, snapshot_list and gui_shot", seen)
 	}
 }
 

@@ -34,7 +34,7 @@ lands in a verb, so every pane agent gets it for free.
    never a special tool.
 2. **Allowlist, default-excluded.** A verb is exposed if and only if it has a row in
    the compiled-in policy table (§ Policy table). New verbs ship unexposed. The budget
-   is **≤ 40 tools** (clients degrade above that); v1 ships 29.
+   is **≤ 40 tools** (clients degrade above that); v1 ships 30.
 3. **Flat tools.** One tool per verb, named in `snake_case` from the verb path with the
    family prefix dropped where unambiguous (`mux sessions` → `sessions`, `cron list`
    → `cron_list`, `tab web ls` → `tab_web_ls`). Exactly two tools take an action enum
@@ -79,9 +79,11 @@ The MCP server has no pane, no `$TMUX`, no `$TMUX_PANE`. Therefore:
   verb's own defaults are unsatisfiable under the executor (no `$TMUX`, no repo
   cwd): `riff` marks `server` **and** `repo` required (an absolute git-toplevel
   path the verb validates), and `operator` marks `server` required. Absent ⇒ the
-  verb's own rule applies, which with no `$TMUX` resolves to `default`. The
-  `sessions` tool's result carries server names, so a model can discover what
-  to pass.
+  verb's own rule applies, which with no `$TMUX` resolves to `default`, except
+  `inventory`: omitted `server` discovers all live tmux servers. Start with
+  `inventory` and pass each returned server name alongside its pane/window ids
+  on later calls; ids are scoped to their server. Recovery snapshots do not
+  establish live server state.
 - No tool takes a shell string, a raw tmux target expression beyond the three forms
   above, or a filesystem path beyond what the verb already validates. `riff`'s
   `--cmd` (a pane shell command; its bare form drops into `$SHELL`) is therefore
@@ -231,7 +233,7 @@ Rules:
   required); every tool's `annotations` are declared here, so a client can drive its
   confirmation UX from `destructiveHint` without reading a verb.
 
-### Allowlist v1 (29 tools)
+### Allowlist v1 (30 tools)
 
 Annotations: **ro** = `readOnlyHint`, **destr** = `destructiveHint`, **idem** =
 `idempotentHint`. **Structured today** = the verb emits machine output at the time of
@@ -243,6 +245,7 @@ not this spec's.
 |--------|------|-----------|------|------------------|
 | See | `sessions` | `mux sessions --json` | ro | yes |
 | See | `panes` | `mux panes --json` | ro | yes |
+| See | `inventory` | `mux inventory [--agents-only] [--limit N] --json` | ro | yes |
 | See | `capture` | `mux capture <target> --json` | ro | yes |
 | See | `process` | `mux process <target> --json` | ro | yes |
 | See | `status` | `status --json` | ro | yes |
@@ -272,6 +275,20 @@ not this spec's.
 | See/Steer | `board` | `board show [name]` / `pin` / `unpin` / `reorder` (action enum) | — | yes |
 
 Row-level rules:
+
+- `inventory` is a read-only live fleet query, with optional `server` (one named
+  server), `agents_only` (agent evidence only), and `limit` (1–5000 returned
+  panes per server, default 500). One CLI invocation returns
+  `{observed_at, partial, servers:[{server, sessions, panes, pane_count, truncated, error}]}`.
+  Sessions include name-derived infrastructure roles; panes retain the `panes`
+  visibility and liveness rules. `pane_count` counts observed panes before
+  filtering; `truncated` signals omitted matching panes. Servers are sorted,
+  ids stay nested under their server, and uninstrumented agent state stays null.
+  `partial:true` and per-server errors preserve healthy and already observed
+  rows on exit 0; discovery failures exit 1, invalid inputs exit 2. Reads fan
+  out at most four servers with 5s per-server and 30s overall budgets. A bounded
+  walk is not atomic. Task text, transcripts, git and PR readiness are separate
+  drill-downs; recovery snapshots never answer this query.
 
 - `send` takes its body on **stdin** (`-`), never as an argv element — no escaping or
   length hazard, and no message text ever reaches a shell.
