@@ -104,8 +104,10 @@ export async function pace(page: Page): Promise<void> {
 class DisplayRecorder {
   private ff: ChildProcess;
   private spawnError: Error | null = null;
+  private file: string;
 
   constructor(file: string) {
+    this.file = file;
     const display = process.env.DISPLAY;
     if (!display) {
       throw new Error("shell demo recorder: DISPLAY is unset — the lane must run under xvfb-run");
@@ -144,19 +146,42 @@ class DisplayRecorder {
     });
   }
 
-  /** Stop recording and wait (bounded) for the WebM to be finalized. */
+  /** Stop recording and wait (bounded) for the WebM to be finalized. An
+   *  ffmpeg that died before teardown (e.g. an unavailable `libvpx-vp9`
+   *  encoder) or had to be SIGKILLed leaves a missing or truncated file, so
+   *  the demo must NOT report success — stop() rejects in both cases. */
   async stop(): Promise<void> {
     if (this.spawnError) throw this.spawnError;
-    if (this.ff.exitCode !== null || this.ff.signalCode !== null) return;
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
+      const settle = (code: number | null, signal: NodeJS.Signals | null, preTeardown: boolean) => {
+        if (signal === "SIGKILL") {
+          reject(
+            new Error(
+              `shell demo recorder: ffmpeg did not finalize within ${FFMPEG_STOP_WAIT_MS}ms and was SIGKILLed — truncated WebM: ${this.file}`,
+            ),
+          );
+        } else if (code !== 0) {
+          reject(
+            new Error(
+              `shell demo recorder: ffmpeg exited ${preTeardown ? "before teardown " : ""}(code ${code}${signal ? `, signal ${signal}` : ""}) — missing or corrupt recording: ${this.file}`,
+            ),
+          );
+        } else {
+          resolve();
+        }
+      };
+      if (this.ff.exitCode !== null || this.ff.signalCode !== null) {
+        settle(this.ff.exitCode, this.ff.signalCode, true);
+        return;
+      }
       const interrupt = setTimeout(() => this.ff.kill("SIGINT"), FFMPEG_STOP_WAIT_MS / 2);
       const kill = setTimeout(() => this.ff.kill("SIGKILL"), FFMPEG_STOP_WAIT_MS);
       interrupt.unref();
       kill.unref();
-      this.ff.once("close", () => {
+      this.ff.once("close", (code, signal) => {
         clearTimeout(interrupt);
         clearTimeout(kill);
-        resolve();
+        settle(code, signal, false);
       });
       this.ff.stdin?.write("q\n");
       this.ff.stdin?.end();

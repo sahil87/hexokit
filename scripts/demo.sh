@@ -49,9 +49,10 @@ SHELL_DEMO_DIR="$REPO_ROOT/app/desktop/tests/demo"
 OUT_DIR="$REPO_ROOT/.demo"
 
 # Desktop-shell paths whose diff REQUIRES a shell recording (Constitution §
-# PR Evidence). Directory entries end in `/`; `*.test.ts(x)` hits are excluded
-# (a test-only diff has nothing to record). One named constant, matched as
-# case patterns in warn_shell_paths — never scattered literals.
+# PR Evidence). Directory entries end in `/` and match as prefixes; entries
+# containing `*` match as glob patterns; everything else matches exactly.
+# `*.test.ts(x)` hits are excluded (a test-only diff has nothing to record).
+# One named constant, matched in warn_shell_paths — never scattered literals.
 SHELL_PATHS=(
   app/desktop/src/
   app/frontend/src/lib/shell.ts
@@ -220,12 +221,16 @@ warn_shell_paths() {
   while IFS= read -r f; do
     case "$f" in *.test.ts | *.test.tsx) continue ;; esac
     for p in "${SHELL_PATHS[@]}"; do
-      case "$f" in
-        "$p"*)
-          touched+=("$f")
-          break
-          ;;
+      # Three entry forms: trailing-/ directories match as prefixes, entries
+      # containing * match as glob patterns (unquoted RHS — quoting would make
+      # the * literal), everything else matches exactly.
+      case "$p" in
+        */) [[ "$f" == "$p"* ]] || continue ;;
+        *"*"*) [[ "$f" == $p ]] || continue ;;
+        *) [[ "$f" == "$p" ]] || continue ;;
       esac
+      touched+=("$f")
+      break
     done
   done < <(
     git -C "$REPO_ROOT" diff --name-only "$mb" 2>/dev/null
