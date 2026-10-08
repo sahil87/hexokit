@@ -1,5 +1,75 @@
 # Archived Changes
 
+- **261007-xyk8-demo-recording-pr-evidence** — Demo Recordings for PR Evidence
+- **261007-vqkk-mcp-endpoint-tailscale-serve-settings** — MCP Endpoint Behind Tailscale Serve + Settings Row
+- **261006-lwt6-delete-stale-runkit-homes** — Delete the Stale run-kit Homes
+- **261006-htbe-riff-wt-flags-git-precondition** — rk riff — wt v0.1.7 flag names + git-repo precondition
+- **261006-gy29-retire-runkit-desktop-userdata** — Retire the run-kit-desktop Electron userData
+- **261006-3ht0-consolidate-two-homes** — Move ~/.rk into the hexokit State Home
+- **261001-yd7x-split-pane-focus-terminal** — Split Pane Focuses the Terminal
+- **260930-pc02-review-first-paint-colour** — Colour on First Paint (PR Review, Phase 2)
+- **260929-yuua-hexokit-t2b-plan-doc-sync** — hexokit-t2b-plan-doc-sync
+- **260929-y8ib-hexokit-brand-string-sweep** — HexoKit Brand-String Sweep (Phase 4 T1)
+- **260929-r2mn-web-popout-shrinks-opener-terminal** — Fix Web Popout Shrinking the Opener's Terminal
+- **260929-cybu-hexokit-t2a-plan-doc-sync** — hexokit-t2a-plan-doc-sync
+- **260928-xq5k-updatecheck-hexokit-self-row** — Updatecheck HexoKit Self-Row Match
+- **260928-n031-hexokit-repo-url-sweep** — HexoKit Repo URL Sweep
+- **260928-jor0-hexokit-r2-plan-doc-consolidate** — Consolidate R2 evidence into the HexoKit rebrand Phase 3 plan doc
+- **260928-c5my-hexokit-r1c-plan-doc-sync** — hexokit-r1c-plan-doc-sync
+- **260928-7u5c-hexokit-r1d-plan-doc-sync** — hexokit-r1d-plan-doc-sync
+- **260926-wyey-hexokit-daemon-port** — HexoKit Daemon Port
+- **260926-tza7-hexokit-formula-release** — HexoKit Formula Release
+- **260926-s57a-hexokit-r1-plan-doc-sync** — hexokit-r1-plan-doc-sync
+- **260926-qm4d-hexokit-home-migration** — HexoKit Home Migration
+- **260925-xm7k-web-tile-ws-tunnel** — Web-Tile Tunnel over WebSocket (Remote-Native Mode Behind Any Front End)
+- **260925-ww92-surface-layout-tree** — Surface Layout Tree Model
+- **260925-v1r0-port-config-key** — Daemon Port Config Key
+- **260925-rrax-deterministic-operator-launch-dir** — Deterministic Operator Launch Directory
+- **260925-p134-popout-followups-placeholder-single-tile** — Popout Follow-ups — Popped Placeholder, Full-Width Popout, Single-Tile Pop Out
+- **260925-lqgp-web-tile-remote-proxy** — Web Tile Remote-Native Mode (Same-Port Forward Proxy)
+- **260925-jbz0-surface-cross-tab-tiles** — Surface Cross-Tab Tiles
+- **260925-inm3-desktop-popout-windows** — Desktop Shell Popout Windows
+- **260925-hcne-native-web-first-paint** — Native Web Tile First Paint
+- **260925-ckpm-web-tile-native-retention-fixes** — Web Tile Native Retention Fixes
+- **260925-c1ql-surface-drag-snap** — Surface Drag to Snap
+- **260925-9xq3-tty-isolated-session** — Isolated Terminal Sessions
+- **260925-964f-web-tile-keyboard-capture** — Web Tile Keyboard Capture
+- **260925-40fa-machine-ports-policy** — Machine-Only Ports + Ports Policy
+- **260925-3v9l-surface-popout** — Surface Popout
+- **260925-1067-host-default-loopback-fix** — Host Default Loopback Fix
+- **260924-7koz-code-server-restart** — Code-Server Restart — Lens Button + CLI Verb
+- **260921-c5w2-code-tile-follow-reload-verbs** — Code Tile Header Verbs — Follow Terminal + Reload Editor
+- **260919-55fx-pr-review-surface-listener** — PR Review Surface + Comment Listener
+- **260917-w0k7-web-native-parity** — Web Native Engine Parity
+- **260917-ot32-linux-desktop-appimage-install** — Linux Desktop App — `rk desktop` Installs, Updates, and Integrates the AppImage
+- **260917-m3a9-desktop-e2e-lane-web-docs** — Desktop E2E Lane + Web Tile Docs
+- **260917-lhr5-perf-idle-cpu-renderer-headed** — perf-idle-cpu reports the xterm renderer and runs headed
+- **260917-cfzm-flair-composited-with-terminal** — Flairs Stay Composited With a Terminal Mounted
+- **260917-a2ep-server-not-found-render-loop** — A missing-server route must not spin the renderer
+- **260916-ter5-overlay-presence-registry** — Overlay Presence Registry
+- **260916-q2xk-web-frame-native-engine** — Web Frame Native Engine
+- **260916-la8z-hook-launcher-upgrade-window** — Hook Launcher — Agent-State Writes Survive the Brew Upgrade Window
+- **260916-i567-builtin-riff-presets-settings-registry** — Built-in riff presets in the settings registry (`riff_presets`)
+- **260916-hn6s-easter-eggs-setting** — `easter_eggs` setting — a registry switch to turn the screen-break Easter eggs off
+- **260916-e3sg-latch-well** — Latch Well — Recessed On-State for Latched Controls
+- **260916-crb3-desktop-web-views-bridge** — Desktop Web Views Bridge
+- **260916-az44-persistent-code-frames-lru** — Persistent code frames across window switches — an LRU of live code-server workbenches
+- **260916-6p65-e2e-multi-rig-lane** — E2E Multi-Rig Lane — Two Playwright Workers per CI Shard
+- **260916-23xd-screen-break-crack-realism** — Screen-break Easter eggs phase 2 — realistic cracks, dead-pixel lines, and a slow 12 s flight
+- **260916-07pj-state-socket-broadcast-dedup** — State-Socket Broadcasts Only When Something Changed
+- **260915-lm5q-full-height-sidebar-head** — Full-Height Sidebar — the sidebar column owns the top-left band
+- **260915-kp2l-screen-break-easter-eggs** — Screen-break Easter eggs — the screen cracks open and something comes out of the monitor
+- **260915-5a7i-osc52-clipboard-min-length** — OSC 52 Clipboard Sink — Minimum Copy Length
+- **260915-3k45-pane-icon-column-collapse-yield** — PANE Panel Icon Column + Collapse Yields the Status Bar
+- **260914-rl0c-reef-hd-flair** — Reef — an HD vector sibling to the aquarium flair
+- **260914-pnfe-register-value-diet** — Register Value Diet
+- **260914-msu9-status-bar-priority-fold** — Status Bar Measured Priority Fold
+- **260914-msji-pane-panel-yield-continuation** — PANE-on Yields the Bar; Continuation Lines
+- **260914-88is-compose-strip-nav-chords** — Navigation Chords Fire from the Compose Textarea
+- **260913-gpi7-status-bugs-ordinal-version** — Status Bugs — Pane Ordinal + Version Segment
+- **260913-3sx8-quake-compose-draft-per-server** — Quake terminal compose draft is per tmux server
+- **260912-31eg-gui-keyboard-capture** — GUI Keyboard Capture — Hand rk's Chords to the Guest Desktop
+- **260911-mvuv-hexokit-brand-surfaces** — HexoKit brand surfaces (plan row C3)
 - **260928-zuov-hexokit-memory-hydrate** — HexoKit Memory Hydrate (rebrand row X3)
 - **260916-jowy-xterm-webgl-fallback-telemetry** — xterm WebGL Fallback Telemetry
 - **260916-h7l1-waiting-halo-composited** — Waiting Halo and Seam Composited
