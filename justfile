@@ -118,7 +118,7 @@ test-desktop-e2e *args:
 pw *args:
     scripts/pw.sh {{args}}
 
-# Record a demo spec (app/frontend/tests/demo/<name>.demo.ts) on this worktree's throwaway rig → .demo/<name>[-before|-after]-<desktop|mobile>.webm
+# Record a demo spec (app/frontend/tests/demo/<name>.demo.ts = web lane, app/desktop/tests/demo/<name>.demo.ts = shell lane, both = both lanes) on this worktree's throwaway rig → .demo/<name>[-before|-after]-<desktop|mobile|shell>.webm
 demo *args:
     scripts/demo.sh {{args}}
 

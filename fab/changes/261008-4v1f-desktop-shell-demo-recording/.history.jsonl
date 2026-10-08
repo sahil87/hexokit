@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-10-08T04:46:17Z"}
+{"args":"Extend just demo PR-evidence recordings to the Electron desktop shell (ffmpeg x11grab under Xvfb, routing by spec location, shell suffix, path-based selection rule, constitution amendment)","cmd":"fab-new","event":"command","ts":"2026-10-08T04:46:17Z"}
+{"delta":"+2.9","event":"confidence","score":2.9,"trigger":"calc-score","ts":"2026-10-08T04:50:00Z"}
+{"delta":"+0.0","event":"confidence","score":2.9,"trigger":"calc-score","ts":"2026-10-08T04:50:08Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-10-08T04:50:37Z"}
+{"delta":"+1.1","event":"confidence","score":4,"trigger":"calc-score","ts":"2026-10-08T05:32:38Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-10-08T05:32:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-10-08T05:33:03Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-10-08T05:35:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-10-08T05:55:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-10-08T05:59:21Z"}
+{"event":"review","result":"passed","ts":"2026-10-08T05:59:21Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-10-08T06:01:55Z"}

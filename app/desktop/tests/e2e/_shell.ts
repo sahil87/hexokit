@@ -29,11 +29,17 @@
  *   `/proxy/<port>/` hop. A guest is therefore identified by its literal
  *   loopback URL; host views are identified by origin (e2e-b stays
  *   `localhost`-named, so the two origins remain distinct).
+ * - `launchShell`'s optional `appDir` override launches ANOTHER checkout's
+ *   compiled shell with THAT tree's own Electron binary (the shell demo
+ *   lane's --before pass, where the old build is part of "before"). It never
+ *   alters the default path: no override means this tree, byte-identical
+ *   behavior for the e2e lane.
  */
 import { _electron, type ElectronApplication, type Page } from "@playwright/test";
 import http from "node:http";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { harnessPort } from "../../../frontend/tests/e2e/_harness";
 
 /** The rig's Vite port, set only by the harness (scripts/test-e2e.sh). Never
@@ -84,11 +90,46 @@ export function seedHosts(configHome: string): void {
 }
 
 /** Launch the compiled shell (package.json main = dist/main.js) with the
- *  per-test isolated config home. */
-export function launchShell(configHome: string): Promise<ElectronApplication> {
+ *  per-test isolated config home. `opts.appDir` redirects the launch at
+ *  another checkout's compiled shell, run with that checkout's OWN Electron
+ *  binary (resolved through its installed `electron` package, whose main
+ *  export is the executable path) — the shell demo lane's --before pass.
+ *  With no override, this tree's launch is byte-identical to before.
+ *
+ *  Constraint: Playwright injects its electron loader require-hook
+ *  (`-r …/playwright-core/lib/server/electron/loader.js`, which bridges
+ *  `app.whenReady()` for the node-side handle) only when IT resolves the
+ *  executable — an explicit `executablePath` skips the injection and the
+ *  launch then waits forever, so the override prepends the hook itself. The
+ *  loader comes from THIS tree's playwright-core (the driving copy). */
+export function launchShell(
+  configHome: string,
+  opts: { appDir?: string } = {},
+): Promise<ElectronApplication> {
+  if (!opts.appDir) {
+    return _electron.launch({
+      args: [".", "--no-sandbox"],
+      cwd: DESKTOP_DIR,
+      env: { ...process.env, XDG_CONFIG_HOME: configHome },
+    });
+  }
+  const requireFromAppDir = createRequire(join(opts.appDir, "package.json"));
+  // playwright-core is not directly resolvable from app/desktop under pnpm's
+  // strict layout; resolve it through @playwright/test's real path.
+  const requireFromPwTest = createRequire(
+    createRequire(join(DESKTOP_DIR, "package.json")).resolve("@playwright/test/package.json"),
+  );
+  const loader = join(
+    dirname(requireFromPwTest.resolve("playwright-core/package.json")),
+    "lib",
+    "server",
+    "electron",
+    "loader.js",
+  );
   return _electron.launch({
-    args: [".", "--no-sandbox"],
-    cwd: DESKTOP_DIR,
+    args: ["-r", loader, ".", "--no-sandbox"],
+    cwd: opts.appDir,
+    executablePath: requireFromAppDir("electron"),
     env: { ...process.env, XDG_CONFIG_HOME: configHome },
   });
 }
