@@ -23,6 +23,7 @@ sync() {
 }
 
 sync "docs/site/skill.md" "$DEST_DIR/skill.md"
+sync "docs/site/skill/change.md" "$DEST_DIR/change.md"
 sync "docs/site/skill/code.md" "$DEST_DIR/code.md"
 sync "docs/site/skill/cron.md" "$DEST_DIR/cron.md"
 sync "docs/site/skill/display.md" "$DEST_DIR/display.md"

@@ -23,6 +23,12 @@ import (
 //go:embed skill/skill.md
 var skillBundle []byte
 
+// skillChangeTopic is the operator-led large-change workflow, versioned with
+// the MCP tools and CLI it uses.
+//
+//go:embed skill/change.md
+var skillChangeTopic []byte
+
 // skillCronTopic holds the `cron` topic page, canonical at
 // docs/site/skill/cron.md and synced into skill/cron.md alongside the core
 // bundle. Same embed + drift-guard mechanism as the display topic, same
@@ -88,6 +94,7 @@ const tutorialTopicName = "tutorial"
 // here; an unknown topic fails fast (usage error naming the valid topics). Add a
 // row per topic page shipped.
 var skillTopics = map[string][]byte{
+	"change":          skillChangeTopic,
 	"code":            skillCodeTopic,
 	"cron":            skillCronTopic,
 	"display":         skillDisplayTopic,

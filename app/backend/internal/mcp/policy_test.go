@@ -8,12 +8,12 @@ import (
 	"time"
 )
 
-// TestTableShape pins the seeded allowlist: exactly the thirty tools (the
+// TestTableShape pins the seeded allowlist: exactly the thirty-one tools (the
 // ten W1 seeds, inventory, board, operator_request, the answer/await messaging pair,
 // snapshot_list, gui_shot, and the thirteen W2c rows), every timeout within the
 // cap, and no row exposing a forbidden flag form.
 func TestTableShape(t *testing.T) {
-	want := []string{"sessions", "panes", "inventory", "capture", "process", "status", "cron_list", "gui_status", "tab_show", "tab_web_ls", "send", "board", "operator_request", "answer", "await", "snapshot_list", "gui_shot", "notify", "riff", "new_window", "operator", "cron_add", "tab_layout", "tab_web", "tab_code", "code_exec", "gui_exec", "kill", "cron_rm", "cron_mute"}
+	want := []string{"sessions", "panes", "inventory", "capture", "process", "status", "cron_list", "gui_status", "tab_show", "tab_web_ls", "send", "board", "operator_request", "answer", "await", "snapshot_list", "gui_shot", "notify", "riff", "new_server", "new_window", "operator", "cron_add", "tab_layout", "tab_web", "tab_code", "code_exec", "gui_exec", "kill", "cron_rm", "cron_mute"}
 	if len(Table) != len(want) {
 		t.Fatalf("Table has %d rows, want %d", len(Table), len(want))
 	}
@@ -363,7 +363,7 @@ func TestMutationAnnotations(t *testing.T) {
 			t.Errorf("row %q annotations = %+v, want %+v", tool, row.Annotations, ann)
 		}
 	}
-	for _, tool := range []string{"notify", "riff", "new_window", "cron_add", "tab_layout", "tab_web", "tab_code", "code_exec", "gui_exec"} {
+	for _, tool := range []string{"notify", "riff", "new_server", "new_window", "cron_add", "tab_layout", "tab_web", "tab_code", "code_exec", "gui_exec"} {
 		if row := findRow(t, tool); row.Annotations != (Annotations{}) {
 			t.Errorf("row %q annotations = %+v, want all false", tool, row.Annotations)
 		}

@@ -6,6 +6,7 @@ The agent skill bundle for **HexoKit** — the tmux session manager with a web U
 
 Depth for a specific job lives in topic pages — pull one at use-time:
 
+- **large change through one operator** (dedicated server, worker worktrees, integration branch, PR and authorized merge) → `rk skill change`
 - **panes, iframes & visual display** → `rk skill display`
 - **agent-to-agent messaging concepts** (which channel for write/read/wait, spawn-then-deliver past trust walls — the `ready`/`parked` readiness standard) → `rk skill messaging`
 - **`rk mux` verb reference** (send/await/capture/kill/process/panes/sessions/inventory flags, gates, report words) → `rk skill mux`; start fleet inspection with `rk mux inventory --json` (MCP: `inventory`), then address panes by returned server + id
@@ -85,6 +86,7 @@ rk url                                           # server URL (config-derived)
 
 ## Composition patterns
 
+- **Large changes:** MCP `new_server {name}` creates a durable server; `operator {server, dir}` starts its operator in an absolute repository directory. Use the returned `window` with `operator_request {server, template:"user-message", window, text}` to hand off scope, target branch and acceptance checks. Tell the operator to read `rk skill change`, create an integration worktree, coordinate worker branches, validate the combined diff and return an integration PR. A request receipt proves submission, not completion; verify artifacts and GitHub. Merge within the user's authorization after required checks pass. Leave panes and worktrees available for review.
 - **Discover the server URL at use-time** via `rk url`, never hardcode it — it is config-derived from this environment (see [Where am I](#where-am-i)).
 - **`rk skill` is the static briefing; you derive the live details.** Read the bundle to learn *what* HexoKit does; run the [Where am I](#where-am-i) derivations to learn *where* you are, and `rk skill display` for the visual-display recipe in depth.
 - **`rk notify` is the default non-blocking escalation channel** for out-of-band messages to the human, gated on `command -v rk`:
