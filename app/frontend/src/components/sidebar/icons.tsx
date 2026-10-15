@@ -481,3 +481,46 @@ export function NotePencilIcon({ size = 13 }: { size?: number }) {
     </svg>
   );
 }
+
+/** Open in new window — a box with an arrow leaving its top-right corner (the
+ *  tile header's Pop out glyph, at the sidebar's 13px / 24-viewBox weight). */
+export function PopOutIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M15 3h6v6" />
+      <path d="m21 3-9 9" />
+      <path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6" />
+    </svg>
+  );
+}
+
+/** Bring back — the curving return arrow (the tile header's send-home glyph,
+ *  at the sidebar's 13px / 24-viewBox weight). */
+export function BringBackIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+    </svg>
+  );
+}

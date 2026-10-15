@@ -62,7 +62,11 @@ import type { ShellHostMenuRow } from "@/lib/shell-strip";
  * shell's version-skew fallback CSS (`html:not(.rk-shell-strip)` selectors,
  * injected for older SPAs) keys off it and no-ops here.
  *
- * The centered label names the window's host: the shell-registered active
+ * In a popout window (`title` passed — AppShell's popout title through the
+ * top-bar slot context) the centered label is that title instead: the tab
+ * name + number, session and server, static, with no host switcher.
+ *
+ * Otherwise the centered label names the window's host: the shell-registered active
  * host's display name via the existing `servers.list()` bridge call, falling
  * back to `location.hostname` (older shell, denial, no active entry). When
  * the bridge answers a non-empty host list, the label is the host-switcher
@@ -106,7 +110,7 @@ import type { ShellHostMenuRow } from "@/lib/shell-strip";
  *  drag-reorder payloads (server/session/board-list). */
 const HOST_REORDER_MIME = "application/x-shell-host-reorder";
 
-export function ShellTitlebarStrip() {
+export function ShellTitlebarStrip({ title }: { title?: string } = {}) {
   const { titlebarHex } = useInstanceAccent();
   const { theme } = useTheme();
   const { addToast } = useToast();
@@ -674,7 +678,15 @@ export function ShellTitlebarStrip() {
         paddingRight: insets.right,
       }}
     >
-      {interactive ? (
+      {title !== undefined ? (
+        // A popout window's strip names the popped tab (tab, session,
+        // server) instead of the host — a host switcher has no meaning in a
+        // window pinned to one surface. Static and draggable, like the
+        // older-shell label below.
+        <span data-testid="shell-titlebar-popout-title" className="min-w-0 truncate text-xs">
+          {title}
+        </span>
+      ) : interactive ? (
         <div ref={containerRef} className="rk-shell-no-drag relative flex min-w-0 items-center">
           {/* Tip reveals the full host name — the label truncates by design
               inside the platform insets. Suppressed while open, the standard

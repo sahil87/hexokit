@@ -5,8 +5,8 @@ import { useEffect } from "react";
  *
  * Dashboard: "HexoKit — {hostname}" or "HexoKit" if hostname is empty.
  * Terminal:  "{session}/{window} — {hostname}" or "{session}/{window}" if empty.
- * `override` (the popout window's "<Surface> · <window name>") wins outright
- * when present.
+ * `override` (the popout window's tab/session/server title — popoutTitle in
+ * lib/popout.ts) wins outright when present.
  */
 export function useBrowserTitle(
   sessionName: string | undefined,
@@ -15,9 +15,8 @@ export function useBrowserTitle(
   override?: string,
 ): void {
   useEffect(() => {
-    // The popout window's `<Surface> · <window name>` title wins outright
-    // when present — it names the popped surface, not the session/window
-    // pair.
+    // The popout window's title (tab name + number, session, server) wins
+    // outright when present — it names the popped tab, not the route pair.
     if (override !== undefined) {
       document.title = override;
       return;
