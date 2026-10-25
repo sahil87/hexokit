@@ -112,6 +112,7 @@ const apiSpy = vi.hoisted(() => ({
   removeWebTab: vi.fn(),
   selectWebTab: vi.fn(),
   setWindowOptions: vi.fn(),
+  fetchWindowHistory: vi.fn(),
 }));
 vi.mock("@/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/client")>()),
@@ -2499,6 +2500,237 @@ describe("SurfaceLayout export menu (260819-shqo)", () => {
   it("does not render on non-tty tiles", () => {
     renderLayout({ layout: layoutOf("web") });
     expect(screen.queryByRole("button", { name: "Export terminal output" })).toBeNull();
+  });
+});
+
+describe("SurfaceLayout select-text sheet", () => {
+  /** Seed the primary tty's terminal ref with a minimal buffer: `lines` in
+   *  scrollback order, the viewport showing the last `rows` of them. */
+  function seedTerminal(lines: string[], rows: number) {
+    const props = terminalSpy.mock.lastCall?.[0] as {
+      terminalRef: { current: unknown };
+    };
+    const resizeListeners = new Set<() => void>();
+    const writeListeners = new Set<() => void>();
+    const on = (set: Set<() => void>) => (fn: () => void) => {
+      set.add(fn);
+      return { dispose: () => set.delete(fn) };
+    };
+    const term = {
+      rows,
+      cols: 80,
+      buffer: { active: bufferOf(lines, rows) },
+      onResize: on(resizeListeners),
+      onWriteParsed: on(writeListeners),
+    };
+    props.terminalRef.current = term;
+    const show = (next: string[]) => {
+      term.rows = next.length;
+      term.buffer.active = bufferOf(next, next.length);
+    };
+    return {
+      /** The terminal resizes (still showing `next` — the old frame). */
+      resize: (next: string[]) => {
+        show(next);
+        act(() => resizeListeners.forEach((fn) => fn()));
+      },
+      /** The TUI draws `next`. */
+      redraw: (next: string[]) => {
+        show(next);
+        act(() => writeListeners.forEach((fn) => fn()));
+      },
+    };
+  }
+
+  function bufferOf(lines: string[], rows: number) {
+    return {
+      length: lines.length,
+      viewportY: lines.length - rows,
+      getLine: (i: number) =>
+        i < lines.length ? { translateToString: () => lines[i], isWrapped: false } : undefined,
+    };
+  }
+
+  function openSheet() {
+    act(() => {
+      document.dispatchEvent(new CustomEvent("terminal-export", { detail: { action: "select" } }));
+    });
+  }
+
+  beforeEach(() => {
+    // Default: the server capture is unavailable, so the sheet falls back to
+    // the visible screen.
+    apiSpy.fetchWindowHistory.mockReset().mockRejectedValue(new Error("offline"));
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "clipboard");
+  });
+
+  it("opens as a bottom sheet with the whole scrollback, trailing padding trimmed", async () => {
+    apiSpy.fetchWindowHistory.mockResolvedValue("older line   \nfirst visible\nsecond visible  \n\n");
+    renderLayout({ layout: layoutOf("tty"), statusWindow: STATUS_WINDOW, isMobile: true });
+    seedTerminal(["old line", "first visible", "second visible"], 2);
+
+    openSheet();
+
+    expect(await screen.findByRole("dialog", { name: "Select text" })).toBeTruthy();
+    expect(screen.getByTestId("select-text-sheet")).toBeTruthy();
+    expect(apiSpy.fetchWindowHistory).toHaveBeenCalledWith("srv", "@1");
+    expect(screen.getByTestId("select-text").textContent).toBe(
+      "older line\nfirst visible\nsecond visible",
+    );
+  });
+
+  it("falls back to the visible screen when the history fetch fails", async () => {
+    renderLayout({ layout: layoutOf("tty"), statusWindow: STATUS_WINDOW, isMobile: true });
+    seedTerminal(["old line", "first visible  ", "second visible"], 2);
+
+    openSheet();
+
+    expect((await screen.findByTestId("select-text")).textContent).toBe(
+      "first visible\nsecond visible",
+    );
+  });
+
+  it("uses the visible screen without fetching on an alt-screen window", async () => {
+    renderLayout({
+      layout: layoutOf("tty"),
+      statusWindow: { ...STATUS_WINDOW, altScreen: true },
+      isMobile: true,
+    });
+    seedTerminal(["old line", "on screen"], 1);
+
+    openSheet();
+
+    expect((await screen.findByTestId("select-text")).textContent).toBe("on screen");
+    expect(apiSpy.fetchWindowHistory).not.toHaveBeenCalled();
+  });
+
+  it("is not offered in the desktop ⇩ menu — a mouse already selects", () => {
+    renderLayout({ layout: layoutOf("tty"), statusWindow: STATUS_WINDOW });
+    fireEvent.click(screen.getByRole("button", { name: "Export terminal output" }));
+    expect(screen.queryByRole("menuitem", { name: /Select text/ })).toBeNull();
+  });
+
+  it("Copy all writes the whole text to the clipboard", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    renderLayout({ layout: layoutOf("tty"), isMobile: true });
+    seedTerminal(["a", "b"], 2);
+    openSheet();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Copy all" }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("a\nb"));
+    expect(await screen.findByText("Copied")).toBeTruthy();
+  });
+
+  it("closes on Close and on Escape", async () => {
+    renderLayout({ layout: layoutOf("tty"), isMobile: true });
+    seedTerminal(["x"], 1);
+
+    openSheet();
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog", { name: "Select text" })).toBeNull();
+
+    openSheet();
+    await screen.findByRole("dialog", { name: "Select text" });
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Select text" })).toBeNull();
+  });
+
+  it("follows the screen until the text is touched", async () => {
+    renderLayout({
+      layout: layoutOf("tty"),
+      statusWindow: { ...STATUS_WINDOW, altScreen: true },
+      isMobile: true,
+    });
+    const term = seedTerminal(["first"], 1);
+
+    openSheet();
+    const pre = await screen.findByTestId("select-text");
+    expect(pre.textContent).toBe("first");
+
+    term.redraw(["second", "frame"]);
+    expect(pre.textContent).toBe("second\nframe");
+
+    // A touch freezes it — later redraws no longer move the text.
+    fireEvent.pointerDown(pre);
+    term.redraw(["changed"]);
+    expect(pre.textContent).toBe("second\nframe");
+  });
+
+  it("with the phone keyboard up, closes it and shows only the full-height redraw", async () => {
+    renderLayout({
+      layout: layoutOf("tty"),
+      statusWindow: { ...STATUS_WINDOW, altScreen: true },
+      isMobile: true,
+    });
+    const term = seedTerminal(["squeezed"], 1);
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+    document.documentElement.classList.add("kb-open");
+
+    try {
+      openSheet();
+      expect(document.activeElement).not.toBe(input);
+      const pre = await screen.findByTestId("select-text");
+      // The squeezed frame never shows, and Copy all waits for real text.
+      expect(pre.textContent).toBe("Loading…");
+      expect(screen.getByRole("button", { name: "Copy all" })).toHaveProperty("disabled", true);
+      term.redraw(["still squeezed"]);
+      expect(pre.textContent).toBe("Loading…");
+
+      // The keyboard closes, the terminal grows (old frame), then the TUI redraws.
+      act(() => document.documentElement.classList.remove("kb-open"));
+      term.resize(["squeezed", ""]);
+      expect(pre.textContent).toBe("Loading…");
+      term.redraw(["full height", "screen"]);
+      expect(pre.textContent).toBe("full height\nscreen");
+      expect(screen.getByRole("button", { name: "Copy all" })).toHaveProperty("disabled", false);
+    } finally {
+      document.documentElement.classList.remove("kb-open");
+      input.remove();
+    }
+  });
+
+  it("shows the screen if the keyboard closes without a terminal resize", async () => {
+    renderLayout({
+      layout: layoutOf("tty"),
+      statusWindow: { ...STATUS_WINDOW, altScreen: true },
+      isMobile: true,
+    });
+    seedTerminal(["screen"], 1);
+    document.documentElement.classList.add("kb-open");
+
+    try {
+      openSheet();
+      const pre = await screen.findByTestId("select-text");
+      expect(pre.textContent).toBe("Loading…");
+      act(() => document.documentElement.classList.remove("kb-open"));
+      await waitFor(() => expect(pre.textContent).toBe("screen"));
+    } finally {
+      document.documentElement.classList.remove("kb-open");
+    }
+  });
+
+  it("a history copy is not live", async () => {
+    apiSpy.fetchWindowHistory.mockResolvedValue("history");
+    renderLayout({ layout: layoutOf("tty"), statusWindow: STATUS_WINDOW, isMobile: true });
+    const term = seedTerminal(["screen"], 1);
+
+    openSheet();
+    const pre = await screen.findByTestId("select-text");
+    term.redraw(["redrawn"]);
+    expect(pre.textContent).toBe("history");
+  });
+
+  it("does nothing before the terminal has mounted", () => {
+    renderLayout({ layout: layoutOf("tty"), isMobile: true });
+    openSheet();
+    expect(screen.queryByRole("dialog", { name: "Select text" })).toBeNull();
   });
 });
 
