@@ -9,7 +9,7 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
+    ship: done
     review-pr: pending
 plan:
     generated: true
@@ -33,13 +33,14 @@ stage_metrics:
     apply: {started_at: "2026-10-26T02:23:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-26T14:34:20Z"}
     review: {started_at: "2026-10-26T14:34:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-26T14:41:26Z"}
     hydrate: {started_at: "2026-10-26T14:41:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-26T14:47:13Z"}
-    ship: {started_at: "2026-10-26T14:47:13Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-10-26T14:47:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-26T14:48:46Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1090
 base_branch: main
 true_impact:
-    added: 1401
-    deleted: 10
-    net: 1391
+    added: 1479
+    deleted: 33
+    net: 1446
     excluding:
         added: 967
         deleted: 10
@@ -48,9 +49,9 @@ true_impact:
         added: 180
         deleted: 0
         net: 180
-    computed_at: "2026-10-26T14:47:13Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-10-26T14:48:46Z"
+    computed_at_stage: ship
 summary: extend the shared injection echo probe to recognize the observed Claude/Antigravity, Codex, Kimi, OpenCode, and Gemini collapsed-paste chips so submit proceeds on chip-rendering TUIs; cron scheduling unchanged; Gemini live-reply verification blocked by pre-existing invalid credentials
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-10-26T14:47:13Z
+last_updated: 2026-10-26T14:48:46Z
