@@ -9,7 +9,7 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
+    ship: done
     review-pr: pending
 plan:
     generated: true
@@ -33,13 +33,14 @@ stage_metrics:
     apply: {started_at: "2026-10-26T15:14:51Z", driver: fab-fff, iterations: 4, completed_at: "2026-10-26T15:21:15Z"}
     review: {started_at: "2026-10-26T15:21:15Z", driver: fab-fff, iterations: 4, completed_at: "2026-10-26T15:30:55Z"}
     hydrate: {started_at: "2026-10-26T15:30:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-26T15:42:25Z"}
-    ship: {started_at: "2026-10-26T15:42:25Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-10-26T15:42:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-26T15:46:41Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1089
 base_branch: main
 true_impact:
-    added: 3022
-    deleted: 26
-    net: 2996
+    added: 3341
+    deleted: 127
+    net: 3214
     excluding:
         added: 2641
         deleted: 26
@@ -48,9 +49,9 @@ true_impact:
         added: 1649
         deleted: 7
         net: 1642
-    computed_at: "2026-10-26T15:42:25Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-10-26T15:46:41Z"
+    computed_at_stage: ship
 summary: Distinguish Codex human waiting from automatic review, preserve pending questions, and reconcile approval resumption with bounded native runtime reads.
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-10-26T15:42:25Z
+last_updated: 2026-10-26T15:46:41Z
