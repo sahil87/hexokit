@@ -66,7 +66,7 @@ func TestCodexInstallMergeAndTrustNote(t *testing.T) {
 	if !strings.Contains(raw, "--agent codex") {
 		t.Errorf("codex entries must invoke --agent codex:\n%s", raw)
 	}
-	for _, event := range []string{"UserPromptSubmit", "PreToolUse", "PermissionRequest", "Stop", "SessionEnd", "SessionStart"} {
+	for _, event := range []string{"UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "Interrupt", "Stop", "SessionEnd", "SessionStart"} {
 		if asMap(settings["hooks"])[event] == nil {
 			t.Errorf("codex mapping missing event %s", event)
 		}

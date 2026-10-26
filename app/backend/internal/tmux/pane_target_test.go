@@ -97,6 +97,21 @@ func TestParsePaneFacts(t *testing.T) {
 			"/home/u/proj\tnvim\twaiting:123\t  \n",
 			PaneFacts{CWD: "/home/u/proj", Command: "nvim", AgentState: "waiting", AgentStateEpoch: 123},
 		},
+		{
+			"session identity uses scope-named field",
+			"/home/u/proj\tcodex\t\twaiting:123\tclaude:old\tcodex:session\n",
+			PaneFacts{CWD: "/home/u/proj", Command: "codex", AgentState: "waiting", AgentStateEpoch: 123, AgentProvider: "codex", AgentSessionRef: "session"},
+		},
+		{
+			"session identity falls back to legacy",
+			"/home/u/proj\tcodex\t\twaiting:123\tcodex:session\t\n",
+			PaneFacts{CWD: "/home/u/proj", Command: "codex", AgentState: "waiting", AgentStateEpoch: 123, AgentProvider: "codex", AgentSessionRef: "session"},
+		},
+		{
+			"stale state does not retain identity",
+			"/home/u/proj\tzsh\t\twaiting:123\t\tcodex:session\n",
+			PaneFacts{CWD: "/home/u/proj", Command: "zsh"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

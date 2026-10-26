@@ -1994,9 +1994,12 @@ func listWindows(ctx context.Context, session string, server string, strict bool
 	if paneErr == nil {
 		byWindow := parsePanes(paneLines)
 		if byWindow != nil {
+			var paneGroups [][]PaneInfo
 			for i := range windows {
 				windows[i].Panes = byWindow[windows[i].WindowID]
+				paneGroups = append(paneGroups, windows[i].Panes)
 			}
+			reconcileCodexWaiting(ctx, paneGroups...)
 		}
 	}
 

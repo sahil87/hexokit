@@ -267,7 +267,33 @@ Named constants carry every magic value: `TIP_OPEN_DELAY_MS`, `TIP_WARM_WINDOW_M
 
 ## Attention Surfacing (`waiting` rollups + nav)
 
-The per-window `waiting` overlay (agent blocked on a human) propagates UP the hierarchy as **count badges** and drives a **keyboard-first navigation** action and a **board-pane seam**. This is the UI half of #314's three-state `agentState` — see [agent-state](/run-kit/agent-state.md). All counts derive from the existing SSE session data already in the client — **no new endpoint, no `setInterval`/fetch** (Constitution II / code-quality anti-patterns).
+The per-window `waiting` overlay (a human response is pending) propagates UP the hierarchy as **count badges** and drives a **keyboard-first navigation** action and a **board-pane seam**. This is the UI half of #314's three-state `agentState` — see [agent-state](/run-kit/agent-state.md). All counts derive from the existing SSE session data already in the client — **no new endpoint, no `setInterval`/fetch** (Constitution II / code-quality anti-patterns).
+
+**Codex attention contract**: automatic approval review is `active` (solid, no
+halo); completion without a pending question is `idle` (ring, no halo).
+Verified human approval and pending questions are `waiting` (ring + halo).
+Accepted async questions retain attention across unrelated tools, ordinary
+user steering, and turn completion; matching question replies clear only the
+answered questions. Blocking Plan-mode questions retain attention until their
+own result or lifecycle completion/cancellation. Interrupt/session-end clears
+attention. These provider facts are derived server-side and feed every existing
+attention surface through the same three-state model. (a24w)
+
+The bounded Codex runtime read can clear a resolved manual approval before tool
+completion, provided its matching root transcript proves no question remains.
+Unavailable runtime/context leaves hook state in force until a later hook.
+When runtime reconciliation changes state, its transition epoch is unknown
+(`0`); the UI displays the state without inventing duration or reusing the
+preceding waiting age. Bounds, ownership guards, and fallback limits are in
+[agent-state](/run-kit/agent-state.md) § Codex waiting reconciliation. (a24w)
+
+Desktop/mobile lifecycle coverage exercises automatic review, real-human-wait
+event replay, async/blocking question persistence and resolution, ordinary
+steering, and Claude regression. The four before/after recordings are labeled
+Codex 0.164.0 event replay; separate isolated real Codex tests cover automatic
+review and manual approval resumption (the initial manual hook is replayed).
+A fresh live async-dialog or child-overwrite test is outside this evidence.
+(a24w)
 
 **Shared rollup helpers** (`lib/waiting.ts`) — the single source of truth so every surface counts identically: `isWaiting(win)` (= `win.agentState === "waiting"`, keyed on the server-side window-level rollup that already applies `waiting > active > idle` across panes), `countWaitingWindows(windows)`, `countWaitingInSessions(sessions)`, and the instance-wide `countWaitingAcrossServers(sessionsByServer)` (which composes `countWaitingInSessions` over the streamed map). Pure functions over the streamed `WindowInfo`/`ProjectSession` shape.
 
@@ -287,6 +313,17 @@ The per-window `waiting` overlay (agent blocked on a human) propagates UP the hi
 **`Agent: Next waiting` palette action** (`app.tsx` `agentActions`, R11 — keyboard-first, Constitution V): cycles focus through windows whose rolled-up `agentState` is `waiting`, **current server first** (in sidebar order, from `flatWindows`) then other **attached** servers (from a live `sessionsByServerRef.current` read — unattached servers' window data isn't streamed, a known constraint). No-op with a `"No agents waiting"` toast when none. The cycle arithmetic is the pure `nextWaitingTarget(ordered, currentServer, currentWindowId)` helper (`lib/palette/agent-nav.ts`, unit-tested): empty → `null`; current window not in the list → first target (jump in); current IS a target → the next one **with wraparound** (`(idx+1) % len`). This is a deliberate contrast with `palette/move.ts` (reorder arithmetic, which does NOT wrap) — do NOT extend that module. Same-server targets navigate via `navigateToWindow`; cross-server targets `navigate({ to: "/$server/$window" })` (and close the mobile drawer). The action is appended to `paletteActions` as `agentActions`.
 
 ## Design Decisions
+
+### Human attention is classified before the shared UI rollup
+**Decision**: Codex effective-reviewer, question, and approval-resumption facts
+produce the existing `active`/`waiting`/`idle` values server-side. Every dot,
+badge, navigation action, and board seam consumes that result.
+**Why**: automatic review needs no human action, while a pending async question
+can need attention even as tools continue. The shared state keeps all attention
+consumers consistent.
+**Rejected**: hiding only the Codex halo in the frontend; a new provider-specific
+visual state; clearing questions on unrelated tool activity or ordinary steering.
+*Introduced by*: 261026-a24w-fix-codex-waiting-indicator
 
 ### Provenance rides a system-owned glyph slot, never the style channel
 **Decision**: external-server provenance is a leading glyph (↗, `ControlGlyph name="external"`) in the same slot as the protected shield — not a gutter marker, tile border, texture, or `EXT` text badge — and renders only on `managed === false`.
