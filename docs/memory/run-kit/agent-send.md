@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Agent-send backend — internal/transcript registry + transcript.Path (ErrInvalidRef/ErrTranscriptNotFound/ErrNoAdapter; six adapters — claude, codex, gemini, kimi, agy, opencode request-time export; copilot identity-only) for operator actuation, fork/resume, auto-name — plus the pane-typed injection engine (mode guard, sanitized paste, novelty probe, popup guard, gated Enter, recovery) behind POST /api/windows/{id}/send (target:\"agent\") and the operator-request routes."
+description: "Agent-send backend — internal/transcript registry + transcript.Path (ErrInvalidRef/ErrTranscriptNotFound/ErrNoAdapter; six adapters — claude, codex, gemini, kimi, agy, opencode request-time export; copilot identity-only) for operator actuation, fork/resume, auto-name — plus the pane-typed injection engine (mode guard, sanitized paste, chip-aware novelty probe, popup guard, gated Enter, recovery) behind POST /api/windows/{id}/send (target:\"agent\") and the operator-request routes."
 ---
 # Agent Send
 
@@ -453,14 +453,24 @@ split the fragment) and capped to the last
 site for `Needle`, `CountOccurrences`, `verifySubmit`'s frame comparison,
 `clearToBaseline`, and the readiness probe (`ready.go`), so every needle and
 every capture stay under one rule. A paste is **collapsible** when it is multiline
-OR a single line of at least `inject.CollapseMinRunes = 200` runes — the Claude
-Code TUI collapses such a paste into a chip, so the chip is a valid fresh-echo
-signal. `pasteCollapseRe` matches BOTH chip forms whitespace-stripped:
-`[Pasted text #N +M lines]` (multiline collapse) and the suffix-less
-`[Pasted text #N]` (long-single-line collapse), with the `+M lines` suffix optional.
-The chip counts as a successful echo ONLY when the paste is collapsible and ONLY as
-a *fresh* occurrence vs baseline; a short single-line send keeps exact-needle-only
-matching. A paste is **imageish** when the text, whitespace-trimmed, is a single
+OR a single line of at least `inject.CollapseMinRunes = 200` runes — supported
+agent TUIs collapse such a paste into a renderer-specific chip in place of echoing
+the raw text, so a recognized chip is a valid fresh-echo signal. Recognition is
+centralized in `pasteChipRes`, one whitespace-stripped pattern per empirically
+observed renderer form, each summed into `CountOccurrences` beside the raw needle:
+Claude's `[Pasted text #N +M lines]` (multiline) and suffix-less
+`[Pasted text #N]` (long single line) with the `+M lines` suffix optional,
+Antigravity's char-count variant `[Pasted text #N 1426 chars]` (the same
+`pasteCollapseRe`'s optional digit-run-plus-`chars` alternative), Codex's
+`[Pasted Content 1433 chars]` with a ` #K` repeat suffix on an identical repaste,
+Kimi's `[paste #1 1426 chars]` (ordinal and count merge into one digit run once
+whitespace-stripped), OpenCode's `[Pasted ~1 lines]`, and Gemini's
+`[Pasted Text: 1433 chars]` / `[Pasted Text: 20 lines]` with repeats numbered
+inside the bracket (observed forms and versions: § Design Decisions). A chip
+counts as a successful echo ONLY when the paste is collapsible and ONLY as a
+*fresh* occurrence vs baseline — each chip is one occurrence, so identical
+character counts on repeats count independently; a short single-line send keeps
+exact-needle-only matching, and an unrecognized rendering still fails closed. A paste is **imageish** when the text, whitespace-trimmed, is a single
 line ending in an image extension (case-insensitive `.png`/`.jpg`/`.jpeg`/`.gif`/
 `.webp` — `isBareImagePath`): the Claude Code TUI renders exactly that paste shape
 as an `[Image #N]` chip instead of echoing the path (empirical, CC 2.1.260 — chips
@@ -488,7 +498,7 @@ miss — the paste already landed, so it surfaces as `inject.StagedSendFailure` 
 `409` (§ Injection 409 outcomes), the staged-text recoverable state. (Pre-paste
 failures — pane-mode guard, baseline capture, set-buffer, paste-buffer — keep the plain
 wrapped-error → `500` path: nothing was delivered.)
-(260830-s7wp)
+(260830-s7wp) (ejam)
 
 #### Scenario: A stale chip / common needle already in-frame does not false-pass
 - **GIVEN** a baseline capture that ALREADY contains the needle or a paste-collapse
@@ -497,8 +507,8 @@ wrapped-error → `500` path: nothing was delivered.)
 - **WHEN** the paste does not add a fresh occurrence (or the pane scrolls)
 - **THEN** the count does not strictly increase, so no Enter is sent and the
   response is `409` — the stale occurrence is a floor to beat, not a false positive.
-- **AND GIVEN** the text (or, for a collapsible paste, its paste-collapse chip in
-  either form) newly appears within the retry budget, **THEN** Enter is sent and the
+- **AND GIVEN** the text (or, for a collapsible paste, a recognized paste-collapse
+  chip) newly appears within the retry budget, **THEN** Enter is sent and the
   response is `200 {"ok":true}`.
 
 ### Requirement: Composer-popup guard consumes a paste-opened popup before the submit Enter
@@ -827,8 +837,8 @@ rejecting control-byte requests with a `400` (hostile to legitimate paste conten
 
 ### NOVELTY echo probe before Enter, fail-closed
 **Decision**: Never send Enter blindly. Capture the pane tail BEFORE the paste, then
-require a probe needle's (or, for a collapsible paste, the paste-collapse chip's in
-either form) occurrence count to strictly INCREASE after the paste; on failure
+require a probe needle's (or, for a collapsible paste, a recognized paste-collapse
+chip's) occurrence count to strictly INCREASE after the paste; on failure
 withhold Enter and return `409` with the text left recoverable in the composer.
 **Why**: A visible `❯ <text>` line in a capture can be STALE printed output, not the
 live input buffer (a recorded operator lesson) — a mere-presence check would false
@@ -923,11 +933,12 @@ changed-frame comparison (adds provider shape where none is needed).
 *Introduced by*: 260830-nyvm-mux-send-submit-verification
 
 ### Collapse-chip gate at 200 runes, a conservative lower bound
-**Decision**: Count the paste-collapse chip whenever the paste is *collapsible* —
-multiline OR a single line of at least `inject.CollapseMinRunes = 200` runes — and
-make the `+M lines` suffix optional in `pasteCollapseRe` so both the multiline chip
-(`[Pasted text #N +M lines]`) and the suffix-less long-single-line chip
-(`[Pasted text #N]`) match.
+**Decision**: Count a recognized paste-collapse chip whenever the paste is
+*collapsible* — multiline OR a single line of at least
+`inject.CollapseMinRunes = 200` runes; the recognized set is `pasteChipRes` (§
+Collapsed-paste chip recognition below), whose Claude entry makes the `+M lines`
+suffix optional so both the multiline chip (`[Pasted text #N +M lines]`) and the
+suffix-less long-single-line chip (`[Pasted text #N]`) match.
 **Why**: Claude Code collapses a single-line paste over 800 chars into a suffix-less
 chip (empirical, CC 2.1.215, width-independent, observed threshold 801), so its raw
 needle never echoes and the probe would 409 for a paste that demonstrably reached
@@ -945,6 +956,43 @@ Claude Code release can lower it silently); counting the chip unconditionally fo
 ALL sends (needlessly widens the concurrent-fresh-chip false-positive window to
 short interactive sends that never collapse).
 *Introduced by*: `260719-yxi0-chat-send-single-line-collapse-probe`
+
+### Collapsed-paste chip recognition is a per-renderer observed-form set
+**Decision**: `pasteChipRes` is the full recognized set — one whitespace-stripped
+pattern per empirically observed renderer form, each summed beside the raw needle
+in `CountOccurrences` under the unchanged collapsible gate and strict-increase
+baseline discipline: `pasteCollapseRe` covers Claude's `[Pasted text #N]` /
+`[Pasted text #N +M lines]` plus Antigravity's char-count variant
+(`[Pasted text #N 1426 chars]`, agy 1.4.7 — the optional digit-run-plus-`chars`
+alternative; repeats increment #N exactly like Claude's);
+`codexPasteCollapseRe` covers Codex's `[Pasted Content 1433 chars]` (one chip for
+a long single-line OR multiline paste; an identical repaste appends ` #K`, codex
+0.164.0); `kimiPasteCollapseRe` covers Kimi's `[paste #1 1426 chars]` (kimi
+2.3.2); `opencodePasteCollapseRe` covers OpenCode's `[Pasted ~1 lines]`, an
+approximate line count rendered even for a collapsed long single line (opencode
+1.18.25); `geminiPasteCollapseRe` covers Gemini's `[Pasted Text: 1433 chars]` /
+`[Pasted Text: 20 lines]` with repeats numbered inside the bracket (gemini
+0.65.0). Copilot echoes raw wrapped text at the observed payload sizes and needs
+no chip form. Six agents are verified live end-to-end with real replies across
+short, 1,433-character, multiline, and successive-delivery cases plus Claude and
+Codex operator-role comparisons; Gemini's chip forms are observed on a real
+composer and pinned by regression tests, but live reply verification is blocked
+by pre-existing invalid API credentials, so Gemini submission compatibility is
+recorded as unverified rather than claimed.
+**Why**: a paste the TUI renders as a chip never echoes its raw text, so a
+raw-needle-only probe withholds Enter from a paste that demonstrably reached the
+composer, and repeated deliveries then accumulate as unsubmitted chips. One
+shared predicate gives every engine consumer (compose-send, the operator routes,
+`rk mux send`, cron's `EngineDeliverer`, riff, tutorial kickoffs) the same
+compatibility, and the strict-increase rule keeps a stale chip a floor to beat
+whatever its form; identical character counts on repeats count independently
+because each chip is one occurrence.
+**Rejected**: an unconditional extra Enter or a cron-specific bypass (weakens the
+blind-Enter guard every caller relies on); provider-branched delivery logic
+outside the engine (the caller or role difference is incidental to the
+mechanism); guessed renderer formats (an unverified shape could satisfy the probe
+without evidence — fail-closed stays honest).
+*Introduced by*: 261026-ejam-fix-shared-agent-paste-submission
 
 ### Image chip is a gated third echo signal, either-signal with the raw needle
 **Decision**: Count `[Image #N]` chips (`imageCollapseRe`, whitespace-stripped

@@ -182,7 +182,11 @@ Text payloads SHALL be delivered through `internal/inject` — the engine the
 compose-send HTTP handler also consumes ([agent-send](/run-kit/agent-send.md) § Send Path):
 baseline capture → named-buffer `set-buffer -b <name> -- <text>` → bracketed
 `paste-buffer -d -p` → NOVELTY echo probe → probe-gated Enter → post-Enter
-observation. The CLI drives it through the six-method `inject.Tmux` interface
+observation. The probe accepts the engine's recognized collapsed-paste chip forms
+for collapsible pastes (the observed Claude/Antigravity, Codex, Kimi, OpenCode,
+and Gemini renderings — [agent-send](/run-kit/agent-send.md) § Send Path), so a
+long or multiline payload submits on chip-rendering TUIs exactly as it does
+through the daemon routes. The CLI drives it through the six-method `inject.Tmux` interface
 over `internal/tmux`'s
 name-parameterized buffer primitives (`SetBufferCtx`/`PasteBufferCtx`/
 `CapturePaneCtx`/`SendEnterToPaneCtx`/`SendKeysToPane`), with a **per-invocation buffer name**
