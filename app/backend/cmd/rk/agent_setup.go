@@ -386,12 +386,13 @@ func agentRegistry(home string) []agentConfig {
 			},
 		},
 		{
-			// Codex CLI (0.153.4 verified): hooks are stable and on by default;
+			// Codex CLI (0.164.0 verified): hooks are stable and on by default;
 			// hooks.json carries the SAME nested shape as Claude's settings.
 			// SessionEnd fires when the main thread ends (incl. the 30-min idle
 			// timeout) — a genuine idle signal. SubagentStart/SubagentStop are
-			// deliberately NOT mapped: a child event must never replace the root
-			// pane's identity or complete its turn.
+			// deliberately NOT mapped. Ordinary events are also guarded against
+			// subagent transcript sources by codexHookState; PermissionRequest
+			// projects the effective reviewer instead of assuming human waiting.
 			name:         "Codex",
 			provider:     "codex",
 			kind:         kindJSONHooksMerge,
@@ -400,6 +401,8 @@ func agentRegistry(home string) []agentConfig {
 				{event: "UserPromptSubmit", state: agentStateActive},
 				{event: "PreToolUse", state: agentStateActive},
 				{event: "PermissionRequest", state: agentStateWaiting},
+				{event: "PostToolUse", state: agentStateActive},
+				{event: "Interrupt", state: agentStateIdle},
 				{event: "Stop", state: agentStateIdle},
 				{event: "SessionEnd", state: agentStateIdle},
 				{event: "SessionStart", state: agentHookStampToken},
