@@ -331,12 +331,17 @@ test.describe("Web tab strip — drafts, reorder, gestures", () => {
    * Proves: the folder treatment — the strip sits on the inset ground and the
    * active tab carries the raised card surface (rounded top, no bottom
    * border) while inactive tabs stay fill-less secondary text; the hairline
-   * separators hide on either side of the active tab.
+   * separators hide on either side of the active tab. The active tab's fill
+   * breaks the strip's bottom rule, so it joins the URL row below — read off
+   * screenshot pixels, not the class list, because a clipped overhang keeps
+   * the classes but paints the rule through.
    * Steps:
    * 1. Create the seeded three-tab window (active 2); navigate.
    * 2. Assert tab 2 carries `bg-bg-card`/`rounded-t-md`/`border-b-0` and tabs
    *    1/3 do not; assert no separator renders (both flank the active tab).
-   * 3. Select tab 1; assert exactly one separator renders (between 2|3).
+   * 3. Screenshot; sample the strip's bottom pixel row: under tab 2 it matches
+   *    tab 2's fill a few pixels above, under tab 1 it does not (the rule).
+   * 4. Select tab 1; assert exactly one separator renders (between 2|3).
    */
   test("the active tab renders as a folder on the inset strip ground", async ({ page }) => {
     await makeWindow(page, `wt-folder-${Date.now()}`);
@@ -350,6 +355,44 @@ test.describe("Web tab strip — drafts, reorder, gestures", () => {
     await expect(tab(page, 3)).not.toHaveClass(/bg-bg-card/);
     await expect(tab(page, 1)).toHaveClass(/text-text-secondary/);
     await expect(separators).toHaveCount(0);
+
+    // The strip ground's bottom pixel row, sampled from a real screenshot
+    // under each tab's horizontal centre (hit-testing cannot see paint: an
+    // inactive tab's transparent box covers the row too).
+    const ground = strip(page).locator("xpath=..");
+    const box = await ground.boundingBox();
+    if (box === null) throw new Error("strip ground has no box");
+    const rowY = Math.floor(box.y + box.height) - 1;
+    const centreX = async (n: number) => {
+      const b = await tab(page, n).boundingBox();
+      if (b === null) throw new Error(`tab ${n} has no box`);
+      return Math.floor(b.x + b.width / 2);
+    };
+    const shot = (await page.screenshot()).toString("base64");
+    const [underActive, underInactive, activeFill] = await page.evaluate(
+      async ({ png, points }) => {
+        const img = new Image();
+        img.src = `data:image/png;base64,${png}`;
+        await img.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext("2d");
+        if (ctx === null) throw new Error("no 2d context");
+        ctx.drawImage(img, 0, 0);
+        return points.map(([x, y]) => Array.from(ctx.getImageData(x, y, 1, 1).data.slice(0, 3)).join(","));
+      },
+      {
+        png: shot,
+        points: [
+          [await centreX(2), rowY],
+          [await centreX(1), rowY],
+          [await centreX(2), rowY - 6],
+        ],
+      },
+    );
+    expect(underActive).toBe(activeFill);
+    expect(underInactive).not.toBe(activeFill);
 
     await tab(page, 1).click();
     await expect(tab(page, 1)).toHaveAttribute("aria-selected", "true");

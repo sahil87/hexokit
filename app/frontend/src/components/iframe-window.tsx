@@ -1041,7 +1041,11 @@ export function IframeWindow({
   return (
     <div ref={wrapperRef} className="flex flex-col flex-1 min-h-0">
       <TipGroup>
-        <div className="relative shrink-0 flex items-end h-[30px] border-b border-border bg-bg-inset">
+        {/* The bottom rule is an inset shadow, not a border: it paints beneath
+            the descendants, so the folder tab's own fill breaks it. A border
+            would need the tab to overhang by −1px, which the tablist's
+            overflow-x scroll clips. */}
+        <div className="relative shrink-0 flex items-end h-[30px] shadow-[inset_0_-1px_0_var(--color-border)] bg-bg-inset">
         <div
           role="tablist"
           data-testid="web-tab-strip"
@@ -1126,10 +1130,10 @@ export function IframeWindow({
                   isIconOnly ? "justify-center " : ""
                 }${
                   isActive
-                    ? // The folder: the URL row's raised surface, its bottom
-                      // rule broken (−1px) so tab and row read as one, stacked
-                      // above the siblings.
-                      "relative z-10 -mb-px rounded-t-md border border-b-0 rk-card-border bg-bg-card text-text-primary"
+                    ? // The folder: the URL row's raised surface; its fill
+                      // covers the strip's bottom rule so tab and row read
+                      // as one, stacked above the siblings.
+                      "relative z-10 rounded-t-md border border-b-0 rk-card-border bg-bg-card text-text-primary"
                     : "text-text-secondary hover:text-text-primary"
                 }`}
               >
@@ -1249,7 +1253,7 @@ export function IframeWindow({
                     ? // The selected draft is the ladder's active entry — the
                       // folder surface with a dashed outline in place of the
                       // solid card border.
-                      "relative z-10 -mb-px rounded-t-md border border-b-0 border-dashed border-border bg-bg-card text-text-primary"
+                      "relative z-10 rounded-t-md border border-b-0 border-dashed border-border bg-bg-card text-text-primary"
                     : "border-b-2 border-dashed border-border/60 text-text-secondary hover:text-text-primary"
                 }`}
               >
