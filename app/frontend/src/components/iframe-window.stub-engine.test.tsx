@@ -335,6 +335,7 @@ describe("IframeWindow over a stub engine", () => {
 
     // onZoomStep is the chrome's ladder stepper (the native engine's ctrl-
     // wheel relay rides it): "in" from the 100% default lands on 110%.
+    fireEvent.click(screen.getByLabelText("More actions"));
     const readout = screen.getByLabelText("Reset zoom");
     expect(readout.textContent).toBe("100%");
     act(() => {
@@ -377,22 +378,25 @@ describe("IframeWindow over a stub engine", () => {
     expect(screen.getByTestId("web-draft-panel")).toBeTruthy();
   });
 
-  it("the Inspect page button renders only on a devtools-capable report and drives the handle's openDevTools", () => {
+  it("the Inspect page menu row renders only on a devtools-capable report and drives the handle's openDevTools", () => {
     renderChrome({ tabs: ["/proxy/8080/docs"] });
-    expect(screen.queryByLabelText("Inspect page")).toBeNull();
+    fireEvent.click(screen.getByLabelText("More actions"));
+    const menu = () => within(screen.getByTestId("web-overflow-menu"));
+    expect(menu().queryByRole("menuitem", { name: "Inspect page" })).toBeNull();
 
     pushState(chromeState({ supports: { ...ALL_SUPPORT, devtools: true } }));
-    const button = screen.getByLabelText("Inspect page");
-    expect(button.querySelector('svg[data-icon="inspect"]')).toBeTruthy();
-    fireEvent.click(button);
+    fireEvent.click(menu().getByRole("menuitem", { name: "Inspect page" }));
     expect(mockEngine.handle.openDevTools).toHaveBeenCalledTimes(1);
+    // A pick closes the menu.
+    expect(screen.queryByTestId("web-overflow-menu")).toBeNull();
   });
 
-  it("the native engine's capability seed shows the Inspect page button, routed to the native handle", () => {
+  it("the native engine's capability seed shows the Inspect page menu row, routed to the native handle", () => {
     localStorage.setItem(WEB_NATIVE_ENGINE_PREF_KEY, "true");
     mockShell.canShellWeb.mockReturnValue(true);
     renderChrome({ tabs: ["/proxy/8080/docs"] });
-    fireEvent.click(screen.getByLabelText("Inspect page"));
+    fireEvent.click(screen.getByLabelText("More actions"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Inspect page" }));
     expect(mockNative.handle.openDevTools).toHaveBeenCalledTimes(1);
     expect(mockEngine.handle.openDevTools).not.toHaveBeenCalled();
   });

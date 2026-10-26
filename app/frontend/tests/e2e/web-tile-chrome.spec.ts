@@ -302,4 +302,53 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
     await expect(input).toHaveValue("page-one.html");
   });
 
+  /**
+   * Proves: the URL row's shape — the address field leads with the kind chip
+   * (`present` green for a presented file), the controls read ◀ ▶ ↻ [address]
+   * ⌕ ↗ ⋯ left to right, and no inline zoom control renders until the ⋯ menu
+   * opens.
+   *
+   * Steps:
+   * 1. Same presented rig as (b); wait for page one.
+   * 2. Assert the `web-kind-chip` reads `present` inside the address field.
+   * 3. Assert the row's controls are ordered Back, Forward, Refresh, address,
+   *    Find in page, Open in browser, ⋯ by their left edges.
+   * 4. Assert `web-zoom-control` is absent (it lives behind ⋯).
+   */
+  test("(d) the URL row leads with the kind chip and reads ◀ ▶ ↻ [address] ⌕ ↗ ⋯", async ({
+    page,
+  }) => {
+    const id = await makeWindow(page, `wc-row-${Date.now()}`, { presentRoot: presentDir });
+    stampWebTab(id, presentAddress(presentDir, TMUX_SERVER, "page-one.html"));
+    await gotoWebTile(page, id);
+    const frame = page.frameLocator('iframe[title="Proxied content"]');
+    await expect(frame.locator("#go")).toBeVisible({ timeout: 10_000 });
+
+    // The kind chip leads the address field.
+    const chip = webTile(page).getByTestId("web-kind-chip");
+    await expect(chip).toHaveText("present");
+    await expect(chip).toHaveClass(/text-accent-green/);
+
+    // Left-to-right control order by x position.
+    const row = [
+      webTile(page).getByRole("button", { name: "Back" }),
+      webTile(page).getByRole("button", { name: "Forward" }),
+      webTile(page).getByRole("button", { name: "Refresh" }),
+      addressInput(page),
+      webTile(page).getByRole("button", { name: "Find in page" }),
+      webTile(page).getByRole("button", { name: "Open in browser" }),
+      webTile(page).getByRole("button", { name: "More actions" }),
+    ];
+    const xs: number[] = [];
+    for (const locator of row) {
+      const box = await locator.boundingBox();
+      if (!box) throw new Error("URL row control has no box");
+      xs.push(box.x);
+    }
+    expect([...xs].sort((a, b) => a - b)).toEqual(xs);
+
+    // Zoom and Inspect are ⋯ menu rows, not inline chrome.
+    await expect(webTile(page).getByTestId("web-zoom-control")).toHaveCount(0);
+  });
+
 });

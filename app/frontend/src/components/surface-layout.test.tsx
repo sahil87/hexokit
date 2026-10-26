@@ -429,46 +429,52 @@ describe("SurfaceLayout tree rendering", () => {
     expect(parseFloat(web.style.width)).toBeCloseTo(49.8125, 3);
   });
 
-  // Web tile header (260819-v6y4 R10): kind badge (design-study hues) + the
-  // reported page title, falling back to the address's display form. The
-  // tileMeta web branch derives through web-url.ts — relative `/present/…` /
-  // `/proxy/…` addresses get header meta instead of the old `new URL` throw.
-  describe("web tile header badge + title (260819-v6y4 R10)", () => {
-    it("a presented file gets the green present badge and the basename display form", () => {
+  // Web tile header: the reported page title, falling back to the address's
+  // display form, for EVERY content-bearing web tile (relative included).
+  // The address kind shows in the URL row's leading chip, not the header.
+  // The tileMeta web branch derives through web-url.ts — relative
+  // `/present/…` / `/proxy/…` addresses get header meta instead of the old
+  // `new URL` throw.
+  describe("web tile header title (260819-v6y4 R10)", () => {
+    it("a presented file renders the basename display form with no kind badge", () => {
       renderLayout({
         layout: layoutOf("h(tty,web)"),
         window: { webTabs: ["/present/@320/tmux-version-floor.html?server=runKit&v=1"], webActive: 1 },
       });
       const webTile = screen.getByTestId("surface-tile-web");
-      const badge = within(webTile).getByTestId("web-kind-badge");
-      expect(badge.textContent).toBe("present");
-      expect(badge.className).toContain("text-accent-green");
+      expect(within(webTile).queryByTestId("web-kind-badge")).toBeNull();
       // No page title reported (IframeWindow is mocked) → display-form fallback.
       expect(webTile.textContent).toContain("tmux-version-floor.html");
     });
 
-    it("a proxied port gets the amber :{port} proxy badge (relative URL — the old new URL throw)", () => {
+    it("a proxied port renders the localhost display form with no kind badge (relative URL — the old new URL throw)", () => {
       renderLayout({
         layout: layoutOf("h(tty,web)"),
         window: { webTabs: ["/proxy/3000/board/runKit"], webActive: 1 },
       });
       const webTile = screen.getByTestId("surface-tile-web");
-      const badge = within(webTile).getByTestId("web-kind-badge");
-      expect(badge.textContent).toBe(":3000 proxy");
-      expect(badge.className).toContain("text-signal-yellow");
+      expect(within(webTile).queryByTestId("web-kind-badge")).toBeNull();
       expect(webTile.textContent).toContain("localhost:3000/board/runKit");
     });
 
-    it("an external URL gets the blue external badge", () => {
+    it("an external URL renders the host display form with no kind badge", () => {
       renderLayout({
         layout: layoutOf("h(tty,web)"),
         window: { webTabs: ["https://shll.ai/rk/skill"], webActive: 1 },
       });
       const webTile = screen.getByTestId("surface-tile-web");
-      const badge = within(webTile).getByTestId("web-kind-badge");
-      expect(badge.textContent).toBe("external");
-      expect(badge.className).toContain("text-signal-blue");
+      expect(within(webTile).queryByTestId("web-kind-badge")).toBeNull();
       expect(webTile.textContent).toContain("shll.ai/rk/skill");
+    });
+
+    it("a relative-kind address renders the title branch (no label + meta chip)", () => {
+      renderLayout({
+        layout: layoutOf("h(tty,web)"),
+        window: { webTabs: ["/tutorial/tutorial.html#ch1"], webActive: 1 },
+      });
+      const webTile = screen.getByTestId("surface-tile-web");
+      expect(within(webTile).queryByTestId("web-kind-badge")).toBeNull();
+      expect(webTile.textContent).toContain("/tutorial/tutorial.html#ch1");
     });
 
     it("the reported page title replaces the display form via the onPageMeta seam", () => {

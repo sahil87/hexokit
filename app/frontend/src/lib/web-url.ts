@@ -21,6 +21,9 @@
  * 6. `toNativeSrc` — the native engine's mode-aware load target: in the
  *    host-reported `direct`/`proxy` modes a stored `/proxy/{port}` slot is
  *    re-expressed as its literal loopback URL; `legacy` is `toProxySrc`.
+ * 7. `webKindChip` — the address field's leading kind chip: text + hue
+ *    classes per kind (`present` / `:<port> proxy` / `external`), null for
+ *    `relative` and empty input.
  *
  * The STORED `@rk_win_web_<n>` is never rewritten by display work — the
  * display contract (`docs/site/skill/display.md`) keeps relative addresses
@@ -155,6 +158,31 @@ export function classifyAddress(url: string): AddressKind {
   if (url.startsWith("/present/")) return "present";
   if (proxyPathPort(url) !== null) return "proxy";
   return "relative";
+}
+
+/**
+ * The address-kind chip for the web tile's address field (the leading
+ * site-identity chip): text and hue classes per kind — `present` green,
+ * `:<port> proxy` amber (`:?` when the port is unparseable), `external` blue;
+ * `relative` and empty input render no chip. Never throws.
+ */
+export function webKindChip(url: string): { text: string; cls: string } | null {
+  const value = url.trim();
+  if (value === "") return null;
+  const kind = classifyAddress(value);
+  if (kind === "present") {
+    return { text: "present", cls: "text-accent-green border-accent-green/40 bg-accent-green/10" };
+  }
+  if (kind === "proxy") {
+    return {
+      text: `:${proxyPortOf(value) ?? "?"} proxy`,
+      cls: "text-signal-yellow border-signal-yellow/40 bg-signal-yellow/10",
+    };
+  }
+  if (kind === "external") {
+    return { text: "external", cls: "text-signal-blue border-signal-blue/40 bg-signal-blue/10" };
+  }
+  return null;
 }
 
 /**

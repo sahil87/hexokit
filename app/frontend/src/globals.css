@@ -343,7 +343,7 @@ summary {
 }
 
 /* Web-tab icon slot chrome: the compact spinner that rides while a frame's
-   document loads (degrades to the favicon/kind-dot once loaded), and the
+   document loads (degrades to the favicon/page glyph once loaded), and the
    favicon that covers empty title fallbacks (an onerror degrade hides it).
    Static under reduced motion. */
 @keyframes rk-web-spinner-rotate {
@@ -354,6 +354,20 @@ summary {
   border: 1px solid var(--color-accent-green);
   border-top-color: transparent;
   animation: rk-web-spinner-rotate 0.9s linear infinite;
+}
+
+/* Web tab strip trailing-edge fade — rendered while the width ladder
+   overflows the strip (the scroll rung); sits above the folder tabs (z-10)
+   and below the pinned `+` (z-20), clear of the `+` button's 32px. */
+.rk-web-strip-fade {
+  position: absolute;
+  top: 0;
+  bottom: 1px;
+  right: 32px;
+  width: 24px;
+  z-index: 15;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--color-bg-inset));
 }
 
 /* Tty-tile task progress (260819-1vxq): passthrough-wrapped OSC 9;4 rendered

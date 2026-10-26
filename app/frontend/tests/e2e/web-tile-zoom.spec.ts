@@ -1,5 +1,6 @@
 /**
- * Content zoom on the web tile: the URL-bar zoom control, per-bucket
+ * Content zoom on the web tile: the ⋯ overflow menu's zoom stepper, the zoom
+ * chip beside the address (only while zoom ≠ 100%, click resets), per-bucket
  * localStorage persistence, palette parity, onboarding absence, and the
  * same-origin ctrl-wheel gesture trigger.
  *
@@ -11,7 +12,8 @@
  * fresh browser context, so `hexokit-web-zoom` begins empty WITHOUT any
  * `addInitScript` (deliberate — an init script would also wipe the key on the
  * persistence test's re-navigation). Navigation goes straight to the web lens
- * (`?view=web` → `single:web`) and waits for the iframe + zoom control.
+ * (`?view=web` → `single:web`) and waits for the iframe + the ⋯ trigger; the
+ * stepper lives behind `openZoomMenu` (stepping keeps the menu open).
  */
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
@@ -61,15 +63,23 @@ async function makeWindow(page: Page, name: string, url: string): Promise<string
 
 const iframe = (page: Page) => page.getByTitle("Proxied content");
 const zoomControl = (page: Page) => page.getByTestId("web-zoom-control");
-const zoomReadout = (page: Page) => page.getByLabel("Reset zoom");
+const zoomReadout = (page: Page) => page.getByLabel("Reset zoom", { exact: true });
+const zoomChip = (page: Page) => page.getByTestId("web-zoom-chip");
 const zoomWrapper = (page: Page) => page.getByTestId("web-zoom-frame-wrapper");
 
+/** Open the ⋯ overflow menu (the zoom stepper's home); stepping keeps it open. */
+async function openZoomMenu(page: Page): Promise<void> {
+  await page.getByLabel("More actions").click();
+  await expect(zoomControl(page)).toBeVisible();
+}
+
 /** Navigate straight into the web lens (?view=web → single:web — ONE tile)
- *  and wait for the iframe. The readout assertions key on the zoom control. */
+ *  and wait for the iframe and the ⋯ trigger. The readout assertions key on
+ *  the menu's zoom stepper. */
 async function gotoWebWindow(page: Page, windowId: string): Promise<void> {
   await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}?view=web`);
   await expect(iframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
-  await expect(zoomControl(page)).toBeVisible();
+  await expect(page.getByLabel("More actions")).toBeVisible();
 }
 
 let stub: { srv: http.Server; port: number };
@@ -99,36 +109,47 @@ test.describe("Web tile — content zoom (260823-cwvv R2–R5)", () => {
   });
 
   /**
-   * Proves: the browser-chrome zoom control steps the discrete ladder and the
-   * scale wrapper actually transforms the iframe.
+   * Proves: the ⋯ menu's zoom stepper steps the discrete ladder with the menu
+   * staying open, the scale wrapper actually transforms the iframe, and the
+   * zoom chip appears beside the address only while zoom ≠ 100% (clicking it
+   * resets).
    *
    * Steps:
-   * 1. Open a proxied web tile; assert the readout is `100%`.
-   * 2. Click `Zoom in` twice; assert the readout steps `110%` → `125%` and
-   *    the iframe's CSS transform is a 1.25 scale matrix.
+   * 1. Open a proxied web tile; open the ⋯ menu; assert the readout is `100%`
+   *    and no zoom chip renders.
+   * 2. Click `Zoom in` twice; assert the readout steps `110%` → `125%` with
+   *    the menu still open, the iframe's CSS transform is a 1.25 scale
+   *    matrix, and the chip reads `125%`.
    * 3. Click `Zoom out` once; assert `110%`.
-   * 4. Click the readout (the reset affordance); assert `100%` and the
-   *    wrapper's `data-zoom` is back at `1`.
+   * 4. Click the readout (the reset affordance); assert `100%`, the wrapper's
+   *    `data-zoom` is back at `1`, and the chip is gone.
    */
-  test("(a) the control steps the frame 100 → 110 → 125, − steps down, reset returns to 100%", async ({
+  test("(a) the ⋯ stepper steps the frame 100 → 110 → 125, − steps down, reset returns to 100%", async ({
     page,
   }) => {
     const id = await makeWindow(page, `wz-steps-${Date.now()}`, `http://localhost:${stub.port}/`);
     await gotoWebWindow(page, id);
+    await openZoomMenu(page);
     await expect(zoomReadout(page)).toHaveText("100%");
+    await expect(zoomChip(page)).toHaveCount(0);
 
     await page.getByLabel("Zoom in", { exact: true }).click();
     await expect(zoomReadout(page)).toHaveText("110%");
     await page.getByLabel("Zoom in", { exact: true }).click();
     await expect(zoomReadout(page)).toHaveText("125%");
+    // Stepping keeps the menu open.
+    await expect(page.getByTestId("web-overflow-menu")).toBeVisible();
     // The scale wrapper: compensated size + transform on the iframe.
     await expect(iframe(page)).toHaveCSS("transform", /matrix\(1\.25/);
+    // The zoom chip shows the unusual zoom beside the address.
+    await expect(zoomChip(page)).toHaveText("125%");
 
     await page.getByLabel("Zoom out", { exact: true }).click();
     await expect(zoomReadout(page)).toHaveText("110%");
     await zoomReadout(page).click();
     await expect(zoomReadout(page)).toHaveText("100%");
     await expect(zoomWrapper(page)).toHaveAttribute("data-zoom", "1");
+    await expect(zoomChip(page)).toHaveCount(0);
   });
 
   /**
@@ -145,6 +166,7 @@ test.describe("Web tile — content zoom (260823-cwvv R2–R5)", () => {
   test("(b) the zoom level persists across reload, per bucket", async ({ page }) => {
     const id = await makeWindow(page, `wz-persist-${Date.now()}`, `http://localhost:${stub.port}/`);
     await gotoWebWindow(page, id);
+    await openZoomMenu(page);
     await page.getByLabel("Zoom in", { exact: true }).click();
     await page.getByLabel("Zoom in", { exact: true }).click();
     await expect(zoomReadout(page)).toHaveText("125%");
@@ -154,18 +176,21 @@ test.describe("Web tile — content zoom (260823-cwvv R2–R5)", () => {
     // per-viewer-storage read the spec asserts (and the rig's goto is the
     // seam every other spec reloads through).
     await gotoWebWindow(page, id);
+    await openZoomMenu(page);
     await expect(zoomReadout(page)).toHaveText("125%");
   });
 
   /**
    * Proves: palette parity (Constitution V) — the `web-zoom` CustomEvent seam
-   * drives the mounted tile from the command palette.
+   * drives the mounted tile from the command palette, and the result shows on
+   * the zoom chip (and the ⋯ stepper's readout).
    *
    * Steps:
    * 1. Open a proxied web tile.
    * 2. Open the command palette (`openPalette`) and type `Web: Zoom`.
    * 3. Click the `Web: Zoom in` option.
-   * 4. Assert the readout steps to `110%`.
+   * 4. Assert the zoom chip reads `110%`; open the ⋯ menu and assert the
+   *    readout agrees.
    */
   test("(c) the `Web: Zoom in` palette entry steps the tile", async ({ page }) => {
     const id = await makeWindow(page, `wz-palette-${Date.now()}`, `http://localhost:${stub.port}/`);
@@ -175,26 +200,30 @@ test.describe("Web tile — content zoom (260823-cwvv R2–R5)", () => {
     const option = page.getByRole("option", { name: /Web: Zoom in/ });
     await expect(option).toBeVisible({ timeout: 10_000 });
     await option.click();
+    await expect(zoomChip(page)).toHaveText("110%");
+    await openZoomMenu(page);
     await expect(zoomReadout(page)).toHaveText("110%");
   });
 
   /**
-   * Proves: the onboarding state (an empty web tab family) hides the zoom control
-   * and the palette registers nothing for a contentless tile.
+   * Proves: the onboarding state (an empty web tab family) renders no ⋯
+   * trigger (so no zoom control) and the palette registers nothing for a
+   * contentless tile.
    *
    * Steps:
    * 1. Open a window with an empty web tab family in the web lens; assert the
    *    onboarding panel renders.
-   * 2. Assert the `web-zoom-control` testid is absent.
+   * 2. Assert the ⋯ trigger and the `web-zoom-control` testid are absent.
    * 3. Open the palette, type `Web: Zoom`, and assert no `Web: Zoom` options
    *    exist.
    */
-  test("(d) an onboarding tile renders no zoom control and no Web: Zoom palette entries", async ({
+  test("(d) an onboarding tile renders no ⋯ menu and no Web: Zoom palette entries", async ({
     page,
   }) => {
     const id = await makeWindow(page, `wz-onboard-${Date.now()}`, "");
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}?view=web`);
     await expect(page.getByTestId("web-tile-onboarding")).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(page.getByLabel("More actions")).toHaveCount(0);
     await expect(zoomControl(page)).toHaveCount(0);
 
     const paletteInput = await openPalette(page);
@@ -229,6 +258,7 @@ test.describe("Web tile — content zoom (260823-cwvv R2–R5)", () => {
   }) => {
     const id = await makeWindow(page, `wz-gesture-${Date.now()}`, `http://localhost:${stub.port}/`);
     await gotoWebWindow(page, id);
+    await openZoomMenu(page);
     // Dispatch inside the framed document — a real ctrl-wheel over the page
     // never reaches the parent; the tile's contentWindow attach answers it.
     const handle = await iframe(page).elementHandle();

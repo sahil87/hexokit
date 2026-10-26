@@ -1,15 +1,16 @@
-import { useState, useRef, useCallback, useEffect, useMemo, type ComponentType } from "react";
-import { INPUT_FOCUS } from "@/components/controls";
+import { useState, useRef, useCallback, useEffect, useMemo, Fragment, type ComponentType } from "react";
 import { ApiError } from "@/api/client";
 import { Tip, TipGroup } from "@/components/tip";
 import { FindBar } from "@/components/find-bar";
+import { WebOverflowMenu } from "@/components/web-overflow-menu";
 import {
   FindGlyph,
-  InspectGlyph,
+  MoreGlyph,
   OpenExternalGlyph,
   RefreshGlyph,
   WebBackGlyph,
   WebForwardGlyph,
+  WebPageGlyph,
 } from "@/components/top-bar-icons";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import {
@@ -20,6 +21,7 @@ import {
   classifyAddress,
   displayForm,
   routeAddressSubmit,
+  webKindChip,
   webTabTitle,
   type AddressKind,
 } from "@/lib/web-url";
@@ -34,6 +36,7 @@ import {
   WEB_ZOOM_MIN,
   type WebZoomDirection,
 } from "@/lib/web-zoom";
+import { sizeWebTabs } from "@/lib/web-tab-ladder";
 import { applyWheelZoom, clampZoom } from "@/lib/zoom-gesture";
 import { WEB_FIND_OPEN_EVENT } from "@/lib/find-in-page";
 import {
@@ -123,6 +126,10 @@ interface IframeWindowProps {
    *  rides `shouldReclaimChord`. The toggle verb lives in the tile header
    *  (SurfaceLayout), not this chrome. */
   webCapture?: boolean;
+  /** Mobile chrome variant (SurfaceLayout owns the mobile decision): the URL
+   *  row reduces to ↻ [address] ⋯ and Back/Forward/Find/Open in browser move
+   *  into the ⋯ menu. The strip's folder treatment and ladder are unchanged. */
+  mobile?: boolean;
 }
 
 /** Trailing debounce for persisting gesture-driven zoom — a pinch emits
@@ -213,6 +220,7 @@ export function IframeWindow({
   shouldReclaimChord,
   onPageMeta,
   webCapture = false,
+  mobile = false,
 }: IframeWindowProps) {
   // Engine selection: bridge presence × the per-viewer preference (the pure
   // rule shared with the palette entry). canShellWeb() is read per render —
@@ -493,6 +501,11 @@ export function IframeWindow({
    *  this. */
   const rawAddress = trackedLocation ?? url;
 
+  // The address field's leading kind chip derives from the active DECLARED
+  // tab's stored slot URL; a selected draft and the onboarding state have no
+  // address kind.
+  const kindChip = !onboarding && selectedDraft === null ? webKindChip(url) : null;
+
   // ── find-in-page (260819-ie2i R5–R8) — one bar, bound to the ACTIVE
   // engine. The chrome owns only the open state and the query; the engine
   // owns matches, active index, and highlights behind its handle and reports
@@ -582,6 +595,12 @@ export function IframeWindow({
   const handleInspect = useCallback(() => {
     frameHandles.current.get(url)?.openDevTools?.();
   }, [url]);
+
+  // The ⋯ overflow menu (web-overflow-menu.tsx): zoom and Inspect live behind
+  // it — on mobile also Back/Forward/Find/Open — and it is not rendered in
+  // the onboarding state.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuAnchorRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     document.addEventListener(WEB_INSPECT_EVENT, handleInspect);
     return () => document.removeEventListener(WEB_INSPECT_EVENT, handleInspect);
@@ -796,12 +815,14 @@ export function IframeWindow({
 
   // ── tab strip: always rendered with the tile — at 0 tabs/0 drafts it is
   // just the `+`, so the empty family keeps a draft entry point (onboarding
-  // is the empty-family CONTENT below, not a stripless chrome variant).
-  // Roving-focus tablist: only the ACTIVE tab is in the
-  // tab order, ←/→/Home/End move focus without writing, Enter/Space select,
-  // Delete/Backspace close, ⌥⇧←/⌥⇧→ reorder the active tab. Drafts are
-  // shown dashed after the real tabs and are never drag targets/sources.
-  // Focused-but-not-active is a viewer posture. ────────────────────────────
+  // is the empty-family CONTENT below, not a stripless chrome variant). The
+  // strip sits on an inset ground; the ladder's ACTIVE entry renders as a
+  // folder (the URL row's raised surface, its bottom rule broken) so the
+  // strip reads which tab owns the address. Roving-focus tablist: only the
+  // ACTIVE tab is in the tab order, ←/→/Home/End move focus without writing,
+  // Enter/Space select, Delete/Backspace close, ⌥⇧←/⌥⇧→ reorder the active
+  // tab. Drafts are shown dashed after the real tabs and are never drag
+  // targets/sources. Focused-but-not-active is a viewer posture. ────────────
   const coarsePointer = useCoarsePointer();
   const tabRefs = useRef(new Map<number, HTMLElement>());
   const [focusedTab, setFocusedTab] = useState(0); // 0 = none
@@ -925,6 +946,49 @@ export function IframeWindow({
     };
   }, [finishTabDrag]);
 
+  // ── width ladder: the tablist measures its free width with a
+  // ResizeObserver (no polling) and sizes every entry — declared tabs plus
+  // drafts, in strip order — through the pure ladder. The `+` button is
+  // pinned outside the scroll region, so the tablist's own width already
+  // excludes it. Unmeasured (pre-observer, or jsdom) ⇒ natural widths. ──────
+  const stripRef = useRef<HTMLDivElement>(null);
+  const draftRefs = useRef(new Map<number, HTMLElement>());
+  const [stripAvailable, setStripAvailable] = useState(0);
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (!strip || typeof ResizeObserver === "undefined") return;
+    const measure = () => {
+      const style = getComputedStyle(strip);
+      const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+      setStripAvailable(Math.max(0, Math.floor(strip.clientWidth - padding)));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(strip);
+    return () => observer.disconnect();
+  }, []);
+  // The ladder's active entry: the selected draft when one exists, else the
+  // active declared tab. Entries past the declared tabs are drafts.
+  const selectedDraftEntry =
+    selectedDraft !== null ? tabs.length + drafts.findIndex((d) => d.id === selectedDraft) : -1;
+  const activeEntry = selectedDraftEntry >= 0 ? selectedDraftEntry : activeIndex - 1;
+  const sizing = sizeWebTabs(tabs.length + drafts.length, stripAvailable, activeEntry);
+  const measured = stripAvailable > 0;
+  const stripScroll = measured && sizing.scroll;
+  // A glyph hue only helps when the declared family mixes kinds; a uniform
+  // family reads as documents (relative never carries a hue).
+  const mixedFamily = useMemo(() => new Set(tabs.map(classifyAddress)).size > 1, [tabs]);
+
+  // An overflowing strip keeps the selected entry in view on selection.
+  useEffect(() => {
+    if (!stripScroll) return;
+    const el =
+      selectedDraft !== null
+        ? draftRefs.current.get(selectedDraft)
+        : tabRefs.current.get(activeIndex);
+    el?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [stripScroll, activeIndex, selectedDraft]);
+
   const handleTabKeyDown = (e: React.KeyboardEvent) => {
     const count = tabs.length;
     if (count === 0) return;
@@ -977,24 +1041,31 @@ export function IframeWindow({
   return (
     <div ref={wrapperRef} className="flex flex-col flex-1 min-h-0">
       <TipGroup>
+        <div className="relative shrink-0 flex items-end h-[30px] border-b border-border bg-bg-inset">
         <div
           role="tablist"
           data-testid="web-tab-strip"
+          ref={stripRef}
           onDoubleClick={(e) => {
             // Double-click on empty strip space opens a draft (Chrome
             // muscle memory) — the same path as the `+` button.
             if (e.target === e.currentTarget) openDraftRef.current();
           }}
-          className="shrink-0 flex items-stretch gap-px px-1 border-b border-border bg-bg-primary overflow-x-auto font-mono text-[11px] select-none"
+          className="flex-1 min-w-0 flex items-end px-1 pt-1 overflow-x-auto font-mono text-[11px] select-none"
         >
           {tabs.map((tabUrl, i) => {
             const n = i + 1;
-            const isActive = n === activeIndex;
+            // The folder treatment belongs to the ladder's active entry —
+            // while a draft is selected no declared tab is it.
+            const isActive = selectedDraft === null && n === activeIndex;
+            const isIconOnly = measured && sizing.iconOnly[i] === true;
+            const width = measured ? sizing.widths[i] : undefined;
             const kind = classifyAddress(tabUrl);
             const chrome = chromeStates.get(tabUrl);
             const label = chrome?.title ?? (webTabTitle(tabUrl) || `#${n}`);
-            // Favicon: kind-dot fallback classes for absent/failed URLs; on
-            // load failure the spinner stays hidden and the kind-dot renders.
+            // Favicon: the kind-hued page glyph is the fallback for
+            // absent/failed URLs; on load failure the spinner stays hidden
+            // and the glyph renders.
             const faviconUrl =
               chrome?.favicon ??
               (kind === "external" ? externalFavicon(tabUrl) : null);
@@ -1008,19 +1079,26 @@ export function IframeWindow({
               dropTarget?.index === n
                 ? dropTarget.side
                 : null;
+            // Hairline separators sit between adjacent INACTIVE entries and
+            // are hidden on either side of the active one.
+            const showSeparator = i > 0 && i !== activeEntry && i - 1 !== activeEntry;
             return (
+              <Fragment key={tabUrl}>
+                {showSeparator && (
+                  <span aria-hidden="true" className="shrink-0 self-center w-px h-3.5 bg-border/60" />
+                )}
               <div
-                key={tabUrl}
                 ref={(el) => {
                   if (el) tabRefs.current.set(n, el);
                   else tabRefs.current.delete(n);
                 }}
                 role="tab"
-                aria-selected={isActive && selectedDraft === null}
+                aria-selected={isActive}
                 data-testid="web-tab"
                 data-index={n}
-                tabIndex={isActive && selectedDraft === null ? 0 : -1}
+                tabIndex={isActive ? 0 : -1}
                 title={displayForm(tabUrl)}
+                style={width !== undefined ? { width } : undefined}
                 onClick={() => {
                   if (clickSuppressRef.current) {
                     clickSuppressRef.current = false;
@@ -1044,9 +1122,14 @@ export function IframeWindow({
                     onCloseTab?.(n);
                   }
                 }}
-                className={`group relative flex items-center gap-1.5 px-2 py-1 cursor-pointer outline-none ${
+                className={`group relative shrink-0 flex items-center gap-1.5 px-2 py-1 cursor-pointer outline-none ${
+                  isIconOnly ? "justify-center " : ""
+                }${
                   isActive
-                    ? "bg-bg-primary text-text-primary"
+                    ? // The folder: the URL row's raised surface, its bottom
+                      // rule broken (−1px) so tab and row read as one, stacked
+                      // above the siblings.
+                      "relative z-10 -mb-px rounded-t-md border border-b-0 rk-card-border bg-bg-card text-text-primary"
                     : "text-text-secondary hover:text-text-primary"
                 }`}
               >
@@ -1084,14 +1167,20 @@ export function IframeWindow({
                       });
                     }}
                   />
-                ) : kind !== "relative" ? (
+                ) : (
                   <span
                     aria-hidden="true"
-                    className={`shrink-0 inline-block w-1.5 h-1.5 rounded-full ${KIND_DOT_CLASS[kind]}`}
-                  />
-                ) : null}
-                <span className="whitespace-nowrap">{label}</span>
-                {onCloseTab && (
+                    className={`shrink-0 ${mixedFamily ? KIND_GLYPH_HUE[kind] : "text-text-secondary"}`}
+                  >
+                    <WebPageGlyph />
+                  </span>
+                )}
+                <span className={`min-w-0 truncate ${isIconOnly ? "sr-only" : ""}`}>{label}</span>
+                {/* Icon-only inactive tabs carry no × at any pointer kind —
+                    middle-click and the roving Delete/Backspace still close
+                    them; labelled inactive tabs reveal × on hover/focus (fine
+                    pointers) or always (coarse). */}
+                {onCloseTab && !(isIconOnly && !isActive) && (
                   <button
                     type="button"
                     aria-label={`Close web tab ${n}`}
@@ -1111,19 +1200,33 @@ export function IframeWindow({
                   </button>
                 )}
               </div>
+              </Fragment>
             );
           })}
           {drafts.map((draft, idx) => {
             const isSelected = draft.id === selectedDraft;
+            const entry = tabs.length + idx;
+            const isIconOnly = measured && sizing.iconOnly[entry] === true;
+            const width = measured ? sizing.widths[entry] : undefined;
+            const showSeparator =
+              entry > 0 && entry !== activeEntry && entry - 1 !== activeEntry;
             return (
+              <Fragment key={draft.id}>
+                {showSeparator && (
+                  <span aria-hidden="true" className="shrink-0 self-center w-px h-3.5 bg-border/60" />
+                )}
               <div
-                key={draft.id}
+                ref={(el) => {
+                  if (el) draftRefs.current.set(draft.id, el);
+                  else draftRefs.current.delete(draft.id);
+                }}
                 role="tab"
                 aria-selected={isSelected}
                 data-testid="web-tab-draft"
                 data-draft-id={draft.id}
                 tabIndex={isSelected ? 0 : -1}
                 title="New tab — Enter materializes it, Esc discards"
+                style={width !== undefined ? { width } : undefined}
                 onClick={() => {
                   setSelectedDraft(draft.id);
                   setInputUrl("");
@@ -1139,34 +1242,44 @@ export function IframeWindow({
                     setTimeout(() => addressInputRef.current?.focus(), 0);
                   }
                 }}
-                className={`group flex items-center gap-1.5 px-2 py-1 cursor-pointer outline-none border-b-2 border-dashed ${
+                className={`group relative shrink-0 flex items-center gap-1.5 px-2 py-1 cursor-pointer outline-none ${
+                  isIconOnly ? "justify-center " : ""
+                }${
                   isSelected
-                    ? "border-text-secondary text-text-primary"
-                    : "border-border/60 text-text-secondary hover:text-text-primary"
+                    ? // The selected draft is the ladder's active entry — the
+                      // folder surface with a dashed outline in place of the
+                      // solid card border.
+                      "relative z-10 -mb-px rounded-t-md border border-b-0 border-dashed border-border bg-bg-card text-text-primary"
+                    : "border-b-2 border-dashed border-border/60 text-text-secondary hover:text-text-primary"
                 }`}
               >
                 <span
                   aria-hidden="true"
                   className="shrink-0 inline-block w-1.5 h-1.5 rounded-full bg-text-secondary/60"
                 />
-                <span className="whitespace-nowrap">{`new tab ${idx + 1}`}</span>
-                <button
-                  type="button"
-                  aria-label={`Discard new tab ${idx + 1}`}
-                  data-testid="web-tab-draft-close"
-                  tabIndex={-1}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    discardDraft(draft.id);
-                  }}
-                  className="shrink-0 rounded px-0.5 hover:text-text-primary"
-                >
-                  ×
-                </button>
+                <span className={`min-w-0 truncate ${isIconOnly ? "sr-only" : ""}`}>{`new tab ${idx + 1}`}</span>
+                {!(isIconOnly && !isSelected) && (
+                  <button
+                    type="button"
+                    aria-label={`Discard new tab ${idx + 1}`}
+                    data-testid="web-tab-draft-close"
+                    tabIndex={-1}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      discardDraft(draft.id);
+                    }}
+                    className="shrink-0 rounded px-0.5 hover:text-text-primary"
+                  >
+                    ×
+                  </button>
+                )}
               </div>
+              </Fragment>
             );
           })}
-          {onAddTab && (
+        </div>
+        {onAddTab && (
+          <span className="relative z-20 shrink-0 self-center bg-bg-inset">
             <Tip label={stripFull ? `web tabs full (${WEB_TAB_FAMILY_CAP})` : undefined} placement="top">
               <button
                 type="button"
@@ -1177,33 +1290,37 @@ export function IframeWindow({
                 // click — a blur would revert the input to the rest value.
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={openDraft}
-                className="self-center shrink-0 w-6 h-6 mx-1 flex items-center justify-center rounded text-text-secondary enabled:hover:bg-bg-inset enabled:hover:text-text-primary disabled:opacity-50"
+                className="w-6 h-6 mx-1 flex items-center justify-center rounded text-text-secondary enabled:hover:bg-bg-card enabled:hover:text-text-primary disabled:opacity-50"
               >
                 +
               </button>
             </Tip>
-          )}
+          </span>
+        )}
+        {stripScroll && <div aria-hidden="true" className="rk-web-strip-fade" />}
         </div>
       </TipGroup>
 
-      {/* URL Bar — one warm-tip cluster (260722-73al). Button order per the
-          approved design study: ◀ ▶ ↻ [address] ⌕ − % + <> ↗ (`<>` Inspect
-          renders only on an engine reporting `supports.devtools`; the `>_` switch-to-
-          terminal button was removed, 260819-v6y4 R13 — the top-bar surface
-          toggles own view switching). Every Tip here (and the strip's above)
-          flips UPWARD (placement="top"): a bottom-placed tip would render
-          where the native engine's guest view is composited over the DOM and
-          be clipped by it — clipping geometry is reserved for overlays that
+      {/* URL Bar — the folder's raised surface: the active tab and this row
+          share bg-bg-card so they read as one surface. Order: ◀ ▶ ↻ [address]
+          ⌕ ↗ ⋯ — back/forward only on engines reporting `supports.history`;
+          zoom and Inspect live behind the ⋯ overflow menu, and a zoom chip
+          beside the address shows (and resets) zoom only while ≠ 100%. On
+          mobile the row reduces to ↻ [address] ⋯ and Back/Forward/Find/Open
+          become menu rows. Every Tip here (and the strip's above) flips
+          UPWARD (placement="top"): a bottom-placed tip would render where
+          the native engine's guest view is composited over the DOM and be
+          clipped by it — clipping geometry is reserved for overlays that
           straddle the content rect, and none of these do. */}
       <TipGroup>
-      <div className="flex items-center gap-1.5 px-2 h-[35px] border-b border-border bg-bg-primary shrink-0">
-        {!onboarding && supports.history && (
+      <div className="relative flex items-center gap-0.5 px-1.5 h-[33px] border-b rk-card-border bg-bg-card shrink-0">
+        {!mobile && !onboarding && supports.history && (
           <>
             <Tip label="Back" placement="top">
               <button
                 onClick={handleBack}
                 disabled={!canGoBack}
-                className="shrink-0 w-7 h-7 flex items-center justify-center rounded text-text-secondary enabled:hover:bg-bg-card enabled:hover:text-text-primary disabled:opacity-50"
+                className="shrink-0 w-7 h-7 flex items-center justify-center rounded text-text-secondary enabled:hover:bg-bg-inset enabled:hover:text-text-primary disabled:opacity-50"
                 aria-label="Back"
               >
                 <WebBackGlyph />
@@ -1213,7 +1330,7 @@ export function IframeWindow({
               <button
                 onClick={handleForward}
                 disabled={!canGoForward}
-                className="shrink-0 w-7 h-7 flex items-center justify-center rounded text-text-secondary enabled:hover:bg-bg-card enabled:hover:text-text-primary disabled:opacity-50"
+                className="shrink-0 w-7 h-7 flex items-center justify-center rounded text-text-secondary enabled:hover:bg-bg-inset enabled:hover:text-text-primary disabled:opacity-50"
                 aria-label="Forward"
               >
                 <WebForwardGlyph />
@@ -1224,114 +1341,130 @@ export function IframeWindow({
         <Tip label="Refresh" placement="top">
           <button
             onClick={handleRefresh}
-            className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary"
+            className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-inset text-text-secondary hover:text-text-primary"
             aria-label="Refresh"
           >
             <RefreshGlyph />
           </button>
         </Tip>
-        <input
-          ref={addressInputRef}
-          type="text"
-          value={selectedDraft !== null ? inputUrl : editing ? inputUrl : displayForm(rawAddress)}
-          placeholder={
-            selectedDraft !== null
-              ? "type an address — Enter opens the tab, Esc discards"
-              : onboarding
-                ? "localhost:3000 · /present/… · https://…"
-                : undefined
-          }
-          onChange={(e) => {
-            setInputUrl(e.target.value);
-            setSubmitError(null);
-          }}
-          onFocus={() => {
-            setInputUrl(selectedDraft === null ? rawAddress : "");
-            setEditing(true);
-          }}
-          onBlur={() => {
-            setEditing(false);
-            setSubmitError(null);
-            setSelectedDraft(null);
-            setInputUrl(rawAddress);
-          }}
-          onKeyDown={handleKeyDown}
-          className={`flex-1 min-w-0 bg-bg-card text-text-primary text-sm px-2 h-[28px] py-0 rounded border border-border ${INPUT_FOCUS}`}
-          aria-label="URL"
-          aria-invalid={submitError !== null}
-          spellCheck={false}
-        />
+        {/* The address field: an unbordered inset wrapper holding the kind
+            chip and the input — the focus ring lands on the wrapper (the
+            input's idiom), the chip keeps showing while the address is being
+            edited, and a selected draft or the onboarding state renders no
+            chip (no address kind). */}
+        <div className="flex-1 min-w-0 flex items-center gap-1.5 h-6 mx-1 px-1 rounded border border-transparent bg-bg-inset text-[11.5px] focus-within:border-accent-green">
+          {kindChip !== null && (
+            <span
+              data-testid="web-kind-chip"
+              className={`shrink-0 rounded border px-1.5 text-[10px] ${kindChip.cls}`}
+            >
+              {kindChip.text}
+            </span>
+          )}
+          <input
+            ref={addressInputRef}
+            type="text"
+            value={selectedDraft !== null ? inputUrl : editing ? inputUrl : displayForm(rawAddress)}
+            placeholder={
+              selectedDraft !== null
+                ? "type an address — Enter opens the tab, Esc discards"
+                : onboarding
+                  ? "localhost:3000 · /present/… · https://…"
+                  : undefined
+            }
+            onChange={(e) => {
+              setInputUrl(e.target.value);
+              setSubmitError(null);
+            }}
+            onFocus={() => {
+              setInputUrl(selectedDraft === null ? rawAddress : "");
+              setEditing(true);
+            }}
+            onBlur={() => {
+              setEditing(false);
+              setSubmitError(null);
+              setSelectedDraft(null);
+              setInputUrl(rawAddress);
+            }}
+            onKeyDown={handleKeyDown}
+            className="flex-1 min-w-0 bg-transparent text-text-primary px-1 py-0 outline-none"
+            aria-label="URL"
+            aria-invalid={submitError !== null}
+            spellCheck={false}
+          />
+        </div>
         {submitError && (
           <span role="alert" className="shrink-0 text-signal-red text-xs select-none">
             {submitError}
           </span>
         )}
-        {!onboarding && (
+        {/* Zoom chip: zoom state shows only while unusual; clicking resets. */}
+        {!onboarding && zoom !== 1 && (
+          <button
+            type="button"
+            data-testid="web-zoom-chip"
+            aria-label="Reset zoom to 100%"
+            onClick={() => applyZoom("reset")}
+            className="shrink-0 rounded-[3px] border border-border bg-bg-inset px-[5px] text-[10px] tabular-nums text-text-secondary hover:text-text-primary"
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+        )}
+        {!mobile && !onboarding && (
           <>
             <Tip label="Find in page" placement="top">
               <button
                 onClick={() => setFindOpen((o) => !o)}
-                className={`shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card hover:text-text-primary ${findOpen ? "text-accent-green" : "text-text-secondary"}`}
+                className={`shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-inset hover:text-text-primary ${findOpen ? "text-accent-green" : "text-text-secondary"}`}
                 aria-label="Find in page"
                 aria-pressed={findOpen}
               >
                 <FindGlyph />
               </button>
             </Tip>
-            {/* Content zoom (R4) — the universal floor trigger: the only one
-                that works over an external frame (gestures never cross the
-                boundary). Text glyphs per the URL-bar vocabulary; the readout
-                doubles as the reset affordance, enabled only when s ≠ 1. */}
-            <div className="shrink-0 flex items-center" data-testid="web-zoom-control">
-              <Tip label="Zoom out" placement="top">
-                <button
-                  onClick={() => applyZoom("out")}
-                  className="w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary"
-                  aria-label="Zoom out"
-                >
-                  −
-                </button>
-              </Tip>
-              <Tip label={zoom === 1 ? "Zoom 100%" : "Reset zoom"} placement="top">
-                <button
-                  onClick={() => applyZoom("reset")}
-                  disabled={zoom === 1}
-                  className="h-7 min-w-11 px-1 flex items-center justify-center rounded text-xs tabular-nums text-text-secondary enabled:hover:bg-bg-card enabled:hover:text-text-primary disabled:opacity-60"
-                  aria-label="Reset zoom"
-                >
-                  {Math.round(zoom * 100)}%
-                </button>
-              </Tip>
-              <Tip label="Zoom in" placement="top">
-                <button
-                  onClick={() => applyZoom("in")}
-                  className="w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary"
-                  aria-label="Zoom in"
-                >
-                  +
-                </button>
-              </Tip>
-            </div>
-            {supports.devtools && (
-              <Tip label="Inspect page" placement="top">
-                <button
-                  onClick={handleInspect}
-                  className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary"
-                  aria-label="Inspect page"
-                >
-                  <InspectGlyph />
-                </button>
-              </Tip>
-            )}
             <Tip label="Open in browser" placement="top">
               <button
                 onClick={handleOpenExternal}
-                className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary"
+                className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-inset text-text-secondary hover:text-text-primary"
                 aria-label="Open in browser"
               >
                 <OpenExternalGlyph />
               </button>
             </Tip>
+          </>
+        )}
+        {!onboarding && (
+          <>
+            <Tip label="More actions" placement="top">
+              <button
+                ref={menuAnchorRef}
+                type="button"
+                aria-label="More actions"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                onClick={() => setMenuOpen((o) => !o)}
+                className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-inset text-text-secondary hover:text-text-primary"
+              >
+                <MoreGlyph />
+              </button>
+            </Tip>
+            {menuOpen && (
+              <WebOverflowMenu
+                anchorRef={menuAnchorRef}
+                supports={supports}
+                canGoBack={canGoBack}
+                canGoForward={canGoForward}
+                mobile={mobile}
+                zoom={zoom}
+                onZoom={applyZoom}
+                onBack={handleBack}
+                onForward={handleForward}
+                onFind={() => setFindOpen((o) => !o)}
+                onOpenExternal={handleOpenExternal}
+                onInspect={handleInspect}
+                onClose={() => setMenuOpen(false)}
+              />
+            )}
           </>
         )}
       </div>
@@ -1537,11 +1670,12 @@ export function IframeWindow({
   );
 }
 
-/** Tab-strip kind dot — the tile-header badge hues (green present / yellow
- *  proxy / blue external); the relative kind renders no dot. */
-const KIND_DOT_CLASS: Record<AddressKind, string> = {
-  present: "bg-accent-green",
-  proxy: "bg-signal-yellow",
-  external: "bg-signal-blue",
-  relative: "",
+/** Tab-strip fallback-glyph hues by address kind — applied only when the
+ *  declared family mixes kinds; a uniform family renders the neutral
+ *  `text-text-secondary`, and the relative kind never carries a hue. */
+const KIND_GLYPH_HUE: Record<AddressKind, string> = {
+  present: "text-accent-green",
+  proxy: "text-signal-yellow",
+  external: "text-signal-blue",
+  relative: "text-text-secondary",
 };
