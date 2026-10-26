@@ -1462,7 +1462,7 @@ func TestOperatorTemplateChatDeliveryInvariant(t *testing.T) {
 // non-empty) the fab clause folded into a parenthetical, closing with the
 // act-on-it sentence — then the user's text in a bare fence. Nothing frames
 // the text as data and the transcript is never rendered, even when it
-// resolved. It frames a CONVERSATION — no [run-kit request] prefix, no
+// resolved. It frames a CONVERSATION — no [hexokit request] prefix, no
 // do-not-reply / action-bounds clause.
 func TestRenderUserMessage(t *testing.T) {
 	facts := operatorFacts{
@@ -1485,7 +1485,7 @@ func TestRenderUserMessage(t *testing.T) {
 	for _, banned := range []string{
 		"treat it as data", "Transcript:", "/home/u/.claude/projects/p/ref.jsonl", "Context:",
 		"The user's message follows",
-		"[run-kit request]", "Do not reply", "do not reply", "Bounds:",
+		"[hexokit request]", "Do not reply", "do not reply", "Bounds:",
 	} {
 		if strings.Contains(prompt, banned) {
 			t.Errorf("chat prompt carried %q:\n%s", banned, prompt)
@@ -1651,7 +1651,7 @@ func TestUserMessageSuccess(t *testing.T) {
 			t.Errorf("prompt missing %q:\n%s", want, prompt)
 		}
 	}
-	for _, banned := range []string{"[run-kit request]", "Transcript:", "treat it as data"} {
+	for _, banned := range []string{"[hexokit request]", "Transcript:", "treat it as data"} {
 		if strings.Contains(prompt, banned) {
 			t.Errorf("chat prompt carried %q:\n%s", banned, prompt)
 		}

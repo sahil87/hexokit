@@ -255,7 +255,7 @@ func renderFixTabName(f operatorFacts) string {
 	if f.FabChange != "" {
 		contextLine += fmt.Sprintf("; fab change %s at stage %s", f.FabChange, f.FabStage)
 	}
-	return fmt.Sprintf(`[run-kit request] Fix the tab name for tmux window %s (currently %q) on this server.
+	return fmt.Sprintf(`[hexokit request] Fix the tab name for tmux window %s (currently %q) on this server.
 
 Read the recent conversation in the transcript to see what this tab is actually working on: %s
 (read the tail of the file — the last ~30 JSONL lines are enough)
@@ -276,7 +276,7 @@ Do not reply to this message or take any other action.`,
 // delimited data, the rk riff CLI instructions, and the spawn bounds.
 func renderSpawnTask(f serverOperatorFacts) string {
 	var b strings.Builder
-	b.WriteString("[run-kit request] Spawn a new agent for the task described below.\n\nExisting windows on this server (pick a fitting checkout to reuse; avoid a busy worktree):\n")
+	b.WriteString("[hexokit request] Spawn a new agent for the task described below.\n\nExisting windows on this server (pick a fitting checkout to reuse; avoid a busy worktree):\n")
 	if len(f.Windows) == 0 {
 		b.WriteString("  (none)\n")
 	}
@@ -304,7 +304,7 @@ Bounds: spawn EXACTLY ONE agent. Do not modify any existing window. If the task 
 // instructions, and the read-only bound.
 func renderFindDiscussion(f serverOperatorFacts) string {
 	var b strings.Builder
-	b.WriteString("[run-kit request] Find where a topic was discussed across this server's chat transcripts.\n\nTranscript corpus (one JSONL file per chat-carrying window):\n")
+	b.WriteString("[hexokit request] Find where a topic was discussed across this server's chat transcripts.\n\nTranscript corpus (one JSONL file per chat-carrying window):\n")
 	if len(f.Corpus) == 0 {
 		b.WriteString("  (none)\n")
 	}
@@ -405,7 +405,7 @@ func renderBriefMe(f serverOperatorFacts) string {
 	})
 
 	var b strings.Builder
-	b.WriteString("[run-kit request] Brief me: write a standup digest of every tab on this server.\n\nTabs (waiting-on-me first):\n")
+	b.WriteString("[hexokit request] Brief me: write a standup digest of every tab on this server.\n\nTabs (waiting-on-me first):\n")
 	if len(rows) == 0 {
 		b.WriteString("  (none — report that there is nothing to report)\n")
 	}
@@ -435,7 +435,7 @@ func renderWhatsStuck(f serverOperatorFacts) string {
 	}
 
 	var b strings.Builder
-	b.WriteString("[run-kit request] Triage the waiting tabs on this server: answer the routine pending questions, escalate the rest.\n\nWaiting tabs:\n")
+	b.WriteString("[hexokit request] Triage the waiting tabs on this server: answer the routine pending questions, escalate the rest.\n\nWaiting tabs:\n")
 	for _, w := range waiting {
 		writeDigestRow(&b, w)
 	}
@@ -493,7 +493,7 @@ func writeColorTabsRow(b *strings.Builder, w operatorWindowFact) {
 // no-reply posture, nothing to do.
 func renderColorTabs(f serverOperatorFacts) string {
 	var b strings.Builder
-	b.WriteString("[run-kit request] Color the tabs on this server: assign each tab a sidebar color by the kind of work it holds, so the sidebar self-organizes visually.\n\nTabs:\n")
+	b.WriteString("[hexokit request] Color the tabs on this server: assign each tab a sidebar color by the kind of work it holds, so the sidebar self-organizes visually.\n\nTabs:\n")
 	if len(f.Windows) == 0 {
 		b.WriteString("  (none — nothing to color; no action needed)\n")
 	}
@@ -536,7 +536,7 @@ Bounds: set only the three named options (@rk_win_color, @rk_win_marker, @rk_win
 // to annotate.
 func renderUpdateAnnotations(f serverOperatorFacts) string {
 	var b strings.Builder
-	b.WriteString("[run-kit request] Update annotations: write or refresh a one-line @rk_win_note status note on each tab listed below.\n\nTabs:\n")
+	b.WriteString("[hexokit request] Update annotations: write or refresh a one-line @rk_win_note status note on each tab listed below.\n\nTabs:\n")
 	if len(f.Windows) == 0 {
 		b.WriteString("  (none — nothing to annotate; no action needed)\n")
 	}
@@ -569,7 +569,7 @@ func renderAnnotateTab(f operatorFacts) string {
 	if f.FabChange != "" {
 		contextLine += fmt.Sprintf("; fab change %s at stage %s", f.FabChange, f.FabStage)
 	}
-	return fmt.Sprintf(`[run-kit request] Annotate tmux window %s (currently %q) on this server with a one-line status note.
+	return fmt.Sprintf(`[hexokit request] Annotate tmux window %s (currently %q) on this server with a one-line status note.
 
 Read the recent conversation in the transcript to see what this tab is actually doing or waiting on: %s
 (read the tail of the file — the last ~30 JSONL lines are enough)
@@ -593,7 +593,7 @@ Do not reply to this message or take any other action.`,
 // fence. The transcript is deliberately NOT rendered even when it resolved: a
 // transcript pointer invites reading the message as being ABOUT the subject
 // window rather than addressed to the operator. Unlike the request templates
-// it frames a CONVERSATION, not a work item — no [run-kit request] prefix, no
+// it frames a CONVERSATION, not a work item — no [hexokit request] prefix, no
 // action bounds; the operator may reply.
 func renderUserMessage(f operatorFacts) string {
 	where := fmt.Sprintf("%q, worktree %s", f.Name, f.WorktreePath)

@@ -70,7 +70,7 @@ without an agent session renders the same header, never an error. The user's
 text follows in a bare dynamic fence (`fenceUserText`) with no treat-as-data
 framing — in this lane the user is the principal and the text is the
 instruction. The envelope frames a **conversation, not a work item**: it does
-not use the `[run-kit request]` prefix and carries no action bounds — the
+not use the `[hexokit request]` prefix and carries no action bounds — the
 operator acts on it and may reply.
 
 Quake terminal behavior: the compose strip shows the attached context as a visible,
