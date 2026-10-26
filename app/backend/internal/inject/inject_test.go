@@ -1075,6 +1075,30 @@ func TestCountOccurrences(t *testing.T) {
 		{"ansi-styled placeholder", "\x1b[2m[Pasted text #2 +40 lines]\x1b[0m", true, false, 1},
 		{"two chips both forms", "[Pasted text #1 +2 lines]\n[Pasted text #2]", true, false, 2},
 		{"non-placeholder bracketed text", "❯ [some other note]", true, false, 0},
+		{"codex chip counted when collapsible", "› [Pasted Content 1433 chars]", true, false, 1},
+		{"codex chip ignored when not collapsible", "› [Pasted Content 1433 chars]", false, false, 0},
+		{"codex numbered repeats counted independently", "› [Pasted Content 1433 chars][Pasted Content 1433 chars] #2[Pasted Content 1433 chars] #3", true, false, 3},
+		{"codex chip singular char", "› [Pasted Content 1 char]", true, false, 1},
+		{"ansi-styled codex chip", "\x1b[2m[Pasted Content 1433 chars]\x1b[0m", true, false, 1},
+		{"codex chip wrapped mid-marker", "› [Pasted Content 1433\n  chars] #2", true, false, 1},
+		{"codex chip inside border", "│ › [Pasted Content 1433 chars] │\n╰────────╯", true, false, 1},
+		{"agy chip with char count", "> [Pasted text #1 1426 chars]", true, false, 1},
+		{"agy numbered repeat chips", "> [Pasted text #1 1426 chars][Pasted text #2 1426 chars]", true, false, 2},
+		{"agy chip ignored when not collapsible", "> [Pasted text #1 1426 chars]", false, false, 0},
+		{"kimi chip counted when collapsible", "│ > [paste #1 1426 chars] │", true, false, 1},
+		{"kimi chip ignored when not collapsible", "│ > [paste #1 1426 chars] │", false, false, 0},
+		{"kimi numbered repeat chip", "│ > [paste #2 1426 chars] │", true, false, 1},
+		{"opencode chip counted when collapsible", "┃ [Pasted ~1 lines]", true, false, 1},
+		{"opencode chip ignored when not collapsible", "┃ [Pasted ~1 lines]", false, false, 0},
+		{"opencode multiline chip", "┃ [Pasted ~12 lines]", true, false, 1},
+		{"gemini character-count chip", "> [Pasted Text: 1433 chars]", true, false, 1},
+		{"gemini multiline chip", "> [Pasted Text: 20 lines]", true, false, 1},
+		{"gemini repeated character-count chips", "[Pasted Text: 1433 chars][Pasted Text: 1433 chars #2]", true, false, 2},
+		{"gemini repeated multiline chips", "[Pasted Text: 20 lines][Pasted Text: 20 lines #2]", true, false, 2},
+		{"gemini chip ignored when not collapsible", "> [Pasted Text: 1433 chars]", false, false, 0},
+		{"gemini chip not counted by imageish alone", "> [Pasted Text: 1433 chars]", false, true, 0},
+		{"gemini styled wrapped chip", "\x1b[2m[Pasted Text: 1433\n chars #2]\x1b[0m", true, false, 1},
+		{"claude chip not inflated by codex suffix", "❯ [Pasted text #7] #2", true, false, 1},
 		{"image chip counted when imageish", "❯ [Image #1]", false, true, 1},
 		{"image chip ignored when not imageish", "❯ [Image #1]", false, false, 0},
 		{"image chip ignored under collapsible alone", "❯ [Image #1]", true, false, 0},
@@ -1260,6 +1284,162 @@ func TestSendImageChipEcho(t *testing.T) {
 			t.Fatal("Enter sent for plain text on the strength of an image chip")
 		}
 	})
+}
+
+// TestSendCodexChipEcho covers the Codex paste-collapse arm end to end: a
+// fresh "[Pasted Content N chars]" chip (the TUI replaces a long paste with
+// the chip, never echoing the raw text) passes the novelty probe and
+// authorizes Enter for submit=true; a stale chip already in the baseline stays
+// a floor to beat; numbered repeats of an identical payload are counted
+// independently; submit=false leaves the verified paste staged with no Enter;
+// and a second send right after a successful submission passes on the fresh
+// repeat chip.
+func TestSendCodexChipEcho(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	payload := strings.Repeat("p", 1433)
+	chip := "[Pasted Content 1433 chars]"
+
+	t.Run("fresh chip passes without raw echo", func(t *testing.T) {
+		ft := &fakeTmux{captureResults: []string{"› ", "› " + chip, "working"}}
+		if err := NewEngine("rk-cdx-fresh").Send(context.Background(), ft, "default", "%5", payload, true); err != nil {
+			t.Fatalf("Send: %v", err)
+		}
+		if !ft.enterCalled {
+			t.Fatal("Enter was not sent after a fresh Codex chip")
+		}
+	})
+
+	t.Run("stale chip is a floor to beat", func(t *testing.T) {
+		ft := &fakeTmux{captureResult: "› " + chip}
+		err := NewEngine("rk-cdx-stale").Send(context.Background(), ft, "default", "%5", payload, true)
+		var pf ProbeFailure
+		if !errors.As(err, &pf) {
+			t.Fatalf("err = %v, want ProbeFailure", err)
+		}
+		if ft.enterCalled {
+			t.Fatal("Enter sent on a stale Codex chip")
+		}
+	})
+
+	t.Run("numbered repeat beats the stale chip", func(t *testing.T) {
+		ft := &fakeTmux{captureResults: []string{
+			"sent › " + chip,
+			"sent › " + chip + chip + " #2",
+			"working",
+		}}
+		if err := NewEngine("rk-cdx-repeat").Send(context.Background(), ft, "default", "%5", payload, true); err != nil {
+			t.Fatalf("Send: %v", err)
+		}
+		if !ft.enterCalled {
+			t.Fatal("Enter was not sent after the numbered repeat chip")
+		}
+	})
+
+	t.Run("insert-only leaves a fresh chip staged", func(t *testing.T) {
+		ft := &fakeTmux{captureResults: []string{"› ", "› " + chip}}
+		if err := NewEngine("rk-cdx-insert").Send(context.Background(), ft, "default", "%5", payload, false); err != nil {
+			t.Fatalf("Send: %v", err)
+		}
+		if ft.enterCalled {
+			t.Fatal("Enter sent despite submit=false")
+		}
+	})
+
+	t.Run("successive submits each pass on a fresh chip", func(t *testing.T) {
+		ft := &fakeTmux{captureResults: []string{
+			"› ", "› " + chip, "turn one reply\n› ",
+			"turn one reply\n› ", "› " + chip + " #2", "turn two reply\n› ",
+		}}
+		e := NewEngine("rk-cdx-twice")
+		if err := e.Send(context.Background(), ft, "default", "%5", payload, true); err != nil {
+			t.Fatalf("first Send: %v", err)
+		}
+		if err := e.Send(context.Background(), ft, "default", "%5", payload, true); err != nil {
+			t.Fatalf("second Send: %v", err)
+		}
+		if got := countCalls(ft.callStream(), "send-keys"); got != 2 {
+			t.Fatalf("Enter count = %d, want 2 (one per successive submission)", got)
+		}
+	})
+
+	t.Run("non-submission evidence accepts the codex chip", func(t *testing.T) {
+		frame := "› " + chip
+		fv := &fakeTmux{captureResults: []string{frame}}
+		verdict, err := verifySubmit(context.Background(), fv, "default", "%5", frame, Needle(payload), true, false, 0, []time.Duration{time.Millisecond})
+		if err != nil {
+			t.Fatalf("verifySubmit: %v", err)
+		}
+		if verdict != observationNonSubmission {
+			t.Fatalf("verdict = %v, want non-submission (chip still present on an unchanged frame)", verdict)
+		}
+	})
+}
+
+// TestSendObservedAgentChipEchoes verifies that observed provider chips
+// authorize Enter only as fresh evidence of a collapsible paste.
+func TestSendObservedAgentChipEchoes(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	payload := strings.Repeat("p", 1433)
+	for _, tt := range []struct {
+		name, chip, text string
+	}{
+		{"kimi", "[paste #1 1433 chars]", payload},
+		{"agy", "[Pasted text #1 1433 chars]", payload},
+		{"opencode", "[Pasted ~1 lines]", payload},
+		{"gemini characters", "[Pasted Text: 1433 chars]", payload},
+		{"gemini lines", "[Pasted Text: 20 lines]", strings.Repeat("row\n", 19) + "row"},
+	} {
+		t.Run(tt.name+" fresh chip passes", func(t *testing.T) {
+			ft := &fakeTmux{captureResults: []string{"> ", "> " + tt.chip, "working"}}
+			if err := NewEngine("rk-chip-"+tt.name).Send(context.Background(), ft, "default", "%5", tt.text, true); err != nil {
+				t.Fatalf("Send: %v", err)
+			}
+			if !ft.enterCalled {
+				t.Fatal("Enter was not sent after a fresh chip")
+			}
+		})
+		t.Run(tt.name+" stale chip fails closed", func(t *testing.T) {
+			ft := &fakeTmux{captureResult: "> " + tt.chip}
+			err := NewEngine("rk-chip-stale-"+tt.name).Send(context.Background(), ft, "default", "%5", tt.text, true)
+			var pf ProbeFailure
+			if !errors.As(err, &pf) {
+				t.Fatalf("err = %v, want ProbeFailure", err)
+			}
+			if ft.enterCalled {
+				t.Fatal("Enter sent on a stale chip")
+			}
+		})
+		t.Run(tt.name+" insert-only stays staged", func(t *testing.T) {
+			ft := &fakeTmux{captureResults: []string{"> ", "> " + tt.chip}}
+			if err := NewEngine("rk-chip-insert").Send(context.Background(), ft, "default", "%5", tt.text, false); err != nil {
+				t.Fatalf("Send: %v", err)
+			}
+			if ft.enterCalled {
+				t.Fatal("Enter sent despite submit=false")
+			}
+		})
+	}
+}
+
+// A repeated Gemini chip puts its counter inside the brackets. The old chip
+// remains the baseline; only the additional occurrence authorizes submission.
+func TestSendGeminiRepeatedChipEcho(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	chip := "[Pasted Text: 1433 chars]"
+	ft := &fakeTmux{captureResults: []string{
+		"> " + chip,
+		"> " + chip + "[Pasted Text: 1433 chars #2]",
+		"working",
+	}}
+	if err := NewEngine("rk-gemini-repeat").Send(context.Background(), ft, "default", "%5", strings.Repeat("p", 1433), true); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if got := countCalls(ft.callStream(), "send-keys"); got != 1 {
+		t.Fatalf("Enter count = %d, want 1", got)
+	}
 }
 
 // TestPopupNewlyOpen: the pure strict-increase detection table — a marker is a
