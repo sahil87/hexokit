@@ -114,42 +114,45 @@ T001 establishes real renderer observations and a reproducible before scenario. 
 
 ### Functional Completeness
 
-- [ ] A-001 R1: Fresh Codex collapsed pastes, including numbered repetitions, authorize submission through the shared engine; Claude and raw-text paths remain supported.
-- [ ] A-002 R3: An isolated real cron delivery into an ordinary Codex tab produces the expected agent turn and successful subsequent delivery without accumulated unsent chips.
-- [ ] A-003 R4: The verification matrix accounts for all seven agents with actual versions and pass/fail/unverified outcomes; runnable agents have short/long/multiline/repeat coverage and Claude/Codex have role comparisons.
-- [ ] A-004 R5: Comparable before/after recordings show the Codex bug and corrected outcome on desktop and mobile, are available as inline PR attachments, and missing coverage is explicitly identified.
+- [x] A-001 R1: Fresh Codex collapsed pastes, including numbered repetitions, authorize submission through the shared engine; Claude and raw-text paths remain supported.
+- [x] A-002 R3: An isolated real cron delivery into an ordinary Codex tab produces the expected agent turn and successful subsequent delivery without accumulated unsent chips.
+- [x] A-003 R4: The verification matrix accounts for all seven agents with actual versions and pass/fail/unverified outcomes; runnable agents have short/long/multiline/repeat coverage and Claude/Codex have role comparisons.
+- [x] A-004 R5: Comparable before/after recordings show the Codex bug and corrected outcome on desktop and mobile, are available as inline PR attachments, and missing coverage is explicitly identified.
 
 ### Behavioral Correctness
 
-- [ ] A-005 R2: Stale markers alone fail closed; insertion-only sends issue no Enter; existing failure taxonomy, popup handling, and bounded recovery remain intact.
-- [ ] A-006 R1: ANSI styling, whitespace wrapping, and repeated identical character-count markers do not defeat or falsely satisfy recognition.
-- [ ] A-007 R3: Cron scheduling, target resolution, and persistence remain unchanged unless a necessary extension was documented before implementation.
-
+- [x] A-005 R2: Stale markers alone fail closed; insertion-only sends issue no Enter; existing failure taxonomy, popup handling, and bounded recovery remain intact.
+- [x] A-006 R1: ANSI styling, whitespace wrapping, and repeated identical character-count markers do not defeat or falsely satisfy recognition.
+- [x] A-007 R3: Cron scheduling, target resolution, and persistence remain unchanged unless a necessary extension was documented before implementation.
 ### Scenario Coverage
 
-- [ ] A-008 R6: Focused regressions demonstrate the original Codex failure and fixed send behavior without replacing real-agent verification with mocks.
-- [ ] A-009 R4: Real responses and composer state support submission claims; delivery logs and frame changes are only supporting evidence.
-- [ ] A-010 R6: Required `just` checks have recorded outcomes and any environmental failures are diagnosed without weakening correct expectations.
+- [x] A-008 R6: Focused regressions demonstrate the original Codex failure and fixed send behavior without replacing real-agent verification with mocks.
+- [x] A-009 R4: Real responses and composer state support submission claims; delivery logs and frame changes are only supporting evidence.
+- [x] A-010 R6: Required `just` checks have recorded outcomes and any environmental failures are diagnosed without weakening correct expectations.
 
 ### Security
 
-- [ ] A-011 R2: Sanitization, explicit pane/server arguments, mode guard, locks, and shared deadline remain preserved; no unconditional Enter or speculative clearing is added.
-- [ ] A-012 R5: Verification touches only dedicated test resources and commits no videos, secrets, or live agent/cron state.
+- [x] A-011 R2: Sanitization, explicit pane/server arguments, mode guard, locks, and shared deadline remain preserved; no unconditional Enter or speculative clearing is added.
+- [x] A-012 R5: Verification touches only dedicated test resources and commits no videos, secrets, or live agent/cron state.
 
 ### Code Quality
 
-- [ ] A-013 Pattern consistency: Changes follow surrounding Go and Playwright naming, error handling, type-narrowing, and module patterns.
-- [ ] A-014 No unnecessary duplication: The existing injection engine, fake tmux seam, test rig, and demo fixture are reused; no redundant provider dispatch layer is introduced.
-- [ ] A-015 Focused implementation: Functions remain focused, constants name meaningful thresholds, and comments explain constraints rather than narrating code or change history.
-- [ ] A-016 Process execution: Go subprocesses use context/timeouts and argv slices; new test helpers bound subprocess execution and target explicit test sockets.
-- [ ] A-017 Test coverage: New behavior has meaningful tests, and any added Playwright e2e tests include the required Proves/Steps and shared-setup comments.
-- [ ] A-018 Scope: No new production dependencies, client polling, public endpoints, settings surfaces, or unrelated refactors appear.
+- [x] A-013 Pattern consistency: Changes follow surrounding Go and Playwright naming, error handling, type-narrowing, and module patterns.
+- [x] A-014 No unnecessary duplication: The existing injection engine, fake tmux seam, test rig, and demo fixture are reused; no redundant provider dispatch layer is introduced.
+- [x] A-015 Focused implementation: Functions remain focused, constants name meaningful thresholds, and comments explain constraints rather than narrating code or change history.
+- [x] A-016 Process execution: Go subprocesses use context/timeouts and argv slices; new test helpers bound subprocess execution and target explicit test sockets.
+- [x] A-017 Test coverage: New behavior has meaningful tests, and any added Playwright e2e tests include the required Proves/Steps and shared-setup comments.
+- [x] A-018 Scope: No new production dependencies, client polling, public endpoints, settings surfaces, or unrelated refactors appear.
 
 ## Notes
 
 - Apply checks off tasks only; independent review owns Acceptance and Deletion Candidates.
 - Apply produces recording files and `verification.md`; the orchestrator owns git/PR writes and attaching the evidence.
 - Missing binary/authentication is reported as unverified, never as a successful real-agent run. Existing live prompt accumulation is left untouched.
+
+## Deletion Candidates
+
+- None — this change extends the recognized paste-chip set and adds tests/fixtures without making existing code redundant; `pasteCollapseRe` remains the Claude/Antigravity matcher, and all touched harness helpers retain existing callers.
 
 ## Assumptions
 
