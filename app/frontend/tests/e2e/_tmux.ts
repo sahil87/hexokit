@@ -232,6 +232,30 @@ export function windowOption(
   }
 }
 
+/** Synchronously capture a pane's rendered content (tmux-side truth).
+ *  `scrollback: true` captures from the start of history (`-S -`); the default
+ *  is the visible pane only. Throws on failure — mid-test callers should see
+ *  the error. */
+export function capturePane(
+  target: string,
+  opts: TmuxOptions & { scrollback?: boolean } = {},
+): string {
+  const args = ["capture-pane", "-p", "-t", target];
+  if (opts.scrollback) args.push("-S", "-");
+  return tmux(args, opts);
+}
+
+/** The active pane id (`%N`) of a window id (`@N`). Throws on failure. */
+export function paneIdForWindow(windowId: string, opts: TmuxOptions = {}): string {
+  return tmux(["display-message", "-p", "-t", windowId, "#{pane_id}"], opts).trim();
+}
+
+/** Send literal tmux key names to a pane (e.g. "Enter", "Escape", "Down").
+ *  Throws on failure. */
+export function sendKeysToPane(paneId: string, keys: string[], opts: TmuxOptions = {}): void {
+  tmux(["send-keys", "-t", paneId, ...keys], opts);
+}
+
 /** Stamp the slot-1 web tab the way the frontend's address bar / migration
  *  does: `@rk_win_web_1` plus `@rk_win_web_active 1`. */
 export function stampWebTab(
