@@ -1,5 +1,5 @@
 ---
-description: "The `@rk_pane_agent_state` pane-option convention: three-state schema, dual-read/dual-write over the retired unscoped name, shell reconciler, window rollup (duration emitted for `active` too). Covers the seven-harness runtime registry, the `rk agent setup` installer (four artifact families: launcher pointer, per-agent hooks, tmux guard shim, gui display block) with the two-path hook wrapper, `rk agent hook` binary indirection, the SessionStart boot stamp, and `@rk_pane_agent_session` identity."
+description: "Agent lifecycle and session identity: the three-state tmux convention, liveness reconciliation, window rollup and duration, seven-harness runtime registry, hook binary and installer. Covers Codex effective-reviewer and question projection, root ownership, bounded read-only runtime reconciliation, fallback limits, and unknown transition epochs."
 type: memory
 ---
 # Agent-State Tier (`@rk_pane_agent_state`)
@@ -44,15 +44,16 @@ The epoch suffix is **mandatory** — readers compute the state's age from it
 signal for a lost write). Values MAY carry a third `:<pid>` segment (the agent process's pid, for the
 PID-liveness reconciler); the schema is `<state>:<epoch>[:<pid>]`, formatted by
 the pure `formatAgentStateValue(state, epoch, pid)` in `cmd/rk/agent_hook.go`. The
-option name and the three
-state tokens are declared **once** in `app/backend/internal/tmux/tmux.go`
-(constants `AgentStateOption`, `AgentStateActive`/`Waiting`/`Idle`);
-`cmd/rk/agent_setup.go` **and** `cmd/rk/agent_hook.go` alias them rather than
-re-declaring the convention strings (one source of truth per binary, A-021).
+option name and public state constants live in
+`app/backend/internal/tmux/tmux.go` (`AgentStateOption`,
+`AgentStateActive`/`Waiting`/`Idle`); `cmd/rk/agent_setup.go` and
+`cmd/rk/agent_hook.go` alias them. The leaf `internal/codexstate` package carries
+three private constants with the same wire tokens and does not import tmux.
 
-**State semantics**: `active` = a turn is in progress; `waiting` = blocked on a
-**human** (permission prompt, elicitation/question dialog) — the highest-urgency,
-most notification-worthy state; `idle` = turn complete, at rest. `idle` is also
+**State semantics**: `active` = a turn is in progress without a known pending
+human request; `waiting` = a **human** response is pending (permission prompt,
+elicitation/question dialog), including an asynchronous question while other
+work continues; `idle` = turn complete, at rest. `idle` is also
 semantically true of a freshly started session, which is what the SessionStart
 boot stamp exploits (see § Boot-Ready Signal).
 
@@ -115,6 +116,42 @@ the two first-party CLI readers of the convention: the **`rk mux send`
 agent-state gate** and the **`rk mux await` observer** (both in
 [agent-messaging](/run-kit/agent-messaging.md)).
 
+### Codex waiting reconciliation
+
+Both `ListWindows` and `PaneFactsCtx` apply `reconcileCodexWaiting` after the
+normal state/identity liveness checks. Only panes with provider `codex` and
+state `waiting` qualify. `internal/codexstatus` reads `thread/read` summaries
+over the managed daemon's local Unix WebSocket at
+`$CODEX_HOME/app-server-control/app-server-control.sock`, using the **rk
+process's** `CODEX_HOME` or `~/.codex`. It does not discover per-pane home
+overrides, start a daemon, resume a thread, subscribe, or mutate tmux or Codex.
+
+A batch uses one connection, at most 32 distinct valid session UUIDs, a shared
+300 ms deadline including the transcript projection, a 2 MiB message limit,
+and a 64-message response loop bounding intervening notifications. A matching
+thread can replace `waiting` with `active` only when `activeFlags` is explicitly
+empty, or with `idle` when no flags are set. In either case its returned
+transcript path must validate the same root session and prove that **no
+question is pending** through the shared `internal/codexstate` projection.
+Pending async or blocking questions preserve attention even when the runtime
+reports active or idle. (a24w)
+
+Standalone `--no-daemon`, unavailable/incompatible sockets, unknown
+status/flags, missing or mismatched paths, invalid/incomplete/concurrently
+appended transcripts, transcripts over the 8 MiB projection window, and IDs
+outside the bounded batch leave hook state unchanged. Manual approval can
+therefore remain waiting until a later lifecycle hook, such as `PostToolUse`.
+The runtime fields and transcript format are version-sensitive; compatibility
+is verified against Codex 0.164.0.
+
+When this projection changes state, `AgentStateEpoch` becomes **0 (unknown)**
+in both readers: the runtime summary supplies no transition timestamp.
+Duration and idle-backoff consumers receive that same state/epoch pair and
+cannot reuse the preceding permission-wait age. A subsequent native hook
+supplies its own epoch. The underlying hook options remain unchanged, and
+each read derives the result again without a durable marker, cache, watcher,
+or client polling loop. (a24w)
+
 ## Window Rollup + Duration (`internal/sessions`)
 
 `WindowInfo.AgentState` / `AgentIdleDuration` (JSON `agentState` /
@@ -146,9 +183,10 @@ agent-state gate** and the **`rk mux await` observer** (both in
 ## `rk agent hook` — Hook Logic in the Binary (`cmd/rk/agent_hook.go`)
 
 The hook body installed into harness settings is a stable
-*interface* (`agentStateHookCommand` above) and **all logic lives in this Go
-subcommand** — so a hook fix reaches every running agent on `brew upgrade rk`
-with no settings churn and no session restarts. (260707-qfps) The canonical
+*interface* (`agentStateHookCommand` above). Runtime logic lives in this Go
+subcommand and its shared projection packages; binary-only fixes apply to
+existing installed commands. Event-mapping changes require `rk agent setup`
+and the harness's activation steps. (260707-qfps) (a24w) The canonical
 invocation is `rk agent hook --agent <name> <state>` — the `hook` member of the
 `agent` family (`agent.go`); the old root form `rk agent-hook <state>` is a
 **permanent hidden alias** (never deprecated, never warns — installed
@@ -203,8 +241,9 @@ it); (2) validate `<state>` via the aliased `isAgentState` (unknown → no write
 (3) resolve the agent's runtime descriptor from the shared runtime registry via
 `agentRuntimeForName(agent)` — by provider token or comm literal (unknown
 `--agent` → no write); (4) read the stdin payload once (`readHookInput`) and
-apply the per-provider gates (the agy `idleRequiresFullyIdle` gate and the stamp
-token's `compactSource` gate — see § Agent Session Identity → Writer); (5)
+apply the per-provider gates (Codex lifecycle/ownership projection, the agy
+`idleRequiresFullyIdle` gate and the stamp token's `compactSource` gate — see
+§ Codex Lifecycle Projection and § Agent Session Identity → Writer); (5)
 resolve the pid via the ancestor walk; (6) write the pane option. Every failure
 path is
 silent and returns without error.
@@ -258,6 +297,52 @@ execs `tmux` via PATH (through the tmux guard shim → brew symlink), so a **tmu
 upgrade re-opens the same dangling-binary window for the write itself that the
 two-path wrapper closes for the rk binary. Not addressed — recorded as the
 residual gap.
+
+## Codex Lifecycle Projection
+
+`cmd/rk/agent_hook_codex.go` passes Codex payload fields to
+`internal/codexstate.HookState` before either state or identity is written.
+The installed state token is a default refined by `hook_event_name`, tool
+input/output, the current prompt, and the hook-supplied transcript's effective
+turn context. The following behavior is verified against Codex 0.164.0. (a24w)
+
+| Signal | Result |
+|--------|--------|
+| `PermissionRequest` | `waiting` only when the effective `turn_context.approvals_reviewer` is `user`; `auto_review` or unknown reviewer remains `active`, unless a known pending question requires `waiting` |
+| `PreToolUse` for nonempty `request_user_input` in Plan mode | `waiting`; the blocking call remains pending across unrelated tool events until its matching call-ID result, `Stop`/`task_complete`, or explicit cancellation |
+| `PostToolUse` for nonempty `request_user_input_async` with `accepted: true` | `waiting`; transcript `item_completed`/`AgentMessage` records with `delivery: async` carry the pending question IDs |
+| Ordinary `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, or `Stop` while an async question is pending | `waiting`; ordinary steering text, unrelated tools, and turn completion do not dismiss it |
+| A canonical `<send_user_message_question_reply>` payload | Clears only matching `questionItemId` entries; unanswered sibling questions retain `waiting` |
+| `Interrupt` or `SessionEnd`; transcript `turn_aborted` | Explicit cancellation clears pending attention; interrupt/end hooks write `idle` |
+| Root `SessionStart` | Startup/resume/clear stamp identity and idle; compact preserves in-flight state and can retain known pending-question attention |
+
+`UserPromptSubmit` consumes its prompt directly as well as transcript replies.
+The hook never emits allow/deny output, changes approval policy, or answers a
+question. Claude retains its existing lifecycle mapping.
+
+### Transcript bounds and ownership
+
+`ReadContext` accepts an absolute regular-file path, opens it nonblocking,
+reads at most 64 KiB for `session_meta`, and projects at most the last 8 MiB.
+Confirmed `session_meta.source.subagent` sources and metadata/session-ID
+mismatches suppress **both** state and identity writes, including ordinary
+lifecycle events inherited from the parent pane environment. Root session
+rotation and compaction remain supported. Separate non-subagent root
+conversations sharing one pane/process are outside the verified ownership
+result. (a24w)
+
+Unknown context cannot establish human permission waiting. A positive pending
+question within the projection can preserve attention; only a complete valid
+root transcript can establish the absence of questions for read-side runtime
+reconciliation. Invalid records, partial trailing lines, concurrent size
+changes, or a truncated tail make that negative proof unavailable.
+
+Actual isolated Codex integration covers automatic review and manual approval
+resumption before tool completion; the manual test replays the initial hook
+from the real approval request. Async questions/replies and child ownership
+have deterministic production regressions based on observed payloads, without
+a fresh live async-dialog or child-overwrite claim. Detailed test results and
+coverage limits live in the change's `verification.md`. (a24w)
 
 ## `rk agent setup` — Hook Installer (`cmd/rk/agent_setup.go`)
 
@@ -400,9 +485,12 @@ The other six harnesses (the verified per-harness capability matrix — versions
 mechanisms, install targets, identity fields, transcript support, activation —
 lives in [`docs/site/agent-hooks.md`](../../site/agent-hooks.md)): (nnqu)
 
-- **codex**: UserPromptSubmit/PreToolUse→active, PermissionRequest→waiting,
-  Stop/SessionEnd→idle, SessionStart→stamp (sources
-  startup\|resume\|clear\|compact).
+- **codex**: UserPromptSubmit/PreToolUse/PostToolUse→active,
+  PermissionRequest→waiting, Interrupt/Stop/SessionEnd→idle,
+  SessionStart→stamp (sources startup\|resume\|clear\|compact). These are
+  installed default tokens; § Codex Lifecycle Projection defines the effective
+  reviewer, question, and ownership gates. PostToolUse/Interrupt coverage
+  requires those entries to be installed and trusted through Codex `/hooks`.
 - **gemini**: BeforeAgent/BeforeTool→active, Notification(ToolPermission)→waiting
   (**observability-only** — Gemini permission prompts cannot be answered by hooks,
   but the event fires before the prompt), AfterAgent/SessionEnd→idle,
@@ -431,8 +519,10 @@ lives in [`docs/site/agent-hooks.md`](../../site/agent-hooks.md)): (nnqu)
 
 Subagent/child harness events (Codex SubagentStart/Stop, Kimi
 SubagentStart/Stop, Copilot subagentStart/Stop) are registered by **no**
-installer — enforced by a registry-wide assertion test — so a child event can
-never replace the root pane's identity or complete its turn. (nnqu)
+installer — enforced by a registry-wide assertion test. Codex also suppresses
+ordinary lifecycle events with a confirmed subagent transcript source;
+OpenCode filters `parentID` in its plugin. These guards do not establish
+ownership between independent non-subagent Codex roots sharing a pane. (nnqu) (a24w)
 
 **Post-install activation** (`postInstallNote`, printed on install whenever the
 harness has a step rk cannot perform): the native activation steps stay **user
@@ -884,10 +974,10 @@ hooks.
 
 The hook reads the session identity from the harness's hook JSON on stdin (the
 field varies per provider — the runtime descriptor's `sessionIDField` picks the
-authoritative one), scoped to
-session identity only — state still comes from the positional arg and pid from the
-process tree, and state derivation stays in the installed hook/plugin event
-mappings. The stdin seam:
+authoritative one). The positional token supplies the default state and the
+process tree supplies the pid. Codex refines that state and validates ownership
+through the shared transcript projection before writing either option; other
+provider gates include compaction and agy's `fullyIdle`. The stdin seam:
 
 - **`readHookInput(r io.Reader) (hookInput, bool)`** — the conservative stdin parse:
   - **TTY guard** — if `r` is an `*os.File` in char-device mode
@@ -897,7 +987,9 @@ mappings. The stdin seam:
     `hookStdinReadLimit = 1 << 20` (~1 MiB), so a hung/pathological producer can't
     stall the agent's turn.
   - **Single object** — `json.Decoder.Decode` into `hookInput` (fields
-    `session_id` / `sessionId` / `conversationId` / `source` / `fullyIdle`)
+    `session_id` / `sessionId` / `conversationId` / `source` / `fullyIdle`, plus
+    Codex `transcript_path`, `hook_event_name`, `turn_id`, `tool_name`,
+    `tool_use_id`, `tool_input`, `tool_response`, and `prompt`)
     returns after ONE complete JSON object, with no dependence
     on stdin EOF (which the harness docs don't guarantee). Unknown JSON keys are
     tolerated. The provider's runtime descriptor picks the authoritative
@@ -930,7 +1022,8 @@ mappings. The stdin seam:
   (Constitution I). Errors are swallowed (never-fail).
 - **Token dispatch** — `runAgentHook` takes a **token** param.
   `writeState := isAgentState(token)`; a token that is neither a canonical
-  state nor `agentHookStampToken` is a silent no-op. Ordering:
+  state nor `agentHookStampToken` is a silent no-op. Codex projection can reject
+  the event or replace its token before this write ordering:
   1. `active|waiting|idle` → resolve pid via the ancestor walk, `writeAgentState`,
      **then** stamp `@rk_pane_agent_session` (dual-written with `@rk_pane_chat`)
      if stdin yielded a session id. The session stamp is
@@ -955,8 +1048,9 @@ mappings. The stdin seam:
   carries `fullyIdle: true` (`idleRequiresFullyIdle`: agy's loop termination can
   leave background tasks running, so anything less stays unknown rather than
   manufacturing an at-rest signal); the identity stamp still proceeds. (nnqu)
-- **Stamp on EVERY fire that yields a session id** (states and the stamp token
-  alike), not SessionStart-only, because **session ids rotate on `/clear` and
+- **Stamp on every accepted fire that yields a session id** (states and the stamp
+  token alike), with Codex ownership rejection suppressing the entire fire.
+  **Session ids rotate on `/clear` and
   `/compact`** (a one-time stamp goes stale mid-pane-lifetime); every-fire refresh
   also stamps already-running agents on `brew upgrade rk` with zero settings churn
   (the `260707-qfps` indirection dividend — the installed wrappers already pipe
@@ -995,9 +1089,9 @@ identity lands on the first PreInvocation `active` fire). (nnqu) The claude row:
   stamp it. The idle write ships inside the `rk agent hook` binary, so it reaches
   running fleets on `brew upgrade rk` with no settings churn (the § Migration
   binary-vs-settings split).
-- **No `SessionEnd` registration** — writer-side clearing is rejected. Reader-side
-  reconciliation must exist anyway for crash/kill paths, so a `SessionEnd` clear
-  would add a settings entry without removing any reader logic.
+- **Session-end handling is provider-specific**: Claude has no SessionEnd row;
+  Codex and Gemini map it to idle. Session identity remains subject to the
+  reader's process-liveness reconciliation; an idle write does not delete it.
 
 ### Surfacing: window rollup (`internal/sessions`)
 
@@ -1208,18 +1302,18 @@ and Constitution §IV minimal surface respectively).
 *Introduced by*: `260714-popk-rk-display-skill-agent-setup` (marker-recognition
 repurposed for cleanup by `260717-agst`)
 
-### One source of truth per binary for the convention strings
+### Public convention constants and the Codex leaf package
 **Decision**: `cmd/rk/agent_setup.go` aliases `tmux.LegacyAgentStateOption` /
 `tmux.AgentStateOption` +
 `tmux.AgentState*` rather than re-declaring `"@rk_agent_state"` and the state
 literals locally; `cmd/rk/agent_hook.go` (the writer) likewise aliases the same
 `tmux.AgentState*` constants and resolves providers through the shared runtime
-registry (`agent_registry.go`), so writer and reader have
-one source per binary. (260707-qfps)
-**Why**: the option name and states are the cross-repo contract; a second copy in
-the installer would let the writer and the reader drift (A-021, resolved at
-rework cycle 1 after review flagged the local re-declaration).
-*Introduced by*: `260705-dmex-generic-agent-state-tier`
+registry (`agent_registry.go`). `internal/codexstate` holds three matching private
+wire-token constants.
+**Why**: the installer and hook share the public convention, while the leaf
+Codex projection must avoid an import cycle with its tmux consumer.
+**Rejected**: independent installer constants; importing tmux from codexstate.
+*Introduced by*: 260705-dmex-generic-agent-state-tier; 261026-a24w-fix-codex-waiting-indicator
 
 ### Stable interface in settings, logic in the binary (`rk agent hook`)
 **Decision**: install a thin, never-changing wrapper into harness settings that
@@ -1246,18 +1340,17 @@ the machine surfaces.
 changes still need re-setup + restart (that mapping lives in the settings matchers).
 *Introduced by*: `260707-qfps-rk-agent-hook-indirection`
 
-### Event→state mapping stays in settings; state-literal args + `--agent` flag
-**Decision**: the event→state mapping (which harness event installs which
-state, including the two `Notification` matchers) lives in the settings matchers;
-the wrapper passes a fixed state literal + `--agent <provider>`. The binary reads the
-harness's hook JSON on stdin **only** to extract the session-identity field for
-the `@rk_pane_agent_session`
-stamp — NOT to derive state, which stays driven by the settings matchers + the
-positional token (see § Agent Session Identity → Writer). (260713-nh86)
-**Why**: the mapping churns far less than the logic, and matcher changes require a
-settings write regardless; stdin-JSON parsing does not change the installed
-command shape, so state derivation via stdin gains nothing over the matchers.
-*Introduced by*: `260707-qfps-rk-agent-hook-indirection`
+### Installed event defaults with provider-specific lifecycle projection
+**Decision**: settings map events to fixed state tokens plus `--agent <provider>`.
+The binary applies provider-specific payload gates; Codex uses effective
+transcript reviewer, question, and ownership facts before writing state/identity.
+**Why**: a raw Codex permission event precedes reviewer selection and does not
+prove a human dialog. The stable command shape supports binary logic updates;
+additional event registrations still require installation and activation.
+**Rejected**: treating every permission check as human waiting; using global
+configuration in place of effective per-turn context; embedding lifecycle
+projection in generated shell commands.
+*Introduced by*: 260707-qfps-rk-agent-hook-indirection; 261026-a24w-fix-codex-waiting-indicator
 
 ### Reject (don't escape) shell-unsafe rk paths; the wrapper's stable path never Cellar-pins
 **Decision**: resolve the wrapper's `<stable>` path via `LookPath("run-kit")` →
@@ -1334,30 +1427,18 @@ lockstep.
 potentially-skewing liveness source); a separate agent-session-only liveness heuristic.
 *Introduced by*: `260713-nh86-chat-session-identity`
 
-### Every-fire stamp; SessionStart dual-stamps session + `idle`; no `SessionEnd`
-**Decision**: stamp `@rk_pane_agent_session` (dual-written with `@rk_pane_chat`) on **every** hook fire that yields a `session_id`
-(the binary reads stdin JSON), and let the SessionStart registry row (token
-`stamp`) **additionally write `@rk_pane_agent_state idle:<epoch>[:<pid>]`** for
-every SessionStart source except `compact`. Clearing is
-**reader-side reconciliation only** — no writer-side clear, no `SessionEnd` row.
-**Why**: session ids rotate on `/clear` and `/compact` (re-verified 2026-07-13),
-so a one-time stamp goes stale mid-pane-lifetime — every-fire refresh fixes that
-AND reaches already-running agents on `brew upgrade rk` with zero settings churn
-(binary-only). SessionStart's `idle` write is the boot-ready signal — `idle` is
-semantically true at session start, so a valid state exists within seconds of
-boot with no new state value or reader change — and it clears stale
-`waiting`/`active` from a pane's previous agent. The `compact` source is excluded
-because it fires mid-turn, where an `idle` write would clobber a live `active`
-(an unparseable payload withholds the write for the same fail-safe reason).
-Reader reconciliation is mandatory anyway for
-crash/kill paths, so a `SessionEnd` clear adds a settings entry without removing
-any reader logic (mirrors agent-state's no-GC lifecycle).
-**Rejected**: SessionStart-only stamping (goes stale on id rotation); a
-SessionStart idle write on the `compact` source (clobbers a live `active`
-mid-turn); a new `ready`/`boot` state value or a separate `@rk_pane_boot` option
-(schema churn, every reader must learn it); a
-`SessionEnd` writer-side clear (redundant with mandatory reconciliation).
-*Introduced by*: `260713-nh86-chat-session-identity`; boot-stamp extension `260903-4czh-boot-ready-spawn-inject`
+### Accepted-event identity stamps and SessionStart boot state
+**Decision**: every accepted hook event carrying a valid session ID stamps
+`@rk_pane_agent_session` and `@rk_pane_chat`. Root SessionStart events stamp idle
+except during compaction; Codex ownership rejection suppresses both writes.
+SessionEnd idle mappings are provider-specific and do not delete identity.
+**Why**: session rotation needs repeated identity stamps, startup needs a
+boot-ready state, and compaction must preserve an in-flight turn. Process
+liveness reconciliation covers crashes and killed agents independently of hooks.
+**Rejected**: SessionStart-only identity stamping; idle stamps during compaction;
+a separate ready state or boot option; trusting a child event to own its parent's
+pane merely because it inherits the tmux environment.
+*Introduced by*: 260713-nh86-chat-session-identity; 260903-4czh-boot-ready-spawn-inject; 261026-a24w-fix-codex-waiting-indicator
 
 ### Bounded, TTY-guarded, single-object stdin parse; validated before write
 **Decision**: `readHookInput` is TTY-guarded (`os.ModeCharDevice` — a manual
@@ -1376,22 +1457,16 @@ stamping the raw `session_id` unvalidated (a whitespace/control value the
 reconciler would silently drop).
 *Introduced by*: `260713-nh86-chat-session-identity`
 
-### Subagent (Task-tool) fires carry the ROOT session id — no event restriction
-**Decision**: stamp `@rk_pane_agent_session` (dual-written with `@rk_pane_chat`) on **all** registered events (no restriction to
-`UserPromptSubmit`/`SessionStart`/`Stop`); the stdin `session_id` on subagent /
-`PreToolUse` fires is treated as the pane's ROOT session, not a sidechain id.
-**Why**: this was the change's one open question (intake Assumption 10, Tentative —
-the harness docs are silent on subagent hook payloads). **Resolved empirically at
-apply**: across **1489** subagent (Task-tool) transcript files on this host, every
-sidechain line carried `sessionId` = the PARENT/root session UUID (subagent
-transcripts nest under `<root-uuid>/subagents/agent-*.jsonl`); **zero** carried a
-distinct id. Root-session identity is exactly what stamping needs, so no event
-restriction is required — upgraded Tentative → Confident.
-**Rejected (as unneeded)**: restricting stamping to
-`UserPromptSubmit`/`SessionStart`/`Stop` — the worst case it guarded against (a
-transiently-wrong sidechain ref that the next main-session fire corrects) does not
-occur.
-*Introduced by*: `260713-nh86-chat-session-identity`
+### Claude Task-tool events carry root identity
+**Decision**: Claude stamps identity on all registered events, including
+PreToolUse during Task-tool activity. This rule is scoped to Claude; Codex
+checks its own transcript ownership before any write.
+**Why**: the observed 1,489 Claude subagent transcript files carry the parent
+session UUID on sidechain lines. Codex has a distinct subagent source and
+session identity, so the same ownership assumption does not apply there.
+**Rejected**: restricting Claude identity stamps to prompt/start/stop events;
+generalizing Claude's payload ownership to every provider.
+*Introduced by*: 260713-nh86-chat-session-identity; 261026-a24w-fix-codex-waiting-indicator
 
 ### Window rollup: active pane first, else first set; per-pane truth also ships
 **Decision**: `ResolveAgentPane(panes)` returns the active pane's agent session
@@ -1407,8 +1482,11 @@ later multi-pane rule change needs no backend contract break. Mirrors
 break to revisit the multi-pane rule).
 *Introduced by*: `260713-nh86-chat-session-identity`
 
-### No disk validation of the referenced transcript
-**Decision**: the reconciler does NOT stat `~/.claude/projects/**/<ref>.jsonl`.
+### Agent-session identity does not require a transcript file
+**Decision**: the identity reconciler does NOT stat
+`~/.claude/projects/**/<ref>.jsonl`. Codex waiting-state reconciliation has a
+separate bounded transcript requirement; unavailable context leaves hook state
+unchanged without discarding identity.
 **Why**: it would add per-pane-per-poll filesystem I/O to guard a pathological
 case; a live agent's transcript exists by construction, and the transcript-reading
 consumers (operator actuation, fork, closed-resume, auto-name) surface a missing
@@ -1417,6 +1495,39 @@ identity derived purely from tmux pane options at request time (Constitution II)
 **Rejected**: stat-on-reconcile (I/O cost with no correctness gain for the live
 case).
 *Introduced by*: `260713-nh86-chat-session-identity`
+
+### One bounded Codex projection for hooks and runtime reads
+**Decision**: `internal/codexstate` projects effective reviewer, root ownership,
+and pending async/blocking questions from a 64 KiB metadata head and 8 MiB tail.
+Known pending questions survive unrelated work; only matching replies or explicit
+lifecycle completion/cancellation resolve the corresponding question kind.
+**Why**: automatic reviewers are autonomous work, and async questions can coexist
+with an active thread. Shared projection keeps hook writes and read-side
+reconciliation consistent without a second durable question schema.
+**Rejected**: global reviewer guesses; ordinary user text as question dismissal;
+timeouts or frontend-only pulse suppression; unbounded transcript scans.
+*Introduced by*: 261026-a24w-fix-codex-waiting-indicator
+
+### Manual approval resumption uses a read-only runtime summary
+**Decision**: waiting Codex panes can derive active/idle from bounded managed-daemon
+`thread/read` summaries only with a matching root transcript proving no pending
+question. Failure preserves the hook value; reads perform no state writes.
+**Why**: PermissionRequest has no matching approval-answer hook, while PostToolUse
+can arrive after a long resumed command. Runtime activity alone cannot disprove
+an unanswered question.
+**Rejected**: waiting until tool completion as the only resume signal; resuming or
+subscribing to threads; a background watcher, cache, or client polling loop.
+*Introduced by*: 261026-a24w-fix-codex-waiting-indicator
+
+### Derived state without a transition time carries epoch zero
+**Decision**: both tmux read paths clear the epoch to zero when runtime
+reconciliation replaces waiting with active/idle. Later hooks restore native
+timestamps.
+**Why**: a runtime summary has no transition time. Reusing the waiting epoch
+would invent elapsed duration and could prematurely trigger idle backoff.
+**Rejected**: retaining the old waiting age; inventing a read-time timestamp;
+persisting a parallel transition clock.
+*Introduced by*: 261026-a24w-fix-codex-waiting-indicator
 
 ### Target the pane's server via `tmux.OriginalTMUX`, not `$TMUX`
 **Decision**: derive the `-S <socket>` server-targeting prefix from
