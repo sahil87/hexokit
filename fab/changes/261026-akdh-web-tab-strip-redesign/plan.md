@@ -205,62 +205,66 @@ Unit tests SHALL cover the ladder rungs, the chip helper, the icon hue rule, the
 
 ### Functional Completeness
 
-- [ ] A-001 R1: The strip renders on `bg-bg-inset`; the active tab carries the folder surface (`bg-bg-card`, rounded top, no bottom border, overlapping the rule); inactive tabs have no fill and secondary text with separators hidden beside the active tab
-- [ ] A-002 R2: `web-tab-ladder.ts` exports the four named constants and `sizeWebTabs` matching the study's `sizeTabs` on every rung, with unit tests for each
-- [ ] A-003 R3: Tab widths come from `sizeWebTabs` via a `ResizeObserver` (no polling); labels ellipsis-truncate; icon-only tabs keep a visually hidden label and `title`
-- [ ] A-004 R4: Active `×` always shown; labelled inactive keeps the hover/coarse rule; icon-only inactive hides `×` even on coarse pointers
-- [ ] A-005 R5: Drafts are sized by the ladder and a selected draft shows the dashed folder outline at the active width
-- [ ] A-006 R6: Tab icons resolve spinner → favicon → `WebPageGlyph`; glyphs are neutral in single-kind families and hued in mixed ones; `KIND_DOT_CLASS` is gone
-- [ ] A-007 R7: `web-kind-chip` renders per kind from one shared `web-url.ts` helper and is absent for relative, draft and onboarding states
-- [ ] A-008 R8: `web-kind-badge` no longer exists; every content-bearing web header (relative included) shows the title branch with home and capture chips intact
-- [ ] A-009 R9: The URL row order is back, forward, refresh, address, find, open-in-browser, `⋯`, on `bg-bg-card`, with the unbordered inset ~11.5px address field keeping the focus ring and error slot
-- [ ] A-010 R10: `⋯` opens a keyboard-reachable `role="menu"` with the zoom stepper (`web-zoom-control`, stays open) and Inspect only with devtools; it holds `transient` occlusion; it is absent in onboarding; palette zoom/inspect rows are unchanged
-- [ ] A-011 R11: The zoom chip appears only when zoom ≠ 100% and resets zoom on click
-- [ ] A-012 R12: On mobile the URL row is `↻ [address] ⋯` and Back/Forward/Find/Open in browser are `⋯` rows
-- [ ] A-013 R14: `docs/specs/index.md` § Wiki links `../wiki/web-tab-strip-studies.html` in the existing style, and the study file is part of the change
-- [ ] A-014 R15: Demo specs exist under `app/frontend/tests/demo/` and `app/desktop/tests/demo/` and record with `just demo web-tab-strip`
+- [x] A-001 R1: The strip renders on `bg-bg-inset`; the active tab carries the folder surface (`bg-bg-card`, rounded top, no bottom border, overlapping the rule); inactive tabs have no fill and secondary text with separators hidden beside the active tab
+- [x] A-002 R2: `web-tab-ladder.ts` exports the four named constants and `sizeWebTabs` matching the study's `sizeTabs` on every rung, with unit tests for each
+- [x] A-003 R3: Tab widths come from `sizeWebTabs` via a `ResizeObserver` (no polling); labels ellipsis-truncate; icon-only tabs keep a visually hidden label and `title`
+- [x] A-004 R4: Active `×` always shown; labelled inactive keeps the hover/coarse rule; icon-only inactive hides `×` even on coarse pointers
+- [x] A-005 R5: Drafts are sized by the ladder and a selected draft shows the dashed folder outline at the active width
+- [x] A-006 R6: Tab icons resolve spinner → favicon → `WebPageGlyph`; glyphs are neutral in single-kind families and hued in mixed ones; `KIND_DOT_CLASS` is gone
+- [x] A-007 R7: `web-kind-chip` renders per kind from one shared `web-url.ts` helper and is absent for relative, draft and onboarding states
+- [x] A-008 R8: `web-kind-badge` no longer exists; every content-bearing web header (relative included) shows the title branch with home and capture chips intact
+- [x] A-009 R9: The URL row order is back, forward, refresh, address, find, open-in-browser, `⋯`, on `bg-bg-card`, with the unbordered inset ~11.5px address field keeping the focus ring and error slot
+- [x] A-010 R10: `⋯` opens a keyboard-reachable `role="menu"` with the zoom stepper (`web-zoom-control`, stays open) and Inspect only with devtools; it holds `transient` occlusion; it is absent in onboarding; palette zoom/inspect rows are unchanged
+- [x] A-011 R11: The zoom chip appears only when zoom ≠ 100% and resets zoom on click
+- [x] A-012 R12: On mobile the URL row is `↻ [address] ⋯` and Back/Forward/Find/Open in browser are `⋯` rows
+- [x] A-013 R14: `docs/specs/index.md` § Wiki links `../wiki/web-tab-strip-studies.html` in the existing style, and the study file is part of the change
+- [x] A-014 R15: Demo specs exist under `app/frontend/tests/demo/` and `app/desktop/tests/demo/` and record with `just demo web-tab-strip`
 
 ### Behavioral Correctness
 
-- [ ] A-015 R9: The address input is no longer `text-sm` in a bordered 28px field; zoom and Inspect no longer render inline in the URL row
-- [ ] A-016 R8: A relative-kind web tile header shows the page title instead of the `Web` label + meta chip
+- [x] A-015 R9: The address input is no longer `text-sm` in a bordered 28px field; zoom and Inspect no longer render inline in the URL row
+- [x] A-016 R8: A relative-kind web tile header shows the page title instead of the `Web` label + meta chip
 
 ### Removal Verification
 
-- [ ] A-017 R6: No kind-dot markup or `KIND_DOT_CLASS` remains in `iframe-window.tsx`
-- [ ] A-018 R8: No `webBadge` derivation remains in `surface-layout.tsx`; the kind derivation exists only in the `web-url.ts` helper
+- [x] A-017 R6: No kind-dot markup or `KIND_DOT_CLASS` remains in `iframe-window.tsx`
+- [x] A-018 R8: No `webBadge` derivation remains in `surface-layout.tsx`; the kind derivation exists only in the `web-url.ts` helper
 
 ### Scenario Coverage
 
-- [ ] A-019 R2: Unit tests assert the worked examples (4@760, 8@760, 9@760, 12@760 → 110 + 11×59 icon-only, 16@400 → scroll)
-- [ ] A-020 R10: A test opens `⋯`, steps zoom twice with the menu staying open, and closes with Escape returning focus to `⋯`
-- [ ] A-021 R11: A test steps zoom away from 100%, sees the chip, clicks it, and sees zoom back at 100% with the chip gone
-- [ ] A-022 R13: `web-tabs`, `web-tile-chrome`, `web-tile-zoom`, `web-tile-find`, `web-tile-capture`, `web-view-lens` and `present-*` e2e specs pass
+- [x] A-019 R2: Unit tests assert the worked examples (4@760, 8@760, 9@760, 12@760 → 110 + 11×59 icon-only, 16@400 → scroll)
+- [x] A-020 R10: A test opens `⋯`, steps zoom twice with the menu staying open, and closes with Escape returning focus to `⋯`
+- [x] A-021 R11: A test steps zoom away from 100%, sees the chip, clicks it, and sees zoom back at 100% with the chip gone
+- [x] A-022 R13: `web-tabs`, `web-tile-chrome`, `web-tile-zoom`, `web-tile-find`, `web-tile-capture`, `web-view-lens` and `present-*` e2e specs pass
 
 ### Edge Cases & Error Handling
 
-- [ ] A-023 R2: `count` 0 and 1 are handled without division errors
-- [ ] A-024 R3: A full 16-tab family in a narrow tile scrolls with the trailing fade and keeps the selected tab in view
-- [ ] A-025 R7: A proxy URL with an unparseable port renders `:? proxy`
-- [ ] A-026 R1: The folder surface is visibly distinct from the strip ground on both a dark and a light theme (screenshot evidence or a recorded token decision)
+- [x] A-023 R2: `count` 0 and 1 are handled without division errors
+- [x] A-024 R3: A full 16-tab family in a narrow tile scrolls with the trailing fade and keeps the selected tab in view
+- [x] A-025 **N/A**: unreachable by construction — `classifyAddress` returns `proxy` only when a port parsed (`loopbackPortOf`/`proxyPathPort` non-null), and `proxyPortOf` re-derives that same non-null value, so the `?? "?"` arm in `webKindChip` can never fire (no input exercises it; noted as a nice-to-have parsimony finding)
+- [x] A-026 R1: The folder surface is visibly distinct from the strip ground on both a dark and a light theme (screenshot evidence or a recorded token decision)
 
 ### Code Quality
 
-- [ ] A-027 Pattern consistency: New code follows the naming and structure of `iframe-window.tsx`, `gui-toolbar-menu.tsx` and the `lib/web-*.ts` modules
-- [ ] A-028 No unnecessary duplication: The kind derivation and the menu idioms reuse existing utilities (`classifyAddress`, `proxyPortOf`, `Control`, `POPOVER_SHELL`, `useOccludes`)
-- [ ] A-029 Type narrowing: New frontend code narrows with guards and discriminated unions rather than `as` casts
-- [ ] A-030 No magic numbers: Ladder widths and thresholds are named constants
-- [ ] A-031 No client polling: The ladder measures with `ResizeObserver`, not timers
-- [ ] A-032 Keyboard-first: Every action moved into `⋯` stays reachable by keyboard and keeps its command-palette row (Constitution V)
-- [ ] A-033 Comment discipline: Comments state constraints only — no narration, change IDs or PR numbers
-- [ ] A-034 Tests: New behavior has unit tests and touched Playwright `test()`s carry Proves/Steps intent comments
-- [ ] A-035 Verification gates: `npx tsc --noEmit`, the Vitest suite, the touched e2e specs, and `just build` pass
+- [x] A-027 Pattern consistency: New code follows the naming and structure of `iframe-window.tsx`, `gui-toolbar-menu.tsx` and the `lib/web-*.ts` modules
+- [x] A-028 No unnecessary duplication: The kind derivation and the menu idioms reuse existing utilities (`classifyAddress`, `proxyPortOf`, `Control`, `POPOVER_SHELL`, `useOccludes`)
+- [x] A-029 Type narrowing: New frontend code narrows with guards and discriminated unions rather than `as` casts
+- [x] A-030 No magic numbers: Ladder widths and thresholds are named constants
+- [x] A-031 No client polling: The ladder measures with `ResizeObserver`, not timers
+- [x] A-032 Keyboard-first: Every action moved into `⋯` stays reachable by keyboard and keeps its command-palette row (Constitution V)
+- [x] A-033 Comment discipline: Comments state constraints only — no narration, change IDs or PR numbers
+- [x] A-034 Tests: New behavior has unit tests and touched Playwright `test()`s carry Proves/Steps intent comments
+- [x] A-035 Verification gates: `npx tsc --noEmit`, the Vitest suite, the touched e2e specs, and `just build` pass
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- `app/frontend/src/components/top-bar-icons.tsx:196 InspectGlyph` — zero call sites after the Inspect button moved into the `⋯` menu (the menu row is text-only); the register glyph is now dead code
 
 ## Assumptions
 
