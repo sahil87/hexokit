@@ -11,6 +11,14 @@ import (
 	"testing"
 )
 
+const (
+	codexQuestionTool      = "request_user_input"
+	codexAsyncQuestionTool = "request_user_input_async"
+	codexReplyStart        = "<send_user_message_question_reply>"
+	codexReplyEnd          = "</send_user_message_question_reply>"
+	codexHookTailLimit     = 8 << 20
+)
+
 const codexTestSession = "01a1760c-a599-77f1-a822-c9cd7ad96626"
 
 func codexTestTranscript(t *testing.T, source, reviewer string, records ...string) hookInput {
@@ -125,13 +133,106 @@ func TestCodexHookQuestionCancellationAndBlockingMode(t *testing.T) {
 	codexExpectState(t, in, "PostToolUse", agentStateActive, agentStateActive)
 }
 
-func TestCodexHookPlainReplySupersedesAsyncQuestions(t *testing.T) {
+func TestCodexHookOrdinaryMessagesPreserveAsyncQuestions(t *testing.T) {
 	in := codexTestTranscript(t, `"cli"`, "auto_review", codexAsyncQuestionRecord)
-	in.Prompt = "Red, and continue with the task."
+	in.Prompt = "Also check the mobile layout."
+	codexExpectState(t, in, "UserPromptSubmit", agentStateActive, agentStateWaiting)
+	codexAppend(t, in, `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Also check the mobile layout."}]}}`)
+	codexExpectState(t, in, "PreToolUse", agentStateActive, agentStateWaiting)
+	codexExpectState(t, in, "Stop", agentStateIdle, agentStateWaiting)
+
+	// Free text around a partial canonical reply cannot dismiss its sibling.
+	in.Prompt = "Continue the checks.\n" + codexReply(0) + "\nReport the results."
+	codexExpectState(t, in, "UserPromptSubmit", agentStateActive, agentStateWaiting)
+	replyRecord, _ := json.Marshal(map[string]any{"type": "response_item", "payload": map[string]any{"type": "message", "role": "user", "content": []map[string]string{
+		{"type": "input_text", "text": "Continue the checks."},
+		{"type": "input_text", "text": codexReply(0)},
+		{"type": "input_text", "text": "Report the results."},
+	}}})
+	codexAppend(t, in, string(replyRecord))
+	in.Prompt = "Keep going."
+	codexExpectState(t, in, "UserPromptSubmit", agentStateActive, agentStateWaiting)
+	codexExpectState(t, in, "PostToolUse", agentStateActive, agentStateWaiting)
+	codexExpectState(t, in, "Stop", agentStateIdle, agentStateWaiting)
+	in.Prompt = codexReply(1)
 	codexExpectState(t, in, "UserPromptSubmit", agentStateActive, agentStateActive)
-	codexAppend(t, in, `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Red, and continue with the task."}]}}`)
-	codexExpectState(t, in, "PreToolUse", agentStateActive, agentStateActive)
+	replyRecord, _ = json.Marshal(map[string]any{"type": "response_item", "payload": map[string]any{"type": "message", "role": "user", "content": []map[string]string{{"type": "input_text", "text": in.Prompt}}}})
+	codexAppend(t, in, string(replyRecord))
 	codexExpectState(t, in, "Stop", agentStateIdle, agentStateIdle)
+}
+
+const codexPlanContextRecord = `{"type":"turn_context","payload":{"turn_id":"turn1","approvals_reviewer":"user","collaboration_mode":{"mode":"plan"}}}`
+const codexBlockingQuestionRecord = `{"type":"response_item","payload":{"type":"function_call","name":"request_user_input","call_id":"question1","arguments":"{\"questions\":[{\"question\":\"Red or blue?\"}]}"}}`
+
+func TestCodexHookBlockingQuestionSurvivesInterleavedTools(t *testing.T) {
+	in := codexTestTranscript(t, `"cli"`, "user", codexPlanContextRecord, codexBlockingQuestionRecord)
+	in.ToolName = codexQuestionTool
+	in.ToolUseID = "question1"
+	in.ToolInput = json.RawMessage(`{"questions":[{"question":"Red or blue?"}]}`)
+	codexExpectState(t, in, "PreToolUse", agentStateActive, agentStateWaiting)
+	in.ToolName, in.ToolUseID = "Bash", "command1"
+	codexExpectState(t, in, "PreToolUse", agentStateActive, agentStateWaiting)
+	codexAppend(t, in, `{"type":"response_item","payload":{"type":"function_call_output","call_id":"command1","output":"done"}}`)
+	codexExpectState(t, in, "PostToolUse", agentStateActive, agentStateWaiting)
+	// A question completion hook can precede its transcript result. Its own
+	// call ID clears it without requiring a later unrelated tool to run.
+	in.ToolName, in.ToolUseID = codexQuestionTool, "question1"
+	codexExpectState(t, in, "PostToolUse", agentStateActive, agentStateActive)
+	codexAppend(t, in, `{"type":"response_item","payload":{"type":"function_call_output","call_id":"question1","output":"{\"answers\":{\"color\":[\"Red\"]}}"}}`)
+	in.ToolName, in.ToolUseID = "Bash", "command2"
+	codexExpectState(t, in, "PreToolUse", agentStateActive, agentStateActive)
+}
+
+func TestCodexHookQuestionLifetimesDoNotCrossClear(t *testing.T) {
+	in := codexTestTranscript(t, `"cli"`, "user", codexPlanContextRecord, codexBlockingQuestionRecord, codexAsyncQuestionRecord)
+	in.Prompt = codexReply(0, 1)
+	codexExpectState(t, in, "UserPromptSubmit", agentStateActive, agentStateWaiting)
+	// Plain steering resolves neither kind of question. Completing the blocking
+	// tool leaves the async questions pending.
+	in.Prompt = "Continue."
+	codexExpectState(t, in, "UserPromptSubmit", agentStateActive, agentStateWaiting)
+	in.ToolName, in.ToolUseID = codexQuestionTool, "question1"
+	codexExpectState(t, in, "PostToolUse", agentStateActive, agentStateWaiting)
+	codexAppend(t, in, `{"type":"response_item","payload":{"type":"function_call_output","call_id":"question1","output":"cancelled"}}`)
+	codexExpectState(t, in, "PostToolUse", agentStateActive, agentStateWaiting)
+	// Stop cancels impossible residual blocking invocations, but async
+	// questions legitimately survive the end of the assistant's turn.
+	codexExpectState(t, in, "Stop", agentStateIdle, agentStateWaiting)
+}
+
+func TestCodexHookBlockingQuestionResolutionAndCancellation(t *testing.T) {
+	for _, result := range []string{`{"answers":{}}`, "cancelled", "request_user_input is unavailable"} {
+		t.Run(result, func(t *testing.T) {
+			in := codexTestTranscript(t, `"cli"`, "user", codexPlanContextRecord, codexBlockingQuestionRecord)
+			record, _ := json.Marshal(map[string]any{"type": "response_item", "payload": map[string]string{"type": "function_call_output", "call_id": "question1", "output": result}})
+			codexAppend(t, in, string(record))
+			codexExpectState(t, in, "PreToolUse", agentStateActive, agentStateActive)
+		})
+	}
+	in := codexTestTranscript(t, `"cli"`, "user", codexPlanContextRecord, codexBlockingQuestionRecord)
+	codexExpectState(t, in, "Stop", agentStateIdle, agentStateIdle)
+	codexExpectState(t, in, "Interrupt", agentStateIdle, agentStateIdle)
+	codexExpectState(t, in, "SessionEnd", agentStateIdle, agentStateIdle)
+	for _, event := range []string{"task_complete", "turn_aborted"} {
+		in := codexTestTranscript(t, `"cli"`, "user", codexPlanContextRecord, codexBlockingQuestionRecord)
+		codexAppend(t, in, fmt.Sprintf(`{"type":"event_msg","payload":{"type":%q,"turn_id":"turn1"}}`, event))
+		codexExpectState(t, in, "PreToolUse", agentStateActive, agentStateActive)
+	}
+	// A rejected Default-mode call and another turn's Plan-mode call are not
+	// proof of a current human dialog even when their results have not flushed.
+	in = codexTestTranscript(t, `"cli"`, "user", codexBlockingQuestionRecord)
+	codexExpectState(t, in, "PreToolUse", agentStateActive, agentStateActive)
+	in = codexTestTranscript(t, `"cli"`, "user", strings.Replace(codexPlanContextRecord, "turn1", "other-turn", 1), codexBlockingQuestionRecord)
+	codexExpectState(t, in, "PreToolUse", agentStateActive, agentStateActive)
+}
+
+func TestCodexHookCompletesOnlyMatchingBlockingCall(t *testing.T) {
+	in := codexTestTranscript(t, `"cli"`, "user", codexPlanContextRecord, codexBlockingQuestionRecord, strings.Replace(codexBlockingQuestionRecord, "question1", "question2", 1))
+	in.ToolName, in.ToolUseID = codexQuestionTool, "question1"
+	codexExpectState(t, in, "PostToolUse", agentStateActive, agentStateWaiting)
+	codexAppend(t, in, `{"type":"response_item","payload":{"type":"function_call_output","call_id":"question1","output":"done"}}`)
+	in.ToolUseID = "question2"
+	codexExpectState(t, in, "PostToolUse", agentStateActive, agentStateActive)
 }
 
 func TestCodexHookRejectsChildAndMismatchedIdentity(t *testing.T) {

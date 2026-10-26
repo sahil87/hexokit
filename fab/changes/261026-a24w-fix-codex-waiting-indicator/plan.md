@@ -82,31 +82,50 @@ Verification MUST exercise deterministic lifecycle regressions, actual Codex int
 - [x] T005 Add browser lifecycle checks and before/after desktop/mobile demo under `app/frontend/tests/e2e/` and `app/frontend/tests/demo/`. <!-- R5 -->
 - [x] T006 Exercise isolated actual Codex integration and record verification results/limitations in `fab/changes/261026-a24w-fix-codex-waiting-indicator/verification.md`; run repository quality gates. <!-- R5 -->
 
+### Phase 4: Review rework
+
+- [x] T007 Track unresolved synchronous Plan-mode questions across unrelated tool events and resolution. <!-- R2 -->
+- [x] T008 Reconcile manual approval resolution from an authoritative live runtime signal before tool completion; extend integration verification. <!-- R1 R5 -->
+
+### Phase 5: Timestamp review rework
+
+- [x] T009 Clear unknown transition epochs when runtime reconciliation changes state, propagate the state/epoch pair through both readers, and verify idle backoff does not inherit permission-wait age. <!-- R4 -->
+
+### Phase 6: Question cancellation review rework
+
+- [x] T010 Preserve asynchronous questions across ordinary user messages; clear only matching replies or verified lifecycle cancellation, with partial-answer and steering regressions. <!-- R2 -->
+
 ## Acceptance
 
 ### Functional Completeness
 
-- [ ] A-001 R1: Automatic review never generates waiting; verified human approval does and clears on resume.
-- [ ] A-002 R2: Accepted async questions retain attention across ordinary tool churn and Stop; answer/cancel clears it.
-- [ ] A-003 R3: Subagent events cannot change root identity/state; root session rotation and compact remain valid.
-- [ ] A-004 R4: Silent bounded hooks and installation compatibility remain intact, with Claude lifecycle regression coverage.
-- [ ] A-005 R5: Actual integration and Playwright results are documented accurately; before/after desktop and mobile recordings are ready to attach.
+- [x] A-001 R1: Automatic review never generates waiting; verified human approval does and clears on resume. **Review:** effective-reviewer regressions and the isolated runtime approval exercise establish active before tool completion, subject to the documented runtime availability limits.
+- [x] A-002 R2: Accepted async questions retain attention across ordinary tool churn and Stop; answer/cancel clears it. **Review:** matching-reply, partial-sibling, ordinary-steering, mixed-content, and explicit-cancellation regressions pass. The shared projection preserves pending async questions through hook writes and runtime reconciliation; blocking questions retain their separate call-ID completion boundary.
+- [x] A-003 R3: Subagent events cannot change root identity/state; root session rotation and compact remain valid.
+- [x] A-004 R4: Silent bounded hooks and installation compatibility remain intact, with Claude lifecycle regression coverage.
+- [x] A-005 R5: Actual integration and Playwright results are documented accurately; before/after desktop and mobile recordings are ready to attach.
 
 ### Code Quality
 
-- [ ] A-006: Implementation follows neighboring naming, error-handling, and module patterns without unnecessary duplication.
-- [ ] A-007: Functions remain focused and constants name resource bounds; no shell construction or new client polling is introduced.
-- [ ] A-008: Durable state remains authoritative and new behavior has meaningful automated regression coverage.
+- [x] A-006: Implementation follows neighboring naming, error-handling, and module patterns without unnecessary duplication. **Review:** runtime reconciliation clears the unavailable transition epoch to zero, both readers propagate the state/epoch pair, and real tmux plus cron regressions verify that permission-wait age cannot become an idle backoff anchor.
+- [x] A-007: Functions remain focused and constants name resource bounds; no shell construction or new client polling is introduced.
+- [x] A-008: Durable state remains authoritative and new behavior has meaningful automated regression coverage. **Review:** fresh affected checks passed through `just test-backend` with `-count=1`, including the private runtime protocol, real tmux reader agreement, hook/installer behavior, and cron epoch regressions (`/tmp/a24w-independent-review-tests.log`). Runtime reconciliation performs no tmux writes.
 
 ### Security
 
-- [ ] A-009 R4: Transcript reads cannot block on special files and do not consume unbounded input; hook output contains no approval decisions.
+- [x] A-009 R4: Transcript reads cannot block on special files and do not consume unbounded input; hook output contains no approval decisions.
 
 ## Notes
 
-The root orchestrator completed T005/T006 and owns PR evidence attachments. All affected-scope checks, actual Codex execution, recordings, and production build passed. The broader smoke suite is running concurrently and its final result remains a ship gate. Acceptance checkboxes belong to the independent reviewer.
+The root orchestrator owns PR evidence attachments. Focused backend checks, nine desktop/mobile browser cases, and actual Codex automatic-review and manual-approval integration passed. `verification.md` records broader-suite results and compatibility limits. Acceptance checkboxes belong to the independent reviewer.
 
-Projection limits to report in compatibility documentation: a human reviewer or unanswered question outside the bounded transcript window is unknown; missing/malformed metadata likewise cannot establish reviewer context. Human approval completion is observed on `PostToolUse`, so a long approved command can retain waiting until its tool-completion hook. Confirmed subagent sources are suppressed, but separate non-subagent root conversations sharing one process/pane remain outside the verified ownership result.
+Manual approval resume is reconciled on existing dashboard and mux reads. `internal/codexstatus` reads `thread/read` summaries through the local managed-daemon Unix WebSocket; it never resumes, subscribes to, or mutates a conversation. A batch shares a 300 ms deadline, one connection, at most 32 distinct validated session IDs, a 2 MiB message limit, and at most 64 intervening notifications per response. Only Codex panes already marked waiting are candidates. Runtime `active` with an explicit empty flag list, or `idle`, clears attention only when the returned transcript path validates the same root session and the shared `internal/codexstate` projection proves no pending question. All attention consumers retain the existing three-state vocabulary and hook options; no extra marker, cache, polling loop, or tmux write is introduced.
+
+Fallback limits: the socket uses the rk process's `CODEX_HOME`, or `~/.codex`; a different per-pane home is not discovered. Standalone `--no-daemon`, a missing/unresponsive/incompatible socket, absent runtime transcript path, unknown status/flags, or a thread outside the bounded batch leaves hook state unchanged. Missing/malformed metadata, incomplete/concurrently appended transcripts, and files exceeding the 8 MiB projection window cannot prove absence of questions, so they also retain hook state. In these fallback cases a manual approval can still remain waiting until `PostToolUse` or another lifecycle hook; immediate clearing is not claimed. Known pending async and blocking questions always retain attention regardless of an active runtime status. Confirmed subagent sources are suppressed, but separate non-subagent root conversations sharing one process/pane remain outside the verified ownership result.
+
+## Deletion Candidates
+
+None — this change adds new functionality without making existing code redundant. Hook writes and both runtime read paths share the bounded transcript projection; the existing state/session compatibility reads and lifecycle fallbacks remain in use.
 
 ## Assumptions
 

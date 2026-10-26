@@ -272,6 +272,7 @@ type hookInput struct {
 	Event          string          `json:"hook_event_name"`
 	TurnID         string          `json:"turn_id"`
 	ToolName       string          `json:"tool_name"`
+	ToolUseID      string          `json:"tool_use_id"`
 	ToolInput      json.RawMessage `json:"tool_input"`
 	ToolResponse   json.RawMessage `json:"tool_response"`
 	Prompt         string          `json:"prompt"`

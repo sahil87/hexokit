@@ -25,14 +25,48 @@ import (
   "context"
   "encoding/json"
   "fmt"
+  "net"
+  "net/http"
   "os"
   "os/exec"
   "path/filepath"
   "time"
+  "github.com/gorilla/websocket"
 )
 type request struct { Sequence int; Token string; Payload json.RawMessage; Label string }
 func main() {
   dir, binary, agent := os.Args[1], os.Args[2], os.Args[3]
+  if len(os.Args) > 4 {
+    socket := filepath.Join(os.Args[4], "app-server-control", "app-server-control.sock")
+    if err := os.MkdirAll(filepath.Dir(socket), 0700); err != nil { panic(err) }
+    listener, err := net.Listen("unix", socket)
+    if err != nil { panic(err) }
+    defer listener.Close()
+    upgrader := websocket.Upgrader{}
+    server := &http.Server{ReadHeaderTimeout: time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+      conn, err := upgrader.Upgrade(w, r, nil)
+      if err != nil { return }
+      defer conn.Close()
+      conn.SetReadLimit(4096)
+      for {
+        _ = conn.SetReadDeadline(time.Now().Add(5*time.Second))
+        var call struct { ID json.RawMessage; Method string; Params struct { ThreadID string } }
+        if conn.ReadJSON(&call) != nil { return }
+        if len(call.ID) == 0 { continue }
+        var result any = map[string]any{}
+        if call.Method == "thread/read" {
+          data, err := os.ReadFile(filepath.Join(dir, "runtime.json"))
+          if err != nil { return }
+          var status any
+          if json.Unmarshal(data, &status) != nil { return }
+          result = map[string]any{"thread": map[string]any{"id": call.Params.ThreadID, "path": filepath.Join(dir, "rollout.jsonl"), "status": status}}
+        } else if call.Method != "initialize" { return }
+        _ = conn.SetWriteDeadline(time.Now().Add(time.Second))
+        if conn.WriteJSON(map[string]any{"id": call.ID, "result": result}) != nil { return }
+      }
+    })}
+    go func() { _ = server.Serve(listener) }()
+  }
   for {
     data, err := os.ReadFile(filepath.Join(dir, "request.json"))
     if err != nil { time.Sleep(20*time.Millisecond); continue }
@@ -69,8 +103,9 @@ export class HookReplay {
   readonly windowId: string;
   private sequence = 0;
   private readonly mappings: HookConfig;
+  private readonly runtimeSocket?: string;
 
-  constructor(readonly agent: "codex" | "claude" = "codex") {
+  constructor(readonly agent: "codex" | "claude" = "codex", runtimeReplay = false) {
     if (!TMUX_SERVER.startsWith("rk-test-")) throw new Error("hook replay requires an isolated rk-test-* socket");
     this.session = `hook-replay-${agent}`;
     const root = process.env.RK_E2E_APP_ROOT ?? resolve(process.cwd(), "../..");
@@ -83,7 +118,7 @@ export class HookReplay {
     execFileSync("go", ["build", "-o", binary, "./cmd/rk"], { cwd: join(root, "app/backend"), timeout: 30_000 });
     const source = join(this.directory, "fixture.go");
     writeFileSync(source, runnerSource);
-    execFileSync("go", ["build", "-o", join(bin, "codex"), source], { timeout: 30_000 });
+    execFileSync("go", ["build", "-o", join(bin, "codex"), source], { cwd: join(root, "app/backend"), timeout: 30_000 });
     copyFileSync(join(bin, "codex"), join(bin, "claude"));
     // Setup is intentionally confined to this new home, including all optional
     // provider and shell-startup overrides inherited from the developer shell.
@@ -99,25 +134,38 @@ export class HookReplay {
     this.mappings = JSON.parse(readFileSync(config, "utf8"));
     killSession(this.session);
     // Multiple command arguments use tmux's direct-exec form, not sh -c.
+    const runtimeHome = process.env.RK_CODEX_REPLAY_HOME;
+    if (runtimeReplay && (!runtimeHome || runtimeHome !== process.env.CODEX_HOME || !runtimeHome.startsWith(join(tmpdir(), "rk-test-codex-")))) {
+      throw new Error("runtime replay requires an explicit isolated RK_CODEX_REPLAY_HOME=CODEX_HOME");
+    }
+    if (runtimeReplay && runtimeHome) this.runtimeSocket = join(runtimeHome, "app-server-control/app-server-control.sock");
+    this.setRuntimeStatus("active");
     this.windowId = tmux(["new-session", "-d", "-P", "-F", "#{window_id}", "-s", this.session,
       "-n", `${agent}-replay`, "-c", this.directory, "-x", "100", "-y", "28",
-      join(bin, agent), this.directory, binary, agent]);
+      join(bin, agent), this.directory, binary, agent, ...(runtimeReplay && runtimeHome ? [runtimeHome] : [])]);
     this.resetTranscript("auto_review");
   }
 
   close(): void {
     killSession(this.session);
+    if (this.runtimeSocket) rmSync(this.runtimeSocket, { force: true });
     rmSync(this.directory, { recursive: true, force: true });
+  }
+
+  setRuntimeStatus(type: "active" | "idle", activeFlags: string[] = []): void {
+    const pending = join(this.directory, "runtime-pending.json");
+    writeFileSync(pending, JSON.stringify({ type, ...(type === "active" ? { activeFlags } : {}) }));
+    renameSync(pending, join(this.directory, "runtime.json"));
   }
 
   record(type: string, payload: Record<string, unknown>): void {
     appendFileSync(this.transcript, `${JSON.stringify({ timestamp: new Date().toISOString(), type, payload })}\n`);
   }
 
-  resetTranscript(reviewer: "user" | "auto_review"): void {
+  resetTranscript(reviewer: "user" | "auto_review", mode: "default" | "plan" = "default"): void {
     writeFileSync(this.transcript, "");
     this.record("session_meta", { id: SESSION_ID, source: "cli", cli_version: "0.164.0", cwd: this.directory });
-    this.record("turn_context", { turn_id: TURN_ID, approvals_reviewer: reviewer, approval_policy: "on-request", collaboration_mode: { mode: "default" } });
+    this.record("turn_context", { turn_id: TURN_ID, approvals_reviewer: reviewer, approval_policy: "on-request", collaboration_mode: { mode } });
   }
 
   async fire(event: string, label: string, extra: Record<string, unknown> = {}): Promise<void> {
@@ -151,6 +199,22 @@ export class HookReplay {
     const prompt = `<send_user_message_question_reply>\n${JSON.stringify([{ answer: "Red", question: QUESTIONS[0].title, questionItemId: JSON.stringify(["request_user_input_async", QUESTION_CALL, 0]) }])}\n</send_user_message_question_reply>`;
     this.record("response_item", { type: "message", role: "user", content: [{ type: "input_text", text: prompt }] });
     await this.fire("UserPromptSubmit", "Question answered; work resumes", { prompt });
+  }
+
+  async steerWhileQuestionPending(): Promise<void> {
+    const prompt = "Continue checking the implementation while I consider the question.";
+    this.record("response_item", { type: "message", role: "user", content: [{ type: "input_text", text: prompt }] });
+    await this.fire("UserPromptSubmit", "Unrelated follow-up; question still pending", { prompt });
+  }
+
+  async askBlocking(): Promise<void> {
+    this.record("response_item", { type: "function_call", name: "request_user_input", call_id: QUESTION_CALL, arguments: JSON.stringify({ questions: QUESTIONS }) });
+    await this.fire("PreToolUse", "Blocking question pending: red or blue?", { tool_name: "request_user_input", tool_use_id: QUESTION_CALL, tool_input: { questions: QUESTIONS } });
+  }
+
+  async answerBlocking(): Promise<void> {
+    this.record("response_item", { type: "function_call_output", call_id: QUESTION_CALL, output: '{"answers":{"color":{"answers":["Red"]}}}' });
+    await this.fire("PostToolUse", "Blocking question answered; work resumes", { tool_name: "request_user_input", tool_use_id: QUESTION_CALL });
   }
 }
 
