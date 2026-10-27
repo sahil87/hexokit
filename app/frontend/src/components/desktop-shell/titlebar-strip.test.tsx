@@ -96,12 +96,12 @@ function shellBridge(
   return { list, switch: switchFn, add, addDirect, reorder, remove, removeConfirmed, rename, setUrl };
 }
 
-function renderStrip(accent: InstanceAccent = accentValue()) {
+function renderStrip(accent: InstanceAccent = accentValue(), title?: string) {
   return render(
     <ThemeProvider>
       <ToastProvider>
         <InstanceAccentValueProvider value={accent}>
-          <ShellTitlebarStrip />
+          <ShellTitlebarStrip title={title} />
         </InstanceAccentValueProvider>
       </ToastProvider>
     </ThemeProvider>,
@@ -199,6 +199,23 @@ describe("ShellTitlebarStrip", () => {
     const n = parseInt(chrome.slice(1), 16);
     expect(strip.style.backgroundColor).toBe(`rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`);
     expect(strip.className).toContain("rk-shell-drag");
+  });
+});
+
+// A popout window's strip is its visible title bar: it names the popped tab,
+// session and server, and offers no host switcher.
+describe("ShellTitlebarStrip in a popout window", () => {
+  it("shows the popout title instead of the host and renders no switcher", async () => {
+    const { list } = shellBridge(hosts);
+    renderStrip(accentValue(), "beta #2 \u2014 session main \u00b7 server work");
+    await waitFor(() => {
+      expect(list).toHaveBeenCalled();
+    });
+    expect(screen.getByTestId("shell-titlebar-popout-title")).toHaveTextContent(
+      "beta #2 \u2014 session main \u00b7 server work",
+    );
+    expect(screen.queryByText("studio-mac")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Switch host" })).not.toBeInTheDocument();
   });
 });
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOptionalToast } from "@/components/toast";
 import {
   canCloseShellWindow,
@@ -7,16 +7,22 @@ import {
   shellPopout,
 } from "@/lib/shell";
 import {
+  applyPopoutSighting,
+  forgetPopoutSighting,
   isPopoutMessage,
   POPOUT_CHANNEL,
   POPOUT_HEARTBEAT_MS,
   popoutFeatures,
+  popoutSightingKey,
   popoutUrl,
   popoutWindowName,
   readPopped,
+  snapshotPopoutSightings,
+  sweepPopoutSightings,
   sweepStale,
   writePopped,
   type PopoutMessage,
+  type PopoutSightings,
 } from "@/lib/popout";
 import type { Rect } from "@/lib/layout-tree";
 
@@ -40,6 +46,154 @@ function openChannel(): BroadcastChannel | null {
   } catch {
     return null;
   }
+}
+
+/** Why a popout failed to open: the browser refused the popup (`blocked`,
+ *  reported synchronously) or the shell invoker resolved null (`failed`,
+ *  reported asynchronously). */
+export type PopoutOpenFailure = "blocked" | "failed";
+
+/** The toast text for a failed popout open. */
+export function popoutFailureMessage(reason: PopoutOpenFailure): string {
+  return reason === "blocked" ? "Pop-out blocked by the browser" : "Pop-out failed";
+}
+
+/**
+ * Open the popout window for a leaf of `(server, windowId)` — the one open
+ * path shared by the tile header's Pop out and the sidebar card's Open in new
+ * window. Callers own the popped-mark bookkeeping around it; `onFail` is
+ * their rollback hook.
+ */
+export function openPopoutWindow(
+  server: string,
+  windowId: string,
+  leafId: string,
+  rect: Rect | undefined,
+  onFail: (reason: PopoutOpenFailure) => void,
+): void {
+  if (canShellPopout()) {
+    // A shell-hosted popout window shares this opener's origin and session,
+    // so the marks/liveness wiring works unchanged — unlike the shell's
+    // window.open policy, which sends everything to the system browser.
+    void shellPopout(popoutUrl(server, windowId, leafId), rect).then((result) => {
+      if (result === null) onFail("failed");
+    });
+    return;
+  }
+  const openedWindow = window.open(
+    popoutUrl(server, windowId, leafId),
+    popoutWindowName(server, windowId, leafId),
+    popoutFeatures(rect),
+  );
+  if (openedWindow === null) onFail("blocked");
+}
+
+/** Focus the live popout window for a leaf without reloading it (the
+ *  placeholder's go to window, the sidebar card's Focus window). */
+export function focusPopoutWindow(server: string, windowId: string, leafId: string): void {
+  if (canShellPopout()) {
+    // Main's popout dedupe focuses/restores the existing popout for this
+    // route and returns ok — no new window, no reload.
+    void shellPopout(popoutUrl(server, windowId, leafId));
+    return;
+  }
+  // The empty URL returns the named popout without navigating it; passing
+  // the popout URL would reload an existing window (re-attaching the
+  // terminal, losing web state). A null means the browser blocked it.
+  const w = window.open("", popoutWindowName(server, windowId, leafId));
+  if (w === null) return;
+  // No popout by that name existed: navigate the fresh blank window to the
+  // popout route, re-opening the popout.
+  if (w.location.href === "about:blank") {
+    w.location.href = popoutUrl(server, windowId, leafId);
+  }
+  w.focus();
+}
+
+export interface PopoutRegistry {
+  /** The leaf ids of (server, window) live in a popout right now, or
+   *  undefined when none. Its identity changes only when membership does. */
+  poppedLeaves: (server: string, windowId: string) => ReadonlySet<string> | undefined;
+  /** Record a popout this viewer just opened, before its first `opened`. */
+  noteOpened: (server: string, windowId: string, leafId: string) => void;
+  /** Drop a sighting now (a failed open, a pop-in already sent). */
+  forget: (server: string, windowId: string, leafId: string) => void;
+  /** Bring a popout back from OUTSIDE its window's opener (the sidebar, for a
+   *  tab other than the route window): tell the popout to close, clear the
+   *  viewer's popped mark for that window, drop the sighting. */
+  popIn: (server: string, windowId: string, leafId: string) => void;
+}
+
+const NO_SIGHTINGS: ReadonlyMap<string, ReadonlySet<string>> = new Map();
+
+/**
+ * The viewer-wide popout registry (the sidebar's popped state for every tab):
+ * folds every popout's `opened`/`alive`/`closed` traffic on the channel into
+ * one sightings map and sweeps sightings silent for POPOUT_STALE_MS. Purely
+ * presence-derived, so it also sees popouts opened from a tile header or from
+ * another opener tab. A missing BroadcastChannel leaves it empty (no marker,
+ * the card offers Open in new window, whose name dedupe focuses a live one).
+ */
+export function usePopoutRegistry(enabled: boolean): PopoutRegistry {
+  const sightingsRef = useRef<PopoutSightings>(new Map());
+  const [snapshot, setSnapshot] = useState(NO_SIGHTINGS);
+  const channelRef = useRef<BroadcastChannel | null>(null);
+  const publish = useCallback(() => {
+    setSnapshot(snapshotPopoutSightings(sightingsRef.current));
+  }, []);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const channel = openChannel();
+    channelRef.current = channel;
+    const onMessage = (e: MessageEvent) => {
+      const msg: unknown = e.data;
+      if (!isPopoutMessage(msg)) return;
+      if (applyPopoutSighting(sightingsRef.current, msg, Date.now())) publish();
+    };
+    channel?.addEventListener("message", onMessage);
+    const sweep = window.setInterval(() => {
+      if (sweepPopoutSightings(sightingsRef.current, Date.now())) publish();
+    }, POPOUT_HEARTBEAT_MS);
+    return () => {
+      window.clearInterval(sweep);
+      channel?.removeEventListener("message", onMessage);
+      channel?.close();
+      channelRef.current = null;
+    };
+  }, [enabled, publish]);
+
+  const poppedLeaves = useCallback(
+    (server: string, windowId: string) => snapshot.get(popoutSightingKey(server, windowId)),
+    [snapshot],
+  );
+  const noteOpened = useCallback(
+    (server: string, windowId: string, leafId: string) => {
+      const msg: PopoutMessage = { type: "opened", server, window: windowId, leaf: leafId };
+      if (applyPopoutSighting(sightingsRef.current, msg, Date.now())) publish();
+    },
+    [publish],
+  );
+  const forget = useCallback(
+    (server: string, windowId: string, leafId: string) => {
+      if (forgetPopoutSighting(sightingsRef.current, server, windowId, leafId)) publish();
+    },
+    [publish],
+  );
+  const popIn = useCallback(
+    (server: string, windowId: string, leafId: string) => {
+      const msg: PopoutMessage = { type: "pop-in", server, window: windowId, leaf: leafId };
+      channelRef.current?.postMessage(msg);
+      writePopped(server, windowId, readPopped(server, windowId).filter((id) => id !== leafId));
+      forget(server, windowId, leafId);
+    },
+    [forget],
+  );
+
+  return useMemo(
+    () => ({ poppedLeaves, noteOpened, forget, popIn }),
+    [poppedLeaves, noteOpened, forget, popIn],
+  );
 }
 
 export interface PoppedSet {
@@ -183,31 +337,17 @@ export function usePoppedSet(
         : [...poppedRef.current, leafId];
       commit(marked);
       lastSeenRef.current.set(leafId, Date.now());
-      if (canShellPopout()) {
-        // A shell-hosted popout window shares this opener's origin and
-        // session, so the marks/liveness wiring works unchanged — unlike the
-        // shell's window.open policy, which sends everything to the system
-        // browser. The invoker is async: the rollback lands when it resolves
-        // null, and only while the mark is still this call's (a pop-in or a
-        // stale sweep that already cleared it skips the toast).
-        void shellPopout(popoutUrl(server, windowId, leafId), rect).then((result) => {
-          if (result !== null || !poppedRef.current.includes(leafId)) return;
-          commit(poppedRef.current.filter((id) => id !== leafId));
-          lastSeenRef.current.delete(leafId);
-          toast?.addToast("Pop-out failed", "error");
-        });
-        return;
-      }
-      const openedWindow = window.open(
-        popoutUrl(server, windowId, leafId),
-        popoutWindowName(server, windowId, leafId),
-        popoutFeatures(rect),
-      );
-      if (openedWindow === null) {
+      openPopoutWindow(server, windowId, leafId, rect, (reason) => {
+        // The shell's verdict is async: roll back only while the mark is
+        // still this call's (a pop-in or a stale sweep that already cleared
+        // it skips the toast). The browser's is synchronous — the
+        // render-mirrored ref has not caught up with the commit above yet —
+        // so it rolls back unconditionally.
+        if (reason === "failed" && !poppedRef.current.includes(leafId)) return;
         commit(poppedRef.current.filter((id) => id !== leafId));
         lastSeenRef.current.delete(leafId);
-        toast?.addToast("Pop-out blocked by the browser", "error");
-      }
+        toast?.addToast(popoutFailureMessage(reason), "error");
+      });
     },
     [server, windowId, commit, toast],
   );
@@ -223,25 +363,7 @@ export function usePoppedSet(
   );
 
   const focusPopout = useCallback(
-    (leafId: string) => {
-      if (canShellPopout()) {
-        // Main's popout dedupe focuses/restores the existing popout for this
-        // route and returns ok — no new window, no reload.
-        void shellPopout(popoutUrl(server, windowId, leafId));
-        return;
-      }
-      // The empty URL returns the named popout without navigating it; passing
-      // the popout URL would reload an existing window (re-attaching the
-      // terminal, losing web state). A null means the browser blocked it.
-      const w = window.open("", popoutWindowName(server, windowId, leafId));
-      if (w === null) return;
-      // No popout by that name existed: navigate the fresh blank window to
-      // the popout route, re-opening the popout.
-      if (w.location.href === "about:blank") {
-        w.location.href = popoutUrl(server, windowId, leafId);
-      }
-      w.focus();
-    },
+    (leafId: string) => focusPopoutWindow(server, windowId, leafId),
     [server, windowId],
   );
 

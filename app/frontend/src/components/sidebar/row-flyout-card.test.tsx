@@ -70,6 +70,9 @@ function Row({
   onFork,
   onFixTabName,
   hasOperator = false,
+  onOpenInNewWindow,
+  onFocusPopout,
+  onBringBack,
   onPinAction,
   pinned = false,
   pinnedBoard,
@@ -83,6 +86,9 @@ function Row({
   onFork?: () => Promise<void>;
   onFixTabName?: () => Promise<void>;
   hasOperator?: boolean;
+  onOpenInNewWindow?: () => void;
+  onFocusPopout?: () => void;
+  onBringBack?: () => void;
   onPinAction?: () => void;
   pinned?: boolean;
   pinnedBoard?: string;
@@ -106,6 +112,9 @@ function Row({
         onFork={onFork}
         onFixTabName={onFixTabName}
         hasOperator={hasOperator}
+        onOpenInNewWindow={onOpenInNewWindow}
+        onFocusPopout={onFocusPopout}
+        onBringBack={onBringBack}
         onPinAction={
           onPinAction
             ? () => {
@@ -892,6 +901,48 @@ describe("Flyout warm-window delay group (module-scoped)", () => {
 // coarse pointers (where the in-row cluster is fine-pointer-only) and additive
 // + Tab-reachable on desktop. Optional-handler idiom: a consumer wiring no
 // handler renders no row.
+// The popout slot sits between fix-tab-name and pin: Open in new window
+// while the tab's terminal is home, Focus window + Bring back while it is
+// popped out. The consumer decides which handlers to pass.
+describe("popout action rows", () => {
+  it("renders Open in new window before Pin when only the open handler is wired", () => {
+    const open = vi.fn();
+    render(<Row win={makeWindow({})} onOpenInNewWindow={open} onPinAction={() => {}} onKillAction={() => {}} />);
+    hoverOpen();
+    const row = screen.getByTestId("row-flyout-popout-action");
+    expect(row).toHaveTextContent("Open in new window");
+    expect(row).toHaveTextContent("terminal");
+    expect(screen.queryByTestId("row-flyout-popout-focus-action")).toBeNull();
+    expect(screen.queryByTestId("row-flyout-popout-bring-back-action")).toBeNull();
+    const order = [...screen.getByTestId("row-flyout-actions").querySelectorAll("button")].map(
+      (b) => b.getAttribute("data-testid"),
+    );
+    expect(order).toEqual(["row-flyout-popout-action", "row-flyout-pin-action", "row-flyout-kill-action"]);
+    fireEvent.click(row);
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders Focus window + Bring back for a popped-out terminal", () => {
+    const focus = vi.fn();
+    const bringBack = vi.fn();
+    render(<Row win={makeWindow({})} onFocusPopout={focus} onBringBack={bringBack} />);
+    hoverOpen();
+    expect(screen.queryByTestId("row-flyout-popout-action")).toBeNull();
+    expect(screen.getByTestId("row-flyout-popout-focus-action")).toHaveTextContent("Focus window");
+    expect(screen.getByTestId("row-flyout-popout-bring-back-action")).toHaveTextContent("Bring back");
+    fireEvent.click(screen.getByTestId("row-flyout-popout-focus-action"));
+    fireEvent.click(screen.getByTestId("row-flyout-popout-bring-back-action"));
+    expect(focus).toHaveBeenCalledTimes(1);
+    expect(bringBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("a popout row alone still renders the action list", () => {
+    render(<Row win={makeWindow({})} onOpenInNewWindow={() => {}} />);
+    hoverOpen();
+    expect(screen.getByTestId("row-flyout-actions")).toBeInTheDocument();
+  });
+});
+
 describe("Pin/Kill action rows (ys3q)", () => {
   it("renders both action rows when handlers are wired, none when they are not", () => {
     render(<Row win={makeWindow({})} onPinAction={() => {}} onKillAction={() => {}} />);

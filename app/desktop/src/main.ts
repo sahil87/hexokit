@@ -473,7 +473,7 @@ function titleForWindow(win: BrowserWindow): string {
   const hostId = activeHostForWindow(views, win.id);
   if (hostId === null) return PRODUCT_NAME;
   // A popout window titles from the page's DOCUMENT title (the SPA's popout
-  // posture sets `<Surface> · <window name>`), falling back to the ordinary
+  // posture sets `<tab> #<n> — <session> · <server>[ · <host>]`), falling back to the ordinary
   // host — leaf form before the first page-title report. Checked BEFORE the
   // dev-sentinel special case: a popout of the dev host is still a popout.
   if (popouts.has(win.id)) {
@@ -1069,8 +1069,8 @@ function createHostView(win: BrowserWindow, hostId: string): WebContentsView {
     if (!win.isDestroyed()) setWindowTitle(win);
   });
   // A popout window titles from the page's document title (titleForWindow's
-  // popout branch); the SPA's popout posture keeps it at `<Surface> ·
-  // <window name>` — recompute on every page-title update.
+  // popout branch); the SPA's popout posture keeps it at its tab /
+  // session / server title — recompute on every page-title update.
   contents.on("page-title-updated", () => {
     if (popouts.has(windowId) && !win.isDestroyed()) setWindowTitle(win);
   });

@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { parseLayoutTree, type LayoutNode } from "./layout-tree";
 import {
+  applyPopoutSighting,
+  forgetPopoutSighting,
   isPopoutMessage,
   parsePopLeaf,
   poppedKey,
   popoutFeatures,
+  isLoopbackHost,
+  popoutSightingKey,
+  popoutTitle,
   popoutToggleAction,
   popoutToggleTarget,
   popoutUrl,
@@ -14,8 +19,13 @@ import {
   POPOUT_STALE_MS,
   readPopped,
   reducePopped,
+  snapshotPopoutSightings,
+  sweepPopoutSightings,
   sweepStale,
+  tabPopoutLeaf,
   writePopped,
+  type PopoutMessage,
+  type PopoutSightings,
 } from "./popout";
 
 // The popped set is per-viewer localStorage (`rk-layout-popped:{server}:{@N}`)
@@ -293,5 +303,119 @@ describe("popoutToggleAction", () => {
       leafId: "web",
     });
     expect(popoutToggleAction(tree, "web", ["web#2"], [])).toBeNull();
+  });
+});
+
+// The sidebar card's Open in new window pops the tab's terminal: the first
+// bare `tty` leaf of the tab's effective layout, never an away terminal.
+describe("tabPopoutLeaf", () => {
+  it("pops the default tty of a tab with no layout value", () => {
+    expect(tabPopoutLeaf({})).toBe("tty");
+  });
+
+  it("pops the first bare tty of a multi-tile layout", () => {
+    expect(tabPopoutLeaf({ layout: "h(web,tty)" })).toBe("tty");
+  });
+
+  it("offers nothing when the terminal is borrowed into another tab", () => {
+    expect(tabPopoutLeaf({ layout: "h(tty,web)", awayIn: { tty: "@7" } })).toBeUndefined();
+  });
+
+  it("ignores a foreign terminal leaf (it belongs to another tab)", () => {
+    expect(tabPopoutLeaf({ layout: "h(@12/tty,web)" })).toBeUndefined();
+  });
+});
+
+// The viewer-wide registry folds every popout's presence traffic; only
+// membership changes report true, so heartbeats never re-render the sidebar.
+describe("popout sightings", () => {
+  const msg = (type: PopoutMessage["type"], window = "@1", leaf = "tty"): PopoutMessage => ({
+    type,
+    server: "srv",
+    window,
+    leaf,
+  });
+
+  it("records an opened leaf once and refreshes it on heartbeats", () => {
+    const s: PopoutSightings = new Map();
+    expect(applyPopoutSighting(s, msg("opened"), 1000)).toBe(true);
+    expect(applyPopoutSighting(s, msg("alive"), 3000)).toBe(false);
+    expect(s.get(popoutSightingKey("srv", "@1"))?.get("tty")).toBe(3000);
+  });
+
+  it("drops a leaf on closed and ignores opener traffic", () => {
+    const s: PopoutSightings = new Map();
+    applyPopoutSighting(s, msg("opened"), 1000);
+    expect(applyPopoutSighting(s, msg("ping", "@1", ""), 1100)).toBe(false);
+    expect(applyPopoutSighting(s, msg("pop-in"), 1100)).toBe(false);
+    expect(applyPopoutSighting(s, msg("closed"), 1200)).toBe(true);
+    expect(s.size).toBe(0);
+    expect(applyPopoutSighting(s, msg("closed"), 1300)).toBe(false);
+  });
+
+  it("forgets one leaf and keeps the window's others", () => {
+    const s: PopoutSightings = new Map();
+    applyPopoutSighting(s, msg("opened", "@1", "tty"), 1000);
+    applyPopoutSighting(s, msg("opened", "@1", "web"), 1000);
+    expect(forgetPopoutSighting(s, "srv", "@1", "tty")).toBe(true);
+    expect([...snapshotPopoutSightings(s).get(popoutSightingKey("srv", "@1")) ?? []]).toEqual(["web"]);
+    expect(forgetPopoutSighting(s, "srv", "@1", "tty")).toBe(false);
+  });
+
+  it("sweeps sightings silent for POPOUT_STALE_MS", () => {
+    const s: PopoutSightings = new Map();
+    applyPopoutSighting(s, msg("opened", "@1"), 0);
+    applyPopoutSighting(s, msg("opened", "@2"), POPOUT_STALE_MS);
+    expect(sweepPopoutSightings(s, POPOUT_STALE_MS + 1)).toBe(true);
+    expect([...snapshotPopoutSightings(s).keys()]).toEqual([popoutSightingKey("srv", "@2")]);
+    expect(sweepPopoutSightings(s, POPOUT_STALE_MS + 2)).toBe(false);
+  });
+
+  it("keys windows per server", () => {
+    const s: PopoutSightings = new Map();
+    applyPopoutSighting(s, msg("opened"), 0);
+    applyPopoutSighting(s, { ...msg("opened"), server: "other" }, 0);
+    expect(snapshotPopoutSightings(s).size).toBe(2);
+  });
+});
+
+// The popout's title (the browser window title, the desktop titlebar strip):
+// tab name + number first, then session, server and a non-loopback hostname.
+describe("popoutTitle", () => {
+  const tab = { name: "beta", index: 2 };
+
+  it("names a terminal popout by tab, session and server on a loopback host", () => {
+    for (const host of ["127.0.0.1", "localhost", "::1"]) {
+      expect(popoutTitle({ kind: "tty", windowId: "@1", tab, session: "main", server: "work", host })).toBe(
+        "beta #2 \u2014 main \u00b7 work",
+      );
+    }
+  });
+
+  it("appends a non-loopback hostname", () => {
+    expect(
+      popoutTitle({ kind: "tty", windowId: "@1", tab, session: "main", server: "work", host: "devbox.example.ts.net" }),
+    ).toBe("beta #2 \u2014 main \u00b7 work \u00b7 devbox.example.ts.net");
+  });
+
+  it("prefixes a non-terminal surface with its label", () => {
+    expect(popoutTitle({ kind: "code", windowId: "@1", tab, session: "main", server: "work" })).toBe(
+      "Code \u00b7 beta #2 \u2014 main \u00b7 work",
+    );
+  });
+
+  it("degrades to the window id and drops an unknown session before the payload resolves", () => {
+    expect(popoutTitle({ kind: "tty", windowId: "@1", server: "work" })).toBe("@1 \u2014 work");
+  });
+});
+
+describe("isLoopbackHost", () => {
+  it("matches loopback names and nothing else", () => {
+    for (const h of ["localhost", "LOCALHOST", "app.localhost", "127.0.0.1", "127.1.2.3", "::1", "[::1]"]) {
+      expect(isLoopbackHost(h)).toBe(true);
+    }
+    for (const h of ["192.168.1.5", "devbox.ts.net", "127.0.0.1.example.com", "mylocalhost", ""]) {
+      expect(isLoopbackHost(h)).toBe(false);
+    }
   });
 });

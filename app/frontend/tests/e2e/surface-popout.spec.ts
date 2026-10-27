@@ -22,8 +22,8 @@ import { stubProxyPorts } from "./_web-tile";
 // reflows over the rest; the shared `@rk_win_layout` is never written by
 // pop-out/pop-in (every layout assertion reads the tmux option, ground
 // truth). Covered: pop via the header verb (popup caught with
-// `context.waitForEvent("page")`), the chrome-less render + `<Surface> ·
-// <window>` title, close-to-restore, palette `Tile: Pop Back In`, the tty
+// `context.waitForEvent("page")`), the chrome-less render + its tab /
+// session / server title, close-to-restore, palette `Tile: Pop Back In`, the tty
 // popout's isolated session surviving the opener's sibling-tab switch, a
 // foreign (`@N/tty`) leaf's popout titled by its HOME window, the ended
 // "Window closed" state when the surface's window dies, single-tile pop out
@@ -31,7 +31,9 @@ import { stubProxyPorts } from "./_web-tile";
 // top-bar toggle's per-viewer reveal/hide of a popped leaf's placeholder
 // with no layout write (bring back closes the popout), and the popout
 // page's sidebar-free stage (the tile's left edge sits at the stage padding
-// with the sidebar preference open).
+// with the sidebar preference open), and the sidebar row card's Open in new
+// window → popped marker → Bring back cycle for a tab other than the current
+// one.
 //
 // Shared setup: `beforeAll` creates one dedicated session `e2e-popout-<ts>`
 // (80×24) so this file never collides with other specs (`fullyParallel` off),
@@ -52,6 +54,17 @@ import { stubProxyPorts } from "./_web-tile";
 // Own session so this file never collides with other specs (fullyParallel off).
 const TEST_SESSION = `e2e-popout-${Date.now()}`;
 const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
+
+/** The popout's document title for window `name` in this file's session on
+ *  the rig server: `<name> #<n> — <session> · <server>` (the terminal form of
+ *  popoutTitle in app/frontend/src/lib/popout.ts; the rig's loopback host
+ *  adds no hostname). */
+function popoutTitleRe(name: string): RegExp {
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(
+    `^${esc(name)} #\\d+ \u2014 ${esc(TEST_SESSION)} \u00b7 ${esc(TMUX_SERVER)}$`,
+  );
+}
 
 // A URL the proxy converts to a same-origin `/proxy/<port>/…` path (dead by
 // construction). Resolved once in the file-level beforeAll below.
@@ -168,12 +181,13 @@ test.describe("Surface popout", () => {
    * 2. Click the tty tile's `Pop out Terminal`; catch the popup page.
    * 3. Assert the popout: `surface-tile-tty` visible, no banner landmark /
    *    sidebar nav / status bar, the header shows `Pop Terminal back in` and
-   *    no Expand/Close, and the title is `Terminal · <A name>`.
+   *    no Expand/Close, and the title names A, its session and the server
+   *    (`<A name> #<n> — <session> · <server>`).
    * 4. Assert the opener: the tty tile is hidden (still mounted), the web
    *    tile fills the layout, and A's `@rk_win_layout` still reads
    *    `h(tty,web)`.
    */
-  test("popping a tile opens a chrome-less popout titled `<Surface> · <window>`; the opener reflows for this viewer only", async ({
+  test("popping a tile opens a chrome-less popout titled with its tab, session and server; the opener reflows for this viewer only", async ({
     page,
     context,
   }) => {
@@ -199,7 +213,7 @@ test.describe("Surface popout", () => {
     await expect(tile.getByLabel("Pop Terminal back in")).toBeVisible();
     await expect(tile.getByLabel("Expand Terminal")).toHaveCount(0);
     await expect(tile.getByLabel("Close Terminal")).toHaveCount(0);
-    await expect(popup).toHaveTitle(`Terminal · ${aName}`);
+    await expect(popup).toHaveTitle(popoutTitleRe(aName));
 
     // The opener: the popped tile hides (still mounted — the stream
     // survives), the web tile reflows to fill, and the SHARED layout option
@@ -365,7 +379,7 @@ test.describe("Surface popout", () => {
   /**
    * Proves: a foreign (`@N/tty`) leaf pops out like a bare one — the popout
    * renders only the foreign tile, titles itself with the leaf's HOME window
-   * (`Terminal · <home name>`),
+   * (`<home name> #<n> — <session> · <server>`),
    * keeps the fixed opener route in its URL, and streams the home window's
    * pane.
    *
@@ -374,7 +388,7 @@ test.describe("Surface popout", () => {
    *    borrowed into B); navigate to B.
    * 2. Click the foreign tile's `Pop out Terminal`; catch the popup.
    * 3. Assert the popup renders the foreign tile (`surface-tile-tty-<A>`)
-   *    and no bare tty tile, its title is `Terminal · <A name>`, its URL is
+   *    and no bare tty tile, its title names A (popoutTitleRe), its URL is
    *    B's route with `pop=%40A%2Ftty`, and the tile streams A's pane (a
    *    typed marker lands in A, read back via `capture-pane`).
    * 4. Assert B's shared layout still reads `h(tty,@A/tty)`.
@@ -398,7 +412,7 @@ test.describe("Surface popout", () => {
     // The popout's one-leaf tree mounts no bare tty tile (not even hidden).
     await expect(popup.getByTestId("surface-tile-tty")).toHaveCount(0);
     expect(await windowNameOf(page, a)).toBe(aName);
-    await expect(popup).toHaveTitle(`Terminal · ${aName}`);
+    await expect(popup).toHaveTitle(popoutTitleRe(aName));
     // The popout is keyed to the OPENER's route window with the encoded
     // foreign leaf id — it never navigates to the home window's route.
     expect(popup.url()).toContain(`/${TMUX_SERVER}/${b.slice(1)}?pop=`);
@@ -459,8 +473,8 @@ test.describe("Surface popout", () => {
    *    Expand/Close, open the palette, assert `Tile: Pop Out Terminal` is
    *    listed, close the palette.
    * 3. Click `Pop out Terminal`; catch the popup page.
-   * 4. Assert the popup renders `surface-tile-tty` titled
-   *    `Terminal · <A name>`, and the opener shows
+   * 4. Assert the popup renders `surface-tile-tty` titled with A's name,
+   *    session and server, and the opener shows
    *    `popped-out-placeholder` ("Terminal is popped out") with the tty tile
    *    hidden behind it.
    */
@@ -492,7 +506,7 @@ test.describe("Surface popout", () => {
     // fully popped, so the all-popped placeholder stands in (the tile stays
     // mounted hidden behind it — its stream survives).
     await expect(popup.getByTestId("surface-tile-tty")).toBeVisible({ timeout: 15_000 });
-    await expect(popup).toHaveTitle(`Terminal · ${aName}`);
+    await expect(popup).toHaveTitle(popoutTitleRe(aName));
     const allPopped = page.getByTestId("popped-out-placeholder");
     await expect(allPopped).toBeVisible();
     await expect(allPopped).toContainText("Terminal is popped out");
@@ -609,5 +623,80 @@ test.describe("Surface popout", () => {
       if (!tileBox) throw new Error("the popout's tty tile has no bounding box");
       expect(Math.abs(tileBox.x - STAGE_PADDING_PX)).toBeLessThanOrEqual(2);
     }).toPass({ timeout: 10_000 });
+  });
+});
+
+test.describe("Sidebar card — Open in new window", () => {
+  /**
+   * Proves: a window row's hover card pops THAT tab's terminal into its own
+   * window without leaving the current tab — the popup is the tab's
+   * `?pop=tty` posture titled with its tab, session and server; while it is
+   * live the row shows the popped marker and the card offers Focus window +
+   * Bring back instead; Bring back closes the popup and clears the marker
+   * and the viewer's popped mark.
+   *
+   * Steps:
+   * 1. Create windows A and B; navigate to A.
+   * 2. Hover B's sidebar row; the card shows `Open in new window`; click it
+   *    and catch the popup page.
+   * 3. Assert the popup: its URL is B's route with `pop=tty`, the tty tile
+   *    renders, and its title is B's tab/session/server form; the opener's
+   *    URL is still A's route.
+   * 4. Assert B's row shows the popped marker and A's row does not.
+   * 5. Move the pointer off the sidebar, hover B's row again; the card shows
+   *    `Focus window` and no `Open in new window`; click `Bring back` and
+   *    await the popup's close.
+   * 6. Assert B's popped marker is gone and the viewer's popped mark for B
+   *    (`rk-layout-popped:<server>:<B>`) is cleared.
+   */
+  test("a row card pops another tab's terminal into its own window and brings it back", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(90_000);
+    const a = await makeWindow(page, `pop-card-a-${Date.now()}`);
+    const bName = `pop-card-b-${Date.now()}`;
+    const b = await makeWindow(page, bName);
+    await gotoWindow(page, a);
+    const openerUrl = page.url();
+
+    const rowB = page.locator(`[role='treeitem'][data-window-id='${b}']`);
+    await expect(rowB).toBeVisible({ timeout: 10_000 });
+    await rowB.hover();
+    const open = page.getByTestId("row-flyout-popout-action");
+    await expect(open).toBeVisible({ timeout: 5_000 });
+    const [popup] = await Promise.all([
+      context.waitForEvent("page", { timeout: 15_000 }),
+      open.click(),
+    ]);
+    await popup.waitForLoadState("domcontentloaded");
+
+    expect(popup.url()).toContain(`/${TMUX_SERVER}/${b.slice(1)}?pop=tty`);
+    await expect(popup.getByTestId("surface-tile-tty")).toBeVisible({ timeout: 15_000 });
+    await expect(popup).toHaveTitle(popoutTitleRe(bName));
+    expect(page.url()).toBe(openerUrl);
+
+    // The viewer-wide registry learns the popup from its presence traffic.
+    await expect(rowB.getByTestId("row-popped-marker")).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.locator(`[role='treeitem'][data-window-id='${a}']`).getByTestId("row-popped-marker"),
+    ).toHaveCount(0);
+
+    // The click closed the card; leave the row so the next hover re-opens it.
+    await page.mouse.move(DESKTOP_VIEWPORT.width - 50, DESKTOP_VIEWPORT.height / 2);
+    await rowB.hover();
+    await expect(page.getByTestId("row-flyout-popout-focus-action")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId("row-flyout-popout-action")).toHaveCount(0);
+    await Promise.all([
+      popup.waitForEvent("close", { timeout: 15_000 }),
+      page.getByTestId("row-flyout-popout-bring-back-action").click(),
+    ]);
+
+    await expect(rowB.getByTestId("row-popped-marker")).toHaveCount(0);
+    const mark = await page.evaluate(
+      ([srv, w]) => localStorage.getItem(`rk-layout-popped:${srv}:${w}`),
+      [TMUX_SERVER, b],
+    );
+    expect(mark).toBeNull();
   });
 });

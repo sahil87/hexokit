@@ -42,7 +42,6 @@ import {
   translateLegacyParams,
   writeStoredZoom,
   zoomLeafKind,
-  SURFACE_LABEL,
   type Layout,
   type Rect,
   type SurfaceKind,
@@ -50,8 +49,8 @@ import {
   type TemplateName,
 } from "@/lib/surface-layout";
 import { parseLeafAddress, pruneDeadLeaves } from "@/lib/layout-tree";
-import { parsePopLeaf, popoutToggleAction, popoutToggleTarget, reducePopped } from "@/lib/popout";
-import { usePoppedSet, usePopoutPresence } from "@/hooks/use-popout";
+import { parsePopLeaf, popoutTitle, popoutToggleAction, popoutToggleTarget, readPopped, reducePopped, writePopped, type TabPopoutSeam } from "@/lib/popout";
+import { focusPopoutWindow, openPopoutWindow, popoutFailureMessage, usePoppedSet, usePopoutPresence, usePopoutRegistry } from "@/hooks/use-popout";
 import { focusIsEngaged, hasReclaimableMatch, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
 import { requestQuakeTerminal, findOperatorWindow, resolveQuakeServer } from "@/lib/quake-terminal";
 import { WEB_FIND_OPEN_EVENT } from "@/lib/find-in-page";
@@ -66,7 +65,7 @@ import { useMacros } from "@/hooks/use-macros";
 import { ChromeProvider, useChromeState, useChromeDispatch, SIDEBAR_WIDTH_BOUNDS } from "@/contexts/chrome-context";
 import { ZenProvider, useZenState, useZenDispatch, zenApplies } from "@/contexts/zen-context";
 import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
-import { TopBarSlotProvider, useTopBarSlot, useTopBarNotFound, useTopBarPopout, useRegisterTopBarSlot, useRegisterTopBarPopout } from "@/contexts/top-bar-slot-context";
+import { TopBarSlotProvider, useTopBarSlot, useTopBarNotFound, useTopBarPopout, useTopBarPopoutTitle, useRegisterTopBarSlot, useRegisterTopBarPopout, useRegisterTopBarPopoutTitle } from "@/contexts/top-bar-slot-context";
 import { FocusedPaneProvider } from "@/contexts/focused-pane-context";
 import { computeKillRedirect } from "@/lib/navigation";
 import {
@@ -519,6 +518,7 @@ function AppLayoutContent() {
   // drawer/tongue, no command palette (spec surface-layout.md § Verbs → Pop
   // out; the popout's keyboard exit is closing the window).
   const popoutChromeless = useTopBarPopout();
+  const popoutTitle = useTopBarPopoutTitle();
   const hideTopBar = (zenActive && zenWindowParam !== undefined) || popoutChromeless;
 
   return (
@@ -538,7 +538,7 @@ function AppLayoutContent() {
           the badge reporter mirrors the waiting-agent count to the OS dock/
           taskbar badge. The top bar below is untouched — the strip is a new
           sibling ABOVE it, not a merge. */}
-      {isShell() && <ShellTitlebarStrip />}
+      {isShell() && <ShellTitlebarStrip title={popoutChromeless ? (popoutTitle ?? undefined) : undefined} />}
       {isShell() && <ShellBadgeReporter />}
       {isShell() && <ShellAccentReporter />}
       {/* Plain `div`, not `header`: `TopBar` already renders its own `<header>`
@@ -2511,14 +2511,23 @@ function AppShell() {
   // the provider owns the one-shot health fetch, and a settings-dialog rename
   // retitles the tab live (o7q8).
   const { displayName: instanceDisplayName } = useInstanceName();
-  // The popout's title is `<Surface> · <window name>` (the leaf's HOME window
-  // for a foreign leaf — the surface's owner); the id stands in until the
-  // payload resolves the name.
-  const popoutTitle =
+  // The popout's title names the tab, its session and its server (the leaf's
+  // HOME window for a foreign leaf — the surface's owner); see popoutTitle.
+  const popoutWindowTitle =
     popoutPosture && popLeaf !== null
-      ? `${SURFACE_LABEL[popLeaf.kind]} · ${windowsById.get(popLeaf.windowId)?.name ?? popLeaf.windowId}`
+      ? popoutTitle({
+          kind: popLeaf.kind,
+          windowId: popLeaf.windowId,
+          tab: windowsById.get(popLeaf.windowId),
+          session: sessionNameByWindowId.get(popLeaf.windowId),
+          server,
+          host: window.location.hostname,
+        })
       : undefined;
-  useBrowserTitle(sessionName, windowParam, instanceDisplayName, popoutTitle);
+  useBrowserTitle(sessionName, windowParam, instanceDisplayName, popoutWindowTitle);
+  // The desktop shell's visible title bar is the SPA's titlebar strip, which
+  // reads the same title from the slot context in the popout posture.
+  useRegisterTopBarPopoutTitle(popoutWindowTitle);
 
   // Sidebar drag-resize handler (desktop only). Width state lives in
   // `ChromeContext` (lifted from per-route local state) so AppShell and
@@ -3628,6 +3637,49 @@ function AppShell() {
         .catch((err: Error) => addToast(err.message || "Failed to fork conversation", "error")),
     [navigateToSpawnedWindow, addToast],
   );
+
+  // The sidebar's tab-popout seam (spec surface-layout.md § Verbs → Pop out,
+  // sidebar entry point): a window row's card pops the tab's terminal into
+  // its own window, and Focus window / Bring back act on a live one. The
+  // route window goes through this opener's popped set (its render reflows
+  // in the same gesture); any other tab gets its per-viewer mark written
+  // directly, which that tab's opener render reads on the next visit. The
+  // rows' popped state comes from the viewer-wide registry, so a popout
+  // opened from a tile header shows there too. Same availability gate as the
+  // tile header's Pop out; the popout window itself has no sidebar.
+  const popoutRegistry = usePopoutRegistry(!popoutPosture);
+  const tabPopoutAvailable = !popoutPosture && !isMobile && (!isShell() || canShellPopout());
+  const tabPopout = useMemo<TabPopoutSeam | undefined>(() => {
+    if (!tabPopoutAvailable) return undefined;
+    const isRouteWindow = (srv: string, windowId: string) =>
+      srv === server && windowId === windowParam;
+    return {
+      poppedLeaves: popoutRegistry.poppedLeaves,
+      open: (srv, windowId, leafId) => {
+        if (isRouteWindow(srv, windowId)) {
+          popOut(leafId, layoutRectsRef.current?.().get(leafId));
+          return;
+        }
+        const marks = readPopped(srv, windowId);
+        if (!marks.includes(leafId)) writePopped(srv, windowId, [...marks, leafId]);
+        popoutRegistry.noteOpened(srv, windowId, leafId);
+        openPopoutWindow(srv, windowId, leafId, undefined, (reason) => {
+          writePopped(srv, windowId, readPopped(srv, windowId).filter((id) => id !== leafId));
+          popoutRegistry.forget(srv, windowId, leafId);
+          addToast(popoutFailureMessage(reason), "error");
+        });
+      },
+      focus: focusPopoutWindow,
+      bringBack: (srv, windowId, leafId) => {
+        if (isRouteWindow(srv, windowId)) {
+          popIn(leafId);
+          popoutRegistry.forget(srv, windowId, leafId);
+          return;
+        }
+        popoutRegistry.popIn(srv, windowId, leafId);
+      },
+    };
+  }, [tabPopoutAvailable, server, windowParam, popoutRegistry, popOut, popIn, addToast]);
 
   const handleWindowMarkerChange = useCallback(
     (srv: string, _session: string, windowId: string, marker: string | null) => {
@@ -6108,6 +6160,7 @@ function AppShell() {
       onWindowMarkerChange={handleWindowMarkerChange}
       onForkWindow={handleForkWindow}
       onFixTabName={handleFixTabName}
+      tabPopout={tabPopout}
       onOperatorCompose={hasOperatorWindow ? handleOperatorCompose : undefined}
       onOperatorPlaceholder={handleOperatorPlaceholder}
       onCreateServer={openCreateServer}

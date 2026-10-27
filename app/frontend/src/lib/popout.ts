@@ -23,8 +23,9 @@ import {
   type LayoutNode,
   type SurfaceKind,
 } from "./layout-tree";
-import { zoomLeafKind } from "./surface-layout";
+import { effectiveLayout, SURFACE_LABEL, zoomLeafKind } from "./surface-layout";
 import { windowIdToUrlSegment } from "./router-url";
+import type { ViewWindow } from "./window-view";
 
 /** The BroadcastChannel name opener and popout windows coordinate over. */
 export const POPOUT_CHANNEL = "rk-popout";
@@ -201,6 +202,48 @@ export function popoutUrl(server: string, windowId: string, leafId: string): str
   return `/${server}/${windowIdToUrlSegment(windowId)}?pop=${encodeURIComponent(leafId)}`;
 }
 
+/**
+ * The popout window's title — the document title (browser window title) and
+ * the desktop shell's titlebar strip. It names the tab first (it survives
+ * truncation), then where the tab lives: `beta #2 — main · work`, i.e. the
+ * session, the server, and the page's hostname unless it is a loopback
+ * address (`… · work · devbox.example.ts.net`). A terminal is the default
+ * popout, so only another surface kind prefixes its label (`Code · beta #2 —
+ * …`). Pieces the payload has not resolved yet degrade: the window id stands
+ * in for the tab, and an unknown session drops out.
+ */
+export function popoutTitle(opts: {
+  kind: SurfaceKind;
+  windowId: string;
+  tab?: { name: string; index: number };
+  session?: string;
+  server: string;
+  /** The page's hostname (`location.hostname`); loopback names drop out. */
+  host?: string;
+}): string {
+  const tab = opts.tab !== undefined ? `${opts.tab.name} #${opts.tab.index}` : opts.windowId;
+  const where = [
+    opts.session,
+    opts.server,
+    opts.host !== undefined && !isLoopbackHost(opts.host) ? opts.host : undefined,
+  ].filter((part): part is string => part !== undefined && part !== "");
+  const head = opts.kind === "tty" ? tab : `${SURFACE_LABEL[opts.kind]} \u00b7 ${tab}`;
+  return where.length > 0 ? `${head} \u2014 ${where.join(" \u00b7 ")}` : head;
+}
+
+/** Whether a hostname names this machine's loopback (`localhost`,
+ *  `*.localhost`, `127.x.x.x`, `::1`) — the popout title omits it. */
+export function isLoopbackHost(host: string): boolean {
+  const h = host.toLowerCase();
+  return (
+    h === "localhost" ||
+    h.endsWith(".localhost") ||
+    /^127(\.\d{1,3}){3}$/.test(h) ||
+    h === "::1" ||
+    h === "[::1]"
+  );
+}
+
 /** The `window.open` features for a popout, sized from the tile's rendered
  *  rect when the opener measured one. */
 export function popoutFeatures(rect?: { w: number; h: number }): string {
@@ -255,4 +298,114 @@ export function sweepStale(
     const seen = lastSeen.get(id);
     return seen !== undefined && now - seen < POPOUT_STALE_MS;
   });
+}
+
+/**
+ * The leaf the sidebar's "Open in new window" pops for a tab: the tab's
+ * terminal — the FIRST bare `tty` leaf of its effective layout (the surface
+ * toggle's close target, so a tab with no layout value pops its default
+ * `tty`). Undefined when the effective layout holds no bare terminal leaf, or
+ * when the tab's terminal is away (borrowed into another tab — a surface is
+ * live in exactly one place, and its holder owns any popout of it).
+ */
+export function tabPopoutLeaf(
+  win: ViewWindow & { awayIn?: Record<string, string> },
+): string | undefined {
+  if (win.awayIn?.tty !== undefined) return undefined;
+  return popoutToggleTarget(effectiveLayout(win), "tty");
+}
+
+/**
+ * Live popout sightings across EVERY window of this viewer — the sidebar's
+ * viewer-wide registry, unlike the per-window popped set. Keyed by
+ * `popoutSightingKey(server, window)` (the popout's route window), then leaf
+ * id → last `opened`/`alive` time. The helpers below mutate in place and
+ * report whether the set of (window, leaf) pairs changed, so a heartbeat that
+ * only refreshes a time never re-renders the sidebar.
+ */
+export type PopoutSightings = Map<string, Map<string, number>>;
+
+/** The sightings key for a (server, window) pair. */
+export function popoutSightingKey(server: string, windowId: string): string {
+  return `${server}\n${windowId}`;
+}
+
+/** Fold one channel message into the sightings: `opened`/`alive` record (or
+ *  refresh) the leaf, `closed` drops it, `pop-in`/`ping` are opener→popout
+ *  traffic and ignored. True when membership changed. */
+export function applyPopoutSighting(
+  sightings: PopoutSightings,
+  msg: PopoutMessage,
+  now: number,
+): boolean {
+  if (msg.type === "closed") return forgetPopoutSighting(sightings, msg.server, msg.window, msg.leaf);
+  if (msg.type !== "opened" && msg.type !== "alive") return false;
+  if (msg.leaf === "") return false;
+  const key = popoutSightingKey(msg.server, msg.window);
+  let leaves = sightings.get(key);
+  if (leaves === undefined) {
+    leaves = new Map();
+    sightings.set(key, leaves);
+  }
+  const added = !leaves.has(msg.leaf);
+  leaves.set(msg.leaf, now);
+  return added;
+}
+
+/** Drop one (window, leaf) sighting. True when it was present. */
+export function forgetPopoutSighting(
+  sightings: PopoutSightings,
+  server: string,
+  windowId: string,
+  leaf: string,
+): boolean {
+  const key = popoutSightingKey(server, windowId);
+  const leaves = sightings.get(key);
+  if (leaves === undefined || !leaves.delete(leaf)) return false;
+  if (leaves.size === 0) sightings.delete(key);
+  return true;
+}
+
+/** Drop every sighting silent for POPOUT_STALE_MS (a crashed popout whose
+ *  `closed` never arrived). True when anything was dropped. */
+export function sweepPopoutSightings(sightings: PopoutSightings, now: number): boolean {
+  let changed = false;
+  for (const [key, leaves] of sightings) {
+    for (const [leaf, seen] of leaves) {
+      if (now - seen >= POPOUT_STALE_MS) {
+        leaves.delete(leaf);
+        changed = true;
+      }
+    }
+    if (leaves.size === 0) sightings.delete(key);
+  }
+  return changed;
+}
+
+/** An immutable membership snapshot for rendering: key → popped leaf ids. */
+export function snapshotPopoutSightings(
+  sightings: PopoutSightings,
+): ReadonlyMap<string, ReadonlySet<string>> {
+  const out = new Map<string, ReadonlySet<string>>();
+  for (const [key, leaves] of sightings) out.set(key, new Set(leaves.keys()));
+  return out;
+}
+
+/**
+ * The sidebar's tab-popout seam (the row hover card's Open in new window /
+ * Focus window / Bring back rows, and the row's popped marker). Identity-arg
+ * callbacks bound per row, the `onForkWindow` idiom; absent ⇒ no popout
+ * affordance (the board-route sidebar, mobile, a shell without
+ * `windows.popout`).
+ */
+export interface TabPopoutSeam {
+  /** The leaf ids of (server, window) live in a popout right now, or
+   *  undefined when none. */
+  poppedLeaves: (server: string, windowId: string) => ReadonlySet<string> | undefined;
+  /** Pop the leaf out into its own window. */
+  open: (server: string, windowId: string, leafId: string) => void;
+  /** Focus the live popout without reloading it. */
+  focus: (server: string, windowId: string, leafId: string) => void;
+  /** Close the popout and return the leaf to its tab. */
+  bringBack: (server: string, windowId: string, leafId: string) => void;
 }

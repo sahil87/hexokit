@@ -7,6 +7,7 @@ import { useFocusedPane } from "@/contexts/focused-pane-context";
 import { thinWindowFromFocusedPane } from "@/lib/focused-pane-window";
 import { finalizeSafeName } from "@/lib/names";
 import { pinDragImage } from "@/lib/drag-image";
+import type { TabPopoutSeam } from "@/lib/popout";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { pushRecentlyClosed } from "@/hooks/use-recently-closed";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
@@ -187,6 +188,11 @@ export type SidebarProps = {
    *  `onForkWindow`): when omitted — e.g. the board-route sidebar — the row
    *  flyout's Fix tab name affordance is hidden. */
   onFixTabName?: (server: string, windowId: string) => Promise<void>;
+  /** The tab-popout seam — each window row's flyout card Open in new window /
+   *  Focus window / Bring back rows and its popped marker. Optional (mirrors
+   *  `onForkWindow`): when omitted — e.g. the board-route sidebar — no row
+   *  offers a popout. */
+  tabPopout?: TabPopoutSeam;
   /** Open the operator compose dialog from the pinned operator row
    *  (260822-wyn3). Optional (mirrors `onForkWindow`): when omitted — e.g. the
    *  board-route sidebar — the pinned row renders no compose icon. */
@@ -222,6 +228,7 @@ export function Sidebar({
   onWindowMarkerChange,
   onForkWindow,
   onFixTabName,
+  tabPopout,
   onOperatorCompose,
   onOperatorPlaceholder,
   onCreateServer,
@@ -1890,6 +1897,7 @@ export function Sidebar({
                 onWindowMarkerChange={onWindowMarkerChange}
                 onForkWindow={onForkWindow}
                 onFixTabName={onFixTabName}
+                tabPopout={tabPopout}
                 onOperatorCompose={onOperatorCompose}
                 onOperatorPlaceholder={onOperatorPlaceholder}
                 onWindowDragStart={handleDragStart}
@@ -2333,6 +2341,9 @@ type ServerGroupProps = {
    *  Optional (the board-route sidebar passes none) — see
    *  `SidebarProps.onFixTabName`. */
   onFixTabName?: (server: string, windowId: string) => Promise<void>;
+  /** Forwarded to each `WindowRow` → its popout card rows + popped marker.
+   *  Optional — see `SidebarProps.tabPopout`. */
+  tabPopout?: TabPopoutSeam;
   /** Forwarded ONLY to the pinned operator row's `WindowRow` → its trailing
    *  compose icon (260822-wyn3). Optional — see `SidebarProps.onOperatorCompose`. */
   onOperatorCompose?: (server: string) => void;
@@ -2418,6 +2429,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     onWindowFlairChange,
     onForkWindow,
     onFixTabName,
+    tabPopout,
     onOperatorCompose,
     onOperatorPlaceholder,
     onWindowDragStart,
@@ -2945,6 +2957,7 @@ function ServerGroupInner(props: ServerGroupProps) {
               onFlairChange={onWindowFlairChange}
               onForkWindow={onForkWindow}
               onFixTabName={onFixTabName}
+              tabPopout={tabPopout}
               onOperatorCompose={onOperatorCompose}
               hasOperator={hasOperator}
             />
@@ -3167,6 +3180,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                             onFlairChange={ghost ? undefined : onWindowFlairChange}
                             onForkWindow={ghost ? undefined : onForkWindow}
                             onFixTabName={ghost ? undefined : onFixTabName}
+                            tabPopout={ghost ? undefined : tabPopout}
                             hasOperator={hasOperator}
                           />
                         );

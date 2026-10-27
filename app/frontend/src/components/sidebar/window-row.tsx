@@ -44,7 +44,8 @@ import {
   selectCell,
   stepStage,
 } from "./marker-pad";
-import { CloseIcon, prGlyphIcon, ComposeIcon, HeadsetIcon } from "./icons";
+import { CloseIcon, prGlyphIcon, ComposeIcon, HeadsetIcon, PopOutIcon } from "./icons";
+import { tabPopoutLeaf, type TabPopoutSeam } from "@/lib/popout";
 import { PinIcon } from "@/components/pin-icon";
 import {
   useRowFlyout,
@@ -147,6 +148,12 @@ type WindowRowProps = {
    *  flyout's Fix tab name affordance is hidden. The flyout additionally gates
    *  on the derived availability rule (`canRequestWindowOperatorAction`). */
   onFixTabName?: (server: string, windowId: string) => Promise<void>;
+  /** The tab-popout seam: the flyout card's Open in new window row (or, while
+   *  the tab's terminal is popped out, its Focus window + Bring back rows) and
+   *  the row's popped marker. Optional (mirrors `onForkWindow`): when omitted
+   *  — the board-route sidebar, mobile, a shell without `windows.popout` —
+   *  the row offers no popout. */
+  tabPopout?: TabPopoutSeam;
   /** Open the operator compose dialog (260822-wyn3). Identity-arg like its
    *  siblings (the row binds the server). Optional (mirrors `onForkWindow`):
    *  when omitted — ordinary window rows, the board-route sidebar — no compose
@@ -246,6 +253,7 @@ function WindowRowInner({
   onFlairChange,
   onForkWindow,
   onFixTabName,
+  tabPopout,
   onOperatorCompose,
   hasOperator = false,
   operatorStale = false,
@@ -336,6 +344,15 @@ function WindowRowInner({
     if (!onFixTabName || ghost) return undefined;
     return () => onFixTabName(srv, win.windowId);
   }, [onFixTabName, ghost, srv, win.windowId]);
+  // The tab's popout leaf (its terminal) and whether that leaf is live in a
+  // popout window right now. No seam, a ghost row, or no server ⇒ no leaf ⇒
+  // no popout affordance at all (the optional-handler gate).
+  const popoutLeaf = useMemo(
+    () => (tabPopout && !ghost && server ? tabPopoutLeaf(win) : undefined),
+    [tabPopout, ghost, server, win],
+  );
+  const poppedOut =
+    popoutLeaf !== undefined && (tabPopout?.poppedLeaves(srv, win.windowId)?.has(popoutLeaf) ?? false);
   const flyout = useRowFlyout({
     suppressed: ghost || showPinPopover || showLabelPicker || showMarkerPad,
     content: ({ close }) => (
@@ -361,6 +378,32 @@ function WindowRowInner({
         onFork={handleFork}
         onFixTabName={handleFixTabName}
         hasOperator={hasOperator}
+        // Popout rows: close the card, then act — synchronously, so the
+        // browser still sees the click's user gesture when window.open runs.
+        onOpenInNewWindow={
+          tabPopout && popoutLeaf !== undefined && !poppedOut
+            ? () => {
+                close();
+                tabPopout.open(srv, win.windowId, popoutLeaf);
+              }
+            : undefined
+        }
+        onFocusPopout={
+          tabPopout && popoutLeaf !== undefined && poppedOut
+            ? () => {
+                close();
+                tabPopout.focus(srv, win.windowId, popoutLeaf);
+              }
+            : undefined
+        }
+        onBringBack={
+          tabPopout && popoutLeaf !== undefined && poppedOut
+            ? () => {
+                close();
+                tabPopout.bringBack(srv, win.windowId, popoutLeaf);
+              }
+            : undefined
+        }
         onPinAction={
           showPinIcon
             ? () => {
@@ -621,7 +664,9 @@ function WindowRowInner({
   // The row box starts at the physical sidebar edge. Each pointer class keeps
   // an 8px gap between its marker well and the status dot.
   const buttonClass = useMemo(() => {
-    const rightPad = showPinIcon ? "pr-[68px]" : "pr-11";
+    // A popped-out tab carries one more persistent glyph (the popped marker,
+    // 24px + the cluster's 4px gap) left of the pin.
+    const rightPad = poppedOut && !coarse ? "pr-[96px]" : showPinIcon ? "pr-[68px]" : "pr-11";
     // Coarse reserve (non-ghost rows): the name must truncate before the
     // 56px status rail that overlays the row's right edge (the literal
     // matches STATUS_RAIL_WIDTH_PX — Tailwind scans literal classes only).
@@ -646,7 +691,7 @@ function WindowRowInner({
     return `${base} text-text-secondary hover:text-text-primary${
       flyout.open ? " text-text-primary bg-bg-chrome-raised" : ""
     }`;
-  }, [tint, isSelected, showPinIcon, ghost, flyout.open]);
+  }, [tint, isSelected, showPinIcon, poppedOut, coarse, ghost, flyout.open]);
 
   // Rail background: the bg-inset band by default (a class); a SELECTED row
   // deepens it by mixing the row's own selected tint (tint.selected, or the
@@ -1003,6 +1048,24 @@ function WindowRowInner({
             className="text-text-secondary hover:text-text-primary transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 focus-visible:opacity-100 px-0.5 min-w-[24px] min-h-[24px] flex items-center justify-center"
           >
             <ComposeIcon />
+          </button>
+        )}
+        {/* Popped marker (fine pointers): while the tab's terminal is live in
+            its own window, a persistent pop-out glyph left of the pin; a
+            click focuses that window. Coarse pointers reach the same verbs
+            through the card's popout rows. */}
+        {poppedOut && !coarse && tabPopout && popoutLeaf !== undefined && (
+          <button
+            type="button"
+            aria-label={`Focus the popped-out terminal of ${win.name}`}
+            data-testid="row-popped-marker"
+            onClick={(e) => {
+              e.stopPropagation();
+              tabPopout.focus(srv, win.windowId, popoutLeaf);
+            }}
+            className="opacity-100 text-text-secondary hover:text-text-primary transition-opacity cursor-pointer px-0.5 min-w-[24px] min-h-[24px] flex items-center justify-center"
+          >
+            <PopOutIcon size={12} />
           </button>
         )}
         {showPinIcon && !coarse && (

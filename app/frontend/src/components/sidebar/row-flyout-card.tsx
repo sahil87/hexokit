@@ -17,7 +17,7 @@ import {
   autoUpdate,
 } from "@floating-ui/react";
 import { PinIcon } from "@/components/pin-icon";
-import { CloseIcon, PaletteIcon } from "./icons";
+import { BringBackIcon, CloseIcon, PaletteIcon, PopOutIcon } from "./icons";
 import { getFabParts, getOperatorParts, getPrSegments } from "./registers";
 import type { OperatorLoopFacts } from "./registers";
 import { FAB_STATE_COLORS } from "@/components/pr-status-model";
@@ -662,6 +662,9 @@ export function WindowFlyoutContent({
   onFork,
   onFixTabName,
   hasOperator = false,
+  onOpenInNewWindow,
+  onFocusPopout,
+  onBringBack,
   onPinAction,
   pinned = false,
   pinnedBoard,
@@ -682,6 +685,16 @@ export function WindowFlyoutContent({
   /** Whether the server has an operator window — availability input (a) for
    *  the Fix tab name row. */
   hasOperator?: boolean;
+  /** Pop the tab's terminal out into its own window (the card's Open in new
+   *  window row). OPTIONAL: the consumer passes it only while the terminal
+   *  is NOT popped out, and wires no seam where popouts are unavailable. */
+  onOpenInNewWindow?: () => void;
+  /** Focus the tab's live terminal popout (the popped state's Focus window
+   *  row). Passed only while the terminal is popped out. */
+  onFocusPopout?: () => void;
+  /** Close the tab's terminal popout and return the terminal to its tab (the
+   *  popped state's Bring back row). Passed only while popped out. */
+  onBringBack?: () => void;
   onPinAction?: () => void;
   pinned?: boolean;
   pinnedBoard?: string;
@@ -847,12 +860,21 @@ export function WindowFlyoutContent({
           pointer types: the color/pin/kill home on coarse (where the in-row
           cluster is fine-pointer-only), additive + Tab-reachable on desktop
           (the FloatingFocusManager order). One row per action in a fixed
-          change-color → fork → fix-tab-name → pin → kill order
+          change-color → fork → fix-tab-name → popout → pin → kill order
           (Change color… is the FIRST
-          action row of every tier's card). Optional-handler idiom: a consumer
+          action row of every tier's card). The popout slot is Open in new
+          window, or — while the tab's terminal is popped out — Focus window +
+          Bring back. Optional-handler idiom: a consumer
           wiring no handler renders no row. All rows stopPropagation so an
           action never selects the underlying row (the PR-link/docs idiom). */}
-      {(onChangeColorAction || forkHandler || fixNameHandler || onPinAction || onKillAction) && (
+      {(onChangeColorAction ||
+        forkHandler ||
+        fixNameHandler ||
+        onOpenInNewWindow ||
+        onFocusPopout ||
+        onBringBack ||
+        onPinAction ||
+        onKillAction) && (
         <CardActionList flush={!hasBody}>
           {onChangeColorAction && (
             <CardActionRow
@@ -864,6 +886,33 @@ export function WindowFlyoutContent({
           )}
           {forkHandler && <ForkActionRow onFork={forkHandler} />}
           {fixNameHandler && <FixTabNameActionRow onFixTabName={fixNameHandler} />}
+          {onOpenInNewWindow && (
+            <CardActionRow
+              icon={<PopOutIcon />}
+              label="Open in new window"
+              hint="terminal"
+              testid="row-flyout-popout-action"
+              onClick={onOpenInNewWindow}
+            />
+          )}
+          {onFocusPopout && (
+            <CardActionRow
+              icon={<PopOutIcon />}
+              label="Focus window"
+              hint="popped out"
+              testid="row-flyout-popout-focus-action"
+              onClick={onFocusPopout}
+            />
+          )}
+          {onBringBack && (
+            <CardActionRow
+              icon={<BringBackIcon />}
+              label="Bring back"
+              hint="closes the window"
+              testid="row-flyout-popout-bring-back-action"
+              onClick={onBringBack}
+            />
+          )}
           {onPinAction && (
             <CardActionRow
               icon={<PinIcon filled={pinned} />}

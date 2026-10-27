@@ -144,6 +144,14 @@ type TopBarSlotContextValue = {
    */
   popout: boolean;
   setPopout: (popout: boolean) => void;
+  /**
+   * The popout window's title (tab name + number, session, server — set by
+   * `AppShell` beside `popout`). The desktop shell hides its native titlebar,
+   * so the shell titlebar strip is the visible title bar: in a popout it
+   * shows this instead of the host name. Null outside the posture.
+   */
+  popoutTitle: string | null;
+  setPopoutTitle: (title: string | null) => void;
 };
 
 const TopBarSlotContext = createContext<TopBarSlotContextValue | null>(null);
@@ -157,6 +165,7 @@ export function TopBarSlotProvider({ children }: { children: React.ReactNode }) 
   const [slot, setSlotState] = useState<TopBarSlot>(null);
   const [notFound, setNotFoundState] = useState(false);
   const [popout, setPopoutState] = useState(false);
+  const [popoutTitle, setPopoutTitleState] = useState<string | null>(null);
 
   // Keep the dispatchers referentially stable so registering pages can pass
   // them straight into a `useEffect` dep list without retriggering every
@@ -173,6 +182,10 @@ export function TopBarSlotProvider({ children }: { children: React.ReactNode }) 
   if (!setPopoutRef.current) {
     setPopoutRef.current = (next: boolean) => setPopoutState(next);
   }
+  const setPopoutTitleRef = useRef<((title: string | null) => void) | null>(null);
+  if (!setPopoutTitleRef.current) {
+    setPopoutTitleRef.current = (next: string | null) => setPopoutTitleState(next);
+  }
 
   const value = useMemo<TopBarSlotContextValue>(
     () => ({
@@ -182,8 +195,10 @@ export function TopBarSlotProvider({ children }: { children: React.ReactNode }) 
       setNotFound: setNotFoundRef.current!,
       popout,
       setPopout: setPopoutRef.current!,
+      popoutTitle,
+      setPopoutTitle: setPopoutTitleRef.current!,
     }),
-    [slot, notFound, popout],
+    [slot, notFound, popout, popoutTitle],
   );
 
   return (
@@ -284,4 +299,28 @@ export function useRegisterTopBarSlot(slot: NonNullable<TopBarSlot>): void {
     setSlot(slot);
     return () => setSlot(null);
   }, [setSlot, slot]);
+}
+
+/** Read the popout window's title (null outside the popout posture) — the
+ *  shell titlebar strip's label in a popout. Throws outside a provider. */
+export function useTopBarPopoutTitle(): string | null {
+  const ctx = useContext(TopBarSlotContext);
+  if (!ctx) {
+    throw new Error("useTopBarPopoutTitle must be used within TopBarSlotProvider");
+  }
+  return ctx.popoutTitle;
+}
+
+/** Publish the popout window's title (AppShell, beside
+ *  `useRegisterTopBarPopout`): set on every change, cleared on unmount. */
+export function useRegisterTopBarPopoutTitle(title: string | undefined): void {
+  const ctx = useContext(TopBarSlotContext);
+  if (!ctx) {
+    throw new Error("useRegisterTopBarPopoutTitle must be used within TopBarSlotProvider");
+  }
+  const { setPopoutTitle } = ctx;
+  useEffect(() => {
+    setPopoutTitle(title ?? null);
+    return () => setPopoutTitle(null);
+  }, [setPopoutTitle, title]);
 }

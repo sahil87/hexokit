@@ -73,6 +73,17 @@ const BOUNDS_TOLERANCE_PX = 1;
 
 const TEST_SESSION = `e2e-desktop-popout-${Date.now()}`;
 
+/** The popout's document title for window `name` in this file's session on
+ *  the rig server: `<name> #<n> — <session> · <server>` (the terminal form of
+ *  popoutTitle in app/frontend/src/lib/popout.ts; the rig's loopback host
+ *  adds no hostname). */
+function popoutTitleRe(name: string): RegExp {
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(
+    `^${esc(name)} #\\d+ \u2014 ${esc(TEST_SESSION)} \u00b7 ${esc(TMUX_SERVER)}$`,
+  );
+}
+
 const STUB_TITLE = "rk e2e popout guest";
 
 let stub: GuestStub;
@@ -337,8 +348,8 @@ test.describe("surface popout in the desktop shell", () => {
   /**
    * Proves: clicking a tty tile's Pop out verb opens a SECOND shell window
    * on the same host showing the `?pop=tty` route chrome-less (no top bar,
-   * sidebar, or status bar; the header carries Pop back in), titled
-   * `Terminal · <window name>`, while the opener hides the popped tile and
+   * sidebar, or status bar; the header carries Pop back in), titled with
+   * its tab, session and server, while the opener hides the popped tile and
    * reflows — and the popout's Pop back in verb closes the window and
    * returns the tile to the opener.
    * Steps:
@@ -349,7 +360,7 @@ test.describe("surface popout in the desktop shell", () => {
    *    `pop=tty`; the window count is 2.
    * 4. Assert the popout page: the tty tile visible, no banner landmark /
    *    sessions nav / status bar, `Pop Terminal back in` visible, title
-   *    `Terminal · <name>` (the popout page is chrome-less, so its readiness
+   *    `<name> #<n> — <session> · <server>` (the popout page is chrome-less, so its readiness
    *    gate is the tile testid, never the status bar).
    * 5. Assert the opener reflowed: the tty tile hidden (still mounted — the
    *    hidden class is display:none), the web tile visible.
@@ -381,7 +392,7 @@ test.describe("surface popout in the desktop shell", () => {
     await expect(
       popPage.getByTestId("surface-tile-tty").getByLabel("Pop Terminal back in"),
     ).toBeVisible();
-    await expect(popPage).toHaveTitle(`Terminal · ${name}`);
+    await expect(popPage).toHaveTitle(popoutTitleRe(name));
 
     await expect(hostPage.getByTestId("surface-tile-tty")).toBeHidden();
     await expect(hostPage.getByTestId("surface-tile-web")).toBeVisible();
