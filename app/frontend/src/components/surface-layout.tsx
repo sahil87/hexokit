@@ -104,7 +104,7 @@ import {
   reduceProgress,
   type TtyProgress,
 } from "@/lib/tty-progress";
-import { classifyAddress, displayForm, proxyPortOf, toWebAddTarget } from "@/lib/web-url";
+import { displayForm, toWebAddTarget } from "@/lib/web-url";
 import { canShellPopout } from "@/lib/shell";
 import type { WindowInfo } from "@/types";
 import type { Terminal } from "@xterm/xterm";
@@ -874,6 +874,7 @@ function WebTileContent({
   onPageTitle,
   shouldReclaimChord,
   webCapture,
+  mobile = false,
 }: {
   server: string;
   /** The tile window's owning session (the override entry's session half). */
@@ -889,6 +890,9 @@ function WebTileContent({
   /** The web keyboard-capture latch (SurfaceLayout prop) — narrows the
    *  native engine's chord table. */
   webCapture?: boolean;
+  /** The mobile chrome variant (reduced URL row) — SurfaceLayout owns the
+   *  mobile decision. */
+  mobile?: boolean;
 }) {
   const { addToast } = useToast();
   const webOverride = useWindowStore(
@@ -997,6 +1001,7 @@ function WebTileContent({
       tabs={webOverride?.webTabs ?? win.webTabs ?? []}
       active={webOverride?.webActive ?? win.webActive}
       webCapture={webCapture}
+      mobile={mobile}
       // The tile's tmux identity — scopes the native engine's guest retention
       // (park/adopt) and the chrome-owned destroy rule. A foreign tile passes
       // its HOME window, so the surface keeps one guest wherever it is shown.
@@ -2821,6 +2826,7 @@ export function SurfaceLayout({
   const renderContent = (
     tile: TileModel,
     hidden: boolean,
+    mobile: boolean,
   ) => {
     const { kind, leafId, visible } = tile;
     const tileWinId = tileWindowIdOf(leafId, windowId);
@@ -2878,6 +2884,7 @@ export function SurfaceLayout({
             win={windowRecordFor(tileWinId)}
             visible={visible}
             webCapture={webCapture}
+            mobile={mobile}
             onInteract={() => focusLeaf(leafId)}
             onPageTitle={(title) =>
               setWebPageTitles((prev) => {
@@ -3201,38 +3208,17 @@ export function SurfaceLayout({
     // tty shows its home window's status).
     const tileStatusWindow: WindowInfo | null =
       kind !== "tty" ? null : tileWinId === windowId ? (statusWindow ?? null) : (windowsById?.get(tileWinId) ?? null);
-    // Web tile header (260819-v6y4 R10): a kind badge (hues per the approved
-    // design study — green=present, amber=proxied port, blue=external) plus
-    // the page title reported up from the iframe, falling back to the
-    // address's display form. The `relative` kind renders no badge (the plain
-    // label + meta fallback below covers it). An ONBOARDING web tile
+    // Web tile header (260819-v6y4 R10): the page title reported up from the
+    // frame, falling back to the address's display form. The address KIND
+    // shows in the URL row's leading chip, not here. An ONBOARDING web tile
     // (empty/whitespace active web tab, 260821-zqlq) renders the plain
-    // `://  Web` label — no badge, no page title, no meta chip; the badge
-    // derivation is trimmed-keyed so empty input never reaches
-    // classifyAddress. All inputs read the TILE window's record.
+    // `://  Web` label — no page title, no meta chip. All inputs read the
+    // TILE window's record.
     const webUrl = activeWebUrl(tileWin).trim();
     // The code tile's per-window verb predicates (the tile window's own
     // drift/frame state — a foreign code tile reads its home window).
     const tileCodeFollowTarget = kind === "code" ? codeFollowTargetFor(tileWinId) : null;
     const tileCodeFrameMounted = kind === "code" && codeFrameMountedFor(tileWinId);
-    const webBadge: { text: string; cls: string } | null = (() => {
-      if (kind !== "web" || webUrl === "") return null;
-      const kindOf = classifyAddress(webUrl);
-      if (kindOf === "present") {
-        return { text: "present", cls: "text-accent-green border-accent-green/40 bg-accent-green/10" };
-      }
-      if (kindOf === "proxy") {
-        const port = proxyPortOf(webUrl);
-        return {
-          text: `:${port ?? "?"} proxy`,
-          cls: "text-signal-yellow border-signal-yellow/40 bg-signal-yellow/10",
-        };
-      }
-      if (kindOf === "external") {
-        return { text: "external", cls: "text-signal-blue border-signal-blue/40 bg-signal-blue/10" };
-      }
-      return null;
-    })();
     const isZoomed = zoomed && tile.visible && leafId === zoomedLeafId;
     // The fullscreened gui tile suppresses its layout verbs (the zoomed-tile
     // precedent) — ⤢ latched green is the exit.
@@ -3381,14 +3367,8 @@ export function SurfaceLayout({
             >
               {SURFACE_GLYPH[kind]}
             </span>
-            {webBadge ? (
+            {kind === "web" && webUrl !== "" ? (
               <>
-                <span
-                  data-testid="web-kind-badge"
-                  className={`shrink-0 rounded border px-1.5 text-[10px] ${webBadge.cls}`}
-                >
-                  {webBadge.text}
-                </span>
                 <span className="min-w-0 truncate text-text-primary">
                   {webPageTitles.get(tileWinId) ?? meta}
                 </span>
@@ -3902,7 +3882,7 @@ export function SurfaceLayout({
           // sidebar row-drag (its drop-catcher overlay sits above all tiles).
           className={`flex-1 min-h-0 flex flex-col ${draggingDivider !== null || draggingIntersection !== null || draggingTile !== null || rowDragActive ? "pointer-events-none" : ""}`}
         >
-          {renderContent(tile, hidden)}
+          {renderContent(tile, hidden, mobile)}
           {/* In-tile compose-strip dock (260813-j3jb): desktop only, in the
               dock tty tile (the first BARE tty, else the first tty leaf) —
               the strip sits below the terminal body, inside the tile frame. */}

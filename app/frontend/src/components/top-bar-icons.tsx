@@ -203,6 +203,31 @@ export function InspectGlyph() {
   );
 }
 
+/** Web page — lucide file (a page outline with a folded corner), the tab
+ *  strip's neutral fallback when a tab has neither a spinner nor a favicon.
+ *  Hue is the caller's (`text-text-secondary`, or the kind hue in a
+ *  mixed-kind family). */
+export function WebPageGlyph() {
+  return (
+    <ControlGlyph name="web-page">
+      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+    </ControlGlyph>
+  );
+}
+
+/** More — lucide ellipsis (three dots), the web tile URL row's ⋯ overflow
+ *  menu trigger. */
+export function MoreGlyph() {
+  return (
+    <ControlGlyph name="more">
+      <circle cx="12" cy="12" r="1" />
+      <circle cx="19" cy="12" r="1" />
+      <circle cx="5" cy="12" r="1" />
+    </ControlGlyph>
+  );
+}
+
 /** Refresh — lucide rotate-cw (circular arrow with a top-right arrowhead),
  *  the in-bar RefreshButton glyph. */
 export function RefreshGlyph() {

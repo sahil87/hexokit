@@ -1,8 +1,9 @@
 /** Web tab strip e2e: the tmux-backed family renders as URL-keyed mounted
  * frames; selection, close, draft materialization, and all three reorder
  * surfaces land in tmux; viewer-local drafts never do. The suite also covers
- * single-tab visibility, cross-viewer convergence, and close/new-tab browser
- * gestures.
+ * single-tab visibility, cross-viewer convergence, close/new-tab browser
+ * gestures, the folder active-tab treatment (with its separator rule), and
+ * the width ladder's icon-only/scroll rung.
  *
  * Shared setup: `beforeAll` creates a dedicated session `e2e-webtabs-<ts>`
  * (80×24); `afterAll` kills it. `beforeEach` route-stubs `/proxy/3001|3002|3003/**
@@ -324,6 +325,127 @@ test.describe("Web tab strip — drafts, reorder, gestures", () => {
     await URL_BAR(page).press("Escape");
     await expect(draftTabs(page)).toHaveCount(0);
     expect(webPosts).toBe(0);
+  });
+
+  /**
+   * Proves: the folder treatment — the strip sits on the inset ground and the
+   * active tab carries the raised card surface (rounded top, no bottom
+   * border) while inactive tabs stay fill-less secondary text; the hairline
+   * separators hide on either side of the active tab. The active tab's fill
+   * breaks the strip's bottom rule, so it joins the URL row below — read off
+   * screenshot pixels, not the class list, because a clipped overhang keeps
+   * the classes but paints the rule through.
+   * Steps:
+   * 1. Create the seeded three-tab window (active 2); navigate.
+   * 2. Assert tab 2 carries `bg-bg-card`/`rounded-t-md`/`border-b-0` and tabs
+   *    1/3 do not; assert no separator renders (both flank the active tab).
+   * 3. Screenshot; sample the strip's bottom pixel row: under tab 2 it matches
+   *    tab 2's fill a few pixels above, under tab 1 it does not (the rule).
+   * 4. Select tab 1; assert exactly one separator renders (between 2|3).
+   */
+  test("the active tab renders as a folder on the inset strip ground", async ({ page }) => {
+    await makeWindow(page, `wt-folder-${Date.now()}`);
+    await expect(strip(page)).toBeVisible({ timeout: READY_TIMEOUT });
+    const separators = strip(page).locator("span.w-px");
+
+    await expect(tab(page, 2)).toHaveClass(/bg-bg-card/);
+    await expect(tab(page, 2)).toHaveClass(/rounded-t-md/);
+    await expect(tab(page, 2)).toHaveClass(/border-b-0/);
+    await expect(tab(page, 1)).not.toHaveClass(/bg-bg-card/);
+    await expect(tab(page, 3)).not.toHaveClass(/bg-bg-card/);
+    await expect(tab(page, 1)).toHaveClass(/text-text-secondary/);
+    await expect(separators).toHaveCount(0);
+
+    // The strip ground's bottom pixel row, sampled from a real screenshot
+    // under each tab's horizontal centre (hit-testing cannot see paint: an
+    // inactive tab's transparent box covers the row too).
+    const ground = strip(page).locator("xpath=..");
+    const box = await ground.boundingBox();
+    if (box === null) throw new Error("strip ground has no box");
+    const rowY = Math.floor(box.y + box.height) - 1;
+    const centreX = async (n: number) => {
+      const b = await tab(page, n).boundingBox();
+      if (b === null) throw new Error(`tab ${n} has no box`);
+      return Math.floor(b.x + b.width / 2);
+    };
+    const shot = (await page.screenshot()).toString("base64");
+    const [underActive, underInactive, activeFill] = await page.evaluate(
+      async ({ png, points }) => {
+        const img = new Image();
+        img.src = `data:image/png;base64,${png}`;
+        await img.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext("2d");
+        if (ctx === null) throw new Error("no 2d context");
+        ctx.drawImage(img, 0, 0);
+        return points.map(([x, y]) => Array.from(ctx.getImageData(x, y, 1, 1).data.slice(0, 3)).join(","));
+      },
+      {
+        png: shot,
+        points: [
+          [await centreX(2), rowY],
+          [await centreX(1), rowY],
+          [await centreX(2), rowY - 6],
+        ],
+      },
+    );
+    expect(underActive).toBe(activeFill);
+    expect(underInactive).not.toBe(activeFill);
+
+    await tab(page, 1).click();
+    await expect(tab(page, 1)).toHaveAttribute("aria-selected", "true");
+    await expect(separators).toHaveCount(1);
+  });
+
+  /**
+   * Proves: the width ladder's icon-only rung and scroll — a 16-tab family in
+   * a narrow tile floors the active tab at 110px, shrinks inactive tabs to
+   * the 34px icon-only floor (label visually hidden but present, title kept,
+   * no × even on the fine pointer), and the strip scrolls behind the trailing
+   * fade with the selected tab scrolled into view.
+   * Steps:
+   * 1. Stamp a 16-tab family; set a 420px viewport; navigate.
+   * 2. Assert tab 1 (active) is ~110px with a ×, tab 2 is ~34px with a
+   *    visually hidden label, its title kept, and no ×.
+   * 3. Assert the trailing fade renders; click the last tab; assert it is
+   *    selected and inside the strip's visible box.
+   */
+  test("a 16-tab family in a narrow tile goes icon-only and scrolls behind the fade", async ({
+    page,
+  }) => {
+    test.setTimeout(30_000);
+    const sixteen = Array.from({ length: 16 }, (_, i) => `/proxy/300${i % 3 + 1}/tab${i}`);
+    const id = await makeWindow(page, `wt-ladder-${Date.now()}`, sixteen, 1);
+    await page.setViewportSize({ width: 420, height: 800 });
+    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}`);
+    await expect(strip(page)).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(page.getByTestId("web-tab")).toHaveCount(16);
+
+    const activeBox = await tab(page, 1).boundingBox();
+    const iconBox = await tab(page, 2).boundingBox();
+    if (!activeBox || !iconBox) throw new Error("tab boxes unavailable");
+    expect(Math.round(activeBox.width)).toBe(110);
+    expect(Math.round(iconBox.width)).toBe(34);
+    // Icon-only inactive: the label stays in the DOM visually hidden (the
+    // loaded page title), the title survives, and no × renders — while the
+    // active tab keeps its ×.
+    await expect(tab(page, 2).locator("span.sr-only")).toHaveText("proxy stub");
+    await expect(tab(page, 2)).toHaveAttribute("title", /localhost:300/);
+    await expect(tab(page, 2).getByTestId("web-tab-close")).toHaveCount(0);
+    await expect(tab(page, 1).getByTestId("web-tab-close")).toBeAttached();
+
+    // The overflowing strip shows the trailing fade, and selecting the last
+    // tab scrolls it into the strip's visible box.
+    await expect(page.locator(".rk-web-strip-fade")).toBeVisible();
+    await tab(page, 16).click();
+    await expect(tab(page, 16)).toHaveAttribute("aria-selected", "true");
+    const stripBox = await strip(page).boundingBox();
+    const lastBox = await tab(page, 16).boundingBox();
+    if (!stripBox || !lastBox) throw new Error("strip/tab boxes unavailable");
+    expect(lastBox.x).toBeGreaterThanOrEqual(stripBox.x - 1);
+    expect(lastBox.x + lastBox.width).toBeLessThanOrEqual(stripBox.x + stripBox.width + 1);
   });
 
   /**

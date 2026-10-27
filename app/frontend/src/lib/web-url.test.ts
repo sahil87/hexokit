@@ -9,6 +9,7 @@ import {
   toNativeSrc,
   toProxySrc,
   toWebAddTarget,
+  webKindChip,
   webTabTitle,
 } from "./web-url";
 
@@ -380,5 +381,36 @@ describe("toNativeSrc", () => {
     // The loopback absolute case is the one where legacy differs from the
     // other modes: it rides the same-origin proxy path.
     expect(toNativeSrc("http://localhost:6000/x", "legacy")).toBe("/proxy/6000/x");
+  });
+});
+
+describe("webKindChip", () => {
+  it("present renders the green chip", () => {
+    expect(webKindChip("/present/runKit/3f9a2c8e1b77/report.html?v=1")).toEqual({
+      text: "present",
+      cls: "text-accent-green border-accent-green/40 bg-accent-green/10",
+    });
+  });
+
+  it("proxy renders the amber chip with its port", () => {
+    expect(webKindChip("/proxy/5173/")).toEqual({
+      text: ":5173 proxy",
+      cls: "text-signal-yellow border-signal-yellow/40 bg-signal-yellow/10",
+    });
+    expect(webKindChip("http://localhost:6000/x")?.text).toBe(":6000 proxy");
+    expect(webKindChip("http://localhost/x")?.text).toBe(":80 proxy");
+  });
+
+  it("external renders the blue chip", () => {
+    expect(webKindChip("https://shll.ai/rk/skill")).toEqual({
+      text: "external",
+      cls: "text-signal-blue border-signal-blue/40 bg-signal-blue/10",
+    });
+  });
+
+  it("relative and empty render no chip", () => {
+    expect(webKindChip("/tutorial/tutorial.html#ch1")).toBeNull();
+    expect(webKindChip("")).toBeNull();
+    expect(webKindChip("   ")).toBeNull();
   });
 });
