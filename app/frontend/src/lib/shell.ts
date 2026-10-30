@@ -13,7 +13,8 @@
  * sender gating), not here.
  */
 
-import type { WebNativeMode } from "./web-url";
+import { getHealth } from "@/api/client";
+import { daemonLoopbackOrigin, type WebNativeMode } from "./web-url";
 
 export interface RunkitShell {
   version: string;
@@ -817,6 +818,31 @@ export async function shellWebMode(): Promise<WebNativeMode> {
     return "legacy";
   }
   return isWebModeOk(result) ? result.mode : "legacy";
+}
+
+let daemonOriginMemo: Promise<string | null> | null = null;
+
+/**
+ * The rk daemon's loopback origin (`http://127.0.0.1:<health.tunnel>`) from
+ * the SPA's own same-origin `/api/health` — the target a `proxy`-mode guest
+ * (dialed from the rk host through the tunnel) can reach regardless of what
+ * public name the viewer used. The listen port is startup-bound, so a
+ * successful read is memoized for the SPA lifetime; a failed or unusable
+ * read resolves `null` (callers degrade to the viewer-origin load) and is
+ * not memoized, so a later mount retries. Callers fetch only in `proxy`
+ * mode. Never throws.
+ */
+export function shellDaemonOrigin(): Promise<string | null> {
+  if (daemonOriginMemo) return daemonOriginMemo;
+  const read = getHealth().then(
+    (health) => daemonLoopbackOrigin(health.tunnel),
+    () => null,
+  );
+  daemonOriginMemo = read;
+  void read.then((origin) => {
+    if (origin === null && daemonOriginMemo === read) daemonOriginMemo = null;
+  });
+  return read;
 }
 
 /** A `web` group that also carries the optional `park` invoker (shells

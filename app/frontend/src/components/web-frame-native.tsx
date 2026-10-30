@@ -61,6 +61,7 @@ import {
   setShellWebViewChords,
   setShellWebViewVisible,
   setShellWebViewZoom,
+  shellDaemonOrigin,
   shellWebMode,
   stopFindShellWebView,
   type ShellWebEvent,
@@ -68,7 +69,7 @@ import {
 } from "@/lib/shell";
 import { isOccludingOpen, subscribe } from "@/lib/overlay-presence";
 import { useTileDragPosture } from "@/lib/tile-drag-context";
-import { toNativeSrc } from "@/lib/web-url";
+import { toNativeSrc, toTrackedLocation } from "@/lib/web-url";
 import {
   tileErrorForGuestFailure,
   tileErrorForGuestResponse,
@@ -95,22 +96,6 @@ export const WEB_FRAME_NATIVE_DEFAULT_CAPABILITIES: WebFrameCapabilities = {
 // the shell's 128-char tabKey bound, and fresh per engine mount so a
 // StrictMode replay or a kind flip never reuses a key.
 let mountSeq = 0;
-
-/** Root-relative form for same-origin URLs (the iframe engine's display
- *  convention, so `displayForm` sees the same shape); the absolute URL for
- *  anything else — the address bar then shows where the guest navigated. An
- *  unparsable string is stored raw. */
-function toTracked(absolute: string): string {
-  try {
-    const parsed = new URL(absolute);
-    if (parsed.origin === window.location.origin) {
-      return parsed.pathname + parsed.search + parsed.hash;
-    }
-    return absolute;
-  } catch {
-    return absolute;
-  }
-}
 
 /** One mounted web tab behind the native bridge (P3 — hide, never unmount):
  *  owns no content document; the guest view paints over the placeholder,
@@ -182,6 +167,10 @@ export function WebFrameNative({
   // Until then measure() and the visibility effect only track state; the
   // post-create block sends the current rect and visibility.
   const createdRef = useRef(false);
+  // The daemon loopback origin the guest was created against (`proxy` mode
+  // only; null otherwise) — the tracked-location mapping folds it back to
+  // root-relative form, the iframe engine's display convention.
+  const daemonOriginRef = useRef<string | null>(null);
   // The latest visibility rule, for the post-create send (the effect that
   // normally sends it has already run and been skipped).
   const wantVisibleRef = useRef(false);
@@ -253,7 +242,9 @@ export function WebFrameNative({
           }
           break;
         case "url": {
-          setTrackedLocation(toTracked(event.url));
+          setTrackedLocation(
+            toTrackedLocation(event.url, window.location.origin, daemonOriginRef.current),
+          );
           setCanGoBack(event.canGoBack);
           setCanGoForward(event.canGoForward);
           // Re-apply the bucket on every navigation — Chromium's per-host
@@ -296,9 +287,14 @@ export function WebFrameNative({
     void (async () => {
       const mode = await shellWebMode();
       if (cancelled) return;
+      // Only `proxy` needs the daemon's own origin: its guest traffic is
+      // dialed from the rk host, which may not resolve the viewer-side name.
+      const daemonOrigin = mode === "proxy" ? await shellDaemonOrigin() : null;
+      if (cancelled) return;
+      daemonOriginRef.current = daemonOrigin;
       let absoluteUrl: string;
       try {
-        absoluteUrl = new URL(toNativeSrc(url, mode), window.location.origin).href;
+        absoluteUrl = new URL(toNativeSrc(url, mode, daemonOrigin), window.location.origin).href;
       } catch {
         absoluteUrl = url;
       }

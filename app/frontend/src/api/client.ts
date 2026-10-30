@@ -68,6 +68,10 @@ export interface HealthResponse {
    *  Display surfaces prefer it over `hostname`; absent when unset. The real
    *  hostname stays authoritative for the accent hash and SSH deeplinks. */
   instanceName?: string;
+  /** The daemon's startup-bound listen port. Always emitted by current
+   *  daemons; optional here so an older/unexpected response degrades rather
+   *  than throws (the native web tile derives its loopback origin from it). */
+  tunnel?: number;
 }
 
 export async function getHealth(): Promise<HealthResponse> {

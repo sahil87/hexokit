@@ -33,7 +33,13 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { hostOrigins, launchShell, pageByOrigin, seedHosts } from "../e2e/_shell";
+import {
+  hostOrigins,
+  launchShell,
+  pageByOrigin,
+  seedHosts,
+  type LaunchExtras,
+} from "../e2e/_shell";
 
 /** Readiness gate budget (the frontend convention): wider on CI to absorb
  *  shared-runner latency. */
@@ -199,23 +205,29 @@ function recordingPath(): string | null {
 }
 
 export const test = base.extend<{
+  /** Hosts seeded after the two default ones (a spec opts in with
+   *  `test.use`; the default is the plain two-host shape). */
+  extraHosts: { id: string; name: string; url: string }[];
+  /** Extra shell launch inputs (switches, preloads, env) for a spec's rig. */
+  launchExtras: LaunchExtras;
   configHome: string;
   app: ElectronApplication;
   hostPage: Page;
 }>({
-  // eslint-disable-next-line no-empty-pattern
-  configHome: async ({}, use) => {
+  extraHosts: [[], { option: true }],
+  launchExtras: [{}, { option: true }],
+  configHome: async ({ extraHosts }, use) => {
     const dir = mkdtempSync(join(tmpdir(), "rk-desktop-demo-"));
-    seedHosts(dir);
+    seedHosts(dir, extraHosts);
     await use(dir);
     rmSync(dir, { recursive: true, force: true });
   },
-  app: async ({ configHome }, use) => {
+  app: async ({ configHome, launchExtras }, use) => {
     // DEMO_SHELL_APP_DIR (the --before pass) launches the base tree's compiled
     // shell with its own Electron binary; unset, the launch is this tree's,
     // unchanged.
     const appDir = process.env.DEMO_SHELL_APP_DIR;
-    const app = await launchShell(configHome, appDir ? { appDir } : {});
+    const app = await launchShell(configHome, { ...(appDir ? { appDir } : {}), ...launchExtras });
     await use(app);
     await app.close();
   },

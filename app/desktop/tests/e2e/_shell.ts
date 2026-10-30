@@ -34,6 +34,13 @@
  *   lane's --before pass, where the old build is part of "before"). It never
  *   alters the default path: no override means this tree, byte-identical
  *   behavior for the e2e lane.
+ * - `unresolvableHostRig` simulates a public front end the SHELL resolves but
+ *   the rk SERVER cannot (a Tailscale Service name, split-horizon DNS): a
+ *   `.test` name mapped to loopback in both of the shell's resolvers —
+ *   Chromium's `--host-resolver-rules` (renderer, `net.fetch` probe) and the
+ *   `_host-map.cjs` preload (the main process's Node tunnel client, which
+ *   Chromium's rules never reach). The Go server dials from the rig host,
+ *   where the name does not exist — exactly a remote host's failure shape.
  */
 import { _electron, type ElectronApplication, type Page } from "@playwright/test";
 import http from "node:http";
@@ -72,7 +79,10 @@ export function hostOrigins(): { a: string; b: string } {
 /** Seed `<configHome>/hexokit-desktop/hosts.json` with the two-host list
  *  (activeId e2e-a). With no windows.json beside it, the shell's cold start
  *  opens exactly one window on e2e-a. */
-export function seedHosts(configHome: string): void {
+export function seedHosts(
+  configHome: string,
+  extraHosts: { id: string; name: string; url: string }[] = [],
+): void {
   const origins = hostOrigins();
   const dir = join(configHome, APP_DATA_DIR);
   mkdirSync(dir, { recursive: true });
@@ -84,9 +94,44 @@ export function seedHosts(configHome: string): void {
       hosts: [
         { id: "e2e-a", name: "e2e A", url: origins.a },
         { id: "e2e-b", name: "e2e B", url: origins.b },
+        ...extraHosts,
       ],
     }),
   );
+}
+
+/** Extra launch inputs a rig adds on top of the default shell launch. */
+export interface LaunchExtras {
+  /** Extra Electron/Chromium switches, appended after the defaults. */
+  args?: string[];
+  /** Extra main-process `-r` preloads, prepended before the app entry. */
+  preloads?: string[];
+  /** Extra environment for the shell process. */
+  env?: Record<string, string>;
+}
+
+/** The unresolvable-origin rig: a host whose origin the shell resolves but
+ *  the rk server cannot. `host` is the seedable host entry (id `e2e-unres`),
+ *  `launch` the extras to hand `launchShell`. The origin serves the rig's
+ *  own Vite port, so the host page is the real SPA. */
+export const UNRESOLVABLE_HOST_NAME = "rk-demo.test";
+
+export function unresolvableHostRig(): {
+  host: { id: string; name: string; url: string };
+  launch: LaunchExtras;
+} {
+  return {
+    host: {
+      id: "e2e-unres",
+      name: "e2e Unresolvable",
+      url: `http://${UNRESOLVABLE_HOST_NAME}:${E2E_PORT}`,
+    },
+    launch: {
+      args: [`--host-resolver-rules=MAP ${UNRESOLVABLE_HOST_NAME} 127.0.0.1`],
+      preloads: [join(__dirname, "_host-map.cjs")],
+      env: { RK_E2E_HOST_MAP: `${UNRESOLVABLE_HOST_NAME}=127.0.0.1` },
+    },
+  };
 }
 
 /** Launch the compiled shell (package.json main = dist/main.js) with the
@@ -104,13 +149,15 @@ export function seedHosts(configHome: string): void {
  *  loader comes from THIS tree's playwright-core (the driving copy). */
 export function launchShell(
   configHome: string,
-  opts: { appDir?: string } = {},
+  opts: { appDir?: string } & LaunchExtras = {},
 ): Promise<ElectronApplication> {
+  const preloads = (opts.preloads ?? []).flatMap((file) => ["-r", file]);
+  const env = { ...process.env, ...opts.env, XDG_CONFIG_HOME: configHome };
   if (!opts.appDir) {
     return _electron.launch({
-      args: [".", "--no-sandbox"],
+      args: [...preloads, ".", "--no-sandbox", ...(opts.args ?? [])],
       cwd: DESKTOP_DIR,
-      env: { ...process.env, XDG_CONFIG_HOME: configHome },
+      env,
     });
   }
   const requireFromAppDir = createRequire(join(opts.appDir, "package.json"));
@@ -127,10 +174,10 @@ export function launchShell(
     "loader.js",
   );
   return _electron.launch({
-    args: ["-r", loader, ".", "--no-sandbox"],
+    args: ["-r", loader, ...preloads, ".", "--no-sandbox", ...(opts.args ?? [])],
     cwd: opts.appDir,
     executablePath: requireFromAppDir("electron"),
-    env: { ...process.env, XDG_CONFIG_HOME: configHome },
+    env,
   });
 }
 
