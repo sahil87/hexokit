@@ -9,3 +9,4 @@
 {"cmd":"fab-continue","event":"command","ts":"2026-10-30T09:55:26Z"}
 {"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-10-30T10:03:05Z"}
 {"event":"review","result":"passed","ts":"2026-10-30T10:03:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-10-30T10:05:21Z"}
