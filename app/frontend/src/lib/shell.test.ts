@@ -687,6 +687,55 @@ describe("parkShellWebView", () => {
   });
 });
 
+// The memo is module-level state, so each case imports a fresh module copy
+// wired to a stubbed health read.
+describe("shellDaemonOrigin", () => {
+  async function load(getHealth: () => Promise<unknown>) {
+    vi.resetModules();
+    vi.doMock("@/api/client", () => ({ getHealth }));
+    return (await import("./shell")).shellDaemonOrigin;
+  }
+
+  afterEach(() => {
+    vi.doUnmock("@/api/client");
+    vi.resetModules();
+  });
+
+  it("derives the loopback origin from health.tunnel and memoizes the read", async () => {
+    const getHealth = vi.fn(() => Promise.resolve({ status: "ok", hostname: "h", tunnel: 3000 }));
+    const shellDaemonOrigin = await load(getHealth);
+    expect(await shellDaemonOrigin()).toBe("http://127.0.0.1:3000");
+    expect(await shellDaemonOrigin()).toBe("http://127.0.0.1:3000");
+    expect(getHealth).toHaveBeenCalledTimes(1);
+  });
+
+  it("shares one in-flight read across concurrent callers", async () => {
+    const getHealth = vi.fn(() => Promise.resolve({ tunnel: 3000 }));
+    const shellDaemonOrigin = await load(getHealth);
+    const origins = await Promise.all([shellDaemonOrigin(), shellDaemonOrigin()]);
+    expect(origins).toEqual(["http://127.0.0.1:3000", "http://127.0.0.1:3000"]);
+    expect(getHealth).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves null on a failed read, never throwing, and retries on the next call", async () => {
+    const getHealth = vi
+      .fn<() => Promise<unknown>>()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({ tunnel: 3000 });
+    const shellDaemonOrigin = await load(getHealth);
+    expect(await shellDaemonOrigin()).toBeNull();
+    expect(await shellDaemonOrigin()).toBe("http://127.0.0.1:3000");
+    expect(getHealth).toHaveBeenCalledTimes(2);
+  });
+
+  it("resolves null when health carries no usable tunnel port", async () => {
+    for (const health of [{ status: "ok" }, { tunnel: 0 }, { tunnel: "3000" }, { tunnel: 65536 }]) {
+      const shellDaemonOrigin = await load(() => Promise.resolve(health));
+      expect(await shellDaemonOrigin()).toBeNull();
+    }
+  });
+});
+
 describe("shellWebMode", () => {
   it("resolves the reported mode on an { ok: true } result", async () => {
     for (const mode of ["direct", "proxy", "legacy"] as const) {

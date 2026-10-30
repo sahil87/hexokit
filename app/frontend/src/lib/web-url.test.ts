@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   classifyAddress,
+  daemonLoopbackOrigin,
   displayForm,
   isAllowedUrl,
   normalizeAddressInput,
@@ -8,6 +9,7 @@ import {
   routeAddressSubmit,
   toNativeSrc,
   toProxySrc,
+  toTrackedLocation,
   toWebAddTarget,
   webKindChip,
   webTabTitle,
@@ -336,6 +338,8 @@ describe("toWebAddTarget", () => {
   });
 });
 
+const DAEMON = "http://127.0.0.1:3000";
+
 describe("toNativeSrc", () => {
   // The address-kind matrix runs against all three modes: proxy path, proxy
   // root, absolute loopback, external, present, and plain relative.
@@ -351,22 +355,58 @@ describe("toNativeSrc", () => {
     }
   });
 
-  it("direct/proxy: every other address kind passes through unchanged", () => {
+  it("direct/proxy: absolute URLs pass through unchanged", () => {
     for (const mode of ["direct", "proxy"] as const) {
-      expect(toNativeSrc("http://localhost:6000/x", mode)).toBe("http://localhost:6000/x");
-      expect(toNativeSrc("http://127.0.0.1:6000/x?a=1", mode)).toBe("http://127.0.0.1:6000/x?a=1");
-      expect(toNativeSrc("https://shll.ai/rk/skill", mode)).toBe("https://shll.ai/rk/skill");
-      expect(toNativeSrc("/present/@320/report.html?server=a&v=1", mode)).toBe(
-        "/present/@320/report.html?server=a&v=1",
+      expect(toNativeSrc("http://localhost:6000/x", mode, DAEMON)).toBe("http://localhost:6000/x");
+      expect(toNativeSrc("http://127.0.0.1:6000/x?a=1", mode, DAEMON)).toBe(
+        "http://127.0.0.1:6000/x?a=1",
       );
-      expect(toNativeSrc("/present/runKit/3f9a2c8e1b77/report.html?v=1", mode)).toBe(
-        "/present/runKit/3f9a2c8e1b77/report.html?v=1",
+      expect(toNativeSrc("https://shll.ai/rk/skill", mode, DAEMON)).toBe(
+        "https://shll.ai/rk/skill",
       );
-      expect(toNativeSrc("/board/runKit", mode)).toBe("/board/runKit");
     }
   });
 
-  it("legacy: exactly toProxySrc for every address kind", () => {
+  it("direct: root-relative rk paths pass through unchanged, daemon origin or not", () => {
+    for (const origin of [null, DAEMON]) {
+      expect(toNativeSrc("/present/@320/report.html?server=a&v=1", "direct", origin)).toBe(
+        "/present/@320/report.html?server=a&v=1",
+      );
+      expect(
+        toNativeSrc("/present/runKit/3f9a2c8e1b77/report.html?v=1", "direct", origin),
+      ).toBe("/present/runKit/3f9a2c8e1b77/report.html?v=1");
+      expect(toNativeSrc("/board/runKit", "direct", origin)).toBe("/board/runKit");
+    }
+  });
+
+  it("proxy + daemon origin: root-relative rk paths resolve against the daemon loopback origin", () => {
+    expect(
+      toNativeSrc("/present/runKit/f65b8ea5966f/agents-settings-mock.html?v=1", "proxy", DAEMON),
+    ).toBe("http://127.0.0.1:3000/present/runKit/f65b8ea5966f/agents-settings-mock.html?v=1");
+    expect(toNativeSrc("/present/@320/report.html?server=a&v=1#top", "proxy", DAEMON)).toBe(
+      "http://127.0.0.1:3000/present/@320/report.html?server=a&v=1#top",
+    );
+    expect(toNativeSrc("/board/runKit", "proxy", DAEMON)).toBe("http://127.0.0.1:3000/board/runKit");
+  });
+
+  it("proxy + null daemon origin: root-relative paths pass through unchanged", () => {
+    expect(toNativeSrc("/present/runKit/3f9a2c8e1b77/report.html?v=1", "proxy")).toBe(
+      "/present/runKit/3f9a2c8e1b77/report.html?v=1",
+    );
+    expect(toNativeSrc("/board/runKit", "proxy", null)).toBe("/board/runKit");
+  });
+
+  it("proxy: a /proxy/{port} slot still maps to localhost, never the daemon origin", () => {
+    expect(toNativeSrc("/proxy/6000/docs?x=1", "proxy", DAEMON)).toBe(
+      "http://localhost:6000/docs?x=1",
+    );
+  });
+
+  it("proxy: a scheme-relative address is never rewritten against the daemon origin", () => {
+    expect(toNativeSrc("//evil.example/x", "proxy", DAEMON)).toBe("//evil.example/x");
+  });
+
+  it("legacy: exactly toProxySrc for every address kind, daemon origin ignored", () => {
     const cases = [
       "/proxy/6000/assets/x.js",
       "/proxy/6000",
@@ -377,10 +417,60 @@ describe("toNativeSrc", () => {
     ];
     for (const url of cases) {
       expect(toNativeSrc(url, "legacy")).toBe(toProxySrc(url));
+      expect(toNativeSrc(url, "legacy", DAEMON)).toBe(toProxySrc(url));
     }
     // The loopback absolute case is the one where legacy differs from the
     // other modes: it rides the same-origin proxy path.
     expect(toNativeSrc("http://localhost:6000/x", "legacy")).toBe("/proxy/6000/x");
+  });
+});
+
+describe("daemonLoopbackOrigin", () => {
+  it("builds the loopback origin from an integer port in 1..65535", () => {
+    expect(daemonLoopbackOrigin(3000)).toBe("http://127.0.0.1:3000");
+    expect(daemonLoopbackOrigin(1)).toBe("http://127.0.0.1:1");
+    expect(daemonLoopbackOrigin(65535)).toBe("http://127.0.0.1:65535");
+  });
+
+  it("is null for an absent, non-integer, or out-of-range port", () => {
+    for (const bad of [undefined, null, "3000", 1.5, NaN, 0, -1, 65536]) {
+      expect(daemonLoopbackOrigin(bad)).toBeNull();
+    }
+  });
+});
+
+describe("toTrackedLocation", () => {
+  const VIEWER = "https://rk.example.test";
+
+  it("folds the daemon loopback origin back to root-relative", () => {
+    expect(
+      toTrackedLocation("http://127.0.0.1:3000/present/x/y.html?v=1#h", VIEWER, DAEMON),
+    ).toBe("/present/x/y.html?v=1#h");
+  });
+
+  it("folds the viewer origin to root-relative, with or without a daemon origin", () => {
+    expect(toTrackedLocation("https://rk.example.test/board/runKit?a=1", VIEWER, DAEMON)).toBe(
+      "/board/runKit?a=1",
+    );
+    expect(toTrackedLocation("https://rk.example.test/board/runKit", VIEWER, null)).toBe(
+      "/board/runKit",
+    );
+  });
+
+  it("keeps a foreign origin absolute — including loopback when the daemon origin is unknown", () => {
+    expect(toTrackedLocation("https://shll.ai/rk/skill", VIEWER, DAEMON)).toBe(
+      "https://shll.ai/rk/skill",
+    );
+    expect(toTrackedLocation("http://127.0.0.1:3000/x", VIEWER, null)).toBe(
+      "http://127.0.0.1:3000/x",
+    );
+    expect(toTrackedLocation("http://127.0.0.1:4000/x", VIEWER, DAEMON)).toBe(
+      "http://127.0.0.1:4000/x",
+    );
+  });
+
+  it("keeps an unparsable string raw", () => {
+    expect(toTrackedLocation("not a url", VIEWER, DAEMON)).toBe("not a url");
   });
 });
 

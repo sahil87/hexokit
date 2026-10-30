@@ -20,7 +20,10 @@
  *    same-origin proxy, everything else passes through.
  * 6. `toNativeSrc` — the native engine's mode-aware load target: in the
  *    host-reported `direct`/`proxy` modes a stored `/proxy/{port}` slot is
- *    re-expressed as its literal loopback URL; `legacy` is `toProxySrc`.
+ *    re-expressed as its literal loopback URL, and in `proxy` any other
+ *    root-relative address resolves against the daemon's loopback origin
+ *    (`daemonLoopbackOrigin`); `legacy` is `toProxySrc`. `toTrackedLocation`
+ *    is the inverse for a navigated guest URL.
  * 7. `webKindChip` — the address field's leading kind chip: text + hue
  *    classes per kind (`present` / `:<port> proxy` / `external`), null for
  *    `relative` and empty input.
@@ -375,6 +378,11 @@ export function routeAddressSubmit(input: string): AddressSubmitRoute {
   return { kind: "reject" };
 }
 
+/** A root-relative path: a single leading `/`, not scheme-relative `//`. */
+function isRootRelative(value: string): boolean {
+  return value.startsWith("/") && !value.startsWith("//");
+}
+
 /**
  * The frontend mirror of the backend @rk_win_url scheme allowlist (R1): absolute
  * http:/https: URLs with a host, and root-relative paths (a single leading
@@ -384,7 +392,7 @@ export function routeAddressSubmit(input: string): AddressSubmitRoute {
 export function isAllowedUrl(input: string): boolean {
   const value = input.trim();
   if (value === "") return false;
-  if (value.startsWith("/")) return !value.startsWith("//");
+  if (value.startsWith("/")) return isRootRelative(value);
   const abs = parseHttpUrl(value);
   return abs !== null && abs.host !== "";
 }
@@ -427,14 +435,64 @@ export function toWebAddTarget(url: string): string {
 export type WebNativeMode = "direct" | "proxy" | "legacy";
 
 /**
+ * The rk daemon's loopback origin from its health-reported listen port
+ * (`tunnel`): `http://127.0.0.1:<port>` for an integer in 1..65535, else
+ * null. `127.0.0.1` (not `localhost`) is the exact target the shell's
+ * capability probe proves dialable through the tunnel before it grants
+ * `proxy` mode.
+ */
+export function daemonLoopbackOrigin(tunnel: unknown): string | null {
+  if (typeof tunnel !== "number" || !Number.isInteger(tunnel)) return null;
+  if (tunnel < 1 || tunnel > 65535) return null;
+  return `http://127.0.0.1:${tunnel}`;
+}
+
+/**
  * The native engine's load target for a stored address, per the host's mode.
  * In `direct`/`proxy` the guest session resolves loopback on the rk host, so
  * a stored `/proxy/{port}` slot is re-expressed as the literal loopback URL it
  * rides (the `toWebAddTarget` inverse mapping — the same slot value then still
- * works in a browser viewer's iframe engine); absolute URLs and every other
- * address kind pass through unchanged. `legacy` is exactly `toProxySrc`.
+ * works in a browser viewer's iframe engine); absolute URLs pass through
+ * unchanged. In `proxy` the guest's request is dialed from the rk host, which
+ * need not resolve the viewer-side public origin a relative address would
+ * otherwise resolve against, so any other root-relative rk path resolves
+ * against `daemonOrigin` (the daemon's own loopback origin) when known; with
+ * a null origin, and in `direct` (where the viewer origin IS the local
+ * daemon), it passes through for the caller to resolve. `legacy` is exactly
+ * `toProxySrc`.
  */
-export function toNativeSrc(url: string, mode: WebNativeMode): string {
+export function toNativeSrc(
+  url: string,
+  mode: WebNativeMode,
+  daemonOrigin: string | null = null,
+): string {
   if (mode === "legacy") return toProxySrc(url);
-  return toWebAddTarget(url);
+  const target = toWebAddTarget(url);
+  if (mode === "proxy" && daemonOrigin !== null && isRootRelative(target)) {
+    return new URL(target, daemonOrigin).href;
+  }
+  return target;
+}
+
+/**
+ * The tracked (stored-form) location of a navigated guest URL: root-relative
+ * (`pathname + search + hash`) when it sits on the viewer's own origin or on
+ * the daemon's loopback origin (where `toNativeSrc` loads rk-relative pages
+ * in `proxy`); any other origin stays absolute and an unparsable string is
+ * kept raw. Never throws.
+ */
+export function toTrackedLocation(
+  absolute: string,
+  viewerOrigin: string,
+  daemonOrigin: string | null,
+): string {
+  try {
+    const parsed = new URL(absolute);
+    if (parsed.origin === viewerOrigin || parsed.origin === daemonOrigin) {
+      return parsed.pathname + parsed.search + parsed.hash;
+    }
+    return absolute;
+  } catch {
+    return absolute;
+  }
 }
