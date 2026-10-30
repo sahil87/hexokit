@@ -151,7 +151,7 @@ test.describe("Recovery section", () => {
    * 2. Assert the `Recovery` region and heading are visible, plus the
    *    `Restore all (2)` button.
    * 3. On the `kit` row assert the hollow dot (`not running`), the meta line
-   *    `1 session · 2 tabs · last seen 1h ago · system restart`, and the
+   *    `1 group · 2 tabs · last seen 1h ago · system restart`, and the
    *    `Restore kit` / `Dismiss recovery for kit` buttons; assert the `work`
    *    row exists.
    */
@@ -170,7 +170,7 @@ test.describe("Recovery section", () => {
     const kitRow = page.getByTestId("recovery-row-kit");
     await expect(kitRow).toBeVisible();
     await expect(kitRow.getByRole("img", { name: "not running" })).toBeVisible();
-    await expect(kitRow).toContainText("1 session · 2 tabs · last seen 1h ago · system restart");
+    await expect(kitRow).toContainText("1 group · 2 tabs · last seen 1h ago · system restart");
     await expect(kitRow.getByRole("button", { name: "Restore kit" })).toBeVisible();
     await expect(kitRow.getByRole("button", { name: "Dismiss recovery for kit" })).toBeVisible();
     await expect(page.getByTestId("recovery-row-work")).toBeVisible();
