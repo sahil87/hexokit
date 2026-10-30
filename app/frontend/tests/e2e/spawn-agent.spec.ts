@@ -146,7 +146,7 @@ async function openViaSidebarCard(page: Page, session: string) {
   await expect(async () => {
     await page.mouse.move(700, 500);
     await row.hover();
-    await expect(card).toContainText(`Session ${session}`, { timeout: 3_000 });
+    await expect(card).toContainText(`Group ${session}`, { timeout: 3_000 });
   }).toPass({ timeout: 15_000 });
   const rowBox = (await row.boundingBox())!;
   const cardBox = (await card.boundingBox())!;

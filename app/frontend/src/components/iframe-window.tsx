@@ -1229,7 +1229,7 @@ export function IframeWindow({
                 data-testid="web-tab-draft"
                 data-draft-id={draft.id}
                 tabIndex={isSelected ? 0 : -1}
-                title="New tab — Enter materializes it, Esc discards"
+                title="New web tab — Enter materializes it, Esc discards"
                 style={width !== undefined ? { width } : undefined}
                 onClick={() => {
                   setSelectedDraft(draft.id);
@@ -1261,11 +1261,11 @@ export function IframeWindow({
                   aria-hidden="true"
                   className="shrink-0 inline-block w-1.5 h-1.5 rounded-full bg-text-secondary/60"
                 />
-                <span className={`min-w-0 truncate ${isIconOnly ? "sr-only" : ""}`}>{`new tab ${idx + 1}`}</span>
+                <span className={`min-w-0 truncate ${isIconOnly ? "sr-only" : ""}`}>{`new web tab ${idx + 1}`}</span>
                 {!(isIconOnly && !isSelected) && (
                   <button
                     type="button"
-                    aria-label={`Discard new tab ${idx + 1}`}
+                    aria-label={`Discard new web tab ${idx + 1}`}
                     data-testid="web-tab-draft-close"
                     tabIndex={-1}
                     onClick={(e) => {
@@ -1371,7 +1371,7 @@ export function IframeWindow({
             value={selectedDraft !== null ? inputUrl : editing ? inputUrl : displayForm(rawAddress)}
             placeholder={
               selectedDraft !== null
-                ? "type an address — Enter opens the tab, Esc discards"
+                ? "type an address — Enter opens the web tab, Esc discards"
                 : onboarding
                   ? "localhost:3000 · /present/… · https://…"
                   : undefined
@@ -1662,7 +1662,7 @@ export function IframeWindow({
               >
                 ://
               </span>
-              <span className="text-text-primary text-[13px]">New tab</span>
+              <span className="text-text-primary text-[13px]">New web tab</span>
               <span className="text-text-secondary text-[11px] text-center">
                 type an address above — Enter opens it here, Esc discards
               </span>

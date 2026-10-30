@@ -24,7 +24,7 @@ function renderPrompt(overrides?: {
 }
 
 function input(): HTMLInputElement {
-  return screen.getByRole("textbox", { name: "Session name" });
+  return screen.getByRole("textbox", { name: "Group name" });
 }
 
 describe("SessionNamePrompt", () => {

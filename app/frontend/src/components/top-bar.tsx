@@ -1518,7 +1518,7 @@ export function TopBar({
                 {showServerCrumb && (
                   <span className="hidden md:flex items-center gap-1.5 min-w-0">
                     {rootSeparator && <BreadcrumbSeparator />}
-                    <Tip label="tmux Server">
+                    <Tip label="Workspace">
                       <a
                         href={serverHref}
                         className={`rk-glint ${LINK_CRUMB_CLASS} min-w-[calc(6ch+0.875rem)]`}
@@ -1717,7 +1717,7 @@ export function TopBar({
               <PageHeadingDisplay
                 prefix={TMUX_SERVER_PREFIX}
                 name={server}
-                ariaLabel={`tmux Server ${server}`}
+                ariaLabel={`Workspace ${server}`}
               />
             )}
 
@@ -2061,7 +2061,7 @@ function SweepCells({
 // `terminalHeadingPrefix()` + `WEB_PREFIX`/`CHAT_PREFIX` were removed with it.
 const WINDOW_PREFIX = "Tab:";
 const BOARD_PREFIX = "Board:";
-const TMUX_SERVER_PREFIX = "tmux Server:";
+const TMUX_SERVER_PREFIX = "Workspace:";
 const HOST_SOLO = "Host";
 
 /**
@@ -2566,7 +2566,7 @@ function BoardSwitcher({
       label="board"
       title="Board"
       onNavigate={handleNavigate}
-      action={{ label: "← Sessions", onAction: () => navigate({ to: "/" }) }}
+      action={{ label: "← Groups", onAction: () => navigate({ to: "/" }) }}
       triggerClassName="ml-1 text-text-secondary hover:text-text-primary transition-colors shrink-0"
     />
   );

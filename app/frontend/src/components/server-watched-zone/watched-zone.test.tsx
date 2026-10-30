@@ -163,7 +163,7 @@ describe("WatchedZone", () => {
     expect(screen.getByText("1 watched · no operator tick")).toBeInTheDocument();
   });
 
-  it("empty states: `No watched workers` with an operator, `No operator on this server` without", () => {
+  it("empty states: `No watched workers` with an operator, `No operator on this workspace` without", () => {
     renderZone([
       makeSession({
         operatorLastTickAt: NOW - 10,
@@ -174,11 +174,11 @@ describe("WatchedZone", () => {
     cleanup();
 
     renderZone([makeSession({ windows: [makeWindow({ windowId: "@1" })] })]);
-    expect(screen.getByText("No operator on this server")).toBeInTheDocument();
+    expect(screen.getByText("No operator on this workspace")).toBeInTheDocument();
     cleanup();
 
     // Zero sessions at all — no throw, the operatorless empty state.
     renderZone([]);
-    expect(screen.getByText("No operator on this server")).toBeInTheDocument();
+    expect(screen.getByText("No operator on this workspace")).toBeInTheDocument();
   });
 });

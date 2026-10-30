@@ -10,7 +10,7 @@ import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 // max-w-[16ch]`), the breadcrumb `<nav>` clips residual overflow
 // (`overflow-hidden` + an explicit `min-w-[46px] sm:min-w-[150px]` floor),
 // the server crumb hides below `md` and reappears at `md+` (below `md` the
-// ancestor navigation paths are the palette's `Go: tmux Server` / `Go:
+// ancestor navigation paths are the palette's `Go: Workspace` / `Go:
 // Host`), and the center heading is never compressed into overlap (the
 // center grid track's `min-w-0` was removed so the `auto` column holds its
 // content floor, with the `sm:min-w-[28ch]` inner anchor kept at `sm:`). The
@@ -270,7 +270,7 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
   }) => {
     const id = await resolveWindow(page, LONG_WINDOW);
     // The server-link crumb is the left-nav <a href="/${server}"> (title
-    // "tmux Server"). Its accessible name is its text (the server name), so
+    // "Workspace"). Its accessible name is its text (the server name), so
     // target it by href scoped to the breadcrumb nav — that disambiguates it
     // from the brand link (href "/").
     const nav = page.getByRole("navigation", { name: "Breadcrumb" });

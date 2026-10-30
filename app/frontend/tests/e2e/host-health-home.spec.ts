@@ -41,7 +41,7 @@ test.describe("HOST HEALTH home zone", () => {
    *    replaced the "No metrics" placeholder. The 10s timeout only absorbs a
    *    cold air-compiled backend on the first connection.
    * 5. Assert the `mem` metric label is also visible.
-   * 6. Assert the `+ New Server` button (always present in the server-tile
+   * 6. Assert the `+ New workspace` button (always present in the server-tile
    *    grid) is visible — proving the existing grid still renders below the
    *    new zone.
    */
@@ -61,10 +61,10 @@ test.describe("HOST HEALTH home zone", () => {
     await expect(zone.getByText("cpu")).toBeVisible({ timeout: 10_000 });
     await expect(zone.getByText("mem")).toBeVisible();
 
-    // The server-tile grid below the zone still renders — the "+ New Server"
+    // The server-tile grid below the zone still renders — the "+ New workspace"
     // affordance is always present on the home route.
     await expect(
-      page.getByRole("button", { name: "+ New Server" }),
+      page.getByRole("button", { name: "+ New workspace" }),
     ).toBeVisible();
   });
 });

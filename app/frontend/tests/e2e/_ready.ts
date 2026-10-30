@@ -35,7 +35,7 @@ export async function gotoServerReady(
   await expect(
     page.getByTestId("status-bar").locator("[aria-label='Connected']"),
   ).toBeVisible({ timeout: READY_TIMEOUT });
-  const sidebar = page.locator("nav[aria-label='Sessions']");
+  const sidebar = page.locator("nav[aria-label='Groups']");
   if (expectSession) {
     await expect(
       sidebar.locator(`button[aria-label='Navigate to ${expectSession}']`),
@@ -200,7 +200,7 @@ export async function expectActiveElement(
  *  click. Shared by the focus-restore and code-surface specs. */
 export async function switchToWindow(page: Page, windowId: string): Promise<void> {
   const row = page
-    .locator("nav[aria-label='Sessions']")
+    .locator("nav[aria-label='Groups']")
     .locator(`[data-window-id="${windowId}"]`)
     .getByRole("button")
     .first();

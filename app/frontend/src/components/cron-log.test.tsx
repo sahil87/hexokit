@@ -151,7 +151,7 @@ describe("CronLog", () => {
         <CronLog server="" />
       </StandaloneSessionContextProvider>,
     );
-    expect(screen.getByTestId("cron-log-unresolved")).toHaveTextContent("no server resolved");
+    expect(screen.getByTestId("cron-log-unresolved")).toHaveTextContent("no workspace resolved");
     expect(calls).toHaveLength(0);
   });
 

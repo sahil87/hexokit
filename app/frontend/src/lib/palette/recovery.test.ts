@@ -24,12 +24,12 @@ describe("buildRecoveryActions", () => {
   it("builds one restore and one dismiss entry per offer plus both bulk verbs, preserving order", () => {
     const actions = buildRecoveryActions([offer("kit"), offer("work")], handlers());
     expect(actions.map((a) => a.label)).toEqual([
-      "Server: Restore kit",
-      "Server: Restore work",
-      "Restore all previous servers",
-      "Server: Dismiss recovery kit",
-      "Server: Dismiss recovery work",
-      "Dismiss all previous servers",
+      "Workspace: Restore kit",
+      "Workspace: Restore work",
+      "Restore all previous workspaces",
+      "Workspace: Dismiss recovery kit",
+      "Workspace: Dismiss recovery work",
+      "Dismiss all previous workspaces",
     ]);
     expect(actions.map((a) => a.id)).toEqual([
       "recovery-restore-kit",

@@ -265,7 +265,7 @@ test.describe("shortcuts overlay", () => {
    *    visible with the Shortcuts tab selected (`settings-shortcuts-panel`
    *    testid).
    * 2. Fill the filter with "waiting" → the "Next waiting agent" row remains,
-   *    the "New session" row is filtered out.
+   *    the "New group" row is filtered out.
    * 3. Press Shift+Ctrl+/ again (focus in the filter input) → the dialog
    *    closes.
    * 4. Reopen with the chord; press Escape → the dialog closes.
@@ -286,7 +286,7 @@ test.describe("shortcuts overlay", () => {
     // Filter narrows rows and hides empty groups.
     await page.getByLabel("Filter shortcuts").fill("waiting");
     await expect(panel.getByText("Next waiting agent")).toBeVisible();
-    await expect(panel.getByText("New session")).toHaveCount(0);
+    await expect(panel.getByText("New group")).toHaveCount(0);
 
     // The chord toggles the dialog closed even from the filter input
     // (`ignoreInputs`), then reopen and close via Escape.
@@ -691,7 +691,7 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
 
     const sidebar = page.locator('aside[aria-label="Sidebar"]');
     const currentRow = page
-      .locator("nav[aria-label='Sessions']")
+      .locator("nav[aria-label='Groups']")
       .locator('[data-window-id] [aria-current="page"]');
     await expect(currentRow).toBeVisible();
 
@@ -882,7 +882,7 @@ test.describe("VS Code-aligned chrome chords (B / 2 / Backquote)", () => {
     await gotoWindowOne(page);
 
     const currentRow = page
-      .locator("nav[aria-label='Sessions']")
+      .locator("nav[aria-label='Groups']")
       .locator('[data-window-id] [aria-current="page"]');
     await expect(currentRow).toBeVisible();
 

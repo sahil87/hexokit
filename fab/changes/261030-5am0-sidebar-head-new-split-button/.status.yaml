@@ -1,0 +1,36 @@
+id: 5am0
+name: 261030-5am0-sidebar-head-new-split-button
+created: 2026-10-30T09:38:12Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: ready
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: false
+    task_count: 0
+    acceptance_count: 0
+    acceptance_completed: 0
+confidence:
+    certain: 4
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.5
+    fuzzy: true
+    dimensions:
+        signal: 74.4
+        reversibility: 86.7
+        competence: 77.2
+        disambiguation: 75.0
+stage_metrics:
+    intake: {started_at: "2026-10-30T09:38:12Z", driver: fab-new, iterations: 1}
+prs: []
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-10-30T09:40:51Z

@@ -458,7 +458,7 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
     fireEvent.click(screen.getAllByRole("menuitemradio")[1]);
     await waitFor(() => {
-      expect(screen.getByText("Shell server switch failed")).toBeInTheDocument();
+      expect(screen.getByText("Shell workspace switch failed")).toBeInTheDocument();
     });
   });
 

@@ -58,7 +58,7 @@ export function buildNavActions(
   if (mode === "terminal" && server) {
     actions.push({
       id: "go-tmux-server",
-      label: "Go: tmux Server",
+      label: "Go: Workspace",
       onSelect: handlers.onTmuxServer,
     });
   }

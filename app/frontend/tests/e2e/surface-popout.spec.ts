@@ -193,7 +193,7 @@ test.describe("Surface popout", () => {
     // kept with the Pop back in verb in place of the layout cluster.
     await expect(popup.getByTestId("surface-tile-tty")).toBeVisible({ timeout: 15_000 });
     await expect(popup.locator("[role='banner']")).toHaveCount(0);
-    await expect(popup.locator("nav[aria-label='Sessions']")).toHaveCount(0);
+    await expect(popup.locator("nav[aria-label='Groups']")).toHaveCount(0);
     await expect(popup.getByTestId("status-bar")).toHaveCount(0);
     const tile = popup.getByTestId("surface-tile-tty");
     await expect(tile.getByLabel("Pop Terminal back in")).toBeVisible();

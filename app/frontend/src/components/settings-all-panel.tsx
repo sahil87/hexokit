@@ -231,8 +231,8 @@ function ReadOnlySummary({ entry }: { entry: SettingsEntry }) {
     summary = count === 0 ? "no entries" : `${count} ${count === 1 ? "entry" : "entries"}`;
     surface =
       entry.key === "server_flairs"
-        ? "Edited from each server's flair picker in the sidebar"
-        : "Edited from each server's color picker in the sidebar";
+        ? "Edited from each workspace's flair picker in the sidebar"
+        : "Edited from each workspace's color picker in the sidebar";
   } else {
     const names = listNames(entry.value);
     summary = names.length === 0 ? "default order" : names.join(" → ");

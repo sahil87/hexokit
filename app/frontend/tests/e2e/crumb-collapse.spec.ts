@@ -93,7 +93,7 @@ test.describe("Breadcrumb min-useful-width collapse", () => {
   /**
    * Proves: below the crumbs' minimum useful width, the server and session
    * crumbs collapse into ONE `… ▾` crumb whose dropdown carries BOTH levels —
-   * the server item navigates to the tmux Server route and the session item
+   * the server item navigates to the Workspace route and the session item
    * (marked current) navigates to the current window's route — so both
    * destinations stay one tap away at widths where separate crumbs would
    * render as fragments.

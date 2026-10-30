@@ -533,7 +533,7 @@ export function Sidebar({
       lastKillSessionRef.current = null;
     },
     onError: (err) => {
-      addToast(err.message || "Failed to kill session");
+      addToast(err.message || "Failed to kill group");
     },
   });
 
@@ -628,7 +628,7 @@ export function Sidebar({
       }
     },
     onError: (err) => {
-      addToast(err.message || "Failed to rename session");
+      addToast(err.message || "Failed to rename group");
     },
     onSettled: () => {
       lastRenameSessionRef.current = null;
@@ -702,7 +702,7 @@ export function Sidebar({
       lastMoveToSessionRef.current = null;
     },
     onError: (err) => {
-      addToast(err.message || "Failed to move tab to session");
+      addToast(err.message || "Failed to move tab to group");
     },
   });
 
@@ -851,7 +851,7 @@ export function Sidebar({
 
     // Cross-server drop rejection.
     if (data.server && data.server !== server) {
-      addToast("Moving tabs across tmux servers isn't supported yet");
+      addToast("Moving tabs across workspaces isn't supported yet");
       return;
     }
     if (data.session !== sessionName || data.index === windowIndex) return;
@@ -897,7 +897,7 @@ export function Sidebar({
 
     // Cross-server drop rejection.
     if (data.server && data.server !== server) {
-      addToast("Moving tabs across tmux servers isn't supported yet");
+      addToast("Moving tabs across workspaces isn't supported yet");
       return;
     }
     if (data.session === sessionName) return;
@@ -941,7 +941,7 @@ export function Sidebar({
     orderPutTimerRef.current = setTimeout(() => {
       orderPutTimerRef.current = null;
       setSessionOrder(server, orderToPut).catch((err) => {
-        addToast(err.message || "Failed to save session order");
+        addToast(err.message || "Failed to save group order");
       });
     }, SESSION_ORDER_DEBOUNCE_MS);
 
@@ -1621,7 +1621,7 @@ export function Sidebar({
 
   const handleSessionColorChange = useCallback((server: string, name: string, c: string | null) => {
     setSessionColorApi(server, name, c).catch((err) =>
-      addToast(err.message || "Failed to set session color"),
+      addToast(err.message || "Failed to set group color"),
     );
   }, [addToast]);
 
@@ -1642,7 +1642,7 @@ export function Sidebar({
   // Persist a session's flair state. Mirrors handleSessionColorChange.
   const handleSessionFlairChange = useCallback((server: string, name: string, flair: string | null) => {
     setSessionFlairApi(server, name, flair).catch((err) =>
-      addToast(err.message || "Failed to set session flair"),
+      addToast(err.message || "Failed to set group flair"),
     );
   }, [addToast]);
 
@@ -1659,7 +1659,7 @@ export function Sidebar({
       return next;
     });
     setServerColorApi(targetServer, c).catch((err) =>
-      addToast(err.message || "Failed to set server color"),
+      addToast(err.message || "Failed to set workspace color"),
     );
   }, [addToast]);
 
@@ -1673,7 +1673,7 @@ export function Sidebar({
       return next;
     });
     setServerFlairApi(targetServer, f == null || f === "" ? null : f).catch((err) =>
-      addToast(err.message || "Failed to set server flair"),
+      addToast(err.message || "Failed to set workspace flair"),
     );
   }, [addToast]);
 
@@ -1685,7 +1685,7 @@ export function Sidebar({
     void setServerProtected(targetServer, next)
       .then(() => refreshServers())
       .catch((err: unknown) => {
-        addToast(err instanceof Error ? err.message : "Failed to update server protection");
+        addToast(err instanceof Error ? err.message : "Failed to update workspace protection");
       });
   }, [refreshServers, addToast]);
 
@@ -1704,7 +1704,7 @@ export function Sidebar({
     // across its tipped controls (scope chip, PANE refresh, waiting badges)
     // opens sibling tips instantly.
     <TipGroup>
-    <nav ref={navRef} aria-label="Sessions" className="flex flex-col h-full">
+    <nav ref={navRef} aria-label="Groups" className="flex flex-col h-full">
       {/* Brand row — logo + wordmark linking home (`/`). MOBILE-ONLY: on
           phones this is the brand's ONLY surface (the top-bar brand crumb
           hides below `sm`) and the sole pointer home affordance there; on
@@ -1754,7 +1754,7 @@ export function Sidebar({
       {/* Sessions — flex-grows to fill remaining space; per-server groups inside */}
       <div className="border-t-[3px] border-border flex flex-col flex-1 min-h-0">
         <div className="flex items-center gap-1.5 w-full pl-1.5 pr-1.5 sm:pr-2 py-1 text-xs text-text-secondary shrink-0 border-b border-border">
-          <TypedLabel text="Sessions" className="font-bold uppercase tracking-wide" />
+          <TypedLabel text="Groups" className="font-bold uppercase tracking-wide" />
           <span className="ml-auto flex items-center gap-1.5 min-w-0">
             {currentServer && currentSession && (
               <span className="truncate text-text-primary font-mono">{currentSession}</span>
@@ -1767,13 +1767,13 @@ export function Sidebar({
                 what a CLICK does, the chip text (ALL/CUR) shows the state. */}
             <Tip
               label={
-                sessionsScope === "all" ? "Show current server only" : "Show all servers"
+                sessionsScope === "all" ? "Show current workspace only" : "Show all workspaces"
               }
             >
               <button
                 type="button"
                 onClick={() => setSessionsScope(sessionsScope === "all" ? "current" : "all")}
-                aria-label="Toggle sessions scope"
+                aria-label="Toggle groups scope"
                 aria-pressed={sessionsScope === "current"}
                 className="shrink-0 font-mono text-[10px] leading-none tracking-wide px-1 py-0.5 border border-border rounded-sm text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors"
               >
@@ -1786,7 +1786,7 @@ export function Sidebar({
           ref={treeRef}
           role="tree"
           data-sidebar-scroll=""
-          aria-label="Session tree"
+          aria-label="Workspace tree"
           // W3C-APG multiselect tree (260807-nf9f): window rows can be selected
           // as a set (cmd/ctrl-click, shift-click range, `x`) for the palette's
           // bulk move-to-session. Session/server rows stay unselectable.
@@ -1797,7 +1797,7 @@ export function Sidebar({
         >
           {(() => {
             if (servers.length === 0) {
-              return <div className="text-text-secondary text-xs py-4 text-center">No servers</div>;
+              return <div className="text-text-secondary text-xs py-4 text-center">No workspaces</div>;
             }
             // `currentOnly` (hoisted above the JSX) narrows to the resolved
             // current server, with the no-current-server fallback to all.
@@ -2478,7 +2478,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     void setServerProtected(server, !serverProtected)
       .then(() => refreshServers())
       .catch((err: unknown) => {
-        addGroupToast(err instanceof Error ? err.message : "Failed to update server protection");
+        addGroupToast(err instanceof Error ? err.message : "Failed to update workspace protection");
       });
   }, [server, serverProtected, refreshServers, addGroupToast]);
 
@@ -2783,7 +2783,7 @@ function ServerGroupInner(props: ServerGroupProps) {
           type="button"
           onClick={() => onToggleOpen(server)}
           aria-expanded={isOpen}
-          aria-label={isOpen ? `Collapse ${server} sessions` : `Expand ${server} sessions`}
+          aria-label={isOpen ? `Collapse ${server} groups` : `Expand ${server} groups`}
           className={`flex-1 min-w-0 flex items-center gap-1.5 pl-2 pr-1.5 text-left text-[10px] uppercase tracking-wider font-semibold min-h-[26px] coarse:min-h-[28px] transition-colors ${
             isCurrent ? "text-text-primary" : ""
           }`}
@@ -2998,8 +2998,8 @@ function ServerGroupInner(props: ServerGroupProps) {
               className="block w-full pl-2 pr-2 py-1 text-left text-xs text-text-secondary hover:text-text-primary hover:bg-bg-chrome-raised transition-colors"
             >
               {createSessionChord
-                ? `(no sessions — a session groups tabs; + new, or ${createSessionChord})`
-                : "(no sessions — a session groups tabs; + new)"}
+                ? `(no groups — a group holds tabs; + new, or ${createSessionChord})`
+                : "(no groups — a group holds tabs; + new)"}
             </button>
           ) : (
             visibleSessions.map((session, sessionIdx) => {

@@ -134,7 +134,7 @@ function BoardPageContent({ name }: { name: string }) {
         ghostSessionIdRef.current = null;
       }
     },
-    onError: (err) => addToast(err.message || "Failed to create session"),
+    onError: (err) => addToast(err.message || "Failed to create group"),
     onSettled: () => { ghostSessionIdRef.current = null; },
   });
 
@@ -1116,7 +1116,7 @@ function BoardPageContent({ name }: { name: string }) {
           <p className="text-text-secondary mb-2.5">
             {killTarget.home ? (
               <>
-                This closes it everywhere — including session <strong>{killTarget.home}</strong>.
+                This closes it everywhere — including group <strong>{killTarget.home}</strong>.
               </>
             ) : (
               <>This closes the tab everywhere.</>

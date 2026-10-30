@@ -98,7 +98,7 @@ async function openSessionCard(
   await expect(async () => {
     await page.mouse.move(700, 500);
     await sessionRow.hover();
-    await expect(card).toContainText(`Session ${session}`, { timeout: 3_000 });
+    await expect(card).toContainText(`Group ${session}`, { timeout: 3_000 });
   }).toPass({ timeout: 15_000 });
   const rowBox = (await sessionRow.boundingBox())!;
   const cardBox = (await card.boundingBox())!;
@@ -158,7 +158,7 @@ test.describe("@perf Sync Latency Audit", () => {
   });
 
   /**
-   * Proves: clicking the Dashboard's `+ New Session` card creates a session
+   * Proves: clicking the Dashboard's `+ New group` card creates a session
    * instantly (no dialog, auto-derived name) and a ghost entry renders in
    * the sidebar in ≤500ms.
    *
@@ -167,20 +167,20 @@ test.describe("@perf Sync Latency Audit", () => {
    *    locator.
    * 2. Count existing `button[aria-label^='Navigate to ']` rows.
    * 3. Start the timer.
-   * 4. Click `button:has-text('+ New Session')`.
+   * 4. Click `button:has-text('+ New group')`.
    * 5. Poll until the count increases (timeout 8s).
    * 6. `record("Create session (UI)", elapsed)`.
    */
   test("1. Create session via UI", async ({ page }) => {
     const sidebar = await setup(page);
 
-    // "+ New Session" performs instant creation with an auto-derived name
+    // "+ New group" performs instant creation with an auto-derived name
     // (no dialog, no input). Measure the time for the new session row to
     // appear — a ghost entry should show up optimistically well under 500ms.
     const beforeCount = await sidebar.locator("button[aria-label^='Navigate to ']").count();
 
     const t0 = Date.now();
-    await page.click("button:has-text('+ New Session')");
+    await page.click("button:has-text('+ New group')");
 
     await expect
       .poll(
@@ -210,7 +210,7 @@ test.describe("@perf Sync Latency Audit", () => {
    * 6. Wait for the new (underscored) name text to appear; `record`. (The
    *    `afterAll` sweep kills the underscored name.)
    */
-  test("2. Rename session via UI (double-click)", async ({ page }) => {
+  test("2. Rename group via UI (double-click)", async ({ page }) => {
     const sidebar = await setup(page);
 
     const sessionNav = sidebar.locator(`button[aria-label='Navigate to ${SESSION_A}']`);
@@ -235,7 +235,7 @@ test.describe("@perf Sync Latency Audit", () => {
     await expect(
       sidebar.locator(`text=${newName}`).first(),
     ).toBeVisible({ timeout: 8_000 });
-    record("Rename session (UI double-click)", Date.now() - t0);
+    record("Rename group (UI double-click)", Date.now() - t0);
   });
 
   /**
@@ -544,14 +544,14 @@ test.describe("@perf Sync Latency Audit", () => {
    * 2. `setup`; assert the session row is visible.
    * 3. Open the session's flyout card via `openSessionCard` (re-hover until
    *    THIS session's card is open, then enter at the row's own band — see
-   *    test 3's notes); timer, click the card's `Kill session` action row.
+   *    test 3's notes); timer, click the card's `Kill group` action row.
    * 4. Wait for `[role='dialog']` to appear.
    * 5. Click `button:has-text('Kill')` inside the dialog (with
    *    `{ force: true }` to bypass occasional overlay pointer
    *    interception).
    * 6. Wait for the row to disappear, `record`.
    */
-  test("9. Kill session via UI (with dialog)", async ({ page }) => {
+  test("9. Kill group via UI (with dialog)", async ({ page }) => {
     const killVictim = `e2e-kill-${SESSION_A}`;
     createSession(killVictim);
 
@@ -575,6 +575,6 @@ test.describe("@perf Sync Latency Audit", () => {
     await expect(
       sidebar.locator(`text=${killVictim}`),
     ).not.toBeVisible({ timeout: 8_000 });
-    record("Kill session (UI, confirm dialog)", Date.now() - t0);
+    record("Kill group (UI, confirm dialog)", Date.now() - t0);
   });
 });

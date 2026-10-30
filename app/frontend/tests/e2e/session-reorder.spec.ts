@@ -101,7 +101,7 @@ test.describe("Sidebar session reorder persistence", () => {
 
     await gotoServerReady(page, TMUX_SERVER);
 
-    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const sidebar = page.locator("nav[aria-label='Groups']");
     for (const name of SESSIONS) {
       await expect(sidebar.locator(`text=${name}`)).toBeVisible({
         timeout: 5_000,

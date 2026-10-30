@@ -85,7 +85,7 @@ test.describe("Mobile layout", () => {
     // Even with the drawer open, the footer has no theme button.
     await page.getByRole("button", { name: "Toggle navigation" }).click();
     await expect(
-      page.getByRole("navigation", { name: "Sessions" }).getByRole("button", { name: / theme$/ }),
+      page.getByRole("navigation", { name: "Groups" }).getByRole("button", { name: / theme$/ }),
     ).toHaveCount(0);
   });
 
@@ -112,7 +112,7 @@ test.describe("Mobile layout", () => {
     await toggle.click();
 
     // The sidebar navigation should be visible
-    const sidebar = page.getByRole("navigation", { name: "Sessions" });
+    const sidebar = page.getByRole("navigation", { name: "Groups" });
     await expect(sidebar).toBeVisible();
 
     // Toggle button should still be visible (not covered by drawer)

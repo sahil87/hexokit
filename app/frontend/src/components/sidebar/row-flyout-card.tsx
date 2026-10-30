@@ -964,7 +964,7 @@ type RowFlyout = {
  *  flyout consumer inside this `<nav>`). Resolved per positioning pass via
  *  `closest()` from the reference node; a reference outside it falls back to
  *  its own rect (today's geometry). */
-export const EDGE_ANCHOR_CONTAINER_SELECTOR = 'nav[aria-label="Sessions"]';
+export const EDGE_ANCHOR_CONTAINER_SELECTOR = 'nav[aria-label="Groups"]';
 
 /** floating-ui virtual position reference for `edgeAnchor`: the reference
  *  node's y-band at the sidebar container's right x (degenerate width-0 rect —

@@ -773,15 +773,15 @@ export function ServerShell() {
 function ServerNotFound({ serverName }: { serverName: string }) {
   return (
     <div className="flex flex-col items-center justify-center h-full gap-4 bg-bg-primary">
-      <h1 className="text-xl text-text-primary">Server not found</h1>
+      <h1 className="text-xl text-text-primary">Workspace not found</h1>
       <p className="text-text-secondary">
-        No tmux server named <strong>{serverName}</strong> was found.
+        No workspace named <strong>{serverName}</strong> was found.
       </p>
       <a
         href="/"
         className="px-4 py-2 bg-bg-card border border-border rounded hover:border-text-secondary transition-colors text-text-primary"
       >
-        Go to server list
+        Go to workspace list
       </a>
     </div>
   );
@@ -796,7 +796,7 @@ function ServerWaiting({ serverName }: { serverName: string }) {
   return (
     <div className="flex flex-col items-center justify-center h-full gap-4 bg-bg-primary">
       <LogoSpinner size={48} />
-      <h1 className="text-xl text-text-primary">Creating server…</h1>
+      <h1 className="text-xl text-text-primary">Creating workspace…</h1>
       <p className="text-text-secondary">
         Waiting for <strong>{serverName}</strong>.
       </p>
@@ -3447,7 +3447,7 @@ function AppShell() {
       }
     },
     onError: (err) => {
-      addToast(err.message || "Failed to create session");
+      addToast(err.message || "Failed to create group");
     },
     onSettled: () => {
       ghostSessionIdRef.current = null;
@@ -3825,7 +3825,7 @@ function AppShell() {
       const next = computeMoveOrder(effectiveSessionOrder, currentSessionOrderIdx, delta);
       if (!next) return; // boundary / invalid index: no-op
       setSessionOrder(server, next).catch((err) =>
-        addToast(err.message || "Failed to move session"),
+        addToast(err.message || "Failed to move group"),
       );
     },
     [sessionName, currentSessionOrderIdx, effectiveSessionOrder, server, addToast],
@@ -3835,7 +3835,7 @@ function AppShell() {
     () => [
       {
         id: "create-session",
-        label: "Session: Create",
+        label: "Group: Create",
         description: "a new group of tabs",
         onSelect: handleOpenSessionNamePrompt,
       },
@@ -3843,12 +3843,12 @@ function AppShell() {
         ? [
             {
               id: "session-set-color",
-              label: "Session: Set Color",
+              label: "Group: Set Color",
               onSelect: () => setShowColorPicker("session"),
             },
             {
               id: "rename-session",
-              label: "Session: Rename",
+              label: "Group: Rename",
               onSelect: () => {
                 if (sessionName) {
                   dialogs.openRenameSessionDialog(sessionName);
@@ -3862,7 +3862,7 @@ function AppShell() {
               ? [
                   {
                     id: "session-move-up",
-                    label: "Session: Move up",
+                    label: "Group: Move up",
                     onSelect: () => moveCurrentSession(-1),
                   },
                 ]
@@ -3872,14 +3872,14 @@ function AppShell() {
               ? [
                   {
                     id: "session-move-down",
-                    label: "Session: Move down",
+                    label: "Group: Move down",
                     onSelect: () => moveCurrentSession(1),
                   },
                 ]
               : []),
             {
               id: "kill-session",
-              label: "Session: Kill",
+              label: "Group: Kill",
               onSelect: dialogs.openKillSessionConfirm,
             },
             // Sort windows by an ordered list of deterministic keys (status
@@ -3888,7 +3888,7 @@ function AppShell() {
             // No success toast: the reorder shows via the SSE derive tick.
             ...buildSessionSortActions(sessionName, (by: SortWindowsBy[]) => {
               sortSessionWindows(server, sessionName, by).catch((err: Error) =>
-                addToast(err.message || "Failed to sort windows", "error"),
+                addToast(err.message || "Failed to sort tabs", "error"),
               );
             }),
           ]
@@ -4055,7 +4055,7 @@ function AppShell() {
                             navigate({ to: "/$server", params: { server } });
                           })
                           .catch((err) => {
-                            addToast(err.message || "Failed to move tab to session");
+                            addToast(err.message || "Failed to move tab to group");
                           });
                       }
                     },
@@ -4079,7 +4079,7 @@ function AppShell() {
             // current note; an empty submit clears it.
             {
               id: "window-set-note",
-              label: "Window: Set note…",
+              label: "Tab: Set note…",
               onSelect: () => {
                 setNoteTarget({ server, windowId: currentWindow.windowId, note: currentWindow.note ?? "" });
               },
@@ -5048,7 +5048,7 @@ function AppShell() {
     (delta: -1 | 1) => {
       const next = computeMoveOrder(regularOrder, currentRegularIdx, delta);
       if (!next) return; // boundary / infra (idx -1): no-op
-      setServerOrder(next).catch((err) => addToast(err.message || "Failed to move server"));
+      setServerOrder(next).catch((err) => addToast(err.message || "Failed to move workspace"));
     },
     [currentRegularIdx, regularOrder, server, addToast],
   );
@@ -5063,8 +5063,8 @@ function AppShell() {
         id: "sessions-scope-toggle",
         label:
           sessionsScope === "all"
-            ? "Sessions: Show current server only"
-            : "Sessions: Show all servers",
+            ? "Groups: Show current workspace only"
+            : "Groups: Show all workspaces",
         onSelect: () => setSessionsScope(sessionsScope === "all" ? "current" : "all"),
       },
     ],
@@ -5085,7 +5085,7 @@ function AppShell() {
       },
       {
         id: "create-server",
-        label: "Server: Create",
+        label: "Workspace: Create",
         onSelect: openCreateServer,
       },
       // The server tier's keyboard color path (mirrors `Session: Set Color`'s
@@ -5095,7 +5095,7 @@ function AppShell() {
       // else the health hostname) — the status bar's
       // `instanceName ?? metrics.hostname` equivalent WITHOUT subscribing
       // AppShell to the ~2.5s metrics stream (the leaf-subscription rule).
-      ...(server ? [copyPaletteEntry("copy-server-name", "Copy: Server Name", "Server name", server)] : []),
+      ...(server ? [copyPaletteEntry("copy-server-name", "Copy: Workspace Name", "Workspace name", server)] : []),
       ...(instanceDisplayName
         ? [copyPaletteEntry("copy-host-name", "Copy: Host Name", "Host name", instanceDisplayName)]
         : []),
@@ -5119,7 +5119,7 @@ function AppShell() {
         void setServerProtected(name, next)
           .then(() => ctx.refreshServers())
           .catch((err: unknown) => {
-            addToast(err instanceof Error ? err.message : "Failed to update server protection");
+            addToast(err instanceof Error ? err.message : "Failed to update workspace protection");
           });
       }),
       // Per-server adopt entries (EXTERNAL servers only — managed servers and
@@ -5134,7 +5134,7 @@ function AppShell() {
         ? [
             {
               id: "server-move-up",
-              label: "Server: Move up",
+              label: "Workspace: Move up",
               onSelect: () => moveCurrentServer(-1),
             },
           ]
@@ -5143,14 +5143,14 @@ function AppShell() {
         ? [
             {
               id: "server-move-down",
-              label: "Server: Move down",
+              label: "Workspace: Move down",
               onSelect: () => moveCurrentServer(1),
             },
           ]
         : []),
       ...servers.map(({ name }) => ({
         id: `switch-server-${name}`,
-        label: `Server: Switch to ${name}${name === server ? " (current)" : ""}`,
+        label: `Workspace: Switch to ${name}${name === server ? " (current)" : ""}`,
         onSelect: () => handleSwitchServer(name),
       })),
     ],
@@ -5172,7 +5172,7 @@ function AppShell() {
     () =>
       buildShellServerActions(shellServers, (id) => {
         void switchShellServer(id).then((ok) => {
-          if (!ok) addToast("Shell server switch failed", "error");
+          if (!ok) addToast("Shell workspace switch failed", "error");
         });
       }),
     [shellServers, addToast],
@@ -5493,8 +5493,8 @@ function AppShell() {
       if (target) navigateToWindow(target);
     };
     return [
-      { id: "session-prev", label: "Session: Previous", onSelect: jumpSession(-1) },
-      { id: "session-next", label: "Session: Next", onSelect: jumpSession(1) },
+      { id: "session-prev", label: "Group: Previous", onSelect: jumpSession(-1) },
+      { id: "session-next", label: "Group: Next", onSelect: jumpSession(1) },
     ];
   }, [sessions, windowParam, navigateToWindow]);
 
@@ -6704,7 +6704,7 @@ function AppShell() {
 
 
       {dialogs.showRenameSessionDialog && (
-        <Dialog title="Rename session" onClose={dialogs.closeRenameSessionDialog}>
+        <Dialog title="Rename group" onClose={dialogs.closeRenameSessionDialog}>
           <input
             autoFocus
             type="text"
@@ -6712,8 +6712,8 @@ function AppShell() {
             onChange={(e) => dialogs.setRenameSessionName(toSafeSessionName(e.target.value))}
             onKeyDown={(e) => e.key === "Enter" && dialogs.handleRenameSession()}
             onFocus={(e) => e.target.select()}
-            aria-label="Session name"
-            placeholder="Session name..."
+            aria-label="Group name"
+            placeholder="Group name..."
             className={`w-full bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary`}
           />
           <button
@@ -6748,9 +6748,9 @@ function AppShell() {
       )}
 
       {dialogs.showKillSessionConfirm && (
-        <Dialog title="Kill session?" onClose={dialogs.closeKillSessionConfirm}>
+        <Dialog title="Kill group?" onClose={dialogs.closeKillSessionConfirm}>
           <p className="text-text-secondary mb-2.5">
-            Kill session <strong>{displaySession}</strong> and all its tabs? This cannot be undone.
+            Kill group <strong>{displaySession}</strong> and all its tabs? This cannot be undone.
           </p>
           <div className="flex gap-2">
             <button
@@ -6810,7 +6810,7 @@ function AppShell() {
                 onSelect={(c) => {
                   if (showColorPicker === "session" && sessionName) {
                     setSessionColorApi(server, sessionName, c).catch((err) =>
-                      addToast(err.message || "Failed to set session color"),
+                      addToast(err.message || "Failed to set group color"),
                     );
                   } else if (showColorPicker === "window" && sessionName && currentWindow) {
                     setWindowColorApi(server, currentWindow.windowId, c).catch((err) =>
@@ -6818,7 +6818,7 @@ function AppShell() {
                     );
                   } else if (showColorPicker === "server") {
                     setServerColorApi(server, c).catch((err) =>
-                      addToast(err.message || "Failed to set server color"),
+                      addToast(err.message || "Failed to set workspace color"),
                     );
                   }
                 }}

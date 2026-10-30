@@ -122,7 +122,7 @@ async function dragRowTo(
   opts: { assertPreview?: boolean } = {},
 ): Promise<void> {
   const row = page
-    .locator("nav[aria-label='Sessions']")
+    .locator("nav[aria-label='Groups']")
     .locator(`[data-window-id="${windowId}"]`);
   await expect(row).toBeVisible({ timeout: READY_TIMEOUT });
   const box = await row.boundingBox();

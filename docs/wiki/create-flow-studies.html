@@ -1,0 +1,774 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Create Flow Studies</title>
+<style>
+:root, html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-primary: #0f1117;
+  --bg-card: #171b24;
+  --bg-raise: #1b202b;
+  --bg-inset: #0a0c12;
+  --text-primary: #e8eaf0;
+  --text-secondary: #7a8394;
+  --border: #454d66;
+  --card-border: color-mix(in srgb, var(--border) 55%, transparent);
+  --accent-green: #22c55e;
+  --signal-yellow: #facc15;
+  --signal-blue: #60a5fa;
+  --signal-red: #f87171;
+  --page: #0b0d13;
+}
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg-primary: #f6f7f9;
+  --bg-card: #ffffff;
+  --bg-raise: #ffffff;
+  --bg-inset: #e8eaef;
+  --text-primary: #1a1d24;
+  --text-secondary: #6b7280;
+  --border: #d1d5db;
+  --card-border: color-mix(in srgb, var(--border) 70%, transparent);
+  --accent-green: #16a34a;
+  --signal-yellow: #ca8a04;
+  --signal-blue: #2563eb;
+  --signal-red: #dc2626;
+  --page: #eceef2;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--page); color: var(--text-primary);
+  font-family: "MonaspiceNe Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px; line-height: 1.55;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 28px 16px 80px; }
+header.page { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+h1 { font-size: 19px; margin: 0 0 4px; letter-spacing: -0.01em; }
+.sub { color: var(--text-secondary); font-size: 12px; max-width: 80ch; margin: 0; }
+.toolbar { display: flex; gap: 6px; }
+button.tb, .seg button {
+  font: inherit; font-size: 11px; padding: 5px 10px; border-radius: 4px;
+  border: 1px solid var(--border); background: var(--bg-card); color: var(--text-secondary); cursor: pointer;
+}
+button.tb[aria-pressed="true"], .seg button[aria-pressed="true"] { color: var(--accent-green); border-color: var(--accent-green); }
+h2 { font-size: 14px; margin: 44px 0 4px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+h2 .num { color: var(--accent-green); margin-right: 8px; }
+h3 { font-size: 12.5px; margin: 22px 0 6px; }
+p { margin: 8px 0; max-width: 88ch; }
+p.note { color: var(--text-secondary); font-size: 12px; }
+code { background: var(--bg-inset); padding: 1px 5px; border-radius: 3px; font-size: 11.5px; }
+.tag { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 3px; border: 1px solid; vertical-align: 1px; }
+.tag.rec { color: var(--accent-green); border-color: var(--accent-green); }
+.tag.rej { color: var(--signal-red); border-color: var(--signal-red); }
+.tag.open { color: var(--signal-yellow); border-color: var(--signal-yellow); }
+table { border-collapse: collapse; width: 100%; font-size: 12px; margin: 10px 0; }
+th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--card-border); }
+th { color: var(--text-secondary); font-weight: normal; font-size: 11px; }
+td.k { color: var(--accent-green); white-space: nowrap; }
+td.old { color: var(--text-secondary); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--signal-red) 60%, transparent); }
+.tablewrap { overflow-x: auto; }
+ol.issues { padding-left: 0; list-style: none; counter-reset: i; max-width: 92ch; }
+ol.issues li { counter-increment: i; position: relative; padding-left: 30px; margin: 8px 0; }
+ol.issues li::before {
+  content: counter(i); position: absolute; left: 0; top: 1px; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--accent-green); color: #04140a; font-size: 10.5px; display: flex; align-items: center; justify-content: center; font-weight: bold;
+}
+ol.issues.warn li::before { background: var(--signal-yellow); }
+
+.row { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+.col { flex: 1 1 320px; min-width: 0; }
+.cap { font-size: 11px; color: var(--text-secondary); margin: 6px 2px 0; }
+.stage { background: var(--bg-inset); border-radius: 8px; padding: 14px; overflow-x: auto; }
+
+/* ---------------------------------------------------------- sidebar mock */
+.sb { width: 280px; max-width: 100%; background: var(--bg-primary); border: 1px solid var(--card-border); border-radius: 6px; font-size: 12px; color: var(--text-secondary); overflow: hidden; user-select: none; }
+.rail { display: flex; gap: 2px; padding: 4px 6px; border-bottom: 3px solid var(--border); }
+.rail span { width: 26px; height: 22px; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 11px; }
+.rail span.on { color: var(--accent-green); }
+.ph { display: flex; align-items: center; gap: 6px; padding: 5px 8px; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; }
+.ph .t { flex: 1; }
+.ph .plus, .ib { width: 20px; height: 20px; border-radius: 3px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 13px; color: var(--text-secondary); }
+.ph .plus:hover, .ib:hover { background: var(--bg-card); color: var(--text-primary); }
+.tiles { display: flex; gap: 4px; padding: 0 8px 8px; flex-wrap: wrap; }
+.wt { padding: 3px 8px; border-radius: 3px; border: 1px solid var(--card-border); background: var(--bg-card); font-size: 11px; }
+.wt.on { border-color: var(--accent-green); color: var(--text-primary); }
+.wt.add { border-style: dashed; cursor: pointer; }
+.wt.add:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+.sec { border-top: 3px solid var(--border); }
+.wsh { display: flex; align-items: center; gap: 6px; padding: 5px 8px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; }
+.wsh .t { flex: 1; }
+.wsh .sw { width: 8px; height: 8px; border-radius: 2px; background: var(--signal-blue); }
+.g { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px 0 10px; color: var(--text-primary); position: relative; }
+.g .ch { width: 10px; color: var(--text-secondary); font-size: 9px; }
+.g .n { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.g .ib { visibility: hidden; }
+.sb.reveal .g:hover .ib, .sb.persist .g .ib { visibility: visible; }
+.sb.persist .g .ib { color: color-mix(in srgb, var(--text-secondary) 70%, transparent); }
+.w { display: flex; align-items: center; gap: 7px; height: 24px; padding: 0 8px 0 28px; }
+.w.on { background: var(--bg-card); color: var(--text-primary); box-shadow: inset 2px 0 0 var(--accent-green); }
+.w:hover { color: var(--text-primary); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-secondary); flex: none; }
+.dot.g1 { background: var(--accent-green); } .dot.y { background: var(--signal-yellow); }
+.w.add { color: color-mix(in srgb, var(--text-secondary) 75%, transparent); cursor: pointer; font-size: 11px; }
+.w.add:hover { color: var(--accent-green); }
+.g.addg { color: color-mix(in srgb, var(--text-secondary) 75%, transparent); cursor: pointer; font-size: 11px; }
+.g.addg:hover { color: var(--accent-green); }
+.ghost { opacity: .5; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
+.junk { color: var(--signal-red); }
+.callout { position: absolute; right: -6px; transform: translateX(100%); font-size: 10.5px; color: var(--signal-yellow); white-space: nowrap; }
+
+/* ---------------------------------------------------------- top bar mock */
+.bar { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; height: 38px; padding: 0 8px; background: var(--bg-primary); border: 1px solid var(--card-border); border-bottom: 3px solid var(--border); border-radius: 6px 6px 0 0; font-size: 12px; color: var(--text-secondary); }
+.crumbs { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.crumb { border: 1px solid var(--card-border); border-radius: 3px; padding: 1px 6px; white-space: nowrap; }
+.crumb .lv { font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em; margin-right: 5px; color: color-mix(in srgb, var(--text-secondary) 80%, transparent); }
+.heading { color: var(--text-primary); }
+.cluster { display: flex; justify-content: flex-end; gap: 4px; align-items: center; position: relative; }
+.split { display: inline-flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.split span { padding: 2px 8px; cursor: pointer; }
+.split span + span { border-left: 1px solid var(--border); padding: 2px 5px; }
+.split span:hover { background: var(--bg-card); color: var(--text-primary); }
+.menu { position: absolute; top: 30px; right: 0; width: 260px; background: var(--bg-raise); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 10px 30px rgba(0,0,0,.35); padding: 4px; z-index: 2; font-size: 12px; text-align: left; }
+.mi { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; color: var(--text-primary); cursor: pointer; }
+.mi:hover, .mi.hl { background: var(--bg-card); }
+.mi .kbd { margin-left: auto; color: var(--text-secondary); font-size: 10.5px; }
+.mi .ctx { color: var(--text-secondary); }
+.msep { height: 1px; background: var(--card-border); margin: 4px 2px; }
+.mh { font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-secondary); padding: 6px 8px 2px; }
+
+/* ---------------------------------------------------------- New sheet mock */
+.sheet { width: 520px; max-width: 100%; margin: 0 auto; background: var(--bg-raise); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 18px 50px rgba(0,0,0,.4); font-size: 12px; overflow: hidden; }
+.sheet.mobile { width: 375px; border-radius: 12px 12px 0 0; }
+.sh-top { display: flex; align-items: center; gap: 8px; padding: 10px 12px 8px; }
+.sh-top .ttl { font-size: 13px; flex: 1; }
+.scope { display: inline-flex; border: 1px solid var(--border); border-radius: 5px; overflow: hidden; }
+.scope button { font: inherit; font-size: 11.5px; border: 0; background: transparent; color: var(--text-secondary); padding: 4px 10px; cursor: pointer; }
+.scope button + button { border-left: 1px solid var(--border); }
+.scope button[aria-pressed="true"] { background: color-mix(in srgb, var(--accent-green) 14%, transparent); color: var(--accent-green); }
+.field { margin: 0 12px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--accent-green); border-radius: 5px; padding: 7px 10px; background: var(--bg-card); }
+.field .pfx { color: var(--text-secondary); }
+.field .val { color: var(--text-primary); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.caret { display: inline-block; width: 7px; height: 14px; background: var(--accent-green); vertical-align: -2px; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.list { margin: 8px 6px; max-height: 210px; overflow: auto; }
+.lh { font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-secondary); padding: 6px 8px 2px; }
+.li { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 4px; cursor: pointer; }
+.li:hover { background: var(--bg-card); }
+.li.sel { background: color-mix(in srgb, var(--accent-green) 12%, transparent); }
+.li .p { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.li .meta { color: var(--text-secondary); font-size: 10.5px; white-space: nowrap; }
+.chip { font-size: 10px; border: 1px solid var(--card-border); border-radius: 3px; padding: 0 5px; color: var(--text-secondary); }
+.chip.br { color: var(--signal-blue); border-color: color-mix(in srgb, var(--signal-blue) 40%, transparent); }
+.opts { display: flex; gap: 8px; flex-wrap: wrap; padding: 4px 12px 0; }
+.opt { font-size: 11px; padding: 3px 8px; border: 1px solid var(--card-border); border-radius: 12px; cursor: pointer; color: var(--text-secondary); }
+.opt[aria-pressed="true"] { color: var(--text-primary); border-color: var(--text-secondary); background: var(--bg-card); }
+.preview { margin: 10px 12px 0; padding: 8px 10px; border-radius: 5px; background: var(--bg-inset); font-size: 11.5px; color: var(--text-secondary); }
+.preview b { color: var(--text-primary); font-weight: normal; }
+.preview .tree { margin-top: 4px; line-height: 1.6; }
+.preview .new { color: var(--accent-green); }
+.sh-foot { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-top: 10px; border-top: 1px solid var(--card-border); color: var(--text-secondary); font-size: 10.5px; }
+.sh-foot .sp { flex: 1; }
+.go { font: inherit; font-size: 11.5px; padding: 4px 12px; border-radius: 4px; border: 1px solid var(--accent-green); background: color-mix(in srgb, var(--accent-green) 16%, transparent); color: var(--accent-green); cursor: pointer; }
+kbd { font: inherit; font-size: 10px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; color: var(--text-secondary); }
+
+/* ---------------------------------------------------------- host tiles */
+.hgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.ht { border: 1px solid var(--card-border); background: var(--bg-card); border-radius: 5px; padding: 8px 10px; font-size: 11.5px; min-height: 74px; }
+.ht .nm { color: var(--text-primary); display: flex; gap: 6px; align-items: center; }
+.ht .facts { color: var(--text-secondary); font-size: 10.5px; margin-top: 4px; }
+.ht.add { border-style: dashed; color: var(--text-secondary); display: flex; flex-direction: column; justify-content: center; cursor: pointer; }
+.ht.add:hover { color: var(--accent-green); border-color: var(--accent-green); }
+.ht.add .h { font-size: 10.5px; margin-top: 3px; }
+.zone { font-size: 10.5px; letter-spacing: .06em; color: var(--text-secondary); margin: 0 0 8px; }
+.zone b { color: var(--text-primary); font-weight: normal; }
+
+.verdict { border-left: 3px solid var(--accent-green); padding: 6px 12px; background: color-mix(in srgb, var(--accent-green) 6%, transparent); margin: 12px 0; max-width: 92ch; }
+
+/* ---------------------------------------------------------- §5 head placement */
+.controls5 { display: grid; grid-template-columns: max-content 1fr; gap: 8px 14px; align-items: center; margin: 12px 0; font-size: 11.5px; }
+.controls5 label { color: var(--text-secondary); }
+.controls5 input[type=range] { width: min(300px, 100%); accent-color: var(--accent-green); vertical-align: middle; }
+.controls5 .val { margin-left: 8px; font-size: 11px; }
+.readout5 { font-size: 11px; color: var(--text-secondary); margin: 6px 2px 0; }
+.readout5 b { color: var(--text-primary); font-weight: normal; }
+.frame5 { position: relative; min-width: 760px; border: 1px solid var(--card-border); border-radius: 6px; overflow: hidden; background: var(--bg-primary); font-size: 12px; color: var(--text-secondary); }
+.bar5 { position: relative; height: 44px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; border-bottom: 3px solid var(--border); padding-right: 6px; }
+.head5 { position: absolute; inset: 0 auto 0 0; display: flex; align-items: center; gap: 8px; padding: 0 12px; z-index: 1; background: var(--bg-primary); }
+.left5 { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; }
+.center5 { color: var(--text-primary); white-space: nowrap; }
+.pre5 { color: var(--text-secondary); }
+.right5 { display: flex; justify-content: flex-end; gap: 4px; }
+.ib5 { width: 28px; height: 28px; flex: none; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 4px; color: var(--text-primary); font-size: 12px; }
+.ib5.c { width: 40px; height: 40px; }
+.logo5 { color: var(--accent-green); font-size: 18px; line-height: 1; flex: none; }
+.mark5 { font-size: 11px; letter-spacing: .06em; color: var(--text-secondary); flex: none; }
+.cr5 { border: 1px solid var(--card-border); border-radius: 3px; padding: 3px 6px; white-space: nowrap; display: inline-flex; gap: 4px; align-items: center; }
+.cr5.st { border-color: var(--card-border); }
+.sep5 { color: var(--text-secondary); }
+.split5 { display: inline-flex; flex: none; height: 28px; border: 1px solid var(--accent-green); border-radius: 4px; overflow: hidden; color: var(--accent-green); background: color-mix(in srgb, var(--accent-green) 8%, transparent); }
+.split5 > span { display: inline-flex; align-items: center; padding: 0 8px; cursor: pointer; white-space: nowrap; }
+.split5 > span + span { border-left: 1px solid color-mix(in srgb, var(--accent-green) 50%, transparent); padding: 0 6px; }
+.split5 > span:hover { background: color-mix(in srgb, var(--accent-green) 18%, transparent); }
+.split5.coarse { height: 40px; }
+.split5.coarse > span { padding: 0 12px; }
+.body5 { display: flex; height: 250px; }
+.side5 { flex: none; border-right: 3px solid var(--border); overflow: hidden; }
+.main5 { flex: 1; padding: 6px; }
+.term5 { height: 100%; border: 1px solid var(--card-border); border-radius: 6px; background: var(--bg-inset); padding: 10px; color: var(--text-primary); font-size: 11.5px; }
+.menu .gl { width: 16px; text-align: center; color: var(--text-secondary); flex: none; }
+.phone5 { width: 300px; border: 1px solid var(--card-border); border-radius: 14px; overflow: hidden; background: var(--bg-primary); font-size: 12px; color: var(--text-secondary); }
+.pbar5 { display: flex; align-items: center; gap: 8px; padding: 6px; border-bottom: 3px solid var(--border); }
+.ph5h { color: var(--text-primary); }
+.pdrawer5 { width: 260px; border-right: 3px solid var(--border); padding-bottom: 8px; }
+.pbrand5 { display: flex; align-items: center; gap: 8px; padding: 8px 10px; }
+.pbrand5 b { font-size: 11px; letter-spacing: .06em; }
+.headv { display: flex; align-items: center; gap: 8px; width: 260px; height: 44px; padding: 0 12px; background: var(--bg-primary); border: 1px solid var(--card-border); border-radius: 6px; font-size: 12px; }
+.wsw { color: var(--text-primary); border: 1px solid var(--card-border); border-radius: 3px; padding: 3px 7px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="page">
+  <div>
+    <h1>Create Flow Studies — Workspace · Group · Tab</h1>
+    <p class="sub">Design study (261030 discussion): how to make it easier to start a new <b>Workspace</b> (tmux server), <b>Group</b> (tmux session) and <b>Tab</b> (tmux window), and the UI rename that comes with it. §1 is how things work today, §2 is the rename map, §3–§5 are three options (§5, the sidebar-head split button, goes deepest), and §6 has the recommendation. The mocks are interactive.</p>
+  </div>
+  <div class="toolbar">
+    <button class="tb" data-theme-btn="dark" aria-pressed="true">dark</button>
+    <button class="tb" data-theme-btn="light" aria-pressed="false">light</button>
+  </div>
+</header>
+
+<!-- =============================================================== 1 -->
+<h2><span class="num">1</span>Today — where creation lives</h2>
+
+<div class="tablewrap"><table>
+<tr><th>Level</th><th>Entry points</th><th>Inputs asked</th><th>Chord</th><th>What you get</th></tr>
+<tr><td class="k">Server</td>
+  <td>Sidebar SERVER panel header <code>+</code> (20px, hover-gray) · Host page <code>+ New Server</code> · palette <code>Server: Create</code></td>
+  <td>name only</td><td>none</td>
+  <td>a server holding one session named <code>0</code> at <code>~</code> (<code>handleServerCreate</code> hardcodes <code>CreateSession("0", homeDir, …)</code>)</td></tr>
+<tr><td class="k">Session</td>
+  <td>Server-group header <code>+</code> (hover-reveal) · server flyout card <code>New session</code> · empty-state button · <code>/$server</code> dashed tile · palette <code>Session: Create</code></td>
+  <td>none (instant; name derived from the active tab's folder) — the palette path pre-fills a name</td>
+  <td>⇧Ctrl+N on Win/Linux; <b>unbound on mac</b></td>
+  <td>a session at the <i>active tab's</i> folder. There is no way to pick a folder (the session-level <i>at Folder</i> action was removed)</td></tr>
+<tr><td class="k">Tab</td>
+  <td>Session flyout card <code>New tab</code> (hover) · <code>/$server</code> dashed button · palette <code>Tab: Create</code>, <code>Tab: Create at Folder</code>, <code>Tab: New Iframe Tab</code></td>
+  <td>none (or a folder through the palette)</td>
+  <td>⌘T in the shell, ⇧Ctrl+T on Win/Linux; <b>browser-reserved on mac web</b></td>
+  <td>an unnamed tab at the active tab's folder, which tmux names after the folder</td></tr>
+</table></div>
+
+<div class="row">
+  <div class="col">
+    <div class="stage"><div class="sb reveal" id="sb-today">
+      <div class="rail"><span>▦</span><span class="on">◫</span><span>▤</span><span>⌂</span></div>
+      <div class="ph"><span class="t">Server</span><span class="plus" title="New tmux server">+</span></div>
+      <div class="tiles"><span class="wt on">work</span><span class="wt">kit</span><span class="wt">scratch</span></div>
+      <div class="sec">
+        <div class="ph"><span class="t">Sessions</span><span>▾</span></div>
+        <div class="wsh"><span class="sw"></span><span class="t">work</span><span class="ib" style="visibility:visible">+</span></div>
+        <div class="g"><span class="ch">▾</span><span class="n">hexokit</span><span class="ib" title="(only via flyout card)">⋯</span></div>
+        <div class="w on"><span class="dot g1"></span>hexokit</div>
+        <div class="w"><span class="dot y"></span>gutsy-bullfrog</div>
+        <div class="g"><span class="ch">▾</span><span class="n">fab-kit</span><span class="ib">⋯</span></div>
+        <div class="w"><span class="dot"></span>fab-kit</div>
+        <div class="g"><span class="ch">▸</span><span class="n junk">0</span><span class="callout">← every new server starts here, in ~</span></div>
+      </div>
+    </div></div>
+    <p class="cap">Today's sidebar (labels unchanged). The only per-group create control is the <code>New tab</code> row in the hover flyout card. The <code>+</code> buttons are 20px and grey at rest.</p>
+  </div>
+  <div class="col">
+    <h3>Friction, ranked</h3>
+    <ol class="issues warn">
+      <li><b>A new server starts out wrong.</b> You name it, then land in a session called <code>0</code> in <code>~</code>. Getting to real work means making a second session at the right folder and killing <code>0</code>, which is three steps across two surfaces.</li>
+      <li><b>Folders can't be chosen.</b> New sessions and tabs inherit the <i>active tab's</i> folder. To open a different repo or worktree you have to <code>cd</code> in a shell or go through the palette's <i>at Folder</i>, and only tabs have that.</li>
+      <li><b>The mouse paths are hidden.</b> New tab is two levels deep (hover the session → card → row). The New session <code>+</code> only shows on hover, and the server <code>+</code> is a 20px glyph.</li>
+      <li><b>Mac has no keyboard path.</b> <code>create-session</code> is unbound on mac, and ⌘T is browser-reserved on the web, so mac web users get no chord for either.</li>
+      <li><b>The three levels use three different create grammars:</b> dialog + name, instant + derived name, instant + unnamed. You can't learn one and apply it to the others.</li>
+    </ol>
+  </div>
+</div>
+
+<!-- =============================================================== 2 -->
+<h2><span class="num">2</span>The rename — UI vocabulary only</h2>
+<p>Window → Tab is already about 90% shipped. The palette still has stragglers (<code>Window: Set note…</code>, <code>Session: Sort windows…</code>). This work finishes that rename and adds the two new terms. The scope is <b>UI copy only</b>: CLI verbs, API paths, <code>?server=</code>, tmux options and memory/spec prose keep the tmux words, because they talk to tmux. Wherever a power user would want the mapping, the UI shows the tmux term as a secondary fact.</p>
+
+<div class="tablewrap"><table>
+<tr><th>Surface</th><th>Today</th><th>Proposed</th></tr>
+<tr><td class="k">Palette prefixes</td><td class="old">Server: · Session: · Window:</td><td>Workspace: · Group: · Tab:</td></tr>
+<tr><td class="k">Sidebar section rail</td><td class="old">Server</td><td>Workspaces</td></tr>
+<tr><td class="k">Sidebar panel titles</td><td class="old">Server · Sessions</td><td>Workspaces · Groups (the tree's aria-label changes from <code>Session tree</code> to <code>Workspace tree</code>)</td></tr>
+<tr><td class="k">Host page zone</td><td class="old">TMUX SERVERS · + New Server</td><td>WORKSPACES · + New workspace</td></tr>
+<tr><td class="k">Flyout card titles</td><td class="old">Server &lt;n&gt; · Session &lt;n&gt;</td><td>Workspace &lt;n&gt; · Group &lt;n&gt;. The facts lines keep the tmux tie-in: <code>tmux -L work · 3 groups</code> and <code>$4 · 2 tabs · ~/code/x</code></td></tr>
+<tr><td class="k">Card action rows</td><td class="old">New session · Kill server · Kill session</td><td>New group · Kill workspace · Kill group</td></tr>
+<tr><td class="k">Dialogs</td><td class="old">Create tmux server · New session · Kill tmux server? · Kill protected server? · Adopt server into HexoKit? · Rename session</td><td>New workspace · New group · Kill workspace? · Kill protected workspace? · Adopt workspace into HexoKit? · Rename group</td></tr>
+<tr><td class="k">Kill copy</td><td class="old">…and all its sessions / …and all its tabs</td><td>…and all its groups / …and all its tabs</td></tr>
+<tr><td class="k">Top bar</td><td class="old">tmux Server (route heading) · server / session crumbs</td><td>Workspace heading. Crumbs unchanged in shape, with an optional micro-label (see §5 mock)</td></tr>
+<tr><td class="k"><code>/$server</code> page</td><td class="old">tmux Server Overview · Sessions · + New Session</td><td>Workspace overview · Groups · + New group</td></tr>
+<tr><td class="k">Keyboard help</td><td class="old">New session (a new group of tabs)</td><td>New group</td></tr>
+<tr><td class="k">Spawn-agent placeholder</td><td class="old">blank = empty session</td><td>blank = plain shell</td></tr>
+</table></div>
+
+<h3>Collisions to watch</h3>
+<ol class="issues warn">
+  <li><b>"Tab" already means two things.</b> A tmux window is a Tab, and the web tile has its own <i>web tabs</i> strip (<code>@N/web/&lt;n&gt;</code>). This predates the change, but it gets more noticeable once Tab is the headline noun. The fix is to always say <i>web tab</i> or <i>page</i> for the web strip.</li>
+  <li><b>"Workspace" clashes with VS Code.</b> The code lens writes a <code>.code-workspace</code> file per tab, and code-server shows its own "workspace" chrome. Users rarely see the two side by side, so this is acceptable, but tooltips should avoid "workspace folder".</li>
+  <li><b>CLI/UI drift.</b> <code>rk tab</code> already matches the UI, but <code>rk mux new &lt;server&gt;</code>, MCP <code>new_server</code> and the <code>?server=</code> URL won't. That's the intended split between the tmux layer and the product layer. Whether the CLI gets aliases (<code>rk workspace new</code>) is a separate decision.</li>
+</ol>
+
+<!-- =============================================================== 3 -->
+<h2><span class="num">3</span>Option A — visible <code>+</code> at every tree level <span class="tag rec">mouse path</span></h2>
+<p>This option needs no new surface. Every level of the sidebar tree gets a create control that's visible at rest, sitting where the new item will appear: a dashed <code>+</code> tile at the end of the Workspaces panel, a persistent <code>+</code> on each group header that adds a tab to that group, and a trailing <i>+ group</i> row under each workspace's groups. Each control does the instant create (§6 covers how the folder is chosen). Click them in the mock to see the ghosts.</p>
+
+<div class="row">
+  <div class="col">
+    <div class="stage"><div class="sb persist" id="sb-a">
+      <div class="rail"><span>▦</span><span class="on" title="Workspaces">◫</span><span>▤</span><span>⌂</span></div>
+      <div class="ph"><span class="t">Workspaces</span></div>
+      <div class="tiles" id="a-tiles"><span class="wt on">work</span><span class="wt">kit</span><span class="wt">scratch</span><span class="wt add" data-a="ws">+ workspace</span></div>
+      <div class="sec" id="a-tree">
+        <div class="ph"><span class="t">Groups</span><span>▾</span></div>
+        <div class="wsh"><span class="sw"></span><span class="t">work</span></div>
+        <div class="g"><span class="ch">▾</span><span class="n">hexokit</span><span class="ib" data-a="tab" title="New tab in hexokit">+</span></div>
+        <div class="w on"><span class="dot g1"></span>hexokit</div>
+        <div class="w"><span class="dot y"></span>gutsy-bullfrog</div>
+        <div class="g"><span class="ch">▾</span><span class="n">fab-kit</span><span class="ib" data-a="tab" title="New tab in fab-kit">+</span></div>
+        <div class="w"><span class="dot"></span>fab-kit</div>
+        <div class="g addg" data-a="group"><span class="ch">+</span><span class="n">group</span></div>
+      </div>
+    </div></div>
+    <p class="cap">The group <code>+</code> is shown at rest at 70% ink (fine pointer) and is always shown on coarse pointers. The <i>+ group</i> row reuses the dashed-tile language from <code>/$server</code>.</p>
+  </div>
+  <div class="col">
+    <h3>Tradeoffs</h3>
+    <ol class="issues">
+      <li><b>Discoverable without explanation.</b> The control sits where the result will appear, the way Arc, VS Code and Linear do it.</li>
+      <li><b>Costs one row per workspace</b> for <i>+ group</i>, plus a column on every group header. The header column is already reserved by the hover cluster, so it adds no width.</li>
+      <li><b>It doesn't fix friction #1 or #2 by itself.</b> An instant create still can't choose a folder. Option A works best as the <i>entry point</i> for B, with the instant create as the default.</li>
+      <li><b>Breaks the "one hover-reveal contract"</b> (sidebar.md) for the group <code>+</code>. That's deliberate: creating is a primary action, and the contract is meant for secondary ones.</li>
+    </ol>
+  </div>
+</div>
+
+<!-- =============================================================== 4 -->
+<h2><span class="num">4</span>Option B — one folder-first “New” sheet <span class="tag rec">recommended core</span></h2>
+<p>All three levels share one flow. The <b>folder is the real input</b>: names are already derived from folders everywhere (tmux auto-names tabs, instant sessions use <code>deriveNameFromPath</code>). The sheet opens with the active tab's folder selected, so <kbd>Enter</kbd> gives you today's instant behavior. Typing filters recent folders, git worktrees (<code>wt</code>) and repos under the source roots. A scope switch picks how deep the new item goes, and a live preview shows exactly what will be created. Try the scope buttons and the folder rows.</p>
+
+<div class="stage">
+  <div class="sheet" id="sheet">
+    <div class="sh-top">
+      <span class="ttl">New</span>
+      <div class="scope" id="scope">
+        <button data-s="tab" aria-pressed="true">Tab <kbd>⌘T</kbd></button>
+        <button data-s="group" aria-pressed="false">Group <kbd>⌥⌘T</kbd></button>
+        <button data-s="workspace" aria-pressed="false">Workspace</button>
+      </div>
+    </div>
+    <div class="field"><span class="pfx">folder</span><span class="val" id="fval">~/code/sahil87/hexokit.worktrees/gutsy-bullfrog</span><span class="caret"></span></div>
+    <div class="opts" id="runopts">
+      <span class="opt" data-r="shell" aria-pressed="true">shell</span>
+      <span class="opt" data-r="claude" aria-pressed="false">claude</span>
+      <span class="opt" data-r="codex" aria-pressed="false">codex</span>
+      <span class="opt" data-r="riff" aria-pressed="false">riff preset…</span>
+      <span class="opt" data-r="web" aria-pressed="false">web page…</span>
+    </div>
+    <div class="list" id="flist">
+      <div class="lh">Current</div>
+      <div class="li sel" data-p="~/code/sahil87/hexokit.worktrees/gutsy-bullfrog" data-n="gutsy-bullfrog"><span class="p">~/code/sahil87/hexokit.worktrees/gutsy-bullfrog</span><span class="chip br">gutsy-bullfrog</span><span class="meta">active tab</span></div>
+      <div class="lh">Worktrees · hexokit</div>
+      <div class="li" data-p="~/code/sahil87/hexokit" data-n="hexokit"><span class="p">~/code/sahil87/hexokit</span><span class="chip br">main</span><span class="meta">2 tabs open</span></div>
+      <div class="li" data-p="~/code/sahil87/hexokit.worktrees/quiet-heron" data-n="quiet-heron"><span class="p">~/code/sahil87/hexokit.worktrees/quiet-heron</span><span class="chip br">quiet-heron</span><span class="meta">—</span></div>
+      <div class="li" data-p="+ new worktree" data-n="(new worktree)" data-new="1"><span class="p" style="color:var(--accent-green)">+ new worktree from main…</span><span class="meta">wt create</span></div>
+      <div class="lh">Recent</div>
+      <div class="li" data-p="~/code/sahil87/fab-kit" data-n="fab-kit"><span class="p">~/code/sahil87/fab-kit</span><span class="chip br">main</span><span class="meta">yesterday</span></div>
+      <div class="li" data-p="~/code/noon/design-site" data-n="design-site"><span class="p">~/code/noon/design-site</span><span class="chip br">feat/nav</span><span class="meta">3d</span></div>
+    </div>
+    <div class="preview" id="preview"></div>
+    <div class="sh-foot">
+      <span><kbd>Tab</kbd> scope</span><span><kbd>↑↓</kbd> folder</span><span><kbd>⌘↵</kbd> name it…</span>
+      <span class="sp"></span><button class="go" id="gobtn">Create tab ↵</button>
+    </div>
+  </div>
+</div>
+<p class="cap">Desktop: the sheet is centered at <code>Dialog size="sm"</code> width plus about 140px. Mobile: the same content as a bottom sheet (below). The scope switch remembers which entry point opened it: a group's <code>+</code> opens with <i>Tab</i> selected in that group, and the Workspaces tile opens with <i>Workspace</i> selected.</p>
+
+<div class="row" style="margin-top:14px">
+  <div class="col" style="flex:0 0 auto">
+    <div class="stage" style="padding:14px 0 0;display:flex;justify-content:center">
+      <div class="sheet mobile">
+        <div style="width:36px;height:4px;border-radius:2px;background:var(--border);margin:8px auto 2px"></div>
+        <div class="sh-top"><span class="ttl">New</span>
+          <div class="scope"><button aria-pressed="false">Tab</button><button aria-pressed="true">Group</button><button aria-pressed="false">Workspace</button></div></div>
+        <div class="field"><span class="pfx">folder</span><span class="val">~/code/sahil87/fab-kit</span></div>
+        <div class="list" style="max-height:none">
+          <div class="li sel"><span class="p">~/code/sahil87/fab-kit</span><span class="chip br">main</span></div>
+          <div class="li"><span class="p">~/code/sahil87/hexokit</span><span class="chip br">main</span></div>
+          <div class="li"><span class="p">~/code/noon/design-site</span><span class="chip br">feat/nav</span></div>
+        </div>
+        <div class="preview">New group <b>fab-kit</b> in <b>work</b>, first tab at <b>~/code/sahil87/fab-kit</b></div>
+        <div class="sh-foot"><span class="sp"></span><button class="go" style="padding:8px 18px">Create group</button></div>
+      </div>
+    </div>
+    <p class="cap">375px: the run-options chips collapse into an overflow (not shown), and the rows use 40px coarse targets.</p>
+  </div>
+  <div class="col">
+    <h3>Why folder-first</h3>
+    <ol class="issues">
+      <li><b>Fixes #1.</b> In Workspace scope, the backend gets <code>{name, cwd, firstGroup}</code> instead of hardcoding <code>"0"</code> at <code>~</code>. The new workspace opens on a group named after the folder, with a tab already there. This needs a small API change to <code>POST /api/servers</code>.</li>
+      <li><b>Fixes #2.</b> Every level can pick a folder. Enter on the pre-selected current folder is exactly today's instant create, so nothing gets slower.</li>
+      <li><b>Fixes #5.</b> One grammar for all three levels, and names are derived from the folder. <kbd>⌘↵</kbd> opens the name override (the existing <code>SessionNamePrompt</code> save-as model).</li>
+      <li><b>Worktrees become first-class.</b> <i>+ new worktree from main…</i> runs <code>wt create</code> and opens the result. That's the most common reason to start a group in this codebase's own workflow.</li>
+      <li><b>Run options are optional</b> (shell by default). <i>claude/codex</i> folds in <code>+ New Agent</code>, <i>riff preset</i> folds in the spawn dialog, and <i>web page</i> folds in <code>Tab: New Iframe Tab</code>. That's three create dialogs fewer. <span class="tag open">open</span>: whether this belongs in v1 or should stay its own follow-up.</li>
+    </ol>
+  </div>
+</div>
+
+<!-- =============================================================== 5 -->
+<h2><span class="num">5</span>Option C — the <code>+</code> split button in the sidebar head <span class="tag rec">recommended mouse path</span></h2>
+<p>The split button goes in the top-left, in the <b>sidebar head</b>: the strip holding the logo and the sidebar toggle. That strip is drawn <i>over</i> the bar's left end, and its width is <code>sidebarWidth + 12</code> (<code>SidebarHead</code> in <code>top-bar.tsx</code>). Anything placed there costs <b>nothing</b> from the bar's center or right cluster, which removes my earlier width objection. It also sits directly above the tree it creates into, the way Linear, Slack and Notion put "compose" at the top of the sidebar.</p>
+
+<h3>5.1 · Live placement</h3>
+<div class="controls5">
+  <label>sidebar width</label><span><input type="range" id="c5-w" min="160" max="400" value="220"><span class="val" id="c5-wv">220px</span></span>
+  <label>sidebar</label><span class="seg"><button data-c5o="1" aria-pressed="true">open (head shows)</button><button data-c5o="0" aria-pressed="false">closed</button></span>
+  <label>position in head</label><span class="seg"><button data-c5p="toggle" aria-pressed="true">beside toggle</button><button data-c5p="brand" aria-pressed="false">beside brand</button></span>
+  <label>route</label><span class="seg"><button data-c5r="terminal" aria-pressed="true">tab</button><button data-c5r="server" aria-pressed="false">workspace page</button><button data-c5r="board" aria-pressed="false">board</button></span>
+</div>
+<div class="stage" style="padding:10px">
+  <div class="frame5" id="c5-frame">
+    <div class="bar5">
+      <div class="head5" id="c5-head"></div>
+      <div class="left5" id="c5-left"></div>
+      <div class="center5" id="c5-center"></div>
+      <div class="right5"><span class="ib5">◐</span><span class="ib5">⟳</span><span class="ib5">⚙</span><span class="ib5">⌄</span></div>
+    </div>
+    <div class="body5">
+      <div class="side5" id="c5-side">
+        <div class="ph"><span class="t">Workspaces</span></div>
+        <div class="tiles"><span class="wt on">work</span><span class="wt">kit</span></div>
+        <div class="sec">
+          <div class="ph"><span class="t">Groups</span></div>
+          <div class="wsh"><span class="sw"></span><span class="t">work</span></div>
+          <div class="g"><span class="ch">▾</span><span class="n">hexokit</span></div>
+          <div class="w on"><span class="dot g1"></span>gutsy-bullfrog</div>
+          <div class="w"><span class="dot y"></span>hexokit</div>
+          <div class="g"><span class="ch">▾</span><span class="n">fab-kit</span></div>
+          <div class="w"><span class="dot"></span>fab-kit</div>
+        </div>
+      </div>
+      <div class="main5"><div class="term5">~/code/sahil87/hexokit.worktrees/gutsy-bullfrog ❯ <span class="caret"></span></div></div>
+    </div>
+    <div class="menu" id="c5-menu" hidden></div>
+  </div>
+</div>
+<p class="readout5" id="c5-read"></p>
+<p class="cap">Click the <code>▾</code> to open the menu, and click the primary segment to see the ghost row it would create. Drag the width slider to step through the fold ladder (§5.3).</p>
+
+<h3>5.2 · Anatomy</h3>
+<div class="row">
+  <div class="col">
+    <ol class="issues">
+      <li><b>Primary segment: an instant create at the deepest level the route has.</b> On a tab route it's <code>+ Tab</code>, which is exactly ⌘T (a new tab in the current group, opened in the active tab's folder). On the workspace page it's <code>+ Group</code>, which is exactly instant <code>Group: Create</code>. One click, no dialog.</li>
+      <li><b>Caret: every create verb, grouped by where the result lands.</b> The section headers name the target (<i>In work › hexokit</i>, <i>In work</i>), which answers "where will this go?" before you click.</li>
+      <li><b>Every menu row is a palette action</b> (Constitution V: no toolbar-only functionality). The <code>…</code> rows open the folder-first sheet (Option B) already set to the right level.</li>
+      <li><b>It reuses the <code>Open ▾</code> split-button component</b> (<code>open-button.tsx</code>) for geometry, the flush segment corners and the menu shell. Unlike Open, the primary is <i>not</i> last-used: the primary always matches the route (see below).</li>
+    </ol>
+  </div>
+  <div class="col">
+    <div class="stage" style="display:flex;justify-content:center;padding:18px">
+      <div class="menu" style="position:static;width:286px">
+        <div class="mh">In work › hexokit</div>
+        <div class="mi hl"><span class="gl">＋</span>Tab <span class="kbd">⌘T</span></div>
+        <div class="mi"><span class="gl">▱</span>Tab at folder… <span class="kbd"></span></div>
+        <div class="mi"><span class="gl">✦</span>Agent tab… <span class="kbd"></span></div>
+        <div class="mi"><span class="gl">◎</span>Web tab… <span class="kbd"></span></div>
+        <div class="mi"><span class="gl">↺</span>Reopen closed tab <span class="kbd">⇧⌘T</span></div>
+        <div class="msep"></div>
+        <div class="mh">In work</div>
+        <div class="mi"><span class="gl">▤</span>Group <span class="kbd">⌥⌘T</span></div>
+        <div class="mi"><span class="gl">▱</span>Group at folder…</div>
+        <div class="mi"><span class="gl">⑂</span>Group on new worktree…</div>
+        <div class="msep"></div>
+        <div class="mi"><span class="gl">◫</span>Workspace…</div>
+      </div>
+    </div>
+    <p class="cap">The full menu on a tab route, with the in-bar glyph leading each row (the top bar's mirrored-row rule). <i>Agent tab…</i> takes over the window switcher's <code>+ New Agent</code>, and <i>Web tab…</i> takes over <code>Tab: New Iframe Tab</code>.</p>
+  </div>
+</div>
+
+<div class="tablewrap"><table>
+<tr><th>Route</th><th>Primary segment</th><th>Menu sections</th><th>Context comes from</th></tr>
+<tr><td class="k">Tab <code>/$ws/$tab</code></td><td><code>+ Tab</code></td><td>In &lt;ws › group&gt; · In &lt;ws&gt; · Workspace…</td><td>the current tab (same as ⌘T today)</td></tr>
+<tr><td class="k">Workspace <code>/$ws</code></td><td><code>+ Group</code></td><td>In &lt;ws&gt; · Workspace…</td><td>the route's workspace. There's no current group, so no tab rows</td></tr>
+<tr><td class="k">Board <code>/board/$n</code></td><td><code>+ Tab</code></td><td>same as the tab route, keyed to the <b>focused pane's</b> workspace › group</td><td><code>focused-pane-context</code> (already carries the server and session)</td></tr>
+<tr><td class="k">Host <code>/</code></td><td><code>+ Workspace</code></td><td>— (a plain button, no caret)</td><td>none. There's no sidebar here, so it sits after the brand crumb</td></tr>
+</table></div>
+<p class="note">Tradeoff: the primary's label changes by route, which goes against "the split's primary stays a fixed direction" (top-bar.md design decisions). It's worth it here because the alternative is a <code>+ Tab</code> that silently does nothing on the workspace page. The noun on the button keeps it honest.</p>
+
+<h3>5.3 · Fold ladder and fallbacks</h3>
+<p>The head is <code>pl-3 pr-3</code> with a 20px logo, the ~54px wordmark, the split and the 28px toggle, separated by 8px gaps. At the default 220px sidebar the head is 232px, and <code>+ Tab ▾</code> (~74px) fits with the wordmark. Longer labels or narrower sidebars drop the wordmark first; the logo stays as the home link. Below that, the split goes icon-only (<code>+▾</code>, 46px). That never triggers today, because even the narrowest head (172px) fits the shortest label, but it's the safety rung.</p>
+<div class="tablewrap"><table>
+<tr><th>State</th><th>Where the button lives</th><th>Form</th></tr>
+<tr><td class="k">Desktop, sidebar open, head shown</td><td>sidebar head (position set by the toggle above)</td><td>R1 logo + wordmark + <code>+ Tab ▾</code> → R2 drops the wordmark → R3 <code>+▾</code></td></tr>
+<tr><td class="k">Desktop, sidebar closed</td><td>left cluster, right after the hamburger: <code>≡ +▾ ◀ ▶ ⬡HexoKit › work › hexokit</code></td><td>icon-only <code>+▾</code>, Tip = "New tab (⌘T)"</td></tr>
+<tr><td class="k">Head yields (bar &lt; 600px beside it)</td><td>same as sidebar closed: the classic bar returns with the button after the hamburger</td><td>icon-only</td></tr>
+<tr><td class="k">Mobile (&lt; sm)</td><td><b>not in the bar</b>, because the 375px budget is fixed. It goes at the right end of the drawer's brand row (<code>SidebarBrand</code>), which is the top-left of the sidebar again</td><td><code>+ Tab ▾</code> at 40px coarse; the menu opens as a bottom sheet</td></tr>
+<tr><td class="k">Host page</td><td>left cluster after the brand crumb (there's no sidebar)</td><td><code>+ Workspace</code>, a plain button</td></tr>
+</table></div>
+<p>The rule to teach: <b>"New" is always at the top-left of the sidebar</b>, and it follows the sidebar into the bar when the sidebar folds away.</p>
+
+<div class="row">
+  <div class="col" style="flex:0 0 auto">
+    <div class="stage" style="padding:14px;display:flex;justify-content:center">
+      <div class="phone5">
+        <div class="pbar5"><span class="ib5 c">≡</span><span class="ph5h">gutsy-bullfrog ▾</span><span style="flex:1"></span><span class="ib5 c">⋯</span></div>
+        <div class="pdrawer5">
+          <div class="pbrand5"><span class="logo5">⬡</span><b>HexoKit</b><span style="flex:1"></span><span class="split5 coarse"><span>+ Tab</span><span>▾</span></span></div>
+          <div class="rail" style="border-bottom-width:3px"><span>▦</span><span class="on">◫</span><span>▤</span><span>⌂</span></div>
+          <div class="wsh"><span class="sw"></span><span class="t">work</span></div>
+          <div class="g"><span class="ch">▾</span><span class="n">hexokit</span></div>
+          <div class="w on" style="height:40px"><span class="dot g1"></span>gutsy-bullfrog</div>
+          <div class="w" style="height:40px"><span class="dot y"></span>hexokit</div>
+        </div>
+      </div>
+    </div>
+    <p class="cap">375px: the button sits in the drawer's brand row, and the bar is untouched.</p>
+  </div>
+  <div class="col">
+    <h3>5.4 · Variant: the brand becomes a workspace switcher</h3>
+    <div class="stage" style="padding:10px">
+      <div class="headv">
+        <span class="logo5">⬡</span><span class="wsw">work ▾</span><span style="flex:1"></span><span class="split5"><span>+ Tab</span><span>▾</span></span><span class="ib5">≡</span>
+      </div>
+    </div>
+    <p>This is the Slack/Linear pattern. The wordmark is replaced by the current workspace with a <code>▾</code> switcher (switching today is palette-only, <code>Server: Switch to …</code>), and the logo alone stays the home link. The top-left would then own both <i>which workspace</i> and <i>make something in it</i>, and the <code>work ›</code> crumb would become redundant.</p>
+    <p><span class="tag open">separate decision</span> It's a stronger idea, but it changes navigation as well as creation, and it reverses the "server switching stays in the command palette" choice. I'd ship the split button first and decide this on its own.</p>
+  </div>
+</div>
+
+<h3>5.5 · Costs and what it replaces</h3>
+<ol class="issues">
+  <li><b>Retires</b> the Workspaces-panel header <code>+</code>, the window switcher's <code>+ New Tab</code>/<code>+ New Agent</code> footer, and the separate iframe-tab entry. Their palette actions stay. Option A's per-group <code>+</code> stays, as the one in-context create in the tree.</li>
+  <li><b>Code:</b> <code>SidebarHead</code> gains the button and a measured fold (the gui-toolbar fold precedent); the left cluster gets the icon-only rung; <code>SidebarBrand</code> (mobile) gets the coarse form; there are new palette actions for the menu rows that don't exist yet (<i>Group at folder…</i>, <i>Group on new worktree…</i>, <i>Workspace…</i>). The head is drawn over the bar's left end and isn't part of the bar's 3-column grid, so the right-cluster overflow machinery doesn't change.</li>
+  <li><b>Risk:</b> the head is a drag region in the desktop shell (it's part of the titlebar band). The split button has to be a no-drag island, like the switcher trigger is (top-bar.md design decisions).</li>
+  <li><b>e2e:</b> the brand stays the unique <code>HexoKit home</code> label. The new control needs its own testids, and the specs that click <code>+ New Tab</code> in the window switcher have to move.</li>
+</ol>
+
+<script>
+(function () {
+  var W = 220, open = true, pos = "toggle", route = "terminal";
+  var head = document.getElementById("c5-head"), left = document.getElementById("c5-left"), center = document.getElementById("c5-center");
+  var side = document.getElementById("c5-side"), menu = document.getElementById("c5-menu"), read = document.getElementById("c5-read");
+  var frame = document.getElementById("c5-frame");
+  var CH = 7.2; // px per char at 12px mono
+  var PRIMARY = { terminal: "+ Tab", server: "+ Group", board: "+ Tab" };
+  var MENUS = {
+    terminal: [["In work › hexokit", [["＋","Tab","⌘T"],["▱","Tab at folder…",""],["✦","Agent tab…",""],["◎","Web tab…",""],["↺","Reopen closed tab","⇧⌘T"]]],
+               ["In work", [["▤","Group","⌥⌘T"],["▱","Group at folder…",""],["⑂","Group on new worktree…",""]]],
+               [null, [["◫","Workspace…",""]]]],
+    server:   [["In work", [["▤","Group","⌥⌘T"],["▱","Group at folder…",""],["⑂","Group on new worktree…",""]]],
+               [null, [["◫","Workspace…",""]]]],
+    board:    [["In kit › review  (focused pane)", [["＋","Tab","⌘T"],["▱","Tab at folder…",""],["✦","Agent tab…",""]]],
+               ["In kit", [["▤","Group","⌥⌘T"],["▱","Group at folder…",""]]],
+               [null, [["◫","Workspace…",""]]]]
+  };
+  function splitHTML(label, iconOnly) {
+    return '<span class="split5" id="c5-split"><span data-act="primary" title="' + (route === "server" ? "New group" : "New tab (⌘T)") + '">' +
+      (iconOnly ? "+" : label) + '</span><span data-act="caret">▾</span></span>';
+  }
+  function splitW(label, iconOnly) { return iconOnly ? 46 : Math.round(label.length * CH + 16 + 22); }
+  function crumbs() {
+    if (route === "server") return "";
+    var ws = route === "board" ? "" : '<span class="sep5">›</span><span class="cr5">work</span><span class="sep5">›</span><span class="cr5 st">hexokit</span>';
+    return ws;
+  }
+  function render() {
+    var headW = W + 12, label = PRIMARY[route];
+    var full = 24 + 20 + 8 + 54 + 8 + splitW(label) + 8 + 28;
+    var noMark = 24 + 20 + 8 + splitW(label) + 8 + 28;
+    var rung = full <= headW ? "R1" : (noMark <= headW ? "R2" : "R3");
+    var heading = route === "terminal" ? '<span class="pre5">Tab:</span> gutsy-bullfrog <span class="sep5">▾</span>' :
+                  route === "server" ? '<span class="pre5">Workspace:</span> work' : '<span class="pre5">Board:</span> review <span class="sep5">▾</span>';
+    center.innerHTML = heading;
+    if (open) {
+      side.style.display = ""; side.style.width = W + "px";
+      head.style.display = ""; head.style.width = headW + "px";
+      var brand = '<span class="logo5" title="Host">⬡</span>' + (rung === "R1" ? '<b class="mark5">HexoKit</b>' : "");
+      var sp = splitHTML(label, rung === "R3");
+      var tog = '<span class="ib5">≡</span>';
+      head.innerHTML = pos === "toggle" ? brand + '<span style="flex:1"></span>' + sp + tog : brand + sp + '<span style="flex:1"></span>' + tog;
+      left.style.paddingLeft = (headW + 6) + "px";
+      left.innerHTML = '<span class="ib5">◀</span><span class="ib5">▶</span>' + crumbs();
+      read.innerHTML = "head <b>" + headW + "px</b> · needs " + full + "px with wordmark, " + noMark + "px without → rung <b>" + rung + "</b>" +
+        (rung === "R1" ? " (logo + wordmark + split)" : rung === "R2" ? " (wordmark dropped, logo stays home)" : " (icon-only split)");
+    } else {
+      side.style.display = "none"; head.style.display = "none"; left.style.paddingLeft = "6px";
+      left.innerHTML = '<span class="ib5">≡</span>' + splitHTML(label, true) + '<span class="ib5">◀</span><span class="ib5">▶</span><span class="cr5"><span class="logo5">⬡</span> HexoKit</span>' + crumbs();
+      read.innerHTML = "sidebar closed → the button follows the sidebar's toggle into the left cluster, icon-only (<b>46px</b>) right after the hamburger";
+    }
+    menu.hidden = true;
+    wire();
+  }
+  function buildMenu() {
+    var h = "";
+    MENUS[route].forEach(function (sec, i) {
+      if (i) h += '<div class="msep"></div>';
+      if (sec[0]) h += '<div class="mh">' + sec[0] + "</div>";
+      sec[1].forEach(function (r, j) { h += '<div class="mi' + (i === 0 && j === 0 ? " hl" : "") + '"><span class="gl">' + r[0] + "</span>" + r[1] + '<span class="kbd">' + r[2] + "</span></div>"; });
+    });
+    menu.innerHTML = h;
+  }
+  function wire() {
+    var sp = document.getElementById("c5-split"); if (!sp) return;
+    sp.querySelector('[data-act="caret"]').onclick = function (e) {
+      e.stopPropagation();
+      if (!menu.hidden) { menu.hidden = true; return; }
+      buildMenu();
+      var fr = frame.getBoundingClientRect(), r = sp.getBoundingClientRect();
+      menu.style.left = Math.max(4, Math.min(r.left - fr.left, fr.width - 296)) + "px";
+      menu.style.top = (r.bottom - fr.top + 4) + "px"; menu.style.right = "auto"; menu.style.width = "286px";
+      menu.hidden = false;
+    };
+    sp.querySelector('[data-act="primary"]').onclick = function () {
+      if (!open) return;
+      if (route === "server") {
+        var g = document.createElement("div"); g.className = "g ghost"; g.innerHTML = '<span class="ch">▾</span><span class="n">gutsy-bullfrog-2</span>';
+        side.querySelector(".sec").appendChild(g);
+      } else {
+        var rows = side.querySelectorAll(".w"); var after = rows[1];
+        var d = document.createElement("div"); d.className = "w ghost"; d.innerHTML = '<span class="dot"></span>gutsy-bullfrog';
+        after.after(d);
+      }
+    };
+  }
+  document.addEventListener("click", function (e) { if (!menu.contains(e.target)) menu.hidden = true; });
+  var wIn = document.getElementById("c5-w");
+  wIn.addEventListener("input", function () { W = +wIn.value; document.getElementById("c5-wv").textContent = W + "px"; render(); });
+  function seg(attr, set) {
+    document.querySelectorAll("[" + attr + "]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        document.querySelectorAll("[" + attr + "]").forEach(function (x) { x.setAttribute("aria-pressed", String(x === b)); });
+        set(b.getAttribute(attr)); render();
+      });
+    });
+  }
+  seg("data-c5o", function (v) { open = v === "1"; });
+  seg("data-c5p", function (v) { pos = v; });
+  seg("data-c5r", function (v) { route = v; });
+  render();
+})();
+</script>
+
+<!-- =============================================================== 6 -->
+<h2><span class="num">6</span>Recommendation</h2>
+<div class="verdict">
+  <b>Revised after the §5 deep dive: C (in the sidebar head) is the main door, B is the one sheet behind every "…", and A shrinks to the per-group <code>+</code>.</b> One-click and chord creates stay instant, exactly as today. Anything that needs a choice (a folder, a worktree, an agent, a new workspace) goes through the same sheet, opened at the right level.
+</div>
+<div class="tablewrap"><table>
+<tr><th>Trigger</th><th>Does</th></tr>
+<tr><td class="k">Split primary · ⌘T / ⇧Ctrl+T · group-header <code>+</code></td><td>instant tab, no sheet (today's <code>+ New Tab</code>)</td></tr>
+<tr><td class="k">Split primary on the workspace page · ⌥⌘T (new, mac) / ⇧Ctrl+N</td><td>instant group, no sheet (today's instant create)</td></tr>
+<tr><td class="k">Split menu <i>…</i> rows · palette <code>Tab/Group: Create at Folder</code></td><td>sheet B, set to that level, folder list focused</td></tr>
+<tr><td class="k">Split menu <i>Workspace…</i> · Host <code>+ Workspace</code> · palette <code>Workspace: Create</code></td><td>sheet B at the Workspace level → new workspace + group + tab at the folder (needs the API change)</td></tr>
+</table></div>
+<p class="note">Mac web still can't take ⌘T (the browser reserves it), which is the main reason the split button matters there. ⌥⌘T is the proposed mac chord for groups and isn't browser-reserved in Chrome or Safari <i>(not verified on Firefox)</i>.</p>
+
+<h3>Sequencing</h3>
+<ol class="issues">
+  <li><b>Rename sweep</b> (§2): UI copy, palette prefixes, tests and e2e selectors that match on text. This is mechanical and can ship first on its own.</li>
+  <li><b>Workspace creation takes a folder</b>: <code>POST /api/servers {name, cwd?}</code> creates the first group at <code>cwd</code>, named after the folder instead of <code>0</code>.</li>
+  <li><b>Sheet B</b>, with folder sources: active tab → <code>wt list</code> worktrees → recent folders (per-workspace, durable — Constitution II means a tmux option or a state-home file, not localStorage).</li>
+  <li><b>The split button in the sidebar head</b> (§5) plus the fold ladder and fallbacks, the per-group <code>+</code>, and the ⌥⌘T chord. This retires the window switcher's create footer and the Workspaces-panel <code>+</code>.</li>
+  <li><span class="tag open">open</span> Run options (agent / riff / web) inside the sheet, retiring the separate spawn and iframe dialogs.</li>
+</ol>
+
+</div>
+
+<script>
+(function () {
+  // theme
+  document.querySelectorAll("[data-theme-btn]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      document.documentElement.dataset.theme = b.dataset.themeBtn;
+      document.querySelectorAll("[data-theme-btn]").forEach(function (x) { x.setAttribute("aria-pressed", String(x === b)); });
+    });
+  });
+
+  // Option A ghosts
+  function ghost(html, cls) { var d = document.createElement("div"); d.className = cls + " ghost"; d.innerHTML = html; return d; }
+  document.querySelectorAll("#sb-a [data-a]").forEach(function (el) {
+    el.addEventListener("click", function () {
+      var kind = el.dataset.a;
+      if (kind === "tab") {
+        var g = el.closest(".g"); var n = g.nextElementSibling;
+        while (n && n.classList.contains("w")) { g = n; n = n.nextElementSibling; }
+        g.after(ghost('<span class="dot"></span>' + el.closest(".g").querySelector(".n").textContent, "w"));
+      } else if (kind === "group") {
+        el.before(ghost('<span class="ch">▾</span><span class="n">gutsy-bullfrog-2</span>', "g"));
+      } else if (kind === "ws") {
+        var t = document.createElement("span"); t.className = "wt ghost"; t.textContent = "new…"; el.before(t);
+      }
+    });
+  });
+
+  // Option B sheet
+  var scope = "tab", folder = "~/code/sahil87/hexokit.worktrees/gutsy-bullfrog", fname = "gutsy-bullfrog", isNew = false, run = "shell";
+  var pv = document.getElementById("preview"), go = document.getElementById("gobtn"), fval = document.getElementById("fval");
+  function render() {
+    var f = isNew ? "~/code/sahil87/hexokit.worktrees/<i>new-name</i>" : folder;
+    var nm = isNew ? "<i>new-name</i>" : fname;
+    var runTxt = run === "shell" ? "" : " running <b>" + run + "</b>";
+    var lines;
+    if (scope === "tab") {
+      pv.innerHTML = "New tab in <b>work › hexokit</b> at <b>" + f + "</b>" + runTxt +
+        '<div class="tree">work<br>└ hexokit<br>&nbsp;&nbsp;├ hexokit<br>&nbsp;&nbsp;├ gutsy-bullfrog<br>&nbsp;&nbsp;└ <span class="new">' + nm + " ← new</span></div>";
+      go.textContent = "Create tab ↵";
+    } else if (scope === "group") {
+      pv.innerHTML = "New group <b>" + nm + "</b> in <b>work</b>, first tab at <b>" + f + "</b>" + runTxt +
+        '<div class="tree">work<br>├ hexokit<br>├ fab-kit<br>└ <span class="new">' + nm + " ← new</span><br>&nbsp;&nbsp;└ <span class=\"new\">" + nm + "</span></div>";
+      go.textContent = "Create group ↵";
+    } else {
+      pv.innerHTML = "New workspace <b>" + nm + "</b> (tmux -L " + nm + "), first group and tab at <b>" + f + "</b>" + runTxt +
+        '<div class="tree"><span class="new">' + nm + " ← new</span><br>└ <span class=\"new\">" + nm + '</span><br>&nbsp;&nbsp;└ <span class="new">' + nm + '</span>&nbsp;&nbsp;<span style="opacity:.7">(no more “0” in ~)</span></div>';
+      go.textContent = "Create workspace ↵";
+    }
+  }
+  document.querySelectorAll("#scope button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      scope = b.dataset.s;
+      document.querySelectorAll("#scope button").forEach(function (x) { x.setAttribute("aria-pressed", String(x === b)); });
+      render();
+    });
+  });
+  document.querySelectorAll("#flist .li").forEach(function (li) {
+    li.addEventListener("click", function () {
+      document.querySelectorAll("#flist .li").forEach(function (x) { x.classList.toggle("sel", x === li); });
+      isNew = !!li.dataset.new; folder = li.dataset.p; fname = li.dataset.n;
+      fval.textContent = isNew ? "new worktree from main" : folder;
+      render();
+    });
+  });
+  document.querySelectorAll("#runopts .opt").forEach(function (o) {
+    o.addEventListener("click", function () {
+      run = o.dataset.r;
+      document.querySelectorAll("#runopts .opt").forEach(function (x) { x.setAttribute("aria-pressed", String(x === o)); });
+      render();
+    });
+  });
+  render();
+
+  // Option C menu
+  var cc = document.getElementById("c-cluster"), cm = document.getElementById("c-menu");
+  document.getElementById("c-caret").addEventListener("click", function () { cm.hidden = !cm.hidden; });
+  cc.addEventListener("mouseenter", function () { cm.hidden = false; });
+  cc.addEventListener("mouseleave", function () { cm.hidden = true; });
+})();
+</script>
+</body>
+</html>

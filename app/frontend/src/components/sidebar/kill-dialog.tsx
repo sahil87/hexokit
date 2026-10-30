@@ -15,14 +15,14 @@ type KillDialogProps = {
 export function KillDialog({ killTarget, onConfirm, onCancel }: KillDialogProps) {
   return (
     <Dialog
-      title={killTarget.type === "window" ? "Kill tab?" : "Kill session?"}
+      title={killTarget.type === "window" ? "Kill tab?" : "Kill group?"}
       onClose={onCancel}
     >
       <p className="text-sm text-text-secondary mb-3">
         {killTarget.type === "window" ? (
           <>Kill this tab in <strong>{killTarget.session}</strong>?</>
         ) : (
-          <>Kill session <strong>{killTarget.session}</strong> and all{" "}
+          <>Kill group <strong>{killTarget.session}</strong> and all{" "}
           {killTarget.windowCount} tab
           {killTarget.windowCount !== 1 ? "s" : ""}?</>
         )}

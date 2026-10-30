@@ -56,7 +56,7 @@ describe("SessionRow", () => {
     expect(screen.queryByLabelText("Set color for agent-work")).toBeNull();
     expect(screen.queryByLabelText("Spawn agent in agent-work")).toBeNull();
     expect(screen.queryByLabelText("New tab in agent-work")).toBeNull();
-    expect(screen.queryByLabelText("Kill session agent-work")).toBeNull();
+    expect(screen.queryByLabelText("Kill group agent-work")).toBeNull();
   });
 
   // Flair overlay (decoration-only channel): an always-on ambient CSS-only
@@ -255,13 +255,13 @@ describe("SessionRow", () => {
       const card = screen.getByTestId("row-flyout-card");
       const bar = screen.getByTestId("popup-title-bar");
       expect(card).toContainElement(bar);
-      expect(bar).toHaveTextContent("Session code-surface-latch-distill");
+      expect(bar).toHaveTextContent("Group code-surface-latch-distill");
       expect(card).toHaveTextContent("$4 · 3 tabs · ~/code/sahil87/run-kit");
       // Change color… leads the action rows.
       expect(screen.getByTestId("row-flyout-color-action")).toHaveTextContent("Change color…");
       expect(screen.getByTestId("row-flyout-spawn-action")).toHaveTextContent("Spawn agent…");
       expect(screen.getByTestId("row-flyout-create-action")).toHaveTextContent("New tab");
-      expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill session");
+      expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill group");
       // The card is the row's single hover surface — the tip is retired.
       expect(screen.queryByTestId("session-tip")).toBeNull();
     });
@@ -514,7 +514,7 @@ describe("SessionRow", () => {
       expect(screen.queryByLabelText("Set color for agent-work")).toBeNull();
       expect(screen.queryByLabelText("Spawn agent in agent-work")).toBeNull();
       expect(screen.queryByLabelText("New tab in agent-work")).toBeNull();
-      expect(screen.queryByLabelText("Kill session agent-work")).toBeNull();
+      expect(screen.queryByLabelText("Kill group agent-work")).toBeNull();
     });
 
     it("renders no rail and no cluster on fine pointers — the hover card is the surface", () => {
@@ -524,7 +524,7 @@ describe("SessionRow", () => {
       expect(screen.queryByTestId("status-rail")).toBeNull();
       expect(screen.queryByLabelText("Set color for agent-work")).toBeNull();
       expect(screen.queryByLabelText("New tab in agent-work")).toBeNull();
-      expect(screen.queryByLabelText("Kill session agent-work")).toBeNull();
+      expect(screen.queryByLabelText("Kill group agent-work")).toBeNull();
     });
 
     it("rail tap opens the session card — title, facts line, action rows in order, actions route", () => {
@@ -547,10 +547,10 @@ describe("SessionRow", () => {
       );
       tapRail();
       const card = screen.getByTestId("row-flyout-card");
-      expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Session agent-work");
+      expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Group agent-work");
       // The facts line (omission-degrading).
       expect(card).toHaveTextContent("$4 · 2 tabs · ~/code/run-kit");
-      // Fixed order: Change color… → Spawn agent… → New tab → Kill session.
+      // Fixed order: Change color… → Spawn agent… → New tab → Kill group.
       const color = screen.getByTestId("row-flyout-color-action");
       const spawn = screen.getByTestId("row-flyout-spawn-action");
       const create = screen.getByTestId("row-flyout-create-action");
@@ -558,7 +558,7 @@ describe("SessionRow", () => {
       expect(color).toHaveTextContent("Change color…");
       expect(spawn).toHaveTextContent("Spawn agent…");
       expect(create).toHaveTextContent("New tab");
-      expect(kill).toHaveTextContent("Kill session");
+      expect(kill).toHaveTextContent("Kill group");
       expect(kill).toHaveTextContent("confirms first");
       expect(kill.className).toContain("hover:text-signal-red");
       expect(color.compareDocumentPosition(spawn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

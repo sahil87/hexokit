@@ -1,6 +1,6 @@
 /**
  * Pure builder for the command-palette per-server kill actions
- * (`Server: Kill <name>`, the current server suffixed ` (current)`). Follows
+ * (`Workspace: Kill <name>`, the current server suffixed ` (current)`). Follows
  * the lib/palette/pin.ts / lib/palette/move.ts pattern (pure, dependency-free,
  * unit-testable) so the enumeration and label composition are verifiable
  * without mounting the whole shell. The action body is a thin `onKill(name)`
@@ -17,7 +17,7 @@
 import type { PaletteAction } from "@/components/command-palette";
 
 /**
- * Build one `Server: Kill <name>` palette action per server, mirroring the
+ * Build one `Workspace: Kill <name>` palette action per server, mirroring the
  * `Server: Switch to <name>` enumeration pattern.
  *
  * @param serverNames   all known server names (display order preserved)
@@ -31,7 +31,7 @@ export function buildServerKillActions(
 ): PaletteAction[] {
   return serverNames.map((name) => ({
     id: `kill-server-${name}`,
-    label: `Server: Kill ${name}${name === currentServer ? " (current)" : ""}`,
+    label: `Workspace: Kill ${name}${name === currentServer ? " (current)" : ""}`,
     onSelect: () => onKill(name),
   }));
 }

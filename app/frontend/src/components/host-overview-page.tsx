@@ -223,7 +223,7 @@ export function HostOverviewPage() {
     // root-level ToastProvider, which stays mounted across the navigation.
     onAlwaysRollback: () => {
       markServerPending("");
-      addToast("Failed to create server");
+      addToast("Failed to create workspace");
     },
   });
 
@@ -408,14 +408,14 @@ export function HostOverviewPage() {
         </section>
 
         {/* TMUX SERVERS zone (zone 2) — the tmux-server tile grid. */}
-        <section aria-label="Tmux servers" className="mb-6">
+        <section aria-label="Workspaces" className="mb-6">
           {/* Side slot stays empty on host zones (plan assumption #4); the
               server count stays in the zone body at its original text-xs sizing. */}
-          <SectionHeading label="Tmux Servers" className="mb-2" />
+          <SectionHeading label="WORKSPACES" className="mb-2" />
           <div className="text-xs text-text-secondary font-mono mb-2">
             {!serversLoaded
               ? "loading…"
-              : `${servers.length} server${servers.length !== 1 ? "s" : ""}`}
+              : `${servers.length} workspace${servers.length !== 1 ? "s" : ""}`}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -459,7 +459,7 @@ export function HostOverviewPage() {
                     surface, never hide. */}
                 <div className={`${isInfraServer(name) || ephemeral || isExternal ? "text-text-secondary" : "text-text-primary"} font-medium text-sm`}>
                   {isProtected && (
-                    <Tip label="Protected server — kill requires typing the name">
+                    <Tip label="Protected workspace — kill requires typing the name">
                       <span
                         role="img"
                         aria-label={`${name} is protected`}
@@ -511,7 +511,7 @@ export function HostOverviewPage() {
               onClick={() => setShowCreateDialog(true)}
               className="border border-dashed border-border rounded p-4 text-sm text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors min-h-[60px] flex items-center justify-center"
             >
-              + New Server
+              + New workspace
             </button>
           </div>
         </section>
@@ -570,7 +570,7 @@ export function HostOverviewPage() {
                   </div>
                   {/* Conditional tip: only the disabled state needs the "why"
                       (label undefined otherwise → child renders untouched). */}
-                  <Tip label={servers.length === 0 ? "Create a server first" : undefined}>
+                  <Tip label={servers.length === 0 ? "Create a workspace first" : undefined}>
                     <button
                       onClick={() => handleOpenInWindow(svc.port)}
                       disabled={servers.length === 0}
@@ -615,7 +615,7 @@ export function HostOverviewPage() {
 
       {showCreateDialog && (
         <Dialog
-          title="Create tmux server"
+          title="New workspace"
           onClose={() => {
             setShowCreateDialog(false);
             setCreateName("");
@@ -629,8 +629,8 @@ export function HostOverviewPage() {
             onChange={(e) => setCreateName(toSafeServerName(e.target.value))}
             onKeyDown={(e) => e.key === "Enter" && handleCreate()}
             onFocus={(e) => e.target.select()}
-            aria-label="Server name"
-            placeholder="Server name..."
+            aria-label="Workspace name"
+            placeholder="Workspace name..."
             className={`w-full bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary`}
           />
           <p className="text-xs text-text-secondary mt-1.5">

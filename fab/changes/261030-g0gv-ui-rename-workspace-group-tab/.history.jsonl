@@ -1,0 +1,6 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-10-30T09:38:03Z"}
+{"args":"Rename tmux nouns in the UI: Server → Workspace, Session → Group, finish Window → Tab","cmd":"fab-new","event":"command","ts":"2026-10-30T09:38:03Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-10-30T09:40:50Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-10-30T09:41:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-10-30T09:41:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-10-30T10:18:26Z"}

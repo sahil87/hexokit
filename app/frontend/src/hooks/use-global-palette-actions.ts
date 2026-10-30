@@ -214,7 +214,7 @@ export function useGlobalPaletteActions(): PaletteAction[] {
   const panelActions: PaletteAction[] = useMemo(
     () => [
       { id: "panel-toggle-boards", label: "Panel: Toggle Boards", onSelect: () => setBoardsVisible(!boardsVisible) },
-      { id: "panel-toggle-server", label: "Panel: Toggle Servers", onSelect: () => setServerVisible(!serverVisible) },
+      { id: "panel-toggle-server", label: "Panel: Toggle Workspaces", onSelect: () => setServerVisible(!serverVisible) },
       { id: "panel-toggle-pane", label: "Panel: Toggle Pane", onSelect: () => setPaneVisible(!paneVisible) },
       { id: "panel-toggle-host", label: "Panel: Toggle Host", onSelect: () => setHostVisible(!hostVisible) },
     ],

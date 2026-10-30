@@ -22,7 +22,7 @@ function renderSection(section: SidebarSection) {
 describe("SIDEBAR_SECTIONS", () => {
   it("lists exactly Boards · Server · Pane · Host in order (no Sessions)", () => {
     expect(SIDEBAR_SECTIONS.map((e) => e.section)).toEqual(["boards", "server", "pane", "host"]);
-    expect(SIDEBAR_SECTIONS.map((e) => e.label)).toEqual(["Boards", "Servers", "Pane", "Host"]);
+    expect(SIDEBAR_SECTIONS.map((e) => e.label)).toEqual(["Boards", "Workspaces", "Pane", "Host"]);
   });
 
   it("uses hexokit-sidebar-section-{section} keys with boards/server on, pane/host off by default", () => {

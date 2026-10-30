@@ -145,15 +145,15 @@ describe("TopBar", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows the server name as the centered `tmux Server:` heading on the tmux Server (no window), not 'Dashboard' or a left leaf crumb", () => {
+  it("shows the server name as the centered `Workspace:` heading on the Workspace (no window), not 'Dashboard' or a left leaf crumb", () => {
     // server mode, no window \u2192 move-don't-copy: the server name is the CENTERED
     // heading leaf, NOT a left `aria-current` crumb (260704-pr0p).
     renderTopBar({ mode: "server", sessionName: "", windowName: "", currentSession: null, currentWindow: null, server: "runkit" });
     // The literal "Dashboard" label is gone in every mode.
     expect(screen.queryByText("Dashboard")).not.toBeInTheDocument();
-    // The server name renders as the centered `tmux Server: <server>` heading
+    // The server name renders as the centered `tmux Workspace: <server>` heading
     // (display-only \u2014 no rename). Its accessible name carries the type prefix.
-    const heading = screen.getByLabelText("tmux Server runkit");
+    const heading = screen.getByLabelText("Workspace runkit");
     expect(heading).toBeInTheDocument();
     // It is NOT inside the left breadcrumb nav (the left nav ends at the parent).
     const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
@@ -167,7 +167,7 @@ describe("TopBar", () => {
 
   it("shows the server crumb as a link to /$server plus the session crumb on a terminal route (breadcrumb ends at session)", () => {
     renderTopBar();
-    // Server crumb is a link back to the tmux Server.
+    // Server crumb is a link back to the Workspace.
     const serverLink = getVisibleCrumbText("runkit").closest("a")!;
     expect(serverLink).toHaveAttribute("href", "/runkit");
     // Session crumb present; no "Dashboard".
@@ -248,13 +248,13 @@ describe("TopBar", () => {
       expect(screen.queryByLabelText("Switch hierarchy")).not.toBeInTheDocument();
     });
 
-    it("renders `tmux Server: <server>` display heading (no rename) in server mode", () => {
+    it("renders `tmux Workspace: <server>` display heading (no rename) in server mode", () => {
       renderTopBar({ mode: "server", currentWindow: null, windowName: "" });
-      expect(screen.getByLabelText("tmux Server runkit")).toBeInTheDocument();
+      expect(screen.getByLabelText("Workspace runkit")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /Rename/ })).not.toBeInTheDocument();
-      // 260813-kvk7: the prefix is one contiguous `tmux Server:` run — the
+      // 260813-kvk7: the prefix is one contiguous `Workspace:` run — the
       // hierarchy caret that used to split it is gone.
-      expect(screen.getByText("tmux Server:", { exact: true })).toBeInTheDocument();
+      expect(screen.getByText("Workspace:", { exact: true })).toBeInTheDocument();
       expect(screen.queryByLabelText("Switch hierarchy")).not.toBeInTheDocument();
     });
 
@@ -271,8 +271,8 @@ describe("TopBar", () => {
       const solo = screen.getByLabelText("Host");
       expect(solo).toBeInTheDocument();
       expect(solo).toHaveTextContent("Host");
-      // No `tmux Server:` / `Board:` / `Tab:` prefix on the solo word.
-      expect(screen.queryByText(/tmux Server:|Board:|Tab:/)).not.toBeInTheDocument();
+      // No `Workspace:` / `Board:` / `Tab:` prefix on the solo word.
+      expect(screen.queryByText(/Workspace:|Board:|Tab:/)).not.toBeInTheDocument();
     });
   });
 
@@ -413,12 +413,12 @@ describe("TopBar", () => {
     expect(screen.getByRole("tooltip")).toHaveTextContent("Host");
   });
 
-  it("carries the tmux Server identity on the centered heading in server mode (no window)", () => {
+  it("carries the Workspace identity on the centered heading in server mode (no window)", () => {
     // The server-name leaf moved to the center heading (260704-pr0p); its
-    // accessible name is the `tmux Server <server>` heading rather than a
+    // accessible name is the `Workspace <server>` heading rather than a
     // left crumb with a `title` tooltip.
     renderTopBar({ mode: "server", sessionName: "", windowName: "", currentSession: null, currentWindow: null });
-    expect(screen.getByLabelText("tmux Server runkit")).toBeInTheDocument();
+    expect(screen.getByLabelText("Workspace runkit")).toBeInTheDocument();
   });
 
   it("renders the brand as the left-most root crumb linking to / (and no right-side HexoKit anchor)", () => {
@@ -723,7 +723,7 @@ describe("TopBar", () => {
     const { container } = renderTopBar();
     expect(container.querySelector('[role="status"]')).toBeNull();
     cleanup();
-    // Server (tmux Server).
+    // Server (Workspace).
     renderTopBar({ mode: "server", currentWindow: null, windowName: "" });
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
     cleanup();
@@ -899,7 +899,7 @@ describe("TopBar", () => {
   it("renders the session crumb as a static boxed chip — no caret, no menu (260813-kvk7)", () => {
     renderTopBar();
 
-    // The session BreadcrumbDropdown (switcher + "+ New Session") is gone:
+    // The session BreadcrumbDropdown (switcher + "+ New group") is gone:
     // session switching lives in the sidebar rows and the palette, creation in
     // the palette / sidebar server-header `+`. The crumb is a static chip.
     // The chip is the box around the truncating name span (CRUMB_BOX_CLASS).
@@ -1112,7 +1112,7 @@ describe("TopBar", () => {
       expect(screen.getByLabelText("Refresh page")).toBeInTheDocument();
     });
 
-    it("still renders the refresh button on the tmux Server (no window) — it moved to the always block (260704-9o7k)", () => {
+    it("still renders the refresh button on the Workspace (no window) — it moved to the always block (260704-9o7k)", () => {
       renderTopBar({ mode: "server", currentWindow: null, windowName: "" });
       expect(screen.getByLabelText("Refresh page")).toBeInTheDocument();
     });

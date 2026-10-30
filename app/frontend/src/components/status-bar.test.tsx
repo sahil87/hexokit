@@ -486,7 +486,7 @@ describe("StatusBar (260814-ldbs)", () => {
         "Copy tmux pane id",
         "Copy working directory path",
         "Copy fab change id",
-        "Copy server name",
+        "Copy workspace name",
         "Copy host name",
         "Copy version",
         "Cron list",
@@ -582,7 +582,7 @@ describe("StatusBar (260814-ldbs)", () => {
       // No out row — the out register is deleted from the bar.
       expect(menuRowTexts(menu).some((t) => t?.startsWith("out "))).toBe(false);
       // Row kinds: copy buttons, informational spans, action rows.
-      expect(within(menu).getByRole("menuitem", { name: "Copy server name" }).tagName).toBe("BUTTON");
+      expect(within(menu).getByRole("menuitem", { name: "Copy workspace name" }).tagName).toBe("BUTTON");
       expect(within(menu).getByRole("menuitem", { name: "Copy version" }).tagName).toBe("BUTTON");
       // The palette row fires the real action and closes the menu.
       fireEvent.click(within(menu).getByRole("menuitem", { name: "⌘K Command palette" }));
@@ -758,7 +758,7 @@ describe("StatusBar (260814-ldbs)", () => {
       mockHostMetrics = makeMetrics();
       mockDaemonVersion = "0.9.3";
       renderBar({ server: "alpha" });
-      fireEvent.click(screen.getByRole("button", { name: "Copy server name" }));
+      fireEvent.click(screen.getByRole("button", { name: "Copy workspace name" }));
       expect(mockCopyToClipboard).toHaveBeenCalledWith("alpha");
       fireEvent.click(screen.getByRole("button", { name: "Copy host name" }));
       expect(mockCopyToClipboard).toHaveBeenCalledWith("mba");
@@ -808,7 +808,7 @@ describe("StatusBar (260814-ldbs)", () => {
       // server, and host copy their displayed strings from the menu too.
       fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy version" }));
       expect(mockCopyToClipboard).toHaveBeenCalledWith("v0.9.3");
-      fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy server name" }));
+      fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy workspace name" }));
       expect(mockCopyToClipboard).toHaveBeenCalledWith("alpha");
 
       // Metrics rows mirror the strip's passive segments: informational spans.

@@ -15,9 +15,9 @@ describe("buildServerProtectActions", () => {
       vi.fn(),
     );
     expect(actions.map((a) => a.label)).toEqual([
-      "Server: Protect a",
-      "Server: Unprotect b",
-      "Server: Protect c",
+      "Workspace: Protect a",
+      "Workspace: Unprotect b",
+      "Workspace: Protect c",
     ]);
     expect(actions.map((a) => a.id)).toEqual([
       "protect-server-a",
@@ -31,7 +31,7 @@ describe("buildServerProtectActions", () => {
       [srv("a", false), srv(DAEMON_SERVER, true)],
       vi.fn(),
     );
-    expect(actions.map((a) => a.label)).toEqual(["Server: Protect a"]);
+    expect(actions.map((a) => a.label)).toEqual(["Workspace: Protect a"]);
   });
 
   it("invokes onToggle with the NEW protected state", () => {

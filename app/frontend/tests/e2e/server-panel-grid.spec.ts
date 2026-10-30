@@ -52,9 +52,9 @@ test.describe("Server Panel Tile Grid", () => {
    *
    * Steps:
    * 1. Navigate to `/${TMUX_SERVER}` and wait for `Connected`.
-   * 2. Locate the Server header button (`name: /^Server/`); assert visible
+   * 2. Locate the Server header button (`name: /^Workspaces/`); assert visible
    *    and `aria-expanded="true"` (default-open, no click).
-   * 3. Locate the grid listbox via `getByRole('listbox', { name: /Tmux servers/ })`.
+   * 3. Locate the grid listbox via `getByRole('listbox', { name: /Workspaces/ })`.
    * 4. Within the grid, assert at least one `option` tile whose name includes
    *    the e2e server.
    * 5. Assert that tile has no `title` attribute; hover it and assert the
@@ -67,11 +67,11 @@ test.describe("Server Panel Tile Grid", () => {
     await gotoServerReady(page, TMUX_SERVER);
 
     // The panel defaults open — no expand click needed.
-    const serverButton = page.getByRole("button", { name: /^Server/ });
+    const serverButton = page.getByRole("button", { name: /^Workspaces/ });
     await expect(serverButton).toBeVisible();
     await expect(serverButton).toHaveAttribute("aria-expanded", "true");
 
-    const grid = page.getByRole("listbox", { name: /Tmux servers/ });
+    const grid = page.getByRole("listbox", { name: /Workspaces/ });
     await expect(grid).toBeVisible({ timeout: 5_000 });
 
     // At least one tile — the e2e tmux server itself.
@@ -85,8 +85,8 @@ test.describe("Server Panel Tile Grid", () => {
     await activeOption.hover();
     const card = page.getByTestId("row-flyout-card");
     await expect(card).toBeVisible();
-    await expect(card.getByTestId("popup-title-bar")).toContainText(`Server ${TMUX_SERVER}`);
-    await expect(card).toContainText(new RegExp(`tmux -L ${TMUX_SERVER} · \\d+ sessions?`));
+    await expect(card.getByTestId("popup-title-bar")).toContainText(`Workspace ${TMUX_SERVER}`);
+    await expect(card).toContainText(new RegExp(`tmux -L ${TMUX_SERVER} · \\d+ groups?`));
     // The old "N sess" meta line is gone from the grid.
     await expect(grid.locator("text=/\\d+ sess/")).toHaveCount(0);
   });
@@ -106,7 +106,7 @@ test.describe("Server Panel Tile Grid", () => {
     await gotoServerReady(page, TMUX_SERVER);
 
     // Panel defaults open — the grid is available without a click.
-    const grid = page.getByRole("listbox", { name: /Tmux servers/ });
+    const grid = page.getByRole("listbox", { name: /Workspaces/ });
     const activeOption = grid.getByRole("option", { name: new RegExp(TMUX_SERVER) });
     await expect(activeOption).toHaveAttribute("aria-current", "true");
   });
@@ -131,7 +131,7 @@ test.describe("Server Panel Tile Grid", () => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
     await gotoServerReady(page, TMUX_SERVER);
 
-    const grid = page.getByRole("listbox", { name: /Tmux servers/ });
+    const grid = page.getByRole("listbox", { name: /Workspaces/ });
     const tile = grid.getByRole("option", { name: new RegExp(TMUX_SERVER) });
     await tile.hover();
     const card = page.getByTestId("row-flyout-card");
@@ -172,11 +172,11 @@ test.describe("Server Panel Tile Grid", () => {
 
     // Mobile sidebar is a drawer — open it via the toggle button.
     await page.getByRole("button", { name: "Toggle navigation" }).click();
-    const sidebar = page.getByRole("navigation", { name: "Sessions" });
+    const sidebar = page.getByRole("navigation", { name: "Groups" });
     await expect(sidebar).toBeVisible();
 
     // Panel defaults open — the grid is available without a click.
-    const grid = sidebar.getByRole("listbox", { name: /Tmux servers/ });
+    const grid = sidebar.getByRole("listbox", { name: /Workspaces/ });
     await expect(grid).toBeVisible();
 
     const gridFlow = await grid.evaluate((el) => getComputedStyle(el).gridAutoFlow);
@@ -188,7 +188,7 @@ test.describe("Server Panel Tile Grid", () => {
 
   /**
    * Proves: the resize drag handle (`role="separator"` with name matching
-   * `Resize Server panel`) is NOT rendered on mobile viewports — the
+   * `Resize Workspaces panel`) is NOT rendered on mobile viewports — the
    * single-row layout does not need vertical resize — even with the panel
    * open by default.
    *
@@ -196,7 +196,7 @@ test.describe("Server Panel Tile Grid", () => {
    * 1. Set viewport 375×812.
    * 2. Navigate and open the mobile sidebar drawer via `Toggle navigation`.
    * 3. Assert the grid listbox is visible (default-open).
-   * 4. Assert `getByRole('separator', { name: /Resize.*Server/ })` is not
+   * 4. Assert `getByRole('separator', { name: /Resize.*Workspaces/ })` is not
    *    visible.
    */
   test("Mobile: drag handle is hidden", async ({ page }) => {
@@ -204,15 +204,15 @@ test.describe("Server Panel Tile Grid", () => {
     await page.goto(`/${TMUX_SERVER}`);
 
     await page.getByRole("button", { name: "Toggle navigation" }).click();
-    const sidebar = page.getByRole("navigation", { name: "Sessions" });
+    const sidebar = page.getByRole("navigation", { name: "Groups" });
     await expect(sidebar).toBeVisible();
 
     // Panel defaults open — no expand click; the handle must still be absent.
     await expect(
-      sidebar.getByRole("listbox", { name: /Tmux servers/ }),
+      sidebar.getByRole("listbox", { name: /Workspaces/ }),
     ).toBeVisible();
     await expect(
-      sidebar.getByRole("separator", { name: /Resize.*Server/ }),
+      sidebar.getByRole("separator", { name: /Resize.*Workspaces/ }),
     ).not.toBeVisible();
   });
 
@@ -224,7 +224,7 @@ test.describe("Server Panel Tile Grid", () => {
    * Steps:
    * 1. Set viewport 1024×768.
    * 2. Navigate, wait for `Connected`.
-   * 3. Assert `getByRole('separator', { name: /Resize.*Server/ })` is visible
+   * 3. Assert `getByRole('separator', { name: /Resize.*Workspaces/ })` is visible
    *    (no expand click — the panel defaults open).
    */
   test("Desktop: drag handle is visible on resizable panel", async ({ page }) => {
@@ -233,7 +233,7 @@ test.describe("Server Panel Tile Grid", () => {
 
     // Panel defaults open — the resizable panel's handle renders without a click.
     await expect(
-      page.getByRole("separator", { name: /Resize.*Server/ }),
+      page.getByRole("separator", { name: /Resize.*Workspaces/ }),
     ).toBeVisible();
   });
 });
@@ -256,17 +256,17 @@ test.describe("Server Panel Header — coarse pointer density", () => {
    *    (CollapsiblePanel renders header-div > button — one `..` reaches the
    *    header row).
    * 4. Assert the two header heights are equal within 1px.
-   * 5. Assert the `New tmux server` button's bounding box is ≥ 40px tall and
+   * 5. Assert the `New workspace` button's bounding box is ≥ 40px tall and
    *    wide (the coarse floor survives the layout-neutral margins).
    */
   test("SERVER header matches BOARDS header height on coarse pointers", async ({ page }) => {
     await page.goto(`/${TMUX_SERVER}`);
 
     await page.getByRole("button", { name: "Toggle navigation" }).click();
-    const sidebar = page.getByRole("navigation", { name: "Sessions" });
+    const sidebar = page.getByRole("navigation", { name: "Groups" });
     await expect(sidebar).toBeVisible();
 
-    const serverHeader = sidebar.getByRole("button", { name: /^Server/ }).locator("..");
+    const serverHeader = sidebar.getByRole("button", { name: /^Workspaces/ }).locator("..");
     const boardsHeader = sidebar.getByRole("button", { name: /^Boards/ }).locator("..");
     await expect(serverHeader).toBeVisible();
     await expect(boardsHeader).toBeVisible();
@@ -276,7 +276,7 @@ test.describe("Server Panel Header — coarse pointer density", () => {
     expect(Math.abs(serverBox.height - boardsBox.height)).toBeLessThanOrEqual(1);
 
     const plusBox = (await sidebar
-      .getByRole("button", { name: "New tmux server" })
+      .getByRole("button", { name: "New workspace" })
       .boundingBox())!;
     expect(plusBox.height).toBeGreaterThanOrEqual(40);
     expect(plusBox.width).toBeGreaterThanOrEqual(40);

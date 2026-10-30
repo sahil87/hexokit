@@ -51,13 +51,13 @@ export function ServerCardContent({
   return (
     <>
       <PopupTitleBar>
-        <PopupTitleBarSecondary>Server </PopupTitleBarSecondary>
+        <PopupTitleBarSecondary>Workspace </PopupTitleBarSecondary>
         {server}
       </PopupTitleBar>
       {/* Server names ARE socket names, so the `tmux -L` handle composes
           frontend-side. */}
       <span className="text-text-secondary break-words">
-        {`tmux -L ${server} · ${sessionCount} session${sessionCount === 1 ? "" : "s"}`}
+        {`tmux -L ${server} · ${sessionCount} group${sessionCount === 1 ? "" : "s"}`}
         {external && " · external — not started by HexoKit"}
       </span>
       <CardActionList>
@@ -72,7 +72,7 @@ export function ServerCardContent({
         {onCreateSession && (
           <CardActionRow
             icon={<PlusIcon />}
-            label="New session"
+            label="New group"
             testid="row-flyout-create-action"
             onClick={() => onCreateSession(server)}
           />
@@ -105,7 +105,7 @@ export function ServerCardContent({
         {onKillServer && (
           <CardActionRow
             icon={<CloseIcon />}
-            label="Kill server"
+            label="Kill workspace"
             hint="confirms first"
             danger
             testid="row-flyout-kill-action"

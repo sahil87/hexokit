@@ -223,7 +223,7 @@ export async function replayDot(page: Page, replay: HookReplay, mobile: boolean)
   await page.goto(`/${TMUX_SERVER}/${replay.windowId.slice(1)}`);
   await expect(page.getByRole("button", { name: "Toggle navigation" })).toBeVisible({ timeout: READY_TIMEOUT });
   if (mobile) await page.getByRole("button", { name: "Toggle navigation" }).click();
-  const nav = page.getByRole("navigation", { name: "Sessions" });
+  const nav = page.getByRole("navigation", { name: "Groups" });
   const dot = nav.locator(`[data-window-id="${replay.windowId}"] [role="img"]`).first();
   await expect(dot).toBeVisible({ timeout: READY_TIMEOUT });
   return dot;

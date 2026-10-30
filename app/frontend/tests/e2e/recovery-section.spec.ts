@@ -3,7 +3,7 @@ import { test, expect, type Page } from "@playwright/test";
 // Recovery section on the Host Overview (`/`) — the zone for
 // reboot-orphaned tmux servers whose layout snapshots survived on disk. It
 // renders ONLY when GET /api/recovery returns a non-empty offers list (zero
-// footprint otherwise), slotted between the TMUX SERVERS and SERVICES zones
+// footprint otherwise), slotted between the WORKSPACES and SERVICES zones
 // with a SectionHeading labelled "Recovery". Each offer renders one row: a
 // hollow (non-live) dot, the server name, a meta line, a Restore button, an ×
 // dismiss button, and a chevron that expands a read-only session tree.
@@ -20,12 +20,12 @@ import { test, expect, type Page } from "@playwright/test";
 // plus a call counter that proves mount-fetch + refetch;
 // **/api/recovery/restore* (POST) → 200 with a report body, request body
 // captured; **/api/recovery/dismiss* (POST) → 200 {"ok":true}, body captured.
-// **/api/servers (GET) → a single server `dev`, so the TMUX SERVERS zone is
+// **/api/servers (GET) → a single server `dev`, so the WORKSPACES zone is
 // deterministic (the section under test sits directly below it, and a restore
 // success refetches this list). Two offer fixtures: `kit` (one session `dev`
 // with color 4, a 1-pane zsh window and a 2-pane `zsh, claude -c` tab flagged
 // resumable, takenAt one hour old) and `work` (two sessions, three tabs,
-// takenAt two minutes old). Readiness signal: the `Tmux Servers` zone heading
+// takenAt two minutes old). Readiness signal: the `WORKSPACES` zone heading
 // is visible. Rows are located by data-testid="recovery-row-<server>"; the
 // expanded tree by data-testid="recovery-session-<name>"; controls by their
 // accessible names.
@@ -97,7 +97,7 @@ async function mockRecovery(page: Page, offers: object[]) {
   return { state, getCount, restoreBodies, dismissBodies };
 }
 
-/** Deterministic TMUX SERVERS zone — the section under test sits between it
+/** Deterministic WORKSPACES zone — the section under test sits between it
  *  and SERVICES, and a restore success refetches this list. */
 async function mockServers(page: Page) {
   await page.route("**/api/servers", (route) =>
@@ -111,8 +111,8 @@ async function mockServers(page: Page) {
 
 async function gotoHost(page: Page) {
   await page.goto("/");
-  // Readiness: the TMUX SERVERS zone has rendered its (mocked) tile grid.
-  await expect(page.getByRole("heading", { name: "Tmux Servers" })).toBeVisible({
+  // Readiness: the WORKSPACES zone has rendered its (mocked) tile grid.
+  await expect(page.getByRole("heading", { name: "WORKSPACES" })).toBeVisible({
     timeout: 15_000,
   });
 }
@@ -128,7 +128,7 @@ test.describe("Recovery section", () => {
    * 2. Assert no `region` or `heading` named "Recovery" exists.
    * 3. Assert the neighbouring `Services` zone heading renders.
    */
-  test("empty offers render NO Recovery section — zero footprint between TMUX SERVERS and SERVICES", async ({
+  test("empty offers render NO Recovery section — zero footprint between WORKSPACES and SERVICES", async ({
     page,
   }) => {
     await mockRecovery(page, []);

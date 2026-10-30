@@ -605,7 +605,7 @@ function OverflowMenu({
       case "clock":
         return clock?.kind === "next" ? actionRow("clk", "◷ Cron List", openCronList) : null;
       case "server":
-        return server ? copyRow("server", server, "", server, "Copy server name") : null;
+        return server ? copyRow("server", server, "", server, "Copy workspace name") : null;
       case "host":
         return hostName ? copyRow("host", hostName, "", hostName, "Copy host name") : null;
       case "version":
@@ -1020,7 +1020,7 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
         return (
           <button
             type="button"
-            aria-label={probe ? undefined : "Copy server name"}
+            aria-label={probe ? undefined : "Copy workspace name"}
             tabIndex={probe ? -1 : undefined}
             onClick={() => hostCopy("server", server)}
             className="shrink-0 whitespace-nowrap text-text-secondary cursor-pointer bg-transparent border-0 p-0 hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent-green"

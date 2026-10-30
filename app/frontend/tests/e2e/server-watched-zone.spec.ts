@@ -1,4 +1,4 @@
-// tmux Server page WATCHED zone — the operator-watchlist detail table below
+// Workspace page WATCHED zone — the operator-watchlist detail table below
 // the Sessions grid on `/default` on desktop; on mobile the same footer slot
 // carries the Cron section (`clock-zone-cron` — the phone's operator-less
 // cron registry) instead. The retired CRONS and RECENT DELIVERIES zones must
@@ -135,7 +135,7 @@ test.describe("Server page WATCHED zone", () => {
     await expect(page.getByTestId("server-clock-dashboard")).toBeVisible();
     await expect(page.getByTestId("clock-zone-watched")).toBeVisible();
 
-    const sessionsHeading = page.getByRole("heading", { name: "Sessions" });
+    const sessionsHeading = page.getByRole("heading", { name: "Groups" });
     const watchedHeading = page.getByRole("heading", { name: "Watched" });
     await expect(sessionsHeading).toBeVisible();
     await expect(watchedHeading).toBeVisible();

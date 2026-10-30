@@ -17,7 +17,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 //      router navigation: hops 1 (server tile → `/$server`) and 3 (board
 //      tile → `/board/$name`) click TanStack-Router-driven controls.
 //   2. Its center heading is route-derived and updates per route — Host →
-//      `tmux Server <server>` → back to Host → `Board <board>` — including
+//      `Workspace <server>` → back to Host → `Board <board>` — including
 //      the board heading, which renders from the URL param while the lazy
 //      board chunk loads.
 //   3. On an unmatched route (`/board/x/y`), the bar falls back to the
@@ -30,7 +30,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // not `/$server`. Hop 1 therefore clicks EMPTY_SERVER — a mocked server with
 // no sessions, where the resolution has nothing to pick and correctly falls
 // through to the bare server route. That keeps hop 1 a genuine client-side
-// hop into `tmux Server` mode (which is what this spec is about) while
+// hop into `Workspace` mode (which is what this spec is about) while
 // staying truthful about the switch contract; the populated-server case is
 // covered by its own test below.
 //
@@ -53,7 +53,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // error; the `/ws/terminals` mux WebSocket is stubbed (accepted, held open)
 // so any terminal pane mounts without a backend. Heading aria-labels carry
 // no colon (the `PageType: name` colon is presentational): `Host`,
-// `tmux Server default`, `Board myboard`; the `Host` heading is matched with
+// `Workspace default`, `Board myboard`; the `Host` heading is matched with
 // `exact: true` to disambiguate it from the Host page's `Host health` region
 // (`getByLabel` is a substring match by default).
 //
@@ -145,7 +145,7 @@ test.describe("TopBar persistence across routes (260707-4vq2)", () => {
   });
 
   /**
-   * Proves: across Host → tmux Server → Host → Board navigation, the
+   * Proves: across Host → Workspace → Host → Board navigation, the
    * persistent top bar remains present (its brand link visible after every
    * hop) and its route-derived center heading updates to the correct page
    * each time, including the board heading rendered from the URL while the
@@ -154,15 +154,15 @@ test.describe("TopBar persistence across routes (260707-4vq2)", () => {
    * Steps:
    * 1. `goto("/")`; assert the solo `Host` heading and the `HexoKit home`
    *    brand link are visible.
-   * 2. Click the `spare` server tile (scoped to the "Tmux servers" region;
+   * 2. Click the `spare` server tile (scoped to the "Workspaces" region;
    *    `spare` has no sessions, so the switch resolves no landing window —
    *    see the header note). Assert URL `/spare`, heading
-   *    `tmux Server spare`, brand link visible, and the previous `Host`
+   *    `Workspace spare`, brand link visible, and the previous `Host`
    *    heading is gone (count 0 — the mode is route-derived, not stacked).
    * 3. (Reload boundary) Click the `HexoKit home` brand link — a full
    *    document reload, not client-side nav. Assert URL `/`, the
    *    persistent-layout chrome remounts with the `Host` heading, brand
-   *    crumb visible, and the `tmux Server spare` heading gone.
+   *    crumb visible, and the `Workspace spare` heading gone.
    * 4. Click the `myboard` board tile (scoped to the "Boards" region).
    *    Assert URL `/board/myboard`, heading `Board myboard` (from the URL
    *    param while the lazy board chunk loads), and the brand link still
@@ -179,18 +179,18 @@ test.describe("TopBar persistence across routes (260707-4vq2)", () => {
     await expect(page.getByLabel("Host", { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(brand(page)).toBeVisible();
 
-    // Hop 1: server tile (scoped to the Tmux servers region) → `/$server`. The
-    // route-derived heading flips to `tmux Server <server>` (aria-label carries
+    // Hop 1: server tile (scoped to the Workspaces region) → `/$server`. The
+    // route-derived heading flips to `Workspace <server>` (aria-label carries
     // no colon — the `:` is presentational). The bar is present immediately.
     // EMPTY_SERVER has no sessions, so the switch resolves no landing window and
     // lands on the bare server route (see the header note).
     await page
-      .getByRole("region", { name: "Tmux servers" })
+      .getByRole("region", { name: "Workspaces" })
       .getByRole("button", { name: EMPTY_SERVER, exact: false })
       .first()
       .click();
     await expect(page).toHaveURL(new RegExp(`/${EMPTY_SERVER}$`));
-    await expect(page.getByLabel(`tmux Server ${EMPTY_SERVER}`)).toBeVisible();
+    await expect(page.getByLabel(`Workspace ${EMPTY_SERVER}`)).toBeVisible();
     await expect(brand(page)).toBeVisible();
     // The prior mode's heading is gone (mode is route-derived, not stacked).
     await expect(page.getByLabel("Host", { exact: true })).toHaveCount(0);
@@ -199,12 +199,12 @@ test.describe("TopBar persistence across routes (260707-4vq2)", () => {
     // `<a href="/">` that TanStack Router does NOT intercept, so clicking it is
     // a FULL document navigation. We assert the persistent-layout chrome mounts
     // correctly on a cold load at `/` — route-derived `Host` heading present,
-    // prior `tmux Server` heading gone — NOT that the bar survived a remount.
+    // prior `Workspace` heading gone — NOT that the bar survived a remount.
     await brand(page).click();
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByLabel("Host", { exact: true })).toBeVisible();
     await expect(brand(page)).toBeVisible();
-    await expect(page.getByLabel(`tmux Server ${EMPTY_SERVER}`)).toHaveCount(0);
+    await expect(page.getByLabel(`Workspace ${EMPTY_SERVER}`)).toHaveCount(0);
 
     // Hop 3 (client-side): board tile → `/board/$name`. The board chunk is
     // lazy, but the route-derived heading renders `Board <board>` from the URL
@@ -229,10 +229,10 @@ test.describe("TopBar persistence across routes (260707-4vq2)", () => {
    *
    * Steps:
    * 1. `goto("/")`; assert the solo `Host` heading is visible.
-   * 2. Click the `default` server tile (scoped to the "Tmux servers"
+   * 2. Click the `default` server tile (scoped to the "Workspaces"
    *    region).
    * 3. Assert URL `/default/1` (the window id `@1` minus its `@`), the
-   *    brand link is still visible, and there is NO `tmux Server default`
+   *    brand link is still visible, and there is NO `Workspace default`
    *    heading (count 0 — the bar is in terminal mode, not server mode).
    */
   test("a Host-page tile for a server with windows switches into that server's window", async ({
@@ -241,19 +241,19 @@ test.describe("TopBar persistence across routes (260707-4vq2)", () => {
     // The switch counterpart of hop 1. SERVER has session `dev` with the active
     // window `@1`, so the tile resolves a landing window and navigates to the
     // terminal route — the bar follows with the `Window` heading rather than
-    // `tmux Server`. The URL segment is the window id minus its `@`.
+    // `Workspace`. The URL segment is the window id minus its `@`.
     await page.goto("/");
     await expect(page.getByLabel("Host", { exact: true })).toBeVisible({ timeout: 10_000 });
 
     await page
-      .getByRole("region", { name: "Tmux servers" })
+      .getByRole("region", { name: "Workspaces" })
       .getByRole("button", { name: SERVER, exact: false })
       .first()
       .click();
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/1$`));
     await expect(brand(page)).toBeVisible();
     // Terminal mode, not the session-tiles overview.
-    await expect(page.getByLabel(`tmux Server ${SERVER}`)).toHaveCount(0);
+    await expect(page.getByLabel(`Workspace ${SERVER}`)).toHaveCount(0);
   });
 
   /**

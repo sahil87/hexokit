@@ -38,7 +38,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // the drawer's `⤢ open as tab` header control navigates to that route. The
 // operator-less body carries the Start operator button. The palette carries `Operator: Show tasks` plus `Operator: Show cron
 // list` before `Operator: Show cron log`; the retired `Panel: Toggle Clock`
-// and `Server: Clock dashboard` entries stay gone. The watched-worker specs
+// and `Workspace: Clock dashboard` entries stay gone. The watched-worker specs
 // seed the sessions payload with a `monitored: true` window carrying
 // `monitoredChange`/`monitoredStage`/`monitoredRepo` plus `operatorLastTickAt`
 // and `operatorTracked` on the sessions (the server-watched-zone spec's stub
@@ -71,7 +71,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // route (server "default") before driving the drawer, except the mobile
 // specs, which run at 375px and gate arrivals on the terminal's
 // `__rkTerminals` registration (not the desktop visible-text gate), the
-// no-subject chip spec (the tmux Server route), and the md–lg spec,
+// no-subject chip spec (the Workspace route), and the md–lg spec,
 // which runs at 900px (between the mobile rule and lg).
 // Synthetic file pastes dispatch a real ClipboardEvent carrying a
 // DataTransfer file (Chromium populates clipboardData from the init).
@@ -832,7 +832,7 @@ test.describe("Quake terminal", () => {
 
   /**
    * Proves: the retired clock palette entries stay gone — a `clock` query
-   * surfaces neither `Panel: Toggle Clock` nor `Server: Clock dashboard`.
+   * surfaces neither `Panel: Toggle Clock` nor `Workspace: Clock dashboard`.
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on the terminal route.
@@ -1182,7 +1182,7 @@ test.describe("Quake terminal", () => {
     await expect(drawer(page)).toBeVisible();
     const empty = page.getByTestId("quake-terminal-empty");
     await expect(empty.getByTestId("quake-terminal-start-operator")).toBeVisible();
-    await expect(empty).toContainText("no operator on this server — run rk operator");
+    await expect(empty).toContainText("no operator on this workspace — run rk operator");
     await expect(drawer(page).locator(".xterm")).toHaveCount(0);
 
     await expect(composeInput(page)).toHaveAttribute("readonly", "");
@@ -1350,7 +1350,7 @@ test.describe("Quake terminal", () => {
     await gotoWindow(page);
 
     await openDrawerViaChord(page);
-    await page.getByRole("button", { name: "Detach window context" }).click();
+    await page.getByRole("button", { name: "Detach tab context" }).click();
     await expect(page.getByTestId("quake-terminal-context")).toHaveCount(0);
 
     await composeInput(page).fill("plain message");
@@ -1363,7 +1363,7 @@ test.describe("Quake terminal", () => {
   });
 
   /**
-   * Proves: on a route with no subject window (the tmux Server route) the
+   * Proves: on a route with no subject window (the Workspace route) the
    * chip does not render and sends ride the direct lane unchanged.
    *
    * Steps:
@@ -2049,7 +2049,7 @@ test.describe("Quake terminal", () => {
       )
       .toBe(true);
 
-    await page.getByRole("button", { name: "Detach window context" }).click();
+    await page.getByRole("button", { name: "Detach tab context" }).click();
     await expect(page.getByTestId("quake-terminal-context")).toHaveCount(0);
 
     const stripInput = page.getByTestId("compose-strip-input");
@@ -2137,14 +2137,14 @@ test.describe("Quake terminal", () => {
         .click();
     }
 
-    await expect(page.getByText("no operator on this server — run rk operator")).toHaveCount(1);
+    await expect(page.getByText("no operator on this workspace — run rk operator")).toHaveCount(1);
     expect(page.url()).toContain(WINDOW_URL);
     await expect(drawer(page)).toHaveCount(0);
   });
 
   /**
    * Proves: cron needs no operator on mobile either — with no operator window
-   * on the server, `Operator: Show cron list` navigates to the tmux Server
+   * on the server, `Operator: Show cron list` navigates to the Workspace
    * page's Cron section (`/$server#cron`, the phone's operator-less cron home)
    * with the registry row rendering, and no hint toast fires.
    *
@@ -2170,7 +2170,7 @@ test.describe("Quake terminal", () => {
     const zone = page.getByTestId("clock-zone-cron");
     await expect(zone).toBeVisible({ timeout: 10_000 });
     await expect(zone.getByTestId("cron-list-row-a3f9")).toBeVisible();
-    await expect(page.getByText("no operator on this server — run rk operator")).toHaveCount(0);
+    await expect(page.getByText("no operator on this workspace — run rk operator")).toHaveCount(0);
     await expect(drawer(page)).toHaveCount(0);
   });
 

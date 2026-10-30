@@ -1,0 +1,53 @@
+id: g0gv
+name: 261030-g0gv-ui-rename-workspace-group-tab
+created: 2026-10-30T09:38:03Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: active
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 13
+    acceptance_count: 16
+    acceptance_completed: 0
+confidence:
+    certain: 3
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 76.4
+        reversibility: 85.7
+        competence: 80.7
+        disambiguation: 79.3
+stage_metrics:
+    intake: {started_at: "2026-10-30T09:38:03Z", driver: fab-new, iterations: 1, completed_at: "2026-10-30T09:41:31Z"}
+    apply: {started_at: "2026-10-30T09:41:31Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-30T10:18:26Z"}
+    review: {started_at: "2026-10-30T10:18:26Z", driver: fab-fff, iterations: 1}
+prs: []
+base_branch: main
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-10-30T10:18:26Z"
+    computed_at_stage: apply
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-10-30T10:18:26Z

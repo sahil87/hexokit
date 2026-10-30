@@ -58,7 +58,7 @@ test.describe("Sidebar — sessions-pane scope toggle", () => {
    *    `Connected`.
    * 2. Assert both `[data-server='A']` and `[data-server='B']` group headers
    *    are visible (default `all` baseline).
-   * 3. Locate the chip (`button`, accessible name `Toggle sessions scope`);
+   * 3. Locate the chip (`button`, accessible name `Toggle groups scope`);
    *    assert it reads `ALL`.
    * 4. Click the chip; assert it reads `CUR`.
    * 5. Assert `[data-server='A']` is still visible (current server's group).
@@ -77,7 +77,7 @@ test.describe("Sidebar — sessions-pane scope toggle", () => {
     await expect(page.locator(`[data-server='${TMUX_SERVER_A}']`).first()).toBeVisible({ timeout: 10_000 });
     await expect(page.locator(`[data-server='${TMUX_SERVER_B}']`).first()).toBeVisible({ timeout: 10_000 });
 
-    const chip = page.getByRole("button", { name: "Toggle sessions scope" });
+    const chip = page.getByRole("button", { name: "Toggle groups scope" });
     await expect(chip).toHaveText("ALL");
 
     // Toggle to `current`: tree narrows to the current server's group.
@@ -113,7 +113,7 @@ test.describe("Sidebar — sessions-pane scope toggle", () => {
     await gotoServerReady(page, TMUX_SERVER_A);
     await expect(page.locator(`[data-server='${TMUX_SERVER_B}']`).first()).toBeVisible({ timeout: 10_000 });
 
-    const chip = page.getByRole("button", { name: "Toggle sessions scope" });
+    const chip = page.getByRole("button", { name: "Toggle groups scope" });
     await chip.click();
     await expect(page.locator(`[data-server='${TMUX_SERVER_B}']`)).toHaveCount(0);
 
@@ -125,7 +125,7 @@ test.describe("Sidebar — sessions-pane scope toggle", () => {
     // Persisted `current` scope survives the reload: still narrowed, chip
     // still reads CUR.
     await expect(
-      page.getByRole("button", { name: "Toggle sessions scope" }),
+      page.getByRole("button", { name: "Toggle groups scope" }),
     ).toHaveText("CUR");
     await expect(page.locator(`[data-server='${TMUX_SERVER_A}']`).first()).toBeVisible();
     await expect(page.locator(`[data-server='${TMUX_SERVER_B}']`)).toHaveCount(0);
@@ -140,7 +140,7 @@ test.describe("Sidebar — sessions-pane scope toggle", () => {
    * 1. Set desktop viewport and navigate to `/${TMUX_SERVER_A}`; wait for
    *    `Connected`.
    * 2. Assert the SERVER header button has `aria-expanded="true"` and the
-   *    tile grid (`role=listbox`, `name=/Tmux servers/`) is visible without
+   *    tile grid (`role=listbox`, `name=/Workspaces/`) is visible without
    *    any click (default-open) AND both server groups render.
    * 3. Click the SERVER panel header to collapse it; assert
    *    `aria-expanded="false"` (expansion is asserted via the ARIA state — a
@@ -162,9 +162,9 @@ test.describe("Sidebar — sessions-pane scope toggle", () => {
     // have narrowed it). Expansion state is asserted via the header's
     // aria-expanded: a collapsed panel merely clips its content (height 0 +
     // overflow hidden), which Playwright still counts as "visible".
-    const toggle = page.getByRole("button", { name: /^Server/ });
+    const toggle = page.getByRole("button", { name: /^Workspaces/ });
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await expect(page.getByRole("listbox", { name: /Tmux servers/ })).toBeVisible();
+    await expect(page.getByRole("listbox", { name: /Workspaces/ })).toBeVisible();
     await expect(page.locator(`[data-server='${TMUX_SERVER_A}']`).first()).toBeVisible({ timeout: 10_000 });
     await expect(page.locator(`[data-server='${TMUX_SERVER_B}']`).first()).toBeVisible({ timeout: 10_000 });
 

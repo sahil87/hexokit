@@ -56,7 +56,7 @@ export function OperatorContextChip({
       )}
       <button
         type="button"
-        aria-label="Detach window context"
+        aria-label="Detach tab context"
         onClick={dismissOperatorChatChip}
         className={`shrink-0 px-0.5 inline-flex items-center justify-center text-text-secondary transition-colors hover:text-text-primary coarse:min-w-[40px] coarse:min-h-[40px] ${
           // The compact mount (the docked compose strip's header row) drops

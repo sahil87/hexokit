@@ -196,7 +196,7 @@ function SessionRowInner({
     content: ({ close }) => (
       <>
         <PopupTitleBar>
-          <PopupTitleBarSecondary>Session </PopupTitleBarSecondary>
+          <PopupTitleBarSecondary>Group </PopupTitleBarSecondary>
           {name}
         </PopupTitleBar>
         {factsLine && <span className="text-text-secondary break-words">{factsLine}</span>}
@@ -250,7 +250,7 @@ function SessionRowInner({
           />
           <CardActionRow
             icon={<CloseIcon />}
-            label="Kill session"
+            label="Kill group"
             hint="confirms first"
             danger
             testid="row-flyout-kill-action"
@@ -423,7 +423,7 @@ function SessionRowInner({
               onClick={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
               className="text-xs font-medium bg-transparent border border-accent-green rounded px-0.5 outline-none truncate w-full"
-              aria-label="Rename session"
+              aria-label="Rename group"
             />
           ) : (
             <span className="font-medium truncate">

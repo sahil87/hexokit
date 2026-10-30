@@ -972,7 +972,7 @@ test.describe("Docked compose strip", () => {
    * no-target tongue at the footer dock instead of a disabled card: a
    * `role="status"` line (`data-state="no-target"`) reading the recovery copy,
    * with no textarea, no Send, no attach chip, no `→ no target` header, and no
-   * chord hint. The tmux Server route (`/<server>`, no window) is the
+   * chord hint. The Workspace route (`/<server>`, no window) is the
    * route-level way to reach that state — no terminal mounts, so nothing
    * registers as the focused terminal.
    *

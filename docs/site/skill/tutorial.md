@@ -42,7 +42,7 @@ If either check fails, STOP: tell the user to open the HexoKit dashboard, create
 rk present "$RK/tutorial/tutorial.html#ch1"
 ```
 
-Every sidebar row is an agent (or plain terminal); the dot is its state. **Have the user ask you something** ("try: what's in this project?") and watch this row — busy, then idle. A yellow **waiting halo** = an agent needs a human (the session row adds a ⚠ count) — the whole game; Chapter 4 triggers it for real. Sessions group by project; this row is me.
+Every sidebar row is an agent (or plain terminal); the dot is its state. **Have the user ask you something** ("try: what's in this project?") and watch this row — busy, then idle. A yellow **waiting halo** = an agent needs a human (the group row adds a ⚠ count) — the whole game; Chapter 4 triggers it for real. Groups hold agents by project; this row is me.
 
 ## Chapter 2 — Make it show you things (`#ch2`)
 

@@ -40,7 +40,7 @@ import {
  * the current server's curated bindings from `GET /api/keybindings`, fetched
  * only while the panel is mounted (the settings dialog mounts it only on the
  * active Shortcuts tab); no current server (board/host routes) or an
- * empty/failed fetch shows "No tmux server running".
+ * empty/failed fetch shows "No workspace running".
  *
  * The panel mounts/unmounts with the active tab, which would reset the two
  * session-scoped READING preferences (map fold, modifier layer) the overlay
@@ -434,7 +434,7 @@ export function SettingsShortcutsPanel({
     const switcherCaps =
       displayPlatform === "mac" ? ["⌥", "⌘", "1…9"] : ["Alt", "1…9"];
     const rows = [
-      { label: "Switch to server 1–9", description: "owned by the shell menu", parts: switcherCaps },
+      { label: "Switch to workspace 1–9", description: "owned by the shell menu", parts: switcherCaps },
       { label: "Force reload", description: undefined, parts: tierCaps("R") },
     ];
     if (displayPlatform !== "mac") {
@@ -896,7 +896,7 @@ export function SettingsShortcutsPanel({
                     {missingPreset && (
                       <span
                         className="flex-none text-[9.5px] tracking-wider uppercase px-2 py-px rounded-full border border-red-500/60 text-red-500"
-                        title={`preset “${m.target.type === "riff" ? m.target.preset : ""}” is not among this session's riff presets — running the macro will fail with an error toast`}
+                        title={`preset “${m.target.type === "riff" ? m.target.preset : ""}” is not among this group's riff presets — running the macro will fail with an error toast`}
                       >
                         missing preset
                       </span>
@@ -1047,7 +1047,7 @@ export function SettingsShortcutsPanel({
               note={
                 currentServer && !tmuxEmpty ? (
                   <>
-                    read-only — from tmux server{" "}
+                    read-only — from workspace{" "}
                     <b className="text-amber-600 font-normal">{currentServer}</b> · pressed
                     inside the pane
                   </>
@@ -1058,7 +1058,7 @@ export function SettingsShortcutsPanel({
               <div className="px-2 py-1.5 text-[11px] text-text-secondary">Loading…</div>
             ) : tmuxEmpty ? (
               <div className="px-2 py-1.5 text-[11px] italic text-text-secondary">
-                No tmux server running
+                No workspace running
               </div>
             ) : (
               <>

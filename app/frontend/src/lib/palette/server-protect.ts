@@ -29,7 +29,7 @@ export function buildServerProtectActions(
       const next = !(s.protected ?? false);
       return {
         id: `${next ? "protect" : "unprotect"}-server-${s.name}`,
-        label: `Server: ${next ? "Protect" : "Unprotect"} ${s.name}`,
+        label: `Workspace: ${next ? "Protect" : "Unprotect"} ${s.name}`,
         onSelect: () => onToggle(s.name, next),
       };
     });

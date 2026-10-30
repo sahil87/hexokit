@@ -9,7 +9,7 @@ import { TMUX_SERVER, createSession, killSession } from "./_tmux";
  * rename inputs or the terminal.
  *
  * DOM contract: the scrollable Sessions region carries role="tree" with
- * aria-label="Session tree". Session rows are role="treeitem" aria-level="1",
+ * aria-label="Workspace tree". Session rows are role="treeitem" aria-level="1",
  * carry a data-session-row handle equal to `${server}:${session}`, and
  * aria-expanded mirrors their collapse state. Window rows are role="treeitem"
  * aria-level="2" and carry two handles: the bare data-window-id (@N, for
@@ -49,7 +49,7 @@ test.describe("Sidebar keyboard navigation", () => {
   /** Navigate to the server route, wait for SSE, and return the tree element. */
   async function openTree(page: Page) {
     await gotoServerReady(page, TMUX_SERVER);
-    const tree = page.getByRole("tree", { name: "Session tree" });
+    const tree = page.getByRole("tree", { name: "Workspace tree" });
     await expect(tree).toBeVisible();
     // Ensure our session's rows are present before driving the keyboard.
     await expect(
@@ -209,7 +209,7 @@ test.describe("Sidebar keyboard navigation", () => {
    * Steps:
    * 1. openTree; focus the tab stop; press Home; record the roving key.
    * 2. Double-click the session name button to enter rename mode; assert the
-   *    `Rename session` input is visible and focus it.
+   *    `Rename group` input is visible and focus it.
    * 3. Press ArrowDown inside the input; assert the roving key is unchanged.
    * 4. Press Escape; assert the rename input is hidden (cancel still works).
    */
@@ -221,7 +221,7 @@ test.describe("Sidebar keyboard navigation", () => {
 
     // Double-click the session name to enter rename mode.
     await page.getByRole("button", { name: `Navigate to ${TEST_SESSION}` }).dblclick();
-    const input = page.getByLabel("Rename session");
+    const input = page.getByLabel("Rename group");
     await expect(input).toBeVisible();
     await input.focus();
     await input.press("ArrowDown"); // moves the caret, must NOT move the tree

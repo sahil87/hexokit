@@ -853,7 +853,7 @@ describe("IframeWindow", () => {
       const input = screen.getByLabelText("URL") as HTMLInputElement;
       await waitFor(() => expect(document.activeElement).toBe(input));
       expect(input.value).toBe("");
-      expect(input.placeholder).toBe("type an address — Enter opens the tab, Esc discards");
+      expect(input.placeholder).toBe("type an address — Enter opens the web tab, Esc discards");
       const selected = screen
         .getAllByRole("tab")
         .filter((tab) => tab.getAttribute("aria-selected") === "true");
@@ -994,7 +994,7 @@ describe("IframeWindow", () => {
       fireEvent.doubleClick(strip);
       const drafts = screen.getAllByTestId("web-tab-draft");
       expect(drafts).toHaveLength(1);
-      expect(drafts[0].textContent).toContain("new tab");
+      expect(drafts[0].textContent).toContain("new web tab");
     });
 
     it("a draft renders dashed after the real tabs", () => {
@@ -1002,11 +1002,11 @@ describe("IframeWindow", () => {
       fireEvent.click(screen.getByTestId("web-tab-add"));
       const drafts = screen.getAllByTestId("web-tab-draft");
       expect(drafts).toHaveLength(1);
-      expect(drafts[0].textContent).toContain("new tab");
+      expect(drafts[0].textContent).toContain("new web tab");
       // The draft renders after the real tabs in the strip.
       const strip = screen.getByTestId("web-tab-strip");
       const allTabs = strip.querySelectorAll('[data-testid="web-tab"], [data-testid="web-tab-draft"]');
-      expect(allTabs[2].textContent).toContain("new tab");
+      expect(allTabs[2].textContent).toContain("new web tab");
       expect(drafts[0].className).toContain("border-dashed");
     });
 

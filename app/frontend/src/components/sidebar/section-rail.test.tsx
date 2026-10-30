@@ -25,7 +25,7 @@ describe("SectionRail", () => {
     render(<SectionRail />);
     expect(railButtons().map((b) => b.getAttribute("aria-label"))).toEqual([
       "Toggle Boards section",
-      "Toggle Servers section",
+      "Toggle Workspaces section",
       "Toggle Pane section",
       "Toggle Host section",
     ]);
