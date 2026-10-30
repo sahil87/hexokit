@@ -1,7 +1,7 @@
 /**
  * Pure builder for the desktop-shell server-switch palette actions
- * (`Workspace: Switch to "<name>"`) — the SPA-side keyboard path for the shell's
- * Servers menu (Constitution V; the shell-side paths are the ⌥⌘1–9 (mac) /
+ * (`Host: Switch to "<name>"`) — the SPA-side keyboard path for the shell's
+ * Hosts menu (Constitution V; the shell-side paths are the ⌥⌘1–9 (mac) /
  * Alt+1–9 (win/linux) accelerators and the menu radios). Follows the
  * lib/palette/view.ts /
  * lib/palette/pin.ts pure-builder convention: label composition and active
@@ -25,7 +25,7 @@ export function buildShellServerActions(
 ): PaletteAction[] {
   return servers.map((server) => ({
     id: `shell-switch-server-${server.id}`,
-    label: `Workspace: Switch to "${server.name}"${server.active ? " (current)" : ""}`,
+    label: `Host: Switch to "${server.name}"${server.active ? " (current)" : ""}`,
     onSelect: () => onSwitch(server.id),
   }));
 }

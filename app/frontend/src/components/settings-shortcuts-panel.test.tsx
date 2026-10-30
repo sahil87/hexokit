@@ -58,7 +58,7 @@ describe("SettingsShortcutsPanel", () => {
     // Scope badges (terminal + board rows carry pills)
     expect(screen.getAllByText("terminal").length).toBeGreaterThan(0);
     // Locked shell rows (accelerators owned by the shell menu)
-    expect(screen.getByText("Switch to workspace 1–9")).toBeInTheDocument();
+    expect(screen.getByText("Switch to host 1–9")).toBeInTheDocument();
     expect(
       screen.getAllByLabelText("Locked — bound by the desktop shell menu").length,
     ).toBeGreaterThan(0);
@@ -105,7 +105,7 @@ describe("SettingsShortcutsPanel", () => {
     // keycap in the panel — while Force reload keeps the shared ⇧⌘ caps.
     expect(screen.getAllByText("⌥").length).toBe(1);
     expect(screen.getAllByText("⇧").length).toBeGreaterThan(0);
-    expect(screen.getByText("Switch to workspace 1–9")).toBeInTheDocument();
+    expect(screen.getByText("Switch to host 1–9")).toBeInTheDocument();
     // The mac shifted map carries no shell "server" digit claims either:
     // Digit1/2/9 render free (the 3/4/5 screenshot claims live inside the
     // ellipsis run).
@@ -299,7 +299,7 @@ describe("SettingsShortcutsPanel merged view (260801-sm6g)", () => {
       screen.getByText("Shell-owned — accelerators live in the desktop shell menu"),
     ).toBeInTheDocument();
     const globalSection = screen.getByText("GLOBAL").closest("section")!;
-    expect(within(globalSection).getByText("Switch to workspace 1–9")).toBeInTheDocument();
+    expect(within(globalSection).getByText("Switch to host 1–9")).toBeInTheDocument();
     expect(within(globalSection).getByText("Force reload")).toBeInTheDocument();
   });
 

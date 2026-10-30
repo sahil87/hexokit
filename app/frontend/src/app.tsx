@@ -3836,7 +3836,7 @@ function AppShell() {
       {
         id: "create-session",
         label: "Group: Create",
-        description: "a new group of tabs",
+        description: "holds related tabs",
         onSelect: handleOpenSessionNamePrompt,
       },
       ...(sessionName
@@ -5172,7 +5172,7 @@ function AppShell() {
     () =>
       buildShellServerActions(shellServers, (id) => {
         void switchShellServer(id).then((ok) => {
-          if (!ok) addToast("Shell workspace switch failed", "error");
+          if (!ok) addToast("Host switch failed", "error");
         });
       }),
     [shellServers, addToast],

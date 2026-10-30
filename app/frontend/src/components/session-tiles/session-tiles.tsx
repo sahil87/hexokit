@@ -93,7 +93,7 @@ export function SessionTiles({
         {/* Page-level heading (260715-zs1y). Reuses the shared SectionHeading
             idiom so the tmux Server page carries one canonical long-form name
             above the "Sessions" section heading. */}
-        <SectionHeading label="Workspace overview" className="mb-4" />
+        <SectionHeading label="Workspace Overview" className="mb-4" />
         {/* Bracket section heading (260704-pr0p): the PageHeading bracket idiom
             moved here; the relocated session/window stats are the right-aligned
             side slot. Same idiom as the Host page's zone headings. */}

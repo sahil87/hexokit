@@ -525,7 +525,7 @@ describe("HostOverviewPage — BOARDS zone", () => {
       "Host Overview",
       "Host Health",
       "Boards",
-      "WORKSPACES",
+      "Workspaces",
       "Services",
     ]);
 

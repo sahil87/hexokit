@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import type { ShellServer } from "../shell";
 import { buildShellServerActions } from "./shell";
 
-// buildShellServerActions backs the shell-gated `Workspace: Switch to "<name>"`
+// buildShellServerActions backs the shell-gated `Host: Switch to "<name>"`
 // palette entries wired in app.tsx. Covering label quoting, the active
 // `(current)` marker, onSelect wiring, and the empty case proves the actions'
 // behavior without mounting the shell.
@@ -18,8 +18,8 @@ describe("buildShellServerActions", () => {
       vi.fn(),
     );
     expect(actions.map((a) => a.label)).toEqual([
-      'Workspace: Switch to "studio-mac" (current)',
-      'Workspace: Switch to "lab"',
+      'Host: Switch to "studio-mac" (current)',
+      'Host: Switch to "lab"',
     ]);
     expect(actions.map((a) => a.id)).toEqual([
       "shell-switch-server-a",

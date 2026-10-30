@@ -3,7 +3,7 @@
  * session and window now read Workspace, Group and Tab. The recording walks
  * the sidebar (Workspaces panel and Groups tree, a Group flyout card on
  * desktop), the command palette's `Workspace:` / `Group:` / `Tab:` rows
- * (desktop), and the host page's WORKSPACES zone.
+ * (desktop), and the host page's Workspaces zone.
  *
  * Runs only under `just demo ui-rename` (playwright.demo.config.ts — testDir
  * ./tests/demo), against the throwaway e2e rig, once per project (desktop
@@ -39,7 +39,7 @@ test.describe("ui-rename demo", () => {
    * 2. Assert the Groups nav and the Workspaces panel toggle; `beat()`.
    * 3. Desktop: hover the group row — the card reads `Group <name>`; open the
    *    palette and filter `workspace`, then `group`, then `tab: set note`.
-   * 4. Visit the host page `/` and assert the WORKSPACES zone with its
+   * 4. Visit the host page `/` and assert the Workspaces zone with its
    *    `+ New workspace` button; `beat()`.
    */
   test("sidebar, palette and host page speak Workspace, Group and Tab", async ({ page }, testInfo) => {

@@ -163,7 +163,7 @@ export function ShellTitlebarStrip() {
     (id: string) => {
       setOpen(false);
       void switchShellServer(id).then((ok) => {
-        if (!ok) addToast("Shell workspace switch failed", "error");
+        if (!ok) addToast("Host switch failed", "error");
       });
     },
     [addToast],

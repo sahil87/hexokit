@@ -89,7 +89,7 @@ test.describe("Sidebar section-visibility rail", () => {
       "Toggle Pane section",
       "Toggle Host section",
     ]);
-    await expect(page.getByRole("button", { name: /Sessions section/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Groups section/ })).toHaveCount(0);
 
     // Defaults: Boards/Server pressed, Pane/Host not — and the gated
     // sections render accordingly (PANE/HOST absent by default).

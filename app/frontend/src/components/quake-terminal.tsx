@@ -1533,7 +1533,7 @@ export function QuakeTerminalTongue() {
         type="button"
         data-testid="quake-terminal-tongue"
         data-tongue-state="return"
-        aria-label="Back to previous window"
+        aria-label="Back to previous tab"
         onClick={onReturn}
         // The visual tab is 64×12; the button's own box is the ≥36px hit area.
         className="absolute top-0 left-1/2 z-30 flex h-9 w-16 -translate-x-1/2 items-start justify-center"

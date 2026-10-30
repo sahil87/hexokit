@@ -376,7 +376,7 @@ test.describe("surface popout in the desktop shell", () => {
 
     await expect(popPage.getByTestId("surface-tile-tty")).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(popPage.locator("[role='banner']")).toHaveCount(0);
-    await expect(popPage.locator("nav[aria-label='Sessions']")).toHaveCount(0);
+    await expect(popPage.locator("nav[aria-label='Groups']")).toHaveCount(0);
     await expect(popPage.getByTestId("status-bar")).toHaveCount(0);
     await expect(
       popPage.getByTestId("surface-tile-tty").getByLabel("Pop Terminal back in"),

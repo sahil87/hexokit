@@ -1439,7 +1439,7 @@ export function TerminalClient({
         if (cancelled) return;
         // 4004 = session or window not found — redirect, no reconnect.
         if (code === 4004) {
-          terminal.write("\r\n\x1b[91m[session not found]\x1b[0m\r\n");
+          terminal.write("\r\n\x1b[91m[tab not found]\x1b[0m\r\n");
           onSessionNotFound?.();
           return;
         }

@@ -411,7 +411,7 @@ export function HostOverviewPage() {
         <section aria-label="Workspaces" className="mb-6">
           {/* Side slot stays empty on host zones (plan assumption #4); the
               server count stays in the zone body at its original text-xs sizing. */}
-          <SectionHeading label="WORKSPACES" className="mb-2" />
+          <SectionHeading label="Workspaces" className="mb-2" />
           <div className="text-xs text-text-secondary font-mono mb-2">
             {!serversLoaded
               ? "loading…"

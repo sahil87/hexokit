@@ -434,7 +434,7 @@ export function SettingsShortcutsPanel({
     const switcherCaps =
       displayPlatform === "mac" ? ["⌥", "⌘", "1…9"] : ["Alt", "1…9"];
     const rows = [
-      { label: "Switch to workspace 1–9", description: "owned by the shell menu", parts: switcherCaps },
+      { label: "Switch to host 1–9", description: "owned by the shell menu", parts: switcherCaps },
       { label: "Force reload", description: undefined, parts: tierCaps("R") },
     ];
     if (displayPlatform !== "mac") {

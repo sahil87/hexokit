@@ -94,8 +94,8 @@ Unit and e2e tests that assert renamed strings SHALL be updated to the new copy,
 - [x] T002 [P] Rename palette builders in `app/frontend/src/lib/palette/*.ts` (`server-color.ts`, `sort.ts` → `Group: Sort tabs…`, `recovery.ts`, `nav.ts`, `shell.ts`, `code.ts`, and any other file building `Server:`/`Session:`/`Window:` labels) and `app/frontend/src/hooks/use-global-palette-actions.ts` (leave `App: New Window` alone) <!-- R1 R2 R3 -->
 - [x] T003 [P] Rename sidebar copy in `app/frontend/src/components/sidebar/` (`index.tsx`: `Sessions`, `Session tree`, `Toggle sessions scope`, `New session on …`, empty-state `+ New Session`, server-group aria/Tips; `server-panel.tsx`: `Servers`/`Tmux servers`/`New tmux server`; `server-card.tsx`: `Server <n>` title, `N sessions` facts noun, `New session`, `Kill server`, `Protection for …`; `session-row.tsx`: `Session <n>` card title, `Rename session`, `Kill session`; `kill-dialog.tsx`; `section-rail.tsx` `Server` Tip → `Workspaces`; `row-flyout-card.tsx`; `window-row.tsx`; `boards-section.tsx`) <!-- R1 R2 R3 R5 -->
 - [x] T004 [P] Rename dialogs: `app/frontend/src/components/server-dialogs.tsx` (`Create tmux server` → `New workspace`, `Server name`, kill/protected/adopt copy, `and all its sessions` → `and all its groups`), `components/session-name-prompt.tsx` (`New session` → `New group`, `Session name`), `components/spawn-agent-dialog.tsx` (`blank = empty session` → `blank = plain shell`), `components/gui-off-dialog.tsx` (only tmux-sense nouns) <!-- R1 R2 -->
-- [x] T005 [P] Rename top bar + pages: `components/top-bar.tsx` (`TMUX_SERVER_PREFIX` value → `"Workspace:"`, `tmux Server` aria, Tips; leave comments), `components/top-bar-overflow-menu.tsx`, `components/host-overview-page.tsx` (`TMUX SERVERS` zone label → `WORKSPACES`, `+ New Server` → `+ New workspace`, `Create tmux server`, `Server name`, `Protected server …`), `components/session-tiles/session-tiles.tsx` (`tmux Server Overview` → `Workspace overview`, `Sessions` → `Groups`, `+ New Session` → `+ New group`), `components/status-bar.tsx`, `components/board/board-page.tsx`, `components/watched-table.tsx`, `components/watched-tasks.tsx`, `components/system-card.tsx`, `components/quake-terminal.tsx` (`Operator server` → `Operator workspace`), `components/recovery-section.tsx`, `components/code-surface.tsx`, `components/surface-layout.tsx`, `components/desktop-shell/titlebar-strip.tsx` — tmux-sense nouns only <!-- R1 R2 R3 -->
-- [x] T006 [P] Rename keyboard copy in `app/frontend/src/lib/keybindings.ts` (`New session (a new group of tabs)` → `New group`, any `session`/`server`/tmux-`window` `label`/`description`/`mapLabel`), and Settings panels `components/settings-shortcuts-panel.tsx` / `components/settings-all-panel.tsx` where they render tmux nouns <!-- R1 R2 R3 -->
+- [x] T005 [P] Rename top bar + pages: `components/top-bar.tsx` (`TMUX_SERVER_PREFIX` value → `"Workspace:"`, `tmux Server` aria, Tips; leave comments), `components/top-bar-overflow-menu.tsx`, `components/host-overview-page.tsx` (`TMUX SERVERS` zone label → `WORKSPACES`, `+ New Server` → `+ New workspace`, `Create tmux server`, `Server name`, `Protected server …`), `components/session-tiles/session-tiles.tsx` (`tmux Server Overview` → `Workspace overview`, `Sessions` → `Groups`, `+ New Session` → `+ New group`), `components/status-bar.tsx`, `components/board/board-page.tsx`, `components/watched-table.tsx`, `components/watched-tasks.tsx`, `components/system-card.tsx`, `components/quake-terminal.tsx` (`Operator server` → `Operator workspace`), `components/recovery-section.tsx`, `components/code-surface.tsx`, `components/surface-layout.tsx`, `components/desktop-shell/titlebar-strip.tsx` — tmux-sense nouns only <!-- R1 R2 R3 --> <!-- rework: desktop-shell host strings wrongly renamed to Workspace (use Host vocabulary); watched-table `session` header missed; quake 'Back to previous window'; WORKSPACES/'Workspace overview' casing; BoardSwitcher '← Groups' --> <!-- rework c2: popout-states 'Window closed' (tmux window) → 'Tab closed'; terminal-client '[session not found]' → '[tab not found]' -->
+- [x] T006 [P] Rename keyboard copy in `app/frontend/src/lib/keybindings.ts` (`New session (a new group of tabs)` → `New group`, any `session`/`server`/tmux-`window` `label`/`description`/`mapLabel`), and Settings panels `components/settings-shortcuts-panel.tsx` / `components/settings-all-panel.tsx` where they render tmux nouns <!-- R1 R2 R3 --> <!-- rework: settings-shortcuts-panel 'Switch to workspace 1–9' is the shell host switcher → host --> <!-- rework c2: create-session description 'a new group of tabs' dropped/reworded (R2 asks for just 'New group') -->
 - [x] T007 [P] Rename frontend-composed toast/error copy in `app/frontend/src/contexts/optimistic-context.tsx`, `hooks/use-dialog-state.ts`, `contexts/session-context.tsx`, `lib/state-socket.ts` (user-visible strings only — e.g. `Failed to create session` → `Failed to create group`) <!-- R1 R2 -->
 - [x] T008 [P] Web-tile strip: change bare "tab" Tips/aria in the web tile's tab-strip component(s) (`components/iframe-window.tsx` and its strip/tab components) to "web tab" <!-- R4 -->
 
@@ -106,11 +106,11 @@ Unit and e2e tests that assert renamed strings SHALL be updated to the new copy,
 ### Phase 3: Tests
 
 - [x] T010 Update Vitest assertions (`app/frontend/src/**/*.test.ts(x)`) matching renamed copy; run `npx tsc --noEmit` and the affected Vitest files <!-- R8 -->
-- [x] T011 Update e2e specs under `app/frontend/tests/` that select/assert by renamed text or role name; run the affected specs via `just pw test <name>` / `just test-e2e "<pattern>"` <!-- R8 -->
+- [x] T011 Update e2e specs under `app/frontend/tests/` that select/assert by renamed text or role name; run the affected specs via `just pw test <name>` / `just test-e2e "<pattern>"` <!-- R8 --> <!-- rework: stale 'Sessions' matchers in window-heading.spec.ts:597, sidebar-section-rail.spec.ts:92, demo/window-switch.demo.ts:42,49, app/desktop/tests/e2e/popout.spec.ts:379 -->
 
 ### Phase 4: Docs and evidence
 
-- [x] T012 [P] Commit `docs/wiki/create-flow-studies.html`; add its row to `docs/specs/index.md`'s design-study table; update `docs/site/**` pages that quote renamed UI labels verbatim <!-- R7 -->
+- [x] T012 [P] Commit `docs/wiki/create-flow-studies.html`; add its row to `docs/specs/index.md`'s design-study table; update `docs/site/**` pages that quote renamed UI labels verbatim <!-- R7 --> <!-- rework: re-sync embedded skill copy via scripts/sync-skill.sh (CI TestSkillTopicsMatchCanonical) -->
 - [x] T013 Record PR evidence: add `app/frontend/tests/demo/ui-rename.demo.ts` (sidebar Workspaces/Groups panels + a group flyout card, palette `Workspace:`/`Group:` rows, host page `WORKSPACES` zone) and run `just demo ui-rename --before` <!-- R1 R2 R3 -->
   - Note: `just demo ui-rename --before` recorded `.demo/ui-rename-{before,after}-{desktop,mobile}.webm`. The before pass ran against the base ref, where the spec's new-copy assertions (`Group <n>` card title, `Workspaces` region) cannot hold, so the before recordings are partial. State that in the PR body.
 
@@ -124,40 +124,44 @@ Unit and e2e tests that assert renamed strings SHALL be updated to the new copy,
 
 ### Functional Completeness
 
-- [ ] A-001 R1: No user-visible frontend string names a tmux server as "server"/"tmux Server"; palette rows use `Workspace:`; the heading prefix renders `Workspace:`
-- [ ] A-002 R2: No user-visible frontend string names a tmux session as "session"; palette rows use `Group:`; sidebar title reads `Groups`
-- [ ] A-003 R3: No palette row starts with `Window:`; `Session: Sort windows…` reads `Group: Sort tabs…`
-- [ ] A-004 R4: Web-tile strip Tips/aria say "web tab"
-- [ ] A-005 R5: Workspace card facts read `tmux -L <name> · N groups`; group card keeps `$<id>`
-- [ ] A-006 R7: `docs/wiki/create-flow-studies.html` is committed and indexed in `docs/specs/index.md`
+- [x] A-001 R1: No user-visible frontend string names a tmux server as "server"/"tmux Server"; palette rows use `Workspace:`; the heading prefix renders `Workspace:`
+- [x] A-002 R2: No user-visible frontend string names a tmux session as "session"; palette rows use `Group:`; sidebar title reads `Groups` (watched-table header now `group`; terminal 4004 write now `[tab not found]`; popout ended state now `Tab closed`)
+- [x] A-003 R3: No palette row starts with `Window:`; `Session: Sort windows…` reads `Group: Sort tabs…`
+- [x] A-004 R4: Web-tile strip Tips/aria say "web tab"
+- [x] A-005 R5: Workspace card facts read `tmux -L <name> · N groups`; group card keeps `$<id>`
+- [x] A-006 R7: `docs/wiki/create-flow-studies.html` is committed and indexed in `docs/specs/index.md`
 
 ### Behavioral Correctness
 
-- [ ] A-007 R3: Browser/app-window strings (`App: New Window`, `New app window`, `Close app window`, popout copy) are unchanged
+- [x] A-007 R3: Browser/app-window strings (`App: New Window`, `New app window`, `Close app window`, popout copy) are unchanged
 
 ### Scenario Coverage
 
-- [ ] A-008 R2: Group flyout card shows `Group <n>`, `Rename group`, `Kill group`; kill confirm reads `Kill group <n> and all its tabs?`
-- [ ] A-009 R1: Host page shows `WORKSPACES` and `+ New workspace`; create dialog title `New workspace`
-- [ ] A-010 R8: `npx tsc --noEmit` passes; affected Vitest files pass; affected e2e specs pass
+- [x] A-008 R2: Group flyout card shows `Group <n>`, `Rename group`, `Kill group`; kill confirm reads `Kill group <n> and all its tabs?`
+- [x] A-009 R1: Host page shows `WORKSPACES` and `+ New workspace`; create dialog title `New workspace`
+- [x] A-010 R8: `npx tsc --noEmit` passes; affected Vitest files pass (11 files, 536 tests); rework-touched e2e specs pass (window-heading, sidebar-section-rail, server-watched-zone, recovery-section — 30/30); Go `TestSkillTopicsMatchCanonical` passes; cycle-2 re-review: full Vitest (261 files, 5816 tests) and `surface-popout` e2e (9/9) pass
 
 ### Edge Cases & Error Handling
 
-- [ ] A-011 R6: No `data-testid`, route param, `?server=`, API path, localStorage key, CLI verb, tmux option or `.go` file changed
-- [ ] A-012 R1: Frontend-composed toasts/errors use the new nouns; backend-originated error strings are untouched
+- [x] A-011 R6: No `data-testid`, route param, `?server=`, API path, localStorage key, CLI verb, tmux option or `.go` file changed
+- [x] A-012 R1: Frontend-composed toasts/errors use the new nouns; backend-originated error strings are untouched
 
 ### Code Quality
 
-- [ ] A-013 Pattern consistency: casing follows the surrounding conventions (title-case palette prefixes, sentence-case row labels, uppercase zone labels)
-- [ ] A-014 No unnecessary duplication: shared label constants (e.g. `TMUX_SERVER_PREFIX`) are changed at their single definition, not shadowed
-- [ ] A-015 No comment narration: no comments added that cite this rename or change IDs
-- [ ] A-016 PR evidence: a `just demo` recording (desktop + mobile, with `--before`) exists for the PR body
+- [x] A-013 Pattern consistency: casing follows the surrounding conventions (title-case palette prefixes, sentence-case row labels, uppercase zone labels)
+- [x] A-014 No unnecessary duplication: shared label constants (e.g. `TMUX_SERVER_PREFIX`) are changed at their single definition, not shadowed
+- [x] A-015 No comment narration: no comments added that cite this rename or change IDs
+- [x] A-016 PR evidence: a `just demo` recording (desktop + mobile, with `--before`) exists for the PR body
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+None — this change adds new functionality without making existing code redundant
 
 ## Assumptions
 

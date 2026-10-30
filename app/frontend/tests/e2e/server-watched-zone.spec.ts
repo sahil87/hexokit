@@ -173,7 +173,7 @@ test.describe("Server page WATCHED zone", () => {
     await expect(table).toBeVisible();
     const headers = table.locator('th[scope="col"]');
     await expect(headers).toHaveCount(6);
-    for (const name of ["status", "session", "change", "awaiting", "note", "repo"]) {
+    for (const name of ["status", "group", "change", "awaiting", "note", "repo"]) {
       await expect(table.getByLabel(`Sort by ${name}`)).toBeVisible();
     }
     await expect(headers.first()).toHaveAttribute("aria-sort", "none");

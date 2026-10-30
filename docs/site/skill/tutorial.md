@@ -71,7 +71,7 @@ While it boots: **two rows busy at once** — have them find both. That's the pr
 rk present "$RK/tutorial/tutorial.html#ch4"
 ```
 
-Wait for the worker's question (`rk mux await` / `rk mux capture`; don't narrate mechanics). When it lands: the **waiting halo** on its dot, a **⚠ badge** on its session row, and — if enabled — a **push on their device**. For real: *click its row, read the question, answer right there, come back.* It finishes alone, presents, notifies — **delegate → interrupted only when needed → unblock → receive**. Degrade: no push → badge and halo carry it; never asks → nudge from its pane; died → show last output, move on.
+Wait for the worker's question (`rk mux await` / `rk mux capture`; don't narrate mechanics). When it lands: the **waiting halo** on its dot, a **⚠ badge** on its group row, and — if enabled — a **push on their device**. For real: *click its row, read the question, answer right there, come back.* It finishes alone, presents, notifies — **delegate → interrupted only when needed → unblock → receive**. Degrade: no push → badge and halo carry it; never asks → nudge from its pane; died → show last output, move on.
 
 ## Chapter 5 — Everywhere, and what's next (`#ch5`)
 

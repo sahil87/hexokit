@@ -112,7 +112,7 @@ async function mockServers(page: Page) {
 async function gotoHost(page: Page) {
   await page.goto("/");
   // Readiness: the WORKSPACES zone has rendered its (mocked) tile grid.
-  await expect(page.getByRole("heading", { name: "WORKSPACES" })).toBeVisible({
+  await expect(page.getByRole("heading", { name: "Workspaces" })).toBeVisible({
     timeout: 15_000,
   });
 }

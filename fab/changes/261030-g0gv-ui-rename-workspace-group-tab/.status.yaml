@@ -2,20 +2,20 @@ id: g0gv
 name: 261030-g0gv-ui-rename-workspace-group-tab
 created: 2026-10-30T09:38:03Z
 created_by: sahil-noon
-change_type: refactor
+change_type: feat
 issues: []
 progress:
     intake: done
     apply: done
-    review: active
-    hydrate: pending
+    review: done
+    hydrate: active
     ship: pending
     review-pr: pending
 plan:
     generated: true
     task_count: 13
     acceptance_count: 16
-    acceptance_completed: 0
+    acceptance_completed: 16
 confidence:
     certain: 3
     confident: 4
@@ -30,24 +30,26 @@ confidence:
         disambiguation: 79.3
 stage_metrics:
     intake: {started_at: "2026-10-30T09:38:03Z", driver: fab-new, iterations: 1, completed_at: "2026-10-30T09:41:31Z"}
-    apply: {started_at: "2026-10-30T09:41:31Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-30T10:18:26Z"}
-    review: {started_at: "2026-10-30T10:18:26Z", driver: fab-fff, iterations: 1}
+    apply: {started_at: "2026-10-30T11:13:03Z", driver: fab-fff, iterations: 3, completed_at: "2026-10-30T11:14:33Z"}
+    review: {started_at: "2026-10-30T11:14:33Z", driver: fab-fff, iterations: 3, completed_at: "2026-10-30T11:18:42Z"}
+    hydrate: {started_at: "2026-10-30T11:18:42Z", driver: fab-fff, iterations: 1}
 prs: []
 base_branch: main
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 2322
+    deleted: 690
+    net: 1632
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 776
+        deleted: 689
+        net: 87
     tests:
-        added: 0
-        deleted: 0
+        added: 301
+        deleted: 301
         net: 0
-    computed_at: "2026-10-30T10:18:26Z"
+    computed_at: "2026-10-30T11:14:34Z"
     computed_at_stage: apply
+change_type_source: explicit
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-10-30T10:18:26Z
+last_updated: 2026-10-30T11:18:42Z

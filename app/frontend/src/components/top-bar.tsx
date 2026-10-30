@@ -2566,7 +2566,7 @@ function BoardSwitcher({
       label="board"
       title="Board"
       onNavigate={handleNavigate}
-      action={{ label: "← Groups", onAction: () => navigate({ to: "/" }) }}
+      action={{ label: "← Workspaces", onAction: () => navigate({ to: "/" }) }}
       triggerClassName="ml-1 text-text-secondary hover:text-text-primary transition-colors shrink-0"
     />
   );

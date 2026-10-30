@@ -151,7 +151,7 @@ describe("TopBar", () => {
     renderTopBar({ mode: "server", sessionName: "", windowName: "", currentSession: null, currentWindow: null, server: "runkit" });
     // The literal "Dashboard" label is gone in every mode.
     expect(screen.queryByText("Dashboard")).not.toBeInTheDocument();
-    // The server name renders as the centered `tmux Workspace: <server>` heading
+    // The server name renders as the centered `Workspace: <server>` heading
     // (display-only \u2014 no rename). Its accessible name carries the type prefix.
     const heading = screen.getByLabelText("Workspace runkit");
     expect(heading).toBeInTheDocument();
@@ -248,7 +248,7 @@ describe("TopBar", () => {
       expect(screen.queryByLabelText("Switch hierarchy")).not.toBeInTheDocument();
     });
 
-    it("renders `tmux Workspace: <server>` display heading (no rename) in server mode", () => {
+    it("renders `Workspace: <server>` display heading (no rename) in server mode", () => {
       renderTopBar({ mode: "server", currentWindow: null, windowName: "" });
       expect(screen.getByLabelText("Workspace runkit")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /Rename/ })).not.toBeInTheDocument();

@@ -211,7 +211,7 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // chord: its mac-keyless refinement keeps it palette-only on both mac
   // hosts, so ⇧⌘N (a chord no other mac host gives this app) never fires.
   // Win/Linux keeps ⇧Ctrl+N/T/W untouched (plain Ctrl belongs to the pane).
-  { actionId: "create-session", code: "KeyN", tier: "shifted", macCode: "", scope: "global", kind: "builtin", label: "New group", description: "a new group of tabs", mapLabel: "new group" },
+  { actionId: "create-session", code: "KeyN", tier: "shifted", macCode: "", scope: "global", kind: "builtin", label: "New group", description: "holds related tabs", mapLabel: "new group" },
   { actionId: "create-window", code: "KeyT", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "New tab", description: "in the current group", mapLabel: "new tab" },
   { actionId: "kill-window", code: "KeyW", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Close tab", description: "confirm flow", mapLabel: "close tab" },
   // ⇧⌘T reopen closed tab — the universal browser/VS Code/iTerm2 reflex.

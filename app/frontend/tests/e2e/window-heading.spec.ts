@@ -6,7 +6,7 @@
  * path enters the same inline edit, the 375px bar stays single-line, the
  * hover-animation vocabulary classes are present and CSS-gated under
  * `prefers-reduced-motion`, and the same centered heading fills the tmux
- * Server (`tmux Workspace: <server>`, display-only), the Board (`Board: <name>`
+ * Server (`Workspace: <server>`, display-only), the Board (`Board: <name>`
  * + relocated ▾ switcher, display-only) and the Host (solo `Host`) routes.
  *
  * Shared setup: a FILE-LEVEL `beforeAll` creates a dedicated tmux session
@@ -173,10 +173,10 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
 
   /**
    * Proves: move-don't-copy — on the Workspace page (`/$server`, no window)
-   * the server name is the CENTERED `tmux Workspace: <server>` heading,
+   * the server name is the CENTERED `Workspace: <server>` heading,
    * display-only (no rename), and is NOT duplicated as a left breadcrumb leaf
    * crumb — the left breadcrumb ends at its parent. The page also carries an
-   * in-page long-form `Workspace overview` `<h2>` SectionHeading above its
+   * in-page long-form `Workspace Overview` `<h2>` SectionHeading above its
    * "Sessions" section.
    *
    * Steps:
@@ -185,10 +185,10 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
    *    the type prefix) is visible.
    * 3. Assert there is no `Rename tab …` button (the server name is
    *    display-only).
-   * 4. Assert the in-page `Workspace overview` `<h2>` heading is visible.
+   * 4. Assert the in-page `Workspace Overview` `<h2>` heading is visible.
    * 5. Assert the `Breadcrumb` nav does NOT contain the server name.
    */
-  test("server route (/$server) shows the centered `tmux Workspace: <server>` heading + the `Workspace overview` in-page heading (not a left leaf crumb)", async ({
+  test("server route (/$server) shows the centered `Workspace: <server>` heading + the `Workspace Overview` in-page heading (not a left leaf crumb)", async ({
     page,
   }) => {
     await page.goto(`/${TMUX_SERVER}`);
@@ -203,7 +203,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     // The in-page page-level heading (260715-zs1y) — a SectionHeading <h2>
     // above the "Sessions" section.
     await expect(
-      page.getByRole("heading", { level: 2, name: "Workspace overview" }),
+      page.getByRole("heading", { level: 2, name: "Workspace Overview" }),
     ).toBeVisible();
     // The name is not duplicated as a left breadcrumb crumb.
     const nav = page.getByRole("navigation", { name: "Breadcrumb" });
@@ -594,7 +594,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     // state.
     const reducedLabel = reducedPage
       .locator("nav[aria-label='Groups'] .rk-typed-label", {
-        hasText: /^Sessions$/,
+        hasText: /^Groups$/,
       })
       .first();
     // Dispatched event (not real hover) — same churn-proof seam as the
