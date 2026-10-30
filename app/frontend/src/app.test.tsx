@@ -931,6 +931,7 @@ describe("CmdK Operator Role Actions", () => {
 function buildTerminalExportActions(opts: {
   hasTtyTile: boolean;
   altScreen: boolean;
+  isMobile?: boolean;
 }): PaletteAction[] {
   if (!opts.hasTtyTile) return [];
   return (
@@ -938,6 +939,9 @@ function buildTerminalExportActions(opts: {
       ["terminal-export-snapshot", "Terminal: Download snapshot (HTML)", "snapshot"],
       ["terminal-export-transcript", "Terminal: Download transcript", "transcript"],
       ["terminal-export-copy", "Terminal: Copy visible screen", "copy-visible"],
+      ...(opts.isMobile
+        ? [["terminal-export-select", "Terminal: Select text", "select"] as const]
+        : []),
       ...(opts.altScreen
         ? []
         : [["terminal-export-history", "Terminal: Download full history", "history"] as const]),
@@ -963,6 +967,25 @@ describe("CmdK Terminal Export Actions (altScreen gate)", () => {
     expect(screen.getByText("Terminal: Download transcript")).toBeInTheDocument();
     expect(screen.getByText("Terminal: Copy visible screen")).toBeInTheDocument();
     expect(screen.getByText("Terminal: Download full history")).toBeInTheDocument();
+  });
+
+  it("Select text appears only on mobile", () => {
+    render(
+      <CommandPalette
+        actions={buildTerminalExportActions({ hasTtyTile: true, altScreen: false })}
+      />,
+    );
+    openPalette();
+    expect(screen.queryByText("Terminal: Select text")).toBeNull();
+    cleanup();
+
+    render(
+      <CommandPalette
+        actions={buildTerminalExportActions({ hasTtyTile: true, altScreen: false, isMobile: true })}
+      />,
+    );
+    openPalette();
+    expect(screen.getByText("Terminal: Select text")).toBeInTheDocument();
   });
 
   it("Download full history is absent on an altScreen window; the other three remain", () => {

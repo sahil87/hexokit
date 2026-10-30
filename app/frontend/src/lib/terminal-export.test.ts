@@ -3,6 +3,7 @@ import {
   buildExportFilename,
   downloadTextFile,
   transcriptFromBuffer,
+  trimSelectText,
   visibleScreenText,
   wrapHtmlSnapshot,
   type ExportBuffer,
@@ -116,5 +117,11 @@ describe("downloadTextFile", () => {
 
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+});
+
+describe("trimSelectText", () => {
+  it("drops each line's trailing padding and the trailing blank lines", () => {
+    expect(trimSelectText("a   \n  b  \n\n   \n")).toBe("a\n  b");
   });
 });

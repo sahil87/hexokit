@@ -4,6 +4,7 @@ import { Tip } from "@/components/tip";
 import { controlClass } from "@/components/control";
 import { TerminalClient } from "@/components/terminal-client";
 import { FindBar } from "@/components/find-bar";
+import { SelectTextSheet } from "@/components/select-text-sheet";
 import { CodeSurface } from "@/components/code-surface";
 import { ReviewSurface, type ReviewSurfaceCommands } from "@/components/review-surface";
 import { WorkingSurface } from "@/components/working-surface";
@@ -133,6 +134,7 @@ import {
   buildExportFilename,
   downloadTextFile,
   transcriptFromBuffer,
+  trimSelectText,
   visibleScreenText,
   wrapHtmlSnapshot,
   type ExportAction,
@@ -1318,6 +1320,16 @@ export function SurfaceLayout({
   const ttyTerminalRef = useRef<Terminal | null>(null);
   const { addToast } = useToast();
   const [exportMenuPos, setExportMenuPos] = useState<{ top: number; right: number } | null>(null);
+  // Select-text sheet (mobile): the terminal as plain text for native
+  // selection — touch cannot select inside xterm. null = closed. `cols` sizes
+  // the sheet's font; `live` = follows the screen until touched; `ready` =
+  // false while only the keyboard-squeezed frame exists.
+  const [selectText, setSelectText] = useState<{
+    text: string;
+    cols: number;
+    live: boolean;
+    ready: boolean;
+  } | null>(null);
   const exportButtonRef = useRef<HTMLButtonElement | null>(null);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
   // Menus register `transient` (overlay-presence): while open, a native guest
@@ -1360,6 +1372,39 @@ export function SurfaceLayout({
           if (!ok) addToast("Copy failed — clipboard unavailable");
           return;
         }
+        case "select": {
+          if (!term) return;
+          // Opened from the palette on a phone, the keyboard is still up and
+          // the terminal squeezed above it. Close it; the screen grows back.
+          if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+          // The whole scrollback (server capture), so a selection can reach
+          // above the screen. Complete even mid-keyboard: the keyboard only
+          // shrinks the height, and tmux keeps the rows it pushes out.
+          if (statusWindow?.altScreen !== true) {
+            try {
+              const history = await fetchWindowHistory(server, windowId);
+              setSelectText({
+                text: trimSelectText(history),
+                cols: term.cols,
+                live: false,
+                ready: true,
+              });
+              return;
+            } catch {
+              // fall through to the screen
+            }
+          }
+          // An alt-screen window (tmux holds no scrollback there) or a failed
+          // fetch: the screen itself, live — a TUI squeezed by the keyboard
+          // redraws at full height once it closes, and the sheet follows.
+          setSelectText({
+            text: trimSelectText(visibleScreenText(term.buffer.active, term.rows)),
+            cols: term.cols,
+            live: true,
+            ready: !document.documentElement.classList.contains("kb-open"),
+          });
+          return;
+        }
         case "history": {
           try {
             const body = await fetchWindowHistory(server, windowId);
@@ -1377,7 +1422,7 @@ export function SurfaceLayout({
         }
       }
     },
-    [sessionName, statusWindow?.name, windowId, server, addToast],
+    [sessionName, statusWindow?.name, statusWindow?.altScreen, windowId, server, addToast],
   );
 
   // The palette entry points (T008): one document CustomEvent carries the
@@ -1392,6 +1437,7 @@ export function SurfaceLayout({
         action === "snapshot" ||
         action === "transcript" ||
         action === "copy-visible" ||
+        action === "select" ||
         action === "history"
       ) {
         void runExport(action);
@@ -1400,6 +1446,54 @@ export function SurfaceLayout({
     document.addEventListener(EXPORT_EVENT, onExport);
     return () => document.removeEventListener(EXPORT_EVENT, onExport);
   }, [runExport]);
+
+  // A live sheet re-reads the screen on every resize and write, so the TUI's
+  // full-height redraw replaces the keyboard-squeezed frame without guessing
+  // how long it takes. Opened with the keyboard up, the text stays hidden
+  // until the first write after the keyboard-close resize (tmux repaints on
+  // every resize). No resize two frames after the keyboard closes (the
+  // terminal refits in the next frame) means none is coming.
+  const selectLive = selectText?.live === true;
+  useEffect(() => {
+    const term = ttyTerminalRef.current;
+    if (!selectLive || !term) return;
+    const html = document.documentElement;
+    let resizedSinceKeyboard = false;
+    const reread = (reveal: boolean) =>
+      setSelectText((cur) =>
+        cur?.live
+          ? {
+              text: trimSelectText(visibleScreenText(term.buffer.active, term.rows)),
+              cols: term.cols,
+              live: true,
+              ready: cur.ready || reveal,
+            }
+          : cur,
+      );
+    const subs = [
+      term.onResize(() => {
+        if (!html.classList.contains("kb-open")) resizedSinceKeyboard = true;
+        reread(false);
+      }),
+      term.onWriteParsed(() => reread(resizedSinceKeyboard)),
+    ];
+    let rafId = 0;
+    const keyboard = new MutationObserver(() => {
+      if (html.classList.contains("kb-open")) return;
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        rafId = requestAnimationFrame(() => {
+          if (!resizedSinceKeyboard) reread(true);
+        });
+      });
+    });
+    keyboard.observe(html, { attributes: true, attributeFilter: ["class"] });
+    return () => {
+      subs.forEach((sub) => sub.dispose());
+      keyboard.disconnect();
+      cancelAnimationFrame(rafId);
+    };
+  }, [selectLive]);
 
   // Export menu dismissal (the top-bar-overflow-menu contract): outside
   // mousedown closes; Escape closes and refocuses the trigger.
@@ -3907,6 +4001,23 @@ export function SurfaceLayout({
   // element-identity assertion caught exactly this). Retained code frames ride
   // the same rule: the switch demotes the visible code tile to a hidden
   // retained entry with an unchanged key.
+  // Mobile only — the palette's `Terminal: Select text` (registered on mobile
+  // alone) is the way in; a mouse already selects inside the terminal.
+  const selectTextSheet = selectText !== null && (
+    <SelectTextSheet
+      text={selectText.text}
+      cols={selectText.cols}
+      ready={selectText.ready}
+      onTouchText={() => setSelectText((cur) => (cur?.live ? { ...cur, live: false } : cur))}
+      onCopyAll={() => {
+        void copyToClipboard(selectText.text).then((ok) => {
+          addToast(ok ? "Copied" : "Copy failed — clipboard unavailable");
+        });
+      }}
+      onClose={() => setSelectText(null)}
+    />
+  );
+
   if (isMobile) {
     const mobileSlot =
       mobileActiveSlot !== undefined &&
@@ -3932,6 +4043,7 @@ export function SurfaceLayout({
         >
           {allTiles.map(({ tile, hidden }) => renderTile(tile, hidden, true))}
         </div>
+        {selectTextSheet}
       </TileDragContext.Provider>
     );
   }

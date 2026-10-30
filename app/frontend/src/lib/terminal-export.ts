@@ -21,7 +21,7 @@ import { finalizeSafeName, toSafeWindowName } from "@/lib/names";
 /** The actions the export menu + palette entries share (the one-CustomEvent
  *  seam: palette entries dispatch `EXPORT_EVENT` with `detail.action`, the
  *  SurfaceLayout export cluster listens — the `web-find:open` precedent). */
-export type ExportAction = "snapshot" | "transcript" | "copy-visible" | "history";
+export type ExportAction = "snapshot" | "transcript" | "copy-visible" | "select" | "history";
 
 export const EXPORT_EVENT = "terminal-export";
 
@@ -90,9 +90,20 @@ export function transcriptFromBuffer(buffer: ExportBuffer): string {
 }
 
 /** Exactly the visible viewport rows (`buffer.active.viewportY`, `rows`
- *  rows) as plain text — the copy-visible arm. */
+ *  rows) as plain text — the copy-visible and select arms. */
 export function visibleScreenText(buffer: ExportViewportBuffer, rows: number): string {
   return textFromRange(buffer, buffer.viewportY, buffer.viewportY + rows);
+}
+
+/** Select-sheet text: each line's trailing spaces dropped (TUIs pad rows to
+ *  the pane width, which re-wraps badly in a narrower sheet) and trailing
+ *  blank lines removed. */
+export function trimSelectText(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .trimEnd();
 }
 
 /** Wrap `SerializeAddon.serializeAsHTML` output in a minimal standalone

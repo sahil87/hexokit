@@ -4892,6 +4892,11 @@ function AppShell() {
               ["terminal-export-snapshot", "Terminal: Download snapshot (HTML)", "snapshot"],
               ["terminal-export-transcript", "Terminal: Download transcript", "transcript"],
               ["terminal-export-copy", "Terminal: Copy visible screen", "copy-visible"],
+              // Mobile only: touch cannot select inside the terminal, so the
+              // sheet hands the text to native selection; a mouse can already.
+              ...(isMobile
+                ? [["terminal-export-select", "Terminal: Select text", "select"] as const]
+                : []),
               // Gated ABSENT (not disabled — the availability idiom) on an
               // alt-screen window: tmux holds no scrollback there, so the
               // server capture is structurally empty (260820-4le0).
