@@ -9,7 +9,7 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
+    ship: done
     review-pr: pending
 plan:
     generated: true
@@ -33,13 +33,14 @@ stage_metrics:
     apply: {started_at: "2026-10-30T09:41:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-30T09:54:28Z"}
     review: {started_at: "2026-10-30T09:54:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-30T10:03:05Z"}
     hydrate: {started_at: "2026-10-30T10:03:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-30T10:05:21Z"}
-    ship: {started_at: "2026-10-30T10:05:21Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-10-30T10:05:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-30T10:07:05Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1093
 base_branch: main
 true_impact:
-    added: 1056
-    deleted: 49
-    net: 1007
+    added: 1076
+    deleted: 58
+    net: 1018
     excluding:
         added: 696
         deleted: 49
@@ -48,9 +49,9 @@ true_impact:
         added: 325
         deleted: 10
         net: 315
-    computed_at: "2026-10-30T10:05:22Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-10-30T10:07:05Z"
+    computed_at_stage: ship
 summary: 'Memory: native web tile proxy-mode rk-relative addresses resolve against the daemon loopback origin (health.tunnel); unresolvable-origin e2e/demo rig documented'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-10-30T10:05:22Z
+last_updated: 2026-10-30T10:07:05Z
