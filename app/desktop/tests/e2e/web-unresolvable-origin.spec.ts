@@ -169,7 +169,7 @@ test.describe("web tile on a host whose public origin the rk server cannot resol
       timeout: READY_TIMEOUT,
     });
     await expect(unresPage.getByTestId("surface-tile-web").getByLabel("URL")).toHaveValue(
-      /report\.html/,
+      "report.html",
       { timeout: READY_TIMEOUT },
     );
   });

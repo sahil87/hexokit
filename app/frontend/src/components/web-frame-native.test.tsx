@@ -18,7 +18,14 @@ import type {
 // through flushMount. ResizeObserver and requestAnimationFrame are stubbed
 // controllable — the observer callback is fired manually, frames are pumped
 // manually — and the placeholder's rect is driven through a stubbed
-// getBoundingClientRect.
+// getBoundingClientRect. The SPA's own health read is mocked to report the
+// daemon's listen port (3000), so proxy-mode cases see a known daemon
+// loopback origin instead of a jsdom fetch that happens to reject.
+
+vi.mock("@/api/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/client")>()),
+  getHealth: vi.fn(() => Promise.resolve({ status: "ok", hostname: "h", tunnel: 3000 })),
+}));
 
 type RelayHandler = (payload: unknown) => void;
 
@@ -447,6 +454,26 @@ describe("WebFrameNative host web mode", () => {
     const second = renderEngine({ url: "http://localhost:6000/x" });
     await flushMount();
     expect(bridge.create).toHaveBeenCalledWith(second.rig.tabKey, "http://localhost:6000/x", undefined);
+  });
+
+  it("proxy mode: a root-relative rk address loads against the daemon loopback origin and its url relay folds back to root-relative", async () => {
+    installModeBridge(() => Promise.resolve({ ok: true, mode: "proxy" }));
+    const { rig } = renderEngine({ url: "/present/runKit/abc/report.html?v=1" });
+    await flushMount();
+    expect(bridge.create).toHaveBeenCalledWith(
+      rig.tabKey,
+      "http://127.0.0.1:3000/present/runKit/abc/report.html?v=1",
+      undefined,
+    );
+
+    deliver({
+      tabKey: rig.tabKey,
+      kind: "url",
+      url: "http://127.0.0.1:3000/present/runKit/abc/other.html?q=1#frag",
+      canGoBack: true,
+      canGoForward: false,
+    });
+    expect(rig.states.get(rig.url)?.trackedLocation).toBe("/present/runKit/abc/other.html?q=1#frag");
   });
 
   it("legacy mode loads byte-identical to today's behavior: the host-absolute /proxy path", async () => {

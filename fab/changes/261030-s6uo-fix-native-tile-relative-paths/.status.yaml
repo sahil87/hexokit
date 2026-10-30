@@ -7,15 +7,15 @@ issues: []
 progress:
     intake: done
     apply: done
-    review: active
-    hydrate: pending
+    review: done
+    hydrate: active
     ship: pending
     review-pr: pending
 plan:
     generated: true
     task_count: 8
     acceptance_count: 19
-    acceptance_completed: 0
+    acceptance_completed: 19
 confidence:
     certain: 7
     confident: 7
@@ -31,7 +31,8 @@ confidence:
 stage_metrics:
     intake: {started_at: "2026-10-30T09:36:31Z", driver: fab-new, iterations: 1, completed_at: "2026-10-30T09:41:15Z"}
     apply: {started_at: "2026-10-30T09:41:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-30T09:54:28Z"}
-    review: {started_at: "2026-10-30T09:54:28Z", driver: fab-fff, iterations: 1}
+    review: {started_at: "2026-10-30T09:54:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-30T10:03:05Z"}
+    hydrate: {started_at: "2026-10-30T10:03:05Z", driver: fab-fff, iterations: 1}
 prs: []
 base_branch: main
 true_impact:
@@ -50,4 +51,4 @@ true_impact:
     computed_at_stage: apply
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-10-30T09:54:28Z
+last_updated: 2026-10-30T10:03:05Z

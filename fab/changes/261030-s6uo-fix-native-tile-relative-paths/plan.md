@@ -84,40 +84,40 @@ The guest's navigated URL SHALL be mapped to its root-relative form (`pathname +
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `HealthResponse.tunnel` is declared and `daemonLoopbackOrigin` returns `http://127.0.0.1:<n>` only for integer ports 1..65535
-- [ ] A-002 R1: The daemon-origin fetch is memoized, invoked only in `proxy` mode, and resolves `null` on failure
-- [ ] A-003 R2: `toNativeSrc` in `proxy` mode with a daemon origin returns root-relative rk addresses as daemon-loopback absolute URLs with path/query/hash preserved
-- [ ] A-004 R3: The native engine create site passes the daemon origin to `toNativeSrc` in `proxy` mode and honors `cancelled` after each await
-- [ ] A-005 R4: `toTracked` maps daemon-origin and viewer-origin guest URLs to root-relative form via the pure `toTrackedLocation` helper
+- [x] A-001 R1: `HealthResponse.tunnel` is declared and `daemonLoopbackOrigin` returns `http://127.0.0.1:<n>` only for integer ports 1..65535
+- [x] A-002 R1: The daemon-origin fetch is memoized, invoked only in `proxy` mode, and resolves `null` on failure
+- [x] A-003 R2: `toNativeSrc` in `proxy` mode with a daemon origin returns root-relative rk addresses as daemon-loopback absolute URLs with path/query/hash preserved
+- [x] A-004 R3: The native engine create site passes the daemon origin to `toNativeSrc` in `proxy` mode and honors `cancelled` after each await
+- [x] A-005 R4: `toTracked` maps daemon-origin and viewer-origin guest URLs to root-relative form via the pure `toTrackedLocation` helper
 
 ### Behavioral Correctness
 
-- [ ] A-006 R2: `direct` mode output is unchanged for every address kind; `legacy` is still exactly `toProxySrc`; `/proxy/{port}` still maps to `http://localhost:{port}/…`
+- [x] A-006 R2: `direct` mode output is unchanged for every address kind; `legacy` is still exactly `toProxySrc`; `/proxy/{port}` still maps to `http://localhost:{port}/…`
 
 ### Scenario Coverage
 
-- [ ] A-007 R2: `web-url.test.ts` covers the R2 matrix (direct, proxy+origin, proxy+null, legacy) including the split of the former pass-through case
-- [ ] A-008 R3: A desktop e2e exercises a proxy-mode remote host loading a root-relative rk address in the native tile (or the documented fallback assertion), with Test Intent JSDoc
-- [ ] A-009 R3: A shell demo spec exists under `app/desktop/tests/demo/` suitable for `just demo --before` PR evidence
+- [x] A-007 R2: `web-url.test.ts` covers the R2 matrix (direct, proxy+origin, proxy+null, legacy) including the split of the former pass-through case
+- [x] A-008 R3: A desktop e2e exercises a proxy-mode remote host loading a root-relative rk address in the native tile (or the documented fallback assertion), with Test Intent JSDoc
+- [x] A-009 R3: A shell demo spec exists under `app/desktop/tests/demo/` suitable for `just demo --before` PR evidence
 
 ### Edge Cases & Error Handling
 
-- [ ] A-010 R2: A `null` daemon origin (health failure, missing/invalid `tunnel`) degrades to today's behavior — no throw, no blank tile
-- [ ] A-011 R2: Scheme-relative `//host/x` is never rewritten against the daemon origin
-- [ ] A-012 R4: Foreign-origin guest URLs stay absolute; unparsable strings are stored raw
+- [x] A-010 R2: A `null` daemon origin (health failure, missing/invalid `tunnel`) degrades to today's behavior — no throw, no blank tile
+- [x] A-011 R2: Scheme-relative `//host/x` is never rewritten against the daemon origin
+- [x] A-012 R4: Foreign-origin guest URLs stay absolute; unparsable strings are stored raw
 
 ### Code Quality
 
-- [ ] A-013 Pattern consistency: New code follows naming and structural patterns of surrounding code (`web-url.ts` stays pure/DOM-free; shell bridge helpers keep the never-throw degrade convention)
-- [ ] A-014 No unnecessary duplication: the root-relative check is shared with `isAllowedUrl`; `getHealth()` is reused
-- [ ] A-015 Type narrowing over type assertions: the `tunnel` value is narrowed with guards, not `as` casts
-- [ ] A-016 Tests: the bug fix ships with unit tests covering the changed behavior (code-quality principle)
-- [ ] A-017 Comment discipline: comments state constraints/why only — no narration, no change IDs or PR numbers
-- [ ] A-018 No client polling: the daemon origin is a one-shot memoized read, not an interval fetch
+- [x] A-013 Pattern consistency: New code follows naming and structural patterns of surrounding code (`web-url.ts` stays pure/DOM-free; shell bridge helpers keep the never-throw degrade convention)
+- [x] A-014 No unnecessary duplication: the root-relative check is shared with `isAllowedUrl`; `getHealth()` is reused
+- [x] A-015 Type narrowing over type assertions: the `tunnel` value is narrowed with guards, not `as` casts
+- [x] A-016 Tests: the bug fix ships with unit tests covering the changed behavior (code-quality principle)
+- [x] A-017 Comment discipline: comments state constraints/why only — no narration, no change IDs or PR numbers
+- [x] A-018 No client polling: the daemon origin is a one-shot memoized read, not an interval fetch
 
 ### Security
 
-- [ ] A-019 R1: The daemon origin is built only from a validated integer port from the daemon's own health response; no viewer-supplied input reaches it, and no new tunnel dial target class is introduced (the probe already dials `127.0.0.1:<tunnel>`)
+- [x] A-019 R1: The daemon origin is built only from a validated integer port from the daemon's own health response; no viewer-supplied input reaches it, and no new tunnel dial target class is introduced (the probe already dials `127.0.0.1:<tunnel>`)
 
 ## Notes
 
@@ -125,6 +125,10 @@ The guest's navigated URL SHALL be mapped to its root-relative form (`pathname +
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
 - PR evidence (Constitution § PR Evidence): the shell recording from T008 is attached at PR time via `gh pr edit --attach`; the web (iframe) engine is unchanged, so no web-lane recording is required — the PR body states so.
+
+## Deletion Candidates
+
+- `app/frontend/src/components/web-frame-native.tsx` `toTracked` — already removed by this change (superseded by `toTrackedLocation`); no further existing code made redundant
 
 ## Assumptions
 
