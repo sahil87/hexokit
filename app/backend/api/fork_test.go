@@ -1,10 +1,13 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -360,5 +363,190 @@ func TestForkUsesResolvedAgentPaneDirectory(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// postForkWhere is postFork with an explicit `where` query value.
+func postForkWhere(t *testing.T, sf SessionFetcher, engine RiffEngine, windowID, where string) *httptest.ResponseRecorder {
+	t.Helper()
+	router := newTestRouterWithRiff(sf, &mockTmuxOps{}, engine)
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/"+strings.Replace(windowID, "@", "%40", 1)+"/fork?server=work&where="+where, nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+// stubForkHead replaces forkHeadCommit for one test, recording the directory it
+// was asked about.
+func stubForkHead(t *testing.T, sha string, err error) *string {
+	t.Helper()
+	var gotDir string
+	orig := forkHeadCommit
+	forkHeadCommit = func(_ context.Context, dir string) (string, error) {
+		gotDir = dir
+		return sha, err
+	}
+	t.Cleanup(func() { forkHeadCommit = orig })
+	return &gotDir
+}
+
+const testForkHead = "3c51d2991ad5f1b1e1e375ecf09b9a8ae175e946"
+
+// TestForkWorktreeMode: where=worktree asks the engine for a NEW worktree whose
+// branch starts at the source checkout's HEAD, run from the source's git root,
+// and rooted at the pane's repo-relative subdirectory — while the conversation
+// inputs (provider, ref, window name, session) stay those of a checkout fork.
+// The engine's worktree path is echoed in the response.
+func TestForkWorktreeMode(t *testing.T) {
+	repo := gitRepoDir(t)
+	deep := filepath.Join(repo, "app", "backend")
+	gotDir := stubForkHead(t, testForkHead, nil)
+	sf := &mockSessionFetcher{result: forkSessions("dev", "@7", "feature-work", "codex", testForkRef, deep)}
+	engine := &mockRiffEngine{result: riff.Result{
+		Server:       "work",
+		Session:      "dev",
+		WindowName:   "feature-work-fork",
+		WindowID:     "@9",
+		WorktreePath: "/tmp/repo.worktrees/smart-dugong",
+	}}
+
+	rec := postForkWhere(t, sf, engine, "@7", "worktree")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	got := engine.gotOpts
+	if got.Where != "worktree" {
+		t.Errorf("engine Where = %q, want worktree", got.Where)
+	}
+	if got.RepoRoot != repo {
+		t.Errorf("engine RepoRoot = %q, want the git root %q (wt runs from the source checkout)", got.RepoRoot, repo)
+	}
+	if *gotDir != repo {
+		t.Errorf("HEAD resolved in %q, want the source git root %q", *gotDir, repo)
+	}
+	if got.WorktreeBase != testForkHead {
+		t.Errorf("engine WorktreeBase = %q, want the source HEAD %q", got.WorktreeBase, testForkHead)
+	}
+	if got.WorktreeSubdir != filepath.Join("app", "backend") {
+		t.Errorf("engine WorktreeSubdir = %q, want app/backend", got.WorktreeSubdir)
+	}
+	if got.ForkProvider != "codex" || got.ResumeSessionRef != testForkRef || got.WindowNameBase != "feature-work-fork" || got.Session != "dev" {
+		t.Errorf("conversation inputs drifted from a checkout fork: %+v", got)
+	}
+	if got.WorktreeName != "" {
+		t.Errorf("engine WorktreeName = %q, want empty (wt generates the name + branch)", got.WorktreeName)
+	}
+
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	if body["windowId"] != "@9" || body["worktreePath"] != "/tmp/repo.worktrees/smart-dugong" {
+		t.Errorf("response = %v, want windowId @9 + the engine's worktreePath", body)
+	}
+}
+
+// TestForkWorktreeAtRepoRoot: a pane at the git root carries no subdir ("."),
+// which the engine treats as the worktree root.
+func TestForkWorktreeAtRepoRoot(t *testing.T) {
+	repo := gitRepoDir(t)
+	stubForkHead(t, testForkHead, nil)
+	sf := &mockSessionFetcher{result: forkSessions("dev", "@7", "w", "claude", testForkRef, repo)}
+	engine := &mockRiffEngine{result: riff.Result{WindowID: "@9"}}
+
+	rec := postForkWhere(t, sf, engine, "@7", "worktree")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if s := engine.gotOpts.WorktreeSubdir; s != "." && s != "" {
+		t.Errorf("engine WorktreeSubdir = %q, want the root (\".\")", s)
+	}
+}
+
+// TestForkCheckoutOmitsWorktreeInputs: the default (and explicit where=checkout)
+// fork never resolves HEAD and sends no worktree inputs — today's contract.
+func TestForkCheckoutOmitsWorktreeInputs(t *testing.T) {
+	for _, where := range []string{"", "checkout"} {
+		t.Run("where="+where, func(t *testing.T) {
+			repo := gitRepoDir(t)
+			gotDir := stubForkHead(t, testForkHead, nil)
+			sf := &mockSessionFetcher{result: forkSessions("dev", "@7", "w", "claude", testForkRef, repo)}
+			engine := &mockRiffEngine{result: riff.Result{WindowID: "@9"}}
+
+			rec := postForkWhere(t, sf, engine, "@7", where)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+			}
+			got := engine.gotOpts
+			if got.Where != "checkout" || got.WorktreeBase != "" || got.WorktreeSubdir != "" {
+				t.Errorf("checkout fork carried worktree inputs: %+v", got)
+			}
+			if *gotDir != "" {
+				t.Errorf("checkout fork resolved HEAD in %q; it must not", *gotDir)
+			}
+			if strings.Contains(rec.Body.String(), "worktreePath") {
+				t.Errorf("checkout response carries worktreePath: %s", rec.Body.String())
+			}
+		})
+	}
+}
+
+// TestForkInvalidWhere: an unknown where is a 400 before anything resolves.
+func TestForkInvalidWhere(t *testing.T) {
+	sf := &mockSessionFetcher{result: forkSessions("dev", "@7", "w", "claude", testForkRef, gitRepoDir(t))}
+	engine := &mockRiffEngine{}
+
+	rec := postForkWhere(t, sf, engine, "@7", "elsewhere")
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if engine.called {
+		t.Error("engine.Spawn was called on an invalid where")
+	}
+}
+
+// TestForkWorktreeHeadFailure: an unresolvable HEAD (e.g. a repo with no
+// commits) is a 500 and creates nothing.
+func TestForkWorktreeHeadFailure(t *testing.T) {
+	stubForkHead(t, "", errors.New("no HEAD"))
+	sf := &mockSessionFetcher{result: forkSessions("dev", "@7", "w", "claude", testForkRef, gitRepoDir(t))}
+	engine := &mockRiffEngine{}
+
+	rec := postForkWhere(t, sf, engine, "@7", "worktree")
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body.String())
+	}
+	if engine.called {
+		t.Error("engine.Spawn was called after the HEAD resolve failed")
+	}
+}
+
+// TestForkHeadCommitRealRepo: the production resolver reads a real checkout's
+// HEAD as a full SHA.
+func TestForkHeadCommitRealRepo(t *testing.T) {
+	dir := t.TempDir()
+	for _, argv := range [][]string{
+		{"init", "-q"},
+		{"-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, argv...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", argv, err, out)
+		}
+	}
+	want, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := forkHeadCommit(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("forkHeadCommit: %v", err)
+	}
+	if got != strings.TrimSpace(string(want)) {
+		t.Errorf("forkHeadCommit = %q, want %q", got, want)
 	}
 }

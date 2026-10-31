@@ -17,6 +17,7 @@ import {
   railHeldBand,
   RAIL_HELD_SEAM,
   FORK_TOOLTIP,
+  FORK_WORKTREE_TOOLTIP,
   canForkWindow,
   canRequestWindowOperatorAction,
 } from "./row-flyout-card";
@@ -68,6 +69,7 @@ function Row({
   suppressed = false,
   onChangeColorAction,
   onFork,
+  onForkWorktree,
   onFixTabName,
   hasOperator = false,
   onPinAction,
@@ -81,6 +83,7 @@ function Row({
   suppressed?: boolean;
   onChangeColorAction?: () => void;
   onFork?: () => Promise<void>;
+  onForkWorktree?: () => Promise<void>;
   onFixTabName?: () => Promise<void>;
   hasOperator?: boolean;
   onPinAction?: () => void;
@@ -104,6 +107,7 @@ function Row({
             : undefined
         }
         onFork={onFork}
+        onForkWorktree={onForkWorktree}
         onFixTabName={onFixTabName}
         hasOperator={hasOperator}
         onPinAction={
@@ -528,6 +532,71 @@ describe("Fork action row (260806-s4av)", () => {
       settle();
     });
     expect(screen.getByTestId("row-flyout-fork-action")).toBeEnabled();
+  });
+
+  it("renders the worktree fork row directly after the same-directory fork row", () => {
+    render(<Row win={makeWindow({ agentProvider: "claude" })} onFork={forkResolved()} onForkWorktree={forkResolved()} />);
+    hoverOpen();
+
+    const fork = screen.getByTestId("row-flyout-fork-action");
+    const forkWt = screen.getByTestId("row-flyout-fork-worktree-action");
+    expect(forkWt).toHaveTextContent("Fork to new worktree");
+    expect(forkWt).toHaveTextContent("new branch");
+    expect(forkWt).toHaveAttribute("title", FORK_WORKTREE_TOOLTIP);
+    expect(forkWt).toHaveAttribute("aria-label", FORK_WORKTREE_TOOLTIP);
+    expect(FORK_WORKTREE_TOOLTIP).toContain("new worktree + branch");
+    expect(fork.nextElementSibling).toBe(forkWt);
+  });
+
+  it("gates the worktree fork row like the fork row (supported provider + wired handler)", () => {
+    const { unmount } = render(<Row win={makeWindow({ agentProvider: "gemini" })} onForkWorktree={forkResolved()} />);
+    hoverOpen();
+    expect(screen.queryByTestId("row-flyout-fork-worktree-action")).toBeNull();
+    unmount();
+
+    render(<Row win={makeWindow({ agentProvider: "codex" })} />);
+    hoverOpen();
+    expect(screen.queryByTestId("row-flyout-fork-worktree-action")).toBeNull();
+  });
+
+  it("worktree fork calls its own handler, not the same-directory one, and holds its own in-flight guard", async () => {
+    let settle: () => void = () => {};
+    const onFork = forkResolved();
+    const onForkWorktree = vi.fn<() => Promise<void>>(
+      () =>
+        new Promise<void>((resolve) => {
+          settle = resolve;
+        }),
+    );
+    const onRowClick = vi.fn();
+    render(
+      <Row
+        win={makeWindow({ agentProvider: "claude" })}
+        onFork={onFork}
+        onForkWorktree={onForkWorktree}
+        onRowClick={onRowClick}
+      />,
+    );
+    hoverOpen();
+
+    const forkWt = screen.getByTestId("row-flyout-fork-worktree-action");
+    act(() => {
+      fireEvent.click(forkWt);
+    });
+    act(() => {
+      fireEvent.click(forkWt);
+    });
+    expect(onForkWorktree).toHaveBeenCalledTimes(1);
+    expect(onFork).not.toHaveBeenCalled();
+    expect(onRowClick).not.toHaveBeenCalled();
+    expect(forkWt).toBeDisabled();
+    // The guard is per-row: the same-directory fork stays clickable.
+    expect(screen.getByTestId("row-flyout-fork-action")).toBeEnabled();
+
+    await act(async () => {
+      settle();
+    });
+    expect(screen.getByTestId("row-flyout-fork-worktree-action")).toBeEnabled();
   });
 
   it("canForkWindow supports Claude and Codex", () => {
