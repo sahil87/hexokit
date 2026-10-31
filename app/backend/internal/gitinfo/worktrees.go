@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -71,7 +72,9 @@ func ListWorktrees(ctx context.Context, dir string) WorktreeList {
 // (a linked worktree's own toplevel would mislabel it). Bare and prunable
 // records are skipped from the list — a prunable worktree's directory is
 // already gone, so offering it would create at a dead cwd — while locked ones
-// stay. A detached HEAD carries an empty branch.
+// stay. A detached HEAD carries an empty branch. Without -z, git C-quotes a
+// path holding unusual characters (non-ASCII under the default core.quotePath),
+// so a quoted path is decoded back to the real directory.
 func ParseWorktrees(porcelain, sep string) WorktreeList {
 	list := WorktreeList{Worktrees: []Worktree{}}
 	var cur *Worktree
@@ -96,7 +99,13 @@ func ParseWorktrees(porcelain, sep string) WorktreeList {
 		switch {
 		case strings.HasPrefix(field, "worktree "):
 			flush()
-			cur = &Worktree{Path: strings.TrimPrefix(field, "worktree ")}
+			path := strings.TrimPrefix(field, "worktree ")
+			if sep == "\n" && strings.HasPrefix(path, `"`) {
+				if unquoted, err := strconv.Unquote(path); err == nil {
+					path = unquoted
+				}
+			}
+			cur = &Worktree{Path: path}
 		case cur != nil && strings.HasPrefix(field, "branch "):
 			cur.Branch = strings.TrimPrefix(strings.TrimPrefix(field, "branch "), "refs/heads/")
 		case cur != nil && (field == "bare" || field == "prunable" || strings.HasPrefix(field, "prunable ")):

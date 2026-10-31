@@ -288,6 +288,13 @@ export function NewSheet({
   const optionId = (i: number) => `${listId}-opt-${i}`;
   const listExpanded = listMode ? listRows.length > 0 : suggestions.length > 0;
   const activeOptionIndex = listMode ? listRows.findIndex((r) => r.path === selectedPath) : suggestIndex;
+  const activeOptionDomId = activeOptionIndex >= 0 ? optionId(activeOptionIndex) : undefined;
+
+  // Focus stays in the field (aria-activedescendant), which never scrolls the
+  // list: bring the active row into view as ↑/↓ moves it past max-h-52.
+  useEffect(() => {
+    if (activeOptionDomId) document.getElementById(activeOptionDomId)?.scrollIntoView({ block: "nearest" });
+  }, [activeOptionDomId]);
   let flatIndex = 0;
 
   return (
@@ -326,7 +333,7 @@ export function NewSheet({
         role="combobox"
         aria-expanded={listExpanded}
         aria-controls={listId}
-        aria-activedescendant={activeOptionIndex >= 0 ? optionId(activeOptionIndex) : undefined}
+        aria-activedescendant={activeOptionDomId}
         aria-label="Folder"
         value={folder}
         onChange={(e) => changeFolder(e.target.value)}

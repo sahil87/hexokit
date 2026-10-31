@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"rk/internal/gitinfo"
-	"rk/internal/validate"
 )
 
 type worktreeEntry struct {
@@ -20,8 +19,9 @@ type worktreesResponse struct {
 // GET /api/worktrees?path=<folder> — the git worktrees of the folder's repo,
 // feeding the New sheet's folder list. A folder outside any repository answers
 // 200 with an empty list: "no worktrees" is a normal state for the sheet, not
-// an error. Worktrees outside $HOME are dropped, since the create endpoints
-// reject such cwds.
+// an error. A worktree the create endpoints would reject as a cwd (outside
+// $HOME, or a path ValidatePath refuses) is dropped, so the sheet never offers
+// a destination it cannot create in.
 func (s *Server) handleWorktrees(w http.ResponseWriter, r *http.Request) {
 	resp := worktreesResponse{Worktrees: []worktreeEntry{}}
 	path := r.URL.Query().Get("path")
@@ -38,7 +38,7 @@ func (s *Server) handleWorktrees(w http.ResponseWriter, r *http.Request) {
 	list := gitinfo.ListWorktrees(r.Context(), dir)
 	resp.Repo = list.Repo
 	for _, wt := range list.Worktrees {
-		if _, outside := validate.ExpandTilde(wt.Path); outside != "" {
+		if _, errMsg := resolveWorkingDir(wt.Path); errMsg != "" {
 			continue
 		}
 		resp.Worktrees = append(resp.Worktrees, worktreeEntry{Path: wt.Path, Branch: wt.Branch})

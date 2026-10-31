@@ -36,9 +36,13 @@ export function useDirectorySuggestions() {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bumped on every request, clear, and unmount: a lookup already in flight
+  // when the generation moves on must not land its (now stale) results.
+  const generationRef = useRef(0);
 
   const request = useCallback((next: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    const generation = ++generationRef.current;
     if (!next) {
       setSuggestions([]);
       setLoading(false);
@@ -47,17 +51,19 @@ export function useDirectorySuggestions() {
     setLoading(true);
     debounceRef.current = setTimeout(async () => {
       try {
-        setSuggestions(await getDirectories(next));
+        const dirs = await getDirectories(next);
+        if (generation === generationRef.current) setSuggestions(dirs);
       } catch {
         // Ignore
       } finally {
-        setLoading(false);
+        if (generation === generationRef.current) setLoading(false);
       }
     }, 300);
   }, []);
 
   const clear = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    generationRef.current++;
     setSuggestions([]);
     setLoading(false);
   }, []);
@@ -65,6 +71,7 @@ export function useDirectorySuggestions() {
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
+      generationRef.current++;
     };
   }, []);
 

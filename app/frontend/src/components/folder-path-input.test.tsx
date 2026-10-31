@@ -54,6 +54,27 @@ describe("FolderPathInput", () => {
     expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["~/code/hexokit", "~/code/hexo2"]);
   });
 
+  it("drops a lookup that resolves after a newer one was requested", async () => {
+    let resolveStale: (dirs: string[]) => void = () => {};
+    getDirectories
+      .mockImplementationOnce(() => new Promise<string[]>((r) => (resolveStale = r)))
+      .mockResolvedValueOnce(["~/code/new"]);
+    render(<Harness />);
+    const input = screen.getByRole("combobox");
+    fireEvent.change(input, { target: { value: "~/code/o" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    fireEvent.change(input, { target: { value: "~/code/n" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await act(async () => {
+      resolveStale(["~/code/old"]);
+    });
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["~/code/new"]);
+  });
+
   it("navigates with arrow keys, picks with Enter, closes with Escape", () => {
     render(<Harness quickPicks={["~/code/a", "~/code/b"]} />);
     const input = screen.getByRole("combobox") as HTMLInputElement;

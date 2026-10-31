@@ -1,5 +1,5 @@
 import { abbreviateHomePath } from "@/lib/format";
-import { deriveNameFromPath, toSafeServerName, uniqueName } from "@/lib/names";
+import { MAX_NAME_LENGTH, MAX_SERVER_NAME_LENGTH, deriveNameFromPath, toSafeServerName, uniqueName } from "@/lib/names";
 import type { ProjectSession, WindowInfo } from "@/types";
 
 /** What the New sheet creates. Order is the level switch's visual order. */
@@ -191,8 +191,8 @@ export function deriveSheetName(
   existing: Iterable<string>,
 ): string {
   const base = deriveNameFromPath(folder);
-  if (level === "group") return uniqueName(base || "session", existing);
-  return uniqueName(toSafeServerName(base) || "workspace", existing);
+  if (level === "group") return uniqueName(base || "session", existing, MAX_NAME_LENGTH);
+  return uniqueName(toSafeServerName(base) || "workspace", existing, MAX_SERVER_NAME_LENGTH);
 }
 
 export type PreviewNode = { label: string; isNew: boolean };

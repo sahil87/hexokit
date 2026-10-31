@@ -173,6 +173,16 @@ describe("NewSheet", () => {
     expect(folder.value).toBe("~/code/other");
   });
 
+  it("↑/↓ scroll the active folder row into view", () => {
+    const { folder } = setup();
+    const scroll = Element.prototype.scrollIntoView as ReturnType<typeof vi.fn>;
+    scroll.mockClear();
+    fireEvent.keyDown(folder, { key: "ArrowDown" });
+    const active = document.getElementById(folder.getAttribute("aria-activedescendant") ?? "");
+    expect(active).toHaveTextContent("~/code/other");
+    expect(scroll.mock.contexts).toContain(active);
+  });
+
   it("Ctrl+Enter opens the name override, prefilled and selected; Enter creates with the typed name", () => {
     const { onSubmit, folder } = setup({ initialLevel: "group", contextFolder: "/home/u/code/api" });
     fireEvent.keyDown(folder, { key: "Enter", ctrlKey: true });

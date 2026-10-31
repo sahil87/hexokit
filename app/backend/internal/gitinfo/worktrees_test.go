@@ -46,6 +46,20 @@ func TestParseWorktreesKeepsNewlineInsidePathUnderNUL(t *testing.T) {
 	}
 }
 
+func TestParseWorktreesDecodesQuotedPathWithoutNUL(t *testing.T) {
+	// git without -z C-quotes non-ASCII bytes as octal escapes: "café" → "caf\303\251".
+	raw := "worktree \"/home/u/caf\\303\\251\"\nHEAD aaa\nbranch refs/heads/main\n"
+	got := ParseWorktrees(raw, "\n")
+	if len(got.Worktrees) != 1 || got.Worktrees[0].Path != "/home/u/café" {
+		t.Errorf("worktrees = %+v, want the decoded /home/u/café", got.Worktrees)
+	}
+	// Under -z git never quotes, so a leading quote is part of the real name.
+	nul := "worktree \"odd\x00HEAD aaa\x00branch refs/heads/main\x00"
+	if got := ParseWorktrees(nul, "\x00"); got.Worktrees[0].Path != `"odd` {
+		t.Errorf("nul path = %q, want it untouched", got.Worktrees[0].Path)
+	}
+}
+
 func TestParseWorktreesSkipsBareAndPrunableKeepsLocked(t *testing.T) {
 	raw := "worktree /srv/git/proj.git\nbare\n\n" +
 		"worktree /home/u/gone\nHEAD ddd\nbranch refs/heads/gone\nprunable gitdir file points to non-existent location\n\n" +

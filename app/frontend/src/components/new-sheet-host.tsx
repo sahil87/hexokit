@@ -15,7 +15,6 @@ const NewSheet = lazy(() => import("@/components/new-sheet").then((m) => ({ defa
 type Target = {
   server: string;
   group: string;
-  sessions: ProjectSession[];
   availableLevels: NewLevel[];
   contextFolder: string;
   contextBranch?: string;
@@ -26,8 +25,10 @@ type Target = {
  * The ONE New-sheet mount (like `ServerDialogs`): reads the opener's request
  * from `new-sheet-context`, resolves the target workspace/group and the
  * context folder from the live session data, and runs the create action for
- * the chosen level. The target is snapshotted per request so SSE ticks never
- * move the field's prefill under the user.
+ * the chosen level. The target and the folder prefill are snapshotted per
+ * request so SSE ticks never move them under the user; the target
+ * workspace's sessions stay live, so name dedupe and folder rows see groups
+ * created or renamed elsewhere while the sheet is open.
  */
 export function NewSheetHost() {
   const { newSheetRequest, closeNewSheet } = useNewSheet();
@@ -55,7 +56,6 @@ export function NewSheetHost() {
       target: {
         server,
         group: group ?? "",
-        sessions,
         availableLevels,
         contextFolder: window?.worktreePath ?? "",
         contextBranch: window ? windowBranch(window) : undefined,
@@ -67,6 +67,8 @@ export function NewSheetHost() {
   const workspaceNames = useMemo(() => ctx.servers.map((s) => s.name), [ctx.servers]);
 
   const target = snapshotRef.current?.target;
+  const liveSessions = target?.server ? ctx.sessionsByServer.get(target.server) : undefined;
+  const sessions = useMemo<ProjectSession[]>(() => liveSessions ?? [], [liveSessions]);
   const handleSubmit = useCallback(
     ({ level, folder, name }: NewSheetSubmit) => {
       if (!target) return;
@@ -88,7 +90,7 @@ export function NewSheetHost() {
         availableLevels={target.availableLevels}
         server={target.server}
         group={target.group}
-        sessions={target.sessions}
+        sessions={sessions}
         workspaceNames={workspaceNames}
         contextFolder={target.contextFolder}
         contextBranch={target.contextBranch}

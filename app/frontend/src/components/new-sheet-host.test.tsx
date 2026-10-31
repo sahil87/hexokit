@@ -59,7 +59,13 @@ function Opener({ request }: { request: NewSheetRequest }) {
 }
 
 function renderHost(request: NewSheetRequest, opts?: { currentServer?: string | null; sessionsByServer?: Map<string, ProjectSession[]>; markServerPending?: (n: string) => void }) {
-  render(
+  const { rerender } = render(hostTree(request, opts));
+  fireEvent.click(screen.getByText("open"));
+  return { rerender: (next: typeof opts) => rerender(hostTree(request, next)) };
+}
+
+function hostTree(request: NewSheetRequest, opts?: { currentServer?: string | null; sessionsByServer?: Map<string, ProjectSession[]>; markServerPending?: (n: string) => void }) {
+  return (
     <ToastProvider>
       <StandaloneSessionContextProvider
         value={{
@@ -77,9 +83,8 @@ function renderHost(request: NewSheetRequest, opts?: { currentServer?: string | 
           </NewSheetProvider>
         </OptimisticProvider>
       </StandaloneSessionContextProvider>
-    </ToastProvider>,
+    </ToastProvider>
   );
-  fireEvent.click(screen.getByText("open"));
 }
 
 async function folderField() {
@@ -137,6 +142,17 @@ describe("NewSheetHost", () => {
     // `hexokit` is already a live group, so the derived name is deduped.
     await waitFor(() => expect(createSession).toHaveBeenCalledWith("rk-dev", "hexokit-2", "~/code/hexokit"));
     expect(createWindow).not.toHaveBeenCalled();
+  });
+
+  it("Group level: dedupes against groups created while the sheet is open", async () => {
+    mockMatches = [{ params: { window: "@1" } }];
+    const { rerender } = renderHost({ level: "group" });
+    const folder = await folderField();
+    // Another client creates `hexokit-2` after the sheet opened.
+    rerender({ sessionsByServer: new Map([["rk-dev", [...sessions, { name: "hexokit-2", windows: [] } as ProjectSession]]]) });
+    fireEvent.keyDown(folder, { key: "Enter" });
+
+    await waitFor(() => expect(createSession).toHaveBeenCalledWith("rk-dev", "hexokit-3", "~/code/hexokit"));
   });
 
   it("Workspace level: createServer(name, cwd), marks pending and navigates to /$server", async () => {

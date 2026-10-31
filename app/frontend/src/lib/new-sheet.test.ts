@@ -172,6 +172,14 @@ describe("isListMatch", () => {
 });
 
 describe("deriveSheetName", () => {
+  it("keeps a deduped workspace name within the 64-char backend cap", () => {
+    const long = "a".repeat(64);
+    const first = deriveSheetName("workspace", `~/code/${long}`, [long]);
+    expect(first).toBe(`${"a".repeat(62)}-2`);
+    expect(first.length).toBe(64);
+    expect(deriveSheetName("workspace", `~/code/${long}`, [long, first])).toBe(`${"a".repeat(62)}-3`);
+  });
+
   it("derives and dedupes group names", () => {
     expect(deriveSheetName("group", "~/code/hexokit", ["hexokit"])).toBe("hexokit-2");
     expect(deriveSheetName("group", "~", [])).toBe("session");
