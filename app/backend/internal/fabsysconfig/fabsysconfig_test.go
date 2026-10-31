@@ -295,6 +295,8 @@ func TestApply_validationRejectsBeforeExec(t *testing.T) {
 		"unknown key":         `{"providers.codex.native":true}`,
 		"unknown role":        `{"agent.profiles.ship.model":"m"}`,
 		"unknown leaf":        `{"agent.profiles.doing.native":"m"}`,
+		"role without leaf":   `{"agent.profiles.doing":"m"}`,
+		"extra segment":       `{"agent.profiles.doing.model.x":"m"}`,
 		"bad mode":            `{"dispatch.mode":"weird"}`,
 		"mode type":           `{"dispatch.mode":1}`,
 		"unknown provider":    `{"agent.workers":"bogus"}`,
@@ -326,6 +328,18 @@ func TestApply_validationRejectsBeforeExec(t *testing.T) {
 				t.Errorf("mutations = %v, want none (reject before exec)", got)
 			}
 		})
+	}
+}
+
+func TestApply_everyRoleLeafIsWritable(t *testing.T) {
+	for _, rd := range Roles {
+		for _, leaf := range []string{profileLeafModel, profileLeafEffort} {
+			key := profileKeyPrefix + rd.Name + "." + leaf
+			f := newFake(t)
+			if _, err := New(f.run).Apply(context.Background(), patchOf(t, `{"`+key+`":"m"}`)); err != nil {
+				t.Errorf("%s: %v", key, err)
+			}
+		}
 	}
 }
 

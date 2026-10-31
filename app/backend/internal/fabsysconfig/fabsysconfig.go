@@ -29,7 +29,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -450,7 +449,25 @@ func cellFor(byKey map[string]showRow, key, fallbackKey string) Cell {
 
 // ---- writes ----
 
-var profileKeyRE = regexp.MustCompile(`^agent\.profiles\.(default|operator|doing|fast|hydrate|review)\.(provider|model|effort)$`)
+// isProfileKey reports whether key is agent.profiles.<role>.<leaf> for one of
+// Roles and profileLeaves, so a role added to Roles is writable without a
+// second list to keep in sync.
+func isProfileKey(key string) bool {
+	rest, ok := strings.CutPrefix(key, profileKeyPrefix)
+	if !ok {
+		return false
+	}
+	role, leaf, ok := strings.Cut(rest, ".")
+	if !ok || !contains(profileLeaves, leaf) {
+		return false
+	}
+	for _, rd := range Roles {
+		if rd.Name == role {
+			return true
+		}
+	}
+	return false
+}
 
 func isScalarKey(key string) bool {
 	for _, k := range ScalarKeys {
@@ -486,7 +503,7 @@ func validate(patch map[string]json.RawMessage, providers []string) ([]op, error
 	ops := make([]op, 0, len(keys))
 	for _, key := range keys {
 		raw := patch[key]
-		if !isScalarKey(key) && !profileKeyRE.MatchString(key) {
+		if !isScalarKey(key) && !isProfileKey(key) {
 			return nil, &ValidationError{Msg: "unknown key: " + key}
 		}
 		if string(bytes.TrimSpace(raw)) == "null" {
@@ -541,7 +558,7 @@ func validateValue(key string, raw json.RawMessage, providers []string) (*string
 		return &s, nil
 	}
 
-	isProfile := profileKeyRE.MatchString(key)
+	isProfile := isProfileKey(key)
 	if s == "" && isProfile {
 		return nil, nil
 	}

@@ -149,8 +149,8 @@ function ChipGroup({
   );
 }
 
-/** Row-scoped write state: a failed write shows fab's message on THAT row and
- *  leaves the previous value (the panel re-renders only from a good POST). */
+/** Row-scoped write state: a failed write shows fab's message on THAT row; the
+ *  panel then re-reads fab rather than trusting the values it showed before. */
 function useRowWrite(write: Write) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -716,7 +716,17 @@ export function SettingsAgentsPanel() {
   // whole panel re-renders from the fresh document the POST returns.
   const write = useCallback<Write>(async (patch) => {
     setWarnings([]);
-    const next = await postFabConfig(patch);
+    let next: FabConfigDocument;
+    try {
+      next = await postFabConfig(patch);
+    } catch (err) {
+      // A multi-key write can fail after earlier keys were applied, so re-read
+      // fab instead of keeping the pre-write document.
+      getFabConfig()
+        .then(setDoc)
+        .catch(() => {});
+      throw err;
+    }
     setDoc(next);
     if (next.installed) setWarnings(next.warnings ?? []);
   }, []);

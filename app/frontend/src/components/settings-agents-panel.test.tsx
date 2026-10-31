@@ -154,6 +154,26 @@ describe("SettingsAgentsPanel", () => {
     expect(within(row("agent.session")).queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("a failed multi-key write re-reads fab so partially applied keys show", async () => {
+    const doc = withField(
+      withField(makeDoc(), "dispatch.min_cols", field(80, "system")),
+      "dispatch.min_rows",
+      field(30, "system"),
+    );
+    vi.mocked(postFabConfig).mockRejectedValue(new Error("fab config unset dispatch.min_rows --system failed"));
+    await renderPanel(doc);
+    // min_cols was unset before min_rows failed; the re-read reflects that.
+    vi.mocked(getFabConfig).mockResolvedValue(withField(doc, "dispatch.min_cols", field(50, "default")));
+
+    expect(screen.getByLabelText("Split floor columns")).toHaveValue("80");
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset split floor" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("min_rows");
+    await waitFor(() => expect(screen.getByLabelText("Split floor columns")).toHaveValue("50"));
+    expect(getFabConfig).toHaveBeenCalledTimes(2);
+  });
+
   it("warns on an env-shadowed key, naming the variable and the shadowed system value", async () => {
     const doc = withField(
       makeDoc(),

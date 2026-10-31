@@ -10,34 +10,15 @@
  * testDir ./tests/demo), against the throwaway e2e rig, once per project
  * (desktop 1280x800, mobile 375x812).
  *
- * Shared setup: `/api/fab-config` is stubbed in the browser (`page.route`, a
- * stateful in-memory document) so the recording never touches the developer's
+ * Shared setup: `/api/fab-config` is stubbed in the browser (the stateful
+ * `_fab-config-stub` helper) so the recording never touches the developer's
  * real ~/.fab-kit/config.yaml; the daemon's fab wrapper is covered by its Go
  * tests and a real-fab pass against an isolated HOME. Both projects open the
  * dialog with the palette chord (`Settings: Agents`).
  */
 import { test, expect, beat } from "./_demo";
 import { openPalette } from "../e2e/_ready";
-
-const SYSTEM_PATH = "/home/demo/.fab-kit/config.yaml";
-const PROVIDERS = ["agy", "claude", "codex", "kimi"];
-const ROLES: Array<[string, "session" | "workers"]> = [
-  ["default", "session"],
-  ["operator", "session"],
-  ["doing", "workers"],
-  ["fast", "workers"],
-  ["hydrate", "workers"],
-  ["review", "workers"],
-];
-const DEFAULTS: Record<string, string | number | boolean> = {
-  "agent.session": "claude",
-  "agent.workers": "claude",
-  "dispatch.mode": "native",
-  "dispatch.column_width": 45,
-  "dispatch.min_cols": 50,
-  "dispatch.min_rows": 20,
-  "dispatch.reap_done": true,
-};
+import { stubFabConfig } from "../e2e/_fab-config-stub";
 
 test.describe("agents-settings demo", () => {
   /**
@@ -55,54 +36,7 @@ test.describe("agents-settings demo", () => {
    * 5. Pick `pane` dispatch mode; `beat()`.
    */
   test("agents tab edits the worker agent, a role override and dispatch mode", async ({ page }) => {
-    const system = new Map<string, string | number | boolean>([["agent.session", "claude"]]);
-
-    const document = () => {
-      const fields = Object.fromEntries(
-        Object.entries(DEFAULTS).map(([key, def]) => {
-          const sys = system.get(key);
-          return [key, sys !== undefined ? { value: sys, origin: "system", originDetail: SYSTEM_PATH } : { value: def, origin: "default" }];
-        }),
-      );
-      const tiers = { session: String(system.get("agent.session") ?? "claude"), workers: String(system.get("agent.workers") ?? "claude") };
-      const roles = ROLES.map(([role, depth]) => {
-        const cell = (leaf: string, inherited: string, source: string) => {
-          const key = `agent.profiles.${role}.${leaf}`;
-          const sys = system.get(key);
-          return sys !== undefined
-            ? { override: String(sys), effective: String(sys), source: key, origin: "system", originDetail: SYSTEM_PATH }
-            : { override: null, effective: inherited, source, origin: "default" };
-        };
-        return {
-          role,
-          depth,
-          provider: cell("provider", tiers[depth], `agent.${depth === "session" ? "session" : "workers"}`),
-          model: cell("model", "", ""),
-          effort: cell("effort", "", ""),
-        };
-      });
-      return {
-        installed: true,
-        systemPath: SYSTEM_PATH,
-        providers: PROVIDERS,
-        fields,
-        roles,
-        modelSuggestions: { claude: ["claude-opus-5-5", "claude-sonnet-5-5"], codex: ["gpt-5.6-sol"], agy: [], kimi: [] },
-        effortSuggestions: ["low", "medium", "high", "xhigh", "max"],
-      };
-    };
-
-    await page.route("**/api/fab-config", async (route) => {
-      const request = route.request();
-      if (request.method() === "POST") {
-        const patch = request.postDataJSON() as Record<string, string | number | boolean | null>;
-        for (const [key, value] of Object.entries(patch)) {
-          if (value === null) system.delete(key);
-          else system.set(key, value);
-        }
-      }
-      await route.fulfill({ json: document() });
-    });
+    await stubFabConfig(page, { systemPath: "/home/demo/.fab-kit/config.yaml" });
 
     await page.goto("/");
     const palette = await openPalette(page);
