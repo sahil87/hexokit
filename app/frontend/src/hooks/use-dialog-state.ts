@@ -67,7 +67,7 @@ export function useDialogState({ sessionName, windowId, onKillComplete, onSessio
       if (last) unmarkRenamed(last.server, last.name);
     },
     onError: (err) => {
-      addToast(err.message || "Failed to rename session");
+      addToast(err.message || "Failed to rename group");
     },
     onSettled: () => {
       lastRenameSessionRef.current = null;
@@ -95,7 +95,7 @@ export function useDialogState({ sessionName, windowId, onKillComplete, onSessio
       if (last) unmarkKilled("session", last.server, last.name);
     },
     onError: (err) => {
-      addToast(err.message || "Failed to kill session");
+      addToast(err.message || "Failed to kill group");
     },
     onAlwaysSettled: () => {
       const last = lastKillSessionRef.current;

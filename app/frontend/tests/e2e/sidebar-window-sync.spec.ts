@@ -61,7 +61,7 @@ test.describe("Sidebar Window Sync", () => {
    * 2. Run `tmux new-window -t ${TEST_SESSION} -n ext-win-<ts>` via the
    *    shared _tmux helper.
    * 3. Assert text=ext-win-<ts> is visible inside
-   *    nav[aria-label='Sessions'] within 5s.
+   *    nav[aria-label='Groups'] within 5s.
    */
   test("external window creation appears without page reload", async ({
     page,
@@ -71,7 +71,7 @@ test.describe("Sidebar Window Sync", () => {
 
     await gotoServerReady(page, TMUX_SERVER);
 
-    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const sidebar = page.locator("nav[aria-label='Groups']");
 
     newWindow(TEST_SESSION, windowName);
 
@@ -107,7 +107,7 @@ test.describe("Sidebar Window Sync", () => {
 
     await gotoServerReady(page, TMUX_SERVER);
 
-    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const sidebar = page.locator("nav[aria-label='Groups']");
 
     // Confirm source window is visible before renaming
     await expect(
@@ -165,7 +165,7 @@ test.describe("Sidebar Window Sync", () => {
     // Land on the server root (the dashboard) — no session/window in the URL.
     await gotoServerReady(page, TMUX_SERVER);
 
-    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const sidebar = page.locator("nav[aria-label='Groups']");
     // Resolve the window's stable identifiers (tmux @id + index) from the API
     // snapshot rather than matching on the display name, which is neither
     // unique nor stable. We select by data-window-id and assert the URL by the
@@ -232,7 +232,7 @@ test.describe("Sidebar Window Sync", () => {
 
     await gotoServerReady(page, TMUX_SERVER);
 
-    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const sidebar = page.locator("nav[aria-label='Groups']");
     const targetA = await resolveWindow(page, winA);
     const targetB = await resolveWindow(page, winB);
     const buttonA = sidebar
@@ -411,7 +411,7 @@ test.describe("Sidebar Window Sync", () => {
 
     await gotoServerReady(page, TMUX_SERVER);
 
-    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const sidebar = page.locator("nav[aria-label='Groups']");
 
     // Confirm the window is visible before killing
     await expect(

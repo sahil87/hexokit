@@ -26,7 +26,7 @@ import { stubProxyPorts } from "./_web-tile";
 // <window>` title, close-to-restore, palette `Tile: Pop Back In`, the tty
 // popout's isolated session surviving the opener's sibling-tab switch, a
 // foreign (`@N/tty`) leaf's popout titled by its HOME window, the ended
-// "Window closed" state when the surface's window dies, single-tile pop out
+// "Tab closed" state when the surface's window dies, single-tile pop out
 // (arity-1 header/palette offers, the opener's all-popped placeholder), the
 // top-bar toggle's per-viewer reveal/hide of a popped leaf's placeholder
 // with no layout write (bring back closes the popout), and the popout
@@ -193,7 +193,7 @@ test.describe("Surface popout", () => {
     // kept with the Pop back in verb in place of the layout cluster.
     await expect(popup.getByTestId("surface-tile-tty")).toBeVisible({ timeout: 15_000 });
     await expect(popup.locator("[role='banner']")).toHaveCount(0);
-    await expect(popup.locator("nav[aria-label='Sessions']")).toHaveCount(0);
+    await expect(popup.locator("nav[aria-label='Groups']")).toHaveCount(0);
     await expect(popup.getByTestId("status-bar")).toHaveCount(0);
     const tile = popup.getByTestId("surface-tile-tty");
     await expect(tile.getByLabel("Pop Terminal back in")).toBeVisible();
@@ -298,7 +298,7 @@ test.describe("Surface popout", () => {
    * 3. Navigate the OPENER to B; type an `echo <marker>` line into the
    *    popout's terminal; poll `capture-pane` on A until the marker appears
    *    (the popout kept A while the opener's session switched to B).
-   * 4. Kill A; assert the popout renders `Window closed` and its URL is
+   * 4. Kill A; assert the popout renders `Tab closed` and its URL is
    *    unchanged (no navigation).
    */
   test("a tty popout keeps its window while the opener switches to a sibling tab; a dead window ends the popout", async ({
@@ -357,7 +357,7 @@ test.describe("Surface popout", () => {
     const popupUrl = popup.url();
     execFileSync("tmux", ["-L", TMUX_SERVER, "kill-window", "-t", a]);
     await expect(popup.getByTestId("popout-ended")).toBeVisible({ timeout: 15_000 });
-    await expect(popup.getByText("Window closed")).toBeVisible();
+    await expect(popup.getByText("Tab closed")).toBeVisible();
     expect(popup.url()).toBe(popupUrl);
     await popup.close();
   });

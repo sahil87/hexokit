@@ -492,12 +492,12 @@ function buildSessionActions(opts: {
   onKillSession?: () => void;
 }): PaletteAction[] {
   const actions: PaletteAction[] = [
-    { id: "create-session", label: "Session: Create", onSelect: opts.onCreate },
+    { id: "create-session", label: "Group: Create", onSelect: opts.onCreate },
   ];
   if (opts.sessionName) {
     actions.push(
-      { id: "rename-session", label: "Session: Rename", onSelect: opts.onRenameSession ?? vi.fn() },
-      { id: "kill-session", label: "Session: Kill", onSelect: opts.onKillSession ?? vi.fn() },
+      { id: "rename-session", label: "Group: Rename", onSelect: opts.onRenameSession ?? vi.fn() },
+      { id: "kill-session", label: "Group: Kill", onSelect: opts.onKillSession ?? vi.fn() },
     );
   }
   return actions;
@@ -519,7 +519,7 @@ function buildWindowCreationActions(opts: {
 describe("CmdK Session Creation Actions", () => {
   afterEach(cleanup);
 
-  it("Session: Create fires its onSelect (the name-prompt opener)", () => {
+  it("Group: Create fires its onSelect (the name-prompt opener)", () => {
     const onCreate = vi.fn();
     const actions = buildSessionActions({ sessionName: undefined, onCreate });
 
@@ -527,13 +527,13 @@ describe("CmdK Session Creation Actions", () => {
     openPalette();
 
     const input = screen.getByPlaceholderText(/^Type a command/);
-    fireEvent.change(input, { target: { value: "Session: Create" } });
+    fireEvent.change(input, { target: { value: "Group: Create" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
     expect(onCreate).toHaveBeenCalledOnce();
   });
 
-  it("Session: Create at Folder is gone — searching 'create' finds only the remaining entries", () => {
+  it("Group: Create at Folder is gone — searching 'create' finds only the remaining entries", () => {
     const actions = buildSessionActions({
       sessionName: "my-session",
       onCreate: vi.fn(),
@@ -545,8 +545,8 @@ describe("CmdK Session Creation Actions", () => {
     const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.change(input, { target: { value: "create" } });
 
-    expect(screen.getByText("Session: Create")).toBeInTheDocument();
-    expect(screen.queryByText("Session: Create at Folder")).not.toBeInTheDocument();
+    expect(screen.getByText("Group: Create")).toBeInTheDocument();
+    expect(screen.queryByText("Group: Create at Folder")).not.toBeInTheDocument();
   });
 });
 
@@ -1185,7 +1185,7 @@ describe("CmdK Operator Digest Actions (hasOperatorWindow gate)", () => {
 });
 
 /**
- * Tests for the Set note palette entry (260824-bb5n R5) — `Window: Set note…`
+ * Tests for the Set note palette entry (260824-bb5n R5) — `Tab: Set note…`
  * is registered for the current window on the terminal route (Constitution V),
  * opening the note prompt pre-filled with the current note; an empty submit
  * clears it. Mirrors the action-generation pattern in app.tsx.
@@ -1199,7 +1199,7 @@ function buildSetNoteActions(opts: {
   return [
     {
       id: "window-set-note",
-      label: "Window: Set note…",
+      label: "Tab: Set note…",
       onSelect: () => opts.onOpen(opts.currentNote ?? ""),
     },
   ];
@@ -1217,7 +1217,7 @@ describe("CmdK Set Note Action (260824-bb5n)", () => {
 
     const input = screen.getByPlaceholderText(/^Type a command/);
     fireEvent.change(input, { target: { value: "Set note" } });
-    expect(screen.getByText("Window: Set note…")).toBeInTheDocument();
+    expect(screen.getByText("Tab: Set note…")).toBeInTheDocument();
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onOpen).toHaveBeenCalledWith("blocked on flaky e2e");
   });
@@ -2259,12 +2259,12 @@ describe("absent-server route — the not-found fallback settles", () => {
     localStorage.clear();
   });
 
-  it("renders 'Server not found' and the slot-consumer tree then stops re-rendering", async () => {
+  it("renders 'Workspace not found' and the slot-consumer tree then stops re-rendering", async () => {
     const container = renderMissing(["/missing"]);
 
-    await awaitText(container, "Server not found");
-    expect(within(container).getByRole("heading", { name: "Server not found" })).toBeInTheDocument();
-    expect(within(container).getByText(/No tmux server named/)).toHaveTextContent("missing");
+    await awaitText(container, "Workspace not found");
+    expect(within(container).getByRole("heading", { name: "Workspace not found" })).toBeInTheDocument();
+    expect(within(container).getByText(/No workspace named/)).toHaveTextContent("missing");
 
     // A settled tree accrues no renders over an idle window. The bound is
     // loose by design — the loop this guards grows the count by hundreds over
@@ -2276,7 +2276,7 @@ describe("absent-server route — the not-found fallback settles", () => {
   it("the /$server/$window form settles the same way", async () => {
     const container = renderMissing(["/missing/0"]);
 
-    await awaitText(container, "Server not found");
+    await awaitText(container, "Workspace not found");
     expect(await countProbeRendersOver(300)).toBeLessThanOrEqual(1);
   });
 });

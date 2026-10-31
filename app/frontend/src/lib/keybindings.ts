@@ -211,8 +211,8 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // chord: its mac-keyless refinement keeps it palette-only on both mac
   // hosts, so ⇧⌘N (a chord no other mac host gives this app) never fires.
   // Win/Linux keeps ⇧Ctrl+N/T/W untouched (plain Ctrl belongs to the pane).
-  { actionId: "create-session", code: "KeyN", tier: "shifted", macCode: "", scope: "global", kind: "builtin", label: "New session", description: "a new group of tabs", mapLabel: "new session" },
-  { actionId: "create-window", code: "KeyT", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "New tab", description: "in the current session", mapLabel: "new tab" },
+  { actionId: "create-session", code: "KeyN", tier: "shifted", macCode: "", scope: "global", kind: "builtin", label: "New group", description: "holds related tabs", mapLabel: "new group" },
+  { actionId: "create-window", code: "KeyT", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "New tab", description: "in the current group", mapLabel: "new tab" },
   { actionId: "kill-window", code: "KeyW", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Close tab", description: "confirm flow", mapLabel: "close tab" },
   // ⇧⌘T reopen closed tab — the universal browser/VS Code/iTerm2 reflex.
   // Keyless base (the app-window pair precedent): no Win/Linux shifted-tier
@@ -220,7 +220,7 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // palette-only there. In a mac BROWSER the shifted KeyT is browser-owned
   // (the "reopen tab" claim already in claimedKeys) and resolves reserved —
   // palette-only there too, exactly like create-window's ⌘T.
-  { actionId: "reopen-window", code: "", tier: "shifted", macCode: "KeyT", scope: "global", kind: "builtin", label: "Reopen closed tab", description: "fresh shell — same session, name, folder, layout and web tabs", mapLabel: "reopen tab" },
+  { actionId: "reopen-window", code: "", tier: "shifted", macCode: "KeyT", scope: "global", kind: "builtin", label: "Reopen closed tab", description: "fresh shell — same group, name, folder, layout and web tabs", mapLabel: "reopen tab" },
   // The app-window pair (260820-lfla) — SPA bindings over the shell's
   // `shell:new-window` / `shell:close-window` bridge channels, NEVER shell
   // menu accelerators (menu.ts's unshifted-⌘ fall-through rule is
@@ -284,8 +284,8 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // native motion lost there — the same trade xterm's carve-out already makes).
   { actionId: "window-prev", code: "ArrowUp", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Previous tab", mapLabel: "prev tab", ignoreInputs: true },
   { actionId: "window-next", code: "ArrowDown", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Next tab", mapLabel: "next tab", ignoreInputs: true },
-  { actionId: "session-prev", code: "ArrowLeft", tier: "shifted", macCode: "ArrowUp", scope: "global", kind: "builtin", label: "Previous session", description: "jump to the adjacent session's active window", mapLabel: "prev session", ignoreInputs: true },
-  { actionId: "session-next", code: "ArrowRight", tier: "shifted", macCode: "ArrowDown", scope: "global", kind: "builtin", label: "Next session", description: "jump to the adjacent session's active window", mapLabel: "next session", ignoreInputs: true },
+  { actionId: "session-prev", code: "ArrowLeft", tier: "shifted", macCode: "ArrowUp", scope: "global", kind: "builtin", label: "Previous group", description: "jump to the adjacent group's active tab", mapLabel: "prev group", ignoreInputs: true },
+  { actionId: "session-next", code: "ArrowRight", tier: "shifted", macCode: "ArrowDown", scope: "global", kind: "builtin", label: "Next group", description: "jump to the adjacent group's active tab", mapLabel: "next group", ignoreInputs: true },
   { actionId: "go-back", code: "BracketLeft", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Back", description: "history", mapLabel: "back", ignoreInputs: true },
   { actionId: "go-forward", code: "BracketRight", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Forward", description: "history", mapLabel: "fwd", ignoreInputs: true },
   { actionId: "agent-next-waiting", code: "KeyA", tier: "shifted", scope: "global", kind: "builtin", label: "Next waiting agent", description: "jump to an agent blocked on input", mapLabel: "agent" },

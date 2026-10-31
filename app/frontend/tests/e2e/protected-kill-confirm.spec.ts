@@ -15,7 +15,7 @@ import { TMUX_SERVER, TMUX_FAMILY, killServer } from "./_tmux";
 // Protect toggle writes through POST /api/servers/protect. afterAll kills the
 // scratch server best-effort (a protected server needs the named kill — the
 // reaper's family glob skips it). Each interaction starts from the primary
-// e2e server route — the palette's `Server: Kill <name>` entries live in the
+// e2e server route — the palette's `Workspace: Kill <name>` entries live in the
 // shared app shell, and the kill target need not be the current server.
 
 // A protected scratch server, created and marked @rk_srv_protected via tmux (the
@@ -53,7 +53,7 @@ test.describe("Protected server kill: typed-name confirm flow", () => {
    * Steps:
    * 1. Start on the primary e2e server route (beforeAll has already created
    *    and @rk_srv_protected-marked the scratch server).
-   * 2. Open the palette, run `Server: Kill <name>`; assert the guarded dialog
+   * 2. Open the palette, run `Workspace: Kill <name>`; assert the guarded dialog
    *    shows the typed-name input and a `Force kill` button — and NO plain
    *    `Kill` button.
    * 3. Type a wrong name; assert `Force kill` stays disabled and Enter leaves
@@ -70,17 +70,17 @@ test.describe("Protected server kill: typed-name confirm flow", () => {
     test.setTimeout(45_000);
     await page.setViewportSize(DESKTOP_VIEWPORT);
 
-    // Land on the primary e2e server route (the palette's Server: Kill
+    // Land on the primary e2e server route (the palette's Workspace: Kill
     // entries live in the shared app shell; the target need not be current).
     await gotoServerReady(page, TMUX_SERVER);
 
-    // Open the guarded dialog via the palette's Server: Kill entry.
+    // Open the guarded dialog via the palette's Workspace: Kill entry.
     const paletteInput = await openPalette(page);
-    await paletteInput.fill(`Server: Kill ${PROTECTED_SERVER}`);
+    await paletteInput.fill(`Workspace: Kill ${PROTECTED_SERVER}`);
     await page.keyboard.press("Enter");
 
     // The protected fork: typed-name input + Force kill (no plain Kill).
-    const confirmInput = page.getByLabel("Type the server name to unlock force kill");
+    const confirmInput = page.getByLabel("Type the workspace name to unlock force kill");
     await expect(confirmInput).toBeVisible({ timeout: 5_000 });
     const forceKill = page.getByRole("button", { name: "Force kill" });
     await expect(forceKill).toBeVisible();
@@ -103,7 +103,7 @@ test.describe("Protected server kill: typed-name confirm flow", () => {
 
     // Reopen and force-kill for real: the server stops answering.
     await openPalette(page);
-    await paletteInput.fill(`Server: Kill ${PROTECTED_SERVER}`);
+    await paletteInput.fill(`Workspace: Kill ${PROTECTED_SERVER}`);
     await page.keyboard.press("Enter");
     await expect(confirmInput).toBeVisible({ timeout: 5_000 });
     await confirmInput.fill(PROTECTED_SERVER);

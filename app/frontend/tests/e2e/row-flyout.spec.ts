@@ -51,7 +51,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // rail by status-rail; the dot's tap wrapper by status-dot-tap; the session
 // row by [data-session-row='default:dev']; the server-group header by
 // [data-server='default']; the server tile by role=option inside the
-// `Tmux servers` listbox. The coarse-pointer describe additionally mocks
+// `Workspaces` listbox. The coarse-pointer describe additionally mocks
 // `(pointer: coarse)` via matchMedia (Playwright desktop Chromium cannot flip
 // the real pointer media feature — the tooltips.spec.ts precedent) and
 // enables hasTouch so tap() dispatches real touch input.
@@ -587,13 +587,13 @@ test.describe("Row flyout card (fine pointer)", () => {
    * hover opens the shared-shell card with the `Session dev` title, the facts
    * line (`$4 · 2 tabs · ~/code/sahil87/run-kit`), and the action rows in the
    * fixed order (`Change color…` first, then `Spawn agent…` → `New tab` →
-   * `Kill session`), and the retired hover icon cluster (palette/bot/plus/kill)
+   * `Kill group`), and the retired hover icon cluster (palette/bot/plus/kill)
    * is absent from the DOM on fine pointers too. Keyboard focus also opens the
    * card and Escape dismisses it.
    *
    * Steps:
    * 1. Assert the retired cluster buttons (`Set color for dev`, `Spawn agent
-   *    in dev`, `New tab in dev`, `Kill session dev`) are absent from the DOM.
+   *    in dev`, `New tab in dev`, `Kill group dev`) are absent from the DOM.
    * 2. Hover the session row; assert the card shows the `Session dev` title
    *    bar, the facts line, and the four action rows in vertical order.
    * 3. Move the pointer away and assert the card closes; focus the row and
@@ -608,11 +608,11 @@ test.describe("Row flyout card (fine pointer)", () => {
     await expect(sessionRow(page).getByLabel("Set color for dev")).toHaveCount(0);
     await expect(sessionRow(page).getByLabel("Spawn agent in dev")).toHaveCount(0);
     await expect(sessionRow(page).getByLabel("New tab in dev")).toHaveCount(0);
-    await expect(sessionRow(page).getByLabel("Kill session dev")).toHaveCount(0);
+    await expect(sessionRow(page).getByLabel("Kill group dev")).toHaveCount(0);
 
     await sessionRow(page).hover();
     await expect(card(page)).toBeVisible();
-    await expect(page.getByTestId("popup-title-bar")).toContainText("Session dev");
+    await expect(page.getByTestId("popup-title-bar")).toContainText("Group dev");
     await expect(card(page)).toContainText("$4 · 2 tabs · ~/code/sahil87/run-kit");
     const colorRow = card(page).getByTestId("row-flyout-color-action");
     const spawnRow = card(page).getByTestId("row-flyout-spawn-action");
@@ -621,7 +621,7 @@ test.describe("Row flyout card (fine pointer)", () => {
     await expect(colorRow).toContainText("Change color…");
     await expect(spawnRow).toContainText("Spawn agent…");
     await expect(createRow).toContainText("New tab");
-    await expect(killRow).toContainText("Kill session");
+    await expect(killRow).toContainText("Kill group");
     const ys = await Promise.all(
       [colorRow, spawnRow, createRow, killRow].map(async (r) => (await r.boundingBox())!.y),
     );
@@ -637,7 +637,7 @@ test.describe("Row flyout card (fine pointer)", () => {
     await expect(card(page)).toHaveCount(0);
     await sessionRow(page).focus();
     await expect(card(page)).toBeVisible();
-    await expect(page.getByTestId("popup-title-bar")).toContainText("Session dev");
+    await expect(page.getByTestId("popup-title-bar")).toContainText("Group dev");
     await page.keyboard.press("Escape");
     await expect(card(page)).toHaveCount(0);
   });
@@ -676,15 +676,15 @@ test.describe("Row flyout card (fine pointer)", () => {
   /**
    * Proves: the server-tier card is the fine-pointer hover surface on the
    * group header — hovering the header opens the card with the `Server
-   * default` title, the `tmux -L default · 1 session` facts line, and the
-   * action rows (`Change color…` → `New session` → Protect toggle →
-   * `Kill server`); the retired header cluster (palette/plus/close) is absent
+   * default` title, the `tmux -L default · 1 group` facts line, and the
+   * action rows (`Change color…` → `New group` → Protect toggle →
+   * `Kill workspace`); the retired header cluster (palette/plus/close) is absent
    * from the DOM; the card's `Change color…` row closes the card and opens the
    * header-anchored picker; and none of it toggles the group's expand/collapse.
    *
    * Steps:
    * 1. Assert the retired header cluster buttons (`Set color for server
-   *    default`, `New session on default`, `Kill server default`) are absent.
+   *    default`, `New group on default`, `Kill workspace default`) are absent.
    * 2. Hover the server-group header; assert the card shows the `Server
    *    default` title bar, the facts line, and the color/create/protect/kill
    *    rows.
@@ -698,24 +698,24 @@ test.describe("Row flyout card (fine pointer)", () => {
   }) => {
     const header = serverHeader(page);
     await expect(header.getByLabel("Set color for server default")).toHaveCount(0);
-    await expect(header.getByLabel("New session on default")).toHaveCount(0);
-    await expect(header.getByLabel("Kill server default")).toHaveCount(0);
+    await expect(header.getByLabel("New group on default")).toHaveCount(0);
+    await expect(header.getByLabel("Kill workspace default")).toHaveCount(0);
 
     await header.hover();
     await expect(card(page)).toBeVisible();
-    await expect(page.getByTestId("popup-title-bar")).toContainText("Server default");
-    await expect(card(page)).toContainText("tmux -L default · 1 session");
+    await expect(page.getByTestId("popup-title-bar")).toContainText("Workspace default");
+    await expect(card(page)).toContainText("tmux -L default · 1 group");
     await expect(card(page).getByTestId("row-flyout-color-action")).toContainText("Change color…");
-    await expect(card(page).getByTestId("row-flyout-create-action")).toContainText("New session");
+    await expect(card(page).getByTestId("row-flyout-create-action")).toContainText("New group");
     await expect(card(page).getByTestId("row-flyout-protect-toggle")).toBeVisible();
-    await expect(card(page).getByTestId("row-flyout-kill-action")).toContainText("Kill server");
+    await expect(card(page).getByTestId("row-flyout-kill-action")).toContainText("Kill workspace");
 
     await card(page).getByTestId("row-flyout-color-action").click();
     await expect(card(page)).toHaveCount(0);
     await expect(page.getByRole("listbox", { name: "Label picker" })).toBeVisible();
 
     // Opening the card and its picker never toggled the group.
-    await expect(header.getByRole("button", { name: /Collapse default sessions/ })).toBeVisible();
+    await expect(header.getByRole("button", { name: /Collapse default groups/ })).toBeVisible();
     await expect(prRow(page)).toBeVisible();
   });
 
@@ -726,10 +726,10 @@ test.describe("Row flyout card (fine pointer)", () => {
    * the tile-anchored color popover (the tile's first color entry).
    *
    * Steps:
-   * 1. Locate the `default` tile in the `Tmux servers` listbox and hover it.
+   * 1. Locate the `default` tile in the `Workspaces` listbox and hover it.
    * 2. Assert the card shows the `Server default` title bar, the
-   *    `tmux -L default · 1 session` facts line, and the `Change color…` /
-   *    `New session` / `Kill server` rows.
+   *    `tmux -L default · 1 group` facts line, and the `Change color…` /
+   *    `New group` / `Kill workspace` rows.
    * 3. Click `Change color…`: assert the card is gone and the picker's listbox
    *    is visible.
    */
@@ -737,16 +737,16 @@ test.describe("Row flyout card (fine pointer)", () => {
     page,
   }) => {
     const tile = page
-      .getByRole("listbox", { name: /Tmux servers/ })
+      .getByRole("listbox", { name: /Workspaces/ })
       .getByRole("option", { name: /default/ });
 
     await tile.hover();
     await expect(card(page)).toBeVisible();
-    await expect(page.getByTestId("popup-title-bar")).toContainText("Server default");
-    await expect(card(page)).toContainText("tmux -L default · 1 session");
+    await expect(page.getByTestId("popup-title-bar")).toContainText("Workspace default");
+    await expect(card(page)).toContainText("tmux -L default · 1 group");
     await expect(card(page).getByTestId("row-flyout-color-action")).toContainText("Change color…");
-    await expect(card(page).getByTestId("row-flyout-create-action")).toContainText("New session");
-    await expect(card(page).getByTestId("row-flyout-kill-action")).toContainText("Kill server");
+    await expect(card(page).getByTestId("row-flyout-create-action")).toContainText("New group");
+    await expect(card(page).getByTestId("row-flyout-kill-action")).toContainText("Kill workspace");
 
     await card(page).getByTestId("row-flyout-color-action").click();
     await expect(card(page)).toHaveCount(0);
@@ -1049,7 +1049,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
    * shared-shell card with the `Session dev` title, the facts line
    * (`$4 · 2 tabs · ~/code/sahil87/run-kit`), and the relocated actions
    * in the fixed order (`Change color…` → `Spawn agent…` → `New window` →
-   * `Kill session`, spawn wired on this route). Kill session routes through
+   * `Kill group`, spawn wired on this route). Kill group routes through
    * the EXISTING kill confirmation dialog (no force-kill on touch, no kill
    * POST), and `Change color…` closes the card and opens the row's existing
    * color popover with popover-over-card precedence (a rail tap while the
@@ -1063,7 +1063,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
    *    bar, the facts line, and the four action rows in vertical order;
    *    assert the URL is still /default and the window rows are still visible
    *    (no navigation, no collapse).
-   * 4. Tap `Kill session`: assert the "Kill session?" dialog (with "and all 2
+   * 4. Tap `Kill group`: assert the "Kill group?" dialog (with "and all 2
    *    tabs") is visible and ZERO kill requests fired; Cancel it.
    * 5. Re-open the card, tap `Change color…`: assert the card is gone and the
    *    "Label picker" listbox is visible; tap the rail again and assert NO
@@ -1083,14 +1083,14 @@ test.describe("Row flyout card (coarse pointer)", () => {
     // absent from the DOM (retired on every pointer class).
     const rail = sessionRow(page).getByTestId("status-rail");
     await expect(rail).toBeVisible();
-    await expect(sessionRow(page).getByLabel("Kill session dev")).toHaveCount(0);
+    await expect(sessionRow(page).getByLabel("Kill group dev")).toHaveCount(0);
     await expect(sessionRow(page).getByLabel("New tab in dev")).toHaveCount(0);
 
     await rail.tap();
     await expect(card(page)).toBeVisible();
     // Title + facts line + the relocated action rows in the fixed order
     // (Spawn agent… is wired on this route).
-    await expect(page.getByTestId("popup-title-bar")).toContainText("Session dev");
+    await expect(page.getByTestId("popup-title-bar")).toContainText("Group dev");
     await expect(card(page)).toContainText("$4 · 2 tabs · ~/code/sahil87/run-kit");
     const colorRow = card(page).getByTestId("row-flyout-color-action");
     const spawnRow = card(page).getByTestId("row-flyout-spawn-action");
@@ -1099,7 +1099,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
     await expect(colorRow).toContainText("Change color…");
     await expect(spawnRow).toContainText("Spawn agent…");
     await expect(createRow).toContainText("New tab");
-    await expect(killRow).toContainText("Kill session");
+    await expect(killRow).toContainText("Kill group");
     await expect(killRow).toContainText("confirms first");
     const ys = await Promise.all(
       [colorRow, spawnRow, createRow, killRow].map(async (r) => (await r.boundingBox())!.y),
@@ -1111,13 +1111,13 @@ test.describe("Row flyout card (coarse pointer)", () => {
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
     await expect(prRow(page)).toBeVisible();
 
-    // Kill session routes through the EXISTING confirm dialog — no kill POST.
+    // Kill group routes through the EXISTING confirm dialog — no kill POST.
     await killRow.tap();
-    await expect(page.getByText("Kill session?")).toBeVisible();
+    await expect(page.getByText("Kill group?")).toBeVisible();
     await expect(page.getByText(/and all 2 tabs/)).toBeVisible();
     expect(killRequests).toHaveLength(0);
     await page.getByRole("button", { name: "Cancel" }).tap();
-    await expect(page.getByText("Kill session?")).toHaveCount(0);
+    await expect(page.getByText("Kill group?")).toHaveCount(0);
 
     // Change color… closes the card and opens the row's existing color
     // popover (popover-over-card precedence holds: no card flash while open).
@@ -1134,9 +1134,9 @@ test.describe("Row flyout card (coarse pointer)", () => {
    * Proves: the server-tier card — the server-group header renders the rail
    * on coarse, its 3-icon cluster is gone from the DOM, and a rail tap opens
    * the card with the `Server default` title, the socket-name facts line
-   * (`tmux -L default · 1 session` — the count from the group's own data),
-   * and the action rows (`Change color…` → `New session` → `Kill server`).
-   * Kill server routes through the EXISTING killServerTarget confirm dialog,
+   * (`tmux -L default · 1 group` — the count from the group's own data),
+   * and the action rows (`Change color…` → `New group` → `Kill workspace`).
+   * Kill workspace routes through the EXISTING killServerTarget confirm dialog,
    * no kill POST fires, the group is never toggled, and the URL never
    * changes. (The rk-daemon warning case is NOT exercised here — the mocked
    * server is not the daemon.)
@@ -1146,14 +1146,14 @@ test.describe("Row flyout card (coarse pointer)", () => {
    * 2. Open the drawer; assert the `default` header's rail is visible and its
    *    Kill/New-session cluster buttons are absent from the DOM.
    * 3. Tap the header rail: assert the card shows the `Server default` title
-   *    bar, the `tmux -L default · 1 session` facts line, and the three
+   *    bar, the `tmux -L default · 1 group` facts line, and the three
    *    action rows.
-   * 4. Tap `Kill server`: assert the confirm dialog ("and all its sessions")
+   * 4. Tap `Kill workspace`: assert the confirm dialog ("and all its groups")
    *    is visible, ZERO kill requests fired, the header still reads "Collapse
    *    default sessions" (never toggled), and the URL is still /default;
    *    Cancel it.
    */
-  test("server rail tap opens the server card; Kill server routes to the existing dialog without toggling the group", async ({
+  test("server rail tap opens the server card; Kill workspace routes to the existing dialog without toggling the group", async ({
     page,
   }) => {
     const killRequests: string[] = [];
@@ -1168,33 +1168,33 @@ test.describe("Row flyout card (coarse pointer)", () => {
     const header = serverHeader(page);
     const rail = header.getByTestId("status-rail");
     await expect(rail).toBeVisible();
-    await expect(header.getByLabel("Kill server default")).toHaveCount(0);
-    await expect(header.getByLabel("New session on default")).toHaveCount(0);
+    await expect(header.getByLabel("Kill workspace default")).toHaveCount(0);
+    await expect(header.getByLabel("New group on default")).toHaveCount(0);
 
     await rail.tap();
     await expect(card(page)).toBeVisible();
-    await expect(page.getByTestId("popup-title-bar")).toContainText("Server default");
+    await expect(page.getByTestId("popup-title-bar")).toContainText("Workspace default");
     // Server names ARE socket names; the count is the group's own data (the
     // singular form degrades to `1 session`).
-    await expect(card(page)).toContainText("tmux -L default · 1 session");
+    await expect(card(page)).toContainText("tmux -L default · 1 group");
     const colorRow = card(page).getByTestId("row-flyout-color-action");
     const createRow = card(page).getByTestId("row-flyout-create-action");
     const killRow = card(page).getByTestId("row-flyout-kill-action");
     await expect(colorRow).toContainText("Change color…");
-    await expect(createRow).toContainText("New session");
-    await expect(killRow).toContainText("Kill server");
+    await expect(createRow).toContainText("New group");
+    await expect(killRow).toContainText("Kill workspace");
     await expect(killRow).toContainText("confirms first");
 
-    // Kill server routes through the existing killServerTarget dialog (the
+    // Kill workspace routes through the existing killServerTarget dialog (the
     // rk-daemon warning is not in play for this mocked non-daemon server), no
     // kill POST fires, and the group header was never toggled.
     await killRow.tap();
-    await expect(page.getByText(/and all its sessions/)).toBeVisible();
+    await expect(page.getByText(/and all its groups/)).toBeVisible();
     expect(killRequests).toHaveLength(0);
-    await expect(header.getByRole("button", { name: /Collapse default sessions/ })).toBeVisible();
+    await expect(header.getByRole("button", { name: /Collapse default groups/ })).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
     await page.getByRole("button", { name: "Cancel" }).tap();
-    await expect(page.getByText(/and all its sessions/)).toHaveCount(0);
+    await expect(page.getByText(/and all its groups/)).toHaveCount(0);
   });
 
   /**
@@ -1237,7 +1237,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
     );
     // One card, retargeted across the tier boundary to the session card.
     await expect(card(page)).toHaveCount(1);
-    await expect(page.getByTestId("popup-title-bar")).toContainText("Session dev");
+    await expect(page.getByTestId("popup-title-bar")).toContainText("Group dev");
 
     const headerRailBox = (await serverHeader(page).getByTestId("status-rail").boundingBox())!;
     await page.mouse.move(
@@ -1246,15 +1246,15 @@ test.describe("Row flyout card (coarse pointer)", () => {
       { steps: 5 },
     );
     await expect(card(page)).toHaveCount(1);
-    await expect(page.getByTestId("popup-title-bar")).toContainText("Server default");
+    await expect(page.getByTestId("popup-title-bar")).toContainText("Workspace default");
 
     // Release keeps the server card; the scrub never selected, navigated, or
     // toggled anything.
     await page.mouse.up();
-    await expect(card(page)).toContainText("tmux -L default · 1 session");
+    await expect(card(page)).toContainText("tmux -L default · 1 group");
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
     await expect(
-      serverHeader(page).getByRole("button", { name: /Collapse default sessions/ }),
+      serverHeader(page).getByRole("button", { name: /Collapse default groups/ }),
     ).toBeVisible();
     await expect(prRow(page)).toBeVisible();
   });

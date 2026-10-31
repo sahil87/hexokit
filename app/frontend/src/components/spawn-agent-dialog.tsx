@@ -108,7 +108,7 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
   const handleSubmit = useCallback(() => {
     if (busy) return;
     if (!server || !session) {
-      setError("No target session — open a terminal tab first.");
+      setError("No target group — open a terminal tab first.");
       return;
     }
     setBusy(true);
@@ -165,7 +165,7 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
           onKeyDown={handleKeyDown}
           disabled={busy}
           aria-label="Task"
-          placeholder="What should the agent do? (blank = empty session)"
+          placeholder="What should the agent do? (blank = plain shell)"
           className={`w-full bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary disabled:opacity-40`}
         />
       </div>

@@ -63,8 +63,8 @@ export function PopoutEnded() {
       data-testid="popout-ended"
       className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 font-mono text-[11px] text-text-secondary select-none"
     >
-      <span className="text-text-primary">Window closed</span>
-      <span>this popout's window no longer exists — close this window</span>
+      <span className="text-text-primary">Tab closed</span>
+      <span>this popout's tab no longer exists — close this window</span>
     </div>
   );
 }

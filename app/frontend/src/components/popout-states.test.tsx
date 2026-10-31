@@ -29,6 +29,6 @@ describe("PopoutEnded", () => {
   it("renders the ended state without navigating affordances", () => {
     render(<PopoutEnded />);
     expect(screen.getByTestId("popout-ended")).toBeTruthy();
-    expect(screen.getByText("Window closed")).toBeTruthy();
+    expect(screen.getByText("Tab closed")).toBeTruthy();
   });
 });

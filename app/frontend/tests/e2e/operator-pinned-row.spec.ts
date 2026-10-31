@@ -104,7 +104,7 @@ test.describe("Operator pinned row (@rk_win_role)", () => {
 
     await gotoServerReady(page, TMUX_SERVER);
 
-    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const sidebar = page.locator("nav[aria-label='Groups']");
     const target = await resolveWindow(page, TMUX_SERVER, TEST_SESSION, opName);
     const row = sidebar.locator(`[data-window-id="${target.windowId}"]`);
     const groupRow = page.locator(

@@ -189,7 +189,7 @@ describe("CronList", () => {
         <CronList server="" />
       </StandaloneSessionContextProvider>,
     );
-    expect(screen.getByTestId("cron-list-unresolved")).toHaveTextContent("no server resolved");
+    expect(screen.getByTestId("cron-list-unresolved")).toHaveTextContent("no workspace resolved");
     expect(stub).not.toHaveBeenCalled();
   });
 });

@@ -325,7 +325,7 @@ describe("executeSelectionBatch", () => {
       ["bad", "srv:@1"],
       vi.fn().mockRejectedValue(new Error("later")),
     );
-    expect(result.firstError).toBe("malformed window key");
+    expect(result.firstError).toBe("malformed tab key");
     expect(result.failedKeys).toEqual(["bad", "srv:@1"]);
   });
 });

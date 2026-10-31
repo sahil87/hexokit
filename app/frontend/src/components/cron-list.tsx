@@ -172,7 +172,7 @@ export function CronListView({
         className="flex-1 min-h-0 flex items-center justify-center px-4 text-xs text-text-secondary"
         data-testid="cron-list-unresolved"
       >
-        no server resolved — cron list unavailable
+        no workspace resolved — cron list unavailable
       </div>
     );
   }

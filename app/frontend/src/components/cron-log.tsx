@@ -76,7 +76,7 @@ export function CronLog({ server, inline = false }: { server: string; inline?: b
         className="flex-1 min-h-0 flex items-center justify-center px-4 text-xs text-text-secondary"
         data-testid="cron-log-unresolved"
       >
-        no server resolved — cron log unavailable
+        no workspace resolved — cron log unavailable
       </div>
     );
   }

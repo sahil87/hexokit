@@ -149,7 +149,7 @@ export function useServerReorder(
     putTimerRef.current = setTimeout(() => {
       putTimerRef.current = null;
       setServerOrder(orderToPut).catch((err: Error) => {
-        onError?.(err.message || "Failed to save server order");
+        onError?.(err.message || "Failed to save workspace order");
       });
     }, SERVER_ORDER_DEBOUNCE_MS);
 
@@ -176,7 +176,7 @@ export function useServerReorder(
       putTimerRef.current = null;
       const orderToPut = overrideRef.current.slice();
       setServerOrder(orderToPut).catch((err: Error) => {
-        onError?.(err.message || "Failed to save server order");
+        onError?.(err.message || "Failed to save workspace order");
       });
     }
     dragNameRef.current = null;

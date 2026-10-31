@@ -310,7 +310,7 @@ test.describe("PANE-on yields the status bar's window cluster (desktop)", () => 
   const windowCluster = (page: Page) => page.getByTestId("status-bar-window");
   const hostCluster = (page: Page) => page.getByTestId("status-bar-host");
   const paneHeader = (page: Page) =>
-    page.locator("nav[aria-label='Sessions']").getByRole("button", { name: /^Pane/ });
+    page.locator("nav[aria-label='Groups']").getByRole("button", { name: /^Pane/ });
 
   /** Run a palette action by its exact label. */
   async function runPalette(page: Page, label: string) {

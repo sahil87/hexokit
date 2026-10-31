@@ -763,7 +763,7 @@ test.describe("Surface layout — ladder, verbs, history, sizes, mobile", () => 
     // Switch to B via a REAL client-side navigation (sidebar row click) —
     // internal nav targets the BARE route; B renders its own (unset) layout:
     // the single-tty fallback.
-    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const sidebar = page.locator("nav[aria-label='Groups']");
     const rowB = sidebar.locator(`[data-window-id="${b}"]`).getByRole("button").first();
     await expect(rowB).toBeVisible({ timeout: 10_000 });
     await rowB.click();
@@ -822,7 +822,7 @@ test.describe("Surface layout — ladder, verbs, history, sizes, mobile", () => 
     await expectWindowLayout(a, "h(tty,web)");
     expectBareUrl(page);
 
-    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const sidebar = page.locator("nav[aria-label='Groups']");
     const rowB = sidebar.locator(`[data-window-id="${b}"]`).getByRole("button").first();
     await expect(rowB).toBeVisible({ timeout: 10_000 });
     await rowB.click();

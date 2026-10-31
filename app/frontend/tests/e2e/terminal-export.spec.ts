@@ -80,7 +80,7 @@ test("⇩ button opens the two-section menu; Download snapshot downloads a conve
   // it is the gate for "the snapshot landed".
   await expect(
     page
-      .locator("nav[aria-label='Sessions']")
+      .locator("nav[aria-label='Groups']")
       .locator(`button[aria-label='Navigate to ${TEST_SESSION}']`),
   ).toBeVisible({ timeout: READY_TIMEOUT });
 

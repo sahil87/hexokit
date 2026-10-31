@@ -97,7 +97,7 @@ describe("ServerDialogs", () => {
   it("opens the create dialog via the context trigger and sanitizes input on change", () => {
     renderDialogs();
     fireEvent.click(screen.getByText("open-create"));
-    const input = screen.getByLabelText("Server name");
+    const input = screen.getByLabelText("Workspace name");
     // Unsafe chars convert live (toSafeServerName) — the board twin previously
     // stored the raw value (drift fixed by the single implementation).
     fireEvent.change(input, { target: { value: "my server!" } });
@@ -109,7 +109,7 @@ describe("ServerDialogs", () => {
     const refreshServers = vi.fn();
     renderDialogs({ markServerPending, refreshServers });
     fireEvent.click(screen.getByText("open-create"));
-    const input = screen.getByLabelText("Server name");
+    const input = screen.getByLabelText("Workspace name");
     // Trailing separator stays visible while typing; finalizeSafeName trims it
     // at commit.
     fireEvent.change(input, { target: { value: "my server " } });
@@ -117,7 +117,7 @@ describe("ServerDialogs", () => {
 
     expect(markServerPending).toHaveBeenCalledWith("my_server");
     expect(mockNavigate).toHaveBeenCalledWith({ to: "/$server", params: { server: "my_server" } });
-    expect(screen.queryByLabelText("Server name")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Workspace name")).not.toBeInTheDocument();
     // The POST itself is deferred a microtask inside useOptimisticAction; the
     // post-create server-list refresh rides onAlwaysSettled after it resolves.
     await waitFor(() => expect(createServer).toHaveBeenCalledWith("my_server"));
@@ -135,7 +135,7 @@ describe("ServerDialogs", () => {
     fireEvent.click(screen.getByText("Cancel"));
 
     fireEvent.click(screen.getByText("kill-alpha"));
-    expect(screen.getByText(/Kill server/)).toBeInTheDocument();
+    expect(screen.getByText(/and all its groups/)).toBeInTheDocument();
     expect(screen.queryByText("Force kill")).not.toBeInTheDocument();
   });
 
@@ -146,7 +146,7 @@ describe("ServerDialogs", () => {
     // The POST is deferred a microtask inside useOptimisticAction.
     await waitFor(() => expect(killServer).toHaveBeenCalledWith("alpha", false));
     expect(mockNavigate).toHaveBeenCalledWith({ to: "/" });
-    await waitFor(() => expect(screen.queryByText(/Kill server/)).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText(/and all its groups/)).not.toBeInTheDocument());
   });
 
   it("does NOT navigate after a kill when currentServer is null (board route)", async () => {
@@ -168,10 +168,10 @@ describe("ServerDialogs", () => {
   it("non-protected servers keep the plain two-button confirm (zero drift)", async () => {
     renderDialogs({ servers: [{ name: "alpha", sessionCount: 1, protected: false }] });
     fireEvent.click(screen.getByText("kill-alpha"));
-    expect(screen.getByText("Kill server", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText(/and all its groups/)).toBeInTheDocument();
     expect(screen.getByText("Kill")).toBeInTheDocument();
     expect(screen.queryByText("Force kill")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/Type the server name/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Type the workspace name/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("Kill"));
     await waitFor(() => expect(killServer).toHaveBeenCalledWith("alpha", false));
   });
@@ -185,7 +185,7 @@ describe("ServerDialogs", () => {
     expect(screen.queryByText("Restart HexoKit")).not.toBeInTheDocument();
 
     // Wrong name keeps the button locked.
-    const input = screen.getByLabelText(/Type the server name/);
+    const input = screen.getByLabelText(/Type the workspace name/);
     fireEvent.change(input, { target: { value: "vaul" } });
     expect(forceKill).toBeDisabled();
 
@@ -199,7 +199,7 @@ describe("ServerDialogs", () => {
   it("protected dialog: Esc cancels without killing", async () => {
     renderDialogs({ servers: [{ name: "vault", sessionCount: 1, protected: true }] });
     fireEvent.click(screen.getByText("kill-vault"));
-    const input = screen.getByLabelText(/Type the server name/);
+    const input = screen.getByLabelText(/Type the workspace name/);
     fireEvent.change(input, { target: { value: "vault" } });
     fireEvent.keyDown(input, { key: "Escape" });
     await waitFor(() => expect(screen.queryByText("Force kill")).not.toBeInTheDocument());
@@ -234,7 +234,7 @@ describe("ServerDialogs", () => {
 
     // Reopen: typed exact name unlocks the force kill.
     fireEvent.click(screen.getByText("kill-daemon"));
-    const input = screen.getByLabelText(/Type the server name/);
+    const input = screen.getByLabelText(/Type the workspace name/);
     fireEvent.change(input, { target: { value: client.DAEMON_SERVER } });
     fireEvent.click(screen.getByText("Force kill"));
     await waitFor(() => expect(killServer).toHaveBeenCalledWith(client.DAEMON_SERVER, true));
@@ -243,10 +243,10 @@ describe("ServerDialogs", () => {
   it("opens the adopt dialog via the context trigger and states the semi-irreversibility", () => {
     renderDialogs();
     fireEvent.click(screen.getByText("adopt-alpha"));
-    expect(screen.getByText("Adopt server into HexoKit?")).toBeInTheDocument();
+    expect(screen.getByText("Adopt workspace into HexoKit?")).toBeInTheDocument();
     // The copy must state that HexoKit's tmux config applies now and the
     // user's own config returns only on server restart.
-    expect(screen.getByText(/your own config returns only when the server restarts/)).toBeInTheDocument();
+    expect(screen.getByText(/your own config returns only when the workspace restarts/)).toBeInTheDocument();
     expect(screen.getByText("Adopt")).toBeInTheDocument();
     expect(screen.getByText("Cancel")).toBeInTheDocument();
   });
@@ -256,7 +256,7 @@ describe("ServerDialogs", () => {
     renderDialogs({ refreshServers });
     fireEvent.click(screen.getByText("adopt-alpha"));
     fireEvent.click(screen.getByText("Adopt"));
-    expect(screen.queryByText("Adopt server into HexoKit?")).not.toBeInTheDocument();
+    expect(screen.queryByText("Adopt workspace into HexoKit?")).not.toBeInTheDocument();
     await waitFor(() => expect(adoptServer).toHaveBeenCalledWith("alpha"));
     await waitFor(() => expect(refreshServers).toHaveBeenCalled());
     expect(mockNavigate).not.toHaveBeenCalled();
@@ -266,7 +266,7 @@ describe("ServerDialogs", () => {
     renderDialogs();
     fireEvent.click(screen.getByText("adopt-alpha"));
     fireEvent.click(screen.getByText("Cancel"));
-    await waitFor(() => expect(screen.queryByText("Adopt server into HexoKit?")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("Adopt workspace into HexoKit?")).not.toBeInTheDocument());
     expect(adoptServer).not.toHaveBeenCalled();
   });
 

@@ -15,7 +15,7 @@ export const SIDEBAR_SECTIONS: readonly {
   label: string;
 }[] = [
   { section: "boards", key: "hexokit-sidebar-section-boards", defaultValue: true, label: "Boards" },
-  { section: "server", key: "hexokit-sidebar-section-server", defaultValue: true, label: "Servers" },
+  { section: "server", key: "hexokit-sidebar-section-server", defaultValue: true, label: "Workspaces" },
   { section: "pane", key: "hexokit-sidebar-section-pane", defaultValue: false, label: "Pane" },
   { section: "host", key: "hexokit-sidebar-section-host", defaultValue: false, label: "Host" },
 ];

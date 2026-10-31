@@ -13,7 +13,7 @@ import { HELP_TOPICS, openHelpTopic } from "@/lib/help-topics";
  * Tests for the layout-level global palette groups (260811-239r) — the hook
  * behind the single AppLayout-mounted CommandPalette. Verifies the group
  * composition/ordering (R9/R11: nav → font → refresh → help → shortcuts →
- * settings), the route-walk-driven nav mode (`Go: tmux Server` on terminal
+ * settings), the route-walk-driven nav mode (`Go: Workspace` on terminal
  * routes only), and the settings-dialog deep-link wiring (260818-bncw: the
  * `shortcuts-overlay` entry toggles the dialog's Shortcuts tab; `Settings:
  * Open` is a tab-less pure opener; `Settings: Appearance` deep-links).
@@ -135,7 +135,7 @@ describe("useGlobalPaletteActions", () => {
     expect(order.slice(0, expectInOrder.length)).toEqual(expectInOrder);
   });
 
-  it("offers Go: tmux Server only on a terminal route (window param present)", () => {
+  it("offers Go: Workspace only on a terminal route (window param present)", () => {
     mockMatches = [{ params: { server: "alpha" } }, { params: { server: "alpha", window: "@1" } }];
     renderHook();
     expect(ids()).toContain("go-tmux-server");
@@ -257,7 +257,7 @@ describe("useGlobalPaletteActions", () => {
     renderHook();
     const byId = new Map(captured.map((a) => [a.id, a]));
     expect(byId.get("panel-toggle-boards")?.label).toBe("Panel: Toggle Boards");
-    expect(byId.get("panel-toggle-server")?.label).toBe("Panel: Toggle Servers");
+    expect(byId.get("panel-toggle-server")?.label).toBe("Panel: Toggle Workspaces");
     expect(byId.get("panel-toggle-pane")?.label).toBe("Panel: Toggle Pane");
     expect(byId.get("panel-toggle-host")?.label).toBe("Panel: Toggle Host");
     expect(byId.get("panel-toggle-clock")).toBeUndefined();

@@ -53,12 +53,12 @@ describe("SettingsShortcutsPanel", () => {
     expect(screen.getByText("TMUX")).toBeInTheDocument();
     expect(screen.queryByText("SHELL — DESKTOP APP")).toBeNull();
     // Starter rows
-    expect(screen.getByText("New session")).toBeInTheDocument();
+    expect(screen.getByText("New group")).toBeInTheDocument();
     expect(screen.getByText("Next tab")).toBeInTheDocument();
     // Scope badges (terminal + board rows carry pills)
     expect(screen.getAllByText("terminal").length).toBeGreaterThan(0);
     // Locked shell rows (accelerators owned by the shell menu)
-    expect(screen.getByText("Switch to server 1–9")).toBeInTheDocument();
+    expect(screen.getByText("Switch to host 1–9")).toBeInTheDocument();
     expect(
       screen.getAllByLabelText("Locked — bound by the desktop shell menu").length,
     ).toBeGreaterThan(0);
@@ -78,7 +78,7 @@ describe("SettingsShortcutsPanel", () => {
       target: { value: "waiting" },
     });
     expect(screen.getByText("Next waiting agent")).toBeInTheDocument();
-    expect(screen.queryByText("New session")).toBeNull();
+    expect(screen.queryByText("New group")).toBeNull();
     expect(screen.queryByText("BOARD")).toBeNull();
   });
 
@@ -105,7 +105,7 @@ describe("SettingsShortcutsPanel", () => {
     // keycap in the panel — while Force reload keeps the shared ⇧⌘ caps.
     expect(screen.getAllByText("⌥").length).toBe(1);
     expect(screen.getAllByText("⇧").length).toBeGreaterThan(0);
-    expect(screen.getByText("Switch to server 1–9")).toBeInTheDocument();
+    expect(screen.getByText("Switch to host 1–9")).toBeInTheDocument();
     // The mac shifted map carries no shell "server" digit claims either:
     // Digit1/2/9 render free (the 3/4/5 screenshot claims live inside the
     // ellipsis run).
@@ -299,7 +299,7 @@ describe("SettingsShortcutsPanel merged view (260801-sm6g)", () => {
       screen.getByText("Shell-owned — accelerators live in the desktop shell menu"),
     ).toBeInTheDocument();
     const globalSection = screen.getByText("GLOBAL").closest("section")!;
-    expect(within(globalSection).getByText("Switch to server 1–9")).toBeInTheDocument();
+    expect(within(globalSection).getByText("Switch to host 1–9")).toBeInTheDocument();
     expect(within(globalSection).getByText("Force reload")).toBeInTheDocument();
   });
 
@@ -326,7 +326,7 @@ describe("SettingsShortcutsPanel merged view (260801-sm6g)", () => {
 
   it("shows the tmux empty state when no current server exists (board/host routes)", () => {
     renderPanel(); // mockCurrentServer = null
-    expect(screen.getByText("No tmux server running")).toBeInTheDocument();
+    expect(screen.getByText("No workspace running")).toBeInTheDocument();
     expect(getKeybindingsMock).not.toHaveBeenCalled();
   });
 
@@ -335,7 +335,7 @@ describe("SettingsShortcutsPanel merged view (260801-sm6g)", () => {
     getKeybindingsMock.mockRejectedValue(new Error("boom"));
     renderPanel();
     await waitFor(() =>
-      expect(screen.getByText("No tmux server running")).toBeInTheDocument(),
+      expect(screen.getByText("No workspace running")).toBeInTheDocument(),
     );
   });
 
@@ -398,9 +398,9 @@ describe("SettingsShortcutsPanel desktop-pill rows (260823-c5yq)", () => {
       expect(screen.queryByText("browser")).toBeNull();
       expect(screen.queryByText(/^in (browser|desktop app):/)).toBeNull();
       // The mac-canonical chords are live — their keycap buttons rebind.
-      // New session is the exception: its mac-keyless default refinement
+      // New group is the exception: its mac-keyless default refinement
       // leaves it unbound on mac, so no live keycap renders for it.
-      expect(screen.queryByLabelText("Change binding for New session")).toBeNull();
+      expect(screen.queryByLabelText("Change binding for New group")).toBeNull();
       expect(screen.getByLabelText("Change binding for Reopen closed tab")).toBeInTheDocument();
       expect(screen.getByLabelText("Change binding for Settings")).toBeInTheDocument();
     } finally {

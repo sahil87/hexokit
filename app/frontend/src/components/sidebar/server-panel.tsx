@@ -119,7 +119,7 @@ export function ServerPanel({
 
   return (
     <CollapsiblePanel
-      title="Servers"
+      title="Workspaces"
       storageKey="hexokit-panel-server"
       defaultOpen={true}
       onToggle={handleToggle}
@@ -128,7 +128,7 @@ export function ServerPanel({
       headerAction={
         <button
           onClick={onCreateServer}
-          aria-label="New tmux server"
+          aria-label="New workspace"
           className="text-text-secondary hover:text-text-primary transition-colors text-[13px] px-1 min-w-[24px] min-h-[24px] coarse:min-w-[40px] coarse:min-h-[40px] -my-1 coarse:-my-3 flex items-center justify-center"
         >
           +
@@ -141,13 +141,13 @@ export function ServerPanel({
       onCornerPointerDown={onSidebarResizeStart}
     >
       {servers.length === 0 ? (
-        <span className="block text-xs text-text-secondary py-1">No servers</span>
+        <span className="block text-xs text-text-secondary py-1">No workspaces</span>
       ) : (
         <div
           className="grid gap-1.5"
           style={gridStyle}
           role="listbox"
-          aria-label="Tmux servers"
+          aria-label="Workspaces"
         >
           {orderedServers.map((info) => {
             const { name, sessionCount, windowCount } = info;

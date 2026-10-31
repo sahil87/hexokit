@@ -29,7 +29,7 @@ function protectedBlastRadius(target: string, sessions: ProjectSession[]): strin
   }
   const sessionCount = sessions.length;
   const windowCount = sessions.reduce((n, s) => n + s.windows.length, 0);
-  return `kills ${sessionCount} session${sessionCount === 1 ? "" : "s"}, ${windowCount} window${windowCount === 1 ? "" : "s"}`;
+  return `kills ${sessionCount} group${sessionCount === 1 ? "" : "s"}, ${windowCount} tab${windowCount === 1 ? "" : "s"}`;
 }
 
 /**
@@ -81,7 +81,7 @@ export function ServerDialogs() {
       }
     },
     onError: (err) => {
-      addToast(err.message || "Failed to create server");
+      addToast(err.message || "Failed to create workspace");
     },
     onSettled: () => {
       ghostServerIdRef.current = null;
@@ -129,7 +129,7 @@ export function ServerDialogs() {
       }
     },
     onError: (err) => {
-      addToast(err.message || "Failed to kill server");
+      addToast(err.message || "Failed to kill workspace");
     },
     onSettled: () => {
       killedServerNameRef.current = null;
@@ -157,7 +157,7 @@ export function ServerDialogs() {
     void adoptServerApi(adoptServerTarget)
       .then(() => refreshServers())
       .catch((err: unknown) => {
-        addToast(err instanceof Error ? err.message : "Failed to adopt server");
+        addToast(err instanceof Error ? err.message : "Failed to adopt workspace");
       });
     clearAdoptServerTarget();
   }, [adoptServerTarget, refreshServers, addToast, clearAdoptServerTarget]);
@@ -177,7 +177,7 @@ export function ServerDialogs() {
   return (
     <>
       {createServerOpen && (
-        <Dialog title="Create tmux server" onClose={() => { closeCreateServer(); setCreateServerName(""); }}>
+        <Dialog title="New workspace" onClose={() => { closeCreateServer(); setCreateServerName(""); }}>
           <input
             autoFocus
             type="text"
@@ -185,8 +185,8 @@ export function ServerDialogs() {
             onChange={(e) => setCreateServerName(toSafeServerName(e.target.value))}
             onKeyDown={(e) => e.key === "Enter" && handleCreateServer()}
             onFocus={(e) => e.target.select()}
-            aria-label="Server name"
-            placeholder="Server name..."
+            aria-label="Workspace name"
+            placeholder="Workspace name..."
             className={`w-full bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary`}
           />
           <p className="text-xs text-text-secondary mt-1.5">
@@ -222,9 +222,9 @@ export function ServerDialogs() {
       )}
 
       {killServerTarget && !killTargetProtected && (
-        <Dialog title="Kill tmux server?" onClose={clearKillServerTarget}>
+        <Dialog title="Kill workspace?" onClose={clearKillServerTarget}>
           <p className="text-text-secondary mb-2.5">
-            Kill server <strong>{killServerTarget}</strong> and all its sessions? This cannot be undone.
+            Kill workspace <strong>{killServerTarget}</strong> and all its groups? This cannot be undone.
           </p>
           {killServerTarget === DAEMON_SERVER && (
             <p className="text-signal-red mb-2.5">
@@ -249,10 +249,10 @@ export function ServerDialogs() {
       )}
 
       {adoptServerTarget && (
-        <Dialog title="Adopt server into HexoKit?" onClose={clearAdoptServerTarget}>
+        <Dialog title="Adopt workspace into HexoKit?" onClose={clearAdoptServerTarget}>
           <p className="text-text-secondary mb-2.5">
-            Adopt server <strong>{adoptServerTarget}</strong> into HexoKit? HexoKit's tmux config is
-            applied to it now — your own config returns only when the server restarts.
+            Adopt workspace <strong>{adoptServerTarget}</strong> into HexoKit? HexoKit's tmux config is
+            applied to it now — your own config returns only when the workspace restarts.
           </p>
           <div className="flex gap-2">
             <button
@@ -298,9 +298,9 @@ function ProtectedKillDialog({
   const isDaemon = target === DAEMON_SERVER;
 
   return (
-    <Dialog title="Kill protected server?" onClose={onCancel}>
+    <Dialog title="Kill protected workspace?" onClose={onCancel}>
       <p className="text-signal-red mb-2.5">
-        <strong>{target}</strong> is a protected server — killing it{" "}
+        <strong>{target}</strong> is a protected workspace — killing it{" "}
         {protectedBlastRadius(target, sessions)}. This cannot be undone.
       </p>
       <input
@@ -309,7 +309,7 @@ function ProtectedKillDialog({
         value={typed}
         onChange={(e) => setTyped(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && unlocked && onForceKill()}
-        aria-label="Type the server name to unlock force kill"
+        aria-label="Type the workspace name to unlock force kill"
         placeholder={`Type ${target} to unlock force kill`}
         className={`w-full bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary`}
       />

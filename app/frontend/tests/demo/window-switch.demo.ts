@@ -36,17 +36,17 @@ const WINDOWS = [
   { name: "charlie", marker: "MARKER-CHARLIE" },
 ];
 
-/** The Sessions nav of the currently open sidebar/drawer. */
+/** The Groups nav of the currently open sidebar/drawer. */
 async function openNav(page: Page, isMobile: boolean): Promise<Locator> {
   if (!isMobile) {
-    return page.getByRole("navigation", { name: "Sessions" });
+    return page.getByRole("navigation", { name: "Groups" });
   }
   const toggle = page.getByRole("button", { name: "Toggle navigation" });
   await expect(toggle).toBeVisible({ timeout: READY_TIMEOUT });
   await toggle.click();
   const drawer = page.getByRole("dialog");
   await expect(drawer).toBeVisible({ timeout: READY_TIMEOUT });
-  return drawer.getByRole("navigation", { name: "Sessions" });
+  return drawer.getByRole("navigation", { name: "Groups" });
 }
 
 /** True once the window's marker text is present in its xterm buffer — the

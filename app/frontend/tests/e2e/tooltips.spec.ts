@@ -14,7 +14,7 @@ import { TMUX_SERVER } from "./_tmux";
  * panel went drawer-only and the fine-pointer bottom bar was deleted).
  *
  * Shared setup: the first describe needs no tmux session fixtures — every
- * test navigates to the tmux Server route (`/${TMUX_SERVER}`), whose top
+ * test navigates to the Workspace route (`/${TMUX_SERVER}`), whose top
  * bar renders the L3 always-block (theme / refresh / help) with tipped
  * controls at the default desktop viewport; the coarse-pointer test
  * installs an init script mocking `window.matchMedia("(pointer: coarse)")`

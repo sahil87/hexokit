@@ -92,22 +92,22 @@ describe("WatchedTasks", () => {
     );
   });
 
-  it("an empty server renders only the `no server resolved` hint", () => {
+  it("an empty server renders only the `no workspace resolved` hint", () => {
     renderTasks({ server: "", sessions: [] });
     expect(screen.getByTestId("watched-tasks-hint")).toHaveTextContent(
-      "no server resolved — watchlist unavailable",
+      "no workspace resolved — watchlist unavailable",
     );
     expect(screen.queryByTestId("watched-tasks-banner")).toBeNull();
     expect(screen.queryByTestId("watched-table")).toBeNull();
   });
 
-  it("no operator window and no tick renders `No operator on this server`", () => {
+  it("no operator window and no tick renders `No operator on this workspace`", () => {
     renderTasks({
       server: "srv1",
       sessions: [makeSession({ windows: [makeWindow({ windowId: "@1" })] })],
     });
     expect(screen.getByTestId("watched-tasks-hint")).toHaveTextContent(
-      "No operator on this server",
+      "No operator on this workspace",
     );
   });
 

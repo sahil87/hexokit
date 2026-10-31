@@ -35,27 +35,27 @@ export function buildRecoveryActions(
   if (offers.length === 0) return [];
   const actions: PaletteAction[] = offers.map((offer) => ({
     id: `recovery-restore-${offer.server}`,
-    label: `Server: Restore ${offer.server}`,
+    label: `Workspace: Restore ${offer.server}`,
     onSelect: () => handlers.onRestore(offer.server),
   }));
   if (offers.length > 1) {
     actions.push({
       id: "recovery-restore-all",
-      label: "Restore all previous servers",
+      label: "Restore all previous workspaces",
       onSelect: handlers.onRestoreAll,
     });
   }
   for (const offer of offers) {
     actions.push({
       id: `recovery-dismiss-${offer.server}`,
-      label: `Server: Dismiss recovery ${offer.server}`,
+      label: `Workspace: Dismiss recovery ${offer.server}`,
       onSelect: () => handlers.onDismiss(offer.server),
     });
   }
   if (offers.length > 1) {
     actions.push({
       id: "recovery-dismiss-all",
-      label: "Dismiss all previous servers",
+      label: "Dismiss all previous workspaces",
       onSelect: handlers.onDismissAll,
     });
   }

@@ -79,7 +79,7 @@ export function WatchedTable({
       },
       {
         id: "session",
-        header: "session",
+        header: "group",
         sortValue: (row) => (row.kind === "worker" ? row.session : row.item.session || undefined),
         size: 120,
         minSize: 64,

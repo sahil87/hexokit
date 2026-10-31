@@ -202,7 +202,7 @@ describe("HostOverviewPage — system card (HOST HEALTH zone)", () => {
   });
 });
 
-describe("HostOverviewPage — protected-server shield glyph (TMUX SERVERS tiles)", () => {
+describe("HostOverviewPage — protected-server shield glyph (WORKSPACES tiles)", () => {
   it("renders the shield glyph for @rk_srv_protected servers and the rk-daemon server, absent otherwise", () => {
     mockServers = [
       { name: "runkit", sessionCount: 1 },
@@ -236,7 +236,7 @@ describe("HostOverviewPage — protected-server shield glyph (TMUX SERVERS tiles
   });
 });
 
-describe("HostOverviewPage — external-server glyph (TMUX SERVERS tiles)", () => {
+describe("HostOverviewPage — external-server glyph (WORKSPACES tiles)", () => {
   it("renders ↗ + grey name for managed === false only; managed true and absent field render no treatment", () => {
     mockServers = [
       { name: "ext", sessionCount: 1, managed: false },
@@ -301,7 +301,7 @@ describe("HostOverviewPage — Services zone", () => {
     // title attribute on the button in either state.
     expect(btn.title).toBe("");
     fireEvent.focus(btn);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("Create a server first");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Create a workspace first");
   });
 
   it("creates an instant session + iframe window and navigates when a server genuinely has no sessions", async () => {
@@ -509,7 +509,7 @@ describe("HostOverviewPage — page root ground", () => {
 });
 
 describe("HostOverviewPage — BOARDS zone", () => {
-  it("renders board tiles above TMUX SERVERS and navigates on click", () => {
+  it("renders board tiles above WORKSPACES and navigates on click", () => {
     mockBoards = [
       { name: "main", pinCount: 3 },
       { name: "review", pinCount: 1 },
@@ -517,7 +517,7 @@ describe("HostOverviewPage — BOARDS zone", () => {
     renderPage();
 
     // Heading order: the "Host Overview" page heading, then the zones
-    // Host Health → Boards → Tmux Servers → Services.
+    // Host Health → Boards → WORKSPACES → Services.
     const headings = screen
       .getAllByRole("heading", { level: 2 })
       .map((h) => h.textContent);
@@ -525,7 +525,7 @@ describe("HostOverviewPage — BOARDS zone", () => {
       "Host Overview",
       "Host Health",
       "Boards",
-      "Tmux Servers",
+      "Workspaces",
       "Services",
     ]);
 
@@ -576,7 +576,7 @@ describe("HostOverviewPage — BOARDS zone", () => {
   });
 });
 
-describe("HostOverviewPage — TMUX SERVERS scratch badge (@rk_srv_ephemeral)", () => {
+describe("HostOverviewPage — WORKSPACES scratch badge (@rk_srv_ephemeral)", () => {
   it("renders the scratch chip + greyed name on a marked tile; unmarked tiles render unchanged", () => {
     mockServers = [
       { name: "alpha", sessionCount: 1 },

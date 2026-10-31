@@ -1309,7 +1309,7 @@ describe("coarse-pointer session/server cards (260817-ve5m)", () => {
           <CardActionList>
             <CardActionRow
               icon={<span />}
-              label="Kill server"
+              label="Kill workspace"
               hint="confirms first"
               danger
               testid="row-flyout-kill-action"
@@ -1362,7 +1362,7 @@ describe("coarse-pointer session/server cards (260817-ve5m)", () => {
     // width (no fine-pointer max-w-xs class).
     expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Server alpha");
     expect(card).toHaveTextContent("tmux -L alpha · 2 sessions");
-    expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill server");
+    expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill workspace");
     expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("confirms first");
     expect(card.className).not.toContain("max-w-xs");
   });
@@ -1473,7 +1473,7 @@ describe("edge-anchored mount (edgeAnchor)", () => {
   /** Sidebar-root fixture matching EDGE_ANCHOR_CONTAINER_SELECTOR. */
   function makeNav(): HTMLElement {
     const nav = document.createElement("nav");
-    nav.setAttribute("aria-label", "Sessions");
+    nav.setAttribute("aria-label", "Groups");
     document.body.appendChild(nav);
     return nav;
   }

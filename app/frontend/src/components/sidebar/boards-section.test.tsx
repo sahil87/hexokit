@@ -104,7 +104,7 @@ describe("BoardsSection — reorder wiring", () => {
 
   it("shows the pin-to-start hint (no draggable rows) when no boards exist", () => {
     render(<BoardsSection />);
-    expect(screen.getByText("Pin a window to start a board")).toBeInTheDocument();
+    expect(screen.getByText("Pin a tab to start a board")).toBeInTheDocument();
   });
 });
 

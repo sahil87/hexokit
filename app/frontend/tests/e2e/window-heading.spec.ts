@@ -6,7 +6,7 @@
  * path enters the same inline edit, the 375px bar stays single-line, the
  * hover-animation vocabulary classes are present and CSS-gated under
  * `prefers-reduced-motion`, and the same centered heading fills the tmux
- * Server (`tmux Server: <server>`, display-only), the Board (`Board: <name>`
+ * Server (`Workspace: <server>`, display-only), the Board (`Board: <name>`
  * + relocated ▾ switcher, display-only) and the Host (solo `Host`) routes.
  *
  * Shared setup: a FILE-LEVEL `beforeAll` creates a dedicated tmux session
@@ -172,38 +172,38 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
   });
 
   /**
-   * Proves: move-don't-copy — on the tmux Server page (`/$server`, no window)
-   * the server name is the CENTERED `tmux Server: <server>` heading,
+   * Proves: move-don't-copy — on the Workspace page (`/$server`, no window)
+   * the server name is the CENTERED `Workspace: <server>` heading,
    * display-only (no rename), and is NOT duplicated as a left breadcrumb leaf
    * crumb — the left breadcrumb ends at its parent. The page also carries an
-   * in-page long-form `tmux Server Overview` `<h2>` SectionHeading above its
+   * in-page long-form `Workspace Overview` `<h2>` SectionHeading above its
    * "Sessions" section.
    *
    * Steps:
    * 1. Navigate to `/${server}`.
-   * 2. Assert the `tmux Server <server>` heading (its accessible name carries
+   * 2. Assert the `Workspace <server>` heading (its accessible name carries
    *    the type prefix) is visible.
    * 3. Assert there is no `Rename tab …` button (the server name is
    *    display-only).
-   * 4. Assert the in-page `tmux Server Overview` `<h2>` heading is visible.
+   * 4. Assert the in-page `Workspace Overview` `<h2>` heading is visible.
    * 5. Assert the `Breadcrumb` nav does NOT contain the server name.
    */
-  test("server route (/$server) shows the centered `tmux Server: <server>` heading + the `tmux Server Overview` in-page heading (not a left leaf crumb)", async ({
+  test("server route (/$server) shows the centered `Workspace: <server>` heading + the `Workspace Overview` in-page heading (not a left leaf crumb)", async ({
     page,
   }) => {
     await page.goto(`/${TMUX_SERVER}`);
     // The server name is the CENTERED heading leaf (move-don't-copy) — its
-    // accessible name carries the `tmux Server` type prefix.
-    const heading = page.getByLabel(`tmux Server ${TMUX_SERVER}`);
+    // accessible name carries the `Workspace` type prefix.
+    const heading = page.getByLabel(`Workspace ${TMUX_SERVER}`);
     await expect(heading).toBeVisible({ timeout: 10_000 });
-    // It is display-only — no rename button on the tmux Server page.
+    // It is display-only — no rename button on the Workspace page.
     await expect(
       page.getByRole("button", { name: /Rename tab/ }),
     ).toHaveCount(0);
     // The in-page page-level heading (260715-zs1y) — a SectionHeading <h2>
     // above the "Sessions" section.
     await expect(
-      page.getByRole("heading", { level: 2, name: "tmux Server Overview" }),
+      page.getByRole("heading", { level: 2, name: "Workspace Overview" }),
     ).toBeVisible();
     // The name is not duplicated as a left breadcrumb crumb.
     const nav = page.getByRole("navigation", { name: "Breadcrumb" });
@@ -352,7 +352,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     // Sidebar reflects the committed name (via the rename API + SSE). The name
     // can appear in more than one place (window row + pane-panel echo), so
     // assert the first match rather than the whole set.
-    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const sidebar = page.locator("nav[aria-label='Groups']");
     await expect(sidebar.locator(`text=${renamed}`).first()).toBeVisible({
       timeout: 10_000,
     });
@@ -398,7 +398,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     await input.press("Enter");
 
     // The committed name is exactly the displayed (converted) name.
-    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const sidebar = page.locator("nav[aria-label='Groups']");
     await expect(sidebar.locator("text=my_problem").first()).toBeVisible({
       timeout: 10_000,
     });
@@ -593,8 +593,8 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     // cursor cell, no bright done state) — the rest state IS the reduced
     // state.
     const reducedLabel = reducedPage
-      .locator("nav[aria-label='Sessions'] .rk-typed-label", {
-        hasText: /^Sessions$/,
+      .locator("nav[aria-label='Groups'] .rk-typed-label", {
+        hasText: /^Groups$/,
       })
       .first();
     // Dispatched event (not real hover) — same churn-proof seam as the
@@ -615,7 +615,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
  * heading's left edge does not drift with name length; (2) the static `Window:`
  * prefix persisting across a lens switch — contiguous since 260813-kvk7 removed
  * the ancestor hierarchy dropdown that used to split it (ancestor navigation
- * survives only in the command palette's `Go: tmux Server` / `Go: Host` and the
+ * survives only in the command palette's `Go: Workspace` / `Go: Host` and the
  * left breadcrumb's server crumb); (3) the browser-history ◀ ▶ arrows — which
  * moved to the LEFT cluster (right of the sidebar toggle, `lg+` viewports —
  * below `lg` they hide with the cluster's degradation ladder) in 260731-oiho;
@@ -824,7 +824,7 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
    *    unambiguous) and wait for `Connected`.
    * 3. Build the history stack ENTIRELY via in-app sidebar-row clicks —
    *    `a → b → a` (the no-dedup shape) — using a `switchTo` helper that
-   *    clicks the row (`nav[aria-label='Sessions'] [data-window-id="@N"]
+   *    clicks the row (`nav[aria-label='Groups'] [data-window-id="@N"]
    *    button`, a real client-side switch through `navigateToWindow`), then
    *    settles on `aria-current="page"`, the window-id URL, and the `Rename
    *    tab <name>` heading (tmux aligned + terminal rendered). URL assertions
@@ -856,7 +856,7 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
     const aId = await resolveWindow(page, a);
     const bId = await resolveWindow(page, b);
 
-    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const sidebar = page.locator("nav[aria-label='Groups']");
     // The in-app switch (`navigateToWindow`) writes the URL via the router,
     // whose param serialization carries the window id's NUMERIC part (`@5` →
     // `5`), NOT the `encodeURIComponent("@5")` = `%405` form a `page.goto`

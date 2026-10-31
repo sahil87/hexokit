@@ -70,7 +70,7 @@ describe("WatchedTable", () => {
     expect(screen.getByText("worker-one")).toBeInTheDocument();
     expect(screen.getByText("worker-two")).toBeInTheDocument();
     // The six headers.
-    for (const col of ["status", "session", "change", "awaiting", "note", "repo"]) {
+    for (const col of ["status", "group", "change", "awaiting", "note", "repo"]) {
       expect(screen.getByText(col)).toBeInTheDocument();
     }
 

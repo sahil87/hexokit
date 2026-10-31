@@ -54,11 +54,11 @@ export function WatchedTasks({
   const watched = rows.filter((row) => row.kind === "worker" && !row.done).length;
 
   const hint = !server
-    ? "no server resolved — watchlist unavailable"
+    ? "no workspace resolved — watchlist unavailable"
     : rows.length > 0
       ? null
       : !hasOperator
-        ? "No operator on this server"
+        ? "No operator on this workspace"
         : "No tracked items";
 
   return (

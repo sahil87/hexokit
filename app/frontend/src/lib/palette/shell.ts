@@ -1,7 +1,7 @@
 /**
  * Pure builder for the desktop-shell server-switch palette actions
- * (`Server: Switch to "<name>"`) — the SPA-side keyboard path for the shell's
- * Servers menu (Constitution V; the shell-side paths are the ⌥⌘1–9 (mac) /
+ * (`Host: Switch to "<name>"`) — the SPA-side keyboard path for the shell's
+ * Hosts menu (Constitution V; the shell-side paths are the ⌥⌘1–9 (mac) /
  * Alt+1–9 (win/linux) accelerators and the menu radios). Follows the
  * lib/palette/view.ts /
  * lib/palette/pin.ts pure-builder convention: label composition and active
@@ -11,7 +11,7 @@
  * bridge-listed servers (`listShellServers()`), which is empty in a plain
  * browser — the first real `isShell()`-gated palette consumer. The quoted
  * name distinguishes these SHELL servers (whole rk instances, by URL) from
- * the tmux `Server: Switch to <name>` entries; `(current)` marks the active
+ * the tmux `Workspace: Switch to <name>` entries; `(current)` marks the active
  * one, matching the existing switch-entry vocabulary. Switch-only in v1 —
  * Add/Remove Server stay in the shell's native menu + welcome flow.
  */
@@ -25,7 +25,7 @@ export function buildShellServerActions(
 ): PaletteAction[] {
   return servers.map((server) => ({
     id: `shell-switch-server-${server.id}`,
-    label: `Server: Switch to "${server.name}"${server.active ? " (current)" : ""}`,
+    label: `Host: Switch to "${server.name}"${server.active ? " (current)" : ""}`,
     onSelect: () => onSwitch(server.id),
   }));
 }

@@ -26,7 +26,7 @@ import { TMUX_SERVER } from "./_tmux";
 
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
 
-const sidebar = (page: Page) => page.getByRole("navigation", { name: "Sessions" });
+const sidebar = (page: Page) => page.getByRole("navigation", { name: "Groups" });
 const statusBar = (page: Page) => page.getByTestId("status-bar");
 const hostCluster = (page: Page) => page.getByTestId("status-bar-host");
 
@@ -110,7 +110,7 @@ test.describe("Sidebar footer — mobile-only (260815-19me)", () => {
       // The footer's dot keeps its semantics (`aria-label` Connected /
       // Disconnected) inside the drawer's Sessions nav — and there is no
       // status bar on mobile to duplicate it.
-      const nav = drawer.getByRole("navigation", { name: "Sessions" });
+      const nav = drawer.getByRole("navigation", { name: "Groups" });
       await expect(nav.locator("[aria-label='Connected']")).toBeVisible({
         timeout: READY_TIMEOUT,
       });

@@ -682,9 +682,9 @@ describe("DEFAULT_BINDINGS integrity", () => {
       macCode: "ArrowUp",
       scope: "global",
       kind: "builtin",
-      label: "Previous session",
-      description: "jump to the adjacent session's active window",
-      mapLabel: "prev session",
+      label: "Previous group",
+      description: "jump to the adjacent group's active tab",
+      mapLabel: "prev group",
       ignoreInputs: true,
     });
     expect(next).toEqual({
@@ -694,9 +694,9 @@ describe("DEFAULT_BINDINGS integrity", () => {
       macCode: "ArrowDown",
       scope: "global",
       kind: "builtin",
-      label: "Next session",
-      description: "jump to the adjacent session's active window",
-      mapLabel: "next session",
+      label: "Next group",
+      description: "jump to the adjacent group's active tab",
+      mapLabel: "next group",
       ignoreInputs: true,
     });
     for (const host of [SHELL_MAC, BROWSER_MAC]) {
@@ -806,12 +806,12 @@ describe("palette parity invariant", () => {
   //                    Expand`/`Restore` remain as the expand-only verb)
   //   focus-hop      ⇄ tile-focus-tty / tile-focus-code
   // window-prev / window-next resolve to "Tab: Previous" / "Tab: Next",
-  // session-prev / session-next to "Session: Previous" / "Session: Next",
+  // session-prev / session-next to "Group: Previous" / "Group: Next",
   // and sidebar-toggle to "Sidebar: Toggle" (ids = actionIds, so the chord
   // hints attach) + sidebar-focus ("Sidebar: Focus") — all added with the
   // palette gap-fill phase; the map names them ahead of their runtime rows.
   const PALETTE_RESOLUTIONS: Record<string, readonly string[]> = {
-    "create-session": ["create-session"], // Session: Create
+    "create-session": ["create-session"], // Group: Create
     "create-window": ["create-window"], // Tab: Create
     "kill-window": ["kill-window"], // Tab: Kill
     "reopen-window": ["reopen-window"], // Tab: Reopen closed (stack-gated)

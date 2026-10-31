@@ -5,7 +5,7 @@ import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
 /**
  * Covers the save-as-style session name prompt behind the palette's
- * `Session: Create` action (one flow, two entry points — the `create-session`
+ * `Group: Create` action (one flow, two entry points — the `create-session`
  * chord resolves through the same palette body, but the chord is
  * browser-reserved in a non-shell host, so e2e exercises the palette entry
  * point).
@@ -32,22 +32,22 @@ function tmuxHasSession(name: string): boolean {
   }
 }
 
-/** Open the palette, select `Session: Create`, and return the prompt's name
+/** Open the palette, select `Group: Create`, and return the prompt's name
  *  input. The option's accessible name is `label — description`, so the
  *  anchored regex tolerates the descriptor while staying unambiguous (a
- *  sibling like `Session: Create at Folder` continues with ` at`, not ` —`). */
+ *  sibling like `Group: Create at Folder` continues with ` at`, not ` —`). */
 async function openPrompt(page: Page) {
   const paletteInput = await openPalette(page);
-  await paletteInput.fill("Session: Create");
-  const option = page.getByRole("option", { name: /^Session: Create( —|$)/ });
+  await paletteInput.fill("Group: Create");
+  const option = page.getByRole("option", { name: /^Group: Create( —|$)/ });
   await expect(option).toBeVisible({ timeout: 10_000 });
   await option.click();
-  const dialog = page.getByRole("dialog", { name: "New session" });
+  const dialog = page.getByRole("dialog", { name: "New group" });
   await expect(dialog).toBeVisible({ timeout: 5_000 });
-  return { dialog, input: dialog.getByRole("textbox", { name: "Session name" }) };
+  return { dialog, input: dialog.getByRole("textbox", { name: "Group name" }) };
 }
 
-test.describe("Session name prompt (Session: Create)", () => {
+test.describe("Group name prompt (Group: Create)", () => {
   test.beforeAll(() => {
     createSession(SEED_SESSION);
   });

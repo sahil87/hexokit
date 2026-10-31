@@ -74,7 +74,7 @@ const NO_OPERATOR_HINT_THROTTLE_MS = 4000;
 
 /** The established operator-absent message — the desktop drawer renders it as
  *  its hint line, mobile activations toast it. */
-const NO_OPERATOR_HINT = "no operator on this server — run rk operator";
+const NO_OPERATOR_HINT = "no operator on this workspace — run rk operator";
 
 /** No SSE event says "the start you requested produced no window". The daemon
  *  answers the POST within its 30 s receipt bound (operatorStartReceiptTimeout
@@ -1035,7 +1035,7 @@ export function QuakeTerminal() {
         <div className="ml-auto flex min-w-0 items-center gap-2 truncate whitespace-nowrap">
           {showPicker ? (
             <select
-              aria-label="Operator server"
+              aria-label="Operator workspace"
               value={server ?? ""}
               onChange={(e) => setPickerServer(e.target.value)}
               className="bg-transparent text-text-secondary outline-none cursor-pointer"
@@ -1533,7 +1533,7 @@ export function QuakeTerminalTongue() {
         type="button"
         data-testid="quake-terminal-tongue"
         data-tongue-state="return"
-        aria-label="Back to previous window"
+        aria-label="Back to previous tab"
         onClick={onReturn}
         // The visual tab is 64×12; the button's own box is the ≥36px hit area.
         className="absolute top-0 left-1/2 z-30 flex h-9 w-16 -translate-x-1/2 items-start justify-center"

@@ -345,7 +345,7 @@ test.describe("Settings dialog", () => {
    * `shortcuts-overlay` chord handler resolves the same layout-global entry:
    * ⇧Ctrl+/ switches the open dialog to the Shortcuts tab and re-firing
    * closes it. On the sessionless board route the macro add flow stays gated
-   * off and the TMUX section renders its "No tmux server running" empty
+   * off and the TMUX section renders its "No workspace running" empty
    * state.
    *
    * Steps:
@@ -397,7 +397,7 @@ test.describe("Settings dialog", () => {
       await expect(
         page.getByText("+ bind a key to a palette action or riff preset…"),
       ).toHaveCount(0);
-      await expect(page.getByTestId("tmux-section").getByText("No tmux server running")).toBeVisible();
+      await expect(page.getByTestId("tmux-section").getByText("No workspace running")).toBeVisible();
       await page.keyboard.press("Shift+Control+Slash");
       await expect(dialog).toHaveCount(0);
     } finally {

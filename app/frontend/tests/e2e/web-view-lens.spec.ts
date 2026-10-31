@@ -497,7 +497,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
 
     // Switch to B via a REAL client-side navigation (sidebar row click), not a
     // page.goto — B renders its own (unset) layout: the bare `tty` fallback.
-    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const sidebar = page.locator("nav[aria-label='Groups']");
     const rowB = sidebar
       .locator(`[data-window-id="${b}"]`)
       .getByRole("button")

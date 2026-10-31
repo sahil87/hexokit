@@ -25,11 +25,11 @@ describe("SectionRail", () => {
     render(<SectionRail />);
     expect(railButtons().map((b) => b.getAttribute("aria-label"))).toEqual([
       "Toggle Boards section",
-      "Toggle Servers section",
+      "Toggle Workspaces section",
       "Toggle Pane section",
       "Toggle Host section",
     ]);
-    expect(screen.queryByRole("button", { name: /Sessions section/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Groups section/ })).not.toBeInTheDocument();
   });
 
   it("aria-pressed reflects the defaults (Boards/Server on, Pane/Host off)", () => {
