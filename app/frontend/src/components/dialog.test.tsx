@@ -139,6 +139,20 @@ describe("Dialog", () => {
     }
   });
 
+  it("renders the sheet variant as a 520px panel that bottom-docks below sm", () => {
+    const { container } = render(
+      <Dialog title="New" onClose={() => {}} size="sheet">
+        <button type="button">Create</button>
+      </Dialog>,
+    );
+    const panel = screen.getByRole("dialog");
+    expect(panel.className).toContain("sm:max-w-[520px]");
+    expect(panel.className).toContain("overflow-y-auto");
+    const overlay = (container.firstElementChild as HTMLElement).className;
+    expect(overlay).toContain("items-end");
+    expect(overlay).toContain("sm:items-center");
+  });
+
   it("calls onClose on backdrop click but not on dialog-body click", () => {
     const onClose = vi.fn();
     const { container } = render(

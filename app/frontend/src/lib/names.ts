@@ -90,3 +90,33 @@ export function deriveNameFromPath(p: string): string {
   const segment = trimmed.split("/").pop() ?? "";
   return finalizeSafeName(toSafeSessionName(segment));
 }
+
+/**
+ * Deduplicate `base` against `existing` by appending -2 through -10; beyond
+ * that appends -11 (best-effort). Shared by instant group creation and the
+ * New sheet so the preview shows the name that will actually be created.
+ */
+export function uniqueName(base: string, existing: Iterable<string>): string {
+  const taken = new Set(existing);
+  if (!taken.has(base)) return base;
+  for (let i = 2; i <= 10; i++) {
+    const candidate = `${base}-${i}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return `${base}-11`;
+}
+
+/**
+ * Raw (unsanitized) basename of a filesystem path — the last non-empty path
+ * segment. Used as the optimistic ghost-window label so it matches what tmux
+ * will name an unnamed window (tmux's `#{b:pane_current_path}` uses the raw
+ * basename, NOT the tmux-safe sanitization `deriveNameFromPath` applies).
+ * Falls back to "window" when no basename is derivable.
+ */
+export function rawBasename(cwd: string | undefined): string {
+  if (!cwd) return "window";
+  const trimmed = cwd.replace(/\/+$/, "");
+  if (trimmed === "") return "window";
+  const segment = trimmed.split("/").pop() ?? "";
+  return segment || "window";
+}

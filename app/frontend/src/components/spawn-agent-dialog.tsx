@@ -44,7 +44,7 @@ const DEFAULT_TIER = "default";
  * the dialog stays open for correction. On success it closes and navigates to
  * the new window (guarding a falsy best-effort windowId — SSE surfaces the row).
  *
- * Follows the create-session-dialog patterns (Dialog shell, `text-xs` field
+ * Follows the shared dialog patterns (Dialog shell, `text-xs` field
  * labels, disabled-submit styling); the busy state deliberately shows no
  * per-step progression because the endpoint is synchronous and emits no
  * per-step events (intake assumption / plan A-9).

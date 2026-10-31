@@ -178,8 +178,10 @@ import { GuiRestartDialog } from "@/components/gui-restart-dialog";
 import type { GuiSurfaceCommands } from "@/components/gui-surface";
 import { windowIdToUrlSegment } from "@/lib/router-url";
 import { ServerDialogsProvider, useServerDialogs } from "@/contexts/server-dialogs-context";
+import { NewSheetProvider, useNewSheet } from "@/contexts/new-sheet-context";
 import { PaletteActionsProvider, usePaletteActions, usePaletteActionsApi, usePaletteGlobals, useRegisterPaletteActions } from "@/contexts/palette-actions-context";
 import { ServerDialogs } from "@/components/server-dialogs";
+import { NewSheetHost } from "@/components/new-sheet-host";
 import { useGlobalPaletteActions } from "@/hooks/use-global-palette-actions";
 import { ScreenBreakController } from "@/components/screen-break";
 import { registerGlass } from "@/lib/screen-break-store";
@@ -253,6 +255,8 @@ import { useWindowPins } from "@/hooks/use-window-pins";
 import { usePinActions } from "@/hooks/use-pin-actions";
 import {
   deriveNameFromPath,
+  uniqueName,
+  rawBasename,
   finalizeSafeName,
   toSafeSessionName,
   toSafeWindowName,
@@ -270,7 +274,6 @@ import { useWindowStore } from "@/store/window-store";
 
 const CommandPalette = lazy(() => import("@/components/command-palette").then(m => ({ default: m.CommandPalette })));
 const ThemeSelector = lazy(() => import("@/components/theme-selector").then(m => ({ default: m.ThemeSelector })));
-const CreateSessionDialog = lazy(() => import("@/components/create-session-dialog").then(m => ({ default: m.CreateSessionDialog })));
 const SessionNamePrompt = lazy(() => import("@/components/session-name-prompt").then(m => ({ default: m.SessionNamePrompt })));
 const GuiGeometryPrompt = lazy(() => import("@/components/gui-geometry-prompt").then(m => ({ default: m.GuiGeometryPrompt })));
 const GuiSendKeyPrompt = lazy(() => import("@/components/gui-send-key-prompt").then(m => ({ default: m.GuiSendKeyPrompt })));
@@ -299,29 +302,7 @@ function keyboardLock(): { lock(): Promise<void>; unlock(): void } | undefined {
  * -2 through -10; beyond that appends -11 (best-effort).
  */
 function deriveInstantSessionName(cwd: string | undefined, existingNames: string[]): string {
-  const base = (cwd ? deriveNameFromPath(cwd) : "") || "session";
-  const nameSet = new Set(existingNames);
-  if (!nameSet.has(base)) return base;
-  for (let i = 2; i <= 10; i++) {
-    const candidate = `${base}-${i}`;
-    if (!nameSet.has(candidate)) return candidate;
-  }
-  return `${base}-11`;
-}
-
-/**
- * Raw (unsanitized) basename of a filesystem path — the last non-empty path
- * segment. Used as the optimistic ghost-window label so it matches what tmux
- * will name an unnamed window (tmux's `#{b:pane_current_path}` uses the raw
- * basename, NOT the tmux-safe sanitization `deriveNameFromPath` applies).
- * Falls back to "window" when no basename is derivable.
- */
-function rawBasename(cwd: string | undefined): string {
-  if (!cwd) return "window";
-  const trimmed = cwd.replace(/\/+$/, "");
-  if (trimmed === "") return "window";
-  const segment = trimmed.split("/").pop() ?? "";
-  return segment || "window";
+  return uniqueName((cwd ? deriveNameFromPath(cwd) : "") || "session", existingNames);
 }
 
 /** Root wrapper — provides theme, chrome, session, focused-terminal, and
@@ -412,7 +393,9 @@ export function AppLayout() {
     // `ServerDialogs` reads `SessionContext` (RootWrapper, above all of this).
     <SettingsDialogProvider>
       <ServerDialogsProvider>
-        <AppLayoutContent />
+        <NewSheetProvider>
+          <AppLayoutContent />
+        </NewSheetProvider>
       </ServerDialogsProvider>
     </SettingsDialogProvider>
   );
@@ -590,6 +573,9 @@ function AppLayoutContent() {
     {/* The ONE server create/kill dialog mount (260811-239r) — every route's
         sidebar/palette triggers funnel through `server-dialogs-context`. */}
     <ServerDialogs />
+    {/* The ONE New-sheet mount — palette/split-button openers funnel through
+        `new-sheet-context`, like the server dialogs above. */}
+    <NewSheetHost />
     {/* The ONE (lazy) command-palette mount (260811-239r) — renders the merged
         list: the active route's registered actions first, then the global
         groups built above. The per-route palette mounts are gone. Unmounted
@@ -2454,10 +2440,10 @@ function AppShell() {
     killServerTarget,
     adoptServerTarget,
   } = useServerDialogs();
+  const { openNewSheet, newSheetOpen } = useNewSheet();
   const { getAllActions } = usePaletteActionsApi();
   const paletteGlobals = usePaletteGlobals();
   const [showTmuxCommands, setShowTmuxCommands] = useState(false);
-  const [showCreateWindowAtFolderDialog, setShowCreateWindowAtFolderDialog] = useState(false);
   // Save-as-style name prompt behind `Session: Create` (chord + palette). The
   // prefill is captured at OPEN time so it can't churn under the user's edit.
   const [sessionNamePrompt, setSessionNamePrompt] = useState<{ defaultName: string } | null>(null);
@@ -3370,7 +3356,7 @@ function AppShell() {
   // `server-dialogs-context` (260811-239r) — the dialogs mount in AppLayout now,
   // but gating this route's URL writeback while one is up is unchanged.
   dialogOpenRef.current =
-    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || createServerOpen || killServerTarget != null || adoptServerTarget != null || showTmuxCommands || showCreateWindowAtFolderDialog || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null || operatorComposeMode != null || noteTarget != null;
+    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || createServerOpen || killServerTarget != null || adoptServerTarget != null || newSheetOpen || showTmuxCommands || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null || operatorComposeMode != null || noteTarget != null;
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -3839,6 +3825,12 @@ function AppShell() {
         description: "holds related tabs",
         onSelect: handleOpenSessionNamePrompt,
       },
+      {
+        id: "create-session-at-folder",
+        label: "Group: Create at Folder",
+        description: "pick the folder first",
+        onSelect: () => openNewSheet({ level: "group", server }),
+      },
       ...(sessionName
         ? [
             {
@@ -3894,7 +3886,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, dialogs, handleOpenSessionNamePrompt, currentSessionOrderIdx, effectiveSessionOrder, moveCurrentSession, server, addToast],
+    [sessionName, dialogs, handleOpenSessionNamePrompt, currentSessionOrderIdx, effectiveSessionOrder, moveCurrentSession, server, addToast, openNewSheet],
   );
 
   // Compute min/max window indices for current session (for move boundary checks)
@@ -3937,7 +3929,7 @@ function AppShell() {
             {
               id: "create-window-at-folder",
               label: "Tab: Create at Folder",
-              onSelect: () => setShowCreateWindowAtFolderDialog(true),
+              onSelect: () => openNewSheet({ level: "tab", server, group: sessionName }),
             },
             {
               id: "create-iframe-window",
@@ -4172,7 +4164,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, currentWindow, sessions, hasOperatorWindow, handleCreateWindow, handleFixTabName, handleAnnotateTab, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, addToast, setShowCreateWindowAtFolderDialog, copyPaletteEntry],
+    [sessionName, currentWindow, sessions, hasOperatorWindow, handleCreateWindow, handleFixTabName, handleAnnotateTab, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, addToast, openNewSheet, copyPaletteEntry],
   );
 
   // Boards palette block (server-route variant). AppShell only mounts under
@@ -5086,7 +5078,7 @@ function AppShell() {
       {
         id: "create-server",
         label: "Workspace: Create",
-        onSelect: openCreateServer,
+        onSelect: () => openNewSheet({ level: "workspace" }),
       },
       // The server tier's keyboard color path (mirrors `Session: Set Color`'s
       // shape): opens the modal SwatchPopover's "server" arm below.
@@ -5154,7 +5146,7 @@ function AppShell() {
         onSelect: () => handleSwitchServer(name),
       })),
     ],
-    [servers, server, handleSwitchServer, currentRegularIdx, regularOrder, moveCurrentServer, openCreateServer, requestKillServer, requestAdoptServer, copyPaletteEntry, instanceDisplayName, windowParam, navigate],
+    [servers, server, handleSwitchServer, currentRegularIdx, regularOrder, moveCurrentServer, openNewSheet, requestKillServer, requestAdoptServer, copyPaletteEntry, instanceDisplayName, windowParam, navigate],
   );
 
   // Desktop-shell server switching (Constitution V): `Server: Switch to
@@ -6583,17 +6575,6 @@ function AppShell() {
           <GuiSendKeyPrompt
             onSubmit={submitGuiSendKey}
             onClose={() => setGuiSendKeyOpen(false)}
-          />
-        </Suspense>
-      )}
-
-      {showCreateWindowAtFolderDialog && sessionName && (
-        <Suspense fallback={null}>
-          <CreateSessionDialog
-            sessions={sessions}
-            session={sessionName}
-            defaultPath={currentWindow?.worktreePath}
-            onClose={() => setShowCreateWindowAtFolderDialog(false)}
           />
         </Suspense>
       )}

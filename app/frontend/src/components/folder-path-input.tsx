@@ -16,6 +16,61 @@ export function projectRoots(sessions: ProjectSession[]): string[] {
   return [...paths].sort();
 }
 
+/** Distinct worktree paths of EVERY tab across `sessions`, sorted — the New
+ *  sheet's "Open elsewhere" source (`projectRoots` widened past each group's
+ *  first tab). */
+export function tabFolders(sessions: ProjectSession[]): string[] {
+  const paths = new Set<string>();
+  for (const s of sessions) {
+    for (const w of s.windows) {
+      if (w.worktreePath) paths.add(w.worktreePath);
+    }
+  }
+  return [...paths].sort();
+}
+
+/** Debounced `getDirectories` autocomplete state, shared by the combobox and
+ *  the New sheet. `request` schedules a lookup for the typed value (an empty
+ *  value clears); `clear` drops results without a lookup (after a pick). */
+export function useDirectorySuggestions() {
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const request = useCallback((next: string) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!next) {
+      setSuggestions([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        setSuggestions(await getDirectories(next));
+      } catch {
+        // Ignore
+      } finally {
+        setLoading(false);
+      }
+    }, 300);
+  }, []);
+
+  const clear = useCallback(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setSuggestions([]);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  return { suggestions, loading, request, clear };
+}
+
 type FolderPathInputProps = {
   value: string;
   onChange: (value: string) => void;
@@ -42,11 +97,9 @@ export function FolderPathInput({
   ariaLabel = "Project path",
   placeholder = "~/code/...",
 }: FolderPathInputProps) {
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const { suggestions, loading: isLoadingSuggestions, request: fetchSuggestions, clear: clearSuggestions } = useDirectorySuggestions();
   const [showDropdown, setShowDropdown] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(-1);
-  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const baseId = useId();
@@ -62,35 +115,15 @@ export function FolderPathInput({
 
   function selectPath(p: string) {
     onChange(p);
-    setSuggestions([]);
+    clearSuggestions();
     setShowDropdown(false);
     setHighlightIndex(-1);
   }
 
-  const fetchSuggestions = useCallback((next: string) => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!next) {
-      setSuggestions([]);
-      setIsLoadingSuggestions(false);
-      return;
-    }
-    setIsLoadingSuggestions(true);
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const dirs = await getDirectories(next);
-        setSuggestions(dirs);
-        setHighlightIndex(-1);
-      } catch {
-        // Ignore
-      } finally {
-        setIsLoadingSuggestions(false);
-      }
-    }, 300);
-  }, []);
-
   function handleChange(next: string) {
     onChange(next);
     setShowDropdown(true);
+    setHighlightIndex(-1);
     fetchSuggestions(next);
   }
 
@@ -136,12 +169,6 @@ export function FolderPathInput({
     const el = dropdownRef.current.children[highlightIndex] as HTMLElement | undefined;
     el?.scrollIntoView({ block: "nearest" });
   }, [highlightIndex]);
-
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, []);
 
   return (
     <div className="relative">
