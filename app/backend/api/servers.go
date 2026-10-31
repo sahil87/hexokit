@@ -124,9 +124,21 @@ func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// legacyFirstGroup is the first group of a workspace created without a folder.
+const legacyFirstGroup = "0"
+
+// fallbackFirstGroup names the first group when the folder yields no usable
+// name (the home directory itself).
+const fallbackFirstGroup = "main"
+
+// handleServerCreate creates a workspace (tmux server) by birthing its first
+// group (tmux session). With an optional cwd the group is named after the
+// folder and starts there; without one it is the legacy "0" at $HOME.
+// POST /api/servers ← {"name": "srv", "cwd": "~/code/x"?} → 201 {"ok": true, "group": "x"}
 func (s *Server) handleServerCreate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name string `json:"name"`
+		CWD  string `json:"cwd"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid JSON body")
@@ -138,18 +150,33 @@ func (s *Server) handleServerCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Could not determine home directory")
+	resolvedCwd, errMsg := resolveWorkingDir(body.CWD)
+	if errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
 		return
 	}
 
-	if err := s.tmux.CreateSession("0", homeDir, body.Name); err != nil {
+	group := legacyFirstGroup
+	if body.CWD != "" {
+		group = validate.SessionNameFromPath(body.CWD)
+		if group == "" {
+			group = fallbackFirstGroup
+		}
+	} else {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "Could not determine home directory")
+			return
+		}
+		resolvedCwd = homeDir
+	}
+
+	if err := s.tmux.CreateSession(group, resolvedCwd, body.Name); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
+	writeJSON(w, http.StatusCreated, map[string]any{"ok": true, "group": group})
 }
 
 // handleServerOrderPost persists the user-defined server display order by

@@ -1475,11 +1475,13 @@ export async function listServers(): Promise<ServerInfo[]> {
   return res.json();
 }
 
-export async function createServer(name: string): Promise<{ ok: boolean }> {
+/** Create a workspace. A non-empty `cwd` starts its first group in that folder
+ *  (named after it); without one the backend births the legacy "0" group at $HOME. */
+export async function createServer(name: string, cwd?: string): Promise<{ ok: boolean; group?: string }> {
   const res = await fetch("/api/servers", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(cwd ? { name, cwd } : { name }),
   });
   if (!res.ok) await throwOnError(res);
   return res.json();

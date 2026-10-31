@@ -48,6 +48,7 @@ type mockTmuxOps struct {
 	createSessionCalled  bool
 	createSessionName    string
 	createSessionCwd     string
+	createSessionServer  string
 	killMu               sync.Mutex
 	killSessionCalled    bool
 	killSessionName      string
@@ -325,6 +326,7 @@ func (m *mockTmuxOps) CreateSession(name, cwd, server string) error {
 	m.createSessionCalled = true
 	m.createSessionName = name
 	m.createSessionCwd = cwd
+	m.createSessionServer = server
 	return m.err
 }
 func (m *mockTmuxOps) KillSession(session, server string) error {

@@ -1,3 +1,6 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-10-30T09:38:07Z"}
 {"args":"Create a workspace at a chosen folder instead of session 0 in home","cmd":"fab-new","event":"command","ts":"2026-10-30T09:38:07Z"}
 {"delta":"+4.5","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-10-30T09:40:51Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-10-31T07:35:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-10-31T07:36:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-10-31T07:44:03Z"}

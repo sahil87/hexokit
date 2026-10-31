@@ -1124,3 +1124,111 @@ func TestHandleServerAdopt_InvalidNameRejected(t *testing.T) {
 		t.Errorf("mutation ran on an invalid name: marks=%v reloads=%v", mock.markManagedCalls, mock.reloadConfigCalls)
 	}
 }
+
+func postServerCreate(t *testing.T, mock *serversTmuxMock, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	req := httptest.NewRequest("POST", "/api/servers", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestHandleServerCreate_NoCwdKeepsLegacyBirthSession(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	mock := &serversTmuxMock{}
+	rec := postServerCreate(t, mock, `{"name":"work"}`)
+
+	if rec.Code != 201 {
+		t.Fatalf("status = %d, want 201. body=%s", rec.Code, rec.Body.String())
+	}
+	if mock.createSessionName != "0" || mock.createSessionCwd != home || mock.createSessionServer != "work" {
+		t.Errorf("CreateSession(%q, %q, %q), want (\"0\", %q, \"work\")", mock.createSessionName, mock.createSessionCwd, mock.createSessionServer, home)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got["ok"] != true || got["group"] != "0" {
+		t.Errorf("body = %v, want ok:true group:\"0\"", got)
+	}
+}
+
+func TestHandleServerCreate_CwdNamesFirstGroupAfterFolder(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	tests := []struct {
+		name      string
+		cwd       string
+		wantGroup string
+		wantCwd   string
+	}{
+		{"tilde path", "~/code/hexokit", "hexokit", home + "/code/hexokit"},
+		{"dots and hyphens", "~/code/my-app.v2", "my_app_v2", home + "/code/my-app.v2"},
+		{"trailing slash", "~/code/hexokit/", "hexokit", home + "/code/hexokit"},
+		{"absolute under home", home + "/code/x", "x", home + "/code/x"},
+		{"home tilde", "~", "main", home},
+		{"home tilde slash", "~/", "main", home},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &serversTmuxMock{}
+			body, _ := json.Marshal(map[string]string{"name": "ws", "cwd": tt.cwd})
+			rec := postServerCreate(t, mock, string(body))
+
+			if rec.Code != 201 {
+				t.Fatalf("status = %d, want 201. body=%s", rec.Code, rec.Body.String())
+			}
+			if mock.createSessionName != tt.wantGroup || mock.createSessionCwd != tt.wantCwd || mock.createSessionServer != "ws" {
+				t.Errorf("CreateSession(%q, %q, %q), want (%q, %q, \"ws\")", mock.createSessionName, mock.createSessionCwd, mock.createSessionServer, tt.wantGroup, tt.wantCwd)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if got["group"] != tt.wantGroup {
+				t.Errorf("group = %v, want %q", got["group"], tt.wantGroup)
+			}
+		})
+	}
+}
+
+func TestHandleServerCreate_InvalidInputRejectedBeforeTmux(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		wantMsg string
+	}{
+		{"cwd outside home", `{"name":"x","cwd":"/etc"}`, "Path must be under home directory"},
+		{"cwd tilde user", `{"name":"x","cwd":"~root/code"}`, "~user expansion is not supported"},
+		{"cwd with newline", `{"name":"x","cwd":"~/a\nb"}`, "Working directory contains invalid characters"},
+		{"invalid server name", `{"name":"bad name","cwd":"~/code"}`, "Server name must contain only"},
+		{"empty server name", `{"name":""}`, "Server name cannot be empty"},
+		{"malformed json", `{`, "Invalid JSON body"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &serversTmuxMock{}
+			rec := postServerCreate(t, mock, tt.body)
+
+			if rec.Code != 400 {
+				t.Fatalf("status = %d, want 400. body=%s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tt.wantMsg) {
+				t.Errorf("body = %s, want message containing %q", rec.Body.String(), tt.wantMsg)
+			}
+			if mock.createSessionCalled {
+				t.Error("CreateSession was called for a rejected request")
+			}
+		})
+	}
+}
+
+func TestHandleServerCreate_TmuxFailureSurfaces500(t *testing.T) {
+	mock := &serversTmuxMock{mockTmuxOps: mockTmuxOps{err: errors.New("tmux boom")}}
+	rec := postServerCreate(t, mock, `{"name":"ws","cwd":"~/code/x"}`)
+
+	if rec.Code != 500 {
+		t.Fatalf("status = %d, want 500. body=%s", rec.Code, rec.Body.String())
+	}
+}
