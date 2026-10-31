@@ -184,54 +184,58 @@ Go tests and Vitest SHALL use the injectable runner / mocked client; Playwright 
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `fabsysconfig.Read` builds the document from the three JSON fab calls with no YAML/text parsing and no cache
-- [ ] A-002 R2: Every fab call is `exec.CommandContext` argv with a 10 s timeout, `Dir=$HOME`, behind a `Runner` seam; absent fab yields `installed:false`
-- [ ] A-003 R3: The document has installed, systemPath, providers, fields, roles (ordered), modelSuggestions, effortSuggestions with `override` only for system-origin cells
-- [ ] A-004 R4: Allowlist and value validation reject bad patches before any exec
-- [ ] A-005 R5: set/unset argv and warnings/re-read behavior match the spec
-- [ ] A-006 R6: GET/POST `/api/fab-config` registered next to `/api/settings` with the specified status mapping
-- [ ] A-007 R7: Agents tab sits between Appearance and Shortcuts; `openSettings("agents")` deep-links; tab-less open lands on General
-- [ ] A-008 R8: The panel fetches on every mount
-- [ ] A-009 R9: Chips, number inputs, toggle, provenance chip, modified dot and reset link behave per spec
-- [ ] A-010 R10: Env origin renders the amber shadow warning naming the variable; POST warnings render verbatim
-- [ ] A-011 R11: Role table shows inherited `↳` cells, inherit→null, row reset in one POST, model-mismatch warning, internal scroll wrapper
-- [ ] A-012 R12: Not-installed state renders without errors
-- [ ] A-013 R13: Footer text and copy-path control present
-- [ ] A-014 R14: `Settings: Agents` palette entry opens the tab
-- [ ] A-015 R15: Constitution IV amended, version 2.3.0, Last Amended 2026-10-31
+- [x] A-001 R1: `fabsysconfig.Read` builds the document from the three JSON fab calls with no YAML/text parsing and no cache
+- [x] A-002 R2: Every fab call is `exec.CommandContext` argv with a 10 s timeout, `Dir=$HOME`, behind a `Runner` seam; absent fab yields `installed:false`
+- [x] A-003 R3: The document has installed, systemPath, providers, fields, roles (ordered), modelSuggestions, effortSuggestions with `override` only for system-origin cells
+- [x] A-004 R4: Allowlist and value validation reject bad patches before any exec
+- [x] A-005 R5: set/unset argv and warnings/re-read behavior match the spec
+- [x] A-006 R6: GET/POST `/api/fab-config` registered next to `/api/settings` with the specified status mapping
+- [x] A-007 R7: Agents tab sits between Appearance and Shortcuts; `openSettings("agents")` deep-links; tab-less open lands on General
+- [x] A-008 R8: The panel fetches on every mount
+- [x] A-009 R9: Chips, number inputs, toggle, provenance chip, modified dot and reset link behave per spec
+- [x] A-010 R10: Env origin renders the amber shadow warning naming the variable; POST warnings render verbatim
+- [x] A-011 R11: Role table shows inherited `↳` cells, inherit→null, row reset in one POST, model-mismatch warning, internal scroll wrapper
+- [x] A-012 R12: Not-installed state renders without errors
+- [x] A-013 R13: Footer text and copy-path control present
+- [x] A-014 R14: `Settings: Agents` palette entry opens the tab
+- [x] A-015 R15: Constitution IV amended, version 2.3.0, Last Amended 2026-10-31
 
 ### Behavioral Correctness
 
-- [ ] A-016 R7: Existing General/Appearance/Shortcuts/All tabs and roving-tabindex nav still work with five tabs
-- [ ] A-017 R9: A failed write leaves the previous value and shows fab's message on that row
+- [x] A-016 R7: Existing General/Appearance/Shortcuts/All tabs and roving-tabindex nav still work with five tabs
+- [x] A-017 R9: A failed write leaves the previous value and shows fab's message on that row
 
 ### Scenario Coverage
 
-- [ ] A-018 R5: Go test covers set+unset in one patch with exact argv
-- [ ] A-019 R16: No test writes the real `~/.fab-kit/config.yaml` (runner seam / mocked client / `page.route`)
+- [x] A-018 R5: Go test covers set+unset in one patch with exact argv
+- [x] A-019 R16: No test writes the real `~/.fab-kit/config.yaml` (runner seam / mocked client / `page.route`)
 
 ### Edge Cases & Error Handling
 
-- [ ] A-020 R4: Empty/`#`/leading-dash/over-long model values, out-of-range column_width and unknown providers are rejected
-- [ ] A-021 R6: fab non-zero exit → 502 with stderr; fab missing on POST → 503
+- [x] A-020 R4: Empty/`#`/leading-dash/over-long model values, out-of-range column_width and unknown providers are rejected
+- [x] A-021 R6: fab non-zero exit → 502 with stderr; fab missing on POST → 503
 
 ### Code Quality
 
-- [ ] A-022 Pattern consistency: New code follows naming and structural patterns of surrounding code
-- [ ] A-023 No unnecessary duplication: Existing utilities reused (PreferenceRow idioms, `useTextSettingDraft`, `BoolToggle`, `controlClass`, `writeJSON/writeError`)
-- [ ] A-024 Subprocess hygiene: no shell strings, all calls `exec.CommandContext` with timeout
-- [ ] A-025 Test intent comments: new Playwright `test()` blocks carry Proves/Steps JSDoc and a file header
-- [ ] A-026 No magic strings: key names, roles and limits are named constants
+- [x] A-022 Pattern consistency: New code follows naming and structural patterns of surrounding code
+- [x] A-023 No unnecessary duplication: Existing utilities reused (PreferenceRow idioms, `useTextSettingDraft`, `BoolToggle`, `controlClass`, `writeJSON/writeError`)
+- [x] A-024 Subprocess hygiene: no shell strings, all calls `exec.CommandContext` with timeout
+- [x] A-025 Test intent comments: new Playwright `test()` blocks carry Proves/Steps JSDoc and a file header
+- [x] A-026 No magic strings: key names, roles and limits are named constants
 
 ### Security
 
-- [ ] A-027 R4: User-supplied values reach fab only as argv elements after validation; values can't parse as flags
+- [x] A-027 R4: User-supplied values reach fab only as argv elements after validation; values can't parse as flags
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- None — this change adds new functionality without making existing code redundant (`PreferenceRow` was moved from `settings-dialog.tsx` into `text-setting-core.tsx`, not duplicated).
 
 ## Assumptions
 
