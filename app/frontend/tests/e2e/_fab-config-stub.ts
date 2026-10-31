@@ -28,19 +28,26 @@ const ROLES: Array<[string, "session" | "workers"]> = [
   ["review", "workers"],
 ];
 
-/** Installs the stub (call before `page.goto`); returns the POST bodies seen. */
+/** Installs the stub (call before `page.goto`); returns the POST bodies seen.
+ *  `system` seeds extra system-tier values; `env` keys win over system as
+ *  origin `env` from `FAB_TEST_ENV`, carrying the shadowed `systemValue`. */
 export async function stubFabConfig(
   page: Page,
-  opts: { installed?: boolean; systemPath?: string } = {},
+  opts: { installed?: boolean; systemPath?: string; system?: Record<string, Scalar>; env?: Record<string, Scalar> } = {},
 ): Promise<Array<Record<string, unknown>>> {
   const systemPath = opts.systemPath ?? "/home/e2e/.fab-kit/config.yaml";
   const posts: Array<Record<string, unknown>> = [];
-  const system = new Map<string, Scalar>([["agent.session", "claude"]]);
+  const system = new Map<string, Scalar>([["agent.session", "claude"], ...Object.entries(opts.system ?? {})]);
+  const env = opts.env ?? {};
+  const envDetail = "FAB_TEST_ENV";
 
   const document = () => {
     const fields = Object.fromEntries(
       Object.entries(DEFAULTS).map(([key, def]) => {
         const sys = system.get(key);
+        if (key in env) {
+          return [key, { value: env[key], origin: "env", originDetail: envDetail, ...(sys !== undefined ? { systemValue: sys } : {}) }];
+        }
         return [key, sys !== undefined ? { value: sys, origin: "system", originDetail: systemPath } : { value: def, origin: "default" }];
       }),
     );
@@ -49,9 +56,20 @@ export async function stubFabConfig(
       const cell = (leaf: string, inherited: string, source: string) => {
         const key = `agent.profiles.${role}.${leaf}`;
         const sys = system.get(key);
+        if (key in env) {
+          return {
+            override: null,
+            effective: String(env[key]),
+            source: key,
+            origin: "env",
+            originDetail: envDetail,
+            inherited,
+            ...(sys !== undefined ? { systemValue: String(sys) } : {}),
+          };
+        }
         return sys !== undefined
-          ? { override: String(sys), effective: String(sys), source: key, origin: "system", originDetail: systemPath }
-          : { override: null, effective: inherited, source, origin: "default" };
+          ? { override: String(sys), effective: String(sys), source: key, origin: "system", originDetail: systemPath, inherited }
+          : { override: null, effective: inherited, source, origin: "default", inherited };
       };
       return {
         role,
