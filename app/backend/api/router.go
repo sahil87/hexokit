@@ -26,7 +26,6 @@ import (
 	"rk/internal/mcp"
 	"rk/internal/metrics"
 	"rk/internal/ports"
-	"rk/internal/prreview"
 	"rk/internal/prstatus"
 	"rk/internal/riff"
 	"rk/internal/sessions"
@@ -36,7 +35,6 @@ import (
 	"rk/internal/updatecheck"
 	"rk/internal/validate"
 	"rk/internal/wt"
-	"rk/internal/wtdiff"
 )
 
 const (
@@ -249,22 +247,9 @@ type Server struct {
 	metrics         *metrics.Collector
 	services        *ports.Collector
 	prStatus        *prstatus.Collector
-	// prReview is the review surface's on-demand detail fetcher and
-	// prReviewRefresh its per-PR forced-refresh choke point. Both are built
-	// lazily on first use (api/pr_review.go): a daemon whose user never opens a
-	// review tile allocates neither.
-	prReview     *prreview.Fetcher
-	prReviewOnce sync.Once
-	// wtDiff is the working-directory surface's git reader. It holds no cache
-	// — a working-tree read is two local subprocesses and ~50 ms — so it is
-	// here only to avoid rebuilding the seam per request.
-	wtDiff              *wtdiff.Reader
-	wtDiffOnce          sync.Once
-	prReviewRefresh     *prReviewRefreshState
-	prReviewRefreshOnce sync.Once
-	updateChecker       *updatecheck.Checker
-	sseHub              *sseHub
-	sseOnce             sync.Once
+	updateChecker   *updatecheck.Checker
+	sseHub          *sseHub
+	sseOnce         sync.Once
 	// sseHubRef mirrors sseHub for goroutines that must NOT create the hub
 	// just to read it — the PR change detector's wake path. Written inside
 	// sseOnce.Do (so the store happens-before any load that observes it), nil
@@ -390,14 +375,6 @@ func (s *Server) initSSEHub() {
 		s.sseHub.codeServerPort = s.codeServerPort
 		s.sseHub.getOperatorQueue().deliver = s.operatorQueueDeliver()
 		s.sseHub.setAutoName(s.autoNameEnabled, s.autoNameDeliver())
-		// PR-review comment listener seams. `enabled` is read at every tick so
-		// the pr_review_listener settings key takes effect live, exactly like
-		// cron_ticker.
-		listener := s.sseHub.getPRReviewListener()
-		listener.deliver = s.deliverPRReviewThread
-		listener.unhandled = s.prReviewUnhandled
-		listener.enabled = func() bool { return settings.Load().PrReviewListener }
-		listener.disarm = s.disarmPRReviewListener
 		s.sseHubRef.Store(s.sseHub)
 	})
 }
@@ -847,24 +824,6 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger, cfg config.Con
 
 	pc.Start(ctx)
 
-	// The thread digest's SCOPE guard (spec pr-review.md § R3): threads are
-	// fetched only for the PRs live windows actually resolve to, never for the
-	// viewer's 100 most recent. Both consumers — the listener's predicate and
-	// the toggle's dot — are per-window questions, so the viewer-wide shape was
-	// paying ~40x for an answer nobody asked. PositiveEntries IS that live set:
-	// the pairs the refresher resolved for observed panes.
-	pc.SetLivePRSource(func() []string {
-		entries := prstatus.DefaultBranchRefresher.PositiveEntries()
-		urls := make([]string, 0, len(entries))
-		for _, entry := range entries {
-			if entry.PR.URL != "" {
-				urls = append(urls, entry.PR.URL)
-			}
-		}
-		return urls
-	})
-	pc.StartThreads(ctx, prstatus.DefaultThreadInterval)
-
 	// Branch→PR refresher: resolves observed (repo, branch) pairs
 	// to their open PR on a background tick so the SSE hot path (which only
 	// registers pairs + joins the snapshot) never spawns gh. Started next to the
@@ -905,8 +864,7 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger, cfg config.Con
 	// against the primary rate limit) and, on a flip, drives the existing
 	// re-derivation chain — one batched collector refresh, a TARGETED branch
 	// re-resolve of the changed URLs (never a full RefreshNow: that is one
-	// `gh pr list` per registered pair), a thread-digest refresh only when
-	// comments/reviews moved, and a hub wake so clients see the new snapshot
+	// `gh pr list` per registered pair), and a hub wake so clients see the new snapshot
 	// without waiting out the SSE safety tick. The detector writes no PR
 	// state itself; the timed pollers stay the reconciliation safety net.
 	// NewTestRouter leaves this unwired — unit tests never touch the network.
@@ -936,18 +894,11 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger, cfg config.Con
 	})
 	det.SetOnChange(func(ctx context.Context, changed []prstatus.DetectedChange) {
 		urls := make([]string, 0, len(changed))
-		threadsRelevant := false
 		for _, ch := range changed {
 			urls = append(urls, ch.URL)
-			if ch.ThreadsRelevant() {
-				threadsRelevant = true
-			}
 		}
 		pc.RefreshNow(ctx)
 		prstatus.DefaultBranchRefresher.RefreshURLs(ctx, urls)
-		if threadsRelevant {
-			pc.RefreshThreadsNow(ctx)
-		}
 		s.wakeAllSSE()
 	})
 	det.Start(ctx)
@@ -1129,18 +1080,6 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/tmux/reload-config", s.handleTmuxReloadConfig)
 	r.Post("/api/tmux/init-conf", s.handleTmuxInitConf)
 	r.Post("/api/status/refresh", s.handleStatusRefresh)
-	// The `review` surface (docs/specs/pr-review.md § R4). Reads GET, every
-	// mutation POST (Constitution IX); the file list and the file body are
-	// separate reads so a 200-file PR renders without tokenizing any of them.
-	r.Get("/api/diff", s.handleDiff)
-	r.Get("/api/diff/file", s.handleDiffFile)
-	r.Get("/api/diff/digest", s.handleDiffDigest)
-	r.Get("/api/pr/review", s.handlePRReview)
-	r.Get("/api/pr/review/file", s.handlePRReviewFile)
-	r.Post("/api/pr/review/comment", s.handlePRReviewComment)
-	r.Post("/api/pr/review/thread", s.handlePRReviewThread)
-	r.Post("/api/pr/review/listen", s.handlePRReviewListen)
-	r.Post("/api/pr/review/refresh", s.handlePRReviewRefresh)
 	r.Post("/api/update", s.handleUpdate)
 	r.Post("/api/updates/check", s.handleUpdatesCheck)
 	r.Post("/api/restart", s.handleRestart)

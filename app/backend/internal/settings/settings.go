@@ -102,11 +102,6 @@ type Settings struct {
 	// default; read by the ticker at every iteration, so a flip takes effect
 	// without a daemon restart.
 	CronTicker bool
-	// PrReviewListener runs the PR-review comment listener inside the daemon:
-	// armed windows (@rk_win_pr_listen) have their unhandled review threads
-	// dispatched into their own agent. On by default; read at every SSE tick,
-	// so a flip takes effect without a daemon restart.
-	PrReviewListener bool
 	// EasterEggs shows the screen-break Easter eggs' AUTOMATIC occasions (the
 	// fist when the viewed tab's PR merges, the eye when an update chip lights).
 	// On by default. Read by the frontend on page load and applied live in the
@@ -139,14 +134,13 @@ type Settings struct {
 // Default returns the default settings.
 func Default() Settings {
 	return Settings{
-		Theme:            "system",
-		ThemeDark:        "default-dark",
-		ThemeLight:       "default-light",
-		CronTicker:       true,
-		PrReviewListener: true,
-		EasterEggs:       true,
-		GUIGeometry:      gui.GeometryDefault,
-		LogLevel:         "info",
+		Theme:       "system",
+		ThemeDark:   "default-dark",
+		ThemeLight:  "default-light",
+		CronTicker:  true,
+		EasterEggs:  true,
+		GUIGeometry: gui.GeometryDefault,
+		LogLevel:    "info",
 	}
 }
 
@@ -554,27 +548,6 @@ var registry = []registryEntry{
 		},
 		read:  func(s *Settings) any { return s.CronTicker },
 		apply: boolValue(func(s *Settings) *bool { return &s.CronTicker }, true),
-	},
-	{
-		key: "pr_review_listener", kind: "bool", def: "true",
-		desc:     "Runs the PR-review comment listener inside the daemon: armed tabs have their unhandled review threads dispatched into their own agent.",
-		category: "behavior", ui: true, live: true,
-		// Tolerant read: any strconv.ParseBool value; anything else keeps the
-		// default (on) — the safe direction for a listener with its own
-		// per-window arm switch.
-		parse: func(s *Settings, value string) {
-			if b, err := strconv.ParseBool(strings.Trim(value, "\"")); err == nil {
-				s.PrReviewListener = b
-			}
-		},
-		serialize: func(s *Settings) string {
-			if !s.PrReviewListener {
-				return "pr_review_listener: false\n"
-			}
-			return ""
-		},
-		read:  func(s *Settings) any { return s.PrReviewListener },
-		apply: boolValue(func(s *Settings) *bool { return &s.PrReviewListener }, true),
 	},
 	{
 		key: "easter_eggs", kind: "bool", def: "true",
@@ -1039,7 +1012,6 @@ func nonEmptyString(target func(*Settings) *string, def string) func(*Settings, 
 }
 
 // boolValue builds the apply hook for a bool scalar (auto_name, cron_ticker,
-// pr_review_listener,
 // easter_eggs): a JSON bool sets; null unsets to the key's registry default.
 func boolValue(target func(*Settings) *bool, def bool) func(*Settings, json.RawMessage) error {
 	return func(s *Settings, raw json.RawMessage) error {

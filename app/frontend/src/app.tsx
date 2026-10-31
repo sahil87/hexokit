@@ -217,9 +217,6 @@ import { StatusBar } from "@/components/status-bar";
 import { ComposeStrip } from "@/components/compose-strip";
 import { focusComposeStrip, openComposeRecall, runComposeToggleChord } from "@/lib/compose-strip-events";
 import { tileChordHandler } from "@/lib/tile-chord";
-import type { ReviewSurfaceCommands } from "@/components/review-surface";
-import { buildReviewActions } from "@/lib/palette/review";
-import { readTreeShown } from "@/lib/review";
 import { cycleWindowTarget, sessionJumpTarget } from "@/lib/window-cycle";
 import { registerWindowFocusRestorer } from "@/lib/sidebar-events";
 import {
@@ -1611,18 +1608,6 @@ function AppShell() {
   const [guiConnected, setGuiConnected] = useState(false);
   useEffect(() => setGuiConnected(false), [server, windowParam]);
 
-  // ── review tile state ────────────────────────────────────────────────────
-  // The tile reports its UNHANDLED-thread count up (the toggle's dot) and
-  // publishes its verb seams into a ref (the palette's `Review:` entries —
-  // Constitution V). Both reset per window so a stale count never leaks across
-  // a switch, exactly like the gui connection report above.
-  const [reviewUnhandled, setReviewUnhandled] = useState<number | null>(null);
-  const [reviewListening, setReviewListening] = useState(false);
-  useEffect(() => {
-    setReviewUnhandled(null);
-    setReviewListening(false);
-  }, [server, windowParam]);
-  const reviewCommandsRef = useRef<ReviewSurfaceCommands | null>(null);
   const coarsePointer = useCoarsePointer();
   // Per-viewer render postures (lib/gui-posture.ts — validated localStorage
   // reads, try/catch-noop writes): the zoom, the pointer mode (defaulting to
@@ -4962,22 +4947,6 @@ function AppShell() {
     [],
   );
 
-  // The `review` surface's verbs (Constitution V — the surface's own
-  // affordances are pointer-first, so the palette is the keyboard route to
-  // every one of them). The entries mount only while the tile is on screen and
-  // has published its seams; `reviewUnhandled` is a dep so the listen row's
-  // label tracks the arm the tile reports.
-  const reviewActions: PaletteAction[] = useMemo(
-    () =>
-      bareLeaves(layout).includes("review") && reviewCommandsRef.current
-        ? buildReviewActions(reviewCommandsRef.current, reviewListening, readTreeShown())
-        : [],
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the ref is
-    // populated by the tile's own effect, so the layout/arm pair is what
-    // signals a rebuild.
-    [layout, reviewListening, reviewUnhandled],
-  );
-
   // Update/check/maintenance/version actions moved to the layout-level global
   // palette groups (260811-239r, `use-global-palette-actions.ts`) — the board
   // route carried DD-8 duplicates of all four (it is a phone user's ONLY
@@ -5466,11 +5435,11 @@ function AppShell() {
           // formatted per platform and reflecting overrides; disabled bindings
           // (user-disabled or browser-reserved) render no hint.
           withShortcutHints(
-            [...sessionActions, ...sessionsScopeActions, ...windowActions, ...reopenActions, ...windowCycleActions, ...sessionJumpActions, ...boardActions, ...selectionActions, ...viewActions, ...guiActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...reviewActions, ...serverActions, ...shellServerActions, ...webEngineActions, ...webInspectActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...operatorComposeActions, ...cronActions, ...buildDataTableActions(mountedDataTables), ...macroPaletteActions],
+            [...sessionActions, ...sessionsScopeActions, ...windowActions, ...reopenActions, ...windowCycleActions, ...sessionJumpActions, ...boardActions, ...selectionActions, ...viewActions, ...guiActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...webEngineActions, ...webInspectActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...operatorComposeActions, ...cronActions, ...buildDataTableActions(mountedDataTables), ...macroPaletteActions],
             bindingByAction,
             bindingHost.platform,
           ),
-    [popoutPosture, sessionActions, sessionsScopeActions, windowActions, reopenActions, windowCycleActions, sessionJumpActions, boardActions, selectionActions, viewActions, guiActions, openActions, themeActions, configActions, statusRefreshActions, reviewActions, serverActions, shellServerActions, webEngineActions, webInspectActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, operatorComposeActions, cronActions, mountedDataTables, macroPaletteActions, bindingByAction, bindingHost],
+    [popoutPosture, sessionActions, sessionsScopeActions, windowActions, reopenActions, windowCycleActions, sessionJumpActions, boardActions, selectionActions, viewActions, guiActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, webEngineActions, webInspectActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, operatorComposeActions, cronActions, mountedDataTables, macroPaletteActions, bindingByAction, bindingHost],
   );
   // Publish this route's (already shortcut-decorated) list into the
   // palette-actions slot — the single layout-mounted CommandPalette renders
@@ -5667,7 +5636,6 @@ function AppShell() {
       "code-toggle": tileChord("code"),
       "web-toggle": tileChord("web"),
       "gui-toggle": tileChord("gui"),
-      "review-toggle": tileChord("review"),
       // ⇧⌘⏎ / ⇧Ctrl+Enter zen (260820-o8cr R6) — the FULL zen toggle (top
       // bar + sidebar + focused-tile zoom at arity > 1), resolved through the
       // same `toggleZen` body as the palette entries and the status-bar exit
@@ -5848,18 +5816,9 @@ function AppShell() {
       if (surface === "gui") {
         return leaves(layout).includes("gui") ? guiConnected : gui?.reachable === true;
       }
-      // The review toggle's dot means "threads are waiting on a human":
-      // UNHANDLED, not all unresolved, so it goes quiet as work is claimed —
-      // which is what the 👀 marker means. A MOUNTED tile's own count wins (it
-      // reads the detail document, which is fresher than the 90 s digest); with
-      // no tile open the server-joined digest answers, so the dot is an unread
-      // signal for a closed tile rather than a restatement of availability.
-      if (surface === "review") {
-        return (reviewUnhandled ?? effectiveWindow?.prReviewUnhandled ?? 0) > 0;
-      }
       return surface !== "web" || hasWebUrl(effectiveWindow);
     },
-    [effectiveWindow, gui, guiConnected, layout, reviewUnhandled],
+    [effectiveWindow, gui, guiConnected, layout],
   );
   // The toggle group's away marker: a kind the route window's server-derived
   // `awayIn` names (its slot is live in another tab). Toggling the kind on
@@ -6324,9 +6283,6 @@ function AppShell() {
               onFocusPopout={focusPopout}
               onHidePopped={hideRevealedPopped}
               codeReachable={codeServer?.reachable ?? false}
-              reviewCommandsRef={reviewCommandsRef}
-              onReviewUnhandledChange={setReviewUnhandled}
-              onReviewListeningChange={setReviewListening}
               // The gui tile: the host signal (content selection), the
               // per-viewer postures, the RFB connection report (the toggle
               // dot), the empty-state verbs, and the palette command seam.

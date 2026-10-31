@@ -41,16 +41,10 @@ func (prodSessionOrderFetcher) GetSessionOrder(ctx context.Context, server strin
 // canonical PR URL (PR numbers are only unique per repo — see prstatus.Collector).
 // Injected into the SSE hub so the poll path can attach live PR status to any
 // window with a derived PR via a PURE in-memory read — the hot path makes no
-// network call. Implemented by *prstatus.Collector; a narrow interface lets
+// network call. Implemented by *prstatus.Collector; a one-method interface lets
 // tests stub it and lets the hub degrade gracefully (nil → no PR fields).
-//
-// UnhandledThreads is the review-thread DIGEST half of the same collector pass
-// (it costs no additional gh call — internal/prstatus/prstatus_threads.go). It
-// rides this interface rather than a second injection point because both
-// methods are pure in-memory reads of one snapshot, taken at the same moment.
 type PRStatusSnapshotter interface {
 	Snapshot() map[string]prstatus.PRStatus
-	UnhandledThreads(prURL string) []prstatus.ReviewThread
 }
 
 // boardEventName is the SSE event type for board-membership changes. Matches
@@ -361,13 +355,6 @@ type sseHub struct {
 	// the server's operator idle. It is always present and process-memory only.
 	operatorQueue *operatorQueueTracker
 
-	// prReviewListener holds unhandled PR review threads for ARMED windows
-	// (@rk_win_pr_listen) until a tick observes that window's agent idle, then
-	// dispatches ONE into the window's own agent pane. Always present and
-	// process-memory only; a nil deliver closure (the test-hub shape) tracks
-	// without fanning out.
-	prReviewListener *prReviewListenerTracker
-
 	// autoName tracks per-window busy→idle transitions and hands the server's
 	// operator window an automatic fix-tab-name request (rate-limited, skipped
 	// when the operator is busy) from the same poll seam (260822-q675).
@@ -589,7 +576,6 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, svc *ports.Collect
 		services:               svc,
 		prStatus:               pc,
 		operatorQueue:          newOperatorQueueTracker(),
-		prReviewListener:       newPRReviewListenerTracker(),
 		autoName:               newAutoNameTracker(),
 		captureFn:              capturePreviewForWindow,
 		guiSessionOptionsFn:    daemon.GUISessionOptions,
@@ -608,10 +594,6 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, svc *ports.Collect
 
 func (h *sseHub) getOperatorQueue() *operatorQueueTracker {
 	return h.operatorQueue
-}
-
-func (h *sseHub) getPRReviewListener() *prReviewListenerTracker {
-	return h.prReviewListener
 }
 
 // getAutoName returns the hub's current auto-name tracker snapshot (nil =
@@ -1759,14 +1741,9 @@ func (h *sseHub) attachPRStatus(sess []sessions.ProjectSession) {
 			// here and is re-attached solely on a snapshot hit — a URL-miss
 			// window carries no stale freshness timestamp.
 			w.PrChecks, w.PrReview, w.PrFetchedAt = "", "", nil
-			w.PrReviewUnhandled = 0
 			if w.PrURL == nil || *w.PrURL == "" {
 				continue
 			}
-			// The review-thread digest is keyed by PR URL like the status map
-			// and comes from the same collector, so a window with a PR gets its
-			// unhandled count whether or not the status map holds an entry.
-			w.PrReviewUnhandled = len(h.prStatus.UnhandledThreads(*w.PrURL))
 			if st, ok := snap[*w.PrURL]; ok {
 				w.PrState = st.State
 				w.PrChecks = st.Checks
@@ -1942,9 +1919,6 @@ func (h *sseHub) poll() {
 		}
 		if operatorQueue := h.getOperatorQueue(); operatorQueue != nil {
 			operatorQueue.retain(polledServers, reapableServers)
-		}
-		if listener := h.getPRReviewListener(); listener != nil {
-			listener.retain(polledServers, reapableServers)
 		}
 
 		// Reap dead servers whose units reported the socket gone. A dead socket
@@ -2278,14 +2252,6 @@ func (h *sseHub) pollServerUnit(server string, invalidateCache bool) pollUnitRes
 
 	if operatorQueue := h.getOperatorQueue(); operatorQueue != nil {
 		operatorQueue.advance(server, result)
-	}
-
-	// PR-review comment listener: same seam, same shape — the queue refresh
-	// and the reservation are synchronous and subprocess-free (the arm rides
-	// the window payload and the eligible threads come from the collector's
-	// already-polled digest), and delivery fans out detached.
-	if listener := h.getPRReviewListener(); listener != nil {
-		listener.advance(server, result)
 	}
 
 	jsonBytes, err := json.Marshal(result)

@@ -796,41 +796,6 @@ func TestDetectorSameETag200IsUnchanged(t *testing.T) {
 	}
 }
 
-func TestDetectorCommentCountDeltaGatesThreadsRelevant(t *testing.T) {
-	f, srv := newFakeAPI()
-	defer srv.Close()
-	eps := f.handlePR("o", "r", 1, "sha1")
-	h := newDetectHarness(srv)
-	urls := []string{"https://github.com/o/r/pull/1"}
-	h.sourceFrom(&urls)
-
-	h.pass() // baseline (comments: 0, review_comments: 0)
-
-	// A new comment: the PR ETag flips AND the count moved.
-	f.mutate(func() {
-		eps.pr.etag = "pr-2"
-		eps.pr.body = `{"head":{"sha":"sha1"},"comments":1,"review_comments":0}`
-	})
-	h.pass()
-	if len(h.onChangeCalls) != 1 {
-		t.Fatalf("comment flip produced %d onChange calls, want 1", len(h.onChangeCalls))
-	}
-	if ch := h.onChangeCalls[0][0]; !ch.PR || !ch.CommentsChanged || !ch.ThreadsRelevant() {
-		t.Errorf("comment flip = %+v, want PR+CommentsChanged, ThreadsRelevant", ch)
-	}
-
-	// A flip with unmoved counts (e.g. a draft toggle): still a PR change,
-	// but not thread-relevant.
-	f.mutate(func() { eps.pr.etag = "pr-3" })
-	h.pass()
-	if len(h.onChangeCalls) != 2 {
-		t.Fatalf("second flip produced %d onChange calls, want 2", len(h.onChangeCalls))
-	}
-	if ch := h.onChangeCalls[1][0]; !ch.PR || ch.CommentsChanged || ch.ThreadsRelevant() {
-		t.Errorf("count-stable flip = %+v, want PR without CommentsChanged", ch)
-	}
-}
-
 func TestDetectorGHUnavailableIsSilent(t *testing.T) {
 	f, srv := newFakeAPI()
 	defer srv.Close()

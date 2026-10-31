@@ -42,7 +42,7 @@ type Node struct {
 // MaxLayoutLen bounds the input byte length BEFORE parsing: parseNode's
 // recursion depth is bounded by len(raw)/2 (each level consumes ≥2 bytes), so
 // the cap keeps a hostile @rk_win_layout value from exhausting the stack. An
-// all-bare canonical tree over the five surface kinds is ≤ 26 bytes and
+// all-bare canonical tree over the four surface kinds is ≤ 17 bytes and
 // legacy presets stay under 30, but foreign address leaves run 7–11 bytes
 // each, so cross-tab trees need the headroom.
 const MaxLayoutLen = 512
@@ -59,7 +59,7 @@ var nominalBox = rect{w: 1600, h: 1000}
 // surfaceKindList is the closed surface registry — the frontend's ViewName
 // set; spec'd-but-unshipped surfaces (desktop, agents) are rejected until the
 // frontend ships them, and extending the registry is appending one entry.
-var surfaceKindList = []string{"tty", "web", "code", "gui", "review", "diff"}
+var surfaceKindList = []string{"tty", "web", "code", "gui"}
 
 // SurfaceKinds returns the registry, in its canonical order.
 //
@@ -692,11 +692,13 @@ func swapLeaves(n Node, a, b string) Node {
 // TemplatesFor, and the Cycle walk.
 var templateNames = []string{"row", "col", "main-left", "main-right", "main-top", "main-bottom"}
 
-// indexKinds are distinct stand-in kinds for structure comparisons and slot
-// mapping. It is NOT the surface registry — surfaceKindList is — and it only
-// has to be as long as the largest template, which matches at N ≤ 5. Adding a
-// surface does not belong here.
-var indexKinds = []string{"tty", "web", "code", "gui", "review"}
+// indexKinds are distinct stand-in slots for structure comparisons and slot
+// mapping. It is NOT the surface registry — surfaceKindList is — and its
+// entries are deliberately not surface kinds: they are placeholders that only
+// have to be distinct, and the list only has to be as long as the largest
+// template, which matches at N ≤ 5 (foreign leaves let a tree exceed the
+// registry's size). Adding or removing a surface does not belong here.
+var indexKinds = []string{"s0", "s1", "s2", "s3", "s4"}
 
 // buildTemplate builds a template's tree for any N from a slot order; slot 0
 // is the template's main tile. Slots are LEAF IDS (TemplateOf's output form):

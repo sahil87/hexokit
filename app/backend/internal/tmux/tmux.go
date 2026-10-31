@@ -173,12 +173,6 @@ const WebActiveOption = "@rk_win_web_active"
 // later change).
 const CodeRootOption = "@rk_win_code_root"
 
-// PrListenOption arms the PR-review comment listener for a window: "1" armed,
-// unset disarmed. Per-window because the unit of work is a branch, and SHARED
-// across viewers because arming is a fact about the work rather than a viewing
-// posture (spec pr-review.md § The Listener → Arm state).
-const PrListenOption = "@rk_win_pr_listen"
-
 // ErrWebTabsFull is returned by WebAdd when the window already carries
 // MaxWebTabs tabs and the URL is new; api maps it to 409.
 var ErrWebTabsFull = errors.New("web tabs full")
@@ -966,26 +960,12 @@ type WindowInfo struct {
 	// the collector only sees the authenticated user's own PRs, so a teammate's
 	// draft reaches the client solely via that seed. Both layers are populated
 	// outside this package.
-	// PrListen is the @rk_win_pr_listen arm for the PR-review comment
-	// listener: true only for the exact value "1" (an unrecognized value fails
-	// CLOSED — the listener delivers work into an agent pane). It rides the
-	// window payload so the SSE tick can advance the listener without a
-	// subprocess, and so every viewer sees the same arm state.
-	PrListen  bool    `json:"prListen,omitempty"`
 	PrURL     *string `json:"prUrl,omitempty"`
 	PrNumber  *int    `json:"prNumber,omitempty"`
 	PrState   string  `json:"prState,omitempty"`
 	PrChecks  string  `json:"prChecks,omitempty"`
 	PrReview  string  `json:"prReview,omitempty"`
 	PrIsDraft bool    `json:"prIsDraft,omitempty"`
-	// PrReviewUnhandled is the count of review threads the listener's
-	// eligibility predicate admits — !resolved ∧ !outdated ∧ !👀 — from the same
-	// collector digest the listener reads. Collector-join-owned like
-	// PrChecks/PrReview (reset then re-attached on a snapshot hit), so the
-	// review toggle's dot means "threads are waiting on a human" for a CLOSED
-	// tile too: without it the dot could only report tile-reported counts and
-	// would sit lit on availability alone.
-	PrReviewUnhandled int `json:"prReviewUnhandled,omitempty"`
 	// PrFetchedAt is when the joined PR status was last fetched by the viewer-wide
 	// collector (prstatus.PRStatus.FetchedAt). Collector-join-owned like
 	// PrChecks/PrReview: set on a URL-keyed snapshot hit, reset to nil on a miss.
@@ -1657,33 +1637,30 @@ const (
 	listWindowsRoleField       = listWindowsWebActiveField + 3
 	listWindowsFlairField      = listWindowsWebActiveField + 4
 	listWindowsOwnerField      = listWindowsWebActiveField + 5
-	listWindowsPrListenField   = listWindowsWebActiveField + 6
-	listWindowsNoteField       = listWindowsWebActiveField + 7
-	listWindowsLegacyURLField  = listWindowsWebActiveField + 8
-	listWindowsLegacyLensField = listWindowsWebActiveField + 9
-	listWindowsLegacyNoteField = listWindowsWebActiveField + 10
+	listWindowsNoteField       = listWindowsWebActiveField + 6
+	listWindowsLegacyURLField  = listWindowsWebActiveField + 7
+	listWindowsLegacyLensField = listWindowsWebActiveField + 8
+	listWindowsLegacyNoteField = listWindowsWebActiveField + 9
 	// listWindowsFullFields is the field count of a complete current-format
-	// line; a shorter line is a pre-16-slot capture (see legacyWebTabSlots),
-	// whose format also predates @rk_win_pr_listen.
+	// line; a shorter line is a pre-16-slot capture (see legacyWebTabSlots).
 	listWindowsFullFields = listWindowsLegacyNoteField + 1
 )
 
 // parseWindows parses tmux list-windows output lines into WindowInfo structs.
 // nowUnix is the current Unix timestamp for activity threshold computation.
-// Lines carry listWindowsFixedPrefix + MaxWebTabs + 10 tab-delimited fields
+// Lines carry listWindowsFixedPrefix + MaxWebTabs + 9 tab-delimited fields
 // plus the legacy-note tail: window_id, window_index, window_name,
 // pane_current_path, window_activity, window_active, pane_current_command,
 // @rk_win_color, @rk_win_layout, @rk_win_web_1 .. @rk_win_web_<MaxWebTabs>,
 // @rk_win_web_active, @rk_win_code_root, @rk_win_marker, @rk_win_role,
-// @rk_win_flair, @rk_win_owner, @rk_win_pr_listen, then @rk_win_note as a
-// STRICT SINGLE FIELD, then the retired @rk_win_url (dual-read web_1
-// fallback), the retired @rk_win_lens (dual-read web-leaf layout fallback),
-// then the legacy note LAST. Lines with fewer than 8 fields are skipped;
-// fields 8+ are optional (empty string if absent). A line shorter than a full
-// current-format line (listWindowsFullFields) is a pre-16-slot capture and
-// parses with the 8-slot-era offsets (legacyWebTabSlots), which also carry no
-// @rk_win_pr_listen field. The web-tab slots read dense (walk 1..MaxWebTabs,
-// stop at the first empty) and web_active degrades
+// @rk_win_flair, @rk_win_owner, then @rk_win_note as a STRICT SINGLE FIELD,
+// then the retired @rk_win_url (dual-read web_1 fallback), the retired
+// @rk_win_lens (dual-read web-leaf layout fallback), then the legacy note
+// LAST. Lines with fewer than 8 fields are skipped; fields 8+ are optional
+// (empty string if absent). A line shorter than a full current-format line
+// (listWindowsFullFields) is a pre-16-slot capture and parses with the
+// 8-slot-era offsets (legacyWebTabSlots). The web-tab slots read dense (walk
+// 1..MaxWebTabs, stop at the first empty) and web_active degrades
 // (non-numeric/out-of-range clamps per clampWebActive, never an error). The
 // note is dual-read: the new field wins when non-empty, else the legacy note,
 // whose free-text tail is rejoined (tabs inside it would otherwise shift
@@ -1738,16 +1715,10 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		roleField := webActiveField + 3
 		flairField := webActiveField + 4
 		ownerField := webActiveField + 5
-		// The 8-slot era predates @rk_win_pr_listen: its note follows owner.
-		prListenField := -1
 		noteField := webActiveField + 6
-		if slots == MaxWebTabs {
-			prListenField = noteField
-			noteField++
-		}
-		legacyURLField := noteField + 1
-		legacyLensField := noteField + 2
-		legacyNoteField := noteField + 3
+		legacyURLField := webActiveField + 7
+		legacyLensField := webActiveField + 8
+		legacyNoteField := webActiveField + 9
 		if len(parts) > listWindowsFixedPrefix {
 			end := min(webActiveField, len(parts))
 			webTabs = denseWebTabs(parts[listWindowsFixedPrefix:end])
@@ -1794,14 +1765,6 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			if o := strings.TrimSpace(parts[ownerField]); validate.OwnerValues[o] {
 				owner = o
 			}
-		}
-
-		// PrListen arms the PR-review comment listener. Only the exact "1"
-		// arms: the listener delivers work into an agent pane, so an
-		// unrecognized value fails CLOSED.
-		var prListen bool
-		if prListenField >= 0 && len(parts) > prListenField {
-			prListen = strings.TrimSpace(parts[prListenField]) == "1"
 		}
 
 		// Note is free text ("<epoch>:<text>"), NOT a closed set — no value
@@ -1860,7 +1823,6 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			Role:              role,
 			Flair:             flair,
 			Owner:             owner,
-			PrListen:          prListen,
 			Note:              note,
 			NoteEpoch:         noteEpoch,
 		})
@@ -1951,10 +1913,6 @@ func listWindows(ctx context.Context, session string, server string, strict bool
 		"#{"+RoleOption+"}",
 		"#{"+FlairOption+"}",
 		"#{"+OwnerOption+"}",
-		// The PR-review listener arm rides the payload rather than a per-window
-		// option read: the listener advances on the SSE tick, which must stay
-		// subprocess-free.
-		"#{"+PrListenOption+"}",
 		// The new note is a strict single field (write-side validation strips
 		// control chars). legacyWinURLOption is the retired @rk_win_url, dual-read
 		// as a web_1 fallback and legacyWinLensOption the retired @rk_win_lens,

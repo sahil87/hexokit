@@ -1,12 +1,10 @@
 // Package ghprobe answers one question — is the `gh` CLI installed AND
 // authenticated — for every package that needs it before spending a
-// subprocess. It is the single source of that probe, shared by the PR-status
-// collector (internal/prstatus) and the PR-review detail fetcher
-// (internal/prreview), so the two can never drift on what "gh is unavailable"
-// means.
+// subprocess. It is the single source of that probe for the PR-status
+// collector and change detector (internal/prstatus), so they can never drift
+// on what "gh is unavailable" means.
 //
-// Stdlib-only by design: both importers sit at the same layer, so this package
-// must pull in no rk/internal package.
+// Stdlib-only by design: this package must pull in no rk/internal package.
 package ghprobe
 
 import (
@@ -23,10 +21,9 @@ import (
 //
 // Memoizing at all is a latency fix with a correctness dividend. `gh auth
 // status` is a NETWORK call: measured at 0.34-0.39 s across ten consecutive
-// runs, which the review fetcher paid on every cold document, and twice in one
-// burst at 30 s. The caller's timeout is 10 s, so that second shape turns a
-// working tile into "gh is unavailable" — a failure caused entirely by asking a
-// question whose answer we already had.
+// runs, and twice in one burst at 30 s. The caller's timeout is 10 s, so that
+// second shape turns a working gh into "gh is unavailable" — a failure caused
+// entirely by asking a question whose answer we already had.
 const (
 	positiveTTL = 5 * time.Minute
 	negativeTTL = 30 * time.Second
