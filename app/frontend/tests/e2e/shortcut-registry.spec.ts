@@ -465,9 +465,10 @@ test.describe("tabbed settings dialog deep-links (260818-bncw)", () => {
    * 1. Open the dialog (Shift+Ctrl+,).
    * 2. Click the Appearance tab → it selects and the Theme mode group
    *    renders.
-   * 3. Focus the Appearance tab; press ArrowDown → Shortcuts selects and
-   *    takes focus.
-   * 4. Press ArrowDown again → All settings selects and takes focus (the
+   * 3. Focus the Appearance tab; press ArrowDown → Agents selects and takes
+   *    focus.
+   * 4. Press ArrowDown again → Shortcuts selects and takes focus.
+   * 5. Press ArrowDown again → All settings selects and takes focus (the
    *    registry-table tab is the rail's last entry).
    */
   test("tabs switch by pointer and by roving arrow keys", async ({ page }) => {
@@ -483,8 +484,11 @@ test.describe("tabbed settings dialog deep-links (260818-bncw)", () => {
     await expect(settingsDialog(page).getByRole("group", { name: "Theme mode" })).toBeVisible();
 
     // Roving arrow keys: ArrowDown from the focused tab activates the next —
-    // the rail order ends with the registry table: … Shortcuts, All settings.
+    // the rail order is General, Appearance, Agents, Shortcuts, All settings.
     await tab(page, "Appearance").focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(tab(page, "Agents")).toHaveAttribute("aria-selected", "true");
+    await expect(tab(page, "Agents")).toBeFocused();
     await page.keyboard.press("ArrowDown");
     await expect(tab(page, "Shortcuts")).toHaveAttribute("aria-selected", "true");
     await expect(tab(page, "Shortcuts")).toBeFocused();

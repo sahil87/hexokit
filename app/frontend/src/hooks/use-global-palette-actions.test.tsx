@@ -130,6 +130,7 @@ describe("useGlobalPaletteActions", () => {
       "help-topic-fkf",
       "settings-open",
       "settings-appearance",
+      "settings-agents",
       "settings-all",
     ];
     expect(order.slice(0, expectInOrder.length)).toEqual(expectInOrder);
@@ -192,6 +193,14 @@ describe("useGlobalPaletteActions", () => {
     expect(entry?.label).toBe("Settings: Appearance");
     act(() => entry?.onSelect());
     expect(dialogState).toEqual({ isOpen: true, activeTab: "appearance" });
+  });
+
+  it("Settings: Agents deep-links the Agents tab (id settings-agents)", () => {
+    renderHook();
+    const entry = captured.find((a) => a.id === "settings-agents");
+    expect(entry?.label).toBe("Settings: Agents");
+    act(() => entry?.onSelect());
+    expect(dialogState).toEqual({ isOpen: true, activeTab: "agents" });
   });
 
   it("Settings: All deep-links the All settings tab (id settings-all)", () => {

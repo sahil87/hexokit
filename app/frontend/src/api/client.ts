@@ -1684,6 +1684,73 @@ export async function postSettings(patch: Record<string, unknown>): Promise<void
   if (!res.ok) await throwOnError(res);
 }
 
+// --- fab-kit system config (the Settings dialog's Agents tab) ---
+
+/** Provenance tier of a fab config value. `project` never occurs (the daemon
+ *  runs fab from $HOME) but renders as a read-only chip if it ever does. */
+export type FabOrigin = "default" | "env" | "system" | "project";
+
+export type FabField = {
+  value: string | number | boolean | null;
+  origin: FabOrigin;
+  originDetail?: string;
+  /** The system-tier value hidden behind an env winner. */
+  systemValue?: string | number | boolean | null;
+  description?: string;
+};
+
+export type FabRoleCell = {
+  /** Set only when the leaf's origin is the system tier. */
+  override: string | null;
+  effective: string;
+  /** Config key the effective value comes from ("" when none). */
+  source: string;
+  origin: FabOrigin | "";
+  originDetail?: string;
+};
+
+export type FabRole = {
+  role: string;
+  depth: "session" | "workers";
+  provider: FabRoleCell;
+  model: FabRoleCell;
+  effort: FabRoleCell;
+};
+
+export type FabConfigDocument =
+  | { installed: false }
+  | {
+      installed: true;
+      systemPath: string;
+      providers: string[];
+      fields: Record<string, FabField>;
+      roles: FabRole[];
+      modelSuggestions: Record<string, string[]>;
+      effortSuggestions: string[];
+      /** fab stderr warning lines from the last POST. */
+      warnings?: string[];
+    };
+
+/** Re-reads fab on every call (never deduplicated: the tab's freshness rule). */
+export async function getFabConfig(): Promise<FabConfigDocument> {
+  const res = await fetch("/api/fab-config");
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** Partial merge: present keys set, `null` unsets. Resolves to the fresh document. */
+export async function postFabConfig(
+  patch: Record<string, string | number | boolean | null>,
+): Promise<FabConfigDocument> {
+  const res = await fetch("/api/fab-config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 // --- Theme settings ---
 
 export async function getThemePreference(): Promise<{
