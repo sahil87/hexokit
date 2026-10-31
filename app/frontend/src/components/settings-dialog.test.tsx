@@ -18,8 +18,10 @@ vi.mock("@/api/client", () => ({
   postSettings: vi.fn().mockResolvedValue(undefined),
   getRiffPresets: vi.fn().mockRejectedValue(new Error("no API in test")),
   getKeybindings: vi.fn().mockResolvedValue([]),
+  getFabConfig: vi.fn().mockResolvedValue({ installed: false }),
+  postFabConfig: vi.fn().mockResolvedValue({ installed: false }),
 }));
-import { getSettingsEntries, postSettings, setThemePreference, getThemePreference, type SettingsEntry } from "@/api/client";
+import { getFabConfig, getSettingsEntries, postSettings, setThemePreference, getThemePreference, type SettingsEntry } from "@/api/client";
 
 // The escape-hatch footer's copy button — assert the write, never the OS.
 vi.mock("@/lib/clipboard", () => ({
@@ -199,7 +201,7 @@ function allSettingsFixture(): SettingsEntry[] {
 }
 
 /** Opens the dialog on mount (the palette/gear stand-in). `tab` deep-links. */
-function OpenOnMount({ tab }: { tab?: "general" | "appearance" | "all" | "shortcuts" }) {
+function OpenOnMount({ tab }: { tab?: "general" | "appearance" | "agents" | "all" | "shortcuts" }) {
   const { openSettings } = useSettingsDialog();
   useEffect(() => {
     openSettings(tab);
@@ -209,7 +211,7 @@ function OpenOnMount({ tab }: { tab?: "general" | "appearance" | "all" | "shortc
 
 function renderDialog(
   instanceNameValue: InstanceName = makeInstanceName(),
-  tab?: "general" | "appearance" | "all" | "shortcuts",
+  tab?: "general" | "appearance" | "agents" | "all" | "shortcuts",
 ) {
   return render(
     <ThemeProvider>
@@ -230,7 +232,7 @@ function renderDialog(
 }
 
 /** Switch to a tab by its rail/strip button. */
-function selectTab(label: "General" | "Appearance" | "All settings" | "Shortcuts") {
+function selectTab(label: "General" | "Appearance" | "Agents" | "All settings" | "Shortcuts") {
   fireEvent.click(screen.getByRole("tab", { name: label }));
 }
 
@@ -252,7 +254,7 @@ function LiveNameProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-function renderDialogLiveName(tab?: "general" | "appearance" | "all" | "shortcuts") {
+function renderDialogLiveName(tab?: "general" | "appearance" | "agents" | "all" | "shortcuts") {
   return render(
     <ThemeProvider>
       <ToastProvider>
@@ -311,13 +313,17 @@ afterEach(() => {
 });
 
 describe("SettingsDialog", () => {
-  it("renders the four tabs and opens on General by default", () => {
+  it("renders the five tabs in rail order and opens on General by default", () => {
     renderDialog();
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
     const tablist = screen.getByRole("tablist", { name: "Settings sections" });
-    for (const label of ["General", "Appearance", "All settings", "Shortcuts"]) {
-      expect(within(tablist).getByRole("tab", { name: label })).toBeInTheDocument();
-    }
+    expect(within(tablist).getAllByRole("tab").map((t) => t.textContent)).toEqual([
+      "General",
+      "Appearance",
+      "Agents",
+      "Shortcuts",
+      "All settings",
+    ]);
     expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
     // General = instance name + SSH host (This host), notifications (This device).
     expect(screen.getByText("This host")).toBeInTheDocument();
@@ -482,6 +488,17 @@ describe("SettingsDialog", () => {
     expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
     fireEvent.keyDown(general.closest('[role="tablist"]')!, { key: "ArrowUp" });
     expect(screen.getByRole("tab", { name: "All settings" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("the Agents tab is deep-linkable and re-fetches the fab config on every visit", async () => {
+    vi.mocked(getFabConfig).mockClear();
+    renderDialog(makeInstanceName(), "agents");
+    expect(screen.getByRole("tab", { name: "Agents" })).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => expect(screen.getByTestId("fab-not-installed")).toBeInTheDocument());
+    expect(getFabConfig).toHaveBeenCalledTimes(1);
+    selectTab("General");
+    selectTab("Agents");
+    await waitFor(() => expect(getFabConfig).toHaveBeenCalledTimes(2));
   });
 
   it("a deep-linked open lands on the requested tab", () => {

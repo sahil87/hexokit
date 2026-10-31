@@ -88,3 +88,45 @@ export function ScopeHeading({ label, hint }: { label: string; hint: string }) {
     </div>
   );
 }
+
+/**
+ * One preference row (6j1v): label column left (label + optional small
+ * sublabel hint underneath), control column right. `min-[480px]:` gates the
+ * two-column grid — below it the row stacks label-above-control (today's
+ * phone layout) from the same markup. `htmlFor` renders the label as a real
+ * `<label>` bound to the row's input; rows whose control has its own labeled
+ * elements (theme selects, steppers) pass none. `meta` is a small monospace
+ * line under the sublabel (a config key).
+ */
+export function PreferenceRow({
+  label,
+  sublabel,
+  meta,
+  htmlFor,
+  children,
+}: {
+  label: string;
+  sublabel?: string;
+  meta?: string;
+  htmlFor?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="grid grid-cols-1 min-[480px]:grid-cols-[190px_1fr] gap-x-6 gap-y-1.5 py-2.5 items-start">
+      <div className="min-[480px]:pt-1">
+        {htmlFor ? (
+          <label htmlFor={htmlFor} className="block text-xs text-text-primary">
+            {label}
+          </label>
+        ) : (
+          <p className="text-xs text-text-primary">{label}</p>
+        )}
+        {sublabel && (
+          <p className="text-[10px] text-text-secondary mt-0.5 leading-relaxed">{sublabel}</p>
+        )}
+        {meta && <p className="text-[10px] font-mono text-text-secondary/70 mt-0.5 break-all">{meta}</p>}
+      </div>
+      <div className="min-w-0">{children}</div>
+    </div>
+  );
+}

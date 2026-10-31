@@ -194,6 +194,14 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     }),
     [openSettings],
   );
+  const settingsAgentsEntry: PaletteAction = useMemo(
+    () => ({
+      id: "settings-agents",
+      label: "Settings: Agents",
+      onSelect: () => openSettings("agents"),
+    }),
+    [openSettings],
+  );
   const settingsAllEntry: PaletteAction = useMemo(
     () => ({
       id: "settings-all",
@@ -586,10 +594,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...(quakeMachine === "open" && quakeTerminalOpenAsTabEntry ? [quakeTerminalOpenAsTabEntry] : []), ...(operatorStartEntry ? [operatorStartEntry] : []), ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, mcpEndpointEntry, ...easterEggActions],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...(quakeMachine === "open" && quakeTerminalOpenAsTabEntry ? [quakeTerminalOpenAsTabEntry] : []), ...(operatorStartEntry ? [operatorStartEntry] : []), ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, mcpEndpointEntry, ...easterEggActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, quakeTerminalOpenAsTabEntry, operatorStartEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, mcpEndpointEntry, easterEggActions, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, quakeTerminalOpenAsTabEntry, operatorStartEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, mcpEndpointEntry, easterEggActions, bindingByAction, bindingHost],
   );
 }

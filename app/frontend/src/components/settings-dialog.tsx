@@ -35,16 +35,19 @@ import {
   textSettingInputClass,
   TextSettingError,
   ScopeHeading,
+  PreferenceRow,
 } from "@/components/text-setting-core";
+import { SettingsAgentsPanel } from "@/components/settings-agents-panel";
 
 /**
  * VS Code-style settings dialog (260723-o7q8; desktop preference-pane layout
  * 260724-6j1v; TABBED in 260818-bncw), rendered ONCE in `AppLayout` so it
  * exists on every page — server routes, terminals, boards, and the host page.
  *
- * Three topic tabs — **General** (instance name, SSH host, MCP endpoint, notifications),
- * **Appearance** (theme pair, accent color, terminal font size), **Shortcuts**
- * (the ported shortcuts-overlay body, `SettingsShortcutsPanel`) — each keeping
+ * Four topic tabs — **General** (instance name, SSH host, MCP endpoint, notifications),
+ * **Appearance** (theme pair, accent color, terminal font size), **Agents**
+ * (fab-kit's machine-wide config via the fab CLI, `SettingsAgentsPanel`),
+ * **Shortcuts** (the ported shortcuts-overlay body, `SettingsShortcutsPanel`) — each keeping
  * the persistence-scope `ScopeHeading` groups inside the tab (both General and
  * Appearance mix This host / This device). The tab list is ONE
  * `role="tablist"` markup with roving-tabindex arrow-key nav: a vertical left
@@ -69,44 +72,6 @@ import {
  *  `text-setting-core.tsx` (shared with the All-settings panel); re-exported
  *  here for the dialog's historical import sites. */
 export { ScopeHeading } from "@/components/text-setting-core";
-
-/**
- * One preference row (6j1v): label column left (label + optional small
- * sublabel hint underneath), control column right. `min-[480px]:` gates the
- * two-column grid — below it the row stacks label-above-control (today's
- * phone layout) from the same markup. `htmlFor` renders the label as a real
- * `<label>` bound to the row's input; rows whose control has its own labeled
- * elements (theme selects, steppers) pass none.
- */
-function PreferenceRow({
-  label,
-  sublabel,
-  htmlFor,
-  children,
-}: {
-  label: string;
-  sublabel?: string;
-  htmlFor?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="grid grid-cols-1 min-[480px]:grid-cols-[190px_1fr] gap-x-6 gap-y-1.5 py-2.5 items-start">
-      <div className="min-[480px]:pt-1">
-        {htmlFor ? (
-          <label htmlFor={htmlFor} className="block text-xs text-text-primary">
-            {label}
-          </label>
-        ) : (
-          <p className="text-xs text-text-primary">{label}</p>
-        )}
-        {sublabel && (
-          <p className="text-[10px] text-text-secondary mt-0.5 leading-relaxed">{sublabel}</p>
-        )}
-      </div>
-      <div className="min-w-0">{children}</div>
-    </div>
-  );
-}
 
 /**
  * A labeled text setting committed on Enter/blur (the window-rename
@@ -405,6 +370,7 @@ function NotificationsControl() {
 const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: "general", label: "General" },
   { id: "appearance", label: "Appearance" },
+  { id: "agents", label: "Agents" },
   { id: "shortcuts", label: "Shortcuts" },
   { id: "all", label: "All settings" },
 ];
@@ -519,6 +485,7 @@ function SettingsDialogBody({ onClose }: { onClose: () => void }) {
                   />
                 )}
                 {active && t.id === "appearance" && <AppearancePanel />}
+                {active && t.id === "agents" && <SettingsAgentsPanel />}
                 {active && t.id === "all" && <SettingsAllPanel registry={registry} />}
                 {active && t.id === "shortcuts" && <ShortcutsTabPanel />}
               </div>

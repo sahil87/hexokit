@@ -1,0 +1,54 @@
+id: wf1x
+name: 261030-wf1x-fab-system-config-agents-tab
+created: 2026-10-30T09:36:21Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: active
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 15
+    acceptance_count: 27
+    acceptance_completed: 0
+confidence:
+    certain: 13
+    confident: 5
+    tentative: 7
+    unresolved: 0
+    score: 0.0
+    fuzzy: true
+    dimensions:
+        signal: 77.2
+        reversibility: 72.6
+        competence: 68.0
+        disambiguation: 64.8
+stage_metrics:
+    intake: {started_at: "2026-10-30T09:36:22Z", driver: fab-new, iterations: 1, completed_at: "2026-10-31T09:15:25Z"}
+    apply: {started_at: "2026-10-31T09:15:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-31T09:31:59Z"}
+    review: {started_at: "2026-10-31T09:31:59Z", driver: fab-fff, iterations: 1}
+prs: []
+base_branch: main
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-10-31T09:31:59Z"
+    computed_at_stage: apply
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-10-31T09:31:59Z

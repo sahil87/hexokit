@@ -21,6 +21,7 @@ import (
 	"rk/internal/config"
 	"rk/internal/cron"
 	"rk/internal/daemon"
+	"rk/internal/fabsysconfig"
 	"rk/internal/gui"
 	"rk/internal/mcp"
 	"rk/internal/metrics"
@@ -213,6 +214,10 @@ type Server struct {
 	riff     RiffEngine
 	wt       WtOps
 	hostname string
+	// fabSys wraps the fab CLI for /api/fab-config. Nil means "the real fab
+	// binary" (fabSysClient builds it lazily); tests inject a Client over a
+	// fake runner so no fab write can reach the developer's real config.
+	fabSys *fabsysconfig.Client
 	// sshUser is the username the daemon runs as (os/user.Current at startup,
 	// or SetSSHUser in tests), surfaced on GET /api/health so remote clients
 	// can derive an SSH destination (`user@location.hostname`) when the
@@ -1173,6 +1178,12 @@ func (s *Server) buildRouter() chi.Router {
 	// (present keys set, null unsets) per Constitution IX.
 	r.Get("/api/settings", s.handleGetSettings)
 	r.Post("/api/settings", s.handlePostSettings)
+
+	// fab-kit's machine-wide config (~/.fab-kit/config.yaml) — the curated
+	// Agents tab inside the same settings surface. Wraps the `fab config` CLI;
+	// GET re-reads fab every time, POST is a partial merge (null unsets).
+	r.Get("/api/fab-config", s.handleGetFabConfig)
+	r.Post("/api/fab-config", s.handlePostFabConfig)
 
 	// GUI surface — the status document (GET, incl. the apps list the
 	// off-confirm renders), the supervisor restart, the allowlisted
