@@ -1870,16 +1870,27 @@ export async function spawnRiff(
   return res.json();
 }
 
-/** Fork the window's agent conversation into a NEW window in the SAME session
- *  and directory. Window-keyed and body-less: the backend derives
+/** Where a conversation fork opens: the source's own directory (`checkout`,
+ *  the default) or a new worktree on a new branch started at the source's HEAD
+ *  (`worktree`). */
+export type ForkWhere = "checkout" | "worktree";
+
+/** Fork the window's agent conversation into a NEW window in the SAME session —
+ *  in the same directory, or (`where: "worktree"`) in a new worktree + branch.
+ *  Window-keyed and body-less: the backend derives
  *  the session, the Claude session uuid, the directory, and the new window's name
  *  server-side from `windowId` alone — the client never supplies a session ref.
  *  Returns riff's spawn result, so the caller navigates exactly as it does after
  *  a spawn. Throws on a non-ok response: `404` when the window has no forkable
  *  claude agent session, `400` when its directory is not inside a git repo. */
-export async function forkWindow(server: string, windowId: string): Promise<RiffSpawnResult> {
+export async function forkWindow(
+  server: string,
+  windowId: string,
+  where: ForkWhere = "checkout",
+): Promise<RiffSpawnResult> {
+  const query = where === "worktree" ? "?where=worktree" : "";
   const res = await fetch(
-    withServer(`/api/windows/${encodeURIComponent(windowId)}/fork`, server),
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/fork${query}`, server),
     { method: "POST" },
   );
   if (!res.ok) await throwOnError(res);

@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo, useReducer, memo } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
-import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, getAllServerColors, setServerColor as setServerColorApi, getAllServerFlairs, setServerFlair as setServerFlairApi, setSessionOrder, setServerProtected, isExternalServer, DAEMON_SERVER, type ServerInfo } from "@/api/client";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, getAllServerColors, setServerColor as setServerColorApi, getAllServerFlairs, setServerFlair as setServerFlairApi, setSessionOrder, setServerProtected, isExternalServer, DAEMON_SERVER, type ForkWhere, type ServerInfo } from "@/api/client";
 import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useFocusedPane } from "@/contexts/focused-pane-context";
 import { thinWindowFromFocusedPane } from "@/lib/focused-pane-window";
@@ -181,7 +181,7 @@ export type SidebarProps = {
    *  and directory (260806-s4av). Optional (mirrors `onSpawnAgent`): when
    *  omitted — e.g. the board-route sidebar — the row flyout's fork affordance is
    *  hidden. The flyout additionally gates on `agentProvider === "claude"`. */
-  onForkWindow?: (server: string, windowId: string) => Promise<void>;
+  onForkWindow?: (server: string, windowId: string, where?: ForkWhere) => Promise<void>;
   /** Ask the server's operator window to fix a subject window's tab name
    *  (260822-fih1-operator-request-fix-tab-name). Optional (mirrors
    *  `onForkWindow`): when omitted — e.g. the board-route sidebar — the row
@@ -2328,7 +2328,7 @@ type ServerGroupProps = {
   onWindowFlairChange: (server: string, session: string, windowId: string, flair: string | null) => void;
   /** Forwarded to each `WindowRow` → its row flyout's fork affordance. Optional
    *  (the board-route sidebar passes none) — see `SidebarProps.onForkWindow`. */
-  onForkWindow?: (server: string, windowId: string) => Promise<void>;
+  onForkWindow?: (server: string, windowId: string, where?: ForkWhere) => Promise<void>;
   /** Forwarded to each `WindowRow` → its row flyout's Fix tab name affordance.
    *  Optional (the board-route sidebar passes none) — see
    *  `SidebarProps.onFixTabName`. */

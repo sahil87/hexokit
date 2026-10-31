@@ -238,7 +238,7 @@ import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 import type { ProjectSession, WindowInfo } from "@/types";
 
-import { selectWindow, createSession, createWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, borrowLayout, returnLayout, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, launchGuiApp, getSettingsEntries, fetchGuiStatus, resizeGui, fetchCodeBridge, restartCodeServer, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
+import { selectWindow, createSession, createWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, borrowLayout, returnLayout, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, launchGuiApp, getSettingsEntries, fetchGuiStatus, resizeGui, fetchCodeBridge, restartCodeServer, DAEMON_SERVER, ApiError, HttpError, type ForkWhere, type SortWindowsBy, type CronEntry } from "@/api/client";
 import { useCronData } from "@/hooks/use-cron";
 import { buildCronActions, type CronActionHandlers } from "@/lib/palette/cron";
 import { buildDataTableActions } from "@/lib/palette/data-table";
@@ -3610,7 +3610,8 @@ function AppShell() {
   );
 
   // Fork a window's agent conversation (260806-s4av): a NEW window in the SAME
-  // session and directory, resuming that agent's session with --fork-session. The
+  // session — same directory, or (where="worktree") a new worktree + branch —
+  // resuming that agent's session with its provider's fork command. The
   // backend derives everything from the windowId, so the client sends nothing but
   // the identity. On success navigate to the fork; a best-effort empty windowId
   // (the backend's display-message resolve failed) skips navigation and lets SSE
@@ -3620,8 +3621,8 @@ function AppShell() {
   // the flyout's fork button awaits it to hold its in-flight disabled state, so
   // repeated clicks cannot fire multiple mutating POSTs and create N forks.
   const handleForkWindow = useCallback(
-    (srv: string, windowId: string): Promise<void> =>
-      forkWindow(srv, windowId)
+    (srv: string, windowId: string, where?: ForkWhere): Promise<void> =>
+      forkWindow(srv, windowId, where)
         .then((res) => {
           if (res.windowId) navigateToSpawnedWindow(srv, res.windowId);
         })

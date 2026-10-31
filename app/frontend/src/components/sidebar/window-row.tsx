@@ -9,6 +9,7 @@ import {
 } from "react";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { ProjectSession } from "@/types";
+import type { ForkWhere } from "@/api/client";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import type { BoardSummary } from "@/api/boards";
 import { UNCOLORED_SELECTED_KEY, type RowTint } from "@/themes";
@@ -132,7 +133,8 @@ type WindowRowProps = {
    *  ghost rows (the label zone is disabled). */
   onFlairChange?: (server: string, session: string, windowId: string, flair: string | null) => void;
   /** Fork this window's agent conversation into a new window in the same session
-   *  and directory (260806-s4av). Identity-arg like its siblings. Optional
+   *  — in the same directory, or with `where: "worktree"` in a new worktree +
+   *  branch (260806-s4av). Identity-arg like its siblings. Optional
    *  (mirrors `onColorChange`): when omitted — the board-route sidebar, ghost
    *  rows, or a bare unit-test render — the flyout renders no fork affordance.
    *  The card additionally gates on `agentProvider === "claude"`.
@@ -140,7 +142,7 @@ type WindowRowProps = {
    *  Returns a promise resolving when the fork POST settles (it surfaces its own
    *  errors and does not reject), which the flyout's button awaits to hold its
    *  in-flight disabled state. */
-  onForkWindow?: (server: string, windowId: string) => Promise<void>;
+  onForkWindow?: (server: string, windowId: string, where?: ForkWhere) => Promise<void>;
   /** Ask the server's operator window to fix the subject window's tab name
    *  (260822-fih1-operator-request-fix-tab-name). Optional (mirrors
    *  `onForkWindow`): when omitted — e.g. the board-route sidebar — the row
@@ -330,6 +332,10 @@ function WindowRowInner({
     if (!onForkWindow || ghost) return undefined;
     return () => onForkWindow(srv, win.windowId);
   }, [onForkWindow, ghost, srv, win.windowId]);
+  const handleForkWorktree = useMemo(() => {
+    if (!onForkWindow || ghost) return undefined;
+    return () => onForkWindow(srv, win.windowId, "worktree");
+  }, [onForkWindow, ghost, srv, win.windowId]);
   // Same binding idiom as handleFork: undefined (no handler, or a ghost row)
   // means the card renders no Fix tab name affordance at all.
   const handleFixTabName = useMemo(() => {
@@ -359,6 +365,7 @@ function WindowRowInner({
             : undefined
         }
         onFork={handleFork}
+        onForkWorktree={handleForkWorktree}
         onFixTabName={handleFixTabName}
         hasOperator={hasOperator}
         onPinAction={
