@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: pending
+    review-pr: done
 plan:
     generated: true
     task_count: 23
@@ -34,6 +34,7 @@ stage_metrics:
     review: {started_at: "2026-10-31T09:59:49Z", driver: fab-fff, iterations: 3, completed_at: "2026-10-31T10:04:12Z"}
     hydrate: {started_at: "2026-10-31T10:04:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-31T10:07:57Z"}
     ship: {started_at: "2026-10-31T10:07:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-31T10:11:52Z"}
+    review-pr: {started_at: "2026-10-31T10:49:42Z", driver: git-pr-review, iterations: 1, completed_at: "2026-10-31T10:52:42Z"}
 prs:
     - https://github.com/sahil87/hexokit/pull/1099
 base_branch: main
@@ -54,4 +55,4 @@ true_impact:
     computed_at_stage: ship
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-10-31T10:11:52Z
+last_updated: 2026-10-31T10:52:42Z
