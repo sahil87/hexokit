@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildFolderSections,
+  contextMeta,
   countTabsByFolder,
   cycleLevel,
   deriveSheetName,
@@ -91,6 +92,16 @@ describe("resolveContextTarget", () => {
     expect(resolveContextTarget(sessions, { lastWindowId: "@3" }).window?.windowId).toBe("@3");
     expect(resolveContextTarget(sessions, {}).window?.windowId).toBe("@2");
   });
+  it("reports how the window was found, and only a real active tab reads `active tab`", () => {
+    expect(resolveContextTarget(sessions, { group: "beta" }).source).toBe("group");
+    expect(resolveContextTarget(sessions, { windowId: "@1" }).source).toBe("viewed");
+    expect(resolveContextTarget(sessions, { lastWindowId: "@3" }).source).toBe("last");
+    expect(resolveContextTarget(sessions, {}).source).toBe("first");
+    expect(contextMeta("group")).toBe("active tab");
+    expect(contextMeta("viewed")).toBe("active tab");
+    expect(contextMeta("last")).toBe("last tab");
+    expect(contextMeta("first")).toBe("first group");
+  });
   it("is empty for a workspace with no groups", () => {
     expect(resolveContextTarget([], {})).toEqual({});
   });
@@ -131,6 +142,11 @@ describe("buildFolderSections", () => {
       { path: "~/repo.wt/loose", branch: "detached", meta: undefined },
     ]);
     expect(sections[2].rows).toEqual([{ path: "~/other", branch: "dev", meta: undefined }]);
+  });
+
+  it("labels the Current row with the supplied meta", () => {
+    const [current] = buildFolderSections({ ...base, contextMeta: "last tab" });
+    expect(current.rows[0].meta).toBe("last tab");
   });
 
   it("omits empty sections", () => {

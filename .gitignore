@@ -191,3 +191,6 @@ app/backend/build/tmux.conf
 
 
 /.claude/settings.local.json
+
+# Vitest JSON/report output
+.vitest/

@@ -5,8 +5,8 @@ import { Dialog } from "@/components/dialog";
 import { INPUT_COARSE, INPUT_FOCUS } from "@/components/controls";
 import { tabFolders, useDirectorySuggestions } from "@/components/folder-path-input";
 import { useKeybindings } from "@/hooks/use-keybindings";
-import { chordHintFor } from "@/lib/keybindings";
-import { finalizeSafeName, toSafeServerName, toSafeSessionName } from "@/lib/names";
+import { chordHintFor, formatCombo } from "@/lib/keybindings";
+import { finalizeSafeName, isValidServerName, toSafeServerName, toSafeSessionName } from "@/lib/names";
 import {
   LEVEL_LABEL,
   NEW_LEVELS,
@@ -22,8 +22,6 @@ import {
   type NewLevel,
 } from "@/lib/new-sheet";
 import type { ProjectSession } from "@/types";
-
-const SERVER_NAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
 /** The footer hints' keycap — the palette rows' kbd weight without the
  *  row-pinned `ml-auto`. */
@@ -60,6 +58,8 @@ type NewSheetProps = {
   /** The field's prefill. */
   contextFolder: string;
   contextBranch?: string;
+  /** The Current row's meta (`contextMeta`); defaults to `active tab`. */
+  contextMeta?: string;
   onSubmit: (submit: NewSheetSubmit) => void;
   onClose: () => void;
 };
@@ -112,6 +112,7 @@ export function NewSheet({
   workspaceNames,
   contextFolder,
   contextBranch,
+  contextMeta,
   onSubmit,
   onClose,
 }: NewSheetProps) {
@@ -122,6 +123,7 @@ export function NewSheet({
   const [nameEditing, setNameEditing] = useState(false);
   const [typedName, setTypedName] = useState<string | null>(null);
   const [suggestIndex, setSuggestIndex] = useState(-1);
+  const [justPicked, setJustPicked] = useState(false);
   const [worktrees, setWorktrees] = useState<WorktreesResponse>({ repo: "", worktrees: [] });
   const folderRef = useRef<HTMLInputElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -147,6 +149,12 @@ export function NewSheet({
     };
   }, [contextFolder]);
 
+  // A highlight points into one suggestion list: reset it when the results
+  // change, not on keystroke.
+  useEffect(() => {
+    setSuggestIndex(-1);
+  }, [suggestions]);
+
   useEffect(() => {
     if (nameEditing) {
       nameRef.current?.focus();
@@ -166,13 +174,14 @@ export function NewSheet({
     return buildFolderSections({
       contextFolder,
       contextBranch,
+      contextMeta,
       repo: worktrees.repo,
       worktrees: worktrees.worktrees,
       openFolders: tabFolders(sessions),
       tabCounts,
       branchByFolder,
     });
-  }, [sessions, contextFolder, contextBranch, worktrees]);
+  }, [sessions, contextFolder, contextBranch, contextMeta, worktrees]);
 
   const listRows = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
   const listMode = isListMatch(folder, sections);
@@ -188,7 +197,7 @@ export function NewSheet({
   const finalName = nameEditing ? finalizeSafeName(shownName.trim()) : derivedName;
   const nameTaken = nameEditing && finalName !== "" && existingNames.includes(finalName);
   const nameValid =
-    !hasName || (finalName !== "" && !nameTaken && (level !== "workspace" || SERVER_NAME_PATTERN.test(finalName)));
+    !hasName || (finalName !== "" && !nameTaken && (level !== "workspace" || isValidServerName(finalName)));
 
   const preview = previewFor({ level, server, group, name: finalName || derivedName, folder });
   const noun = LEVEL_LABEL[level].toLowerCase();
@@ -202,14 +211,14 @@ export function NewSheet({
 
   function changeFolder(next: string) {
     setFolder(next);
-    setSuggestIndex(-1);
+    setJustPicked(false);
     if (isListMatch(next, sections)) clear();
     else request(next);
   }
 
   function pickRow(path: string) {
     setFolder(path);
-    setSuggestIndex(-1);
+    setJustPicked(true);
     clear();
     folderRef.current?.focus();
   }
@@ -275,7 +284,10 @@ export function NewSheet({
     }
   }
 
+  const nameChord = formatCombo({ code: "Enter", tier: "cmd" }, host.platform);
   const optionId = (i: number) => `${listId}-opt-${i}`;
+  const listExpanded = listMode ? listRows.length > 0 : suggestions.length > 0;
+  const activeOptionIndex = listMode ? listRows.findIndex((r) => r.path === selectedPath) : suggestIndex;
   let flatIndex = 0;
 
   return (
@@ -312,9 +324,9 @@ export function NewSheet({
         ref={folderRef}
         type="text"
         role="combobox"
-        aria-expanded={true}
+        aria-expanded={listExpanded}
         aria-controls={listId}
-        aria-activedescendant={!listMode && suggestIndex >= 0 ? optionId(suggestIndex) : undefined}
+        aria-activedescendant={activeOptionIndex >= 0 ? optionId(activeOptionIndex) : undefined}
         aria-label="Folder"
         value={folder}
         onChange={(e) => changeFolder(e.target.value)}
@@ -357,13 +369,15 @@ export function NewSheet({
               />
             ))}
             {!loading && suggestions.length === 0 && (
-              <p className="px-2 py-1.5 text-text-secondary">No matching folders — Enter creates at the typed path</p>
+              <p className="px-2 py-1.5 text-text-secondary">
+                {justPicked ? "Enter creates at this folder" : "No matching folders — Enter creates at the typed path"}
+              </p>
             )}
           </div>
         )}
       </div>
 
-      <div className="mt-2.5 rounded border border-border bg-bg-inset px-2 py-1.5" aria-label="Preview">
+      <div role="status" className="mt-2.5 rounded border border-border bg-bg-inset px-2 py-1.5" aria-label="Preview">
         <p className="text-text-primary">{preview.text}</p>
         <ul aria-hidden="true" className="mt-1 font-mono text-[10px] leading-tight text-text-secondary">
           {preview.tree.map((node, depth) => (
@@ -402,7 +416,7 @@ export function NewSheet({
         </p>
       )}
 
-      <div className="mt-3 flex items-center gap-3">
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
         <div className="hidden flex-1 flex-wrap gap-x-2.5 gap-y-1 text-[10px] text-text-secondary sm:flex" aria-hidden="true">
           <span>
             <kbd className={HINT_KBD_CLASS}>⇥</kbd> level
@@ -410,12 +424,19 @@ export function NewSheet({
           <span>
             <kbd className={HINT_KBD_CLASS}>↑↓</kbd> folder
           </span>
-          {hasName && (
-            <span>
-              <kbd className={HINT_KBD_CLASS}>⌘↵</kbd> name it…
-            </span>
-          )}
         </div>
+        {hasName && !nameEditing && (
+          <button
+            type="button"
+            onClick={openNameOverride}
+            className={`flex items-center justify-center gap-1.5 sm:px-3 ${controlClass({ variant: "wide" })}`}
+          >
+            Name it…
+            <kbd aria-hidden="true" className={`hidden sm:inline ${HINT_KBD_CLASS}`}>
+              {nameChord}
+            </kbd>
+          </button>
+        )}
         <button
           type="button"
           onClick={submit}

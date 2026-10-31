@@ -237,6 +237,88 @@ describe("NewSheet", () => {
     expect(folder.value).toBe("~/code/other");
   });
 
+  it("the combobox tracks the selected list row and reports the list as expanded", () => {
+    const { folder } = setup();
+    const selected = screen.getByRole("option", { selected: true });
+    expect(folder).toHaveAttribute("aria-expanded", "true");
+    expect(folder).toHaveAttribute("aria-activedescendant", selected.id);
+    fireEvent.keyDown(folder, { key: "ArrowDown" });
+    const next = screen.getByRole("option", { selected: true });
+    expect(next.id).not.toBe(selected.id);
+    expect(folder).toHaveAttribute("aria-activedescendant", next.id);
+  });
+
+  it("an arrow pressed during the autocomplete debounce does not survive into the new results", async () => {
+    vi.useFakeTimers();
+    getDirectories.mockResolvedValueOnce(["~/code/a/", "~/code/b/"]).mockResolvedValueOnce(["~/code/c/", "~/code/d/"]);
+    const { folder } = setup({ initialLevel: "tab" });
+    fireEvent.change(folder, { target: { value: "~/code/x" } });
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    fireEvent.keyDown(folder, { key: "ArrowDown" });
+    fireEvent.keyDown(folder, { key: "ArrowDown" });
+    expect(screen.getByRole("option", { selected: true }).textContent).toBe("~/code/b/");
+    fireEvent.change(folder, { target: { value: "~/code/xy" } });
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(screen.queryByRole("option", { selected: true })).not.toBeInTheDocument();
+  });
+
+  it("labels the Current row with the supplied meta", () => {
+    setup({ contextMeta: "last tab" });
+    expect(screen.getAllByRole("option")[0].textContent).toContain("last tab");
+  });
+
+  it("offers a clickable Name it… button for groups and workspaces, with the platform chord", () => {
+    setup({ initialLevel: "group", contextFolder: "/home/u/code/api" });
+    const button = screen.getByRole("button", { name: /^Name it…/ });
+    expect(button.textContent).toMatch(/(⌘Enter|Ctrl\+Enter)/);
+    fireEvent.click(button);
+    const name = screen.getByRole("textbox", { name: "Group name" }) as HTMLInputElement;
+    expect(name.value).toBe("api");
+    expect(name).toHaveFocus();
+    // Once the override is open the affordance steps aside.
+    expect(screen.queryByRole("button", { name: /^Name it…/ })).not.toBeInTheDocument();
+  });
+
+  it("the Name it… button lets a pointer user name a workspace; the tab level has none", () => {
+    const { onSubmit } = setup({ initialLevel: "workspace", contextFolder: "/home/u/code/api" });
+    fireEvent.click(screen.getByRole("button", { name: /^Name it…/ }));
+    const name = screen.getByRole("textbox", { name: "Workspace name" });
+    fireEvent.change(name, { target: { value: "billing" } });
+    fireEvent.click(screen.getByRole("button", { name: /Create workspace/ }));
+    expect(onSubmit).toHaveBeenCalledWith({ level: "workspace", folder: "~/code/api", name: "billing" });
+
+    cleanup();
+    setup({ initialLevel: "tab" });
+    expect(screen.queryByRole("button", { name: /^Name it…/ })).not.toBeInTheDocument();
+  });
+
+  it("after picking an autocomplete row the list shows neutral text, not 'No matching folders'", async () => {
+    vi.useFakeTimers();
+    getDirectories.mockResolvedValue(["~/code/hexo/"]);
+    const { folder } = setup({ initialLevel: "tab" });
+    fireEvent.change(folder, { target: { value: "~/code/he" } });
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    fireEvent.click(screen.getByRole("option", { name: "~/code/hexo/" }));
+    expect(screen.queryByText(/No matching folders/)).not.toBeInTheDocument();
+    expect(screen.getByText("Enter creates at this folder")).toBeInTheDocument();
+    fireEvent.change(folder, { target: { value: "~/code/hexo/zz" } });
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(screen.queryByText("Enter creates at this folder")).not.toBeInTheDocument();
+  });
+
+  it("exposes the live preview as a status region", () => {
+    setup();
+    expect(screen.getByRole("status", { name: "Preview" })).toBeInTheDocument();
+  });
+
   it("the primary button creates", () => {
     const { onSubmit } = setup({ initialLevel: "tab" });
     fireEvent.click(screen.getByRole("button", { name: /Create tab/ }));

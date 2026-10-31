@@ -42,12 +42,29 @@ export function windowBranch(w: WindowInfo): string | undefined {
   return (panes.find((p) => p.isActive) ?? panes[0])?.gitBranch || undefined;
 }
 
+/** How the context window was found; decides the Current row's meta. */
+export type ContextSource = "group" | "viewed" | "last" | "first";
+
 export type ContextTarget = {
   /** The group a new tab lands in (undefined when the workspace has none). */
   group?: string;
   /** The window whose folder prefills the field. */
   window?: WindowInfo;
+  source?: ContextSource;
 };
+
+/** The Current row's meta: `active tab` only when the folder really is an
+ *  active tab's (the viewed tab, or the pinned group's active tab). */
+export function contextMeta(source: ContextSource | undefined): string {
+  switch (source) {
+    case "last":
+      return "last tab";
+    case "first":
+      return "first group";
+    default:
+      return "active tab";
+  }
+}
 
 /**
  * Resolve the group + context window for a workspace's sessions. Precedence:
@@ -59,23 +76,23 @@ export function resolveContextTarget(
   hint: { group?: string; windowId?: string; lastWindowId?: string | null },
 ): ContextTarget {
   const activeOf = (s: ProjectSession) => s.windows.find((w) => w.isActiveWindow) ?? s.windows[0];
-  const byWindow = (id?: string | null): ContextTarget | undefined => {
+  const byWindow = (id: string | null | undefined, source: ContextSource): ContextTarget | undefined => {
     if (!id) return undefined;
     for (const s of sessions) {
       const w = s.windows.find((x) => x.windowId === id);
-      if (w) return { group: s.name, window: w };
+      if (w) return { group: s.name, window: w, source };
     }
     return undefined;
   };
 
   if (hint.group) {
     const s = sessions.find((x) => x.name === hint.group);
-    if (s) return { group: s.name, window: activeOf(s) };
+    if (s) return { group: s.name, window: activeOf(s), source: "group" };
   }
-  const found = byWindow(hint.windowId) ?? byWindow(hint.lastWindowId);
+  const found = byWindow(hint.windowId, "viewed") ?? byWindow(hint.lastWindowId, "last");
   if (found) return found;
   const first = sessions[0];
-  return first ? { group: first.name, window: activeOf(first) } : {};
+  return first ? { group: first.name, window: activeOf(first), source: "first" } : {};
 }
 
 /** Number of tabs sitting in each folder, keyed by `normalizeFolder`. */
@@ -112,6 +129,8 @@ function tabsOpen(n: number | undefined): string | undefined {
 export function buildFolderSections(input: {
   contextFolder: string;
   contextBranch?: string;
+  /** The Current row's right-aligned meta (`contextMeta`). */
+  contextMeta?: string;
   repo: string;
   worktrees: { path: string; branch: string }[];
   /** Every tab folder in the workspace (`tabFolders`). */
@@ -129,7 +148,7 @@ export function buildFolderSections(input: {
     sections.push({
       key: "current",
       title: "Current",
-      rows: [{ path: context, branch: input.contextBranch, meta: "active tab" }],
+      rows: [{ path: context, branch: input.contextBranch, meta: input.contextMeta ?? "active tab" }],
     });
   }
 

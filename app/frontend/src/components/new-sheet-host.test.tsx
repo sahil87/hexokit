@@ -152,6 +152,28 @@ describe("NewSheetHost", () => {
     expect(mockNavigate).toHaveBeenCalledWith({ to: "/$server", params: { server: "billing" } });
   });
 
+  it("a refused group submit (another create in flight) keeps the sheet open", async () => {
+    let resolve: (v: unknown) => void = () => {};
+    createSession.mockReturnValue(new Promise((r) => (resolve = r)));
+    mockMatches = [{ params: { window: "@1" } }];
+    renderHost({ level: "group" });
+    const first = await folderField();
+    fireEvent.keyDown(first, { key: "Enter" });
+    await waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("open"));
+    const second = await folderField();
+    fireEvent.keyDown(second, { key: "Enter" });
+    expect(screen.getByRole("dialog", { name: "New" })).toBeInTheDocument();
+    expect(createSession).toHaveBeenCalledTimes(1);
+
+    resolve({ ok: true });
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "New" })).toBeInTheDocument());
+    fireEvent.keyDown(second, { key: "Enter" });
+    await waitFor(() => expect(createSession).toHaveBeenCalledTimes(2));
+  });
+
   it("an explicit group in the request pins the target and its active tab's folder", async () => {
     mockMatches = [{ params: { window: "@1" } }];
     renderHost({ level: "tab", server: "rk-dev", group: "docs" });

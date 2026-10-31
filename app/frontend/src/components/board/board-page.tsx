@@ -7,7 +7,7 @@ import { usePaneWidths, BOARD_PANE_DEFAULT_WIDTH } from "@/hooks/use-pane-widths
 import { useBoardAutofit } from "@/hooks/use-board-autofit";
 import { usePinActions } from "@/hooks/use-pin-actions";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
-import { useOptimisticContext } from "@/contexts/optimistic-context";
+import { useCreateGroup } from "@/hooks/use-create-group";
 import { useSessionContext } from "@/contexts/session-context";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
@@ -21,7 +21,7 @@ import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
 import { useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { useRegisterFocusedPane } from "@/contexts/focused-pane-context";
-import { createSession, createWindow as createWindowApi, killWindow } from "@/api/client";
+import { createWindow as createWindowApi, killWindow } from "@/api/client";
 import { setBoardOrder } from "@/api/boards";
 import { computeMoveOrder } from "@/lib/palette/move";
 import { Dialog } from "@/components/dialog";
@@ -114,29 +114,13 @@ function BoardPageContent({ name }: { name: string }) {
   // `shortcuts-overlay` resolution below.
   const ctx = useSessionContext();
   const { addToast } = useToast();
-  const { addGhostSession, removeGhost } = useOptimisticContext();
   const { openCreateServer, requestKillServer } = useServerDialogs();
   // The `shortcuts-overlay` chord resolves the layout-level global entry
   // (260811-239r, R12) — via the globals-ONLY channel, which never changes in
   // response to this route's own registration (no render loop; see
   // palette-actions-context.tsx).
   const paletteGlobals = usePaletteGlobals();
-  const ghostSessionIdRef = useRef<string | null>(null);
-
-  const { execute: executeCreateSession } = useOptimisticAction<[string, string, string | undefined]>({
-    action: (srv, sessName, cwd) => createSession(srv, sessName, cwd),
-    onOptimistic: (srv, sessName) => {
-      ghostSessionIdRef.current = addGhostSession(srv, sessName);
-    },
-    onRollback: () => {
-      if (ghostSessionIdRef.current) {
-        removeGhost(ghostSessionIdRef.current);
-        ghostSessionIdRef.current = null;
-      }
-    },
-    onError: (err) => addToast(err.message || "Failed to create group"),
-    onSettled: () => { ghostSessionIdRef.current = null; },
-  });
+  const { createGroup } = useCreateGroup();
 
   const { execute: executeCreateWindow } = useOptimisticAction<[string, string]>({
     action: (srv, sess) => createWindowApi(srv, sess),
@@ -161,9 +145,9 @@ function BoardPageContent({ name }: { name: string }) {
         candidate = `${base}-${i++}`;
         if (i > 99) break;
       }
-      executeCreateSession(srv, candidate, undefined);
+      createGroup(srv, candidate, undefined);
     },
-    [executeCreateSession],
+    [createGroup],
   );
 
   const handleCreateWindow = useCallback(

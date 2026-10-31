@@ -48,6 +48,13 @@ export function toSafeWindowName(raw: string): string {
   return squash(raw.replace(BASE_UNSAFE, "_"), MAX_NAME_LENGTH);
 }
 
+/** Commit-time server-name rule — the backend's ValidateServerName charset. */
+export const SERVER_NAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
+export function isValidServerName(name: string): boolean {
+  return SERVER_NAME_PATTERN.test(name);
+}
+
 /**
  * Server names: strictest — anything outside [a-zA-Z0-9_-] converts to "_"
  * (mirrors backend ValidateServerName's ^[a-zA-Z0-9_-]+$).

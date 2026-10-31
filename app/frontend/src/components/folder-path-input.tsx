@@ -123,7 +123,6 @@ export function FolderPathInput({
   function handleChange(next: string) {
     onChange(next);
     setShowDropdown(true);
-    setHighlightIndex(-1);
     fetchSuggestions(next);
   }
 
@@ -163,6 +162,13 @@ export function FolderPathInput({
         break;
     }
   }
+
+  // A highlight points into one result list: reset it when the results change
+  // (not on keystroke, so an arrow pressed during the debounce survives only
+  // until the new list lands).
+  useEffect(() => {
+    setHighlightIndex(-1);
+  }, [suggestions]);
 
   useEffect(() => {
     if (highlightIndex < 0 || !dropdownRef.current) return;

@@ -8,49 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"testing"
 )
-
-func TestParseWorktrees(t *testing.T) {
-	porcelain := "worktree /home/u/code/hexokit\nHEAD aaa\nbranch refs/heads/main\n\n" +
-		"worktree /home/u/code/hexokit.worktrees/feat\nHEAD bbb\nbranch refs/heads/feat/x\n\n" +
-		"worktree /home/u/code/hexokit.worktrees/loose\nHEAD ccc\ndetached\n"
-
-	got := parseWorktrees(porcelain)
-
-	if got.Repo != "hexokit" {
-		t.Errorf("repo = %q, want hexokit", got.Repo)
-	}
-	want := []worktreeEntry{
-		{Path: "/home/u/code/hexokit", Branch: "main"},
-		{Path: "/home/u/code/hexokit.worktrees/feat", Branch: "feat/x"},
-		{Path: "/home/u/code/hexokit.worktrees/loose", Branch: ""},
-	}
-	if !reflect.DeepEqual(got.Worktrees, want) {
-		t.Errorf("worktrees = %+v, want %+v", got.Worktrees, want)
-	}
-}
-
-func TestParseWorktreesBareMainNamesRepoAndIsSkipped(t *testing.T) {
-	porcelain := "worktree /srv/git/proj.git\nbare\n\nworktree /home/u/proj-feat\nHEAD ddd\nbranch refs/heads/feat\n"
-
-	got := parseWorktrees(porcelain)
-
-	if got.Repo != "proj" {
-		t.Errorf("repo = %q, want proj", got.Repo)
-	}
-	if len(got.Worktrees) != 1 || got.Worktrees[0].Path != "/home/u/proj-feat" {
-		t.Errorf("worktrees = %+v, want only the linked one", got.Worktrees)
-	}
-}
-
-func TestParseWorktreesEmpty(t *testing.T) {
-	got := parseWorktrees("")
-	if got.Repo != "" || got.Worktrees == nil || len(got.Worktrees) != 0 {
-		t.Errorf("got %+v, want empty non-nil list", got)
-	}
-}
 
 func getWorktrees(t *testing.T, path string) (*httptest.ResponseRecorder, worktreesResponse) {
 	t.Helper()
@@ -94,6 +53,14 @@ func TestWorktreesRepoWithLinkedWorktree(t *testing.T) {
 	runGit(t, repo, "commit", "--allow-empty", "-m", "init")
 	linked := filepath.Join(home, "proj-feat")
 	runGit(t, repo, "worktree", "add", "-b", "feat", linked)
+	gone := filepath.Join(home, "proj-gone")
+	runGit(t, repo, "worktree", "add", "-b", "gone", gone)
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+	// A worktree outside $HOME is dropped: the create endpoints reject it.
+	outside := filepath.Join(t.TempDir(), "proj-outside")
+	runGit(t, repo, "worktree", "add", "-b", "outside", outside)
 
 	// Asking from the linked worktree must still name the MAIN repo.
 	for _, from := range []string{repo, linked} {
@@ -108,8 +75,9 @@ func TestWorktreesRepoWithLinkedWorktree(t *testing.T) {
 		for _, wt := range got.Worktrees {
 			branches[filepath.Base(wt.Path)] = wt.Branch
 		}
-		if branches["proj"] != "main" || branches["proj-feat"] != "feat" {
-			t.Errorf("from %s: branches = %v", from, branches)
+		want := map[string]string{"proj": "main", "proj-feat": "feat"}
+		if len(branches) != len(want) || branches["proj"] != "main" || branches["proj-feat"] != "feat" {
+			t.Errorf("from %s: branches = %v, want %v (prunable and outside-home dropped)", from, branches, want)
 		}
 	}
 }

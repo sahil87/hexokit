@@ -113,6 +113,21 @@ A `new-sheet-context` (state + referentially stable `openNewSheet({level, server
 - [x] T013 Add e2e `app/frontend/tests/e2e/new-sheet.spec.ts` (palette → pick folder → create group → sidebar shows folder-named group) and run via `just test-e2e "new-sheet"` <!-- R6 R7 -->
 - [x] T014 Add `app/frontend/tests/demo/new-sheet.demo.ts` and record via `just demo new-sheet` (note blocker if recording infra is unavailable) <!-- R2 R3 R6 -->
 
+### Phase 5: Rework (review cycle 1)
+
+- [x] T015 Extract `useCreateGroup` and `useCreateTab` (explicit `cwd`) hooks beside `hooks/use-create-workspace.ts`, each owning its optimistic ghost lifecycle (add ghost, rollback on error with the existing toast, settle) and an in-flight guard so a second submit cannot strand a ghost; use them from `NewSheetHost` and from `AppShell`'s instant paths (`executeCreateSessionInstant`, the ghost-window path) and `board/board-page.tsx`. Behavior of the instant paths is unchanged. Add hook tests <!-- rework: review must-fix — new-sheet-host.tsx re-copies the group/tab optimistic lifecycles (third copy of the group one) --> <!-- R6 -->
+- [x] T016 Move the git call and porcelain parser into `internal/gitinfo` (`ListWorktrees(ctx, dir)`), keeping `api/worktrees.go` a thin handler; document in a short comment why it reads `git worktree list` directly (read-only, `wt` is optional on hosts — Constitution III). Use `--porcelain -z` and split on NUL; skip `prunable` records (as `bare` is skipped) but keep `locked` ones; drop worktrees outside $HOME (the create endpoints would reject them). Move/extend the Go tests (prunable, locked, -z, outside-home) <!-- rework: review should-fix — prunable listed, git inline in api/, -z hardening --> <!-- R1 -->
+- [x] T017 Export one `SERVER_NAME_PATTERN` / `isValidServerName` (and the already-exists check if it fits) from `lib/names.ts` next to `toSafeServerName`; use it in both `new-sheet.tsx` and `create-workspace-dialog.tsx` <!-- rework: review should-fix — copied regex --> <!-- R4 -->
+- [x] T018 Nice-to-haves: platform-aware footer hint for the name-override chord (`⌘↵` on Mac, `Ctrl+↵` elsewhere, via the label helpers already used for `chordHintFor`); reset the highlight/suggest index when suggestion results change (not on keystroke) in `folder-path-input.tsx` and `new-sheet.tsx`; Current-row meta says `active tab` only when the folder really is the active tab's (otherwise e.g. `last tab`); combobox `aria-expanded` reflects whether the list is shown and `aria-activedescendant` tracks the selected list row in list mode <!-- rework: review nice-to-haves --> <!-- R3 R5 -->
+- [x] T019 Re-run `go vet ./... && go test ./api/ ./internal/gitinfo/`, `npx tsc --noEmit`, the touched Vitest files, and `just test-e2e "new-sheet"` plus `just test-e2e "create-server-waiting"` <!-- R1 R3 R4 R5 R6 -->
+
+### Phase 6: Rework (review cycle 2)
+
+- [x] T020 Make the name override reachable without a keyboard: turn the footer `name it…` hint into a real button (`Name it…`) that calls `openNameOverride`, visible on mobile too, for the Group and Workspace levels; Vitest for the click path <!-- rework: re-review should-fix — touch/pointer users can no longer name a workspace from palette `Workspace: Create` --> <!-- R5 -->
+- [x] T021 Delete the stray `app/frontend/.vitest/` report and gitignore `.vitest/` so test runs never leave untracked output <!-- rework: re-review should-fix -->
+- [x] T022 Nice-to-haves: one name-derivation function shared by `deriveInstantSessionName` (app.tsx) and `deriveSheetName("group", …)`; a refused NewSheet submit (in-flight guard) keeps the sheet open instead of closing silently; after picking an autocomplete row, show neutral text (or that folder's children) instead of `No matching folders`; preview box gets `role="status"`; in `gitinfo.ListWorktrees`, retry without `-z` only when git rejects `-z`, not on every error (non-repo folders must spawn git once); footer chord hint via the keybinding label helpers <!-- rework: re-review nice-to-haves --> <!-- R3 R4 R5 R1 -->
+- [x] T023 Re-run `go vet ./... && go test ./internal/gitinfo/ ./api/`, `npx tsc --noEmit`, touched Vitest files, and `just test-e2e "new-sheet"` <!-- R1 R4 R5 -->
+
 ## Acceptance
 
 ### Functional Completeness
@@ -151,10 +166,15 @@ A `new-sheet-context` (state + referentially stable `openNewSheet({level, server
 ### Code Quality
 
 - [x] A-019 Pattern consistency: New code follows `server-dialogs-context` / lazy+Suspense / `Dialog` shell patterns
-- [x] A-020 No unnecessary duplication: `FolderPathInput` suggestion logic, `deriveNameFromPath`/`toSafe*Name`, and the create-workspace collision rule are reused, not copied
+- [x] A-020 No unnecessary duplication: `FolderPathInput` suggestion logic, `deriveNameFromPath`/`toSafe*Name`, the server-name rule (`isValidServerName`), and the group/tab/workspace optimistic-create lifecycles (`useCreateGroup`/`useCreateTab`/`useCreateWorkspace`) are shared, not copied
 - [x] A-021: All Go subprocess calls use `exec.CommandContext` with timeouts and argument slices
 - [x] A-022: No comment narration; comments state constraints only
 - [x] A-023: New features include tests (Go + Vitest + e2e) and a `just demo` recording or a recorded blocker
+
+- [x] A-025 The group and tab optimistic-create lifecycles exist once (shared hooks) and are used by the sheet and the instant paths
+- [x] A-026 Prunable worktrees are not listed; locked ones are; worktrees outside $HOME are dropped
+
+- [x] A-027 The Group/Workspace name override has a visible, clickable affordance on desktop and mobile
 
 ### Security
 
@@ -167,8 +187,16 @@ A `new-sheet-context` (state + referentially stable `openNewSheet({level, server
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
 - T012: `go test ./api/ ./internal/...` is green except `internal/wtdiff` `TestReadAgainstARealRepository` ("a modified file inside the eager budget shipped no rows"), a package this change does not touch; full Vitest (266 files) and `tsc --noEmit` are green.
 - T013/T014: `just test-e2e` for `new-sheet`, `create-server-waiting`, `session-name-prompt`, `create-workspace-at-folder` pass; `just demo new-sheet --before` recorded `.demo/new-sheet-{before,after}-{desktop,mobile}.webm`.
+- Rework 1: `useCreateGroup` (in-flight guard) / `useCreateTab` (per-call ghost, so rapid creates never strand one) are used by `NewSheetHost`, `app.tsx`'s instant paths and `board-page.tsx`'s group create. The board's tab create stays a plain unghosted `createWindow` (it never had a ghost; adopting `useCreateTab` would add one). Worktree listing moved to `internal/gitinfo.ListWorktrees` (`-z` with a pre-2.36 fallback; prunable dropped, locked kept; outside-$HOME dropped in the handler).
+- Rework 2: all T022 items done, none non-trivial. The footer chord now comes from `formatCombo({code:"Enter",tier:"cmd"})`, so it reads `⌘Enter` / `Ctrl+Enter` like the other registry chords (not `↵`). A refused group submit keeps the sheet open without a toast (the in-flight create is still visible in the sidebar). `.vitest/` is gitignored at the repo root.
 - The `create-server-waiting` e2e now drives the New sheet (its `Workspace: Create` palette entry no longer opens the name-only dialog).
 - Vite logs a duplicate React key `go-host` (`app.tsx` + `lib/palette/nav.ts`) in the palette; it predates this change and is unrelated.
+
+## Deletion Candidates
+
+- `app/frontend/src/components/host-overview-page.tsx:189-246` (`executeCreateServer` + `handleCreate`) — still a private copy of the create-workspace lifecycle that `useCreateWorkspace` now owns (ghost, `createServer`, `markServerPending`, refresh, navigate); only the local ghost-tile list and toast placement differ
+- `app/frontend/src/app.tsx:304` `deriveInstantSessionName` — now a one-line passthrough to `deriveSheetName("group", cwd ?? "", …)`; its three call sites (3426, 3439, 5763) could call that directly
+- `app/frontend/src/components/board/board-page.tsx:138-147` — hand-rolled `session`/`session-N` dedupe loop that `uniqueName` (lib/names.ts) now covers (pre-existing; differs only in its -99 cap)
 
 ## Assumptions
 

@@ -1,17 +1,11 @@
 package api
 
 import (
-	"context"
 	"net/http"
-	"os/exec"
-	"path/filepath"
-	"strings"
-	"time"
-)
 
-// worktreesTimeout bounds the one `git worktree list` call so a wedged
-// filesystem or a held lock cannot pin a request goroutine.
-const worktreesTimeout = 5 * time.Second
+	"rk/internal/gitinfo"
+	"rk/internal/validate"
+)
 
 type worktreeEntry struct {
 	Path   string `json:"path"`
@@ -24,14 +18,15 @@ type worktreesResponse struct {
 }
 
 // GET /api/worktrees?path=<folder> — the git worktrees of the folder's repo,
-// feeding the New sheet's folder list. A folder outside any repository (or an
-// unreadable one) answers 200 with an empty list: "no worktrees" is a normal
-// state for the sheet, not an error.
+// feeding the New sheet's folder list. A folder outside any repository answers
+// 200 with an empty list: "no worktrees" is a normal state for the sheet, not
+// an error. Worktrees outside $HOME are dropped, since the create endpoints
+// reject such cwds.
 func (s *Server) handleWorktrees(w http.ResponseWriter, r *http.Request) {
-	empty := worktreesResponse{Worktrees: []worktreeEntry{}}
+	resp := worktreesResponse{Worktrees: []worktreeEntry{}}
 	path := r.URL.Query().Get("path")
 	if path == "" {
-		writeJSON(w, http.StatusOK, empty)
+		writeJSON(w, http.StatusOK, resp)
 		return
 	}
 	dir, errMsg := resolveWorkingDir(path)
@@ -40,53 +35,13 @@ func (s *Server) handleWorktrees(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), worktreesTimeout)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "git", "-C", dir, "worktree", "list", "--porcelain").Output()
-	if err != nil {
-		writeJSON(w, http.StatusOK, empty)
-		return
+	list := gitinfo.ListWorktrees(r.Context(), dir)
+	resp.Repo = list.Repo
+	for _, wt := range list.Worktrees {
+		if _, outside := validate.ExpandTilde(wt.Path); outside != "" {
+			continue
+		}
+		resp.Worktrees = append(resp.Worktrees, worktreeEntry{Path: wt.Path, Branch: wt.Branch})
 	}
-	writeJSON(w, http.StatusOK, parseWorktrees(string(out)))
-}
-
-// parseWorktrees reads `git worktree list --porcelain`: blank-line-separated
-// records of `worktree <path>`, `HEAD <sha>`, then `branch refs/heads/<name>`,
-// `detached`, or `bare`. The first record is the main worktree, whose basename
-// names the repo (a linked worktree's own toplevel would mislabel it). Bare
-// records are skipped from the list. Detached HEADs carry an empty branch.
-func parseWorktrees(porcelain string) worktreesResponse {
-	resp := worktreesResponse{Worktrees: []worktreeEntry{}}
-	var cur *worktreeEntry
-	bare := false
-	first := true
-
-	flush := func() {
-		if cur == nil {
-			return
-		}
-		if first {
-			name := filepath.Base(cur.Path)
-			resp.Repo = strings.TrimSuffix(name, ".git")
-			first = false
-		}
-		if !bare {
-			resp.Worktrees = append(resp.Worktrees, *cur)
-		}
-		cur, bare = nil, false
-	}
-
-	for _, line := range strings.Split(porcelain, "\n") {
-		switch {
-		case strings.HasPrefix(line, "worktree "):
-			flush()
-			cur = &worktreeEntry{Path: strings.TrimPrefix(line, "worktree ")}
-		case cur != nil && strings.HasPrefix(line, "branch "):
-			cur.Branch = strings.TrimPrefix(strings.TrimPrefix(line, "branch "), "refs/heads/")
-		case cur != nil && line == "bare":
-			bare = true
-		}
-	}
-	flush()
-	return resp
+	writeJSON(w, http.StatusOK, resp)
 }
