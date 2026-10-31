@@ -1,6 +1,8 @@
 import { useState, useCallback, useRef, useEffect, useMemo, useReducer, memo } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
+import { NewSplitButton } from "@/components/new-split-button";
+import { useTopBarMode } from "@/hooks/use-top-bar-mode";
 import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, getAllServerColors, setServerColor as setServerColorApi, getAllServerFlairs, setServerFlair as setServerFlairApi, setSessionOrder, setServerProtected, isExternalServer, DAEMON_SERVER, type ServerInfo } from "@/api/client";
 import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useFocusedPane } from "@/contexts/focused-pane-context";
@@ -196,7 +198,6 @@ export type SidebarProps = {
    *  `onOperatorCompose`): when omitted — e.g. the board-route sidebar — no
    *  placeholder renders. */
   onOperatorPlaceholder?: (server: string) => void;
-  onCreateServer: () => void;
   onKillServer: (name: string) => void;
   /** Optional waiting-badge click (260714-r7rq): navigate to the next waiting
    *  window in a session (the target renders its own stored layout). Passed
@@ -224,7 +225,6 @@ export function Sidebar({
   onFixTabName,
   onOperatorCompose,
   onOperatorPlaceholder,
-  onCreateServer,
   onKillServer,
   onWaitingBadgeClick,
   onSidebarResizeStart,
@@ -1512,6 +1512,12 @@ export function Sidebar({
       }
       case "Enter":
       case " ": { // Space
+        // A focused control INSIDE the row (chevron, per-group `+`, name
+        // button) activates natively: preventing default here would cancel its
+        // click and activate the row instead. Only the treeitem itself —
+        // focused directly — activates through the typed identity below.
+        const innerButton = target.closest("button");
+        if (innerButton && innerButton !== anchorRow) break;
         e.preventDefault();
         if (!currentEl) break;
         const key = rowKeyOf(currentEl);
@@ -1741,7 +1747,6 @@ export function Sidebar({
         rowTints={rowTints}
         rowBorders={rowBorders}
         onSwitchServer={handleSwitchServer}
-        onCreateServer={onCreateServer}
         onRefreshServers={refreshServers}
         onServerColorChange={handleServerColorChange}
         onCreateSession={onCreateSession}
@@ -2055,19 +2060,27 @@ function SelectionIndicator({
  */
 /** Brand row at the sidebar's top — mobile-only; see the render-site comment
  *  for the phone-vs-desktop role split (on desktop the brand lives in the top
- *  bar's sidebar head). A plain anchor (full navigation), matching the
- *  top-bar brand crumb's reload-boundary behavior. */
+ *  bar's sidebar head). The brand is a plain anchor (full navigation),
+ *  matching the top-bar brand crumb's reload-boundary behavior; the New split
+ *  button sits at the row's right end — the mobile home of the control, since
+ *  the 375px top bar has no room for it. */
 function SidebarBrand() {
   const sweep = useBrandLogoSweep();
+  const { mode } = useTopBarMode();
   return (
-    <a
-      href="/"
-      className="rk-brand-glitch flex items-center gap-2 px-1.5 py-1 min-h-[28px] coarse:min-h-[40px] shrink-0 border-b border-border text-text-secondary hover:text-text-primary transition-colors"
-      onMouseEnter={sweep.onMouseEnter}
-    >
-      <LogoSpinner size={18} loading={false} svgRef={sweep.svgRef} />
-      <span className="text-xs font-bold tracking-wide">HexoKit</span>
-    </a>
+    <div className="flex items-center gap-2 pr-1.5 shrink-0 border-b border-border">
+      <a
+        href="/"
+        className="rk-brand-glitch flex items-center gap-2 px-1.5 py-1 min-h-[28px] coarse:min-h-[40px] min-w-0 flex-1 text-text-secondary hover:text-text-primary transition-colors"
+        onMouseEnter={sweep.onMouseEnter}
+      >
+        <LogoSpinner size={18} loading={false} svgRef={sweep.svgRef} />
+        <span className="text-xs font-bold tracking-wide">HexoKit</span>
+      </a>
+      {/* Not on the Host page: it has no sidebar drawer, and its own tile grid
+          carries the create-workspace door. */}
+      {mode !== "host" && <NewSplitButton mode={mode} align="end" />}
+    </div>
   );
 }
 

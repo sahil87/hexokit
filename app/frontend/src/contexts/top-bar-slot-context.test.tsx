@@ -34,7 +34,6 @@ function Registrant({ server, sidebarOpen }: { server: string; sidebarOpen: bool
       server,
       onNavigate: () => {},
       onToggleSidebar: () => {},
-      onCreateWindow: () => {},
     }),
     [server, sidebarOpen],
   );
@@ -115,7 +114,6 @@ describe("TopBarSlotContext", () => {
           server: "rk",
           onNavigate: () => {},
           onToggleSidebar: () => {},
-          onCreateWindow: () => {},
           surfaceToggles: { mode: "toggle", available: ["tty", "web"], open: ["tty"], onToggle, canAdd: true },
         }),
         [],
@@ -214,7 +212,6 @@ describe("TopBarSlotContext", () => {
         server: "",
         onNavigate: () => {},
         onToggleSidebar: () => {},
-        onCreateWindow: () => {},
       });
       return null;
     };

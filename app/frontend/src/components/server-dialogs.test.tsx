@@ -8,13 +8,10 @@ import { ToastProvider } from "@/components/toast";
 import * as client from "@/api/client";
 
 /**
- * Tests for the single layout-mounted server dialogs (260811-239r) — the
- * AppShell-derived superset now shared by every route: input sanitization on
- * change + finalize on submit, post-create pending marker + `/$server`
- * navigation, the `DAEMON_SERVER` warning on the kill confirm (previously
- * missing on board routes — drift), and post-kill navigation to `/` ONLY when
- * the killed server is SessionContext's `currentServer` (null on board routes,
- * so a board kill never navigates).
+ * Tests for the single layout-mounted kill/adopt server dialogs: the
+ * `DAEMON_SERVER` warning on the kill confirm, the protected-kill fork, and
+ * post-kill navigation to `/` ONLY when the killed server is SessionContext's
+ * `currentServer` (null on board routes, so a board kill never navigates).
  */
 
 const mockNavigate = vi.fn();
@@ -41,10 +38,9 @@ const adoptServer = client.adoptServer as unknown as ReturnType<typeof vi.fn>;
 
 /** Test-side trigger panel standing in for the sidebar/palette call sites. */
 function Triggers() {
-  const { openCreateServer, requestKillServer, requestAdoptServer } = useServerDialogs();
+  const { requestKillServer, requestAdoptServer } = useServerDialogs();
   return (
     <div>
-      <button onClick={openCreateServer}>open-create</button>
       <button onClick={() => requestKillServer("alpha")}>kill-alpha</button>
       <button onClick={() => requestKillServer("vault")}>kill-vault</button>
       <button onClick={() => requestKillServer(client.DAEMON_SERVER)}>kill-daemon</button>
@@ -96,137 +92,6 @@ describe("ServerDialogs", () => {
     adoptServer.mockResolvedValue({ status: "ok" });
   });
   afterEach(cleanup);
-
-  it("opens the create dialog via the context trigger and sanitizes input on change", () => {
-    renderDialogs();
-    fireEvent.click(screen.getByText("open-create"));
-    const input = screen.getByLabelText("Workspace name");
-    // Unsafe chars convert live (toSafeServerName) — the board twin previously
-    // stored the raw value (drift fixed by the single implementation).
-    fireEvent.change(input, { target: { value: "my server!" } });
-    expect((input as HTMLInputElement).value).toBe("my_server_");
-  });
-
-  it("submits the finalized name, marks it pending, navigates to /$server, and closes", async () => {
-    const markServerPending = vi.fn();
-    const refreshServers = vi.fn();
-    renderDialogs({ markServerPending, refreshServers });
-    fireEvent.click(screen.getByText("open-create"));
-    const input = screen.getByLabelText("Workspace name");
-    // Trailing separator stays visible while typing; finalizeSafeName trims it
-    // at commit.
-    fireEvent.change(input, { target: { value: "my server " } });
-    fireEvent.keyDown(input, { key: "Enter" });
-
-    expect(markServerPending).toHaveBeenCalledWith("my_server");
-    expect(mockNavigate).toHaveBeenCalledWith({ to: "/$server", params: { server: "my_server" } });
-    expect(screen.queryByLabelText("Workspace name")).not.toBeInTheDocument();
-    // The POST itself is deferred a microtask inside useOptimisticAction; the
-    // post-create server-list refresh rides onAlwaysSettled after it resolves.
-    await waitFor(() => expect(createServer).toHaveBeenCalledWith("my_server", undefined));
-    await waitFor(() => expect(refreshServers).toHaveBeenCalled());
-  });
-
-  it("sends the chosen folder as cwd and lets the name follow it until edited", async () => {
-    renderDialogs();
-    fireEvent.click(screen.getByText("open-create"));
-    const nameInput = screen.getByLabelText("Workspace name") as HTMLInputElement;
-    const folderInput = screen.getByLabelText("Workspace folder") as HTMLInputElement;
-
-    fireEvent.change(folderInput, { target: { value: "~/code/my app" } });
-    expect(nameInput.value).toBe("my_app");
-
-    fireEvent.change(nameInput, { target: { value: "foo" } });
-    fireEvent.change(folderInput, { target: { value: "~/code/other" } });
-    expect(nameInput.value).toBe("foo");
-
-    fireEvent.keyDown(nameInput, { key: "Enter" });
-    await waitFor(() => expect(createServer).toHaveBeenCalledWith("foo", "~/code/other"));
-  });
-
-  it("submits without cwd when the folder is blank", async () => {
-    renderDialogs();
-    fireEvent.click(screen.getByText("open-create"));
-    fireEvent.change(screen.getByLabelText("Workspace name"), { target: { value: "plain" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
-    await waitFor(() => expect(createServer).toHaveBeenCalledWith("plain", undefined));
-  });
-
-  it("prefills the folder (and the name) from the current tab's worktree path", () => {
-    mockMatches = [{ params: { server: "alpha" } }, { params: { server: "alpha", window: "@3" } }];
-    renderDialogs({
-      currentServer: "alpha",
-      sessionsByServer: new Map([
-        [
-          "alpha",
-          [
-            {
-              name: "g",
-              windows: [
-                { windowId: "@1", worktreePath: "~/code/other" },
-                { windowId: "@3", worktreePath: "~/code/x" },
-              ],
-            } as unknown as client.ProjectSession,
-          ],
-        ],
-      ]),
-    });
-    fireEvent.click(screen.getByText("open-create"));
-    expect((screen.getByLabelText("Workspace folder") as HTMLInputElement).value).toBe("~/code/x");
-    expect((screen.getByLabelText("Workspace name") as HTMLInputElement).value).toBe("x");
-  });
-
-  it("disables Create with a hint when the folder-derived name is an existing workspace", () => {
-    mockMatches = [{ params: { server: "hexokit", window: "@3" } }];
-    renderDialogs({
-      currentServer: "hexokit",
-      servers: [{ name: "hexokit", sessionCount: 1, protected: false }],
-      sessionsByServer: new Map([
-        [
-          "hexokit",
-          [
-            {
-              name: "g",
-              windows: [{ windowId: "@3", worktreePath: "~/code/hexokit" }],
-            } as unknown as client.ProjectSession,
-          ],
-        ],
-      ]),
-    });
-    fireEvent.click(screen.getByText("open-create"));
-    const nameInput = screen.getByLabelText("Workspace name") as HTMLInputElement;
-    expect(nameInput.value).toBe("hexokit");
-    expect(screen.getByText("A workspace named hexokit already exists")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
-
-    fireEvent.keyDown(nameInput, { key: "Enter" });
-    expect(createServer).not.toHaveBeenCalled();
-
-    fireEvent.change(nameInput, { target: { value: "hexokit2" } });
-    expect(screen.queryByText(/already exists/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create" })).toBeEnabled();
-  });
-
-  it("offers folder quick-picks from every workspace's groups", () => {
-    const group = (path: string) =>
-      ({ name: "g", windows: [{ windowId: "@1", worktreePath: path }] }) as unknown as client.ProjectSession;
-    renderDialogs({
-      currentServer: "alpha",
-      sessionsByServer: new Map([
-        ["alpha", [group("~/code/a")]],
-        ["beta", [group("~/code/b")]],
-      ]),
-    });
-    fireEvent.click(screen.getByText("open-create"));
-    fireEvent.focus(screen.getByLabelText("Workspace folder"));
-    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["~/code/a", "~/code/b"]);
-  });
-
-  it("leaves the folder empty when no tab is resolvable", () => {
-    renderDialogs();
-    fireEvent.click(screen.getByText("open-create"));
-    expect((screen.getByLabelText("Workspace folder") as HTMLInputElement).value).toBe("");
-  });
 
   it("daemon target renders the protected fork by name derivation even when the server list is stale", () => {
     // The daemon entry is absent from ctx.servers (stale/empty list) — the

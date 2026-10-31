@@ -27,10 +27,13 @@ export const MENU_ROW_CHECK_MARK = "ml-auto text-accent-green";
  */
 export const POPOVER_SHELL =
   "bg-bg-primary border border-border rounded-lg shadow-2xl py-1 z-50";
+/** The menu section label without the `uppercase` transform, for headers that
+ *  carry case-sensitive names (the New menu's `IN <workspace> › <group>`). */
+export const POPOVER_SECTION_LABEL_CASED =
+  "px-2.5 pt-1.5 pb-0.5 text-[10px] tracking-wider text-text-secondary select-none";
 /** The one menu section-label recipe (aria-hidden decoration — menu semantics
  *  ride the rows). */
-export const POPOVER_SECTION_LABEL =
-  "px-2.5 pt-1.5 pb-0.5 text-[10px] uppercase tracking-wider text-text-secondary select-none";
+export const POPOVER_SECTION_LABEL = `${POPOVER_SECTION_LABEL_CASED} uppercase`;
 
 /**
  * The one switch-track recipe (scheme C: green = state) — every `role="switch"`

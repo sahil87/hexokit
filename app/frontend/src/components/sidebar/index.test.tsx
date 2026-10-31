@@ -50,6 +50,18 @@ const NULL_NAME: InstanceName = {
 
 
 const mockNavigate = vi.fn();
+// The New split button has its own suite (new-split-button.test.tsx) and needs
+// the palette/session/slot providers; the sidebar tests only assert WHERE the
+// mobile brand row places it.
+vi.mock("@/components/new-split-button", () => ({
+  NewSplitButton: ({ mode, align }: { mode: string; align?: string }) => (
+    <div data-testid="new-split" data-mode={mode} data-align={align} />
+  ),
+}));
+vi.mock("@/hooks/use-top-bar-mode", () => ({
+  useTopBarMode: () => ({ mode: "terminal", serverParam: undefined, boardName: undefined }),
+}));
+
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
   useRouterState: ({ select }: { select: (s: { location: { pathname: string } }) => unknown }) =>
@@ -145,6 +157,8 @@ type RenderOpts = {
   ) => void;
   /** Override the Sidebar's onSelectWindow prop — tests assert the invocation. */
   onSelectWindow?: (server: string, session: string, windowId: string) => void;
+  /** Override the Sidebar's onCreateWindow prop. */
+  onCreateWindow?: (server: string, session: string) => void;
   /** Wire the operator placeholder row's activation handler (the shell's
    *  drawer opener) — absent ⇒ no placeholder renders (the board route). */
   onOperatorPlaceholder?: (server: string) => void;
@@ -195,10 +209,9 @@ function sidebarTree(opts: RenderOpts = {}) {
                         currentWindowId={opts.currentWindowId !== undefined ? opts.currentWindowId : currentServer ? "@0" : null}
                         isConnected={opts.isConnected ?? false}
                         onSelectWindow={opts.onSelectWindow ?? vi.fn()}
-                        onCreateWindow={vi.fn()}
+                        onCreateWindow={opts.onCreateWindow ?? vi.fn()}
                         onCreateSession={opts.onCreateSession ?? vi.fn()}
                         onWindowMarkerChange={opts.onWindowMarkerChange}
-                        onCreateServer={vi.fn()}
                         onKillServer={opts.onKillServer ?? vi.fn()}
                         onOperatorPlaceholder={opts.onOperatorPlaceholder}
                       />
@@ -972,7 +985,6 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
                         onSelectWindow={onSelectWindow}
                         onCreateWindow={vi.fn()}
                         onCreateSession={vi.fn()}
-                        onCreateServer={vi.fn()}
                         onKillServer={vi.fn()}
                       />
                       </SettingsDialogProvider>
@@ -2691,11 +2703,25 @@ describe("Sidebar — brand row (mobile-only)", () => {
     expect(nav.firstElementChild).toContainElement(brand);
   });
 
+  it("carries the New split at the brand row's right end on mobile", () => {
+    stubMatchMedia((q) => q.includes("max-width") || q.includes("prefers-color-scheme: dark"));
+    renderSidebar();
+    const nav = screen.getByRole("navigation", { name: "Groups" });
+    const brand = within(nav).getByRole("link", { name: "HexoKit" });
+    const split = within(nav).getByTestId("new-split");
+    const row = nav.firstElementChild!;
+    expect(row).toContainElement(split);
+    expect(brand.nextElementSibling).toBe(split);
+    // At the row's right edge the menu must open leftward (not clipped).
+    expect(split).toHaveAttribute("data-align", "end");
+  });
+
   it("renders NO brand row on desktop", () => {
     // File-default stub: desktop (no max-width / coarse match).
     renderSidebar();
     const nav = screen.getByRole("navigation", { name: "Groups" });
     expect(within(nav).queryByRole("link", { name: "HexoKit" })).not.toBeInTheDocument();
+    expect(within(nav).queryByTestId("new-split")).not.toBeInTheDocument();
   });
 });
 
@@ -2777,7 +2803,6 @@ describe("Sidebar — desktop selected-row autoscroll (nris)", () => {
                           onSelectWindow={onSelectWindow}
                           onCreateWindow={vi.fn()}
                           onCreateSession={vi.fn()}
-                          onCreateServer={vi.fn()}
                           onKillServer={vi.fn()}
                         />
                       </SettingsDialogProvider>
@@ -3633,5 +3658,43 @@ describe("Sidebar — ⌘B row-focuser registry + Escape return (260819-qwr7 R5)
 
     expect(restore).not.toHaveBeenCalled();
     input.remove();
+  });
+});
+
+describe("Sidebar — keyboard activation of controls inside tree rows", () => {
+  // The tree's Enter/Space handler activates the ROW; a focused control inside
+  // the row (the per-group `+`, the chevron) must keep its native activation,
+  // so the handler must neither preventDefault nor navigate for it.
+  it("Enter and Space on the per-group + are left to the button (not prevented, no row activation)", () => {
+    const onSelectWindow = vi.fn();
+    const onCreateWindow = vi.fn();
+    renderSidebar({ currentServer: "primary", onSelectWindow, onCreateWindow });
+    const plus = screen.getByLabelText("New tab in main");
+    for (const key of ["Enter", " "]) {
+      // fireEvent returns false when a handler called preventDefault — that
+      // would cancel the browser's synthesized click.
+      expect(fireEvent.keyDown(plus, { key })).toBe(true);
+    }
+    expect(onSelectWindow).not.toHaveBeenCalled();
+    // The browser turns an unprevented Enter/Space into this click.
+    fireEvent.click(plus);
+    expect(onCreateWindow).toHaveBeenCalledTimes(1);
+    expect(onCreateWindow).toHaveBeenCalledWith("primary", "main");
+  });
+
+  it("Enter on the chevron is likewise left to the button", () => {
+    const onSelectWindow = vi.fn();
+    renderSidebar({ currentServer: "primary", onSelectWindow });
+    const chevron = screen.getByLabelText("Collapse main");
+    expect(fireEvent.keyDown(chevron, { key: "Enter" })).toBe(true);
+    expect(onSelectWindow).not.toHaveBeenCalled();
+  });
+
+  it("Enter on the focused treeitem itself still activates the group's first window", () => {
+    const onSelectWindow = vi.fn();
+    renderSidebar({ currentServer: "primary", onSelectWindow });
+    const row = document.querySelector('[data-session-row="primary:main"]') as HTMLElement;
+    fireEvent.keyDown(row, { key: "Enter" });
+    expect(onSelectWindow).toHaveBeenCalledTimes(1);
   });
 });
