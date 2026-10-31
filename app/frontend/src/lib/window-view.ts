@@ -17,11 +17,11 @@
  */
 
 /**
- * A lens over a window's substrate. `tty`, `web`, `code`, `gui`, and `review`
- * are implemented; the registry (spec § The View Registry) is open-ended — a
- * new lens adds a member here and a capability in `availableViews`.
+ * A lens over a window's substrate. `tty`, `web`, `code`, and `gui` are
+ * implemented; the registry (spec § The View Registry) is open-ended — a new
+ * lens adds a member here and a capability in `availableViews`.
  */
-export type ViewName = "tty" | "web" | "code" | "gui" | "review" | "diff";
+export type ViewName = "tty" | "web" | "code" | "gui";
 
 /**
  * The host-global gui signal the availability helpers consult. Absent/null
@@ -55,15 +55,6 @@ export type ViewWindow = {
   webActive?: number;
   codeRoot?: string;
   gitRoot?: string;
-  /** The window's branch-derived pull request (`prstatus.BranchRefresher`),
-   *  already on the SSE payload. The review lens's whole availability gate —
-   *  no new field and no new derivation (spec pr-review.md § R2). */
-  prUrl?: string;
-  /** Unhandled review threads for that PR — `!resolved ∧ !outdated ∧ !👀` over
-   *  the prstatus digest, joined onto the window payload server-side. It is the
-   *  review toggle's UNREAD signal and the tile's revalidation trigger; it is
-   *  NOT part of availability (`hasReview` keys off `prUrl` alone, § R2). */
-  prReviewUnhandled?: number;
 };
 
 /**
@@ -72,7 +63,7 @@ export type ViewWindow = {
  * registry-driven. `code` sits ahead of `web` and `tty` here for ORDERING
  * only — neither availability nor on-screen state is implied.
  */
-const HINT_ORDER: ViewName[] = ["code", "gui", "review", "diff", "web", "tty"];
+const HINT_ORDER: ViewName[] = ["code", "gui", "web", "tty"];
 
 /**
  * Whether a window carries at least one web tab (the `@rk_win_web_<n>` family
@@ -112,43 +103,13 @@ export function hasCode(win: ViewWindow | null | undefined): boolean {
 }
 
 /**
- * Whether a window offers the review lens (spec pr-review.md § R2): the surface
- * is PR-BACKED ONLY, so availability is exactly "the branch has a pull
- * request". `prUrl` is already derived server-side and already rides the SSE
- * payload, so this needs no new field and no new derivation. Same
- * availability-vs-reachability split as `code`: a PR that is unreachable
- * (gh down, rate-limited) still offers the lens and selects its CONTENT.
- */
-export function hasReview(win: ViewWindow | null | undefined): boolean {
-  return (win?.prUrl ?? "").length > 0;
-}
-
-/**
- * Whether a window offers the working-directory lens: the surface is
- * REPO-BACKED, so availability is exactly "the window's pane sits inside a git
- * repository". `gitRoot` is the active pane's cwd walked to its repo root,
- * already derived server-side and already on the SSE payload — the same trick
- * `hasReview` plays with `prUrl`, so this needs no new field and no new
- * derivation.
- *
- * Same availability-vs-reachability split as `code` and `review`: a CLEAN tree
- * still offers the lens. Emptiness selects the surface's CONTENT (an empty
- * state), never its presence — a tile that vanished when you committed would be
- * an absence the reader has to interpret.
- */
-export function hasDiff(win: ViewWindow | null | undefined): boolean {
-  return (win?.gitRoot ?? "").length > 0;
-}
-
-/**
  * The capability set a window offers (spec R1/R3). `tty` is ALWAYS available;
  * `web` is ALWAYS available too — like `tty`, the lens exists on every window;
  * `hasWebUrl` selects its CONTENT (onboarding vs live iframe), never its
  * availability (the code-surface availability-vs-reachability split); `code`
  * is available exactly when `hasCode` holds; `gui` exactly when the host
  * signal's `enabled` is true (`hasGui`) — a per-HOST capability threaded in
- * as the optional second arg, absent reading as unavailable; `review` exactly
- * when the window's branch has a PR (`hasReview`). Capabilities are
+ * as the optional second arg, absent reading as unavailable. Capabilities are
  * orthogonal and stack (spec R5). Returned in the registry's fixed order
  * (HINT_ORDER).
  */
@@ -159,8 +120,6 @@ export function availableViews(
   const views: ViewName[] = [];
   if (hasCode(win)) views.push("code");
   if (hasGui(host)) views.push("gui");
-  if (hasReview(win)) views.push("review");
-  if (hasDiff(win)) views.push("diff");
   views.push("web");
   views.push("tty");
   // Return in HINT_ORDER so the switcher segment order is stable/registry-driven.

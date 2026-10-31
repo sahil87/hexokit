@@ -50,8 +50,8 @@ func freeze(t *testing.T) *time.Time {
 }
 
 // A successful probe is a network call — measured at 0.34-0.39 s, and twice at
-// 30 s. Paying it on every cold document was both a fixed tax and, past the
-// caller's 10 s timeout, a working tile reporting "gh is unavailable".
+// 30 s. Paying it on every call was both a fixed tax and, past the caller's
+// 10 s timeout, a working gh reported as "gh is unavailable".
 func TestASuccessfulProbeIsNotRepeatedInsideItsTTL(t *testing.T) {
 	stubGh(t, 0)
 	clock := freeze(t)

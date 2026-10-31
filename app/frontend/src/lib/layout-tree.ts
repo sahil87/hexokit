@@ -92,12 +92,12 @@ export const NOMINAL_BOX: Rect = { x: 0, y: 0, w: 1600, h: 1000 };
  * cap keeps a hostile or hand-written deep tree from overflowing the call
  * stack — the parse degrades to `null` (the tty fallback) instead. Sized for
  * foreign address leaves (`@12/tty` runs 7–11 chars): an all-bare tree over
- * the five surface kinds is ≤ 26 chars and legacy presets stay under 30, but
+ * the four surface kinds is ≤ 17 chars and legacy presets stay under 30, but
  * cross-tab trees run longer.
  */
 export const MAX_LAYOUT_LEN = 512;
 
-const SURFACE_KINDS: SurfaceKind[] = ["tty", "web", "code", "gui", "review", "diff"];
+const SURFACE_KINDS: SurfaceKind[] = ["tty", "web", "code", "gui"];
 
 function isSurfaceKind(value: string): value is SurfaceKind {
   return (SURFACE_KINDS as string[]).includes(value);
@@ -748,9 +748,10 @@ export const TEMPLATES: Record<TemplateName, (slots: SurfaceKind[]) => LayoutNod
 };
 
 /** Distinct stand-in kinds for structure comparisons and slot mapping. It only
- *  has to be as long as the largest template (N ≤ 5 slots), so it does not
- *  enumerate every surface — the entries are placeholders, not a registry. */
-const INDEX_KINDS: SurfaceKind[] = ["tty", "web", "code", "gui", "review"];
+ *  has to be as long as the largest template (N ≤ 5 slots — foreign leaves let
+ *  a tree hold more tiles than there are surface kinds), so the entries are
+ *  opaque placeholders, not a registry: they never reach a rendered layout. */
+const INDEX_KINDS = ["s0", "s1", "s2", "s3", "s4"] as unknown as SurfaceKind[];
 
 export interface TemplateMatch {
   name: TemplateName | "single" | "custom";

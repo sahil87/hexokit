@@ -370,34 +370,13 @@ func TestHas(t *testing.T) {
 	}
 }
 
-// The review kind is a plain registry addition: it parses and round-trips
-// like any other surface, and a second bare review tile is refused.
-func TestReviewSurfaceKind(t *testing.T) {
-	n, err := Parse("h(tty,review)")
-	if err != nil {
-		t.Fatalf("Parse(h(tty,review)): %v", err)
-	}
-	if got := n.String(); got != "h(tty,review)" {
-		t.Errorf("round-trip = %q", got)
-	}
-	if !n.Has("review") {
-		t.Error("Has(review) = false")
-	}
-	if _, err := Add(n, "review"); !errors.Is(err, ErrSurfaceRepeat) {
-		t.Errorf("Add(review) twice: err = %v, want ErrSurfaceRepeat", err)
-	}
-	if _, err := Parse("split-h:tty,review"); err != nil {
-		t.Errorf("legacy Parse(split-h:tty,review): %v", err)
-	}
-}
-
 func TestIsSurface(t *testing.T) {
-	for _, kind := range []string{"tty", "web", "code", "gui", "review", "diff"} {
+	for _, kind := range []string{"tty", "web", "code", "gui"} {
 		if !IsSurface(kind) {
 			t.Errorf("IsSurface(%q) = false", kind)
 		}
 	}
-	for _, kind := range []string{"", "desktop", "agents", "terminal", "chat"} {
+	for _, kind := range []string{"", "desktop", "agents", "terminal", "chat", "review", "diff"} {
 		if IsSurface(kind) {
 			t.Errorf("IsSurface(%q) = true", kind)
 		}
@@ -409,14 +388,14 @@ func TestIsSurface(t *testing.T) {
 // A surface the frontend can WRITE but this package refuses to PARSE is the
 // worst shape this bug takes: the toggle writes `@rk_win_layout`, the daemon
 // rejects the string, and the user gets `unknown surface at byte N` from a
-// button that looks like it should just work. It happened with `diff`, and the
-// only reason it survived review is that the e2e mocks the options POST, so the
+// button that looks like it should just work. It happened once with a
+// since-removed surface, and the only reason it survived review is that the e2e mocks the options POST, so the
 // validator never ran in a test.
 //
 // Every kind the frontend offers must parse here. When a surface is added,
 // this list is the second place to change and the failure names itself.
 func TestEveryShippedSurfaceParsesInALayout(t *testing.T) {
-	for _, kind := range []string{"tty", "web", "code", "gui", "review", "diff"} {
+	for _, kind := range []string{"tty", "web", "code", "gui"} {
 		spec := "h(tty," + kind + ")"
 		if _, err := Parse(spec); err != nil {
 			t.Errorf("Parse(%q) = %v — the frontend can write this and the daemon would reject it", spec, err)

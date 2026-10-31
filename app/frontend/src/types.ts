@@ -209,12 +209,6 @@ export type WindowInfo = {
   prChecks?: "pass" | "fail" | "pending" | "none";
   prReview?: "approved" | "changes_requested" | "review_required" | "none";
   prIsDraft?: boolean;
-  /** Unhandled review threads on that PR — `!resolved ∧ !outdated ∧ !👀` over
-   *  the prstatus review-thread digest, joined onto the window by the SSE hub
-   *  like `prChecks`/`prReview` (collector-join-owned: absent on a miss). It is
-   *  the review toggle's unread signal and the review tile's revalidation
-   *  trigger; availability is still `prUrl` alone (spec pr-review.md § R2). */
-  prReviewUnhandled?: number;
   /** ISO timestamp (RFC3339) of when the joined PR status was last fetched by
    *  the viewer-wide collector. Collector-join-owned (set on a URL hit, absent
    *  on a miss); surfaced as the row flyout card's "checked Xs ago" freshness line. */

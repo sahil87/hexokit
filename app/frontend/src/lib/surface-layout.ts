@@ -56,7 +56,7 @@ import {
   type TemplateName,
 } from "./layout-tree";
 import { MIN_TILE_H, MIN_TILE_W } from "./layout-drop";
-import { hasCode, hasDiff, hasGui, hasReview, type GuiHost, type ViewWindow } from "./window-view";
+import { hasCode, hasGui, type GuiHost, type ViewWindow } from "./window-view";
 
 export type { LayoutNode, LayoutSizes, Rect, SurfaceKind, TemplateName };
 export {
@@ -92,11 +92,6 @@ export const SURFACE_LABEL: Record<SurfaceKind, string> = {
   web: "Web",
   code: "Code",
   gui: "GUI",
-  // User-facing "Changes"; the internal kind stays `review` because this repo
-  // already means a fab change by "changes" (spec pr-review.md § R1).
-  review: "Changes",
-  // "Working" against "Changes": the PR's answer versus the disk's.
-  diff: "Working",
 };
 
 /**
@@ -109,11 +104,9 @@ export const SURFACE_GLYPH: Record<SurfaceKind, string> = {
   web: "://",
   code: "{}",
   gui: "[]",
-  review: "+-",
-  diff: "~~",
 };
 
-const SURFACE_KINDS: SurfaceKind[] = ["tty", "web", "code", "gui", "review", "diff"];
+const SURFACE_KINDS: SurfaceKind[] = ["tty", "web", "code", "gui"];
 
 function isSurfaceKind(value: string): value is SurfaceKind {
   return (SURFACE_KINDS as string[]).includes(value);
@@ -129,10 +122,7 @@ function isSurfaceKind(value: string): value is SurfaceKind {
  * not its presence). `web` is unconditional — the lens always exists;
  * `hasWebUrl` selects its content (onboarding vs live iframe), so the
  * degradation ladder never drops a web tile. `gui` is a per-HOST capability:
- * it lands after web, iff the threaded host signal's `enabled` is true.
- * `review` lands at ⌘5, iff the window's branch carries a PR — the surface is
- * PR-backed only, so no PR means no tile at all. `diff` lands last (⌘6), iff
- * the window sits in a git repository: repo-backed on the same terms.
+ * it lands last, iff the threaded host signal's `enabled` is true.
  */
 export function availableTiles(
   win: ViewWindow | null | undefined,
@@ -142,8 +132,6 @@ export function availableTiles(
   if (hasCode(win)) tiles.push("code");
   tiles.push("web");
   if (hasGui(host)) tiles.push("gui");
-  if (hasReview(win)) tiles.push("review");
-  if (hasDiff(win)) tiles.push("diff");
   return tiles;
 }
 

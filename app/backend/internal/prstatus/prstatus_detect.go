@@ -5,7 +5,7 @@ package prstatus
 // GitHub's primary rate limit, so a tight cadence costs nothing while nothing
 // changes; only a real change (a 200 with a new ETag) triggers the existing
 // refresh chain. The detector never writes PR state itself — it decides WHEN
-// to re-derive; the collector, branch refresher, and thread digest remain the
+// to re-derive; the collector and branch refresher remain the
 // source of truth and keep running as the reconciliation safety net.
 //
 // Invariants:
@@ -66,7 +66,7 @@ const (
 	detectUserAgent    = "hexokit/dev"
 
 	// detectMaxBody bounds one response-body read. The bodies are discarded
-	// except for the PR endpoint's head.sha/comments fields; the read exists
+	// except for the PR endpoint's head.sha field; the read exists
 	// to drain the connection for reuse without trusting the server's length.
 	detectMaxBody = 4 << 20
 )
@@ -83,25 +83,14 @@ type DetectedChange struct {
 	// Reviews: the pulls/{n}/reviews endpoint flipped (an approve-only review
 	// may not flip the PR resource).
 	Reviews bool
-	// CommentsChanged reports that the PR flip included a comments/
-	// review_comments count delta — with Reviews, the gate for paying for a
-	// thread-digest refresh.
-	CommentsChanged bool
 }
-
-// ThreadsRelevant reports whether this change warrants a thread-digest
-// refresh: a comment-count delta on the PR endpoint, or any reviews flip.
-func (c DetectedChange) ThreadsRelevant() bool { return c.CommentsChanged || c.Reviews }
 
 // prWatch is the per-PR conditional state: an ETag per exact request URL (the
 // CI endpoint URLs embed the head SHA, so a push naturally re-baselines them),
-// the last recorded head SHA, and the comment counts a PR flip is compared
-// against.
+// and the last recorded head SHA.
 type prWatch struct {
-	etags          map[string]string
-	headSHA        string
-	comments       int
-	reviewComments int
+	etags   map[string]string
+	headSHA string
 }
 
 // tokenEntry is a per-host cached gh token with its taken-at time. A non-nil
@@ -147,8 +136,7 @@ type getResult struct {
 }
 
 // passBudget accumulates GitHub's own rate-limit accounting over one pass so
-// REST spend is logged once per pass that saw a 200, mirroring the thread
-// digest's GraphQL cost logging.
+// REST spend is logged once per pass that saw a 200.
 type passBudget struct {
 	saw200       bool
 	minRemaining int
@@ -486,7 +474,6 @@ func (d *Detector) pendingChange(ch DetectedChange) {
 	p.PR = p.PR || ch.PR
 	p.Checks = p.Checks || ch.Checks
 	p.Reviews = p.Reviews || ch.Reviews
-	p.CommentsChanged = p.CommentsChanged || ch.CommentsChanged
 	d.pending[ch.URL] = p
 }
 
@@ -679,14 +666,11 @@ func hasRateLimitSignal(hdr http.Header) bool {
 }
 
 // prMeta is the projection of the pulls/{n} body the detector reads: the head
-// SHA (which drives the CI endpoint URLs) and the comment counts a flip is
-// compared against for the thread-digest gate.
+// SHA, which drives the CI endpoint URLs.
 type prMeta struct {
 	Head struct {
 		SHA string `json:"sha"`
 	} `json:"head"`
-	Comments       int `json:"comments"`
-	ReviewComments int `json:"review_comments"`
 }
 
 // checkPR polls one tracked PR's four endpoints in order — the PR resource,
@@ -744,11 +728,7 @@ func (d *Detector) checkPR(ctx context.Context, prURL string, id prIdentity, bud
 		}
 		if res.outcome == outcomeFlipped {
 			change.PR = true
-			change.CommentsChanged = meta.Comments != watch.comments ||
-				meta.ReviewComments != watch.reviewComments
 		}
-		watch.comments = meta.Comments
-		watch.reviewComments = meta.ReviewComments
 	case outcomeUnchanged:
 		// Nothing to store; fall through to the CI endpoints with the recorded SHA.
 	}
