@@ -31,9 +31,9 @@ describe("availableSurfaces", () => {
   // Registry order is tty, code, web (surface-layout R8).
   it("offers code exactly when gitRoot is set", () => {
     const codeWin: ViewWindow = { gitRoot: "/repo" };
-    expect(availableSurfaces(codeWin)).toEqual(["tty", "code", "web", "diff"]);
+    expect(availableSurfaces(codeWin)).toEqual(["tty", "code", "web"]);
     expect(availableSurfaces({ webTabs: ["http://localhost:8080"], gitRoot: "/repo" }))
-      .toEqual(["tty", "code", "web", "diff"]);
+      .toEqual(["tty", "code", "web"]);
   });
 
   it("gates code off without a gitRoot", () => {

@@ -117,7 +117,7 @@ func TestSaveAndLoad(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 
-	s := Settings{Theme: "system", ThemeDark: "dracula", ThemeLight: "solarized-light", CronTicker: true, PrReviewListener: true, EasterEggs: true}
+	s := Settings{Theme: "system", ThemeDark: "dracula", ThemeLight: "solarized-light", CronTicker: true, EasterEggs: true}
 	if err := Save(s); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestLoadMissingFile(t *testing.T) {
 }
 
 func TestSerialize(t *testing.T) {
-	got := serialize(Settings{Theme: "catppuccin-mocha", ThemeDark: "catppuccin-mocha", ThemeLight: "github-light", CronTicker: true, PrReviewListener: true, EasterEggs: true})
+	got := serialize(Settings{Theme: "catppuccin-mocha", ThemeDark: "catppuccin-mocha", ThemeLight: "github-light", CronTicker: true, EasterEggs: true})
 	want := "theme: catppuccin-mocha\ntheme_dark: catppuccin-mocha\ntheme_light: github-light\n"
 	if got != want {
 		t.Errorf("serialize = %q, want %q", got, want)
@@ -366,7 +366,7 @@ func TestParseOptionalSettings(t *testing.T) {
 }
 
 func TestSerializeOptionalSettings(t *testing.T) {
-	base := Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light", CronTicker: true, PrReviewListener: true, EasterEggs: true}
+	base := Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light", CronTicker: true, EasterEggs: true}
 	cases := []struct {
 		name   string
 		mutate func(*Settings)
@@ -437,7 +437,7 @@ func TestSerializeOptionalSettings(t *testing.T) {
 }
 
 func TestSerializeEmptyOptionalSettingsIsByteIdentical(t *testing.T) {
-	got := serialize(Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light", CronTicker: true, PrReviewListener: true, EasterEggs: true, LogLevel: "info"})
+	got := serialize(Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light", CronTicker: true, EasterEggs: true, LogLevel: "info"})
 	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\n"
 	if got != want {
 		t.Errorf("serialize with optional defaults = %q, want %q", got, want)
@@ -509,22 +509,21 @@ func TestOptionalSettingRoundTrips(t *testing.T) {
 	}
 
 	fixtures := map[string]roundTripFixture{
-		"theme":              registryValueFixture(`"dark"`, ptr("dark"), `"light"`, ptr("light"), ptr("system")),
-		"theme_dark":         registryValueFixture(`"dracula"`, ptr("dracula"), `"nord"`, ptr("nord"), ptr("default-dark")),
-		"theme_light":        registryValueFixture(`"solarized-light"`, ptr("solarized-light"), `"paper"`, ptr("paper"), ptr("default-light")),
-		"instance_color":     stringValueFixture("5", "1+3", SetInstanceColor, GetInstanceColor),
-		"ssh_host":           stringValueFixture("devbox", "user@host", SetSSHHost, GetSSHHost),
-		"port":               registryValueFixture(`4000`, 4000, `3000`, 3000, nil),
-		"instance_name":      stringValueFixture("my-box", "dev mini", SetInstanceName, GetInstanceName),
-		"auto_name":          registryValueFixture(`true`, true, `false`, false, false),
-		"cron_ticker":        registryValueFixture(`false`, false, `true`, true, true),
-		"pr_review_listener": registryValueFixture(`false`, false, `true`, true, true),
-		"easter_eggs":        registryValueFixture(`false`, false, `true`, true, true),
-		"gui.enabled":        registryValueFixture(`true`, true, `false`, false, false),
-		"gui.wm":             registryValueFixture(`"openbox"`, "openbox", `"xfwm4"`, "xfwm4", ""),
-		"gui.geometry":       registryValueFixture(`"auto"`, "auto", `"1600x900"`, "1600x900", "1920x1080"),
-		"tmux_conf":          registryValueFixture(`"/my/tmux.conf"`, ptr("/my/tmux.conf"), `"/other/tmux.conf"`, ptr("/other/tmux.conf"), (*string)(nil)),
-		"log_level":          registryValueFixture(`"debug"`, ptr("debug"), `"info"`, ptr("info"), ptr("info")),
+		"theme":          registryValueFixture(`"dark"`, ptr("dark"), `"light"`, ptr("light"), ptr("system")),
+		"theme_dark":     registryValueFixture(`"dracula"`, ptr("dracula"), `"nord"`, ptr("nord"), ptr("default-dark")),
+		"theme_light":    registryValueFixture(`"solarized-light"`, ptr("solarized-light"), `"paper"`, ptr("paper"), ptr("default-light")),
+		"instance_color": stringValueFixture("5", "1+3", SetInstanceColor, GetInstanceColor),
+		"ssh_host":       stringValueFixture("devbox", "user@host", SetSSHHost, GetSSHHost),
+		"port":           registryValueFixture(`4000`, 4000, `3000`, 3000, nil),
+		"instance_name":  stringValueFixture("my-box", "dev mini", SetInstanceName, GetInstanceName),
+		"auto_name":      registryValueFixture(`true`, true, `false`, false, false),
+		"cron_ticker":    registryValueFixture(`false`, false, `true`, true, true),
+		"easter_eggs":    registryValueFixture(`false`, false, `true`, true, true),
+		"gui.enabled":    registryValueFixture(`true`, true, `false`, false, false),
+		"gui.wm":         registryValueFixture(`"openbox"`, "openbox", `"xfwm4"`, "xfwm4", ""),
+		"gui.geometry":   registryValueFixture(`"auto"`, "auto", `"1600x900"`, "1600x900", "1920x1080"),
+		"tmux_conf":      registryValueFixture(`"/my/tmux.conf"`, ptr("/my/tmux.conf"), `"/other/tmux.conf"`, ptr("/other/tmux.conf"), (*string)(nil)),
+		"log_level":      registryValueFixture(`"debug"`, ptr("debug"), `"info"`, ptr("info"), ptr("info")),
 		"server_colors": stringValueFixture("6", "1+3", func(v *string) error {
 			return SetServerColor("default", v)
 		}, func() *string { return GetServerColor("default") }),

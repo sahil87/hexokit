@@ -5,8 +5,6 @@ import { controlClass } from "@/components/control";
 import { TerminalClient } from "@/components/terminal-client";
 import { FindBar } from "@/components/find-bar";
 import { CodeSurface } from "@/components/code-surface";
-import { ReviewSurface, type ReviewSurfaceCommands } from "@/components/review-surface";
-import { WorkingSurface } from "@/components/working-surface";
 import { IframeWindow } from "@/components/iframe-window";
 import { StatusDot } from "@/components/status-dot";
 import { DEFAULT_DARK_THEME, type ThemePalette } from "@/themes";
@@ -578,12 +576,6 @@ interface SurfaceLayoutProps {
    *  zen-fallback description patch included) — the gui tile's header fold
    *  mirrors it by row id. */
   guiActions?: GuiPaletteAction[];
-  /** The review tile's imperative verb seams (the palette's `Review:` entries)
-   *  and its unhandled-thread reporter (the surface toggle's dot). Absent on
-   *  mounts that do not offer the surface. */
-  reviewCommandsRef?: { current: ReviewSurfaceCommands | null };
-  onReviewUnhandledChange?: (count: number) => void;
-  onReviewListeningChange?: (listening: boolean) => void;
   /** Follow-the-editor passthrough (260813-if5d R3): handed straight to the code
    *  tile's `CodeSurface`, which reports the folder the EDITOR navigated itself
    *  to. The parent latches it — this component only carries the prop. A
@@ -825,21 +817,6 @@ function tileMeta(kind: SurfaceKind, win: ViewWindow | null, gui?: GuiSignal | n
   if (kind === "gui" && gui) {
     const parts = [gui.wm, gui.display].filter((part) => part !== "");
     return parts.length > 0 ? parts.join(" · ") : null;
-  }
-  // The review tile's meta is the PR the surface is backed by — the one fact
-  // that says WHICH pull request the tile is showing without opening it.
-  if (kind === "review") {
-    const prUrl = win?.prUrl ?? "";
-    if (!prUrl) return null;
-    const number = prUrl.split("/").pop() ?? "";
-    return number ? `#${number}` : null;
-  }
-  // The working tile's meta is the repo whose tree it is showing.
-  if (kind === "diff") {
-    const root = win?.gitRoot ?? "";
-    if (!root) return null;
-    const parts = root.split("/").filter(Boolean);
-    return parts.length > 0 ? parts[parts.length - 1] : null;
   }
   const codeRoot = kind === "code" ? codeRootFor(win) : "";
   if (codeRoot) {
@@ -1094,9 +1071,6 @@ export function SurfaceLayout({
   onCodeFolderNavigated,
   onCodeFollowTerminal,
   codeCommandsRef,
-  reviewCommandsRef,
-  onReviewUnhandledChange,
-  onReviewListeningChange,
   layoutRectsRef,
   codeSrcFor,
   liveWindowIds,
@@ -2968,40 +2942,6 @@ export function SurfaceLayout({
             }
           />
         ) : null;
-      }
-      case "review": {
-        // PR-backed only: availability upstream guarantees a prUrl, so a
-        // missing one renders nothing rather than an empty-state the toggle
-        // should never have offered. A foreign review tile reads its HOME
-        // window's PR and digest.
-        const reviewWin = windowRecordFor(tileWinId);
-        const prUrl = reviewWin?.prUrl ?? "";
-        if (!prUrl) return null;
-        return (
-          <ReviewSurface
-            server={server}
-            windowId={tileWinId}
-            prUrl={prUrl}
-            // The SSE tick's revalidation signal (pushed, never polled).
-            digestUnhandled={reviewWin?.prReviewUnhandled ?? 0}
-            // The palette's `Review:` verbs and the surface toggle's dot are
-            // the ROUTE window's: only the bare tile binds them, so a foreign
-            // review tile can never clobber the seams.
-            commandsRef={foreign ? undefined : reviewCommandsRef}
-            onUnhandledChange={foreign ? undefined : onReviewUnhandledChange}
-            onListeningChange={foreign ? undefined : onReviewListeningChange}
-          />
-        );
-      }
-      case "diff": {
-        // Repo-backed only: availability upstream guarantees a gitRoot, so a
-        // missing one renders nothing rather than an empty state the toggle
-        // should never have offered. A foreign working tile reads its HOME
-        // window's repo, which is the tree that window is actually sitting in.
-        const diffWin = windowRecordFor(tileWinId);
-        const gitRoot = diffWin?.gitRoot ?? "";
-        if (!gitRoot) return null;
-        return <WorkingSurface server={server} windowId={tileWinId} gitRoot={gitRoot} />;
       }
       case "gui": {
         // The gui tile mirrors the code seam grammar, minus the steal guard

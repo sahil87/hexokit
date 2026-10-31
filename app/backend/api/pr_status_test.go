@@ -9,24 +9,12 @@ import (
 	"rk/internal/tmux"
 )
 
-// stubSnapshotter implements PRStatusSnapshotter with a canned map plus a
-// canned review-thread digest keyed the same way.
+// stubSnapshotter implements PRStatusSnapshotter with a canned map.
 type stubSnapshotter struct {
-	snap    map[string]prstatus.PRStatus
-	threads map[string][]prstatus.ReviewThread
+	snap map[string]prstatus.PRStatus
 }
 
 func (s stubSnapshotter) Snapshot() map[string]prstatus.PRStatus { return s.snap }
-
-func (s stubSnapshotter) UnhandledThreads(prURL string) []prstatus.ReviewThread {
-	var out []prstatus.ReviewThread
-	for _, thread := range s.threads[prURL] {
-		if prstatus.Unhandled(thread) {
-			out = append(out, thread)
-		}
-	}
-	return out
-}
 
 func intp(n int) *int       { return &n }
 func strp(s string) *string { return &s }
@@ -236,57 +224,3 @@ func TestAttachPRStatusFetchedAt(t *testing.T) {
 // composing POST /api/status/refresh (status_refresh.go / status_refresh_test.go)
 // supersedes it. The attachPRStatus tests above are unrelated to that endpoint
 // (they cover the sseHub URL-keyed join) and are retained here.
-
-// The review-thread digest joins onto the window payload on the same pass and
-// with the same URL key — it is what makes the review toggle's dot an UNREAD
-// signal for a window whose tile is closed, rather than a restatement of
-// availability. Two properties matter: it is the eligibility predicate's count
-// (not every thread), and it is collector-join-owned, so it resets on a miss.
-func TestAttachPRStatusJoinsTheReviewThreadDigest(t *testing.T) {
-	eligible := prstatus.ReviewThread{ID: "T1", FirstCommentID: "C1"}
-	claimed := prstatus.ReviewThread{ID: "T2", FirstCommentID: "C2", HasEyes: true}
-	resolved := prstatus.ReviewThread{ID: "T3", FirstCommentID: "C3", IsResolved: true}
-	outdated := prstatus.ReviewThread{ID: "T4", FirstCommentID: "C4", IsOutdated: true}
-
-	hub := &sseHub{
-		prStatus: stubSnapshotter{
-			snap: map[string]prstatus.PRStatus{
-				"u386": {Number: 386, URL: "u386", State: "open"},
-			},
-			threads: map[string][]prstatus.ReviewThread{
-				"u386": {eligible, claimed, resolved, outdated, eligible},
-				// A PR with a digest but no status entry still reports its
-				// count: the two halves are independent reads.
-				"u999": {eligible},
-			},
-		},
-	}
-
-	sess := []sessions.ProjectSession{{
-		Name: "dev",
-		Windows: []tmux.WindowInfo{
-			{Index: 0, PrURL: strp("u386")},
-			{Index: 1, PrURL: strp("u999")},
-			// No digest for this PR → zero, not stale.
-			{Index: 2, PrURL: strp("u123"), PrReviewUnhandled: 9},
-			// No PR at all → the field resets.
-			{Index: 3, PrURL: nil, PrReviewUnhandled: 9},
-		},
-	}}
-
-	hub.attachPRStatus(sess)
-	ws := sess[0].Windows
-
-	if ws[0].PrReviewUnhandled != 2 {
-		t.Errorf("window 0 unhandled = %d, want 2 (claimed/resolved/outdated are not eligible)", ws[0].PrReviewUnhandled)
-	}
-	if ws[1].PrReviewUnhandled != 1 {
-		t.Errorf("window 1 unhandled = %d, want 1 (a digest hit needs no status hit)", ws[1].PrReviewUnhandled)
-	}
-	if ws[2].PrReviewUnhandled != 0 {
-		t.Errorf("window 2 unhandled = %d, want 0 (collector-join-owned: reset on a miss)", ws[2].PrReviewUnhandled)
-	}
-	if ws[3].PrReviewUnhandled != 0 {
-		t.Errorf("window 3 unhandled = %d, want 0 (no PR)", ws[3].PrReviewUnhandled)
-	}
-}

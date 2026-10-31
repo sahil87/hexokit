@@ -17,7 +17,7 @@ func TestRegistry_orderAndMetadata(t *testing.T) {
 	infos := Registry()
 	wantKeys := []string{
 		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host", "port",
-		"instance_name", "auto_name", "cron_ticker", "pr_review_listener", "easter_eggs", "gui.enabled", "gui.wm", "gui.geometry",
+		"instance_name", "auto_name", "cron_ticker", "easter_eggs", "gui.enabled", "gui.wm", "gui.geometry",
 		"tmux_conf", "log_level", "server_colors", "server_flairs", "board_order", "riff_presets",
 	}
 	if len(infos) != len(wantKeys) {
@@ -43,7 +43,6 @@ func TestRegistry_orderAndMetadata(t *testing.T) {
 		{"instance_color", "color", "", "appearance", true, true, nil},
 		{"auto_name", "bool", "false", "behavior", true, true, nil},
 		{"cron_ticker", "bool", "true", "behavior", true, true, nil},
-		{"pr_review_listener", "bool", "true", "behavior", true, true, nil},
 		{"easter_eggs", "bool", "true", "behavior", true, true, nil},
 		{"gui.enabled", "bool", "false", "behavior", true, true, nil},
 		{"gui.wm", "string", "", "behavior", true, false, nil},
@@ -105,7 +104,6 @@ func TestReadValue_defaultSettings(t *testing.T) {
 		{"instance_name", (*string)(nil)},
 		{"auto_name", false},
 		{"cron_ticker", true},
-		{"pr_review_listener", true},
 		{"easter_eggs", true},
 		{"gui.enabled", false},
 		{"gui.wm", ""},

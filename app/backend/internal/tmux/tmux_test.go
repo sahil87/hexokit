@@ -944,9 +944,9 @@ func TestParseWindowsOwner(t *testing.T) {
 	// The tail-last invariant: an owner field present AND a legacy note with
 	// tabs still rejoins intact. (windowLineOwner pads to the full format
 	// length; trim its empty tail so the appended fields land on the
-	// pr-listen, note, retired-fallback, and legacy-note positions.)
+	// note, retired-fallback, and legacy-note positions.)
 	line := strings.TrimRight(windowLineOwner("@0", 0, "a", "/p", fakeNow, 1, "zsh", "operator"), listDelim) +
-		listDelim + "" + listDelim + "" + listDelim + "" + listDelim + "" + listDelim + "123:two\tpart\tnote"
+		listDelim + "" + listDelim + "" + listDelim + "" + listDelim + "123:two\tpart\tnote"
 	got := parseWindows([]string{line}, fakeNow)
 	if len(got) != 1 {
 		t.Fatalf("parseWindows() returned %d windows, want 1", len(got))
@@ -978,7 +978,6 @@ func windowLineNote(windowID string, index int, name, path string, activityTs in
 		"",   // @rk_win_role
 		"",   // @rk_win_flair
 		"",   // @rk_win_owner
-		"",   // @rk_win_pr_listen
 		note, // @rk_win_note (new, strict single field)
 	))
 }
@@ -1035,7 +1034,6 @@ func windowLineNoteDualRead(newNote, legacyNote string) string {
 		"",      // @rk_win_role
 		"",      // @rk_win_flair
 		"",      // @rk_win_owner
-		"",      // @rk_win_pr_listen
 		newNote, // @rk_win_note (new — strict single field)
 		"",      // @rk_win_url (retired dual-read fallback — empty here)
 		"",      // @rk_win_lens (retired dual-read fallback — empty here)
@@ -1112,7 +1110,6 @@ func windowLineLegacyURL(legacyURL string) string {
 		"",        // @rk_win_role
 		"",        // @rk_win_flair
 		"",        // @rk_win_owner
-		"",        // @rk_win_pr_listen
 		"",        // @rk_win_note
 		legacyURL, // @rk_win_url (retired dual-read fallback)
 		"",        // @rk_win_lens (retired dual-read fallback)
@@ -1187,14 +1184,14 @@ func TestParseWindowsLegacyURLFallback(t *testing.T) {
 // web slots (up to MaxWebTabs, the rest empty) and every trailing field placed
 // explicitly — the parse-side mirror of the format builder, so a field-offset
 // drift lands here.
-func windowLineFull(webActive, codeRoot, marker, role, flair, owner, prListen, note, legacyURL, legacyLens, legacyNote string, tabs []string) string {
+func windowLineFull(webActive, codeRoot, marker, role, flair, owner, note, legacyURL, legacyLens, legacyNote string, tabs []string) string {
 	fields := []string{"@0", "0", "a", "/p", "1700000000", "1", "zsh", "4", "row:tty,web"}
 	var slots [MaxWebTabs]string
 	copy(slots[:], tabs)
 	for _, s := range slots {
 		fields = append(fields, s)
 	}
-	fields = append(fields, webActive, codeRoot, marker, role, flair, owner, prListen, note, legacyURL, legacyLens)
+	fields = append(fields, webActive, codeRoot, marker, role, flair, owner, note, legacyURL, legacyLens)
 	return strings.Join(fields, listDelim) + listDelim + legacyNote
 }
 
@@ -1206,7 +1203,7 @@ func TestParseWindowsFullWebFamily(t *testing.T) {
 	for i := range tabs {
 		tabs[i] = "/proxy/" + strconv.Itoa(4000+i) + "/"
 	}
-	line := windowLineFull("9", "/work/repo", "manual:2", "operator", "nyan", "operator", "1",
+	line := windowLineFull("9", "/work/repo", "manual:2", "operator", "nyan", "operator",
 		"1700000001:full line", "", "", "", tabs)
 
 	got := parseWindows([]string{line}, 1700000000)
@@ -1241,48 +1238,19 @@ func TestParseWindowsFullWebFamily(t *testing.T) {
 	if w.Owner != "operator" {
 		t.Errorf("Owner = %q, want operator", w.Owner)
 	}
-	if !w.PrListen {
-		t.Error("PrListen = false, want true")
-	}
 	if w.Note != "full line" || w.NoteEpoch != 1700000001 {
 		t.Errorf("Note = %q (epoch %d), want \"full line\" (1700000001)", w.Note, w.NoteEpoch)
 	}
 
 	// The legacy note fills in only when the new note field is empty, its
 	// free-text tail rejoined across embedded tabs.
-	legacy := windowLineFull("1", "", "", "", "", "", "", "", "", "", "123:two\tpart\tnote", tabs[:1])
+	legacy := windowLineFull("1", "", "", "", "", "", "", "", "", "123:two\tpart\tnote", tabs[:1])
 	got = parseWindows([]string{legacy}, 1700000000)
 	if len(got) != 1 {
 		t.Fatalf("parseWindows() returned %d windows, want 1", len(got))
 	}
 	if got[0].Note != "two\tpart\tnote" || got[0].NoteEpoch != 123 {
 		t.Errorf("Note = %q (epoch %d), want the rejoined legacy tail (123)", got[0].Note, got[0].NoteEpoch)
-	}
-}
-
-// TestParseWindowsPrListen pins the @rk_win_pr_listen fail-closed parse: only
-// the exact "1" arms the listener.
-func TestParseWindowsPrListen(t *testing.T) {
-	for _, tc := range []struct {
-		raw  string
-		want bool
-	}{
-		{"1", true},
-		{" 1 ", true},
-		{"", false},
-		{"0", false},
-		{"true", false},
-		{"on", false},
-		{"11", false},
-	} {
-		line := windowLineFull("", "", "", "", "", "", tc.raw, "", "", "", "", nil)
-		got := parseWindows([]string{line}, 1700000000)
-		if len(got) != 1 {
-			t.Fatalf("raw %q: parseWindows() returned %d windows, want 1", tc.raw, len(got))
-		}
-		if got[0].PrListen != tc.want {
-			t.Errorf("raw %q: PrListen = %v, want %v", tc.raw, got[0].PrListen, tc.want)
-		}
 	}
 }
 
