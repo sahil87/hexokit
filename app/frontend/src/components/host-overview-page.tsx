@@ -1,10 +1,9 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { createServer, createSession, createWindow, getSessions, isExternalServer, isInfraServer, DAEMON_SERVER } from "@/api/client";
-import { Dialog } from "@/components/dialog";
+import { CreateWorkspaceDialog } from "@/components/create-workspace-dialog";
+import { projectRoots } from "@/components/folder-path-input";
 import { controlClass } from "@/components/control";
-import { INPUT_COARSE, INPUT_FOCUS } from "@/components/controls";
-import { finalizeSafeName, toSafeServerName } from "@/lib/names";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
 import { useHostMetrics, useHostServices, useSessionContext } from "@/contexts/session-context";
@@ -72,7 +71,10 @@ export function HostOverviewPage() {
   // rendered nowhere), so this stays local.
   const [ghostServers, setGhostServers] = useState<string[]>([]);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [createName, setCreateName] = useState("");
+  const quickPicks = useMemo(
+    () => projectRoots([...sessionsByServer.values()].flat()),
+    [sessionsByServer],
+  );
   const navigate = useNavigate();
   const { addToast } = useToast();
   // Server-tile switch — resolves a landing window for the target server
@@ -184,8 +186,8 @@ export function HostOverviewPage() {
   const realNames = new Set(servers.map((s) => s.name));
   const visibleGhosts = ghostServers.filter((g) => !realNames.has(g));
 
-  const { execute: executeCreateServer } = useOptimisticAction<[string]>({
-    action: (name) => createServer(name),
+  const { execute: executeCreateServer } = useOptimisticAction<[string, string | undefined]>({
+    action: (name, cwd) => createServer(name, cwd),
     onOptimistic: (name) => {
       ghostNameRef.current = name;
       setGhostServers((prev) => [...prev, name]);
@@ -227,25 +229,22 @@ export function HostOverviewPage() {
     },
   });
 
-  const handleCreate = useCallback(() => {
-    // The input applies the live server transform; commit trims the trailing
-    // separator. The regex stays as defense in depth (always passes post-
-    // transform).
-    const trimmed = finalizeSafeName(createName.trim());
-    if (!trimmed || !/^[a-zA-Z0-9_-]+$/.test(trimmed)) return;
-    executeCreateServer(trimmed);
-    // Mark the just-created server pending BEFORE navigating so the route guard
-    // shows the "Creating server…" waiting state (not "Server not found") until
-    // the refreshed list includes it. Cleared automatically by SessionContext
-    // once it appears. Mirrors AppShell.handleCreateServer.
-    markServerPending(trimmed);
-    navigate({
-      to: "/$server",
-      params: { server: trimmed },
-    });
-    setShowCreateDialog(false);
-    setCreateName("");
-  }, [createName, navigate, executeCreateServer, markServerPending]);
+  const handleCreate = useCallback(
+    (name: string, cwd: string | undefined) => {
+      executeCreateServer(name, cwd);
+      // Mark the just-created server pending BEFORE navigating so the route guard
+      // shows the "Creating server…" waiting state (not "Server not found") until
+      // the refreshed list includes it. Cleared automatically by SessionContext
+      // once it appears. Mirrors AppShell.handleCreateServer.
+      markServerPending(name);
+      navigate({
+        to: "/$server",
+        params: { server: name },
+      });
+      setShowCreateDialog(false);
+    },
+    [navigate, executeCreateServer, markServerPending],
+  );
 
   // "Open in tab" — open a listening service's UI in an iframe tmux window
   // (the `createWindow` web arm) via the existing /proxy/{port}/ reverse
@@ -614,39 +613,12 @@ export function HostOverviewPage() {
       )}
 
       {showCreateDialog && (
-        <Dialog
-          title="New workspace"
-          onClose={() => {
-            setShowCreateDialog(false);
-            setCreateName("");
-          }}
-        >
-          <input
-            autoFocus
-            type="text"
-            value={createName}
-            // Live safe-name conversion (server kind — strictest charset).
-            onChange={(e) => setCreateName(toSafeServerName(e.target.value))}
-            onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-            onFocus={(e) => e.target.select()}
-            aria-label="Workspace name"
-            placeholder="Workspace name..."
-            className={`w-full bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary`}
-          />
-          <p className="text-xs text-text-secondary mt-1.5">
-            Alphanumeric, hyphens, and underscores only.
-          </p>
-          <button
-            onClick={handleCreate}
-            disabled={
-              !createName.trim() ||
-              !/^[a-zA-Z0-9_-]+$/.test(createName.trim())
-            }
-            className={`mt-2.5 w-full ${controlClass({ variant: "wide", disabled: !createName.trim() || !/^[a-zA-Z0-9_-]+$/.test(createName.trim()) })}`}
-          >
-            Create
-          </button>
-        </Dialog>
+        <CreateWorkspaceDialog
+          existingNames={servers.map((s) => s.name)}
+          quickPicks={quickPicks}
+          onSubmit={handleCreate}
+          onClose={() => setShowCreateDialog(false)}
+        />
       )}
     </div>
   );

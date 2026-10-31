@@ -18,6 +18,19 @@ func (s *Server) handleSessionsList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+// resolveWorkingDir validates a user-supplied working directory and expands
+// its leading "~" to $HOME. An empty cwd means "unset" and resolves to "" with
+// no error. Returns the resolved path, or "" and a 400-ready message.
+func resolveWorkingDir(cwd string) (string, string) {
+	if cwd == "" {
+		return "", ""
+	}
+	if errMsg := validate.ValidatePath(cwd, "Working directory"); errMsg != "" {
+		return "", errMsg
+	}
+	return validate.ExpandTilde(cwd)
+}
+
 func (s *Server) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name string `json:"name"`
@@ -33,18 +46,10 @@ func (s *Server) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var resolvedCwd string
-	if body.CWD != "" {
-		if errMsg := validate.ValidatePath(body.CWD, "Working directory"); errMsg != "" {
-			writeError(w, http.StatusBadRequest, errMsg)
-			return
-		}
-		expanded, expandErr := validate.ExpandTilde(body.CWD)
-		if expandErr != "" {
-			writeError(w, http.StatusBadRequest, expandErr)
-			return
-		}
-		resolvedCwd = expanded
+	resolvedCwd, errMsg := resolveWorkingDir(body.CWD)
+	if errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
+		return
 	}
 
 	if err := s.tmux.CreateSession(body.Name, resolvedCwd, serverFromRequest(r)); err != nil {

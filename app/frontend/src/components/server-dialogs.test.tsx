@@ -18,9 +18,11 @@ import * as client from "@/api/client";
  */
 
 const mockNavigate = vi.fn();
+let mockMatches: Array<{ params: Record<string, string> }> = [];
 
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
+  useMatches: () => mockMatches,
 }));
 
 vi.mock("@/api/client", async (importOriginal) => {
@@ -85,6 +87,7 @@ function renderDialogs(opts?: {
 describe("ServerDialogs", () => {
   beforeEach(() => {
     mockNavigate.mockReset();
+    mockMatches = [];
     createServer.mockReset();
     killServer.mockReset();
     adoptServer.mockReset();
@@ -120,8 +123,109 @@ describe("ServerDialogs", () => {
     expect(screen.queryByLabelText("Workspace name")).not.toBeInTheDocument();
     // The POST itself is deferred a microtask inside useOptimisticAction; the
     // post-create server-list refresh rides onAlwaysSettled after it resolves.
-    await waitFor(() => expect(createServer).toHaveBeenCalledWith("my_server"));
+    await waitFor(() => expect(createServer).toHaveBeenCalledWith("my_server", undefined));
     await waitFor(() => expect(refreshServers).toHaveBeenCalled());
+  });
+
+  it("sends the chosen folder as cwd and lets the name follow it until edited", async () => {
+    renderDialogs();
+    fireEvent.click(screen.getByText("open-create"));
+    const nameInput = screen.getByLabelText("Workspace name") as HTMLInputElement;
+    const folderInput = screen.getByLabelText("Workspace folder") as HTMLInputElement;
+
+    fireEvent.change(folderInput, { target: { value: "~/code/my app" } });
+    expect(nameInput.value).toBe("my_app");
+
+    fireEvent.change(nameInput, { target: { value: "foo" } });
+    fireEvent.change(folderInput, { target: { value: "~/code/other" } });
+    expect(nameInput.value).toBe("foo");
+
+    fireEvent.keyDown(nameInput, { key: "Enter" });
+    await waitFor(() => expect(createServer).toHaveBeenCalledWith("foo", "~/code/other"));
+  });
+
+  it("submits without cwd when the folder is blank", async () => {
+    renderDialogs();
+    fireEvent.click(screen.getByText("open-create"));
+    fireEvent.change(screen.getByLabelText("Workspace name"), { target: { value: "plain" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(createServer).toHaveBeenCalledWith("plain", undefined));
+  });
+
+  it("prefills the folder (and the name) from the current tab's worktree path", () => {
+    mockMatches = [{ params: { server: "alpha" } }, { params: { server: "alpha", window: "@3" } }];
+    renderDialogs({
+      currentServer: "alpha",
+      sessionsByServer: new Map([
+        [
+          "alpha",
+          [
+            {
+              name: "g",
+              windows: [
+                { windowId: "@1", worktreePath: "~/code/other" },
+                { windowId: "@3", worktreePath: "~/code/x" },
+              ],
+            } as unknown as client.ProjectSession,
+          ],
+        ],
+      ]),
+    });
+    fireEvent.click(screen.getByText("open-create"));
+    expect((screen.getByLabelText("Workspace folder") as HTMLInputElement).value).toBe("~/code/x");
+    expect((screen.getByLabelText("Workspace name") as HTMLInputElement).value).toBe("x");
+  });
+
+  it("disables Create with a hint when the folder-derived name is an existing workspace", () => {
+    mockMatches = [{ params: { server: "hexokit", window: "@3" } }];
+    renderDialogs({
+      currentServer: "hexokit",
+      servers: [{ name: "hexokit", sessionCount: 1, protected: false }],
+      sessionsByServer: new Map([
+        [
+          "hexokit",
+          [
+            {
+              name: "g",
+              windows: [{ windowId: "@3", worktreePath: "~/code/hexokit" }],
+            } as unknown as client.ProjectSession,
+          ],
+        ],
+      ]),
+    });
+    fireEvent.click(screen.getByText("open-create"));
+    const nameInput = screen.getByLabelText("Workspace name") as HTMLInputElement;
+    expect(nameInput.value).toBe("hexokit");
+    expect(screen.getByText("A workspace named hexokit already exists")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
+
+    fireEvent.keyDown(nameInput, { key: "Enter" });
+    expect(createServer).not.toHaveBeenCalled();
+
+    fireEvent.change(nameInput, { target: { value: "hexokit2" } });
+    expect(screen.queryByText(/already exists/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create" })).toBeEnabled();
+  });
+
+  it("offers folder quick-picks from every workspace's groups", () => {
+    const group = (path: string) =>
+      ({ name: "g", windows: [{ windowId: "@1", worktreePath: path }] }) as unknown as client.ProjectSession;
+    renderDialogs({
+      currentServer: "alpha",
+      sessionsByServer: new Map([
+        ["alpha", [group("~/code/a")]],
+        ["beta", [group("~/code/b")]],
+      ]),
+    });
+    fireEvent.click(screen.getByText("open-create"));
+    fireEvent.focus(screen.getByLabelText("Workspace folder"));
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["~/code/a", "~/code/b"]);
+  });
+
+  it("leaves the folder empty when no tab is resolvable", () => {
+    renderDialogs();
+    fireEvent.click(screen.getByText("open-create"));
+    expect((screen.getByLabelText("Workspace folder") as HTMLInputElement).value).toBe("");
   });
 
   it("daemon target renders the protected fork by name derivation even when the server list is stale", () => {

@@ -89,7 +89,7 @@ vi.mock("@/hooks/use-boards", () => ({
 }));
 
 import { HostOverviewPage } from "./host-overview-page";
-import { createSession, createWindow, getSessions } from "@/api/client";
+import { createServer, createSession, createWindow, getSessions } from "@/api/client";
 import {
   InstanceNameValueProvider,
   type InstanceName,
@@ -287,6 +287,42 @@ describe("HostOverviewPage — Services zone", () => {
     expect(screen.getByText(":5173")).toBeTruthy();
     expect(screen.getByText(":8080")).toBeTruthy();
     expect(screen.getByText("api")).toBeTruthy();
+  });
+
+  it("creates a workspace at the chosen folder, with the name following it", async () => {
+    mockServers = [];
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "+ New workspace" }));
+
+    const nameInput = screen.getByLabelText("Workspace name") as HTMLInputElement;
+    const folderInput = screen.getByLabelText("Workspace folder") as HTMLInputElement;
+    expect(folderInput.value).toBe("");
+
+    fireEvent.change(folderInput, { target: { value: "~/code/hexokit" } });
+    expect(nameInput.value).toBe("hexokit");
+
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(createServer).toHaveBeenCalledWith("hexokit", "~/code/hexokit"));
+    expect(markServerPendingMock).toHaveBeenCalledWith("hexokit");
+    expect(navigateMock).toHaveBeenCalledWith({ to: "/$server", params: { server: "hexokit" } });
+  });
+
+  it("blocks creating a workspace whose name already exists", async () => {
+    mockServers = [{ name: "runkit", sessionCount: 1 }];
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "+ New workspace" }));
+    fireEvent.change(screen.getByLabelText("Workspace name"), { target: { value: "runkit" } });
+    expect(screen.getByText("A workspace named runkit already exists")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Create" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("creates a workspace without cwd when the folder is left blank", async () => {
+    mockServers = [];
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "+ New workspace" }));
+    fireEvent.change(screen.getByLabelText("Workspace name"), { target: { value: "scratch" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(createServer).toHaveBeenCalledWith("scratch", undefined));
   });
 
   it("disables 'Open in tab' with a hint when zero servers exist", async () => {

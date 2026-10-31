@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Characters that are never valid in tmux session/window names.
@@ -53,6 +54,35 @@ func ValidateNewName(name, label string) string {
 		return fmt.Sprintf("%s cannot contain spaces", label)
 	}
 	return ""
+}
+
+// unsafeSessionNameChars is every char SessionNameFromPath converts to "_":
+// the forbiddenChars set, the ":" / "." pair ValidateName rejects separately,
+// the space ValidateNewName rejects, and "-" (the UI's session-name steering).
+var unsafeSessionNameChars = regexp.MustCompile(`[ ;&|` + "`" + `$(){}\[\]<>!#*?\n\r\t:.\-]`)
+
+var underscoreRun = regexp.MustCompile(`_{2,}`)
+
+// SessionNameFromPath derives a session (group) name from a filesystem path:
+// the last segment with unsafe chars converted to "_", "_" runs collapsed,
+// edges trimmed, and the result capped at MaxNameLength. A path with no
+// usable segment ("", "~", "/") yields "". Go port of the frontend
+// deriveNameFromPath (lib/names.ts); the result passes ValidateNewName
+// whenever it is non-empty. The cap counts bytes (ValidateName measures bytes),
+// unlike the frontend's UTF-16 slice, so multibyte names may end up shorter.
+func SessionNameFromPath(p string) string {
+	trimmed := strings.TrimRight(p, "/")
+	if trimmed == "~" || trimmed == "" {
+		return ""
+	}
+	segment := trimmed[strings.LastIndex(trimmed, "/")+1:]
+	name := underscoreRun.ReplaceAllString(unsafeSessionNameChars.ReplaceAllString(segment, "_"), "_")
+	name = strings.TrimLeft(name, "_")
+	for len(name) > MaxNameLength {
+		_, size := utf8.DecodeLastRuneInString(name)
+		name = name[:len(name)-size]
+	}
+	return strings.Trim(name, "_")
 }
 
 // colorFamilyNames is the closed set of owned-palette family-name color values

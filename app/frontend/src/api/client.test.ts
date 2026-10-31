@@ -29,6 +29,7 @@ import {
   getDirectories,
   uploadFile,
   killServer,
+  createServer,
   setServerProtected,
   getThemePreference,
   setThemePreference,
@@ -388,6 +389,32 @@ describe("API client", () => {
     expect(result.ok).toBe(true);
     expect(result.path).toContain("run-kit");
     expect(capturedUrl).toContain("?server=runkit");
+  });
+
+  it("createServer posts only the name when no cwd is given", async () => {
+    let capturedBody: Record<string, unknown> = {};
+    mswServer.use(
+      http.post("/api/servers", async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ ok: true, group: "0" }, { status: 201 });
+      }),
+    );
+    const res = await createServer("w");
+    expect(capturedBody).toEqual({ name: "w" });
+    expect(res.group).toBe("0");
+  });
+
+  it("createServer includes cwd only when non-empty", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    mswServer.use(
+      http.post("/api/servers", async ({ request }) => {
+        bodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json({ ok: true, group: "hexokit" }, { status: 201 });
+      }),
+    );
+    await createServer("w", "~/code/hexokit");
+    await createServer("w", "");
+    expect(bodies).toEqual([{ name: "w", cwd: "~/code/hexokit" }, { name: "w" }]);
   });
 
   it("killServer does NOT carry a server query string", async () => {

@@ -1,15 +1,16 @@
-import { useCallback, useRef, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { useMatches, useNavigate } from "@tanstack/react-router";
 import { createServer, killServer as killServerApi, adoptServer as adoptServerApi, DAEMON_SERVER } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { controlClass } from "@/components/control";
 import { INPUT_COARSE, INPUT_FOCUS } from "@/components/controls";
+import { CreateWorkspaceDialog } from "@/components/create-workspace-dialog";
+import { projectRoots } from "@/components/folder-path-input";
 import { useServerDialogs } from "@/contexts/server-dialogs-context";
 import { useSessionContext } from "@/contexts/session-context";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
-import { finalizeSafeName, toSafeServerName } from "@/lib/names";
 import type { ProjectSession } from "@/types";
 
 /** Blast-radius copy for a protected kill target, derived live from the
@@ -65,12 +66,11 @@ export function ServerDialogs() {
   const { addToast } = useToast();
   const navigate = useNavigate();
 
-  const [createServerName, setCreateServerName] = useState("");
   const ghostServerIdRef = useRef<string | null>(null);
   const killedServerNameRef = useRef<string | null>(null);
 
-  const { execute: executeCreateServer } = useOptimisticAction<[string]>({
-    action: (name) => createServer(name),
+  const { execute: executeCreateServer } = useOptimisticAction<[string, string | undefined]>({
+    action: (name, cwd) => createServer(name, cwd),
     onOptimistic: (name) => {
       ghostServerIdRef.current = addGhostServer(name);
     },
@@ -103,18 +103,40 @@ export function ServerDialogs() {
     },
   });
 
-  const handleCreateServer = useCallback(() => {
-    const trimmed = finalizeSafeName(createServerName.trim());
-    if (!trimmed || !/^[a-zA-Z0-9_-]+$/.test(trimmed)) return;
-    executeCreateServer(trimmed);
-    // Mark the just-created server pending so the route guard shows the brief
-    // waiting state (not "Server not found") until the refreshed list includes
-    // it. Cleared automatically by SessionContext once it appears.
-    markServerPending(trimmed);
-    navigate({ to: "/$server", params: { server: trimmed } });
-    closeCreateServer();
-    setCreateServerName("");
-  }, [createServerName, navigate, executeCreateServer, markServerPending, closeCreateServer]);
+  const handleCreateServer = useCallback(
+    (name: string, cwd: string | undefined) => {
+      executeCreateServer(name, cwd);
+      // Mark the just-created server pending so the route guard shows the brief
+      // waiting state (not "Server not found") until the refreshed list includes
+      // it. Cleared automatically by SessionContext once it appears.
+      markServerPending(name);
+      navigate({ to: "/$server", params: { server: name } });
+      closeCreateServer();
+    },
+    [navigate, executeCreateServer, markServerPending, closeCreateServer],
+  );
+
+  // The current tab's folder prefills the create dialog's folder field; the
+  // quick-picks span every workspace's groups (as on the host page). Both read
+  // from sessions the client already holds.
+  const matches = useMatches();
+  const quickPicks = useMemo(
+    () => projectRoots([...ctx.sessionsByServer.values()].flat()),
+    [ctx.sessionsByServer],
+  );
+  const currentWorktreePath = useMemo(() => {
+    const windowId = matches
+      .map((m) => (m.params as { window?: string }).window)
+      .reverse()
+      .find((w): w is string => typeof w === "string");
+    if (!windowId || !currentServer) return "";
+    for (const session of ctx.sessionsByServer.get(currentServer) ?? []) {
+      const win = session.windows.find((w) => w.windowId === windowId);
+      if (win) return win.worktreePath;
+    }
+    return "";
+  }, [matches, currentServer, ctx.sessionsByServer]);
+  const existingServerNames = useMemo(() => ctx.servers.map((s) => s.name), [ctx.servers]);
 
   const { execute: executeKillServer } = useOptimisticAction<[string, boolean]>({
     action: (name, force) => killServerApi(name, force),
@@ -177,29 +199,13 @@ export function ServerDialogs() {
   return (
     <>
       {createServerOpen && (
-        <Dialog title="New workspace" onClose={() => { closeCreateServer(); setCreateServerName(""); }}>
-          <input
-            autoFocus
-            type="text"
-            value={createServerName}
-            onChange={(e) => setCreateServerName(toSafeServerName(e.target.value))}
-            onKeyDown={(e) => e.key === "Enter" && handleCreateServer()}
-            onFocus={(e) => e.target.select()}
-            aria-label="Workspace name"
-            placeholder="Workspace name..."
-            className={`w-full bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary`}
-          />
-          <p className="text-xs text-text-secondary mt-1.5">
-            Alphanumeric, hyphens, and underscores only.
-          </p>
-          <button
-            onClick={handleCreateServer}
-            disabled={!createServerName.trim() || !/^[a-zA-Z0-9_-]+$/.test(createServerName.trim())}
-            className={`mt-2.5 w-full ${controlClass({ variant: "wide", disabled: !createServerName.trim() || !/^[a-zA-Z0-9_-]+$/.test(createServerName.trim()) })}`}
-          >
-            Create
-          </button>
-        </Dialog>
+        <CreateWorkspaceDialog
+          initialFolder={currentWorktreePath}
+          existingNames={existingServerNames}
+          quickPicks={quickPicks}
+          onSubmit={handleCreateServer}
+          onClose={closeCreateServer}
+        />
       )}
 
       {killServerTarget && killTargetProtected && (

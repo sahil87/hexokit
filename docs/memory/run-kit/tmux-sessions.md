@@ -34,7 +34,7 @@ The raw scan and the probe are factored into three shared helpers in `internal/t
 
 ### Server Lifecycle
 
-- **Create**: Implicit — `CreateSession("0", $HOME, serverName)` starts a new server when the first session is created on it
+- **Create**: Implicit — `CreateSession(group, cwd, serverName)` starts a new server when the first session is created on it. `POST /api/servers` births the first group as the folder-named group at the requested `cwd` (`main` when the folder yields no name), or `"0"` at `$HOME` when no `cwd` is given (see Design Decisions: Server-side first-group derivation)
 - **Kill**: `KillServer(server)` runs `tmux [-L server] kill-server`, destroying all sessions
 - **Switch**: navigate to `/$newServer/...` — the route change re-mounts the SessionProvider with the new `server` prop and reconnects SSE/WebSocket with the new `?server=` param
 
@@ -334,7 +334,7 @@ All API endpoints accept `?server=` query parameter via `serverFromRequest(r)` h
 
 Server management endpoints:
 - `GET /api/servers` — lists available servers via socket directory scan; each entry carries the `rank`/`ephemeral`/`protected`/`managed` class flags, each read per live server per request inside the fan-out (a read failure logs at warn and yields `false` for that flag, never a 5xx)
-- `POST /api/servers` — creates a server (starts session "0" in $HOME)
+- `POST /api/servers` — creates a server (first group named after the optional `cwd` folder, `main` fallback; `"0"` in $HOME when `cwd` is absent; `409` when the server is already live)
 - `POST /api/servers/kill` — kills a server via `tmux kill-server`
 - `POST /api/servers/adopt` — converts an external (unmarked) server to managed: stamps `@rk_srv_managed` then sources the managed conf via `ReloadConfig`, best-effort unmarking on a failed reload; idempotent `200 {"status":"already-managed"}` on an already-managed target (including `rk-daemon` by derivation — deliberately unlike protect's 400, since adopt's bulk-migration role needs idempotency); wakes the SSE hub on success (§ Server-Scoped User Options → `@rk_srv_managed`)
 
@@ -620,6 +620,12 @@ The **conversation-access tier** (`ConversationAvailable` on `WindowInfo`, json 
 - `scripts/test-e2e.sh` (`cleanup`/`trap cleanup EXIT`), `app/frontend/tests/e2e/global-teardown.ts` — e2e teardown globs the worktree's own family: the trap iterates `"/tmp/tmux-$(id -u)/${E2E_TMUX_FAMILY}"*` (the `rk-test-e2e-<token>-` anchor, trailing hyphen included — hyphen-free tokens make a sibling worktree's family unmatchable by construction), and `global-teardown.ts` prefix-scans on `E2E_TMUX_FAMILY ?? E2E_TMUX_SERVER` (returning early when neither is set — an unmanaged direct `playwright test` run owns no server), best-effort, so PID-named secondaries (`…-multi-*`, `…-msb-*`, `…-scope-*`, `…-csw-*`) don't leak on crash/Ctrl-C. Both sweeps refuse a **bare anchor** (`rk-test-e2e` / `rk-test-e2e-`) with a printed warning and fall back to reaping the primary by exact name — see [test-sockets](/run-kit/test-sockets.md) § A bare family anchor refuses the teardown sweep. **Process-group teardown** (260530-cf3g): every long-lived server launch — the single-rig `bash -c "… exec just dev"`, or the per-rig backend and Vite launches in the multi-rig lane — goes through `spawn_group`, which starts the command in its OWN process group via `set -m` job control (portable, macOS has no `setsid`), verifies via `ps` that the child's real PGID is not the script's own and aborts otherwise (a silent job-control failure would otherwise re-arm the grenade), and records the group in the `DEV_PGIDS` array; `cleanup` loops `DEV_PGIDS` and kills each with `kill -- "-$pgid"` — never `kill 0` — with the empty-array expansion kept bash-3.2-safe. A non-detached `kill 0` would signal the *caller's* process group, SIGTERMing live tmux servers / `-CC` control clients sharing it when the e2e run executes inline in an interactive/agent session (root cause of `kit`/`abbb`/`runWork` dying mid-session — a 16-server death burst with zero `audit=kill-server` lines; constitution VI). **Backend READ-path scoping** (260531-tmnm, 6p65): every backend launch exports `RK_SERVER_ALLOWLIST` set to exactly its rig's family — `$E2E_TMUX_FAMILY` (the worktree anchor) on the single-rig `bash -c "… exec just dev"` launch, the per-rig sub-family `rk-test-e2e-<token>-w<i>-` on each per-rig backend in the multi-rig lane — scoping that backend's `ListServers` to its own rig's test servers for the run, so no rig enumerates a sibling rig's sessions; the anchor itself is reserved for teardown (the trap glob and `global-teardown.ts`). Distinct from `E2E_TMUX_SERVER`, which scopes the WRITE socket (see § `RK_SERVER_ALLOWLIST`)
 
 ## Design Decisions
+
+### Server-side first-group derivation
+**Decision**: `POST /api/servers` derives the first group's name from the raw `cwd` with `validate.SessionNameFromPath`, the Go port of the frontend `deriveNameFromPath`; an empty result falls back to `main`. An absent `cwd` keeps the `"0"`-at-`$HOME` birth session.
+**Why**: One request creates the workspace correctly with no client race, and the group is named after its folder the way instant group creation already names groups. Deriving from the raw `cwd` (not the expanded path) makes `~` yield `main`, matching the frontend input. An already-live workspace name is refused with `409` before any tmux mutation, because a create against a live server would otherwise either fail on a duplicate `"0"` or silently add a group to it.
+**Rejected**: Creating the server and then renaming or killing `"0"` from the client (racy, flashes a junk group); an existence check on `cwd` (the session handler has none; tmux falls back on its own).
+*Introduced by*: 261030-qm52-workspace-create-at-folder
 
 ### Session role is a derived query, not a stamped option
 **Decision**: Session roles are classified from the NAME at request time (`tmux.SessionRole` behind `rk mux sessions`); no `@rk_ses_role` option is written or read.

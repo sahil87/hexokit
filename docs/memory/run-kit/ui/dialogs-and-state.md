@@ -42,11 +42,23 @@ This is the general pattern for **any** host-global filesystem state an e2e touc
 
 `app/frontend/src/components/create-session-dialog.tsx` (the filename does not reflect its window-only scope) — the window-only dialog behind the palette's `Tab: Create at Folder` action: pick a starting directory, confirm, and an **unnamed** window is created there via `createWindow(server, session, undefined, cwd)` (tmux auto-names it to the folder basename; no optimistic ghost). Props: `session` (required), `sessions` (quick-picks source), `defaultPath?` (pre-fills the path input), `onClose`. Title: "Create tab at folder". Two sections: (260823-fe74)
 
+Both sections are the shared `FolderPathInput` (`components/folder-path-input.tsx`), a controlled combobox (`value`, `onChange`, optional `onSubmit` on Enter with no highlighted option, `quickPicks`, `ariaLabel`) that this dialog and the New workspace dialog (§ New Workspace Dialog) both mount; `projectRoots(sessions)` in the same file builds the quick-picks list.
+
 1. **Quick picks ("Recent:")** — Deduplicated project root paths from existing tmux sessions (window 0's `pane_current_path`), shown in the dropdown while the input is empty. Tappable list items with 44px min height for mobile. Selecting fills the path.
 
 2. **Path input with autocomplete** — Text input that calls `GET /api/directories?prefix=...` with ~300ms debounce. Results appear as a dropdown below the input. Selecting a result fills the path and triggers a new autocomplete for children. Hidden directories (`.`-prefixed) are excluded from results.
 
 An empty path is allowed — `cwd` is omitted and the window opens at the backend default. There is no name field: window naming is tmux's folder auto-naming (§ [routes-and-shell](/run-kit/ui/routes-and-shell.md) § Unnamed `+ New Window`).
+
+## New Workspace Dialog
+
+`app/frontend/src/components/create-workspace-dialog.tsx` — the single "New workspace" dialog, mounted by both create entry points: the layout-mounted `ServerDialogs` (`components/server-dialogs.tsx`, the in-shell "Workspace: Create" action) and the host page (`host-overview-page.tsx`, § [routes-and-shell](/run-kit/ui/routes-and-shell.md)). Each host keeps its own create lifecycle (ghost, pending marker, navigate, `refreshServers`); the dialog only collects `(name, cwd)` and calls `onSubmit(finalizedName, trimmedFolder | undefined)`. Props: `initialFolder?`, `existingNames` (the live server names from `ctx.servers`), `quickPicks`, `onSubmit`, `onClose`. It mounts only while open, so state resets on close.
+
+- **Name** — `toSafeServerName` live transform, validated against `/^[a-zA-Z0-9_-]+$/` after `finalizeSafeName`.
+- **Folder (optional)** — the shared `FolderPathInput` (§ Window At-Folder Dialog) below the name; a blank folder submits without `cwd`, and the backend births the legacy `"0"` group at `$HOME`.
+- **Name follows the folder until edited** — while the name field is untouched, choosing or typing a folder sets the name to `toSafeServerName(deriveNameFromPath(folder))`. The first keystroke in the name field marks it touched and the folder stops driving it until the dialog is reopened.
+- **Already-exists guard** — when the finalized name matches an entry in `existingNames`, Create is disabled and the helper text becomes the red hint `A workspace named <name> already exists`. This matters because the folder-derived prefill makes the current workspace's own name the default; the backend returns `409` for the same case.
+- **Prefill** (`ServerDialogs` only) — `initialFolder` is the current tab's `worktreePath`, resolved from the route's `window` param against `ctx.sessionsByServer` for the current server; empty when no tab is open. The host page has no active tab and opens empty. Quick-picks are `projectRoots` over every workspace's groups (`ctx.sessionsByServer`), as on the host page.
 
 ## Spawn-Agent Dialog
 
