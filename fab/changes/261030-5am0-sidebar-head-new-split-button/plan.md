@@ -158,10 +158,8 @@ The window switcher's `+ New Tab` / `+ New Agent` footer actions and the Workspa
 
 ## Deletion Candidates
 
-- `contexts/server-dialogs-context.tsx:14,35` `openCreateServer` — its last two callers (AppShell and BoardPage `onCreateServer` → Workspaces-panel `+`) were removed; nothing sets `createServerOpen` any more
-- `components/server-dialogs.tsx:159-166` layout-mounted `CreateWorkspaceDialog` (+ `closeCreateServer`, `createServerOpen` and its `app.tsx:3351` modal-gate term) — unreachable once `openCreateServer` has no caller; `create-server` now opens the New sheet
-- `app/frontend/src/app.tsx:3457` comment naming the window-switcher `+ New Agent` entry point — that door is gone
-- `app/frontend/src/app.tsx:692-708` RootTopBar's inline mode walk — duplicated by `useNewSplitMode` (new-split-button.tsx:21); one should go
+- `app/frontend/src/app.tsx:5940` `handleCreateWindow` in the `topBarSlot` useMemo deps — the slot no longer carries `onCreateWindow`, so the dep only forces needless slot re-publishes
+- `app/frontend/src/hooks/use-global-palette-actions.ts:69-87` hand-rolled route-param walk — a third copy of the walk `useTopBarMode` now owns (its comment still points at RootTopBar's inline walk, which is gone); derive `serverParam`/`windowParam`/`boardParam` from one shared source
 
 ## Assumptions
 

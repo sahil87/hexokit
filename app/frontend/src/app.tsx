@@ -5937,7 +5937,6 @@ function AppShell() {
       server,
       navigateToWindow,
       onToggleSidebar,
-      handleCreateWindow,
       windowParam,
       isMobile,
       panelSurfaces,

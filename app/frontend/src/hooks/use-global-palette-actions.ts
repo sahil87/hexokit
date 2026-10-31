@@ -66,10 +66,11 @@ export function useGlobalPaletteActions(): PaletteAction[] {
   const { openNewSheet } = useNewSheet();
   const { byAction: bindingByAction, host: bindingHost } = useKeybindings();
 
-  // Walk matches deepest-first for route params — the same walk `RootTopBar`
-  // does for its `mode` (param names are unique across the route tree, so
-  // their presence determines the mode). The host route carries no params and
-  // resolves to the `"server"` arm (history pair + `Go: Host` only).
+  // Walk matches deepest-first for route params — the same walk
+  // `useTopBarMode` does (param names are unique across the route tree, so
+  // their presence determines the mode). Kept separate because the nav arms
+  // differ: no not-found override, and the host route (no params) resolves to
+  // the `"server"` arm (history pair + `Go: Host` only).
   let serverParam: string | undefined;
   let windowParam: string | undefined;
   let boardParam: string | undefined;
