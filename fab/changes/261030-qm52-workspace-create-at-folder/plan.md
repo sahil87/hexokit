@@ -75,6 +75,15 @@ Ghost, pending marker, navigate to `/$server` and `refreshServers` SHALL behave 
 - **WHEN** it is submitted
 - **THEN** the UI shows the waiting state and then the workspace view, as before
 
+#### R10: Creating an existing workspace name is refused
+<!-- rework c1: review S1. The folder-derived prefill makes the current workspace's own name the default, and nothing rejected it. -->
+`handleServerCreate` SHALL return **409** `Workspace "<name>" already exists` before any tmux call when a live server with that name already exists (checked through the existing tmux server-listing seam). This applies whether `cwd` is present or absent. It replaces the old accidental behavior, where the create either 500ed on a duplicate `"0"` or silently added a group to the live server. Both create-workspace dialogs SHALL disable Create and show an inline hint (`A workspace named <name> already exists`) when the finalized name matches a server in `ctx.servers`.
+
+- **GIVEN** workspace `hexokit` is live and the current tab is at `~/code/hexokit`
+- **WHEN** the user opens New workspace
+- **THEN** the name prefills `hexokit`, Create is disabled, and the hint shows
+- **AND** a direct `POST /api/servers {"name":"hexokit"}` returns 409 with no `CreateSession` call
+
 ### Non-Goals
 
 - The `rk mux new` / MCP `new_server` `--cwd` flag: out of scope. Those callers keep the legacy default.
@@ -111,6 +120,13 @@ Ghost, pending marker, navigate to `/$server` and `refreshServers` SHALL behave 
 - [x] T010 E2E: create a workspace with a folder → the sidebar shows a group named after the folder, not `0` (new or extended spec under `app/frontend/tests/e2e/`; run via `just test-e2e <spec>`) <!-- R2 R9 -->
 - [x] T011 PR evidence: a demo spec under `app/frontend/tests/demo/` showing the dialog with a folder and the resulting sidebar; record `just demo <name> --before` and after, desktop and mobile <!-- R6 R9 -->
 
+### Phase 4: Rework cycle 1
+
+- [x] T012 `app/backend/api/servers.go` `handleServerCreate`: 409 `Workspace "<name>" already exists` when the server is already live, checked after name validation and before cwd/tmux work, through the existing `s.tmux` server-listing seam (extend `mockTmuxOps` if needed); add `servers_test.go` cases for 409 with and without cwd, with no CreateSession call <!-- R10 -->
+- [x] T013 `components/create-workspace-dialog.tsx` (shared by both dialogs): disable Create and show the inline hint `A workspace named <name> already exists` when the finalized name is in the known server list (passed in by each host from `ctx.servers`); Vitest for the prefill-collision case <!-- R10 -->
+- [x] T014 [P] `components/server-dialogs.tsx`: build the folder quick-picks from every workspace's groups (as `host-overview-page.tsx:74-77` does), not only the current workspace's (review N1) <!-- R6 -->
+- [x] T015 [P] `internal/validate/validate.go` `SessionNameFromPath`: one-line comment that the byte-based cap intentionally differs from `names.ts`'s UTF-16 slice, because `ValidateName` measures bytes (review N3) <!-- R2 -->
+
 <!-- Apply note: T007 + T008 share one `components/create-workspace-dialog.tsx` (name + folder + name-follow) rather than duplicating the markup in both dialogs; each host keeps its own create lifecycle. -->
 <!-- Apply note: T011 recorded desktop + mobile, before + after (`.demo/workspace-create-at-folder-{before,after}-{desktop,mobile}.webm`). The before pass has no folder field, so the spec falls back to a name-only create and shows the legacy "0" group. -->
 
@@ -124,44 +140,50 @@ Ghost, pending marker, navigate to `/$server` and `refreshServers` SHALL behave 
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `POST /api/servers` with a valid `cwd` creates the first group at the expanded path
-- [ ] A-002 R2: The first group is named by the Go `deriveNameFromPath` port; empty derivation → `main`
-- [ ] A-003 R3: With no `cwd`, the create is byte-identical to before (`"0"` at $HOME)
-- [ ] A-004 R4: The 201 response carries `group`
-- [ ] A-005 R5: `createServer` sends `cwd` only when non-empty
-- [ ] A-006 R6: Both create-workspace dialogs render the shared folder input; the Create tab at folder dialog uses the same component unchanged
-- [ ] A-007 R7: The ServerDialogs folder prefills from the current tab's worktree path when available
-- [ ] A-008 R8: The name follows the folder until the user edits the name
+- [x] A-001 R1: `POST /api/servers` with a valid `cwd` creates the first group at the expanded path
+- [x] A-002 R2: The first group is named by the Go `deriveNameFromPath` port; empty derivation → `main`
+- [x] A-003 R3: With no `cwd`, the create is byte-identical to before (`"0"` at $HOME)
+- [x] A-004 R4: The 201 response carries `group`
+- [x] A-005 R5: `createServer` sends `cwd` only when non-empty
+- [x] A-006 R6: Both create-workspace dialogs render the shared folder input; the Create tab at folder dialog uses the same component unchanged
+- [x] A-007 R7: The ServerDialogs folder prefills from the current tab's worktree path when available
+- [x] A-008 R8: The name follows the folder until the user edits the name
 
 ### Behavioral Correctness
 
-- [ ] A-009 R1: `handleSessionCreate` validation behavior is unchanged after the helper extraction (existing session tests pass)
-- [ ] A-010 R9: Ghost/pending/navigate/refresh lifecycle unchanged
+- [x] A-009 R1: `handleSessionCreate` validation behavior is unchanged after the helper extraction (existing session tests pass)
+- [x] A-010 R9: Ghost/pending/navigate/refresh lifecycle unchanged
 
 ### Scenario Coverage
 
-- [ ] A-011 R2: E2E proves a folder-created workspace shows a folder-named group and no `0`
-- [ ] A-012 R1: Go tests cover cwd present, absent, `~`, and invalid
+- [x] A-011 R2: E2E proves a folder-created workspace shows a folder-named group and no `0`
+- [x] A-012 R1: Go tests cover cwd present, absent, `~`, and invalid
 
 ### Edge Cases & Error Handling
 
-- [ ] A-013 R1: A cwd outside $HOME or `~user` returns 400 and runs no tmux command
-- [ ] A-014 R2: Names with dots, hyphens, spaces, and trailing slashes derive to valid `ValidateNewName` names
+- [x] A-013 R1: A cwd outside $HOME or `~user` returns 400 and runs no tmux command
+- [x] A-014 R2: Names with dots, hyphens, spaces, and trailing slashes derive to valid `ValidateNewName` names
+
+- [x] A-018 R10: An already-live workspace name returns 409 before any tmux call (with and without `cwd`), and both dialogs disable Create with the hint when the name collides
 
 ### Code Quality
 
-- [ ] A-015 Pattern consistency: New code follows the naming and structure of the surrounding handlers and dialogs
-- [ ] A-016 No unnecessary duplication: The cwd validation and folder combobox each live in one place
+- [x] A-015 Pattern consistency: New code follows the naming and structure of the surrounding handlers and dialogs
+- [x] A-016 No unnecessary duplication: The cwd validation and folder combobox each live in one place
 
 ### Security
 
-- [ ] A-017 R1: User-supplied `cwd` reaches tmux only after ValidatePath + ExpandTilde, via the existing `exec.CommandContext` argument-slice path; no new subprocess sites
+- [x] A-017 R1: User-supplied `cwd` reaches tmux only after ValidatePath + ExpandTilde, via the existing `exec.CommandContext` argument-slice path; no new subprocess sites
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- None — this change adds new functionality without making existing code redundant (the inline cwd validation in `handleSessionCreate`, the combobox in `create-session-dialog.tsx`, and both dialogs' inline name markup/regex were already removed by the extraction).
 
 ## Assumptions
 

@@ -307,6 +307,15 @@ describe("HostOverviewPage — Services zone", () => {
     expect(navigateMock).toHaveBeenCalledWith({ to: "/$server", params: { server: "hexokit" } });
   });
 
+  it("blocks creating a workspace whose name already exists", async () => {
+    mockServers = [{ name: "runkit", sessionCount: 1 }];
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "+ New workspace" }));
+    fireEvent.change(screen.getByLabelText("Workspace name"), { target: { value: "runkit" } });
+    expect(screen.getByText("A workspace named runkit already exists")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Create" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("creates a workspace without cwd when the folder is left blank", async () => {
     mockServers = [];
     renderPage();

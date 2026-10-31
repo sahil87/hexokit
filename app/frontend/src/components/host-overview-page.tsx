@@ -614,6 +614,7 @@ export function HostOverviewPage() {
 
       {showCreateDialog && (
         <CreateWorkspaceDialog
+          existingNames={servers.map((s) => s.name)}
           quickPicks={quickPicks}
           onSubmit={handleCreate}
           onClose={() => setShowCreateDialog(false)}

@@ -10,6 +10,8 @@ const SERVER_NAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
 type CreateWorkspaceDialogProps = {
   /** Folder prefilled on open (e.g. the current tab's worktree). */
   initialFolder?: string;
+  /** Names of the workspaces that already exist; a matching name blocks Create. */
+  existingNames: string[];
   /** Folder dropdown entries while the folder is empty. */
   quickPicks: string[];
   /** Called with the finalized name and the trimmed folder (undefined when blank). */
@@ -27,12 +29,14 @@ function folderToName(folder: string): string {
  * it follows the folder's basename; typing in the name field ends that until
  * the dialog is reopened. Mounted only while open, so state resets on close.
  */
-export function CreateWorkspaceDialog({ initialFolder = "", quickPicks, onSubmit, onClose }: CreateWorkspaceDialogProps) {
+export function CreateWorkspaceDialog({ initialFolder = "", existingNames, quickPicks, onSubmit, onClose }: CreateWorkspaceDialogProps) {
   const [folder, setFolder] = useState(initialFolder);
   const [name, setName] = useState(() => folderToName(initialFolder));
   const [nameTouched, setNameTouched] = useState(false);
 
-  const valid = SERVER_NAME_PATTERN.test(name.trim());
+  const finalizedName = finalizeSafeName(name.trim());
+  const nameTaken = existingNames.includes(finalizedName);
+  const valid = SERVER_NAME_PATTERN.test(name.trim()) && !nameTaken;
 
   function handleFolderChange(next: string) {
     setFolder(next);
@@ -43,7 +47,7 @@ export function CreateWorkspaceDialog({ initialFolder = "", quickPicks, onSubmit
     // The input applies the live server transform; commit trims the trailing
     // separator. The pattern stays as defense in depth.
     const finalized = finalizeSafeName(name.trim());
-    if (!finalized || !SERVER_NAME_PATTERN.test(finalized)) return;
+    if (!finalized || !SERVER_NAME_PATTERN.test(finalized) || nameTaken) return;
     onSubmit(finalized, folder.trim() || undefined);
   }
 
@@ -63,9 +67,13 @@ export function CreateWorkspaceDialog({ initialFolder = "", quickPicks, onSubmit
         placeholder="Workspace name..."
         className={`w-full bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary`}
       />
-      <p className="text-xs text-text-secondary mt-1.5">
-        Alphanumeric, hyphens, and underscores only.
-      </p>
+      {nameTaken ? (
+        <p className="text-xs text-signal-red mt-1.5">A workspace named {finalizedName} already exists</p>
+      ) : (
+        <p className="text-xs text-text-secondary mt-1.5">
+          Alphanumeric, hyphens, and underscores only.
+        </p>
+      )}
       <div className="mt-3">
         <p className="text-xs text-text-secondary mb-1.5">Folder (optional)</p>
         <FolderPathInput

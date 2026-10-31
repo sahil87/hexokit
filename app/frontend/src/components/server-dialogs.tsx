@@ -116,26 +116,27 @@ export function ServerDialogs() {
     [navigate, executeCreateServer, markServerPending, closeCreateServer],
   );
 
-  // The current tab's folder and the project roots feed the create dialog's
-  // folder field; both read from sessions the client already holds.
+  // The current tab's folder prefills the create dialog's folder field; the
+  // quick-picks span every workspace's groups (as on the host page). Both read
+  // from sessions the client already holds.
   const matches = useMatches();
-  const currentSessions = useMemo(
-    () => (currentServer ? (ctx.sessionsByServer.get(currentServer) ?? []) : []),
-    [currentServer, ctx.sessionsByServer],
+  const quickPicks = useMemo(
+    () => projectRoots([...ctx.sessionsByServer.values()].flat()),
+    [ctx.sessionsByServer],
   );
-  const quickPicks = useMemo(() => projectRoots(currentSessions), [currentSessions]);
   const currentWorktreePath = useMemo(() => {
     const windowId = matches
       .map((m) => (m.params as { window?: string }).window)
       .reverse()
       .find((w): w is string => typeof w === "string");
-    if (!windowId) return "";
-    for (const session of currentSessions) {
+    if (!windowId || !currentServer) return "";
+    for (const session of ctx.sessionsByServer.get(currentServer) ?? []) {
       const win = session.windows.find((w) => w.windowId === windowId);
       if (win) return win.worktreePath;
     }
     return "";
-  }, [matches, currentSessions]);
+  }, [matches, currentServer, ctx.sessionsByServer]);
+  const existingServerNames = useMemo(() => ctx.servers.map((s) => s.name), [ctx.servers]);
 
   const { execute: executeKillServer } = useOptimisticAction<[string, boolean]>({
     action: (name, force) => killServerApi(name, force),
@@ -200,6 +201,7 @@ export function ServerDialogs() {
       {createServerOpen && (
         <CreateWorkspaceDialog
           initialFolder={currentWorktreePath}
+          existingNames={existingServerNames}
           quickPicks={quickPicks}
           onSubmit={handleCreateServer}
           onClose={closeCreateServer}

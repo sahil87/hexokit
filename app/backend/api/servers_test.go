@@ -20,10 +20,11 @@ type serversTmuxMock struct {
 	servers  []string
 	sessions map[string][]tmux.SessionInfo
 	errs     map[string]error
+	listErr  error
 }
 
 func (m *serversTmuxMock) ListServers(ctx context.Context) ([]string, error) {
-	return m.servers, nil
+	return m.servers, m.listErr
 }
 
 func (m *serversTmuxMock) ListSessions(ctx context.Context, server string) ([]tmux.SessionInfo, error) {
@@ -1230,5 +1231,43 @@ func TestHandleServerCreate_TmuxFailureSurfaces500(t *testing.T) {
 
 	if rec.Code != 500 {
 		t.Fatalf("status = %d, want 500. body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleServerCreate_ExistingWorkspaceRefusedWith409(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"without cwd", `{"name":"hexokit"}`},
+		{"with cwd", `{"name":"hexokit","cwd":"~/code/hexokit"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &serversTmuxMock{servers: []string{"other", "hexokit"}}
+			rec := postServerCreate(t, mock, tt.body)
+
+			if rec.Code != 409 {
+				t.Fatalf("status = %d, want 409. body=%s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), `Workspace \"hexokit\" already exists`) {
+				t.Errorf("body = %s, want the already-exists message", rec.Body.String())
+			}
+			if mock.createSessionCalled {
+				t.Error("CreateSession was called for an existing workspace")
+			}
+		})
+	}
+}
+
+func TestHandleServerCreate_ListServersFailureSurfaces500(t *testing.T) {
+	mock := &serversTmuxMock{listErr: errors.New("probe failed")}
+	rec := postServerCreate(t, mock, `{"name":"ws"}`)
+
+	if rec.Code != 500 {
+		t.Fatalf("status = %d, want 500. body=%s", rec.Code, rec.Body.String())
+	}
+	if mock.createSessionCalled {
+		t.Error("CreateSession was called after a failed liveness check")
 	}
 }

@@ -68,7 +68,8 @@ var underscoreRun = regexp.MustCompile(`_{2,}`)
 // edges trimmed, and the result capped at MaxNameLength. A path with no
 // usable segment ("", "~", "/") yields "". Go port of the frontend
 // deriveNameFromPath (lib/names.ts); the result passes ValidateNewName
-// whenever it is non-empty.
+// whenever it is non-empty. The cap counts bytes (ValidateName measures bytes),
+// unlike the frontend's UTF-16 slice, so multibyte names may end up shorter.
 func SessionNameFromPath(p string) string {
 	trimmed := strings.TrimRight(p, "/")
 	if trimmed == "~" || trimmed == "" {

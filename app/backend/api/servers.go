@@ -3,9 +3,11 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"sort"
 	"sync"
 
@@ -147,6 +149,18 @@ func (s *Server) handleServerCreate(w http.ResponseWriter, r *http.Request) {
 
 	if errMsg := validate.ValidateServerName(body.Name); errMsg != "" {
 		writeError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	// A live server of this name would either fail tmux's duplicate-session
+	// check or silently gain a group; refuse it before any tmux mutation.
+	live, err := s.tmux.ListServers(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if slices.Contains(live, body.Name) {
+		writeError(w, http.StatusConflict, fmt.Sprintf("Workspace %q already exists", body.Name))
 		return
 	}
 

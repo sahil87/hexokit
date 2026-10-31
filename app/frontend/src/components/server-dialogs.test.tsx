@@ -176,6 +176,52 @@ describe("ServerDialogs", () => {
     expect((screen.getByLabelText("Workspace name") as HTMLInputElement).value).toBe("x");
   });
 
+  it("disables Create with a hint when the folder-derived name is an existing workspace", () => {
+    mockMatches = [{ params: { server: "hexokit", window: "@3" } }];
+    renderDialogs({
+      currentServer: "hexokit",
+      servers: [{ name: "hexokit", sessionCount: 1, protected: false }],
+      sessionsByServer: new Map([
+        [
+          "hexokit",
+          [
+            {
+              name: "g",
+              windows: [{ windowId: "@3", worktreePath: "~/code/hexokit" }],
+            } as unknown as client.ProjectSession,
+          ],
+        ],
+      ]),
+    });
+    fireEvent.click(screen.getByText("open-create"));
+    const nameInput = screen.getByLabelText("Workspace name") as HTMLInputElement;
+    expect(nameInput.value).toBe("hexokit");
+    expect(screen.getByText("A workspace named hexokit already exists")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
+
+    fireEvent.keyDown(nameInput, { key: "Enter" });
+    expect(createServer).not.toHaveBeenCalled();
+
+    fireEvent.change(nameInput, { target: { value: "hexokit2" } });
+    expect(screen.queryByText(/already exists/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create" })).toBeEnabled();
+  });
+
+  it("offers folder quick-picks from every workspace's groups", () => {
+    const group = (path: string) =>
+      ({ name: "g", windows: [{ windowId: "@1", worktreePath: path }] }) as unknown as client.ProjectSession;
+    renderDialogs({
+      currentServer: "alpha",
+      sessionsByServer: new Map([
+        ["alpha", [group("~/code/a")]],
+        ["beta", [group("~/code/b")]],
+      ]),
+    });
+    fireEvent.click(screen.getByText("open-create"));
+    fireEvent.focus(screen.getByLabelText("Workspace folder"));
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["~/code/a", "~/code/b"]);
+  });
+
   it("leaves the folder empty when no tab is resolvable", () => {
     renderDialogs();
     fireEvent.click(screen.getByText("open-create"));
