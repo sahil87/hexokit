@@ -448,6 +448,48 @@ test.describe("Row flyout card (fine pointer)", () => {
   });
 
   /**
+   * Proves: the card's "Fork to new worktree" row sits directly below the
+   * same-directory fork row and POSTs the same window-keyed fork endpoint with
+   * `where=worktree` (the same-directory row sends no `where`), then navigates
+   * to the returned window exactly like a same-directory fork.
+   *
+   * Steps:
+   * 1. Route the window-fork API glob to a 200 returning windowId: "@9",
+   *    recording each request URL.
+   * 2. Hover @1; assert the worktree row's label/sub-hint and that it follows
+   *    the fork row vertically.
+   * 3. Click it; assert one request to /api/windows/@1/fork carrying
+   *    where=worktree.
+   * 4. Assert the URL becomes /default/9.
+   */
+  test("the worktree fork row forks with where=worktree and navigates", async ({ page }) => {
+    const forkRequests: string[] = [];
+    await page.route("**/api/windows/*/fork*", (route) => {
+      forkRequests.push(route.request().url());
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ server: SERVER, session: "dev", window: "feature-work-fork", windowId: "@9" }),
+      });
+    });
+
+    await prRow(page).hover();
+    const forkRow = card(page).getByTestId("row-flyout-fork-action");
+    const forkWtRow = card(page).getByTestId("row-flyout-fork-worktree-action");
+    await expect(forkWtRow).toContainText("Fork to new worktree");
+    await expect(forkWtRow).toContainText("new branch");
+    const [forkBox, forkWtBox] = await Promise.all([forkRow.boundingBox(), forkWtRow.boundingBox()]);
+    expect(forkWtBox!.y).toBeGreaterThan(forkBox!.y);
+
+    await forkWtRow.click();
+    await expect.poll(() => forkRequests.length).toBe(1);
+    const url = new URL(forkRequests[0]);
+    expect(decodeURIComponent(url.pathname)).toBe("/api/windows/@1/fork");
+    expect(url.searchParams.get("where")).toBe("worktree");
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/9(?:$|[/?#])`), { timeout: 5_000 });
+  });
+
+  /**
    * Proves: the PR link's stopPropagation guard — activating a card link
    * never selects the underlying row (the SPA URL stays on the server route).
    *
@@ -783,7 +825,9 @@ test.describe("Row flyout card (coarse pointer)", () => {
    * leads the action rows on coarse too.
    *
    * Steps:
-   * 1. With the coarse mock + hasTouch: coarse ⇒ useIsMobile() ⇒ the sidebar
+   * 1. Size the viewport 1280×900 so @1's card fits below the row (the
+   *    top-start flip is the fallback when it does not). With the coarse
+   *    mock + hasTouch: coarse ⇒ useIsMobile() ⇒ the sidebar
    *    is a closed drawer, so first open it via the "Toggle navigation"
    *    hamburger (the mobile-layout.spec.ts idiom).
    * 2. Assert the drawer width is min(92vw, 340px).
@@ -805,6 +849,10 @@ test.describe("Row flyout card (coarse pointer)", () => {
   test("rail renders on every row with aligned slots; rail-tap opens a contained bottom-start card without selecting the row", async ({
     page,
   }) => {
+    // Tall enough for @1's full card (both fork rows) to fit BELOW the row, so
+    // the bottom-start arm is what gets measured; at the default height the
+    // card takes its top-start flip fallback instead.
+    await page.setViewportSize({ width: 1280, height: 900 });
     await gotoCoarseDrawer(page);
 
     // The widened mobile drawer: 92% of the viewport capped at 340px.

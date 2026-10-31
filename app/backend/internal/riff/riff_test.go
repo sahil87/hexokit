@@ -519,6 +519,7 @@ func TestBuildWtCreateArgs(t *testing.T) {
 		name        string
 		where       string
 		wtName      string
+		wtBase      string
 		passthrough []string
 		want        []string
 	}{
@@ -545,10 +546,22 @@ func TestBuildWtCreateArgs(t *testing.T) {
 			wtName: "ignored",
 			want:   []string{"create", "--non-interactive", "--open", "skip"},
 		},
+		{
+			name:   "worktree mode with base",
+			where:  "worktree",
+			wtBase: "3c51d29",
+			want:   []string{"create", "--base", "3c51d29", "--non-interactive", "--open", "skip"},
+		},
+		{
+			name:   "checkout mode ignores base",
+			where:  "checkout",
+			wtBase: "3c51d29",
+			want:   []string{"create", "--non-interactive", "--open", "skip"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			spec := EffectiveSpec{Where: tc.where, WorktreeName: tc.wtName}
+			spec := EffectiveSpec{Where: tc.where, WorktreeName: tc.wtName, WorktreeBase: tc.wtBase}
 			got := buildWtCreateArgs(spec, tc.passthrough)
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("buildWtCreateArgs() = %#v\nwant %#v", got, tc.want)
@@ -2034,5 +2047,37 @@ func TestSpawn_ProviderFork(t *testing.T) {
 				t.Errorf("new-window argv missing the resume suffix %q; got %q", wantFragment, string(logged))
 			}
 		})
+	}
+}
+
+// TestWorktreeWindowRoot: a fork's repo-relative subdir roots the window inside
+// the new worktree when that directory exists there, else the worktree root.
+func TestWorktreeWindowRoot(t *testing.T) {
+	wt := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(wt, "app", "backend"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct{ subdir, want string }{
+		{"", wt},
+		{".", wt},
+		{filepath.Join("app", "backend"), filepath.Join(wt, "app", "backend")},
+		{"untracked-only", wt},
+	}
+	for _, tc := range cases {
+		if got := worktreeWindowRoot(wt, tc.subdir); got != tc.want {
+			t.Errorf("worktreeWindowRoot(%q) = %q, want %q", tc.subdir, got, tc.want)
+		}
+	}
+}
+
+// TestSpawnRejectsNonLocalWorktreeSubdir: a subdir escaping the worktree is a
+// validation error before any subprocess runs.
+func TestSpawnRejectsNonLocalWorktreeSubdir(t *testing.T) {
+	for _, subdir := range []string{"../elsewhere", "/abs/path"} {
+		_, err := Spawn(context.Background(), Options{RepoRoot: t.TempDir(), WorktreeSubdir: subdir})
+		var ece *ExitCodeError
+		if !errors.As(err, &ece) || ece.Code != ExitValidation {
+			t.Errorf("Spawn(subdir=%q) err = %v, want a validation ExitCodeError", subdir, err)
+		}
 	}
 }

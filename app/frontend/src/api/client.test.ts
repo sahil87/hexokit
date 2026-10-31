@@ -3,6 +3,7 @@ import { http, HttpResponse } from "msw";
 import { server as mswServer } from "../../tests/msw/server";
 import { resetMockSessions } from "../../tests/msw/handlers";
 import {
+  forkWindow,
   getHealth,
   getOpenApps,
   openInApp,
@@ -92,6 +93,26 @@ describe("API client", () => {
     );
     const health = await getHealth();
     expect(health.sshHost).toBe("devbox");
+  });
+
+  it.each([
+    [undefined, "server=work", null],
+    ["checkout" as const, "server=work", null],
+    ["worktree" as const, "where=worktree&server=work", "worktree"],
+  ])("forkWindow(where=%s) POSTs the fork endpoint with the matching query", async (where, wantQuery, wantWhere) => {
+    let gotSearch = "";
+    mswServer.use(
+      http.post("/api/windows/:id/fork", ({ request, params }) => {
+        const url = new URL(request.url);
+        gotSearch = url.search;
+        expect(params.id).toBe("@7");
+        return HttpResponse.json({ server: "work", session: "dev", window: "w-fork", windowId: "@9" });
+      }),
+    );
+    const res = await forkWindow("work", "@7", where);
+    expect(res.windowId).toBe("@9");
+    expect(gotSearch).toBe(`?${wantQuery}`);
+    expect(new URLSearchParams(gotSearch).get("where")).toBe(wantWhere);
   });
 
   it("getOpenApps returns the registry array", async () => {

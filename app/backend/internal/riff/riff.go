@@ -140,6 +140,11 @@ type EffectiveSpec struct {
 	// `wt create --name`. Empty = wt generates the name (today's path).
 	// Ignored in checkout mode. The CLI never sets this.
 	WorktreeName string
+	// WorktreeBase, when non-empty in worktree mode, is forwarded to
+	// `wt create --base` as the new branch's start point. Empty = wt's default
+	// (HEAD of the repo wt resolves). Ignored in checkout mode. The CLI never
+	// sets this (it forwards --base through Passthrough instead).
+	WorktreeBase string
 	// WindowNameBase, when non-empty, replaces the derived `riff-<basename>`
 	// window-name base (the collision suffixing in resolveWindowName still
 	// applies). Empty = today's derivation. The CLI never sets this.
@@ -163,6 +168,9 @@ type Result struct {
 	WindowID string
 	// PaneID is the captured pane-0 id (%N) — the typed task-delivery target.
 	PaneID string
+	// WorktreePath is the worktree wt created (worktree mode only; "" in
+	// checkout mode). The window itself may be rooted at a subdirectory of it.
+	WorktreePath string
 }
 
 // Options are the HTTP handler's inputs for a single (count=1) spawn.
@@ -179,6 +187,16 @@ type Options struct {
 	// (`wt create --name`). Empty = wt auto-generates. Ignored in
 	// checkout mode.
 	WorktreeName string
+	// WorktreeBase, when non-empty in worktree mode, is the start point of the
+	// created worktree's new branch (`wt create --base`). Ignored in checkout
+	// mode.
+	WorktreeBase string
+	// WorktreeSubdir, when non-empty in worktree mode, roots the window at this
+	// relative path inside the created worktree — a fork keeps the source pane's
+	// position within its repo. It must be local (filepath.IsLocal); a subdir
+	// absent from the new checkout falls back to the worktree root. Ignored in
+	// checkout mode.
+	WorktreeSubdir string
 	// Tier is the fab agent tier resolved for the launcher (`fab agent <tier>
 	// -o yaml`). Empty = the default tier (`fab agent -o yaml`, today's path).
 	Tier string
@@ -226,8 +244,9 @@ var loadRiffPresets = settings.LoadRiffPresets
 //   - task empty, no preset → a single BARE skill pane (blank agent).
 //
 // Isolation (opts.Where):
-//   - "worktree" (or "", default) → `wt create` (optionally --name) then
-//     a tmux window rooted at the new worktree (base riff-<worktree-basename>).
+//   - "worktree" (or "", default) → `wt create` (optionally --name/--base)
+//     then a tmux window rooted at the new worktree, or at WorktreeSubdir
+//     inside it (base riff-<worktree-basename>).
 //   - "checkout"                  → NO wt call; a tmux window rooted at
 //     opts.RepoRoot (base riff-<repoRoot-basename>).
 //
@@ -237,6 +256,9 @@ var loadRiffPresets = settings.LoadRiffPresets
 func Spawn(ctx context.Context, opts Options) (Result, error) {
 	if opts.RepoRoot == "" {
 		return Result{}, ValidationErr("run-kit riff: repo root is empty")
+	}
+	if opts.WorktreeSubdir != "" && !filepath.IsLocal(opts.WorktreeSubdir) {
+		return Result{}, ValidationErr("run-kit riff: worktree subdir %q must be a local relative path", opts.WorktreeSubdir)
 	}
 
 	// Preserve configured launcher options when they match the source provider.
@@ -301,8 +323,10 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 		spec.Where = whereWorktree
 	}
 	spec.WorktreeName = opts.WorktreeName
+	spec.WorktreeBase = opts.WorktreeBase
 	if opts.isCheckout() {
 		spec.WorktreeName = ""
+		spec.WorktreeBase = ""
 	}
 	// WindowNameBase is consumed by spawnRiffReturningName's base derivation. The
 	// fork ref needs no spec field — it was already folded into spec.Launcher
@@ -320,11 +344,13 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 	// (collision naming, new-window/split/select-layout/select-pane, window-id
 	// capture) — is identical, so both paths converge on spawnRiffReturningName.
 	windowRoot := opts.RepoRoot
+	var worktreePath string
 	if !opts.isCheckout() {
-		windowRoot, err = runWtCreate(ctx, spec, spec.Passthrough)
+		worktreePath, err = runWtCreate(ctx, spec, spec.Passthrough)
 		if err != nil {
 			return Result{}, err
 		}
+		windowRoot = worktreeWindowRoot(worktreePath, opts.WorktreeSubdir)
 	}
 	name, windowID, paneID, err := spawnRiffReturningName(ctx, windowRoot, spec)
 	if err != nil {
@@ -337,9 +363,24 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 		Server:     opts.Server,
 		Session:    opts.Session,
 		WindowName: name,
-		WindowID:   windowID,
-		PaneID:     paneID,
+		WindowID:     windowID,
+		PaneID:       paneID,
+		WorktreePath: worktreePath,
 	}, nil
+}
+
+// worktreeWindowRoot returns worktreePath/subdir when subdir names an existing
+// directory there, else worktreePath itself (a subdir that only existed
+// untracked in the source checkout is absent from a fresh worktree).
+func worktreeWindowRoot(worktreePath, subdir string) string {
+	if subdir == "" || subdir == "." {
+		return worktreePath
+	}
+	candidate := filepath.Join(worktreePath, subdir)
+	if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+		return candidate
+	}
+	return worktreePath
 }
 
 // SpawnReceipt is one spawned window's identity, returned by Run in index
@@ -569,10 +610,10 @@ func parseFabAgentOutput(stdout string, err error) (string, bool) {
 }
 
 // buildWtCreateArgs returns the argv (after "wt") for worktree creation:
-// `create [--name <name>] --non-interactive --open skip <passthrough...>`. A
-// non-empty WorktreeName (worktree mode only) is prepended as `--name <name>` so
-// it skips wt's name prompt; an empty name omits the element and wt generates
-// one. The `spec.Where != whereCheckout` guard keeps the helper self-contained
+// `create [--name <name>] [--base <ref>] --non-interactive --open skip
+// <passthrough...>`. A non-empty WorktreeName (worktree mode only) is prepended
+// as `--name <name>` so it skips wt's name prompt; an empty name omits the
+// element and wt generates one. WorktreeBase follows the same rule. The `spec.Where != whereCheckout` guard keeps the helper self-contained
 // (Spawn already blanks a checkout-mode name, and checkout never reaches wt
 // anyway; the CLI/fan-out paths pass no name). Long flag forms keep the argv
 // self-describing; they need wt >= v0.1.0. Pure.
@@ -580,6 +621,9 @@ func buildWtCreateArgs(spec EffectiveSpec, passthrough []string) []string {
 	argv := []string{"create"}
 	if spec.Where != whereCheckout && spec.WorktreeName != "" {
 		argv = append(argv, "--name", spec.WorktreeName)
+	}
+	if spec.Where != whereCheckout && spec.WorktreeBase != "" {
+		argv = append(argv, "--base", spec.WorktreeBase)
 	}
 	argv = append(argv, "--non-interactive", "--open", "skip")
 	return append(argv, passthrough...)
