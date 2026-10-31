@@ -1722,6 +1722,10 @@ export type FabRoleCell = {
   source: string;
   origin: FabOrigin | "";
   originDetail?: string;
+  /** What the leaf resolves to with no override ("" when the provider has no fill). */
+  inherited: string;
+  /** The system-tier value hidden behind an env winner. */
+  systemValue?: string;
 };
 
 export type FabRole = {

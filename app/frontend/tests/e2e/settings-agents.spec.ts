@@ -1,107 +1,18 @@
 import { test, expect, type Page } from "@playwright/test";
 import { openPalette } from "./_ready";
+import { stubFabConfig } from "./_fab-config-stub";
 
 /**
  * Settings dialog — the curated Agents tab over fab-kit's machine-wide config.
  * The tab reads and writes only through `/api/fab-config`, so these tests stub
- * that one endpoint at the browser (`page.route`): the daemon's fab wrapper has
- * its own Go tests, and a browser-level stub guarantees no run can ever write
- * the developer's real `~/.fab-kit/config.yaml`. The stub is stateful — a POST
- * applies set/unset (null) to an in-memory document and the GET/POST responses
- * serve it — so the set → re-render → reset round trip is exercised end to end
- * through the real SPA.
+ * that one endpoint at the browser with the stateful `_fab-config-stub` helper,
+ * so no run can ever write the developer's real `~/.fab-kit/config.yaml`.
  *
  * Shared setup: every test installs the stub BEFORE navigating to `/` (the
  * Settings dialog is mounted once at AppLayout, so the host page is enough — no
  * tmux session is needed) and opens the dialog through the palette's
  * `Settings: Agents` entry. The phone test runs at 375px.
  */
-
-type Origin = "default" | "system";
-interface StubField {
-  value: string | number | boolean;
-  origin: Origin;
-  originDetail?: string;
-}
-
-const SYSTEM_PATH = "/home/e2e/.fab-kit/config.yaml";
-const DEFAULTS: Record<string, string | number | boolean> = {
-  "agent.session": "claude",
-  "agent.workers": "claude",
-  "dispatch.mode": "native",
-  "dispatch.column_width": 45,
-  "dispatch.min_cols": 50,
-  "dispatch.min_rows": 20,
-  "dispatch.reap_done": true,
-};
-const ROLES: Array<[string, "session" | "workers"]> = [
-  ["default", "session"],
-  ["operator", "session"],
-  ["doing", "workers"],
-  ["fast", "workers"],
-  ["hydrate", "workers"],
-  ["review", "workers"],
-];
-
-/** Installs a stateful `/api/fab-config` stub; returns the POST bodies seen. */
-async function stubFabConfig(page: Page, opts: { installed?: boolean } = {}): Promise<Array<Record<string, unknown>>> {
-  const posts: Array<Record<string, unknown>> = [];
-  const system = new Map<string, string | number | boolean>([["agent.session", "claude"]]);
-
-  const document = () => {
-    const fields: Record<string, StubField> = {};
-    for (const [key, def] of Object.entries(DEFAULTS)) {
-      const sys = system.get(key);
-      fields[key] = sys !== undefined ? { value: sys, origin: "system", originDetail: SYSTEM_PATH } : { value: def, origin: "default" };
-    }
-    const workers = String(fields["agent.workers"].value);
-    const session = String(fields["agent.session"].value);
-    const roles = ROLES.map(([role, depth]) => {
-      const key = (leaf: string) => `agent.profiles.${role}.${leaf}`;
-      const cell = (leaf: string, inherited: string, source: string) => {
-        const sys = system.get(key(leaf));
-        return sys !== undefined
-          ? { override: String(sys), effective: String(sys), source: key(leaf), origin: "system", originDetail: SYSTEM_PATH }
-          : { override: null, effective: inherited, source, origin: "default" };
-      };
-      const tier = depth === "session" ? session : workers;
-      return {
-        role,
-        depth,
-        provider: cell("provider", tier, depth === "session" ? "agent.session" : "agent.workers"),
-        model: cell("model", "", ""),
-        effort: cell("effort", "", ""),
-      };
-    });
-    return {
-      installed: true,
-      systemPath: SYSTEM_PATH,
-      providers: ["agy", "claude", "codex", "kimi"],
-      fields,
-      roles,
-      modelSuggestions: { claude: ["claude-opus-5-5", "claude-sonnet-5-5"], codex: ["gpt-5.6-sol"], agy: [], kimi: [] },
-      effortSuggestions: ["low", "medium", "high", "xhigh", "max"],
-    };
-  };
-
-  await page.route("**/api/fab-config", async (route) => {
-    const request = route.request();
-    if (opts.installed === false) {
-      await route.fulfill({ json: { installed: false } });
-      return;
-    }
-    if (request.method() === "POST") {
-      const patch = request.postDataJSON() as Record<string, string | number | boolean | null>;
-      posts.push(patch);
-      for (const [key, value] of Object.entries(patch)) {
-        if (value === null) system.delete(key);
-        else system.set(key, value);
-      }
-    }
-    await route.fulfill({ json: document() });
-  });
-  return posts;
-}
 
 async function openAgentsTab(page: Page) {
   await page.goto("/");

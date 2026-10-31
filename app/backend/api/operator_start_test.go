@@ -75,6 +75,7 @@ func TestOperatorStart_CreatedReturns202WakesHub(t *testing.T) {
 		return operatorStartReceipt{Window: "@7", Server: "default", Created: true}, "", nil
 	})
 
+	before := tracker.count.Load()
 	rec, req := operatorStartRequest("default")
 	server.buildRouter().ServeHTTP(rec, req)
 
@@ -87,13 +88,13 @@ func TestOperatorStart_CreatedReturns202WakesHub(t *testing.T) {
 	if want := []string{"/fake/rk", "operator", "-L", "default", "--json"}; strings.Join(*gotArgv, " ") != strings.Join(want, " ") {
 		t.Errorf("argv = %v, want %v", *gotArgv, want)
 	}
-	// Exactly one wake-driven pass: the pre-check already consumed one fetch
-	// (synchronous inside ServeHTTP), so the wake adds exactly one more.
-	afterPreCheck := tracker.count.Load()
-	expectWake(t, tracker, afterPreCheck, "operator start")
+	// The pre-check consumes one fetch synchronously inside ServeHTTP and the
+	// wake adds exactly one more. The baseline is taken before the request: the
+	// wake-driven pass can finish before ServeHTTP's caller reads the counter.
+	expectWake(t, tracker, before+1, "operator start")
 	time.Sleep(300 * time.Millisecond)
-	if got := tracker.count.Load(); got != afterPreCheck+1 {
-		t.Errorf("FetchSessions count = %d, want %d (pre-check + exactly one wake-driven pass)", got, afterPreCheck+1)
+	if got := tracker.count.Load(); got != before+2 {
+		t.Errorf("FetchSessions count = %d, want %d (pre-check + exactly one wake-driven pass)", got, before+2)
 	}
 }
 

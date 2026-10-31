@@ -1684,8 +1684,16 @@ func newWakeSeamServer(t *testing.T, ops TmuxOps) (*Server, *fetchTracker) {
 		// never-closed buffered channel would just leak, blocking forever.
 		server.sseHub.removeClient(client)
 	})
-	// Let the bootstrap poll pass complete and the loop settle into waitForNext.
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the bootstrap poll pass (a fixed sleep is too short on a loaded
+	// CI runner), then let the loop settle into waitForNext.
+	deadline := time.Now().Add(2 * time.Second)
+	for tracker.count.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if tracker.count.Load() == 0 {
+		t.Fatal("bootstrap poll pass did not run")
+	}
+	time.Sleep(50 * time.Millisecond)
 	return server, tracker
 }
 

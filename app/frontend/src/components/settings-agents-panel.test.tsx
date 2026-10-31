@@ -23,14 +23,16 @@ const inherited = (effective: string, source: string): FabRoleCell => ({
   effective,
   source,
   origin: "default",
+  inherited: effective,
 });
 
-const overridden = (value: string, key: string): FabRoleCell => ({
+const overridden = (value: string, key: string, inheritedValue = ""): FabRoleCell => ({
   override: value,
   effective: value,
   source: key,
   origin: "system",
   originDetail: SYSTEM_PATH,
+  inherited: inheritedValue,
 });
 
 function role(name: string, depth: FabRole["depth"], provider: string, tier: string): FabRole {
@@ -154,6 +156,26 @@ describe("SettingsAgentsPanel", () => {
     expect(within(row("agent.session")).queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("a failed multi-key write re-reads fab so partially applied keys show", async () => {
+    const doc = withField(
+      withField(makeDoc(), "dispatch.min_cols", field(80, "system")),
+      "dispatch.min_rows",
+      field(30, "system"),
+    );
+    vi.mocked(postFabConfig).mockRejectedValue(new Error("fab config unset dispatch.min_rows --system failed"));
+    await renderPanel(doc);
+    // min_cols was unset before min_rows failed; the re-read reflects that.
+    vi.mocked(getFabConfig).mockResolvedValue(withField(doc, "dispatch.min_cols", field(50, "default")));
+
+    expect(screen.getByLabelText("Split floor columns")).toHaveValue("80");
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset split floor" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("min_rows");
+    await waitFor(() => expect(screen.getByLabelText("Split floor columns")).toHaveValue("50"));
+    expect(getFabConfig).toHaveBeenCalledTimes(2);
+  });
+
   it("warns on an env-shadowed key, naming the variable and the shadowed system value", async () => {
     const doc = withField(
       makeDoc(),
@@ -216,6 +238,12 @@ describe("SettingsAgentsPanel", () => {
       await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "dispatch.reap_done": false }));
     });
 
+    it("the split floor shows each leaf's own provenance", async () => {
+      await renderPanel(withField(makeDoc(), "dispatch.min_rows", field(30, "system")));
+      const chips = within(screen.getByTestId("fab-row-dispatch.split-floor")).getAllByTestId("provenance-chip");
+      expect(chips.map((c) => c.textContent)).toEqual(["default", "system"]);
+    });
+
     it("the split-floor reset unsets both leaves in one POST", async () => {
       vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
       const doc = withField(makeDoc(), "dispatch.min_rows", field(30, "system"));
@@ -246,6 +274,18 @@ describe("SettingsAgentsPanel", () => {
       expect(provider.options[0].textContent).toBe("↳ kimi");
       expect(provider.className).toContain("text-text-secondary");
       expect(screen.getByLabelText("doing model")).toHaveAttribute("placeholder", "↳ provider default");
+    });
+
+    it("labels inherit on an overridden leaf with the value clearing it restores", async () => {
+      const doc = withRole(makeDoc(), "review", {
+        provider: overridden("codex", "agent.profiles.review.provider", "claude"),
+        model: overridden("gpt-5.6-sol", "agent.profiles.review.model", "claude-opus-5-5"),
+      });
+      await renderPanel(doc);
+      const provider = screen.getByLabelText("review provider") as HTMLSelectElement;
+      expect(provider.value).toBe("codex");
+      expect(provider.options[0].textContent).toBe("↳ claude");
+      expect(screen.getByLabelText("review model")).toHaveAttribute("placeholder", "↳ claude-opus-5-5");
     });
 
     it("choosing inherit on an overridden leaf POSTs null for that key", async () => {
@@ -327,9 +367,29 @@ describe("SettingsAgentsPanel", () => {
       );
     });
 
+    it("keeps the row reset when an env var shadows a saved role value", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      const doc = withRole(makeDoc(), "doing", {
+        provider: {
+          override: null,
+          effective: "kimi",
+          source: "agent.profiles.doing.provider",
+          origin: "env",
+          originDetail: "FAB_AGENT_PROFILES",
+          inherited: "claude",
+          systemValue: "codex",
+        },
+      });
+      await renderPanel(doc);
+      fireEvent.click(screen.getByRole("button", { name: "Reset doing overrides" }));
+      await waitFor(() =>
+        expect(postFabConfig).toHaveBeenCalledWith(expect.objectContaining({ "agent.profiles.doing.provider": null })),
+      );
+    });
+
     it("warns when an env var sets a role's provider", async () => {
       const doc = withRole(makeDoc(), "doing", {
-        provider: { override: null, effective: "kimi", source: "agent.profiles.doing.provider", origin: "env", originDetail: "FAB_X" },
+        provider: { override: null, effective: "kimi", source: "agent.profiles.doing.provider", origin: "env", originDetail: "FAB_X", inherited: "claude" },
       });
       await renderPanel(doc);
       expect(screen.getByRole("img", { name: "provider set by an environment variable" })).toHaveAttribute("title", expect.stringContaining("FAB_X"));
@@ -346,6 +406,24 @@ describe("SettingsAgentsPanel", () => {
       fireEvent.change(screen.getByLabelText("doing provider"), { target: { value: "codex" } });
       expect(await screen.findByRole("alert")).toHaveTextContent("unknown provider");
     });
+  });
+
+  it("queues overlapping writes so an older response can't overwrite a newer one", async () => {
+    let releaseFirst: (d: FabConfigDocument) => void = () => {};
+    vi.mocked(postFabConfig)
+      .mockImplementationOnce(() => new Promise((resolve) => (releaseFirst = resolve)))
+      .mockResolvedValueOnce(withField(makeDoc(), "dispatch.mode", field("headless", "system")));
+    await renderPanel(makeDoc());
+
+    fireEvent.click(within(row("agent.workers")).getByRole("button", { name: "codex" }));
+    fireEvent.click(within(row("dispatch.mode")).getByRole("button", { name: "headless" }));
+    await waitFor(() => expect(postFabConfig).toHaveBeenCalledTimes(1));
+
+    releaseFirst(withField(makeDoc(), "agent.workers", field("codex", "system")));
+    await waitFor(() => expect(postFabConfig).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(within(row("dispatch.mode")).getByRole("button", { name: "headless" })).toHaveAttribute("aria-pressed", "true"),
+    );
   });
 
   it("shows fab's POST warnings verbatim", async () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getFabConfig,
   postFabConfig,
@@ -149,8 +149,8 @@ function ChipGroup({
   );
 }
 
-/** Row-scoped write state: a failed write shows fab's message on THAT row and
- *  leaves the previous value (the panel re-renders only from a good POST). */
+/** Row-scoped write state: a failed write shows fab's message on THAT row; the
+ *  panel then re-reads fab rather than trusting the values it showed before. */
 function useRowWrite(write: Write) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -328,7 +328,6 @@ function SplitFloorRow({
   const { busy, error, run } = useRowWrite(write);
   const modified = hasSystemOverride(colsField) || hasSystemOverride(rowsField);
   const envField = [colsField, rowsField].find((f) => f?.origin === "env");
-  const shown = colsField ?? rowsField;
   return (
     <div data-testid="fab-row-dispatch.split-floor">
       <PreferenceRow
@@ -343,7 +342,9 @@ function SplitFloorRow({
             value={numberValue(colsField)}
             commit={(n) => write({ [KEY_MIN_COLS]: n })}
           />
-          <span className="pt-1.5">cols ×</span>
+          <span className="pt-1.5">cols</span>
+          {colsField && <span className="pt-1"><ProvenanceChip origin={colsField.origin} detail={colsField.originDetail} /></span>}
+          <span className="pt-1.5">×</span>
           <NumberInput
             id="fab-min-rows"
             label="Split floor rows"
@@ -351,7 +352,7 @@ function SplitFloorRow({
             commit={(n) => write({ [KEY_MIN_ROWS]: n })}
           />
           <span className="pt-1.5">rows</span>
-          {shown && <span className="pt-1"><ProvenanceChip origin={envField?.origin ?? shown.origin} detail={(envField ?? shown).originDetail} /></span>}
+          {rowsField && <span className="pt-1"><ProvenanceChip origin={rowsField.origin} detail={rowsField.originDetail} /></span>}
           <span className="pt-1.5">
             <ModifiedDot modified={modified} />
           </span>
@@ -395,9 +396,11 @@ function ReapDoneRow({ field, write }: { field: FabField | undefined; write: Wri
 
 const roleSelectClass = `bg-transparent text-text-primary p-1 border border-border rounded text-xs max-w-[9rem] ${INPUT_FOCUS}`;
 
-/** Cell text for the inherited (no-override) option: `↳ <effective>`. */
+/** Cell text for the inherit option: `↳ <value>` — what is in effect now, or
+ *  while an override is set, what clearing it would restore. */
 function inheritedLabel(cell: FabRoleCell): string {
-  return `↳ ${cell.effective || INHERIT_FALLBACK}`;
+  const value = cell.override === null ? cell.effective : cell.inherited;
+  return `↳ ${value || INHERIT_FALLBACK}`;
 }
 
 /** A closed-set select whose first option is "inherit" (→ null). */
@@ -500,8 +503,11 @@ function RoleRow({
   write: Write;
 }) {
   const { busy, error, run } = useRowWrite(write);
-  const overridden =
-    role.provider.override !== null || role.model.override !== null || role.effort.override !== null;
+  // A saved value shadowed by an env var still counts: reset is the only way
+  // to clear it from here.
+  const overridden = [role.provider, role.model, role.effort].some(
+    (cell) => cell.override !== null || cell.systemValue !== undefined,
+  );
   return (
     <>
       <tr data-testid={`role-row-${role.role}`} className="border-b border-border/40 align-top">
@@ -714,12 +720,34 @@ export function SettingsAgentsPanel() {
 
   // Rejects on failure (the calling row shows the message); on success the
   // whole panel re-renders from the fresh document the POST returns.
-  const write = useCallback<Write>(async (patch) => {
+  const apply = useCallback(async (patch: Patch) => {
     setWarnings([]);
-    const next = await postFabConfig(patch);
+    let next: FabConfigDocument;
+    try {
+      next = await postFabConfig(patch);
+    } catch (err) {
+      // A multi-key write can fail after earlier keys were applied, so re-read
+      // fab instead of keeping the pre-write document.
+      await getFabConfig()
+        .then(setDoc)
+        .catch(() => {});
+      throw err;
+    }
     setDoc(next);
     if (next.installed) setWarnings(next.warnings ?? []);
   }, []);
+
+  // Writes run one at a time: every response is a whole document, so an
+  // overlapping older response could otherwise land after a newer one.
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  const write = useCallback<Write>(
+    (patch) => {
+      const run = queue.current.then(() => apply(patch));
+      queue.current = run.catch(() => {});
+      return run;
+    },
+    [apply],
+  );
 
   if (loadError) {
     return (

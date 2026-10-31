@@ -6,7 +6,9 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 const systemPath = "/home/u/.fab-kit/config.yaml"
@@ -231,6 +233,50 @@ func TestRead_envShadowCarriesSystemValue(t *testing.T) {
 	}
 }
 
+func TestRead_overriddenCellCarriesInherited(t *testing.T) {
+	rows := append(baseRows(), row("agent.profiles.review.provider", `"codex"`, "system", systemPath))
+	f := newFake(t, rows...)
+	doc, err := New(f.run).Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	review := roleByName(t, doc, "review")
+	if review.Provider.Effective != "codex" || review.Provider.Inherited != "claude" {
+		t.Errorf("review.provider = %+v, want effective codex, inherited claude (agent.workers)", review.Provider)
+	}
+	if review.Model.Inherited != "gpt-5.6-sol" {
+		t.Errorf("review.model.inherited = %q, want codex's review fill", review.Model.Inherited)
+	}
+	doing := roleByName(t, doc, "doing")
+	if *doing.Model.Override != "claude-sonnet-5-5" || doing.Model.Inherited != "claude-sonnet-5-5" {
+		t.Errorf("doing.model = %+v, want inherited from the provider table", doing.Model)
+	}
+	if defaultRole := roleByName(t, doc, "default"); defaultRole.Provider.Inherited != "claude" {
+		t.Errorf("default.provider.inherited = %q, want agent.session", defaultRole.Provider.Inherited)
+	}
+}
+
+func TestRead_envShadowedRoleLeafCarriesSystemValue(t *testing.T) {
+	const key = "agent.profiles.review.provider"
+	rows := append(baseRows(), row(key, `"kimi"`, "env", "FAB_AGENT_PROFILES"))
+	f := newFake(t, rows...)
+	f.stacks[key] = showJSON(
+		row(key, `"kimi"`, "env", "FAB_AGENT_PROFILES"),
+		`{"key":"`+key+`","value":"codex","origin":"system","origin_detail":"`+systemPath+`","status":"shadowed"}`,
+	)
+	doc, err := New(f.run).Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := roleByName(t, doc, "review").Provider
+	if p.Override != nil || p.SystemValue == nil || *p.SystemValue != "codex" {
+		t.Errorf("review.provider = %+v, want no override and systemValue codex", p)
+	}
+	if roleByName(t, doc, "doing").Provider.SystemValue != nil {
+		t.Error("doing.provider.systemValue set without an env winner")
+	}
+}
+
 func TestRead_everyCallIsFreshAndArgvOnly(t *testing.T) {
 	f := newFake(t)
 	c := New(f.run)
@@ -295,6 +341,8 @@ func TestApply_validationRejectsBeforeExec(t *testing.T) {
 		"unknown key":         `{"providers.codex.native":true}`,
 		"unknown role":        `{"agent.profiles.ship.model":"m"}`,
 		"unknown leaf":        `{"agent.profiles.doing.native":"m"}`,
+		"role without leaf":   `{"agent.profiles.doing":"m"}`,
+		"extra segment":       `{"agent.profiles.doing.model.x":"m"}`,
 		"bad mode":            `{"dispatch.mode":"weird"}`,
 		"mode type":           `{"dispatch.mode":1}`,
 		"unknown provider":    `{"agent.workers":"bogus"}`,
@@ -326,6 +374,18 @@ func TestApply_validationRejectsBeforeExec(t *testing.T) {
 				t.Errorf("mutations = %v, want none (reject before exec)", got)
 			}
 		})
+	}
+}
+
+func TestApply_everyRoleLeafIsWritable(t *testing.T) {
+	for _, rd := range Roles {
+		for _, leaf := range []string{profileLeafModel, profileLeafEffort} {
+			key := profileKeyPrefix + rd.Name + "." + leaf
+			f := newFake(t)
+			if _, err := New(f.run).Apply(context.Background(), patchOf(t, `{"`+key+`":"m"}`)); err != nil {
+				t.Errorf("%s: %v", key, err)
+			}
+		}
 	}
 }
 
@@ -370,6 +430,42 @@ func TestApply_surfacesFabWarnings(t *testing.T) {
 	}
 	if len(doc.Warnings) != 1 || !strings.Contains(doc.Warnings[0], "shadowed by env $FAB_AGENT_WORKERS") {
 		t.Errorf("warnings = %v", doc.Warnings)
+	}
+}
+
+// Concurrent Applies (the API builds a Client per request) must not interleave
+// their fab calls: fab rewrites the whole system file without a lock.
+func TestApply_serializesAcrossClients(t *testing.T) {
+	show := showJSON(baseRows()...)
+	var mu sync.Mutex
+	inFlight, maxInFlight := 0, 0
+	run := func(_ context.Context, argv ...string) ([]byte, []byte, error) {
+		mu.Lock()
+		inFlight++
+		maxInFlight = max(maxInFlight, inFlight)
+		mu.Unlock()
+		time.Sleep(2 * time.Millisecond)
+		mu.Lock()
+		inFlight--
+		mu.Unlock()
+		if strings.Join(argv, " ") == "config show --origin --json" {
+			return []byte(show), nil, nil
+		}
+		return []byte("[]"), nil, nil
+	}
+	var wg sync.WaitGroup
+	for _, body := range []string{`{"agent.workers":"codex"}`, `{"dispatch.mode":"native"}`} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := New(run).Apply(context.Background(), patchOf(t, body)); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	if maxInFlight != 1 {
+		t.Errorf("max concurrent fab calls = %d, want 1", maxInFlight)
 	}
 }
 

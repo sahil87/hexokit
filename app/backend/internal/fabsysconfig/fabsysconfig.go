@@ -29,10 +29,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 )
@@ -185,6 +185,11 @@ type Cell struct {
 	Source       string  `json:"source"`
 	Origin       string  `json:"origin"`
 	OriginDetail string  `json:"originDetail,omitempty"`
+	// Inherited is what the leaf resolves to with no override: the depth knob
+	// for provider, the resolved provider's profile fill for model/effort.
+	Inherited string `json:"inherited"`
+	// SystemValue is the system-tier value shadowed by an env winner.
+	SystemValue *string `json:"systemValue,omitempty"`
 }
 
 // Role is one row of the per-role override table.
@@ -334,7 +339,19 @@ func (c *Client) Read(ctx context.Context) (*Document, error) {
 	}
 
 	for _, rd := range Roles {
-		doc.Roles = append(doc.Roles, buildRole(rd, byKey))
+		role := buildRole(rd, byKey)
+		for leaf, cell := range map[string]*Cell{
+			profileLeafProvider: &role.Provider, profileLeafModel: &role.Model, profileLeafEffort: &role.Effort,
+		} {
+			if cell.Origin != originEnv {
+				continue
+			}
+			if v := c.systemValue(ctx, profileKeyPrefix+rd.Name+"."+leaf); v != nil {
+				s := fmt.Sprint(v)
+				cell.SystemValue = &s
+			}
+		}
+		doc.Roles = append(doc.Roles, role)
 	}
 	return doc, nil
 }
@@ -409,14 +426,24 @@ func modelSuggestions(rows []showRow, provider string) []string {
 	return out
 }
 
+// depthKey is the knob a role's provider inherits from.
+func depthKey(depth string) string {
+	if depth == depthSession {
+		return KeyAgentSession
+	}
+	return KeyAgentWorkers
+}
+
 func buildRole(rd roleDef, byKey map[string]showRow) Role {
 	role := Role{Role: rd.Name, Depth: rd.Depth}
 	provider := cellFor(byKey, profileKeyPrefix+rd.Name+"."+profileLeafProvider, "")
+	provider.Inherited = valueString(byKey[depthKey(rd.Depth)].Value)
 	role.Provider = provider
 	for _, leaf := range []string{profileLeafModel, profileLeafEffort} {
 		// An unset leaf inherits the resolved provider's profile for this role.
 		fallback := providersKeyPrefix + provider.Effective + providerProfileInfix + rd.Name + "." + leaf
 		cell := cellFor(byKey, profileKeyPrefix+rd.Name+"."+leaf, fallback)
+		cell.Inherited = valueString(byKey[fallback].Value)
 		if leaf == profileLeafModel {
 			role.Model = cell
 		} else {
@@ -450,7 +477,25 @@ func cellFor(byKey map[string]showRow, key, fallbackKey string) Cell {
 
 // ---- writes ----
 
-var profileKeyRE = regexp.MustCompile(`^agent\.profiles\.(default|operator|doing|fast|hydrate|review)\.(provider|model|effort)$`)
+// isProfileKey reports whether key is agent.profiles.<role>.<leaf> for one of
+// Roles and profileLeaves, so a role added to Roles is writable without a
+// second list to keep in sync.
+func isProfileKey(key string) bool {
+	rest, ok := strings.CutPrefix(key, profileKeyPrefix)
+	if !ok {
+		return false
+	}
+	role, leaf, ok := strings.Cut(rest, ".")
+	if !ok || !contains(profileLeaves, leaf) {
+		return false
+	}
+	for _, rd := range Roles {
+		if rd.Name == role {
+			return true
+		}
+	}
+	return false
+}
 
 func isScalarKey(key string) bool {
 	for _, k := range ScalarKeys {
@@ -486,7 +531,7 @@ func validate(patch map[string]json.RawMessage, providers []string) ([]op, error
 	ops := make([]op, 0, len(keys))
 	for _, key := range keys {
 		raw := patch[key]
-		if !isScalarKey(key) && !profileKeyRE.MatchString(key) {
+		if !isScalarKey(key) && !isProfileKey(key) {
 			return nil, &ValidationError{Msg: "unknown key: " + key}
 		}
 		if string(bytes.TrimSpace(raw)) == "null" {
@@ -541,7 +586,7 @@ func validateValue(key string, raw json.RawMessage, providers []string) (*string
 		return &s, nil
 	}
 
-	isProfile := profileKeyRE.MatchString(key)
+	isProfile := isProfileKey(key)
 	if s == "" && isProfile {
 		return nil, nil
 	}
@@ -609,6 +654,11 @@ func contains(list []string, s string) bool {
 
 func ptr(s string) *string { return &s }
 
+// applyMu serializes Apply across requests (the API builds a Client per
+// request): fab's set/unset rewrite the whole system file without a lock, so
+// two overlapping patches could each succeed and lose the other's keys.
+var applyMu sync.Mutex
+
 // Apply validates the whole patch, then runs the set/unset calls sequentially
 // (sorted key order) and returns a freshly read document whose Warnings carry
 // fab's stderr warning lines. It stops at the first failing fab call — earlier
@@ -618,6 +668,8 @@ func (c *Client) Apply(ctx context.Context, patch map[string]json.RawMessage) (*
 	if !c.installed() {
 		return nil, ErrNotInstalled
 	}
+	applyMu.Lock()
+	defer applyMu.Unlock()
 	rows, err := c.loadRows(ctx)
 	if err != nil {
 		return nil, err

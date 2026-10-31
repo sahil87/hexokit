@@ -224,7 +224,7 @@ func TestMCPEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	if inventory.Partial || inventory.ObservedAt == "" || len(inventory.Servers) != 1 || inventory.Servers[0].Server != server || len(inventory.Servers[0].Panes) != 1 || inventory.Servers[0].Panes[0].Pane != pane {
-		t.Fatalf("inventory = %+v", inventory)
+		t.Fatalf("inventory = %+v (errors: %s)", inventory, inventoryErrors(inventory))
 	}
 	// Unscoped discovery must find the live socket, not the seeded recovery
 	// snapshot. The child allowlist excludes any unrelated local servers.
@@ -275,7 +275,7 @@ func TestMCPEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	if inventory.Partial || len(inventory.Servers) != 1 || len(inventory.Servers[0].Panes) != 1 {
-		t.Fatalf("new server inventory = %+v", inventory)
+		t.Fatalf("new server inventory = %+v (errors: %s)", inventory, inventoryErrors(inventory))
 	}
 	createdPane := inventory.Servers[0].Panes[0].Pane
 	res = call("new_server", map[string]any{"name": changeServer})
@@ -589,4 +589,16 @@ func TestMCPEndToEnd(t *testing.T) {
 			return serverCmd.Process.Signal(syscall.Signal(0)) != nil
 		}, "mcp server process %d still alive after Close", serverCmd.Process.Pid)
 	}
+}
+
+// inventoryErrors renders each server's error text; %+v prints only the
+// *string pointer, which hides why an inventory came back partial.
+func inventoryErrors(inv muxInventoryResult) string {
+	var errs []string
+	for _, s := range inv.Servers {
+		if s.Error != nil {
+			errs = append(errs, s.Server+": "+*s.Error)
+		}
+	}
+	return strings.Join(errs, "; ")
 }
