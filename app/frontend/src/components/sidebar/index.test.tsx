@@ -54,8 +54,12 @@ const mockNavigate = vi.fn();
 // the palette/session/slot providers; the sidebar tests only assert WHERE the
 // mobile brand row places it.
 vi.mock("@/components/new-split-button", () => ({
-  useNewSplitMode: () => "terminal",
-  NewSplitButton: ({ mode }: { mode: string }) => <div data-testid="new-split" data-mode={mode} />,
+  NewSplitButton: ({ mode, align }: { mode: string; align?: string }) => (
+    <div data-testid="new-split" data-mode={mode} data-align={align} />
+  ),
+}));
+vi.mock("@/hooks/use-top-bar-mode", () => ({
+  useTopBarMode: () => ({ mode: "terminal", serverParam: undefined, boardName: undefined }),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -153,6 +157,8 @@ type RenderOpts = {
   ) => void;
   /** Override the Sidebar's onSelectWindow prop — tests assert the invocation. */
   onSelectWindow?: (server: string, session: string, windowId: string) => void;
+  /** Override the Sidebar's onCreateWindow prop. */
+  onCreateWindow?: (server: string, session: string) => void;
   /** Wire the operator placeholder row's activation handler (the shell's
    *  drawer opener) — absent ⇒ no placeholder renders (the board route). */
   onOperatorPlaceholder?: (server: string) => void;
@@ -203,7 +209,7 @@ function sidebarTree(opts: RenderOpts = {}) {
                         currentWindowId={opts.currentWindowId !== undefined ? opts.currentWindowId : currentServer ? "@0" : null}
                         isConnected={opts.isConnected ?? false}
                         onSelectWindow={opts.onSelectWindow ?? vi.fn()}
-                        onCreateWindow={vi.fn()}
+                        onCreateWindow={opts.onCreateWindow ?? vi.fn()}
                         onCreateSession={opts.onCreateSession ?? vi.fn()}
                         onWindowMarkerChange={opts.onWindowMarkerChange}
                         onKillServer={opts.onKillServer ?? vi.fn()}
@@ -2706,6 +2712,8 @@ describe("Sidebar — brand row (mobile-only)", () => {
     const row = nav.firstElementChild!;
     expect(row).toContainElement(split);
     expect(brand.nextElementSibling).toBe(split);
+    // At the row's right edge the menu must open leftward (not clipped).
+    expect(split).toHaveAttribute("data-align", "end");
   });
 
   it("renders NO brand row on desktop", () => {
@@ -3650,5 +3658,43 @@ describe("Sidebar — ⌘B row-focuser registry + Escape return (260819-qwr7 R5)
 
     expect(restore).not.toHaveBeenCalled();
     input.remove();
+  });
+});
+
+describe("Sidebar — keyboard activation of controls inside tree rows", () => {
+  // The tree's Enter/Space handler activates the ROW; a focused control inside
+  // the row (the per-group `+`, the chevron) must keep its native activation,
+  // so the handler must neither preventDefault nor navigate for it.
+  it("Enter and Space on the per-group + are left to the button (not prevented, no row activation)", () => {
+    const onSelectWindow = vi.fn();
+    const onCreateWindow = vi.fn();
+    renderSidebar({ currentServer: "primary", onSelectWindow, onCreateWindow });
+    const plus = screen.getByLabelText("New tab in main");
+    for (const key of ["Enter", " "]) {
+      // fireEvent returns false when a handler called preventDefault — that
+      // would cancel the browser's synthesized click.
+      expect(fireEvent.keyDown(plus, { key })).toBe(true);
+    }
+    expect(onSelectWindow).not.toHaveBeenCalled();
+    // The browser turns an unprevented Enter/Space into this click.
+    fireEvent.click(plus);
+    expect(onCreateWindow).toHaveBeenCalledTimes(1);
+    expect(onCreateWindow).toHaveBeenCalledWith("primary", "main");
+  });
+
+  it("Enter on the chevron is likewise left to the button", () => {
+    const onSelectWindow = vi.fn();
+    renderSidebar({ currentServer: "primary", onSelectWindow });
+    const chevron = screen.getByLabelText("Collapse main");
+    expect(fireEvent.keyDown(chevron, { key: "Enter" })).toBe(true);
+    expect(onSelectWindow).not.toHaveBeenCalled();
+  });
+
+  it("Enter on the focused treeitem itself still activates the group's first window", () => {
+    const onSelectWindow = vi.fn();
+    renderSidebar({ currentServer: "primary", onSelectWindow });
+    const row = document.querySelector('[data-session-row="primary:main"]') as HTMLElement;
+    fireEvent.keyDown(row, { key: "Enter" });
+    expect(onSelectWindow).toHaveBeenCalledTimes(1);
   });
 });

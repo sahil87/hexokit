@@ -1055,7 +1055,9 @@ export function comboParts(combo: BindingCombo, platform: BindingPlatform): stri
     case "shifted":
       return ["Shift", "Ctrl", key];
     case "optcmd":
-      return ["Alt", "Ctrl", key];
+      // Mac-only tier (never captured or defaulted off-mac); spelled to agree
+      // with `matchesCombo`, which requires Meta + Alt.
+      return ["Alt", "Meta", key];
     default:
       return ["Ctrl", key];
   }

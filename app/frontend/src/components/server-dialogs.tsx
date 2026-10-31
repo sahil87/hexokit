@@ -1,17 +1,13 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { killServer as killServerApi, adoptServer as adoptServerApi, DAEMON_SERVER } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { controlClass } from "@/components/control";
 import { INPUT_COARSE, INPUT_FOCUS } from "@/components/controls";
-import { CreateWorkspaceDialog } from "@/components/create-workspace-dialog";
-import { projectRoots } from "@/components/folder-path-input";
 import { useServerDialogs } from "@/contexts/server-dialogs-context";
 import { useSessionContext } from "@/contexts/session-context";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
-import { useCreateWorkspace } from "@/hooks/use-create-workspace";
-import { useRouteWindowId } from "@/hooks/use-route-window-id";
 import { useToast } from "@/components/toast";
 import type { ProjectSession } from "@/types";
 
@@ -36,27 +32,22 @@ function protectedBlastRadius(target: string, sessions: ProjectSession[]): strin
 }
 
 /**
- * The single create-server + kill-server dialog implementation (260811-239r),
- * lifted verbatim from AppShell and mounted ONCE in `AppLayout` — the board
- * route does not render AppShell (DD-8), so both dialogs were twinned between
- * `app.tsx` and `board-page.tsx` and had drifted (the board copy lacked the
- * `DAEMON_SERVER` warning and the input sanitization). Open-state and the
- * close triggers come from `server-dialogs-context`; this component owns the
- * create-input local state and the submit/kill handlers.
+ * The single kill-server + adopt-server dialog implementation, mounted ONCE in
+ * `AppLayout` (the board route renders no AppShell, so a per-route copy would
+ * drift). Open-state and the close triggers come from
+ * `server-dialogs-context`; this component owns the kill/adopt handlers.
+ * Workspace creation is not here: it goes through the New sheet
+ * (`new-sheet-context`).
  *
- * Unified behavior is AppShell's former superset on ALL routes: the create
- * input applies `toSafeServerName` on change and `finalizeSafeName` on submit,
- * and the kill confirm renders the `DAEMON_SERVER` warning everywhere. After a
+ * The kill confirm renders the `DAEMON_SERVER` warning on every route. After a
  * confirmed kill the app navigates to `/` only when the killed server is
  * `SessionContext`'s `currentServer` — `null` on board routes, so a board kill
- * never navigates away (matching the board's previous behavior exactly).
+ * never navigates away.
  */
 export function ServerDialogs() {
   const {
-    createServerOpen,
     killServerTarget,
     adoptServerTarget,
-    closeCreateServer,
     clearKillServerTarget,
     clearAdoptServerTarget,
   } = useServerDialogs();
@@ -68,33 +59,6 @@ export function ServerDialogs() {
   const navigate = useNavigate();
 
   const killedServerNameRef = useRef<string | null>(null);
-
-  const createWorkspace = useCreateWorkspace();
-  const handleCreateServer = useCallback(
-    (name: string, cwd: string | undefined) => {
-      createWorkspace(name, cwd);
-      closeCreateServer();
-    },
-    [createWorkspace, closeCreateServer],
-  );
-
-  // The current tab's folder prefills the create dialog's folder field; the
-  // quick-picks span every workspace's groups (as on the host page). Both read
-  // from sessions the client already holds.
-  const routeWindowId = useRouteWindowId();
-  const quickPicks = useMemo(
-    () => projectRoots([...ctx.sessionsByServer.values()].flat()),
-    [ctx.sessionsByServer],
-  );
-  const currentWorktreePath = useMemo(() => {
-    if (!routeWindowId || !currentServer) return "";
-    for (const session of ctx.sessionsByServer.get(currentServer) ?? []) {
-      const win = session.windows.find((w) => w.windowId === routeWindowId);
-      if (win) return win.worktreePath;
-    }
-    return "";
-  }, [routeWindowId, currentServer, ctx.sessionsByServer]);
-  const existingServerNames = useMemo(() => ctx.servers.map((s) => s.name), [ctx.servers]);
 
   const { execute: executeKillServer } = useOptimisticAction<[string, boolean]>({
     action: (name, force) => killServerApi(name, force),
@@ -156,16 +120,6 @@ export function ServerDialogs() {
 
   return (
     <>
-      {createServerOpen && (
-        <CreateWorkspaceDialog
-          initialFolder={currentWorktreePath}
-          existingNames={existingServerNames}
-          quickPicks={quickPicks}
-          onSubmit={handleCreateServer}
-          onClose={closeCreateServer}
-        />
-      )}
-
       {killServerTarget && killTargetProtected && (
         <ProtectedKillDialog
           target={killServerTarget}

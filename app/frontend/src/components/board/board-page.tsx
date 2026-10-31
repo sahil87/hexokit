@@ -588,8 +588,9 @@ function BoardPageContent({ name }: { name: string }) {
     // Create actions keyed to the FOCUSED pane — the board has no current
     // window, so the New split button's rows resolve here by the same ids the
     // terminal route registers. The group is the focused window's session,
-    // read at call time so the SSE tick never churns this list. `create-session`
-    // is the instant create on the board (no name-prompt dialog mounts here).
+    // read at call time so the SSE tick never churns this list. Only the
+    // instant group create is registered: the name-prompt `create-session`
+    // dialog mounts in AppShell, not here.
     if (focusedPane) {
       const groupOfFocused = () =>
         (sessionsByServerRef.current.get(focusedPane.server) ?? []).find((s) =>
@@ -611,11 +612,6 @@ function BoardPageContent({ name }: { name: string }) {
             const group = groupOfFocused();
             if (group) openNewSheet({ level: "tab", server: focusedPane.server, group });
           },
-        },
-        {
-          id: "create-session",
-          label: "Group: Create",
-          onSelect: () => handleCreateSession(focusedPane.server),
         },
         {
           id: "create-session-instant",

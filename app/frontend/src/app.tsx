@@ -66,7 +66,7 @@ import { useMacros } from "@/hooks/use-macros";
 import { ChromeProvider, useChromeState, useChromeDispatch, SIDEBAR_WIDTH_BOUNDS } from "@/contexts/chrome-context";
 import { ZenProvider, useZenState, useZenDispatch, zenApplies } from "@/contexts/zen-context";
 import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
-import { TopBarSlotProvider, useTopBarSlot, useTopBarNotFound, useTopBarPopout, useRegisterTopBarSlot, useRegisterTopBarPopout } from "@/contexts/top-bar-slot-context";
+import { TopBarSlotProvider, useTopBarSlot, useTopBarPopout, useRegisterTopBarSlot, useRegisterTopBarPopout } from "@/contexts/top-bar-slot-context";
 import { FocusedPaneProvider } from "@/contexts/focused-pane-context";
 import { computeKillRedirect } from "@/lib/navigation";
 import {
@@ -183,6 +183,7 @@ import { PaletteActionsProvider, usePaletteActions, usePaletteActionsApi, usePal
 import { ServerDialogs } from "@/components/server-dialogs";
 import { NewSheetHost } from "@/components/new-sheet-host";
 import { useGlobalPaletteActions } from "@/hooks/use-global-palette-actions";
+import { useTopBarMode } from "@/hooks/use-top-bar-mode";
 import { ScreenBreakController } from "@/components/screen-break";
 import { registerGlass } from "@/lib/screen-break-store";
 import { SessionProvider } from "@/contexts/session-context";
@@ -668,51 +669,16 @@ function LayoutCommandPalette() {
  *     already supports.
  */
 function RootTopBar() {
-  const matches = useMatches();
-  // The not-found page signals its render via context (`useSignalTopBarNotFound`
-  // in `NotFoundPage`). This MUST win over the route-param walk below: TanStack
-  // Router's fuzzy not-found handling RETAINS the partially-matched params in
-  // `useMatches()` — e.g. `/board/x/y` keeps `name=x`, so the param walk alone
-  // would derive `board` mode ("Board: x") over the not-found body. When the
-  // not-found page is what actually renders, force the minimal `host`
-  // fallback (R3/R10). (The `/$server/$window`+extra shape — `/a/b/c` — is a
-  // different arm: it renders AppShell's `ServerNotFound`, not `NotFoundPage`,
-  // so `notFound` is false there and the `server`/`terminal` mode below is kept.)
-  const notFound = useTopBarNotFound();
-
-  // Walk matches deepest-first for route params. Param NAMES are unique across
-  // the route tree (`window` only on the terminal route, `server` on the server
-  // layout, `name` on the board route), so their presence fully determines the
-  // mode — the same deepest-first param walk `SessionContext` uses for
-  // `currentServer`. The host (`/`) carries no params and resolves to the
-  // minimal `host` mode.
-  let serverParam: string | undefined;
-  let windowParam: string | undefined;
-  let boardParam: string | undefined;
-  for (let i = matches.length - 1; i >= 0; i--) {
-    const p = (matches[i]?.params ?? {}) as {
-      server?: string;
-      window?: string;
-      name?: string;
-    };
-    if (serverParam === undefined && typeof p.server === "string") serverParam = p.server;
-    if (windowParam === undefined && typeof p.window === "string") windowParam = p.window;
-    if (boardParam === undefined && typeof p.name === "string") boardParam = p.name;
-  }
-
-  let mode: TopBarMode;
-  if (notFound) mode = "host";
-  else if (boardParam !== undefined) mode = "board";
-  else if (windowParam !== undefined) mode = "terminal";
-  else if (serverParam !== undefined) mode = "server";
-  else mode = "host";
+  // Route-derived mode/params (hooks/use-top-bar-mode.ts — the one derivation
+  // shared with the New split button in the mobile drawer).
+  const { mode, serverParam, boardName } = useTopBarMode();
 
   const slot = useTopBarSlot();
 
   return (
     <TopBar
       mode={mode}
-      boardName={notFound ? undefined : boardParam}
+      boardName={boardName}
       sessions={slot?.sessions ?? []}
       currentSession={slot?.currentSession ?? null}
       currentWindow={slot?.currentWindow ?? null}
@@ -2433,7 +2399,6 @@ function AppShell() {
   const {
     requestKillServer,
     requestAdoptServer,
-    createServerOpen,
     killServerTarget,
     adoptServerTarget,
   } = useServerDialogs();
@@ -3348,7 +3313,7 @@ function AppShell() {
   // `server-dialogs-context` (260811-239r) — the dialogs mount in AppLayout now,
   // but gating this route's URL writeback while one is up is unchanged.
   dialogOpenRef.current =
-    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || createServerOpen || killServerTarget != null || adoptServerTarget != null || newSheetOpen || showTmuxCommands || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null || operatorComposeMode != null || noteTarget != null;
+    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || killServerTarget != null || adoptServerTarget != null || newSheetOpen || showTmuxCommands || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null || operatorComposeMode != null || noteTarget != null;
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -3453,8 +3418,8 @@ function AppShell() {
   );
 
   // Open the spawn-agent dialog for an explicit `{server, session}` target
-  // (260713-sbk1; explicit target since gsmu). The palette `Agent: Spawn` action
-  // and the window-switcher `+ New Agent` pass the CURRENT `{server, sessionName}`;
+  // The palette `Agent: Spawn` action (also the New split button's `Agent tab…`
+  // row, which invokes it by id) passes the CURRENT `{server, sessionName}`;
   // the sidebar bot button passes the ROW's `{server, session}` (any server →
   // cross-server spawn). Gated on a resolvable session at the call sites.
   const handleOpenSpawnAgent = useCallback((srv: string, sess: string) => {
@@ -3736,7 +3701,7 @@ function AppShell() {
   // The create/kill server flows (useOptimisticAction wrappers, pending/killed
   // markers, post-create/kill navigation) live in the layout-mounted
   // `ServerDialogs` component now (260811-239r) — this shell only triggers
-  // them via `openCreateServer`/`requestKillServer` from the context above.
+  // them via `requestKillServer` from the context above.
 
   // File upload ref for palette
   const fileInputRef = useRef<HTMLInputElement>(null);

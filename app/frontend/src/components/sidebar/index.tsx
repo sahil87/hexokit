@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, useEffect, useMemo, useReducer, memo } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
-import { NewSplitButton, useNewSplitMode } from "@/components/new-split-button";
+import { NewSplitButton } from "@/components/new-split-button";
+import { useTopBarMode } from "@/hooks/use-top-bar-mode";
 import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, getAllServerColors, setServerColor as setServerColorApi, getAllServerFlairs, setServerFlair as setServerFlairApi, setSessionOrder, setServerProtected, isExternalServer, DAEMON_SERVER, type ServerInfo } from "@/api/client";
 import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useFocusedPane } from "@/contexts/focused-pane-context";
@@ -1511,6 +1512,12 @@ export function Sidebar({
       }
       case "Enter":
       case " ": { // Space
+        // A focused control INSIDE the row (chevron, per-group `+`, name
+        // button) activates natively: preventing default here would cancel its
+        // click and activate the row instead. Only the treeitem itself —
+        // focused directly — activates through the typed identity below.
+        const innerButton = target.closest("button");
+        if (innerButton && innerButton !== anchorRow) break;
         e.preventDefault();
         if (!currentEl) break;
         const key = rowKeyOf(currentEl);
@@ -2059,7 +2066,7 @@ function SelectionIndicator({
  *  the 375px top bar has no room for it. */
 function SidebarBrand() {
   const sweep = useBrandLogoSweep();
-  const mode = useNewSplitMode();
+  const { mode } = useTopBarMode();
   return (
     <div className="flex items-center gap-2 pr-1.5 shrink-0 border-b border-border">
       <a
@@ -2072,7 +2079,7 @@ function SidebarBrand() {
       </a>
       {/* Not on the Host page: it has no sidebar drawer, and its own tile grid
           carries the create-workspace door. */}
-      {mode !== "host" && <NewSplitButton mode={mode} />}
+      {mode !== "host" && <NewSplitButton mode={mode} align="end" />}
     </div>
   );
 }

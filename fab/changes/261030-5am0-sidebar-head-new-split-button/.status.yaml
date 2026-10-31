@@ -13,9 +13,9 @@ progress:
     review-pr: pending
 plan:
     generated: true
-    task_count: 10
-    acceptance_count: 16
-    acceptance_completed: 16
+    task_count: 16
+    acceptance_count: 21
+    acceptance_completed: 21
 confidence:
     certain: 4
     confident: 5
@@ -30,25 +30,25 @@ confidence:
         disambiguation: 75.0
 stage_metrics:
     intake: {started_at: "2026-10-30T09:38:12Z", driver: fab-new, iterations: 1, completed_at: "2026-10-31T11:53:54Z"}
-    apply: {started_at: "2026-10-31T11:53:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-31T13:47:49Z"}
-    review: {started_at: "2026-10-31T13:47:49Z", driver: fab-fff, iterations: 1}
+    apply: {started_at: "2026-10-31T13:57:41Z", driver: fab-fff, iterations: 2, completed_at: "2026-10-31T14:03:14Z"}
+    review: {started_at: "2026-10-31T14:03:14Z", driver: fab-fff, iterations: 2}
 prs: []
 base_branch: main
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1870
+    deleted: 286
+    net: 1584
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1681
+        deleted: 276
+        net: 1405
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-10-31T13:47:49Z"
+        added: 450
+        deleted: 62
+        net: 388
+    computed_at: "2026-10-31T14:03:14Z"
     computed_at_stage: apply
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-10-31T13:47:49Z
+last_updated: 2026-10-31T14:03:14Z

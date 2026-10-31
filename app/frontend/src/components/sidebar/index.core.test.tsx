@@ -42,8 +42,12 @@ const mockNavigate = vi.fn();
 // the palette/session/slot providers; the sidebar tests only assert WHERE the
 // mobile brand row places it.
 vi.mock("@/components/new-split-button", () => ({
-  useNewSplitMode: () => "terminal",
-  NewSplitButton: ({ mode }: { mode: string }) => <div data-testid="new-split" data-mode={mode} />,
+  NewSplitButton: ({ mode, align }: { mode: string; align?: string }) => (
+    <div data-testid="new-split" data-mode={mode} data-align={align} />
+  ),
+}));
+vi.mock("@/hooks/use-top-bar-mode", () => ({
+  useTopBarMode: () => ({ mode: "terminal", serverParam: undefined, boardName: undefined }),
 }));
 
 vi.mock("@tanstack/react-router", () => ({

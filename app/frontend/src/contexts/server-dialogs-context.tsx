@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useCallback, useMemo } from "react";
 
 /**
- * Server create/kill dialog state + triggers (260811-239r). Provided at the
+ * Server kill/adopt dialog state + triggers. Provided at the
  * `AppLayout` level — mirroring `settings-dialog-context` (260723-o7q8) — so
  * any route (boards included) opens the single layout-mounted dialogs
  * (`components/server-dialogs.tsx`) instead of re-implementing them per
@@ -11,16 +11,13 @@ import { createContext, useContext, useState, useCallback, useMemo } from "react
 export type ServerDialogsState = {
   // Triggers (referentially stable) — the memoized Sidebar server-group
   // header cluster depends on this stability.
-  openCreateServer: () => void;
   requestKillServer: (name: string) => void;
   requestAdoptServer: (name: string) => void;
   // Close triggers — consumed by the layout-mounted ServerDialogs component.
-  closeCreateServer: () => void;
   clearKillServerTarget: () => void;
   clearAdoptServerTarget: () => void;
   // Open-state, readable by routes (AppShell's/BoardPage's modal-gating
   // predicates check these instead of the deleted route-local state).
-  createServerOpen: boolean;
   killServerTarget: string | null;
   adoptServerTarget: string | null;
 };
@@ -28,12 +25,9 @@ export type ServerDialogsState = {
 const ServerDialogsContext = createContext<ServerDialogsState | null>(null);
 
 export function ServerDialogsProvider({ children }: { children: React.ReactNode }) {
-  const [createServerOpen, setCreateServerOpen] = useState(false);
   const [killServerTarget, setKillServerTarget] = useState<string | null>(null);
   const [adoptServerTarget, setAdoptServerTarget] = useState<string | null>(null);
 
-  const openCreateServer = useCallback(() => setCreateServerOpen(true), []);
-  const closeCreateServer = useCallback(() => setCreateServerOpen(false), []);
   const requestKillServer = useCallback((name: string) => setKillServerTarget(name), []);
   const clearKillServerTarget = useCallback(() => setKillServerTarget(null), []);
   const requestAdoptServer = useCallback((name: string) => setAdoptServerTarget(name), []);
@@ -41,24 +35,18 @@ export function ServerDialogsProvider({ children }: { children: React.ReactNode 
 
   const value = useMemo<ServerDialogsState>(
     () => ({
-      openCreateServer,
       requestKillServer,
       requestAdoptServer,
-      closeCreateServer,
       clearKillServerTarget,
       clearAdoptServerTarget,
-      createServerOpen,
       killServerTarget,
       adoptServerTarget,
     }),
     [
-      openCreateServer,
       requestKillServer,
       requestAdoptServer,
-      closeCreateServer,
       clearKillServerTarget,
       clearAdoptServerTarget,
-      createServerOpen,
       killServerTarget,
       adoptServerTarget,
     ],

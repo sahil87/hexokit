@@ -187,6 +187,34 @@ test.describe("New split button (desktop)", () => {
   });
 
   /**
+   * Proves: the per-group `+` is operable from the keyboard — Enter and Space
+   * on the focused button create a tab in that group and do NOT navigate (the
+   * tree's row-activation handler must leave controls inside a row alone).
+   *
+   * Steps:
+   * 1. Intercept `POST /api/sessions/*\/windows*`, counting requests.
+   * 2. Open `/$server`; focus the seed group's `New tab in <group>` button.
+   * 3. Press Enter; poll for one request; assert the URL is still `/$server`.
+   * 4. Press Space; poll for the second request; assert the URL is unchanged.
+   */
+  test("per-group + activates from the keyboard without navigating", async ({ page }) => {
+    let posts = 0;
+    await page.route("**/api/sessions/*/windows*", async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      posts++;
+      return route.fulfill({ status: 201, contentType: "application/json", body: '{"ok":true}' });
+    });
+    await gotoServerReady(page, TMUX_SERVER, SEED_SESSION);
+    const plus = page.getByRole("button", { name: `New tab in ${SEED_SESSION}` });
+    await plus.focus();
+    await page.keyboard.press("Enter");
+    await expect.poll(() => posts, { timeout: 5_000 }).toBe(1);
+    await page.keyboard.press("Space");
+    await expect.poll(() => posts, { timeout: 5_000 }).toBe(2);
+    await expect(page).toHaveURL(new RegExp(`/${TMUX_SERVER}/?$`));
+  });
+
+  /**
    * Proves: the Host page carries a plain `+ Workspace` button with no caret
    * that opens the New sheet at Workspace level.
    *
@@ -223,7 +251,9 @@ test.describe("New split button (mobile drawer)", () => {
    * 1. Open `/$server` at 375×812; assert no split in the top bar.
    * 2. Open the drawer via `Toggle navigation`.
    * 3. Assert the split sits in the drawer's first row and is ≥ 40px tall.
-   * 4. Open its caret; assert the menu lists a `Group` row.
+   * 4. Open its caret; assert the menu box lies inside the viewport and the
+   *    drawer, every row is hit-testable at its center, and clicking
+   *    `Workspace…` (the right-most-reaching row) opens the New sheet.
    */
   test("the drawer's brand row carries the split at the coarse height", async ({ page }) => {
     await page.goto(`/${TMUX_SERVER}`);
@@ -238,6 +268,27 @@ test.describe("New split button (mobile drawer)", () => {
     expect(box.height).toBeGreaterThanOrEqual(40);
 
     await sidebar.getByTestId("new-split-caret").click();
-    await expect(sidebar.getByTestId("new-split-menu").getByRole("menuitem", { name: "Group", exact: true })).toBeVisible();
+    const menu = sidebar.getByTestId("new-split-menu");
+    await expect(menu.getByRole("menuitem", { name: "Group", exact: true })).toBeVisible();
+
+    const menuBox = (await menu.boundingBox())!;
+    const drawerBox = (await sidebar.boundingBox())!;
+    const viewport = page.viewportSize()!;
+    expect(menuBox.x).toBeGreaterThanOrEqual(0);
+    expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(viewport.width);
+    expect(menuBox.x).toBeGreaterThanOrEqual(drawerBox.x - 1);
+    expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(drawerBox.x + drawerBox.width + 1);
+    // Every row's center hits the row itself, not a background element.
+    for (const row of await menu.getByRole("menuitem").all()) {
+      const box = (await row.boundingBox())!;
+      const hit = await row.evaluate(
+        (el, [x, y]) => el.contains(document.elementFromPoint(x, y)),
+        [box.x + box.width / 2, box.y + box.height / 2],
+      );
+      expect(hit).toBe(true);
+    }
+
+    await menu.getByRole("menuitem", { name: "Workspace…", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Workspace", exact: true, pressed: true })).toBeVisible();
   });
 });

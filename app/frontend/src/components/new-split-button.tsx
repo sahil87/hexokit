@@ -1,41 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMatches } from "@tanstack/react-router";
 import { controlClass } from "@/components/control";
-import { MENU_ROW_KBD_CLASS, POPOVER_SECTION_LABEL, POPOVER_SHELL } from "@/components/controls";
+import { MENU_ROW_KBD_CLASS, POPOVER_SECTION_LABEL_CASED, POPOVER_SHELL } from "@/components/controls";
 import { Tip } from "@/components/tip";
 import type { TopBarMode } from "@/components/top-bar";
 import { useFocusedPane } from "@/contexts/focused-pane-context";
 import { usePaletteActionsApi } from "@/contexts/palette-actions-context";
-import { useSessionContext } from "@/contexts/session-context";
-import { useTopBarNotFound, useTopBarSlot } from "@/contexts/top-bar-slot-context";
+import { useCurrentServerFromRoute, useSessionContext } from "@/contexts/session-context";
+import { useTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useOccludes } from "@/hooks/use-occludes";
 import { formatCombo } from "@/lib/keybindings";
 import { newSplitPrimary, newSplitSections, type NewSplitTarget } from "@/lib/new-split";
-
-/**
- * The route's `TopBarMode`, derived exactly like `RootTopBar` does (the
- * deepest-first param walk, with the not-found page forcing `host`). Surfaces
- * outside the top bar — the mobile drawer's brand row — need the same answer.
- */
-export function useNewSplitMode(): TopBarMode {
-  const matches = useMatches();
-  const notFound = useTopBarNotFound();
-  if (notFound) return "host";
-  let hasServer = false;
-  let hasWindow = false;
-  let hasBoard = false;
-  for (const m of matches) {
-    const p = (m.params ?? {}) as { server?: string; window?: string; name?: string };
-    if (typeof p.server === "string") hasServer = true;
-    if (typeof p.window === "string") hasWindow = true;
-    if (typeof p.name === "string") hasBoard = true;
-  }
-  if (hasBoard) return "board";
-  if (hasWindow) return "terminal";
-  if (hasServer) return "server";
-  return "host";
-}
 
 /** Effective chord for a palette action id, or undefined when unbound,
  *  disabled or browser-reserved (a tip advertising a dead chord would lie). */
@@ -54,7 +29,7 @@ function useNewSplitTarget(mode: TopBarMode): NewSplitTarget {
   const slot = useTopBarSlot();
   const focused = useFocusedPane();
   const { sessionsByServer } = useSessionContext();
-  const matches = useMatches();
+  const routeServer = useCurrentServerFromRoute();
   if (mode === "board") {
     if (!focused) return { server: "", group: null };
     const group =
@@ -63,11 +38,7 @@ function useNewSplitTarget(mode: TopBarMode): NewSplitTarget {
       )?.name ?? null;
     return { server: focused.server, group };
   }
-  let server = slot?.server ?? "";
-  for (const m of matches) {
-    const p = (m.params ?? {}) as { server?: string };
-    if (typeof p.server === "string") server = p.server;
-  }
+  const server = routeServer ?? slot?.server ?? "";
   return { server, group: mode === "terminal" ? slot?.sessionName || null : null };
 }
 
@@ -102,7 +73,18 @@ const NEW_SEGMENT_REST = "border-accent-green text-accent-green hover:bg-accent-
  * fallback after the hamburger. The host page's primary opens the New sheet
  * itself, so it renders as one plain `+ Workspace` button with no caret.
  */
-export function NewSplitButton({ mode, iconOnly = false }: { mode: TopBarMode; iconOnly?: boolean }) {
+export function NewSplitButton({
+  mode,
+  iconOnly = false,
+  align = "start",
+}: {
+  mode: TopBarMode;
+  iconOnly?: boolean;
+  /** Which edge of the control the caret menu aligns to: `start` opens
+   *  rightward, `end` leftward — for a mount at a container's right edge (the
+   *  mobile drawer's brand row), where a rightward menu would be clipped. */
+  align?: "start" | "end";
+}) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -189,7 +171,7 @@ export function NewSplitButton({ mode, iconOnly = false }: { mode: TopBarMode; i
           </button>
         </Tip>
       </span>
-      {open && <NewSplitMenu mode={mode} chordFor={chordFor} onRun={run} />}
+      {open && <NewSplitMenu mode={mode} align={align} chordFor={chordFor} onRun={run} />}
     </div>
   );
 }
@@ -198,34 +180,36 @@ export function NewSplitButton({ mode, iconOnly = false }: { mode: TopBarMode; i
  *  header needs does not tax the always-mounted button. */
 function NewSplitMenu({
   mode,
+  align,
   chordFor,
   onRun,
 }: {
   mode: TopBarMode;
+  align: "start" | "end";
   chordFor: (actionId: string) => string | undefined;
   onRun: (actionId: string) => void;
 }) {
   const { getAllActions } = usePaletteActionsApi();
-  const target = useNewSplitTarget(mode);
+  const { server, group } = useNewSplitTarget(mode);
   const sections = useMemo(() => {
     const registered = new Set(getAllActions().map((a) => a.id));
-    return newSplitSections(mode, target)
+    return newSplitSections(mode, { server, group })
       .map((s) => ({ ...s, rows: s.rows.filter((r) => registered.has(r.actionId)) }))
       .filter((s) => s.rows.length > 0);
-  }, [mode, target, getAllActions]);
+  }, [mode, server, group, getAllActions]);
 
   return (
     <div
       role="menu"
       aria-label="New"
       data-testid="new-split-menu"
-      className={`absolute top-full left-0 mt-1 min-w-[220px] ${POPOVER_SHELL}`}
+      className={`absolute top-full ${align === "end" ? "right-0" : "left-0"} mt-1 min-w-[220px] ${POPOVER_SHELL}`}
     >
       {sections.map((section, i) => (
         <div key={section.header ?? `section-${i}`} role="group" aria-label={section.header}>
           {i > 0 && <div aria-hidden="true" className="my-1 border-t border-border" />}
           {section.header && (
-            <div aria-hidden="true" className={`${POPOVER_SECTION_LABEL} normal-case`}>
+            <div aria-hidden="true" className={POPOVER_SECTION_LABEL_CASED}>
               {section.header}
             </div>
           )}

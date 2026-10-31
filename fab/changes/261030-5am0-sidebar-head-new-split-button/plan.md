@@ -95,6 +95,17 @@ The window switcher's `+ New Tab` / `+ New Agent` footer actions and the Workspa
 - [x] T009 Update e2e specs that used the retired doors (`spawn-agent.spec.ts`, `server-panel-grid.spec.ts`, and others found by grep) and add `new-split-button.spec.ts`; run via `just test-e2e` <!-- R1 R2 R8 -->
 - [x] T010 Write `app/frontend/tests/demo/new-split-button.demo.ts` and `app/desktop/tests/demo/new-split-button.demo.ts`; record via `just demo new-split-button --before` (note blockers if infra is unavailable) <!-- R3 R5 R6 -->
 
+### Phase 4: Review rework (cycle 1)
+
+- [x] T011 Keyboard activation of buttons inside tree rows: `sidebar/index.tsx` `handleTreeKeyDown` Enter/Space branch ignores events whose target is a descendant `<button>` (not the treeitem itself), so the per-group `+` and the chevron activate natively; Vitest pressing Enter and Space on the `+` asserts one create and no navigation <!-- R7 -->
+- [x] T012 Caret menu alignment: `new-split-button.tsx` gains an alignment prop (`end` → `right-0`) used by the mobile drawer brand row (and any right-edge mount); e2e asserts at 375×812 the open menu box lies inside the viewport and the drawer, and clicks the `Workspace…` row <!-- R5 -->
+- [x] T013 One route-mode hook: extract `useTopBarMode` from `app.tsx` RootTopBar's walk; RootTopBar and `NewSplitButton` both call it; delete `useNewSplitMode`. `useNewSplitTarget` reuses `useCurrentServerFromRoute` instead of its own param walk <!-- R1 -->
+- [x] T014 Section headers keep case: build the menu header class without `uppercase` rather than stacking `normal-case`; a test asserts the computed/class output has no `uppercase` <!-- R2 -->
+- [x] T015 Remove the dead create-workspace dialog path: `openCreateServer`/`closeCreateServer`/`createServerOpen` in `server-dialogs-context.tsx`, the layout-mounted `CreateWorkspaceDialog` in `server-dialogs.tsx`, and the `app.tsx` modal-gate term; update affected tests <!-- R8 -->
+- [x] T016 Small cleanups: fix the `handleOpenSpawnAgent` comment (app.tsx) to name the split's `Agent tab…` row; drop or fix the never-hitting `useMemo` on `target` in new-split-button.tsx; board registers only `create-session-instant` (or labels its `create-session` honestly) so the palette has no duplicate; make the non-mac `optcmd` arm of `comboParts` consistent with `matchesCombo` <!-- R9 R10 -->
+
+<!-- Rework cycle 1 notes: T013 landed as `hooks/use-top-bar-mode.ts`; T016 board registers only `create-session-instant` and the menu's board Group row invokes it (the board loses ⌥⌘T/⇧Ctrl+N, which need the AppShell name prompt). Not taken (nice-to-have): an ⌥⌘ layer on the shortcuts panel's keyboard map, so the mac `optcmd` New group binding shows in the list but not on the visual key map. -->
+
 ## Execution Order
 
 - T001 blocks T003; T002 is independent; T003 blocks T004–T006; T007 can run beside T004.
@@ -109,7 +120,7 @@ The window switcher's `+ New Tab` / `+ New Agent` footer actions and the Workspa
 - [x] A-004 R4: The closed-sidebar fallback and host `+ Workspace` render once each
 - [x] A-005 R5: The mobile brand row carries the control at the coarse height
 - [x] A-006 R6: No second no-drag island is added and the shell demo spec exists
-- [x] A-007 R7: The per-group `+` is visible at rest and fires `onCreateWindow(server, group)`
+- [x] A-007 R7: The per-group `+` is visible at rest and fires `onCreateWindow(server, group)`, by mouse and by Enter/Space (tree handler leaves inner controls to native activation; Vitest + e2e)
 - [x] A-008 R9: ⌥⌘T binds `create-session` on mac through the `optcmd` tier
 - [x] A-009 R10: The new palette ids are registered on their routes
 
@@ -129,6 +140,14 @@ The window switcher's `+ New Tab` / `+ New Agent` footer actions and the Workspa
 - [x] A-015 Comments state constraints only (no change-ID narration)
 - [x] A-016 New tests cover the added behavior; e2e specs carry intent comments
 
+### Review rework (cycle 1)
+
+- [x] A-017 R7: Enter and Space on the per-group `+` create a tab in that group and do not navigate (Vitest)
+- [x] A-018 R5: The mobile drawer caret menu lies fully inside the drawer and viewport at 375×812, and its right-hand rows are clickable (e2e)
+- [x] A-019 One route-mode derivation shared by RootTopBar and NewSplitButton; no hand-rolled server param walk in new-split-button.tsx
+- [x] A-020 Menu section headers render workspace/group names in their real case
+- [x] A-021 No dead `openCreateServer` / layout `CreateWorkspaceDialog` path remains
+
 ## Notes
 
 - Check items as you review: `- [x]`
@@ -136,6 +155,13 @@ The window switcher's `+ New Tab` / `+ New Agent` footer actions and the Workspa
 - **e2e**: full `just test-e2e` run: 559 passed, 2 flaky; the failures it showed were the specs updated for retired doors (fixed and re-run green) plus `gui-toolbar-fold` (fails first attempt, passes on retry; it measures the gui tile header, which this change does not touch) and one `working-diff` timeout that passed on re-run.
 - **Deviations from the intake**: `focused-pane-context` carries `{server, windowId, …}` but no session, so the board menu resolves the group from `sessionsByServer`; the server-group header hover `+` named in the study no longer exists in the code (only the flyout card row, kept); the head-less fallback shrinks the nav floor 150→96px to keep the left cluster inside its track (`top-bar-overlap.spec.ts`), and the host `+ Workspace` shows from `lg` up.
 - Memory hydration (`top-bar`, `sidebar`, `keyboard-and-palette`, `desktop-shell`) is the hydrate stage's job.
+
+## Deletion Candidates
+
+- `contexts/server-dialogs-context.tsx:14,35` `openCreateServer` — its last two callers (AppShell and BoardPage `onCreateServer` → Workspaces-panel `+`) were removed; nothing sets `createServerOpen` any more
+- `components/server-dialogs.tsx:159-166` layout-mounted `CreateWorkspaceDialog` (+ `closeCreateServer`, `createServerOpen` and its `app.tsx:3351` modal-gate term) — unreachable once `openCreateServer` has no caller; `create-server` now opens the New sheet
+- `app/frontend/src/app.tsx:3457` comment naming the window-switcher `+ New Agent` entry point — that door is gone
+- `app/frontend/src/app.tsx:692-708` RootTopBar's inline mode walk — duplicated by `useNewSplitMode` (new-split-button.tsx:21); one should go
 
 ## Assumptions
 

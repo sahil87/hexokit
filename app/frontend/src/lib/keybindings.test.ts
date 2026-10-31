@@ -1931,6 +1931,8 @@ describe("per-platform default tiers — 260730-n789", () => {
     expect(tiersCollide("optcmd", "optcmd")).toBe(true);
     expect(formatCombo(combo, "mac")).toBe("⌥⌘T");
     expect(comboParts(combo, "mac")).toEqual(["⌥", "⌘", "T"]);
+    // Off-mac spelling agrees with matchesCombo (Meta + Alt), not Ctrl.
+    expect(comboParts(combo, "other")).toEqual(["Alt", "Meta", "T"]);
   });
 
   it("optcmd capture: mac Meta+Alt reads as optcmd; Alt elsewhere stays unbindable", () => {

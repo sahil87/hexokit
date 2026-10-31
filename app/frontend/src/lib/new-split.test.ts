@@ -48,6 +48,12 @@ describe("newSplitSections", () => {
     expect(ids(sections)).toEqual(["create-session", "create-session-at-folder", "create-server"]);
   });
 
+  it("board: the Group row is the instant create (no name-prompt dialog mounts on the board)", () => {
+    const rows = newSplitSections("board", { server: "kit", group: "review" }).flatMap((x) => x.rows);
+    expect(rows.find((r) => r.label === "Group")?.actionId).toBe("create-session-instant");
+    expect(rows.some((r) => r.actionId === "create-session")).toBe(false);
+  });
+
   it("an empty board (no focused pane) leaves only Workspace…", () => {
     expect(ids(newSplitSections("board", { server: "", group: null }))).toEqual(["create-server"]);
   });

@@ -76,7 +76,13 @@ export function newSplitSections(mode: TopBarMode, target: NewSplitTarget): NewS
     sections.push({
       header: `IN ${server}`,
       rows: [
-        { actionId: "create-session", label: "Group", glyph: "▤" },
+        // The board has no name-prompt dialog, so its Group row is the instant
+        // create; everywhere else it is the name-prompted `create-session`.
+        {
+          actionId: mode === "board" ? "create-session-instant" : "create-session",
+          label: "Group",
+          glyph: "▤",
+        },
         { actionId: "create-session-at-folder", label: "Group at folder…", glyph: "▱" },
       ],
     });
