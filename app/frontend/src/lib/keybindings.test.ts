@@ -1742,7 +1742,7 @@ describe("per-platform default tiers — 260730-n789", () => {
     expect(byId(bindings, "go-back").code).toBe("BracketLeft");
   });
 
-  it("mac shell: reopen-window rides ⇧⌘T (macCode); create-session is palette-only (mac-keyless); the app-window pair spends ⌘N/⇧⌘W", () => {
+  it("mac shell: reopen-window rides ⇧⌘T (macCode); create-session rides ⌥⌘T (optcmd); the app-window pair spends ⌘N/⇧⌘W", () => {
     const bindings = resolved(SHELL_MAC);
     // ⇧⌘T — tier-disjoint from create-window's ⌘T on one code (the
     // split-pair ⌘D/⇧⌘D shape), so findConflicts stays clean.
@@ -1752,12 +1752,19 @@ describe("per-platform default tiers — 260730-n789", () => {
       enabled: true,
       isDefault: true,
     });
-    // create-session's mac-keyless refinement (`macCode: ""`) resolves
-    // UNBOUND on the mac shell — palette-only; ⇧⌘N fires nothing.
+    // create-session rides ⌥⌘T on the optcmd tier — tier-disjoint from
+    // create-window's ⌘T on the same code.
     expect(byId(bindings, "create-session")).toMatchObject({
-      enabled: false,
-      disabledReason: "user",
+      code: "KeyT",
+      tier: "optcmd",
+      enabled: true,
+      isDefault: true,
     });
+    expect(
+      findMatches(chord({ code: "KeyT", metaKey: true, altKey: true }), bindings).map((b) => b.actionId),
+    ).toEqual(["create-session"]);
+    expect(findMatches(chord({ code: "KeyT", metaKey: true }), bindings).map((b) => b.actionId))
+      .toEqual(["create-window"]);
     expect(byId(bindings, "create-window")).toMatchObject({
       code: "KeyT",
       tier: "cmd",
@@ -1813,11 +1820,12 @@ describe("per-platform default tiers — 260730-n789", () => {
       enabled: false,
       disabledReason: "reserved",
     });
-    // create-session has NO mac chord (mac-keyless refinement): unbound, not
-    // reserved — there is no combo left for a claim to shadow.
+    // ⌥⌘T carries no browser claim (reservation unverified), so the default
+    // stays enabled in a mac browser.
     expect(byId(bindings, "create-session")).toMatchObject({
-      enabled: false,
-      disabledReason: "user",
+      code: "KeyT",
+      tier: "optcmd",
+      enabled: true,
     });
     for (const id of ["window-prev", "window-next"]) {
       expect(byId(bindings, id)).toMatchObject({ tier: "cmd", enabled: true });
@@ -1874,10 +1882,9 @@ describe("per-platform default tiers — 260730-n789", () => {
     expect(defaultComboFor(goBack, BROWSER_MAC)).toEqual({ code: "BracketLeft", tier: "cmd" });
     expect(defaultComboFor(goBack, SHELL_OTHER)).toEqual({ code: "BracketLeft", tier: "shifted" });
     // One canonical chord per action: the mac default no longer varies by host.
-    // create-session refines to a KEYLESS mac combo (`macCode: ""`) — palette-only
-    // on both mac hosts, ⇧Ctrl+N untouched elsewhere.
-    expect(defaultComboFor(createSession, SHELL_MAC)).toEqual({ code: "", tier: "shifted" });
-    expect(defaultComboFor(createSession, BROWSER_MAC)).toEqual({ code: "", tier: "shifted" });
+    // create-session refines to ⌥⌘T on both mac hosts, ⇧Ctrl+N untouched elsewhere.
+    expect(defaultComboFor(createSession, SHELL_MAC)).toEqual({ code: "KeyT", tier: "optcmd" });
+    expect(defaultComboFor(createSession, BROWSER_MAC)).toEqual({ code: "KeyT", tier: "optcmd" });
     expect(defaultComboFor(createSession, BROWSER_OTHER)).toEqual({ code: "KeyN", tier: "shifted" });
     // The app-window pair: keyless base (passthrough off mac), refined combos
     // on BOTH mac hosts.
@@ -1891,15 +1898,53 @@ describe("per-platform default tiers — 260730-n789", () => {
   });
 
   it("defaultComboFor: an empty-string macCode refines to the unbound combo on mac (no base-code fallback)", () => {
-    const createSession = DEFAULT_BINDINGS.find((b) => b.actionId === "create-session")!;
+    const keyless: KeyBinding = {
+      actionId: "probe",
+      code: "KeyN",
+      tier: "shifted",
+      macCode: "",
+      scope: "global",
+      kind: "builtin",
+      label: "probe",
+    };
     // `macCode: ""` is a REFINEMENT to keyless, not an absent refinement — a
-    // truthiness test would fall back to the base KeyN and keep ⇧⌘N live in
-    // the mac shell.
+    // truthiness test would fall back to the base KeyN.
     for (const host of [SHELL_MAC, BROWSER_MAC]) {
-      expect(defaultComboFor(createSession, host)).toEqual({ code: "", tier: "shifted" });
+      expect(defaultComboFor(keyless, host)).toEqual({ code: "", tier: "shifted" });
     }
-    // Win/Linux never consults the refinement: ⇧Ctrl+N stands.
-    expect(defaultComboFor(createSession, SHELL_OTHER)).toEqual({ code: "KeyN", tier: "shifted" });
+    // Win/Linux never consults the refinement.
+    expect(defaultComboFor(keyless, SHELL_OTHER)).toEqual({ code: "KeyN", tier: "shifted" });
+  });
+
+  it("optcmd tier: requires Meta+Alt, rejects Shift/Ctrl, never collides with cmd/ctrl/shifted, formats as ⌥⌘", () => {
+    const combo = { code: "KeyT", tier: "optcmd" as const };
+    expect(matchesCombo(chord({ code: "KeyT", metaKey: true, altKey: true }), combo)).toBe(true);
+    expect(matchesCombo(chord({ code: "KeyT", metaKey: true }), combo)).toBe(false);
+    expect(matchesCombo(chord({ code: "KeyT", altKey: true }), combo)).toBe(false);
+    expect(matchesCombo(chord({ code: "KeyT", metaKey: true, altKey: true, shiftKey: true }), combo)).toBe(false);
+    expect(matchesCombo(chord({ code: "KeyT", metaKey: true, altKey: true, ctrlKey: true }), combo)).toBe(false);
+    // Alt stays rejected for every other tier.
+    expect(matchesCombo(chord({ code: "KeyT", metaKey: true, altKey: true }), { code: "KeyT", tier: "cmd" })).toBe(false);
+    for (const other of ["shifted", "cmd", "ctrl"] as const) {
+      expect(tiersCollide("optcmd", other)).toBe(false);
+    }
+    expect(tiersCollide("optcmd", "optcmd")).toBe(true);
+    expect(formatCombo(combo, "mac")).toBe("⌥⌘T");
+    expect(comboParts(combo, "mac")).toEqual(["⌥", "⌘", "T"]);
+  });
+
+  it("optcmd capture: mac Meta+Alt reads as optcmd; Alt elsewhere stays unbindable", () => {
+    expect(captureFromEvent(chord({ code: "KeyJ", metaKey: true, altKey: true }), "mac"))
+      .toEqual({ code: "KeyJ", tier: "optcmd" });
+    expect(captureFromEvent(chord({ code: "KeyJ", ctrlKey: true, altKey: true }), "other")).toBeNull();
+    expect(captureFromEvent(chord({ code: "KeyJ", metaKey: true, altKey: true, shiftKey: true }), "mac")).toBeNull();
+  });
+
+  it("optcmd chords bubble out of the mac terminal (⌘ never reaches the pane)", () => {
+    const bindings = resolved(SHELL_MAC);
+    expect(
+      shouldRefuseTerminalChord(chord({ code: "KeyT", metaKey: true, altKey: true }), bindings, "mac"),
+    ).toBe(true);
   });
 
   it("stored-override shape is unchanged: a {code,tier} diff applies as-is on mac hosts", () => {

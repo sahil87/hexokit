@@ -38,6 +38,14 @@ const NULL_NAME: InstanceName = {
 
 
 const mockNavigate = vi.fn();
+// The New split button has its own suite (new-split-button.test.tsx) and needs
+// the palette/session/slot providers; the sidebar tests only assert WHERE the
+// mobile brand row places it.
+vi.mock("@/components/new-split-button", () => ({
+  useNewSplitMode: () => "terminal",
+  NewSplitButton: ({ mode }: { mode: string }) => <div data-testid="new-split" data-mode={mode} />,
+}));
+
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
   useRouterState: ({ select }: { select: (s: { location: { pathname: string } }) => unknown }) =>
@@ -205,7 +213,6 @@ function buildTree(overrides: SidebarTestOverrides) {
                       onSelectWindow={vi.fn()}
                       onCreateWindow={vi.fn()}
                       onCreateSession={vi.fn()}
-                      onCreateServer={vi.fn()}
                       onKillServer={vi.fn()}
                       {...sidebarOverrides}
                     />
@@ -1059,7 +1066,6 @@ describe("Sidebar", () => {
                           onSelectWindow={vi.fn()}
                           onCreateWindow={vi.fn()}
                           onCreateSession={vi.fn()}
-                          onCreateServer={vi.fn()}
                           onKillServer={vi.fn()}
                         />
                       </SettingsDialogProvider>

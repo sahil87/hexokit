@@ -196,45 +196,4 @@ describe("BreadcrumbDropdown", () => {
     fireEvent.click(screen.getByText("project-b"));
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
-
-  // Secondary action (260713-sbk1): the window switcher renders `+ New Agent`
-  // beside `+ New Window`. Only honored alongside a primary action.
-  it("renders a secondary action button beside the primary action", () => {
-    render(
-      <BreadcrumbDropdown
-        items={items}
-        action={{ label: "+ New Window", onAction: () => {} }}
-        secondaryAction={{ label: "+ New Agent", onAction: () => {} }}
-      />,
-    );
-    clickChevron();
-    expect(screen.getByRole("menuitem", { name: "+ New Window" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "+ New Agent" })).toBeInTheDocument();
-  });
-
-  it("fires the secondary action's handler and closes on click", () => {
-    const onSecondary = vi.fn();
-    render(
-      <BreadcrumbDropdown
-        items={items}
-        action={{ label: "+ New Window", onAction: () => {} }}
-        secondaryAction={{ label: "+ New Agent", onAction: onSecondary }}
-      />,
-    );
-    clickChevron();
-    fireEvent.click(screen.getByRole("menuitem", { name: "+ New Agent" }));
-    expect(onSecondary).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-  });
-
-  it("ignores a secondaryAction when no primary action is present (single-action call sites unchanged)", () => {
-    render(
-      <BreadcrumbDropdown
-        items={items}
-        secondaryAction={{ label: "+ New Agent", onAction: () => {} }}
-      />,
-    );
-    clickChevron();
-    expect(screen.queryByRole("menuitem", { name: "+ New Agent" })).not.toBeInTheDocument();
-  });
 });

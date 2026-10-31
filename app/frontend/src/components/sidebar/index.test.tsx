@@ -50,6 +50,14 @@ const NULL_NAME: InstanceName = {
 
 
 const mockNavigate = vi.fn();
+// The New split button has its own suite (new-split-button.test.tsx) and needs
+// the palette/session/slot providers; the sidebar tests only assert WHERE the
+// mobile brand row places it.
+vi.mock("@/components/new-split-button", () => ({
+  useNewSplitMode: () => "terminal",
+  NewSplitButton: ({ mode }: { mode: string }) => <div data-testid="new-split" data-mode={mode} />,
+}));
+
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
   useRouterState: ({ select }: { select: (s: { location: { pathname: string } }) => unknown }) =>
@@ -198,7 +206,6 @@ function sidebarTree(opts: RenderOpts = {}) {
                         onCreateWindow={vi.fn()}
                         onCreateSession={opts.onCreateSession ?? vi.fn()}
                         onWindowMarkerChange={opts.onWindowMarkerChange}
-                        onCreateServer={vi.fn()}
                         onKillServer={opts.onKillServer ?? vi.fn()}
                         onOperatorPlaceholder={opts.onOperatorPlaceholder}
                       />
@@ -972,7 +979,6 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
                         onSelectWindow={onSelectWindow}
                         onCreateWindow={vi.fn()}
                         onCreateSession={vi.fn()}
-                        onCreateServer={vi.fn()}
                         onKillServer={vi.fn()}
                       />
                       </SettingsDialogProvider>
@@ -2691,11 +2697,23 @@ describe("Sidebar — brand row (mobile-only)", () => {
     expect(nav.firstElementChild).toContainElement(brand);
   });
 
+  it("carries the New split at the brand row's right end on mobile", () => {
+    stubMatchMedia((q) => q.includes("max-width") || q.includes("prefers-color-scheme: dark"));
+    renderSidebar();
+    const nav = screen.getByRole("navigation", { name: "Groups" });
+    const brand = within(nav).getByRole("link", { name: "HexoKit" });
+    const split = within(nav).getByTestId("new-split");
+    const row = nav.firstElementChild!;
+    expect(row).toContainElement(split);
+    expect(brand.nextElementSibling).toBe(split);
+  });
+
   it("renders NO brand row on desktop", () => {
     // File-default stub: desktop (no max-width / coarse match).
     renderSidebar();
     const nav = screen.getByRole("navigation", { name: "Groups" });
     expect(within(nav).queryByRole("link", { name: "HexoKit" })).not.toBeInTheDocument();
+    expect(within(nav).queryByTestId("new-split")).not.toBeInTheDocument();
   });
 });
 
@@ -2777,7 +2795,6 @@ describe("Sidebar — desktop selected-row autoscroll (nris)", () => {
                           onSelectWindow={onSelectWindow}
                           onCreateWindow={vi.fn()}
                           onCreateSession={vi.fn()}
-                          onCreateServer={vi.fn()}
                           onKillServer={vi.fn()}
                         />
                       </SettingsDialogProvider>

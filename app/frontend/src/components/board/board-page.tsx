@@ -8,6 +8,8 @@ import { useBoardAutofit } from "@/hooks/use-board-autofit";
 import { usePinActions } from "@/hooks/use-pin-actions";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useCreateGroup } from "@/hooks/use-create-group";
+import { useCreateTab } from "@/hooks/use-create-tab";
+import { useNewSheet } from "@/contexts/new-sheet-context";
 import { useSessionContext } from "@/contexts/session-context";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
@@ -114,13 +116,15 @@ function BoardPageContent({ name }: { name: string }) {
   // `shortcuts-overlay` resolution below.
   const ctx = useSessionContext();
   const { addToast } = useToast();
-  const { openCreateServer, requestKillServer } = useServerDialogs();
+  const { requestKillServer } = useServerDialogs();
   // The `shortcuts-overlay` chord resolves the layout-level global entry
   // (260811-239r, R12) — via the globals-ONLY channel, which never changes in
   // response to this route's own registration (no render loop; see
   // palette-actions-context.tsx).
   const paletteGlobals = usePaletteGlobals();
   const { createGroup } = useCreateGroup();
+  const createTab = useCreateTab();
+  const { openNewSheet } = useNewSheet();
 
   const { execute: executeCreateWindow } = useOptimisticAction<[string, string]>({
     action: (srv, sess) => createWindowApi(srv, sess),
@@ -581,6 +585,51 @@ function BoardPageContent({ name }: { name: string }) {
       },
     ];
 
+    // Create actions keyed to the FOCUSED pane — the board has no current
+    // window, so the New split button's rows resolve here by the same ids the
+    // terminal route registers. The group is the focused window's session,
+    // read at call time so the SSE tick never churns this list. `create-session`
+    // is the instant create on the board (no name-prompt dialog mounts here).
+    if (focusedPane) {
+      const groupOfFocused = () =>
+        (sessionsByServerRef.current.get(focusedPane.server) ?? []).find((s) =>
+          s.windows.some((w) => w.windowId === focusedPane.windowId),
+        )?.name;
+      conditional.push(
+        {
+          id: "create-window",
+          label: "Tab: Create",
+          onSelect: () => {
+            const group = groupOfFocused();
+            if (group) createTab(focusedPane.server, group, focusedPane.cwd);
+          },
+        },
+        {
+          id: "create-window-at-folder",
+          label: "Tab: Create at Folder",
+          onSelect: () => {
+            const group = groupOfFocused();
+            if (group) openNewSheet({ level: "tab", server: focusedPane.server, group });
+          },
+        },
+        {
+          id: "create-session",
+          label: "Group: Create",
+          onSelect: () => handleCreateSession(focusedPane.server),
+        },
+        {
+          id: "create-session-instant",
+          label: "Group: Create Instantly",
+          onSelect: () => handleCreateSession(focusedPane.server),
+        },
+        {
+          id: "create-session-at-folder",
+          label: "Group: Create at Folder",
+          onSelect: () => openNewSheet({ level: "group", server: focusedPane.server }),
+        },
+      );
+    }
+
     // Board: Move up/down — reorder the CURRENT board within the board list,
     // built on the same `computeMoveOrder` helper + boundary-hidden / no-wraparound
     // gating as Server: Move up/down (Constitution V; also the touch fallback
@@ -743,7 +792,7 @@ function BoardPageContent({ name }: { name: string }) {
       bindingByAction,
       bindingHost.platform,
     );
-  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpinFocused, requestKillFocused, focusedPane, reorderWithFollow, executeSplit, navigate, addToast, bindingByAction, bindingHost]);
+  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpinFocused, requestKillFocused, focusedPane, reorderWithFollow, executeSplit, navigate, addToast, bindingByAction, bindingHost, createTab, openNewSheet, handleCreateSession]);
   // Publish this route's (already shortcut-decorated) list into the
   // palette-actions slot — the single layout-mounted CommandPalette renders
   // `[...routeActions, ...globalActions]`; cleared on unmount so the next
@@ -869,7 +918,6 @@ function BoardPageContent({ name }: { name: string }) {
         server: "",
         onNavigate: () => {},
         onToggleSidebar,
-        onCreateWindow: () => {},
         paneCount: entries.length,
         serverCount,
         waitingPaneCount,
@@ -958,7 +1006,6 @@ function BoardPageContent({ name }: { name: string }) {
       onSelectWindow={handleSelectWindow}
       onCreateWindow={handleCreateWindow}
       onCreateSession={handleCreateSession}
-      onCreateServer={openCreateServer}
       onKillServer={requestKillServer}
     />
   );

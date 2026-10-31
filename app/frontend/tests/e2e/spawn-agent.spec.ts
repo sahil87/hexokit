@@ -4,7 +4,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 
 // Web-UI agent spawn flow — surfacing `rk riff` as a one-action spawn
 // dialog. The dialog opens from ALL THREE entry points (Cmd+K
-// `Agent: Spawn`, the window-switcher `+ New Agent`, and the sidebar
+// `Agent: Spawn`, the New split button's `Agent tab…` row, and the sidebar
 // session flyout card's `Spawn agent…` row), renders the mockup-v2 field set (Where radio /
 // Worktree name / Agent tier) with the correct defaults and conditional
 // Worktree visibility, hides the Agent Tier field when the presets endpoint
@@ -30,8 +30,8 @@ import { mockStateSocket } from "./_state-socket-mock";
 // gotoTerminal(page) navigates to `/default/1` and waits for the "main"
 // window to render (the state-socket payload landed). openViaPalette opens
 // the palette via `openPalette`, fills "Agent: Spawn", presses Enter.
-// openViaDropdown clicks the `Switch tab` trigger then the `+ New Agent`
-// menu item. openViaSidebarCard hovers the session row to open its flyout
+// openViaNewMenu clicks the New split button's caret then its `Agent tab…`
+// menu row. openViaSidebarCard hovers the session row to open its flyout
 // card, then clicks the card's `Spawn agent…` action row.
 // OK_SPAWN is the success mock: POST /api/riff → 200
 // {server, session:"dev", window:"riff-swift-fox", windowId:"@7"}.
@@ -126,9 +126,9 @@ async function openViaPalette(page: Page) {
   await page.keyboard.press("Enter");
 }
 
-async function openViaDropdown(page: Page) {
-  await page.getByRole("button", { name: "Switch tab" }).click();
-  await page.getByRole("menuitem", { name: "+ New Agent" }).click();
+async function openViaNewMenu(page: Page) {
+  await page.getByTestId("new-split-caret").click();
+  await page.getByTestId("new-split-menu").getByRole("menuitem", { name: "Agent tab…" }).click();
 }
 
 // The sidebar session-card spawn row — the third entry point. Hover the
@@ -183,20 +183,20 @@ test.describe("Web-UI Spawn Agent", () => {
   });
 
   /**
-   * Proves: the second entry point — the `+ New Agent` item beside
-   * `+ New Tab` in the top-bar tab switcher — opens the same dialog.
+   * Proves: the second entry point — the `Agent tab…` row in the New split
+   * button's caret menu — opens the same dialog.
    *
    * Steps:
    * 1. Mock the backend (OK_SPAWN); gotoTerminal.
-   * 2. openViaDropdown (click `Switch tab`, then `+ New Agent`).
+   * 2. openViaNewMenu (click the split's caret, then `Agent tab…`).
    * 3. Assert the `Spawn agent in dev` dialog and its `Task` field are
    *    visible.
    */
-  test("opens the spawn dialog from the window-switcher + New Agent item", async ({ page }) => {
+  test("opens the spawn dialog from the New split button's Agent tab… row", async ({ page }) => {
     await mockBackend(page, OK_SPAWN);
     await gotoTerminal(page);
 
-    await openViaDropdown(page);
+    await openViaNewMenu(page);
 
     await expect(page.getByRole("dialog", { name: "Spawn agent in dev" })).toBeVisible({ timeout: 5_000 });
     await expect(page.getByLabel("Task")).toBeVisible();

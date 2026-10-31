@@ -50,13 +50,42 @@ describe("SessionRow", () => {
     expect(screen.getByText("agent-work")).toBeInTheDocument();
   });
 
-  it("renders no hover action cluster on a fine pointer — every action is a card row now", () => {
+  it("renders no hover action cluster on a fine pointer — every action but the + is a card row", () => {
     const session = makeSession({ name: "agent-work" });
     render(<SessionRow {...rowProps(session)} onSpawnAgent={noop} />);
     expect(screen.queryByLabelText("Set color for agent-work")).toBeNull();
     expect(screen.queryByLabelText("Spawn agent in agent-work")).toBeNull();
-    expect(screen.queryByLabelText("New tab in agent-work")).toBeNull();
     expect(screen.queryByLabelText("Kill group agent-work")).toBeNull();
+  });
+
+  it("carries a + visible at rest that creates a tab in this group without toggling or selecting the row", () => {
+    const onCreateWindow = vi.fn();
+    const onToggleCollapse = vi.fn();
+    const onSelectFirstWindow = vi.fn();
+    const session = makeSession({ name: "agent-work" });
+    render(
+      <SessionRow
+        {...rowProps(session)}
+        onCreateWindow={onCreateWindow}
+        onToggleCollapse={onToggleCollapse}
+        onSelectFirstWindow={onSelectFirstWindow}
+      />,
+    );
+    const plus = screen.getByLabelText("New tab in agent-work");
+    // Visible at rest: ~70% ink (no hover-reveal `opacity-0`), full ink on coarse.
+    expect(plus.className).toContain("opacity-70");
+    expect(plus.className).toContain("coarse:opacity-100");
+    expect(plus.className).not.toContain("opacity-0");
+    fireEvent.click(plus);
+    expect(onCreateWindow).toHaveBeenCalledWith("srv", "agent-work");
+    expect(onToggleCollapse).not.toHaveBeenCalled();
+    expect(onSelectFirstWindow).not.toHaveBeenCalled();
+  });
+
+  it("ghost groups render no + (there is no group to create into yet)", () => {
+    const ghost = { ...makeSession({ name: "ghosty" }), optimistic: true };
+    render(<SessionRow {...rowProps(ghost)} />);
+    expect(screen.queryByLabelText("New tab in ghosty")).toBeNull();
   });
 
   // Flair overlay (decoration-only channel): an always-on ambient CSS-only
@@ -513,8 +542,9 @@ describe("SessionRow", () => {
       // Render-gated, not CSS-hidden: no cluster buttons exist on coarse.
       expect(screen.queryByLabelText("Set color for agent-work")).toBeNull();
       expect(screen.queryByLabelText("Spawn agent in agent-work")).toBeNull();
-      expect(screen.queryByLabelText("New tab in agent-work")).toBeNull();
       expect(screen.queryByLabelText("Kill group agent-work")).toBeNull();
+      // The per-group + is the one control kept at rest — full ink on coarse.
+      expect(screen.getByLabelText("New tab in agent-work").className).toContain("coarse:opacity-100");
     });
 
     it("renders no rail and no cluster on fine pointers — the hover card is the surface", () => {
@@ -523,7 +553,6 @@ describe("SessionRow", () => {
       render(<SessionRow {...rowProps(session)} />);
       expect(screen.queryByTestId("status-rail")).toBeNull();
       expect(screen.queryByLabelText("Set color for agent-work")).toBeNull();
-      expect(screen.queryByLabelText("New tab in agent-work")).toBeNull();
       expect(screen.queryByLabelText("Kill group agent-work")).toBeNull();
     });
 

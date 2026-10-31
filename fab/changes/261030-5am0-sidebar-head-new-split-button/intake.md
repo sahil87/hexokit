@@ -94,6 +94,12 @@ Palette actions are untouched (only in-bar doors are removed).
 - e2e: specs that click the window switcher's `+ New Tab` move to the split button. Selection is by new testids (`new-split-primary`, `new-split-caret`, `new-split-menu`). The brand keeps the unique `HexoKit home` label.
 - `just demo new-split-button`: web lane (desktop and mobile: head placement, menu, the sidebar-closed fallback, the mobile drawer) **and** the shell lane, because the change touches the titlebar drag band (Constitution § PR Evidence shell rule).
 
+### Landed in change 3 (#1099), use these rather than rebuild
+
+- The New sheet opener: `useNewSheet().openNewSheet({ level, server?, group? })` (`contexts/new-sheet-context.tsx`), mounted once via `NewSheetHost`.
+- Palette ids that already exist: `create-window`, `create-window-at-folder` (sheet, Tab level), `create-iframe-window` (`Tab: New Iframe Tab`), `reopen-window`, `create-session`, `create-session-at-folder` (sheet, Group level), `create-server` (sheet, Workspace level), `agent-spawn` (`Agent: Spawn`). The menu rows invoke these ids.
+- Shared create hooks `hooks/use-create-tab.ts`, `use-create-group.ts`, `use-create-workspace.ts` own the optimistic lifecycles (with an in-flight guard). The per-group `+` and any instant create go through them, not new copies.
+
 ## Affected Memory
 
 - `run-kit/ui/top-bar`: (modify) sidebar head gains the split button + fold ladder; left-cluster fallback; window switcher loses its create footer; design decisions (route-varying primary, no-drag island)

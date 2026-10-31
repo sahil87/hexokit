@@ -16,11 +16,6 @@ type Props = {
   label?: string;
   onNavigate?: (href: string) => void;
   action?: DropdownAction;
-  /** Optional SECOND leading action, rendered below `action` (e.g. the
-   *  tab switcher's `+ New Agent` beside `+ New Tab`). Only honored when
-   *  `action` is also present. Every other call site passes just `action` and
-   *  keeps its single-action behavior unchanged. */
-  secondaryAction?: DropdownAction;
   triggerClassName?: string;
   /** Custom trigger content, replacing the default bare `▾` caret span (the
    *  collapsed breadcrumb's `… ▾` crumb is the one consumer). Unset → the
@@ -34,7 +29,7 @@ type Props = {
   title?: string;
 };
 
-export function BreadcrumbDropdown({ items, label, onNavigate, action, secondaryAction, triggerClassName, triggerContent, title }: Props) {
+export function BreadcrumbDropdown({ items, label, onNavigate, action, triggerClassName, triggerContent, title }: Props) {
   const [open, setOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
   // Viewport-relative position for the fixed-positioned menu. `position: fixed`
@@ -50,13 +45,8 @@ export function BreadcrumbDropdown({ items, label, onNavigate, action, secondary
   const actionRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  // Leading actions occupy indices 0..offset-1; items follow at offset..N-1.
-  // A secondaryAction is only meaningful alongside a primary action.
-  const leadingActions: DropdownAction[] = action
-    ? secondaryAction
-      ? [action, secondaryAction]
-      : [action]
-    : [];
+  // The leading action (when present) occupies index 0; items follow at 1..N.
+  const leadingActions: DropdownAction[] = action ? [action] : [];
   const offset = leadingActions.length;
   const totalCount = items.length + offset;
 

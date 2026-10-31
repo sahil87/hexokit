@@ -27,6 +27,15 @@ vi.mock("@tanstack/react-router", () => ({
   useRouter: () => ({ history: { back: mockHistoryBack, forward: mockHistoryForward } }),
 }));
 
+// The New split button has its own suite (new-split-button.test.tsx) and needs
+// the palette/session/router providers; here a stub records WHERE the bar
+// places it and in which form.
+vi.mock("@/components/new-split-button", () => ({
+  NewSplitButton: ({ mode, iconOnly }: { mode: string; iconOnly?: boolean }) => (
+    <div data-testid="new-split" data-mode={mode} data-icon-only={String(Boolean(iconOnly))} />
+  ),
+}));
+
 vi.mock("@/api/client", async () => {
   const actual = await vi.importActual<typeof import("@/api/client")>("@/api/client");
   return {
@@ -107,7 +116,6 @@ function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = 
             server="runkit"
             onNavigate={vi.fn()}
             onToggleSidebar={vi.fn()}
-            onCreateWindow={vi.fn()}
             {...overrides}
           />
         </ChromeProvider>
@@ -534,6 +542,76 @@ describe("TopBar", () => {
       expect(within(nav).queryByLabelText("HexoKit home")).not.toBeInTheDocument();
     });
 
+    it("places the New split in the head beside the toggle (full form) and nowhere else", () => {
+      const { container } = renderTopBar({ sidebarOpen: true });
+      const split = screen.getByTestId("new-split");
+      expect(screen.getAllByTestId("new-split")).toHaveLength(1);
+      const head = headOf(container)!;
+      expect(head).toContainElement(split);
+      expect(split).toHaveAttribute("data-mode", "terminal");
+      expect(split).toHaveAttribute("data-icon-only", "false");
+      // Order inside the head: brand, split, toggle.
+      const kids = Array.from(head.children);
+      const at = (el: Element) => kids.findIndex((k) => k.contains(el));
+      expect(at(screen.getByLabelText("HexoKit home"))).toBeLessThan(at(split));
+      expect(at(split)).toBeLessThan(at(screen.getByLabelText("Toggle navigation")));
+    });
+
+    it("folds the head from measured widths: wordmark first, then the icon-only split", () => {
+      // jsdom has no layout engine, so stub the two measurements the fold
+      // reads: every item is 60px wide and the head's client width is set per
+      // case (content = 3×60 + 2 gaps = 196px against client − 24px padding).
+      const proto = HTMLElement.prototype;
+      const offsetWidth = Object.getOwnPropertyDescriptor(proto, "offsetWidth");
+      const clientWidth = Object.getOwnPropertyDescriptor(proto, "clientWidth");
+      let headClient = 232;
+      Object.defineProperty(proto, "offsetWidth", { configurable: true, get: () => 60 });
+      Object.defineProperty(proto, "clientWidth", { configurable: true, get: () => headClient });
+      try {
+        const fits = renderTopBar({ sidebarOpen: true });
+        // 232 − 24 = 208 ≥ 196: R1 — wordmark shown, full split.
+        expect(screen.getByText("HexoKit")).toBeInTheDocument();
+        expect(screen.getByTestId("new-split")).toHaveAttribute("data-icon-only", "false");
+        fits.unmount();
+
+        headClient = 150; // 126 < 196: R1 → R2 → R3 (the stubbed widths never shrink)
+        renderTopBar({ sidebarOpen: true });
+        expect(screen.queryByText("HexoKit")).not.toBeInTheDocument();
+        expect(screen.getByLabelText("HexoKit home")).toBeInTheDocument();
+        expect(screen.getByTestId("new-split")).toHaveAttribute("data-icon-only", "true");
+      } finally {
+        if (offsetWidth) Object.defineProperty(proto, "offsetWidth", offsetWidth);
+        else delete (proto as unknown as Record<string, unknown>).offsetWidth;
+        if (clientWidth) Object.defineProperty(proto, "clientWidth", clientWidth);
+        else delete (proto as unknown as Record<string, unknown>).clientWidth;
+      }
+    });
+
+    it("falls back to an icon-only split right after the hamburger when the head is not shown", () => {
+      const { container } = renderTopBar({ sidebarOpen: false });
+      expect(headOf(container)).toBeNull();
+      const split = screen.getByTestId("new-split");
+      expect(split).toHaveAttribute("data-icon-only", "true");
+      const toggle = screen.getByLabelText("Toggle navigation");
+      expect(toggle.nextElementSibling).toBe(split);
+    });
+
+    it("falls back to the icon-only split when the bar is too narrow for the head", () => {
+      stubDesktopNarrow();
+      renderTopBar({ sidebarOpen: true });
+      expect(screen.getAllByTestId("new-split")).toHaveLength(1);
+      expect(screen.getByTestId("new-split")).toHaveAttribute("data-icon-only", "true");
+    });
+
+    it("the Host page carries a plain + Workspace after the brand crumb (no hamburger fallback)", () => {
+      const { container } = renderTopBar({ mode: "host", sidebarOpen: false });
+      expect(headOf(container)).toBeNull();
+      const split = screen.getByTestId("new-split");
+      expect(split).toHaveAttribute("data-mode", "host");
+      const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
+      expect(nav).toContainElement(split);
+    });
+
     it("yields the head when the bar would keep less than HEAD_MIN_BAR_PX beside it: classic bar, no inset", () => {
       stubDesktopNarrow();
       const { container } = renderTopBar({ sidebarOpen: true });
@@ -545,8 +623,9 @@ describe("TopBar", () => {
       const cluster = nav.parentElement!;
       expect(cluster).toContainElement(screen.getByLabelText("Toggle navigation"));
       expect(within(nav).getByLabelText("HexoKit home")).toBeInTheDocument();
-      // And the nav keeps its desktop floor.
-      expect(nav.className).toContain("sm:min-w-[150px]");
+      // The nav floor shrinks by the icon-only split's width so the rigid left
+      // cluster still fits its `1fr` track.
+      expect(nav.className).toContain("sm:min-w-[96px]");
     });
 
     it("drops the breadcrumb's 150px floor while the head shows, so the crumb collapse absorbs the squeeze instead of spilling into the heading", () => {
@@ -920,22 +999,11 @@ describe("TopBar", () => {
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
-  it("calls onCreateWindow when + New Tab dropdown action is clicked", () => {
-    const onCreateWindow = vi.fn();
-    renderTopBar({ onCreateWindow });
-
-    // Open the window breadcrumb dropdown (window name is the trigger)
-    const windowDropdown = screen.getByLabelText("Switch tab");
-    fireEvent.click(windowDropdown);
-
-    // Click the "+ New Tab" action
-    const newWindowBtn = screen.getByText("+ New Tab");
-    expect(newWindowBtn).toBeInTheDocument();
-    fireEvent.click(newWindowBtn);
-
-    expect(onCreateWindow).toHaveBeenCalledWith("run-kit");
-    // Menu should close after action
+  it("the window switcher carries no create footer (creation lives in the New split button)", () => {
+    renderTopBar();
+    fireEvent.click(screen.getByLabelText("Switch tab"));
     expect(screen.queryByText("+ New Tab")).not.toBeInTheDocument();
+    expect(screen.queryByText("+ New Agent")).not.toBeInTheDocument();
   });
 
   it("close-pane is MENU-ONLY (260731-oiho): no in-bar ✕, a Close pane menu row when a window is selected", () => {
@@ -2209,7 +2277,6 @@ describe("TopBar", () => {
                   server="runkit"
                   onNavigate={vi.fn()}
                   onToggleSidebar={vi.fn()}
-                  onCreateWindow={vi.fn()}
                   {...overrides}
                 />
               </ChromeProvider>
@@ -2467,16 +2534,6 @@ describe("WindowHeading (centered, editable, terminal mode)", () => {
       document.dispatchEvent(new CustomEvent("window-heading:rename"));
     });
     expect(screen.getByRole("textbox", { name: "Tab name" })).toBeInTheDocument();
-  });
-
-  it("relocated ▾ window switcher offers + New Tab", () => {
-    const onCreateWindow = vi.fn();
-    renderTopBar({ onCreateWindow });
-    const windowDropdown = screen.getByLabelText("Switch tab");
-    act(() => fireEvent.click(windowDropdown));
-    const newWindowBtn = screen.getByText("+ New Tab");
-    act(() => fireEvent.click(newWindowBtn));
-    expect(onCreateWindow).toHaveBeenCalledWith("run-kit");
   });
 });
 

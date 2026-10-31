@@ -20,10 +20,12 @@
  *
  * Matching is on `KeyboardEvent.code` — layout-independent, and it sidesteps
  * the shifted-accelerator character-resolution flakiness the desktop shell
- * docs flag (`app/desktop/src/menu.ts`). Alt chords are never matched: Alt is
- * not part of any tier (macOS uses it for character composition) — which is
- * also why the mac desktop shell parks its Hosts-switcher accelerators on
- * ⌥⌘1–9 (260731-nv5r): territory this registry can never claim.
+ * docs flag (`app/desktop/src/menu.ts`). Alt chords are never matched, with one
+ * exception: the mac-only `optcmd` tier (⌥⌘ + a letter, no Shift/Ctrl). Option
+ * composes characters, so no other tier admits Alt. The mac desktop shell
+ * parks its Hosts-switcher accelerators on ⌥⌘1–9 — digits, which this registry
+ * never binds; an `optcmd` binding must avoid every shell ⌥⌘ accelerator
+ * (⌥⌘H hide-others, ⌥⌘I devtools, ⌥⌘1–9).
  */
 
 import type { ViewName } from "./window-view";
@@ -42,7 +44,7 @@ import type { ViewName } from "./window-view";
  *   keeps a mac chord capture reading plain Ctrl distinct from ⌘ (macOS
  *   window/system territory the page must not claim).
  */
-export type BindingTier = "shifted" | "cmd" | "ctrl";
+export type BindingTier = "shifted" | "cmd" | "ctrl" | "optcmd";
 
 /** Where a binding applies. Descriptive (overlay badges + conflict scoping);
  *  actual applicability is handler presence at each dispatcher mount. The
@@ -173,8 +175,9 @@ export const KEYBINDINGS_STORAGE_KEY = "hexokit-keybindings";
  * way. T/W and , demote on every mac host, and the tab-model letters also
  * refine their CODES (`macCode`): reopen-window rides ⇧⌘T, the two
  * keyless-base app-window actions spend ⌘N/⇧⌘W, and settings rides ⌘,.
- * create-session refines the other way — a KEYLESS mac code (`macCode: ""`),
- * palette-only on every mac host. One canonical
+ * create-session refines onto the mac-only ⌥⌘ tier (⌥⌘T, `macTier:
+ * "optcmd"`): ⇧⌘N would be a browser incognito claim, and ⌥⌘T is
+ * tier-disjoint from create-window's ⌘T. One canonical
  * chord per action — in a mac browser the canonical combos are
  * browser-reserved (claims data below), so they resolve disabled there
  * and stay palette-only. A stays
@@ -207,11 +210,12 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // reopen closed tab (reopen-window's `macCode` — the split-pair precedent:
   // tier-disjoint from create-window on one code), ⌘W close tab (kill-window,
   // unchanged), with the app-window pair beside them (⌘N new / ⇧⌘W close —
-  // the two keyless-base bridge actions below). create-session spends NO mac
-  // chord: its mac-keyless refinement keeps it palette-only on both mac
-  // hosts, so ⇧⌘N (a chord no other mac host gives this app) never fires.
+  // the two keyless-base bridge actions below). create-session rides ⌥⌘T on
+  // mac (the `optcmd` tier: ⇧⌘N is the browsers' incognito chord). No browser
+  // claim is registered for ⌥⌘T — reservation is unverified for Safari/Firefox;
+  // a reserved result would only disable the chord, never the action.
   // Win/Linux keeps ⇧Ctrl+N/T/W untouched (plain Ctrl belongs to the pane).
-  { actionId: "create-session", code: "KeyN", tier: "shifted", macCode: "", scope: "global", kind: "builtin", label: "New group", description: "holds related tabs", mapLabel: "new group" },
+  { actionId: "create-session", code: "KeyN", tier: "shifted", macCode: "KeyT", macTier: "optcmd", scope: "global", kind: "builtin", label: "New group", description: "holds related tabs", mapLabel: "new group" },
   { actionId: "create-window", code: "KeyT", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "New tab", description: "in the current group", mapLabel: "new tab" },
   { actionId: "kill-window", code: "KeyW", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Close tab", description: "confirm flow", mapLabel: "close tab" },
   // ⇧⌘T reopen closed tab — the universal browser/VS Code/iTerm2 reflex.
@@ -560,12 +564,15 @@ export type ChordEvent = {
 };
 
 /**
- * Whether a keydown matches a combo. Alt excluded in every tier (not part of
- * any tier; macOS composes characters with it). The `cmd` tier accepts Meta OR
+ * Whether a keydown matches a combo. Alt is rejected in every tier except
+ * `optcmd`, which REQUIRES Alt+Meta. The `cmd` tier accepts Meta OR
  * Ctrl without Shift — byte-identical to the legacy listeners' predicates.
  */
 export function matchesCombo(e: ChordEvent, combo: BindingCombo): boolean {
-  if (e.altKey || e.code !== combo.code) return false;
+  if (e.code !== combo.code) return false;
+  // `optcmd` is the only tier that requires Alt; every other tier rejects it.
+  if (combo.tier === "optcmd") return e.altKey && e.metaKey && !e.ctrlKey && !e.shiftKey;
+  if (e.altKey) return false;
   switch (combo.tier) {
     case "shifted":
       return e.shiftKey && (e.metaKey || e.ctrlKey);
@@ -679,13 +686,15 @@ export function shouldRefuseTerminalChord(
 ): boolean {
   const matches = findMatches(e, bindings).filter((b) => !b.guiOnly && !b.webOnly);
   if (matches.some((b) => b.tier === "shifted")) return true;
-  if (platform === "mac" && e.metaKey && matches.some((b) => b.tier === "cmd")) return true;
+  if (platform === "mac" && e.metaKey && matches.some((b) => b.tier === "cmd" || b.tier === "optcmd")) {
+    return true;
+  }
   return platform === "mac" && e.ctrlKey && !e.metaKey && matches.some((b) => b.tier === "ctrl");
 }
 
 // ── override storage ────────────────────────────────────────────────────────
 
-const TIERS: readonly BindingTier[] = ["shifted", "cmd", "ctrl"];
+const TIERS: readonly BindingTier[] = ["shifted", "cmd", "ctrl", "optcmd"];
 
 function isCombo(value: unknown): value is BindingCombo {
   if (typeof value !== "object" || value === null) return false;
@@ -842,7 +851,11 @@ export type BindingConflict = {
  * requires Shift and is disjoint from both.
  */
 export function tiersCollide(a: BindingTier, b: BindingTier): boolean {
-  return a === b || (a !== "shifted" && b !== "shifted");
+  if (a === b) return true;
+  // `shifted` requires Shift and `optcmd` requires Alt: both are disjoint from
+  // every other tier, leaving only the `cmd`/`ctrl` Ctrl overlap.
+  const plain = (t: BindingTier) => t === "cmd" || t === "ctrl";
+  return plain(a) && plain(b);
 }
 
 /** The single surface a binding's handler is gated to, or null when ungated. */
@@ -919,8 +932,8 @@ const MODIFIER_CODES = new Set([
 
 /**
  * Derive a combo from a capture keydown, or `null` while the chord is not yet
- * a valid binding (modifier-only presses keep capturing; Alt chords and bare
- * keys are rejected — no tier models them). Ctrl-without-Meta reads as the
+ * a valid binding (modifier-only presses keep capturing; bare keys and Alt
+ * chords other than mac ⌥⌘ are rejected — no tier models them). Ctrl-without-Meta reads as the
  * `ctrl` tier on macOS (where it is distinct from ⌘) and as the `cmd` tier
  * elsewhere (where Ctrl IS CmdOrCtrl) — overrides are per-device, so the
  * device-local reading is the correct one.
@@ -930,7 +943,13 @@ export function captureFromEvent(
   platform: BindingPlatform,
 ): BindingCombo | null {
   if (MODIFIER_CODES.has(e.code)) return null;
-  if (e.altKey) return null;
+  // ⌥⌘ is a mac-only tier; Alt in any other combination (AltGr layouts on
+  // Win/Linux, Option text composition) stays unbindable.
+  if (e.altKey) {
+    return platform === "mac" && e.metaKey && !e.ctrlKey && !e.shiftKey
+      ? { code: e.code, tier: "optcmd" }
+      : null;
+  }
   if (e.shiftKey && (e.metaKey || e.ctrlKey)) return { code: e.code, tier: "shifted" };
   if (e.metaKey) return { code: e.code, tier: "cmd" };
   if (e.ctrlKey && !e.shiftKey) {
@@ -1028,11 +1047,15 @@ export function comboParts(combo: BindingCombo, platform: BindingPlatform): stri
         return ["⌘", key];
       case "ctrl":
         return ["Ctrl", key];
+      case "optcmd":
+        return ["⌥", "⌘", key];
     }
   }
   switch (combo.tier) {
     case "shifted":
       return ["Shift", "Ctrl", key];
+    case "optcmd":
+      return ["Alt", "Ctrl", key];
     default:
       return ["Ctrl", key];
   }

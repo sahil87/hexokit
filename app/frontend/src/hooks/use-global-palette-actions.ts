@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMatches, useNavigate, useRouter } from "@tanstack/react-router";
 import { useChromeDispatch, useChromeState } from "@/contexts/chrome-context";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
+import { useNewSheet } from "@/contexts/new-sheet-context";
 import { useCurrentServerFromRoute, useUpdateNotification } from "@/contexts/session-context";
 import { useUpdateCheck } from "@/hooks/use-update-check";
 import { consumeUpdateWatchTarget } from "@/hooks/use-update-click";
@@ -62,6 +63,7 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     closeSettings,
   } = useSettingsDialog();
   const { addToast } = useToast();
+  const { openNewSheet } = useNewSheet();
   const { byAction: bindingByAction, host: bindingHost } = useKeybindings();
 
   // Walk matches deepest-first for route params — the same walk `RootTopBar`
@@ -587,6 +589,19 @@ export function useGlobalPaletteActions(): PaletteAction[] {
   // the only silent no-ops. No chord — the palette IS the chord.
   const easterEggActions: PaletteAction[] = useMemo(() => buildEasterEggActions(fireScreenBreak), []);
 
+  // `Workspace: Create` is global, not route-scoped: the Host page and the
+  // board have no AppShell to register it, and the New split button's
+  // `Workspace…` row and the host `+ Workspace` button resolve it by id on
+  // every route.
+  const createServerEntry: PaletteAction = useMemo(
+    () => ({
+      id: "create-server",
+      label: "Workspace: Create",
+      onSelect: () => openNewSheet({ level: "workspace" }),
+    }),
+    [openNewSheet],
+  );
+
   return useMemo(
     () =>
       // Every registered action with a palette entry renders its EFFECTIVE
@@ -594,10 +609,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...(quakeMachine === "open" && quakeTerminalOpenAsTabEntry ? [quakeTerminalOpenAsTabEntry] : []), ...(operatorStartEntry ? [operatorStartEntry] : []), ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, mcpEndpointEntry, ...easterEggActions],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...(quakeMachine === "open" && quakeTerminalOpenAsTabEntry ? [quakeTerminalOpenAsTabEntry] : []), ...(operatorStartEntry ? [operatorStartEntry] : []), ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, mcpEndpointEntry, ...easterEggActions, createServerEntry],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, quakeTerminalOpenAsTabEntry, operatorStartEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, mcpEndpointEntry, easterEggActions, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, quakeTerminalOpenAsTabEntry, operatorStartEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, mcpEndpointEntry, easterEggActions, createServerEntry, bindingByAction, bindingHost],
   );
 }

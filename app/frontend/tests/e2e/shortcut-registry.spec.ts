@@ -645,17 +645,19 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
   });
 
   /**
-   * Proves: `create-session` spends no chord on any mac host — its mac-keyless
-   * default refinement leaves it unbound on both the shell and the browser —
-   * so neither ⌘N nor ⇧⌘N dispatches anything; the action stays palette-only.
+   * Proves: `create-session` rides ⌥⌘T on a mac host (the `optcmd` tier), so
+   * neither ⌘N nor ⇧⌘N dispatches anything, while ⌥⌘T opens the group name
+   * prompt.
    *
    * Steps:
    * 1. Spoof the mac platform; mock the backend plus a POST-tracking route on
    *    the sessions API route glob; open `/default/1`.
    * 2. Press Meta+N, then Shift+Meta+N.
-   * 3. Wait 300ms; assert no POST fired and the URL is unchanged.
+   * 3. Wait 300ms; assert no POST fired, the URL is unchanged and no dialog
+   *    is open.
+   * 4. Press Alt+Meta+T; assert the `New group` name dialog opens.
    */
-  test("⌘N and ⇧⌘N stay inert in a mac browser host (create-session palette-only)", async ({ page }) => {
+  test("⌘N/⇧⌘N stay inert and ⌥⌘T opens the group prompt in a mac browser host", async ({ page }) => {
     await spoofMacPlatform(page);
     await mockBackend(page);
     let created = false;
@@ -668,13 +670,15 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
     });
     await gotoWindowOne(page);
 
-    // create-session spends no chord on any mac host (a mac-keyless default)
-    // and reopen-window's ⇧⌘T is browser-reserved here — palette-only both.
     await page.keyboard.press("Meta+KeyN");
     await page.keyboard.press("Shift+Meta+KeyN");
     await page.waitForTimeout(300);
     expect(created).toBe(false);
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/1(?:$|[/?#])`));
+    await expect(page.getByRole("dialog", { name: "New group" })).toHaveCount(0);
+
+    await page.keyboard.press("Alt+Meta+KeyT");
+    await expect(page.getByRole("dialog", { name: "New group" })).toBeVisible();
   });
 
   /**

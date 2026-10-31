@@ -729,8 +729,6 @@ function RootTopBar() {
       server={slot?.server ?? serverParam ?? ""}
       onNavigate={slot?.onNavigate ?? (() => {})}
       onToggleSidebar={slot?.onToggleSidebar ?? (() => {})}
-      onCreateWindow={slot?.onCreateWindow ?? (() => {})}
-      onSpawnAgent={slot?.onSpawnAgent}
       paneCount={slot?.paneCount}
       serverCount={slot?.serverCount}
       waitingPaneCount={slot?.waitingPaneCount}
@@ -2433,7 +2431,6 @@ function AppShell() {
   // `getAllActions` at call time. Routes never subscribe to the merged route
   // state they publish into (render-loop guard; see palette-actions-context).
   const {
-    openCreateServer,
     requestKillServer,
     requestAdoptServer,
     createServerOpen,
@@ -3783,6 +3780,15 @@ function AppShell() {
         onSelect: handleOpenSessionNamePrompt,
       },
       {
+        // The instant create the New split button's `+ Group` runs on the
+        // server route: unnamed, no prompt (the name-prompted `create-session`
+        // above stays the chord's body).
+        id: "create-session-instant",
+        label: "Group: Create Instantly",
+        description: "unnamed, no prompt",
+        onSelect: handleCreateSessionInstant,
+      },
+      {
         id: "create-session-at-folder",
         label: "Group: Create at Folder",
         description: "pick the folder first",
@@ -3843,7 +3849,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, dialogs, handleOpenSessionNamePrompt, currentSessionOrderIdx, effectiveSessionOrder, moveCurrentSession, server, addToast, openNewSheet],
+    [sessionName, dialogs, handleOpenSessionNamePrompt, handleCreateSessionInstant, currentSessionOrderIdx, effectiveSessionOrder, moveCurrentSession, server, addToast, openNewSheet],
   );
 
   // Compute min/max window indices for current session (for move boundary checks)
@@ -5032,11 +5038,6 @@ function AppShell() {
         label: "Host: Overview",
         onSelect: () => window.location.assign("/"),
       },
-      {
-        id: "create-server",
-        label: "Workspace: Create",
-        onSelect: () => openNewSheet({ level: "workspace" }),
-      },
       // The server tier's keyboard color path (mirrors `Session: Set Color`'s
       // shape): opens the modal SwatchPopover's "server" arm below.
       ...buildServerSetColorAction(server, () => setShowColorPicker("server")),
@@ -5103,7 +5104,7 @@ function AppShell() {
         onSelect: () => handleSwitchServer(name),
       })),
     ],
-    [servers, server, handleSwitchServer, currentRegularIdx, regularOrder, moveCurrentServer, openNewSheet, requestKillServer, requestAdoptServer, copyPaletteEntry, instanceDisplayName, windowParam, navigate],
+    [servers, server, handleSwitchServer, currentRegularIdx, regularOrder, moveCurrentServer, requestKillServer, requestAdoptServer, copyPaletteEntry, instanceDisplayName, windowParam, navigate],
   );
 
   // Desktop-shell server switching (Constitution V): `Server: Switch to
@@ -5829,14 +5830,6 @@ function AppShell() {
   // health ("per-page live-data health"). The dot renders in the SIDEBAR FOOTER
   // (260724-6j1v — it left the top bar), so this feeds the Sidebar prop below.
   const dotConnected = isConnected;
-  // The window-switcher `+ New Agent` (TopBar `onSpawnAgent(session)`) targets
-  // the CURRENT server; bind `server` here so the slot handler keeps the
-  // one-arg TopBar signature while feeding the explicit `{server, session}`
-  // target. Cross-server spawn comes from the sidebar, not this entry point.
-  const handleSlotSpawnAgent = useCallback(
-    (sess: string) => handleOpenSpawnAgent(server, sess),
-    [server, handleOpenSpawnAgent],
-  );
   // The web toggle's corner dot means "has content" (hasWebUrl), not "exists"
   // — web availability is unconditional (260821-zqlq), so the dot is what
   // carries the content signal. The gui toggle's dot is VNC health: the
@@ -5918,8 +5911,6 @@ function AppShell() {
       server,
       onNavigate: navigateToWindow,
       onToggleSidebar,
-      onCreateWindow: handleCreateWindow,
-      onSpawnAgent: handleSlotSpawnAgent,
       // Top-bar surface-toggle group: the tile surfaces the current window
       // offers (shortcut order) plus the mode discriminant — desktop registers
       // TOGGLE mode (the open tiles + the shared toggle mutation); mobile
@@ -5982,7 +5973,6 @@ function AppShell() {
       navigateToWindow,
       onToggleSidebar,
       handleCreateWindow,
-      handleSlotSpawnAgent,
       windowParam,
       isMobile,
       panelSurfaces,
@@ -6059,7 +6049,6 @@ function AppShell() {
       onFixTabName={handleFixTabName}
       onOperatorCompose={hasOperatorWindow ? handleOperatorCompose : undefined}
       onOperatorPlaceholder={handleOperatorPlaceholder}
-      onCreateServer={openCreateServer}
       onKillServer={requestKillServer}
       onSidebarResizeStart={isMobile ? undefined : (e) => handleDragStart(e.clientX)}
     />
