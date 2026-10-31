@@ -191,18 +191,6 @@ export function OpenExternalGlyph() {
   );
 }
 
-/** Inspect — lucide code-xml ("<>/", the page's source), the web tile URL
- *  bar's Inspect page button. */
-export function InspectGlyph() {
-  return (
-    <ControlGlyph name="inspect">
-      <path d="m18 16 4-4-4-4" />
-      <path d="m6 8-4 4 4 4" />
-      <path d="m14.5 4-5 16" />
-    </ControlGlyph>
-  );
-}
-
 /** Web page — lucide file (a page outline with a folded corner), the tab
  *  strip's neutral fallback when a tab has neither a spinner nor a favicon.
  *  Hue is the caller's (`text-text-secondary`, or the kind hue in a

@@ -1010,6 +1010,25 @@ describe("IframeWindow", () => {
       expect(drafts[0].className).toContain("border-dashed");
     });
 
+    it("a selected draft takes the folder surface from the active tab; an unselected one does not", () => {
+      renderIframe({ tabs: ["/proxy/3001/", "/proxy/3002/"], active: 1, onAddTab: vi.fn() });
+      const folder = ["rounded-t-md", "border-b-0", "bg-bg-card", "z-10"];
+      const active = screen.getAllByTestId("web-tab")[0];
+      for (const c of folder) expect(active.classList).toContain(c);
+
+      fireEvent.click(screen.getByTestId("web-tab-add"));
+      const draft = screen.getByTestId("web-tab-draft");
+      for (const c of folder) expect(draft.classList).toContain(c);
+      expect(draft.classList).toContain("border-dashed");
+      for (const c of folder) expect(screen.getAllByTestId("web-tab")[0].classList).not.toContain(c);
+
+      // A second draft becomes the selected one; the first drops the folder.
+      fireEvent.click(screen.getByTestId("web-tab-add"));
+      const [first, second] = screen.getAllByTestId("web-tab-draft");
+      for (const c of folder) expect(second.classList).toContain(c);
+      for (const c of folder) expect(first.classList).not.toContain(c);
+    });
+
     it("multiple concurrent drafts are allowed; each own × discards only itself", () => {
       renderIframe({ tabs: ["/proxy/3001/", "/proxy/3002/"], active: 1, onAddTab: vi.fn() });
       fireEvent.click(screen.getByTestId("web-tab-add"));
@@ -1269,6 +1288,14 @@ describe("IframeWindow", () => {
       clientWidthSpy.mockRestore();
     });
 
+    it("the strip fade clears the `+` button when the tile renders one", () => {
+      const tabs = Array.from({ length: 16 }, (_, i) => `/proxy/${3000 + i}/`);
+      renderIframe({ tabs, active: 1, onAddTab: vi.fn() });
+      const fade = document.querySelector(".rk-web-strip-fade");
+      expect(fade).not.toBeNull();
+      expect(fade!.classList).not.toContain("rk-web-strip-fade--edge");
+    });
+
     it("icon-only tabs keep an accessible name and title, hide ×, and still middle-click close", () => {
       const onCloseTab = vi.fn().mockResolvedValue({ ok: true });
       const tabs = Array.from({ length: 16 }, (_, i) => `/proxy/${3000 + i}/`);
@@ -1279,7 +1306,8 @@ describe("IframeWindow", () => {
       // 34px floor and the strip scrolls with the trailing fade.
       expect(entries[0].style.width).toBe("110px");
       expect(entries[1].style.width).toBe("34px");
-      expect(document.querySelector(".rk-web-strip-fade")).not.toBeNull();
+      // No `+` here (no onAddTab), so the fade sits flush with the strip edge.
+      expect(document.querySelector(".rk-web-strip-fade")?.classList).toContain("rk-web-strip-fade--edge");
       // Icon-only inactive: the label stays in the DOM visually hidden (the
       // accessible name and e2e text matching survive) and the title stays.
       const label = entries[1].querySelector("span.sr-only");

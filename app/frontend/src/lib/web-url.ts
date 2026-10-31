@@ -166,21 +166,21 @@ export function classifyAddress(url: string): AddressKind {
 /**
  * The address-kind chip for the web tile's address field (the leading
  * site-identity chip): text and hue classes per kind — `present` green,
- * `:<port> proxy` amber (`:?` when the port is unparseable), `external` blue;
+ * `:<port> proxy` amber, `external` blue;
  * `relative` and empty input render no chip. Never throws.
  */
 export function webKindChip(url: string): { text: string; cls: string } | null {
   const value = url.trim();
   if (value === "") return null;
+  // A non-null port is exactly the proxy kind (`classifyAddress` and
+  // `proxyPortOf` share `loopbackPortOf`/`proxyPathPort`).
+  const port = proxyPortOf(value);
+  if (port !== null) {
+    return { text: `:${port} proxy`, cls: "text-signal-yellow border-signal-yellow/40 bg-signal-yellow/10" };
+  }
   const kind = classifyAddress(value);
   if (kind === "present") {
     return { text: "present", cls: "text-accent-green border-accent-green/40 bg-accent-green/10" };
-  }
-  if (kind === "proxy") {
-    return {
-      text: `:${proxyPortOf(value) ?? "?"} proxy`,
-      cls: "text-signal-yellow border-signal-yellow/40 bg-signal-yellow/10",
-    };
   }
   if (kind === "external") {
     return { text: "external", cls: "text-signal-blue border-signal-blue/40 bg-signal-blue/10" };

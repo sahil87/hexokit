@@ -358,7 +358,8 @@ summary {
 
 /* Web tab strip trailing-edge fade — rendered while the width ladder
    overflows the strip (the scroll rung); sits above the folder tabs (z-10)
-   and below the pinned `+` (z-20), clear of the `+` button's 32px. */
+   and below the pinned `+` (z-20), clear of the `+` button's 32px — or flush
+   with the strip's edge (`--edge`) when the tile renders no `+`. */
 .rk-web-strip-fade {
   position: absolute;
   top: 0;
@@ -368,6 +369,9 @@ summary {
   z-index: 15;
   pointer-events: none;
   background: linear-gradient(to right, transparent, var(--color-bg-inset));
+}
+.rk-web-strip-fade--edge {
+  right: 0;
 }
 
 /* Tty-tile task progress (260819-1vxq): passthrough-wrapped OSC 9;4 rendered
