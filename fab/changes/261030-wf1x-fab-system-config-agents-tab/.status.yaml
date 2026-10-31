@@ -8,8 +8,8 @@ progress:
     intake: done
     apply: done
     review: done
-    hydrate: active
-    ship: pending
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
@@ -32,24 +32,26 @@ stage_metrics:
     intake: {started_at: "2026-10-30T09:36:22Z", driver: fab-new, iterations: 1, completed_at: "2026-10-31T09:15:25Z"}
     apply: {started_at: "2026-10-31T09:15:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-31T09:31:59Z"}
     review: {started_at: "2026-10-31T09:31:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-31T09:40:35Z"}
-    hydrate: {started_at: "2026-10-31T09:40:35Z", driver: fab-fff, iterations: 1}
+    hydrate: {started_at: "2026-10-31T09:40:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-31T09:43:13Z"}
+    ship: {started_at: "2026-10-31T09:43:13Z", driver: fab-fff, iterations: 1}
 prs: []
 base_branch: main
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 3626
+    deleted: 59
+    net: 3567
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 2986
+        deleted: 57
+        net: 2929
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-10-31T09:31:59Z"
-    computed_at_stage: apply
+        added: 813
+        deleted: 4
+        net: 809
+    computed_at: "2026-10-31T09:43:14Z"
+    computed_at_stage: hydrate
+summary: 'Settings dialog gains a curated Agents tab over fab-kit''s system config (GET/POST /api/fab-config via internal/fabsysconfig wrapping the fab config CLI), plus the Settings: Agents palette entry'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-10-31T09:40:35Z
+last_updated: 2026-10-31T09:43:14Z
