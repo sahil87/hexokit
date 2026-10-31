@@ -1194,7 +1194,7 @@ export function IframeWindow({
                       e.stopPropagation();
                       onCloseTab(n);
                     }}
-                    className={`shrink-0 rounded px-0.5 hover:text-text-primary ${
+                    className={`shrink-0 ml-auto rounded px-0.5 hover:text-text-primary ${
                       isActive || coarsePointer
                         ? ""
                         : "invisible group-hover:visible group-focus-within:visible"
@@ -1272,7 +1272,7 @@ export function IframeWindow({
                       e.stopPropagation();
                       discardDraft(draft.id);
                     }}
-                    className="shrink-0 rounded px-0.5 hover:text-text-primary"
+                    className="shrink-0 ml-auto rounded px-0.5 hover:text-text-primary"
                   >
                     ×
                   </button>
@@ -1301,7 +1301,12 @@ export function IframeWindow({
             </Tip>
           </span>
         )}
-        {stripScroll && <div aria-hidden="true" className="rk-web-strip-fade" />}
+        {stripScroll && (
+          <div
+            aria-hidden="true"
+            className={onAddTab ? "rk-web-strip-fade" : "rk-web-strip-fade rk-web-strip-fade--edge"}
+          />
+        )}
         </div>
       </TipGroup>
 
