@@ -3,9 +3,7 @@ import { Dialog } from "@/components/dialog";
 import { controlClass } from "@/components/control";
 import { INPUT_COARSE, INPUT_FOCUS } from "@/components/controls";
 import { FolderPathInput } from "@/components/folder-path-input";
-import { deriveNameFromPath, finalizeSafeName, toSafeServerName } from "@/lib/names";
-
-const SERVER_NAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
+import { deriveNameFromPath, finalizeSafeName, isValidServerName, toSafeServerName } from "@/lib/names";
 
 type CreateWorkspaceDialogProps = {
   /** Folder prefilled on open (e.g. the current tab's worktree). */
@@ -36,7 +34,7 @@ export function CreateWorkspaceDialog({ initialFolder = "", existingNames, quick
 
   const finalizedName = finalizeSafeName(name.trim());
   const nameTaken = existingNames.includes(finalizedName);
-  const valid = SERVER_NAME_PATTERN.test(name.trim()) && !nameTaken;
+  const valid = isValidServerName(name.trim()) && !nameTaken;
 
   function handleFolderChange(next: string) {
     setFolder(next);
@@ -47,7 +45,7 @@ export function CreateWorkspaceDialog({ initialFolder = "", existingNames, quick
     // The input applies the live server transform; commit trims the trailing
     // separator. The pattern stays as defense in depth.
     const finalized = finalizeSafeName(name.trim());
-    if (!finalized || !SERVER_NAME_PATTERN.test(finalized) || nameTaken) return;
+    if (!finalized || !isValidServerName(finalized) || nameTaken) return;
     onSubmit(finalized, folder.trim() || undefined);
   }
 

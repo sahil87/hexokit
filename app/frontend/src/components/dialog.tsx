@@ -11,8 +11,10 @@ type DialogProps = {
    *  width (`max-w-2xl`, ≈672px). `xl` (`max-w-4xl`) additionally pins a FIXED
    *  panel height with `overflow-hidden` — the tabbed settings dialog's
    *  variant, so a tab rail never jumps between short and tall panels (each
-   *  tab panel owns its own internal scroll instead). */
-  size?: "sm" | "lg" | "xl";
+   *  tab panel owns its own internal scroll instead). `sheet` is the New
+   *  sheet's variant: ≈520px centered from `sm` up, a full-width bottom sheet
+   *  below it. */
+  size?: "sm" | "lg" | "xl" | "sheet";
 };
 
 export function Dialog({ title, onClose, children, size = "sm" }: DialogProps) {
@@ -33,11 +35,16 @@ export function Dialog({ title, onClose, children, size = "sm" }: DialogProps) {
   const sizing =
     size === "xl"
       ? "max-w-4xl h-[min(40rem,calc(100vh-2rem))] overflow-hidden flex flex-col"
-      : `${size === "lg" ? "max-w-2xl" : "max-w-sm"} max-h-[calc(100vh-2rem)] overflow-y-auto`;
+      : size === "sheet"
+        ? "max-w-none sm:max-w-[520px] max-h-[calc(100vh-2rem)] overflow-y-auto rounded-b-none sm:rounded-b-lg"
+        : `${size === "lg" ? "max-w-2xl" : "max-w-sm"} max-h-[calc(100vh-2rem)] overflow-y-auto`;
+  // The sheet hugs the bottom edge below `sm` (no side/bottom gutter); every
+  // other size keeps the centered p-4 gutter.
+  const placement = size === "sheet" ? "items-end p-0 sm:items-center sm:p-4" : "items-center p-4";
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center p-4"
+      className={`fixed inset-0 z-40 flex justify-center ${placement}`}
       onClick={onClose}
     >
       <div className="fixed inset-0 bg-black/50" aria-hidden="true" />

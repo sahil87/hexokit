@@ -16,9 +16,9 @@
  */
 
 /** Mirrors backend validate.MaxNameLength (session/window names). */
-const MAX_NAME_LENGTH = 128;
+export const MAX_NAME_LENGTH = 128;
 /** Mirrors backend validate.MaxServerNameLength. */
-const MAX_SERVER_NAME_LENGTH = 64;
+export const MAX_SERVER_NAME_LENGTH = 64;
 
 /**
  * Chars every tmux-name transform converts: the backend forbidden set
@@ -46,6 +46,13 @@ export function toSafeSessionName(raw: string): string {
  */
 export function toSafeWindowName(raw: string): string {
   return squash(raw.replace(BASE_UNSAFE, "_"), MAX_NAME_LENGTH);
+}
+
+/** Commit-time server-name rule — the backend's ValidateServerName charset. */
+export const SERVER_NAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
+export function isValidServerName(name: string): boolean {
+  return SERVER_NAME_PATTERN.test(name);
 }
 
 /**
@@ -89,4 +96,37 @@ export function deriveNameFromPath(p: string): string {
   if (trimmed === "~" || trimmed === "") return "";
   const segment = trimmed.split("/").pop() ?? "";
   return finalizeSafeName(toSafeSessionName(segment));
+}
+
+/**
+ * Deduplicate `base` against `existing` by appending -2 through -10; beyond
+ * that appends -11 (best-effort). Shared by instant group creation and the
+ * New sheet so the preview shows the name that will actually be created.
+ * `maxLength` truncates the base to leave room for the suffix, so a name
+ * already at the backend cap stays within it once deduped.
+ */
+export function uniqueName(base: string, existing: Iterable<string>, maxLength = Infinity): string {
+  const taken = new Set(existing);
+  const withSuffix = (suffix: string) => `${base.slice(0, maxLength - suffix.length)}${suffix}`;
+  if (!taken.has(base)) return base;
+  for (let i = 2; i <= 10; i++) {
+    const candidate = withSuffix(`-${i}`);
+    if (!taken.has(candidate)) return candidate;
+  }
+  return withSuffix("-11");
+}
+
+/**
+ * Raw (unsanitized) basename of a filesystem path — the last non-empty path
+ * segment. Used as the optimistic ghost-window label so it matches what tmux
+ * will name an unnamed window (tmux's `#{b:pane_current_path}` uses the raw
+ * basename, NOT the tmux-safe sanitization `deriveNameFromPath` applies).
+ * Falls back to "window" when no basename is derivable.
+ */
+export function rawBasename(cwd: string | undefined): string {
+  if (!cwd) return "window";
+  const trimmed = cwd.replace(/\/+$/, "");
+  if (trimmed === "") return "window";
+  const segment = trimmed.split("/").pop() ?? "";
+  return segment || "window";
 }

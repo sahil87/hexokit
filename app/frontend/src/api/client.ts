@@ -1040,6 +1040,21 @@ export async function getDirectories(prefix: string): Promise<string[]> {
   return data.directories ?? [];
 }
 
+export type WorktreeEntry = { path: string; branch: string };
+export type WorktreesResponse = { repo: string; worktrees: WorktreeEntry[] };
+
+/** The git worktrees of `path`'s repo. A non-repo folder, an invalid path, or a
+ *  failed request all read as "no worktrees" — the New sheet just omits the
+ *  section. */
+export async function getWorktrees(path: string): Promise<WorktreesResponse> {
+  const empty: WorktreesResponse = { repo: "", worktrees: [] };
+  if (!path) return empty;
+  const res = await deduplicatedFetch(`/api/worktrees?path=${encodeURIComponent(path)}`);
+  if (!res.ok) return empty;
+  const data = await res.json();
+  return { repo: data.repo ?? "", worktrees: data.worktrees ?? [] };
+}
+
 export async function reloadTmuxConfig(server: string): Promise<{ ok: boolean }> {
   const res = await fetch(withServer("/api/tmux/reload-config", server), {
     method: "POST",

@@ -27,6 +27,7 @@ import {
   resizeGui,
   restartGui,
   getDirectories,
+  getWorktrees,
   uploadFile,
   killServer,
   createServer,
@@ -373,6 +374,25 @@ describe("API client", () => {
     const dirs = await getDirectories("~/code/");
     expect(dirs).toHaveLength(2);
     expect(dirs[0]).toContain("project-a");
+  });
+
+  it("getWorktrees sends GET /api/worktrees?path=... and returns the payload", async () => {
+    let capturedUrl = "";
+    mswServer.use(
+      http.get("/api/worktrees", ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json({ repo: "proj", worktrees: [{ path: "/home/u/proj", branch: "main" }] });
+      }),
+    );
+    const res = await getWorktrees("~/proj");
+    expect(new URL(capturedUrl).searchParams.get("path")).toBe("~/proj");
+    expect(res).toEqual({ repo: "proj", worktrees: [{ path: "/home/u/proj", branch: "main" }] });
+  });
+
+  it("getWorktrees reads an empty path and a failed request as no worktrees", async () => {
+    expect(await getWorktrees("")).toEqual({ repo: "", worktrees: [] });
+    mswServer.use(http.get("/api/worktrees", () => new HttpResponse(null, { status: 400 })));
+    expect(await getWorktrees("~/bad")).toEqual({ repo: "", worktrees: [] });
   });
 
   it("uploadFile sends POST /api/sessions/:session/upload with server query", async () => {

@@ -178,8 +178,10 @@ import { GuiRestartDialog } from "@/components/gui-restart-dialog";
 import type { GuiSurfaceCommands } from "@/components/gui-surface";
 import { windowIdToUrlSegment } from "@/lib/router-url";
 import { ServerDialogsProvider, useServerDialogs } from "@/contexts/server-dialogs-context";
+import { NewSheetProvider, useNewSheet } from "@/contexts/new-sheet-context";
 import { PaletteActionsProvider, usePaletteActions, usePaletteActionsApi, usePaletteGlobals, useRegisterPaletteActions } from "@/contexts/palette-actions-context";
 import { ServerDialogs } from "@/components/server-dialogs";
+import { NewSheetHost } from "@/components/new-sheet-host";
 import { useGlobalPaletteActions } from "@/hooks/use-global-palette-actions";
 import { ScreenBreakController } from "@/components/screen-break";
 import { registerGlass } from "@/lib/screen-break-store";
@@ -238,7 +240,7 @@ import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 import type { ProjectSession, WindowInfo } from "@/types";
 
-import { selectWindow, createSession, createWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, borrowLayout, returnLayout, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, launchGuiApp, getSettingsEntries, fetchGuiStatus, resizeGui, fetchCodeBridge, restartCodeServer, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
+import { selectWindow, createWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, borrowLayout, returnLayout, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, launchGuiApp, getSettingsEntries, fetchGuiStatus, resizeGui, fetchCodeBridge, restartCodeServer, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
 import { useCronData } from "@/hooks/use-cron";
 import { buildCronActions, type CronActionHandlers } from "@/lib/palette/cron";
 import { buildDataTableActions } from "@/lib/palette/data-table";
@@ -251,14 +253,16 @@ import { buildSessionSortActions } from "@/lib/palette/sort";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { usePinActions } from "@/hooks/use-pin-actions";
+import { useCreateGroup } from "@/hooks/use-create-group";
+import { deriveSheetName } from "@/lib/new-sheet";
+import { useCreateTab } from "@/hooks/use-create-tab";
 import {
-  deriveNameFromPath,
   finalizeSafeName,
   toSafeSessionName,
   toSafeWindowName,
 } from "@/lib/names";
 import { useSessionContext, useCodeServer, useCurrentServerFromRoute, useGui } from "@/contexts/session-context";
-import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-context";
+import { useMergedSessions } from "@/contexts/optimistic-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useCodeWorkspace } from "@/hooks/use-code-workspace";
 import { useToast } from "@/components/toast";
@@ -270,7 +274,6 @@ import { useWindowStore } from "@/store/window-store";
 
 const CommandPalette = lazy(() => import("@/components/command-palette").then(m => ({ default: m.CommandPalette })));
 const ThemeSelector = lazy(() => import("@/components/theme-selector").then(m => ({ default: m.ThemeSelector })));
-const CreateSessionDialog = lazy(() => import("@/components/create-session-dialog").then(m => ({ default: m.CreateSessionDialog })));
 const SessionNamePrompt = lazy(() => import("@/components/session-name-prompt").then(m => ({ default: m.SessionNamePrompt })));
 const GuiGeometryPrompt = lazy(() => import("@/components/gui-geometry-prompt").then(m => ({ default: m.GuiGeometryPrompt })));
 const GuiSendKeyPrompt = lazy(() => import("@/components/gui-send-key-prompt").then(m => ({ default: m.GuiSendKeyPrompt })));
@@ -299,29 +302,7 @@ function keyboardLock(): { lock(): Promise<void>; unlock(): void } | undefined {
  * -2 through -10; beyond that appends -11 (best-effort).
  */
 function deriveInstantSessionName(cwd: string | undefined, existingNames: string[]): string {
-  const base = (cwd ? deriveNameFromPath(cwd) : "") || "session";
-  const nameSet = new Set(existingNames);
-  if (!nameSet.has(base)) return base;
-  for (let i = 2; i <= 10; i++) {
-    const candidate = `${base}-${i}`;
-    if (!nameSet.has(candidate)) return candidate;
-  }
-  return `${base}-11`;
-}
-
-/**
- * Raw (unsanitized) basename of a filesystem path — the last non-empty path
- * segment. Used as the optimistic ghost-window label so it matches what tmux
- * will name an unnamed window (tmux's `#{b:pane_current_path}` uses the raw
- * basename, NOT the tmux-safe sanitization `deriveNameFromPath` applies).
- * Falls back to "window" when no basename is derivable.
- */
-function rawBasename(cwd: string | undefined): string {
-  if (!cwd) return "window";
-  const trimmed = cwd.replace(/\/+$/, "");
-  if (trimmed === "") return "window";
-  const segment = trimmed.split("/").pop() ?? "";
-  return segment || "window";
+  return deriveSheetName("group", cwd ?? "", existingNames);
 }
 
 /** Root wrapper — provides theme, chrome, session, focused-terminal, and
@@ -412,7 +393,9 @@ export function AppLayout() {
     // `ServerDialogs` reads `SessionContext` (RootWrapper, above all of this).
     <SettingsDialogProvider>
       <ServerDialogsProvider>
-        <AppLayoutContent />
+        <NewSheetProvider>
+          <AppLayoutContent />
+        </NewSheetProvider>
       </ServerDialogsProvider>
     </SettingsDialogProvider>
   );
@@ -590,6 +573,9 @@ function AppLayoutContent() {
     {/* The ONE server create/kill dialog mount (260811-239r) — every route's
         sidebar/palette triggers funnel through `server-dialogs-context`. */}
     <ServerDialogs />
+    {/* The ONE New-sheet mount — palette/split-button openers funnel through
+        `new-sheet-context`, like the server dialogs above. */}
+    <NewSheetHost />
     {/* The ONE (lazy) command-palette mount (260811-239r) — renders the merged
         list: the active route's registered actions first, then the global
         groups built above. The per-route palette mounts are gone. Unmounted
@@ -2454,10 +2440,10 @@ function AppShell() {
     killServerTarget,
     adoptServerTarget,
   } = useServerDialogs();
+  const { openNewSheet, newSheetOpen } = useNewSheet();
   const { getAllActions } = usePaletteActionsApi();
   const paletteGlobals = usePaletteGlobals();
   const [showTmuxCommands, setShowTmuxCommands] = useState(false);
-  const [showCreateWindowAtFolderDialog, setShowCreateWindowAtFolderDialog] = useState(false);
   // Save-as-style name prompt behind `Session: Create` (chord + palette). The
   // prefill is captured at OPEN time so it can't churn under the user's edit.
   const [sessionNamePrompt, setSessionNamePrompt] = useState<{ defaultName: string } | null>(null);
@@ -2482,13 +2468,8 @@ function AppShell() {
   const [iframeWindowName, setIframeWindowName] = useState("");
   const [iframeWindowUrl, setIframeWindowUrl] = useState("");
 
-  const { removeGhost, addGhostSession } = useOptimisticContext();
-  const addGhostWindowStore = useWindowStore((s) => s.addGhostWindow);
-  const removeWindowGhost = useWindowStore((s) => s.removeGhost);
   const setWindowsForSession = useWindowStore((s) => s.setWindowsForSession);
   const clearSession = useWindowStore((s) => s.clearSession);
-  const ghostWindowIdRef = useRef<string | null>(null);
-  const ghostSessionIdRef = useRef<string | null>(null);
 
   // SSE sync: keep window store in sync with real session data for the
   // current server. windowIds are unique per server only — pass `server`
@@ -3370,7 +3351,7 @@ function AppShell() {
   // `server-dialogs-context` (260811-239r) — the dialogs mount in AppLayout now,
   // but gating this route's URL writeback while one is up is unchanged.
   dialogOpenRef.current =
-    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || createServerOpen || killServerTarget != null || adoptServerTarget != null || showTmuxCommands || showCreateWindowAtFolderDialog || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null || operatorComposeMode != null || noteTarget != null;
+    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || createServerOpen || killServerTarget != null || adoptServerTarget != null || newSheetOpen || showTmuxCommands || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null || operatorComposeMode != null || noteTarget != null;
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -3404,58 +3385,8 @@ function AppShell() {
     currentWindowId: windowParam ?? "",
   };
 
-  // Create a new window in a session (from sidebar "+" button)
-  const { execute: executeCreateWindow } = useOptimisticAction<[string, string]>({
-    action: (srv, session) => {
-      const targetSession = sessions.find((s) => s.name === session);
-      const activeWin = targetSession?.windows.find((w) => w.isActiveWindow);
-      // No name — tmux auto-names the window to its folder basename via
-      // automatic-rename-format (the -c cwd on create makes this immediate).
-      return createWindow(srv, session, undefined, activeWin?.worktreePath);
-    },
-    onOptimistic: (srv, session) => {
-      // Label the optimistic ghost with the raw basename of the creation cwd so
-      // it matches what tmux will name the window (was hardcoded "zsh").
-      const targetSession = sessions.find((s) => s.name === session);
-      const activeWin = targetSession?.windows.find((w) => w.isActiveWindow);
-      ghostWindowIdRef.current = addGhostWindowStore(srv, session, rawBasename(activeWin?.worktreePath));
-    },
-    onRollback: () => {
-      if (ghostWindowIdRef.current) {
-        removeWindowGhost(ghostWindowIdRef.current);
-        ghostWindowIdRef.current = null;
-      }
-    },
-    onError: (err) => {
-      addToast(err.message || "Failed to create tab");
-    },
-    onSettled: () => {
-      ghostWindowIdRef.current = null;
-    },
-  });
-
-  // Instant session creation — derives name from active window's CWD, deduplicates, no dialog
-  const { execute: executeCreateSessionInstant, isPending: isSessionCreatePending } = useOptimisticAction<[string, string, string | undefined]>({
-    action: (srv, name, cwd) => createSession(srv, name, cwd),
-    onOptimistic: (srv, name) => {
-      ghostSessionIdRef.current = addGhostSession(srv, name);
-    },
-    onRollback: () => {
-      if (ghostSessionIdRef.current) {
-        removeGhost(ghostSessionIdRef.current);
-        ghostSessionIdRef.current = null;
-      }
-    },
-    onError: (err) => {
-      addToast(err.message || "Failed to create group");
-    },
-    onSettled: () => {
-      ghostSessionIdRef.current = null;
-    },
-  });
-
-  // Freshest-value refs for the instant-create path. `sessions`/`currentWindow`/
-  // `isSessionCreatePending` all churn on every SSE tick; reading them via
+  // Freshest-value refs for the instant-create path. `sessions`/`currentWindow`
+  // churn on every SSE tick; reading them via
   // render-time-mutated refs (the same pattern as `dialogOpenRef` above) keeps
   // `handleCreateSessionInstant` referentially stable across ticks, so it (and
   // the Sidebar/palette consumers that receive it) don't defeat the
@@ -3465,23 +3396,36 @@ function AppShell() {
   sessionsRef.current = sessions;
   const currentWindowRef = useRef(currentWindow);
   currentWindowRef.current = currentWindow;
-  const isSessionCreatePendingRef = useRef(isSessionCreatePending);
-  isSessionCreatePendingRef.current = isSessionCreatePending;
   // `ctx.sessionsByServer` is a fresh Map every SSE tick; the cross-server
   // create branch reads it at click time via this ref so the stable
   // `onCreateSession` callback below doesn't have to depend on it.
   const sessionsByServerRef = useRef(ctx.sessionsByServer);
   sessionsByServerRef.current = ctx.sessionsByServer;
 
+  // Create a new window in a session (from sidebar "+" button): starts in the
+  // session's active tab's folder. No name — tmux auto-names the window to its
+  // folder basename via automatic-rename-format (the -c cwd on create makes
+  // this immediate). Reads `sessions` through the freshest-value ref so the
+  // callback stays stable across SSE ticks.
+  const createTab = useCreateTab();
+  const { createGroup, isCreatingGroup } = useCreateGroup();
+  const executeCreateWindow = useCallback(
+    (srv: string, session: string) => {
+      const activeWin = sessionsRef.current.find((s) => s.name === session)?.windows.find((w) => w.isActiveWindow);
+      createTab(srv, session, activeWin?.worktreePath);
+    },
+    [createTab],
+  );
+
   const handleCreateSessionInstant = useCallback(() => {
-    // Guard against concurrent creates: a second click before the first request
-    // settles would overwrite ghostSessionIdRef, causing ghost tracking to break.
-    if (isSessionCreatePendingRef.current) return;
+    // Skip while a create is in flight (`createGroup` refuses it too; this also
+    // avoids computing a name for nothing).
+    if (isCreatingGroup()) return;
     const cwd = currentWindowRef.current?.worktreePath;
     const existingNames = sessionsRef.current.map((s) => s.name);
     const name = deriveInstantSessionName(cwd, existingNames);
-    executeCreateSessionInstant(server, name, cwd || undefined);
-  }, [server, executeCreateSessionInstant]);
+    createGroup(server, name, cwd || undefined);
+  }, [server, createGroup, isCreatingGroup]);
 
   // `Session: Create` (palette body, and the chord via fromPalette) opens the
   // save-as-style name prompt instead of creating instantly. The prefill is
@@ -3489,20 +3433,19 @@ function AppShell() {
   // freshest-value refs at open time — Enter on the untouched default
   // reproduces today's outcome. Sidebar/tiles/board `+` stay instant.
   const handleOpenSessionNamePrompt = useCallback(() => {
-    if (isSessionCreatePendingRef.current) return;
+    if (isCreatingGroup()) return;
     const cwd = currentWindowRef.current?.worktreePath;
     const existingNames = sessionsRef.current.map((s) => s.name);
     setSessionNamePrompt({ defaultName: deriveInstantSessionName(cwd, existingNames) });
-  }, []);
+  }, [isCreatingGroup]);
 
   const handleSessionNamePromptSubmit = useCallback(
     (name: string) => {
       setSessionNamePrompt(null);
-      if (isSessionCreatePendingRef.current) return;
       const cwd = currentWindowRef.current?.worktreePath;
-      executeCreateSessionInstant(server, name, cwd || undefined);
+      createGroup(server, name, cwd || undefined);
     },
-    [server, executeCreateSessionInstant],
+    [server, createGroup],
   );
 
   const handleCreateWindow = useCallback(
@@ -3839,6 +3782,12 @@ function AppShell() {
         description: "holds related tabs",
         onSelect: handleOpenSessionNamePrompt,
       },
+      {
+        id: "create-session-at-folder",
+        label: "Group: Create at Folder",
+        description: "pick the folder first",
+        onSelect: () => openNewSheet({ level: "group", server }),
+      },
       ...(sessionName
         ? [
             {
@@ -3894,7 +3843,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, dialogs, handleOpenSessionNamePrompt, currentSessionOrderIdx, effectiveSessionOrder, moveCurrentSession, server, addToast],
+    [sessionName, dialogs, handleOpenSessionNamePrompt, currentSessionOrderIdx, effectiveSessionOrder, moveCurrentSession, server, addToast, openNewSheet],
   );
 
   // Compute min/max window indices for current session (for move boundary checks)
@@ -3937,7 +3886,7 @@ function AppShell() {
             {
               id: "create-window-at-folder",
               label: "Tab: Create at Folder",
-              onSelect: () => setShowCreateWindowAtFolderDialog(true),
+              onSelect: () => openNewSheet({ level: "tab", server, group: sessionName }),
             },
             {
               id: "create-iframe-window",
@@ -4172,7 +4121,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, currentWindow, sessions, hasOperatorWindow, handleCreateWindow, handleFixTabName, handleAnnotateTab, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, addToast, setShowCreateWindowAtFolderDialog, copyPaletteEntry],
+    [sessionName, currentWindow, sessions, hasOperatorWindow, handleCreateWindow, handleFixTabName, handleAnnotateTab, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, addToast, openNewSheet, copyPaletteEntry],
   );
 
   // Boards palette block (server-route variant). AppShell only mounts under
@@ -5086,7 +5035,7 @@ function AppShell() {
       {
         id: "create-server",
         label: "Workspace: Create",
-        onSelect: openCreateServer,
+        onSelect: () => openNewSheet({ level: "workspace" }),
       },
       // The server tier's keyboard color path (mirrors `Session: Set Color`'s
       // shape): opens the modal SwatchPopover's "server" arm below.
@@ -5154,7 +5103,7 @@ function AppShell() {
         onSelect: () => handleSwitchServer(name),
       })),
     ],
-    [servers, server, handleSwitchServer, currentRegularIdx, regularOrder, moveCurrentServer, openCreateServer, requestKillServer, requestAdoptServer, copyPaletteEntry, instanceDisplayName, windowParam, navigate],
+    [servers, server, handleSwitchServer, currentRegularIdx, regularOrder, moveCurrentServer, openNewSheet, requestKillServer, requestAdoptServer, copyPaletteEntry, instanceDisplayName, windowParam, navigate],
   );
 
   // Desktop-shell server switching (Constitution V): `Server: Switch to
@@ -5812,10 +5761,10 @@ function AppShell() {
         // time so this callback stays stable across SSE ticks.
         const existingNames = (sessionsByServerRef.current.get(srv) ?? []).map((s) => s.name);
         const name = deriveInstantSessionName(undefined, existingNames);
-        executeCreateSessionInstant(srv, name, undefined);
+        createGroup(srv, name, undefined);
       }
     },
-    [server, handleCreateSessionInstant, executeCreateSessionInstant],
+    [server, handleCreateSessionInstant, createGroup],
   );
   // Stable kill-server handler (260721-x4sf): `onKillServer` threads into the
   // memoized `ServerGroup` header cluster, so an inline arrow here would hand
@@ -6583,17 +6532,6 @@ function AppShell() {
           <GuiSendKeyPrompt
             onSubmit={submitGuiSendKey}
             onClose={() => setGuiSendKeyOpen(false)}
-          />
-        </Suspense>
-      )}
-
-      {showCreateWindowAtFolderDialog && sessionName && (
-        <Suspense fallback={null}>
-          <CreateSessionDialog
-            sessions={sessions}
-            session={sessionName}
-            defaultPath={currentWindow?.worktreePath}
-            onClose={() => setShowCreateWindowAtFolderDialog(false)}
           />
         </Suspense>
       )}

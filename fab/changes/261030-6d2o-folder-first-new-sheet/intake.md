@@ -67,6 +67,13 @@ Keyboard: `Enter` creates with the selected folder and derived name. `↑/↓` m
 
 Vitest for the level switch, preview text per level, name derivation and dedupe, keyboard handling, and the right API call per level. Go tests for `/api/worktrees` (repo, non-repo, invalid path). e2e: open via the palette, pick a folder, create a group → the sidebar shows the folder-named group. `just demo new-sheet` (desktop and mobile) for PR evidence.
 
+### Landed in change 2 (#1095), reuse rather than rebuild
+
+- `components/folder-path-input.tsx`: the folder combobox (debounced `getDirectories` autocomplete, useId ids), extracted from `create-session-dialog.tsx`. The sheet's folder field and autocomplete build on it.
+- `components/create-workspace-dialog.tsx`: the name + folder workspace dialog used by `server-dialogs.tsx` and `host-overview-page.tsx`. Its collision rule carries over to the sheet's Workspace level: an already-live name disables Create with the hint `A workspace named <name> already exists` (the backend answers 409 for it).
+- `createServer(name, cwd?)` returns `{ok, group?}`; the backend derives the first group from the folder (`validate.SessionNameFromPath`), falling back to `main`.
+- `server-dialogs.tsx` quick-picks already span every workspace's groups; the sheet's "Open elsewhere" list should reuse that logic, not duplicate it.
+
 ## Affected Memory
 
 - `run-kit/ui/dialogs-and-state`: (modify) the New sheet replaces `CreateSessionDialog`; opener context

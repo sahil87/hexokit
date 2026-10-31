@@ -47,8 +47,9 @@ test.describe("Create server → waiting → view (no 'Workspace not found' flas
    *    the `Connected` indicator in the status bar (the desktop sidebar footer
    *    is gone, so the status-bar dot is the gate).
    * 2. Open the command palette (`openPalette`), type `Workspace: Create`, press Enter.
-   * 3. In the "New workspace" dialog, fill the `Workspace name` field with
-   *    the freshly-generated server name and click the `Create` button.
+   * 3. In the New sheet (Workspace level), clear the folder, open the name
+   *    override (Ctrl/⌘+Enter), fill the `Workspace name` field with the
+   *    freshly-generated server name and press Enter.
    * 4. Assert the URL navigates to `/${CREATED_SERVER}`.
    * 5. Race two outcomes — whichever appears first wins: the `Connected`
    *    indicator becoming visible vs. the "Workspace not found" text becoming
@@ -76,13 +77,19 @@ test.describe("Create server → waiting → view (no 'Workspace not found' flas
     await paletteInput.fill("Workspace: Create");
     await page.keyboard.press("Enter");
 
-    // Fill the create dialog and submit. Role-scoped: the status bar's
-    // `Copy workspace name` button shares the "Workspace name" substring, so a bare
-    // getByLabel is ambiguous under strict mode.
+    // The palette opens the New sheet at Workspace level. Blank the folder
+    // (the default is the current tab's folder), open the name override with
+    // Ctrl/⌘+Enter, type the freshly-generated name, and submit.
+    const folderInput = page.getByRole("combobox", { name: "Folder" });
+    await expect(folderInput).toBeVisible({ timeout: 5_000 });
+    await folderInput.fill("");
+    await folderInput.press("ControlOrMeta+Enter");
+    // Role-scoped: the status bar's `Copy workspace name` button shares the
+    // "Workspace name" substring, so a bare getByLabel is ambiguous.
     const nameInput = page.getByRole("textbox", { name: "Workspace name" });
     await expect(nameInput).toBeVisible({ timeout: 5_000 });
     await nameInput.fill(CREATED_SERVER);
-    await page.getByRole("button", { name: "Create", exact: true }).click();
+    await nameInput.press("Enter");
 
     // The URL navigates to the new server immediately.
     await expect(page).toHaveURL(new RegExp(`/${CREATED_SERVER}(?:$|[/?#])`));

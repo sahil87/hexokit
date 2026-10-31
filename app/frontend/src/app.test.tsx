@@ -38,6 +38,7 @@ import { OptimisticProvider } from "@/contexts/optimistic-context";
 import { TopBarSlotProvider, useTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { FocusedPaneProvider } from "@/contexts/focused-pane-context";
 import { ServerDialogsProvider } from "@/contexts/server-dialogs-context";
+import { NewSheetProvider } from "@/contexts/new-sheet-context";
 import { PaletteActionsProvider } from "@/contexts/palette-actions-context";
 import { GuiOffRequestProvider } from "@/contexts/gui-off-context";
 import {
@@ -1324,7 +1325,7 @@ describe("operator page — the operator window's route wears the quake surface 
                   <OptimisticProvider>
                     <TopBarSlotProvider>
                       <FocusedPaneProvider>
-                        <ServerDialogsProvider>
+                        <ServerDialogsProvider><NewSheetProvider>
                           <PaletteActionsProvider globalActions={[]}>
                             <GuiOffRequestProvider value={undefined}>
                               <MetricsProvider value={null}>
@@ -1373,7 +1374,7 @@ describe("operator page — the operator window's route wears the quake surface 
                               </MetricsProvider>
                             </GuiOffRequestProvider>
                           </PaletteActionsProvider>
-                        </ServerDialogsProvider>
+                        </NewSheetProvider></ServerDialogsProvider>
                       </FocusedPaneProvider>
                     </TopBarSlotProvider>
                   </OptimisticProvider>
@@ -1515,7 +1516,7 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
                     <TopBarSlotProvider>
                       <TopBarSlotProbe />
                       <FocusedPaneProvider>
-                        <ServerDialogsProvider>
+                        <ServerDialogsProvider><NewSheetProvider>
                           <PaletteActionsProvider globalActions={[]}>
                             <GuiOffRequestProvider value={undefined}>
                               <MetricsProvider value={null}>
@@ -1587,7 +1588,7 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
                               </MetricsProvider>
                             </GuiOffRequestProvider>
                           </PaletteActionsProvider>
-                        </ServerDialogsProvider>
+                        </NewSheetProvider></ServerDialogsProvider>
                       </FocusedPaneProvider>
                     </TopBarSlotProvider>
                   </OptimisticProvider>
@@ -2144,7 +2145,7 @@ describe("absent-server route — the not-found fallback settles", () => {
                     <TopBarSlotProvider>
                       <SlotProbe />
                       <FocusedPaneProvider>
-                        <ServerDialogsProvider>
+                        <ServerDialogsProvider><NewSheetProvider>
                           <PaletteActionsProvider globalActions={[]}>
                             <GuiOffRequestProvider value={undefined}>
                               <MetricsProvider value={null}>
@@ -2166,7 +2167,7 @@ describe("absent-server route — the not-found fallback settles", () => {
                               </MetricsProvider>
                             </GuiOffRequestProvider>
                           </PaletteActionsProvider>
-                        </ServerDialogsProvider>
+                        </NewSheetProvider></ServerDialogsProvider>
                       </FocusedPaneProvider>
                     </TopBarSlotProvider>
                   </OptimisticProvider>
@@ -2326,7 +2327,7 @@ describe("⇧Ctrl+G capture chord — gui-capture-toggle / web-capture-toggle fl
                   <OptimisticProvider>
                     <TopBarSlotProvider>
                       <FocusedPaneProvider>
-                        <ServerDialogsProvider>
+                        <ServerDialogsProvider><NewSheetProvider>
                           <PaletteActionsProvider globalActions={[]}>
                             <GuiOffRequestProvider value={undefined}>
                               <MetricsProvider value={null}>
@@ -2365,7 +2366,7 @@ describe("⇧Ctrl+G capture chord — gui-capture-toggle / web-capture-toggle fl
                               </MetricsProvider>
                             </GuiOffRequestProvider>
                           </PaletteActionsProvider>
-                        </ServerDialogsProvider>
+                        </NewSheetProvider></ServerDialogsProvider>
                       </FocusedPaneProvider>
                     </TopBarSlotProvider>
                   </OptimisticProvider>

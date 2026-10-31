@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { useMatches, useNavigate } from "@tanstack/react-router";
-import { createServer, killServer as killServerApi, adoptServer as adoptServerApi, DAEMON_SERVER } from "@/api/client";
+import { useNavigate } from "@tanstack/react-router";
+import { killServer as killServerApi, adoptServer as adoptServerApi, DAEMON_SERVER } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { controlClass } from "@/components/control";
 import { INPUT_COARSE, INPUT_FOCUS } from "@/components/controls";
@@ -10,6 +10,8 @@ import { useServerDialogs } from "@/contexts/server-dialogs-context";
 import { useSessionContext } from "@/contexts/session-context";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
+import { useCreateWorkspace } from "@/hooks/use-create-workspace";
+import { useRouteWindowId } from "@/hooks/use-route-window-id";
 import { useToast } from "@/components/toast";
 import type { ProjectSession } from "@/types";
 
@@ -61,81 +63,37 @@ export function ServerDialogs() {
   const ctx = useSessionContext();
   const currentServer = ctx.currentServer;
   const refreshServers = ctx.refreshServers;
-  const markServerPending = ctx.markServerPending;
-  const { removeGhost, addGhostServer, markKilled, unmarkKilled } = useOptimisticContext();
+  const { markKilled, unmarkKilled } = useOptimisticContext();
   const { addToast } = useToast();
   const navigate = useNavigate();
 
-  const ghostServerIdRef = useRef<string | null>(null);
   const killedServerNameRef = useRef<string | null>(null);
 
-  const { execute: executeCreateServer } = useOptimisticAction<[string, string | undefined]>({
-    action: (name, cwd) => createServer(name, cwd),
-    onOptimistic: (name) => {
-      ghostServerIdRef.current = addGhostServer(name);
-    },
-    onRollback: () => {
-      if (ghostServerIdRef.current) {
-        removeGhost(ghostServerIdRef.current);
-        ghostServerIdRef.current = null;
-      }
-    },
-    onError: (err) => {
-      addToast(err.message || "Failed to create workspace");
-    },
-    onSettled: () => {
-      ghostServerIdRef.current = null;
-    },
-    // Refresh the (otherwise one-time-fetched) server list once the create
-    // resolves so the new server appears and the waiting state swaps to the
-    // view. `onAlwaysSettled` runs even though the create dialog has already
-    // closed on navigation — this component (which owns the hook) is mounted
-    // at the AppLayout level and never unmounts on navigation, and
-    // `refreshServers` only touches root-level SessionContext.
-    onAlwaysSettled: () => {
-      refreshServers();
-    },
-    // A failed create must not strand the UI on the waiting state — clear the
-    // pending marker (empty string clears to null) on the rollback path (also
-    // unmount-safe, root-context only).
-    onAlwaysRollback: () => {
-      markServerPending("");
-    },
-  });
-
+  const createWorkspace = useCreateWorkspace();
   const handleCreateServer = useCallback(
     (name: string, cwd: string | undefined) => {
-      executeCreateServer(name, cwd);
-      // Mark the just-created server pending so the route guard shows the brief
-      // waiting state (not "Server not found") until the refreshed list includes
-      // it. Cleared automatically by SessionContext once it appears.
-      markServerPending(name);
-      navigate({ to: "/$server", params: { server: name } });
+      createWorkspace(name, cwd);
       closeCreateServer();
     },
-    [navigate, executeCreateServer, markServerPending, closeCreateServer],
+    [createWorkspace, closeCreateServer],
   );
 
   // The current tab's folder prefills the create dialog's folder field; the
   // quick-picks span every workspace's groups (as on the host page). Both read
   // from sessions the client already holds.
-  const matches = useMatches();
+  const routeWindowId = useRouteWindowId();
   const quickPicks = useMemo(
     () => projectRoots([...ctx.sessionsByServer.values()].flat()),
     [ctx.sessionsByServer],
   );
   const currentWorktreePath = useMemo(() => {
-    const windowId = matches
-      .map((m) => (m.params as { window?: string }).window)
-      .reverse()
-      .find((w): w is string => typeof w === "string");
-    if (!windowId || !currentServer) return "";
+    if (!routeWindowId || !currentServer) return "";
     for (const session of ctx.sessionsByServer.get(currentServer) ?? []) {
-      const win = session.windows.find((w) => w.windowId === windowId);
+      const win = session.windows.find((w) => w.windowId === routeWindowId);
       if (win) return win.worktreePath;
     }
     return "";
-  }, [matches, currentServer, ctx.sessionsByServer]);
+  }, [routeWindowId, currentServer, ctx.sessionsByServer]);
   const existingServerNames = useMemo(() => ctx.servers.map((s) => s.name), [ctx.servers]);
 
   const { execute: executeKillServer } = useOptimisticAction<[string, boolean]>({

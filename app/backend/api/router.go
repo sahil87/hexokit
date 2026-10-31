@@ -1123,6 +1123,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/windows/closed/{id}/dismiss", s.handleClosedDismiss)
 	r.Post("/api/windows/closed/{id}/resume", s.handleClosedResume)
 	r.Get("/api/directories", s.handleDirectories)
+	r.Get("/api/worktrees", s.handleWorktrees)
 	r.Post("/api/sessions/{session}/upload", s.handleUpload)
 	r.Post("/api/preview-scope", s.handlePreviewScope)
 	r.Post("/api/tmux/reload-config", s.handleTmuxReloadConfig)

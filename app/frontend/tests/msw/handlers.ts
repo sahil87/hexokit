@@ -157,6 +157,9 @@ export const handlers = [
     return HttpResponse.json({ directories: dirs });
   }),
 
+  // GET /api/worktrees
+  http.get("/api/worktrees", () => HttpResponse.json({ repo: "", worktrees: [] })),
+
   // POST /api/sessions/:session/upload
   http.post("/api/sessions/:session/upload", async ({ params }) => {
     const sessionName = params.session as string;
