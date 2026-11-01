@@ -48,7 +48,11 @@ import { mockStateSocket } from "./_state-socket-mock";
 // init-script getter override on Navigator.prototype.platform ("MacIntel") so
 // detectPlatform() resolves `mac` and the per-platform defaults demote to the
 // ⌘ tier; those chords are pressed as `Meta+<code>`, exercising the mac
-// terminal-seam refusal (metaKey-gated cmd-tier matches).
+// terminal-seam refusal (metaKey-gated cmd-tier matches). Because the stubbed
+// terminals socket never delivers the incoming window's first bytes, every
+// window switch arms the pending-switch mask (`.rk-window-switch-mask`) at
+// its ~300ms grace threshold — chords that land after it must survive the
+// mask's keyboard swallow.
 
 const SERVER = "default";
 
@@ -159,6 +163,35 @@ test.describe("shifted-tier window cycling", () => {
     // Previous wraps backward from @1 to @3.
     await page.keyboard.press("Shift+Control+ArrowUp");
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/3(?:$|[/?#])`));
+  });
+
+  /**
+   * Proves: the tab-cycle chords still navigate while the pending-switch mask
+   * is up — the mask swallows terminal-bound keystrokes, but a registry chord
+   * the terminal refuses never reaches the pane and must pass through.
+   *
+   * Steps:
+   * 1. Mock the backend; open `/default/1`.
+   * 2. Press Shift+Ctrl+Down → URL is `/default/2`.
+   * 3. Wait for `.rk-window-switch-mask` to show (the stubbed socket never
+   *    confirms the switch, so the mask arms at its grace threshold).
+   * 4. Press Shift+Ctrl+Down → URL is `/default/3`.
+   * 5. Wait for the mask again; press Shift+Ctrl+Up → URL is `/default/2`.
+   */
+  test("tab-cycle chords pass through the pending-switch mask", async ({ page }) => {
+    await mockBackend(page);
+    await gotoWindowOne(page);
+    const mask = page.locator(".rk-window-switch-mask");
+
+    await page.keyboard.press("Shift+Control+ArrowDown");
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/2(?:$|[/?#])`));
+    await expect(mask).toBeVisible();
+    await page.keyboard.press("Shift+Control+ArrowDown");
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/3(?:$|[/?#])`));
+
+    await expect(mask).toBeVisible();
+    await page.keyboard.press("Shift+Control+ArrowUp");
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/2(?:$|[/?#])`));
   });
 
   /**

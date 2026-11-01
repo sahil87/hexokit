@@ -6128,13 +6128,13 @@ function AppShell() {
           // (assumption 10). Pointer input is blocked by the overlay's own
           // `pointer-events` below. Global chords survive the swallow (rework F2
           // — constitution V: Cmd+K is the primary discovery mechanism): Escape,
-          // meta chords, and the Ctrl-bound global chords pass through per
-          // `isMaskExemptKey`; terminal-bound input (plain typing, Ctrl+C) stays
+          // meta chords, the Ctrl-bound global chords, and every registry chord
+          // the terminal refuses pass through per `isMaskExemptKey`; terminal-bound input (plain typing, Ctrl+C) stays
           // dropped.
           onKeyDownCapture={
             showSwitchMask
               ? (e) => {
-                  if (isMaskExemptKey(e)) return;
+                  if (isMaskExemptKey(e, keybindings.bindings, bindingHost.platform)) return;
                   e.preventDefault();
                   e.stopPropagation();
                 }
