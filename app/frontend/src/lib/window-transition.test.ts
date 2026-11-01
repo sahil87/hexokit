@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { DEFAULT_BINDINGS, resolveBindings, type EffectiveBinding } from "./keybindings";
 import {
   windowSwitchDirection,
   shouldAnimateWindowSwitch,
@@ -858,11 +859,16 @@ describe("incoming-byte counting (hasCountedIncomingBytes)", () => {
 });
 
 describe("isMaskExemptKey (rework F2 — global chords survive the masked swallow)", () => {
+  // The hand-listed rules are checked against an EMPTY registry so they stand
+  // on their own; the registry-derived exemption has its own case below.
+  const NO_BINDINGS: EffectiveBinding[] = [];
   const key = (
     k: string,
     mods: { metaKey?: boolean; ctrlKey?: boolean; altKey?: boolean; shiftKey?: boolean } = {},
+    code = "",
   ) => ({
     key: k,
+    code,
     metaKey: mods.metaKey ?? false,
     ctrlKey: mods.ctrlKey ?? false,
     altKey: mods.altKey ?? false,
@@ -870,53 +876,65 @@ describe("isMaskExemptKey (rework F2 — global chords survive the masked swallo
   });
 
   it("exempts Escape (palette/dialog dismiss)", () => {
-    expect(isMaskExemptKey(key("Escape"))).toBe(true);
+    expect(isMaskExemptKey(key("Escape"), NO_BINDINGS, "other")).toBe(true);
   });
 
   it("exempts Cmd (meta) chords — never terminal input", () => {
-    expect(isMaskExemptKey(key("k", { metaKey: true }))).toBe(true);
-    expect(isMaskExemptKey(key(".", { metaKey: true }))).toBe(true);
-    expect(isMaskExemptKey(key("\\", { metaKey: true }))).toBe(true);
+    expect(isMaskExemptKey(key("k", { metaKey: true }), NO_BINDINGS, "other")).toBe(true);
+    expect(isMaskExemptKey(key(".", { metaKey: true }), NO_BINDINGS, "other")).toBe(true);
+    expect(isMaskExemptKey(key("\\", { metaKey: true }), NO_BINDINGS, "other")).toBe(true);
     // Even an unbound meta chord is exempt: xterm never forwards it to the pty.
-    expect(isMaskExemptKey(key("x", { metaKey: true }))).toBe(true);
+    expect(isMaskExemptKey(key("x", { metaKey: true }), NO_BINDINGS, "other")).toBe(true);
   });
 
   it("does NOT exempt Cmd+V — the default paste lands in the old pty (rework SF6)", () => {
-    expect(isMaskExemptKey(key("v", { metaKey: true }))).toBe(false);
-    expect(isMaskExemptKey(key("V", { metaKey: true }))).toBe(false);
+    expect(isMaskExemptKey(key("v", { metaKey: true }), NO_BINDINGS, "other")).toBe(false);
+    expect(isMaskExemptKey(key("V", { metaKey: true }), NO_BINDINGS, "other")).toBe(false);
   });
 
   it("exempts the Ctrl-bound global chords: Ctrl+K, Shift+Ctrl+B", () => {
-    expect(isMaskExemptKey(key("k", { ctrlKey: true }))).toBe(true);
-    expect(isMaskExemptKey(key("B", { ctrlKey: true, shiftKey: true }))).toBe(true);
+    expect(isMaskExemptKey(key("k", { ctrlKey: true }), NO_BINDINGS, "other")).toBe(true);
+    expect(isMaskExemptKey(key("B", { ctrlKey: true, shiftKey: true }), NO_BINDINGS, "other")).toBe(true);
     // Ctrl+. is no shipped binding (the lens cycle is retired and `Period` is
     // deliberately unbound), so it is pty-bound input and stays swallowed.
-    expect(isMaskExemptKey(key(".", { ctrlKey: true }))).toBe(false);
+    expect(isMaskExemptKey(key(".", { ctrlKey: true }), NO_BINDINGS, "other")).toBe(false);
     // Plain Ctrl+B is pty input (readline back-char) — shift is what marks
     // the sidebar chord; Ctrl+\ is no longer any shipped binding.
-    expect(isMaskExemptKey(key("b", { ctrlKey: true }))).toBe(false);
-    expect(isMaskExemptKey(key("\\", { ctrlKey: true }))).toBe(false);
+    expect(isMaskExemptKey(key("b", { ctrlKey: true }), NO_BINDINGS, "other")).toBe(false);
+    expect(isMaskExemptKey(key("\\", { ctrlKey: true }), NO_BINDINGS, "other")).toBe(false);
     // Ctrl+` (mac focus-hop) stays swallowed during a transition: on
     // Win/Linux plain Ctrl+` is pty input, and a mid-transition focus hop
     // can simply be retried once the mask drops.
-    expect(isMaskExemptKey(key("`", { ctrlKey: true }))).toBe(false);
+    expect(isMaskExemptKey(key("`", { ctrlKey: true }), NO_BINDINGS, "other")).toBe(false);
   });
 
   it("does NOT exempt AltGr combos — ctrlKey+altKey is typed input, not a chord (rework NTH9)", () => {
-    expect(isMaskExemptKey(key("k", { ctrlKey: true, altKey: true }))).toBe(false);
-    expect(isMaskExemptKey(key("\\", { ctrlKey: true, altKey: true }))).toBe(false);
+    expect(isMaskExemptKey(key("k", { ctrlKey: true, altKey: true }), NO_BINDINGS, "other")).toBe(false);
+    expect(isMaskExemptKey(key("\\", { ctrlKey: true, altKey: true }), NO_BINDINGS, "other")).toBe(false);
   });
 
   it("swallows plain typing", () => {
-    expect(isMaskExemptKey(key("a"))).toBe(false);
-    expect(isMaskExemptKey(key("Enter"))).toBe(false);
+    expect(isMaskExemptKey(key("a"), NO_BINDINGS, "other")).toBe(false);
+    expect(isMaskExemptKey(key("Enter"), NO_BINDINGS, "other")).toBe(false);
   });
 
   it("swallows terminal control bytes — Ctrl+C stays blocked (the old-window hazard)", () => {
-    expect(isMaskExemptKey(key("c", { ctrlKey: true }))).toBe(false);
-    expect(isMaskExemptKey(key("d", { ctrlKey: true }))).toBe(false);
+    expect(isMaskExemptKey(key("c", { ctrlKey: true }), NO_BINDINGS, "other")).toBe(false);
+    expect(isMaskExemptKey(key("d", { ctrlKey: true }), NO_BINDINGS, "other")).toBe(false);
     // Ctrl+V (paste on Windows/Linux) is not in the exempt set either.
-    expect(isMaskExemptKey(key("v", { ctrlKey: true }))).toBe(false);
+    expect(isMaskExemptKey(key("v", { ctrlKey: true }), NO_BINDINGS, "other")).toBe(false);
+  });
+
+  it("exempts every registry chord the terminal refuses — the shifted-tier nav chords survive the mask", () => {
+    const bindings = resolveBindings(DEFAULT_BINDINGS, {}, { platform: "other", shell: false });
+    const shifted = (k: string, code: string) => key(k, { ctrlKey: true, shiftKey: true }, code);
+    expect(isMaskExemptKey(shifted("ArrowDown", "ArrowDown"), bindings, "other")).toBe(true);
+    expect(isMaskExemptKey(shifted("ArrowUp", "ArrowUp"), bindings, "other")).toBe(true);
+    expect(isMaskExemptKey(shifted("ArrowRight", "ArrowRight"), bindings, "other")).toBe(true);
+    // The same chord with no registry binding is pty-bound input → swallowed.
+    expect(isMaskExemptKey(shifted("ArrowDown", "ArrowDown"), NO_BINDINGS, "other")).toBe(false);
+    // Plain Ctrl+C is never refused by the terminal, registry or not.
+    expect(isMaskExemptKey(key("c", { ctrlKey: true }, "KeyC"), bindings, "other")).toBe(false);
   });
 });
 

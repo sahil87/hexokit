@@ -10,6 +10,8 @@
  * and `computeKillRedirect`.
  */
 
+import { shouldRefuseTerminalChord, type BindingPlatform, type ChordEvent, type EffectiveBinding } from "./keybindings";
+
 // The View Transitions API (`document.startViewTransition`, `ViewTransition`)
 // is provided by the TS `dom` lib (TS 5.7+), so no ambient augmentation is
 // needed. Feature detection (`viewTransitionSupported`) guards every call at
@@ -638,20 +640,27 @@ export function armGraceMask(timeoutMs: number = FIRST_WRITE_TIMEOUT_MS): GraceM
  *   all with `!altKey` required (rework NTH9): AltGr on Windows/Linux layouts
  *   reports `ctrlKey: true`, and AltGr+char is typed INPUT, never a chord (the
  *   same modifier discipline the retired `use-chat-view-shortcut.ts` used).
+ * - Every app-owned registry chord the terminal refuses
+ *   (`shouldRefuseTerminalChord` against the effective bindings — the whole
+ *   shifted tier on every platform: ⇧⌃↑/↓ tab cycle, ⇧⌃←/→ group jump,
+ *   history, splits, …). xterm never transmits a refused key, so it cannot
+ *   reach the OLD pty — the hazard the mask blocks — and swallowing it would
+ *   silently drop the user's navigation for the whole confirmation window.
+ *   Deriving this from the registry keeps a rebound or newly added chord
+ *   exempt without touching this list.
  *
  * Everything else — plain typing, terminal control bytes like Ctrl+C, and the
  * paste chords — stays swallowed: those are exactly the typed-into-the-OLD-
  * window hazards the mask exists to block. Structurally typed (not
  * `KeyboardEvent`) so the predicate is DOM-free and unit-testable.
  */
-export function isMaskExemptKey(e: {
-  key: string;
-  metaKey: boolean;
-  ctrlKey: boolean;
-  altKey: boolean;
-  shiftKey: boolean;
-}): boolean {
+export function isMaskExemptKey(
+  e: ChordEvent & { key: string },
+  bindings: readonly EffectiveBinding[],
+  platform: BindingPlatform,
+): boolean {
   if (e.key === "Escape") return true;
+  if (shouldRefuseTerminalChord(e, bindings, platform)) return true;
   if (e.metaKey) return e.key.toLowerCase() !== "v";
   if (e.ctrlKey && !e.altKey) {
     const key = e.key.toLowerCase();
