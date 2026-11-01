@@ -28,8 +28,6 @@ const VIEW_ACTION_LABEL: Record<ViewName, string> = {
   web: "View: Web",
   code: "View: Code",
   gui: "View: GUI",
-  review: "View: Changes",
-  diff: "View: Working",
 };
 
 /**

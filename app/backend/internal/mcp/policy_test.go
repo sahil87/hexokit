@@ -372,12 +372,12 @@ func TestMutationAnnotations(t *testing.T) {
 
 // The tab tool's surface enums are DERIVED from the layout registry, not
 // restated. They were a hand-kept copy, and by the time this was noticed they
-// still read {tty, web, code, gui} — so an agent driving run-kit over MCP could
-// not add or remove the review or working tiles, while `rk tab layout --add`
-// from a terminal could. This pins the derivation so the copy cannot come back.
+// lagged the registry — so an agent driving run-kit over MCP could not reach
+// surfaces that `rk tab layout --add` from a terminal could. This pins the
+// derivation so the copy cannot come back.
 func TestTabSurfaceEnumsTrackTheRegistry(t *testing.T) {
 	want := layoutspec.SurfaceKinds()
-	if len(want) < 5 {
+	if len(want) < 4 {
 		t.Fatalf("registry looks wrong: %v", want)
 	}
 	seen := 0

@@ -372,12 +372,12 @@ describe("SettingsShortcutsPanel desktop-pill rows (260823-c5yq)", () => {
     spoofMacHost();
     try {
       renderPanel();
-      // Twelve pills — the six canonical-chord rows (N/T/W/, + the app-window
-      // pair's ⌘N/⇧⌘W, reserved in a mac browser) plus the six surface
-      // digits (⌘1–6 are the browser's tab accelerators). Rows stay
+      // Ten pills — the six canonical-chord rows (N/T/W/, + the app-window
+      // pair's ⌘N/⇧⌘W, reserved in a mac browser) plus the four surface
+      // digits (⌘1–4 are the browser's tab accelerators). Rows stay
       // visible; no amber "browser" pill and no "in browser:/in desktop
       // app:" divergence text anywhere.
-      expect(screen.getAllByText("desktop")).toHaveLength(12);
+      expect(screen.getAllByText("desktop")).toHaveLength(10);
       expect(screen.queryByText("browser")).toBeNull();
       expect(screen.queryByText(/^in (browser|desktop app):/)).toBeNull();
       // The app-window pair renders its canonical mac keycaps here (no

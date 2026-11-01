@@ -25,9 +25,7 @@
 > P6 and the panel-slot mechanics are superseded here; availability,
 > companions, and P4 carry forward; the rail did NOT survive —
 > `260815-19me` moved its toggles into the top bar),
-> [`pr-review.md`](pr-review.md) (the `review` kind — it owns that surface's
-> availability, rendering and listener; the tile model and the surface registry
-> stay here), [`agent-state.md`](agent-state.md),
+> [`agent-state.md`](agent-state.md),
 > [`status-pyramid.md`](status-pyramid.md) (untouched — status describes
 > substrates, never tiles).
 
@@ -106,7 +104,7 @@ many tabs at once (§ Boards convergence).
 ### Tiles from other tabs
 
 A leaf names either a bare surface *kind* of this tab (`tty`, `code`, `web`,
-`gui`, `agents`, `review`) or a **foreign address** `@N/<surface>` — another tab's
+`gui`, `agents`) or a **foreign address** `@N/<surface>` — another tab's
 surface on the same server. Server/session qualifiers (`-L`, `=session:`) are
 not permitted, the `/<n>` web-tab suffix is grammar-only (it parses;
 validation rejects it), foreign `gui` is never permitted (one desktop per
@@ -120,11 +118,7 @@ page through the web tile's engine (iframe or native — window-views.md §
 Engines; § The View Registry).
 `gui` has no content selector in v1 — the tile shows the host's screen; a
 per-session display option becomes the selector only if per-session GUIs ever
-land ([`gui.md`](gui.md)). `review` is the one kind with a content signal that
-is also its AVAILABILITY gate: it is PR-backed only, so the window's
-branch-derived `prUrl` both selects the pull request and decides whether the
-tile exists at all ([`pr-review.md`](pr-review.md) § R1–R2); a foreign
-`@N/review` tile reads its home tab's PR. Two `web` tiles of one tab with different pages
+land ([`gui.md`](gui.md)). Two `web` tiles of one tab with different pages
 would push content addresses into per-viewer state, crossing R7 — punted.
 
 A surface is **live in exactly one place**. Borrowing moves it: drag another
