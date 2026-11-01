@@ -553,7 +553,7 @@ The new windows never appear on the managed `runkit`/`default` servers unless th
 
 ## Managed Window Creation — Name-Optional `CreateWindow` + Folder Auto-Naming
 
-A managed window (the plain sidebar/palette/board `+ New Window` paths — NOT `rk riff`, NOT iframe windows) is created **without a name**, so tmux auto-names it to its folder basename and live-updates that name as the pane `cd`s (260707-j66b-unnamed-windows-autoname-folder). The name is derived and single-sourced **in tmux** (Constitution II) — run-kit issues no rename and stores nothing; native tmux clients and the status line show the same folder name.
+A managed window (the plain New split button / sidebar `+` / palette / board create paths — NOT `rk riff`, NOT iframe windows) is created **without a name**, so tmux auto-names it to its folder basename and live-updates that name as the pane `cd`s (260707-j66b-unnamed-windows-autoname-folder). The name is derived and single-sourced **in tmux** (Constitution II) — run-kit issues no rename and stores nothing; native tmux clients and the status line show the same folder name.
 
 **Two halves make this work:**
 

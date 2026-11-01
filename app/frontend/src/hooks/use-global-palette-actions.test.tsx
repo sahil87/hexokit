@@ -4,6 +4,7 @@ import { useGlobalPaletteActions } from "./use-global-palette-actions";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { SettingsDialogProvider, useSettingsDialog } from "@/contexts/settings-dialog-context";
+import { NewSheetProvider, useNewSheet } from "@/contexts/new-sheet-context";
 import { ToastProvider } from "@/components/toast";
 import { registerSidebarRowFocuser } from "@/lib/sidebar-events";
 import { HOST_MENU_OPEN_EVENT } from "@/lib/shell-strip";
@@ -65,9 +66,12 @@ let captured: PaletteAction[] = [];
 // Dialog-state probe so entry bodies can be asserted against the context.
 let dialogState: { isOpen: boolean; activeTab: string } = { isOpen: false, activeTab: "general" };
 
+let sheetRequest: ReturnType<typeof useNewSheet>["newSheetRequest"] = null;
+
 function Probe() {
   const actions = useGlobalPaletteActions();
   captured = actions;
+  sheetRequest = useNewSheet().newSheetRequest;
   const { isOpen, activeTab } = useSettingsDialog();
   dialogState = { isOpen, activeTab };
   return <CommandPalette actions={actions} />;
@@ -78,7 +82,9 @@ function renderHook() {
     <ToastProvider>
       <ChromeProvider>
         <SettingsDialogProvider>
-          <Probe />
+          <NewSheetProvider>
+            <Probe />
+          </NewSheetProvider>
         </SettingsDialogProvider>
       </ChromeProvider>
     </ToastProvider>,
@@ -92,6 +98,19 @@ function openPalette() {
 function ids(): string[] {
   return captured.map((a) => a.id);
 }
+
+describe("useGlobalPaletteActions — create-server", () => {
+  it("registers Workspace: Create globally (Host and Board have no AppShell) and opens the New sheet at Workspace level", () => {
+    mockMatches = [{ params: {} }];
+    sheetRequest = null;
+    renderHook();
+    const entry = captured.find((a) => a.id === "create-server");
+    expect(entry).toBeDefined();
+    expect(entry!.label).toBe("Workspace: Create");
+    act(() => entry!.onSelect());
+    expect(sheetRequest).toEqual({ level: "workspace" });
+  });
+});
 
 describe("useGlobalPaletteActions", () => {
   beforeEach(() => {
@@ -485,6 +504,7 @@ describe("useGlobalPaletteActions — operator page entries", () => {
       <ToastProvider>
         <ChromeProvider>
           <SettingsDialogProvider>
+            <NewSheetProvider>
             <StandaloneSessionContextProvider
               value={{
                 servers: [{ name: "srv1", sessionCount: 1 }],
@@ -494,6 +514,7 @@ describe("useGlobalPaletteActions — operator page entries", () => {
             >
               <Probe />
             </StandaloneSessionContextProvider>
+            </NewSheetProvider>
           </SettingsDialogProvider>
         </ChromeProvider>
       </ToastProvider>,

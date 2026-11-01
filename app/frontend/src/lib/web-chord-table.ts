@@ -11,21 +11,21 @@
  *
  * The per-tier expansion mirrors `matchesCombo`'s acceptance exactly:
  * `cmd` accepts Ctrl OR Meta without Shift; `shifted` accepts Shift+Ctrl OR
- * Shift+Meta; `ctrl` accepts Ctrl alone; Alt is rejected in every tier. A
+ * Shift+Meta; `ctrl` accepts Ctrl alone; `optcmd` (mac ⌥⌘) accepts Meta+Alt; Alt is rejected in every other tier. A
  * plain `{code: "Escape"}` spec is appended last, always — Escape is the
  * focus-return chord and is not a registry binding.
  */
 import type { EffectiveBinding } from "@/lib/keybindings";
 
 /** One reclaimable chord for the shell-side matcher: a key code plus its
- *  exact modifier set. `alt` is always `false` (the registry has no Alt
- *  tier); the field exists so the main-side match is exact equality. */
+ *  exact modifier set. `alt` is true only for the mac `optcmd` tier; the
+ *  field makes the main-side match exact equality. */
 export interface WebChordSpec {
   code: string;
   ctrl: boolean;
   meta: boolean;
   shift: boolean;
-  alt: false;
+  alt: boolean;
   /** Skip main's host focus hop: set on the keyboard-capture toggle's arms,
    *  whose result is "keep typing in the page" — hopping focus to the SPA
    *  would send the next chord to rk instead of the page it was captured for. */
@@ -47,6 +47,8 @@ function combosFor(code: string, tier: EffectiveBinding["tier"]): WebChordSpec[]
       ];
     case "ctrl":
       return [{ code, ctrl: true, meta: false, shift: false, alt: false }];
+    case "optcmd":
+      return [{ code, ctrl: false, meta: true, shift: false, alt: true }];
   }
 }
 

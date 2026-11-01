@@ -243,10 +243,8 @@ test.describe("Server Panel Header — coarse pointer density", () => {
 
   /**
    * Proves: on a coarse pointer the SERVER panel header row is no taller than
-   * its sibling BOARDS header — the `+` create-server button's 40px coarse
-   * touch floor is layout-neutral (negative vertical margins let the hit box
-   * overhang the row instead of stretching it), while the button's tap target
-   * itself still meets the 40px floor.
+   * its sibling BOARDS header (the Workspaces header carries no extra control
+   * that could stretch it).
    *
    * Steps:
    * 1. Navigate to `/${TMUX_SERVER}` at 375×812 with `hasTouch: true`.
@@ -256,8 +254,6 @@ test.describe("Server Panel Header — coarse pointer density", () => {
    *    (CollapsiblePanel renders header-div > button — one `..` reaches the
    *    header row).
    * 4. Assert the two header heights are equal within 1px.
-   * 5. Assert the `New workspace` button's bounding box is ≥ 40px tall and
-   *    wide (the coarse floor survives the layout-neutral margins).
    */
   test("SERVER header matches BOARDS header height on coarse pointers", async ({ page }) => {
     await page.goto(`/${TMUX_SERVER}`);
@@ -274,11 +270,5 @@ test.describe("Server Panel Header — coarse pointer density", () => {
     const serverBox = (await serverHeader.boundingBox())!;
     const boardsBox = (await boardsHeader.boundingBox())!;
     expect(Math.abs(serverBox.height - boardsBox.height)).toBeLessThanOrEqual(1);
-
-    const plusBox = (await sidebar
-      .getByRole("button", { name: "New workspace" })
-      .boundingBox())!;
-    expect(plusBox.height).toBeGreaterThanOrEqual(40);
-    expect(plusBox.width).toBeGreaterThanOrEqual(40);
   });
 });

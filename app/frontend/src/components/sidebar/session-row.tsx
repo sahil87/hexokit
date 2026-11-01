@@ -460,6 +460,25 @@ function SessionRowInner({
               : undefined
           }
         />
+        {/* Per-group `+` — visible at rest (creation is a primary action, so
+            this control deliberately skips the hover-reveal contract): ~70%
+            ink on fine pointers, full ink on coarse. The 22/36px box is the
+            chevron's, the shared row-icon geometry. Instant create-tab into
+            THIS group; ghost rows have no group to create into yet. */}
+        {!ghost && (
+          <button
+            type="button"
+            data-testid="session-row-create"
+            aria-label={`New tab in ${name}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onCreateWindow(server, name);
+            }}
+            className="shrink-0 flex items-center justify-center min-w-[22px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] text-text-secondary opacity-70 hover:opacity-100 hover:text-text-primary coarse:opacity-100 transition-colors"
+          >
+            <PlusIcon />
+          </button>
+        )}
       </div>
       {/* Right-edge status rail — COARSE pointers, non-ghost rows only
           (260817-ve5m): the SAME 56px recessed inset band the window row

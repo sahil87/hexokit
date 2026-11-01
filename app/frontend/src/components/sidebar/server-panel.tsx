@@ -30,7 +30,6 @@ type ServerPanelProps = {
   /** Contrast-adjusted full-saturation border color per color value. */
   rowBorders?: Map<string, string>;
   onSwitchServer: (name: string) => void;
-  onCreateServer: () => void;
   onRefreshServers: () => void;
   /** Server color write seam for the tile card's `Change color…` popover.
    *  Optional (the optional-handler gate): unwired ⇒ no color row. */
@@ -58,7 +57,6 @@ export function ServerPanel({
   rowTints,
   rowBorders,
   onSwitchServer,
-  onCreateServer,
   onRefreshServers,
   onServerColorChange,
   onCreateSession,
@@ -125,15 +123,6 @@ export function ServerPanel({
       onToggle={handleToggle}
       headerRight={headerRight}
       contentClassName="px-1.5 sm:px-2 pt-1.5 pb-1.5"
-      headerAction={
-        <button
-          onClick={onCreateServer}
-          aria-label="New workspace"
-          className="text-text-secondary hover:text-text-primary transition-colors text-[13px] px-1 min-w-[24px] min-h-[24px] coarse:min-w-[40px] coarse:min-h-[40px] -my-1 coarse:-my-3 flex items-center justify-center"
-        >
-          +
-        </button>
-      }
       resizable
       defaultHeight={50}
       minHeight={50}

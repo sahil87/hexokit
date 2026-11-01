@@ -18,6 +18,8 @@ import { isShell } from "@/lib/shell";
 import { WaitingBadge } from "@/components/waiting-badge";
 import { Tip, TipGroup } from "@/components/tip";
 import { OpenButton, OpenMenuRows } from "@/components/open-button";
+import { NewSplitButton } from "@/components/new-split-button";
+import { newSplitPrimary, nextHeadRung, type HeadRung } from "@/lib/new-split";
 import { useOpenTargets } from "@/hooks/use-open-targets";
 import { activePaneCwd, buildOpenTargets } from "@/lib/open-in-app";
 import {
@@ -196,7 +198,6 @@ type TopBarProps = {
         /** Same contract as the toggle-mode `showDot`. */
         showDot?: (surface: SurfaceKind) => boolean;
       };
-  onCreateWindow: (session: string) => void;
   /** The gui header fold's mobile bottom rung: the `⚙` panel block pinned
    *  beside the mobile switch group, rendered only when switch mode shows the
    *  gui surface (the gate is at the render site). Carries the palette list
@@ -207,10 +208,6 @@ type TopBarProps = {
     visible: boolean;
     onVisibleChange: (visible: boolean) => void;
   };
-  /** Open the spawn-agent dialog for a session (260713-sbk1). When present, the
-   *  terminal-mode window-switcher dropdown shows a `+ New Agent` item beside
-   *  `+ New Tab`. Absent → no `+ New Agent` (e.g. before AppShell registers). */
-  onSpawnAgent?: (session: string) => void;
   /** Board-mode metadata. Required when `mode === "board"`. */
   boardName?: string;
   paneCount?: number;
@@ -322,37 +319,93 @@ function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
  *  centered heading. */
 const HEAD_MIN_BAR_PX = 600;
 
+/** Flex gap between the head's three items (brand, split, toggle) and the
+ *  head's horizontal padding — the fold measures against these. */
+const HEAD_GAP_PX = 8;
+const HEAD_PAD_X_PX = 12;
+
 function SidebarHead({
   width,
+  mode,
   onToggleSidebar,
   hamburgerOpen,
   brandSweep,
   toggleRef,
 }: {
   width: number;
+  mode: TopBarMode;
   onToggleSidebar: () => void;
   hamburgerOpen: boolean;
   brandSweep: ReturnType<typeof useBrandLogoSweep>;
   toggleRef: RefObject<HTMLButtonElement | null>;
 }) {
+  // The measured fold (lib/new-split.ts `nextHeadRung`): the rungs are
+  // measured by rendering them — R1 full, R2 wordmark hidden, R3 icon-only
+  // split. The recorded widths are per primary label, so a route whose label
+  // is longer (`+ Group`) re-measures from R1.
+  const label = newSplitPrimary(mode).label;
+  const [rung, setRung] = useState<HeadRung>(1);
+  const headRef = useRef<HTMLDivElement>(null);
+  const brandRef = useRef<HTMLAnchorElement>(null);
+  const splitRef = useRef<HTMLSpanElement>(null);
+  const widthsRef = useRef<{ label: string; needed: Partial<Record<HeadRung, number>> }>({
+    label,
+    needed: {},
+  });
+  useLayoutEffect(() => {
+    const head = headRef.current;
+    const brand = brandRef.current;
+    const split = splitRef.current;
+    const toggle = toggleRef.current;
+    if (!head || !brand || !split || !toggle) return;
+    const rec = widthsRef.current;
+    if (rec.label !== label) {
+      rec.label = label;
+      rec.needed = {};
+      if (rung !== 1) {
+        setRung(1);
+        return;
+      }
+    }
+    const measure = () => {
+      const content = brand.offsetWidth + split.offsetWidth + toggle.offsetWidth + 2 * HEAD_GAP_PX;
+      if (content > 0) rec.needed[rung] = content;
+      const next = nextHeadRung(rung, head.clientWidth - 2 * HEAD_PAD_X_PX, rec.needed);
+      if (next !== rung) setRung(next);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(head);
+    return () => ro.disconnect();
+  }, [rung, label, width, toggleRef]);
+
   return (
-    <div className="absolute inset-y-0 left-0 flex items-center gap-2 pl-3 pr-3" style={{ width }}>
+    <div
+      ref={headRef}
+      className="absolute inset-y-0 left-0 flex items-center gap-2 pl-3 pr-3"
+      style={{ width }}
+    >
       <Tip label="Host">
         <a
+          ref={brandRef}
           href="/"
           aria-label="HexoKit home"
           className="rk-brand-glitch flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors"
           onMouseEnter={brandSweep.onMouseEnter}
         >
           <LogoSpinner size={20} loading={false} svgRef={brandSweep.svgRef} />
-          <span className="text-xs font-bold tracking-wide">HexoKit</span>
+          {rung === 1 && <span className="text-xs font-bold tracking-wide">HexoKit</span>}
         </a>
       </Tip>
+      <span ref={splitRef} className="ml-auto flex">
+        <NewSplitButton mode={mode} iconOnly={rung === 3} />
+      </span>
       <button
         ref={toggleRef}
         onClick={onToggleSidebar}
         aria-label="Toggle navigation"
-        className={`ml-auto ${controlClass({ variant: "icon", rest: "border-border hover:border-text-secondary text-text-primary" })}`}
+        className={controlClass({ variant: "icon", rest: "border-border hover:border-text-secondary text-text-primary" })}
       >
         <HamburgerIcon isOpen={hamburgerOpen} />
       </button>
@@ -685,8 +738,6 @@ export function TopBar({
   onToggleSidebar,
   surfaceToggles,
   guiToolbar,
-  onCreateWindow,
-  onSpawnAgent,
   boardName,
   paneCount,
   serverCount,
@@ -775,6 +826,10 @@ export function TopBar({
   const barKeepsRoom = useMediaQuery(`(min-width: ${headTrack + HEAD_MIN_BAR_PX}px)`);
   const sidebarHeadWidth = !isMobile && hasSidebar && sidebarOpen && barKeepsRoom ? headTrack : 0;
   const headShown = sidebarHeadWidth > 0;
+  // The head-less New fallback (icon-only `+▾` after the hamburger). Its ~46px
+  // comes out of the nav's floor below, so the rigid left cluster never
+  // outgrows its `1fr` track against the centered heading.
+  const fallbackSplitShown = hasSidebar && !headShown && !isMobile;
 
   // Focus handoff across the toggle's node swap: the head's toggle and the
   // cluster's toggle are different buttons, and clicking either one unmounts
@@ -1329,6 +1384,7 @@ export function TopBar({
       {headShown && (
         <SidebarHead
           width={sidebarHeadWidth}
+          mode={mode}
           onToggleSidebar={handleHeadToggle}
           hamburgerOpen={hamburgerOpen}
           brandSweep={brandSweep}
@@ -1385,6 +1441,14 @@ export function TopBar({
             </button>
           )}
 
+          {/* Head-less fallback for the New control: the sidebar head carries
+              it while shown; with the head gone (sidebar closed, or a bar too
+              narrow to leave room beside it) an icon-only `+▾` follows the
+              hamburger. Below `sm` it lives in the drawer's brand row, and the
+              Host page's `+ Workspace` follows its brand crumb instead (from `lg` up —
+              the Host body carries its own `+ New workspace` door below that). */}
+          {fallbackSplitShown && <NewSplitButton mode={mode} iconOnly />}
+
           {/* Browser-history ◀ ▶ arrows — LEFT cluster as of 260731-oiho
               (macOS convention: sidebar toggle → back → forward → brand
               crumb; the pair leads the cluster on the Host page and while the
@@ -1417,7 +1481,7 @@ export function TopBar({
               nav clips at its floor. */}
           <nav
             aria-label="Breadcrumb"
-            className={`flex items-center gap-1.5 text-sm overflow-hidden flex-1 ${headShown ? "min-w-0" : "sm:min-w-[150px]"}`}
+            className={`flex items-center gap-1.5 text-sm overflow-hidden flex-1 ${headShown ? "min-w-0" : fallbackSplitShown ? "sm:min-w-[96px]" : "sm:min-w-[150px]"}`}
           >
             {/* Brand root crumb — logo + wordmark, links to `/`. The nav's
                 first child (the breadcrumb's root — the `›` separator starts
@@ -1452,6 +1516,14 @@ export function TopBar({
             </a>
             </Tip>
             </span>
+            )}
+
+            {/* Host page: no sidebar and no hamburger, so the New control is a
+                plain `+ Workspace` button right after the brand crumb. */}
+            {mode === "host" && !isMobile && (
+              <span className="hidden lg:flex shrink-0">
+                <NewSplitButton mode="host" />
+              </span>
             )}
 
             {mode === "board" ? (
@@ -1683,15 +1755,6 @@ export function TopBar({
                   label="tab"
                   title="Tabs"
                   onNavigate={handleDropdownNavigate}
-                  action={{ label: "+ New Tab", onAction: () => onCreateWindow(sessionName) }}
-                  // + New Agent — the second window-switcher entry point for the
-                  // web-UI spawn flow (260713-sbk1). Rendered only when AppShell
-                  // published an onSpawnAgent handler (terminal route with a session).
-                  secondaryAction={
-                    onSpawnAgent
-                      ? { label: "+ New Agent", onAction: () => onSpawnAgent(sessionName) }
-                      : undefined
-                  }
                   triggerClassName="ml-1 text-text-secondary hover:text-text-primary transition-colors shrink-0"
                 />
               </>

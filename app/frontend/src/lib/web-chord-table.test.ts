@@ -36,6 +36,13 @@ describe("buildWebChordTable tier expansion", () => {
     ]);
   });
 
+  it("expands optcmd to Meta+Alt only", () => {
+    expect(buildWebChordTable([binding({ code: "KeyT", tier: "optcmd" })])).toEqual([
+      { code: "KeyT", ctrl: false, meta: true, shift: false, alt: true },
+      { code: "Escape", ctrl: false, meta: false, shift: false, alt: false },
+    ]);
+  });
+
   it("expands shifted to Shift+Ctrl and Shift+Meta", () => {
     expect(buildWebChordTable([binding({ code: "KeyN", tier: "shifted" })])).toEqual([
       { code: "KeyN", ctrl: true, meta: false, shift: true, alt: false },

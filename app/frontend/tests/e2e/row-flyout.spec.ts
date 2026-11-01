@@ -587,13 +587,15 @@ test.describe("Row flyout card (fine pointer)", () => {
    * hover opens the shared-shell card with the `Session dev` title, the facts
    * line (`$4 · 2 tabs · ~/code/sahil87/run-kit`), and the action rows in the
    * fixed order (`Change color…` first, then `Spawn agent…` → `New tab` →
-   * `Kill group`), and the retired hover icon cluster (palette/bot/plus/kill)
-   * is absent from the DOM on fine pointers too. Keyboard focus also opens the
+   * `Kill group`), and the retired hover icon cluster (palette/bot/kill) is
+   * absent from the DOM on fine pointers too — only the per-group `+` stays,
+   * visible at rest. Keyboard focus also opens the
    * card and Escape dismisses it.
    *
    * Steps:
    * 1. Assert the retired cluster buttons (`Set color for dev`, `Spawn agent
-   *    in dev`, `New tab in dev`, `Kill group dev`) are absent from the DOM.
+   *    in dev`, `Kill group dev`) are absent from the DOM and the per-group
+   *    `New tab in dev` button is visible without hovering.
    * 2. Hover the session row; assert the card shows the `Session dev` title
    *    bar, the facts line, and the four action rows in vertical order.
    * 3. Move the pointer away and assert the card closes; focus the row and
@@ -607,8 +609,8 @@ test.describe("Row flyout card (fine pointer)", () => {
     // The retired hover icon cluster is gone from the DOM on fine pointers too.
     await expect(sessionRow(page).getByLabel("Set color for dev")).toHaveCount(0);
     await expect(sessionRow(page).getByLabel("Spawn agent in dev")).toHaveCount(0);
-    await expect(sessionRow(page).getByLabel("New tab in dev")).toHaveCount(0);
     await expect(sessionRow(page).getByLabel("Kill group dev")).toHaveCount(0);
+    await expect(sessionRow(page).getByLabel("New tab in dev")).toBeVisible();
 
     await sessionRow(page).hover();
     await expect(card(page)).toBeVisible();
@@ -1058,7 +1060,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
    * Steps:
    * 1. Route the session-kill API glob to a 200 that records each request.
    * 2. Open the drawer; assert the session row's rail is visible and its
-   *    Kill/New-window cluster buttons are absent from the DOM.
+   *    Kill cluster button is absent from the DOM while the per-group `+` is visible.
    * 3. Tap the session rail: assert the card shows the `Session dev` title
    *    bar, the facts line, and the four action rows in vertical order;
    *    assert the URL is still /default and the window rows are still visible
@@ -1084,7 +1086,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
     const rail = sessionRow(page).getByTestId("status-rail");
     await expect(rail).toBeVisible();
     await expect(sessionRow(page).getByLabel("Kill group dev")).toHaveCount(0);
-    await expect(sessionRow(page).getByLabel("New tab in dev")).toHaveCount(0);
+    await expect(sessionRow(page).getByLabel("New tab in dev")).toBeVisible();
 
     await rail.tap();
     await expect(card(page)).toBeVisible();

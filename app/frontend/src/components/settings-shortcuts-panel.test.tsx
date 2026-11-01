@@ -397,10 +397,9 @@ describe("SettingsShortcutsPanel desktop-pill rows (260823-c5yq)", () => {
       expect(screen.queryByText("desktop")).toBeNull();
       expect(screen.queryByText("browser")).toBeNull();
       expect(screen.queryByText(/^in (browser|desktop app):/)).toBeNull();
-      // The mac-canonical chords are live — their keycap buttons rebind.
-      // New group is the exception: its mac-keyless default refinement
-      // leaves it unbound on mac, so no live keycap renders for it.
-      expect(screen.queryByLabelText("Change binding for New group")).toBeNull();
+      // The mac-canonical chords are live — their keycap buttons rebind,
+      // including New group's ⌥⌘T (the optcmd tier).
+      expect(screen.getByLabelText("Change binding for New group")).toBeInTheDocument();
       expect(screen.getByLabelText("Change binding for Reopen closed tab")).toBeInTheDocument();
       expect(screen.getByLabelText("Change binding for Settings")).toBeInTheDocument();
     } finally {

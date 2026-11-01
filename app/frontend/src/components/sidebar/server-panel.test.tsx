@@ -31,7 +31,6 @@ function renderPanel(overrides: {
   rowTints?: Map<string, RowTint>;
   rowBorders?: Map<string, string>;
   onSwitchServer?: (name: string) => void;
-  onCreateServer?: () => void;
   onRefreshServers?: () => void;
   onServerColorChange?: (server: string, color: string | null) => void;
   onCreateSession?: (server: string) => void;
@@ -51,7 +50,6 @@ function renderPanel(overrides: {
     rowTints: overrides.rowTints,
     rowBorders: overrides.rowBorders,
     onSwitchServer: overrides.onSwitchServer ?? vi.fn(),
-    onCreateServer: overrides.onCreateServer ?? vi.fn(),
     onRefreshServers: overrides.onRefreshServers ?? vi.fn(),
     onServerColorChange: overrides.onServerColorChange,
     onCreateSession: overrides.onCreateSession,
@@ -129,13 +127,9 @@ describe("ServerPanel", () => {
     expect(screen.getByText("No workspaces")).toBeInTheDocument();
   });
 
-  it("header + button invokes onCreateServer without opening the panel", () => {
-    const onCreateServer = vi.fn();
-    renderPanel({ onCreateServer });
-
-    const plus = screen.getByRole("button", { name: "New workspace" });
-    fireEvent.click(plus);
-    expect(onCreateServer).toHaveBeenCalled();
+  it("carries no header + (workspace creation lives in the New split button)", () => {
+    renderPanel();
+    expect(screen.queryByRole("button", { name: "New workspace" })).not.toBeInTheDocument();
   });
 
   it("renders no hover action cluster on tiles (server actions live on the tile's flyout card)", () => {
@@ -554,7 +548,6 @@ describe("ServerPanel", () => {
               ]}
               serverColors={{}}
               onSwitchServer={vi.fn()}
-              onCreateServer={vi.fn()}
               onRefreshServers={vi.fn()}
             />
           </ToastProvider>

@@ -177,16 +177,17 @@ test.describe("Full-height sidebar — the sidebar head over the bar's left end"
 
   /**
    * Proves: the head's controls are keyboard-reachable in order — the brand
-   * link and then the toggle button are consecutive Tab stops from the
-   * window start (Constitution V).
+   * link, the New split's primary and caret, then the toggle button are
+   * consecutive Tab stops from the window start (Constitution V).
    *
    * Steps:
    * 1. Navigate to `/default/1` at 1440×900; wait for the sidebar aside.
    * 2. Press Tab (bounded loop, ≤12 presses, keyboard modality from a fresh
    *    page) until the `HexoKit home` link is `document.activeElement`.
-   * 3. Press Tab once more; assert the `Toggle navigation` button has focus.
+   * 3. Press Tab; assert the New split's primary has focus, then Tab again for
+   *    its caret, then Tab once more for the `Toggle navigation` button.
    */
-  test("Tab reaches the head's brand link, then its toggle, in order", async ({ page }) => {
+  test("Tab reaches the head's brand link, the New split, then its toggle, in order", async ({ page }) => {
     await gotoTerminal(page);
 
     const brand = page.getByRole("link", { name: "HexoKit home" });
@@ -197,8 +198,13 @@ test.describe("Full-height sidebar — the sidebar head over the bar's left end"
     }
     expect(focused, "the head's brand link never received keyboard focus").toBe(true);
 
-    await page.keyboard.press("Tab");
-    const toggle = page.getByRole("button", { name: "Toggle navigation" });
-    expect(await toggle.evaluate((el) => el === document.activeElement)).toBe(true);
+    for (const target of [
+      page.getByTestId("new-split-primary"),
+      page.getByTestId("new-split-caret"),
+      page.getByRole("button", { name: "Toggle navigation" }),
+    ]) {
+      await page.keyboard.press("Tab");
+      expect(await target.evaluate((el) => el === document.activeElement)).toBe(true);
+    }
   });
 });

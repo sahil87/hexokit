@@ -66,7 +66,7 @@ import { useMacros } from "@/hooks/use-macros";
 import { ChromeProvider, useChromeState, useChromeDispatch, SIDEBAR_WIDTH_BOUNDS } from "@/contexts/chrome-context";
 import { ZenProvider, useZenState, useZenDispatch, zenApplies } from "@/contexts/zen-context";
 import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
-import { TopBarSlotProvider, useTopBarSlot, useTopBarNotFound, useTopBarPopout, useRegisterTopBarSlot, useRegisterTopBarPopout } from "@/contexts/top-bar-slot-context";
+import { TopBarSlotProvider, useTopBarSlot, useTopBarPopout, useRegisterTopBarSlot, useRegisterTopBarPopout } from "@/contexts/top-bar-slot-context";
 import { FocusedPaneProvider } from "@/contexts/focused-pane-context";
 import { computeKillRedirect } from "@/lib/navigation";
 import {
@@ -183,6 +183,7 @@ import { PaletteActionsProvider, usePaletteActions, usePaletteActionsApi, usePal
 import { ServerDialogs } from "@/components/server-dialogs";
 import { NewSheetHost } from "@/components/new-sheet-host";
 import { useGlobalPaletteActions } from "@/hooks/use-global-palette-actions";
+import { useTopBarMode } from "@/hooks/use-top-bar-mode";
 import { ScreenBreakController } from "@/components/screen-break";
 import { registerGlass } from "@/lib/screen-break-store";
 import { SessionProvider } from "@/contexts/session-context";
@@ -668,51 +669,16 @@ function LayoutCommandPalette() {
  *     already supports.
  */
 function RootTopBar() {
-  const matches = useMatches();
-  // The not-found page signals its render via context (`useSignalTopBarNotFound`
-  // in `NotFoundPage`). This MUST win over the route-param walk below: TanStack
-  // Router's fuzzy not-found handling RETAINS the partially-matched params in
-  // `useMatches()` — e.g. `/board/x/y` keeps `name=x`, so the param walk alone
-  // would derive `board` mode ("Board: x") over the not-found body. When the
-  // not-found page is what actually renders, force the minimal `host`
-  // fallback (R3/R10). (The `/$server/$window`+extra shape — `/a/b/c` — is a
-  // different arm: it renders AppShell's `ServerNotFound`, not `NotFoundPage`,
-  // so `notFound` is false there and the `server`/`terminal` mode below is kept.)
-  const notFound = useTopBarNotFound();
-
-  // Walk matches deepest-first for route params. Param NAMES are unique across
-  // the route tree (`window` only on the terminal route, `server` on the server
-  // layout, `name` on the board route), so their presence fully determines the
-  // mode — the same deepest-first param walk `SessionContext` uses for
-  // `currentServer`. The host (`/`) carries no params and resolves to the
-  // minimal `host` mode.
-  let serverParam: string | undefined;
-  let windowParam: string | undefined;
-  let boardParam: string | undefined;
-  for (let i = matches.length - 1; i >= 0; i--) {
-    const p = (matches[i]?.params ?? {}) as {
-      server?: string;
-      window?: string;
-      name?: string;
-    };
-    if (serverParam === undefined && typeof p.server === "string") serverParam = p.server;
-    if (windowParam === undefined && typeof p.window === "string") windowParam = p.window;
-    if (boardParam === undefined && typeof p.name === "string") boardParam = p.name;
-  }
-
-  let mode: TopBarMode;
-  if (notFound) mode = "host";
-  else if (boardParam !== undefined) mode = "board";
-  else if (windowParam !== undefined) mode = "terminal";
-  else if (serverParam !== undefined) mode = "server";
-  else mode = "host";
+  // Route-derived mode/params (hooks/use-top-bar-mode.ts — the one derivation
+  // shared with the New split button in the mobile drawer).
+  const { mode, serverParam, boardName } = useTopBarMode();
 
   const slot = useTopBarSlot();
 
   return (
     <TopBar
       mode={mode}
-      boardName={notFound ? undefined : boardParam}
+      boardName={boardName}
       sessions={slot?.sessions ?? []}
       currentSession={slot?.currentSession ?? null}
       currentWindow={slot?.currentWindow ?? null}
@@ -729,8 +695,6 @@ function RootTopBar() {
       server={slot?.server ?? serverParam ?? ""}
       onNavigate={slot?.onNavigate ?? (() => {})}
       onToggleSidebar={slot?.onToggleSidebar ?? (() => {})}
-      onCreateWindow={slot?.onCreateWindow ?? (() => {})}
-      onSpawnAgent={slot?.onSpawnAgent}
       paneCount={slot?.paneCount}
       serverCount={slot?.serverCount}
       waitingPaneCount={slot?.waitingPaneCount}
@@ -2433,10 +2397,8 @@ function AppShell() {
   // `getAllActions` at call time. Routes never subscribe to the merged route
   // state they publish into (render-loop guard; see palette-actions-context).
   const {
-    openCreateServer,
     requestKillServer,
     requestAdoptServer,
-    createServerOpen,
     killServerTarget,
     adoptServerTarget,
   } = useServerDialogs();
@@ -3351,7 +3313,7 @@ function AppShell() {
   // `server-dialogs-context` (260811-239r) — the dialogs mount in AppLayout now,
   // but gating this route's URL writeback while one is up is unchanged.
   dialogOpenRef.current =
-    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || createServerOpen || killServerTarget != null || adoptServerTarget != null || newSheetOpen || showTmuxCommands || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null || operatorComposeMode != null || noteTarget != null;
+    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || killServerTarget != null || adoptServerTarget != null || newSheetOpen || showTmuxCommands || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null || operatorComposeMode != null || noteTarget != null;
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -3456,8 +3418,8 @@ function AppShell() {
   );
 
   // Open the spawn-agent dialog for an explicit `{server, session}` target
-  // (260713-sbk1; explicit target since gsmu). The palette `Agent: Spawn` action
-  // and the window-switcher `+ New Agent` pass the CURRENT `{server, sessionName}`;
+  // The palette `Agent: Spawn` action (also the New split button's `Agent tab…`
+  // row, which invokes it by id) passes the CURRENT `{server, sessionName}`;
   // the sidebar bot button passes the ROW's `{server, session}` (any server →
   // cross-server spawn). Gated on a resolvable session at the call sites.
   const handleOpenSpawnAgent = useCallback((srv: string, sess: string) => {
@@ -3739,7 +3701,7 @@ function AppShell() {
   // The create/kill server flows (useOptimisticAction wrappers, pending/killed
   // markers, post-create/kill navigation) live in the layout-mounted
   // `ServerDialogs` component now (260811-239r) — this shell only triggers
-  // them via `openCreateServer`/`requestKillServer` from the context above.
+  // them via `requestKillServer` from the context above.
 
   // File upload ref for palette
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -3781,6 +3743,15 @@ function AppShell() {
         label: "Group: Create",
         description: "holds related tabs",
         onSelect: handleOpenSessionNamePrompt,
+      },
+      {
+        // The instant create the New split button's `+ Group` runs on the
+        // server route: unnamed, no prompt (the name-prompted `create-session`
+        // above stays the chord's body).
+        id: "create-session-instant",
+        label: "Group: Create Instantly",
+        description: "unnamed, no prompt",
+        onSelect: handleCreateSessionInstant,
       },
       {
         id: "create-session-at-folder",
@@ -3843,7 +3814,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, dialogs, handleOpenSessionNamePrompt, currentSessionOrderIdx, effectiveSessionOrder, moveCurrentSession, server, addToast, openNewSheet],
+    [sessionName, dialogs, handleOpenSessionNamePrompt, handleCreateSessionInstant, currentSessionOrderIdx, effectiveSessionOrder, moveCurrentSession, server, addToast, openNewSheet],
   );
 
   // Compute min/max window indices for current session (for move boundary checks)
@@ -5032,11 +5003,6 @@ function AppShell() {
         label: "Host: Overview",
         onSelect: () => window.location.assign("/"),
       },
-      {
-        id: "create-server",
-        label: "Workspace: Create",
-        onSelect: () => openNewSheet({ level: "workspace" }),
-      },
       // The server tier's keyboard color path (mirrors `Session: Set Color`'s
       // shape): opens the modal SwatchPopover's "server" arm below.
       ...buildServerSetColorAction(server, () => setShowColorPicker("server")),
@@ -5103,7 +5069,7 @@ function AppShell() {
         onSelect: () => handleSwitchServer(name),
       })),
     ],
-    [servers, server, handleSwitchServer, currentRegularIdx, regularOrder, moveCurrentServer, openNewSheet, requestKillServer, requestAdoptServer, copyPaletteEntry, instanceDisplayName, windowParam, navigate],
+    [servers, server, handleSwitchServer, currentRegularIdx, regularOrder, moveCurrentServer, requestKillServer, requestAdoptServer, copyPaletteEntry, instanceDisplayName, windowParam, navigate],
   );
 
   // Desktop-shell server switching (Constitution V): `Server: Switch to
@@ -5829,14 +5795,6 @@ function AppShell() {
   // health ("per-page live-data health"). The dot renders in the SIDEBAR FOOTER
   // (260724-6j1v — it left the top bar), so this feeds the Sidebar prop below.
   const dotConnected = isConnected;
-  // The window-switcher `+ New Agent` (TopBar `onSpawnAgent(session)`) targets
-  // the CURRENT server; bind `server` here so the slot handler keeps the
-  // one-arg TopBar signature while feeding the explicit `{server, session}`
-  // target. Cross-server spawn comes from the sidebar, not this entry point.
-  const handleSlotSpawnAgent = useCallback(
-    (sess: string) => handleOpenSpawnAgent(server, sess),
-    [server, handleOpenSpawnAgent],
-  );
   // The web toggle's corner dot means "has content" (hasWebUrl), not "exists"
   // — web availability is unconditional (260821-zqlq), so the dot is what
   // carries the content signal. The gui toggle's dot is VNC health: the
@@ -5918,8 +5876,6 @@ function AppShell() {
       server,
       onNavigate: navigateToWindow,
       onToggleSidebar,
-      onCreateWindow: handleCreateWindow,
-      onSpawnAgent: handleSlotSpawnAgent,
       // Top-bar surface-toggle group: the tile surfaces the current window
       // offers (shortcut order) plus the mode discriminant — desktop registers
       // TOGGLE mode (the open tiles + the shared toggle mutation); mobile
@@ -5981,8 +5937,6 @@ function AppShell() {
       server,
       navigateToWindow,
       onToggleSidebar,
-      handleCreateWindow,
-      handleSlotSpawnAgent,
       windowParam,
       isMobile,
       panelSurfaces,
@@ -6059,7 +6013,6 @@ function AppShell() {
       onFixTabName={handleFixTabName}
       onOperatorCompose={hasOperatorWindow ? handleOperatorCompose : undefined}
       onOperatorPlaceholder={handleOperatorPlaceholder}
-      onCreateServer={openCreateServer}
       onKillServer={requestKillServer}
       onSidebarResizeStart={isMobile ? undefined : (e) => handleDragStart(e.clientX)}
     />
