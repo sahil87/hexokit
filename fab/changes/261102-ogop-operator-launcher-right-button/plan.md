@@ -122,42 +122,47 @@ Comments in `top-bar.tsx` that describe the launcher in the center cell SHALL be
 
 ### Functional Completeness
 
-- [ ] A-001 R1: one `<button data-testid="quake-launcher">` in every state; no input/ghost/collapsed/width ladder remains
-- [ ] A-002 R2: glyph + "Operator" + keycap + draft dot, tooltips and `aria-label` per the spec
-- [ ] A-003 R3: click semantics for rest / open / operator route / no operator
-- [ ] A-004 R4: latch via `aria-expanded` + well; accent edge follows `engaged` only
-- [ ] A-005 R5: restore-origin capture runs in `QuakeLauncherFocusCapture`, not the button or probe
-- [ ] A-006 R6: launcher is leftmost in `top-bar-right` before `surface-toggles` with a conditional divider, on all four modes, absent on mobile
-- [ ] A-007 R7: head registry entry is `dropLast`, merged row "Operator" shows once, mobile row keeps `requestQuakeTerminal`
-- [ ] A-008 R8: `computeFit` folds the label before any overflow and applies expand hysteresis
-- [ ] A-009 R9: center cell holds only the heading; stale launcher comments are gone
-- [ ] A-010 R10: tutorial and listed comments updated
+- [x] A-001 R1: one `<button data-testid="quake-launcher">` in every state; no input/ghost/collapsed/width ladder remains
+- [x] A-002 R2: glyph + "Operator" + keycap + draft dot, tooltips and `aria-label` per the spec
+- [x] A-003 R3: click semantics for rest / open / operator route / no operator
+- [x] A-004 R4: latch via `aria-expanded` + well; accent edge follows `engaged` only
+- [x] A-005 R5: restore-origin capture runs in `QuakeLauncherFocusCapture`, not the button or probe
+- [x] A-006 R6: launcher is leftmost in `top-bar-right` before `surface-toggles` with a conditional divider, on all four modes, absent on mobile
+- [x] A-007 R7: head registry entry is `dropLast`, merged row "Operator" shows once, mobile row keeps `requestQuakeTerminal`
+- [x] A-008 R8: `computeFit` folds the label before any overflow and applies expand hysteresis
+- [x] A-009 R9: center cell holds only the heading; stale launcher comments are gone
+- [x] A-010 R10: tutorial and listed comments updated
 
 ### Removal Verification
 
-- [ ] A-011 R1: no `quake-launcher-input|ghost|collapsed` references remain in src or tests
+- [x] A-011 R1: no `quake-launcher-input|ghost|collapsed` references remain in src or tests (only the demo spec's deliberate base-ref branch and the unit test's retired-id assertion name them)
 
 ### Scenario Coverage
 
-- [ ] A-012 R3: unit + e2e cover click-at-rest, click-while-open, Esc restore, blur-no-step
-- [ ] A-013 R8: unit tests cover the compact rung and hysteresis; e2e/demo cover labelled → glyph-only → menu row
+- [x] A-012 R3: unit + e2e cover click-at-rest, click-while-open, Esc restore, blur-no-step
+- [x] A-013 R8: unit tests cover the compact rung and hysteresis; e2e/demo cover labelled → glyph-only → menu row
 
 ### Edge Cases & Error Handling
 
-- [ ] A-014 R2: no `SessionContext` degrades to no operator, no state dot, no crash
-- [ ] A-015 R5: invariant (a) holds for a mouse-entered open (origin `null`)
+- [x] A-014 R2: no `SessionContext` degrades to no operator, no state dot, no crash
+- [x] A-015 R5: invariant (a) holds for a mouse-entered open (origin `null`)
 
 ### Code Quality
 
-- [ ] A-016 Pattern consistency: new code follows naming and structure of surrounding code (`controlClass`, `Tip`, registry)
-- [ ] A-017 No unnecessary duplication: shared hook serves bar button and menu row; existing helpers reused
-- [ ] A-018 Comments state constraints only — no narration, no change IDs
-- [ ] A-019 Magic numbers are named constants (hysteresis)
-- [ ] A-020 New behavior carries tests; modified Playwright tests carry updated Proves/Steps
+- [x] A-016 Pattern consistency: new code follows naming and structure of surrounding code (`controlClass`, `Tip`, registry)
+- [x] A-017 No unnecessary duplication: shared hook serves bar button and menu row; existing helpers reused
+- [x] A-018 Comments state constraints only — no narration, no change IDs (two stale registry comments noted as should-fix)
+- [x] A-019 Magic numbers are named constants (hysteresis)
+- [x] A-020 New behavior carries tests; modified Playwright tests carry updated Proves/Steps
 
 ## Notes
 
 - Check items as you review: `- [x]`
+
+## Deletion Candidates
+
+- `app/frontend/src/components/top-bar-overflow-menu.tsx` `QuakeLauncherRoute` type — duplicates the unexported `LauncherProps` in `quake-launcher.tsx`; export one and reuse it
+- `app/frontend/src/components/top-bar-overflow-menu.tsx` `QuakeTerminalMenuRow` name — the row is now "Operator" (the launcher's menu form); the old name no longer describes it
 
 ## Assumptions
 

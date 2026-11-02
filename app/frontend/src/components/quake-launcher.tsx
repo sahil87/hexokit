@@ -24,7 +24,7 @@ const LAUNCHER_REST =
  *  cannot decide a same-specificity tie. */
 const LAUNCHER_ENGAGED_EDGE = "border-accent-green!";
 
-type LauncherProps = {
+export type LauncherProps = {
   routeServer: string | null;
   routeWindow: string | null;
 };

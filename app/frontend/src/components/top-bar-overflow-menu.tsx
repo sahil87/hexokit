@@ -20,7 +20,7 @@ import { Tip } from "@/components/tip";
 import { HELP_URL, HelpIcon } from "@/components/global-chrome";
 import { HeadsetIcon, KeyboardIcon } from "@/components/sidebar/icons";
 import { requestQuakeTerminal } from "@/lib/quake-terminal";
-import { useQuakeLauncher } from "@/components/quake-launcher";
+import { useQuakeLauncher, type LauncherProps } from "@/components/quake-launcher";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { HELP_TOPICS, openHelpTopic } from "@/lib/help-topics";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
@@ -58,9 +58,6 @@ const MENU_SECTIONS: { key: MenuGroup; label: string }[] = [
  * Tiles → View → Window → App order under thin uppercase labels. The partition
  * preserves registry (pyramid) order within each section.
  */
-/** The route identity the launcher resolves its operator from. */
-type QuakeLauncherRoute = { routeServer: string | null; routeWindow: string | null };
-
 export type MenuGroup = "tiles" | "view" | "window" | "app";
 
 /**
@@ -233,7 +230,7 @@ export function KeyboardMenuRow() {
  *  re-focus the docked compose, or focus the operator page's strip). The
  *  trailing keycap shows the host-effective chord, omitted when unbound or
  *  disabled. */
-export function QuakeTerminalMenuRow({ routeServer, routeWindow }: QuakeLauncherRoute) {
+export function QuakeTerminalMenuRow({ routeServer, routeWindow }: LauncherProps) {
   const isMobile = useIsMobile();
   const { chord, activate } = useQuakeLauncher({ routeServer, routeWindow });
   return (

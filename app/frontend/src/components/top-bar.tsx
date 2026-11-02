@@ -1022,8 +1022,8 @@ export function TopBar({
         <QuakeTerminalMenuRow routeServer={server || null} routeWindow={currentWindow?.windowId ?? null} />
       ),
     },
-    // Surface-toggle group — terminal-only, at the registry's L1 HEAD
-    // (leftmost in the bar) but `dropLast`: it is the cluster's most
+    // Surface-toggle group — terminal-only, right after the operator
+    // launcher (leftmost in the bar after it) and `dropLast`: it is the cluster's most
     // important control, so it overflows only after every other fit
     // candidate has. The retired right rail's open-tile toggles relocated as
     // ONE bordered sub-group. One entry (not
@@ -1909,7 +1909,9 @@ export function TopBar({
           {/* Pinned entries — always in-bar, never overflowed, never probed
               (the mobile surface-switch group; its measured width is reserved
               from the fit budget). Rendered at the head: the only pinned entry
-              is the registry head, so registry order is preserved. */}
+              is the mobile surface-switch group, and on mobile the launcher
+              entry is menuOnly, so the pinned group is the first in-bar
+              entry and registry order is preserved. */}
           {pinnedItems.length > 0 && (
             <div ref={pinnedRef} className="flex items-center gap-3 shrink-0">
               {pinnedItems.map((e) => (
