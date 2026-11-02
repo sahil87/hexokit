@@ -9,7 +9,7 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
+    ship: done
     review-pr: pending
 plan:
     generated: true
@@ -33,25 +33,26 @@ stage_metrics:
     apply: {started_at: "2026-11-02T12:05:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-02T12:15:05Z"}
     review: {started_at: "2026-11-02T12:15:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-02T12:49:07Z"}
     hydrate: {started_at: "2026-11-02T12:49:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-02T13:02:05Z"}
-    ship: {started_at: "2026-11-02T13:02:05Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-11-02T13:02:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-02T13:43:29Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1104
 base_branch: main
 true_impact:
-    added: 1037
-    deleted: 63
-    net: 974
+    added: 1356
+    deleted: 83
+    net: 1273
     excluding:
-        added: 653
+        added: 941
         deleted: 63
-        net: 590
+        net: 878
     tests:
         added: 329
         deleted: 15
         net: 314
-    computed_at: "2026-11-02T13:02:06Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-11-02T13:43:29Z"
+    computed_at_stage: ship
 change_type_source: explicit
 summary: 'Present web-tile address shows repo-relative path: webPaths derived server-side from @rk_win_web_<n>_root, displayForm prefix, ListWindows reads root slots'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-02T13:02:06Z
+last_updated: 2026-11-02T13:43:29Z
