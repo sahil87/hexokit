@@ -93,7 +93,7 @@ import {
   ZoomGlyph,
 } from "@/components/top-bar-icons";
 import type { ViewWindow } from "@/lib/window-view";
-import { activeWebUrl } from "@/lib/window-view";
+import { activeWebPath, activeWebUrl, alignedWebPaths } from "@/lib/window-view";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
 import {
@@ -807,7 +807,8 @@ function dropHitKey(hit: DropHit | null): string {
 }
 
 /** Small header meta (R7): the code root's basename for code, the active web
- *  tab's display form for web (the kind-specific pretty form — never throws,
+ *  tab's display form for web (the kind-specific pretty form, led by the
+ *  server-derived repo-relative prefix for a present address — never throws,
  *  so a relative `/present/…`/`/proxy/…` address gets header meta too,
  *  260819-v6y4 R10), and `wm · display` for gui (the bare-WM state degrades
  *  to the display alone). The code root arrives via `codeRootFor` — the shared
@@ -825,7 +826,7 @@ function tileMeta(kind: SurfaceKind, win: ViewWindow | null, gui?: GuiSignal | n
   }
   const webUrl = kind === "web" ? activeWebUrl(win) : "";
   if (webUrl) {
-    return displayForm(webUrl);
+    return displayForm(webUrl, activeWebPath(win));
   }
   return null;
 }
@@ -884,6 +885,15 @@ function WebTileContent({
   const webOverrideRef = useRef(webOverride);
   webOverrideRef.current = webOverride;
   const webMoveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
+  // The family the user is looking at: the in-flight override's tabs (with ITS
+  // parallel prefixes — the payload's webPaths describes the payload's order,
+  // so it never pairs with overridden tabs) else the payload's.
+  const currentWebFamily = (): { tabs: string[]; paths: string[] | undefined } => {
+    const override = webOverrideRef.current;
+    return override?.webTabs
+      ? { tabs: override.webTabs, paths: override.webPaths }
+      : { tabs: win?.webTabs ?? [], paths: win?.webPaths };
+  };
   const applyWebOverride = (override: WebTabOverride) => {
     webOverrideRef.current = { ...webOverrideRef.current, ...override };
     setWebOverride(server, sessionName, windowId, override);
@@ -905,9 +915,9 @@ function WebTileContent({
     onOptimistic: (n) => {
       // Compound on any in-flight override so back-to-back strip clicks
       // shift the family the user is looking at, not the stale payload.
-      const tabs = webOverrideRef.current?.webTabs ?? win?.webTabs ?? [];
+      const { tabs, paths } = currentWebFamily();
       const active = webOverrideRef.current?.webActive ?? win?.webActive ?? 0;
-      applyWebOverride(webFamilyAfterRemove(tabs, active, n));
+      applyWebOverride(webFamilyAfterRemove(tabs, active, n, paths));
     },
     onAlwaysRollback: revertWebOverride,
     onError: (err) => addToast(err.message || "Failed to close web tab", "error"),
@@ -934,9 +944,9 @@ function WebTileContent({
     onOptimistic: (n, to) => {
       // Compound on any in-flight override so back-to-back reorder drop the
       // family the user sees, not the stale payload (the remove precedent).
-      const tabs = webOverrideRef.current?.webTabs ?? win?.webTabs ?? [];
+      const { tabs, paths } = currentWebFamily();
       const active = webOverrideRef.current?.webActive ?? win?.webActive ?? 0;
-      applyWebOverride(webFamilyAfterMove(tabs, active, n, to));
+      applyWebOverride(webFamilyAfterMove(tabs, active, n, to, paths));
     },
     onAlwaysRollback: revertWebOverride,
     onError: (err) => addToast(err.message || "Failed to move web tab", "error"),
@@ -976,6 +986,10 @@ function WebTileContent({
   return win ? (
     <IframeWindow
       tabs={webOverride?.webTabs ?? win.webTabs ?? []}
+      webPaths={alignedWebPaths(
+        webOverride?.webTabs ?? win.webTabs ?? [],
+        webOverride?.webTabs ? webOverride.webPaths : win.webPaths,
+      )}
       active={webOverride?.webActive ?? win.webActive}
       webCapture={webCapture}
       mobile={mobile}

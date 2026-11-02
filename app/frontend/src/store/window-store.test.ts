@@ -637,4 +637,39 @@ describe("window-store", () => {
       expect(webFamilyAfterMove(tabs, active, n, to)).toEqual({ webTabs, webActive });
     });
   });
+
+  describe("webPaths alignment through optimistic mutations", () => {
+    const tabs = ["/a", "/b", "/c"];
+    const paths = ["pa", "", "loom:pc"];
+
+    it("remove filters webPaths with the same index", () => {
+      expect(webFamilyAfterRemove(tabs, 1, 2, paths)).toEqual({
+        webTabs: ["/a", "/c"],
+        webActive: 1,
+        webPaths: ["pa", "loom:pc"],
+      });
+    });
+
+    it("move splices webPaths with the same indices", () => {
+      expect(webFamilyAfterMove(tabs, 1, 1, 3, paths)).toEqual({
+        webTabs: ["/b", "/c", "/a"],
+        webActive: 3,
+        webPaths: ["", "loom:pc", "pa"],
+      });
+    });
+
+    it("a no-op move keeps webPaths", () => {
+      expect(webFamilyAfterMove(tabs, 1, 2, 2, paths)).toEqual({
+        webTabs: tabs,
+        webActive: 1,
+        webPaths: paths,
+      });
+    });
+
+    it("omits webPaths when absent or misaligned with tabs", () => {
+      expect(webFamilyAfterRemove(tabs, 1, 2)).not.toHaveProperty("webPaths");
+      expect(webFamilyAfterRemove(tabs, 1, 2, ["x"])).not.toHaveProperty("webPaths");
+      expect(webFamilyAfterMove(tabs, 1, 1, 3, ["x"])).not.toHaveProperty("webPaths");
+    });
+  });
 });

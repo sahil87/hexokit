@@ -80,9 +80,10 @@ func windowLineLayout(windowID string, index int, name, path string, activityTs 
 }
 
 // emptyWebSlotFields pads a window-line fixture with MaxWebTabs empty
-// @rk_win_web_<n> slots — the positional padding between @rk_win_layout and
-// @rk_win_web_active in the ListWindows format.
-func emptyWebSlotFields() []string { return make([]string, MaxWebTabs) }
+// @rk_win_web_<n> URL slots plus MaxWebTabs empty root slots — the positional
+// padding between @rk_win_layout and @rk_win_web_active in the ListWindows
+// format.
+func emptyWebSlotFields() []string { return make([]string, 2*MaxWebTabs) }
 
 // fullWindowLine pads a partial fixture line to the full current-format
 // length — the real format always emits every field, and a shorter line
@@ -605,6 +606,7 @@ func windowLineWeb(layout, webActive, codeRoot string, tabs ...string) string {
 	for _, s := range slots {
 		fields = append(fields, s)
 	}
+	fields = append(fields, make([]string, MaxWebTabs)...) // root slots
 	return fullWindowLine(append(fields, webActive, codeRoot))
 }
 
@@ -944,9 +946,9 @@ func TestParseWindowsOwner(t *testing.T) {
 	// The tail-last invariant: an owner field present AND a legacy note with
 	// tabs still rejoins intact. (windowLineOwner pads to the full format
 	// length; trim its empty tail so the appended fields land on the
-	// note, retired-fallback, and legacy-note positions.)
+	// note, retired-fallback (url, lens, present root), and legacy-note positions.)
 	line := strings.TrimRight(windowLineOwner("@0", 0, "a", "/p", fakeNow, 1, "zsh", "operator"), listDelim) +
-		listDelim + "" + listDelim + "" + listDelim + "" + listDelim + "123:two\tpart\tnote"
+		listDelim + "" + listDelim + "" + listDelim + "" + listDelim + "" + listDelim + "123:two\tpart\tnote"
 	got := parseWindows([]string{line}, fakeNow)
 	if len(got) != 1 {
 		t.Fatalf("parseWindows() returned %d windows, want 1", len(got))
@@ -1037,6 +1039,7 @@ func windowLineNoteDualRead(newNote, legacyNote string) string {
 		newNote, // @rk_win_note (new — strict single field)
 		"",      // @rk_win_url (retired dual-read fallback — empty here)
 		"",      // @rk_win_lens (retired dual-read fallback — empty here)
+		"",      // @rk_win_present_root (retired dual-read fallback — empty here)
 	)
 	return strings.Join(fields, listDelim) + listDelim + legacyNote
 }
@@ -1113,6 +1116,7 @@ func windowLineLegacyURL(legacyURL string) string {
 		"",        // @rk_win_note
 		legacyURL, // @rk_win_url (retired dual-read fallback)
 		"",        // @rk_win_lens (retired dual-read fallback)
+		"",        // @rk_win_present_root (retired dual-read fallback)
 		"",        // legacy note (last)
 	)
 	return strings.Join(fields, listDelim)
@@ -1185,14 +1189,76 @@ func TestParseWindowsLegacyURLFallback(t *testing.T) {
 // explicitly — the parse-side mirror of the format builder, so a field-offset
 // drift lands here.
 func windowLineFull(webActive, codeRoot, marker, role, flair, owner, note, legacyURL, legacyLens, legacyNote string, tabs []string) string {
+	return windowLineFullRoots(webActive, codeRoot, marker, role, flair, owner, note, legacyURL, legacyLens, "", legacyNote, tabs, nil)
+}
+
+// windowLineFullRoots is windowLineFull with the parallel root slots and the
+// retired @rk_win_present_root placed explicitly.
+func windowLineFullRoots(webActive, codeRoot, marker, role, flair, owner, note, legacyURL, legacyLens, legacyPresentRoot, legacyNote string, tabs, roots []string) string {
 	fields := []string{"@0", "0", "a", "/p", "1700000000", "1", "zsh", "4", "row:tty,web"}
-	var slots [MaxWebTabs]string
+	var slots, rootSlots [MaxWebTabs]string
 	copy(slots[:], tabs)
-	for _, s := range slots {
-		fields = append(fields, s)
-	}
-	fields = append(fields, webActive, codeRoot, marker, role, flair, owner, note, legacyURL, legacyLens)
+	copy(rootSlots[:], roots)
+	fields = append(fields, slots[:]...)
+	fields = append(fields, rootSlots[:]...)
+	fields = append(fields, webActive, codeRoot, marker, role, flair, owner, note, legacyURL, legacyLens, legacyPresentRoot)
 	return strings.Join(fields, listDelim) + listDelim + legacyNote
+}
+
+// TestParseWindowsWebRoots pins the parallel root block: WebRoots is aligned
+// with the dense WebTabs ("" for a slot with no root), the trailing fields
+// still land after the root block, slot 1 falls back to the retired
+// @rk_win_present_root, and a pre-16-slot line carries no roots.
+func TestParseWindowsWebRoots(t *testing.T) {
+	tabs := []string{"/present/s/h/a.html", "/proxy/3000/", "/present/s/h2/b.html"}
+	roots := []string{"/home/u/loom3/docs", "", " /home/u/other "}
+	line := windowLineFullRoots("2", "/code", "manual:2", "operator", "", "", "1700000001:n", "", "", "", "", tabs, roots)
+	got := parseWindows([]string{line}, 1700000000)
+	if len(got) != 1 {
+		t.Fatalf("parseWindows() returned %d windows, want 1", len(got))
+	}
+	w := got[0]
+	if !reflect.DeepEqual(w.WebTabs, tabs) {
+		t.Errorf("WebTabs = %v, want %v", w.WebTabs, tabs)
+	}
+	if want := []string{"/home/u/loom3/docs", "", "/home/u/other"}; !reflect.DeepEqual(w.WebRoots, want) {
+		t.Errorf("WebRoots = %v, want %v", w.WebRoots, want)
+	}
+	if w.WebActive != 2 || w.CodeRoot != "/code" || w.Marker != "manual:2" || w.Note != "n" {
+		t.Errorf("trailing fields misplaced: active=%d code=%q marker=%q note=%q", w.WebActive, w.CodeRoot, w.Marker, w.Note)
+	}
+
+	// Slot 1 dual-reads the retired @rk_win_present_root when web_1_root is empty.
+	fallback := windowLineFullRoots("1", "", "", "", "", "", "", "", "", "/legacy/root", "", tabs[:1], nil)
+	got = parseWindows([]string{fallback}, 1700000000)
+	if len(got) != 1 || !reflect.DeepEqual(got[0].WebRoots, []string{"/legacy/root"}) {
+		t.Errorf("legacy present-root fallback: got %+v", got)
+	}
+	// ...but never overrides a populated web_1_root.
+	wins := windowLineFullRoots("1", "", "", "", "", "", "", "", "", "/legacy/root", "", tabs[:1], roots[:1])
+	got = parseWindows([]string{wins}, 1700000000)
+	if len(got) != 1 || !reflect.DeepEqual(got[0].WebRoots, []string{"/home/u/loom3/docs"}) {
+		t.Errorf("web_1_root must win over the legacy root: got %+v", got)
+	}
+}
+
+// TestParseWindowsLegacyLineHasNoRoots: a pre-16-slot capture never carried
+// the root block, so its WebRoots stay empty and the legacy-offset fields
+// still parse.
+func TestParseWindowsLegacyLineHasNoRoots(t *testing.T) {
+	fields := []string{"@0", "0", "a", "/p", "1700000000", "1", "zsh", "4", "row:tty,web",
+		"/p/1/", "", "", "", "", "", "", "",
+		"1", "/code", "", "", "", "", "", "", "", ""}
+	got := parseWindows([]string{strings.Join(fields, listDelim)}, 1700000000)
+	if len(got) != 1 {
+		t.Fatalf("parseWindows() returned %d windows, want 1", len(got))
+	}
+	if want := []string(nil); !reflect.DeepEqual(got[0].WebRoots, want) {
+		t.Errorf("WebRoots = %v, want none on a legacy line", got[0].WebRoots)
+	}
+	if got[0].CodeRoot != "/code" {
+		t.Errorf("CodeRoot = %q, want /code", got[0].CodeRoot)
+	}
 }
 
 // TestParseWindowsFullWebFamily pins the post-slot field offsets: a line with

@@ -86,6 +86,26 @@ describe("IframeWindow", () => {
     expect(input.value).toBe("localhost:8080/docs");
   });
 
+  it("a present tab's rest address leads with its repo-relative prefix; focus reveals the raw URL", () => {
+    const raw = "/present/loom3/98baf10236d1/verses-3d.html?v=1793612360";
+    renderIframe({ tabs: [raw], webPaths: ["docs/wiki"] });
+
+    const input = screen.getByLabelText("URL") as HTMLInputElement;
+    expect(input.value).toBe("docs/wiki/verses-3d.html");
+    // The tab-strip label stays the basename; the tooltip carries the prefix.
+    expect(screen.getByTestId("web-tab").getAttribute("title")).toBe("docs/wiki/verses-3d.html");
+    fireEvent.focus(input);
+    expect(input.value).toBe(raw);
+  });
+
+  it("a webPaths array misaligned with tabs degrades to no prefix", () => {
+    renderIframe({
+      tabs: ["/present/loom3/98baf10236d1/verses-3d.html?v=1"],
+      webPaths: ["docs/wiki", "extra"],
+    });
+    expect((screen.getByLabelText("URL") as HTMLInputElement).value).toBe("verses-3d.html");
+  });
+
   it("calls onWriteUrl on Enter with the normalized address", () => {
     renderIframe(
       {

@@ -1193,3 +1193,83 @@ func TestFetchSessionsDerivesAwayIn(t *testing.T) {
 		}
 	}
 }
+
+// TestDeriveWebPath pins the repo-relative display prefix per serve root:
+// same-repo relative path, "" at the toplevel / outside any repo / for empty
+// or relative roots, the worktree form (.git as a FILE), and the cross-repo
+// "<repo>:<rel>" label.
+func TestDeriveWebPath(t *testing.T) {
+	base := t.TempDir()
+	mkRepo := func(name string, gitAsFile bool) string {
+		dir := filepath.Join(base, name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		git := filepath.Join(dir, ".git")
+		if gitAsFile {
+			if err := os.WriteFile(git, []byte("gitdir: /elsewhere\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := os.Mkdir(git, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	loom3 := mkRepo("loom3", false)
+	loom := mkRepo("loom", false)
+	worktree := mkRepo("honest-merlin", true)
+	wiki := filepath.Join(loom3, "docs", "wiki")
+	loomWiki := filepath.Join(loom, "docs", "wiki")
+	for _, dir := range []string{wiki, loomWiki, filepath.Join(worktree, "app")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outside := filepath.Join(t.TempDir(), "plain")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name, root, windowGitRoot, want string
+	}{
+		{"empty root", "", loom3, ""},
+		{"relative root", "docs/wiki", loom3, ""},
+		{"same repo subdir", wiki, loom3, "docs/wiki"},
+		{"same repo toplevel", loom3, loom3, ""},
+		{"outside any repo", outside, loom3, ""},
+		{"worktree (.git file) same repo subdir", filepath.Join(worktree, "app"), worktree, "app"},
+		{"cross repo subdir", loomWiki, loom3, "loom:docs/wiki"},
+		{"cross repo toplevel", loom, loom3, "loom:"},
+		{"worktree as a different repo labels its folder", filepath.Join(worktree, "app"), loom3, "honest-merlin:app"},
+		{"window outside any repo labels the repo", wiki, outside, "loom3:docs/wiki"},
+		{"unresolved window git root labels the repo", wiki, "", "loom3:docs/wiki"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := deriveWebPath(tt.root, tt.windowGitRoot); got != tt.want {
+				t.Errorf("deriveWebPath(%q, %q) = %q, want %q", tt.root, tt.windowGitRoot, got, tt.want)
+			}
+		})
+	}
+
+	t.Run("deriveWebPaths aligns with WebTabs and drops when empty", func(t *testing.T) {
+		w := &tmux.WindowInfo{
+			GitRoot:  loom3,
+			WebTabs:  []string{"/present/s/h/a.html", "/proxy/3000/", "/present/s/h/b.html"},
+			WebRoots: []string{wiki, "", outside},
+		}
+		want := []string{"docs/wiki", "", ""}
+		if got := deriveWebPaths(w); !reflect.DeepEqual(got, want) {
+			t.Errorf("deriveWebPaths = %v, want %v", got, want)
+		}
+		w.WebRoots = []string{loom3, "", outside}
+		if got := deriveWebPaths(w); got != nil {
+			t.Errorf("deriveWebPaths with no prefixes = %v, want nil", got)
+		}
+		w.WebRoots = []string{wiki}
+		if got := deriveWebPaths(w); got != nil {
+			t.Errorf("deriveWebPaths with misaligned roots = %v, want nil", got)
+		}
+	})
+}

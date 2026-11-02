@@ -9,8 +9,9 @@
  *    loopback dev server riding `/proxy/{port}`), `external` (any other
  *    absolute http(s) URL), `relative` (any other root-relative path).
  * 2. `displayForm` — the pretty REST form the address bar and header show:
- *    plumbing hidden (`/proxy/` prefix, the `?server=…&v=…&raw=…` params), never
- *    throwing (unparseable input degrades to the raw string).
+ *    plumbing hidden (`/proxy/` prefix, the `?server=…&v=…&raw=…` params), a
+ *    present address optionally led by its server-derived repo-relative prefix,
+ *    never throwing (unparseable input degrades to the raw string).
  * 3. `normalizeAddressInput` — the submit-time normalization: bare loopback
  *    `host:port` → `/proxy/{port}/…`, bare domain → `https://…`, valid
  *    values pass through.
@@ -105,15 +106,25 @@ function proxyPathPort(path: string): number | null {
  *  name or address. */
 const DIRECTORY_PRESENT_LABEL = "index.html";
 
-/** The path segments carrying content for a /present/ address, or null when
- *  only plumbing remains (degraded form — callers then fall back to the raw
+/** What a /present/ address displays: `tail` is the name path (every segment
+ *  after the plumbing, joined with `/`), `keyed` is true for the NEW
+ *  content-keyed form — the only form a repo-relative prefix describes. */
+interface PresentDisplay {
+  tail: string;
+  keyed: boolean;
+}
+
+/** The display parts of a /present/ address's path segments, or null when only
+ *  plumbing remains (degraded form — callers then fall back to the raw
  *  string, never display raw plumbing). The LEGACY form's segments are
  *  [windowId, slot?, name...]; the NEW content-keyed form's are
  *  [server, hash, name...] — so the first TWO segments are always plumbing.
  *  The legacy `@`-prefixed windowId segment is never a file name (the route
  *  gates it ^@[0-9]+$); the new-form hash segment is gated ^[0-9a-f]{8,64}$
- *  by the route, so presenting itself as a name is impossible there. */
-function presentDisplayBase(segments: string[]): string | null {
+ *  by the route, so presenting itself as a name is impossible there. The
+ *  legacy form keeps only its last name segment; the NEW form keeps the whole
+ *  tail so nested navigation inside a presented directory reads `sub/page.html`. */
+function presentDisplay(segments: string[]): PresentDisplay | null {
   // segments[0] is the literal "present"; skip it so the shapes line up.
   const path = segments[0] === "present" ? segments.slice(1) : segments;
   if (path.length < 2) return null;
@@ -124,14 +135,38 @@ function presentDisplayBase(segments: string[]): string | null {
     const names = rest.length > 1 && /^[1-8]$/.test(rest[0]) ? rest.slice(1) : rest;
     if (names.length === 0) return null;
     if (names.length === 1 && /^[1-8]$/.test(names[0])) return null;
-    return names[names.length - 1];
+    return { tail: names[names.length - 1], keyed: false };
   }
   // New content-keyed form has exactly two plumbing segments (server + hash).
   // A remainder of just those two is a directory present — the raw hash is
   // plumbing, not a name, and MUST NOT display, so the label is what the
   // directory form serves; more than two means a real file tail exists.
-  if (path.length === 2) return DIRECTORY_PRESENT_LABEL;
-  return path[path.length - 1];
+  if (path.length === 2) return { tail: DIRECTORY_PRESENT_LABEL, keyed: true };
+  return { tail: path.slice(2).join("/"), keyed: true };
+}
+
+/** The `{server}/{hash}` identity of a content-keyed `/present/` address, or
+ *  null for every other shape (other kinds, the legacy `@windowId` form,
+ *  degraded paths). Two addresses with the same key sit under one presented
+ *  root, so a prefix derived for one still describes the other. Never throws. */
+export function presentRootKey(url: string): string | null {
+  try {
+    if (classifyAddress(url) !== "present") return null;
+    const segments = new URL(url, "http://x").pathname.split("/").filter(Boolean);
+    const path = segments[0] === "present" ? segments.slice(1) : segments;
+    if (path.length < 2 || path[0].startsWith("@")) return null;
+    return `${path[0]}/${path[1]}`;
+  } catch {
+    return null;
+  }
+}
+
+/** Join a server-derived repo-relative prefix to a present tail. A prefix
+ *  ending in `:` is a cross-repo label at that repo's top (`loom:` +
+ *  `x.html`), which joins without a `/`. */
+function joinPresentPrefix(prefix: string | undefined, tail: string): string {
+  if (!prefix) return tail;
+  return prefix.endsWith(":") ? `${prefix}${tail}` : `${prefix}/${tail}`;
 }
 
 /** The proxied port of an absolute loopback URL, or null when it is not
@@ -199,14 +234,19 @@ export function proxyPortOf(url: string): number | null {
 
 /**
  * The pretty REST form of an address, per kind:
- * - present  → the file's basename, plumbing params (`server`, `v`, `raw`) hidden
+ * - present  → the path tail after the plumbing (the file's basename for a
+ *   file present; `sub/page.html` after nested navigation), prefixed with the
+ *   server-derived repo-relative `prefix` when given (`docs/wiki/x.html`,
+ *   `loom:docs/wiki/x.html`); plumbing params (`server`, `v`, `raw`) hidden.
+ *   The prefix describes only the content-keyed form — it is ignored for the
+ *   legacy `@windowId` form and every other kind
  * - proxy    → `localhost:{port}{path}` — the `/proxy/` plumbing never shows
  * - external → `host{path}{?query}` with the scheme omitted
  * - relative → the raw path
  *
  * Never throws: unparseable or degenerate input degrades to the raw string.
  */
-export function displayForm(url: string): string {
+export function displayForm(url: string, prefix?: string): string {
   try {
     const kind = classifyAddress(url);
     if (kind === "present") {
@@ -217,8 +257,9 @@ export function displayForm(url: string): string {
       // the raw hash segment never displays.
       const u = new URL(url, "http://x");
       const segments = u.pathname.split("/").filter(Boolean);
-      const base = presentDisplayBase(segments);
-      if (base === null) return url;
+      const display = presentDisplay(segments);
+      if (display === null) return url;
+      const base = display.keyed ? joinPresentPrefix(prefix, display.tail) : display.tail;
       const params = new URLSearchParams(u.search);
       for (const plumbing of PRESENT_PLUMBING_PARAMS) params.delete(plumbing);
       const rest = params.toString();
@@ -265,8 +306,9 @@ export function webTabTitle(url: string): string {
     if (kind === "present") {
       const u = new URL(value, "http://x");
       const segments = u.pathname.split("/").filter(Boolean);
-      const base = presentDisplayBase(segments);
-      return base === null ? value : base;
+      const display = presentDisplay(segments);
+      if (display === null) return value;
+      return display.tail.slice(display.tail.lastIndexOf("/") + 1);
     }
     if (kind === "proxy") {
       const abs = parseHttpUrl(value);

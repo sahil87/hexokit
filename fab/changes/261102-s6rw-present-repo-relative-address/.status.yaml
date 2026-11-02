@@ -1,0 +1,54 @@
+id: s6rw
+name: 261102-s6rw-present-repo-relative-address
+created: 2026-11-02T11:34:57Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: active
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 9
+    acceptance_count: 22
+    acceptance_completed: 0
+confidence:
+    certain: 8
+    confident: 8
+    tentative: 0
+    unresolved: 0
+    score: 3.6
+    fuzzy: true
+    dimensions:
+        signal: 75.3
+        reversibility: 82.8
+        competence: 80.0
+        disambiguation: 77.2
+stage_metrics:
+    intake: {started_at: "2026-11-02T11:34:57Z", driver: fab-new, iterations: 1, completed_at: "2026-11-02T12:05:08Z"}
+    apply: {started_at: "2026-11-02T12:05:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-02T12:15:05Z"}
+    review: {started_at: "2026-11-02T12:15:05Z", driver: fab-fff, iterations: 1}
+prs: []
+base_branch: main
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-11-02T12:15:05Z"
+    computed_at_stage: apply
+change_type_source: explicit
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-02T12:21:21Z
