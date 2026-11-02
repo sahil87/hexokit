@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeVisibleCount, orderForFit } from "./top-bar-overflow";
+import { computeFit, computeVisibleCount, orderForFit } from "./top-bar-overflow";
 
 describe("computeVisibleCount", () => {
   it("returns all items when everything fits", () => {
@@ -85,5 +85,42 @@ describe("orderForFit", () => {
     const n = computeVisibleCount(100, widths, 0, 4);
     const kept = order.slice(order.length - n).map((e) => e.id);
     expect(kept).toEqual(["toggles"]);
+  });
+});
+
+describe("computeFit", () => {
+  // Tail-first items: [settings 30, refresh 30, launcher 80 (compact 30)].
+  // Full row = 30 + 4 + 30 + 4 + 80 = 148; folded row = 30 + 4 + 30 + 4 + 30 = 98.
+  const items = [{ width: 30 }, { width: 30 }, { width: 80, compactWidth: 30 }];
+
+  it("keeps every candidate at full width when everything fits", () => {
+    expect(computeFit(148, items, 0, 4, false)).toEqual({ count: 3, compact: false });
+  });
+
+  it("folds the compact-capable entry before any candidate overflows", () => {
+    expect(computeFit(147, items, 0, 4, false)).toEqual({ count: 3, compact: true });
+    expect(computeFit(98, items, 0, 4, false)).toEqual({ count: 3, compact: true });
+  });
+
+  it("overflows only after the fold is exhausted", () => {
+    expect(computeFit(97, items, 0, 4, false)).toEqual({ count: 2, compact: true });
+  });
+
+  it("stays folded inside the hysteresis band and expands only past it", () => {
+    expect(computeFit(148, items, 0, 4, true, 24)).toEqual({ count: 3, compact: true });
+    expect(computeFit(171, items, 0, 4, true, 24)).toEqual({ count: 3, compact: true });
+    expect(computeFit(172, items, 0, 4, true, 24)).toEqual({ count: 3, compact: false });
+  });
+
+  it("is a plain greedy fit when no entry carries a compact form", () => {
+    expect(computeFit(97, [{ width: 30 }, { width: 30 }, { width: 30 }], 0, 4, true)).toEqual({
+      count: 2,
+      compact: false,
+    });
+  });
+
+  it("subtracts the reserved width in both rungs", () => {
+    expect(computeFit(148 + 40, items, 40, 4, false)).toEqual({ count: 3, compact: false });
+    expect(computeFit(98 + 40, items, 40, 4, false)).toEqual({ count: 3, compact: true });
   });
 });

@@ -58,7 +58,7 @@ Teach the phrase: end any request with **"…and present it to me"** — results
 rk present "$RK/tutorial/tutorial.html#ch3"
 ```
 
-HexoKit is agents in **parallel**, and the operator hires — from anywhere: **⌘J** (⇧Ctrl+J) drops the quake terminal under the top bar; type into the quake launcher ("Ask…"), Enter sends, the reply streams in the drawer; ⌘J or Esc tucks it away. Everything can start from that launcher.
+HexoKit is agents in **parallel**, and the operator hires — from anywhere: **⌘J** (⇧Ctrl+J) drops the quake terminal under the top bar — or click **Operator** in the top bar; type in the drawer's compose, Enter sends, the reply streams in the drawer; ⌘J or Esc tucks it away. Everything can start from there.
 
 - **Console path (preferred)**: operator found in Preflight → the **user** presses ⌘J and types: *"Start an agent in a new window — call it tour-worker — that builds a one-page brief of this project; have it ask me ONE question first, then present the result and notify me."*
 - **No operator**: run `rk operator` — it opens the pinned singleton and boots the operator agent; hire via ⌘J as above — or press **Start operator** in the quake terminal (⌘J) / the `Operator: Start operator` palette entry. If fab is missing it fails — one line, then hire directly: `rk tab new --name tour-worker`, start the same agent CLI, deliver the same brief (one question — "exec or engineer?" — then present + notify).

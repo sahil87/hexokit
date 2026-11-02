@@ -20,6 +20,8 @@ import { Tip } from "@/components/tip";
 import { HELP_URL, HelpIcon } from "@/components/global-chrome";
 import { HeadsetIcon, KeyboardIcon } from "@/components/sidebar/icons";
 import { requestQuakeTerminal } from "@/lib/quake-terminal";
+import { useQuakeLauncher } from "@/components/quake-launcher";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { HELP_TOPICS, openHelpTopic } from "@/lib/help-topics";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { useKeybindings } from "@/hooks/use-keybindings";
@@ -56,6 +58,9 @@ const MENU_SECTIONS: { key: MenuGroup; label: string }[] = [
  * Tiles → View → Window → App order under thin uppercase labels. The partition
  * preserves registry (pyramid) order within each section.
  */
+/** The route identity the launcher resolves its operator from. */
+type QuakeLauncherRoute = { routeServer: string | null; routeWindow: string | null };
+
 export type MenuGroup = "tiles" | "view" | "window" | "app";
 
 /**
@@ -220,28 +225,27 @@ export function KeyboardMenuRow() {
   );
 }
 
-/** Quake terminal — the mobile entry to the quake terminal (no keyboard
- *  exists on a phone, so the chord can't carry it). Fires the same
- *  document-event open the palette action dispatches (desktop: open+focused
- *  on the ⌘J machine; mobile: navigation to the operator window's terminal
- *  route); the layout-mounted quake terminal owns the fork. The trailing keycap
- *  shows the host-effective chord, omitted when unbound/disabled. */
-export function QuakeTerminalMenuRow() {
-  const { byAction, host } = useKeybindings();
-  const binding = byAction.get("quake-terminal");
-  const chord = binding?.enabled
-    ? formatCombo({ code: binding.code, tier: binding.tier }, host.platform)
-    : undefined;
+/** The "Operator" row — the launcher's menu form. On mobile (no keyboard for
+ *  the chord) it fires the document-event open the palette action dispatches:
+ *  navigation to the operator window's terminal route, owned by the
+ *  layout-mounted quake terminal. On desktop it is the overflowed launcher
+ *  button, so it carries the button's click semantics (open the drawer,
+ *  re-focus the docked compose, or focus the operator page's strip). The
+ *  trailing keycap shows the host-effective chord, omitted when unbound or
+ *  disabled. */
+export function QuakeTerminalMenuRow({ routeServer, routeWindow }: QuakeLauncherRoute) {
+  const isMobile = useIsMobile();
+  const { chord, activate } = useQuakeLauncher({ routeServer, routeWindow });
   return (
     <button
       type="button"
       role="menuitem"
       tabIndex={-1}
-      onClick={() => requestQuakeTerminal({ action: "open" })}
+      onClick={isMobile ? () => requestQuakeTerminal({ action: "open" }) : activate}
       className={controlClass({ variant: "menu-row" })}
     >
       <HeadsetIcon size={14} />
-      <span className="flex-1">Quake terminal</span>
+      <span className="flex-1">Operator</span>
       {chord && (
         <kbd aria-hidden="true" className={MENU_ROW_KBD_CLASS}>
           {chord}

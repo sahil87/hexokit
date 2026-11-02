@@ -1,0 +1,8 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-02T11:22:55Z"}
+{"args":"Operator launcher → right-aligned \"Operator\" button: replace the quake launcher's three forms (md–lg ghost, ≥lg standing input, collapsed glyph+chord) with ONE \u003cbutton\u003e (◉ OperatorStateGlyph + \"Operator\" + ⌘J keycap + draft dot, latched/pressed while the drawer is open), moved from the top bar's center cell into the right cluster as the leftmost item left of the surface toggles, with a non-early-overflow registry entry and an \"Operator ⌘J\" menu row","cmd":"fab-new","event":"command","ts":"2026-11-02T11:22:55Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-11-02T11:25:08Z"}
+{"delta":"+2.1","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-11-02T11:33:03Z"}
+{"delta":"+1.9","event":"confidence","score":4,"trigger":"calc-score","ts":"2026-11-02T12:04:53Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-02T12:05:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-02T12:05:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-02T13:05:16Z"}

@@ -68,3 +68,45 @@ export function computeVisibleCount(
 export function orderForFit<T extends { dropLast?: boolean }>(entries: readonly T[]): T[] {
   return [...entries.filter((e) => !e.dropLast), ...entries.filter((e) => e.dropLast)];
 }
+
+/** One-sided hysteresis on the compact → full EXPAND edge, in px (the
+ *  `nextHeadRung` / crumb-collapse precedent): a drag hovering the boundary
+ *  cannot flap the label on and off. */
+export const TOP_BAR_COMPACT_HYSTERESIS_PX = 24;
+
+/** One fit candidate's measured widths: its full bar form and, for entries
+ *  that carry a compact form, the compact one. */
+export type FitItem = { width: number; compactWidth?: number };
+
+export type FitResult = { count: number; compact: boolean };
+
+/**
+ * Two-rung fit. Fits every candidate at full width when it can; otherwise every
+ * compact-capable candidate folds to its compact form BEFORE any candidate
+ * overflows, then the usual greedy fit runs over the folded widths. `items` is
+ * in the same direction as `computeVisibleCount`'s `itemWidths` (tail-first).
+ *
+ * `wasCompact` is the previous result's `compact`: staying folded needs no
+ * proof, but returning to full needs `hysteresisPx` of spare room on top of the
+ * full fit, so the boundary cannot flap. Entries without a `compactWidth` keep
+ * their full width in both rungs.
+ */
+export function computeFit(
+  availableWidth: number,
+  items: FitItem[],
+  reservedWidth: number,
+  gap: number,
+  wasCompact: boolean,
+  hysteresisPx: number = TOP_BAR_COMPACT_HYSTERESIS_PX,
+): FitResult {
+  const full = items.map((i) => i.width);
+  if (!items.some((i) => i.compactWidth !== undefined)) {
+    return { count: computeVisibleCount(availableWidth, full, reservedWidth, gap), compact: false };
+  }
+  const slack = wasCompact ? hysteresisPx : 0;
+  if (computeVisibleCount(availableWidth - slack, full, reservedWidth, gap) === items.length) {
+    return { count: items.length, compact: false };
+  }
+  const folded = items.map((i) => i.compactWidth ?? i.width);
+  return { count: computeVisibleCount(availableWidth, folded, reservedWidth, gap), compact: true };
+}

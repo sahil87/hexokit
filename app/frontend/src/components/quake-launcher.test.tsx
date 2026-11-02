@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
 import { QuakeTerminal } from "./quake-terminal";
-import { QuakeLauncher } from "./quake-launcher";
+import { QuakeLauncher, QuakeLauncherFocusCapture } from "./quake-launcher";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 import {
   dismissOperatorChatChip,
@@ -12,9 +12,12 @@ import {
   setQuakeMachineState,
   setOperatorChatSubject,
   setOperatorComposeText,
+  setQuakeComposeEngaged,
 } from "@/lib/quake-terminal";
 import { hydrateComposeDrafts } from "@/lib/compose-draft-store";
 import { stubMatchMedia } from "@/test-utils/match-media";
+import { KEYBINDINGS_STORAGE_KEY } from "@/lib/keybindings";
+import { TIP_OPEN_DELAY_MS } from "@/components/tip";
 import type { ProjectSession, WindowInfo } from "@/types";
 
 // Route params the quake terminal/quake launcher server-context walk reads; the quake terminal's
@@ -82,25 +85,35 @@ function renderPair(sessionsByServer?: Map<string, ProjectSession[]>) {
         sessionsByServer: sessionsByServer ?? new Map([["srv1", operatorSessions()]]),
       }}
     >
+      <QuakeLauncherFocusCapture />
       <QuakeTerminal />
       <QuakeLauncher routeServer={null} routeWindow={null} />
     </StandaloneSessionContextProvider>,
   );
 }
 
-/** The narrow-desktop rung: fine pointer, sub-`lg` width (every query false). */
-function stubNarrowDesktop() {
+/** Desktop: fine pointer, no mobile query matches. */
+function stubDesktop() {
   stubMatchMedia(() => false);
 }
 
-/** The wide-desktop rung: the `lg` min-width query matches, nothing else. */
-function stubWideDesktop() {
-  stubMatchMedia((query) => query === "(min-width: 1024px)");
-}
+const OPERATOR_TARGET = {
+  window: win({ windowId: "@9", name: "operator", role: "operator" }),
+  sessionName: "_rk-operator",
+};
 
-/** The extra-wide rung: the `lg` and `2xl` min-width queries both match. */
-function stubExtraWideDesktop() {
-  stubMatchMedia((query) => query === "(min-width: 1024px)" || query === "(min-width: 1536px)");
+/** Hover the button and read the tooltip's text. */
+function tooltipText(button: HTMLElement): string {
+  vi.useFakeTimers();
+  try {
+    act(() => {
+      fireEvent.mouseEnter(button);
+      vi.advanceTimersByTime(TIP_OPEN_DELAY_MS);
+    });
+    return screen.getByRole("tooltip").textContent ?? "";
+  } finally {
+    vi.useRealTimers();
+  }
 }
 
 describe("QuakeLauncher", () => {
@@ -128,37 +141,60 @@ describe("QuakeLauncher", () => {
     stubMatchMedia(() => true);
     renderPair();
     expect(screen.queryByTestId("quake-launcher")).toBeNull();
-    expect(screen.queryByTestId("quake-launcher-ghost")).toBeNull();
   });
 
-  it("on the operator route the collapsed control stands in for the box and its click focuses the page's compose strip", () => {
-    stubWideDesktop();
-    render(
-      <StandaloneSessionContextProvider
-        value={{
-          servers: [{ name: "srv1", sessionCount: 1 }],
-          serversLoaded: true,
-          sessionsByServer: new Map([["srv1", operatorSessions()]]),
-        }}
-      >
-        <QuakeLauncher routeServer="srv1" routeWindow="@9" />
-      </StandaloneSessionContextProvider>,
+  it("is ONE button: labelled Operator with the chord keycap, never an input", () => {
+    stubDesktop();
+    renderPair();
+
+    const button = screen.getByTestId("quake-launcher");
+    expect(button.tagName).toBe("BUTTON");
+    expect(button).toHaveAttribute("type", "button");
+    expect(button).toHaveTextContent("Operator");
+    expect(button.querySelector("kbd")).toHaveTextContent(/J/);
+    expect(button).toHaveAttribute("data-quake-terminal");
+    expect(document.querySelector("input")).toBeNull();
+    for (const retired of ["quake-launcher-input", "quake-launcher-ghost", "quake-launcher-collapsed"]) {
+      expect(screen.queryByTestId(retired)).toBeNull();
+    }
+  });
+
+  it("is the same DOM node at rest, open and back at rest", () => {
+    stubDesktop();
+    renderPair();
+
+    const button = screen.getByTestId("quake-launcher");
+    act(() => setQuakeMachineState("open"));
+    expect(screen.getByTestId("quake-launcher")).toBe(button);
+    act(() => setQuakeMachineState("rest"));
+    expect(screen.getByTestId("quake-launcher")).toBe(button);
+  });
+
+  it("the compact rung is glyph-only: no label, no keycap, the accessible name stays Operator", () => {
+    stubDesktop();
+    render(<QuakeLauncher routeServer={null} routeWindow={null} compact />);
+
+    const button = screen.getByTestId("quake-launcher");
+    expect(button).toHaveAttribute("aria-label", "Operator");
+    expect(button).not.toHaveTextContent("Operator");
+    expect(button.querySelector("kbd")).toBeNull();
+  });
+
+  it("the probe copy drops every test id so the live button is the only match", () => {
+    stubDesktop();
+    renderPair(new Map([["srv1", operatorSessions("active")]]));
+    act(() =>
+      setOperatorComposeText("srv1", OPERATOR_TARGET, "draft"),
     );
+    render(<QuakeLauncher routeServer={null} routeWindow={null} probe />);
 
-    // No standing textarea, no ghost — the page IS the quake surface, so a
-    // standing input would duplicate its docked compose strip.
-    expect(screen.queryByTestId("quake-launcher")).toBeNull();
-    expect(screen.queryByTestId("quake-launcher-ghost")).toBeNull();
-    const collapsed = screen.getByTestId("quake-launcher-collapsed");
-
-    fireEvent.click(collapsed);
-    expect(mockFocusComposeStrip).toHaveBeenCalled();
-    // Never a duplicate drawer over the operator's own terminal.
-    expect(getQuakeMachineState()).toBe("rest");
+    expect(screen.getAllByTestId("quake-launcher")).toHaveLength(1);
+    expect(screen.getAllByTestId("quake-launcher-state")).toHaveLength(1);
+    expect(screen.getAllByTestId("quake-launcher-draft")).toHaveLength(1);
   });
 
-  it("the collapsed operator-route form keeps the live-state dot and carries no engaged accent", () => {
-    stubWideDesktop();
+  it("on the operator route the click focuses the page's compose strip, never opens a drawer, and never latches", () => {
+    stubDesktop();
     render(
       <StandaloneSessionContextProvider
         value={{
@@ -171,13 +207,21 @@ describe("QuakeLauncher", () => {
       </StandaloneSessionContextProvider>,
     );
 
-    const collapsed = screen.getByTestId("quake-launcher-collapsed");
-    expect(collapsed).toContainElement(screen.getByTestId("quake-launcher-state"));
-    expect(collapsed.className).toContain("border-border");
+    const button = screen.getByTestId("quake-launcher");
+    expect(button).toContainElement(screen.getByTestId("quake-launcher-state"));
+    expect(button).not.toHaveAttribute("aria-expanded");
+
+    fireEvent.click(button);
+    expect(mockFocusComposeStrip).toHaveBeenCalled();
+    expect(getQuakeMachineState()).toBe("rest");
+
+    act(() => setQuakeMachineState("open"));
+    expect(button).not.toHaveAttribute("aria-expanded");
+    expect(button.className).not.toContain("rk-latch-well");
   });
 
-  it("a non-operator window route keeps the standing box", () => {
-    stubWideDesktop();
+  it("a non-operator window route behaves like any other route: the click opens the drawer", () => {
+    stubDesktop();
     render(
       <StandaloneSessionContextProvider
         value={{
@@ -190,50 +234,17 @@ describe("QuakeLauncher", () => {
       </StandaloneSessionContextProvider>,
     );
 
-    expect(screen.getByTestId("quake-launcher")).toBeInTheDocument();
-    expect(screen.queryByTestId("quake-launcher-collapsed")).toBeNull();
-  });
-
-  it("md–lg rung: the ghost renders at rest, the box hidden until engaged", () => {
-    stubNarrowDesktop();
-    renderPair();
-
-    expect(screen.getByTestId("quake-launcher-ghost")).toBeInTheDocument();
-    expect(screen.getByTestId("quake-launcher").className).toContain("hidden lg:flex");
-  });
-
-  it("≥ lg rung: the box stands at rest beside the heading, the ghost is CSS-hidden", () => {
-    stubWideDesktop();
-    renderPair();
-
-    // The ghost stays mounted (the morph rung shares the component) but is
-    // display:none at ≥ lg.
-    expect(screen.getByTestId("quake-launcher-ghost").className).toContain("lg:hidden");
-    const box = screen.getByTestId("quake-launcher");
-    expect(box.className).toContain("hidden lg:flex");
-    // Slim at rest below 2xl — the standing box never eats the crumbs'
-    // min-useful-width at lg/xl.
-    expect(box.className).toContain("w-[12ch]");
-    // Fixed height (matches --ctl-h-bar) — must hold identically once engaged,
-    // so focus/blur never reflows the top bar.
-    expect(box.className).toContain("h-[28px]");
-    expect(screen.getByTestId("quake-launcher-input")).toHaveAttribute("placeholder", "Ask…");
-  });
-
-  it("≥ 2xl rung: the box takes its full rest width and long placeholder", () => {
-    stubExtraWideDesktop();
-    renderPair();
-
-    expect(screen.getByTestId("quake-launcher").className).toContain("2xl:w-[20ch]");
-    expect(screen.getByTestId("quake-launcher-input")).toHaveAttribute("placeholder", "Ask the operator…");
+    fireEvent.click(screen.getByTestId("quake-launcher"));
+    expect(mockFocusComposeStrip).not.toHaveBeenCalled();
+    expect(getQuakeMachineState()).toBe("open");
   });
 
   it.each([
     ["waiting", "bg-signal-yellow"],
     ["active", "bg-accent-green"],
     ["idle", "bg-text-secondary"],
-  ])("the standing glyph maps %s to its live-state dot color", (agentState, colorClass) => {
-    stubWideDesktop();
+  ])("the glyph maps %s to its live-state dot color", (agentState, colorClass) => {
+    stubDesktop();
     renderPair(new Map([["srv1", operatorSessions(agentState)]]));
 
     const dot = screen.getByTestId("quake-launcher-state");
@@ -242,48 +253,103 @@ describe("QuakeLauncher", () => {
     expect(screen.getByTestId("quake-launcher")).toContainElement(dot);
   });
 
-  it("the md–lg ghost carries the same dot and hands it to the collapsed control", () => {
-    stubNarrowDesktop();
-    renderPair(new Map([["srv1", operatorSessions("active")]]));
-
-    const ghost = screen.getByTestId("quake-launcher-ghost");
-    expect(ghost).toContainElement(screen.getByTestId("quake-launcher-state"));
-    fireEvent.click(ghost);
-    expect(screen.getByTestId("quake-launcher-collapsed")).toContainElement(
-      screen.getByTestId("quake-launcher-state"),
-    );
-  });
-
   it("renders no state dot when no operator resolves", () => {
-    stubWideDesktop();
+    stubDesktop();
     renderPair(new Map([["srv1", [{ name: "main", windows: [win({})] }]]]));
 
     expect(screen.queryByTestId("quake-launcher-state")).toBeNull();
   });
 
   it("renders no state dot without SessionContext", () => {
-    stubWideDesktop();
+    stubDesktop();
     render(<QuakeLauncher routeServer="srv1" routeWindow={null} />);
 
     expect(screen.getByTestId("quake-launcher")).toBeInTheDocument();
     expect(screen.queryByTestId("quake-launcher-state")).toBeNull();
   });
 
-  it("the ghost click opens the drawer, swaps in the collapsed control, and focus lands in the docked compose", () => {
-    stubNarrowDesktop();
+  it("the click at rest opens the drawer and focus lands in the docked compose", () => {
+    stubDesktop();
     renderPair();
 
-    fireEvent.click(screen.getByTestId("quake-launcher-ghost"));
+    fireEvent.click(screen.getByTestId("quake-launcher"));
     expect(getQuakeMachineState()).toBe("open");
-    expect(screen.queryByTestId("quake-launcher-ghost")).toBeNull();
-    expect(screen.queryByTestId("quake-launcher")).toBeNull();
-    const collapsed = screen.getByTestId("quake-launcher-collapsed");
-    expect(collapsed.className).toContain("h-[28px]");
     expect(screen.getByTestId("quake-terminal-compose-input")).toHaveFocus();
   });
 
-  it("the standing box's draft is per server — the other server's box is empty and the text returns", () => {
-    stubWideDesktop();
+  it("with no operator the click still opens the drawer (its Start-operator hint)", () => {
+    stubDesktop();
+    renderPair(new Map([["srv1", [{ name: "main", windows: [win({})] }]]]));
+
+    fireEvent.click(screen.getByTestId("quake-launcher"));
+    expect(getQuakeMachineState()).toBe("open");
+  });
+
+  it("aria-expanded and the latch follow the machine; the accent edge follows the compose's focus, not the machine", () => {
+    stubDesktop();
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    renderPair();
+
+    const button = screen.getByTestId("quake-launcher");
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(button).not.toHaveAttribute("aria-pressed");
+    expect(button.className).not.toContain("rk-latch-well");
+
+    act(() => requestQuakeTerminal({ action: "open" }));
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    expect(button.className).toContain("rk-latch-well");
+    // The docked textarea took focus on open — the accent edge is lit.
+    expect(screen.getByTestId("quake-terminal-compose-input")).toHaveFocus();
+    expect(button.className).toContain("border-accent-green");
+
+    act(() => outside.focus());
+    // The peek outlives the compose's focus: still open and latched, only the
+    // accent edge stands down.
+    expect(getQuakeMachineState()).toBe("open");
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    expect(button.className).toContain("rk-latch-well");
+    expect(button.className).not.toContain("border-accent-green");
+    outside.remove();
+  });
+
+  it("the accent edge needs the latch: an engaged flag at rest paints nothing", () => {
+    stubDesktop();
+    renderPair();
+    act(() => setQuakeComposeEngaged(true));
+    expect(screen.getByTestId("quake-launcher").className).not.toContain("border-accent-green");
+  });
+
+  it("the click while open re-focuses the docked textarea and never reads as an outside click", async () => {
+    stubDesktop();
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    renderPair();
+
+    act(() => requestQuakeTerminal({ action: "open" }));
+    act(() => outside.focus());
+    expect(screen.getByTestId("quake-terminal-compose-input")).not.toHaveFocus();
+
+    const button = screen.getByTestId("quake-launcher");
+    // Quake-owned DOM: the drawer's outside-click listener stands down on it.
+    expect(isQuakeTerminalTarget(button)).toBe(true);
+
+    fireEvent.click(button);
+    expect(screen.getByTestId("quake-terminal-compose-input")).toHaveFocus();
+    expect(getQuakeMachineState()).toBe("open");
+
+    // Past the outside-click settle window (a macrotask deferral), the drawer
+    // is still open and the compose still focused — the click was never
+    // treated as click-away, and never closes the drawer.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(getQuakeMachineState()).toBe("open");
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
+    expect(screen.getByTestId("quake-terminal-compose-input")).toHaveFocus();
+    outside.remove();
+  });
+
+  it("the draft dot follows the shared store per server — the other server's launcher has none and it returns", () => {
+    stubDesktop();
     const sessionsByServer = new Map([
       ["a", operatorSessions()],
       ["b", operatorSessions()],
@@ -303,40 +369,76 @@ describe("QuakeLauncher", () => {
       </StandaloneSessionContextProvider>
     );
     const { rerender } = render(tree("a"));
-    const input = () => screen.getByTestId("quake-launcher-input");
-    fireEvent.change(input(), { target: { value: "for a" } });
-    expect(input()).toHaveValue("for a");
+    expect(screen.queryByTestId("quake-launcher-draft")).toBeNull();
+    act(() => setOperatorComposeText("a", OPERATOR_TARGET, "for a"));
+    expect(screen.getByTestId("quake-launcher-draft")).toBeInTheDocument();
 
     rerender(tree("b"));
-    expect(input()).toHaveValue("");
+    expect(screen.queryByTestId("quake-launcher-draft")).toBeNull();
 
     rerender(tree("a"));
-    expect(input()).toHaveValue("for a");
+    expect(screen.getByTestId("quake-launcher-draft")).toBeInTheDocument();
+
+    // Whitespace alone is not a draft.
+    act(() => setOperatorComposeText("a", OPERATOR_TARGET, "   "));
+    expect(screen.queryByTestId("quake-launcher-draft")).toBeNull();
   });
 
-  it("with no operator the standing box is read-only yet its focus still opens the drawer", () => {
-    stubWideDesktop();
-    renderPair(new Map([["srv1", [{ name: "main", windows: [win({})] }]]]));
-    const input = screen.getByTestId("quake-launcher-input");
-    expect(input).toHaveAttribute("readonly");
-    expect(input).toHaveAttribute("placeholder", "Start operator…");
-    fireEvent.change(input, { target: { value: "typed into the void" } });
-    expect(input).toHaveValue("");
+  it("the compact rung keeps the draft dot", () => {
+    stubDesktop();
+    renderPair();
+    act(() => setOperatorComposeText("srv1", OPERATOR_TARGET, "draft"));
+    cleanup();
+    render(
+      <StandaloneSessionContextProvider
+        value={{
+          servers: [{ name: "srv1", sessionCount: 1 }],
+          serversLoaded: true,
+          sessionsByServer: new Map([["srv1", operatorSessions()]]),
+        }}
+      >
+        <QuakeLauncher routeServer={null} routeWindow={null} compact />
+      </StandaloneSessionContextProvider>,
+    );
+    expect(screen.getByTestId("quake-launcher-draft")).toBeInTheDocument();
+  });
 
-    fireEvent.focus(input);
-    expect(getQuakeMachineState()).toBe("open");
+  describe("tooltip", () => {
+    it("asks the operator when one exists, naming the chord", () => {
+      stubDesktop();
+      renderPair();
+      expect(tooltipText(screen.getByTestId("quake-launcher"))).toMatch(/^Ask the operator \(.+\)$/);
+    });
+
+    it("starts the operator when none resolves on the server", () => {
+      stubDesktop();
+      renderPair(new Map([["srv1", [{ name: "main", windows: [win({})] }]]]));
+      expect(tooltipText(screen.getByTestId("quake-launcher"))).toMatch(/^Start the operator \(.+\)$/);
+    });
+
+    it("appends the unsent-draft note", () => {
+      stubDesktop();
+      renderPair();
+      act(() => setOperatorComposeText("srv1", OPERATOR_TARGET, "half-written"));
+      expect(tooltipText(screen.getByTestId("quake-launcher"))).toMatch(
+        /^Ask the operator \(.+\) · unsent draft$/,
+      );
+    });
+
+    it("drops the parenthetical (and the keycap) when the chord is unbound", () => {
+      stubDesktop();
+      localStorage.setItem(KEYBINDINGS_STORAGE_KEY, JSON.stringify({ "quake-terminal": null }));
+      renderPair();
+      const button = screen.getByTestId("quake-launcher");
+      expect(button.querySelector("kbd")).toBeNull();
+      expect(tooltipText(button)).toBe("Ask the operator");
+    });
   });
 
   it("the chord engages from rest — the docked textarea focused with any draft, caret at its end", () => {
-    stubWideDesktop();
+    stubDesktop();
     renderPair();
-    act(() =>
-      setOperatorComposeText(
-        "srv1",
-        { window: win({ windowId: "@9", name: "operator", role: "operator" }), sessionName: "_rk-operator" },
-        "half-written draft",
-      ),
-    );
+    act(() => setOperatorComposeText("srv1", OPERATOR_TARGET, "half-written draft"));
 
     act(() => requestQuakeTerminal({ action: "toggle" }));
     expect(getQuakeMachineState()).toBe("open");
@@ -348,35 +450,8 @@ describe("QuakeLauncher", () => {
     expect(input.selectionEnd).toBe("half-written draft".length);
   });
 
-  it("Enter from the standing box sends and opens the drawer; focus lands in the docked compose", async () => {
-    stubWideDesktop();
-    renderPair();
-
-    const input = screen.getByTestId("quake-launcher-input");
-    fireEvent.change(input, { target: { value: "restart the worker" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-
-    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
-    expect(mockSend).toHaveBeenCalledWith("srv1", "@9", "restart the worker", "submit", "agent");
-    expect(getQuakeMachineState()).toBe("open");
-    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
-    const docked = screen.getByTestId("quake-terminal-compose-input");
-    expect(docked).toHaveFocus();
-    await waitFor(() => expect(docked).toHaveValue(""));
-  });
-
-  it("Enter on an empty draft is a no-op (no send, no state change)", () => {
-    stubWideDesktop();
-    renderPair();
-
-    const input = screen.getByTestId("quake-launcher-input");
-    fireEvent.keyDown(input, { key: "Enter" });
-    expect(mockSend).not.toHaveBeenCalled();
-    expect(getQuakeMachineState()).toBe("rest");
-  });
-
   it("Esc releases to rest: the docked compose blurs and prior focus is restored", () => {
-    stubWideDesktop();
+    stubDesktop();
     const prior = document.createElement("button");
     document.body.appendChild(prior);
     prior.focus();
@@ -392,44 +467,34 @@ describe("QuakeLauncher", () => {
   });
 
   it("a blur alone never steps the machine — the open drawer outlives the compose's focus", () => {
-    stubNarrowDesktop();
-    const { unmount } = renderPair();
+    stubDesktop();
+    renderPair();
 
-    fireEvent.click(screen.getByTestId("quake-launcher-ghost"));
+    fireEvent.click(screen.getByTestId("quake-launcher"));
     const docked = screen.getByTestId("quake-terminal-compose-input");
     expect(docked).toHaveFocus();
     fireEvent.blur(docked);
     expect(getQuakeMachineState()).toBe("open");
-    unmount();
-
-    setQuakeMachineState("rest");
-    stubWideDesktop();
-    renderPair();
-    const wideInput = screen.getByTestId("quake-launcher-input");
-    fireEvent.focus(wideInput);
-    expect(getQuakeMachineState()).toBe("open");
-    const wideDocked = screen.getByTestId("quake-terminal-compose-input");
-    fireEvent.blur(wideDocked);
-    expect(getQuakeMachineState()).toBe("open");
   });
 
-  // The focus-ownership cases below move focus for REAL (`el.focus()`), unlike
-  // the machine-transition cases above: `fireEvent.focus`/`blur` dispatch React
-  // synthetic events without moving `document.activeElement`, so the origin
-  // capture only ever sees `document.body` under them and the self-restore loop
-  // these guard against cannot form.
+  // The focus-ownership cases below move focus for REAL (`el.focus()`):
+  // `fireEvent.focus`/`blur` dispatch React synthetic events without moving
+  // `document.activeElement`, so the origin capture only ever sees
+  // `document.body` under them and the self-restore loop these guard against
+  // cannot form.
 
-  it("a mouse-entered box holds the machine open on an outside focus — it never steals focus back", () => {
-    stubWideDesktop();
+  it("a mouse-entered open holds the machine open on an outside focus — it never steals focus back", () => {
+    stubDesktop();
     const outside = document.createElement("button");
     document.body.appendChild(outside);
     renderPair();
 
-    // Real click-entry: focus lands on the standing input BEFORE onFocus
-    // engages the machine, so the origin capture sees a quake-owned element
-    // and records nothing.
-    const input = screen.getByTestId("quake-launcher-input") as HTMLInputElement;
-    act(() => input.focus());
+    // Real click-entry: focus lands on the button BEFORE the click engages the
+    // machine, so the origin capture sees a quake-owned element and records
+    // nothing.
+    const button = screen.getByTestId("quake-launcher");
+    act(() => button.focus());
+    fireEvent.click(button);
     expect(getQuakeMachineState()).toBe("open");
 
     act(() => outside.focus());
@@ -439,95 +504,19 @@ describe("QuakeLauncher", () => {
     outside.remove();
   });
 
-  it("Esc releases a mouse-entered box instead of re-focusing the launcher", () => {
-    stubWideDesktop();
+  it("Esc releases a mouse-entered open instead of re-focusing the launcher", () => {
+    stubDesktop();
     renderPair();
 
-    const input = screen.getByTestId("quake-launcher-input") as HTMLInputElement;
-    act(() => input.focus());
+    const button = screen.getByTestId("quake-launcher");
+    act(() => button.focus());
+    fireEvent.click(button);
     expect(getQuakeMachineState()).toBe("open");
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(getQuakeMachineState()).toBe("rest");
-    // The standing box is back at rest — but with no recorded origin, nothing
+    // The recorded origin is null (the button is quake-owned), so nothing
     // re-focused it.
-    expect(screen.getByTestId("quake-launcher-input")).not.toHaveFocus();
-  });
-
-  it("at open the collapsed control stands in for the box, its accent following the compose's focus", () => {
-    stubWideDesktop();
-    const outside = document.createElement("button");
-    document.body.appendChild(outside);
-    renderPair();
-
-    act(() => requestQuakeTerminal({ action: "open" }));
-    expect(getQuakeMachineState()).toBe("open");
-    // No input element, no engaged-width box, no launcher-mounted chip at open.
-    expect(screen.queryByTestId("quake-launcher-input")).toBeNull();
-    expect(screen.queryByTestId("quake-launcher")).toBeNull();
-    const collapsed = screen.getByTestId("quake-launcher-collapsed");
-    // The docked textarea took focus on open — the engaged accent is lit.
-    expect(screen.getByTestId("quake-terminal-compose-input")).toHaveFocus();
-    expect(collapsed.className).toContain("border-accent-green");
-
-    act(() => outside.focus());
-    // The peek outlives the compose's focus: the machine and the drawer are
-    // untouched, only the accent stands down.
-    expect(getQuakeMachineState()).toBe("open");
-    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
-    expect(collapsed.className).toContain("border-border");
-    expect(collapsed.className).not.toContain("border-accent-green");
-    outside.remove();
-  });
-
-  it("the collapsed control's click re-focuses the docked textarea and never reads as an outside click", async () => {
-    stubWideDesktop();
-    const outside = document.createElement("button");
-    document.body.appendChild(outside);
-    renderPair();
-
-    act(() => requestQuakeTerminal({ action: "open" }));
-    act(() => outside.focus());
-    expect(screen.getByTestId("quake-terminal-compose-input")).not.toHaveFocus();
-
-    const collapsed = screen.getByTestId("quake-launcher-collapsed");
-    // Quake-owned DOM: the drawer's outside-click listener stands down on it.
-    expect(isQuakeTerminalTarget(collapsed)).toBe(true);
-
-    fireEvent.click(collapsed);
-    expect(screen.getByTestId("quake-terminal-compose-input")).toHaveFocus();
-    expect(getQuakeMachineState()).toBe("open");
-
-    // Past the outside-click settle window (a macrotask deferral), the drawer
-    // is still open and the compose still focused — the click was never
-    // treated as click-away.
-    await new Promise((r) => setTimeout(r, 10));
-    expect(getQuakeMachineState()).toBe("open");
-    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
-    expect(screen.getByTestId("quake-terminal-compose-input")).toHaveFocus();
-    outside.remove();
-  });
-
-  it("an image paste uploads to the operator session and insert-stages the path", async () => {
-    stubWideDesktop();
-    renderPair();
-
-    const input = screen.getByTestId("quake-launcher-input");
-    const file = new File(["png"], "shot.png", { type: "image/png" });
-    fireEvent.paste(input, { clipboardData: { files: [file] } });
-
-    await waitFor(() => expect(mockUpload).toHaveBeenCalledTimes(1));
-    expect(mockUpload).toHaveBeenCalledWith("srv1", "_rk-operator", file, "@9");
-    await waitFor(() =>
-      expect(mockSend).toHaveBeenCalledWith("srv1", "@9", "/tmp/op/.uploads/shot.png ", "raw", "agent"),
-    );
-    // Staged as an insert, never submitted — and the paste did not reach the draft.
-    expect(input).toHaveValue("");
-  });
-
-  it("the wrapper carries the quake-terminal-root attribute (the strip-forward guard skips it)", () => {
-    stubWideDesktop();
-    renderPair();
-    expect(screen.getByTestId("quake-launcher")).toHaveAttribute("data-quake-terminal");
+    expect(screen.getByTestId("quake-launcher")).not.toHaveFocus();
   });
 });

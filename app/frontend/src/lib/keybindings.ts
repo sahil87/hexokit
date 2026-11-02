@@ -323,7 +323,7 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // Win/Linux the shifted tier keeps plain Ctrl+J (readline accept-line) with
   // the pane. On desktop the chord TOGGLES the two-state machine (rest ⇄
   // open+focused — focus and drawer linked), so ignoreInputs lets it release
-  // while the quake launcher input has focus; on mobile it plain-toggles the
+  // while the docked compose has focus; on mobile it plain-toggles the
   // sheet. The palette action is the guaranteed fallback where a browser eats
   // the chord.
   { actionId: "quake-terminal", code: "KeyJ", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Quake terminal", description: "toggle the quake terminal (open+focus ⇄ closed)", mapLabel: "quake", ignoreInputs: true },
