@@ -1229,6 +1229,12 @@ func TestDeriveWebPath(t *testing.T) {
 	if err := os.MkdirAll(outside, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// A symlink into loom3: the stored root keeps the link (filepath.Abs only)
+	// while the window GitRoot is the resolved path tmux reports.
+	linked := filepath.Join(t.TempDir(), "linked-loom3")
+	if err := os.Symlink(loom3, linked); err != nil {
+		t.Fatal(err)
+	}
 
 	tests := []struct {
 		name, root, windowGitRoot, want string
@@ -1240,6 +1246,7 @@ func TestDeriveWebPath(t *testing.T) {
 		{"outside any repo", outside, loom3, ""},
 		{"worktree (.git file) same repo subdir", filepath.Join(worktree, "app"), worktree, "app"},
 		{"cross repo subdir", loomWiki, loom3, "loom:docs/wiki"},
+		{"symlinked root into the window's repo is not cross-repo", filepath.Join(linked, "docs", "wiki"), loom3, "docs/wiki"},
 		{"cross repo toplevel", loom, loom3, "loom:"},
 		{"worktree as a different repo labels its folder", filepath.Join(worktree, "app"), loom3, "honest-merlin:app"},
 		{"window outside any repo labels the repo", wiki, outside, "loom3:docs/wiki"},

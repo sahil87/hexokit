@@ -612,10 +612,33 @@ func deriveWebPath(root, windowGitRoot string) string {
 	if rel == "." {
 		rel = ""
 	}
-	if repoTop == filepath.Clean(windowGitRoot) {
+	if sameDir(repoTop, windowGitRoot) {
 		return rel
 	}
 	return filepath.Base(repoTop) + webPathRepoSep + rel
+}
+
+// sameDir reports whether a and b name the same directory. The stored present
+// root is filepath.Abs only (symlinks kept) while the window GitRoot comes from
+// tmux pane_current_path, which the kernel reports symlink-resolved — so a
+// string compare would label a symlinked path into the window's own repo as
+// cross-repo. os.SameFile compares identity; it stays subprocess-free.
+func sameDir(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	ai, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	bi, err := os.Stat(b)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(ai, bi)
 }
 
 // deriveWebPaths derives deriveWebPath for every slot of w, index-aligned with

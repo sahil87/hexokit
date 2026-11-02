@@ -122,43 +122,43 @@ For the content-keyed form `/present/{server}/{hash}/…`, `presentDisplayBase` 
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `ListWindows` format carries the root slots and `parseWindows` fills `WebRoots` aligned with `WebTabs`, with the slot-1 legacy present-root fallback
-- [ ] A-002 R2: `WebTabRootOption` comment no longer says "never enumerated into ListWindows"
-- [ ] A-003 R3: `FetchSessions` emits `webPaths` aligned with `webTabs` via `deriveWebPath`
-- [ ] A-004 R4: `webPaths` is typed in `types.ts`/`client.ts` and the optimistic close/move keep it aligned
-- [ ] A-005 R5: nested present navigation displays the whole tail
-- [ ] A-006 R6: `displayForm` composes prefix + tail including the `loom:` form
-- [ ] A-007 R7: `webTabTitle` returns the basename for a nested tail
-- [ ] A-008 R8: address bar, tab tooltip and tile header show the prefixed form
+- [x] A-001 R1: `ListWindows` format carries the root slots and `parseWindows` fills `WebRoots` aligned with `WebTabs`, with the slot-1 legacy present-root fallback
+- [x] A-002 R2: `WebTabRootOption` comment no longer says "never enumerated into ListWindows"
+- [x] A-003 R3: `FetchSessions` emits `webPaths` aligned with `webTabs` via `deriveWebPath`
+- [x] A-004 R4: `webPaths` is typed in `types.ts`/`client.ts` and the optimistic close/move keep it aligned
+- [x] A-005 R5: nested present navigation displays the whole tail
+- [x] A-006 R6: `displayForm` composes prefix + tail including the `loom:` form
+- [x] A-007 R7: `webTabTitle` returns the basename for a nested tail
+- [x] A-008 R8: address bar, tab tooltip and tile header show the prefixed form
 
 ### Behavioral Correctness
 
-- [ ] A-009 R8: the focused address input still shows/submits the raw `/present/…` URL
-- [ ] A-010 R1: raw absolute roots never appear in the window JSON
+- [x] A-009 R8: the focused address input still shows/submits the raw `/present/…` URL
+- [x] A-010 R1: raw absolute roots never appear in the window JSON
 
 ### Scenario Coverage
 
-- [ ] A-011 R3: Go tests cover in-repo, toplevel, outside-repo, worktree, cross-repo, cross-repo toplevel and empty root
-- [ ] A-012 R6: Vitest covers prefix, nested, directory, no-prefix, cross-repo, `loom:` toplevel, hidden plumbing params and the unchanged legacy form
-- [ ] A-013 R8: an e2e spec asserts the at-rest address reads `<prefix>/<file>`
+- [x] A-011 R3: Go tests cover in-repo, toplevel, outside-repo, worktree, cross-repo, cross-repo toplevel and empty root
+- [x] A-012 R6: Vitest covers prefix, nested, directory, no-prefix, cross-repo, `loom:` toplevel, hidden plumbing params and the unchanged legacy form
+- [x] A-013 R8: an e2e spec asserts the at-rest address reads `<prefix>/<file>` (spec `web-tile-chrome.spec.ts` test (h) present; not executed in review — Linux-only assumption, see should-fix on symlinked roots)
 
 ### Edge Cases & Error Handling
 
-- [ ] A-014 R4: a `webPaths`/`webTabs` length mismatch degrades to no prefix
-- [ ] A-015 R8: a tracked frame location that left the slot's `{server}/{hash}` does not inherit the prefix
-- [ ] A-016 R1: a pre-16-slot capture line still parses at the legacy offsets
+- [x] A-014 R4: a `webPaths`/`webTabs` length mismatch degrades to no prefix
+- [x] A-015 R8: a tracked frame location that left the slot's `{server}/{hash}` does not inherit the prefix
+- [x] A-016 R1: a pre-16-slot capture line still parses at the legacy offsets
 
 ### Code Quality
 
-- [ ] A-017 Pattern consistency: New code follows naming and structural patterns of surrounding code
-- [ ] A-018 No unnecessary duplication: Existing utilities (`config.FindGitRoot`, `denseWebTabs`, layout.go root pattern) reused where applicable
-- [ ] A-019 Magic strings: no unnamed magic numbers/strings for field offsets or the label separator
-- [ ] A-020 Comment discipline: comments state constraints only, no change IDs or narration
-- [ ] A-021 Tests: new behavior covered by Go and Vitest tests; Playwright test carries Proves/Steps comments
+- [x] A-017 Pattern consistency: New code follows naming and structural patterns of surrounding code
+- [x] A-018 No unnecessary duplication: Existing utilities (`config.FindGitRoot`, `denseWebTabs`, layout.go root pattern) reused where applicable
+- [x] A-019 Magic strings: no unnamed magic numbers/strings for field offsets or the label separator
+- [x] A-020 Comment discipline: comments state constraints only, no change IDs or narration
+- [x] A-021 Tests: new behavior covered by Go and Vitest tests; Playwright test carries Proves/Steps comments
 
 ### Security
 
-- [ ] A-022 R1: no new user input reaches a subprocess; derivation is a read-only stat-walk
+- [x] A-022 R1: no new user input reaches a subprocess; derivation is a read-only stat-walk
 
 ## Notes
 
@@ -175,3 +175,7 @@ For the content-keyed form `/present/{server}/{hash}/…`, `presentDisplayBase` 
 | 3 | Confident | Legacy short ListWindows lines carry no root block and no legacy present-root field; offsets after web_active shift only for full lines | Legacy captures predate roots in ListWindows | S:70 R:80 A:80 D:70 |
 
 3 assumptions (0 certain, 3 confident, 0 tentative).
+
+## Deletion Candidates
+
+- None — this change adds new functionality without making existing code redundant (`presentDisplayBase` was replaced in place by `presentDisplay`; no orphaned callers remain).

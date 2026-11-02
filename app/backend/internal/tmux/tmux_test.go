@@ -1261,6 +1261,25 @@ func TestParseWindowsLegacyLineHasNoRoots(t *testing.T) {
 	}
 }
 
+// TestParseWindowsLegacyLineURLFallbackSkipsPresentRoot: on a pre-16-slot line
+// the present-root offset coincides with the legacy note field, so a web_1
+// surfaced from the retired @rk_win_url must not adopt the note as its root.
+func TestParseWindowsLegacyLineURLFallbackSkipsPresentRoot(t *testing.T) {
+	fields := []string{"@0", "0", "a", "/p", "1700000000", "1", "zsh", "4", "row:tty,web",
+		"", "", "", "", "", "", "", "",
+		"", "/code", "", "", "", "", "", "/present/@0/x.html", "", "1700000001:legacy note"}
+	got := parseWindows([]string{strings.Join(fields, listDelim)}, 1700000000)
+	if len(got) != 1 {
+		t.Fatalf("parseWindows() returned %d windows, want 1", len(got))
+	}
+	if want := []string{"/present/@0/x.html"}; !reflect.DeepEqual(got[0].WebTabs, want) {
+		t.Fatalf("WebTabs = %v, want %v", got[0].WebTabs, want)
+	}
+	if want := []string{""}; !reflect.DeepEqual(got[0].WebRoots, want) {
+		t.Errorf("WebRoots = %q, want %q (the legacy note is not a root)", got[0].WebRoots, want)
+	}
+}
+
 // TestParseWindowsFullWebFamily pins the post-slot field offsets: a line with
 // every URL slot populated and a distinct value in every trailing field must
 // land each field in its own struct member.

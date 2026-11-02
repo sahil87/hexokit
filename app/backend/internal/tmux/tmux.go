@@ -1823,7 +1823,9 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		}
 		// Slot 1 dual-reads the retired @rk_win_present_root when web_1_root is
 		// empty — the same fallback the /present/ route applies.
-		if len(webRoots) > 0 && webRoots[0] == "" && len(parts) > legacyPresentRootField {
+		// A pre-16-slot line carries no present-root field (extra == 0 puts
+		// legacyPresentRootField on the legacy note), so only full lines dual-read.
+		if extra > 0 && len(webRoots) > 0 && webRoots[0] == "" && len(parts) > legacyPresentRootField {
 			webRoots[0] = strings.TrimSpace(parts[legacyPresentRootField])
 		}
 		// Retired @rk_win_lens: "iframe" was the web default-view hint; with
