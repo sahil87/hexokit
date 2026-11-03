@@ -3,8 +3,8 @@
  * evidence. On desktop it is the leftmost item of the top bar's right
  * cluster, one button that latches while the drawer is open; clicking it
  * while open re-focuses the docked compose; Esc closes; an unsent draft
- * lights its dot; and narrowing the window folds it to glyph-only and then
- * into the chevron menu's `Operator` row. On mobile the top bar carries no
+ * lights its dot; and narrowing the window folds it to the keycap-less
+ * label, then glyph-only, then into the chevron menu's `Operator` row. On mobile the top bar carries no
  * launcher and the chevron row still opens the operator route.
  *
  * Runs only under `just demo operator-button` (playwright.demo.config.ts —
@@ -26,8 +26,12 @@ import { TMUX_SERVER, createSession, killSession, setWindowOption } from "../e2e
 const VIEW_SESSION = `demo-opbtn-view-${process.pid}`;
 const OPERATOR_SESSION = `demo-opbtn-op-${process.pid}`;
 
-/** Viewport widths walked from roomy to narrow desktop, to show the fold. */
-const NARROWING_WIDTHS = [1280, 1120, 1000, 900, 820, 760, 700, 660];
+/** Viewport widths walked from roomy to narrow desktop, to show the fold:
+ *  with the sidebar open (the default) the launcher is full at ≥1450,
+ *  label-only at 1270–1449, glyph-only at 905–1269 and a menu row below that
+ *  (the sidebar head yields under ~830 and the bar regains room, so the walk
+ *  stops short of it). */
+const NARROWING_WIDTHS = [1500, 1350, 1200, 1050, 950, 880, 860];
 
 test.describe("operator-button demo", () => {
   let windowId = "";
@@ -57,8 +61,9 @@ test.describe("operator-button demo", () => {
    *    draft; Esc twice (yield, release) so the draft dot shows at rest.
    *    (Base ref: click the standing input, which swaps for a collapsed
    *    control, then Esc.)
-   * 3. Desktop: walk the viewport narrower in steps — labelled → glyph-only →
-   *    menu row — and open the chevron menu at the end. (Base ref: the box
+   * 3. Desktop: walk the viewport narrower in steps — full (`◉ Operator
+   *    <chord>`) → label (`◉ Operator`) → glyph-only (`◉`) → menu row — and
+   *    open the chevron menu at the end. (Base ref: the box
    *    drops to a ghost.)
    * 4. Mobile: `beat()` on the unchanged top bar, open the chevron menu and
    *    select the operator row; the operator route opens.
@@ -145,13 +150,15 @@ test.describe("operator-button demo", () => {
     await button.hover();
     await beat(page, 1_800);
 
-    // Narrow desktop widths: labelled → glyph-only → chevron-menu row.
+    // Narrow desktop widths: full → label → glyph-only → chevron-menu row.
     for (const width of NARROWING_WIDTHS) {
       await page.setViewportSize({ width, height: 800 });
       await beat(page, 600);
     }
     await page.getByLabel("More controls").click();
-    await expect(page.getByRole("menu", { name: "More controls" })).toBeVisible();
+    const menu = page.getByRole("menu", { name: "More controls" });
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: /^Operator/ })).toBeVisible();
     await beat(page, 2_000);
   });
 });

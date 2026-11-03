@@ -2681,19 +2681,24 @@ describe("TopBar operator launcher", () => {
     stubMatchMedia((q) => !q.includes("pointer: coarse") && !q.includes("min-width"));
 
   // jsdom has no layout engine, so the fit's two measurements are stubbed: the
-  // right cell's client width, and each element's offset width — the labelled
-  // launcher slot 100px, its compact slot and every other slot/block 30px.
+  // right cell's client width, and each element's offset width — the full
+  // launcher slot 100px, its label slot 70px, its glyph slot and every other
+  // slot/block 30px.
   const proto = HTMLElement.prototype;
   const savedOffset = Object.getOwnPropertyDescriptor(proto, "offsetWidth");
   const savedClient = Object.getOwnPropertyDescriptor(proto, "clientWidth");
   const FULL_PX = 100;
+  const LABEL_PX = 70;
   const COMPACT_PX = 30;
   const stubWidths = (cellClientWidth: number) => {
     Object.defineProperty(proto, "offsetWidth", {
       configurable: true,
       get(this: HTMLElement) {
         const launcher = this.matches("[data-quake-terminal]") ? this : this.querySelector("[data-quake-terminal]");
-        if (launcher) return launcher.textContent?.includes("Operator") ? FULL_PX : COMPACT_PX;
+        if (launcher) {
+          if (!launcher.textContent?.includes("Operator")) return COMPACT_PX;
+          return launcher.querySelector("kbd") ? FULL_PX : LABEL_PX;
+        }
         return COMPACT_PX;
       },
     });
@@ -2729,10 +2734,13 @@ describe("TopBar operator launcher", () => {
   const liveByTestId = (id: string) =>
     screen.queryAllByTestId(id).filter((el) => !el.closest("[inert]"));
 
-  // Slots at the widest (labelled) form, server mode: launcher 100 + Refresh
+  // Slots at the widest (full) form, server mode: launcher 100 + Refresh
   // 30 + Gear 30 + 2 gaps of 12 = 184, plus the reserved chevron block
-  // (30) and its gap (12) = 226.
+  // (30) and its gap (12) = 226. The label form is 30 narrower, the glyph form
+  // 70 narrower.
   const ROOMY = 226;
+  const LABEL_ROW = ROOMY - (FULL_PX - LABEL_PX);
+  const GLYPH_ROW = ROOMY - (FULL_PX - COMPACT_PX);
 
   it("mounts in the right cluster, not the center cell, on every mode", () => {
     stubWidths(2000);
@@ -2800,20 +2808,47 @@ describe("TopBar operator launcher", () => {
     expect(screen.getAllByTestId("quake-launcher")).toHaveLength(1);
   });
 
-  it("folds to the glyph-only form before any other control overflows", () => {
+  it("folds full → label → glyph before any other control overflows", () => {
     stubWidths(ROOMY);
+    renderTopBar(serverBar);
+    let launcher = screen.getByTestId("quake-launcher");
+    expect(launcher).toHaveTextContent("Operator");
+    expect(launcher.querySelector("kbd")).not.toBeNull();
+    cleanup();
+
+    // One pixel short of the full row: the keycap drops, the label stays and
+    // nothing overflows.
+    stubWidths(ROOMY - 1);
+    renderTopBar(serverBar);
+    launcher = screen.getByTestId("quake-launcher");
+    expect(launcher).toHaveTextContent("Operator");
+    expect(launcher.querySelector("kbd")).toBeNull();
+    expect(launcher).not.toHaveAttribute("aria-label");
+    expect(liveByLabel("Refresh page")).toHaveLength(1);
+    expect(liveByLabel("Open settings")).toHaveLength(1);
+    cleanup();
+
+    // The label row is the last width that keeps the label…
+    stubWidths(LABEL_ROW);
     renderTopBar(serverBar);
     expect(screen.getByTestId("quake-launcher")).toHaveTextContent("Operator");
     cleanup();
 
-    // One pixel short of the labelled row: the label folds, nothing overflows.
-    stubWidths(ROOMY - 1);
+    // …one pixel short of it the label folds too: glyph-only, accessible name
+    // kept, still nothing overflowed.
+    stubWidths(LABEL_ROW - 1);
     renderTopBar(serverBar);
-    const launcher = screen.getByTestId("quake-launcher");
+    launcher = screen.getByTestId("quake-launcher");
     expect(launcher).toHaveAttribute("aria-label", "Operator");
     expect(launcher).not.toHaveTextContent("Operator");
     expect(liveByLabel("Refresh page")).toHaveLength(1);
     expect(liveByLabel("Open settings")).toHaveLength(1);
+    cleanup();
+
+    stubWidths(GLYPH_ROW);
+    renderTopBar(serverBar);
+    expect(screen.getByTestId("quake-launcher")).toHaveAttribute("aria-label", "Operator");
+    expect(liveByLabel("Refresh page")).toHaveLength(1);
   });
 
   it("overflows after Refresh and the gear: the launcher outlasts them, then its row lands in the App menu section", () => {

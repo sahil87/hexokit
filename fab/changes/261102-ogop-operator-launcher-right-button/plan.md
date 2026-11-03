@@ -15,7 +15,7 @@ The quake launcher SHALL render exactly one `<button type="button" data-quake-te
 - **THEN** `data-testid="quake-launcher"` stays the same DOM node and no other launcher testid exists
 
 #### R2: Contents, label, tooltip, accessible name
-The button SHALL show, left to right: `OperatorStateGlyph` (live state dot, `data-testid="quake-launcher-state"` + `data-state`, no dot with no operator), the fixed label "Operator", the registry-effective chord keycap (`<kbd aria-hidden>`, omitted when the `quake-terminal` binding is unbound/disabled), and a draft dot (`data-testid="quake-launcher-draft"`) when `useOperatorCompose(server, target).text.trim() !== ""`. The tooltip (shared `Tip`) SHALL read `Ask the operator (<chord>)` with an operator, `Start the operator (<chord>)` without one, append ` · unsent draft` when a draft exists, and drop the parenthetical when no chord. The glyph-only (compact) form SHALL keep `aria-label="Operator"`, show glyph + state dot + draft dot and drop the label and keycap.
+The button SHALL show, left to right: `OperatorStateGlyph` (live state dot, `data-testid="quake-launcher-state"` + `data-state`, no dot with no operator), the fixed label "Operator", the registry-effective chord keycap (`<kbd aria-hidden>`, omitted when the `quake-terminal` binding is unbound/disabled), and a draft dot (`data-testid="quake-launcher-draft"`) when `useOperatorCompose(server, target).text.trim() !== ""`. The tooltip (shared `Tip`) SHALL read `Ask the operator (<chord>)` with an operator, `Start the operator (<chord>)` without one, append ` · unsent draft` when a draft exists, and drop the parenthetical when no chord. The button SHALL have three bar forms: **full** (glyph + label + keycap + draft dot), **label** (glyph + label + draft dot — keycap dropped), and **glyph** (glyph + state dot + draft dot — label and keycap dropped). Every form keeps the accessible name "Operator" (`aria-label="Operator"` on the glyph form) and the same tooltip. <!-- rework: user added the keycap-less label rung after review measured the label hidden at 1280–1440 with the sidebar open -->
 
 - **GIVEN** an operator and chord ⌘J with a non-empty draft
 - **WHEN** the button is hovered
@@ -61,11 +61,15 @@ The launcher SHALL be removed from the top bar's center cell and rendered as the
 ### Narrow-width degradation
 
 #### R8: Compact rung from measured fit
-`RegistryEntry` SHALL gain an optional `compactBarRender`. The probe SHALL measure both forms; `lib/top-bar-overflow.ts` SHALL export a pure `computeFit` that returns `{ count, compact }`: all candidates are tried at full width first; if not all fit, every compact-capable entry is measured at its compact width BEFORE any candidate overflows; the expand edge (compact → full) requires `TOP_BAR_COMPACT_HYSTERESIS_PX` of extra slack. Only the launcher uses it. The button SHALL NOT self-measure.
+`RegistryEntry` SHALL carry an optional ORDERED list of compact bar forms, widest first (the launcher supplies two: label, then glyph). The probe SHALL measure every form; `lib/top-bar-overflow.ts`'s pure `computeFit` SHALL return `{ count, rung }` (rung 0 = full, 1..k = the k-th compact form): candidates are tried at full width first; if not all fit, compact-capable entries step down ONE rung at a time (full → label → glyph) and the fit is retried at each step, all BEFORE any candidate overflows; each expand step (rung n → n−1) requires `TOP_BAR_COMPACT_HYSTERESIS_PX` of extra slack. Only the launcher uses it. The button SHALL NOT self-measure. <!-- rework: two compact rungs instead of one -->
 
 - **GIVEN** the cluster is one pixel too narrow for every candidate at full width
 - **WHEN** the fit runs
-- **THEN** the launcher renders glyph-only and no candidate overflows
+- **THEN** the launcher renders its label form (`◉ Operator`, no keycap) and no candidate overflows
+
+- **GIVEN** the cluster is too narrow for every candidate even with the launcher's label form
+- **WHEN** the fit runs
+- **THEN** the launcher renders glyph-only, and only if that still doesn't fit does any candidate overflow
 
 ### Cleanup
 
@@ -114,6 +118,13 @@ Comments in `top-bar.tsx` that describe the launcher in the center cell SHALL be
 - [x] T009 Add `app/frontend/tests/demo/operator-button.demo.ts` and record `just demo operator-button --before` <!-- R1 R3 R6 R8 -->
 - [x] T010 Run typecheck, unit tests, affected e2e specs <!-- R1 -->
 
+### Phase 4: Rework — keycap-less label rung
+
+- [x] T011 Generalize `computeFit` in `app/frontend/src/lib/top-bar-overflow.ts` from one compact form to an ordered rung list (`rung` result, one-step-at-a-time descent, per-step expand hysteresis); extend `app/frontend/src/lib/top-bar-overflow.test.ts` (full → label → glyph → overflow, hysteresis on each expand edge, single-rung entries unchanged) <!-- R8 -->
+- [x] T012 Add the `label` form to `app/frontend/src/components/quake-launcher.tsx` (replace the boolean `compact` with a rung/form prop) and wire the ordered compact forms + per-rung probe measurement in `app/frontend/src/components/top-bar.tsx` <!-- R2 R8 -->
+- [x] T013 Update `app/frontend/src/components/quake-launcher.test.tsx` and `app/frontend/src/components/top-bar.test.tsx` for the three forms; update e2e/demo assertions that assumed full → glyph (`quake-terminal.spec.ts`, `top-bar-overflow*.spec.ts` if affected, `tests/demo/operator-button.demo.ts`) and re-record `just demo operator-button --before` <!-- R2 R8 -->
+- [x] T014 Re-run typecheck, scoped unit tests, and the affected e2e specs (`quake-terminal`, `top-bar-overflow`, `top-bar-overlap`, `window-heading`); report measured viewport widths for each launcher transition (terminal mode, sidebar open and closed) <!-- R8 -->
+
 ## Execution Order
 
 - T001 blocks T004; T002 blocks T003 and T004; T004 blocks T005–T009.
@@ -154,6 +165,7 @@ Comments in `top-bar.tsx` that describe the launcher in the center cell SHALL be
 - [x] A-018 Comments state constraints only — no narration, no change IDs (two stale registry comments noted as should-fix)
 - [x] A-019 Magic numbers are named constants (hysteresis)
 - [x] A-020 New behavior carries tests; modified Playwright tests carry updated Proves/Steps
+- [x] A-021 R8: with the sidebar open in terminal mode at a 1280px viewport (Linux chord), the launcher shows the "Operator" label (label or full form), not glyph-only
 
 ## Notes
 

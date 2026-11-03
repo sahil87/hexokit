@@ -170,9 +170,19 @@ describe("QuakeLauncher", () => {
     expect(screen.getByTestId("quake-launcher")).toBe(button);
   });
 
-  it("the compact rung is glyph-only: no label, no keycap, the accessible name stays Operator", () => {
+  it("the label form drops the keycap, keeps the label and the accessible name", () => {
     stubDesktop();
-    render(<QuakeLauncher routeServer={null} routeWindow={null} compact />);
+    render(<QuakeLauncher routeServer={null} routeWindow={null} form="label" />);
+
+    const button = screen.getByTestId("quake-launcher");
+    expect(button).toHaveTextContent("Operator");
+    expect(button.querySelector("kbd")).toBeNull();
+    expect(button).not.toHaveAttribute("aria-label");
+  });
+
+  it("the glyph form is glyph-only: no label, no keycap, the accessible name stays Operator", () => {
+    stubDesktop();
+    render(<QuakeLauncher routeServer={null} routeWindow={null} form="glyph" />);
 
     const button = screen.getByTestId("quake-launcher");
     expect(button).toHaveAttribute("aria-label", "Operator");
@@ -384,7 +394,7 @@ describe("QuakeLauncher", () => {
     expect(screen.queryByTestId("quake-launcher-draft")).toBeNull();
   });
 
-  it("the compact rung keeps the draft dot", () => {
+  it.each(["label", "glyph"] as const)("the %s form keeps the draft dot", (form) => {
     stubDesktop();
     renderPair();
     act(() => setOperatorComposeText("srv1", OPERATOR_TARGET, "draft"));
@@ -397,13 +407,19 @@ describe("QuakeLauncher", () => {
           sessionsByServer: new Map([["srv1", operatorSessions()]]),
         }}
       >
-        <QuakeLauncher routeServer={null} routeWindow={null} compact />
+        <QuakeLauncher routeServer={null} routeWindow={null} form={form} />
       </StandaloneSessionContextProvider>,
     );
     expect(screen.getByTestId("quake-launcher-draft")).toBeInTheDocument();
   });
 
   describe("tooltip", () => {
+    it.each(["label", "glyph"] as const)("the %s form carries the same tooltip as the full form", (form) => {
+      stubDesktop();
+      render(<QuakeLauncher routeServer={null} routeWindow={null} form={form} />);
+      expect(tooltipText(screen.getByTestId("quake-launcher"))).toMatch(/^Start the operator \(.+\)$/);
+    });
+
     it("asks the operator when one exists, naming the chord", () => {
       stubDesktop();
       renderPair();

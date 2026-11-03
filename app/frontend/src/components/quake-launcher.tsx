@@ -29,6 +29,10 @@ export type LauncherProps = {
   routeWindow: string | null;
 };
 
+/** The bar forms, widest first: `full` (glyph + label + keycap), `label`
+ *  (keycap dropped), `glyph` (label and keycap dropped). */
+export type LauncherForm = "full" | "label" | "glyph";
+
 /**
  * Everything the launcher's two renderings (the top-bar button and the
  * overflow-menu row) share: the resolved operator, the chord, the draft flag
@@ -128,10 +132,11 @@ export function QuakeLauncherFocusCapture() {
  *
  * Anatomy: the `◉` glyph with the resolved operator's live state dot, the
  * fixed label "Operator", the chord keycap, and a draft dot when the shared
- * compose draft is non-empty. `compact` is the glyph-only rung (label and
- * keycap dropped, `aria-label` keeps the name); the top bar's measured fit
- * chooses it — this component never measures itself, since a child whose
- * width changes on its own would feed the fit probe a moving width.
+ * compose draft is non-empty. `form` is the bar rung: `full`, `label` (keycap
+ * dropped) or `glyph` (label dropped too; `aria-label` keeps the name). The
+ * top bar's measured fit chooses it — this component never measures itself,
+ * since a child whose width changes on its own would feed the fit probe a
+ * moving width.
  *
  * Click: at rest it opens the drawer; while open it re-focuses the docked
  * textarea and never closes (Esc and click-away own the release — Escape is
@@ -150,9 +155,9 @@ export function QuakeLauncherFocusCapture() {
 export function QuakeLauncher({
   routeServer,
   routeWindow,
-  compact = false,
+  form = "full",
   probe = false,
-}: LauncherProps & { compact?: boolean; probe?: boolean }) {
+}: LauncherProps & { form?: LauncherForm; probe?: boolean }) {
   const isMobile = useIsMobile();
   const machine = useQuakeMachineState();
   const engaged = useQuakeComposeEngaged();
@@ -175,7 +180,7 @@ export function QuakeLauncher({
         type="button"
         data-quake-terminal=""
         data-testid={testId("quake-launcher")}
-        aria-label={compact ? "Operator" : undefined}
+        aria-label={form === "glyph" ? "Operator" : undefined}
         aria-expanded={onOperatorRoute ? undefined : latched}
         onClick={activate}
         className={`${controlClass({
@@ -187,8 +192,8 @@ export function QuakeLauncher({
         })}${latched && engaged ? ` ${LAUNCHER_ENGAGED_EDGE}` : ""}`}
       >
         <OperatorStateGlyph agentState={agentState} dotTestId={probe ? null : undefined} />
-        {!compact && <span>Operator</span>}
-        {!compact && chord && (
+        {form !== "glyph" && <span>Operator</span>}
+        {form === "full" && chord && (
           <kbd
             aria-hidden="true"
             className="shrink-0 rounded border border-border px-1 text-[10px] leading-4 text-text-secondary"

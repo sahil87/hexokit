@@ -91,9 +91,10 @@ export type TopBarMode = "terminal" | "board" | "server" | "host";
  *  - `barRender` — the in-bar icon-button form (may return null). `probe` is
  *                  true for the inert measurement copy, so a control can drop
  *                  ids the live copy must own alone.
- *  - `compactBarRender` — optional narrower bar form. The probe measures both;
- *                  the fit folds every compact-capable entry to it BEFORE any
- *                  candidate overflows (lib/top-bar-overflow.ts `computeFit`).
+ *  - `compactBarRenders` — optional narrower bar forms, widest first. The probe
+ *                  measures every form; the fit steps every compact-capable
+ *                  entry down one form at a time BEFORE any candidate overflows
+ *                  (lib/top-bar-overflow.ts `computeFit`).
  *  - `dividerAfter` — a hairline divider follows the entry in the bar when
  *                  another fit candidate renders after it. The probe always
  *                  includes it, so the measured width is the worst case.
@@ -123,7 +124,7 @@ type RegistryEntry = {
   /** Chevron-menu section (260731-oiho) — Tiles / View / Window / App. */
   menuGroup: MenuGroup;
   barRender: (probe?: boolean) => ReactNode;
-  compactBarRender?: (probe?: boolean) => ReactNode;
+  compactBarRenders?: ((probe?: boolean) => ReactNode)[];
   dividerAfter?: boolean;
   menuRender: () => ReactNode;
 };
@@ -1000,7 +1001,8 @@ export function TopBar({
     // with the toggle group after it, so the fit tail is
     // `[…, operator, surface-toggles]`: it overflows only after everything
     // else, then the toggles. Under width pressure it first folds to the
-    // glyph-only `compactBarRender`. A hairline divider keeps it from reading
+    // keycap-less label form, then to the glyph-only form (`compactBarRenders`,
+    // widest first). A hairline divider keeps it from reading
     // as a fifth tile toggle (the drawer is a viewer-level overlay, not a
     // tile). Overflowed, its row is the "Operator" menu row. On mobile the
     // entry is `menuOnly`: the row always shows and navigates to the operator
@@ -1015,9 +1017,9 @@ export function TopBar({
       barRender: (probe) => (
         <QuakeLauncher routeServer={server || null} routeWindow={currentWindow?.windowId ?? null} probe={probe} />
       ),
-      compactBarRender: (probe) => (
-        <QuakeLauncher routeServer={server || null} routeWindow={currentWindow?.windowId ?? null} compact probe={probe} />
-      ),
+      compactBarRenders: (["label", "glyph"] as const).map((form) => (probe?: boolean) => (
+        <QuakeLauncher routeServer={server || null} routeWindow={currentWindow?.windowId ?? null} form={form} probe={probe} />
+      )),
       menuRender: () => (
         <QuakeTerminalMenuRow routeServer={server || null} routeWindow={currentWindow?.windowId ?? null} />
       ),
@@ -1301,9 +1303,10 @@ export function TopBar({
   // before paint, so no flash of overflowing buttons is shown.
   const rightCellRef = useRef<HTMLDivElement>(null);
   const probeRef = useRef<HTMLDivElement>(null);
-  // Second probe row: the compact form of every compact-capable fit candidate
-  // (one span per fit-order entry, empty for entries without one), so the fit
-  // knows both widths without any control measuring itself.
+  // One extra probe row per compact rung: that rung's form of every
+  // compact-capable fit candidate (one span per fit-order entry, empty for
+  // entries without one), so the fit knows every width without any control
+  // measuring itself.
   const compactProbeRef = useRef<HTMLDivElement>(null);
   // Exempt-block ref whose measured width is RESERVED before fitting candidates:
   // the trailing chevron block (always present; the connection dot moved to the
@@ -1314,10 +1317,11 @@ export function TopBar({
   // (the mobile surface-switch group — pinned in-bar, never overflowed).
   const pinnedRef = useRef<HTMLDivElement>(null);
   const [visibleCount, setVisibleCount] = useState(0);
-  // Whether the compact-capable entries render folded. The ref carries the
-  // previous verdict into the fit's expand-edge hysteresis.
-  const [compact, setCompact] = useState(false);
-  const compactRef = useRef(false);
+  // The rung the compact-capable entries render at (0 = full). The ref carries
+  // the previous verdict into the fit's expand-edge hysteresis.
+  const [rung, setRung] = useState(0);
+  const rungRef = useRef(0);
+  const compactDepth = Math.max(0, ...fitOrder.map((e) => e.compactBarRenders?.length ?? 0));
   // Serialize the FIT-candidate ids into a dependency key so the measure effect
   // re-runs when the probed SET changes (mode switch, a control appearing/
   // disappearing) — not on every render. `menuOnly` entries never affect the
@@ -1351,16 +1355,20 @@ export function TopBar({
       // order. Reverse the widths (L3-end first) so `computeVisibleCount` greedily
       // fits from the tail; the returned N is how many trailing candidates fit.
       const widths = Array.from(probe.children).map((c) => (c as HTMLElement).offsetWidth);
-      const compactWidths = Array.from(compactProbe.children).map((c) => (c as HTMLElement).offsetWidth);
+      const compactRows = Array.from(compactProbe.children).map((row) =>
+        Array.from(row.children).map((c) => (c as HTMLElement).offsetWidth),
+      );
       const items: FitItem[] = fitOrder
         .map((e, i) => ({
           width: widths[i] ?? 0,
-          ...(e.compactBarRender ? { compactWidth: compactWidths[i] ?? 0 } : {}),
+          ...(e.compactBarRenders
+            ? { compactWidths: e.compactBarRenders.map((_, r) => compactRows[r]?.[i] ?? 0) }
+            : {}),
         }))
         .reverse();
-      const fit = computeFit(available, items, reserved, RIGHT_GAP_PX, compactRef.current);
-      compactRef.current = fit.compact;
-      setCompact(fit.compact);
+      const fit = computeFit(available, items, reserved, RIGHT_GAP_PX, rungRef.current);
+      rungRef.current = fit.rung;
+      setRung(fit.rung);
       setVisibleCount(fit.count);
     };
 
@@ -1382,7 +1390,7 @@ export function TopBar({
     if (pinnedRef.current) ro.observe(pinnedRef.current);
     return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candidateKey, mode, updateKey, showChip]);
+  }, [candidateKey, compactDepth, mode, updateKey, showChip]);
 
   // Keep the LAST `visibleCount` entries of the fit ORDER in-bar (the L3-end
   // suffix plus any `dropLast` entries); the rest (L1-end prefix) overflow.
@@ -1399,17 +1407,20 @@ export function TopBar({
     .map((e) => ({ id: e.id, group: e.menuGroup, node: e.menuRender() }))
     .filter((r) => r.node != null);
   // One entry's bar slot, shared by the visible row and both probe rows so the
-  // measured widths are the widths that render. `compact` swaps in the entry's
-  // compact form when it has one; `empty` renders no content (the compact
-  // probe's placeholder for entries without a compact form, keeping the two
-  // probe rows index-aligned).
+  // measured widths are the widths that render. `rung` picks the entry's
+  // compact form for that rung when it has one (an entry with fewer forms
+  // stays on its last); `empty` renders no content (a compact probe row's
+  // placeholder for entries without compact forms, keeping every probe row
+  // index-aligned).
   const barSlot = (
     e: RegistryEntry,
-    o: { compact: boolean; divider: boolean; probe?: boolean; empty?: boolean },
-  ) => (
+    o: { rung: number; divider: boolean; probe?: boolean; empty?: boolean },
+  ) => {
+    const forms = e.compactBarRenders;
+    const render = o.rung > 0 && forms?.length ? forms[Math.min(o.rung, forms.length) - 1] : e.barRender;
+    return (
     <span key={e.id} className="flex items-center shrink-0 gap-3">
-      {!o.empty &&
-        (o.compact && e.compactBarRender ? e.compactBarRender(o.probe) : e.barRender(o.probe))}
+      {!o.empty && render(o.probe)}
       {!o.empty && e.dividerAfter && o.divider && (
         <span
           aria-hidden="true"
@@ -1418,7 +1429,8 @@ export function TopBar({
         />
       )}
     </span>
-  );
+    );
+  };
   // True when the undismissed chip's entry is currently overflowed into the
   // menu — drives the chevron attention badge, and is one of the menu's two
   // update-surface derivations (the other, dismissed-pending, is computed
@@ -1938,7 +1950,7 @@ export function TopBar({
 
           {/* Visible fit candidates — the leading N that fit, as icon buttons. */}
           {visibleItems.map((e, i) =>
-            barSlot(e, { compact, divider: i < visibleItems.length - 1 }),
+            barSlot(e, { rung, divider: i < visibleItems.length - 1 }),
           )}
 
           {/* Hidden measurement probe — renders every FIT candidate's bar form
@@ -1958,19 +1970,24 @@ export function TopBar({
             inert
             className="absolute -left-[9999px] top-0 flex items-center gap-3 pointer-events-none"
           >
-            {fitOrder.map((e) => barSlot(e, { compact: false, divider: true, probe: true }))}
+            {fitOrder.map((e) => barSlot(e, { rung: 0, divider: true, probe: true }))}
           </div>
-          {/* Compact-form probe — same contract as the row above, one span per
-              fit-order entry so the two rows stay index-aligned. */}
+          {/* Compact-form probes — same contract as the row above: one row per
+              compact rung, one span per fit-order entry so every row stays
+              index-aligned. */}
           <div
             ref={compactProbeRef}
             aria-hidden="true"
             inert
-            className="absolute -left-[9999px] top-0 flex items-center gap-3 pointer-events-none"
+            className="absolute -left-[9999px] top-0 flex flex-col pointer-events-none"
           >
-            {fitOrder.map((e) =>
-              barSlot(e, { compact: true, divider: true, probe: true, empty: !e.compactBarRender }),
-            )}
+            {Array.from({ length: compactDepth }, (_, r) => (
+              <div key={r} className="flex items-center gap-3">
+                {fitOrder.map((e) =>
+                  barSlot(e, { rung: r + 1, divider: true, probe: true, empty: !e.compactBarRenders }),
+                )}
+              </div>
+            ))}
           </div>
 
           {/* Trailing exempt block — the always-present overflow chevron/menu,

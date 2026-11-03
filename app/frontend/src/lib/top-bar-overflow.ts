@@ -69,44 +69,48 @@ export function orderForFit<T extends { dropLast?: boolean }>(entries: readonly 
   return [...entries.filter((e) => !e.dropLast), ...entries.filter((e) => e.dropLast)];
 }
 
-/** One-sided hysteresis on the compact → full EXPAND edge, in px (the
- *  `nextHeadRung` / crumb-collapse precedent): a drag hovering the boundary
- *  cannot flap the label on and off. */
+/** One-sided hysteresis on each EXPAND edge (rung n → n−1), in px (the
+ *  `nextHeadRung` / crumb-collapse precedent): a drag hovering a boundary
+ *  cannot flap a compact form on and off. */
 export const TOP_BAR_COMPACT_HYSTERESIS_PX = 24;
 
 /** One fit candidate's measured widths: its full bar form and, for entries
- *  that carry a compact form, the compact one. */
-export type FitItem = { width: number; compactWidth?: number };
+ *  that carry compact forms, those widths ordered widest first (rung 1, 2, …). */
+export type FitItem = { width: number; compactWidths?: number[] };
 
-export type FitResult = { count: number; compact: boolean };
+/** `rung` 0 = every entry at full width; rung k ≥ 1 = compact-capable entries
+ *  at their k-th compact form (an entry with fewer forms stays on its last). */
+export type FitResult = { count: number; rung: number };
 
 /**
- * Two-rung fit. Fits every candidate at full width when it can; otherwise every
- * compact-capable candidate folds to its compact form BEFORE any candidate
- * overflows, then the usual greedy fit runs over the folded widths. `items` is
- * in the same direction as `computeVisibleCount`'s `itemWidths` (tail-first).
+ * Multi-rung fit. Tries every candidate at full width (rung 0); when they do
+ * not all fit, compact-capable candidates step down ONE rung at a time
+ * (full → label → glyph …), retrying the fit at each step, all BEFORE any
+ * candidate overflows. If even the deepest rung does not fit, the usual
+ * greedy fit runs at that rung and the tail overflows. `items` is in the same
+ * direction as `computeVisibleCount`'s `itemWidths` (tail-first).
  *
- * `wasCompact` is the previous result's `compact`: staying folded needs no
- * proof, but returning to full needs `hysteresisPx` of spare room on top of the
- * full fit, so the boundary cannot flap. Entries without a `compactWidth` keep
- * their full width in both rungs.
+ * `prevRung` is the previous result's `rung`: staying on a rung (or folding
+ * deeper) needs no proof, but moving to a shallower rung needs `hysteresisPx`
+ * of spare room on top of that rung's fit, so no boundary can flap. Entries
+ * without `compactWidths` keep their full width on every rung.
  */
 export function computeFit(
   availableWidth: number,
   items: FitItem[],
   reservedWidth: number,
   gap: number,
-  wasCompact: boolean,
+  prevRung: number,
   hysteresisPx: number = TOP_BAR_COMPACT_HYSTERESIS_PX,
 ): FitResult {
-  const full = items.map((i) => i.width);
-  if (!items.some((i) => i.compactWidth !== undefined)) {
-    return { count: computeVisibleCount(availableWidth, full, reservedWidth, gap), compact: false };
+  const deepest = Math.max(0, ...items.map((i) => i.compactWidths?.length ?? 0));
+  const widthsAt = (rung: number) =>
+    items.map((i) => (rung === 0 || !i.compactWidths?.length ? i.width : i.compactWidths[Math.min(rung, i.compactWidths.length) - 1]));
+  for (let rung = 0; rung < deepest; rung += 1) {
+    const slack = rung < prevRung ? hysteresisPx : 0;
+    if (computeVisibleCount(availableWidth - slack, widthsAt(rung), reservedWidth, gap) === items.length) {
+      return { count: items.length, rung };
+    }
   }
-  const slack = wasCompact ? hysteresisPx : 0;
-  if (computeVisibleCount(availableWidth - slack, full, reservedWidth, gap) === items.length) {
-    return { count: items.length, compact: false };
-  }
-  const folded = items.map((i) => i.compactWidth ?? i.width);
-  return { count: computeVisibleCount(availableWidth, folded, reservedWidth, gap), compact: true };
+  return { count: computeVisibleCount(availableWidth, widthsAt(deepest), reservedWidth, gap), rung: deepest };
 }
