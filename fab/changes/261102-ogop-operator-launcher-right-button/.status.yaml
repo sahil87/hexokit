@@ -8,8 +8,8 @@ progress:
     intake: done
     apply: done
     review: done
-    hydrate: active
-    ship: pending
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
@@ -32,24 +32,26 @@ stage_metrics:
     intake: {started_at: "2026-11-02T11:22:55Z", driver: fab-new, iterations: 1, completed_at: "2026-11-02T12:05:19Z"}
     apply: {started_at: "2026-11-03T04:43:25Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-03T05:18:23Z"}
     review: {started_at: "2026-11-03T05:18:23Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-03T10:01:35Z"}
-    hydrate: {started_at: "2026-11-03T10:01:35Z", driver: fab-fff, iterations: 2}
+    hydrate: {started_at: "2026-11-03T10:01:35Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-03T10:08:28Z"}
+    ship: {started_at: "2026-11-03T10:08:28Z", driver: fab-fff, iterations: 1}
 prs: []
 base_branch: main
 true_impact:
-    added: 1600
+    added: 1801
     deleted: 706
-    net: 894
+    net: 1095
     excluding:
-        added: 1108
+        added: 1293
         deleted: 705
-        net: 403
+        net: 588
     tests:
-        added: 159
+        added: 260
         deleted: 121
-        net: 38
-    computed_at: "2026-11-03T05:18:23Z"
-    computed_at_stage: apply
+        net: 139
+    computed_at: "2026-11-03T10:08:28Z"
+    computed_at_stage: hydrate
 change_type_source: explicit
+summary: 'Operator launcher becomes one right-cluster button: registry head entry (dropLast desktop / menuOnly mobile), three bar forms folded by computeFit, merged first App-section Operator menu row, latch + engaged accent edge'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-03T10:01:35Z
+last_updated: 2026-11-03T10:08:28Z
