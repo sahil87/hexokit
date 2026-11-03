@@ -162,10 +162,10 @@ Comments in `top-bar.tsx` that describe the launcher in the center cell SHALL be
 
 - [x] A-016 Pattern consistency: new code follows naming and structure of surrounding code (`controlClass`, `Tip`, registry)
 - [x] A-017 No unnecessary duplication: shared hook serves bar button and menu row; existing helpers reused
-- [x] A-018 Comments state constraints only — no narration, no change IDs (two stale registry comments noted as should-fix)
+- [x] A-018 Comments state constraints only — no narration, no change IDs (the earlier stale registry-head comments are fixed)
 - [x] A-019 Magic numbers are named constants (hysteresis)
 - [x] A-020 New behavior carries tests; modified Playwright tests carry updated Proves/Steps
-- [x] A-021 R8: with the sidebar open in terminal mode at a 1280px viewport (Linux chord), the launcher shows the "Operator" label (label or full form), not glyph-only
+- [x] A-021 R8: with the sidebar open in terminal mode at a 1280px viewport (Linux chord), the launcher shows the "Operator" label (label or full form), not glyph-only — verified on the rig: label form on a fresh load at 1280 (label→glyph fold at 1268), independent of window-name length
 
 ## Notes
 
@@ -173,8 +173,7 @@ Comments in `top-bar.tsx` that describe the launcher in the center cell SHALL be
 
 ## Deletion Candidates
 
-- `app/frontend/src/components/top-bar-overflow-menu.tsx` `QuakeLauncherRoute` type — duplicates the unexported `LauncherProps` in `quake-launcher.tsx`; export one and reuse it
-- `app/frontend/src/components/top-bar-overflow-menu.tsx` `QuakeTerminalMenuRow` name — the row is now "Operator" (the launcher's menu form); the old name no longer describes it
+- `app/frontend/src/components/top-bar-overflow-menu.tsx:233` `QuakeTerminalMenuRow` name — the row is now "Operator" (the launcher's menu form); the old name no longer describes it
 
 ## Assumptions
 
