@@ -229,6 +229,13 @@ export type WindowInfo = {
    *  at the first empty (a hand-written gap degrades to the prefix). Index 0 is
    *  tmux slot 1. */
   webTabs?: string[];
+  /** The server-derived repo-relative display prefix of each `webTabs` slot's
+   *  serve root, index-aligned with `webTabs` (`internal/sessions`
+   *  `deriveWebPath`): `""` = no prefix, `"docs/wiki"` in-repo,
+   *  `"loom:docs/wiki"` for a repo other than the window's. Absent when no slot
+   *  has one and on older backends; a length mismatch with `webTabs` means
+   *  "no prefix" (see `alignedWebPaths`). */
+  webPaths?: string[];
   /** The 1-based index into `webTabs` the web surface shows, from
    *  `@rk_win_web_active`. 0/absent when no tabs; a non-numeric or out-of-range
    *  stored value clamps to 1 backend-side (degrade, never error). */

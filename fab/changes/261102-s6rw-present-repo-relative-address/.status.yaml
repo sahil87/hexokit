@@ -1,0 +1,58 @@
+id: s6rw
+name: 261102-s6rw-present-repo-relative-address
+created: 2026-11-02T11:34:57Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 9
+    acceptance_count: 22
+    acceptance_completed: 22
+confidence:
+    certain: 8
+    confident: 8
+    tentative: 0
+    unresolved: 0
+    score: 3.6
+    fuzzy: true
+    dimensions:
+        signal: 75.3
+        reversibility: 82.8
+        competence: 80.0
+        disambiguation: 77.2
+stage_metrics:
+    intake: {started_at: "2026-11-02T11:34:57Z", driver: fab-new, iterations: 1, completed_at: "2026-11-02T12:05:08Z"}
+    apply: {started_at: "2026-11-02T12:05:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-02T12:15:05Z"}
+    review: {started_at: "2026-11-02T12:15:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-02T12:49:07Z"}
+    hydrate: {started_at: "2026-11-02T12:49:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-02T13:02:05Z"}
+    ship: {started_at: "2026-11-02T13:02:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-02T13:43:29Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1104
+base_branch: main
+true_impact:
+    added: 1356
+    deleted: 83
+    net: 1273
+    excluding:
+        added: 941
+        deleted: 63
+        net: 878
+    tests:
+        added: 329
+        deleted: 15
+        net: 314
+    computed_at: "2026-11-02T13:43:29Z"
+    computed_at_stage: ship
+change_type_source: explicit
+summary: 'Present web-tile address shows repo-relative path: webPaths derived server-side from @rk_win_web_<n>_root, displayForm prefix, ListWindows reads root slots'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-02T13:43:29Z

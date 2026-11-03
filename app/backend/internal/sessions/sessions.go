@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -582,6 +583,89 @@ func deriveGitRoot(w *tmux.WindowInfo) string {
 	return cwd
 }
 
+// webPathRepoSep joins a cross-repo label to the repo-relative path
+// ("loom:docs/wiki"); the frontend joins prefix and tail without a "/" when
+// the prefix ends in it.
+const webPathRepoSep = ":"
+
+// deriveWebPath returns the repo-relative display prefix for a web slot's
+// serve root: the forward-slash path from the root's repo toplevel (found by
+// the config.FindGitRoot stat-walk — no subprocess), "" when root is empty,
+// relative, outside any repo, or is the toplevel of the window's own repo.
+// A root inside a repo OTHER than windowGitRoot is labelled with that repo's
+// folder name ("loom:docs/wiki", "loom:" at its toplevel) so same-named files
+// across repos stay distinguishable. Derived per request from the stored
+// absolute root (Constitution II/X) — nothing is stored at present time.
+func deriveWebPath(root, windowGitRoot string) string {
+	if root == "" || !filepath.IsAbs(root) {
+		return ""
+	}
+	repoTop := config.FindGitRoot(root)
+	if repoTop == "" {
+		return ""
+	}
+	rel, err := filepath.Rel(repoTop, root)
+	if err != nil {
+		return ""
+	}
+	rel = filepath.ToSlash(rel)
+	if rel == "." {
+		rel = ""
+	}
+	if sameDir(repoTop, windowGitRoot) {
+		return rel
+	}
+	return filepath.Base(repoTop) + webPathRepoSep + rel
+}
+
+// sameDir reports whether a and b name the same directory. The stored present
+// root is filepath.Abs only (symlinks kept) while the window GitRoot comes from
+// tmux pane_current_path, which the kernel reports symlink-resolved — so a
+// string compare would label a symlinked path into the window's own repo as
+// cross-repo. os.SameFile compares identity; it stays subprocess-free.
+func sameDir(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	ai, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	bi, err := os.Stat(b)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(ai, bi)
+}
+
+// deriveWebPaths derives deriveWebPath for every slot of w, index-aligned with
+// w.WebTabs. Returns nil when no slot yields a prefix so the field drops out
+// of the payload. Roots repeated across slots are walked once.
+func deriveWebPaths(w *tmux.WindowInfo) []string {
+	if len(w.WebRoots) != len(w.WebTabs) {
+		return nil
+	}
+	memo := make(map[string]string, len(w.WebRoots))
+	paths := make([]string, len(w.WebRoots))
+	hasPrefix := false
+	for i, root := range w.WebRoots {
+		p, ok := memo[root]
+		if !ok {
+			p = deriveWebPath(root, w.GitRoot)
+			memo[root] = p
+		}
+		paths[i] = p
+		hasPrefix = hasPrefix || p != ""
+	}
+	if !hasPrefix {
+		return nil
+	}
+	return paths
+}
+
 // windowBranchRepo returns the (repoDir, branch) to derive a window's PR from:
 // the active pane's cwd/branch when the active pane is on a branch, else the
 // first pane that has a resolved branch. A window is the UI unit that carries a
@@ -851,6 +935,9 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 			// derived from its active pane's cwd (Constitution II/X — nothing
 			// stored, nothing pushed). Empty when the cwd is not a repo.
 			sd.windows[j].GitRoot = deriveGitRoot(&sd.windows[j])
+			// Repo-relative display prefix per web slot (needs GitRoot for the
+			// cross-repo label); the raw absolute roots stay server-side.
+			sd.windows[j].WebPaths = deriveWebPaths(&sd.windows[j])
 			// PR-from-branch derivation (260705-dmex): register the window's
 			// branch with the prstatus refresher and join its last-good PR from
 			// the in-memory snapshot — no subprocess on this hot path.

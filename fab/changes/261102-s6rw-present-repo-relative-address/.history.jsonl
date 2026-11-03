@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-02T11:34:57Z"}
+{"args":"Show the repo-relative path of an rk present-ed file in the web tile's address bar instead of the opaque /present/\u003cserver\u003e/\u003croothash\u003e/\u003cfile\u003e?v=\u003cbust\u003e URL","cmd":"fab-new","event":"command","ts":"2026-11-02T11:34:57Z"}
+{"delta":"+3.6","event":"confidence","score":3.6,"trigger":"calc-score","ts":"2026-11-02T11:36:44Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-11-02T12:04:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-02T12:05:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-02T12:15:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-11-02T12:49:07Z"}
+{"event":"review","result":"passed","ts":"2026-11-02T12:49:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-11-02T13:02:05Z"}

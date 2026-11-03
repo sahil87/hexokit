@@ -156,8 +156,9 @@ func WebTabOption(n int) string {
 
 // WebTabRootOption returns "@rk_win_web_<n>_root" — the absolute serve root for
 // a file/dir present target held in slot n, read at request time by the
-// /present/ route and never enumerated into ListWindows. Same range contract
-// as WebTabOption.
+// /present/ route and enumerated into ListWindows (WindowInfo.WebRoots) so
+// FetchSessions can derive the repo-relative display prefix; the raw root is
+// never serialized to clients. Same range contract as WebTabOption.
 func WebTabRootOption(n int) string {
 	if n < 1 || n > MaxWebTabs {
 		panic(fmt.Sprintf("WebTabRootOption(%d): out of range 1..%d", n, MaxWebTabs))
@@ -988,6 +989,16 @@ type WindowInfo struct {
 	// order, stopping at the first empty (a hand-written gap degrades to the
 	// prefix — the write paths never produce gaps). Index 0 is tmux slot 1.
 	WebTabs []string `json:"webTabs,omitempty"`
+	// WebRoots is the absolute serve root of each WebTabs entry ("" where the
+	// slot has no root — port/URL targets), parallel to WebTabs. Server-internal:
+	// absolute host paths never reach the client (json:"-"); WebPaths carries
+	// the derived display form.
+	WebRoots []string `json:"-"`
+	// WebPaths is the repo-relative display prefix of each WebTabs entry,
+	// derived rk-side in FetchSessions from WebRoots (see deriveWebPath): ""
+	// = no prefix, "docs/wiki" in-repo, "loom:docs/wiki" for a repo other than
+	// the window's. Index-aligned with WebTabs; omitted when no slot has one.
+	WebPaths []string `json:"webPaths,omitempty"`
 	// WebActive is the 1-based index into WebTabs the web surface shows, sourced
 	// from WebActiveOption. 0 when no tabs; a non-numeric or out-of-range stored
 	// value clamps to 1 when tabs exist (degrade, never error).
@@ -1627,11 +1638,13 @@ func clampWebActive(raw string, tabs int) int {
 // Positional field indices (0-based) of the ListWindows format string,
 // derived from MaxWebTabs so a cap raise stays a one-line change. The format
 // builder (ListWindows) spells the same order: listWindowsFixedPrefix fixed
-// fields, the MaxWebTabs URL slots, then the trailing fields below, with the
-// legacy note always LAST (its free-text tail is rejoined by parseWindows).
+// fields, the MaxWebTabs URL slots, the MaxWebTabs parallel root slots, then
+// the trailing fields below, with the legacy note always LAST (its free-text
+// tail is rejoined by parseWindows).
 const (
 	listWindowsFixedPrefix     = 9
-	listWindowsWebActiveField  = listWindowsFixedPrefix + MaxWebTabs
+	listWindowsRootsField      = listWindowsFixedPrefix + MaxWebTabs
+	listWindowsWebActiveField  = listWindowsFixedPrefix + 2*MaxWebTabs
 	listWindowsCodeRootField   = listWindowsWebActiveField + 1
 	listWindowsMarkerField     = listWindowsWebActiveField + 2
 	listWindowsRoleField       = listWindowsWebActiveField + 3
@@ -1640,26 +1653,32 @@ const (
 	listWindowsNoteField       = listWindowsWebActiveField + 6
 	listWindowsLegacyURLField  = listWindowsWebActiveField + 7
 	listWindowsLegacyLensField = listWindowsWebActiveField + 8
-	listWindowsLegacyNoteField = listWindowsWebActiveField + 9
+	// listWindowsLegacyPresentRootField is the retired @rk_win_present_root —
+	// the slot-1 root fallback, mirroring the /present/ route's dual-read.
+	listWindowsLegacyPresentRootField = listWindowsWebActiveField + 9
+	listWindowsLegacyNoteField        = listWindowsWebActiveField + 10
 	// listWindowsFullFields is the field count of a complete current-format
-	// line; a shorter line is a pre-16-slot capture (see legacyWebTabSlots).
+	// line; a shorter line is a pre-16-slot capture (see legacyWebTabSlots)
+	// that carries neither the root block nor the legacy present-root field.
 	listWindowsFullFields = listWindowsLegacyNoteField + 1
 )
 
 // parseWindows parses tmux list-windows output lines into WindowInfo structs.
 // nowUnix is the current Unix timestamp for activity threshold computation.
-// Lines carry listWindowsFixedPrefix + MaxWebTabs + 9 tab-delimited fields
+// Lines carry listWindowsFixedPrefix + 2*MaxWebTabs + 10 tab-delimited fields
 // plus the legacy-note tail: window_id, window_index, window_name,
 // pane_current_path, window_activity, window_active, pane_current_command,
 // @rk_win_color, @rk_win_layout, @rk_win_web_1 .. @rk_win_web_<MaxWebTabs>,
+// @rk_win_web_1_root .. @rk_win_web_<MaxWebTabs>_root,
 // @rk_win_web_active, @rk_win_code_root, @rk_win_marker, @rk_win_role,
 // @rk_win_flair, @rk_win_owner, then @rk_win_note as a STRICT SINGLE FIELD,
 // then the retired @rk_win_url (dual-read web_1 fallback), the retired
-// @rk_win_lens (dual-read web-leaf layout fallback), then the legacy note
+// @rk_win_lens (dual-read web-leaf layout fallback), the retired
+// @rk_win_present_root (dual-read slot-1 root fallback), then the legacy note
 // LAST. Lines with fewer than 8 fields are skipped; fields 8+ are optional
 // (empty string if absent). A line shorter than a full current-format line
 // (listWindowsFullFields) is a pre-16-slot capture and parses with the
-// 8-slot-era offsets (legacyWebTabSlots). The web-tab slots read dense (walk
+// 8-slot-era offsets (legacyWebTabSlots) and no root block. The web-tab slots read dense (walk
 // 1..MaxWebTabs, stop at the first empty) and web_active degrades
 // (non-numeric/out-of-range clamps per clampWebActive, never an error). The
 // note is dual-read: the new field wins when non-empty, else the legacy note,
@@ -1694,7 +1713,7 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		}
 
 		var layout string
-		var webTabs []string
+		var webTabs, webRoots []string
 		var webActive int
 		var codeRoot string
 		if len(parts) >= listWindowsFixedPrefix {
@@ -1705,11 +1724,12 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		// A line shorter than a full current-format line is a pre-16-slot
 		// capture: parse it with the 8-slot-era offsets (legacyWebTabSlots) so
 		// its trailing fields land where that format put them.
-		slots := MaxWebTabs
+		slots, rootSlots, extra := MaxWebTabs, MaxWebTabs, 1
 		if len(parts) < listWindowsFullFields {
-			slots = legacyWebTabSlots
+			slots, rootSlots, extra = legacyWebTabSlots, 0, 0
 		}
-		webActiveField := listWindowsFixedPrefix + slots
+		rootsField := listWindowsFixedPrefix + slots
+		webActiveField := rootsField + rootSlots
 		codeRootField := webActiveField + 1
 		markerField := webActiveField + 2
 		roleField := webActiveField + 3
@@ -1718,10 +1738,20 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		noteField := webActiveField + 6
 		legacyURLField := webActiveField + 7
 		legacyLensField := webActiveField + 8
-		legacyNoteField := webActiveField + 9
+		legacyPresentRootField := webActiveField + 9
+		legacyNoteField := webActiveField + 9 + extra
 		if len(parts) > listWindowsFixedPrefix {
-			end := min(webActiveField, len(parts))
+			end := min(rootsField, len(parts))
 			webTabs = denseWebTabs(parts[listWindowsFixedPrefix:end])
+		}
+		if rootSlots > 0 {
+			for i := range webTabs {
+				if len(parts) > rootsField+i {
+					webRoots = append(webRoots, strings.TrimSpace(parts[rootsField+i]))
+				} else {
+					webRoots = append(webRoots, "")
+				}
+			}
 		}
 		var activeRaw string
 		if len(parts) > webActiveField {
@@ -1787,8 +1817,16 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		if len(webTabs) == 0 && len(parts) > legacyURLField {
 			if legacyURL := strings.TrimSpace(parts[legacyURLField]); legacyURL != "" {
 				webTabs = []string{legacyURL}
+				webRoots = []string{""}
 				webActive = 1
 			}
+		}
+		// Slot 1 dual-reads the retired @rk_win_present_root when web_1_root is
+		// empty — the same fallback the /present/ route applies.
+		// A pre-16-slot line carries no present-root field (extra == 0 puts
+		// legacyPresentRootField on the legacy note), so only full lines dual-read.
+		if extra > 0 && len(webRoots) > 0 && webRoots[0] == "" && len(parts) > legacyPresentRootField {
+			webRoots[0] = strings.TrimSpace(parts[legacyPresentRootField])
 		}
 		// Retired @rk_win_lens: "iframe" was the web default-view hint; with
 		// @rk_win_layout unset it reads as the web-leaf layout the migration row
@@ -1817,6 +1855,7 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			Color:             color,
 			Layout:            layout,
 			WebTabs:           webTabs,
+			WebRoots:          webRoots,
 			WebActive:         webActive,
 			CodeRoot:          codeRoot,
 			Marker:            marker,
@@ -1906,6 +1945,9 @@ func listWindows(ctx context.Context, session string, server string, strict bool
 	for n := 1; n <= MaxWebTabs; n++ {
 		fields = append(fields, "#{"+WebTabOption(n)+"}")
 	}
+	for n := 1; n <= MaxWebTabs; n++ {
+		fields = append(fields, "#{"+WebTabRootOption(n)+"}")
+	}
 	fields = append(fields,
 		"#{"+WebActiveOption+"}",
 		"#{"+CodeRootOption+"}",
@@ -1924,6 +1966,7 @@ func listWindows(ctx context.Context, session string, server string, strict bool
 		"#{"+NoteOption+"}",
 		"#{"+legacyWinURLOption+"}",
 		"#{"+legacyWinLensOption+"}",
+		"#{"+LegacyWinPresentRootOption+"}",
 		"#{"+legacyNoteOption+"}",
 	)
 	format := strings.Join(fields, listDelim)

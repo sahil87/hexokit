@@ -21,13 +21,15 @@
  * `POST /api/windows/…/options` for the zero-mutation assertions.
  * `stubWindowOpen` replaces `window.open` with a recorder on
  * `window.__openedUrls` (no real tabs). Chrome-side locators are scoped to
- * `surface-tile-web`; frame content is reached via
+ * `surface-tile-web`; the repo-relative address test seeds a scratch git repo
+ * (`repoDir`, a `.git` dir plus `docs/wiki/note.html`), removed in afterAll.
+ * Frame content is reached via
  * `frameLocator('iframe[title="Proxied content"]')`.
  */
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { READY_TIMEOUT } from "./_ready";
@@ -45,6 +47,12 @@ const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 // stored values; the new arm's resolution matches against the server's
 // declared roots.
 let presentDir: string;
+
+// A scratch git repo (a `.git` dir is all the backend's FindGitRoot stat-walk
+// needs) holding docs/wiki/note.html, used as a window's pane cwd so the
+// presented file's repo-relative prefix derives.
+let repoDir: string;
+let wikiDir: string;
 
 /** The composed hash segment for a present address's serve root — the same
  *  sha256(path).slice(0, 12) the backend's `rk present` composes. */
@@ -78,9 +86,9 @@ function setWindowOpt(windowId: string, key: string, value: string): void {
 async function makeWindow(
   page: Page,
   name: string,
-  opts: { url?: string; presentRoot?: string },
+  opts: { url?: string; presentRoot?: string; cwd?: string },
 ): Promise<string> {
-  newWindow(TEST_SESSION, name, { cwd: "/tmp" });
+  newWindow(TEST_SESSION, name, { cwd: opts.cwd ?? "/tmp" });
   const id = await resolveWindow(page, name);
   if (opts.url !== undefined) stampWebTab(id, opts.url);
   if (opts.presentRoot) setWindowOpt(id, "@rk_win_web_1_root", opts.presentRoot);
@@ -133,11 +141,20 @@ test.beforeAll(() => {
     join(presentDir, "page-two.html"),
     '<!doctype html><html><head><title>Page Two</title></head><body><p>second</p></body></html>',
   );
+  repoDir = mkdtempSync(join(tmpdir(), "rk-e2e-repo-"));
+  mkdirSync(join(repoDir, ".git"));
+  wikiDir = join(repoDir, "docs", "wiki");
+  mkdirSync(wikiDir, { recursive: true });
+  writeFileSync(
+    join(wikiDir, "note.html"),
+    "<!doctype html><html><head><title>Note</title></head><body><p>note</p></body></html>",
+  );
 });
 
 test.afterAll(() => {
   killSession(TEST_SESSION);
   rmSync(presentDir, { recursive: true, force: true });
+  rmSync(repoDir, { recursive: true, force: true });
 });
 
 test.describe("Web tile browser chrome (260819-v6y4)", () => {
@@ -349,6 +366,33 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
 
     // Zoom and Inspect are ⋯ menu rows, not inline chrome.
     await expect(webTile(page).getByTestId("web-zoom-control")).toHaveCount(0);
+  });
+
+  /**
+   * Proves: a file presented from inside a git repo reads as its
+   * repo-relative path in the address bar at rest (not the bare basename),
+   * the tab tooltip agrees, and focusing the input reveals the raw `/present/…` URL.
+   *
+   * Steps:
+   * 1. Create a window whose pane cwd is the scratch repo root, with slot 1 =
+   *    the content-keyed present address of `docs/wiki/note.html` and
+   *    `@rk_win_web_1_root` = the `docs/wiki` dir; deep-link `?view=web`.
+   * 2. Assert the address input's rest value is `docs/wiki/note.html`.
+   * 3. Assert the tab's tooltip is `docs/wiki/note.html`.
+   * 4. Focus the input; assert the raw value starts with `/present/`.
+   */
+  test("(h) a present file inside a git repo shows its repo-relative path at rest", async ({ page }) => {
+    const id = await makeWindow(page, `wc-repo-${Date.now()}`, { presentRoot: wikiDir, cwd: repoDir });
+    stampWebTab(id, presentAddress(wikiDir, TMUX_SERVER, "note.html"));
+    await gotoWebTile(page, id);
+
+    await expect(addressInput(page)).toHaveValue("docs/wiki/note.html", { timeout: READY_TIMEOUT });
+
+    const tab = webTile(page).getByTestId("web-tab").first();
+    await expect(tab).toHaveAttribute("title", "docs/wiki/note.html");
+
+    await addressInput(page).focus();
+    await expect(addressInput(page)).toHaveValue(/^\/present\//);
   });
 
 });

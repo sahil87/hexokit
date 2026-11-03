@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { PaneInfo, WindowInfo } from "@/types";
+import { alignedWebPaths } from "@/lib/window-view";
 
 /**
  * Optimistic per-window web-tab family override (display only). Set while a
@@ -8,6 +9,9 @@ import type { PaneInfo, WindowInfo } from "@/types";
  */
 export type WebTabOverride = {
   webTabs?: string[];
+  /** Parallel to `webTabs` — only meaningful alongside an overridden
+   *  `webTabs` (the payload's `webPaths` describes the payload's order). */
+  webPaths?: string[];
   webActive?: number;
 };
 
@@ -121,18 +125,24 @@ export function entryKey(server: string, windowId: string): string {
  * of the backend's WebRemove rule (internal/tmux/webtabs.go `repointActive`):
  * slots past n shift down one; the active pointer becomes 0 when the family
  * empties, min(n, newLen) when it pointed at n, active-1 when past n, else
- * unchanged. The server write is authoritative; the next SSE tick reconciles.
+ * unchanged. `paths` (the parallel `webPaths`) gets the same filter and is
+ * returned only when it was aligned with `tabs`. The server write is
+ * authoritative; the next SSE tick reconciles.
  */
 export function webFamilyAfterRemove(
   tabs: string[],
   active: number,
   n: number,
-): { webTabs: string[]; webActive: number } {
+  paths?: string[],
+): { webTabs: string[]; webActive: number; webPaths?: string[] } {
   const webTabs = tabs.filter((_, i) => i !== n - 1);
   const newLen = webTabs.length;
   const webActive =
     newLen === 0 ? 0 : active === n ? Math.min(n, newLen) : active > n ? active - 1 : active;
-  return { webTabs, webActive };
+  const aligned = alignedWebPaths(tabs, paths);
+  return aligned
+    ? { webTabs, webActive, webPaths: aligned.filter((_, i) => i !== n - 1) }
+    : { webTabs, webActive };
 }
 
 /**
@@ -141,21 +151,32 @@ export function webFamilyAfterRemove(
  * `repointMoveActive`): the moved tab lands at to, slots between shift one
  * step the other way, and the active pointer follows the moved/affected slots'
  * identity. n == to — or either index out of the family's 1..len range —
- * returns the family unchanged. The server write is authoritative; the next
- * SSE tick reconciles.
+ * returns the family unchanged. `paths` (the parallel `webPaths`) is spliced
+ * the same way and returned only when it was aligned with `tabs`. The server
+ * write is authoritative; the next SSE tick reconciles.
  */
 export function webFamilyAfterMove(
   tabs: string[],
   active: number,
   n: number,
   to: number,
-): { webTabs: string[]; webActive: number } {
+  paths?: string[],
+): { webTabs: string[]; webActive: number; webPaths?: string[] } {
+  const aligned = alignedWebPaths(tabs, paths);
   if (n === to || n < 1 || n > tabs.length || to < 1 || to > tabs.length) {
-    return { webTabs: tabs, webActive: active };
+    return aligned
+      ? { webTabs: tabs, webActive: active, webPaths: aligned }
+      : { webTabs: tabs, webActive: active };
   }
   const webTabs = [...tabs];
   const [moved] = webTabs.splice(n - 1, 1);
   webTabs.splice(to - 1, 0, moved);
+  let webPaths: string[] | undefined;
+  if (aligned) {
+    webPaths = [...aligned];
+    const [movedPath] = webPaths.splice(n - 1, 1);
+    webPaths.splice(to - 1, 0, movedPath);
+  }
   const webActive =
     active === n
       ? to
@@ -164,7 +185,7 @@ export function webFamilyAfterMove(
         : n > to && active >= to && active < n
           ? active + 1
           : active;
-  return { webTabs, webActive };
+  return webPaths ? { webTabs, webActive, webPaths } : { webTabs, webActive };
 }
 
 /**

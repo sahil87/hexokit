@@ -20,6 +20,7 @@ import {
   WEB_TAB_DRAFT_EVENT,
   classifyAddress,
   displayForm,
+  presentRootKey,
   routeAddressSubmit,
   webKindChip,
   webTabTitle,
@@ -51,6 +52,7 @@ import { useLocalStorageBoolean } from "@/hooks/use-local-storage-boolean";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { buildWebChordTable } from "@/lib/web-chord-table";
 import { canShellWeb } from "@/lib/shell";
+import { alignedWebPaths } from "@/lib/window-view";
 import {
   WEB_NATIVE_ENGINE_DEFAULT,
   WEB_NATIVE_ENGINE_PREF_KEY,
@@ -67,6 +69,9 @@ import type {
 interface IframeWindowProps {
   /** Dense web-tab family (the window's `webTabs ?? []`). */
   tabs: string[];
+  /** Server-derived repo-relative display prefix per tab, index-aligned with
+   *  `tabs` (the window's `webPaths`); absent/misaligned ⇒ no prefix. */
+  webPaths?: string[];
   /** The tile's tmux identity — the server name and window id (`@N`) of the
    *  window this tile renders. Feeds the native engine's retention identity
    *  (joined with the slot URL) and scopes the chrome-owned destroy rule: a
@@ -208,6 +213,7 @@ function sameFind(a: FrameChromeState["find"], b: FrameChromeState["find"]): boo
  *  the only axis every engine can answer. */
 export function IframeWindow({
   tabs,
+  webPaths,
   active,
   server,
   windowId,
@@ -500,6 +506,15 @@ export function IframeWindow({
    *  else the active web tab's address. The ↗ button and the edit reveal read
    *  this. */
   const rawAddress = trackedLocation ?? url;
+  // The active slot's repo-relative prefix describes only content under that
+  // slot's presented root: a tracked frame location that left it (navigated
+  // elsewhere, or to a different root) must not inherit it.
+  const alignedPaths = alignedWebPaths(tabs, webPaths);
+  const slotRootKey = presentRootKey(url);
+  const addressPrefix =
+    trackedLocation === null || (slotRootKey !== null && presentRootKey(trackedLocation) === slotRootKey)
+      ? (alignedPaths?.[activeIndex - 1] ?? "")
+      : "";
 
   // The address field's leading kind chip derives from the active DECLARED
   // tab's stored slot URL; a selected draft and the onboarding state have no
@@ -1101,7 +1116,7 @@ export function IframeWindow({
                 data-testid="web-tab"
                 data-index={n}
                 tabIndex={isActive ? 0 : -1}
-                title={displayForm(tabUrl)}
+                title={displayForm(tabUrl, alignedPaths?.[i] ?? "")}
                 style={width !== undefined ? { width } : undefined}
                 onClick={() => {
                   if (clickSuppressRef.current) {
@@ -1373,7 +1388,7 @@ export function IframeWindow({
           <input
             ref={addressInputRef}
             type="text"
-            value={selectedDraft !== null ? inputUrl : editing ? inputUrl : displayForm(rawAddress)}
+            value={selectedDraft !== null ? inputUrl : editing ? inputUrl : displayForm(rawAddress, addressPrefix)}
             placeholder={
               selectedDraft !== null
                 ? "type an address — Enter opens the web tab, Esc discards"

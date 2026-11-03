@@ -3,6 +3,7 @@ import {
   classifyAddress,
   daemonLoopbackOrigin,
   displayForm,
+  presentRootKey,
   isAllowedUrl,
   normalizeAddressInput,
   proxyPortOf,
@@ -53,7 +54,7 @@ describe("displayForm (260819-v6y4 R3)", () => {
     expect(displayForm("/present/@320/dir/index.html?server=a")).toBe("index.html");
     // NEW content-keyed form: server + hash segments are plumbing too.
     expect(displayForm("/present/runKit/3f9a2c8e1b77/report.html?v=1")).toBe("report.html");
-    expect(displayForm("/present/runKit/3f9a2c8e1b77/dir/index.html?v=1")).toBe("index.html");
+    expect(displayForm("/present/runKit/3f9a2c8e1b77/dir/index.html?v=1")).toBe("dir/index.html");
     // A NEW-form directory present (empty path tail) shows the index.html it
     // serves — the raw hash segment never displays.
     expect(displayForm("/present/runKit/3f9a2c8e1b77/?v=1")).toBe("index.html");
@@ -102,6 +103,67 @@ describe("displayForm (260819-v6y4 R3)", () => {
   });
 });
 
+describe("displayForm — repo-relative prefix", () => {
+  const url = "/present/loom3/98baf10236d1/verses-3d.html?v=1793612360";
+
+  it("is unchanged without a prefix", () => {
+    expect(displayForm(url)).toBe("verses-3d.html");
+    expect(displayForm(url, "")).toBe("verses-3d.html");
+    expect(displayForm(url, undefined)).toBe("verses-3d.html");
+  });
+
+  it("leads the tail with the prefix", () => {
+    expect(displayForm(url, "docs/wiki")).toBe("docs/wiki/verses-3d.html");
+  });
+
+  it("keeps the whole nested tail", () => {
+    expect(displayForm("/present/loom3/98baf10236d1/sub/page.html?v=1", "docs/wiki")).toBe(
+      "docs/wiki/sub/page.html",
+    );
+    expect(displayForm("/present/loom3/98baf10236d1/sub/page.html?v=1")).toBe("sub/page.html");
+  });
+
+  it("labels a directory present with the prefixed index.html", () => {
+    expect(displayForm("/present/loom3/98baf10236d1/?v=1", "docs/wiki")).toBe("docs/wiki/index.html");
+  });
+
+  it("renders the cross-repo label, joined without a slash at the repo top", () => {
+    expect(displayForm(url, "loom:docs/wiki")).toBe("loom:docs/wiki/verses-3d.html");
+    expect(displayForm(url, "loom:")).toBe("loom:verses-3d.html");
+  });
+
+  it("keeps plumbing params hidden and the page's own query and hash", () => {
+    expect(
+      displayForm("/present/loom3/98baf10236d1/doc.html?server=a&v=1&raw=1&tab=perf#top", "docs"),
+    ).toBe("docs/doc.html?tab=perf#top");
+  });
+
+  it("ignores the prefix for the legacy @windowId form and other kinds", () => {
+    expect(displayForm("/present/@320/report.html?server=runKit&v=1", "docs/wiki")).toBe("report.html");
+    expect(displayForm("/proxy/3000/x", "docs/wiki")).toBe("localhost:3000/x");
+    expect(displayForm("https://shll.ai/rk", "docs/wiki")).toBe("shll.ai/rk");
+  });
+
+  it("falls back to the raw string for a degraded shape", () => {
+    expect(displayForm("/present/@5/?server=a", "docs/wiki")).toBe("/present/@5/?server=a");
+    expect(displayForm("/present/", "docs/wiki")).toBe("/present/");
+  });
+});
+
+describe("presentRootKey", () => {
+  it("returns server/hash for a content-keyed present address", () => {
+    expect(presentRootKey("/present/loom3/98baf10236d1/sub/page.html?v=1")).toBe("loom3/98baf10236d1");
+    expect(presentRootKey("/present/loom3/98baf10236d1/")).toBe("loom3/98baf10236d1");
+  });
+
+  it("is null for the legacy form, other kinds and degraded shapes", () => {
+    expect(presentRootKey("/present/@320/report.html")).toBeNull();
+    expect(presentRootKey("/proxy/3000/")).toBeNull();
+    expect(presentRootKey("/present/")).toBeNull();
+    expect(presentRootKey("")).toBeNull();
+  });
+});
+
 describe("webTabTitle", () => {
   it("derives the strip label per address kind", () => {
     expect(webTabTitle("/present/@3/1/report.html?v=17&server=x")).toBe("report.html");
@@ -121,6 +183,7 @@ describe("webTabTitle", () => {
   it("derives the NEW-form label with server+hash plumbing hidden", () => {
     expect(webTabTitle("/present/runKit/3f9a2c8e1b77/report.html?v=1")).toBe("report.html");
     expect(webTabTitle("/present/s/a1b2c3d4e5/dir/index.html?v=2")).toBe("index.html");
+    expect(webTabTitle("/present/s/a1b2c3d4e5/a/b/page.html?v=2")).toBe("page.html");
     // Directory present (empty path tail): the hash stays out of the label —
     // the served index.html is the name.
     expect(webTabTitle("/present/runKit/3f9a2c8e1b77/?v=1")).toBe("index.html");
