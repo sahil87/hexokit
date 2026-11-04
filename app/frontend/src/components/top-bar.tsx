@@ -49,10 +49,10 @@ import {
   TerminalFontGlyph,
 } from "@/components/top-bar-icons";
 import { LayoutChip, LayoutMenuRows } from "@/components/layout-chip";
-import { QuakeLauncher } from "@/components/quake-launcher";
+import { QuakeLauncher, QuakeLauncherFocusCapture } from "@/components/quake-launcher";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import { computeVisibleCount, orderForFit } from "@/lib/top-bar-overflow";
+import { computeFit, orderForFit, type FitItem } from "@/lib/top-bar-overflow";
 import type { GuiPaletteAction } from "@/lib/palette/gui";
 import type { GuiQuality } from "@/lib/gui-posture";
 import { GuiToolbarMobileOverflow } from "@/components/gui-toolbar";
@@ -88,7 +88,16 @@ export type TopBarMode = "terminal" | "board" | "server" | "host";
  *                  (260731-oiho: View / Window / App, fixed order) — the menu
  *                  partitions rows by group, preserving registry order within
  *                  each section.
- *  - `barRender` — the in-bar icon-button form (may return null).
+ *  - `barRender` — the in-bar icon-button form (may return null). `probe` is
+ *                  true for the inert measurement copy, so a control can drop
+ *                  ids the live copy must own alone.
+ *  - `compactBarRenders` — optional narrower bar forms, widest first. The probe
+ *                  measures every form; the fit steps every compact-capable
+ *                  entry down one form at a time BEFORE any candidate overflows
+ *                  (lib/top-bar-overflow.ts `computeFit`).
+ *  - `dividerAfter` — a hairline divider follows the entry in the bar when
+ *                  another fit candidate renders after it. The probe always
+ *                  includes it, so the measured width is the worst case.
  *  - `menuRender`— the labeled menu-row form (may return null; the update chip
  *                  returns null because its function merges into the version row).
  */
@@ -114,7 +123,9 @@ type RegistryEntry = {
   dropLast?: boolean;
   /** Chevron-menu section (260731-oiho) — Tiles / View / Window / App. */
   menuGroup: MenuGroup;
-  barRender: () => ReactNode;
+  barRender: (probe?: boolean) => ReactNode;
+  compactBarRenders?: ((probe?: boolean) => ReactNode)[];
+  dividerAfter?: boolean;
   menuRender: () => ReactNode;
 };
 
@@ -767,9 +778,6 @@ export function TopBar({
   // update surface and the chevron shows an attention badge (change areas 2–3).
   const { showChip, key: updateKey } = useUpdateNotification();
   const isMobile = useIsMobile();
-  // The center heading never yields its cell to the quake launcher: the
-  // launcher stands beside the compact heading at rest and collapses to its
-  // glyph + chord while the drawer is open — at every width, on every mode.
 
   // Brand-crumb logo hover: the white glow "detach, orbit, land" sweep over
   // the ring segments (JS-driven, logo-spinner.tsx). Triggered from the whole
@@ -988,8 +996,36 @@ export function TopBar({
   // + the `Board: Unpin Focused Pane` palette action. The split is absent when
   // the board is empty (no `focusedPane`); the Kill row is disabled then.
   const rightItems: RegistryEntry[] = [
-    // Surface-toggle group — terminal-only, at the registry's L1 HEAD
-    // (leftmost in the bar) but `dropLast`: it is the cluster's most
+    // Operator launcher — the quake terminal's button, at the registry head
+    // (leftmost in the bar, before the tile toggles) on every mode. `dropLast`
+    // with the toggle group after it, so the fit tail is
+    // `[…, operator, surface-toggles]`: it overflows only after everything
+    // else, then the toggles. Under width pressure it first folds to the
+    // keycap-less label form, then to the glyph-only form (`compactBarRenders`,
+    // widest first). A hairline divider keeps it from reading
+    // as a fifth tile toggle (the drawer is a viewer-level overlay, not a
+    // tile). Overflowed, its row is the "Operator" menu row. On mobile the
+    // entry is `menuOnly`: the row always shows and navigates to the operator
+    // window's terminal route (no bar form there).
+    {
+      id: "quake-terminal",
+      modes: ["terminal", "board", "server", "host"],
+      menuGroup: "app",
+      menuOnly: isMobile,
+      dropLast: true,
+      dividerAfter: true,
+      barRender: (probe) => (
+        <QuakeLauncher routeServer={server || null} routeWindow={currentWindow?.windowId ?? null} probe={probe} />
+      ),
+      compactBarRenders: (["label", "glyph"] as const).map((form) => (probe?: boolean) => (
+        <QuakeLauncher routeServer={server || null} routeWindow={currentWindow?.windowId ?? null} form={form} probe={probe} />
+      )),
+      menuRender: () => (
+        <QuakeTerminalMenuRow routeServer={server || null} routeWindow={currentWindow?.windowId ?? null} />
+      ),
+    },
+    // Surface-toggle group — terminal-only, right after the operator
+    // launcher (leftmost in the bar after it) and `dropLast`: it is the cluster's most
     // important control, so it overflows only after every other fit
     // candidate has. The retired right rail's open-tile toggles relocated as
     // ONE bordered sub-group. One entry (not
@@ -1233,17 +1269,6 @@ export function TopBar({
       barRender: () => null,
       menuRender: () => <KeyboardMenuRow />,
     },
-    // Quake terminal — the mobile path to the pull-down operator overlay
-    // (a phone has no keyboard for the chord; the palette carries desktop).
-    // MENU-ONLY on every mode, in the App section with Help/Keyboard.
-    {
-      id: "quake-terminal",
-      modes: ["terminal", "board", "server", "host"],
-      menuOnly: true,
-      menuGroup: "app",
-      barRender: () => null,
-      menuRender: () => <QuakeTerminalMenuRow />,
-    },
   ];
 
   // Candidate (non-exempt) entries for the current mode, minus any `hidden` ones.
@@ -1278,6 +1303,11 @@ export function TopBar({
   // before paint, so no flash of overflowing buttons is shown.
   const rightCellRef = useRef<HTMLDivElement>(null);
   const probeRef = useRef<HTMLDivElement>(null);
+  // One extra probe row per compact rung: that rung's form of every
+  // compact-capable fit candidate (one span per fit-order entry, empty for
+  // entries without one), so the fit knows every width without any control
+  // measuring itself.
+  const compactProbeRef = useRef<HTMLDivElement>(null);
   // Exempt-block ref whose measured width is RESERVED before fitting candidates:
   // the trailing chevron block (always present; the connection dot moved to the
   // sidebar footer, 260724-6j1v). Nothing is hardcoded — every reserved pixel
@@ -1287,6 +1317,11 @@ export function TopBar({
   // (the mobile surface-switch group — pinned in-bar, never overflowed).
   const pinnedRef = useRef<HTMLDivElement>(null);
   const [visibleCount, setVisibleCount] = useState(0);
+  // The rung the compact-capable entries render at (0 = full). The ref carries
+  // the previous verdict into the fit's expand-edge hysteresis.
+  const [rung, setRung] = useState(0);
+  const rungRef = useRef(0);
+  const compactDepth = Math.max(0, ...fitOrder.map((e) => e.compactBarRenders?.length ?? 0));
   // Serialize the FIT-candidate ids into a dependency key so the measure effect
   // re-runs when the probed SET changes (mode switch, a control appearing/
   // disappearing) — not on every render. `menuOnly` entries never affect the
@@ -1298,7 +1333,8 @@ export function TopBar({
   useLayoutEffect(() => {
     const cell = rightCellRef.current;
     const probe = probeRef.current;
-    if (!cell || !probe) return;
+    const compactProbe = compactProbeRef.current;
+    if (!cell || !probe || !compactProbe) return;
 
     const RIGHT_GAP_PX = 12; // the cluster's `gap-3` (0.75rem)
 
@@ -1319,9 +1355,21 @@ export function TopBar({
       // order. Reverse the widths (L3-end first) so `computeVisibleCount` greedily
       // fits from the tail; the returned N is how many trailing candidates fit.
       const widths = Array.from(probe.children).map((c) => (c as HTMLElement).offsetWidth);
-      const reversed = [...widths].reverse();
-      const n = computeVisibleCount(available, reversed, reserved, RIGHT_GAP_PX);
-      setVisibleCount(n);
+      const compactRows = Array.from(compactProbe.children).map((row) =>
+        Array.from(row.children).map((c) => (c as HTMLElement).offsetWidth),
+      );
+      const items: FitItem[] = fitOrder
+        .map((e, i) => ({
+          width: widths[i] ?? 0,
+          ...(e.compactBarRenders
+            ? { compactWidths: e.compactBarRenders.map((_, r) => compactRows[r]?.[i] ?? 0) }
+            : {}),
+        }))
+        .reverse();
+      const fit = computeFit(available, items, reserved, RIGHT_GAP_PX, rungRef.current);
+      rungRef.current = fit.rung;
+      setRung(fit.rung);
+      setVisibleCount(fit.count);
     };
 
     measure();
@@ -1337,11 +1385,12 @@ export function TopBar({
     const ro = new ResizeObserver(measure);
     ro.observe(cell);
     ro.observe(probe);
+    ro.observe(compactProbe);
     if (trailingRef.current) ro.observe(trailingRef.current);
     if (pinnedRef.current) ro.observe(pinnedRef.current);
     return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candidateKey, mode, updateKey, showChip]);
+  }, [candidateKey, compactDepth, mode, updateKey, showChip]);
 
   // Keep the LAST `visibleCount` entries of the fit ORDER in-bar (the L3-end
   // suffix plus any `dropLast` entries); the rest (L1-end prefix) overflow.
@@ -1357,6 +1406,31 @@ export function TopBar({
   const overflowRows: OverflowMenuRow[] = overflowItems
     .map((e) => ({ id: e.id, group: e.menuGroup, node: e.menuRender() }))
     .filter((r) => r.node != null);
+  // One entry's bar slot, shared by the visible row and both probe rows so the
+  // measured widths are the widths that render. `rung` picks the entry's
+  // compact form for that rung when it has one (an entry with fewer forms
+  // stays on its last); `empty` renders no content (a compact probe row's
+  // placeholder for entries without compact forms, keeping every probe row
+  // index-aligned).
+  const barSlot = (
+    e: RegistryEntry,
+    o: { rung: number; divider: boolean; probe?: boolean; empty?: boolean },
+  ) => {
+    const forms = e.compactBarRenders;
+    const render = o.rung > 0 && forms?.length ? forms[Math.min(o.rung, forms.length) - 1] : e.barRender;
+    return (
+    <span key={e.id} className="flex items-center shrink-0 gap-3">
+      {!o.empty && render(o.probe)}
+      {!o.empty && e.dividerAfter && o.divider && (
+        <span
+          aria-hidden="true"
+          data-testid={o.probe ? undefined : `${e.id}-divider`}
+          className="w-px h-4 bg-border"
+        />
+      )}
+    </span>
+    );
+  };
   // True when the undismissed chip's entry is currently overflowed into the
   // menu — drives the chevron attention badge, and is one of the menu's two
   // update-surface derivations (the other, dismissed-pending, is computed
@@ -1381,6 +1455,7 @@ export function TopBar({
       // no inline padding — `px-3` alone.
       style={headShown ? { paddingLeft: sidebarHeadWidth + 12 } : undefined}
     >
+      <QuakeLauncherFocusCapture />
       {headShown && (
         <SidebarHead
           width={sidebarHeadWidth}
@@ -1696,8 +1771,7 @@ export function TopBar({
             LEFT-ALIGNS beside the hamburger — its column is content-sized and
             the leftover width goes to the button-heavy right cluster (see the
             grid comment above). At ≥ lg the heading compacts (the prefix span
-            hides) and the standing quake launcher sits beside it; at md–lg
-            the engaged ⌘J machine morphs the box in place of the heading. */}
+            hides). */}
         {/* No flex `gap` here: the single separator between the page-type prefix
             and the instance name is the boot sweep's own `sp` space cell (the
             cursor visibly crosses it) — a `gap-1` on top of it double-spaced
@@ -1796,15 +1870,6 @@ export function TopBar({
             )}
           </div>
           </TipGroup>
-          {/* The quake launcher — the quake terminal's standing affordance in
-              the center cell on desktop (standing box at ≥ lg beside the
-              compact heading, ghost at md–lg; while the drawer is open both
-              rungs collapse to the glyph + chord control that re-focuses the
-              docked compose). Renders on every mode;
-              self-gates to null on mobile. The route server and window arrive
-              as props so this center-cell component does not pull router
-              hooks. */}
-          <QuakeLauncher routeServer={server || null} routeWindow={currentWindow?.windowId ?? null} />
         </div>
 
         {/* Right cluster — registry-driven overflow (260715-h1ck). The ordered
@@ -1856,7 +1921,9 @@ export function TopBar({
           {/* Pinned entries — always in-bar, never overflowed, never probed
               (the mobile surface-switch group; its measured width is reserved
               from the fit budget). Rendered at the head: the only pinned entry
-              is the registry head, so registry order is preserved. */}
+              is the mobile surface-switch group, and on mobile the launcher
+              entry is menuOnly, so the pinned group is the first in-bar
+              entry and registry order is preserved. */}
           {pinnedItems.length > 0 && (
             <div ref={pinnedRef} className="flex items-center gap-3 shrink-0">
               {pinnedItems.map((e) => (
@@ -1882,11 +1949,9 @@ export function TopBar({
           )}
 
           {/* Visible fit candidates — the leading N that fit, as icon buttons. */}
-          {visibleItems.map((e) => (
-            <span key={e.id} className="flex items-center shrink-0">
-              {e.barRender()}
-            </span>
-          ))}
+          {visibleItems.map((e, i) =>
+            barSlot(e, { rung, divider: i < visibleItems.length - 1 }),
+          )}
 
           {/* Hidden measurement probe — renders every FIT candidate's bar form
               (menuOnly entries are excluded, 260722-n2n4 — the probe's children
@@ -1905,10 +1970,23 @@ export function TopBar({
             inert
             className="absolute -left-[9999px] top-0 flex items-center gap-3 pointer-events-none"
           >
-            {fitOrder.map((e) => (
-              <span key={e.id} className="flex items-center shrink-0">
-                {e.barRender()}
-              </span>
+            {fitOrder.map((e) => barSlot(e, { rung: 0, divider: true, probe: true }))}
+          </div>
+          {/* Compact-form probes — same contract as the row above: one row per
+              compact rung, one span per fit-order entry so every row stays
+              index-aligned. */}
+          <div
+            ref={compactProbeRef}
+            aria-hidden="true"
+            inert
+            className="absolute -left-[9999px] top-0 flex flex-col pointer-events-none"
+          >
+            {Array.from({ length: compactDepth }, (_, r) => (
+              <div key={r} className="flex items-center gap-3">
+                {fitOrder.map((e) =>
+                  barSlot(e, { rung: r + 1, divider: true, probe: true, empty: !e.compactBarRenders }),
+                )}
+              </div>
             ))}
           </div>
 
@@ -2165,7 +2243,7 @@ function HeadingPrefix({
   // owns the separation — do not swap it for a margin/gap on the name).
   // The wide-desktop rung (≥ lg) renders the compact heading — the page-type
   // prefix span hides there too, extending the below-`sm` hiding, so the
-  // standing quake launcher fits beside `{name} ▾` (rename and ▾ untouched).
+  // freed width goes to the breadcrumbs (rename and ▾ untouched).
   return (
     <span className="hidden sm:inline lg:hidden text-sm text-text-secondary whitespace-pre shrink-0 -mr-1">
       <SweepCells cells={cells} scrambling={scrambling} />

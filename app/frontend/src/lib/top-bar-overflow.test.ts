@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeVisibleCount, orderForFit } from "./top-bar-overflow";
+import { computeFit, computeVisibleCount, orderForFit } from "./top-bar-overflow";
 
 describe("computeVisibleCount", () => {
   it("returns all items when everything fits", () => {
@@ -85,5 +85,69 @@ describe("orderForFit", () => {
     const n = computeVisibleCount(100, widths, 0, 4);
     const kept = order.slice(order.length - n).map((e) => e.id);
     expect(kept).toEqual(["toggles"]);
+  });
+});
+
+describe("computeFit", () => {
+  // Tail-first items: [settings 30, refresh 30, launcher 80 (label 50, glyph 30)].
+  // Rung 0 row = 30 + 4 + 30 + 4 + 80 = 148; rung 1 = 118; rung 2 = 98.
+  const items = [{ width: 30 }, { width: 30 }, { width: 80, compactWidths: [50, 30] }];
+
+  it("keeps every candidate at full width when everything fits", () => {
+    expect(computeFit(148, items, 0, 4, 0)).toEqual({ count: 3, rung: 0 });
+  });
+
+  it("folds to the label form before any candidate overflows", () => {
+    expect(computeFit(147, items, 0, 4, 0)).toEqual({ count: 3, rung: 1 });
+    expect(computeFit(118, items, 0, 4, 0)).toEqual({ count: 3, rung: 1 });
+  });
+
+  it("folds to the glyph form only when the label form does not fit", () => {
+    expect(computeFit(117, items, 0, 4, 0)).toEqual({ count: 3, rung: 2 });
+    expect(computeFit(98, items, 0, 4, 0)).toEqual({ count: 3, rung: 2 });
+  });
+
+  it("overflows only after the deepest rung is exhausted", () => {
+    expect(computeFit(97, items, 0, 4, 0)).toEqual({ count: 2, rung: 2 });
+  });
+
+  it("holds the glyph rung inside the hysteresis band and expands to the label past it", () => {
+    expect(computeFit(118, items, 0, 4, 2, 24)).toEqual({ count: 3, rung: 2 });
+    expect(computeFit(141, items, 0, 4, 2, 24)).toEqual({ count: 3, rung: 2 });
+    expect(computeFit(142, items, 0, 4, 2, 24)).toEqual({ count: 3, rung: 1 });
+  });
+
+  it("holds the label rung inside the hysteresis band and expands to full past it", () => {
+    expect(computeFit(148, items, 0, 4, 1, 24)).toEqual({ count: 3, rung: 1 });
+    expect(computeFit(171, items, 0, 4, 1, 24)).toEqual({ count: 3, rung: 1 });
+    expect(computeFit(172, items, 0, 4, 1, 24)).toEqual({ count: 3, rung: 0 });
+  });
+
+  it("jumps straight from the glyph rung to full when the room clears both bands", () => {
+    expect(computeFit(172, items, 0, 4, 2, 24)).toEqual({ count: 3, rung: 0 });
+  });
+
+  it("needs no slack to fold deeper", () => {
+    expect(computeFit(117, items, 0, 4, 1, 24)).toEqual({ count: 3, rung: 2 });
+  });
+
+  it("is a plain greedy fit when no entry carries compact forms", () => {
+    expect(computeFit(97, [{ width: 30 }, { width: 30 }, { width: 30 }], 0, 4, 1)).toEqual({
+      count: 2,
+      rung: 0,
+    });
+  });
+
+  it("lets a single-rung entry stay on its only form at deeper rungs", () => {
+    const one = [{ width: 30 }, { width: 80, compactWidths: [30] }];
+    expect(computeFit(114, one, 0, 4, 0)).toEqual({ count: 2, rung: 0 });
+    expect(computeFit(64, one, 0, 4, 0)).toEqual({ count: 2, rung: 1 });
+    expect(computeFit(63, one, 0, 4, 0)).toEqual({ count: 1, rung: 1 });
+  });
+
+  it("subtracts the reserved width on every rung", () => {
+    expect(computeFit(148 + 40, items, 40, 4, 0)).toEqual({ count: 3, rung: 0 });
+    expect(computeFit(118 + 40, items, 40, 4, 0)).toEqual({ count: 3, rung: 1 });
+    expect(computeFit(98 + 40, items, 40, 4, 0)).toEqual({ count: 3, rung: 2 });
   });
 });

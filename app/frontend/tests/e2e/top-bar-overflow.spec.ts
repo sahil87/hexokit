@@ -710,6 +710,80 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     // Restore the preference so later specs see the default full-width state.
     await row2.click();
   });
+
+  /**
+   * Proves: the `Operator` launcher degrades through its measured ladder —
+   * full (`◉ Operator <chord>`) → label (`◉ Operator`, keycap dropped) →
+   * glyph (`◉`, accessible name kept) → the chevron menu's `Operator` row —
+   * as the viewport narrows, with the sidebar open AND closed, and every
+   * other right-cluster control stays in-bar until the launcher is glyph-only.
+   * In particular a 1280px terminal bar with the sidebar open shows the label.
+   *
+   * Steps:
+   * 1. Seed the sidebar preference (open), land on the terminal window at
+   *    1700px and wait for the full form.
+   * 2. Step the viewport DOWN (the fit's expand hysteresis makes the state
+   *    history-dependent, so each ladder walks narrower only): 1500 full,
+   *    1280 label, 1100 glyph, 870 menu row. At each, assert the launcher's
+   *    form; at 1280 assert the label is visible and no keycap renders; at
+   *    1100 assert `aria-label="Operator"` and Refresh + Gear still in-bar;
+   *    at 870 assert exactly one `Operator` menu row and no in-bar launcher.
+   * 3. Repeat with the sidebar closed (it frees ~232px): 1300 full, 1120
+   *    label, 850 glyph, 660 menu row.
+   */
+  test("the Operator launcher folds full → label → glyph → menu row, sidebar open and closed", async ({ page }) => {
+    test.setTimeout(120_000);
+    // A window of its own: the ladder's thresholds depend on the surface
+    // toggles and heading, which earlier tests in this file mutate on the
+    // shared window.
+    const launcherWindow = `ol-${Date.now().toString().slice(-6)}`;
+    newWindow(TEST_SESSION, launcherWindow);
+    const id = await resolveWindow(page, launcherWindow);
+    const launcher = page.getByTestId("quake-launcher");
+    // One in-page read per poll tick: the launcher's form from the DOM.
+    const expectForm = async (form: "full" | "label" | "glyph" | "menu", width: number) => {
+      await expect
+        .poll(
+          () =>
+            page.evaluate(() => {
+              const el = document.querySelector('[data-testid="quake-launcher"]');
+              if (!el) return "menu";
+              if (el.getAttribute("aria-label") === "Operator") return "glyph";
+              return el.querySelector("kbd") ? "full" : "label";
+            }),
+          { timeout: 10_000, message: `launcher form at ${width}px` },
+        )
+        .toBe(form);
+    };
+    const ladders: { sidebar: "true" | "false"; steps: [number, "full" | "label" | "glyph" | "menu"][] }[] = [
+      { sidebar: "true", steps: [[1700, "full"], [1500, "full"], [1280, "label"], [1100, "glyph"], [870, "menu"]] },
+      { sidebar: "false", steps: [[1700, "full"], [1300, "full"], [1120, "label"], [850, "glyph"], [660, "menu"]] },
+    ];
+    for (const { sidebar, steps } of ladders) {
+      await page.addInitScript((v) => localStorage.setItem("hexokit-sidebar-open", v), sidebar);
+      await page.setViewportSize({ width: 1700, height: 800 });
+      await gotoWindow(page, id);
+      for (const [width, form] of steps) {
+        await page.setViewportSize({ width, height: 800 });
+        await expectForm(form, width);
+        if (form === "label") {
+          await expect(launcher).toContainText("Operator");
+          await expect(launcher.locator("kbd")).toHaveCount(0);
+        }
+        if (form === "glyph") {
+          await expect(launcher).toHaveAttribute("aria-label", "Operator");
+          await expect(byRoleName(page, "Refresh page")).toHaveCount(1);
+          await expect(byRoleName(page, "Open settings")).toHaveCount(1);
+        }
+        if (form === "menu") {
+          await page.getByRole("button", { name: "More controls" }).click();
+          const menu = page.getByRole("menu", { name: "More controls" });
+          await expect(menu.getByRole("menuitem", { name: /Operator/ })).toHaveCount(1);
+          await page.keyboard.press("Escape");
+        }
+      }
+    }
+  });
 });
 
 // The ViewSwitcher is RETIRED (260812-0c6o) — lens switching is palette-only

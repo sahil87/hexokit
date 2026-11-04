@@ -31,7 +31,8 @@
  * is last-write-wins (no `storage`-event sync).
  *
  * A second subscriber class shares the store: the desktop quake terminal's
- * compose (the drawer's docked strip and the top-bar launcher box) keys its
+ * compose (the drawer's docked strip; the top-bar launcher's draft dot reads
+ * the same key) keys its
  * draft by the operator window target — `entryKey(server, operatorWindowId)`,
  * the same key the operator page's own strip uses, so the two views read one
  * draft. Quake drafts count toward the same cap and age out the same way.

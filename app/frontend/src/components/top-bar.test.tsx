@@ -13,7 +13,7 @@ import type { ProjectSession, WindowInfo } from "@/types";
 import type { Layout, SurfaceKind } from "@/lib/surface-layout";
 import { buildGuiActions, type GuiPaletteInput } from "@/lib/palette/gui";
 import { stubMatchMedia } from "@/test-utils/match-media";
-import { setQuakeMachineState } from "@/lib/quake-terminal";
+import { getQuakeMachineState, setQuakeMachineState } from "@/lib/quake-terminal";
 
 // TopBar is rendered without a RouterProvider here, so stub the two router
 // hooks it (and its sub-components: BoardSwitcher, HistoryNav)
@@ -2665,5 +2665,237 @@ describe("TopBar layout chip", () => {
       onApplyLayout: vi.fn(),
     });
     expect(screen.queryByLabelText("Layout")).not.toBeInTheDocument();
+  });
+});
+
+describe("TopBar operator launcher", () => {
+  // Desktop: the mobile queries (`max-width`, coarse pointer) do not match.
+  const stubDesktop = () =>
+    stubMatchMedia(
+      (q) =>
+        q.includes("prefers-color-scheme: dark") ||
+        q.includes("prefers-reduced-motion") ||
+        q.includes("min-width"),
+    );
+  const stubMobile = () =>
+    stubMatchMedia((q) => !q.includes("pointer: coarse") && !q.includes("min-width"));
+
+  // jsdom has no layout engine, so the fit's two measurements are stubbed: the
+  // right cell's client width, and each element's offset width — the full
+  // launcher slot 100px, its label slot 70px, its glyph slot and every other
+  // slot/block 30px.
+  const proto = HTMLElement.prototype;
+  const savedOffset = Object.getOwnPropertyDescriptor(proto, "offsetWidth");
+  const savedClient = Object.getOwnPropertyDescriptor(proto, "clientWidth");
+  const FULL_PX = 100;
+  const LABEL_PX = 70;
+  const COMPACT_PX = 30;
+  const stubWidths = (cellClientWidth: number) => {
+    Object.defineProperty(proto, "offsetWidth", {
+      configurable: true,
+      get(this: HTMLElement) {
+        const launcher = this.matches("[data-quake-terminal]") ? this : this.querySelector("[data-quake-terminal]");
+        if (launcher) {
+          if (!launcher.textContent?.includes("Operator")) return COMPACT_PX;
+          return launcher.querySelector("kbd") ? FULL_PX : LABEL_PX;
+        }
+        return COMPACT_PX;
+      },
+    });
+    Object.defineProperty(proto, "clientWidth", { configurable: true, get: () => cellClientWidth });
+  };
+
+  beforeEach(() => {
+    stubDesktop();
+    setQuakeMachineState("rest");
+  });
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    if (savedOffset) Object.defineProperty(proto, "offsetWidth", savedOffset);
+    else delete (proto as unknown as Record<string, unknown>).offsetWidth;
+    if (savedClient) Object.defineProperty(proto, "clientWidth", savedClient);
+    else delete (proto as unknown as Record<string, unknown>).clientWidth;
+  });
+
+  const toggles = {
+    mode: "toggle" as const,
+    available: ["tty", "web", "code"] as SurfaceKind[],
+    open: ["tty"] as SurfaceKind[],
+    onToggle: vi.fn(),
+    canAdd: true,
+  };
+  const serverBar = { mode: "server" as const, sessionName: "", windowName: "", currentSession: null, currentWindow: null };
+
+  /** The LIVE bar copy of a control — jsdom keeps every fit candidate's
+   *  inert probe copy in the document too. */
+  const liveByLabel = (label: string) =>
+    screen.queryAllByLabelText(label).filter((el) => !el.closest("[inert]"));
+  const liveByTestId = (id: string) =>
+    screen.queryAllByTestId(id).filter((el) => !el.closest("[inert]"));
+
+  // Slots at the widest (full) form, server mode: launcher 100 + Refresh
+  // 30 + Gear 30 + 2 gaps of 12 = 184, plus the reserved chevron block
+  // (30) and its gap (12) = 226. The label form is 30 narrower, the glyph form
+  // 70 narrower.
+  const ROOMY = 226;
+  const LABEL_ROW = ROOMY - (FULL_PX - LABEL_PX);
+  const GLYPH_ROW = ROOMY - (FULL_PX - COMPACT_PX);
+
+  it("mounts in the right cluster, not the center cell, on every mode", () => {
+    stubWidths(2000);
+    const modes = [
+      {},
+      serverBar,
+      { mode: "board" as const, currentWindow: null, windowName: "", boardName: "b", paneCount: 1, serverCount: 1, boards: [{ name: "b" }] },
+      { mode: "host" as const, sessions: [], currentSession: null, currentWindow: null, sessionName: "", windowName: "", server: "" },
+    ];
+    for (const overrides of modes) {
+      renderTopBar(overrides);
+      const launcher = screen.getByTestId("quake-launcher");
+      expect(screen.getByTestId("top-bar-right")).toContainElement(launcher);
+      expect(launcher).toHaveTextContent("Operator");
+      cleanup();
+    }
+  });
+
+  it("is the leftmost right-cluster item, before the surface toggles, with a divider between", () => {
+    stubWidths(2000);
+    renderTopBar({ surfaceToggles: toggles });
+    const launcher = screen.getByTestId("quake-launcher");
+    const group = liveByTestId("surface-toggles")[0];
+    const divider = screen.getByTestId("quake-terminal-divider");
+    const follows = (a: Element, b: Element) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(launcher, divider)).toBe(true);
+    expect(follows(divider, group)).toBe(true);
+    // Nothing visible precedes it inside the cluster.
+    const cluster = screen.getByTestId("top-bar-right");
+    const firstSlot = Array.from(cluster.children).find((c) => !c.hasAttribute("inert"));
+    expect(firstSlot).toContainElement(launcher);
+  });
+
+  it("omits the divider when nothing else renders after it", () => {
+    // Only the launcher's compact form + the chevron fit.
+    stubWidths(COMPACT_PX + 12 + COMPACT_PX);
+    renderTopBar(serverBar);
+    expect(screen.getByTestId("quake-launcher")).toBeInTheDocument();
+    expect(screen.queryByTestId("quake-terminal-divider")).toBeNull();
+  });
+
+  it("the center cell holds only the heading", () => {
+    stubWidths(2000);
+    renderTopBar();
+    const heading = screen.getByRole("button", { name: "Rename tab main" });
+    const center = heading.closest('[class*="sm:justify-center"]')!;
+    expect(center).not.toContainElement(screen.getByTestId("quake-launcher"));
+  });
+
+  it("renders no launcher in the bar on mobile", () => {
+    stubMobile();
+    stubWidths(2000);
+    renderTopBar();
+    expect(screen.queryByTestId("quake-launcher")).toBeNull();
+    expect(document.querySelector("[data-quake-terminal]")).toBeNull();
+  });
+
+  it("the probe copy carries no launcher test id", () => {
+    stubWidths(ROOMY);
+    renderTopBar(serverBar);
+    const probe = screen.getByTestId("top-bar-right").querySelector("[inert]")!;
+    expect(probe.querySelector("[data-quake-terminal]")).not.toBeNull();
+    expect(probe.querySelector('[data-testid^="quake-launcher"]')).toBeNull();
+    expect(screen.getAllByTestId("quake-launcher")).toHaveLength(1);
+  });
+
+  it("folds full → label → glyph before any other control overflows", () => {
+    stubWidths(ROOMY);
+    renderTopBar(serverBar);
+    let launcher = screen.getByTestId("quake-launcher");
+    expect(launcher).toHaveTextContent("Operator");
+    expect(launcher.querySelector("kbd")).not.toBeNull();
+    cleanup();
+
+    // One pixel short of the full row: the keycap drops, the label stays and
+    // nothing overflows.
+    stubWidths(ROOMY - 1);
+    renderTopBar(serverBar);
+    launcher = screen.getByTestId("quake-launcher");
+    expect(launcher).toHaveTextContent("Operator");
+    expect(launcher.querySelector("kbd")).toBeNull();
+    expect(launcher).not.toHaveAttribute("aria-label");
+    expect(liveByLabel("Refresh page")).toHaveLength(1);
+    expect(liveByLabel("Open settings")).toHaveLength(1);
+    cleanup();
+
+    // The label row is the last width that keeps the label…
+    stubWidths(LABEL_ROW);
+    renderTopBar(serverBar);
+    expect(screen.getByTestId("quake-launcher")).toHaveTextContent("Operator");
+    cleanup();
+
+    // …one pixel short of it the label folds too: glyph-only, accessible name
+    // kept, still nothing overflowed.
+    stubWidths(LABEL_ROW - 1);
+    renderTopBar(serverBar);
+    launcher = screen.getByTestId("quake-launcher");
+    expect(launcher).toHaveAttribute("aria-label", "Operator");
+    expect(launcher).not.toHaveTextContent("Operator");
+    expect(liveByLabel("Refresh page")).toHaveLength(1);
+    expect(liveByLabel("Open settings")).toHaveLength(1);
+    cleanup();
+
+    stubWidths(GLYPH_ROW);
+    renderTopBar(serverBar);
+    expect(screen.getByTestId("quake-launcher")).toHaveAttribute("aria-label", "Operator");
+    expect(liveByLabel("Refresh page")).toHaveLength(1);
+  });
+
+  it("overflows after Refresh and the gear: the launcher outlasts them, then its row lands in the App menu section", () => {
+    // Compact launcher (30) + Gear (30) + 1 gap + reserved 42 → Refresh is out.
+    stubWidths(30 + 12 + 30 + 42);
+    renderTopBar(serverBar);
+    expect(screen.getByTestId("quake-launcher")).toBeInTheDocument();
+    expect(liveByLabel("Open settings")).toHaveLength(1);
+    expect(liveByLabel("Refresh page")).toHaveLength(0);
+    cleanup();
+
+    // Too narrow for even the compact launcher: it overflows into the menu.
+    stubWidths(COMPACT_PX + 42 - 1);
+    renderTopBar(serverBar);
+    expect(screen.queryByTestId("quake-launcher")).toBeNull();
+    act(() => fireEvent.click(screen.getByLabelText("More controls")));
+    const menu = screen.getByRole("menu", { name: "More controls" });
+    const rows = within(menu).getAllByRole("menuitem", { name: /Operator/ });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].querySelector("kbd")).not.toBeNull();
+  });
+
+  it("the overflowed row opens the drawer like the button does", () => {
+    stubWidths(COMPACT_PX + 42 - 1);
+    renderTopBar(serverBar);
+    act(() => fireEvent.click(screen.getByLabelText("More controls")));
+    const row = within(screen.getByRole("menu", { name: "More controls" })).getByRole("menuitem", { name: /Operator/ });
+    act(() => fireEvent.click(row));
+    expect(getQuakeMachineState()).toBe("open");
+  });
+
+  it("desktop shows no operator row in the menu while the launcher is in the bar", () => {
+    stubWidths(2000);
+    renderTopBar();
+    act(() => fireEvent.click(screen.getByLabelText("More controls")));
+    const menu = screen.getByRole("menu", { name: "More controls" });
+    expect(within(menu).queryByRole("menuitem", { name: /Operator/ })).toBeNull();
+    expect(within(menu).queryByRole("menuitem", { name: /Quake terminal/ })).toBeNull();
+  });
+
+  it("mobile keeps its always-present row, relabelled Operator, that navigates via the quake seam", () => {
+    stubMobile();
+    renderTopBar();
+    act(() => fireEvent.click(screen.getByLabelText("More controls")));
+    const menu = screen.getByRole("menu", { name: "More controls" });
+    const rows = within(menu).getAllByRole("menuitem", { name: /Operator/ });
+    expect(rows).toHaveLength(1);
+    expect(within(menu).queryByRole("menuitem", { name: /Quake terminal/ })).toBeNull();
   });
 });
