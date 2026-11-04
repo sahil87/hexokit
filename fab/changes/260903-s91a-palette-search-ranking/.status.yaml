@@ -1,0 +1,57 @@
+id: s91a
+name: 260903-s91a-palette-search-ranking
+created: 2026-09-03T08:02:50Z
+created_by: asim-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 8
+    acceptance_count: 24
+    acceptance_completed: 24
+confidence:
+    certain: 8
+    confident: 8
+    tentative: 0
+    unresolved: 0
+    score: 4.0
+    fuzzy: true
+    dimensions:
+        signal: 71.3
+        reversibility: 90.0
+        competence: 79.1
+        disambiguation: 76.6
+stage_metrics:
+    intake: {started_at: "2026-09-03T08:02:50Z", driver: fab-new, iterations: 1, completed_at: "2026-09-03T08:23:50Z"}
+    apply: {started_at: "2026-09-03T08:23:50Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T10:22:08Z"}
+    review: {started_at: "2026-09-03T10:22:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T10:25:23Z"}
+    hydrate: {started_at: "2026-09-03T10:25:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T10:28:01Z"}
+    ship: {started_at: "2026-09-03T10:28:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T10:31:16Z"}
+    review-pr: {started_at: "2026-09-03T10:31:16Z", driver: git-pr, iterations: 1, completed_at: "2026-09-03T10:40:12Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/811
+change_type_source: explicit
+true_impact:
+    added: 1252
+    deleted: 11
+    net: 1241
+    excluding:
+        added: 655
+        deleted: 9
+        net: 646
+    tests:
+        added: 283
+        deleted: 0
+        net: 283
+    computed_at: "2026-09-03T10:31:16Z"
+    computed_at_stage: ship
+summary: adds § Palette search ranking (six-tier match ladder, density → MRU → declaration-order tiebreak, runkit-palette-mru recency) and three Design Decisions to docs/memory/run-kit/ui/keyboard-and-palette.md
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-03T10:40:12Z

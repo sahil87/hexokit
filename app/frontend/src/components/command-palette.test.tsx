@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { CommandPalette, type PaletteAction } from "./command-palette";
 import { _resetForTests as resetOverlayPresence, count as overlayCount } from "@/lib/overlay-presence";
+import { PALETTE_MRU_KEY } from "@/lib/palette/mru";
 
 function makeActions(labels: string[]): PaletteAction[] {
   return labels.map((label, i) => ({
@@ -755,6 +756,168 @@ describe("CommandPalette", () => {
 
       fireEvent.click(screen.getByText('Ask operator: "rename the tab"'));
       expect(onAsk).toHaveBeenCalledWith("rename the tab");
+    });
+  });
+
+  describe("search ranking and MRU", () => {
+    beforeEach(() => {
+      localStorage.clear();
+    });
+    afterEach(() => {
+      localStorage.clear();
+    });
+
+    function renderedLabels(): string[] {
+      return Array.from(
+        screen.getByRole("listbox").querySelectorAll('[role="option"]'),
+      ).map((row) => row.textContent ?? "");
+    }
+
+    function storedMru(): string[] {
+      const raw = localStorage.getItem(PALETTE_MRU_KEY);
+      return raw === null ? [] : (JSON.parse(raw) as string[]);
+    }
+
+    it("ranks match quality over declaration order for query 'pr'", () => {
+      const actions: PaletteAction[] = [
+        { id: "open-pr", label: "Open: PR #3127", onSelect: vi.fn() },
+        { id: "protect-noon", label: "Server: Protect noon", onSelect: vi.fn() },
+        { id: "pr-refresh", label: "PR: Refresh Status", onSelect: vi.fn() },
+      ];
+      render(<CommandPalette actions={actions} />);
+      openPalette();
+
+      fireEvent.change(screen.getByPlaceholderText(/^Type a command/), {
+        target: { value: "pr" },
+      });
+
+      expect(renderedLabels()).toEqual([
+        "PR: Refresh Status",
+        "Open: PR #3127",
+        "Server: Protect noon",
+      ]);
+    });
+
+    it("keeps every action the old label+description filter admitted", () => {
+      const actions: PaletteAction[] = [
+        { id: "new-session", label: "New Session", onSelect: vi.fn() },
+        { id: "kill-window", label: "Kill Window", onSelect: vi.fn() },
+        {
+          id: "session-create",
+          label: "Session: Create",
+          description: "a new group of tabs",
+          onSelect: vi.fn(),
+        },
+      ];
+      render(<CommandPalette actions={actions} />);
+      openPalette();
+
+      fireEvent.change(screen.getByPlaceholderText(/^Type a command/), {
+        target: { value: "new" },
+      });
+
+      // Same survivors as the pre-change predicate — the description-only
+      // match stays in the list, ranked below the label matches.
+      expect(renderedLabels()).toEqual([
+        "New Session",
+        "Session: Create — a new group of tabs",
+      ]);
+    });
+
+    it("records a plain action's id on invoke", () => {
+      const actions: PaletteAction[] = [
+        { id: "new-session", label: "New Session", onSelect: vi.fn() },
+      ];
+      render(<CommandPalette actions={actions} />);
+      openPalette();
+
+      fireEvent.keyDown(screen.getByPlaceholderText(/^Type a command/), {
+        key: "Enter",
+      });
+
+      expect(storedMru()).toEqual(["new-session"]);
+    });
+
+    it("records the base id on a confirm flow, never the synthetic -confirm row id", () => {
+      const actions: PaletteAction[] = [
+        {
+          id: "kill-server-x",
+          label: "Server: Kill x",
+          confirmLabel: "Kill x — Enter to confirm",
+          onSelect: vi.fn(),
+        },
+      ];
+      render(<CommandPalette actions={actions} />);
+      openPalette();
+
+      fireEvent.keyDown(screen.getByPlaceholderText(/^Type a command/), {
+        key: "Enter",
+      });
+      fireEvent.keyDown(screen.getByPlaceholderText("Confirm action..."), {
+        key: "Enter",
+      });
+
+      expect(storedMru()).toEqual(["kill-server-x"]);
+    });
+
+    it("records nothing for a disabled row", () => {
+      const actions: PaletteAction[] = [
+        { id: "blocked", label: "Server: Switch to full", disabled: true, onSelect: vi.fn() },
+      ];
+      render(<CommandPalette actions={actions} />);
+      openPalette();
+
+      fireEvent.keyDown(screen.getByPlaceholderText(/^Type a command/), {
+        key: "Enter",
+      });
+
+      expect(storedMru()).toEqual([]);
+    });
+
+    it("ranks a recently-used action first on an empty query", () => {
+      localStorage.setItem(PALETTE_MRU_KEY, JSON.stringify(["kill-window"]));
+      const actions: PaletteAction[] = [
+        { id: "new-session", label: "New Session", onSelect: vi.fn() },
+        { id: "kill-window", label: "Kill Window", onSelect: vi.fn() },
+      ];
+      render(<CommandPalette actions={actions} />);
+      openPalette();
+
+      expect(renderedLabels()).toEqual(["Kill Window", "New Session"]);
+    });
+
+    it("keeps option-picker rows in the caller's declared order and records the picker id on apply", () => {
+      const onApply = vi.fn();
+      const action: PaletteAction = {
+        id: "sort-windows",
+        label: "Session: Sort windows…",
+        optionPicker: {
+          options: [
+            { key: "status", label: "By status" },
+            { key: "created", label: "By created" },
+            { key: "name", label: "By name" },
+          ],
+          onApply,
+        },
+        onSelect: vi.fn(),
+      };
+      render(<CommandPalette actions={[action]} />);
+      openPalette();
+
+      const input = screen.getByPlaceholderText(/^Type a command/);
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(renderedLabels()).toEqual(["By status", "By created", "By name"]);
+      expect(storedMru()).toEqual([]);
+
+      const pickerInput = screen.getByPlaceholderText(
+        "Pick options — Space toggle · Enter apply",
+      );
+      fireEvent.keyDown(pickerInput, { key: " " });
+      fireEvent.keyDown(pickerInput, { key: "Enter" });
+
+      expect(onApply).toHaveBeenCalledWith(["status"]);
+      expect(storedMru()).toEqual(["sort-windows"]);
     });
   });
 });

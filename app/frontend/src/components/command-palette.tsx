@@ -1,6 +1,7 @@
 import {
   useState,
   useEffect,
+  useMemo,
   useRef,
   useCallback,
   useId,
@@ -12,6 +13,8 @@ import { INPUT_FOCUS } from "@/components/controls";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { matchesCombo, type EffectiveBinding } from "@/lib/keybindings";
 import { shouldShowAskOperatorRow } from "@/lib/quake-terminal";
+import { rankActions } from "@/lib/palette/rank";
+import { readPaletteMru, recordPaletteUse } from "@/lib/palette/mru";
 
 export type PaletteOptionPicker = {
   options: { key: string; label: string }[];
@@ -81,6 +84,9 @@ export function CommandPalette({ actions, askOperator }: CommandPaletteProps) {
   // Bumped on every sub-list entry/exit so a loader resolving after a cancel
   // (or after a second entry) can never resurrect stale rows.
   const subListGenRef = useRef(0);
+  // Seeded lazily so the first keystroke is already ranked; a recorded use
+  // threads the returned list back into state without a re-read.
+  const [mru, setMru] = useState<string[]>(() => readPaletteMru());
   const paletteRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -110,6 +116,11 @@ export function CommandPalette({ actions, askOperator }: CommandPaletteProps) {
   useEffect(() => {
     if (confirming || picking || subListing) inputRef.current?.focus();
   }, [confirming, picking, pickedKeys, subListing]);
+
+  const rankedActions = useMemo(
+    () => rankActions(actions, query, mru),
+    [actions, query, mru],
+  );
 
   const baseFiltered = confirming
     ? [
@@ -156,13 +167,7 @@ export function CommandPalette({ actions, askOperator }: CommandPaletteProps) {
                 disabled: row.disabled,
                 onSelect: row.onSelect,
               }))
-        : actions.filter((a) => {
-            const q = query.toLowerCase();
-            return (
-              a.label.toLowerCase().includes(q) ||
-              (a.description?.toLowerCase().includes(q) ?? false)
-            );
-          });
+        : rankedActions;
 
   // The Ask-operator fallback row rides the ordinary row machinery (selection,
   // Enter, scroll-into-view) as a synthesized last row — present ONLY at zero
@@ -247,6 +252,14 @@ export function CommandPalette({ actions, askOperator }: CommandPaletteProps) {
     }
   }, [selectedIndex, open]);
 
+  // Records only real invocations: entering a sub-step, picking a disabled
+  // row, or cancelling records nothing. The confirm row carries a synthetic
+  // `${id}-confirm` id that matches no registered action, so the ORIGINATING
+  // action's id is recorded — never the row's.
+  const recordUse = useCallback((id: string) => {
+    setMru(recordPaletteUse(id));
+  }, []);
+
   const handleSelect = useCallback(
     (action: PaletteAction) => {
       if (action.disabled) return;
@@ -287,9 +300,15 @@ export function CommandPalette({ actions, askOperator }: CommandPaletteProps) {
         return;
       }
       closePalette();
+      // Sub-step and fallback rows carry ids that match no registered action
+      // (`${id}-confirm`, `${id}-sub-${row}`, `ask-operator`), so the MRU takes
+      // the ORIGINATING action's id — and nothing when there is no such action.
+      const originatingId =
+        confirming?.id ?? subListing?.id ?? (showAskRow ? null : action.id);
+      if (originatingId) recordUse(originatingId);
       action.onSelect();
     },
-    [closePalette],
+    [closePalette, confirming, subListing, showAskRow, recordUse],
   );
 
   const togglePick = useCallback((key: string) => {
@@ -317,6 +336,7 @@ export function CommandPalette({ actions, askOperator }: CommandPaletteProps) {
         if (pickedKeys.length === 0) return;
         const { onApply } = picking.optionPicker;
         const keys = pickedKeys;
+        recordUse(picking.id);
         closePalette();
         onApply(keys);
         return;

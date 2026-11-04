@@ -804,16 +804,19 @@ test.describe("Quake terminal", () => {
   });
 
   /**
-   * Proves: the palette registers `Operator: Show cron list` BEFORE
-   * `Operator: Show cron log` — the registry order a `cron` query shows.
+   * Proves: a `cron` query surfaces both operator cron entries, ordered by
+   * match quality rather than registration order. `cron` is a whole word in
+   * both labels, so the tier ties and the denser match wins — the query is a
+   * larger fraction of `Operator: Show cron log` (23 chars) than of
+   * `Operator: Show cron list` (24), so the log row sits above the list row.
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on the terminal route.
    * 2. Open the palette and filter to `cron`.
-   * 3. Assert both entries render and the cron-list row sits above the
-   *    cron-log row in the option list.
+   * 3. Assert both entries render and the cron-log row sits above the
+   *    cron-list row in the option list.
    */
-  test("palette lists 'Operator: Show cron list' above 'Operator: Show cron log'", async ({
+  test("palette ranks the cron entries by match quality, denser label first", async ({
     page,
   }) => {
     await mockBackend(page, true);
@@ -825,8 +828,8 @@ test.describe("Quake terminal", () => {
     const names = await page.getByRole("option").allTextContents();
     const listIndex = names.findIndex((n) => n.includes("Operator: Show cron list"));
     const logIndex = names.findIndex((n) => n.includes("Operator: Show cron log"));
-    expect(listIndex).toBeGreaterThanOrEqual(0);
-    expect(logIndex).toBeGreaterThan(listIndex);
+    expect(logIndex).toBeGreaterThanOrEqual(0);
+    expect(listIndex).toBeGreaterThan(logIndex);
   });
 
   /**
