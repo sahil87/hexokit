@@ -29,6 +29,8 @@ describe("newSplitSections", () => {
       "create-window",
       "create-window-at-folder",
       "agent-spawn",
+      "fork-window",
+      "fork-window-worktree",
       "create-iframe-window",
       "reopen-window",
       "create-session",
@@ -62,9 +64,16 @@ describe("newSplitSections", () => {
     expect(newSplitSections("host", { server: "", group: null })).toEqual([]);
   });
 
-  it("never offers the deferred worktree row", () => {
+  it("never offers the deferred group-on-new-worktree row", () => {
     const all = newSplitSections("terminal", { server: "w", group: "g" }).flatMap((s) => s.rows.map((r) => r.label));
-    expect(all.some((l) => /worktree/i.test(l))).toBe(false);
+    expect(all.some((l) => /group.*worktree/i.test(l))).toBe(false);
+  });
+
+  it("the fork pair sits in the tab section, after Agent tab…", () => {
+    const [tabSection] = newSplitSections("terminal", { server: "w", group: "g" });
+    const tabIds = tabSection.rows.map((r) => r.actionId);
+    expect(tabIds.indexOf("fork-window")).toBe(tabIds.indexOf("agent-spawn") + 1);
+    expect(tabIds.indexOf("fork-window-worktree")).toBe(tabIds.indexOf("fork-window") + 1);
   });
 });
 
