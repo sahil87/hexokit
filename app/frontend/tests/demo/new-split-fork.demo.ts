@@ -132,9 +132,12 @@ async function openWindow(page: Page, windowId: string, mobile: boolean): Promis
 async function openNewMenu(page: Page, mobile: boolean) {
   let scope = page.locator("body");
   if (mobile) {
-    await page.getByRole("button", { name: "Toggle navigation" }).tap();
+    // The drawer can come back open after a navigation (it was open for the
+    // previous menu), and the hamburger TOGGLES — so open it only when shut.
     scope = page.getByRole("navigation", { name: "Groups" });
-    await scope.getByTestId("new-split-caret").tap();
+    const caret = scope.getByTestId("new-split-caret");
+    if (!(await caret.isVisible())) await page.getByRole("button", { name: "Toggle navigation" }).tap();
+    await caret.tap({ timeout: 10_000 });
   } else {
     await page.getByTestId("new-split-caret").click();
   }
@@ -146,11 +149,11 @@ async function openNewMenu(page: Page, mobile: boolean) {
 
 test.describe("new-split-fork demo", () => {
   // A cold Claude boot, a seed turn, a worktree fork (wt create + a second cold
-  // boot) and a continuation turn.
-  test.setTimeout(600_000);
+  // boot).
+  test.setTimeout(900_000);
 
   test.beforeAll(async () => {
-    test.setTimeout(420_000);
+    test.setTimeout(600_000);
     root = mkdtempSync(join(tmpdir(), "rk-newsplit-fork-demo-"));
     repo = join(root, "acme-app");
     mkdirSync(join(repo, "app"), { recursive: true });
@@ -194,7 +197,8 @@ test.describe("new-split-fork demo", () => {
    *    `Agent tab…`.
    * 3. Click `Fork tab in new worktree`; the app navigates to `login-agent-fork`.
    * 4. Caption the source-vs-fork checkout; assert path/branch differ, HEAD same.
-   * 5. Ask the fork for the codeword; it answers PELICAN-42.
+   * 5. Assert the fork's pane shows the source's seed turn (the codeword
+   *    prompt and its OK reply) — the resumed conversation.
    */
   test("fork an agent tab from the + Tab menu", async ({ page }, info) => {
     const mobile = info.project.name === "mobile";
@@ -263,9 +267,13 @@ test.describe("new-split-fork demo", () => {
     );
     await beat(page, 4_000);
 
-    await ask(forkPane, "What codeword did I ask you to remember? Without tools, reply with only the codeword.");
-    await waitForReply(forkPane, new RegExp(CODEWORD));
-    await caption(page, `${viewport}\nThe forked tab continues the source conversation:\nit recalled ${CODEWORD}`, mobile);
+    // The fork resumes the source conversation: its pane shows the seed turn
+    // (the codeword prompt and the agent's OK), which only ever ran in the
+    // source tab. (A fresh recall turn is the fork-worktree demo's proof; it
+    // also costs a full cold-model turn.)
+    await waitForReply(forkPane, /\bOK\b/, 60_000);
+    expect(capturePane(forkPane, { scrollback: true })).toContain(CODEWORD);
+    await caption(page, `${viewport}\nThe forked tab resumed the source conversation:\nits history shows the ${CODEWORD} turn from the source tab`, mobile);
     await beat(page, 4_000);
   });
 });
