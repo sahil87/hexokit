@@ -4969,7 +4969,7 @@ function AppShell() {
         // row, so the palette must carry the route too. Full navigation
         // (location.assign, not router navigate) — home is a deliberate
         // reload boundary, matching the brand crumb/sidebar anchors.
-        id: "go-host",
+        id: "host-overview",
         label: "Host: Overview",
         onSelect: () => window.location.assign("/"),
       },
