@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os/exec"
+	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"rk/internal/config"
@@ -14,11 +17,19 @@ import (
 
 // fork.go — the conversation-FORK surface (260806-s4av). One endpoint:
 //
-//	POST /api/windows/{windowId}/fork?server=<name>
+//	POST /api/windows/{windowId}/fork?server=<name>[&where=worktree]
 //
-// It branches a live agent's conversation into a NEW tmux window rooted at the
-// SAME directory, by spawning a riff window in checkout mode whose launcher
-// uses the source provider's fork command. The original conversation is untouched.
+// It branches a live agent's conversation into a NEW tmux window, by spawning a
+// riff window whose launcher uses the source provider's fork command. The
+// original conversation is untouched. Two isolation modes, riff's vocabulary:
+//
+//   - where=checkout (the default): the fork opens in the SAME directory.
+//   - where=worktree: the fork opens in a NEW worktree on a NEW branch started
+//     at the source checkout's HEAD commit, at the same repo-relative
+//     subdirectory. Conversation lookup is by session id, not cwd, for both
+//     providers (claude --resume <uuid> resolves across directories; codex fork
+//     <id> is id-keyed), so the forked agent continues from the new checkout.
+//     Uncommitted changes in the source checkout are not carried over.
 //
 // The endpoint is WINDOW-KEYED and derives everything else server-side — the
 // client supplies only {windowId} + server, and no request body is read
@@ -26,9 +37,9 @@ import (
 // Compare the send endpoint (api/send.go), whose contract this mirrors.
 //
 // TIMEOUT: the engine spawn shares handleRiffSpawn's documented 5s-review-rule
-// exception (api/riff.go file header) — it is the same synchronous engine call,
-// minus `wt create` (checkout mode skips wt entirely), bounded by the same
-// riffSpawnTimeout.
+// exception (api/riff.go file header) — it is the same synchronous engine call
+// (checkout mode skips `wt create`; worktree mode runs it, as riff does),
+// bounded by the same riffSpawnTimeout.
 
 // forkSessionUUIDRe matches the strict Claude session-UUID shape — the SAME rule
 // as internal/transcript's uuidRe. The resolved @rk_pane_agent_session ref MUST
@@ -118,13 +129,16 @@ func (s *Server) resolveForkSource(ctx context.Context, server, windowID string)
 }
 
 // handleWindowFork forks the window's agent conversation into a new window in the
-// same session and directory.
+// same session — in the same directory (where=checkout, default) or in a new
+// worktree + branch (where=worktree).
 //
-//	POST /api/windows/{windowId}/fork?server=<name>
+//	POST /api/windows/{windowId}/fork?server=<name>[&where=checkout|worktree]
 //	(no request body — every input is derived server-side)
-//	200: {"server","session","window","windowId"}  (riff's result shape)
-//	400: malformed windowId; the window's cwd is not inside a git repo;
-//	     engine validation fails
+//	200: {"server","session","window","windowId"} (riff's result shape), plus
+//	     "worktreePath" for where=worktree
+//	400: malformed windowId; unknown where; the window's cwd is not inside a
+//	     git repo; engine validation fails
+//	500: … also: the source checkout's HEAD cannot be resolved (worktree mode)
 //	404: no such window; no reconciled agent session; an unsupported provider; a
 //	     non-UUID reconciled ref (all properties of the pane's
 //	     @rk_pane_agent_session, not server faults — internal/transcript's
@@ -141,6 +155,14 @@ func (s *Server) handleWindowFork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	server := serverFromRequest(r)
+	where := r.URL.Query().Get("where")
+	if where == "" {
+		where = forkWhereCheckout
+	}
+	if where != forkWhereCheckout && where != forkWhereWorktree {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid where %q — must be %q or %q", where, forkWhereCheckout, forkWhereWorktree))
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), forkResolveTimeout)
 	src, found, err := s.resolveForkSource(ctx, server, windowID)
@@ -183,7 +205,8 @@ func (s *Server) handleWindowFork(w http.ResponseWriter, r *http.Request) {
 	// empirically 2026-08-06: a session started in <repo>/app/backend resumes from
 	// <repo>/app/backend and errors from <repo>). FindGitRoot only answers "is
 	// this inside a repo at all", the same question riff's non-repo 400 asks.
-	if config.FindGitRoot(src.Cwd) == "" {
+	gitRoot := config.FindGitRoot(src.Cwd)
+	if gitRoot == "" {
 		writeError(w, http.StatusBadRequest, forkNonRepoMsg(src.Cwd))
 		return
 	}
@@ -202,12 +225,12 @@ func (s *Server) handleWindowFork(w http.ResponseWriter, r *http.Request) {
 	engineCtx, engineCancel := context.WithTimeout(context.Background(), riffSpawnTimeout)
 	defer engineCancel()
 
-	res, err := s.riff.Spawn(engineCtx, riff.Options{
+	opts := riff.Options{
 		Server:  server,
 		Session: src.Session,
 		// Where=checkout is what makes this a SAME-DIRECTORY fork: no wt create, the
 		// window is rooted at the passed directory.
-		Where: "checkout",
+		Where: forkWhereCheckout,
 		// The pane's cwd ITSELF, not a walked-up root — see the gate above. In
 		// checkout mode RepoRoot is simply "the directory the window is rooted at",
 		// so a subdirectory is a legitimate value.
@@ -215,18 +238,73 @@ func (s *Server) handleWindowFork(w http.ResponseWriter, r *http.Request) {
 		ResumeSessionRef: src.Ref,
 		ForkProvider:     src.Provider,
 		WindowNameBase:   src.WindowName + forkWindowNameSuffix,
-	})
+	}
+	if where == forkWhereWorktree {
+		// Branch the new worktree from the commit the source checkout is on, so
+		// the forked agent sees the code its conversation was about — not wt's
+		// default start point. Resolved here (not `--base HEAD`) because wt may
+		// resolve HEAD against the main repo rather than this worktree.
+		base, err := forkHeadCommit(engineCtx, gitRoot)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		subdir, err := filepath.Rel(gitRoot, src.Cwd)
+		if err != nil {
+			subdir = ""
+		}
+		opts.Where = forkWhereWorktree
+		opts.RepoRoot = gitRoot
+		opts.WorktreeBase = base
+		opts.WorktreeSubdir = subdir
+	}
+
+	res, err := s.riff.Spawn(engineCtx, opts)
 	if err != nil {
 		writeError(w, riffStatusForError(err), err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
+	body := map[string]string{
 		"server":   res.Server,
 		"session":  res.Session,
 		"window":   res.WindowName,
 		"windowId": res.WindowID,
-	})
+	}
+	if res.WorktreePath != "" {
+		body["worktreePath"] = res.WorktreePath
+	}
+	writeJSON(w, http.StatusOK, body)
+}
+
+// Fork isolation modes — the `where` query values, riff's vocabulary.
+const (
+	forkWhereCheckout = "checkout"
+	forkWhereWorktree = "worktree"
+)
+
+// forkHeadTimeout bounds the `git rev-parse HEAD` that resolves a worktree
+// fork's start point.
+const forkHeadTimeout = 5 * time.Second
+
+// forkHeadCommitRe is the full-SHA shape `git rev-parse HEAD` prints (SHA-1 or
+// SHA-256 object format).
+var forkHeadCommitRe = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
+
+// forkHeadCommit resolves the commit the checkout at dir is on. Package var so
+// handler tests can stub it without a real repo.
+var forkHeadCommit = func(parent context.Context, dir string) (string, error) {
+	ctx, cancel := context.WithTimeout(parent, forkHeadTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve HEAD of %q for the worktree fork: %w", dir, err)
+	}
+	sha := strings.TrimSpace(string(out))
+	if !forkHeadCommitRe.MatchString(sha) {
+		return "", fmt.Errorf("unexpected HEAD %q in %q", sha, dir)
+	}
+	return sha, nil
 }
 
 // forkWindowNameSuffix is appended to the source window's name to form the forked
