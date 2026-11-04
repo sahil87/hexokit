@@ -67,6 +67,11 @@ export function newSplitSections(mode: TopBarMode, target: NewSplitTarget): NewS
         { actionId: "create-window", label: "Tab", glyph: "＋" },
         { actionId: "create-window-at-folder", label: "Tab at folder…", glyph: "▱" },
         { actionId: "agent-spawn", label: "Agent tab…", glyph: "✦" },
+        // The fork pair acts on the CURRENT tab's agent conversation; the
+        // palette registers them only when that tab is forkable, so on a plain
+        // shell tab (and on the board, which registers neither) they drop out.
+        { actionId: "fork-window", label: "Fork tab", glyph: "⑂" },
+        { actionId: "fork-window-worktree", label: "Fork tab in new worktree", glyph: "⎇" },
         { actionId: "create-iframe-window", label: "Web tab…", glyph: "◎" },
         { actionId: "reopen-window", label: "Reopen closed tab", glyph: "↺" },
       ],

@@ -205,6 +205,7 @@ import { Sidebar } from "@/components/sidebar";
 import { HeadsetIcon } from "@/components/sidebar/icons";
 import { PANE_PANEL_OPEN_STORAGE_KEY, PANE_PANEL_DEFAULT_OPEN } from "@/components/sidebar/status-panel";
 import { canRequestWindowOperatorAction } from "@/components/sidebar/row-flyout-card";
+import { buildForkWindowActions } from "@/lib/palette/fork";
 import { SurfaceLayout } from "@/components/surface-layout";
 import { PoppedOutPlaceholder, PopoutEnded, type PoppedLeafRow } from "@/components/popout-states";
 import type { CodeTileCommands } from "@/components/surface-layout";
@@ -4017,6 +4018,11 @@ function AppShell() {
                   },
                 ]
               : []),
+            // Fork pair — palette arm of the flyout's fork rows and the
+            // `+ Tab` caret menu's Fork rows (lib/palette/fork.ts).
+            ...buildForkWindowActions(currentWindow, (where) => {
+              void handleForkWindow(server, currentWindow.windowId, where);
+            }),
             {
               id: "kill-window",
               label: "Tab: Kill",
@@ -4078,7 +4084,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, currentWindow, sessions, hasOperatorWindow, handleCreateWindow, handleFixTabName, handleAnnotateTab, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, addToast, openNewSheet, copyPaletteEntry],
+    [sessionName, currentWindow, sessions, hasOperatorWindow, handleCreateWindow, handleFixTabName, handleAnnotateTab, handleForkWindow, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, addToast, openNewSheet, copyPaletteEntry],
   );
 
   // Boards palette block (server-route variant). AppShell only mounts under
