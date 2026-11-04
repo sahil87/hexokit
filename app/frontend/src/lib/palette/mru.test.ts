@@ -16,7 +16,7 @@ describe("readPaletteMru / recordPaletteUse", () => {
   });
 
   it("round-trips a recorded id under the named key", () => {
-    expect(PALETTE_MRU_KEY).toBe("runkit-palette-mru");
+    expect(PALETTE_MRU_KEY).toBe("hexokit-palette-mru");
     recordPaletteUse("action-a");
     expect(readPaletteMru()).toEqual(["action-a"]);
   });

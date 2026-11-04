@@ -9,7 +9,7 @@
  * try/catch-noop pattern from `lib/last-window-per-server.ts` so private
  * mode / quota / SSR never throw.
  */
-export const PALETTE_MRU_KEY = "runkit-palette-mru";
+export const PALETTE_MRU_KEY = "hexokit-palette-mru";
 
 /** Cap — most-recent-first, oldest evicted. */
 export const PALETTE_MRU_LIMIT = 20;
