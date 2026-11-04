@@ -15,19 +15,20 @@ func TestStateDirXDGRule(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StateDir: %v", err)
 	}
-	if want := filepath.Join(state, "run-kit", "code"); dir != want {
+	if want := filepath.Join(state, "hexokit", "code"); dir != want {
 		t.Errorf("StateDir = %q, want %q", dir, want)
 	}
 }
 
 func TestStateDirDefault(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	t.Setenv("XDG_STATE_HOME", "")
 	dir, err := StateDir()
 	if err != nil {
 		t.Fatalf("StateDir: %v", err)
 	}
-	home, _ := os.UserHomeDir()
-	if want := filepath.Join(home, ".local", "state", "run-kit", "code"); dir != want {
+	if want := filepath.Join(home, ".local", "state", "hexokit", "code"); dir != want {
 		t.Errorf("StateDir = %q, want %q", dir, want)
 	}
 }

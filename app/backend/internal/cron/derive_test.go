@@ -200,11 +200,15 @@ func TestDeriveEntryOrphaned(t *testing.T) {
 
 	// A resolved target carrying no agent-state epoch is not orphaned but
 	// still cannot anchor a backoff ladder.
-	d = DeriveEntry(e, log, TargetFacts{PaneID: "%5", AgentState: "unknown"}, T)
-	if d.Orphaned {
-		t.Error("Orphaned = true for a resolved target, want false")
-	}
-	if d.HasNextFire {
-		t.Error("HasNextFire = true with StateEpoch 0, want false")
+	for _, state := range []string{"unknown", "idle"} {
+		t.Run(state, func(t *testing.T) {
+			d := DeriveEntry(e, log, TargetFacts{PaneID: "%5", AgentState: state}, T)
+			if d.Orphaned {
+				t.Error("Orphaned = true for a resolved target, want false")
+			}
+			if d.HasNextFire || d.Rung != 0 {
+				t.Errorf("unknown epoch yielded a backoff schedule: %+v", d)
+			}
+		})
 	}
 }

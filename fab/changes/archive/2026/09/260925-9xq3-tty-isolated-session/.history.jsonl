@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-25T07:23:07Z"}
+{"args":"The terminal relay can attach a window through its own single-window tmux session, so a terminal shown outside its home tab (borrowed into another tab, or popped out) never fights the home session's current window. The session is created on demand and reaped when its last client leaves. (plan: fab/plans/sahil/26-09-24-surface-drag-and-popout.md Change 3)","cmd":"fab-new","event":"command","ts":"2026-09-25T07:23:07Z"}
+{"delta":"+0.0","event":"confidence","score":3.6,"trigger":"calc-score","ts":"2026-09-25T07:24:49Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-25T07:26:13Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-25T07:26:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-25T07:48:15Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-25T07:54:09Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T07:54:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-25T08:00:09Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-25T08:02:17Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T08:16:20Z"}

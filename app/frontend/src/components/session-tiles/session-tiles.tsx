@@ -93,13 +93,13 @@ export function SessionTiles({
         {/* Page-level heading (260715-zs1y). Reuses the shared SectionHeading
             idiom so the tmux Server page carries one canonical long-form name
             above the "Sessions" section heading. */}
-        <SectionHeading label="tmux Server Overview" className="mb-4" />
+        <SectionHeading label="Workspace Overview" className="mb-4" />
         {/* Bracket section heading (260704-pr0p): the PageHeading bracket idiom
             moved here; the relocated session/window stats are the right-aligned
             side slot. Same idiom as the Host page's zone headings. */}
         <SectionHeading
-          label="Sessions"
-          side={`${sessions.length} session${sessions.length !== 1 ? "s" : ""}, ${totalWindows} tab${totalWindows !== 1 ? "s" : ""}`}
+          label="Groups"
+          side={`${sessions.length} group${sessions.length !== 1 ? "s" : ""}, ${totalWindows} tab${totalWindows !== 1 ? "s" : ""}`}
           className="mb-2"
         />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -297,7 +297,7 @@ export function SessionTiles({
             onClick={onCreateSession}
             className="border border-dashed border-border rounded p-3 text-sm text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors min-h-[36px] coarse:min-h-[44px] flex items-center justify-center"
           >
-            + New Session
+            + New group
           </button>
         </div>
         {/* Footer slot — page zones below the grid (the WATCHED zone),

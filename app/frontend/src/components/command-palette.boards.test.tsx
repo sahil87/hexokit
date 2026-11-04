@@ -39,7 +39,7 @@ import { buildUpdateActions } from "@/lib/palette/update";
  * uses the SAME production helper, positioned after `conditional` as the
  * merged list does, matching the `buildUpdateActions` treatment.
  *
- * The update entry (`run-kit: Dismiss Update Notice`) is a global group
+ * The update entry (`HexoKit: Dismiss Update Notice`) is a global group
  * (260713-4zap; Dismiss-only since the dynamic `Update to v{X}` entry was
  * deleted — 260720-n2ai) — below `sm` the top-bar UpdateChip is hidden, so the
  * palette is a phone user's ONLY update surface. Production builds it via
@@ -332,7 +332,7 @@ describe("CmdK Board Actions", () => {
     expect(onRefresh).toHaveBeenCalledOnce();
   });
 
-  it("folds in 'run-kit: Dismiss Update Notice' when an update qualifies — and never a dynamic Update entry (260720-n2ai)", () => {
+  it("folds in 'HexoKit: Dismiss Update Notice' when an update qualifies — and never a dynamic Update entry (260720-n2ai)", () => {
     const actions = buildBoardActions({
       boards: [{ name: "main" }],
       isOnBoardRoute: true,
@@ -340,9 +340,9 @@ describe("CmdK Board Actions", () => {
     });
     render(<CommandPalette actions={actions} />);
     openPalette();
-    expect(screen.getByText("run-kit: Dismiss Update Notice")).toBeInTheDocument();
-    // The deleted `run-kit: Update to v{X}` entry must never reappear.
-    expect(screen.queryByText(/run-kit: Update to/)).not.toBeInTheDocument();
+    expect(screen.getByText("HexoKit: Dismiss Update Notice")).toBeInTheDocument();
+    // The deleted `HexoKit: Update to v{X}` entry must never reappear.
+    expect(screen.queryByText(/HexoKit: Update to/)).not.toBeInTheDocument();
   });
 
   it("omits the update entry when no update qualifies (260713-4zap)", () => {
@@ -353,11 +353,11 @@ describe("CmdK Board Actions", () => {
     });
     render(<CommandPalette actions={actions} />);
     openPalette();
-    expect(screen.queryByText(/run-kit: Update to/)).not.toBeInTheDocument();
-    expect(screen.queryByText("run-kit: Dismiss Update Notice")).not.toBeInTheDocument();
+    expect(screen.queryByText(/HexoKit: Update to/)).not.toBeInTheDocument();
+    expect(screen.queryByText("HexoKit: Dismiss Update Notice")).not.toBeInTheDocument();
   });
 
-  it("invokes the dismiss handler when 'run-kit: Dismiss Update Notice' is selected (260713-4zap)", () => {
+  it("invokes the dismiss handler when 'HexoKit: Dismiss Update Notice' is selected (260713-4zap)", () => {
     const onDismissUpdate = vi.fn();
     const actions = buildBoardActions({
       boards: [{ name: "main" }],

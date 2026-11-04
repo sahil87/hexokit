@@ -3,8 +3,8 @@ import {
   availableSurfaces,
   panelStorageKey,
   readStoredPanel,
-  clampBoundary,
   clampRatio,
+  clampSiblingFraction,
 } from "./right-panel";
 import type { ViewWindow } from "./window-view";
 
@@ -99,58 +99,29 @@ describe("clampRatio", () => {
   });
 });
 
-describe("clampBoundary", () => {
-  // Sibling-boundary chaining is a row/col property only — those shapes'
-  // two ratios are same-axis dividers. A main-* shape's ratios live on
-  // DIFFERENT axes (main-left/right: 0 = x column, 1 = y row; main-top
-  // swaps), so each clamps to clampRatio's own-axis band alone.
+describe("clampSiblingFraction", () => {
+  // A divider drag edits only its two siblings' fractions (their combined
+  // share is constant); the 280px floor bounds both sides of the pair's
+  // combined extent.
 
-  it("frees a main-left y-seam the same-axis chain used to pin (short viewport)", () => {
-    // 700px-tall grid → floorY = 40%. Chaining against the x ratio (22)
-    // would make the band [62, 60] — empty, pinned at 62. The own-axis band
-    // is [40, 60] and the seam follows the pointer within it.
-    expect(clampBoundary("main-left", [22, 37], 1, 10, 700)).toBeCloseTo(40);
-    expect(clampBoundary("main-left", [22, 37], 1, 50, 700)).toBe(50);
-    expect(clampBoundary("main-left", [22, 37], 1, 90, 700)).toBeCloseTo(60);
+  it("clamps the first sibling's fraction to the two-sided floor band", () => {
+    // 1000px combined → floor = 0.28; the band is [0.28, 0.72].
+    expect(clampSiblingFraction(0.5, 1000)).toBe(0.5);
+    expect(clampSiblingFraction(0.1, 1000)).toBeCloseTo(0.28);
+    expect(clampSiblingFraction(0.9, 1000)).toBeCloseTo(0.72);
   });
 
-  it("clamps each main-* boundary independently of the other ratio", () => {
-    // 1000px axis → floor = 28%. For every main-* shape and both indices,
-    // the result must not change when the OTHER ratio moves.
-    for (const shape of ["main-left", "main-right", "main-top"] as const) {
-      for (const raw of [5, 50, 95]) {
-        expect(clampBoundary(shape, [10, 50], 1, raw, 1000)).toBe(
-          clampBoundary(shape, [80, 50], 1, raw, 1000),
-        );
-        expect(clampBoundary(shape, [50, 10], 0, raw, 1000)).toBe(
-          clampBoundary(shape, [50, 80], 0, raw, 1000),
-        );
-      }
-      // The band is exactly clampRatio's: no cap short of the far floor.
-      expect(clampBoundary(shape, [50, 10], 0, 90, 1000)).toBeCloseTo(72);
-    }
+  it("skips the floor on a non-positive combined extent (unmeasured, jsdom)", () => {
+    expect(clampSiblingFraction(0.1, 0)).toBeCloseTo(0.1);
+    expect(clampSiblingFraction(0.9, 0)).toBeCloseTo(0.9);
   });
 
-  it("keeps row/col sibling chaining: a divider never crosses its neighbor", () => {
-    // 1000px axis → floor = 28%. Divider 0 of [30, 60] may reach at most
-    // 60 − 28 = 32; divider 1 may reach down to 30 + 28 = 58 and up to 72.
-    expect(clampBoundary("row", [30, 60], 0, 80, 1000)).toBeCloseTo(32);
-    expect(clampBoundary("row", [30, 60], 0, 5, 1000)).toBeCloseTo(28);
-    expect(clampBoundary("col", [30, 60], 1, 40, 1000)).toBeCloseTo(58);
-    expect(clampBoundary("col", [30, 60], 1, 95, 1000)).toBeCloseTo(72);
+  it("collapses an inverted band to 50/50", () => {
+    // Below 2 × 280px combined the floor band inverts and both siblings are
+    // equally undersized rather than one being stranded.
+    expect(clampSiblingFraction(0.1, 500)).toBe(0.5);
+    expect(clampSiblingFraction(0.9, 500)).toBe(0.5);
+    expect(clampSiblingFraction(0.5, 560)).toBe(0.5);
   });
 
-  it("degenerates an inverted row/col sibling band to the near floor edge", () => {
-    // Divider 0 of [30, 45]: band [28, 45 − 28 = 17] is empty — the boundary
-    // pins at prev + floor (28) instead of crossing or stranding the sibling.
-    expect(clampBoundary("col", [30, 45], 0, 40, 1000)).toBeCloseTo(28);
-    expect(clampBoundary("col", [30, 45], 0, 5, 1000)).toBeCloseTo(28);
-  });
-
-  it("collapses a degenerate independent axis to 50/50 via clampRatio", () => {
-    // Below 2 × 280px on the boundary's own axis the floor band inverts and
-    // clampRatio's 50/50 collapse applies — for split-* and main-* alike.
-    expect(clampBoundary("split-v", [40], 0, 10, 500)).toBe(50);
-    expect(clampBoundary("main-left", [22, 37], 1, 90, 500)).toBe(50);
-  });
 });

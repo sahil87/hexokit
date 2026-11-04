@@ -1,0 +1,18 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-25T02:43:47Z"}
+{"args":"Web tile remote-native mode: same-port HTTP forward proxy on the rk server + per-host Electron session proxy so the desktop native web engine behaves as if running on the rk host","cmd":"fab-new","event":"command","ts":"2026-09-25T02:43:47Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-09-25T02:46:09Z"}
+{"delta":"+2.1","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-09-25T02:47:47Z"}
+{"delta":"+1.2","event":"confidence","score":3.3,"trigger":"calc-score","ts":"2026-09-25T02:48:48Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-25T02:49:02Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-25T02:49:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-25T02:49:51Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-09-25T02:50:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-25T03:23:00Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-25T03:29:27Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T03:29:27Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-09-25T03:35:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-25T03:35:54Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-09-25T03:36:28Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-09-25T03:36:32Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-25T03:38:59Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T03:52:27Z"}

@@ -1,0 +1,58 @@
+id: 1067
+name: 260925-1067-host-default-loopback-fix
+created: 2026-09-25T16:13:35Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 4
+    acceptance_count: 14
+    acceptance_completed: 14
+confidence:
+    certain: 6
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 69.1
+        reversibility: 89.5
+        competence: 83.6
+        disambiguation: 80.5
+stage_metrics:
+    intake: {started_at: "2026-09-25T16:13:35Z", driver: fab-new, iterations: 1, completed_at: "2026-09-25T16:16:28Z"}
+    apply: {started_at: "2026-09-25T16:16:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T16:20:17Z"}
+    review: {started_at: "2026-09-25T16:20:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T16:22:32Z"}
+    hydrate: {started_at: "2026-09-25T16:22:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T16:23:26Z"}
+    ship: {started_at: "2026-09-25T16:23:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T16:25:42Z"}
+    review-pr: {started_at: "2026-09-25T16:25:42Z", driver: git-pr, iterations: 1, completed_at: "2026-09-25T16:34:09Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/1049
+base_branch: main
+true_impact:
+    added: 438
+    deleted: 38
+    net: 400
+    excluding:
+        added: 60
+        deleted: 28
+        net: 32
+    tests:
+        added: 25
+        deleted: 4
+        net: 21
+    computed_at: "2026-09-25T16:25:42Z"
+    computed_at_stage: ship
+summary: 'Dev tooling (.env, dev.sh fallback, e2e multi-rig lane) binds RK_HOST=127.0.0.1 by default with 0.0.0.0 a commented opt-in; web-url.ts treats portless http: loopback URLs as proxied port 80, matching rk present'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-25T16:34:09Z

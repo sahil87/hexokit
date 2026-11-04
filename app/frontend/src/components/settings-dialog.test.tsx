@@ -18,8 +18,10 @@ vi.mock("@/api/client", () => ({
   postSettings: vi.fn().mockResolvedValue(undefined),
   getRiffPresets: vi.fn().mockRejectedValue(new Error("no API in test")),
   getKeybindings: vi.fn().mockResolvedValue([]),
+  getFabConfig: vi.fn().mockResolvedValue({ installed: false }),
+  postFabConfig: vi.fn().mockResolvedValue({ installed: false }),
 }));
-import { getSettingsEntries, postSettings, setThemePreference, getThemePreference, type SettingsEntry } from "@/api/client";
+import { getFabConfig, getSettingsEntries, postSettings, setThemePreference, getThemePreference, type SettingsEntry } from "@/api/client";
 
 // The escape-hatch footer's copy button — assert the write, never the OS.
 vi.mock("@/lib/clipboard", () => ({
@@ -199,7 +201,7 @@ function allSettingsFixture(): SettingsEntry[] {
 }
 
 /** Opens the dialog on mount (the palette/gear stand-in). `tab` deep-links. */
-function OpenOnMount({ tab }: { tab?: "general" | "appearance" | "all" | "shortcuts" }) {
+function OpenOnMount({ tab }: { tab?: "general" | "appearance" | "agents" | "all" | "shortcuts" }) {
   const { openSettings } = useSettingsDialog();
   useEffect(() => {
     openSettings(tab);
@@ -209,7 +211,7 @@ function OpenOnMount({ tab }: { tab?: "general" | "appearance" | "all" | "shortc
 
 function renderDialog(
   instanceNameValue: InstanceName = makeInstanceName(),
-  tab?: "general" | "appearance" | "all" | "shortcuts",
+  tab?: "general" | "appearance" | "agents" | "all" | "shortcuts",
 ) {
   return render(
     <ThemeProvider>
@@ -230,7 +232,7 @@ function renderDialog(
 }
 
 /** Switch to a tab by its rail/strip button. */
-function selectTab(label: "General" | "Appearance" | "All settings" | "Shortcuts") {
+function selectTab(label: "General" | "Appearance" | "Agents" | "All settings" | "Shortcuts") {
   fireEvent.click(screen.getByRole("tab", { name: label }));
 }
 
@@ -252,7 +254,7 @@ function LiveNameProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-function renderDialogLiveName(tab?: "general" | "appearance" | "all" | "shortcuts") {
+function renderDialogLiveName(tab?: "general" | "appearance" | "agents" | "all" | "shortcuts") {
   return render(
     <ThemeProvider>
       <ToastProvider>
@@ -277,9 +279,9 @@ beforeEach(() => {
   // Belt-and-braces: the theme context's storage keys must never leak between
   // tests (a stored named-theme preference changes what the real provider
   // resolves before the API preference lands).
-  localStorage.removeItem("runkit-theme");
-  localStorage.removeItem("runkit-theme-dark");
-  localStorage.removeItem("runkit-theme-light");
+  localStorage.removeItem("hexokit-theme");
+  localStorage.removeItem("hexokit-theme-dark");
+  localStorage.removeItem("hexokit-theme-light");
   mockMatchMedia();
   vi.mocked(getSettingsEntries).mockReset();
   vi.mocked(getSettingsEntries).mockResolvedValue([]);
@@ -311,13 +313,17 @@ afterEach(() => {
 });
 
 describe("SettingsDialog", () => {
-  it("renders the four tabs and opens on General by default", () => {
+  it("renders the five tabs in rail order and opens on General by default", () => {
     renderDialog();
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
     const tablist = screen.getByRole("tablist", { name: "Settings sections" });
-    for (const label of ["General", "Appearance", "All settings", "Shortcuts"]) {
-      expect(within(tablist).getByRole("tab", { name: label })).toBeInTheDocument();
-    }
+    expect(within(tablist).getAllByRole("tab").map((t) => t.textContent)).toEqual([
+      "General",
+      "Appearance",
+      "Agents",
+      "Shortcuts",
+      "All settings",
+    ]);
     expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
     // General = instance name + SSH host (This host), notifications (This device).
     expect(screen.getByText("This host")).toBeInTheDocument();
@@ -356,7 +362,7 @@ describe("SettingsDialog", () => {
     expect(slider).toHaveAttribute("max", "1");
 
     fireEvent.change(slider, { target: { value: "0.8" } });
-    expect(localStorage.getItem("runkit-quake-terminal-opacity")).toBe("0.8");
+    expect(localStorage.getItem("hexokit-quake-terminal-opacity")).toBe("0.8");
     // Per-viewer resident: nothing rides the registry seam.
     expect(postSettings).not.toHaveBeenCalled();
   });
@@ -415,8 +421,8 @@ describe("SettingsDialog", () => {
       openAppearance();
       const list = screen.getByRole("listbox", { name: "Themes" });
       fireEvent.click(within(list).getByText("Dracula"));
-      expect(localStorage.getItem("runkit-theme")).toBe("dracula");
-      expect(localStorage.getItem("runkit-theme-dark")).toBe("dracula");
+      expect(localStorage.getItem("hexokit-theme")).toBe("dracula");
+      expect(localStorage.getItem("hexokit-theme-dark")).toBe("dracula");
       // The dialog stays open; the commit closes the popover and the trigger
       // now names the committed theme.
       expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
@@ -455,7 +461,7 @@ describe("SettingsDialog", () => {
       const input = openAppearance();
       fireEvent.change(input, { target: { value: "drac" } });
       fireEvent.keyDown(input, { key: "Enter" });
-      expect(localStorage.getItem("runkit-theme")).toBe("dracula");
+      expect(localStorage.getItem("hexokit-theme")).toBe("dracula");
     });
   });
 
@@ -482,6 +488,17 @@ describe("SettingsDialog", () => {
     expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
     fireEvent.keyDown(general.closest('[role="tablist"]')!, { key: "ArrowUp" });
     expect(screen.getByRole("tab", { name: "All settings" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("the Agents tab is deep-linkable and re-fetches the fab config on every visit", async () => {
+    vi.mocked(getFabConfig).mockClear();
+    renderDialog(makeInstanceName(), "agents");
+    expect(screen.getByRole("tab", { name: "Agents" })).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => expect(screen.getByTestId("fab-not-installed")).toBeInTheDocument());
+    expect(getFabConfig).toHaveBeenCalledTimes(1);
+    selectTab("General");
+    selectTab("Agents");
+    await waitFor(() => expect(getFabConfig).toHaveBeenCalledTimes(2));
   });
 
   it("a deep-linked open lands on the requested tab", () => {
@@ -552,6 +569,18 @@ describe("SettingsDialog", () => {
     expect(input.value).toBe("dev box");
   });
 
+  it("General → This host shows the MCP endpoint from the page origin and copies it", async () => {
+    renderDialog();
+    const expected = `${window.location.origin}/mcp`;
+    const hostSection = screen.getByRole("region", { name: "This host settings" });
+    expect(within(hostSection).getByTestId("settings-mcp-endpoint")).toHaveTextContent(expected);
+
+    const button = within(hostSection).getByRole("button", { name: "Copy MCP endpoint" });
+    fireEvent.click(button);
+    await waitFor(() => expect(copyToClipboard).toHaveBeenCalledWith(expected));
+    await waitFor(() => expect(button).toHaveTextContent("Copied"));
+  });
+
   it("commits the instance name through the context (empty clears)", async () => {
     const value = makeInstanceName({ instanceName: "old-name", displayName: "old-name" });
     renderDialog(value);
@@ -576,8 +605,10 @@ describe("SettingsDialog", () => {
       ]);
       renderDialog();
       const toggle = screen.getByRole("switch", { name: "Easter eggs" });
-      await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
-      expect(screen.getByText(EGG_DESC)).toBeInTheDocument();
+      // The toggle reads ON before the fetch resolves (default-on), so only the
+      // registry-sourced description proves the entries have landed.
+      expect(await screen.findByText(EGG_DESC)).toBeInTheDocument();
+      expect(toggle).toHaveAttribute("aria-checked", "true");
 
       fireEvent.click(toggle);
       await waitFor(() => expect(postSettings).toHaveBeenCalledWith({ easter_eggs: false }));
@@ -714,7 +745,7 @@ describe("SettingsDialog", () => {
         configurable: true,
         writable: true,
       });
-      localStorage.setItem("runkit-shell-notifications", "on");
+      localStorage.setItem("hexokit-shell-notifications", "on");
       renderDialog();
       expect(await screen.findByText("Enabled on this device")).toBeInTheDocument();
     });
@@ -780,7 +811,7 @@ describe("SettingsDialog", () => {
       ]);
       // The escape-hatch footer carries the constant config path + copy button.
       expect(screen.getByTestId("settings-config-path-footer")).toHaveTextContent(
-        "~/.config/run-kit/config.yaml",
+        "~/.config/hexokit/config.yaml",
       );
     });
 
@@ -995,7 +1026,7 @@ describe("SettingsDialog", () => {
       const button = screen.getByRole("button", { name: "Copy config path" });
       fireEvent.click(button);
       await waitFor(() =>
-        expect(copyToClipboard).toHaveBeenCalledWith("~/.config/run-kit/config.yaml"),
+        expect(copyToClipboard).toHaveBeenCalledWith("~/.config/hexokit/config.yaml"),
       );
       await waitFor(() => expect(button).toHaveTextContent("Copied"));
     });

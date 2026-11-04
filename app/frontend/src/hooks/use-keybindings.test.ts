@@ -112,7 +112,7 @@ describe("useKeybindings macro-awareness (260730-hbyh)", () => {
   };
 
   it("surfaces a stored macro in the effective map (unbound without a diff)", () => {
-    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    localStorage.setItem("hexokit-macros", JSON.stringify([DISCUSS]));
     const { result } = renderHook(() => useKeybindings());
     expect(result.current.byAction.get("macro:discuss")).toMatchObject({
       kind: "macro",
@@ -122,7 +122,7 @@ describe("useKeybindings macro-awareness (260730-hbyh)", () => {
   });
 
   it("a stored combo diff makes the macro live", () => {
-    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    localStorage.setItem("hexokit-macros", JSON.stringify([DISCUSS]));
     localStorage.setItem(
       KEYBINDINGS_STORAGE_KEY,
       JSON.stringify({ "macro:discuss": { code: "KeyD", tier: "shifted" } }),
@@ -136,7 +136,7 @@ describe("useKeybindings macro-awareness (260730-hbyh)", () => {
   });
 
   it("capturing a macro-owned combo for a builtin steals from the macro", () => {
-    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    localStorage.setItem("hexokit-macros", JSON.stringify([DISCUSS]));
     localStorage.setItem(
       KEYBINDINGS_STORAGE_KEY,
       JSON.stringify({ "macro:discuss": { code: "KeyD", tier: "shifted" } }),
@@ -154,7 +154,7 @@ describe("useKeybindings macro-awareness (260730-hbyh)", () => {
   });
 
   it("setBinding binds a macro (stored as an ordinary diff entry)", () => {
-    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    localStorage.setItem("hexokit-macros", JSON.stringify([DISCUSS]));
     const { result } = renderHook(() => useKeybindings());
     act(() => {
       result.current.setBinding("macro:discuss", { code: "KeyD", tier: "shifted" });

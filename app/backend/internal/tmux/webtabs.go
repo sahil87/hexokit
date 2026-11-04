@@ -29,9 +29,10 @@ type WebTabFamily struct {
 	Layout string   // raw @rk_win_layout value ("" when unset)
 }
 
-// webFamilyFormat is the display-message format behind ReadWebTabFamily: the 8
-// URL slots, the 8 roots, the active pointer, the layout, and the retired
-// @rk_win_url (dual-read web_1 fallback), tab-delimited in one call.
+// webFamilyFormat is the display-message format behind ReadWebTabFamily: the
+// MaxWebTabs URL slots, the MaxWebTabs roots, the active pointer, the layout,
+// and the retired @rk_win_url (dual-read web_1 fallback), tab-delimited in one
+// call.
 var webFamilyFormat = func() string {
 	fields := make([]string, 0, 2*MaxWebTabs+3)
 	for n := 1; n <= MaxWebTabs; n++ {
@@ -47,10 +48,10 @@ var webFamilyFormat = func() string {
 	), listDelim)
 }()
 
-// webRootsFormat is the list-windows format behind ListDeclaredWebRoots: the 8
-// root slots spelled out (the same fixed-format trick as webFamilyFormat — a
-// format string cannot enumerate a family, so the slots are literal),
-// tab-delimited per window row.
+// webRootsFormat is the list-windows format behind ListDeclaredWebRoots: the
+// MaxWebTabs root slots spelled out (the same fixed-format trick as
+// webFamilyFormat — a format string cannot enumerate a family, so the slots
+// are literal), tab-delimited per window row.
 var webRootsFormat = func() string {
 	fields := make([]string, 0, MaxWebTabs)
 	for n := 1; n <= MaxWebTabs; n++ {
@@ -495,11 +496,18 @@ func presentTargetIdentity(raw string) (identity string, ok bool) {
 	return "n\n" + first + "\n" + hash + "\n" + q.Encode() + "\n" + tail, true
 }
 
-// webSlotSegment reports whether a path segment is a web-tab slot index
-// (mirrors the ^[1-8]$ gate — the /present/ route's sniff rule).
+// legacyPresentSlotMax pins the slot bound of the RETIRED /present/@N/{n}/
+// URL form: the form was only ever composed under the 8-slot cap, so its
+// sniff gate stays ^[1-8]$ regardless of MaxWebTabs (api/present.go
+// presentSlotPattern is the routing-side twin — the two must agree).
+const legacyPresentSlotMax = 8
+
+// webSlotSegment reports whether a path segment is a web-tab slot index in the
+// retired slot form (mirrors the ^[1-8]$ gate — the /present/ route's sniff
+// rule).
 func webSlotSegment(segment string) bool {
 	if len(segment) != 1 {
 		return false
 	}
-	return segment[0] >= '1' && segment[0] <= '0'+MaxWebTabs
+	return segment[0] >= '1' && segment[0] <= '0'+legacyPresentSlotMax
 }

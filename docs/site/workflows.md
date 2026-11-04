@@ -7,6 +7,7 @@ A "riff" is one disposable workspace: one branch, one worktree, one tmux window,
 ## Prerequisites
 
 - You must be running inside a tmux session (`$TMUX` set).
+- You must be inside a git repository, or pass `--repo <path>` naming the repo's top-level directory.
 - [`wt`](https://github.com/sahil87/wt) must be on your `PATH`.
 - The launcher (`claude --dangerously-skip-permissions` by default) must be available.
 
@@ -53,7 +54,7 @@ rk riff --skill /a --cmd x --cmd y --layout main-vertical
 
 ## Presets
 
-Three built-in presets ship with the binary: `discuss` (→ `/fab-discuss`), `incognito` (→ `/fab-incognito`), and `blank` (a bare agent, nothing typed into it). Add your own — or override a built-in's skill — under `riff_presets` in `~/.config/run-kit/config.yaml`:
+Three built-in presets ship with the binary: `discuss` (→ `/fab-discuss`), `incognito` (→ `/fab-incognito`), and `blank` (a bare agent, nothing typed into it). Add your own — or override a built-in's skill — under `riff_presets` in `~/.config/hexokit/config.yaml`:
 
 ```yaml
 riff_presets:
@@ -89,7 +90,7 @@ Worktree names come from `wt`'s adjective-noun generator (e.g. `swift-fox`, `zip
 Anything after `--` is forwarded verbatim to `wt create`. Useful for:
 
 ```bash
-rk riff -- --worktree-name pacing-canyon   # name the worktree
+rk riff -- --name pacing-canyon            # name the worktree
 rk riff -- --base main                     # branch off main
 rk riff -- --reuse                         # reuse an existing branch
 ```

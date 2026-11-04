@@ -113,6 +113,7 @@ func TestParseTarget_localURLs(t *testing.T) {
 		{"http://localhost:8080/docs?x=1", 8080, "/docs?x=1", "/proxy/8080/docs?x=1"},
 		{"http://localhost:8080", 8080, "/", "/proxy/8080/"},
 		{"http://localhost/app", 80, "/app", "/proxy/80/app"},
+		{"http://LOCALHOST:3000/x", 3000, "/x", "/proxy/3000/x"},
 		{"http://127.0.0.1:3000", 3000, "/", "/proxy/3000/"},
 		{"http://[::1]:9000/a/b?y=2&z=3", 9000, "/a/b?y=2&z=3", "/proxy/9000/a/b?y=2&z=3"},
 	}

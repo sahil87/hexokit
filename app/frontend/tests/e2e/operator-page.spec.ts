@@ -8,7 +8,7 @@ import { mockStateSocket, emitSessions } from "./_state-socket-mock";
 // live segment state (non-terminal tabs hide-never-unmount the terminal
 // column and swap the body), and the route's compose strip FORCED on and
 // footer-docked (visible under a non-terminal tab) regardless of the
-// `runkit-compose-strip` preference. The operator-less shapes: the drawer's
+// `hexokit-compose-strip` preference. The operator-less shapes: the drawer's
 // Start operator button (pending → the SSE-equivalent sessions event carries
 // the new operator window and the embed mounts; failures surface inline) and
 // the sidebar's placeholder row (the pinned slot's operator-less form —
@@ -20,13 +20,15 @@ import { mockStateSocket, emitSessions } from "./_state-socket-mock";
 // operator window `@9` with `role: "operator"` in `_rk-operator` — and
 // `emitSessions` pushes a mid-test payload flip (the SSE-equivalent of the
 // operator appearing). `POST /api/operator/start` is stubbed per test via
-// page.route (202 receipt or a 502 error body) — CI has no fab-kit, so the
-// real `rk operator` launch is a dev-box manual check, never an e2e. The
-// route mock carries a trailing `*` — the client appends `?server=`
-// (withServer), so a bare glob would silently miss. `/ws/terminals` is a
-// no-op socket mock: terminals mount their xterm frame without stream data.
-// `GET /api/cron` is stubbed with one entry so the Cron List segment has a
-// row.
+// page.route (202 receipt or a 502 error body) and records each call's URL
+// AND body — a Start from the `@1` Terminal route must carry the viewed
+// window (`{"window":"@1"}`) so the daemon can derive its pane cwd. CI has no
+// fab-kit, so the real `rk operator` launch is a dev-box manual check, never
+// an e2e. The route mock carries a trailing `*` — the client appends
+// `?server=` (withServer), so a bare glob would silently miss.
+// `/ws/terminals` is a no-op socket mock: terminals mount their xterm frame
+// without stream data. `GET /api/cron` is stubbed with one entry so the Cron
+// List segment has a row.
 
 const SERVER = "default";
 const NOW = Math.floor(Date.now() / 1000);
@@ -89,9 +91,10 @@ const CRON = JSON.stringify({
 type StartBehavior = { status: number; body: Record<string, unknown> };
 
 /** Install the mocked backend; the Start stub answers with `behavior` and
- *  records its calls. Returns the recorded start-call URLs. */
+ *  records its calls. Returns the recorded start-call URLs and bodies. */
 async function mockBackend(page: Page, withOperator: boolean, behavior?: StartBehavior) {
   const startCalls: string[] = [];
+  const startBodies: string[] = [];
   await page.routeWebSocket(/\/ws\/terminals/, () => {});
   await page.route("**/api/windows/*/select*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
@@ -109,6 +112,7 @@ async function mockBackend(page: Page, withOperator: boolean, behavior?: StartBe
   if (behavior) {
     await page.route("**/api/operator/start*", (route) => {
       startCalls.push(route.request().url());
+      startBodies.push(route.request().postData() ?? "");
       return route.fulfill({
         status: behavior.status,
         contentType: "application/json",
@@ -117,7 +121,7 @@ async function mockBackend(page: Page, withOperator: boolean, behavior?: StartBe
     });
   }
   await mockStateSocket(page, { sessions: sessionsPayload(withOperator) });
-  return { startCalls };
+  return { startCalls, startBodies };
 }
 
 const WINDOW_URL = `/${SERVER}/%401`;
@@ -134,7 +138,7 @@ test.describe("operator page (desktop)", () => {
   /**
    * Proves: the desktop operator route renders the segment strip above the
    * tty tile and the route's compose strip even with the
-   * `runkit-compose-strip` preference off — the operator page has an input by
+   * `hexokit-compose-strip` preference off — the operator page has an input by
    * definition.
    *
    * Steps:
@@ -193,22 +197,24 @@ test.describe("operator page (desktop)", () => {
 
   /**
    * Proves: the Start operator button in the drawer's operator-less body
-   * posts to /api/operator/start, holds its pending state, and unmounts
-   * itself once the sessions payload carries the new operator window (the
-   * drawer's embed mounts on the resolved target) — no client polling.
+   * posts to /api/operator/start carrying the viewed Terminal-route window
+   * (`{"window":"@1"}`, so the daemon derives its pane cwd), holds its
+   * pending state, and unmounts itself once the sessions payload carries the
+   * new operator window (the drawer's embed mounts on the resolved target) —
+   * no client polling.
    *
    * Steps:
    * 1. Mock the backend without an operator; land on the @1 route and open
    *    the drawer via the palette.
-   * 2. Click Start operator; assert one POST fired, the button reads
-   *    `starting…` and is disabled.
+   * 2. Click Start operator; assert one POST fired with the viewed window in
+   *    the body, the button reads `starting…` and is disabled.
    * 3. Push the operator-bearing sessions payload; assert the empty body and
    *    button are gone and the drawer's terminal embed is up.
    */
   test("Start operator posts, pends, and unmounts when the operator appears in the sessions payload", async ({
     page,
   }) => {
-    const { startCalls } = await mockBackend(page, false, {
+    const { startCalls, startBodies } = await mockBackend(page, false, {
       status: 202,
       body: { windowId: "@9", server: SERVER },
     });
@@ -229,6 +235,7 @@ test.describe("operator page (desktop)", () => {
     await expect.poll(() => startCalls.length).toBe(1);
     expect(new URL(startCalls[0]).pathname).toBe("/api/operator/start");
     expect(new URL(startCalls[0]).searchParams.get("server")).toBe(SERVER);
+    expect(JSON.parse(startBodies[0])).toEqual({ window: "@1" });
 
     // The SSE-equivalent repaint: the operator window arrives.
     emitSessions(SERVER, sessionsPayload(true));

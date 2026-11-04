@@ -8,7 +8,7 @@
  * unchanged), the
  * claimed-key map (shell menu accelerators, OS keys, browser-reserved keys —
  * per tier), the per-device override layer
- * (`localStorage["runkit-keybindings"]`, diffs
+ * (`localStorage["hexokit-keybindings"]`, diffs
  * only), conflict detection, chord capture, and per-platform formatting.
  *
  * Everything here is pure and DOM-light (the localStorage read/write are thin
@@ -20,10 +20,12 @@
  *
  * Matching is on `KeyboardEvent.code` — layout-independent, and it sidesteps
  * the shifted-accelerator character-resolution flakiness the desktop shell
- * docs flag (`app/desktop/src/menu.ts`). Alt chords are never matched: Alt is
- * not part of any tier (macOS uses it for character composition) — which is
- * also why the mac desktop shell parks its Hosts-switcher accelerators on
- * ⌥⌘1–9 (260731-nv5r): territory this registry can never claim.
+ * docs flag (`app/desktop/src/menu.ts`). Alt chords are never matched, with one
+ * exception: the mac-only `optcmd` tier (⌥⌘ + a letter, no Shift/Ctrl). Option
+ * composes characters, so no other tier admits Alt. The mac desktop shell
+ * parks its Hosts-switcher accelerators on ⌥⌘1–9 — digits, which this registry
+ * never binds; an `optcmd` binding must avoid every shell ⌥⌘ accelerator
+ * (⌥⌘H hide-others, ⌥⌘I devtools, ⌥⌘1–9).
  */
 
 import type { ViewName } from "./window-view";
@@ -42,7 +44,7 @@ import type { ViewName } from "./window-view";
  *   keeps a mac chord capture reading plain Ctrl distinct from ⌘ (macOS
  *   window/system territory the page must not claim).
  */
-export type BindingTier = "shifted" | "cmd" | "ctrl";
+export type BindingTier = "shifted" | "cmd" | "ctrl" | "optcmd";
 
 /** Where a binding applies. Descriptive (overlay badges + conflict scoping);
  *  actual applicability is handler presence at each dispatcher mount. The
@@ -147,7 +149,7 @@ export type BindingOverride = BindingCombo | null;
 /** The persisted shape: diffs only, keyed by actionId. */
 export type BindingOverrides = Record<string, BindingOverride>;
 
-export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
+export const KEYBINDINGS_STORAGE_KEY = "hexokit-keybindings";
 
 /**
  * The default registry. Order is display order within each overlay group.
@@ -169,12 +171,13 @@ export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
  * tier on every mac host (interceptable in browsers — ⌘B bold is
  * the same class as the shipped ⌘[/⌘]/⌘/ and ⌘D interceptions, not
  * reserved like ⌘N/T/W); the window-cycle arrows (⌘↑/⌘↓), the positional
- * surface digits (⌘1 tty / ⌘2 code / ⌘3 web), and ⌘I compose demote the same
+ * surface digits (⌘1 tty / ⌘2 code / ⌘3 web / ⌘4 gui), and ⌘I compose demote the same
  * way. T/W and , demote on every mac host, and the tab-model letters also
  * refine their CODES (`macCode`): reopen-window rides ⇧⌘T, the two
  * keyless-base app-window actions spend ⌘N/⇧⌘W, and settings rides ⌘,.
- * create-session refines the other way — a KEYLESS mac code (`macCode: ""`),
- * palette-only on every mac host. One canonical
+ * create-session refines onto the mac-only ⌥⌘ tier (⌥⌘T, `macTier:
+ * "optcmd"`): ⇧⌘N would be a browser incognito claim, and ⌥⌘T is
+ * tier-disjoint from create-window's ⌘T. One canonical
  * chord per action — in a mac browser the canonical combos are
  * browser-reserved (claims data below), so they resolve disabled there
  * and stay palette-only. A stays
@@ -207,12 +210,13 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // reopen closed tab (reopen-window's `macCode` — the split-pair precedent:
   // tier-disjoint from create-window on one code), ⌘W close tab (kill-window,
   // unchanged), with the app-window pair beside them (⌘N new / ⇧⌘W close —
-  // the two keyless-base bridge actions below). create-session spends NO mac
-  // chord: its mac-keyless refinement keeps it palette-only on both mac
-  // hosts, so ⇧⌘N (a chord no other mac host gives this app) never fires.
+  // the two keyless-base bridge actions below). create-session rides ⌥⌘T on
+  // mac (the `optcmd` tier: ⇧⌘N is the browsers' incognito chord). No browser
+  // claim is registered for ⌥⌘T — reservation is unverified for Safari/Firefox;
+  // a reserved result would only disable the chord, never the action.
   // Win/Linux keeps ⇧Ctrl+N/T/W untouched (plain Ctrl belongs to the pane).
-  { actionId: "create-session", code: "KeyN", tier: "shifted", macCode: "", scope: "global", kind: "builtin", label: "New session", description: "a new group of tabs", mapLabel: "new session" },
-  { actionId: "create-window", code: "KeyT", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "New tab", description: "in the current session", mapLabel: "new tab" },
+  { actionId: "create-session", code: "KeyN", tier: "shifted", macCode: "KeyT", macTier: "optcmd", scope: "global", kind: "builtin", label: "New group", description: "holds related tabs", mapLabel: "new group" },
+  { actionId: "create-window", code: "KeyT", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "New tab", description: "in the current group", mapLabel: "new tab" },
   { actionId: "kill-window", code: "KeyW", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Close tab", description: "confirm flow", mapLabel: "close tab" },
   // ⇧⌘T reopen closed tab — the universal browser/VS Code/iTerm2 reflex.
   // Keyless base (the app-window pair precedent): no Win/Linux shifted-tier
@@ -220,7 +224,7 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // palette-only there. In a mac BROWSER the shifted KeyT is browser-owned
   // (the "reopen tab" claim already in claimedKeys) and resolves reserved —
   // palette-only there too, exactly like create-window's ⌘T.
-  { actionId: "reopen-window", code: "", tier: "shifted", macCode: "KeyT", scope: "global", kind: "builtin", label: "Reopen closed tab", description: "fresh shell — same session, name, folder, layout and web tabs", mapLabel: "reopen tab" },
+  { actionId: "reopen-window", code: "", tier: "shifted", macCode: "KeyT", scope: "global", kind: "builtin", label: "Reopen closed tab", description: "fresh shell — same group, name, folder, layout and web tabs", mapLabel: "reopen tab" },
   // The app-window pair (260820-lfla) — SPA bindings over the shell's
   // `shell:new-window` / `shell:close-window` bridge channels, NEVER shell
   // menu accelerators (menu.ts's unshifted-⌘ fall-through rule is
@@ -284,8 +288,8 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // native motion lost there — the same trade xterm's carve-out already makes).
   { actionId: "window-prev", code: "ArrowUp", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Previous tab", mapLabel: "prev tab", ignoreInputs: true },
   { actionId: "window-next", code: "ArrowDown", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Next tab", mapLabel: "next tab", ignoreInputs: true },
-  { actionId: "session-prev", code: "ArrowLeft", tier: "shifted", macCode: "ArrowUp", scope: "global", kind: "builtin", label: "Previous session", description: "jump to the adjacent session's active window", mapLabel: "prev session", ignoreInputs: true },
-  { actionId: "session-next", code: "ArrowRight", tier: "shifted", macCode: "ArrowDown", scope: "global", kind: "builtin", label: "Next session", description: "jump to the adjacent session's active window", mapLabel: "next session", ignoreInputs: true },
+  { actionId: "session-prev", code: "ArrowLeft", tier: "shifted", macCode: "ArrowUp", scope: "global", kind: "builtin", label: "Previous group", description: "jump to the adjacent group's active tab", mapLabel: "prev group", ignoreInputs: true },
+  { actionId: "session-next", code: "ArrowRight", tier: "shifted", macCode: "ArrowDown", scope: "global", kind: "builtin", label: "Next group", description: "jump to the adjacent group's active tab", mapLabel: "next group", ignoreInputs: true },
   { actionId: "go-back", code: "BracketLeft", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Back", description: "history", mapLabel: "back", ignoreInputs: true },
   { actionId: "go-forward", code: "BracketRight", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Forward", description: "history", mapLabel: "fwd", ignoreInputs: true },
   { actionId: "agent-next-waiting", code: "KeyA", tier: "shifted", scope: "global", kind: "builtin", label: "Next waiting agent", description: "jump to an agent blocked on input", mapLabel: "agent" },
@@ -319,7 +323,7 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // Win/Linux the shifted tier keeps plain Ctrl+J (readline accept-line) with
   // the pane. On desktop the chord TOGGLES the two-state machine (rest ⇄
   // open+focused — focus and drawer linked), so ignoreInputs lets it release
-  // while the quake launcher input has focus; on mobile it plain-toggles the
+  // while the docked compose has focus; on mobile it plain-toggles the
   // sheet. The palette action is the guaranteed fallback where a browser eats
   // the chord.
   { actionId: "quake-terminal", code: "KeyJ", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Quake terminal", description: "toggle the quake terminal (open+focus ⇄ closed)", mapLabel: "quake", ignoreInputs: true },
@@ -360,15 +364,16 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // nothing. Keyless on mac (`macCode: ""`, the create-session idiom) — ⌘K
   // already bubbles there via the seam's mac cmd-tier rule.
   { actionId: "command-palette-alt", aliasOf: "command-palette", code: "KeyK", macCode: "", tier: "shifted", scope: "global", kind: "builtin", label: "Command palette (alternate)", ignoreInputs: true },
-  // ⌘; layout-shape cycle (260812-ab5v-surface-layout-core R9/R11): the ▦
-  // chip's chord — the NEXT same-arity preset, order kept (tmux `next-layout`
-  // muscle memory). It joins the legacy `⌘<punctuation>` family beside ⌘K
+  // ⌘; layout-template cycle (260812-ab5v-surface-layout-core R9/R11): the ▦
+  // chip's chord — the NEXT template at the current tile count, slot order kept
+  // (tmux `next-layout` muscle memory). It joins the legacy `⌘<punctuation>`
+  // family beside ⌘K
   // and ⌘[/⌘]: Semicolon is free in every claimed set and ⌘; is not
   // browser-reserved on either platform (⌘, is the browser's Preferences
   // claim; ⌘/ is the cheatsheet). Terminal scope like its siblings — the
-  // palette body (`Layout: Cycle Shape`) exists only on window routes, so
+  // palette body (`Layout: Cycle Template`) exists only on window routes, so
   // elsewhere the chord falls through untouched.
-  { actionId: "layout-cycle", code: "Semicolon", tier: "cmd", scope: "terminal", kind: "builtin", label: "Cycle layout shape", description: "next same-arity preset, order kept", mapLabel: "layout" },
+  { actionId: "layout-cycle", code: "Semicolon", tier: "cmd", scope: "terminal", kind: "builtin", label: "Cycle layout template", description: "next template at this tile count", mapLabel: "layout" },
   // ⌘F/Ctrl+F web-tile find-in-page (260819-ie2i) — the cmd tier yields the
   // browser's own find chord on every platform, reclaimed only while the web
   // tile owns focus (the `webOnly` gate: handler absent elsewhere, so the
@@ -412,6 +417,12 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // (handler presence + the reclaim predicate) and the terminal seam never
   // refuses it; KeyG is unclaimed in the shifted tier on every host.
   { actionId: "gui-capture-toggle", code: "KeyG", tier: "shifted", scope: "terminal", kind: "builtin", label: "Keyboard capture", description: "hand every chord to the guest desktop", mapLabel: "capture", ignoreInputs: true, guiOnly: true },
+  // ⌘⇧G/Ctrl+Shift+G web keyboard capture — the gui toggle's web-tile mirror,
+  // sharing its chord: the two are surface-gated (webOnly vs guiOnly), so only
+  // the focused tile's handler is ever present (disjoint gates, never a
+  // conflict — see `findConflicts`). While latched it is the ONE chord the web
+  // tile still reclaims, so it is the keyboard route back.
+  { actionId: "web-capture-toggle", code: "KeyG", tier: "shifted", scope: "terminal", kind: "builtin", label: "Keyboard capture", description: "hand every chord to the web page", mapLabel: "capture", ignoreInputs: true, webOnly: true },
   { actionId: "board-cycle-next", code: "BracketRight", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus →" },
   { actionId: "board-cycle-prev", code: "BracketLeft", tier: "cmd", scope: "board", kind: "builtin", label: "Cycle pane focus ←" },
 ];
@@ -551,12 +562,15 @@ export type ChordEvent = {
 };
 
 /**
- * Whether a keydown matches a combo. Alt excluded in every tier (not part of
- * any tier; macOS composes characters with it). The `cmd` tier accepts Meta OR
+ * Whether a keydown matches a combo. Alt is rejected in every tier except
+ * `optcmd`, which REQUIRES Alt+Meta. The `cmd` tier accepts Meta OR
  * Ctrl without Shift — byte-identical to the legacy listeners' predicates.
  */
 export function matchesCombo(e: ChordEvent, combo: BindingCombo): boolean {
-  if (e.altKey || e.code !== combo.code) return false;
+  if (e.code !== combo.code) return false;
+  // `optcmd` is the only tier that requires Alt; every other tier rejects it.
+  if (combo.tier === "optcmd") return e.altKey && e.metaKey && !e.ctrlKey && !e.shiftKey;
+  if (e.altKey) return false;
   switch (combo.tier) {
     case "shifted":
       return e.shiftKey && (e.metaKey || e.ctrlKey);
@@ -605,13 +619,14 @@ export function findMatches(
  * ungated match has a global meaning. For `"code"` the result is
  * byte-identical to the pre-kind-aware predicate on every pre-ie2i binding.
  *
- * `captured` is the gui tile's keyboard-capture latch: when set, the
- * predicate narrows to the single `gui-capture-toggle` actionId — every
- * other chord returns `false` and falls through the gui canvas's
- * capture-phase gate to the guest desktop, so the release chord is the only
- * keyboard route back. Callers pass it only for kind `"gui"`; with it unset
- * (the default) the predicate is byte-identical to the pre-capture behavior
- * on every kind.
+ * `captured` is the focused tile's keyboard-capture latch (gui:
+ * `rk-gui-capture`, web: `rk-web-capture`): when set, the predicate narrows to
+ * that kind's single release actionId (`gui-capture-toggle` /
+ * `web-capture-toggle`) — every other chord returns `false` and falls through
+ * to the guest (the gui canvas's gate → the desktop; the web frame → the
+ * page), so the release chord is the only keyboard route back. Callers pass it
+ * only for kinds `"gui"` and `"web"`; with it unset (the default) the
+ * predicate is byte-identical to the pre-capture behavior on every kind.
  */
 export function hasReclaimableMatch(
   e: ChordEvent,
@@ -620,7 +635,8 @@ export function hasReclaimableMatch(
   captured = false,
 ): boolean {
   if (captured) {
-    return findMatches(e, bindings).some((b) => b.actionId === "gui-capture-toggle");
+    const release = kind === "web" ? "web-capture-toggle" : "gui-capture-toggle";
+    return findMatches(e, bindings).some((b) => b.actionId === release);
   }
   return findMatches(e, bindings).some((b) => {
     if (b.ttyOnly) return false;
@@ -633,9 +649,10 @@ export function hasReclaimableMatch(
 /**
  * Whether the terminal's custom key handler must REFUSE this keydown so it
  * bubbles to the window dispatcher instead of reaching the pane
- * (`terminal-client.tsx`). `guiOnly` matches are filtered out first: their
- * chords belong to the pane under terminal focus, so rule 3 must never fire
- * on them. Three rules:
+ * (`terminal-client.tsx`). `guiOnly` and `webOnly` matches are filtered out
+ * first: their handlers are absent under terminal focus, so their chords
+ * belong to the pane (e.g. ⇧Ctrl+G, which `web-capture-toggle` would
+ * otherwise steal through rule 1). Three rules:
  *
  * 1. Any enabled SHIFTED-tier match, on every platform (260730-g40a): legacy
  *    TTY encoding cannot distinguish Ctrl+Shift+letter from Ctrl+letter, so
@@ -665,15 +682,17 @@ export function shouldRefuseTerminalChord(
   bindings: readonly EffectiveBinding[],
   platform: BindingPlatform,
 ): boolean {
-  const matches = findMatches(e, bindings).filter((b) => !b.guiOnly);
+  const matches = findMatches(e, bindings).filter((b) => !b.guiOnly && !b.webOnly);
   if (matches.some((b) => b.tier === "shifted")) return true;
-  if (platform === "mac" && e.metaKey && matches.some((b) => b.tier === "cmd")) return true;
+  if (platform === "mac" && e.metaKey && matches.some((b) => b.tier === "cmd" || b.tier === "optcmd")) {
+    return true;
+  }
   return platform === "mac" && e.ctrlKey && !e.metaKey && matches.some((b) => b.tier === "ctrl");
 }
 
 // ── override storage ────────────────────────────────────────────────────────
 
-const TIERS: readonly BindingTier[] = ["shifted", "cmd", "ctrl"];
+const TIERS: readonly BindingTier[] = ["shifted", "cmd", "ctrl", "optcmd"];
 
 function isCombo(value: unknown): value is BindingCombo {
   if (typeof value !== "object" || value === null) return false;
@@ -830,7 +849,19 @@ export type BindingConflict = {
  * requires Shift and is disjoint from both.
  */
 export function tiersCollide(a: BindingTier, b: BindingTier): boolean {
-  return a === b || (a !== "shifted" && b !== "shifted");
+  if (a === b) return true;
+  // `shifted` requires Shift and `optcmd` requires Alt: both are disjoint from
+  // every other tier, leaving only the `cmd`/`ctrl` Ctrl overlap.
+  const plain = (t: BindingTier) => t === "cmd" || t === "ctrl";
+  return plain(a) && plain(b);
+}
+
+/** The single surface a binding's handler is gated to, or null when ungated. */
+function surfaceGate(b: EffectiveBinding): "tty" | "web" | "gui" | null {
+  if (b.ttyOnly) return "tty";
+  if (b.webOnly) return "web";
+  if (b.guiOnly) return "gui";
+  return null;
 }
 
 /**
@@ -852,12 +883,15 @@ export function findConflicts(bindings: readonly EffectiveBinding[]): BindingCon
     for (let j = i + 1; j < bindings.length; j++) {
       const b = bindings[j];
       if (!b.enabled) continue;
-      // Surface-gate disjointness: a `ttyOnly` and a `webOnly` binding never
-      // have their handlers simultaneously present (each gate renders the
-      // handler absent off its surface), so a shared combo between them —
-      // the mac ⌘F that terminal-find and web-find both claim — is
-      // coexistence, not a conflict.
-      const gatesDisjoint = (a.ttyOnly && b.webOnly) || (a.webOnly && b.ttyOnly);
+      // Surface-gate disjointness: two bindings gated to DIFFERENT surfaces
+      // (`ttyOnly` / `webOnly` / `guiOnly`) never have their handlers
+      // simultaneously present (each gate renders the handler absent off its
+      // surface), so a shared combo between them is coexistence, not a
+      // conflict — the mac ⌘F that terminal-find and web-find both claim, and
+      // the ⌘⇧G that gui-capture-toggle and web-capture-toggle both claim.
+      const gateA = surfaceGate(a);
+      const gateB = surfaceGate(b);
+      const gatesDisjoint = gateA !== null && gateB !== null && gateA !== gateB;
       // An alias and the action it aliases fire the SAME handler, so a shared
       // combo between them is redundancy, not a conflict — there is no
       // ambiguity for the dispatcher to resolve. Stated as an invariant
@@ -896,8 +930,8 @@ const MODIFIER_CODES = new Set([
 
 /**
  * Derive a combo from a capture keydown, or `null` while the chord is not yet
- * a valid binding (modifier-only presses keep capturing; Alt chords and bare
- * keys are rejected — no tier models them). Ctrl-without-Meta reads as the
+ * a valid binding (modifier-only presses keep capturing; bare keys and Alt
+ * chords other than mac ⌥⌘ are rejected — no tier models them). Ctrl-without-Meta reads as the
  * `ctrl` tier on macOS (where it is distinct from ⌘) and as the `cmd` tier
  * elsewhere (where Ctrl IS CmdOrCtrl) — overrides are per-device, so the
  * device-local reading is the correct one.
@@ -907,7 +941,13 @@ export function captureFromEvent(
   platform: BindingPlatform,
 ): BindingCombo | null {
   if (MODIFIER_CODES.has(e.code)) return null;
-  if (e.altKey) return null;
+  // ⌥⌘ is a mac-only tier; Alt in any other combination (AltGr layouts on
+  // Win/Linux, Option text composition) stays unbindable.
+  if (e.altKey) {
+    return platform === "mac" && e.metaKey && !e.ctrlKey && !e.shiftKey
+      ? { code: e.code, tier: "optcmd" }
+      : null;
+  }
   if (e.shiftKey && (e.metaKey || e.ctrlKey)) return { code: e.code, tier: "shifted" };
   if (e.metaKey) return { code: e.code, tier: "cmd" };
   if (e.ctrlKey && !e.shiftKey) {
@@ -1005,11 +1045,17 @@ export function comboParts(combo: BindingCombo, platform: BindingPlatform): stri
         return ["⌘", key];
       case "ctrl":
         return ["Ctrl", key];
+      case "optcmd":
+        return ["⌥", "⌘", key];
     }
   }
   switch (combo.tier) {
     case "shifted":
       return ["Shift", "Ctrl", key];
+    case "optcmd":
+      // Mac-only tier (never captured or defaulted off-mac); spelled to agree
+      // with `matchesCombo`, which requires Meta + Alt.
+      return ["Alt", "Meta", key];
     default:
       return ["Ctrl", key];
   }

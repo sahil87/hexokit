@@ -20,7 +20,7 @@ test('ownsFile is false for non-JSON, a missing pid, or a non-numeric pid', () =
 test('buildBootMarker carries exactly the contract keys', () => {
   const marker = buildBootMarker({
     hostId: '3fa1c9d2e4b0',
-    workspaceFile: '/home/u/.local/state/run-kit/code-workspaces/default/@7-3fa1c9.code-workspace',
+    workspaceFile: '/home/u/.local/state/hexokit/code-workspaces/default/@7-3fa1c9.code-workspace',
     identity: { tab: '@7', server: 'default' },
     pid: 41230,
     extVersion: '2.25.0',
@@ -28,7 +28,7 @@ test('buildBootMarker carries exactly the contract keys', () => {
   });
   assert.deepEqual(marker, {
     hostId: '3fa1c9d2e4b0',
-    workspaceFile: '/home/u/.local/state/run-kit/code-workspaces/default/@7-3fa1c9.code-workspace',
+    workspaceFile: '/home/u/.local/state/hexokit/code-workspaces/default/@7-3fa1c9.code-workspace',
     tab: '@7',
     server: 'default',
     pid: 41230,

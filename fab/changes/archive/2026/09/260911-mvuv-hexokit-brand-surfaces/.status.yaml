@@ -1,0 +1,57 @@
+id: mvuv
+name: 260911-mvuv-hexokit-brand-surfaces
+created: 2026-09-11T17:48:52Z
+created_by: sahil-noon
+change_type: chore
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 15
+    acceptance_count: 30
+    acceptance_completed: 30
+confidence:
+    certain: 6
+    confident: 11
+    tentative: 0
+    unresolved: 0
+    score: 3.3
+    fuzzy: true
+    dimensions:
+        signal: 66.8
+        reversibility: 85.6
+        competence: 78.5
+        disambiguation: 74.7
+stage_metrics:
+    intake: {started_at: "2026-09-11T17:48:52Z", driver: fab-new, iterations: 1, completed_at: "2026-09-11T17:55:59Z"}
+    apply: {started_at: "2026-09-11T17:55:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T18:13:52Z"}
+    review: {started_at: "2026-09-26T11:49:49Z", driver: fab-continue, iterations: 2, completed_at: "2026-09-26T11:54:03Z"}
+    hydrate: {started_at: "2026-09-26T11:54:03Z", driver: fab-continue, iterations: 2, completed_at: "2026-09-26T11:57:03Z"}
+    ship: {started_at: "2026-09-26T11:57:03Z", driver: fab-continue, iterations: 2, completed_at: "2026-09-26T11:59:03Z"}
+    review-pr: {started_at: "2026-09-26T11:59:03Z", driver: git-pr, iterations: 2, completed_at: "2026-09-26T12:05:19Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/950
+change_type_source: explicit
+true_impact:
+    added: 1541
+    deleted: 254
+    net: 1287
+    excluding:
+        added: 877
+        deleted: 230
+        net: 647
+    tests:
+        added: 537
+        deleted: 97
+        net: 440
+    computed_at: "2026-09-26T11:59:03Z"
+    computed_at_stage: ship
+summary: HexoKit app identity — cobra root name hexokit (version/help-dump follow; shell completion registers hexokit/rk/xk/run-kit), desktop productName HexoKit with legacy Run Kit.app + run-kit-desktop- fallbacks across macOS and the Linux AppImage arm, userData carry-forward, config.yaml project name
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-26T12:05:19Z

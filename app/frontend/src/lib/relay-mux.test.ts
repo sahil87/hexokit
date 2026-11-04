@@ -192,6 +192,23 @@ describe("RelayMux framing + control ops", () => {
     expect(late).toHaveLength(0);
     mux.close();
   });
+
+  it("the open op carries isolate only when the stream opts set it", async () => {
+    const mux = new RelayMux();
+    mux.openStream({ server: "default", windowId: "@1", cols: 80, rows: 24 });
+    mux.openStream({ server: "default", windowId: "@3", cols: 80, rows: 24, isolate: true });
+    mux.openStream({ server: "default", windowId: "@4", cols: 80, rows: 24, isolate: false });
+    await flush();
+    const ws = MockWebSocket.instances[0];
+
+    const opens = controlsOfOp(ws, "open");
+    expect(opens).toHaveLength(3);
+    // Bare tty streams omit the key entirely (the backend's omitempty).
+    expect("isolate" in opens[0]).toBe(false);
+    expect(opens[1]).toMatchObject({ id: 2, windowId: "@3", isolate: true });
+    expect("isolate" in opens[2]).toBe(false);
+    mux.close();
+  });
 });
 
 describe("RelayMux reconnect", () => {
@@ -253,6 +270,20 @@ describe("RelayMux reconnect", () => {
     const reopen = controlsOfOp(ws2, "open");
     expect(reopen).toHaveLength(1);
     expect(reopen[0]).toMatchObject({ id: 1, windowId: "@5" });
+    mux.close();
+  });
+
+  it("a reconnect re-issues the open with isolate intact", async () => {
+    const mux = new RelayMux();
+    mux.openStream({ server: "default", windowId: "@3", cols: 80, rows: 24, isolate: true });
+    await vi.runAllTicks();
+    MockWebSocket.instances[0].drop();
+    vi.advanceTimersByTime(1000);
+    await vi.runAllTicks();
+
+    const reopen = controlsOfOp(MockWebSocket.instances[1], "open");
+    expect(reopen).toHaveLength(1);
+    expect(reopen[0]).toMatchObject({ id: 1, windowId: "@3", isolate: true });
     mux.close();
   });
 

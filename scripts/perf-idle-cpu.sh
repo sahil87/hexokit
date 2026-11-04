@@ -22,7 +22,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-DEFAULT_URL="http://127.0.0.1:3000"
+DEFAULT_URL="http://127.0.0.1:6123"
 XVFB_SCREEN="-screen 0 1920x1080x24"
 
 if [ ! -d "$REPO_ROOT/app/frontend/node_modules/@playwright/test" ]; then

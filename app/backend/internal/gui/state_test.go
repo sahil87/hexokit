@@ -14,7 +14,7 @@ func TestStateDir(t *testing.T) {
 		if err != nil {
 			t.Fatalf("StateDir: %v", err)
 		}
-		if want := filepath.Join(xdg, "run-kit", "gui"); dir != want {
+		if want := filepath.Join(xdg, "hexokit", "gui"); dir != want {
 			t.Errorf("StateDir() = %q, want %q", dir, want)
 		}
 	})
@@ -27,7 +27,7 @@ func TestStateDir(t *testing.T) {
 		if err != nil {
 			t.Fatalf("StateDir: %v", err)
 		}
-		if want := filepath.Join(home, ".local", "state", "run-kit", "gui"); dir != want {
+		if want := filepath.Join(home, ".local", "state", "hexokit", "gui"); dir != want {
 			t.Errorf("StateDir() = %q, want %q", dir, want)
 		}
 	})

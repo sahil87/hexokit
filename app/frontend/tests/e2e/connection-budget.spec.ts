@@ -8,7 +8,7 @@ import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 // EVERY long-lived stream rides ONE of two muxed WebSockets: session-state +
 // host-metrics ride `/ws/state`, and ALL terminal pane relays ride
 // `/ws/terminals`. NO route holds an SSE anymore. This spec asserts the
-// user-facing budget invariant across every route type (Host, tmux Server,
+// user-facing budget invariant across every route type (Host, Workspace,
 // Terminal, Board): a tab holds AT MOST two rk WebSockets
 // total — exactly one `/ws/state` plus (only on routes with live panes)
 // exactly one `/ws/terminals` — and ZERO `text/event-stream` responses from rk
@@ -118,7 +118,7 @@ test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", 
    * 3. Poll state-socket count === 1; assert terminals-socket count === 0 and
    *    no `text/event-stream` responses.
    */
-  test("a tmux Server route (/$server) holds one /ws/state WS, no terminals WS, and zero SSE", async ({ page }) => {
+  test("a Workspace route (/$server) holds one /ws/state WS, no terminals WS, and zero SSE", async ({ page }) => {
     test.setTimeout(30_000);
     const c = installCounters(page);
     await gotoServerReady(page, TMUX_SERVER);

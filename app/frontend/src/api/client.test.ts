@@ -3,6 +3,7 @@ import { http, HttpResponse } from "msw";
 import { server as mswServer } from "../../tests/msw/server";
 import { resetMockSessions } from "../../tests/msw/handlers";
 import {
+  forkWindow,
   getHealth,
   getOpenApps,
   openInApp,
@@ -27,8 +28,10 @@ import {
   resizeGui,
   restartGui,
   getDirectories,
+  getWorktrees,
   uploadFile,
   killServer,
+  createServer,
   setServerProtected,
   getThemePreference,
   setThemePreference,
@@ -51,6 +54,8 @@ import {
   addWebTab,
   removeWebTab,
   selectWebTab,
+  borrowLayout,
+  returnLayout,
   triggerUpdate,
   triggerForceUpdate,
   triggerRestart,
@@ -90,6 +95,26 @@ describe("API client", () => {
     );
     const health = await getHealth();
     expect(health.sshHost).toBe("devbox");
+  });
+
+  it.each([
+    [undefined, "server=work", null],
+    ["checkout" as const, "server=work", null],
+    ["worktree" as const, "where=worktree&server=work", "worktree"],
+  ])("forkWindow(where=%s) POSTs the fork endpoint with the matching query", async (where, wantQuery, wantWhere) => {
+    let gotSearch = "";
+    mswServer.use(
+      http.post("/api/windows/:id/fork", ({ request, params }) => {
+        const url = new URL(request.url);
+        gotSearch = url.search;
+        expect(params.id).toBe("@7");
+        return HttpResponse.json({ server: "work", session: "dev", window: "w-fork", windowId: "@9" });
+      }),
+    );
+    const res = await forkWindow("work", "@7", where);
+    expect(res.windowId).toBe("@9");
+    expect(gotSearch).toBe(`?${wantQuery}`);
+    expect(new URLSearchParams(gotSearch).get("where")).toBe(wantWhere);
   });
 
   it("getOpenApps returns the registry array", async () => {
@@ -372,6 +397,25 @@ describe("API client", () => {
     expect(dirs[0]).toContain("project-a");
   });
 
+  it("getWorktrees sends GET /api/worktrees?path=... and returns the payload", async () => {
+    let capturedUrl = "";
+    mswServer.use(
+      http.get("/api/worktrees", ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json({ repo: "proj", worktrees: [{ path: "/home/u/proj", branch: "main" }] });
+      }),
+    );
+    const res = await getWorktrees("~/proj");
+    expect(new URL(capturedUrl).searchParams.get("path")).toBe("~/proj");
+    expect(res).toEqual({ repo: "proj", worktrees: [{ path: "/home/u/proj", branch: "main" }] });
+  });
+
+  it("getWorktrees reads an empty path and a failed request as no worktrees", async () => {
+    expect(await getWorktrees("")).toEqual({ repo: "", worktrees: [] });
+    mswServer.use(http.get("/api/worktrees", () => new HttpResponse(null, { status: 400 })));
+    expect(await getWorktrees("~/bad")).toEqual({ repo: "", worktrees: [] });
+  });
+
   it("uploadFile sends POST /api/sessions/:session/upload with server query", async () => {
     let capturedUrl = "";
     mswServer.use(
@@ -386,6 +430,32 @@ describe("API client", () => {
     expect(result.ok).toBe(true);
     expect(result.path).toContain("run-kit");
     expect(capturedUrl).toContain("?server=runkit");
+  });
+
+  it("createServer posts only the name when no cwd is given", async () => {
+    let capturedBody: Record<string, unknown> = {};
+    mswServer.use(
+      http.post("/api/servers", async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ ok: true, group: "0" }, { status: 201 });
+      }),
+    );
+    const res = await createServer("w");
+    expect(capturedBody).toEqual({ name: "w" });
+    expect(res.group).toBe("0");
+  });
+
+  it("createServer includes cwd only when non-empty", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    mswServer.use(
+      http.post("/api/servers", async ({ request }) => {
+        bodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json({ ok: true, group: "hexokit" }, { status: 201 });
+      }),
+    );
+    await createServer("w", "~/code/hexokit");
+    await createServer("w", "");
+    expect(bodies).toEqual([{ name: "w", cwd: "~/code/hexokit" }, { name: "w" }]);
   });
 
   it("killServer does NOT carry a server query string", async () => {
@@ -537,6 +607,18 @@ describe("startOperator", () => {
     expect(bodies).toEqual([{}]);
   });
 
+  it("posts the viewed window in the body when given", async () => {
+    const bodies: unknown[] = [];
+    mswServer.use(
+      http.post("/api/operator/start", async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json({ windowId: "@7", server: "default" }, { status: 202 });
+      }),
+    );
+    await expect(startOperator("default", "@1")).resolves.toEqual({ windowId: "@7", server: "default" });
+    expect(bodies).toEqual([{ window: "@1" }]);
+  });
+
   it("surfaces a 409 operator_exists as an ApiError carrying code and windowId", async () => {
     mswServer.use(
       http.post("/api/operator/start", () =>
@@ -624,12 +706,73 @@ describe("web tab verb wrappers", () => {
   it("a 409 rejects with the server's error text verbatim (family cap)", async () => {
     mswServer.use(
       http.post("/api/windows/:windowId/web", () =>
-        HttpResponse.json({ error: "web tabs full (8)" }, { status: 409 }),
+        HttpResponse.json({ error: "web tabs full (16)" }, { status: 409 }),
       ),
     );
     await expect(addWebTab("s", "@5", "/proxy/3009/")).rejects.toThrow(
-      "web tabs full (8)",
+      "web tabs full (16)",
     );
+  });
+});
+
+describe("layout borrow/return verbs", () => {
+  it("borrowLayout POSTs {to, leaf, tree} to /api/layout/borrow with server query", async () => {
+    let capturedUrl = "";
+    let capturedMethod = "";
+    let capturedBody: Record<string, string> = {};
+    mswServer.use(
+      http.post("/api/layout/borrow", async ({ request }) => {
+        capturedUrl = request.url;
+        capturedMethod = request.method;
+        capturedBody = (await request.json()) as Record<string, string>;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const result = await borrowLayout("s", {
+      to: "@9",
+      leaf: "@3/tty",
+      tree: "h(tty,@3/tty)",
+    });
+    expect(result.ok).toBe(true);
+    expect(capturedMethod).toBe("POST");
+    expect(capturedUrl).toMatch(/\/api\/layout\/borrow\?server=s$/);
+    expect(capturedBody).toEqual({ to: "@9", leaf: "@3/tty", tree: "h(tty,@3/tty)" });
+  });
+
+  it("returnLayout POSTs {from, leaf} to /api/layout/return with server query", async () => {
+    let capturedUrl = "";
+    let capturedMethod = "";
+    let capturedBody: Record<string, string> = {};
+    mswServer.use(
+      http.post("/api/layout/return", async ({ request }) => {
+        capturedUrl = request.url;
+        capturedMethod = request.method;
+        capturedBody = (await request.json()) as Record<string, string>;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const result = await returnLayout("s", { from: "@7", leaf: "@3/tty" });
+    expect(result.ok).toBe(true);
+    expect(capturedMethod).toBe("POST");
+    expect(capturedUrl).toMatch(/\/api\/layout\/return\?server=s$/);
+    expect(capturedBody).toEqual({ from: "@7", leaf: "@3/tty" });
+  });
+
+  it("a 409 rejects as an ApiError carrying the status and the server's message", async () => {
+    mswServer.use(
+      http.post("/api/layout/return", () =>
+        HttpResponse.json({ error: "leaf not held by window" }, { status: 409 }),
+      ),
+    );
+    try {
+      await returnLayout("s", { from: "@7", leaf: "@3/tty" });
+      expect.fail("returnLayout should reject");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      if (!(err instanceof ApiError)) return;
+      expect(err.message).toBe("leaf not held by window");
+      expect(err.status).toBe(409);
+    }
   });
 });
 
@@ -1519,7 +1662,7 @@ describe("fetchCodeWorkspace (tab-keyed workspace derivation)", () => {
       http.get("/api/windows/:windowId/code-workspace", ({ request }) => {
         capturedUrl = request.url;
         return HttpResponse.json({
-          path: "/home/u/.local/state/run-kit/code/default/@7-3fa1c9.code-workspace",
+          path: "/home/u/.local/state/hexokit/code/default/@7-3fa1c9.code-workspace",
           root: "/home/u/code/x",
         });
       }),
@@ -1529,7 +1672,7 @@ describe("fetchCodeWorkspace (tab-keyed workspace derivation)", () => {
     expect(capturedUrl).toContain("server=default");
     expect(result).toEqual({
       status: "ok",
-      path: "/home/u/.local/state/run-kit/code/default/@7-3fa1c9.code-workspace",
+      path: "/home/u/.local/state/hexokit/code/default/@7-3fa1c9.code-workspace",
       root: "/home/u/code/x",
     });
   });

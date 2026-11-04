@@ -8,11 +8,12 @@ import { ChromeProvider } from "@/contexts/chrome-context";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { SettingsDialogProvider, useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { ToastProvider } from "@/components/toast";
+import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
 import type { ProjectSession, WindowInfo } from "@/types";
-import type { SurfaceKind } from "@/lib/surface-layout";
+import type { Layout, SurfaceKind } from "@/lib/surface-layout";
 import { buildGuiActions, type GuiPaletteInput } from "@/lib/palette/gui";
 import { stubMatchMedia } from "@/test-utils/match-media";
-import { setQuakeMachineState } from "@/lib/quake-terminal";
+import { getQuakeMachineState, setQuakeMachineState } from "@/lib/quake-terminal";
 
 // TopBar is rendered without a RouterProvider here, so stub the two router
 // hooks it (and its sub-components: BoardSwitcher, HistoryNav)
@@ -24,6 +25,15 @@ const mockHistoryForward = vi.fn();
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
   useRouter: () => ({ history: { back: mockHistoryBack, forward: mockHistoryForward } }),
+}));
+
+// The New split button has its own suite (new-split-button.test.tsx) and needs
+// the palette/session/router providers; here a stub records WHERE the bar
+// places it and in which form.
+vi.mock("@/components/new-split-button", () => ({
+  NewSplitButton: ({ mode, iconOnly }: { mode: string; iconOnly?: boolean }) => (
+    <div data-testid="new-split" data-mode={mode} data-icon-only={String(Boolean(iconOnly))} />
+  ),
 }));
 
 vi.mock("@/api/client", async () => {
@@ -89,6 +99,7 @@ const sessions: ProjectSession[] = [
 function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = {}) {
   return render(
     <ToastProvider>
+      <FocusedTerminalProvider>
       <ThemeProvider>
         {/* SettingsDialogProvider: the top-bar Settings gear (260812-d1at)
             consumes useSettingsDialog(); the dialog itself is not mounted
@@ -105,12 +116,12 @@ function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = 
             server="runkit"
             onNavigate={vi.fn()}
             onToggleSidebar={vi.fn()}
-            onCreateWindow={vi.fn()}
             {...overrides}
           />
         </ChromeProvider>
         </SettingsDialogProvider>
       </ThemeProvider>
+      </FocusedTerminalProvider>
     </ToastProvider>,
   );
 }
@@ -142,15 +153,15 @@ describe("TopBar", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows the server name as the centered `tmux Server:` heading on the tmux Server (no window), not 'Dashboard' or a left leaf crumb", () => {
+  it("shows the server name as the centered `Workspace:` heading on the Workspace (no window), not 'Dashboard' or a left leaf crumb", () => {
     // server mode, no window \u2192 move-don't-copy: the server name is the CENTERED
     // heading leaf, NOT a left `aria-current` crumb (260704-pr0p).
     renderTopBar({ mode: "server", sessionName: "", windowName: "", currentSession: null, currentWindow: null, server: "runkit" });
     // The literal "Dashboard" label is gone in every mode.
     expect(screen.queryByText("Dashboard")).not.toBeInTheDocument();
-    // The server name renders as the centered `tmux Server: <server>` heading
+    // The server name renders as the centered `Workspace: <server>` heading
     // (display-only \u2014 no rename). Its accessible name carries the type prefix.
-    const heading = screen.getByLabelText("tmux Server runkit");
+    const heading = screen.getByLabelText("Workspace runkit");
     expect(heading).toBeInTheDocument();
     // It is NOT inside the left breadcrumb nav (the left nav ends at the parent).
     const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
@@ -164,7 +175,7 @@ describe("TopBar", () => {
 
   it("shows the server crumb as a link to /$server plus the session crumb on a terminal route (breadcrumb ends at session)", () => {
     renderTopBar();
-    // Server crumb is a link back to the tmux Server.
+    // Server crumb is a link back to the Workspace.
     const serverLink = getVisibleCrumbText("runkit").closest("a")!;
     expect(serverLink).toHaveAttribute("href", "/runkit");
     // Session crumb present; no "Dashboard".
@@ -245,13 +256,13 @@ describe("TopBar", () => {
       expect(screen.queryByLabelText("Switch hierarchy")).not.toBeInTheDocument();
     });
 
-    it("renders `tmux Server: <server>` display heading (no rename) in server mode", () => {
+    it("renders `Workspace: <server>` display heading (no rename) in server mode", () => {
       renderTopBar({ mode: "server", currentWindow: null, windowName: "" });
-      expect(screen.getByLabelText("tmux Server runkit")).toBeInTheDocument();
+      expect(screen.getByLabelText("Workspace runkit")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /Rename/ })).not.toBeInTheDocument();
-      // 260813-kvk7: the prefix is one contiguous `tmux Server:` run — the
+      // 260813-kvk7: the prefix is one contiguous `Workspace:` run — the
       // hierarchy caret that used to split it is gone.
-      expect(screen.getByText("tmux Server:", { exact: true })).toBeInTheDocument();
+      expect(screen.getByText("Workspace:", { exact: true })).toBeInTheDocument();
       expect(screen.queryByLabelText("Switch hierarchy")).not.toBeInTheDocument();
     });
 
@@ -268,8 +279,8 @@ describe("TopBar", () => {
       const solo = screen.getByLabelText("Host");
       expect(solo).toBeInTheDocument();
       expect(solo).toHaveTextContent("Host");
-      // No `tmux Server:` / `Board:` / `Tab:` prefix on the solo word.
-      expect(screen.queryByText(/tmux Server:|Board:|Tab:/)).not.toBeInTheDocument();
+      // No `Workspace:` / `Board:` / `Tab:` prefix on the solo word.
+      expect(screen.queryByText(/Workspace:|Board:|Tab:/)).not.toBeInTheDocument();
     });
   });
 
@@ -389,7 +400,7 @@ describe("TopBar", () => {
 
   it("names each crumb's level via a styled Tip — no native title attributes (260722-73al)", () => {
     renderTopBar();
-    const brand = screen.getByLabelText("RunKit home");
+    const brand = screen.getByLabelText("HexoKit home");
     const serverCrumb = getVisibleCrumbText("runkit").closest("a");
     const windowSwitch = screen.getByLabelText("Switch tab");
     // The session crumb is now a NON-interactive static chip (260813-kvk7) — a
@@ -410,17 +421,17 @@ describe("TopBar", () => {
     expect(screen.getByRole("tooltip")).toHaveTextContent("Host");
   });
 
-  it("carries the tmux Server identity on the centered heading in server mode (no window)", () => {
+  it("carries the Workspace identity on the centered heading in server mode (no window)", () => {
     // The server-name leaf moved to the center heading (260704-pr0p); its
-    // accessible name is the `tmux Server <server>` heading rather than a
+    // accessible name is the `Workspace <server>` heading rather than a
     // left crumb with a `title` tooltip.
     renderTopBar({ mode: "server", sessionName: "", windowName: "", currentSession: null, currentWindow: null });
-    expect(screen.getByLabelText("tmux Server runkit")).toBeInTheDocument();
+    expect(screen.getByLabelText("Workspace runkit")).toBeInTheDocument();
   });
 
-  it("renders the brand as the left-most root crumb linking to / (and no right-side RunKit anchor)", () => {
+  it("renders the brand as the left-most root crumb linking to / (and no right-side HexoKit anchor)", () => {
     const { container } = renderTopBar();
-    const brand = screen.getByLabelText("RunKit home");
+    const brand = screen.getByLabelText("HexoKit home");
     expect(brand.tagName).toBe("A");
     expect(brand).toHaveAttribute("href", "/");
     // The brand sits inside the nav's FIRST element child \u2014 the `hidden
@@ -431,7 +442,7 @@ describe("TopBar", () => {
     expect(nav.firstElementChild).toContainElement(brand);
     expect(nav.firstElementChild!.className).toContain("sm:contents");
     // There is exactly ONE anchor to "/" (the left brand) \u2014 the old right-side
-    // RunKit anchor is gone.
+    // HexoKit anchor is gone.
     const homeAnchors = Array.from(container.querySelectorAll('a[href="/"]'));
     expect(homeAnchors).toHaveLength(1);
   });
@@ -504,10 +515,10 @@ describe("TopBar", () => {
       );
     beforeEach(() => {
       stubDesktop();
-      localStorage.setItem("runkit-sidebar-width", "220");
+      localStorage.setItem("hexokit-sidebar-width", "220");
     });
     afterEach(() => {
-      localStorage.removeItem("runkit-sidebar-width");
+      localStorage.removeItem("hexokit-sidebar-width");
     });
 
     /** The head is the header's direct absolutely-positioned child. */
@@ -517,18 +528,88 @@ describe("TopBar", () => {
 
     it("paints the head over the bar's left end: brand link + toggle inside it, each exactly once in the document", () => {
       const { container } = renderTopBar({ sidebarOpen: true });
-      expect(screen.getAllByLabelText("RunKit home")).toHaveLength(1);
+      expect(screen.getAllByLabelText("HexoKit home")).toHaveLength(1);
       expect(screen.getAllByLabelText("Toggle navigation")).toHaveLength(1);
       const head = headOf(container)!;
       expect(head).not.toBeNull();
-      expect(head).toContainElement(screen.getByLabelText("RunKit home"));
+      expect(head).toContainElement(screen.getByLabelText("HexoKit home"));
       expect(head).toContainElement(screen.getByLabelText("Toggle navigation"));
       // The left cluster carries neither control while the head shows: the
       // history arrows lead it and the nav holds no brand crumb.
       const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
       const cluster = nav.parentElement!;
       expect(cluster).not.toContainElement(screen.getByLabelText("Toggle navigation"));
-      expect(within(nav).queryByLabelText("RunKit home")).not.toBeInTheDocument();
+      expect(within(nav).queryByLabelText("HexoKit home")).not.toBeInTheDocument();
+    });
+
+    it("places the New split in the head beside the toggle (full form) and nowhere else", () => {
+      const { container } = renderTopBar({ sidebarOpen: true });
+      const split = screen.getByTestId("new-split");
+      expect(screen.getAllByTestId("new-split")).toHaveLength(1);
+      const head = headOf(container)!;
+      expect(head).toContainElement(split);
+      expect(split).toHaveAttribute("data-mode", "terminal");
+      expect(split).toHaveAttribute("data-icon-only", "false");
+      // Order inside the head: brand, split, toggle.
+      const kids = Array.from(head.children);
+      const at = (el: Element) => kids.findIndex((k) => k.contains(el));
+      expect(at(screen.getByLabelText("HexoKit home"))).toBeLessThan(at(split));
+      expect(at(split)).toBeLessThan(at(screen.getByLabelText("Toggle navigation")));
+    });
+
+    it("folds the head from measured widths: wordmark first, then the icon-only split", () => {
+      // jsdom has no layout engine, so stub the two measurements the fold
+      // reads: every item is 60px wide and the head's client width is set per
+      // case (content = 3×60 + 2 gaps = 196px against client − 24px padding).
+      const proto = HTMLElement.prototype;
+      const offsetWidth = Object.getOwnPropertyDescriptor(proto, "offsetWidth");
+      const clientWidth = Object.getOwnPropertyDescriptor(proto, "clientWidth");
+      let headClient = 232;
+      Object.defineProperty(proto, "offsetWidth", { configurable: true, get: () => 60 });
+      Object.defineProperty(proto, "clientWidth", { configurable: true, get: () => headClient });
+      try {
+        const fits = renderTopBar({ sidebarOpen: true });
+        // 232 − 24 = 208 ≥ 196: R1 — wordmark shown, full split.
+        expect(screen.getByText("HexoKit")).toBeInTheDocument();
+        expect(screen.getByTestId("new-split")).toHaveAttribute("data-icon-only", "false");
+        fits.unmount();
+
+        headClient = 150; // 126 < 196: R1 → R2 → R3 (the stubbed widths never shrink)
+        renderTopBar({ sidebarOpen: true });
+        expect(screen.queryByText("HexoKit")).not.toBeInTheDocument();
+        expect(screen.getByLabelText("HexoKit home")).toBeInTheDocument();
+        expect(screen.getByTestId("new-split")).toHaveAttribute("data-icon-only", "true");
+      } finally {
+        if (offsetWidth) Object.defineProperty(proto, "offsetWidth", offsetWidth);
+        else delete (proto as unknown as Record<string, unknown>).offsetWidth;
+        if (clientWidth) Object.defineProperty(proto, "clientWidth", clientWidth);
+        else delete (proto as unknown as Record<string, unknown>).clientWidth;
+      }
+    });
+
+    it("falls back to an icon-only split right after the hamburger when the head is not shown", () => {
+      const { container } = renderTopBar({ sidebarOpen: false });
+      expect(headOf(container)).toBeNull();
+      const split = screen.getByTestId("new-split");
+      expect(split).toHaveAttribute("data-icon-only", "true");
+      const toggle = screen.getByLabelText("Toggle navigation");
+      expect(toggle.nextElementSibling).toBe(split);
+    });
+
+    it("falls back to the icon-only split when the bar is too narrow for the head", () => {
+      stubDesktopNarrow();
+      renderTopBar({ sidebarOpen: true });
+      expect(screen.getAllByTestId("new-split")).toHaveLength(1);
+      expect(screen.getByTestId("new-split")).toHaveAttribute("data-icon-only", "true");
+    });
+
+    it("the Host page carries a plain + Workspace after the brand crumb (no hamburger fallback)", () => {
+      const { container } = renderTopBar({ mode: "host", sidebarOpen: false });
+      expect(headOf(container)).toBeNull();
+      const split = screen.getByTestId("new-split");
+      expect(split).toHaveAttribute("data-mode", "host");
+      const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
+      expect(nav).toContainElement(split);
     });
 
     it("yields the head when the bar would keep less than HEAD_MIN_BAR_PX beside it: classic bar, no inset", () => {
@@ -541,9 +622,10 @@ describe("TopBar", () => {
       const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
       const cluster = nav.parentElement!;
       expect(cluster).toContainElement(screen.getByLabelText("Toggle navigation"));
-      expect(within(nav).getByLabelText("RunKit home")).toBeInTheDocument();
-      // And the nav keeps its desktop floor.
-      expect(nav.className).toContain("sm:min-w-[150px]");
+      expect(within(nav).getByLabelText("HexoKit home")).toBeInTheDocument();
+      // The nav floor shrinks by the icon-only split's width so the rigid left
+      // cluster still fits its `1fr` track.
+      expect(nav.className).toContain("sm:min-w-[96px]");
     });
 
     it("drops the breadcrumb's 150px floor while the head shows, so the crumb collapse absorbs the squeeze instead of spilling into the heading", () => {
@@ -555,7 +637,7 @@ describe("TopBar", () => {
 
     it("keeps the head's brand link and toggle as real Tab stops (anchor to /, button — no tabIndex removal)", () => {
       renderTopBar({ sidebarOpen: true });
-      const brand = screen.getByLabelText("RunKit home");
+      const brand = screen.getByLabelText("HexoKit home");
       const toggle = screen.getByLabelText("Toggle navigation");
       expect(brand.tagName).toBe("A");
       expect(brand).toHaveAttribute("href", "/");
@@ -605,7 +687,7 @@ describe("TopBar", () => {
       expect(container.querySelector("header")!.style.paddingLeft).toBe("");
       const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
       expect(nav.parentElement!.firstElementChild).toBe(screen.getByLabelText("Toggle navigation"));
-      expect(nav.firstElementChild).toContainElement(screen.getByLabelText("RunKit home"));
+      expect(nav.firstElementChild).toContainElement(screen.getByLabelText("HexoKit home"));
     });
 
     it("renders no head on the Host page even with the sidebar preference open", () => {
@@ -624,7 +706,7 @@ describe("TopBar", () => {
       expect(container.querySelector("header")!.style.paddingLeft).toBe("");
       // The brand stays in the breadcrumb nav (the bar is exactly today's).
       expect(
-        screen.getByLabelText("RunKit home").closest('nav[aria-label="Breadcrumb"]'),
+        screen.getByLabelText("HexoKit home").closest('nav[aria-label="Breadcrumb"]'),
       ).not.toBeNull();
     });
 
@@ -702,7 +784,7 @@ describe("TopBar", () => {
     // bell is gone entirely. (The menu itself mounts only when open.)
     expect(screen.queryByLabelText(/Notifications/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/theme/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Help — run-kit docs")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Help — HexoKit docs")).not.toBeInTheDocument();
     expect(cluster.querySelector('[role="status"]')).toBeNull();
   });
 
@@ -720,7 +802,7 @@ describe("TopBar", () => {
     const { container } = renderTopBar();
     expect(container.querySelector('[role="status"]')).toBeNull();
     cleanup();
-    // Server (tmux Server).
+    // Server (Workspace).
     renderTopBar({ mode: "server", currentWindow: null, windowName: "" });
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
     cleanup();
@@ -750,12 +832,12 @@ describe("TopBar", () => {
     it("renders the brand link and the surviving L3 always-block (Refresh), without erroring on empty props", () => {
       renderHost();
       // Brand root crumb links home.
-      expect(screen.getByLabelText("RunKit home")).toHaveAttribute("href", "/");
+      expect(screen.getByLabelText("HexoKit home")).toHaveAttribute("href", "/");
       // Refresh is the surviving L3 always-block control; theme + help moved to
       // the sidebar footer (260724-6j1v) and never render in the bar.
       expect(screen.getByLabelText("Refresh page")).toBeInTheDocument();
       expect(screen.queryByLabelText(/theme/i)).not.toBeInTheDocument();
-      expect(screen.queryByLabelText("Help — run-kit docs")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Help — HexoKit docs")).not.toBeInTheDocument();
       // The fixed-width BUTTON is terminal-only now (260704-9o7k).
       expect(screen.queryByLabelText("Toggle fixed terminal width")).not.toBeInTheDocument();
     });
@@ -778,7 +860,7 @@ describe("TopBar", () => {
     // popover form was deleted outright (260814-6b0j — reset lives in the
     // settings dialog and the palette's Increase/Decrease/Reset actions). The
     // chevron menu's stepper row (TerminalFontMenuRow) is the top-bar surface.
-    const FONT_KEY = "runkit-terminal-font-size";
+    const FONT_KEY = "hexokit-terminal-font-size";
 
     afterEach(() => {
       localStorage.clear();
@@ -880,9 +962,9 @@ describe("TopBar", () => {
     expect(slotFillOpacity()).toBe("0");
   });
 
-  it("renders 'RunKit' branding text", () => {
+  it("renders 'HexoKit' branding text", () => {
     renderTopBar();
-    expect(screen.getByText("RunKit")).toBeInTheDocument();
+    expect(screen.getByText("HexoKit")).toBeInTheDocument();
   });
 
   it("does not render Line 2 elements", () => {
@@ -896,7 +978,7 @@ describe("TopBar", () => {
   it("renders the session crumb as a static boxed chip — no caret, no menu (260813-kvk7)", () => {
     renderTopBar();
 
-    // The session BreadcrumbDropdown (switcher + "+ New Session") is gone:
+    // The session BreadcrumbDropdown (switcher + "+ New group") is gone:
     // session switching lives in the sidebar rows and the palette, creation in
     // the palette / sidebar server-header `+`. The crumb is a static chip.
     // The chip is the box around the truncating name span (CRUMB_BOX_CLASS).
@@ -917,22 +999,11 @@ describe("TopBar", () => {
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
-  it("calls onCreateWindow when + New Tab dropdown action is clicked", () => {
-    const onCreateWindow = vi.fn();
-    renderTopBar({ onCreateWindow });
-
-    // Open the window breadcrumb dropdown (window name is the trigger)
-    const windowDropdown = screen.getByLabelText("Switch tab");
-    fireEvent.click(windowDropdown);
-
-    // Click the "+ New Tab" action
-    const newWindowBtn = screen.getByText("+ New Tab");
-    expect(newWindowBtn).toBeInTheDocument();
-    fireEvent.click(newWindowBtn);
-
-    expect(onCreateWindow).toHaveBeenCalledWith("run-kit");
-    // Menu should close after action
+  it("the window switcher carries no create footer (creation lives in the New split button)", () => {
+    renderTopBar();
+    fireEvent.click(screen.getByLabelText("Switch tab"));
     expect(screen.queryByText("+ New Tab")).not.toBeInTheDocument();
+    expect(screen.queryByText("+ New Agent")).not.toBeInTheDocument();
   });
 
   it("close-pane is MENU-ONLY (260731-oiho): no in-bar ✕, a Close pane menu row when a window is selected", () => {
@@ -1109,7 +1180,7 @@ describe("TopBar", () => {
       expect(screen.getByLabelText("Refresh page")).toBeInTheDocument();
     });
 
-    it("still renders the refresh button on the tmux Server (no window) — it moved to the always block (260704-9o7k)", () => {
+    it("still renders the refresh button on the Workspace (no window) — it moved to the always block (260704-9o7k)", () => {
       renderTopBar({ mode: "server", currentWindow: null, windowName: "" });
       expect(screen.getByLabelText("Refresh page")).toBeInTheDocument();
     });
@@ -1326,7 +1397,7 @@ describe("TopBar", () => {
       });
 
       it("omits a row's keycap when its binding is disabled — a dead chord would lie (board)", () => {
-        localStorage.setItem("runkit-keybindings", JSON.stringify({ "split-vertical": null }));
+        localStorage.setItem("hexokit-keybindings", JSON.stringify({ "split-vertical": null }));
         renderBoardSplit();
         act(() => fireEvent.click(screen.getByLabelText("Split… (choose direction)")));
         const rows = Array.from(splitDirectionMenu()!.querySelectorAll('[role="menuitem"]'));
@@ -1486,12 +1557,12 @@ describe("TopBar", () => {
       // dialog, 260724-6j1v); Theme… is gone too — theme switching lives in
       // the settings dialog's inline picker and the palette (260819-qkow).
       expect(within(menu).getByRole("menuitem", { name: "Settings" })).toBeInTheDocument();
-      expect(within(menu).getByRole("menuitem", { name: /Help — run-kit docs/ })).toBeInTheDocument();
+      expect(within(menu).getByRole("menuitem", { name: /Help — HexoKit docs/ })).toBeInTheDocument();
       expect(within(menu).getByRole("menuitem", { name: /Keyboard shortcuts/ })).toBeInTheDocument();
       expect(within(menu).queryByRole("menuitem", { name: /Theme…/ })).not.toBeInTheDocument();
       expect(within(menu).queryByText("Enable notifications")).not.toBeInTheDocument();
       // The fixed version row is always present (last).
-      expect(within(menu).getByText("RunKit")).toBeInTheDocument();
+      expect(within(menu).getByText("HexoKit")).toBeInTheDocument();
     });
 
     it("groups menu rows under View / Window / App uppercase section labels (260731-oiho)", () => {
@@ -1515,7 +1586,7 @@ describe("TopBar", () => {
       const splitRow = within(menu).getByRole("menuitem", { name: "Split vertical" });
       const refreshRow = within(menu).getByRole("menuitem", { name: "Refresh page" });
       const settingsRow = within(menu).getByRole("menuitem", { name: "Settings" });
-      const helpRow = within(menu).getByRole("menuitem", { name: /Help — run-kit docs/ });
+      const helpRow = within(menu).getByRole("menuitem", { name: /Help — HexoKit docs/ });
       const keyboardRow = within(menu).getByRole("menuitem", { name: /Keyboard shortcuts/ });
       expect(follows(viewLabel, fixedWidthRow)).toBe(true);
       expect(follows(fixedWidthRow, windowLabel)).toBe(true);
@@ -1526,7 +1597,7 @@ describe("TopBar", () => {
       expect(follows(settingsRow, helpRow)).toBe(true);
       expect(follows(helpRow, keyboardRow)).toBe(true);
       // The fixed version row rides the App section's tail.
-      expect(follows(keyboardRow, within(menu).getByText("RunKit"))).toBe(true);
+      expect(follows(keyboardRow, within(menu).getByText("HexoKit"))).toBe(true);
     });
 
     it("renders NO section labels when the menu holds only the version row", () => {
@@ -1535,16 +1606,18 @@ describe("TopBar", () => {
       // version-row-only state is only reachable component-level).
       render(
         <ToastProvider>
+          <FocusedTerminalProvider>
           <ThemeProvider>
             <ChromeProvider>
               <TopBarOverflowMenu rows={[]} updateOverflowed={false} />
             </ChromeProvider>
           </ThemeProvider>
+          </FocusedTerminalProvider>
         </ToastProvider>,
       );
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
-      expect(within(menu).getByText("RunKit")).toBeInTheDocument();
+      expect(within(menu).getByText("HexoKit")).toBeInTheDocument();
       expect(within(menu).queryByText("View", { exact: true })).not.toBeInTheDocument();
       expect(within(menu).queryByText("Tab", { exact: true })).not.toBeInTheDocument();
       expect(within(menu).queryByText("App", { exact: true })).not.toBeInTheDocument();
@@ -1625,11 +1698,11 @@ describe("TopBar", () => {
   });
 
   describe("overflow menu version row (260715-h1ck)", () => {
-    it("shows plain `RunKit` when the daemon version is unknown (no vundefined)", () => {
+    it("shows plain `HexoKit` when the daemon version is unknown (no vundefined)", () => {
       renderTopBar(); // no SessionProvider → daemonVersion null
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
-      const versionRow = within(menu).getByText("RunKit");
+      const versionRow = within(menu).getByText("HexoKit");
       expect(versionRow).toBeInTheDocument();
       expect(within(menu).queryByText(/vundefined/)).not.toBeInTheDocument();
     });
@@ -1805,11 +1878,17 @@ describe("TopBar", () => {
       available: SurfaceKind[];
       open: SurfaceKind[];
       onToggle: (surface: SurfaceKind) => void;
+      canAdd: boolean;
+      away: (surface: SurfaceKind) => boolean;
+      popped: (surface: SurfaceKind) => boolean;
     }> = {}) => ({
       mode: "toggle" as const,
       available: overrides.available ?? ["tty", "web", "code"],
       open: overrides.open ?? ["tty"],
       onToggle: overrides.onToggle ?? vi.fn(),
+      canAdd: overrides.canAdd ?? true,
+      ...(overrides.away ? { away: overrides.away } : {}),
+      ...(overrides.popped ? { popped: overrides.popped } : {}),
     });
 
     it("renders no toggle group anywhere when surfaceToggles is absent (board/host/unregistered)", () => {
@@ -1868,20 +1947,101 @@ describe("TopBar", () => {
       expect(onToggle).toHaveBeenCalledWith("web");
     });
 
-    it("at 3 open tiles the remaining unlit rows render DISABLED; a lit row stays enabled", () => {
+    it("the disable follows the floor-derived canAdd, not the open-tile count", () => {
       const onToggle = vi.fn();
-      // Three open tiles with a fourth surface unlit needs a duplicate tty
-      // tile (legal — the muxed relay supports N clients per pane).
-      renderTopBar({ surfaceToggles: toggles({ available: ["tty", "web", "code"], open: ["tty", "tty", "code"], onToggle }) });
+      // canAdd false with a single open tile: the floor, not a count, gates.
+      renderTopBar({ surfaceToggles: toggles({ open: ["tty"], canAdd: false, onToggle }) });
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
       const web = within(menu).getByRole("menuitemcheckbox", { name: "Web tile" });
       expect(web).toHaveProperty("disabled", true);
-      // A lit row stays enabled at 3 tiles (closing is always allowed).
-      expect(within(menu).getByRole("menuitemcheckbox", { name: "Code tile" })).toHaveProperty("disabled", false);
+      // A lit row stays enabled (closing is always allowed).
+      expect(within(menu).getByRole("menuitemcheckbox", { name: "Terminal tile" })).toHaveProperty("disabled", false);
       // A disabled row never fires the toggle.
       fireEvent.click(web);
       expect(onToggle).not.toHaveBeenCalled();
+      cleanup();
+
+      // Three open tiles with canAdd still true: adds stay enabled.
+      renderTopBar({ surfaceToggles: toggles({ open: ["tty", "tty", "code"], canAdd: true }) });
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu2 = screen.getByRole("menu", { name: "More controls" });
+      expect(within(menu2).getByRole("menuitemcheckbox", { name: "Web tile" })).toHaveProperty("disabled", false);
+    });
+
+    it("marks away surfaces (the slot is live in another tab) on the bar button and the menu row", () => {
+      renderTopBar({
+        surfaceToggles: toggles({ away: (surface) => surface === "tty" }),
+      });
+      const group = screen.getAllByTestId("surface-toggles")[0];
+      expect(within(group).getByTestId("surface-away-tty")).toBeTruthy();
+      expect(within(group).queryByTestId("surface-away-web")).toBeNull();
+      expect(within(group).queryByTestId("surface-away-code")).toBeNull();
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      const tty = within(menu).getByRole("menuitemcheckbox", { name: "Terminal tile" });
+      expect(within(tty).getByTestId("surface-away-tty").textContent).toBe("away");
+      expect(within(within(menu).getByRole("menuitemcheckbox", { name: "Web tile" })).queryByTestId("surface-away-web")).toBeNull();
+    });
+
+    it("marks popped surfaces (the close-target leaf is popped out for this viewer) on the bar button and the menu row", () => {
+      renderTopBar({
+        surfaceToggles: toggles({
+          open: ["web", "code"],
+          popped: (surface) => surface === "tty",
+        }),
+      });
+      const group = screen.getAllByTestId("surface-toggles")[0];
+      expect(within(group).getByTestId("surface-popped-tty")).toBeTruthy();
+      expect(within(group).queryByTestId("surface-popped-web")).toBeNull();
+      expect(within(group).queryByTestId("surface-popped-code")).toBeNull();
+      // A popped, unrevealed kind is not pressed (open reads revealed-only).
+      expect(within(group).getByLabelText("Terminal tile").getAttribute("aria-pressed")).toBe("false");
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      const tty = within(menu).getByRole("menuitemcheckbox", { name: "Terminal tile" });
+      expect(within(tty).getByTestId("surface-popped-tty").textContent).toBe("popped");
+      expect(tty.getAttribute("aria-checked")).toBe("false");
+      expect(within(within(menu).getByRole("menuitemcheckbox", { name: "Web tile" })).queryByTestId("surface-popped-web")).toBeNull();
+    });
+
+    it("exempts a popped surface from the full-layout disable — its toggle reveals the placeholder, never an add", () => {
+      const onToggle = vi.fn();
+      renderTopBar({
+        surfaceToggles: toggles({
+          open: ["web"],
+          canAdd: false,
+          popped: (surface) => surface === "tty",
+          onToggle,
+        }),
+      });
+      // Bar form: the popped button stays actionable at the floor; a plain
+      // unlit surface (code) is still disabled.
+      const group = screen.getAllByTestId("surface-toggles")[0];
+      const ttyButton = within(group).getByLabelText("Terminal tile");
+      expect(ttyButton).toHaveProperty("disabled", false);
+      expect(within(group).getByLabelText("Code tile")).toHaveProperty("disabled", true);
+      fireEvent.click(ttyButton);
+      expect(onToggle).toHaveBeenCalledWith("tty");
+      cleanup();
+      onToggle.mockClear();
+
+      // Menu-row form: same exemption.
+      renderTopBar({
+        surfaceToggles: toggles({
+          open: ["web"],
+          canAdd: false,
+          popped: (surface) => surface === "tty",
+          onToggle,
+        }),
+      });
+      act(() => fireEvent.click(screen.getByLabelText("More controls")));
+      const menu = screen.getByRole("menu", { name: "More controls" });
+      const tty = within(menu).getByRole("menuitemcheckbox", { name: "Terminal tile" });
+      expect(tty).toHaveProperty("disabled", false);
+      expect(within(menu).getByRole("menuitemcheckbox", { name: "Code tile" })).toHaveProperty("disabled", true);
+      fireEvent.click(tty);
+      expect(onToggle).toHaveBeenCalledWith("tty");
     });
 
     // Corner-dot predicate (260821-zqlq): the web button always renders, so
@@ -2049,7 +2209,7 @@ describe("TopBar", () => {
       cleanup();
       // Desktop toggle mode: no block either.
       renderTopBar({
-        surfaceToggles: { mode: "toggle", available: ["tty", "gui"], open: ["tty", "gui"], onToggle: vi.fn() },
+        surfaceToggles: { mode: "toggle", available: ["tty", "gui"], open: ["tty", "gui"], onToggle: vi.fn(), canAdd: true },
         guiToolbar: guiToolbar(),
       });
       expect(screen.queryByTestId("gui-toolbar-overflow")).toBeNull();
@@ -2102,6 +2262,7 @@ describe("TopBar", () => {
     ) {
       return render(
         <ToastProvider>
+          <FocusedTerminalProvider>
           <ThemeProvider>
             <SettingsDialogProvider>
               <ChromeProvider>
@@ -2116,12 +2277,12 @@ describe("TopBar", () => {
                   server="runkit"
                   onNavigate={vi.fn()}
                   onToggleSidebar={vi.fn()}
-                  onCreateWindow={vi.fn()}
                   {...overrides}
                 />
               </ChromeProvider>
             </SettingsDialogProvider>
           </ThemeProvider>
+          </FocusedTerminalProvider>
         </ToastProvider>,
       );
     }
@@ -2173,9 +2334,9 @@ describe("TopBar", () => {
       renderTopBar();
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
-      const help = within(menu).getByRole("menuitem", { name: /Help — run-kit docs/ });
+      const help = within(menu).getByRole("menuitem", { name: /Help — HexoKit docs/ });
       expect(help.tagName).toBe("A");
-      expect(help).toHaveAttribute("href", "https://shll.ai/run-kit");
+      expect(help).toHaveAttribute("href", "https://hexokit.com/docs/");
       expect(help).toHaveAttribute("target", "_blank");
       const rel = help.getAttribute("rel") ?? "";
       expect(rel).toContain("noopener");
@@ -2374,27 +2535,18 @@ describe("WindowHeading (centered, editable, terminal mode)", () => {
     });
     expect(screen.getByRole("textbox", { name: "Tab name" })).toBeInTheDocument();
   });
-
-  it("relocated ▾ window switcher offers + New Tab", () => {
-    const onCreateWindow = vi.fn();
-    renderTopBar({ onCreateWindow });
-    const windowDropdown = screen.getByLabelText("Switch tab");
-    act(() => fireEvent.click(windowDropdown));
-    const newWindowBtn = screen.getByText("+ New Tab");
-    act(() => fireEvent.click(newWindowBtn));
-    expect(onCreateWindow).toHaveBeenCalledWith("run-kit");
-  });
 });
 
 /**
- * ▦ Layout chip (260812-ab5v-surface-layout-core R9) — the terminal-route L1
- * registry entry fed by AppShell's `layout`/`onApplyLayout` slot props. In
- * jsdom the fit candidates render only in the aria-hidden measurement probe
+ * ▦ Layout chip — the terminal-route L1 registry entry fed by AppShell's
+ * `layout`/`onApplyLayout` slot props (templates, not presets: the popover
+ * lists `templatesFor(n)` and a pick rides `applyTemplate` → `onApplyLayout`).
+ * In jsdom the fit candidates render only in the aria-hidden measurement probe
  * (zero widths → everything overflows), so the chip button is located by
  * `getByLabelText("Layout")` and its popover by attribute — the established
  * SplitControl direction-menu test pattern.
  */
-describe("TopBar layout chip (260812-ab5v R9)", () => {
+describe("TopBar layout chip", () => {
   beforeEach(() => {
     stubMatchMedia((query) => !query.includes("pointer: coarse"));
   });
@@ -2403,16 +2555,21 @@ describe("TopBar layout chip (260812-ab5v R9)", () => {
     cleanup();
   });
 
-  const splitLayout = { shape: "split-h", order: ["tty", "code"] } as const;
-  const mainLeftLayout = { shape: "main-left", order: ["tty", "code", "web"] } as const;
+  const splitLayout: Layout = { dir: "h", children: [{ leaf: "tty" }, { leaf: "code" }] };
+  const mainLeftLayout: Layout = {
+    dir: "h",
+    children: [{ leaf: "tty" }, { dir: "v", children: [{ leaf: "code" }, { leaf: "web" }] }],
+  };
+  /** `col` applied to the split layout's slot order. */
+  const colSplitLayout: Layout = { dir: "v", children: [{ leaf: "tty" }, { leaf: "code" }] };
 
-  /** The chip's shape popover — by attribute (jsdom keeps the control inside
+  /** The chip's template popover — by attribute (jsdom keeps the control inside
    *  the aria-hidden probe, which role queries exclude). */
   const layoutMenu = () =>
-    document.querySelector<HTMLElement>('[role="menu"][aria-label="Layout presets"]');
+    document.querySelector<HTMLElement>('[role="menu"][aria-label="Layout templates"]');
 
   it("renders the chip on a terminal window route when layout props register; hidden without them", () => {
-    renderTopBar({ layout: { ...splitLayout, order: [...splitLayout.order] }, onApplyLayout: vi.fn() });
+    renderTopBar({ layout: splitLayout, onApplyLayout: vi.fn() });
     expect(screen.getByLabelText("Layout")).toBeInTheDocument();
     expect(screen.getByLabelText("Layout")).toHaveAttribute("data-testid", "layout-chip");
 
@@ -2421,51 +2578,61 @@ describe("TopBar layout chip (260812-ab5v R9)", () => {
     expect(screen.queryByLabelText("Layout")).not.toBeInTheDocument();
   });
 
-  it("popover lists exactly the CURRENT arity's presets, current shape marked", () => {
-    renderTopBar({ layout: { ...splitLayout, order: [...splitLayout.order] }, onApplyLayout: vi.fn() });
+  it("popover lists exactly the CURRENT tile count's templates, current template marked", () => {
+    renderTopBar({ layout: splitLayout, onApplyLayout: vi.fn() });
     act(() => fireEvent.click(screen.getByLabelText("Layout")));
     const menu = layoutMenu();
     expect(menu).not.toBeNull();
-    const rows = Array.from(menu!.querySelectorAll("[data-testid^='layout-shape-']"));
-    // Arity 2 → the two splits only (never single / the 3-tile presets).
+    const rows = Array.from(menu!.querySelectorAll("[data-testid^='layout-template-']"));
+    // Two tiles → Row and Column only (never the 3-tile templates).
     expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual([
-      "layout-shape-split-h",
-      "layout-shape-split-v",
+      "layout-template-row",
+      "layout-template-col",
     ]);
-    // Current shape marked (menuitemradio aria-checked + the trailing ✓).
+    // Current template marked (menuitemradio aria-checked + the trailing ✓).
     expect(rows[0].getAttribute("aria-checked")).toBe("true");
     expect(rows[0].textContent).toContain("✓");
     expect(rows[1].getAttribute("aria-checked")).toBe("false");
   });
 
-  it("a 3-tile layout lists the five 3-tile presets", () => {
-    renderTopBar({ layout: { ...mainLeftLayout, order: [...mainLeftLayout.order] }, onApplyLayout: vi.fn() });
+  it("a 3-tile layout lists the six 3-tile templates", () => {
+    renderTopBar({ layout: mainLeftLayout, onApplyLayout: vi.fn() });
     act(() => fireEvent.click(screen.getByLabelText("Layout")));
-    const rows = Array.from(layoutMenu()!.querySelectorAll("[data-testid^='layout-shape-']"));
+    const rows = Array.from(layoutMenu()!.querySelectorAll("[data-testid^='layout-template-']"));
     expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual([
-      "layout-shape-row",
-      "layout-shape-col",
-      "layout-shape-main-left",
-      "layout-shape-main-right",
-      "layout-shape-main-top",
+      "layout-template-row",
+      "layout-template-col",
+      "layout-template-main-left",
+      "layout-template-main-right",
+      "layout-template-main-top",
+      "layout-template-main-bottom",
     ]);
     expect(rows[2].getAttribute("aria-checked")).toBe("true");
   });
 
-  it("clicking a glyph jumps DIRECTLY via setShape → onApplyLayout, and closes the popover", () => {
+  it("clicking a glyph jumps DIRECTLY via applyTemplate → onApplyLayout, and closes the popover", () => {
     const onApplyLayout = vi.fn();
-    renderTopBar({ layout: { ...splitLayout, order: [...splitLayout.order] }, onApplyLayout });
+    renderTopBar({ layout: splitLayout, onApplyLayout });
     act(() => fireEvent.click(screen.getByLabelText("Layout")));
     act(() =>
-      fireEvent.click(layoutMenu()!.querySelector("[data-testid='layout-shape-split-v']")!),
+      fireEvent.click(layoutMenu()!.querySelector("[data-testid='layout-template-col']")!),
     );
-    // Shape jump keeps the order; arity never changes.
-    expect(onApplyLayout).toHaveBeenCalledWith({ shape: "split-v", order: ["tty", "code"] });
+    // A template jump keeps the slot order; the tile count never changes.
+    expect(onApplyLayout).toHaveBeenCalledWith(colSplitLayout);
     expect(layoutMenu()).toBeNull();
   });
 
+  it("a one-tile layout renders its marked `single` state row (no templates exist at one tile)", () => {
+    renderTopBar({ layout: { leaf: "tty" }, onApplyLayout: vi.fn() });
+    act(() => fireEvent.click(screen.getByLabelText("Layout")));
+    const rows = Array.from(layoutMenu()!.querySelectorAll("[data-testid^='layout-template-']"));
+    expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual(["layout-template-single"]);
+    expect(rows[0].getAttribute("aria-checked")).toBe("true");
+    expect(rows[0].textContent).toContain("Single");
+  });
+
   it("Escape closes the popover and refocuses the chip", () => {
-    renderTopBar({ layout: { ...splitLayout, order: [...splitLayout.order] }, onApplyLayout: vi.fn() });
+    renderTopBar({ layout: splitLayout, onApplyLayout: vi.fn() });
     const chip = screen.getByLabelText("Layout");
     act(() => fireEvent.click(chip));
     expect(layoutMenu()).not.toBeNull();
@@ -2476,15 +2643,15 @@ describe("TopBar layout chip (260812-ab5v R9)", () => {
 
   it("the overflow (chevron) menu carries the chip's `Layout: …` radio rows", () => {
     const onApplyLayout = vi.fn();
-    renderTopBar({ layout: { ...splitLayout, order: [...splitLayout.order] }, onApplyLayout });
+    renderTopBar({ layout: splitLayout, onApplyLayout });
     act(() => fireEvent.click(screen.getByLabelText("More controls")));
     const menu = screen.getByRole("menu", { name: "More controls" });
-    const current = within(menu).getByRole("menuitemradio", { name: "Layout: Split Horizontal" });
-    const other = within(menu).getByRole("menuitemradio", { name: "Layout: Split Vertical" });
+    const current = within(menu).getByRole("menuitemradio", { name: "Layout: Row" });
+    const other = within(menu).getByRole("menuitemradio", { name: "Layout: Column" });
     expect(current.getAttribute("aria-checked")).toBe("true");
     expect(other.getAttribute("aria-checked")).toBe("false");
     act(() => fireEvent.click(other));
-    expect(onApplyLayout).toHaveBeenCalledWith({ shape: "split-v", order: ["tty", "code"] });
+    expect(onApplyLayout).toHaveBeenCalledWith(colSplitLayout);
   });
 
   it("the chip is terminal-mode only (no chip on the server route)", () => {
@@ -2494,9 +2661,241 @@ describe("TopBar layout chip (260812-ab5v R9)", () => {
       windowName: "",
       currentSession: null,
       currentWindow: null,
-      layout: { shape: "single", order: ["tty"] },
+      layout: { leaf: "tty" },
       onApplyLayout: vi.fn(),
     });
     expect(screen.queryByLabelText("Layout")).not.toBeInTheDocument();
+  });
+});
+
+describe("TopBar operator launcher", () => {
+  // Desktop: the mobile queries (`max-width`, coarse pointer) do not match.
+  const stubDesktop = () =>
+    stubMatchMedia(
+      (q) =>
+        q.includes("prefers-color-scheme: dark") ||
+        q.includes("prefers-reduced-motion") ||
+        q.includes("min-width"),
+    );
+  const stubMobile = () =>
+    stubMatchMedia((q) => !q.includes("pointer: coarse") && !q.includes("min-width"));
+
+  // jsdom has no layout engine, so the fit's two measurements are stubbed: the
+  // right cell's client width, and each element's offset width — the full
+  // launcher slot 100px, its label slot 70px, its glyph slot and every other
+  // slot/block 30px.
+  const proto = HTMLElement.prototype;
+  const savedOffset = Object.getOwnPropertyDescriptor(proto, "offsetWidth");
+  const savedClient = Object.getOwnPropertyDescriptor(proto, "clientWidth");
+  const FULL_PX = 100;
+  const LABEL_PX = 70;
+  const COMPACT_PX = 30;
+  const stubWidths = (cellClientWidth: number) => {
+    Object.defineProperty(proto, "offsetWidth", {
+      configurable: true,
+      get(this: HTMLElement) {
+        const launcher = this.matches("[data-quake-terminal]") ? this : this.querySelector("[data-quake-terminal]");
+        if (launcher) {
+          if (!launcher.textContent?.includes("Operator")) return COMPACT_PX;
+          return launcher.querySelector("kbd") ? FULL_PX : LABEL_PX;
+        }
+        return COMPACT_PX;
+      },
+    });
+    Object.defineProperty(proto, "clientWidth", { configurable: true, get: () => cellClientWidth });
+  };
+
+  beforeEach(() => {
+    stubDesktop();
+    setQuakeMachineState("rest");
+  });
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    if (savedOffset) Object.defineProperty(proto, "offsetWidth", savedOffset);
+    else delete (proto as unknown as Record<string, unknown>).offsetWidth;
+    if (savedClient) Object.defineProperty(proto, "clientWidth", savedClient);
+    else delete (proto as unknown as Record<string, unknown>).clientWidth;
+  });
+
+  const toggles = {
+    mode: "toggle" as const,
+    available: ["tty", "web", "code"] as SurfaceKind[],
+    open: ["tty"] as SurfaceKind[],
+    onToggle: vi.fn(),
+    canAdd: true,
+  };
+  const serverBar = { mode: "server" as const, sessionName: "", windowName: "", currentSession: null, currentWindow: null };
+
+  /** The LIVE bar copy of a control — jsdom keeps every fit candidate's
+   *  inert probe copy in the document too. */
+  const liveByLabel = (label: string) =>
+    screen.queryAllByLabelText(label).filter((el) => !el.closest("[inert]"));
+  const liveByTestId = (id: string) =>
+    screen.queryAllByTestId(id).filter((el) => !el.closest("[inert]"));
+
+  // Slots at the widest (full) form, server mode: launcher 100 + Refresh
+  // 30 + Gear 30 + 2 gaps of 12 = 184, plus the reserved chevron block
+  // (30) and its gap (12) = 226. The label form is 30 narrower, the glyph form
+  // 70 narrower.
+  const ROOMY = 226;
+  const LABEL_ROW = ROOMY - (FULL_PX - LABEL_PX);
+  const GLYPH_ROW = ROOMY - (FULL_PX - COMPACT_PX);
+
+  it("mounts in the right cluster, not the center cell, on every mode", () => {
+    stubWidths(2000);
+    const modes = [
+      {},
+      serverBar,
+      { mode: "board" as const, currentWindow: null, windowName: "", boardName: "b", paneCount: 1, serverCount: 1, boards: [{ name: "b" }] },
+      { mode: "host" as const, sessions: [], currentSession: null, currentWindow: null, sessionName: "", windowName: "", server: "" },
+    ];
+    for (const overrides of modes) {
+      renderTopBar(overrides);
+      const launcher = screen.getByTestId("quake-launcher");
+      expect(screen.getByTestId("top-bar-right")).toContainElement(launcher);
+      expect(launcher).toHaveTextContent("Operator");
+      cleanup();
+    }
+  });
+
+  it("is the leftmost right-cluster item, before the surface toggles, with a divider between", () => {
+    stubWidths(2000);
+    renderTopBar({ surfaceToggles: toggles });
+    const launcher = screen.getByTestId("quake-launcher");
+    const group = liveByTestId("surface-toggles")[0];
+    const divider = screen.getByTestId("quake-terminal-divider");
+    const follows = (a: Element, b: Element) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(launcher, divider)).toBe(true);
+    expect(follows(divider, group)).toBe(true);
+    // Nothing visible precedes it inside the cluster.
+    const cluster = screen.getByTestId("top-bar-right");
+    const firstSlot = Array.from(cluster.children).find((c) => !c.hasAttribute("inert"));
+    expect(firstSlot).toContainElement(launcher);
+  });
+
+  it("omits the divider when nothing else renders after it", () => {
+    // Only the launcher's compact form + the chevron fit.
+    stubWidths(COMPACT_PX + 12 + COMPACT_PX);
+    renderTopBar(serverBar);
+    expect(screen.getByTestId("quake-launcher")).toBeInTheDocument();
+    expect(screen.queryByTestId("quake-terminal-divider")).toBeNull();
+  });
+
+  it("the center cell holds only the heading", () => {
+    stubWidths(2000);
+    renderTopBar();
+    const heading = screen.getByRole("button", { name: "Rename tab main" });
+    const center = heading.closest('[class*="sm:justify-center"]')!;
+    expect(center).not.toContainElement(screen.getByTestId("quake-launcher"));
+  });
+
+  it("renders no launcher in the bar on mobile", () => {
+    stubMobile();
+    stubWidths(2000);
+    renderTopBar();
+    expect(screen.queryByTestId("quake-launcher")).toBeNull();
+    expect(document.querySelector("[data-quake-terminal]")).toBeNull();
+  });
+
+  it("the probe copy carries no launcher test id", () => {
+    stubWidths(ROOMY);
+    renderTopBar(serverBar);
+    const probe = screen.getByTestId("top-bar-right").querySelector("[inert]")!;
+    expect(probe.querySelector("[data-quake-terminal]")).not.toBeNull();
+    expect(probe.querySelector('[data-testid^="quake-launcher"]')).toBeNull();
+    expect(screen.getAllByTestId("quake-launcher")).toHaveLength(1);
+  });
+
+  it("folds full → label → glyph before any other control overflows", () => {
+    stubWidths(ROOMY);
+    renderTopBar(serverBar);
+    let launcher = screen.getByTestId("quake-launcher");
+    expect(launcher).toHaveTextContent("Operator");
+    expect(launcher.querySelector("kbd")).not.toBeNull();
+    cleanup();
+
+    // One pixel short of the full row: the keycap drops, the label stays and
+    // nothing overflows.
+    stubWidths(ROOMY - 1);
+    renderTopBar(serverBar);
+    launcher = screen.getByTestId("quake-launcher");
+    expect(launcher).toHaveTextContent("Operator");
+    expect(launcher.querySelector("kbd")).toBeNull();
+    expect(launcher).not.toHaveAttribute("aria-label");
+    expect(liveByLabel("Refresh page")).toHaveLength(1);
+    expect(liveByLabel("Open settings")).toHaveLength(1);
+    cleanup();
+
+    // The label row is the last width that keeps the label…
+    stubWidths(LABEL_ROW);
+    renderTopBar(serverBar);
+    expect(screen.getByTestId("quake-launcher")).toHaveTextContent("Operator");
+    cleanup();
+
+    // …one pixel short of it the label folds too: glyph-only, accessible name
+    // kept, still nothing overflowed.
+    stubWidths(LABEL_ROW - 1);
+    renderTopBar(serverBar);
+    launcher = screen.getByTestId("quake-launcher");
+    expect(launcher).toHaveAttribute("aria-label", "Operator");
+    expect(launcher).not.toHaveTextContent("Operator");
+    expect(liveByLabel("Refresh page")).toHaveLength(1);
+    expect(liveByLabel("Open settings")).toHaveLength(1);
+    cleanup();
+
+    stubWidths(GLYPH_ROW);
+    renderTopBar(serverBar);
+    expect(screen.getByTestId("quake-launcher")).toHaveAttribute("aria-label", "Operator");
+    expect(liveByLabel("Refresh page")).toHaveLength(1);
+  });
+
+  it("overflows after Refresh and the gear: the launcher outlasts them, then its row lands in the App menu section", () => {
+    // Compact launcher (30) + Gear (30) + 1 gap + reserved 42 → Refresh is out.
+    stubWidths(30 + 12 + 30 + 42);
+    renderTopBar(serverBar);
+    expect(screen.getByTestId("quake-launcher")).toBeInTheDocument();
+    expect(liveByLabel("Open settings")).toHaveLength(1);
+    expect(liveByLabel("Refresh page")).toHaveLength(0);
+    cleanup();
+
+    // Too narrow for even the compact launcher: it overflows into the menu.
+    stubWidths(COMPACT_PX + 42 - 1);
+    renderTopBar(serverBar);
+    expect(screen.queryByTestId("quake-launcher")).toBeNull();
+    act(() => fireEvent.click(screen.getByLabelText("More controls")));
+    const menu = screen.getByRole("menu", { name: "More controls" });
+    const rows = within(menu).getAllByRole("menuitem", { name: /Operator/ });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].querySelector("kbd")).not.toBeNull();
+  });
+
+  it("the overflowed row opens the drawer like the button does", () => {
+    stubWidths(COMPACT_PX + 42 - 1);
+    renderTopBar(serverBar);
+    act(() => fireEvent.click(screen.getByLabelText("More controls")));
+    const row = within(screen.getByRole("menu", { name: "More controls" })).getByRole("menuitem", { name: /Operator/ });
+    act(() => fireEvent.click(row));
+    expect(getQuakeMachineState()).toBe("open");
+  });
+
+  it("desktop shows no operator row in the menu while the launcher is in the bar", () => {
+    stubWidths(2000);
+    renderTopBar();
+    act(() => fireEvent.click(screen.getByLabelText("More controls")));
+    const menu = screen.getByRole("menu", { name: "More controls" });
+    expect(within(menu).queryByRole("menuitem", { name: /Operator/ })).toBeNull();
+    expect(within(menu).queryByRole("menuitem", { name: /Quake terminal/ })).toBeNull();
+  });
+
+  it("mobile keeps its always-present row, relabelled Operator, that navigates via the quake seam", () => {
+    stubMobile();
+    renderTopBar();
+    act(() => fireEvent.click(screen.getByLabelText("More controls")));
+    const menu = screen.getByRole("menu", { name: "More controls" });
+    const rows = within(menu).getAllByRole("menuitem", { name: /Operator/ });
+    expect(rows).toHaveLength(1);
+    expect(within(menu).queryByRole("menuitem", { name: /Quake terminal/ })).toBeNull();
   });
 });

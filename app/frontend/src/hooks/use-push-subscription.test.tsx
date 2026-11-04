@@ -70,7 +70,7 @@ describe("usePushSubscription", () => {
     });
 
     expect(result.current.state).toBe("subscribed");
-    expect(localStorage.getItem("runkit-shell-notifications")).toBe("on");
+    expect(localStorage.getItem("hexokit-shell-notifications")).toBe("on");
     expect(enablePushSubscription).not.toHaveBeenCalled();
     expect(screen.getByRole("alert")).toHaveTextContent("Notifications enabled");
   });
@@ -86,7 +86,7 @@ describe("usePushSubscription", () => {
     });
 
     expect(notifications).toHaveLength(1);
-    expect(notifications[0].title).toBe("RunKit");
+    expect(notifications[0].title).toBe("HexoKit");
     expect(notifications[0].options?.body).toContain("delivery works");
     expect(sendTestNotification).not.toHaveBeenCalled();
     expect(screen.getByRole("alert")).toHaveTextContent(

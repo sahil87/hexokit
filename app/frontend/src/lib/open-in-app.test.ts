@@ -260,7 +260,7 @@ describe("last-used preference", () => {
     localStorage.clear();
   });
 
-  it("round-trips through localStorage under the runkit-* key", () => {
+  it("round-trips through localStorage under the hexokit-* key", () => {
     writeLastUsedOpenTarget("deeplink:vscode");
     expect(localStorage.getItem(LAST_USED_OPEN_TARGET_KEY)).toBe("deeplink:vscode");
     expect(readLastUsedOpenTarget()).toBe("deeplink:vscode");

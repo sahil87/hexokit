@@ -510,45 +510,58 @@ func TestResolveLauncher_StubFab(t *testing.T) {
 	})
 }
 
-// TestBuildWtCreateArgs covers the mockup-v2 --worktree-name passthrough: an
-// empty name is byte-identical to the pre-feature argv; a name in worktree mode
-// prepends `--worktree-name <name>`; a name in checkout mode is defensively
-// ignored (checkout never reaches wt, and the name is rejected at the API).
+// TestBuildWtCreateArgs covers the worktree naming argv: an empty name yields the
+// plain `create --non-interactive --open skip` argv; a name in worktree mode
+// prepends `--name <name>`; a name in checkout mode is defensively ignored
+// (checkout never reaches wt, and the name is rejected at the API).
 func TestBuildWtCreateArgs(t *testing.T) {
 	cases := []struct {
 		name        string
 		where       string
 		wtName      string
+		wtBase      string
 		passthrough []string
 		want        []string
 	}{
 		{
-			name: "no name → byte-identical pre-feature argv",
-			want: []string{"create", "--non-interactive", "--worktree-open", "skip"},
+			name: "no name → plain argv",
+			want: []string{"create", "--non-interactive", "--open", "skip"},
 		},
 		{
 			name:   "worktree mode with name",
 			where:  "worktree",
 			wtName: "my-agent",
-			want:   []string{"create", "--worktree-name", "my-agent", "--non-interactive", "--worktree-open", "skip"},
+			want:   []string{"create", "--name", "my-agent", "--non-interactive", "--open", "skip"},
 		},
 		{
 			name:        "name + passthrough",
 			where:       "worktree",
 			wtName:      "my-agent",
 			passthrough: []string{"--base", "main"},
-			want:        []string{"create", "--worktree-name", "my-agent", "--non-interactive", "--worktree-open", "skip", "--base", "main"},
+			want:        []string{"create", "--name", "my-agent", "--non-interactive", "--open", "skip", "--base", "main"},
 		},
 		{
 			name:   "checkout mode ignores name",
 			where:  "checkout",
 			wtName: "ignored",
-			want:   []string{"create", "--non-interactive", "--worktree-open", "skip"},
+			want:   []string{"create", "--non-interactive", "--open", "skip"},
+		},
+		{
+			name:   "worktree mode with base",
+			where:  "worktree",
+			wtBase: "3c51d29",
+			want:   []string{"create", "--base", "3c51d29", "--non-interactive", "--open", "skip"},
+		},
+		{
+			name:   "checkout mode ignores base",
+			where:  "checkout",
+			wtBase: "3c51d29",
+			want:   []string{"create", "--non-interactive", "--open", "skip"},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			spec := EffectiveSpec{Where: tc.where, WorktreeName: tc.wtName}
+			spec := EffectiveSpec{Where: tc.where, WorktreeName: tc.wtName, WorktreeBase: tc.wtBase}
 			got := buildWtCreateArgs(spec, tc.passthrough)
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("buildWtCreateArgs() = %#v\nwant %#v", got, tc.want)
@@ -778,10 +791,10 @@ func TestResumeForkLauncher(t *testing.T) {
 		{
 			// A mixed-provider repo whose DEFAULT tier is not claude: the source
 			// window's provider gate says nothing about the destination launcher.
-			name:     "codex launcher + valid ref is a ValidationErr",
+			name:     "codex launcher forks with its subcommand",
 			launcher: "codex --yolo",
 			ref:      validRef,
-			wantErr:  true,
+			want:     "codex --yolo fork " + validRef,
 		},
 		{
 			name:     "gemini launcher + valid ref is a ValidationErr",
@@ -1973,6 +1986,98 @@ func TestRunReceiptFanOutOrder(t *testing.T) {
 	for i, r := range receipts {
 		if r.WindowID != "@9" || r.WorktreePath != worktree || r.Branch != "main" {
 			t.Errorf("receipt %d = %+v", i, r)
+		}
+	}
+}
+
+func TestSpawn_ProviderFork(t *testing.T) {
+	const ref = "5d80479e-8f25-46cd-a0d4-e51435508a37"
+	for _, tc := range []struct{ name, launcher, provider, want string }{
+		{"codex", "codex --no-alt-screen", "codex", "codex --no-alt-screen fork " + ref},
+		{"absolute codex", "/opt/bin/codex --no-alt-screen", "codex", "/opt/bin/codex --no-alt-screen fork " + ref},
+		{"codex with claude default", "claude --dangerously-skip-permissions", "codex", "codex fork " + ref},
+		{"claude with codex default", "codex --no-alt-screen", "claude", "claude --resume " + ref + " --fork-session"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			repoRoot := filepath.Join(t.TempDir(), "my-checkout")
+			if err := os.MkdirAll(repoRoot, 0o755); err != nil {
+				t.Fatalf("mkdir repoRoot: %v", err)
+			}
+			newWindowLog := filepath.Join(dir, "new-window.log")
+
+			wtCalled := filepath.Join(dir, "wt-called")
+			testutil.WriteStub(t, dir, "wt", "#!/bin/sh\n: > "+wtCalled+"\nexit 1\n")
+			testutil.WriteStub(t, dir, "tmux", stubTmuxScript(newWindowLog))
+			testutil.WriteStub(t, dir, "fab", "#!/bin/sh\necho '"+tc.launcher+"'\n")
+			t.Setenv("PATH", dir)
+
+			res, err := Spawn(context.Background(), Options{
+				RepoRoot:         repoRoot,
+				Where:            "checkout",
+				ResumeSessionRef: ref,
+				ForkProvider:     tc.provider,
+				WindowNameBase:   "feature-work-fork",
+			})
+			if err != nil {
+				t.Fatalf("Spawn(fork) error: %v", err)
+			}
+			if _, statErr := os.Stat(wtCalled); statErr == nil {
+				t.Error("a fork invoked wt create; a same-worktree fork must skip wt entirely")
+			}
+
+			gotName, gotRoot := readNewWindowArgs(t, newWindowLog)
+			if want := "feature-work-fork"; gotName != want {
+				t.Errorf("fork window name = %q, want %q", gotName, want)
+			}
+			if gotRoot != repoRoot {
+				t.Errorf("fork window root (-c) = %q, want the SAME repo root %q", gotRoot, repoRoot)
+			}
+			if res.WindowName != "feature-work-fork" {
+				t.Errorf("Result.WindowName = %q, want feature-work-fork", res.WindowName)
+			}
+
+			// Assert the actual shell command supplied to tmux.
+			logged, readErr := os.ReadFile(newWindowLog)
+			if readErr != nil {
+				t.Fatalf("read new-window log: %v", readErr)
+			}
+			wantFragment := tc.want
+			if !strings.Contains(string(logged), wantFragment) {
+				t.Errorf("new-window argv missing the resume suffix %q; got %q", wantFragment, string(logged))
+			}
+		})
+	}
+}
+
+// TestWorktreeWindowRoot: a fork's repo-relative subdir roots the window inside
+// the new worktree when that directory exists there, else the worktree root.
+func TestWorktreeWindowRoot(t *testing.T) {
+	wt := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(wt, "app", "backend"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct{ subdir, want string }{
+		{"", wt},
+		{".", wt},
+		{filepath.Join("app", "backend"), filepath.Join(wt, "app", "backend")},
+		{"untracked-only", wt},
+	}
+	for _, tc := range cases {
+		if got := worktreeWindowRoot(wt, tc.subdir); got != tc.want {
+			t.Errorf("worktreeWindowRoot(%q) = %q, want %q", tc.subdir, got, tc.want)
+		}
+	}
+}
+
+// TestSpawnRejectsNonLocalWorktreeSubdir: a subdir escaping the worktree is a
+// validation error before any subprocess runs.
+func TestSpawnRejectsNonLocalWorktreeSubdir(t *testing.T) {
+	for _, subdir := range []string{"../elsewhere", "/abs/path"} {
+		_, err := Spawn(context.Background(), Options{RepoRoot: t.TempDir(), WorktreeSubdir: subdir})
+		var ece *ExitCodeError
+		if !errors.As(err, &ece) || ece.Code != ExitValidation {
+			t.Errorf("Spawn(subdir=%q) err = %v, want a validation ExitCodeError", subdir, err)
 		}
 	}
 }

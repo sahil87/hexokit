@@ -131,16 +131,17 @@ var layoutPaneFormat = strings.Join([]string{
 }, listDelim)
 
 // isLayoutHiddenSession reports whether a session name is one of run-kit's
-// non-user-facing sessions excluded from layout snapshots: board pin-sessions
-// (their windows persist via home-session membership) and the tmuxctl control
-// anchor (recreated automatically by the daemon).
+// non-user-facing sessions excluded from layout snapshots: hidden link-target
+// sessions (board pin-sessions and isolated relay sessions — their windows
+// persist via home-session membership) and the tmuxctl control anchor
+// (recreated automatically by the daemon).
 func isLayoutHiddenSession(name string) bool {
-	return strings.HasPrefix(name, PinSessionPrefix) || name == ControlAnchorSessionName
+	return IsHiddenLinkSession(name) || name == ControlAnchorSessionName
 }
 
 // ListLayoutSessions returns every user-facing session on the server with its
-// creation time and raw color option. Pin-sessions and the control anchor are
-// excluded. A dead/unreachable server returns an error (never an empty list).
+// creation time and raw color option. Pin-sessions, iso-sessions and the
+// control anchor are excluded. A dead/unreachable server returns an error (never an empty list).
 func ListLayoutSessions(ctx context.Context, server string) ([]LayoutSession, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
@@ -178,11 +179,12 @@ func parseLayoutSessions(lines []string) []LayoutSession {
 	return out
 }
 
-// ListLayoutWindows returns every window on the server keyed to its non-pin
-// owning session, deduplicated by window id. A board-pinned window is linked
-// into both its home session and its `_rk-pin-*` pin-session, so `list-windows
-// -a` surfaces it once per link; pin/anchor rows are skipped and the first
-// remaining occurrence wins. A dead/unreachable server returns an error.
+// ListLayoutWindows returns every window on the server keyed to its non-hidden
+// owning session, deduplicated by window id. A pinned or isolated window is
+// linked into both its home session and its `_rk-pin-*`/`_rk-iso-*` session, so
+// `list-windows -a` surfaces it once per link; hidden-session rows are skipped
+// and the first remaining occurrence wins. A dead/unreachable server returns an
+// error.
 func ListLayoutWindows(ctx context.Context, server string) ([]LayoutWindow, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
@@ -234,6 +236,28 @@ func ListLayoutPanesForWindow(ctx context.Context, server, windowID string) ([]L
 	return parseLayoutPanes(lines)[windowID], nil
 }
 
+// Positional field indices (0-based) of layoutWindowFormat, derived from
+// MaxWebTabs so a cap raise stays a one-line change. The format spells
+// layoutWindowFixedPrefix fixed fields, the MaxWebTabs URL slots, the
+// MaxWebTabs parallel root slots, then the trailing fields below, with the
+// legacy note always LAST (its free-text tail is rejoined by
+// parseLayoutWindows).
+const (
+	layoutWindowFixedPrefix     = 8
+	layoutWindowRootsField      = layoutWindowFixedPrefix + MaxWebTabs
+	layoutWindowWebActiveField  = layoutWindowFixedPrefix + 2*MaxWebTabs
+	layoutWindowCodeRootField   = layoutWindowWebActiveField + 1
+	layoutWindowMarkerField     = layoutWindowWebActiveField + 2
+	layoutWindowRoleField       = layoutWindowWebActiveField + 3
+	layoutWindowFlairField      = layoutWindowWebActiveField + 4
+	layoutWindowOwnerField      = layoutWindowWebActiveField + 5
+	layoutWindowNoteField       = layoutWindowWebActiveField + 6
+	layoutWindowLegacyNoteField = layoutWindowWebActiveField + 7
+	// layoutWindowFullFields is the field count of a complete current-format
+	// line; a shorter line is a pre-16-slot capture (see legacyWebTabSlots).
+	layoutWindowFullFields = layoutWindowLegacyNoteField + 1
+)
+
 // parseLayoutWindows parses layoutWindowFormat lines, skipping hidden-session
 // rows and malformed lines, deduplicating by window id (first non-hidden
 // occurrence wins). Accessible to same-package tests.
@@ -267,56 +291,67 @@ func parseLayoutWindows(lines []string) []LayoutWindow {
 			Layout:   strings.TrimSpace(parts[5]),
 			Color:    strings.TrimSpace(parts[6]),
 		}
-		// Field 8 (@rk_win_layout) is optional — absent on older captures.
-		if len(parts) >= 8 {
-			win.RkLayout = strings.TrimSpace(parts[7])
+		// The @rk_win_layout field is optional — absent on older captures.
+		if len(parts) >= layoutWindowFixedPrefix {
+			win.RkLayout = strings.TrimSpace(parts[layoutWindowFixedPrefix-1])
 		}
-		// Fields 9..16 are the dense @rk_win_web_<n> slots (a shorter line
-		// carries only its leading slots); fields 17..24 their parallel roots
-		// ("" where the slot has no root).
-		if len(parts) > 8 {
-			end := min(16, len(parts))
-			win.WebTabs = denseWebTabs(parts[8:end])
+		// A line shorter than a full current-format line is a pre-16-slot
+		// capture: parse it with the 8-slot-era offsets (legacyWebTabSlots) so
+		// its root block and trailing fields land where that format put them —
+		// sparse legacy lines read tolerantly either way, but a fully-populated
+		// legacy line's roots otherwise misread as extra URL slots.
+		slots := MaxWebTabs
+		if len(parts) < layoutWindowFullFields {
+			slots = legacyWebTabSlots
 		}
-		if len(parts) >= 24 {
+		rootsField := layoutWindowFixedPrefix + slots
+		webActiveField := layoutWindowFixedPrefix + 2*slots
+		// The URL slots are dense @rk_win_web_<n> fields (a shorter line
+		// carries only its leading slots); their parallel roots follow the URL
+		// slots ("" where the slot has no root).
+		if len(parts) > layoutWindowFixedPrefix {
+			end := min(rootsField, len(parts))
+			win.WebTabs = denseWebTabs(parts[layoutWindowFixedPrefix:end])
+		}
+		if len(parts) >= webActiveField {
 			for i := range win.WebTabs {
-				win.WebRoots = append(win.WebRoots, strings.TrimSpace(parts[16+i]))
+				win.WebRoots = append(win.WebRoots, strings.TrimSpace(parts[rootsField+i]))
 			}
 		}
 		var activeRaw string
-		if len(parts) >= 25 {
-			activeRaw = parts[24]
+		if len(parts) > webActiveField {
+			activeRaw = parts[webActiveField]
 		}
 		win.WebActive = clampWebActive(activeRaw, len(win.WebTabs))
-		if len(parts) >= 26 {
-			win.CodeRoot = strings.TrimSpace(parts[25])
+		if len(parts) > webActiveField+1 {
+			win.CodeRoot = strings.TrimSpace(parts[webActiveField+1])
 		}
-		// Field 27 (@rk_win_marker) is optional — absent on older captures.
-		if len(parts) >= 27 {
-			win.Marker = NormalizeMarker(strings.TrimSpace(parts[26]))
+		// @rk_win_marker is optional — absent on older captures.
+		if len(parts) > webActiveField+2 {
+			win.Marker = NormalizeMarker(strings.TrimSpace(parts[webActiveField+2]))
 		}
-		// Field 28 (@rk_win_role) is optional — absent on older captures.
-		if len(parts) >= 28 {
-			win.Role = strings.TrimSpace(parts[27])
+		// @rk_win_role is optional — absent on older captures.
+		if len(parts) > webActiveField+3 {
+			win.Role = strings.TrimSpace(parts[webActiveField+3])
 		}
-		// Field 29 (@rk_win_flair) is optional — absent on older captures.
-		if len(parts) >= 29 {
-			win.Flair = strings.TrimSpace(parts[28])
+		// @rk_win_flair is optional — absent on older captures.
+		if len(parts) > webActiveField+4 {
+			win.Flair = strings.TrimSpace(parts[webActiveField+4])
 		}
-		// Field 30 (@rk_win_owner) is optional — absent on older captures.
-		if len(parts) >= 30 {
-			win.Owner = strings.TrimSpace(parts[29])
+		// @rk_win_owner is optional — absent on older captures.
+		if len(parts) > webActiveField+5 {
+			win.Owner = strings.TrimSpace(parts[webActiveField+5])
 		}
-		// Field 31 (@rk_win_note) is optional — absent on older captures. A
-		// strict single field (write-side validation strips control chars).
-		if len(parts) >= 31 {
-			win.Note = parts[30]
+		// @rk_win_note is optional — absent on older captures. A strict single
+		// field (write-side validation strips control chars).
+		if len(parts) > webActiveField+6 {
+			win.Note = parts[webActiveField+6]
 		}
 		// The legacy note is optional and LAST: free text, so its tail is
 		// rejoined to survive tabs inside the value. It fills in only when the
 		// new note field came back empty (dual-read; mirrors parseWindows).
-		if win.Note == "" && len(parts) >= 32 {
-			win.Note = strings.Join(parts[31:], listDelim)
+		if win.Note == "" && len(parts) > webActiveField+7 {
+			win.Note = strings.Join(parts[webActiveField+7:], listDelim)
 		}
 		out = append(out, win)
 	}

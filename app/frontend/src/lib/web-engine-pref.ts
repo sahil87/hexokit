@@ -14,7 +14,7 @@ import type { WebFrameEngineKind } from "@/lib/web-frame-engine";
  *  — the default) selects the native engine when the shell offers it;
  *  `"false"` keeps the iframe engine. Per-viewer state (Constitution IV),
  *  never POSTed, not a settings-registry key. */
-export const WEB_NATIVE_ENGINE_PREF_KEY = "runkit-web-native-engine";
+export const WEB_NATIVE_ENGINE_PREF_KEY = "hexokit-web-native-engine";
 export const WEB_NATIVE_ENGINE_DEFAULT = true;
 
 /** Non-React read (try/catch; absent or unreadable ⇒ the default). */

@@ -12,19 +12,19 @@ import (
 
 // linuxDesktopEntryName is the desktop-entry filename the installer writes;
 // the shell's app.setDesktopName and the LauncherEntry badge key on it.
-const linuxDesktopEntryName = "run-kit-desktop.desktop"
+const linuxDesktopEntryName = "hexokit-desktop.desktop"
 
 // linuxDesktopEntry renders the user-scope launcher entry. Exec is quoted —
 // the install root may contain spaces.
 func linuxDesktopEntry(appRun string) string {
 	return "[Desktop Entry]\n" +
-		"Name=Run Kit\n" +
-		"Comment=run-kit desktop viewer shell — loads an existing rk serve URL (client only, never spawns or supervises the daemon)\n" +
+		"Name=HexoKit\n" +
+		"Comment=HexoKit desktop viewer shell — loads an existing rk serve URL (client only, never spawns or supervises the daemon)\n" +
 		"Exec=\"" + appRun + "\" %U\n" +
 		"Terminal=false\n" +
 		"Type=Application\n" +
-		"Icon=run-kit-desktop\n" +
-		"StartupWMClass=Run Kit\n" +
+		"Icon=hexokit-desktop\n" +
+		"StartupWMClass=HexoKit\n" +
 		"Categories=Development;\n"
 }
 
@@ -52,8 +52,8 @@ func (ins *Installer) integrateLinux(ctx context.Context, root, iconSizeDir stri
 	// carries only 1024x1024); a differently-labelled dir would mislabel the
 	// raster per the icon-theme spec. No gtk-update-icon-cache — hicolor user
 	// icons need no cache.
-	iconSrc := filepath.Join(linuxCurrentPath(root), "usr", "share", "icons", "hicolor", iconSizeDir, "apps", "run-kit-desktop.png")
-	iconDst := filepath.Join(home, ".local", "share", "icons", "hicolor", iconSizeDir, "apps", "run-kit-desktop.png")
+	iconSrc := filepath.Join(linuxCurrentPath(root), "usr", "share", "icons", "hicolor", iconSizeDir, "apps", "hexokit-desktop.png")
+	iconDst := filepath.Join(home, ".local", "share", "icons", "hicolor", iconSizeDir, "apps", "hexokit-desktop.png")
 	if data, err := os.ReadFile(iconSrc); err != nil {
 		fmt.Fprintf(ins.Progress, "warning: reading the bundled icon %s: %v\n", iconSrc, err)
 	} else if err := os.MkdirAll(filepath.Dir(iconDst), 0o755); err != nil {
@@ -75,7 +75,7 @@ func (ins *Installer) integrateLinux(ctx context.Context, root, iconSizeDir stri
 	// The PATH-adjacent symlink. ~/.local/bin being off PATH is the user's
 	// shell's concern — no PATH editing.
 	binDir := filepath.Join(home, ".local", "bin")
-	link := filepath.Join(binDir, "run-kit-desktop")
+	link := filepath.Join(binDir, "hexokit-desktop")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		fmt.Fprintf(ins.Progress, "warning: creating %s: %v\n", binDir, err)
 		return
@@ -107,7 +107,7 @@ type UninstallResult struct {
 // (only when it points into the root), the launcher entry, and the icon(s).
 // It refuses when nothing is installed and while the app is running (a
 // destructive command does not quit the user's app for them). Electron user
-// data under ~/.config/run-kit-desktop is user data, not the install, and is
+// data under ~/.config/HexoKit is user data, not the install, and is
 // never touched.
 func (ins *Installer) Uninstall(ctx context.Context) (UninstallResult, error) {
 	root, err := ins.effectiveInstallDir()
@@ -119,10 +119,10 @@ func (ins *Installer) Uninstall(ctx context.Context) (UninstallResult, error) {
 		return UninstallResult{}, fmt.Errorf("checking the installed app: %w", err)
 	}
 	if version == "" {
-		return UninstallResult{}, fmt.Errorf("Run Kit is not installed at %s", linuxCurrentPath(root))
+		return UninstallResult{}, fmt.Errorf("HexoKit is not installed at %s", linuxCurrentPath(root))
 	}
 	if ins.AppRunning(ctx) {
-		return UninstallResult{}, fmt.Errorf("Run Kit is running — quit it, then re-run this command")
+		return UninstallResult{}, fmt.Errorf("HexoKit is running — quit it, then re-run this command")
 	}
 
 	entries, err := os.ReadDir(root)
@@ -147,8 +147,8 @@ func (ins *Installer) Uninstall(ctx context.Context) (UninstallResult, error) {
 	}
 
 	// The PATH symlink is removed only when it points INTO the root — a
-	// foreign run-kit-desktop there is the user's, not this install's.
-	link := filepath.Join(home, ".local", "bin", "run-kit-desktop")
+	// foreign hexokit-desktop there is the user's, not this install's.
+	link := filepath.Join(home, ".local", "bin", "hexokit-desktop")
 	if target, err := os.Readlink(link); err == nil {
 		if !filepath.IsAbs(target) {
 			target = filepath.Join(filepath.Dir(link), target)
@@ -164,7 +164,7 @@ func (ins *Installer) Uninstall(ctx context.Context) (UninstallResult, error) {
 	if err := os.Remove(filepath.Join(appsDir, linuxDesktopEntryName)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		fmt.Fprintf(ins.Progress, "warning: removing the launcher entry: %v\n", err)
 	}
-	icons, _ := filepath.Glob(filepath.Join(home, ".local", "share", "icons", "hicolor", "*", "apps", "run-kit-desktop.png"))
+	icons, _ := filepath.Glob(filepath.Join(home, ".local", "share", "icons", "hicolor", "*", "apps", "hexokit-desktop.png"))
 	for _, icon := range icons {
 		if err := os.Remove(icon); err != nil {
 			fmt.Fprintf(ins.Progress, "warning: removing the icon %s: %v\n", icon, err)

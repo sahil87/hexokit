@@ -18,7 +18,7 @@
 // Runtime state is in-memory only. Since 260809-r4vk the last-good state is ALSO
 // mirrored to one droppable startup-seed file (prstatus_disk.go) so a restart
 // while gh is slow/offline does not start blank; that cache is never
-// authoritative and is covered by Constitution §II's $XDG_STATE_HOME/run-kit/
+// authoritative and is covered by Constitution §II's $XDG_STATE_HOME/hexokit/
 // carve-out. No tmux option, no database.
 // All process execution uses exec.CommandContext with a timeout and an explicit
 // argument slice; no shell string and no user input in argv (Constitution §I).
@@ -31,6 +31,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"rk/internal/ghprobe"
 )
 
 // ghTimeout bounds the single batched gh call so a hung gh can never block the
@@ -371,17 +373,11 @@ func viewerPRsFrom(prs []ghPR) []ViewerPR {
 	return out
 }
 
-// ghAvailable reports whether the gh CLI is installed AND authenticated. Either
-// failing is a silent no-op (matches the `command -v rk` posture).
+// ghAvailable is the collector's default `available` seam — the shared probe
+// under this package's own gh budget (internal/ghprobe is the single source of
+// what "gh is unavailable" means).
 func ghAvailable(ctx context.Context) bool {
-	if _, err := exec.LookPath("gh"); err != nil {
-		return false
-	}
-	authCtx, cancel := context.WithTimeout(ctx, ghTimeout)
-	defer cancel()
-	// `gh auth status` exits non-zero when not logged in.
-	cmd := exec.CommandContext(authCtx, "gh", "auth", "status")
-	return cmd.Run() == nil
+	return ghprobe.Available(ctx, ghTimeout)
 }
 
 // ghQuery is the GraphQL query fetching the user's most-recently-updated PRs

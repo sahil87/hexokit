@@ -402,7 +402,7 @@ describe("GuiSurface — the bare-WM strip", () => {
     await screen.findByTestId("gui-wm-strip");
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(screen.queryByTestId("gui-wm-strip")).toBeNull();
-    expect(localStorage.getItem("runkit-gui-wm-strip-dismissed")).toBe("1");
+    expect(localStorage.getItem("hexokit-gui-wm-strip-dismissed")).toBe("1");
     first.unmount();
 
     renderGui({ gui: GUI_BARE });
@@ -412,14 +412,14 @@ describe("GuiSurface — the bare-WM strip", () => {
   });
 
   it("a wm flip to non-empty removes the dismissal key (a later bare state shows the strip again)", async () => {
-    localStorage.setItem("runkit-gui-wm-strip-dismissed", "1");
+    localStorage.setItem("hexokit-gui-wm-strip-dismissed", "1");
     mockBareStatus();
     const { rerender } = renderGui({ gui: GUI_BARE });
     expect(screen.queryByTestId("gui-wm-strip")).toBeNull();
 
     rerender(guiEl());
     await act(async () => {});
-    expect(localStorage.getItem("runkit-gui-wm-strip-dismissed")).toBeNull();
+    expect(localStorage.getItem("hexokit-gui-wm-strip-dismissed")).toBeNull();
 
     rerender(guiEl({ gui: GUI_BARE }));
     expect(await screen.findByTestId("gui-wm-strip")).toBeInTheDocument();

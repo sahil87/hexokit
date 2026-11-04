@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-28T17:30:15Z"}
+{"args":"HexoKit R1(d) done plan-doc sync — mark R1 fully complete with hexokit-site#11","cmd":"fab-new","event":"command","ts":"2026-09-28T17:30:15Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-28T17:30:39Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-28T17:30:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-28T17:30:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-28T17:31:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-28T17:35:20Z"}
+{"event":"review","result":"passed","ts":"2026-09-28T17:35:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-28T17:35:31Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-28T17:37:35Z"}
+{"event":"review","result":"passed","ts":"2026-09-28T17:42:10Z"}

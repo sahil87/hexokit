@@ -510,7 +510,7 @@ func TestGuiTickEmitsOnReachableFlip(t *testing.T) {
 // NOT re-parsed, while a moved mtime re-parses on the next tick.
 func TestGuiTickReloadsSettingsOnlyWhenStampChanges(t *testing.T) {
 	isolateSettings(t)
-	configFile := filepath.Join(os.Getenv("HOME"), ".config", "run-kit", "config.yaml")
+	configFile := filepath.Join(os.Getenv("HOME"), ".config", "hexokit", "config.yaml")
 
 	st := settings.Load()
 	st.GUIEnabled = true

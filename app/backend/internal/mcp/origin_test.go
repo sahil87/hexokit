@@ -96,15 +96,20 @@ func TestDeriveAllowedOriginsFull(t *testing.T) {
 		"http://[fd7a:115c:a1e0::1]:3000",
 		"http://box.tail1234.ts.net:3000",
 		"http://box:3000",
+		"https://box.tail1234.ts.net:443",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("DeriveAllowedOrigins = %v, want %v", got, want)
+	}
+	// The browser origin through `tailscale serve` carries no port.
+	if !NewOriginPolicy(got).Allows("https://box.tail1234.ts.net") {
+		t.Errorf("derived policy rejects https://box.tail1234.ts.net")
 	}
 }
 
 // TestDeriveAllowedOriginsLoopbackBind: a loopback bind host is itself an
 // entry; an unqualified hostname contributes no extra label; no addrs and a
-// zero tailnet identity add nothing.
+// zero tailnet identity add nothing (no https entry either).
 func TestDeriveAllowedOriginsLoopbackBind(t *testing.T) {
 	got := DeriveAllowedOrigins("127.0.0.1", 3000, "box", nil, TailnetIdentity{})
 	want := []string{"http://127.0.0.1:3000", "http://box:3000"}

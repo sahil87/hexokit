@@ -17,6 +17,7 @@ import {
   railHeldBand,
   RAIL_HELD_SEAM,
   FORK_TOOLTIP,
+  FORK_WORKTREE_TOOLTIP,
   canForkWindow,
   canRequestWindowOperatorAction,
 } from "./row-flyout-card";
@@ -68,6 +69,7 @@ function Row({
   suppressed = false,
   onChangeColorAction,
   onFork,
+  onForkWorktree,
   onFixTabName,
   hasOperator = false,
   onPinAction,
@@ -81,6 +83,7 @@ function Row({
   suppressed?: boolean;
   onChangeColorAction?: () => void;
   onFork?: () => Promise<void>;
+  onForkWorktree?: () => Promise<void>;
   onFixTabName?: () => Promise<void>;
   hasOperator?: boolean;
   onPinAction?: () => void;
@@ -104,6 +107,7 @@ function Row({
             : undefined
         }
         onFork={onFork}
+        onForkWorktree={onForkWorktree}
         onFixTabName={onFixTabName}
         hasOperator={hasOperator}
         onPinAction={
@@ -427,7 +431,7 @@ describe("RowFlyout card content", () => {
 });
 
 describe("Fork action row (260806-s4av)", () => {
-  // The fork action row is DOUBLE-gated: the window must carry a claude agent
+  // The fork action row is DOUBLE-gated: the window must carry a supported agent
   // session AND the consumer must have wired a handler. Both halves are asserted, plus
   // the stopPropagation contract (forking must never also select the row) and
   // the in-flight guard (the POST creates a tmux window, so N clicks would
@@ -468,8 +472,8 @@ describe("Fork action row (260806-s4av)", () => {
     expect(screen.getByTestId("row-flyout-docs-link")).toBeInTheDocument();
   });
 
-  it("is absent for a non-claude provider (fork is a Claude Code mechanism)", () => {
-    render(<Row win={makeWindow({ agentProvider: "codex" })} onFork={forkResolved()} />);
+  it("is absent for an unsupported provider", () => {
+    render(<Row win={makeWindow({ agentProvider: "gemini" })} onFork={forkResolved()} />);
     hoverOpen();
     expect(screen.queryByTestId("row-flyout-fork-action")).toBeNull();
   });
@@ -480,10 +484,10 @@ describe("Fork action row (260806-s4av)", () => {
     expect(screen.queryByTestId("row-flyout-fork-action")).toBeNull();
   });
 
-  it("clicking calls the handler and does not bubble to the row", () => {
+  it.each(["claude", "codex"])("%s fork calls the handler and does not bubble to the row", (agentProvider) => {
     const onFork = forkResolved();
     const onRowClick = vi.fn();
-    render(<Row win={makeWindow({ agentProvider: "claude" })} onFork={onFork} onRowClick={onRowClick} />);
+    render(<Row win={makeWindow({ agentProvider })} onFork={onFork} onRowClick={onRowClick} />);
     hoverOpen();
 
     act(() => {
@@ -530,9 +534,75 @@ describe("Fork action row (260806-s4av)", () => {
     expect(screen.getByTestId("row-flyout-fork-action")).toBeEnabled();
   });
 
-  it("canForkWindow gates on the claude provider exactly", () => {
+  it("renders the worktree fork row directly after the same-directory fork row", () => {
+    render(<Row win={makeWindow({ agentProvider: "claude" })} onFork={forkResolved()} onForkWorktree={forkResolved()} />);
+    hoverOpen();
+
+    const fork = screen.getByTestId("row-flyout-fork-action");
+    const forkWt = screen.getByTestId("row-flyout-fork-worktree-action");
+    expect(forkWt).toHaveTextContent("Fork to new worktree");
+    expect(forkWt).toHaveTextContent("new branch");
+    expect(forkWt).toHaveAttribute("title", FORK_WORKTREE_TOOLTIP);
+    expect(forkWt).toHaveAttribute("aria-label", FORK_WORKTREE_TOOLTIP);
+    expect(FORK_WORKTREE_TOOLTIP).toContain("new worktree + branch");
+    expect(fork.nextElementSibling).toBe(forkWt);
+  });
+
+  it("gates the worktree fork row like the fork row (supported provider + wired handler)", () => {
+    const { unmount } = render(<Row win={makeWindow({ agentProvider: "gemini" })} onForkWorktree={forkResolved()} />);
+    hoverOpen();
+    expect(screen.queryByTestId("row-flyout-fork-worktree-action")).toBeNull();
+    unmount();
+
+    render(<Row win={makeWindow({ agentProvider: "codex" })} />);
+    hoverOpen();
+    expect(screen.queryByTestId("row-flyout-fork-worktree-action")).toBeNull();
+  });
+
+  it("worktree fork calls its own handler, not the same-directory one, and holds its own in-flight guard", async () => {
+    let settle: () => void = () => {};
+    const onFork = forkResolved();
+    const onForkWorktree = vi.fn<() => Promise<void>>(
+      () =>
+        new Promise<void>((resolve) => {
+          settle = resolve;
+        }),
+    );
+    const onRowClick = vi.fn();
+    render(
+      <Row
+        win={makeWindow({ agentProvider: "claude" })}
+        onFork={onFork}
+        onForkWorktree={onForkWorktree}
+        onRowClick={onRowClick}
+      />,
+    );
+    hoverOpen();
+
+    const forkWt = screen.getByTestId("row-flyout-fork-worktree-action");
+    act(() => {
+      fireEvent.click(forkWt);
+    });
+    act(() => {
+      fireEvent.click(forkWt);
+    });
+    expect(onForkWorktree).toHaveBeenCalledTimes(1);
+    expect(onFork).not.toHaveBeenCalled();
+    expect(onRowClick).not.toHaveBeenCalled();
+    expect(forkWt).toBeDisabled();
+    // The guard is per-row: the same-directory fork stays clickable.
+    expect(screen.getByTestId("row-flyout-fork-action")).toBeEnabled();
+
+    await act(async () => {
+      settle();
+    });
+    expect(screen.getByTestId("row-flyout-fork-worktree-action")).toBeEnabled();
+  });
+
+  it("canForkWindow supports Claude and Codex", () => {
     expect(canForkWindow(makeWindow({ agentProvider: "claude" }))).toBe(true);
-    expect(canForkWindow(makeWindow({ agentProvider: "codex" }))).toBe(false);
+    expect(canForkWindow(makeWindow({ agentProvider: "codex" }))).toBe(true);
+    expect(canForkWindow(makeWindow({ agentProvider: "gemini" }))).toBe(false);
     expect(canForkWindow(makeWindow({}))).toBe(false);
   });
 });
@@ -1308,7 +1378,7 @@ describe("coarse-pointer session/server cards (260817-ve5m)", () => {
           <CardActionList>
             <CardActionRow
               icon={<span />}
-              label="Kill server"
+              label="Kill workspace"
               hint="confirms first"
               danger
               testid="row-flyout-kill-action"
@@ -1361,7 +1431,7 @@ describe("coarse-pointer session/server cards (260817-ve5m)", () => {
     // width (no fine-pointer max-w-xs class).
     expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Server alpha");
     expect(card).toHaveTextContent("tmux -L alpha · 2 sessions");
-    expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill server");
+    expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill workspace");
     expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("confirms first");
     expect(card.className).not.toContain("max-w-xs");
   });
@@ -1472,7 +1542,7 @@ describe("edge-anchored mount (edgeAnchor)", () => {
   /** Sidebar-root fixture matching EDGE_ANCHOR_CONTAINER_SELECTOR. */
   function makeNav(): HTMLElement {
     const nav = document.createElement("nav");
-    nav.setAttribute("aria-label", "Sessions");
+    nav.setAttribute("aria-label", "Groups");
     document.body.appendChild(nav);
     return nav;
   }

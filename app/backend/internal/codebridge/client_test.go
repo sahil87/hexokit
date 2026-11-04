@@ -197,3 +197,52 @@ func TestLiveHostsMissingDir(t *testing.T) {
 		t.Errorf("LiveHosts on missing dir = (%v, %v, %v), want empty", live, pruned, err)
 	}
 }
+
+// TestProbeLiveHostsNonPruning: the probe shares LiveHosts's liveness rule
+// (kill-0 AND __ping) but removes nothing — a dead record stays on disk for
+// ordinary discovery to prune.
+func TestProbeLiveHostsNonPruning(t *testing.T) {
+	dir := t.TempDir()
+	sock := startFakeBridge(t, func(line string) (string, bool) {
+		return `{"id":"__ping","ok":true,"result":{"folder":"/repo","pid":1,"version":"3.19.0"},"ms":1}`, true
+	})
+
+	dead := HostRecord{HostID: "dead", Folder: "/dead", PID: deadPID(t), Sock: sock}
+	live := HostRecord{HostID: "live", Folder: "/repo", PID: os.Getpid(), Sock: sock}
+	for _, rec := range []HostRecord{dead, live} {
+		writeRecord(t, dir, rec)
+	}
+
+	got, err := ProbeLiveHosts(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("ProbeLiveHosts: %v", err)
+	}
+	if len(got) != 1 || got[0].HostID != "live" {
+		t.Errorf("live = %+v, want only the live record", got)
+	}
+	if _, err := os.Stat(recordPath(dir, "dead")); err != nil {
+		t.Errorf("the probe must not prune the dead record: %v", err)
+	}
+}
+
+// TestProbeLiveHostsStrict: a record file the probe cannot decode is an
+// error, never a skipped entry — a deletion guard cannot prove the host
+// behind an unreadable record is dead.
+func TestProbeLiveHostsStrict(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(recordPath(dir, "bad"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ProbeLiveHosts(context.Background(), dir)
+	if err == nil {
+		t.Errorf("ProbeLiveHosts with an undecodable record = (%v, nil), want an error", got)
+	}
+}
+
+func TestProbeLiveHostsMissingDir(t *testing.T) {
+	live, err := ProbeLiveHosts(context.Background(), filepath.Join(t.TempDir(), "nope"))
+	if err != nil || len(live) != 0 {
+		t.Errorf("ProbeLiveHosts on missing dir = (%v, %v), want empty", live, err)
+	}
+}

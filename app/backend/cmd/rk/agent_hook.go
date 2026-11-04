@@ -27,7 +27,7 @@ import (
 //
 // wrapper (installed by `run-kit agent setup`), and ALL logic — the
 // comm-validated ancestor walk, the value formatting — lives here in Go where it
-// is testable and tracks the binary on `brew upgrade run-kit`, with no settings
+// is testable and tracks the binary on `brew upgrade hexokit`, with no settings
 // churn and no agent session restarts. The @rk_agent_state VALUE SCHEMA is
 // unchanged, so every reader (internal/tmux, internal/sessions, the frontend) is
 // untouched.
@@ -96,7 +96,7 @@ func newAgentHookCmd(use string) *cobra.Command {
 			"run-kit can show this agent's active/waiting/idle state. This is the " +
 			"stable interface installed by `run-kit agent setup` — the harness config " +
 			"carries only a thin wrapper and all logic lives in the binary, so hook " +
-			"behavior tracks `brew upgrade run-kit` with no settings changes or session " +
+			"behavior tracks `brew upgrade hexokit` with no settings changes or session " +
 			"restarts. It no-ops outside tmux and always exits 0 (a hook must never " +
 			"fail or block the agent).",
 		// Args is deliberately ArbitraryArgs (not ExactArgs(1)): cobra's arg-count
@@ -206,6 +206,14 @@ func runAgentHook(parent context.Context, agent, token string) {
 	// state fire's agent-state write below still proceeds.
 	in, payloadOK := readHookInput(hookStdin())
 	sessionID := rt.hookSessionID(in)
+	if rt.provider == "codex" {
+		var accept bool
+		token, accept = codexHookState(in, token)
+		if !accept {
+			return
+		}
+		writeState = isAgentState(token)
+	}
 
 	// A provider whose loop-end event can fire with background tasks still
 	// running (agy's Stop) accepts an idle write only when the payload proves
@@ -251,14 +259,23 @@ func runAgentHook(parent context.Context, agent, token string) {
 // field). SessionStart events additionally carry source, which gates the stamp
 // token's boot write against the provider's mid-turn compaction source. agy's
 // Stop carries fullyIdle, gating its idle write (background tasks may still be
-// running at loop termination). Every other field is ignored. Unknown JSON
-// keys are tolerated by encoding/json.
+// running at loop termination). Codex additionally projects the effective
+// reviewer and pending questions from its transcript and tool lifecycle fields.
+// Unknown JSON keys are tolerated by encoding/json.
 type hookInput struct {
-	SessionID      string `json:"session_id"`
-	SessionIDCamel string `json:"sessionId"`
-	ConversationID string `json:"conversationId"`
-	Source         string `json:"source"`
-	FullyIdle      *bool  `json:"fullyIdle"`
+	SessionID      string          `json:"session_id"`
+	SessionIDCamel string          `json:"sessionId"`
+	ConversationID string          `json:"conversationId"`
+	Source         string          `json:"source"`
+	FullyIdle      *bool           `json:"fullyIdle"`
+	TranscriptPath string          `json:"transcript_path"`
+	Event          string          `json:"hook_event_name"`
+	TurnID         string          `json:"turn_id"`
+	ToolName       string          `json:"tool_name"`
+	ToolUseID      string          `json:"tool_use_id"`
+	ToolInput      json.RawMessage `json:"tool_input"`
+	ToolResponse   json.RawMessage `json:"tool_response"`
+	Prompt         string          `json:"prompt"`
 }
 
 // hookStdinFn is a package-level seam so runAgentHook can be tested with an

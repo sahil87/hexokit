@@ -15,6 +15,7 @@ import {
 } from "@/lib/open-in-app";
 import { Tip } from "@/components/tip";
 import { useKeybindings } from "@/hooks/use-keybindings";
+import { useOccludes } from "@/hooks/use-occludes";
 import { formatCombo } from "@/lib/keybindings";
 
 /**
@@ -26,7 +27,7 @@ import { formatCombo } from "@/lib/keybindings";
  * split-button interaction:
  *
  *  - PRIMARY segment: re-runs the last-used target (localStorage
- *    `runkit-open-last-used`) and leads with that target's glyph (260723-l317
+ *    `hexokit-open-last-used`) and leads with that target's glyph (260723-l317
  *    — `aria-hidden` decoration next to the kept "Open" text, so the segment
  *    shows WHICH app a primary click launches); with no stored — or no longer
  *    available — preference it opens the menu instead and carries no glyph.
@@ -79,6 +80,10 @@ export function OpenButton({
       document.removeEventListener("keydown", handleKey, { capture: true });
     };
   }, [open]);
+
+  // Menus register `transient` (overlay-presence): while open, a native guest
+  // composited above the DOM hides so the menu never paints underneath it.
+  useOccludes("transient", open);
 
   if (targets.length === 0) return null;
 

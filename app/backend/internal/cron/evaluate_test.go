@@ -487,6 +487,14 @@ func TestEvaluateBackoffFire(t *testing.T) {
 	if len(res.Fires) != 0 {
 		t.Errorf("fired early at T+6m: %+v", res.Fires)
 	}
+
+	// A live runtime can establish idle without dating the transition. Past
+	// deliveries cannot supply an idle epoch that the source does not know.
+	facts["a3f9"] = resolvedFacts("idle", 0)
+	res = Evaluate(EvalInput{Server: "dev", Now: T.Add(7 * time.Minute), Entries: []Entry{entry}, Facts: facts, Log: log})
+	if len(res.Fires) != 0 || !hasDiag(res.Diags, "anchor-unavailable") {
+		t.Errorf("unknown idle epoch must not anchor backoff: %+v", res)
+	}
 }
 
 // TestEvaluateAbsentFires: a due entry whose target did not resolve surfaces

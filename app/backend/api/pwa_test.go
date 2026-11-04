@@ -105,8 +105,8 @@ func TestManifest_ownedAccentAddsCacheBuster(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &m); err != nil {
 		t.Fatalf("tinted manifest is not valid JSON: %v", err)
 	}
-	if m.Name != "RunKit" || len(m.Icons) != 3 {
-		t.Errorf("manifest identity = (%q, %d icons), want (RunKit, 3)", m.Name, len(m.Icons))
+	if m.Name != "HexoKit" || len(m.Icons) != 3 {
+		t.Errorf("manifest identity = (%q, %d icons), want (HexoKit, 3)", m.Name, len(m.Icons))
 	}
 }
 

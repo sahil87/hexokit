@@ -196,7 +196,7 @@ function SessionRowInner({
     content: ({ close }) => (
       <>
         <PopupTitleBar>
-          <PopupTitleBarSecondary>Session </PopupTitleBarSecondary>
+          <PopupTitleBarSecondary>Group </PopupTitleBarSecondary>
           {name}
         </PopupTitleBar>
         {factsLine && <span className="text-text-secondary break-words">{factsLine}</span>}
@@ -250,7 +250,7 @@ function SessionRowInner({
           />
           <CardActionRow
             icon={<CloseIcon />}
-            label="Kill session"
+            label="Kill group"
             hint="confirms first"
             danger
             testid="row-flyout-kill-action"
@@ -331,7 +331,9 @@ function SessionRowInner({
       // occupying the same left column as the window row's marker well (see
       // the chevron below).
       className={`flex items-center justify-between group${ghost ? "" : " coarse:pr-[56px]"} relative${tint ? "" : " hover:bg-bg-chrome-raised"} transition-colors${isDragSource ? " opacity-50" : ""}`}
-      draggable={draggable}
+      // Suspended while renaming so a pointer drag in the input selects text
+      // instead of dragging the row (the window row's guard).
+      draggable={draggable && editingSession !== session.name}
       onDragStart={
         onDragStart
           ? (e) => {
@@ -421,7 +423,7 @@ function SessionRowInner({
               onClick={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
               className="text-xs font-medium bg-transparent border border-accent-green rounded px-0.5 outline-none truncate w-full"
-              aria-label="Rename session"
+              aria-label="Rename group"
             />
           ) : (
             <span className="font-medium truncate">
@@ -458,6 +460,25 @@ function SessionRowInner({
               : undefined
           }
         />
+        {/* Per-group `+` — visible at rest (creation is a primary action, so
+            this control deliberately skips the hover-reveal contract): ~70%
+            ink on fine pointers, full ink on coarse. The 22/36px box is the
+            chevron's, the shared row-icon geometry. Instant create-tab into
+            THIS group; ghost rows have no group to create into yet. */}
+        {!ghost && (
+          <button
+            type="button"
+            data-testid="session-row-create"
+            aria-label={`New tab in ${name}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onCreateWindow(server, name);
+            }}
+            className="shrink-0 flex items-center justify-center min-w-[22px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] text-text-secondary opacity-70 hover:opacity-100 hover:text-text-primary coarse:opacity-100 transition-colors"
+          >
+            <PlusIcon />
+          </button>
+        )}
       </div>
       {/* Right-edge status rail — COARSE pointers, non-ghost rows only
           (260817-ve5m): the SAME 56px recessed inset band the window row

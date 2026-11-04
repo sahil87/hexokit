@@ -1,0 +1,20 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-19T11:33:03Z"}
+{"args":"review surface — a PR-backed diff review tile with inline comments and a PR-comment listener that dispatches unhandled threads into the window's agent","cmd":"fab-new","event":"command","ts":"2026-09-19T11:33:03Z"}
+{"delta":"+3.6","event":"confidence","score":3.6,"trigger":"calc-score","ts":"2026-09-19T11:35:46Z"}
+{"delta":"+0.0","event":"confidence","score":3.6,"trigger":"calc-score","ts":"2026-09-19T11:36:23Z"}
+{"delta":"-0.3","event":"confidence","score":3.3,"trigger":"calc-score","ts":"2026-09-21T07:40:39Z"}
+{"delta":"+0.0","event":"confidence","score":3.3,"trigger":"calc-score","ts":"2026-09-21T07:40:52Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-21T08:17:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-21T08:18:14Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-09-21T08:19:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-21T10:26:07Z"}
+{"event":"review","result":"failed","ts":"2026-09-21T11:31:36Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-21T11:31:39Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-09-22T04:26:43Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-22T05:43:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-22T05:57:18Z"}
+{"event":"review","result":"passed","ts":"2026-09-22T05:57:18Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-09-22T05:58:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-22T06:12:28Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-22T06:14:48Z"}
+{"event":"review","result":"passed","ts":"2026-09-22T06:28:07Z"}

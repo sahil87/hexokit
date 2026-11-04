@@ -74,7 +74,7 @@ const NO_OPERATOR_HINT_THROTTLE_MS = 4000;
 
 /** The established operator-absent message — the desktop drawer renders it as
  *  its hint line, mobile activations toast it. */
-const NO_OPERATOR_HINT = "no operator on this server — run rk operator";
+const NO_OPERATOR_HINT = "no operator on this workspace — run rk operator";
 
 /** No SSE event says "the start you requested produced no window". The daemon
  *  answers the POST within its 30 s receipt bound (operatorStartReceiptTimeout
@@ -121,7 +121,7 @@ function withoutStartPending(
  * sends; Esc on the Operator Terminal segment first yields focus to the
  * embedded terminal, then releases to rest (on the list segments the first
  * Esc releases); the palette action lands on open+focused; a click outside
- * the quake terminal's own DOM (the drawer or the quake launcher) collapses
+ * the quake terminal's own DOM (the drawer or the launcher button) collapses
  * to rest unless the drawer is pinned (⌖ — an ephemeral module slot, reset at
  * rest; only the outside-click path is suspended, the chord/Esc/▼ still
  * collapse), same destination as the
@@ -175,10 +175,9 @@ function withoutStartPending(
  * "submit", "agent")` delivery with chat-send busy semantics (allow + probe —
  * no client-side busy gate), same upload path. Structured send failures
  * surface inline (never toasts) and the composed text survives a failure for
- * retry/edit. At rest the compose's standing affordance is the top-bar quake
- * launcher (components/quake-launcher.tsx); while the drawer is open the
- * launcher collapses to its glyph + chord and re-focuses the docked textarea
- * on click.
+ * retry/edit. The top-bar launcher button (components/quake-launcher.tsx)
+ * opens the drawer, and while it is open re-focuses the docked textarea on
+ * click; its draft dot reads this compose's draft.
  *
  * On a terminal route the compose carries a dismissable context chip (default
  * attached) naming the subject window — the route's window, or the validated
@@ -188,7 +187,7 @@ function withoutStartPending(
  * the busy gate and queue are skipped server-side), otherwise the direct
  * lane. The quake terminal stamps the subject into the lib's chat-subject
  * store; the
- * quake launcher fork lives in `sendOperatorMessage` and the compose strip's
+ * chat-lane fork lives in `sendOperatorMessage` and the compose strip's
  * plain-submit fork keys on the same store, both read AT SEND TIME, so a
  * pendingSend delivered in the same commit as a chip reset sees the reset,
  * never a stale closure.
@@ -211,7 +210,7 @@ function withoutStartPending(
  * (default 0.95, settings-dialog row) over a fixed 6px backdrop blur, disabled
  * entirely at α=1.
  *
- * File paste/drop inside the drawer (or the quake launcher) uploads via the
+ * File paste/drop inside the drawer uploads via the
  * existing
  * `uploadFile` client scoped to the OPERATOR window's session and
  * insert-delivers each returned path to the operator pane (`"raw"` send mode
@@ -523,7 +522,7 @@ export function QuakeTerminal() {
   // Entry-point seam: chord dispatch, palette action, tongue, overflow-menu
   // row and the palette fallback row all
   // dispatch here. Mobile navigates (the arm above); desktop `toggle` steps
-  // the two-state machine, and `open` always opens with the quake launcher
+  // the two-state machine, and `open` always opens with the docked compose
   // focused.
   // While the resolved operator route is already current, every desktop
   // request takes the shared on-operator-route path — the page IS the
@@ -637,7 +636,7 @@ export function QuakeTerminal() {
   // Click outside: the drawer is a peek that survives compose blur
   // (see
   // above), so it never closes on its own — a click landing outside the
-  // quake terminal's own DOM (the drawer + the top-bar quake launcher both
+  // quake terminal's own DOM (the drawer + the top-bar launcher button both
   // carry
   // QUAKE_TERMINAL_ROOT_ATTR) collapses it, same destination as the header
   // button — UNLESS the drawer is pinned: the pin suspends only this
@@ -1035,7 +1034,7 @@ export function QuakeTerminal() {
         <div className="ml-auto flex min-w-0 items-center gap-2 truncate whitespace-nowrap">
           {showPicker ? (
             <select
-              aria-label="Operator server"
+              aria-label="Operator workspace"
               value={server ?? ""}
               onChange={(e) => setPickerServer(e.target.value)}
               className="bg-transparent text-text-secondary outline-none cursor-pointer"
@@ -1192,7 +1191,14 @@ export function QuakeTerminal() {
                   new Map(prev).set(requested, { gen, startedAt: Date.now() }),
                 );
                 setStartError((prev) => (prev?.server === requested ? null : prev));
-                startOperator(requested).catch((err: unknown) => {
+                // The viewed window counts only when it lives on the server
+                // being started — the quake terminal's pinned/picked server
+                // can differ from the route's, and a window on another server
+                // is not where the operator will run.
+                startOperator(
+                  requested,
+                  routeServer === requested && routeWindow !== null ? routeWindow : undefined,
+                ).catch((err: unknown) => {
                   if (err instanceof ApiError && err.code === "operator_exists") return;
                   // An older attempt's late rejection: a newer click owns this
                   // server's slot and its outcome is still pending.
@@ -1324,7 +1330,7 @@ export function QuakeTerminal() {
  * lands. The blur handler lives on the strip WRAPPER (bubbling), not the
  * textarea, so focus leaving the strip FROM the chip's ✕ is observed too.
  * While engaged the textarea carries the accent border — and the
- * collapsed launcher in the top bar reads the same slot.
+ * launcher button in the top bar reads the same slot.
  */
 function QuakeCompose({
   server,
@@ -1526,7 +1532,7 @@ export function QuakeTerminalTongue() {
         type="button"
         data-testid="quake-terminal-tongue"
         data-tongue-state="return"
-        aria-label="Back to previous window"
+        aria-label="Back to previous tab"
         onClick={onReturn}
         // The visual tab is 64×12; the button's own box is the ≥36px hit area.
         className="absolute top-0 left-1/2 z-30 flex h-9 w-16 -translate-x-1/2 items-start justify-center"

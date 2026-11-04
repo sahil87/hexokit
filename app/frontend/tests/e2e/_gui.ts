@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { SETTINGS_PATH } from "./_settings";
+import { harnessOrigin } from "./_harness";
 
 // Shared helpers for the specs that drive the REAL Xvnc rig (gui-surface's
 // gated half, gui-perf): capability probes, the rig-origin fetchers over
@@ -24,9 +25,11 @@ export const hasXtigervnc = onPath("Xtigervnc");
 /** The X11 input driver the perf spec scrolls the guest with. */
 export const hasXdotool = onPath("xdotool");
 
-/** The rig's origin, derived exactly like playwright.config.ts (E2E_PORT is
- *  harness-set; 3333 fails closed). */
-export const RIG_ORIGIN = `http://localhost:${process.env.E2E_PORT ?? "3333"}`;
+/** The rig's origin from the harness-port helper (E2E_PORT is harness-set;
+ *  unset resolves to the policy's fail-closed sentinel — see _harness.ts).
+ *  Module-level capture is safe: spec modules load after playwright.config.ts
+ *  has applied the worker-rig rewrite (see _rig.ts). */
+export const RIG_ORIGIN = harnessOrigin();
 
 export async function postSettingsRaw(body: Record<string, unknown>): Promise<void> {
   await fetch(`${RIG_ORIGIN}/api/settings`, {

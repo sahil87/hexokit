@@ -104,7 +104,7 @@ describe("BoardsSection — reorder wiring", () => {
 
   it("shows the pin-to-start hint (no draggable rows) when no boards exist", () => {
     render(<BoardsSection />);
-    expect(screen.getByText("Pin a window to start a board")).toBeInTheDocument();
+    expect(screen.getByText("Pin a tab to start a board")).toBeInTheDocument();
   });
 });
 
@@ -123,7 +123,7 @@ describe("BoardsSection — default-open + header PinIcon", () => {
 
   it("respects a stored collapse preference over the board-count default", () => {
     // User explicitly collapsed → stored 'false' wins even with boards present.
-    localStorage.setItem("runkit-panel-boards", "false");
+    localStorage.setItem("hexokit-panel-boards", "false");
     mockBoards = [{ name: "deploys", pinCount: 2 }];
     render(<BoardsSection />);
     expect(screen.getByRole("button", { expanded: false })).toBeInTheDocument();

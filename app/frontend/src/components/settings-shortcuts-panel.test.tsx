@@ -53,12 +53,12 @@ describe("SettingsShortcutsPanel", () => {
     expect(screen.getByText("TMUX")).toBeInTheDocument();
     expect(screen.queryByText("SHELL — DESKTOP APP")).toBeNull();
     // Starter rows
-    expect(screen.getByText("New session")).toBeInTheDocument();
+    expect(screen.getByText("New group")).toBeInTheDocument();
     expect(screen.getByText("Next tab")).toBeInTheDocument();
     // Scope badges (terminal + board rows carry pills)
     expect(screen.getAllByText("terminal").length).toBeGreaterThan(0);
     // Locked shell rows (accelerators owned by the shell menu)
-    expect(screen.getByText("Switch to server 1–9")).toBeInTheDocument();
+    expect(screen.getByText("Switch to host 1–9")).toBeInTheDocument();
     expect(
       screen.getAllByLabelText("Locked — bound by the desktop shell menu").length,
     ).toBeGreaterThan(0);
@@ -78,7 +78,7 @@ describe("SettingsShortcutsPanel", () => {
       target: { value: "waiting" },
     });
     expect(screen.getByText("Next waiting agent")).toBeInTheDocument();
-    expect(screen.queryByText("New session")).toBeNull();
+    expect(screen.queryByText("New group")).toBeNull();
     expect(screen.queryByText("BOARD")).toBeNull();
   });
 
@@ -105,7 +105,7 @@ describe("SettingsShortcutsPanel", () => {
     // keycap in the panel — while Force reload keeps the shared ⇧⌘ caps.
     expect(screen.getAllByText("⌥").length).toBe(1);
     expect(screen.getAllByText("⇧").length).toBeGreaterThan(0);
-    expect(screen.getByText("Switch to server 1–9")).toBeInTheDocument();
+    expect(screen.getByText("Switch to host 1–9")).toBeInTheDocument();
     // The mac shifted map carries no shell "server" digit claims either:
     // Digit1/2/9 render free (the 3/4/5 screenshot claims live inside the
     // ellipsis run).
@@ -299,7 +299,7 @@ describe("SettingsShortcutsPanel merged view (260801-sm6g)", () => {
       screen.getByText("Shell-owned — accelerators live in the desktop shell menu"),
     ).toBeInTheDocument();
     const globalSection = screen.getByText("GLOBAL").closest("section")!;
-    expect(within(globalSection).getByText("Switch to server 1–9")).toBeInTheDocument();
+    expect(within(globalSection).getByText("Switch to host 1–9")).toBeInTheDocument();
     expect(within(globalSection).getByText("Force reload")).toBeInTheDocument();
   });
 
@@ -326,7 +326,7 @@ describe("SettingsShortcutsPanel merged view (260801-sm6g)", () => {
 
   it("shows the tmux empty state when no current server exists (board/host routes)", () => {
     renderPanel(); // mockCurrentServer = null
-    expect(screen.getByText("No tmux server running")).toBeInTheDocument();
+    expect(screen.getByText("No workspace running")).toBeInTheDocument();
     expect(getKeybindingsMock).not.toHaveBeenCalled();
   });
 
@@ -335,7 +335,7 @@ describe("SettingsShortcutsPanel merged view (260801-sm6g)", () => {
     getKeybindingsMock.mockRejectedValue(new Error("boom"));
     renderPanel();
     await waitFor(() =>
-      expect(screen.getByText("No tmux server running")).toBeInTheDocument(),
+      expect(screen.getByText("No workspace running")).toBeInTheDocument(),
     );
   });
 
@@ -374,7 +374,7 @@ describe("SettingsShortcutsPanel desktop-pill rows (260823-c5yq)", () => {
       renderPanel();
       // Ten pills — the six canonical-chord rows (N/T/W/, + the app-window
       // pair's ⌘N/⇧⌘W, reserved in a mac browser) plus the four surface
-      // digits (⌘1/2/3/4 are the browser's tab accelerators). Rows stay
+      // digits (⌘1–4 are the browser's tab accelerators). Rows stay
       // visible; no amber "browser" pill and no "in browser:/in desktop
       // app:" divergence text anywhere.
       expect(screen.getAllByText("desktop")).toHaveLength(10);
@@ -397,10 +397,9 @@ describe("SettingsShortcutsPanel desktop-pill rows (260823-c5yq)", () => {
       expect(screen.queryByText("desktop")).toBeNull();
       expect(screen.queryByText("browser")).toBeNull();
       expect(screen.queryByText(/^in (browser|desktop app):/)).toBeNull();
-      // The mac-canonical chords are live — their keycap buttons rebind.
-      // New session is the exception: its mac-keyless default refinement
-      // leaves it unbound on mac, so no live keycap renders for it.
-      expect(screen.queryByLabelText("Change binding for New session")).toBeNull();
+      // The mac-canonical chords are live — their keycap buttons rebind,
+      // including New group's ⌥⌘T (the optcmd tier).
+      expect(screen.getByLabelText("Change binding for New group")).toBeInTheDocument();
       expect(screen.getByLabelText("Change binding for Reopen closed tab")).toBeInTheDocument();
       expect(screen.getByLabelText("Change binding for Settings")).toBeInTheDocument();
     } finally {
@@ -452,7 +451,7 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
   });
 
   it("renders macro rows with the command preview and an unbound state", () => {
-    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    localStorage.setItem("hexokit-macros", JSON.stringify([DISCUSS]));
     renderWithTargets();
     expect(screen.getByText("CUSTOM")).toBeInTheDocument();
     expect(screen.getByText("riff: discuss")).toBeInTheDocument();
@@ -464,7 +463,7 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
 
   it("shows the missing-preset badge when the preset is absent from the known list", () => {
     localStorage.setItem(
-      "runkit-macros",
+      "hexokit-macros",
       JSON.stringify([{ ...DISCUSS, target: { type: "riff", preset: "gone" } }]),
     );
     renderWithTargets({ presets: ["discuss"] });
@@ -472,7 +471,7 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
   });
 
   it("shows no missing-preset badge when the preset list is unknown (null)", () => {
-    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    localStorage.setItem("hexokit-macros", JSON.stringify([DISCUSS]));
     renderWithTargets({ presets: null });
     expect(screen.queryByText("missing preset")).toBeNull();
   });
@@ -489,7 +488,7 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
     expect(screen.getByLabelText("Macro name")).toHaveValue("riff: discuss");
     fireEvent.click(screen.getByText("add + capture key"));
 
-    const stored = JSON.parse(localStorage.getItem("runkit-macros") ?? "[]");
+    const stored = JSON.parse(localStorage.getItem("hexokit-macros") ?? "[]");
     expect(stored).toEqual([
       {
         actionId: "macro:riff-discuss",
@@ -508,7 +507,7 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
   });
 
   it("delete removes the macro definition and its keybindings diff", () => {
-    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    localStorage.setItem("hexokit-macros", JSON.stringify([DISCUSS]));
     localStorage.setItem(
       KEYBINDINGS_STORAGE_KEY,
       JSON.stringify({ "macro:discuss": { code: "KeyD", tier: "shifted" } }),
@@ -516,12 +515,12 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
     renderWithTargets();
     fireEvent.click(screen.getByLabelText("Delete macro riff: discuss"));
     expect(screen.queryByText("rk riff --preset discuss")).toBeNull();
-    expect(localStorage.getItem("runkit-macros")).toBeNull();
+    expect(localStorage.getItem("hexokit-macros")).toBeNull();
     expect(localStorage.getItem(KEYBINDINGS_STORAGE_KEY)).toBeNull();
   });
 
   it("capturing a builtin's combo for a macro steals it and flags the victim", () => {
-    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    localStorage.setItem("hexokit-macros", JSON.stringify([DISCUSS]));
     renderWithTargets();
     fireEvent.click(screen.getByTitle("unbound — click to bind"));
     fireEvent.keyDown(window, { code: "ArrowDown", key: "ArrowDown", shiftKey: true, ctrlKey: true });
@@ -534,7 +533,7 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
   });
 
   it("hides the add row when no paletteTargets prop is provided (board mount)", () => {
-    localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
+    localStorage.setItem("hexokit-macros", JSON.stringify([DISCUSS]));
     renderPanel();
     // Rows still render (view/rebind/delete), but no add flow.
     expect(screen.getByText("rk riff --preset discuss")).toBeInTheDocument();

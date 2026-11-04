@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-10-07T18:34:31Z"}
+{"args":"MCP endpoint behind tailscale serve + show it in Settings/General","cmd":"fab-new","event":"command","ts":"2026-10-07T18:34:31Z"}
+{"delta":"+0.0","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-10-07T18:35:32Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-10-07T19:11:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-10-07T19:11:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-10-07T19:19:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-10-07T19:24:26Z"}
+{"event":"review","result":"passed","ts":"2026-10-07T19:24:26Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-10-07T19:25:29Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-10-07T19:26:49Z"}
+{"event":"review","result":"passed","ts":"2026-10-07T19:34:11Z"}

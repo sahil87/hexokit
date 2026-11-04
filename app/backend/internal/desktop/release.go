@@ -140,17 +140,22 @@ func (ins *Installer) ResolveRelease(ctx context.Context, tag string) (Release, 
 	}
 
 	assetSuffix := "-" + label + suffix
-	for _, a := range rel.Assets {
-		if strings.HasPrefix(a.Name, assetPrefix) && strings.HasSuffix(a.Name, assetSuffix) {
-			return Release{
-				Version:   strings.TrimPrefix(rel.TagName, "v"),
-				AssetName: a.Name,
-				AssetURL:  a.BrowserDownloadURL,
-				Digest:    parseSHA256Digest(a.Digest),
-			}, nil
+	// Prefer the current prefix; fall back to the pre-rename prefix so a
+	// release carrying either artifact naming resolves (the rename ships one
+	// release ahead of any consumer that still publishes the old name).
+	for _, prefix := range []string{assetPrefix, legacyAssetPrefix} {
+		for _, a := range rel.Assets {
+			if strings.HasPrefix(a.Name, prefix) && strings.HasSuffix(a.Name, assetSuffix) {
+				return Release{
+					Version:   strings.TrimPrefix(rel.TagName, "v"),
+					AssetName: a.Name,
+					AssetURL:  a.BrowserDownloadURL,
+					Digest:    parseSHA256Digest(a.Digest),
+				}, nil
+			}
 		}
 	}
-	return Release{}, fmt.Errorf("release %s has no %s %s asset (looked for %s*%s)", rel.TagName, label, assetKind(ins.GOOS), assetPrefix, assetSuffix)
+	return Release{}, fmt.Errorf("release %s has no %s %s asset (looked for %s*%s or %s*%s)", rel.TagName, label, assetKind(ins.GOOS), assetPrefix, assetSuffix, legacyAssetPrefix, assetSuffix)
 }
 
 // parseSHA256Digest extracts the hex digest from a GitHub asset digest value

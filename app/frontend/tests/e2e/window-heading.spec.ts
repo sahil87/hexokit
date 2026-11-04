@@ -6,7 +6,7 @@
  * path enters the same inline edit, the 375px bar stays single-line, the
  * hover-animation vocabulary classes are present and CSS-gated under
  * `prefers-reduced-motion`, and the same centered heading fills the tmux
- * Server (`tmux Server: <server>`, display-only), the Board (`Board: <name>`
+ * Server (`Workspace: <server>`, display-only), the Board (`Board: <name>`
  * + relocated ▾ switcher, display-only) and the Host (solo `Host`) routes.
  *
  * Shared setup: a FILE-LEVEL `beforeAll` creates a dedicated tmux session
@@ -59,8 +59,8 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
    * click-to-rename heading — NOT as a trailing breadcrumb crumb (the
    * breadcrumb ends at the session) — at BOTH desktop rungs: md–lg carries
    * the full heading with the static `Tab:` prefix visible as a sibling span;
-   * ≥ lg carries the compact heading (prefix hidden) beside the standing
-   * quake launcher, with rename intact.
+   * ≥ lg carries the compact heading (prefix hidden) with the `Operator`
+   * launcher in the right cluster, with rename intact.
    *
    * Steps:
    * 1. Create a window with a known name; resolve its `@N` id.
@@ -70,8 +70,8 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
    *    prefix is visible as a contiguous run NOT contained inside the rename
    *    button — it is a sibling span, so clicking it never starts an edit.
    * 3. Click the heading; assert the inline editor opens; cancel with Escape.
-   * 4. Resize to ≥ lg (1280px); assert the prefix is hidden, the standing
-   *    quake launcher renders, and the rename click + Escape still work.
+   * 4. Resize to ≥ lg (1280px); assert the prefix is hidden, the `Operator`
+   *    launcher renders, and the rename click + Escape still work.
    */
   test("renders the current window name as the centered click-to-rename heading", async ({
     page,
@@ -109,11 +109,12 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     await page.keyboard.press("Escape");
     await expect(heading).toBeVisible();
 
-    // ≥ lg rung: the compact heading — the prefix span hides and the standing
-    // quake launcher renders beside `{name} ▾`; the rename click is untouched.
+    // ≥ lg rung: the compact heading — the prefix span hides and the
+    // `Operator` launcher renders in the right cluster; the rename click is
+    // untouched.
     await page.setViewportSize({ width: 1280, height: 800 });
     await expect(prefix).toBeHidden();
-    await expect(page.getByTestId("quake-launcher-input")).toBeVisible();
+    await expect(page.getByTestId("quake-launcher")).toBeVisible();
     await expect(heading).toBeVisible();
     await expect(heading).toHaveText(name);
     await heading.click();
@@ -125,9 +126,8 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
   /**
    * Proves: the centered heading is never hidden by the quake machine —
    * opening the quake terminal (⇧Ctrl+J here) leaves the `Tab: <name>`
-   * heading visible at BOTH desktop rungs (the launcher collapses to its
-   * glyph + chord control instead of taking the heading's cell; the ≥lg
-   * prefix compaction is unchanged).
+   * heading visible at BOTH desktop rungs (the launcher latches in place in
+   * the right cluster; the ≥lg prefix compaction is unchanged).
    *
    * Steps:
    * 1. Create a window with a known name; resolve its `@N` id.
@@ -135,7 +135,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
    *    assert the drawer is visible and both the `Tab:` prefix and the
    *    `Rename tab <name>` heading stay visible.
    * 3. Close with the chord; resize to ≥ lg (1280px); press the chord again;
-   *    assert the drawer is visible, the collapsed launcher renders, the
+   *    assert the drawer is visible, the launcher is expanded, the
    *    heading stays visible, and the `Tab:` prefix stays hidden (the ≥lg
    *    compaction, same as at rest).
    */
@@ -146,8 +146,9 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     newWindow(TEST_SESSION, name);
     const id = await resolveWindow(page, name);
 
-    // md–lg rung: the full heading (prefix included) beside the collapsed
-    // launcher while the drawer is open.
+    // md–lg rung: the full heading (prefix included) while the drawer is open
+    // (the launcher's own place at this width is the measured fit's call — it
+    // may already have folded into the chevron menu).
     await page.setViewportSize({ width: 900, height: 800 });
     await gotoWindow(page, id);
     const heading = page.getByRole("button", { name: `Rename tab ${name}` });
@@ -155,55 +156,54 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
 
     await page.keyboard.press("Shift+Control+j");
     await expect(page.getByTestId("quake-terminal")).toBeVisible();
-    await expect(page.getByTestId("quake-launcher-collapsed")).toBeVisible();
     await expect(page.getByText("Tab:", { exact: true })).toBeVisible();
     await expect(heading).toBeVisible();
 
-    // ≥ lg rung: the compact heading (prefix hidden, as at rest) beside the
-    // collapsed launcher while the drawer is open.
+    // ≥ lg rung: the compact heading (prefix hidden, as at rest) with the
+    // launcher latched while the drawer is open.
     await page.keyboard.press("Shift+Control+j");
     await expect(page.getByTestId("quake-terminal")).toHaveCount(0);
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.keyboard.press("Shift+Control+j");
     await expect(page.getByTestId("quake-terminal")).toBeVisible();
-    await expect(page.getByTestId("quake-launcher-collapsed")).toBeVisible();
+    await expect(page.getByTestId("quake-launcher")).toHaveAttribute("aria-expanded", "true");
     await expect(page.getByText("Tab:", { exact: true })).toBeHidden();
     await expect(heading).toBeVisible();
   });
 
   /**
-   * Proves: move-don't-copy — on the tmux Server page (`/$server`, no window)
-   * the server name is the CENTERED `tmux Server: <server>` heading,
+   * Proves: move-don't-copy — on the Workspace page (`/$server`, no window)
+   * the server name is the CENTERED `Workspace: <server>` heading,
    * display-only (no rename), and is NOT duplicated as a left breadcrumb leaf
    * crumb — the left breadcrumb ends at its parent. The page also carries an
-   * in-page long-form `tmux Server Overview` `<h2>` SectionHeading above its
+   * in-page long-form `Workspace Overview` `<h2>` SectionHeading above its
    * "Sessions" section.
    *
    * Steps:
    * 1. Navigate to `/${server}`.
-   * 2. Assert the `tmux Server <server>` heading (its accessible name carries
+   * 2. Assert the `Workspace <server>` heading (its accessible name carries
    *    the type prefix) is visible.
    * 3. Assert there is no `Rename tab …` button (the server name is
    *    display-only).
-   * 4. Assert the in-page `tmux Server Overview` `<h2>` heading is visible.
+   * 4. Assert the in-page `Workspace Overview` `<h2>` heading is visible.
    * 5. Assert the `Breadcrumb` nav does NOT contain the server name.
    */
-  test("server route (/$server) shows the centered `tmux Server: <server>` heading + the `tmux Server Overview` in-page heading (not a left leaf crumb)", async ({
+  test("server route (/$server) shows the centered `Workspace: <server>` heading + the `Workspace Overview` in-page heading (not a left leaf crumb)", async ({
     page,
   }) => {
     await page.goto(`/${TMUX_SERVER}`);
     // The server name is the CENTERED heading leaf (move-don't-copy) — its
-    // accessible name carries the `tmux Server` type prefix.
-    const heading = page.getByLabel(`tmux Server ${TMUX_SERVER}`);
+    // accessible name carries the `Workspace` type prefix.
+    const heading = page.getByLabel(`Workspace ${TMUX_SERVER}`);
     await expect(heading).toBeVisible({ timeout: 10_000 });
-    // It is display-only — no rename button on the tmux Server page.
+    // It is display-only — no rename button on the Workspace page.
     await expect(
       page.getByRole("button", { name: /Rename tab/ }),
     ).toHaveCount(0);
     // The in-page page-level heading (260715-zs1y) — a SectionHeading <h2>
     // above the "Sessions" section.
     await expect(
-      page.getByRole("heading", { level: 2, name: "tmux Server Overview" }),
+      page.getByRole("heading", { level: 2, name: "Workspace Overview" }),
     ).toBeVisible();
     // The name is not duplicated as a left breadcrumb crumb.
     const nav = page.getByRole("navigation", { name: "Breadcrumb" });
@@ -352,7 +352,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     // Sidebar reflects the committed name (via the rename API + SSE). The name
     // can appear in more than one place (window row + pane-panel echo), so
     // assert the first match rather than the whole set.
-    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const sidebar = page.locator("nav[aria-label='Groups']");
     await expect(sidebar.locator(`text=${renamed}`).first()).toBeVisible({
       timeout: 10_000,
     });
@@ -398,7 +398,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     await input.press("Enter");
 
     // The committed name is exactly the displayed (converted) name.
-    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const sidebar = page.locator("nav[aria-label='Groups']");
     await expect(sidebar.locator("text=my_problem").first()).toBeVisible({
       timeout: 10_000,
     });
@@ -593,8 +593,8 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     // cursor cell, no bright done state) — the rest state IS the reduced
     // state.
     const reducedLabel = reducedPage
-      .locator("nav[aria-label='Sessions'] .rk-typed-label", {
-        hasText: /^Sessions$/,
+      .locator("nav[aria-label='Groups'] .rk-typed-label", {
+        hasText: /^Groups$/,
       })
       .first();
     // Dispatched event (not real hover) — same churn-proof seam as the
@@ -615,7 +615,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
  * heading's left edge does not drift with name length; (2) the static `Window:`
  * prefix persisting across a lens switch — contiguous since 260813-kvk7 removed
  * the ancestor hierarchy dropdown that used to split it (ancestor navigation
- * survives only in the command palette's `Go: tmux Server` / `Go: Host` and the
+ * survives only in the command palette's `Go: Workspace` / `Go: Host` and the
  * left breadcrumb's server crumb); (3) the browser-history ◀ ▶ arrows — which
  * moved to the LEFT cluster (right of the sidebar toggle, `lg+` viewports —
  * below `lg` they hide with the cluster's degradation ladder) in 260731-oiho;
@@ -634,7 +634,7 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
    * longer than the band grow rightward and the centered box drifts — an
    * accepted tradeoff — so the test deliberately exercises the band, not
    * arbitrarily long names. Measured at the md–lg rung: at ≥ lg the prefix
-   * span hides (the compact heading + standing quake launcher take over), so the
+   * span hides (the compact heading takes over), so the
    * prefix-left-edge probe only exists below lg.
    *
    * Steps:
@@ -691,7 +691,7 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
    * Proves: the terminal-route heading prefix is a static, contiguous `Tab:`
    * run — never the retired lens-following `Terminal:`/`Web:`/`Chat:` prefix —
    * visible at the md–lg rung and hidden at ≥ lg (the compact heading +
-   * standing quake launcher render there) — and the hierarchy dropdown that used to
+   * `Operator` launcher stands in the right cluster) — and the hierarchy dropdown that used to
    * split the prefix is gone, leaving the window switcher as the heading's
    * single ▾ at BOTH rungs.
    *
@@ -703,8 +703,8 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
    * 3. Assert no `Switch hierarchy` trigger exists; click the `Switch tab` ▾
    *    and assert its menu lists the current window (the session's windows,
    *    not the ancestor chain); close with Escape.
-   * 4. Resize to ≥ lg (1280px); assert the prefix is hidden and the standing
-   *    quake launcher renders; open the `Switch tab` ▾ again and assert the menu
+   * 4. Resize to ≥ lg (1280px); assert the prefix is hidden and the `Operator`
+   *    launcher renders; open the `Switch tab` ▾ again and assert the menu
    *    still lists the current window.
    */
   test("the heading prefix is a static `Window:` on the terminal route (all lenses), with a single ▾ window switcher", async ({
@@ -735,11 +735,11 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
     await expect(page.getByRole("menuitem", { name })).toBeVisible();
     await page.keyboard.press("Escape");
 
-    // ≥ lg rung: the compact heading hides the prefix and the standing
-    // quake launcher renders beside `{name} ▾` — the ▾ switcher is untouched.
+    // ≥ lg rung: the compact heading hides the prefix and the `Operator`
+    // launcher renders in the right cluster — the ▾ switcher is untouched.
     await page.setViewportSize({ width: 1280, height: 800 });
     await expect(page.getByText("Tab:", { exact: true })).toBeHidden();
-    await expect(page.getByTestId("quake-launcher-input")).toBeVisible();
+    await expect(page.getByTestId("quake-launcher")).toBeVisible();
     await page.getByLabel("Switch tab").click();
     await expect(page.getByRole("menuitem", { name })).toBeVisible();
     await page.keyboard.press("Escape");
@@ -824,7 +824,7 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
    *    unambiguous) and wait for `Connected`.
    * 3. Build the history stack ENTIRELY via in-app sidebar-row clicks —
    *    `a → b → a` (the no-dedup shape) — using a `switchTo` helper that
-   *    clicks the row (`nav[aria-label='Sessions'] [data-window-id="@N"]
+   *    clicks the row (`nav[aria-label='Groups'] [data-window-id="@N"]
    *    button`, a real client-side switch through `navigateToWindow`), then
    *    settles on `aria-current="page"`, the window-id URL, and the `Rename
    *    tab <name>` heading (tmux aligned + terminal rendered). URL assertions
@@ -856,7 +856,7 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
     const aId = await resolveWindow(page, a);
     const bId = await resolveWindow(page, b);
 
-    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const sidebar = page.locator("nav[aria-label='Groups']");
     // The in-app switch (`navigateToWindow`) writes the URL via the router,
     // whose param serialization carries the window id's NUMERIC part (`@5` →
     // `5`), NOT the `encodeURIComponent("@5")` = `%405` form a `page.goto`

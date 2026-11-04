@@ -23,31 +23,31 @@ describe("buildNavActions (Go: palette parity)", () => {
     }
   });
 
-  it("on a terminal route offers tmux Server then Host (nearest-first)", () => {
+  it("on a terminal route offers Workspace then Host (nearest-first)", () => {
     const ids = buildNavActions("terminal", "prod", noop).map((a) => a.id);
     expect(ids).toEqual(["go-back", "go-forward", "go-tmux-server", "go-host"]);
   });
 
-  it("on a board route offers only Host as the ancestor (no tmux Server)", () => {
+  it("on a board route offers only Host as the ancestor (no Workspace)", () => {
     const ids = buildNavActions("board", "prod", noop).map((a) => a.id);
     expect(ids).toEqual(["go-back", "go-forward", "go-host"]);
   });
 
-  it("on a server (tmux Server) route offers only Host (its lone ancestor)", () => {
+  it("on a server (Workspace) route offers only Host (its lone ancestor)", () => {
     const ids = buildNavActions("server", "prod", noop).map((a) => a.id);
     expect(ids).toEqual(["go-back", "go-forward", "go-host"]);
   });
 
-  it("omits tmux Server on a terminal route when the server is not yet resolved", () => {
+  it("omits Workspace on a terminal route when the server is not yet resolved", () => {
     const ids = buildNavActions("terminal", "", noop).map((a) => a.id);
-    // No blank-server tmux Server entry; Host still present.
+    // No blank-server Workspace entry; Host still present.
     expect(ids).toEqual(["go-back", "go-forward", "go-host"]);
   });
 
   it("labels the ancestor entries with the new vocabulary", () => {
     const actions = buildNavActions("terminal", "prod", noop);
     const byId = (id: string) => actions.find((a) => a.id === id)!;
-    expect(byId("go-tmux-server").label).toBe("Go: tmux Server");
+    expect(byId("go-tmux-server").label).toBe("Go: Workspace");
     expect(byId("go-host").label).toBe("Go: Host");
   });
 

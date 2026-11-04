@@ -9,7 +9,7 @@ import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
  * Escape, and then moved, closed after an in-palette confirmation, or
  * addressed through the docked compose strip in one palette workflow.
  *
- * DOM contract: the tree (role="tree", aria-label="Session tree") carries
+ * DOM contract: the tree (role="tree", aria-label="Workspace tree") carries
  * aria-multiselectable="true". A selected window row is its role="treeitem"
  * with aria-selected="true"; selection membership is keyed by the row's
  * globally unique data-row-key (`${server}:${windowId}`) — the same handle
@@ -63,7 +63,7 @@ test.describe("Sidebar window-row multi-select", () => {
   /** Navigate to the server route and wait for both sessions' rows to render. */
   async function openTree(page: Page) {
     await gotoServerReady(page, TMUX_SERVER);
-    const tree = page.getByRole("tree", { name: "Session tree" });
+    const tree = page.getByRole("tree", { name: "Workspace tree" });
     await expect(tree).toBeVisible();
     await expect(
       page.locator(`[data-session-row="${TMUX_SERVER}:${SRC_SESSION}"]`),

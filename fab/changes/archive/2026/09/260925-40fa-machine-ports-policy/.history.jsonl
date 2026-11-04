@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-25T16:12:30Z"}
+{"args":"Machine-only ports + the ports policy (P1 of fab/plans/sahil/26-09-12-hexokit-rebrand-remaining.md)","cmd":"fab-new","event":"command","ts":"2026-09-25T16:12:30Z"}
+{"delta":"+0.0","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-09-25T16:14:16Z"}
+{"delta":"+0.0","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-09-25T16:14:23Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-25T16:16:26Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-25T16:16:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-25T16:31:55Z"}
+{"event":"review","result":"failed","ts":"2026-09-25T16:37:30Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-25T16:37:30Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-25T16:45:16Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-25T16:52:26Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T16:52:26Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-25T17:00:00Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-25T17:01:38Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T17:16:01Z"}

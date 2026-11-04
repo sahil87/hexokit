@@ -46,8 +46,8 @@ func childByName(n node, name string) (node, bool) {
 func TestBuildDumpTopLevelShape(t *testing.T) {
 	doc := buildDump(rootCmd, displayVersion())
 
-	if doc.Tool != "run-kit" {
-		t.Errorf("tool = %q, want %q", doc.Tool, "run-kit")
+	if doc.Tool != "hexokit" {
+		t.Errorf("tool = %q, want %q", doc.Tool, "hexokit")
 	}
 	if doc.SchemaVersion != 1 {
 		t.Errorf("schema_version = %d, want 1", doc.SchemaVersion)
@@ -55,11 +55,11 @@ func TestBuildDumpTopLevelShape(t *testing.T) {
 	if doc.Version == "" {
 		t.Error("version is empty, want non-empty")
 	}
-	if doc.Root.Name != "run-kit" {
-		t.Errorf("root.name = %q, want %q", doc.Root.Name, "run-kit")
+	if doc.Root.Name != "hexokit" {
+		t.Errorf("root.name = %q, want %q", doc.Root.Name, "hexokit")
 	}
-	if doc.Root.Path != "run-kit" {
-		t.Errorf("root.path = %q, want %q", doc.Root.Path, "run-kit")
+	if doc.Root.Path != "hexokit" {
+		t.Errorf("root.path = %q, want %q", doc.Root.Path, "hexokit")
 	}
 	if len(doc.Root.Commands) == 0 {
 		t.Error("root.commands is empty, want visible subcommands captured")
@@ -196,13 +196,13 @@ func TestCaptureNodeRealTreeSelfExcludesAndDepth(t *testing.T) {
 	if !ok {
 		t.Fatal("mux should be present in the real tree")
 	}
-	for _, name := range []string{"send", "await", "capture", "kill", "process", "panes", "sessions", "new", "adopt", "reap", "snapshot", "init-conf", "guard"} {
+	for _, name := range []string{"send", "await", "capture", "kill", "process", "panes", "sessions", "inventory", "new", "adopt", "reap", "snapshot", "init-conf", "guard"} {
 		if _, ok := childByName(mux, name); !ok {
 			t.Errorf("mux should have its %q subcommand captured", name)
 		}
 	}
-	if len(mux.Commands) != 13 {
-		t.Errorf("mux has %d captured subcommands, want exactly 13 (send, await, capture, kill, process, panes, sessions, new, adopt, reap, snapshot, init-conf, guard)", len(mux.Commands))
+	if len(mux.Commands) != 14 {
+		t.Errorf("mux has %d captured subcommands, want exactly 14 (send, await, capture, kill, process, panes, sessions, inventory, new, adopt, reap, snapshot, init-conf, guard)", len(mux.Commands))
 	}
 	muxSnap, ok := childByName(mux, "snapshot")
 	if !ok {

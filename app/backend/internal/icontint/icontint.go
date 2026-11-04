@@ -1,6 +1,6 @@
-// Package icontint colorizes the grayscale RunKit logo assets with the
+// Package icontint colorizes the grayscale HexoKit logo assets with the
 // per-instance accent color ("host color"), so the PWA Dock/Cmd-Tab icon and
-// the tab favicon visually distinguish run-kit instances. Go stdlib only
+// the tab favicon visually distinguish HexoKit instances. Go stdlib only
 // (image, image/png, image/color) — the logo being grayscale makes the tint a
 // pure luminance→accent ramp; sharp stays build-time-only.
 package icontint

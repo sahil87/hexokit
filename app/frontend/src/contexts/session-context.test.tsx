@@ -377,6 +377,89 @@ describe("SessionProvider — single state socket, per-server subscriptions", ()
     expect(result.current.isConnectedByServer.get("work") ?? false).toBe(false);
   });
 
+  it("sessionsReceived stays false on the seeded slice until a real snapshot arrives", async () => {
+    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
+    setMockMatches([{ params: { server: "runkit" } }]);
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+
+    // Subscribed: the empty slice exists, but it is not a payload.
+    expect(result.current.sessionsByServer.has("runkit")).toBe(true);
+    expect(result.current.sessionsReceivedByServer.get("runkit")).toBe(false);
+
+    // A null ack snapshot means "no snapshot yet" — still not a payload.
+    act(() => {
+      MockWebSocket.current!.ack("server", "runkit", null);
+    });
+    expect(result.current.sessionsReceivedByServer.get("runkit")).toBe(false);
+
+    act(() => {
+      WS.forServer("runkit")!.emit("sessions", [{ name: "A", windows: [] }]);
+    });
+    expect(result.current.sessionsReceivedByServer.get("runkit")).toBe(true);
+  });
+
+  it("an array ack snapshot alone marks sessionsReceived", async () => {
+    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
+    setMockMatches([{ params: { server: "runkit" } }]);
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+
+    act(() => {
+      MockWebSocket.current!.ack("server", "runkit", []);
+    });
+    expect(result.current.sessionsReceivedByServer.get("runkit")).toBe(true);
+  });
+
+  it("sessionsReceived re-seeds false after gone + re-subscribe", async () => {
+    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
+    setMockMatches([{ params: { server: "runkit" } }]);
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+
+    act(() => {
+      WS.forServer("runkit")!.emit("sessions", [{ name: "A", windows: [] }]);
+    });
+    expect(result.current.sessionsReceivedByServer.get("runkit")).toBe(true);
+
+    // listServers keeps returning runkit, so the diff effect re-subscribes.
+    await act(async () => {
+      WS.forServer("runkit")!.emit("server-gone", {});
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(MockWebSocket.current!.active.has("server:runkit")).toBe(true);
+    expect(result.current.sessionsReceivedByServer.get("runkit")).toBe(false);
+  });
+
+  it("sessionsReceived survives a socket drop + reconnect whose re-ack carries a null snapshot", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
+      setMockMatches([{ params: { server: "runkit" } }]);
+      const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+
+      act(() => { WS.forServer("runkit")!.emit("sessions", [{ name: "A", windows: [] }]); });
+      expect(result.current.sessionsReceivedByServer.get("runkit")).toBe(true);
+
+      // Drop the socket (no outage): the backoff reconnect opens a fresh socket
+      // and resubscribes; its ack arrives with no snapshot yet.
+      const dropped = MockWebSocket.current!;
+      act(() => { dropped.close(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      const reconnected = MockWebSocket.current!;
+      expect(reconnected).not.toBe(dropped);
+      expect(reconnected.active.has("server:runkit")).toBe(true);
+
+      act(() => { reconnected.ack("server", "runkit", null); });
+      expect(result.current.sessionsReceivedByServer.get("runkit")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("handles gone: clears the slice and re-queries listServers", async () => {
     vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
     setMockMatches([{ params: { server: "runkit" } }]);
@@ -1113,6 +1196,25 @@ describe("StandaloneSessionContextProvider — pending-server fallbacks", () => 
   });
 });
 
+describe("StandaloneSessionContextProvider — sessionsReceived default", () => {
+  it("defaults sessionsReceivedByServer to true for every supplied sessionsByServer key", () => {
+    function Probe() {
+      const ctx = useSessionContext();
+      return (
+        <span data-testid="received">
+          {String(ctx.sessionsReceivedByServer.get("runkit"))}/{String(ctx.sessionsReceivedByServer.get("other"))}
+        </span>
+      );
+    }
+    render(
+      <StandaloneSessionContextProvider value={{ sessionsByServer: new Map([["runkit", []]]) }}>
+        <Probe />
+      </StandaloneSessionContextProvider>,
+    );
+    expect(screen.getByTestId("received").textContent).toBe("true/undefined");
+  });
+});
+
 describe("shouldReloadOnVersion — boot-aware reload guard", () => {
   it("never reloads on the first connect (first-seen unset), regardless of boot", () => {
     expect(shouldReloadOnVersion(null, null, "0.5.3", "b1")).toBe(false);
@@ -1244,7 +1346,7 @@ describe("SessionProvider — tab-local manual-check feed (260807-s6zs)", () => 
     ).toBe(false);
     // The only update-related key the surface writes is the shared dismissal one,
     // and dismissal was not invoked here.
-    expect(setItem).not.toHaveBeenCalledWith("runkit-update-dismissed", expect.anything());
+    expect(setItem).not.toHaveBeenCalledWith("hexokit-update-dismissed", expect.anything());
     setItem.mockRestore();
   });
 
@@ -1409,7 +1511,7 @@ describe("SessionProvider — dismissUpdate writes the EFFECTIVE key (260807-s6z
     await act(async () => {
       result.current.dismissUpdate();
     });
-    expect(setItem).toHaveBeenCalledWith("runkit-update-dismissed", "run-kit@3.9.1");
+    expect(setItem).toHaveBeenCalledWith("hexokit-update-dismissed", "run-kit@3.9.1");
     expect(result.current.updateDismissedKey).toBe("run-kit@3.9.1");
     setItem.mockRestore();
   });
@@ -1435,21 +1537,21 @@ describe("SessionProvider — dismissUpdate writes the EFFECTIVE key (260807-s6z
     await act(async () => {
       result.current.dismissUpdate();
     });
-    expect(setItem).toHaveBeenCalledWith("runkit-update-dismissed", "run-kit@3.9.0");
+    expect(setItem).toHaveBeenCalledWith("hexokit-update-dismissed", "run-kit@3.9.0");
     setItem.mockRestore();
   });
 
   it("is a no-op when neither feed has anything to dismiss", async () => {
     // The dismissal key is localStorage-backed and read lazily on mount, so a
     // prior test's write would otherwise seed this provider.
-    localStorage.removeItem("runkit-update-dismissed");
+    localStorage.removeItem("hexokit-update-dismissed");
     const setItem = vi.spyOn(Storage.prototype, "setItem");
     const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
     await settle();
     await act(async () => {
       result.current.dismissUpdate();
     });
-    expect(setItem).not.toHaveBeenCalledWith("runkit-update-dismissed", expect.anything());
+    expect(setItem).not.toHaveBeenCalledWith("hexokit-update-dismissed", expect.anything());
     expect(result.current.updateDismissedKey).toBeNull();
     setItem.mockRestore();
   });

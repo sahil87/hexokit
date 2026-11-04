@@ -13,14 +13,16 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"rk/internal/versionprune"
 )
 
 // Linux layout (the internal/codeserver layout idiom, Constitution II — the
 // installed version is derived from the current symlink, never a state file):
 //
 //	<root>/<version>/    one extracted AppImage per version (the squashfs-root
-//	                     contents: AppRun, run-kit-desktop, resources/app.asar,
-//	                     run-kit-desktop.desktop, usr/…)
+//	                     contents: AppRun, hexokit-desktop, resources/app.asar,
+//	                     hexokit-desktop.desktop, usr/…)
 //	<root>/current       symlink → <version>; activation is an atomic flip
 //	                     (temp symlink + os.Rename)
 //	<root>/.staging-*    MkdirTemp staging dirs; the deterministic prefix lets
@@ -67,7 +69,7 @@ func linuxProbePattern(root string) (string, bool) {
 	}
 	// pgrep -f takes an ERE; the path is a literal (a user --path may carry
 	// regex metacharacters), so it is quoted.
-	return regexp.QuoteMeta(filepath.Join(linuxVersionDir(root, version), "run-kit-desktop")), true
+	return regexp.QuoteMeta(filepath.Join(linuxVersionDir(root, version), "hexokit-desktop")), true
 }
 
 // appRunningLinux is the linux arm of AppRunning: a best-effort `pgrep -f`
@@ -97,13 +99,14 @@ func (ins *Installer) appRunningLinux(ctx context.Context, root string) bool {
 //     Extraction needs no FUSE, so libfuse2 is not a runtime dependency of
 //     the installed app.
 //  4. Validate the extracted tree (validateExtractedTree) — the Linux
-//     analogue of the darwin "bundle is named Run Kit.app" check.
+//     analogue of the darwin "bundle is named HexoKit.app" check.
 //  5. Swap boundary: probe the running state against the pre-flip current
 //     target; when live, SIGTERM the main process and wait (bounded) for
 //     exit — aborting without swapping when the bound expires.
 //  6. Rename squashfs-root → <root>/<version>, flip current atomically, then
-//     remove every other version dir (a failed flip leaves the existing
-//     install untouched; the staging dir is removed on every path).
+//     prune superseded version dirs (keep current + the pre-flip target; a
+//     failed flip leaves the existing install untouched; the staging dir is
+//     removed on every path).
 //  7. Write the user-scope desktop integration (integrate.go) — failures
 //     after a successful flip are warnings, not install errors.
 //  8. Relaunch <root>/current/AppRun detached when the app was running —
@@ -179,12 +182,15 @@ func (ins *Installer) installLinux(ctx context.Context, rel Release) (InstallRes
 	// inside staging (same filesystem, so the rename is atomic) so a failed
 	// activation can put it back, instead of destroying it first. Any other
 	// pre-existing dest is a leftover from a run that never flipped current.
-	previous := ""
-	if installed, _ := installedVersionLinux(root); installed == rel.Version {
+	// previousVersion is the pre-flip current target — the rollback version the
+	// post-flip prune keeps.
+	previousVersion, _ := installedVersionLinux(root)
+	setAside := ""
+	if previousVersion == rel.Version {
 		aside := filepath.Join(staging, "previous")
 		switch err := os.Rename(dest, aside); {
 		case err == nil:
-			previous = aside
+			setAside = aside
 		case errors.Is(err, fs.ErrNotExist):
 			// current dangles at a missing dir — nothing live to preserve.
 		default:
@@ -194,7 +200,7 @@ func (ins *Installer) installLinux(ctx context.Context, rel Release) (InstallRes
 		return InstallResult{}, fmt.Errorf("clearing leftover version dir %s: %w", dest, err)
 	}
 	if err := os.Rename(tree, dest); err != nil {
-		restoreLinuxSwap(ins.Progress, dest, previous)
+		restoreLinuxSwap(ins.Progress, dest, setAside)
 		return InstallResult{}, fmt.Errorf("promoting extracted tree to %s: %w", dest, err)
 	}
 
@@ -204,17 +210,17 @@ func (ins *Installer) installLinux(ctx context.Context, rel Release) (InstallRes
 	// removed on every path.
 	tmp := filepath.Join(staging, currentLinkName)
 	if err := os.Symlink(rel.Version, tmp); err != nil {
-		restoreLinuxSwap(ins.Progress, dest, previous)
+		restoreLinuxSwap(ins.Progress, dest, setAside)
 		return InstallResult{}, fmt.Errorf("creating temp symlink: %w", err)
 	}
 	if err := os.Rename(tmp, linuxCurrentPath(root)); err != nil {
-		restoreLinuxSwap(ins.Progress, dest, previous)
+		restoreLinuxSwap(ins.Progress, dest, setAside)
 		return InstallResult{}, fmt.Errorf("flipping the current symlink: %w", err)
 	}
 
 	// Post-flip bookkeeping — the app is installed and launchable from here
 	// on, so failures are chatter warnings, not install errors.
-	pruneLinuxVersions(ins.Progress, root, rel.Version)
+	versionprune.Prune(root, previousVersion, versionprune.WriterLogger(ins.Progress))
 	ins.integrateLinux(ctx, root, iconSizeDir)
 
 	restarted := false
@@ -246,26 +252,6 @@ func restoreLinuxSwap(progress io.Writer, dest, previous string) {
 	}
 	if err := os.Rename(previous, dest); err != nil {
 		fmt.Fprintf(progress, "warning: restoring the previous %s: %v\n", dest, err)
-	}
-}
-
-// pruneLinuxVersions removes every version dir under root other than keep, so
-// the root holds exactly current + one version. Runs only after a successful
-// flip — a leftover version dir proves its run never flipped. Staging dirs
-// (self-reclaiming by name) and the current symlink are untouched.
-func pruneLinuxVersions(progress io.Writer, root, keep string) {
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		fmt.Fprintf(progress, "warning: pruning old versions under %s: %v\n", root, err)
-		return
-	}
-	for _, e := range entries {
-		if !e.IsDir() || e.Name() == keep || strings.HasPrefix(e.Name(), linuxStagingPrefix) {
-			continue
-		}
-		if err := os.RemoveAll(filepath.Join(root, e.Name())); err != nil {
-			fmt.Fprintf(progress, "warning: removing old version dir %s: %v\n", e.Name(), err)
-		}
 	}
 }
 
@@ -314,7 +300,7 @@ func startDetached(argv []string) error {
 
 // validateExtractedTree checks the extracted squashfs-root before the install
 // target is touched — the Linux analogue of the darwin "mounted bundle is
-// named Run Kit.app" check. It returns the hicolor icon size directory found
+// named HexoKit.app" check. It returns the hicolor icon size directory found
 // in the tree (e.g. "1024x1024") for the integration icon copy.
 func validateExtractedTree(dir, version string) (string, error) {
 	for _, req := range []struct {
@@ -322,9 +308,9 @@ func validateExtractedTree(dir, version string) (string, error) {
 		exec bool
 	}{
 		{"AppRun", true},
-		{"run-kit-desktop", true},
+		{"hexokit-desktop", true},
 		{filepath.Join("resources", "app.asar"), false},
-		{"run-kit-desktop.desktop", false},
+		{"hexokit-desktop.desktop", false},
 	} {
 		info, err := os.Stat(filepath.Join(dir, req.rel))
 		if err != nil || !info.Mode().IsRegular() {
@@ -338,7 +324,7 @@ func validateExtractedTree(dir, version string) (string, error) {
 	// The desktop entry's version stamp must equal the resolved release —
 	// both derive from the release job's extraMetadata.version, so a mismatch
 	// means the tree is not the build that was asked for.
-	entry, err := os.ReadFile(filepath.Join(dir, "run-kit-desktop.desktop"))
+	entry, err := os.ReadFile(filepath.Join(dir, "hexokit-desktop.desktop"))
 	if err != nil {
 		return "", err
 	}
@@ -352,9 +338,9 @@ func validateExtractedTree(dir, version string) (string, error) {
 		return "", fmt.Errorf("mounted AppImage reports version %q, expected %q — refusing to install an unexpected build", reported, version)
 	}
 
-	icons, err := filepath.Glob(filepath.Join(dir, "usr", "share", "icons", "hicolor", "*", "apps", "run-kit-desktop.png"))
+	icons, err := filepath.Glob(filepath.Join(dir, "usr", "share", "icons", "hicolor", "*", "apps", "hexokit-desktop.png"))
 	if err != nil || len(icons) == 0 {
-		return "", fmt.Errorf("extracted AppImage tree at %s carries no hicolor run-kit-desktop icon — refusing to install an unexpected build", dir)
+		return "", fmt.Errorf("extracted AppImage tree at %s carries no hicolor hexokit-desktop icon — refusing to install an unexpected build", dir)
 	}
 	iconSizeDir := filepath.Base(filepath.Dir(filepath.Dir(icons[0])))
 

@@ -24,7 +24,7 @@ export LOG_LEVEL=debug
 # stale-kill reclaims it). Explicit --port / preset RK_PORT still win.
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/e2e-env.sh"
 export RK_PORT="${RK_PORT:-$E2E_PORT}"
-export RK_HOST="${RK_HOST:-0.0.0.0}"
+export RK_HOST="${RK_HOST:-127.0.0.1}"
 
 # An in-flight `just test-e2e` owns this worktree's rig (it holds the
 # per-worktree lock from before its stale-kill until exit); its kill_triple

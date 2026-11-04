@@ -157,14 +157,18 @@ export function buildQuakeTerminalOpenAsTabAction(
  * The `Operator: Start operator` entry — the palette arm of the drawer's
  * Start operator button (and the only Start path on mobile, where no drawer
  * exists): POST /api/operator/start, then navigate to the new operator
- * window's route. A 409 `operator_exists` carries the racing window's id and
- * IS the success path (the operator appeared between the listing gate and
- * the launch). Listed only while the resolved server has NO operator window
- * (degrade to absent, never disabled) — the registration site gates the
- * listing; the builder itself is gate-agnostic.
+ * window's route. `viewedWindow` is the Terminal route's window when the
+ * operator starts on the route's server (else undefined) — the daemon derives
+ * its pane cwd server-side, so the operator opens where the user is. A 409
+ * `operator_exists` carries the racing window's id and IS the success path
+ * (the operator appeared between the listing gate and the launch). Listed
+ * only while the resolved server has NO operator window (degrade to absent,
+ * never disabled) — the registration site gates the listing; the builder
+ * itself is gate-agnostic.
  */
 export function buildOperatorStartAction(
   server: string,
+  viewedWindow: string | undefined,
   onStarted: (result: OperatorStartResult) => void,
   onError: (message: string) => void,
 ): QuakeTerminalPaletteAction {
@@ -172,7 +176,7 @@ export function buildOperatorStartAction(
     id: "operator-start",
     label: "Operator: Start operator",
     onSelect: () => {
-      void startOperator(server)
+      void startOperator(server, viewedWindow)
         .then(onStarted)
         .catch((err: unknown) => {
           if (err instanceof ApiError && err.code === "operator_exists" && err.windowId) {

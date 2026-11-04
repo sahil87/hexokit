@@ -1,0 +1,16 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-25T06:33:15Z"}
+{"args":"Web-tile tunnel over WebSocket — make the remote-native web tile work behind any front end (replace #1033's same-port CONNECT/absolute-form forward proxy with a desktop-local proxy + /ws tunnel; tighten WebSocket Origin checks)","cmd":"fab-new","event":"command","ts":"2026-09-25T06:33:15Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-09-25T06:37:17Z"}
+{"delta":"+0.2","event":"confidence","score":0.2,"trigger":"calc-score","ts":"2026-09-25T06:37:55Z"}
+{"delta":"+2.7","event":"confidence","score":2.9,"trigger":"calc-score","ts":"2026-09-25T06:38:52Z"}
+{"delta":"+0.1","event":"confidence","score":3,"trigger":"calc-score","ts":"2026-09-25T06:39:09Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-25T06:39:36Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-25T06:39:36Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-25T07:01:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-25T07:07:35Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T07:07:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-25T07:15:48Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-25T07:18:41Z"}
+{"args":"timeout pr=1037","cmd":"git-pr-review","event":"command","ts":"2026-09-25T07:32:27Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-09-25T08:33:23Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T08:43:26Z"}

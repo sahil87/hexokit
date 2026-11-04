@@ -31,7 +31,6 @@ function renderPanel(overrides: {
   rowTints?: Map<string, RowTint>;
   rowBorders?: Map<string, string>;
   onSwitchServer?: (name: string) => void;
-  onCreateServer?: () => void;
   onRefreshServers?: () => void;
   onServerColorChange?: (server: string, color: string | null) => void;
   onCreateSession?: (server: string) => void;
@@ -51,7 +50,6 @@ function renderPanel(overrides: {
     rowTints: overrides.rowTints,
     rowBorders: overrides.rowBorders,
     onSwitchServer: overrides.onSwitchServer ?? vi.fn(),
-    onCreateServer: overrides.onCreateServer ?? vi.fn(),
     onRefreshServers: overrides.onRefreshServers ?? vi.fn(),
     onServerColorChange: overrides.onServerColorChange,
     onCreateSession: overrides.onCreateSession,
@@ -70,7 +68,7 @@ function renderPanel(overrides: {
 // The panel defaults open (defaultOpen=true) — tests that need a collapsed
 // start seed the persisted key before rendering.
 function seedCollapsed() {
-  localStorage.setItem("runkit-panel-server", "false");
+  localStorage.setItem("hexokit-panel-server", "false");
 }
 
 beforeEach(() => {
@@ -124,35 +122,31 @@ describe("ServerPanel", () => {
     expect(onSwitchServer).toHaveBeenCalledWith("work");
   });
 
-  it("shows 'No servers' when server list is empty", () => {
+  it("shows 'No workspaces' when server list is empty", () => {
     renderPanel({ servers: [] });
-    expect(screen.getByText("No servers")).toBeInTheDocument();
+    expect(screen.getByText("No workspaces")).toBeInTheDocument();
   });
 
-  it("header + button invokes onCreateServer without opening the panel", () => {
-    const onCreateServer = vi.fn();
-    renderPanel({ onCreateServer });
-
-    const plus = screen.getByRole("button", { name: "New tmux server" });
-    fireEvent.click(plus);
-    expect(onCreateServer).toHaveBeenCalled();
+  it("carries no header + (workspace creation lives in the New split button)", () => {
+    renderPanel();
+    expect(screen.queryByRole("button", { name: "New workspace" })).not.toBeInTheDocument();
   });
 
   it("renders no hover action cluster on tiles (server actions live on the tile's flyout card)", () => {
     renderPanel({ server: "default" });
 
     // No in-tile icon buttons: the tile card (hover/focus) carries Change
-    // color… / New session / Protect / Kill server rows instead.
-    expect(screen.queryByRole("button", { name: /Kill server/ })).not.toBeInTheDocument();
+    // color… / New group / Protect / Kill workspace rows instead.
+    expect(screen.queryByRole("button", { name: /Kill workspace/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Set color for server/ })).not.toBeInTheDocument();
   });
 
   it("is open by default: the tile grid renders without any toggle click", () => {
     renderPanel();
 
-    const grid = screen.getByRole("listbox", { name: /Tmux servers/ });
+    const grid = screen.getByRole("listbox", { name: /Workspaces/ });
     expect(grid).toBeInTheDocument();
-    const toggle = screen.getByRole("button", { name: /Server/ });
+    const toggle = screen.getByRole("button", { name: /Workspaces/ });
     expect(toggle).toHaveAttribute("aria-expanded", "true");
   });
 
@@ -162,13 +156,13 @@ describe("ServerPanel", () => {
     renderPanel({ onRefreshServers });
     expect(onRefreshServers).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: /Server/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Workspaces/ }));
     expect(onRefreshServers).toHaveBeenCalled();
   });
 
   it("renders tile grid as listbox with server tiles as options (keyboard-focusable)", () => {
     renderPanel();
-    const grid = screen.getByRole("listbox", { name: /Tmux servers/ });
+    const grid = screen.getByRole("listbox", { name: /Workspaces/ });
     // Exactly three options inside the tile grid listbox.
     const options = within(grid).getAllByRole("option");
     expect(options).toHaveLength(3);
@@ -187,7 +181,7 @@ describe("ServerPanel", () => {
   // server card the sessions-pane group header mounts (the shared
   // ServerCardContent) — `Server <name>` title bar, the `tmux -L <name> · N
   // sessions` facts line (external servers carry the provenance suffix), and
-  // the Change color… / New session / Protect / Kill server rows. No rail, no
+  // the Change color… / New group / Protect / Kill workspace rows. No rail, no
   // coarse trigger: on coarse pointers the tile opens no card.
   describe("tile flyout card", () => {
     beforeEach(() => {
@@ -230,12 +224,12 @@ describe("ServerPanel", () => {
       const card = screen.getByTestId("row-flyout-card");
       const bar = screen.getByTestId("popup-title-bar");
       expect(card).toContainElement(bar);
-      expect(bar).toHaveTextContent("Server default");
-      expect(card).toHaveTextContent("tmux -L default · 6 sessions");
+      expect(bar).toHaveTextContent("Workspace default");
+      expect(card).toHaveTextContent("tmux -L default · 6 groups");
       expect(screen.getByTestId("row-flyout-color-action")).toHaveTextContent("Change color…");
-      expect(screen.getByTestId("row-flyout-create-action")).toHaveTextContent("New session");
+      expect(screen.getByTestId("row-flyout-create-action")).toHaveTextContent("New group");
       expect(screen.getByTestId("row-flyout-protect-toggle")).toBeInTheDocument();
-      expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill server");
+      expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill workspace");
       // The retired identity tip never mounts.
       expect(screen.queryByTestId("server-tip")).toBeNull();
     });
@@ -274,7 +268,7 @@ describe("ServerPanel", () => {
       });
       hoverTile(/ext/);
       expect(screen.getByTestId("row-flyout-card")).toHaveTextContent(
-        "tmux -L ext · 2 sessions · external — not started by run-kit",
+        "tmux -L ext · 2 groups · external — not started by HexoKit",
       );
 
       cleanup();
@@ -284,7 +278,7 @@ describe("ServerPanel", () => {
         server: "own",
       });
       hoverTile(/own/);
-      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("tmux -L own · 1 session");
+      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("tmux -L own · 1 group");
       expect(screen.getByTestId("row-flyout-card")).not.toHaveTextContent("external");
     });
 
@@ -363,11 +357,11 @@ describe("ServerPanel", () => {
     seedCollapsed();
     renderPanel({ server: "work" });
 
-    expect(screen.getByText("Servers")).toBeInTheDocument();
+    expect(screen.getByText("Workspaces")).toBeInTheDocument();
 
     // The name is shown by the highlighted tile and the top-bar heading — the
     // headerRight slot no longer duplicates it.
-    const toggle = screen.getByRole("button", { name: /Server/ });
+    const toggle = screen.getByRole("button", { name: /Workspaces/ });
     expect(within(toggle).queryByText("work")).not.toBeInTheDocument();
   });
 
@@ -554,7 +548,6 @@ describe("ServerPanel", () => {
               ]}
               serverColors={{}}
               onSwitchServer={vi.fn()}
-              onCreateServer={vi.fn()}
               onRefreshServers={vi.fn()}
             />
           </ToastProvider>

@@ -92,6 +92,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       "focus-hop": "Backquote",
       "terminal-find": "KeyF",
       "gui-capture-toggle": "KeyG",
+      "web-capture-toggle": "KeyG",
     });
   });
 
@@ -675,9 +676,9 @@ describe("DEFAULT_BINDINGS integrity", () => {
       macCode: "ArrowUp",
       scope: "global",
       kind: "builtin",
-      label: "Previous session",
-      description: "jump to the adjacent session's active window",
-      mapLabel: "prev session",
+      label: "Previous group",
+      description: "jump to the adjacent group's active tab",
+      mapLabel: "prev group",
       ignoreInputs: true,
     });
     expect(next).toEqual({
@@ -687,9 +688,9 @@ describe("DEFAULT_BINDINGS integrity", () => {
       macCode: "ArrowDown",
       scope: "global",
       kind: "builtin",
-      label: "Next session",
-      description: "jump to the adjacent session's active window",
-      mapLabel: "next session",
+      label: "Next group",
+      description: "jump to the adjacent group's active tab",
+      mapLabel: "next group",
       ignoreInputs: true,
     });
     for (const host of [SHELL_MAC, BROWSER_MAC]) {
@@ -748,7 +749,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
     }
   });
 
-  it("ships layout-cycle on ⌘; (260812-ab5v R9/R11) — the ▦ chip's same-arity shape cycle", () => {
+  it("ships layout-cycle on ⌘; (260812-ab5v R9/R11) — the ▦ chip's template cycle", () => {
     expect(byId(resolved(), "layout-cycle")).toMatchObject({
       code: "Semicolon",
       tier: "cmd",
@@ -799,12 +800,12 @@ describe("palette parity invariant", () => {
   //                    Expand`/`Restore` remain as the expand-only verb)
   //   focus-hop      ⇄ tile-focus-tty / tile-focus-code
   // window-prev / window-next resolve to "Tab: Previous" / "Tab: Next",
-  // session-prev / session-next to "Session: Previous" / "Session: Next",
+  // session-prev / session-next to "Group: Previous" / "Group: Next",
   // and sidebar-toggle to "Sidebar: Toggle" (ids = actionIds, so the chord
   // hints attach) + sidebar-focus ("Sidebar: Focus") — all added with the
   // palette gap-fill phase; the map names them ahead of their runtime rows.
   const PALETTE_RESOLUTIONS: Record<string, readonly string[]> = {
-    "create-session": ["create-session"], // Session: Create
+    "create-session": ["create-session"], // Group: Create
     "create-window": ["create-window"], // Tab: Create
     "kill-window": ["kill-window"], // Tab: Kill
     "reopen-window": ["reopen-window"], // Tab: Reopen closed (stack-gated)
@@ -834,12 +835,13 @@ describe("palette parity invariant", () => {
     "gui-zoom-out": ["gui-zoom-out"], // GUI: Zoom out
     "gui-zoom-fit": ["gui-zoom-fit"], // GUI: Zoom to fit
     "gui-capture-toggle": ["gui-capture-toggle"], // GUI: Capture/Release keyboard
+    "web-capture-toggle": ["web-capture-toggle"], // Web: Capture/Release keyboard
     "zen-toggle": ["view-zen-enter", "view-zen-exit"],
     "focus-hop": ["tile-focus-tty", "tile-focus-code"],
     "web-find": ["web-find"], // Web: Find in page (260819-ie2i)
     "terminal-find": ["terminal-find"], // Terminal: Find
     "web-address": ["web-address"], // Web: Focus address bar (260819-v6y4)
-    "layout-cycle": ["layout-cycle"], // Layout: Cycle Shape
+    "layout-cycle": ["layout-cycle"], // Layout: Cycle Template
     "board-cycle-next": ["board-cycle-next"], // Board: pane cycle →
     "board-cycle-prev": ["board-cycle-prev"], // Board: pane cycle ←
   };
@@ -1732,7 +1734,7 @@ describe("per-platform default tiers — 260730-n789", () => {
     expect(byId(bindings, "go-back").code).toBe("BracketLeft");
   });
 
-  it("mac shell: reopen-window rides ⇧⌘T (macCode); create-session is palette-only (mac-keyless); the app-window pair spends ⌘N/⇧⌘W", () => {
+  it("mac shell: reopen-window rides ⇧⌘T (macCode); create-session rides ⌥⌘T (optcmd); the app-window pair spends ⌘N/⇧⌘W", () => {
     const bindings = resolved(SHELL_MAC);
     // ⇧⌘T — tier-disjoint from create-window's ⌘T on one code (the
     // split-pair ⌘D/⇧⌘D shape), so findConflicts stays clean.
@@ -1742,12 +1744,19 @@ describe("per-platform default tiers — 260730-n789", () => {
       enabled: true,
       isDefault: true,
     });
-    // create-session's mac-keyless refinement (`macCode: ""`) resolves
-    // UNBOUND on the mac shell — palette-only; ⇧⌘N fires nothing.
+    // create-session rides ⌥⌘T on the optcmd tier — tier-disjoint from
+    // create-window's ⌘T on the same code.
     expect(byId(bindings, "create-session")).toMatchObject({
-      enabled: false,
-      disabledReason: "user",
+      code: "KeyT",
+      tier: "optcmd",
+      enabled: true,
+      isDefault: true,
     });
+    expect(
+      findMatches(chord({ code: "KeyT", metaKey: true, altKey: true }), bindings).map((b) => b.actionId),
+    ).toEqual(["create-session"]);
+    expect(findMatches(chord({ code: "KeyT", metaKey: true }), bindings).map((b) => b.actionId))
+      .toEqual(["create-window"]);
     expect(byId(bindings, "create-window")).toMatchObject({
       code: "KeyT",
       tier: "cmd",
@@ -1803,11 +1812,12 @@ describe("per-platform default tiers — 260730-n789", () => {
       enabled: false,
       disabledReason: "reserved",
     });
-    // create-session has NO mac chord (mac-keyless refinement): unbound, not
-    // reserved — there is no combo left for a claim to shadow.
+    // ⌥⌘T carries no browser claim (reservation unverified), so the default
+    // stays enabled in a mac browser.
     expect(byId(bindings, "create-session")).toMatchObject({
-      enabled: false,
-      disabledReason: "user",
+      code: "KeyT",
+      tier: "optcmd",
+      enabled: true,
     });
     for (const id of ["window-prev", "window-next"]) {
       expect(byId(bindings, id)).toMatchObject({ tier: "cmd", enabled: true });
@@ -1864,10 +1874,9 @@ describe("per-platform default tiers — 260730-n789", () => {
     expect(defaultComboFor(goBack, BROWSER_MAC)).toEqual({ code: "BracketLeft", tier: "cmd" });
     expect(defaultComboFor(goBack, SHELL_OTHER)).toEqual({ code: "BracketLeft", tier: "shifted" });
     // One canonical chord per action: the mac default no longer varies by host.
-    // create-session refines to a KEYLESS mac combo (`macCode: ""`) — palette-only
-    // on both mac hosts, ⇧Ctrl+N untouched elsewhere.
-    expect(defaultComboFor(createSession, SHELL_MAC)).toEqual({ code: "", tier: "shifted" });
-    expect(defaultComboFor(createSession, BROWSER_MAC)).toEqual({ code: "", tier: "shifted" });
+    // create-session refines to ⌥⌘T on both mac hosts, ⇧Ctrl+N untouched elsewhere.
+    expect(defaultComboFor(createSession, SHELL_MAC)).toEqual({ code: "KeyT", tier: "optcmd" });
+    expect(defaultComboFor(createSession, BROWSER_MAC)).toEqual({ code: "KeyT", tier: "optcmd" });
     expect(defaultComboFor(createSession, BROWSER_OTHER)).toEqual({ code: "KeyN", tier: "shifted" });
     // The app-window pair: keyless base (passthrough off mac), refined combos
     // on BOTH mac hosts.
@@ -1881,15 +1890,55 @@ describe("per-platform default tiers — 260730-n789", () => {
   });
 
   it("defaultComboFor: an empty-string macCode refines to the unbound combo on mac (no base-code fallback)", () => {
-    const createSession = DEFAULT_BINDINGS.find((b) => b.actionId === "create-session")!;
+    const keyless: KeyBinding = {
+      actionId: "probe",
+      code: "KeyN",
+      tier: "shifted",
+      macCode: "",
+      scope: "global",
+      kind: "builtin",
+      label: "probe",
+    };
     // `macCode: ""` is a REFINEMENT to keyless, not an absent refinement — a
-    // truthiness test would fall back to the base KeyN and keep ⇧⌘N live in
-    // the mac shell.
+    // truthiness test would fall back to the base KeyN.
     for (const host of [SHELL_MAC, BROWSER_MAC]) {
-      expect(defaultComboFor(createSession, host)).toEqual({ code: "", tier: "shifted" });
+      expect(defaultComboFor(keyless, host)).toEqual({ code: "", tier: "shifted" });
     }
-    // Win/Linux never consults the refinement: ⇧Ctrl+N stands.
-    expect(defaultComboFor(createSession, SHELL_OTHER)).toEqual({ code: "KeyN", tier: "shifted" });
+    // Win/Linux never consults the refinement.
+    expect(defaultComboFor(keyless, SHELL_OTHER)).toEqual({ code: "KeyN", tier: "shifted" });
+  });
+
+  it("optcmd tier: requires Meta+Alt, rejects Shift/Ctrl, never collides with cmd/ctrl/shifted, formats as ⌥⌘", () => {
+    const combo = { code: "KeyT", tier: "optcmd" as const };
+    expect(matchesCombo(chord({ code: "KeyT", metaKey: true, altKey: true }), combo)).toBe(true);
+    expect(matchesCombo(chord({ code: "KeyT", metaKey: true }), combo)).toBe(false);
+    expect(matchesCombo(chord({ code: "KeyT", altKey: true }), combo)).toBe(false);
+    expect(matchesCombo(chord({ code: "KeyT", metaKey: true, altKey: true, shiftKey: true }), combo)).toBe(false);
+    expect(matchesCombo(chord({ code: "KeyT", metaKey: true, altKey: true, ctrlKey: true }), combo)).toBe(false);
+    // Alt stays rejected for every other tier.
+    expect(matchesCombo(chord({ code: "KeyT", metaKey: true, altKey: true }), { code: "KeyT", tier: "cmd" })).toBe(false);
+    for (const other of ["shifted", "cmd", "ctrl"] as const) {
+      expect(tiersCollide("optcmd", other)).toBe(false);
+    }
+    expect(tiersCollide("optcmd", "optcmd")).toBe(true);
+    expect(formatCombo(combo, "mac")).toBe("⌥⌘T");
+    expect(comboParts(combo, "mac")).toEqual(["⌥", "⌘", "T"]);
+    // Off-mac spelling agrees with matchesCombo (Meta + Alt), not Ctrl.
+    expect(comboParts(combo, "other")).toEqual(["Alt", "Meta", "T"]);
+  });
+
+  it("optcmd capture: mac Meta+Alt reads as optcmd; Alt elsewhere stays unbindable", () => {
+    expect(captureFromEvent(chord({ code: "KeyJ", metaKey: true, altKey: true }), "mac"))
+      .toEqual({ code: "KeyJ", tier: "optcmd" });
+    expect(captureFromEvent(chord({ code: "KeyJ", ctrlKey: true, altKey: true }), "other")).toBeNull();
+    expect(captureFromEvent(chord({ code: "KeyJ", metaKey: true, altKey: true, shiftKey: true }), "mac")).toBeNull();
+  });
+
+  it("optcmd chords bubble out of the mac terminal (⌘ never reaches the pane)", () => {
+    const bindings = resolved(SHELL_MAC);
+    expect(
+      shouldRefuseTerminalChord(chord({ code: "KeyT", metaKey: true, altKey: true }), bindings, "mac"),
+    ).toBe(true);
   });
 
   it("stored-override shape is unchanged: a {code,tier} diff applies as-is on mac hosts", () => {
@@ -1979,6 +2028,13 @@ describe("shouldRefuseTerminalChord (260730-n789)", () => {
     const e = chord({ code: "ArrowDown", shiftKey: true, ctrlKey: true });
     expect(shouldRefuseTerminalChord(e, resolved(SHELL_OTHER), "other")).toBe(true);
     expect(shouldRefuseTerminalChord(e, resolved(SHELL_MAC), "mac")).toBe(true);
+  });
+
+  it("the ⇧G capture toggles (webOnly + guiOnly) never refuse — ⇧Ctrl+G / ⇧⌘G stay with the pane", () => {
+    const other = resolved(SHELL_OTHER);
+    const mac = resolved(SHELL_MAC);
+    expect(shouldRefuseTerminalChord(chord({ code: "KeyG", ctrlKey: true, shiftKey: true }), other, "other")).toBe(false);
+    expect(shouldRefuseTerminalChord(chord({ code: "KeyG", metaKey: true, shiftKey: true }), mac, "mac")).toBe(false);
   });
 
   it("arrow chords: mac ⌘↑/⌘↓ refuse via the cmd-tier metaKey rule; shifted arrows refuse everywhere; plain and plain-Shift arrows reach the pane", () => {
@@ -2394,9 +2450,9 @@ describe("hasReclaimableMatch — the lens-iframe reclaim carve-out (260812-wfic
 });
 
 describe("webOnly — the web-find data flag (260819-ie2i)", () => {
-  it("exactly web-find and web-address carry the flag in the shipped defaults", () => {
+  it("exactly web-find, web-address, and web-capture-toggle carry the flag in the shipped defaults", () => {
     const flagged = DEFAULT_BINDINGS.filter((b) => b.webOnly).map((b) => b.actionId);
-    expect(flagged).toEqual(["web-find", "web-address"]);
+    expect(flagged).toEqual(["web-find", "web-address", "web-capture-toggle"]);
   });
 
   it("web-find ships as ⌘F on mac and Ctrl+F on Win/Linux (cmd tier, no mac refinement)", () => {
@@ -2551,8 +2607,15 @@ describe("gui-capture-toggle — the chord gate's escape hatch", () => {
   });
 
   it("KeyG is otherwise unclaimed in the shifted tier — no registry or host-claim collision", () => {
+    // The ONE sharer is web-capture-toggle — surface-gated (webOnly vs
+    // guiOnly), so the two handlers are never simultaneously present.
     expect(
-      DEFAULT_BINDINGS.filter((b) => b.code === "KeyG" && b.actionId !== "gui-capture-toggle"),
+      DEFAULT_BINDINGS.filter(
+        (b) =>
+          b.code === "KeyG" &&
+          b.actionId !== "gui-capture-toggle" &&
+          b.actionId !== "web-capture-toggle",
+      ),
     ).toEqual([]);
     for (const host of ALL_HOSTS) {
       expect(
@@ -2563,7 +2626,7 @@ describe("gui-capture-toggle — the chord gate's escape hatch", () => {
     }
   });
 
-  it("the release chord reclaims for kind 'gui' only, captured or not", () => {
+  it("the release chord reclaims for kinds 'gui' and 'web' (each its own toggle), never 'code', captured or not", () => {
     for (const host of ALL_HOSTS) {
       const bindings = resolved(host);
       const e =
@@ -2572,8 +2635,10 @@ describe("gui-capture-toggle — the chord gate's escape hatch", () => {
           : chord({ code: "KeyG", shiftKey: true, ctrlKey: true });
       expect(hasReclaimableMatch(e, bindings, "gui")).toBe(true);
       expect(hasReclaimableMatch(e, bindings, "code")).toBe(false);
-      expect(hasReclaimableMatch(e, bindings, "web")).toBe(false);
+      // web-capture-toggle (webOnly) shares ⌘⇧G — the web tile's release.
+      expect(hasReclaimableMatch(e, bindings, "web")).toBe(true);
       expect(hasReclaimableMatch(e, bindings, "gui", true)).toBe(true);
+      expect(hasReclaimableMatch(e, bindings, "web", true)).toBe(true);
     }
   });
 

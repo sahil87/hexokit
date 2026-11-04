@@ -11,6 +11,7 @@ import {
   useInteractions,
   useRole,
 } from "@floating-ui/react";
+import { useOccludes } from "@/hooks/use-occludes";
 
 /**
  * Sent-history is portalled with fixed positioning so the bottom-docked card
@@ -28,6 +29,10 @@ export function ComposeHistoryFlyout({
   onSelect: (entry: string) => void;
   onClose: () => void;
 }) {
+  // Mounts only while open, so the registration is unconditional — popovers
+  // hold `transient` (overlay-presence) so a native guest composited above
+  // the DOM hides and the flyout never paints underneath it.
+  useOccludes("transient", true);
   const { refs, floatingStyles, context } = useFloating({
     open: true,
     onOpenChange: (open) => {

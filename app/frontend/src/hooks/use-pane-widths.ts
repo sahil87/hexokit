@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 /** Per-board pane width persistence key prefix. */
-export const BOARD_WIDTHS_LOCALSTORAGE_PREFIX = "runkit:board-widths:";
+export const BOARD_WIDTHS_LOCALSTORAGE_PREFIX = "hexokit:board-widths:";
 
 /** Default pane width on desktop (px). */
 export const BOARD_PANE_DEFAULT_WIDTH = 480;

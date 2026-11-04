@@ -1,0 +1,57 @@
+id: g0gv
+name: 261030-g0gv-ui-rename-workspace-group-tab
+created: 2026-10-30T09:38:03Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 13
+    acceptance_count: 16
+    acceptance_completed: 16
+confidence:
+    certain: 3
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 76.4
+        reversibility: 85.7
+        competence: 80.7
+        disambiguation: 79.3
+stage_metrics:
+    intake: {started_at: "2026-10-30T09:38:03Z", driver: fab-new, iterations: 1, completed_at: "2026-10-30T09:41:31Z"}
+    apply: {started_at: "2026-10-30T11:13:03Z", driver: fab-fff, iterations: 3, completed_at: "2026-10-30T11:14:33Z"}
+    review: {started_at: "2026-10-30T11:14:33Z", driver: fab-fff, iterations: 3, completed_at: "2026-10-30T11:18:42Z"}
+    hydrate: {started_at: "2026-10-30T11:18:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-30T11:25:34Z"}
+    ship: {started_at: "2026-10-30T11:25:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-30T11:26:13Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1094
+base_branch: main
+true_impact:
+    added: 2504
+    deleted: 850
+    net: 1654
+    excluding:
+        added: 802
+        deleted: 715
+        net: 87
+    tests:
+        added: 310
+        deleted: 310
+        net: 0
+    computed_at: "2026-10-30T11:26:13Z"
+    computed_at_stage: ship
+change_type_source: explicit
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-10-30T11:26:13Z

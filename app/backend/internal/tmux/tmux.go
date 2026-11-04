@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"rk/internal/apphome"
 	"rk/internal/settings"
 	"rk/internal/validate"
 )
@@ -30,6 +31,13 @@ const SessionOrderOption = "@rk_srv_session_order"
 // tmux servers. Order data rides each server so a killed server takes only its
 // own rank — no cross-server merge rule is needed. Mirrors SessionOrderOption.
 const ServerRankOption = "@rk_srv_rank"
+
+// OperatorRootOption is the tmux server-scoped user option that stores the
+// directory of this server's last operator launch. `rk operator` stamps it on
+// every successful create and reads it back on a `-L <server>` launch without
+// `--dir` (the cron respawn argv), so a respawn lands where the operator last
+// started. Its lifetime is the server's — the same as the operator window's.
+const OperatorRootOption = "@rk_srv_operator_root"
 
 // OriginOption is the tmux server-scoped user option that stores the full
 // origin string (e.g. "http://127.0.0.1:3001") of the run-kit deployment
@@ -110,18 +118,31 @@ const RoleOption = "@rk_win_role"
 // dropped. Empty/absent = no note (degrade-to-absent everywhere).
 const NoteOption = "@rk_win_note"
 
-// LayoutOption carries the tab's surface layout: "<shape>:<surface>[,<surface>…]",
-// e.g. "main-left:tty,code,web". Unset renders single:tty.
+// LayoutOption carries the tab's surface layout: a canonical split tree,
+// e.g. "h(tty,v(code,web))" (legacy "<shape>:<surface>[,<surface>…]" preset
+// strings still parse). Unset renders the bare tty leaf.
 const LayoutOption = "@rk_win_layout"
 
 // layoutspecSingleWeb is the @rk_win_layout value a retired @rk_win_lens=iframe
-// reads as (and the value MigrateLegacyOptions writes for it).
-const layoutspecSingleWeb = "single:web"
+// reads as (and the value MigrateLegacyOptions writes for it) — the tree form
+// of the lone-web-tile layout.
+const layoutspecSingleWeb = "web"
 
 // MaxWebTabs bounds the indexed @rk_win_web_<n> family: ListWindows reads
 // options through one fixed tmux format string, which cannot enumerate a
-// family, so the URL slots are spelled out 1..MaxWebTabs.
-const MaxWebTabs = 8
+// family, so the URL slots are spelled out 1..MaxWebTabs. Every positional
+// field offset after the slots derives from this constant (the
+// listWindows*Field / layoutWindow*Field constants beside the two fixed-format
+// parsers), so raising the cap stays a one-line change.
+const MaxWebTabs = 16
+
+// legacyWebTabSlots is the URL-slot count of the pre-16 fixed formats (the
+// ListWindows and layoutWindowFormat layouts before the 8→16 cap raise). A
+// capture line shorter than the current format's full length came from the
+// 8-slot era and parses with offsets derived from this count — sparse legacy
+// lines read tolerantly either way, but a fully-populated legacy line's root
+// block otherwise misreads as extra URL slots and its trailing fields shift.
+const legacyWebTabSlots = 8
 
 // WebTabOption returns "@rk_win_web_<n>" (1 ≤ n ≤ MaxWebTabs); panics outside
 // the range — callers validate first, the bound is a programming contract, not
@@ -135,8 +156,9 @@ func WebTabOption(n int) string {
 
 // WebTabRootOption returns "@rk_win_web_<n>_root" — the absolute serve root for
 // a file/dir present target held in slot n, read at request time by the
-// /present/ route and never enumerated into ListWindows. Same range contract
-// as WebTabOption.
+// /present/ route and enumerated into ListWindows (WindowInfo.WebRoots) so
+// FetchSessions can derive the repo-relative display prefix; the raw root is
+// never serialized to clients. Same range contract as WebTabOption.
 func WebTabRootOption(n int) string {
 	if n < 1 || n > MaxWebTabs {
 		panic(fmt.Sprintf("WebTabRootOption(%d): out of range 1..%d", n, MaxWebTabs))
@@ -265,13 +287,12 @@ func init() {
 	// instead of the default socket without this.
 	os.Unsetenv("TMUX")
 
-	home, err := os.UserHomeDir()
-	if err == nil {
-		// Fixed root under $HOME only (no XDG env) — the same construction
-		// rule as settings.Dir()'s default, computed independently: the
-		// RK_CONFIG_DIR test override deliberately does not move this path
-		// (only the settings file needs per-run isolation).
-		DefaultConfigPath = filepath.Join(home, ".config", "run-kit", "tmux.conf")
+	if dir, err := apphome.ConfigDir(); err == nil {
+		// The resolved config home (apphome's dual-read rule) — the same root
+		// as settings.Dir()'s default: the RK_CONFIG_DIR test override
+		// deliberately does not move this path (only the settings file needs
+		// per-run isolation).
+		DefaultConfigPath = filepath.Join(dir, "tmux.conf")
 	}
 
 	configPath = resolveConfigPath()
@@ -281,6 +302,28 @@ func init() {
 		}
 	}
 	managedConfigPath = configPath == DefaultConfigPath
+}
+
+// RefreshDefaultConfigPath re-resolves DefaultConfigPath against the current
+// config home. The init-time resolution runs before the serve-time home
+// migration can publish the new home, so the first post-migration boot would
+// otherwise keep managing (and force-refreshing) the LEGACY tmux.conf while
+// every other resolver has moved on. When the resolved config path is the
+// managed default (no tmux_conf key, no RK_TMUX_CONF), configPath follows; in
+// "you own everything" mode only the default moves.
+func RefreshDefaultConfigPath() {
+	dir, err := apphome.ConfigDir()
+	if err != nil {
+		return
+	}
+	resolved := filepath.Join(dir, "tmux.conf")
+	if resolved == DefaultConfigPath {
+		return
+	}
+	DefaultConfigPath = resolved
+	if managedConfigPath {
+		configPath = resolved
+	}
 }
 
 // resolveConfigPath resolves the tmux config path once at package init:
@@ -389,7 +432,7 @@ func ensureDropInDir() error {
 // Returns an error if no config path is set or the source-file command fails.
 func ReloadConfig(server string) error {
 	if configPath == "" {
-		return fmt.Errorf("no tmux config path (run 'rk mux init-conf' or set the tmux_conf key in ~/.config/run-kit/config.yaml)")
+		return fmt.Errorf("no tmux config path (run 'rk mux init-conf' or set the tmux_conf key in ~/.config/hexokit/config.yaml)")
 	}
 	ctx, cancel := withTimeout()
 	defer cancel()
@@ -460,6 +503,17 @@ const (
 	// sharing an `@rk_ses_pin_board` value, not a session itself. Pin-sessions are
 	// persistent across rk restarts (Constitution VI); there is no startup sweep.
 	PinSessionPrefix = "_rk-pin-"
+	// IsoSessionPrefix is the reserved name prefix for run-kit's single-window
+	// isolated relay sessions: `_rk-iso-<windowDigits>` (the window's `@N` id
+	// with the `@` stripped, since tmux session names disallow `@`). An
+	// `open` op with `isolate: true` attaches through the window's iso session
+	// (created on demand, the window LINKED in — it stays a member of its home
+	// session too) so the stream gets an independent active-window pointer
+	// without touching home's. Sessions matching this prefix are filtered out
+	// of user-facing session lists exactly like pin-sessions. Lifecycle is
+	// tmux-side: the attach argv chains `destroy-unattached on`, so tmux reaps
+	// the session when its last client leaves.
+	IsoSessionPrefix = "_rk-iso-"
 	// ControlAnchorSessionName is the literal name of the hidden anchor session
 	// created by the tmuxctl package on tmux servers that have zero user
 	// sessions (a `tmux -CC attach` requires an attached session). It is
@@ -500,6 +554,42 @@ func WindowIDFromPinSession(name string) (string, bool) {
 		return "", false
 	}
 	return id, true
+}
+
+// IsoSessionName derives the single-window isolated relay session name for a
+// window id by stripping the leading `@` (tmux session names disallow `@`):
+// `@42` → `_rk-iso-42`. Returns ("", false) for an invalid window id. The
+// mapping is pure and reversible (see WindowIDFromIsoSession), so membership
+// needs no name→id lookup table.
+func IsoSessionName(windowID string) (string, bool) {
+	if !ValidWindowID(windowID) {
+		return "", false
+	}
+	return IsoSessionPrefix + windowID[1:], true
+}
+
+// WindowIDFromIsoSession is the inverse of IsoSessionName: `_rk-iso-42` → `@42`.
+// Returns ("", false) when name lacks the prefix or the recovered id is not a
+// valid `@<digits>` window id.
+func WindowIDFromIsoSession(name string) (string, bool) {
+	if !strings.HasPrefix(name, IsoSessionPrefix) {
+		return "", false
+	}
+	id := "@" + strings.TrimPrefix(name, IsoSessionPrefix)
+	if !ValidWindowID(id) {
+		return "", false
+	}
+	return id, true
+}
+
+// IsHiddenLinkSession reports whether name is one of run-kit's single-window
+// link-target sessions (a board pin-session or an isolated relay session) —
+// rk-internal attach targets that are never user-facing session owners. Every
+// site that treats pin-sessions as "not a user-facing owner" (session lists,
+// layout snapshots, home-session resolution) keys on this one predicate so the
+// two kinds can never drift apart.
+func IsHiddenLinkSession(name string) bool {
+	return strings.HasPrefix(name, PinSessionPrefix) || strings.HasPrefix(name, IsoSessionPrefix)
 }
 
 // AgentStateOption is the tmux PANE-scoped user option that carries the generic
@@ -884,14 +974,31 @@ type WindowInfo struct {
 	// line; a manual refresh visibly resets it.
 	PrFetchedAt *time.Time `json:"prFetchedAt,omitempty"`
 	// Layout is the tab's surface layout, sourced from the LayoutOption window
-	// user option ("<shape>:<surface>[,<surface>…]"). "" (unset) renders
-	// single:tty. Read-side is tolerant: the raw value rides through unvalidated
-	// (validation is write-side; consumers parse).
+	// user option (a split tree, e.g. "h(tty,v(code,web))"; legacy preset
+	// strings still parse). "" (unset) renders the bare tty leaf. Read-side is
+	// tolerant: the raw value rides through unvalidated (validation is
+	// write-side; consumers parse).
 	Layout string `json:"layout,omitempty"`
+	// AwayIn maps a surface kind to the id of the window currently holding it
+	// as a foreign leaf ("@12/tty" in that window's layout) — the home window's
+	// view of a borrow, derived across ALL of the server's windows in
+	// FetchSessions via DeriveAwayIn (nothing stored, Constitution II). Absent
+	// kinds are not away. Dead homes and self-naming leaves never appear.
+	AwayIn map[string]string `json:"awayIn,omitempty"`
 	// WebTabs is the dense @rk_win_web_<n> family: slots 1..MaxWebTabs walked in
 	// order, stopping at the first empty (a hand-written gap degrades to the
 	// prefix — the write paths never produce gaps). Index 0 is tmux slot 1.
 	WebTabs []string `json:"webTabs,omitempty"`
+	// WebRoots is the absolute serve root of each WebTabs entry ("" where the
+	// slot has no root — port/URL targets), parallel to WebTabs. Server-internal:
+	// absolute host paths never reach the client (json:"-"); WebPaths carries
+	// the derived display form.
+	WebRoots []string `json:"-"`
+	// WebPaths is the repo-relative display prefix of each WebTabs entry,
+	// derived rk-side in FetchSessions from WebRoots (see deriveWebPath): ""
+	// = no prefix, "docs/wiki" in-repo, "loom:docs/wiki" for a repo other than
+	// the window's. Index-aligned with WebTabs; omitted when no slot has one.
+	WebPaths []string `json:"webPaths,omitempty"`
 	// WebActive is the 1-based index into WebTabs the web surface shows, sourced
 	// from WebActiveOption. 0 when no tabs; a non-numeric or out-of-range stored
 	// value clamps to 1 when tabs exist (degrade, never error).
@@ -1065,17 +1172,19 @@ func parseSessions(lines []string) []SessionInfo {
 		if len(parts) < 2 {
 			continue
 		}
-		// Filter run-kit's single-window board pin-sessions from every
-		// user-facing session list. A pinned window is LINKED into its
-		// `_rk-pin-*` session (it stays a member of its home session too, so it
+		// Filter run-kit's single-window hidden link-target sessions (board
+		// pin-sessions and isolated relay sessions) from every user-facing
+		// session list. A pinned/isolated window is LINKED into its hidden
+		// session (it stays a member of its home session too, so it
 		// still appears in the sidebar natively via its home membership); the
-		// pin-session ITSELF is never a user-facing SESSIONS entry (it is
-		// rendered only as a BOARDS pane). This is the single chokepoint — every
+		// link-target session ITSELF is never a user-facing SESSIONS entry (a
+		// pin-session is rendered only as a BOARDS pane; an iso session is a
+		// relay attach target). This is the single chokepoint — every
 		// consumer (REST, SSE, board derivation, server-aggregate) flows
 		// through ListSessions/parseSessions, so a single early-skip here
-		// guarantees no pin-session leaks into the SESSIONS UI while the pinned
-		// window is still shown under its home session.
-		if strings.HasPrefix(parts[0], PinSessionPrefix) {
+		// guarantees no link-target session leaks into the SESSIONS UI while
+		// the window is still shown under its home session.
+		if IsHiddenLinkSession(parts[0]) {
 			continue
 		}
 		// Filter the tmuxctl control-mode anchor session — owned by the
@@ -1179,8 +1288,8 @@ func ListPinSessionNames(ctx context.Context, server string) ([]string, error) {
 }
 
 // ListSessions returns sessions from the specified tmux server,
-// filtering out session-group copies and run-kit's board pin-sessions
-// (PinSessionPrefix). Returns nil if no server is running.
+// filtering out session-group copies and run-kit's hidden link-target
+// sessions (pin/iso — see IsHiddenLinkSession). Returns nil if no server is running.
 // sessionListFormat is the 9-field list-sessions format string consumed by
 // parseSessions AND buildSessionFacts (session_facts.go) — shared so the two
 // enumerations can never read differently-shaped lines: name, grouped, group,
@@ -1526,23 +1635,56 @@ func clampWebActive(raw string, tabs int) int {
 	return n
 }
 
+// Positional field indices (0-based) of the ListWindows format string,
+// derived from MaxWebTabs so a cap raise stays a one-line change. The format
+// builder (ListWindows) spells the same order: listWindowsFixedPrefix fixed
+// fields, the MaxWebTabs URL slots, the MaxWebTabs parallel root slots, then
+// the trailing fields below, with the legacy note always LAST (its free-text
+// tail is rejoined by parseWindows).
+const (
+	listWindowsFixedPrefix     = 9
+	listWindowsRootsField      = listWindowsFixedPrefix + MaxWebTabs
+	listWindowsWebActiveField  = listWindowsFixedPrefix + 2*MaxWebTabs
+	listWindowsCodeRootField   = listWindowsWebActiveField + 1
+	listWindowsMarkerField     = listWindowsWebActiveField + 2
+	listWindowsRoleField       = listWindowsWebActiveField + 3
+	listWindowsFlairField      = listWindowsWebActiveField + 4
+	listWindowsOwnerField      = listWindowsWebActiveField + 5
+	listWindowsNoteField       = listWindowsWebActiveField + 6
+	listWindowsLegacyURLField  = listWindowsWebActiveField + 7
+	listWindowsLegacyLensField = listWindowsWebActiveField + 8
+	// listWindowsLegacyPresentRootField is the retired @rk_win_present_root —
+	// the slot-1 root fallback, mirroring the /present/ route's dual-read.
+	listWindowsLegacyPresentRootField = listWindowsWebActiveField + 9
+	listWindowsLegacyNoteField        = listWindowsWebActiveField + 10
+	// listWindowsFullFields is the field count of a complete current-format
+	// line; a shorter line is a pre-16-slot capture (see legacyWebTabSlots)
+	// that carries neither the root block nor the legacy present-root field.
+	listWindowsFullFields = listWindowsLegacyNoteField + 1
+)
+
 // parseWindows parses tmux list-windows output lines into WindowInfo structs.
 // nowUnix is the current Unix timestamp for activity threshold computation.
-// Lines have 25 tab-delimited fields plus the legacy-note tail: window_id,
-// window_index, window_name, pane_current_path, window_activity,
-// window_active, pane_current_command, @rk_win_color, @rk_win_layout,
-// @rk_win_web_1 .. @rk_win_web_8, @rk_win_web_active, @rk_win_code_root,
-// @rk_win_marker, @rk_win_role, @rk_win_flair, @rk_win_owner, then
-// @rk_win_note as a STRICT SINGLE FIELD, then the retired @rk_win_url
-// (dual-read web_1 fallback), the retired @rk_win_lens (dual-read single:web
-// layout fallback), then the legacy note LAST. Lines with fewer than 8 fields
-// are skipped; fields 8+ are optional (empty string if absent). The web-tab
-// slots read dense (walk 1..8, stop at the first empty) and web_active
-// degrades (non-numeric/out-of-range clamps per clampWebActive, never an
-// error). The note is dual-read: the new field wins when non-empty, else the
-// legacy note, whose free-text tail is rejoined (tabs inside it would
-// otherwise shift sibling columns); the new note rides one field because
-// write-side validation strips control chars.
+// Lines carry listWindowsFixedPrefix + 2*MaxWebTabs + 10 tab-delimited fields
+// plus the legacy-note tail: window_id, window_index, window_name,
+// pane_current_path, window_activity, window_active, pane_current_command,
+// @rk_win_color, @rk_win_layout, @rk_win_web_1 .. @rk_win_web_<MaxWebTabs>,
+// @rk_win_web_1_root .. @rk_win_web_<MaxWebTabs>_root,
+// @rk_win_web_active, @rk_win_code_root, @rk_win_marker, @rk_win_role,
+// @rk_win_flair, @rk_win_owner, then @rk_win_note as a STRICT SINGLE FIELD,
+// then the retired @rk_win_url (dual-read web_1 fallback), the retired
+// @rk_win_lens (dual-read web-leaf layout fallback), the retired
+// @rk_win_present_root (dual-read slot-1 root fallback), then the legacy note
+// LAST. Lines with fewer than 8 fields are skipped; fields 8+ are optional
+// (empty string if absent). A line shorter than a full current-format line
+// (listWindowsFullFields) is a pre-16-slot capture and parses with the
+// 8-slot-era offsets (legacyWebTabSlots) and no root block. The web-tab slots read dense (walk
+// 1..MaxWebTabs, stop at the first empty) and web_active degrades
+// (non-numeric/out-of-range clamps per clampWebActive, never an error). The
+// note is dual-read: the new field wins when non-empty, else the legacy note,
+// whose free-text tail is rejoined (tabs inside it would otherwise shift
+// sibling columns); the new note rides one field because write-side
+// validation strips control chars.
 // Exported for testing.
 func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 	var windows []WindowInfo
@@ -1571,39 +1713,67 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		}
 
 		var layout string
-		var webTabs []string
+		var webTabs, webRoots []string
 		var webActive int
 		var codeRoot string
-		if len(parts) >= 9 {
-			layout = strings.TrimSpace(parts[8])
+		if len(parts) >= listWindowsFixedPrefix {
+			layout = strings.TrimSpace(parts[listWindowsFixedPrefix-1])
 		}
 		// The web slots are positional: a shorter line carries only its leading
 		// slots — walk what is present (denseWebTabs stops at the first empty).
-		if len(parts) > 9 {
-			end := min(17, len(parts))
-			webTabs = denseWebTabs(parts[9:end])
+		// A line shorter than a full current-format line is a pre-16-slot
+		// capture: parse it with the 8-slot-era offsets (legacyWebTabSlots) so
+		// its trailing fields land where that format put them.
+		slots, rootSlots, extra := MaxWebTabs, MaxWebTabs, 1
+		if len(parts) < listWindowsFullFields {
+			slots, rootSlots, extra = legacyWebTabSlots, 0, 0
+		}
+		rootsField := listWindowsFixedPrefix + slots
+		webActiveField := rootsField + rootSlots
+		codeRootField := webActiveField + 1
+		markerField := webActiveField + 2
+		roleField := webActiveField + 3
+		flairField := webActiveField + 4
+		ownerField := webActiveField + 5
+		noteField := webActiveField + 6
+		legacyURLField := webActiveField + 7
+		legacyLensField := webActiveField + 8
+		legacyPresentRootField := webActiveField + 9
+		legacyNoteField := webActiveField + 9 + extra
+		if len(parts) > listWindowsFixedPrefix {
+			end := min(rootsField, len(parts))
+			webTabs = denseWebTabs(parts[listWindowsFixedPrefix:end])
+		}
+		if rootSlots > 0 {
+			for i := range webTabs {
+				if len(parts) > rootsField+i {
+					webRoots = append(webRoots, strings.TrimSpace(parts[rootsField+i]))
+				} else {
+					webRoots = append(webRoots, "")
+				}
+			}
 		}
 		var activeRaw string
-		if len(parts) >= 18 {
-			activeRaw = parts[17]
+		if len(parts) > webActiveField {
+			activeRaw = parts[webActiveField]
 		}
 		webActive = clampWebActive(activeRaw, len(webTabs))
-		if len(parts) >= 19 {
-			codeRoot = strings.TrimSpace(parts[18])
+		if len(parts) > codeRootField {
+			codeRoot = strings.TrimSpace(parts[codeRootField])
 		}
 
 		// Marker is a closed-set `<mode>[:<stage>]` token. Legacy flat tokens
 		// normalize forward on read; anything unknown drops to the unset state.
 		var marker string
-		if len(parts) >= 20 {
-			marker = NormalizeMarker(strings.TrimSpace(parts[19]))
+		if len(parts) > markerField {
+			marker = NormalizeMarker(strings.TrimSpace(parts[markerField]))
 		}
 
 		// Role is a closed-set token ("operator"); drop any value outside the
 		// set (including "") to the empty unset state. Same idiom as Marker.
 		var role string
-		if len(parts) >= 21 {
-			if r := strings.TrimSpace(parts[20]); validate.RoleValues[r] {
+		if len(parts) > roleField {
+			if r := strings.TrimSpace(parts[roleField]); validate.RoleValues[r] {
 				role = r
 			}
 		}
@@ -1612,8 +1782,8 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		// value outside the set (including "") to the empty unset state. Same
 		// idiom as Marker.
 		var flair string
-		if len(parts) >= 22 {
-			if f := strings.TrimSpace(parts[21]); validate.FlairValues[f] {
+		if len(parts) > flairField {
+			if f := strings.TrimSpace(parts[flairField]); validate.FlairValues[f] {
 				flair = f
 			}
 		}
@@ -1621,45 +1791,53 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		// Owner is a closed-set token ("operator"); unknown non-empty tokens
 		// drop to the empty unset state. Same idiom as Marker.
 		var owner string
-		if len(parts) >= 23 {
-			if o := strings.TrimSpace(parts[22]); validate.OwnerValues[o] {
+		if len(parts) > ownerField {
+			if o := strings.TrimSpace(parts[ownerField]); validate.OwnerValues[o] {
 				owner = o
 			}
 		}
 
 		// Note is free text ("<epoch>:<text>"), NOT a closed set — no value
-		// validation. Dual-read: the new note is a strict single field (idx
-		// 23 — joining is WRONG for it) and wins when non-empty; the legacy
-		// note is the format's last column, so its tail is rejoined to survive
-		// tabs inside the text. Tolerant epoch split: a non-numeric prefix
-		// keeps the whole value as text with epoch 0.
+		// validation. Dual-read: the new note is a strict single field (joining
+		// is WRONG for it) and wins when non-empty; the legacy note is the
+		// format's last column, so its tail is rejoined to survive tabs inside
+		// the text. Tolerant epoch split: a non-numeric prefix keeps the whole
+		// value as text with epoch 0.
 		var note string
 		var noteEpoch int64
 		var rawNote string
-		if len(parts) >= 24 {
-			rawNote = parts[23]
+		if len(parts) > noteField {
+			rawNote = parts[noteField]
 		}
-		// Retired @rk_win_url (idx 24) is the dual-read fallback for an empty
-		// slot 1: external writers may still stamp it live, where the
-		// once-per-server sweep cannot see it, so the family surfaces it as web_1
-		// with the active pointer defaulted — the same shape a first WebAdd
-		// produces. Compat until the cleanup change removes the fallback.
-		if len(webTabs) == 0 && len(parts) >= 25 {
-			if legacyURL := strings.TrimSpace(parts[24]); legacyURL != "" {
+		// Retired @rk_win_url is the dual-read fallback for an empty slot 1:
+		// external writers may still stamp it live, where the once-per-server
+		// sweep cannot see it, so the family surfaces it as web_1 with the
+		// active pointer defaulted — the same shape a first WebAdd produces.
+		// Compat until the cleanup change removes the fallback.
+		if len(webTabs) == 0 && len(parts) > legacyURLField {
+			if legacyURL := strings.TrimSpace(parts[legacyURLField]); legacyURL != "" {
 				webTabs = []string{legacyURL}
+				webRoots = []string{""}
 				webActive = 1
 			}
 		}
-		// Retired @rk_win_lens (idx 25): "iframe" was the web default-view hint;
-		// with @rk_win_layout unset it reads as the single:web layout the
-		// migration row would write — the same live-stamp dual-read as web_1.
-		if layout == "" && len(parts) >= 26 {
-			if legacyLens := strings.TrimSpace(parts[25]); legacyLens == "iframe" {
+		// Slot 1 dual-reads the retired @rk_win_present_root when web_1_root is
+		// empty — the same fallback the /present/ route applies.
+		// A pre-16-slot line carries no present-root field (extra == 0 puts
+		// legacyPresentRootField on the legacy note), so only full lines dual-read.
+		if extra > 0 && len(webRoots) > 0 && webRoots[0] == "" && len(parts) > legacyPresentRootField {
+			webRoots[0] = strings.TrimSpace(parts[legacyPresentRootField])
+		}
+		// Retired @rk_win_lens: "iframe" was the web default-view hint; with
+		// @rk_win_layout unset it reads as the web-leaf layout the migration row
+		// would write — the same live-stamp dual-read as web_1.
+		if layout == "" && len(parts) > legacyLensField {
+			if legacyLens := strings.TrimSpace(parts[legacyLensField]); legacyLens == "iframe" {
 				layout = layoutspecSingleWeb
 			}
 		}
-		if rawNote == "" && len(parts) >= 27 {
-			rawNote = strings.Join(parts[26:], listDelim)
+		if rawNote == "" && len(parts) > legacyNoteField {
+			rawNote = strings.Join(parts[legacyNoteField:], listDelim)
 		}
 		if rawNote != "" {
 			note, noteEpoch = parseNoteValue(rawNote)
@@ -1677,6 +1855,7 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			Color:             color,
 			Layout:            layout,
 			WebTabs:           webTabs,
+			WebRoots:          webRoots,
 			WebActive:         webActive,
 			CodeRoot:          codeRoot,
 			Marker:            marker,
@@ -1737,6 +1916,16 @@ var paneFormat = strings.Join([]string{
 // Pane data is populated from a separate list-panes call; failure of that call
 // is non-fatal — windows are returned with empty Panes fields.
 func ListWindows(ctx context.Context, session string, server string) ([]WindowInfo, error) {
+	return listWindows(ctx, session, server, false)
+}
+
+// ListWindowsStrict preserves list-windows/list-panes errors for live CLI
+// inventories. Dashboard callers keep ListWindows' session-disappeared tolerance.
+func ListWindowsStrict(ctx context.Context, session string, server string) ([]WindowInfo, error) {
+	return listWindows(ctx, session, server, true)
+}
+
+func listWindows(ctx context.Context, session string, server string, strict bool) ([]WindowInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
@@ -1756,6 +1945,9 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 	for n := 1; n <= MaxWebTabs; n++ {
 		fields = append(fields, "#{"+WebTabOption(n)+"}")
 	}
+	for n := 1; n <= MaxWebTabs; n++ {
+		fields = append(fields, "#{"+WebTabRootOption(n)+"}")
+	}
 	fields = append(fields,
 		"#{"+WebActiveOption+"}",
 		"#{"+CodeRootOption+"}",
@@ -1766,7 +1958,7 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 		// The new note is a strict single field (write-side validation strips
 		// control chars). legacyWinURLOption is the retired @rk_win_url, dual-read
 		// as a web_1 fallback and legacyWinLensOption the retired @rk_win_lens,
-		// dual-read as a single:web layout fallback (both are stamped live by
+		// dual-read as a web-leaf layout fallback (both are stamped live by
 		// external writers mid-session — the once-per-server sweep cannot see
 		// them). The legacy note is free text in a tab-delimited format — it MUST
 		// stay the last field so parseWindows can rejoin the tail (tabs inside the
@@ -1774,6 +1966,7 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 		"#{"+NoteOption+"}",
 		"#{"+legacyWinURLOption+"}",
 		"#{"+legacyWinLensOption+"}",
+		"#{"+LegacyWinPresentRootOption+"}",
 		"#{"+legacyNoteOption+"}",
 	)
 	format := strings.Join(fields, listDelim)
@@ -1783,7 +1976,7 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 		// Undelimited output is present but unparseable and must not read as
 		// a window-less session; every other error is the session-gone-mid-tick
 		// tolerance.
-		if errors.Is(err, ErrNoFieldDelimiter) {
+		if strict || errors.Is(err, ErrNoFieldDelimiter) {
 			return nil, err
 		}
 		return nil, nil
@@ -1793,12 +1986,21 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 
 	// Fetch pane data — non-fatal if list-panes fails (e.g., session disappears mid-tick).
 	paneLines, paneErr := tmuxExecServer(ctx, server, "list-panes", "-s", "-t", ExactSessionTarget(session), "-F", paneFormat)
+	if strict && paneErr == nil {
+		paneErr = checkDelimited(paneLines)
+	}
+	if strict && paneErr != nil {
+		return nil, fmt.Errorf("list panes: %w", paneErr)
+	}
 	if paneErr == nil {
 		byWindow := parsePanes(paneLines)
 		if byWindow != nil {
+			var paneGroups [][]PaneInfo
 			for i := range windows {
 				windows[i].Panes = byWindow[windows[i].WindowID]
+				paneGroups = append(paneGroups, windows[i].Panes)
 			}
+			reconcileCodexWaiting(ctx, paneGroups...)
 		}
 	}
 
@@ -2214,16 +2416,17 @@ func KillSessionCtx(ctx context.Context, server, session string) error {
 	return err
 }
 
-// ResolveWindowSession returns the window's HOME (non-pin) session on the given
-// server. A board-pinned window is a member of TWO sessions at once — its home
-// session AND its single-window `_rk-pin-*` pin-session (Pin uses link-window,
-// not move-window) — so a naive `display-message -t <windowID> -p
-// "#{session_name}"` may report EITHER link (tmux's pick across links is
-// order-unspecified). When the naive result is a pin-session name, this
-// re-resolves deterministically to the non-pin owner by enumerating
-// `list-windows -a` and choosing the session for @N that is not a `_rk-pin-*`
-// name. A window whose ONLY link is its pin-session (its home session died while
-// pinned, or a legacy move-based pin) legitimately resolves to the pin-session.
+// ResolveWindowSession returns the window's HOME (non-pin, non-iso) session on
+// the given server. A pinned or isolated window is a member of TWO sessions at
+// once — its home session AND its single-window `_rk-pin-*`/`_rk-iso-*` session
+// (both Pin and EnsureIsoSession use link-window, not move-window) — so a naive
+// `display-message -t <windowID> -p "#{session_name}"` may report EITHER link
+// (tmux's pick across links is order-unspecified). When the naive result is a
+// hidden link-target name, this re-resolves deterministically to the non-hidden
+// owner by enumerating `list-windows -a` and choosing the session for @N that
+// is not a `_rk-pin-*`/`_rk-iso-*` name. A window whose ONLY link is its
+// pin/iso session (its home session died while pinned/isolated, or a legacy
+// move-based pin) legitimately resolves to that link-target session.
 // The relay layers its own pin-session-first attach preference ABOVE this (see
 // api/terminals_ws.go); this function's job is to name the home session for
 // callers that need it (the REST /select handler, ProjectRoot).
@@ -2250,10 +2453,10 @@ func ResolveWindowSession(ctx context.Context, server, windowID string) (string,
 	if session == "" {
 		return "", fmt.Errorf("window %q not found", windowID)
 	}
-	// Dual membership: if tmux named the pin-session, re-resolve to the home
-	// (non-pin) session. A window whose only link is its pin-session keeps the
-	// pin-session (home is gone).
-	if strings.HasPrefix(session, PinSessionPrefix) {
+	// Dual membership: if tmux named a hidden link-target session (pin or
+	// iso), re-resolve to the home (non-pin, non-iso) session. A window whose
+	// only link is its pin/iso session keeps it (home is gone).
+	if IsHiddenLinkSession(session) {
 		if home, ok, herr := resolveHomeSession(ctx, server, windowID); herr != nil {
 			return "", herr
 		} else if ok {
@@ -2264,10 +2467,10 @@ func ResolveWindowSession(ctx context.Context, server, windowID string) (string,
 }
 
 // resolveHomeSession enumerates every session the window identified by windowID
-// is linked into (via `list-windows -a`) and returns the first non-pin
-// (non-`_rk-pin-*`) session. ok is false when the window is linked ONLY into
-// pin-session(s) — i.e. it has no live home session — in which case the caller
-// keeps the pin-session as the resolved owner. Read-only.
+// is linked into (via `list-windows -a`) and returns the first non-hidden
+// (non-pin, non-iso) session. ok is false when the window is linked ONLY into
+// hidden link-target sessions — i.e. it has no live home session — in which
+// case the caller keeps the pin/iso session as the resolved owner. Read-only.
 func resolveHomeSession(ctx context.Context, server, windowID string) (string, bool, error) {
 	lines, err := tmuxExecServer(ctx, server, "list-windows", "-a", "-F", "#{session_name}\t#{window_id}")
 	if err != nil {
@@ -2283,7 +2486,7 @@ func resolveHomeSession(ctx context.Context, server, windowID string) (string, b
 		if wid != windowID {
 			continue
 		}
-		if strings.HasPrefix(name, PinSessionPrefix) {
+		if IsHiddenLinkSession(name) {
 			continue
 		}
 		return name, true, nil
@@ -2832,9 +3035,10 @@ func appendOptionOps(args []string, target string, ops []WindowOptionOp) []strin
 }
 
 // SetWindowOptions applies a batch of window-option set/unset operations to the
-// window identified by windowID as a single \;-chained tmux invocation. Chaining
-// makes the whole merge atomic — the SSE poll never observes a half-applied
-// state — and reuses the same pattern CreateWindowWithOptions uses. A non-nil
+// window identified by windowID as a single \;-chained tmux invocation. The
+// chain is ordered, not atomic — ops apply in slice order, but a reader polling
+// mid-chain can observe a half-applied state — and reuses the same pattern
+// CreateWindowWithOptions uses. A non-nil
 // op.Value sets via `set-option -w -t <windowID> <key> <value>`; a nil Value
 // unsets via `set-option -w -u -t <windowID> <key>`. All arguments are passed as
 // an argv slice — no shell strings (constitution §I). A no-op (empty ops) issues
@@ -2845,6 +3049,43 @@ func SetWindowOptions(ctx context.Context, windowID, server string, ops []Window
 	}
 	args := appendOptionOps(nil, windowID, ops)
 	_, err := tmuxExecServer(ctx, server, args...)
+	return err
+}
+
+// WindowLayoutWrite is one window's new @rk_win_layout value, consumed by
+// SetWindowLayouts. Ordering is the caller's: pairs apply in slice order
+// within the one chained invocation.
+type WindowLayoutWrite struct {
+	WindowID string
+	Layout   string
+}
+
+// buildSetWindowLayoutsArgv composes the `set-option -w -t <id> @rk_win_layout
+// <value>` ops for several windows into one \;-chained argv via the shared
+// appendOptionOps chaining primitive (the SetWindowOptions pattern, one target
+// per pair). Pure.
+func buildSetWindowLayoutsArgv(pairs []WindowLayoutWrite) []string {
+	var args []string
+	for _, p := range pairs {
+		value := p.Layout
+		args = appendOptionOps(args, p.WindowID, []WindowOptionOp{{Key: LayoutOption, Value: &value}})
+	}
+	return args
+}
+
+// SetWindowLayouts writes several windows' @rk_win_layout values as a single
+// \;-chained tmux invocation — the borrow/return write contract. The chain is
+// ordered, not atomic: pairs apply in slice order (the caller puts the
+// holder's removal first, so the leaf is never added to the target while the
+// holder still shows it), and the api endpoints serialize the requests behind
+// a per-server lock (layoutWriteMu in api/layout_borrow.go), but a reader
+// polling between the chained writes can transiently observe the intermediate
+// state. A no-op (empty pairs) issues no tmux call.
+func SetWindowLayouts(ctx context.Context, server string, pairs []WindowLayoutWrite) error {
+	if len(pairs) == 0 {
+		return nil
+	}
+	_, err := tmuxExecServer(ctx, server, buildSetWindowLayoutsArgv(pairs)...)
 	return err
 }
 
@@ -3274,9 +3515,20 @@ const LockSocketSuffix = ".lock"
 // socket-dir candidate-collection convention, shared by ListServers (which
 // skips the `.lock` entries — see ListServers) and the reaper.
 func ScanSocketDir(ctx context.Context) ([]string, error) {
+	return scanSocketDir(ctx, false)
+}
+
+func scanSocketDir(ctx context.Context, strict bool) ([]string, error) {
+	if err := ctx.Err(); strict && err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(socketDirPath())
 	if err != nil {
-		// Directory doesn't exist or can't be read — no servers running
+		// Missing directory means no servers; strict inventory must distinguish
+		// an unreadable directory from an empty estate.
+		if strict && !os.IsNotExist(err) {
+			return nil, err
+		}
 		return nil, nil
 	}
 	return filterSocketEntries(entries), nil
@@ -3464,7 +3716,23 @@ func ServerAllowed(name string) bool {
 // var UNSET, so this branch is a no-op there and the "surface every server"
 // contract (see IsTestServerName / tmux.go:1332) is preserved byte-for-byte.
 func ListServers(ctx context.Context) ([]string, error) {
-	candidates, err := ScanSocketDir(ctx)
+	return listServers(ctx, false)
+}
+
+// ListServersStrict discovers live sockets without treating an unreadable
+// socket directory or cancelled discovery as an empty fleet.
+func ListServersStrict(ctx context.Context) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if _, err := exec.LookPath("tmux"); err != nil {
+		return nil, fmt.Errorf("discover tmux servers: %w", err)
+	}
+	return listServers(ctx, true)
+}
+
+func listServers(ctx context.Context, strict bool) ([]string, error) {
+	candidates, err := scanSocketDir(ctx, strict)
 	if err != nil {
 		return nil, err
 	}
@@ -3495,6 +3763,9 @@ func ListServers(ctx context.Context) ([]string, error) {
 		}(name)
 	}
 	wg.Wait()
+	if strict && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 
 	// Env-gated test-isolation filter (via the shared ServerAllowed predicate).
 	// Applied AFTER the liveness probe so only matching LIVE servers survive.
@@ -3763,6 +4034,45 @@ func SetServerOrigin(ctx context.Context, server, origin string) error {
 	defer cancel()
 
 	_, err := tmuxExecRawServer(ctx, server, "set-option", "-s", OriginOption, origin)
+	return err
+}
+
+// GetOperatorRoot reads this server's last operator launch directory from the
+// server-scoped user option @rk_srv_operator_root.
+//
+// Returns ("", nil) when the option is unset. "Unset" is detected by tmux's
+// stderr ("invalid option"/"unknown option") OR by the dead/absent socket
+// cases (IsServerGone) — all normal first-use states (fresh server, no
+// operator ever launched) that must NOT bubble as errors, exactly mirroring
+// GetServerOrigin's taxonomy. Other subprocess failures propagate as wrapped
+// errors. The stored value is returned verbatim — validation for use as a
+// launch directory (absolute, exists, is a directory) is the caller's job.
+func GetOperatorRoot(ctx context.Context, server string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	out, err := tmuxExecRawServer(ctx, server, "show-option", "-sv", OperatorRootOption)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "invalid option") ||
+			strings.Contains(errMsg, "unknown option") ||
+			IsServerGone(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read %s: %w", OperatorRootOption, err)
+	}
+	// Strip only tmux's line terminator — the value is a directory path, so
+	// leading/trailing whitespace in it is significant and kept verbatim.
+	return strings.TrimSuffix(out, "\n"), nil
+}
+
+// SetOperatorRoot writes this server's last operator launch directory to the
+// server-scoped user option @rk_srv_operator_root. Mirrors SetServerOrigin.
+func SetOperatorRoot(ctx context.Context, server, dir string) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	_, err := tmuxExecRawServer(ctx, server, "set-option", "-s", OperatorRootOption, dir)
 	return err
 }
 

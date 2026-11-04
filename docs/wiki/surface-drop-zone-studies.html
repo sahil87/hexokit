@@ -1,0 +1,806 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Surface Drop-Zone Studies</title>
+<style>
+  :root{--bg:#0f1117;--bg2:#161a23;--bg3:#1d2230;--fg:#d7dae0;--dim:#8b93a5;--line:#2a3040;--green:#4ade80;--amber:#fbbf24;--red:#f87171;--blue:#7dd3fc;--purple:#c084fc}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  main{max-width:1080px;margin:0 auto;padding:28px 22px 80px}
+  h1{font-size:22px;margin:0 0 6px;color:#fff}
+  h2{font-size:16px;margin:44px 0 10px;padding-top:14px;border-top:1px solid var(--line);color:var(--green)}
+  h3{font-size:14px;margin:22px 0 6px;color:var(--blue)}
+  p{margin:8px 0}
+  .sub{color:var(--dim)}
+  .box{background:var(--bg2);border:1px solid var(--line);border-radius:6px;padding:14px 16px;margin:14px 0}
+  .box.rec{border-color:var(--green)}
+  .box.warn{border-color:var(--amber)}
+  ul,ol{margin:6px 0;padding-left:22px}
+  li{margin:4px 0}
+  code{background:var(--bg3);padding:1px 5px;border-radius:3px;color:#fff}
+  pre{background:var(--bg2);border:1px solid var(--line);border-radius:6px;padding:12px 14px;overflow-x:auto;font-size:12.5px;line-height:1.45;color:#cfd4dd}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:12.5px}
+  th,td{border:1px solid var(--line);padding:6px 8px;vertical-align:top;text-align:left}
+  th{background:var(--bg3);color:#fff;font-weight:600}
+  td.num,th.num{text-align:right}
+  .ok{color:var(--green)}.meh{color:var(--amber)}.no{color:var(--red)}
+  .tag{display:inline-block;font-size:11px;padding:0 6px;border:1px solid var(--line);border-radius:3px;color:var(--dim);vertical-align:middle}
+  .tag.rec{border-color:var(--green);color:var(--green)}
+  .tag.done{border-color:var(--amber);color:var(--amber)}
+  .wrap{overflow-x:auto}
+  .k{color:#fff}
+  .toc{columns:2;column-gap:28px;font-size:12.5px}
+  @media (max-width:760px){.toc{columns:1}}
+  .toc a{color:var(--blue);text-decoration:none}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media (max-width:760px){.cols{grid-template-columns:1fr}}
+
+  /* ---------- mini tree glyphs (absolute rects) ---------- */
+  .mini{position:relative;display:inline-block;vertical-align:middle;background:var(--bg);border:1px solid var(--line);border-radius:3px}
+  .mini > div{position:absolute;background:#232a3a;border-radius:2px;font-size:10px;line-height:1;display:flex;align-items:center;justify-content:center;color:var(--dim);overflow:hidden;white-space:nowrap}
+  .mini > div.drag{background:color-mix(in srgb,var(--green) 35%,#232a3a);color:#fff}
+
+  /* ---------- live mock ---------- */
+  .ctl{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0;align-items:center}
+  .ctl .lbl{color:var(--dim);font-size:11.5px;margin-right:2px}
+  .ctl .sep{width:10px}
+  .ctl button{font:11px ui-monospace,monospace;padding:3px 9px;border-radius:4px;border:1px solid var(--line);background:var(--bg2);color:var(--dim);cursor:pointer}
+  .ctl button.on{color:var(--green);border-color:var(--green);background:color-mix(in srgb,var(--green) 10%,transparent)}
+  .stage{position:relative;height:460px;background:#0b0d12;border:1px solid var(--line);border-radius:8px;user-select:none;overflow:hidden}
+  .tile{position:absolute;background:#12151d;border:1px solid #2f3648;border-radius:6px;overflow:hidden;display:flex;flex-direction:column}
+  .tile .hd{height:26px;flex:none;border-bottom:1px solid #1d2230;display:flex;align-items:center;gap:7px;padding:0 8px;color:var(--dim);cursor:grab;touch-action:none;white-space:nowrap;overflow:hidden;font-size:12px}
+  .tile .hd .grip{color:#4b5563;letter-spacing:-1px}
+  .tile .hd b{font-weight:500}
+  .tile .body{flex:1;padding:10px;overflow:hidden}
+  .tile .body .ln{height:6px;background:#1a1f2b;border-radius:3px;margin:7px 0;width:78%}
+  .tile .body .ln.s{width:52%}
+  .tile.dragging{opacity:.45}
+  .stage.is-dragging .tile .hd{cursor:grabbing}
+  .divider{position:absolute;background:transparent;z-index:3}
+  .divider.x{cursor:col-resize}.divider.y{cursor:row-resize}
+  .divider:hover{background:color-mix(in srgb,var(--green) 35%,transparent)}
+  .ov{position:absolute;inset:0;pointer-events:none;z-index:5}
+  .ov .res{position:absolute;border:1px dashed #56607a;border-radius:6px;background:rgba(15,17,23,.78);display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:12px;white-space:nowrap;overflow:hidden}
+  .ov .res.drag{border:2px solid var(--green);background:color-mix(in srgb,var(--green) 22%,rgba(15,17,23,.72));color:#fff}
+  .ov .half{position:absolute;border:2px solid var(--green);background:color-mix(in srgb,var(--green) 20%,transparent);border-radius:6px}
+  .ov .bad{position:absolute;border:2px dashed var(--red);background:repeating-linear-gradient(135deg,rgba(248,113,113,.14) 0 8px,transparent 8px 16px);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--red);font-size:12px;text-align:center}
+  .ov .band{position:absolute;border:1px dotted rgba(125,211,252,.4)}
+  .ov .band.root{border-color:rgba(251,191,36,.5)}
+  .ghost{position:fixed;z-index:50;pointer-events:none;background:var(--bg3);border:1px solid var(--green);color:#fff;border-radius:4px;padding:2px 8px;font-size:11px;transform:translate(12px,12px);white-space:nowrap}
+  .readout{font-size:12px;margin-top:8px;display:grid;grid-template-columns:auto 1fr;gap:3px 12px}
+  .readout .lbl{color:var(--dim)}
+  .readout code{font-size:12px;word-break:break-all}
+
+  .zfig{position:relative;width:100%;max-width:420px;aspect-ratio:3/2;background:#12151d;border:1px solid #2f3648;border-radius:6px;overflow:hidden;font-size:11px}
+  .zfig div{position:absolute;display:flex;align-items:center;justify-content:center;text-align:center}
+</style>
+</head>
+<body>
+<main>
+<h1>Surface Drop Zones: drag a tile to snap it, for N tiles</h1>
+<p class="sub">Design study for replacing the tile header's move buttons (Promote, Swap) with a drag on the tile's title that snaps into place, VS Code editor-group style, for any number of tiles. It builds on <code>docs/specs/surface-layout.md</code> (whose § Verbs already calls drag "sugar over the same three mutations") and the shipped <code>lib/surface-layout.ts</code> / <code>components/surface-layout.tsx</code>. Written 2026-09-24/25 in a <code>/fab-discuss</code> session against <code>d829bfa7</code>. The plan is <code>fab/plans/sahil/26-09-24-surface-drag-and-popout.md</code>; popout is the other half of that plan and is out of scope here. Every count and outcome on this page is computed by the tree resolver embedded below. The N = 5 reachability row is the one exception: it was precomputed offline with the same code.</p>
+
+<div class="box rec">
+<b class="k">Recommendation in seven lines</b>
+<ol>
+  <li><b>The layout becomes a split tree, not a preset.</b> The number of distinct arrangements grows 2 → 6 → 22 → 90 → 394 for N = 2…6 tiles, so no preset list survives past three. The layout is a canonical tree: splits alternate direction by depth and every split has at least two children. Today's eight preset names become <em>templates</em> that build a tree for any N.</li>
+  <li><b>A drop is one generic tree edit.</b> Wrap the target in a new split with a placeholder, remove the dragged tile from its old place, normalise, then put the tile into the placeholder. Center swaps two leaves. The same code covers N = 2 and N = 20, and at N = 3 it reproduces exactly the five presets plus the missing <code>main-bottom</code> (§1).</li>
+  <li><b>Two kinds of edge zone: tile edges and layout edges.</b> A tile edge splits beside that tile. A layout edge (the outer 18 px) spans a whole side. Nested strips for intermediate ancestors add only <span id="nested-add4">…</span> of outcomes at N = 4 and do not change reachability, so they are rejected (§8).</li>
+  <li><b>Tile count is limited by space, not by a cap.</b> A drop or add is offered only if every resulting tile stays at least 150 × 100 px in this viewer's viewport. Mobile still shows one tile.</li>
+  <li><b>Show the resulting layout, not a half-tile.</b> A drop can move every other tile. The overlay draws the whole result at the viewer's sizes.</li>
+  <li><b>Moving one tile anywhere takes one drop.</b> Across whole layouts, the worst case is N − 1 drops, one per tile (§8). Promote/Swap stay in the palette (Constitution V).</li>
+  <li><b>Any tab's surface can snap into any other tab.</b> A tile names its source with ui-state.md's address format (<code>@12/tty</code>). A surface is <em>live</em> in exactly one place, and its home slot shows a placeholder with "bring back" while it is away. A ↩ button on the borrowed tile's title bar also sends it home. Everything is worked out from the layouts themselves, so nothing new is stored (§10).</li>
+</ol>
+</div>
+
+<div class="toc">
+<a href="#s1">1 · Why presets stop at three</a><br>
+<a href="#s2">2 · The model: a canonical split tree</a><br>
+<a href="#s3">3 · The resolver</a><br>
+<a href="#s4">4 · Live drag mock (N = 1…6)</a><br>
+<a href="#s5">5 · Zone geometry &amp; the size floor</a><br>
+<a href="#s6">6 · Sizes through a drop</a><br>
+<a href="#s7">7 · Feedback: preview vs half-tile</a><br>
+<a href="#s8">8 · Reachability &amp; the nested-strip question</a><br>
+<a href="#s9">9 · Generic verbs</a><br>
+<a href="#s10">10 · Tiles from other tabs</a><br>
+<a href="#s11">11 · Implementation notes</a><br>
+<a href="#s12">12 · Decisions, rejected, open</a>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s1">1 · Why presets stop at three</h2>
+<p>Count the arrangements of N tiles made by nesting horizontal (<b>H</b>) and vertical (<b>V</b>) splits, after merging same-direction nesting (H(H(a,b),c) is H(a,b,c)). These are the "slicing floorplans", counted by the large Schröder numbers (OEIS A006318). "Placements" multiplies by which tile sits where (× N!).</p>
+<div class="wrap"><table id="counts"></table></div>
+<p>The preset list happens to fit through N = 3, if it gains <code>main-bottom</code>, the one structure it lacks. At N = 4 you'd need 22 named shapes, and at N = 5 you'd need 90. The "presets, not free trees" rule in surface-layout.md was a ≤3-tile rule, and it is replaced here by a constrained tree: canonical form, a size floor, and templates for fast arrangement.</p>
+
+<!-- ============================================================ -->
+<h2 id="s2">2 · The model: a canonical split tree</h2>
+<div class="cols">
+<div>
+<pre>node  = leaf | split
+leaf  = kind [ "/" n ]              this tab:   tty · code · web/2 · gui
+      | [-L srv] "@" N "/" kind ["/" n]   another tab: @12/tty · @7/web/1  (§10)
+split = dir "(" node "," node {"," node} ")"     dir ∈ h | v
+
+canonical form (what every write produces):
+  · a split has ≥ 2 children
+  · a child split never has its parent's direction  (depth alternates)
+  · slot order: a template's slots when the tree matches one,
+    else leaves in reading order (slot A = the main / first tile)
+
+@rk_win_layout examples
+  h(tty,web)                 ≡ split-h:tty,web
+  h(tty,v(code,web))         ≡ main-left:tty,code,web
+  v(h(code,web),tty)           main-bottom — no preset name today
+  v(h(tty,code),h(web,gui))    2×2, N = 4
+  h(tty,v(@12/tty,web/2))      a terminal borrowed from tab @12</pre>
+</div>
+<div>
+<ul>
+  <li><b>Shared:</b> the structure and the leaves, in <code>@rk_win_layout</code>. It is written through the single <code>applyLayout</code> path as today, and every viewer repaints.</li>
+  <li><b>Per viewer:</b> the sizes. Each split keeps a fraction per child, stored in localStorage under the tree's <em>structure signature</em>, e.g. <code>rk-layout-sizes:{server}:{@N}:h(0,v(1,2))</code>. This is the current per-shape ratios key, generalised, and it stays viewport-local for the same reason (R7).</li>
+  <li><b>Backward compatible:</b> the old <code>shape:a,b,c</code> strings parse into their trees for as long as anything writes them, so <code>rk tab layout main-left</code> stays valid shorthand. Writers emit the tree form. The Go <code>internal/layoutspec</code> accepts both.</li>
+  <li><b>Templates</b> replace presets as <em>generators</em>: <code>row</code>, <code>col</code>, <code>main-left|right|top|bottom</code> and <code>grid</code> each build a tree for any N from the current slot order (§9). The ▦ chip cycles the templates valid at this N and reads <code>custom</code> when the tree matches none.</li>
+</ul>
+</div>
+</div>
+<div class="wrap"><table id="templates"></table></div>
+
+<!-- ============================================================ -->
+<h2 id="s3">3 · The resolver</h2>
+<p>This is pure, with no DOM, and works for any N. Leaves are tile <b>ids</b>, never surface kinds, so duplicates are legal. A target is a node <em>path</em> in the current tree, which keeps it well defined even when the tile's removal would collapse the target's parent.</p>
+<pre>drop(tree, x, target, zone) → tree' | "noop" | "too-small"
+
+  if zone = center:                            // target is a leaf ≠ x
+      out ← swapLeaves(tree, x, target)
+  else:                                        // target is a leaf path, or [] for a layout edge
+      d    ← zone ∈ {left,right} ? h : v
+      wrap ← split(d, zone ∈ {left,top} ? [X, node(target)] : [node(target), X])   // X = placeholder
+      out  ← replace(tree, target, wrap)
+      out  ← remove(out, x)                     // x leaves its old place; its size share goes to its siblings
+      out  ← normalise(out)                      // merge same-direction splits, lift single children
+      out  ← rename(out, X → x)
+  if out ≡ tree:                     return "noop"
+  if any leaf of layout(out, viewport, sizes) &lt; floor:   return "too-small"
+  return out</pre>
+<p>Inserting before removing is the step that generalises. The earlier three-tile design removed first and then looked the target up, which breaks once a removal merges the target into its parent. The result is always canonical, keeps its multiset of leaves, and never changes N. Those three properties plus "center is an involution" are the unit-test invariants. At N ≤ 4 they can be checked exhaustively over all <span id="st4">…</span> placements.</p>
+
+<!-- ============================================================ -->
+<h2 id="s4">4 · Live drag mock (N = 1…6)</h2>
+<p>Drag a tile by its header. <b>Center</b> swaps, a <b>tile edge</b> splits beside that tile, and a <b>layout edge</b> (the outer 18 px) spans a side. Dividers between tiles resize, standing in for the viewer's stored sizes. <kbd>Esc</kbd> or releasing over the dragged tile cancels. The <em>+ add</em> button runs the generic add verb (§9): it splits the <b>focused</b> tile (the last one clicked) along its longer axis, or the largest tile if the focused one is too small. The fifth tile added is a terminal borrowed from tab <code>@12</code>. Its title bar carries the ↩ button that sends it home (§10).</p>
+<div class="ctl"><span class="lbl">template</span><span id="tpl-btns" style="display:contents"></span></div>
+<div class="ctl"><span class="lbl">tiles</span><button id="n-add">+ add (split focused)</button><button id="n-rm">− close focused</button>
+  <span class="sep"></span><span class="lbl">zones</span><button id="t-root" class="on">layout edges</button><button id="t-nest" title="Rejected: shown for comparison">nested ancestor strips</button>
+  <span class="sep"></span><span class="lbl">feedback</span><button id="f-prev" class="on">result preview</button><button id="f-half">half-tile</button>
+  <span class="sep"></span><button id="t-bands">show zone bands</button><button id="t-floor" class="on">size floor</button></div>
+<div class="stage" id="stage"><div id="tiles"></div><div class="ov" id="ov"></div></div>
+<div class="readout">
+  <span class="lbl">@rk_win_layout</span><span><code id="ro-layout"></code></span>
+  <span class="lbl">sizes key</span><span><code id="ro-sig"></code> <span class="sub">(viewer localStorage)</span></span>
+  <span class="lbl">hover</span><span id="ro-hover" class="sub">(not dragging)</span>
+  <span class="lbl">last action</span><span id="ro-last" class="sub">(none)</span>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s5">5 · Zone geometry &amp; the size floor</h2>
+<div class="cols">
+<div>
+<div class="zfig" id="zfig"></div>
+<p class="sub" style="font-size:11.5px">Proportions for a 420×280 tile. The band on each side is clamp(25 % of that axis, 28 px, 110 px).</p>
+</div>
+<div>
+<ul>
+  <li><b>Tile edge bands</b>: 25 % of the axis, clamped to 28–110 px. Everything inside the four bands is <b>center</b>.</li>
+  <li><b>Corners</b> go to the edge the pointer is deepest into (distance ÷ band). Trees have no diagonal splits.</li>
+  <li><b>Layout-edge bands</b>: the outer 18 px of the whole layout, winning over tile bands. There are always four, at any N.</li>
+  <li><b>Over the dragged tile</b>: no zone, and release cancels.</li>
+  <li><b>No-op</b> zones show neutral "no change" and never write.</li>
+  <li><b>Size floor</b>: a result with any tile under 150 × 100 px in <em>this</em> viewport shows red "too small" and is not offered. The same floor gates the add verb. This is the generic replacement for the three-tile cap. A wide desktop fits a 2×3 grid and a laptop may stop at four.</li>
+  <li><b>Threshold</b>: a drag starts after 4 px of movement. Below that, a header click focuses the tile.</li>
+</ul>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s6">6 · Sizes through a drop</h2>
+<p>Sizes are per viewer, but a drop should not snap everything back to equal splits. The resolver carries sizes through each step, and the viewer writes the result under the new signature:</p>
+<div class="wrap"><table>
+<tr><th>Step</th><th>Size rule</th></tr>
+<tr><td>wrap the target</td><td>The new split takes the target's share in its parent. Inside, the placeholder and the target split 50/50.</td></tr>
+<tr><td>remove <code>x</code></td><td><code>x</code>'s share is redistributed to its siblings in proportion to their sizes.</td></tr>
+<tr><td>lift a single child</td><td>The child inherits the collapsed split's share.</td></tr>
+<tr><td>merge same-direction</td><td>The grandchildren's fractions multiply by the merged child's share.</td></tr>
+<tr><td>center swap</td><td>Sizes stay with the <em>positions</em>, and the tiles trade places.</td></tr>
+</table></div>
+<p>Other viewers see the new structure with their own stored sizes for that signature, or equal splits if they have none. That is today's behaviour for a shape they have never sized.</p>
+
+<!-- ============================================================ -->
+<h2 id="s7">7 · Feedback: preview vs half-tile</h2>
+<p>VS Code highlights the half of the target the tab will fill. That highlight is honest for a tile-edge drop into a split that runs the other way. It lies whenever the drop merges into a parent split (all siblings shrink) or collapses the dragged tile's old parent (a neighbour grows into the gap). Example: in <code>h(tty,code,web)</code>, drag tty onto code's top edge.</p>
+<div class="cols" id="fb-compare"></div>
+<p>The mock's <em>result preview</em> draws the whole result at the viewer's sizes, with the destination filled green. The resolver already produced the tree, so the cost is one layout pass per zone change.</p>
+
+<!-- ============================================================ -->
+<h2 id="s8">8 · Reachability &amp; the nested-strip question</h2>
+<p>This is a breadth-first search over every placement at each N. "1-drop" is the share of ordered layout pairs where one drop goes from one to the other, "mean" is the average number of drops needed, and "max" is the worst case. The size floor is ignored here.</p>
+<div class="wrap"><table id="reach"><tr><td class="sub">computing…</td></tr></table></div>
+<ul>
+  <li><b>Max = N − 1.</b> The worst case is one drop per tile, which is what a user would expect: to rearrange everything, move each tile once. The one-drop share falls quickly as N grows because the number of layouts explodes, not because single moves get harder. Every <em>single-tile</em> move is one drop by construction.</li>
+  <li><b>Layout edges earn their place.</b> They lower the mean drops at every N ≥ 3 and cost one fixed band.</li>
+  <li><b>Nested ancestor strips don't.</b> Splitting each edge band into strips, one per ancestor sharing that edge, would let a tile span part of a column in one drop. At N = 4 they add <span id="nested-add4b">…</span> of outcomes beyond tile + layout edges, and 2.7 % at N = 5 (precomputed). They leave 1-drop, mean and max unchanged to one decimal. They cost thin strips, a hover model users must learn, and a harder e2e surface. Rejected. The mock keeps a toggle so the difference can be felt.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="s9">9 · Generic verbs</h2>
+<div class="wrap"><table>
+<tr><th>Verb</th><th>Today (≤ 3 presets)</th><th>Generic (tree)</th></tr>
+<tr><td>Add (surface toggle)</td><td>1→2 <code>split-h</code>, 2→3 <code>main-left</code></td><td>Split the <b>focused</b> tile along its <b>longer</b> axis. If that would break the size floor, split the <b>largest</b> tile instead. It is refused only when no tile can split. At landscape sizes this reproduces both of today's growth steps (1→2 splits the width; 2→3 splits the right half's height, giving <code>main-left</code>) and keeps working for any N.</td></tr>
+<tr><td>Close</td><td>3→2 always <code>split-h</code>, 2→1 <code>single</code></td><td>Remove the leaf and normalise, with the neighbours absorbing its size. <span class="meh">Behaviour change:</span> closing one tile of a <code>col</code> leaves a <code>v(a,b)</code> column, not an <code>h</code> split.</td></tr>
+<tr><td>Promote</td><td>move to slot A</td><td>Swap with slot A: the matched template's main tile, or the first tile in reading order for a custom tree (palette).</td></tr>
+<tr><td>Swap (directional)</td><td>next in order</td><td>Swap with the geometric neighbour in that direction (palette <code>Tile: Swap Left/Right/Up/Down</code>).</td></tr>
+<tr><td>▦ Cycle / jump</td><td>next same-arity preset</td><td>Rebuild the tree from a template at the current N, keeping slot order. The chip shows <code>custom</code> for hand-made trees. Rebuilding is lossy for a custom tree, so the popover says so.</td></tr>
+<tr><td>Zoom / Expand</td><td>viewer key</td><td>Unchanged: it names a leaf position instead of a kind (§10).</td></tr>
+</table></div>
+
+<!-- ============================================================ -->
+<h2 id="s10">10 · Tiles from other tabs</h2>
+<p>Four tile kinds, one of each, cap a layout at four tiles. Instead of choosing which extra instance type to allow first, allow all of them. A tile may show <em>any</em> tab's surface, and it names that surface with the address format ui-state.md already defines: <code>[-L srv] @N/&lt;surface&gt;[/&lt;n&gt;]</code>. A bare kind still means the tab you are on. The drag design is unchanged, because the resolver moves leaves and never reads what they point at.</p>
+<div class="wrap"><table>
+<tr><th>Rule</th><th>Why</th></tr>
+<tr><td><b>A surface is live in exactly one place.</b> Borrowing A's terminal into B adds <code>@A/tty</code> to B's layout <em>only</em>. A's layout keeps its <code>tty</code> slot, which renders as a placeholder while some other tab's layout holds <code>@A/tty</code>.</td><td>Borrowing and returning each write one tab. Bring back restores the exact spot, because the slot never left. There are no duplicate code-server processes (~300 MB each) for one workspace.</td></tr>
+<tr><td><b>A ↩ button on the borrowed tile's title bar sends it home.</b> It shows only when the tile's home differs from the tab you are on. It removes <code>@A/tty</code> from B, and A's slot goes live again. If A has no slot any more (its placeholder was dismissed), it re-adds <code>tty</code> to A with the generic add rule.</td><td>The address names the home tab, so nothing new is stored (Constitution II).</td></tr>
+<tr><td><b>Re-borrowing moves it.</b> Borrowing <code>@A/tty</code> into C while B holds it removes it from B and adds it to C in one chained tmux invocation (the <code>MoveWindow</code> pattern). A ↩ that must also re-add A's slot uses the same chaining.</td><td>These are the only two-tab writes. No viewer ever sees the surface live in two tabs.</td></tr>
+<tr><td><b>The placeholder</b> reads "Terminal is in tab B", with <b>bring back</b>, <b>go to B</b>, the terminal's status dot, and <b>✕</b>. If the surface was the tab's only tile, the placeholder fills the tab. Clicking the tab's sidebar row lands here.</td><td>A waiting agent stays visible while its terminal is elsewhere (right-panel P4: hidden must never mean invisible). "Away" is worked out from the other tabs' layouts, which are already tmux state.</td></tr>
+<tr><td><b>✕ dismisses the placeholder</b>, removing the slot so the remaining tiles fill the space. <b>The top-bar surface toggle brings it back</b>: toggling <code>tty</code> on in A re-adds the slot, which renders as the placeholder again while the terminal is away.</td><td>Dead space is the user's choice, not a cost of borrowing. The toggle is the existing open-tile verb, and nothing new is needed.</td></tr>
+<tr><td><b>Addresses to closed windows are dropped</b> whenever a layout is read. ↩ is disabled for them.</td><td>Killing tab A must not leave a broken tile in B.</td></tr>
+<tr><td><b>A layout never empties.</b> When the last tile leaves (sent home, closed, or its window killed), the tab falls back to its own terminal.</td><td>Keeps today's "unset renders <code>single:tty</code>" rule.</td></tr>
+<tr><td><b>A borrowed terminal attaches its own single-window session.</b></td><td>Two terminal streams on one tmux session share its current window, so the tiles would fight. It is the same mechanism a popped-out terminal needs, and the one board pins already use.</td></tr>
+<tr><td><b>Same tmux server in the first version.</b></td><td>The address format supports other servers, but the relay and the two-tab write would then span two tmux servers.</td></tr>
+<tr><td><b><code>gui</code> is not borrowed.</b></td><td>It is one desktop per host, so any tab can simply add it.</td></tr>
+</table></div>
+<div class="cols">
+<div class="box"><b class="k">Tab @12 while its terminal is in tab @7</b>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;height:170px;margin-top:10px;font-size:11.5px">
+  <div style="border:1px dashed #56607a;border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--dim);position:relative">
+    <span style="position:absolute;top:4px;right:8px;color:#56607a">✕</span>
+    <span><span style="color:var(--amber)">●</span> <b style="color:var(--fg)">&gt;_ Terminal</b> is in tab @7</span>
+    <span><button style="font:11px ui-monospace,monospace;border:1px solid var(--green);background:transparent;color:var(--green);border-radius:3px;padding:1px 8px">bring back</button> <button style="font:11px ui-monospace,monospace;border:1px solid var(--line);background:transparent;color:var(--dim);border-radius:3px;padding:1px 8px">go to @7</button></span>
+  </div>
+  <div style="background:#12151d;border:1px solid #2f3648;border-radius:6px;padding:6px 8px;color:var(--dim)"><b style="color:#c084fc">://</b> Web</div>
+</div>
+<p class="sub" style="font-size:11.5px">The slot stays and the status dot stays visible. Bring back is one write.</p></div>
+<div class="box"><b class="k">After ✕</b>
+<div style="display:grid;grid-template-columns:1fr;gap:6px;height:170px;margin-top:10px;font-size:11.5px">
+  <div style="background:#12151d;border:1px solid #2f3648;border-radius:6px;padding:6px 8px;color:var(--dim)"><b style="color:#c084fc">://</b> Web</div>
+</div>
+<p class="sub" style="font-size:11.5px">The web tile fills the tab. The top-bar <code>&gt;_</code> toggle shows an "away" marker, and toggling it on brings the placeholder back.</p></div>
+</div>
+<ul>
+  <li><b>The real cost is code that assumes "the terminal tile is this tab's window".</b> The compose strip, bottom-bar keys, the tty tile's Split/Close Pane buttons, the progress line, focus memory, and the first tty tile getting the shared socket must all follow the tile's own window.</li>
+  <li><b>Boards converge on this.</b> A board is a named layout whose tiles all point at other tabs. The same tree, resolver and renderer serve it, so boards migrate rather than stay a second mechanism (surface-layout.md § Boards).</li>
+  <li><b>Popout is the same idea</b>: a tile that lives in its own browser window. The popped set, zoom and focus key by the tile's address, not its kind.</li>
+  <li><b>Rejected: tmux <code>join-pane</code></b>, which physically moves the pane into tab B. It kills tab A if the pane was its only one, it changes what plain tmux users see, and snap-back would need a stored home.</li>
+</ul>
+<div class="box warn"><b class="k">Spec amendments this implies.</b> surface-layout.md: § Shape presets (templates over a canonical tree), § One tile per surface kind (tiles from other tabs, move semantics), § Verbs (drag, generic verbs, ↩), the Constitution Mapping line "presets, not free trees; ≤3 tiles" (canonical tree plus size floor), the "fourth surface is the signal to use a board" note, and § Boards convergence. ui-state.md: § Layout in tmux (the encoding) and § Addressing Grammar (a layout tile uses it). Constitution IV itself is not touched, because it fixes routes and settings surfaces, not tile counts.</div>
+
+<!-- ============================================================ -->
+<h2 id="s11">11 · Implementation notes</h2>
+<ul>
+  <li><b>Renderer.</b> The CSS-grid-per-shape <code>gridStyle</code>/<code>slotStyle</code>/<code>dividerSpecs</code> become a recursive split renderer: one divider between each pair of siblings, dragging it adjusts those two fractions. <em>Hide-never-unmount</em> and the code-frame LRU are keyed by leaf id and stay as they are. A tile must not remount when the tree reshapes around it. Render leaves in a flat list, positioned from computed rects rather than nested DOM, so a restructure never re-parents an iframe (re-parenting reloads it; see the code-tile switch-back finding in project memory).</li>
+  <li><b>Pointer capture.</b> Call <code>setPointerCapture</code> on the header at the threshold. Moves keep arriving over iframes, as they do for today's divider drag. HTML5 drag-and-drop does not, and its Playwright simulation is unreliable. The native web view hides for the duration of the drag.</li>
+  <li><b>Hit-testing.</b> Snapshot the leaf rects at drag start and run the pure <code>zoneAt</code>. Drop results are cached per (target, zone) for the drag.</li>
+  <li><b>Tests.</b> Vitest checks the invariants in §3, exhaustive for N ≤ 4 and property-based beyond. It also checks that parsing old preset strings is lossless, and that at N = 3 the tree closure equals the six named shapes. For e2e, <code>page.mouse</code> drives the header for swap, tile edge, layout edge, cancel and too-small.</li>
+  <li><b>Resource budget.</b> N tiles means up to N relay streams on the one muxed socket (cheap) plus iframes. Each code frame is a ~300 MB extension host, so the LRU cap stays, and the surface-layout Performance note (the HTTP/1.1 six-connection pool) applies more at larger N.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="s12">12 · Decisions, rejected, open</h2>
+<div class="wrap"><table>
+<tr><th>#</th><th>Decision</th><th>Status</th></tr>
+<tr><td>D1</td><td>The layout is a canonical split tree. Presets become templates, and old preset strings parse forever.</td><td><span class="tag rec">proposed</span></td></tr>
+<tr><td>D2</td><td>One generic drop edit (insert placeholder → remove → normalise); center swaps</td><td><span class="tag rec">proposed</span></td></tr>
+<tr><td>D3</td><td>Tile-edge plus layout-edge zones; nested ancestor strips rejected</td><td><span class="tag rec">proposed</span></td></tr>
+<tr><td>D4</td><td>No tile cap. A per-viewport size floor (150 × 100 px) gates drops and adds.</td><td><span class="tag rec">proposed</span></td></tr>
+<tr><td>D5</td><td>Sizes are per viewer, keyed by structure signature, and carried through drops (§6)</td><td><span class="tag rec">proposed</span></td></tr>
+<tr><td>D6</td><td>The overlay previews the result; pointer capture; the native web view hides during a drag</td><td><span class="tag rec">proposed</span></td></tr>
+<tr><td>D7</td><td>Add splits the focused tile on its longer axis, falling back to the largest tile at the size floor. Close removes and normalises.</td><td><span class="tag rec">proposed</span></td></tr>
+<tr><td>D8</td><td>Promote/Swap leave the header and stay in the palette</td><td><span class="tag rec">proposed</span></td></tr>
+<tr><td>D9</td><td>Tiles may show any tab's surface on the same server, addressed as <code>@N/&lt;surface&gt;[/&lt;n&gt;]</code></td><td><span class="tag done">decided 2026-09-25</span></td></tr>
+<tr><td>D10</td><td>A surface is live in one place. Its home slot shows a placeholder (bring back · go to · status · ✕) while it is borrowed. ✕ lets the rest fill the space, and the surface toggle restores the slot. A ↩ on the borrowed tile sends it home.</td><td><span class="tag done">decided 2026-09-25</span></td></tr>
+<tr><td>D13</td><td>A borrow starts by dragging a tab's sidebar row onto a tile zone (same resolver and overlay), with palette <code>Tile: Bring … here</code> as the keyboard route. Only one tab renders at a time, so there is no tab-to-tab drag.</td><td><span class="tag done">decided 2026-09-25</span></td></tr>
+<tr><td>D12</td><td>Clicking a tab's sidebar row when its terminal is borrowed lands on the tab and its placeholder</td><td><span class="tag done">decided 2026-09-25</span></td></tr>
+<tr><td>D11</td><td>A borrowed or popped-out terminal attaches its own single-window session</td><td><span class="tag rec">proposed</span></td></tr>
+<tr><td>P1</td><td>Popout is per viewer</td><td><span class="tag done">decided 2026-09-24</span></td></tr>
+<tr><td>P2</td><td>Popout rides a viewer <code>?pop=</code> param on the existing route</td><td><span class="tag done">decided 2026-09-24</span></td></tr>
+</table></div>
+<h3>Rejected</h3>
+<ul>
+  <li><b>Choosing one extra instance type first</b> (a second web tab, another pane, another window). Tiles from any tab cover them all with one address format.</li>
+  <li><b>Extending the preset list</b> (<code>main-bottom</code>, a 2×2, …). It is correct only up to three tiles, and there are 22 shapes at four.</li>
+  <li><b>An unconstrained tree</b> (arbitrary nesting, unary nodes, stored sizes). The canonical form keeps one encoding per arrangement, and viewer-local sizes keep R7.</li>
+  <li><b>Nested ancestor strips</b> (§8). <b>Half-tile-only feedback</b> (§7). <b>HTML5 drag-and-drop</b> (§11).</li>
+  <li><b>A hard tile cap.</b> The size floor adapts to the viewport, and a cap would be the same guess at every width.</li>
+</ul>
+<h3>Open</h3>
+<ul>
+  <li>Should a 3-tile tree that matches an old preset keep writing the preset name for one release, so a rolled-back SPA still reads it?</li>
+  <li>External drags (a top-bar surface toggle dragged into the layout) and tear-off (release outside the window to pop out): the follow-ups.</li>
+</ul>
+</main>
+
+<script>
+(() => {
+// ================================================================ tree core (sizes-aware)
+// node = {leaf:id} | {d:"H"|"V", c:[node], s:[fraction]}   (s sums to 1)
+const isLeaf = (t) => "leaf" in t;
+const eq = (n) => Array(n).fill(1 / n);
+const sizesOf = (t) => (t.s && t.s.length === t.c.length ? t.s : eq(t.c.length));
+function norm(t) {
+  if (isLeaf(t)) return t;
+  const s0 = sizesOf(t), c = [], s = [];
+  t.c.map(norm).forEach((k, i) => {
+    if (!isLeaf(k) && k.d === t.d) sizesOf(k).forEach((f, j) => { c.push(k.c[j]); s.push(f * s0[i]); });
+    else { c.push(k); s.push(s0[i]); }
+  });
+  return c.length === 1 ? c[0] : { d: t.d, c, s };
+}
+function removeLeaf(t, id) {
+  if (isLeaf(t)) return t.leaf === id ? null : t;
+  const s0 = sizesOf(t), c = [], s = [];
+  t.c.forEach((k, i) => { const r = removeLeaf(k, id); if (r) { c.push(r); s.push(s0[i]); } });
+  if (!c.length) return null;
+  const sum = s.reduce((a, b) => a + b, 0);
+  return { d: t.d, c, s: s.map((f) => f / sum) };
+}
+const sig = (t) => (isLeaf(t) ? String(t.leaf) : t.d + "(" + t.c.map(sig).join(",") + ")");
+const leaves = (t) => (isLeaf(t) ? [t.leaf] : t.c.flatMap(leaves));
+const getAt = (t, p) => p.reduce((n, i) => n.c[i], t);
+function setAt(t, p, v) { if (!p.length) return v; const [i, ...r] = p; const c = t.c.slice(); c[i] = setAt(t.c[i], r, v); return { d: t.d, c, s: t.s }; }
+function pathOf(t, id, p = []) {
+  if (isLeaf(t)) return t.leaf === id ? p : null;
+  for (let i = 0; i < t.c.length; i++) { const r = pathOf(t.c[i], id, [...p, i]); if (r) return r; }
+  return null;
+}
+const AXIS = { left: "H", right: "H", top: "V", bottom: "V" };
+const FIRST = { left: true, top: true, right: false, bottom: false };
+const SIDES = ["left", "right", "top", "bottom"];
+const X = -1;
+function mapLeaves(t, f) { return isLeaf(t) ? f(t) : { d: t.d, c: t.c.map((k) => mapLeaves(k, f)), s: t.s }; }
+function dropEdge(t, x, path, side) {
+  const target = getAt(t, path);
+  const wrap = { d: AXIS[side], c: FIRST[side] ? [{ leaf: X }, target] : [target, { leaf: X }], s: [0.5, 0.5] };
+  const out = norm(removeLeaf(setAt(t, path, wrap), x));
+  return mapLeaves(out, (l) => (l.leaf === X ? { leaf: x } : l));
+}
+const swapLeaves = (t, a, b) => mapLeaves(t, (l) => ({ leaf: l.leaf === a ? b : l.leaf === b ? a : l.leaf }));
+function edgeChain(t, id, side) {
+  const p = pathOf(t, id), chain = [p];
+  for (let k = p.length; k > 0; k--) {
+    const pp = p.slice(0, k - 1), parent = getAt(t, pp);
+    if (parent.d === AXIS[side] && p[k - 1] !== (FIRST[side] ? 0 : parent.c.length - 1)) break;
+    chain.push(pp);
+  }
+  return chain;
+}
+// every distinct outcome of dragging x; mode: tile | root | nested
+function outcomes(t, x, mode) {
+  const out = new Set(), base = sig(t);
+  const add = (r) => { const s = sig(r); if (s !== base) out.add(s); };
+  for (const id of leaves(t)) {
+    if (id === x) continue;
+    add(swapLeaves(t, x, id));
+    for (const side of SIDES) {
+      const chain = edgeChain(t, id, side);
+      for (const p of mode === "nested" ? chain : [chain[0]]) add(dropEdge(t, x, p, side));
+    }
+  }
+  if (mode !== "tile") for (const side of SIDES) add(dropEdge(t, x, [], side));
+  return out;
+}
+function parse(s) {
+  let i = 0;
+  const r = () => {
+    if (/\d/.test(s[i])) { const j = i; while (/\d/.test(s[i])) i++; return { leaf: +s.slice(j, i) }; }
+    const d = s[i]; i += 2; const c = [r()]; while (s[i] === ",") { i++; c.push(r()); } i++; return { d, c };
+  };
+  return r();
+}
+function closure(n) {
+  const start = sig(norm(TEMPLATES.row(n)));
+  const seen = new Set([start]), q = [start];
+  while (q.length) { const s = q.shift(); const t = parse(s); for (let x = 0; x < n; x++) for (const y of outcomes(t, x, "root")) if (!seen.has(y)) { seen.add(y); q.push(y); } }
+  return [...seen];
+}
+
+// ================================================================ templates (any N)
+const L = (i) => ({ leaf: i });
+const seq = (a, b) => Array.from({ length: b - a }, (_, k) => L(a + k));
+const split = (d, c, s) => (c.length === 1 ? c[0] : { d, c, s: s || eq(c.length) });
+const M = 0.58;
+const TEMPLATES = {
+  row: (n) => split("H", seq(0, n)),
+  col: (n) => split("V", seq(0, n)),
+  "main-left": (n) => (n < 3 ? split("H", seq(0, n)) : split("H", [L(0), split("V", seq(1, n))], [M, 1 - M])),
+  "main-right": (n) => (n < 3 ? split("H", seq(0, n)) : split("H", [split("V", seq(1, n)), L(0)], [1 - M, M])),
+  "main-top": (n) => (n < 3 ? split("V", seq(0, n)) : split("V", [L(0), split("H", seq(1, n))], [M, 1 - M])),
+  "main-bottom": (n) => (n < 3 ? split("V", seq(0, n)) : split("V", [split("H", seq(1, n)), L(0)], [1 - M, M])),
+  grid: (n) => {
+    const cols = Math.ceil(Math.sqrt(n)), rows = [];
+    for (let i = 0; i < n; i += cols) rows.push(split("H", seq(i, Math.min(n, i + cols))));
+    return split("V", rows);
+  },
+};
+const TPL_NAMES = Object.keys(TEMPLATES);
+// which template a tree is (structure match, labels ignored) and its tiles in that template's slot order
+function templateOf(t) {
+  const n = leaves(t).length, shape = sig(t).replace(/\d+/g, "#"), R = leaves(t);
+  if (n === 1) return { name: "single", slots: R };
+  for (const k of TPL_NAMES) {
+    const T = norm(TEMPLATES[k](n));
+    if (sig(T).replace(/\d+/g, "#") !== shape) continue;
+    const slots = []; leaves(T).forEach((slot, j) => { slots[slot] = R[j]; });
+    return { name: k, slots };
+  }
+  return { name: "custom", slots: R };
+}
+
+// ================================================================ geometry
+const GAP = 6;
+function layoutRects(t, box, gap = GAP, out = { leaf: {} }) {
+  if (isLeaf(t)) { out.leaf[t.leaf] = box; return out; }
+  const s = sizesOf(t), n = t.c.length, horiz = t.d === "H";
+  const avail = (horiz ? box.w : box.h) - gap * (n - 1);
+  let at = horiz ? box.x : box.y;
+  t.c.forEach((k, i) => {
+    const len = avail * s[i];
+    layoutRects(k, horiz ? { x: at, y: box.y, w: len, h: box.h } : { x: box.x, y: at, w: box.w, h: len }, gap, out);
+    at += len + gap;
+  });
+  return out;
+}
+function mini(t, labelOf, w, h, dragId) {
+  const r = layoutRects(t, { x: 2, y: 2, w: w - 4, h: h - 4 }, 2);
+  const cells = Object.entries(r.leaf).map(([id, b]) =>
+    `<div class="${+id === dragId ? "drag" : ""}" style="left:${b.x}px;top:${b.y}px;width:${Math.max(1, b.w)}px;height:${Math.max(1, b.h)}px">${labelOf(+id)}</div>`).join("");
+  return `<span class="mini" style="width:${w}px;height:${h}px">${cells}</span>`;
+}
+const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+// ================================================================ §1 counts
+(function counts() {
+  const fact = [1, 1, 2, 6, 24, 120, 720];
+  const schroder = [1, 1, 2, 6, 22, 90, 394];
+  const enumerated = {};
+  for (const n of [2, 3, 4]) {
+    const all = closure(n);
+    enumerated[n] = { states: all.length, structs: new Set(all.map((s) => s.replace(/\d+/g, "#"))).size };
+  }
+  let h = "<tr><th class=num>N tiles</th><th class=num>arrangements</th><th class=num>placements (× N!)</th><th>enumerated by this page's resolver</th><th class=num>named presets today</th></tr>";
+  for (let n = 1; n <= 6; n++) {
+    const e = enumerated[n];
+    const pres = { 1: 1, 2: 2, 3: 5 }[n] ?? 0;
+    const enumCell = e ? `<span class="ok">✓ ${e.structs} arrangements · ${e.states} placements</span>`
+      : n === 1 ? "<span class=sub>trivial</span>"
+      : n === 5 ? "<span class=sub>✓ 90 · 10,800 (offline, same code)</span>"
+      : "<span class=sub>sequence value</span>";
+    h += `<tr><td class=num>${n}</td><td class=num>${schroder[n]}</td><td class=num>${(schroder[n] * fact[n]).toLocaleString()}</td><td>${enumCell}</td><td class=num>${pres}${n === 3 ? ' <span class="no">(lacks main-bottom)</span>' : n > 3 ? ' <span class="no">(none)</span>' : ""}</td></tr>`;
+  }
+  document.getElementById("counts").innerHTML = h;
+  document.getElementById("st4").textContent = enumerated[4].states;
+})();
+
+// ================================================================ §2 templates table
+(function templates() {
+  let h = "<tr><th>Template</th>" + [2, 3, 4, 5, 6].map((n) => `<th>N = ${n}</th>`).join("") + "</tr>";
+  for (const k of TPL_NAMES) {
+    h += `<tr><td><code>${k}</code></td>`;
+    for (const n of [2, 3, 4, 5, 6]) h += `<td>${mini(norm(TEMPLATES[k](n)), (i) => "ABCDEF"[i], 70, 46, -1)}</td>`;
+    h += "</tr>";
+  }
+  document.getElementById("templates").innerHTML = h;
+})();
+
+// ================================================================ §8 reachability
+function reach(n, mode) {
+  const states = closure(n), cache = new Map();
+  const next = (s) => { if (!cache.has(s)) { const t = parse(s), o = new Set(); for (let x = 0; x < n; x++) for (const y of outcomes(t, x, mode)) o.add(y); cache.set(s, o); } return cache.get(s); };
+  let one = 0, tot = 0, max = 0, sum = 0;
+  for (const a of states) {
+    const dist = new Map([[a, 0]]), qq = [a];
+    while (qq.length) { const x = qq.shift(); for (const y of next(x)) if (!dist.has(y)) { dist.set(y, dist.get(x) + 1); qq.push(y); } }
+    for (const b of states) if (b !== a) { tot++; const d = dist.get(b); sum += d; if (d === 1) one++; if (d > max) max = d; }
+  }
+  return { one: ((100 * one) / tot).toFixed(1) + " %", mean: (sum / tot).toFixed(2), max };
+}
+function nestedExtra(n) {
+  let base = 0, extra = 0;
+  for (const s of closure(n)) { const t = parse(s); for (let x = 0; x < n; x++) { const b = outcomes(t, x, "root"), c = outcomes(t, x, "nested"); base += b.size; for (const y of c) if (!b.has(y)) extra++; } }
+  return ((100 * extra) / base).toFixed(1) + " %";
+}
+setTimeout(() => {
+  let h = "<tr><th class=num>N</th><th>tile edges only: 1-drop · mean · max</th><th>+ layout edges (recommended)</th><th>+ nested strips (rejected)</th></tr>";
+  for (const n of [2, 3, 4]) {
+    const a = reach(n, "tile"), b = reach(n, "root"), c = reach(n, "nested");
+    h += `<tr><td class=num>${n}</td><td>${a.one} · ${a.mean} · ${a.max}</td><td class="ok">${b.one} · ${b.mean} · ${b.max}</td><td>${c.one} · ${c.mean} · ${c.max}</td></tr>`;
+  }
+  h += `<tr><td class=num>5</td><td>0.7 % · 3.09 · 4</td><td class="ok">0.8 % · 2.85 · 4</td><td>0.8 % · 2.85 · 4</td></tr>`;
+  h += `<tr><td colspan=4 class=sub style="font-size:11.5px">N = 2–4 computed live (all sources). N = 5 precomputed with this resolver in node, over 112 sampled sources × all 10,800 targets.</td></tr>`;
+  document.getElementById("reach").innerHTML = h;
+  const e4 = nestedExtra(4);
+  document.getElementById("nested-add4").textContent = e4;
+  document.getElementById("nested-add4b").textContent = e4;
+}, 30);
+
+// ================================================================ §7 comparison
+(function compare() {
+  const t = norm(TEMPLATES.row(3));
+  const r = dropEdge(t, 0, pathOf(t, 1), "top");
+  const K = ["&gt;_ tty", "{} code", ":// web"];
+  const r0 = layoutRects(t, { x: 2, y: 2, w: 236, h: 126 }, 3);
+  const b = r0.leaf[1];
+  const halfBox = `<span class="mini" style="width:240px;height:130px">` +
+    Object.entries(r0.leaf).map(([id, q]) => `<div style="left:${q.x}px;top:${q.y}px;width:${q.w}px;height:${q.h}px">${K[id]}</div>`).join("") +
+    `<div class="drag" style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h / 2}px;opacity:.85">drop</div></span>`;
+  const named = sig(r).replace(/\d/g, (d) => ["tty", "code", "web"][d]).toLowerCase();
+  document.getElementById("fb-compare").innerHTML =
+    `<div class="box"><b class="k">Half-tile highlight</b><br><br>${halfBox}<p class="sub" style="font-size:11.5px">Suggests tty takes the top half of code's third, and web stays a third.</p></div>` +
+    `<div class="box rec"><b class="k">Result preview</b> <span class="tag rec">recommended</span><br><br>${mini(r, (i) => K[i], 240, 130, 0)}<p class="sub" style="font-size:11.5px"><code>${esc(named)}</code>. tty's old third is absorbed by its neighbours, so web grows.</p></div>`;
+})();
+
+// ================================================================ §5 zone figure
+(function zfig() {
+  const el = document.getElementById("zfig");
+  const W = 420, H = 280, bx = Math.min(110, Math.max(28, W * 0.25)), by = Math.min(110, Math.max(28, H * 0.25));
+  const pct = (v, t) => (100 * v) / t + "%";
+  const blue = "rgba(125,211,252,.10)", pur = "rgba(192,132,252,.10)";
+  el.innerHTML =
+    `<div style="left:${pct(bx, W)};top:${pct(by, H)};width:${pct(W - 2 * bx, W)};height:${pct(H - 2 * by, H)};background:rgba(74,222,128,.12);border:1px dashed #2f3648">center<br><span style='color:#8b93a5'>swap</span></div>` +
+    `<div style="left:0;top:0;width:${pct(bx, W)};height:100%;background:${blue};clip-path:polygon(0 0,100% ${pct(by, H)},100% ${pct(H - by, H)},0 100%)">←</div>` +
+    `<div style="right:0;top:0;width:${pct(bx, W)};height:100%;background:${blue};clip-path:polygon(0 ${pct(by, H)},100% 0,100% 100%,0 ${pct(H - by, H)})">→</div>` +
+    `<div style="left:0;top:0;width:100%;height:${pct(by, H)};background:${pur};clip-path:polygon(0 0,100% 0,${pct(W - bx, W)} 100%,${pct(bx, W)} 100%)">↑</div>` +
+    `<div style="left:0;bottom:0;width:100%;height:${pct(by, H)};background:${pur};clip-path:polygon(${pct(bx, W)} 0,${pct(W - bx, W)} 0,100% 100%,0 100%)">↓</div>`;
+})();
+
+// ================================================================ §4 live mock
+const KINDS = [
+  { g: ">_", label: "Terminal", c: "#4ade80", ref: "tty" },
+  { g: "{}", label: "Code", c: "#7dd3fc", ref: "code" },
+  { g: "://", label: "Web", c: "#c084fc", ref: "web" },
+  { g: "[]", label: "GUI", c: "#fbbf24", ref: "gui" },
+  { g: ">_", label: "Terminal", c: "#4ade80", ref: "@12/tty", home: "@12" },
+  { g: "://", label: "Web tab 2", c: "#c084fc", ref: "web/2" },
+];
+const ROOT = 18, THRESH = 4, MINW = 150, MINH = 100;
+const st = { tree: norm(TEMPLATES["main-left"](3)), focus: 0, root: true, nest: false, fb: "preview", bands: false, floor: true, drag: null };
+const stage = document.getElementById("stage"), tilesEl = document.getElementById("tiles"), ov = document.getElementById("ov");
+const ro = { layout: document.getElementById("ro-layout"), sig: document.getElementById("ro-sig"), hover: document.getElementById("ro-hover"), last: document.getElementById("ro-last") };
+const box = () => ({ x: 0, y: 0, w: stage.clientWidth, h: stage.clientHeight });
+const inner = () => { const b = box(); return { x: 6, y: 6, w: b.w - 12, h: b.h - 12 }; };
+const encode = (t) => (isLeaf(t) ? KINDS[t.leaf].ref : t.d.toLowerCase() + "(" + t.c.map(encode).join(",") + ")");
+function tooSmall(t) { if (!st.floor) return false; return Object.values(layoutRects(t, inner()).leaf).some((b) => b.w < MINW || b.h < MINH); }
+
+function tplButtons() {
+  const host = document.getElementById("tpl-btns"); host.innerHTML = "";
+  const tm = templateOf(st.tree), cur = tm.name, n = leaves(st.tree).length;
+  for (const k of TPL_NAMES) {
+    const b = document.createElement("button"); b.textContent = k; b.className = k === cur ? "on" : "";
+    b.onclick = () => {
+      const order = tm.slots;
+      const t = norm(mapLeaves(TEMPLATES[k](n), (l) => ({ leaf: order[l.leaf] })));
+      if (tooSmall(t)) { ro.last.innerHTML = `<span class="no">${k} at N=${n} breaks the size floor here</span>`; return; }
+      st.tree = t; ro.last.textContent = `template ${k} (slot order kept)`; render();
+    };
+    host.appendChild(b);
+  }
+  const c = document.createElement("span"); c.className = "sub"; c.style.fontSize = "11.5px";
+  c.textContent = cur === "custom" ? "▦ custom" : cur === "single" ? "▦ single" : ""; host.appendChild(c);
+}
+function render() {
+  tplButtons();
+  const r = layoutRects(st.tree, inner());
+  tilesEl.innerHTML = "";
+  for (const [id, b] of Object.entries(r.leaf)) {
+    const K = KINDS[id];
+    const t = document.createElement("div");
+    t.className = "tile"; t.dataset.id = id;
+    Object.assign(t.style, { left: b.x + "px", top: b.y + "px", width: b.w + "px", height: b.h + "px" });
+    if (+id === st.focus) t.style.borderColor = "#5b6b8e";
+    const homeBtn = K.home ? `<span class="sub" style="font-size:10.5px">from ${K.home}</span><button class="home" title="Send back to ${K.home}" style="margin-left:auto;font:11px ui-monospace,monospace;border:1px solid var(--line);background:var(--bg2);color:var(--dim);border-radius:3px;padding:0 6px;cursor:pointer">↩ ${K.home}</button>` : "";
+    t.innerHTML = `<div class="hd"><span class="grip">⠿</span><b style="color:${K.c}">${esc(K.g)}</b><b>${esc(K.label)}</b>${homeBtn}</div><div class="body"><div class="ln"></div><div class="ln s"></div><div class="ln"></div></div>`;
+    const hb = t.querySelector("button.home");
+    if (hb) {
+      hb.addEventListener("pointerdown", (e) => e.stopPropagation());
+      hb.addEventListener("click", (e) => { e.stopPropagation(); snapBack(+id); });
+    }
+    t.querySelector(".hd").addEventListener("pointerdown", (e) => onDown(e, +id));
+    t.addEventListener("click", () => { if (st.focus !== +id) { st.focus = +id; render(); } });
+    tilesEl.appendChild(t);
+  }
+  drawDividers();
+  ro.layout.textContent = encode(st.tree);
+  ro.sig.textContent = `rk-layout-sizes:…:${sig(st.tree)}`;
+  ov.innerHTML = st.bands ? bandsHtml() : "";
+}
+// dividers: one between each pair of siblings; dragging adjusts those two fractions
+function drawDividers() {
+  const walk = (t, b, path) => {
+    if (isLeaf(t)) return;
+    const s = sizesOf(t), n = t.c.length, horiz = t.d === "H";
+    const avail = (horiz ? b.w : b.h) - GAP * (n - 1);
+    let at = horiz ? b.x : b.y;
+    t.c.forEach((k, i) => {
+      const len = avail * s[i];
+      walk(k, horiz ? { x: at, y: b.y, w: len, h: b.h } : { x: b.x, y: at, w: b.w, h: len }, [...path, i]);
+      if (i < n - 1) {
+        const d = document.createElement("div"); d.className = "divider " + (horiz ? "x" : "y");
+        Object.assign(d.style, horiz ? { left: at + len + "px", top: b.y + "px", width: GAP + "px", height: b.h + "px" } : { left: b.x + "px", top: at + len + "px", width: b.w + "px", height: GAP + "px" });
+        d.addEventListener("pointerdown", (e) => {
+          e.preventDefault(); d.setPointerCapture(e.pointerId);
+          const start = horiz ? e.clientX : e.clientY, s0 = sizesOf(getAt(st.tree, path)).slice();
+          const mv = (ev) => {
+            const delta = ((horiz ? ev.clientX : ev.clientY) - start) / avail;
+            const pair = s0[i] + s0[i + 1], a = Math.min(pair - 0.05, Math.max(0.05, s0[i] + delta));
+            const ns = s0.slice(); ns[i] = a; ns[i + 1] = pair - a;
+            const node = getAt(st.tree, path);
+            st.tree = setAt(st.tree, path, { d: node.d, c: node.c, s: ns });
+            // reposition without rebuilding the dragged divider
+            const r = layoutRects(st.tree, inner());
+            for (const el of tilesEl.querySelectorAll(".tile")) { const q = r.leaf[el.dataset.id]; Object.assign(el.style, { left: q.x + "px", top: q.y + "px", width: q.w + "px", height: q.h + "px" }); }
+          };
+          const upd = () => { d.removeEventListener("pointermove", mv); d.removeEventListener("pointerup", upd); render(); };
+          d.addEventListener("pointermove", mv); d.addEventListener("pointerup", upd);
+        });
+        tilesEl.appendChild(d);
+      }
+      at += len + GAP;
+    });
+  };
+  walk(st.tree, inner(), []);
+}
+const band = (dim) => Math.min(110, Math.max(28, dim * 0.25));
+function bandsHtml() {
+  let h = Object.values(layoutRects(st.tree, inner()).leaf).map((b) => { const bx = band(b.w), by = band(b.h); return `<div class="band" style="left:${b.x + bx}px;top:${b.y + by}px;width:${Math.max(0, b.w - 2 * bx)}px;height:${Math.max(0, b.h - 2 * by)}px"></div>`; }).join("");
+  if (st.root) { const B = box(); h += `<div class="band root" style="left:${ROOT}px;top:${ROOT}px;width:${B.w - 2 * ROOT}px;height:${B.h - 2 * ROOT}px"></div>`; }
+  return h;
+}
+function hit(x, y) {
+  const sr = stage.getBoundingClientRect(); const px = x - sr.left, py = y - sr.top, B = box();
+  if (px < 0 || py < 0 || px > B.w || py > B.h) return null;
+  if (st.root) {
+    const d = [["left", px], ["right", B.w - px], ["top", py], ["bottom", B.h - py]].filter(([, v]) => v < ROOT);
+    if (d.length) { d.sort((a, b) => a[1] - b[1]); return { kind: "root", side: d[0][0] }; }
+  }
+  for (const [id, b] of Object.entries(st.drag.rects)) {
+    if (px < b.x || px > b.x + b.w || py < b.y || py > b.y + b.h) continue;
+    const bx = band(b.w), by = band(b.h);
+    const c = [["left", px - b.x, bx], ["right", b.x + b.w - px, bx], ["top", py - b.y, by], ["bottom", b.y + b.h - py, by]].filter(([, v, w]) => v < w);
+    if (!c.length) return { kind: "center", id: +id };
+    c.sort((a, b) => a[1] / a[2] - b[1] / b[2]);
+    const [side, dist, w] = c[0];
+    return { kind: "edge", id: +id, side, depth: 1 - dist / w };
+  }
+  return null;
+}
+function resolveHit(h) {
+  const t = st.tree, x = st.drag.id;
+  if (!h) return { none: "outside: release to cancel" };
+  if (h.kind === "root") return { tree: dropEdge(t, x, [], h.side), desc: `layout ${h.side} edge`, zone: { root: h.side } };
+  if (h.id === x) return { none: "over itself: release to cancel" };
+  if (h.kind === "center") return { tree: swapLeaves(t, x, h.id), desc: `${KINDS[h.id].label} · center (swap)`, zone: { id: h.id, side: "center" } };
+  let path = pathOf(t, h.id), note = "";
+  if (st.nest) {
+    // strips: distinct outcomes along the edge chain; nearest the edge = outermost ancestor
+    const chain = edgeChain(t, h.id, h.side), seen = new Set(), opts = [];
+    for (const p of chain) { const r = sig(dropEdge(t, x, p, h.side)); if (!seen.has(r)) { seen.add(r); opts.push(p); } }
+    const k = Math.min(opts.length - 1, Math.floor(h.depth * opts.length));
+    path = opts[k]; if (opts.length > 1) note = ` · strip ${k + 1}/${opts.length}${path.length < pathOf(t, h.id).length ? " (ancestor)" : ""}`;
+  }
+  return { tree: dropEdge(t, x, path, h.side), desc: `${KINDS[h.id].label} · ${h.side}${note}`, zone: { id: h.id, side: h.side } };
+}
+function zoneRect(z) {
+  const B = box();
+  if (z.root) return { left: { x: 0, y: 0, w: B.w / 3, h: B.h }, right: { x: (2 * B.w) / 3, y: 0, w: B.w / 3, h: B.h }, top: { x: 0, y: 0, w: B.w, h: B.h / 3 }, bottom: { x: 0, y: (2 * B.h) / 3, w: B.w, h: B.h / 3 } }[z.root];
+  const q = st.drag.rects[z.id];
+  return { center: q, left: { ...q, w: q.w / 2 }, right: { ...q, x: q.x + q.w / 2, w: q.w / 2 }, top: { ...q, h: q.h / 2 }, bottom: { ...q, y: q.y + q.h / 2, h: q.h / 2 } }[z.side];
+}
+const px = (b) => `left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px`;
+function paint(h) {
+  const d = st.drag, r = resolveHit(h);
+  d.pending = null;
+  let html = "";
+  if (r.none) ro.hover.textContent = r.none;
+  else if (sig(r.tree) === sig(st.tree)) {
+    html = `<div class="half" style="${px(zoneRect(r.zone))};border-color:#56607a;background:rgba(86,96,122,.15)"></div>`;
+    ro.hover.innerHTML = `${esc(r.desc)} → <span class="sub">no change</span>`;
+  } else if (tooSmall(r.tree)) {
+    html = `<div class="bad" style="${px(zoneRect(r.zone))}">too small<br>(size floor)</div>`;
+    ro.hover.innerHTML = `${esc(r.desc)} → <span class="no">a tile would fall under ${MINW}×${MINH}: not offered</span>`;
+  } else {
+    if (st.fb === "half") html = `<div class="half" style="${px(zoneRect(r.zone))}"></div>`;
+    else html = Object.entries(layoutRects(r.tree, inner()).leaf).map(([id, b]) => `<div class="res ${+id === d.id ? "drag" : ""}" style="${px(b)}">${esc(KINDS[id].g)} ${esc(KINDS[id].label)}</div>`).join("");
+    ro.hover.innerHTML = `${esc(r.desc)} → <code>${esc(encode(r.tree))}</code>`;
+    d.pending = { tree: r.tree, desc: r.desc };
+  }
+  ov.innerHTML = html + (st.bands ? bandsHtml() : "");
+}
+let ghost = null;
+function onDown(e, id) {
+  if (e.button !== 0) return;
+  const hd = e.currentTarget, sx = e.clientX, sy = e.clientY;
+  let active = false;
+  hd.setPointerCapture(e.pointerId);
+  const move = (ev) => {
+    if (!active) {
+      if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < THRESH || leaves(st.tree).length < 2) return;
+      active = true;
+      st.drag = { id, rects: layoutRects(st.tree, inner()).leaf, pending: null };
+      tilesEl.querySelector(`.tile[data-id="${id}"]`).classList.add("dragging"); stage.classList.add("is-dragging");
+      ghost = document.createElement("div"); ghost.className = "ghost"; ghost.textContent = `⠿ ${KINDS[id].g} ${KINDS[id].label}`;
+      document.body.appendChild(ghost);
+    }
+    ghost.style.left = ev.clientX + "px"; ghost.style.top = ev.clientY + "px";
+    paint(hit(ev.clientX, ev.clientY));
+  };
+  const end = (commit) => {
+    hd.removeEventListener("pointermove", move); hd.removeEventListener("pointerup", up);
+    hd.removeEventListener("pointercancel", cancel); window.removeEventListener("keydown", key, true);
+    if (!active) return;
+    const p = st.drag.pending;
+    if (commit && p) { st.tree = p.tree; st.focus = id; ro.last.innerHTML = `drop ${esc(p.desc)} → one <code>@rk_win_layout</code> write + this viewer's sizes`; }
+    else ro.last.textContent = "cancelled (no write)";
+    st.drag = null; stage.classList.remove("is-dragging"); ghost && ghost.remove(); ghost = null;
+    ro.hover.textContent = "(not dragging)"; render();
+  };
+  const up = () => end(true), cancel = () => end(false);
+  const key = (ev) => { if (ev.key === "Escape") { ev.preventDefault(); end(false); } };
+  hd.addEventListener("pointermove", move); hd.addEventListener("pointerup", up);
+  hd.addEventListener("pointercancel", cancel); window.addEventListener("keydown", key, true);
+}
+
+// generic add: split the focused tile along its longer axis; if that breaks the floor, the largest tile
+function splitLonger(t, host, id) {
+  const b = layoutRects(t, inner()).leaf[host], side = b.w >= b.h ? "right" : "bottom";
+  const path = pathOf(t, host);
+  return { side, tree: norm(setAt(t, path, { d: AXIS[side], c: [getAt(t, path), { leaf: id }], s: [0.5, 0.5] })) };
+}
+function addTile() {
+  const used = new Set(leaves(st.tree)); const id = KINDS.findIndex((_, i) => !used.has(i));
+  if (id < 0) { ro.last.textContent = "the mock has six surfaces"; return; }
+  const rects = layoutRects(st.tree, inner()).leaf;
+  const largest = +Object.entries(rects).sort((a, b) => b[1].w * b[1].h - a[1].w * a[1].h)[0][0];
+  let host = st.focus, r = splitLonger(st.tree, host, id), fell = false;
+  if (tooSmall(r.tree) && largest !== host) { host = largest; r = splitLonger(st.tree, host, id); fell = true; }
+  if (tooSmall(r.tree)) { ro.last.innerHTML = `<span class="no">add refused: no tile can split without breaking the size floor</span>`; return; }
+  st.tree = r.tree;
+  ro.last.textContent = `add ${KINDS[id].label}: split ${KINDS[host].label}${fell ? " (largest; focused tile too small)" : " (focused)"} along its longer axis (${r.side === "right" ? "width" : "height"})`;
+  st.focus = id; render();
+}
+function snapBack(id) {
+  // a layout never empties: when the last tile leaves, the tab falls back to its own terminal
+  st.tree = leaves(st.tree).length < 2 ? { leaf: 0 } : norm(removeLeaf(st.tree, id));
+  if (st.focus === id) st.focus = leaves(st.tree)[0];
+  ro.last.innerHTML = `↩ sent ${esc(KINDS[id].label)} back to ${KINDS[id].home}: one write removes <code>${KINDS[id].ref}</code> here, and ${KINDS[id].home}'s <code>tty</code> slot, which showed a placeholder, goes live again`;
+  render();
+}
+function closeTile() {
+  if (leaves(st.tree).length < 2) return;
+  const gone = st.focus; st.tree = norm(removeLeaf(st.tree, gone)); st.focus = leaves(st.tree)[0];
+  ro.last.textContent = `close ${KINDS[gone].label}: remove + normalise`; render();
+}
+const tog = (id, fn) => document.getElementById(id).addEventListener("click", fn);
+tog("n-add", addTile); tog("n-rm", closeTile);
+tog("t-root", (e) => { st.root = e.currentTarget.classList.toggle("on"); render(); });
+tog("t-nest", (e) => { st.nest = e.currentTarget.classList.toggle("on"); });
+tog("t-bands", (e) => { st.bands = e.currentTarget.classList.toggle("on"); render(); });
+tog("t-floor", (e) => { st.floor = e.currentTarget.classList.toggle("on"); });
+tog("f-prev", () => { st.fb = "preview"; document.getElementById("f-prev").classList.add("on"); document.getElementById("f-half").classList.remove("on"); });
+tog("f-half", () => { st.fb = "half"; document.getElementById("f-half").classList.add("on"); document.getElementById("f-prev").classList.remove("on"); });
+window.addEventListener("resize", render);
+render();
+})();
+</script>
+</body>
+</html>

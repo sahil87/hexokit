@@ -3,8 +3,14 @@ package api
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"rk/internal/config"
+	"rk/internal/settings"
 	"rk/internal/tmux"
 )
 
@@ -109,5 +115,39 @@ func TestLookupNeighbourKeys_ignoresOtherBoards(t *testing.T) {
 	_, _, err := lookupNeighbourKeys(context.Background(), ops, "main", "@1", "@2")
 	if !errors.Is(err, errNeighbourNotFound) {
 		t.Fatalf("err = %v, want errNeighbourNotFound (neighbour on a different board)", err)
+	}
+}
+
+// TestNewRouterAndServer_UsesInjectedConfigSnapshot proves the constructor
+// seeds its startup ports from the cfg the CALLER resolved, never from a
+// second config.Load(): the serve process binds its listener from the cfg it
+// loaded at startup, so a config.yaml that disagrees with the injected
+// snapshot must not move listenPort/codeServerPort — the advertised tunnel
+// port and the /code/ target have to match the bound listener.
+func TestNewRouterAndServer_UsesInjectedConfigSnapshot(t *testing.T) {
+	// On-disk config says 6001; the caller's snapshot (e.g. its RK_PORT rung
+	// won) says 6123. The constructor must honor the snapshot.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("port: 6001\n"), 0o644); err != nil {
+		t.Fatalf("writing config.yaml: %v", err)
+	}
+	t.Setenv(settings.ConfigDirEnv, dir)
+	t.Setenv(config.PortEnvVar, "")
+	t.Setenv(config.CodeServerPortEnvVar, "")
+
+	cfg := config.Load()
+	cfg.Port = 6123
+	cfg.CodeServerPort = 0 // convention: resolved port + 2
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	_, s := NewRouterAndServer(ctx, logger, cfg)
+	if s.listenPort != 6123 {
+		t.Errorf("listenPort = %d, want 6123 (the caller's snapshot, not the on-disk 6001)", s.listenPort)
+	}
+	if s.codeServerPort != 6125 {
+		t.Errorf("codeServerPort = %d, want 6125 (snapshot port + 2)", s.codeServerPort)
 	}
 }

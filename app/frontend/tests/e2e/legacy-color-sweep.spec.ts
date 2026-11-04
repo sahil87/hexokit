@@ -93,7 +93,7 @@ test.describe("Legacy option sweep (session-scoped @color)", () => {
     // field is empty and the row button carries no inline tint (the tint is an
     // inline background-color applied only for a known color value).
     expect(target.color ?? "").toBe("");
-    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const sidebar = page.locator("nav[aria-label='Groups']");
     const row = sidebar.locator(`[data-window-id="${target.windowId}"]`);
     const rowButton = row.getByRole("button").filter({ hasText: WIN_NAME });
     await expect(rowButton).toBeVisible({ timeout: 5_000 });

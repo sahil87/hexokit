@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { buildSessionSortActions } from "./sort";
 
-// Backs the `Session: Sort windows…` palette entry. app.tsx folds the builder
+// Backs the `Group: Sort tabs…` palette entry. app.tsx folds the builder
 // output into the session group, so covering the gating and the pinned
 // id/label/options here proves the entry's shape without mounting the shell.
 
@@ -14,7 +14,7 @@ describe("buildSessionSortActions", () => {
   it("pins the single id, label, and option-picker keys with a current session", () => {
     const actions = buildSessionSortActions("work", vi.fn());
     expect(actions.map((a) => [a.id, a.label])).toEqual([
-      ["session-sort-windows", "Session: Sort windows…"],
+      ["session-sort-windows", "Group: Sort tabs…"],
     ]);
     expect(actions[0].optionPicker?.options).toEqual([
       { key: "status", label: "By status" },

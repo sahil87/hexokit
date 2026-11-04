@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Characters that are never valid in tmux session/window names.
@@ -53,6 +54,35 @@ func ValidateNewName(name, label string) string {
 		return fmt.Sprintf("%s cannot contain spaces", label)
 	}
 	return ""
+}
+
+// unsafeSessionNameChars is every char SessionNameFromPath converts to "_":
+// the forbiddenChars set, the ":" / "." pair ValidateName rejects separately,
+// the space ValidateNewName rejects, and "-" (the UI's session-name steering).
+var unsafeSessionNameChars = regexp.MustCompile(`[ ;&|` + "`" + `$(){}\[\]<>!#*?\n\r\t:.\-]`)
+
+var underscoreRun = regexp.MustCompile(`_{2,}`)
+
+// SessionNameFromPath derives a session (group) name from a filesystem path:
+// the last segment with unsafe chars converted to "_", "_" runs collapsed,
+// edges trimmed, and the result capped at MaxNameLength. A path with no
+// usable segment ("", "~", "/") yields "". Go port of the frontend
+// deriveNameFromPath (lib/names.ts); the result passes ValidateNewName
+// whenever it is non-empty. The cap counts bytes (ValidateName measures bytes),
+// unlike the frontend's UTF-16 slice, so multibyte names may end up shorter.
+func SessionNameFromPath(p string) string {
+	trimmed := strings.TrimRight(p, "/")
+	if trimmed == "~" || trimmed == "" {
+		return ""
+	}
+	segment := trimmed[strings.LastIndex(trimmed, "/")+1:]
+	name := underscoreRun.ReplaceAllString(unsafeSessionNameChars.ReplaceAllString(segment, "_"), "_")
+	name = strings.TrimLeft(name, "_")
+	for len(name) > MaxNameLength {
+		_, size := utf8.DecodeLastRuneInString(name)
+		name = name[:len(name)-size]
+	}
+	return strings.Trim(name, "_")
 }
 
 // colorFamilyNames is the closed set of owned-palette family-name color values
@@ -129,7 +159,7 @@ func parseColorIndices(value string) ([]int, string) {
 // numeric forms re-serialize the parsed indices ("4" or "a+b"), so
 // equivalent-but-noisy inputs ("01", " 1 + 3 ") collapse to a single
 // representation. Used by tolerant-read storage paths (the settings store at
-// ~/.config/run-kit/config.yaml) and the tmux option readers to accept any
+// ~/.config/hexokit/config.yaml) and the tmux option readers to accept any
 // stored vocabulary on read and always normalize to the canonical string.
 func NormalizeColorValue(value string) (string, bool) {
 	if name := strings.TrimSpace(value); colorFamilyNames[name] {
@@ -433,7 +463,7 @@ func ValidateIdentifier(name, label string) string {
 // hardening over the shared tmux-safe ValidateName rule (which the session/window
 // callers also use — that shared rule is deliberately left unchanged). The extra
 // rejections address how a worktree name is consumed downstream of riff: it
-// becomes a `wt create --worktree-name` argv element (a leading `-` could look
+// becomes a `wt create --name` argv element (a leading `-` could look
 // like a flag), a worktree directory basename (a `/` would split the path), and
 // a `riff-<name>` tmux window name (a leading space is a surprising, error-prone
 // name). Returns empty string if valid, an error message otherwise.

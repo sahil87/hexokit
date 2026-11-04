@@ -128,7 +128,7 @@ export async function executeSelectionBatch(
     const target = splitSelectionKey(key);
     if (!target) {
       failedKeys.push(key);
-      if (!firstError) firstError = "malformed window key";
+      if (!firstError) firstError = "malformed tab key";
       continue;
     }
     try {

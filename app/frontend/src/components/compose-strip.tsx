@@ -280,7 +280,7 @@ export function ComposeStrip({
 
 /** Sentinel for the one-time "on by default" notice — written before the
  *  toast fires so StrictMode's double-invoked mount effect shows it once. */
-const COMPOSE_DEFAULT_NOTICE_KEY = "runkit-compose-default-notice";
+const COMPOSE_DEFAULT_NOTICE_KEY = "hexokit-compose-default-notice";
 
 /** Shared dock-seam wrapper for both tongue forms: the same outer/inner shape
  *  as the expanded body (unstyled outer box carrying the test id and the

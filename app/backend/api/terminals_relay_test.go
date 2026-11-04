@@ -590,3 +590,209 @@ func TestTerminals_ClientCloseYields1000(t *testing.T) {
 		}
 	}
 }
+
+// --- Isolated relay sessions (`isolate: true` on the open op) ---
+
+// openStreamIsolate sends an `open` control op with isolate:true.
+func openStreamIsolate(t *testing.T, conn *websocket.Conn, id uint32, tmuxServer, windowID string, cols, rows uint16) {
+	t.Helper()
+	op := openOp{Op: "open", ID: id, Server: tmuxServer, WindowID: windowID, Cols: cols, Rows: rows, Isolate: true}
+	body, err := json.Marshal(op)
+	if err != nil {
+		t.Fatalf("marshal open op: %v", err)
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, body); err != nil {
+		t.Fatalf("write open op: %v", err)
+	}
+}
+
+// isoDestroyUnattached reads the session's destroy-unattached option value.
+func isoDestroyUnattached(t *testing.T, server, session string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "tmux", "-L", server,
+		"show-options", "-t", session, "-v", "destroy-unattached").CombinedOutput()
+	if err != nil {
+		t.Fatalf("show-options destroy-unattached on %q: %v\n%s", session, err, string(out))
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// isoSessionAlive reports whether the named session exists on the server.
+func isoSessionAlive(t *testing.T, server, session string) bool {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return tmux.HasSession(ctx, server, session)
+}
+
+// TestTerminals_IsolatedStreamsKeepOwnWindows proves two isolated streams on
+// SIBLING windows of one session each keep rendering their own window — the
+// fight over home's single active-window pointer is gone because each stream
+// attaches through its own `_rk-iso-*` session — and that the isolated opens
+// never move the home session's active window (the SPA reads that as
+// navigation). It also pins the lifecycle: the chained attach argv sets
+// destroy-unattached on each iso session, and closing the socket (both attach
+// clients die) lets tmux reap both iso sessions while the windows stay in home.
+func TestTerminals_IsolatedStreamsKeepOwnWindows(t *testing.T) {
+	tmuxServer, real, win0ID, win1ID := withTerminalsTmux(t)
+	ts := terminalsServerWithProdTmux(t)
+	defer ts.Close()
+
+	iso0, _ := tmux.IsoSessionName(win0ID)
+	iso1, _ := tmux.IsoSessionName(win1ID)
+
+	// Home's active window starts on win0.
+	if err := tmux.SelectWindowInSession(real, win0ID, tmuxServer); err != nil {
+		t.Fatalf("select win0 in home: %v", err)
+	}
+
+	conn := dialTerminals(t, ts)
+	openStreamIsolate(t, conn, 1, tmuxServer, win0ID, 80, 24)
+	openStreamIsolate(t, conn, 2, tmuxServer, win1ID, 80, 24)
+
+	// One tolerant read loop collects both streams' markers (sequential
+	// readStreamUntilContains calls would discard the other stream's frames and
+	// a real read error on the first call would poison the second).
+	var buf0, buf1 []byte
+	end := time.Now().Add(6 * time.Second)
+	for time.Now().Before(end) && (!bytes.Contains(buf0, []byte("WINDOW_ZERO")) || !bytes.Contains(buf1, []byte("WINDOW_ONE"))) {
+		conn.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+		msgType, msg, err := conn.ReadMessage()
+		if err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				continue
+			}
+			if strings.Contains(err.Error(), "i/o timeout") || strings.Contains(err.Error(), "deadline exceeded") {
+				continue
+			}
+			t.Fatalf("read error before both markers (buf0=%q buf1=%q): %v", string(buf0), string(buf1), err)
+		}
+		if msgType != websocket.BinaryMessage || len(msg) < 4 {
+			continue
+		}
+		switch binary.BigEndian.Uint32(msg[:4]) {
+		case 1:
+			buf0 = append(buf0, msg[4:]...)
+		case 2:
+			buf1 = append(buf1, msg[4:]...)
+		}
+	}
+	if !bytes.Contains(buf0, []byte("WINDOW_ZERO")) {
+		t.Errorf("isolated stream 1 did not render win0; got: %q", string(buf0))
+	}
+	if !bytes.Contains(buf1, []byte("WINDOW_ONE")) {
+		t.Errorf("isolated stream 2 did not render win1; got: %q", string(buf1))
+	}
+
+	// Each iso session holds exactly its own window, permanently active.
+	if a := activeWindowID(t, tmuxServer, iso0); a != win0ID {
+		t.Errorf("%s active window = %q, want %q", iso0, a, win0ID)
+	}
+	if a := activeWindowID(t, tmuxServer, iso1); a != win1ID {
+		t.Errorf("%s active window = %q, want %q", iso1, a, win1ID)
+	}
+	// The isolated opens did not move home's active-window pointer.
+	if a := activeWindowID(t, tmuxServer, real); a != win0ID {
+		t.Errorf("home active window = %q after isolated opens, want %q (opens must not touch home's pointer)", a, win0ID)
+	}
+	// The chained attach argv set the lifecycle option on both iso sessions.
+	if v := isoDestroyUnattached(t, tmuxServer, iso0); v != "on" {
+		t.Errorf("%s destroy-unattached = %q after attach, want on", iso0, v)
+	}
+	if v := isoDestroyUnattached(t, tmuxServer, iso1); v != "on" {
+		t.Errorf("%s destroy-unattached = %q after attach, want on", iso1, v)
+	}
+
+	// Socket teardown kills both attach clients; as the last clients of their
+	// iso sessions, tmux reaps both sessions while the windows stay in home.
+	conn.Close()
+	if !testutil.WaitUntil(t, 5*time.Second, func() bool {
+		return !isoSessionAlive(t, tmuxServer, iso0) && !isoSessionAlive(t, tmuxServer, iso1)
+	}) {
+		t.Errorf("iso sessions %q/%q survived socket teardown — destroy-unattached must reap them", iso0, iso1)
+	}
+	windows, err := tmux.ListWindows(context.Background(), real, tmuxServer)
+	if err != nil {
+		t.Fatalf("list home windows: %v", err)
+	}
+	alive := map[string]bool{}
+	for _, w := range windows {
+		alive[w.WindowID] = true
+	}
+	if !alive[win0ID] || !alive[win1ID] {
+		t.Errorf("windows missing from home after iso reap: win0=%v win1=%v (windows must stay in home)", alive[win0ID], alive[win1ID])
+	}
+}
+
+// TestTerminals_IsoSharedSessionSurvivesFirstClientDeath proves the sharing
+// contract: two isolated viewers of the SAME window share one `_rk-iso-*`
+// session, killing the first viewer's attach client leaves the session alive
+// for the second, and the session is reaped only when the LAST client dies.
+func TestTerminals_IsoSharedSessionSurvivesFirstClientDeath(t *testing.T) {
+	tmuxServer, _, win0ID, _ := withTerminalsTmux(t)
+	ts := terminalsServerWithProdTmux(t)
+	defer ts.Close()
+
+	iso, _ := tmux.IsoSessionName(win0ID)
+
+	connA := dialTerminals(t, ts)
+	openStreamIsolate(t, connA, 1, tmuxServer, win0ID, 80, 24)
+	if _, ok := awaitOpened(t, connA, 1, 5*time.Second); !ok {
+		t.Fatal("stream A never opened")
+	}
+	connB := dialTerminals(t, ts)
+	defer connB.Close()
+	openStreamIsolate(t, connB, 1, tmuxServer, win0ID, 80, 24)
+	if _, ok := awaitOpened(t, connB, 1, 5*time.Second); !ok {
+		t.Fatal("stream B never opened")
+	}
+	if !isoSessionAlive(t, tmuxServer, iso) {
+		t.Fatalf("iso session %q missing after two isolated opens", iso)
+	}
+
+	// Kill the first viewer (socket teardown SIGKILLs its attach client): the
+	// second viewer still holds the session, so it must survive.
+	connA.Close()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if !isoSessionAlive(t, tmuxServer, iso) {
+			t.Fatalf("iso session %q reaped while a second client was still attached", iso)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if got := readStreamUntilContains(t, connB, 1, "WINDOW_ZERO", 3*time.Second); !bytes.Contains(got, []byte("WINDOW_ZERO")) {
+		t.Errorf("surviving viewer's stream lost its window content; got: %q", string(got))
+	}
+
+	// The last client's death reaps the session; the window stays in home.
+	connB.Close()
+	if !testutil.WaitUntil(t, 5*time.Second, func() bool { return !isoSessionAlive(t, tmuxServer, iso) }) {
+		t.Errorf("iso session %q survived its last client's death", iso)
+	}
+	if !isoSessionAlive(t, tmuxServer, "real") {
+		t.Error("home session missing after iso reap")
+	}
+}
+
+// TestTerminals_IsoMissingWindowClosed4004 proves an isolated open on a
+// well-formed but nonexistent window id yields a per-stream `closed` 4004 and
+// leaks no `_rk-iso-*` session (the ensure rolls its creation back).
+func TestTerminals_IsoMissingWindowClosed4004(t *testing.T) {
+	tmuxServer, _, _, _ := withTerminalsTmux(t)
+	ts := terminalsServerWithProdTmux(t)
+	defer ts.Close()
+
+	conn := dialTerminals(t, ts)
+	defer conn.Close()
+
+	openStreamIsolate(t, conn, 1, tmuxServer, "@9999", 80, 24)
+	if code := awaitClosed(t, conn, 1, 3*time.Second); code != closeWindowNotFound {
+		t.Errorf("closed code = %d, want %d (4004)", code, closeWindowNotFound)
+	}
+	iso, _ := tmux.IsoSessionName("@9999")
+	if isoSessionAlive(t, tmuxServer, iso) {
+		t.Errorf("iso session %q leaked after a missing-window ensure", iso)
+	}
+}

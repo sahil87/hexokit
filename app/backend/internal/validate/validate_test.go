@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestValidateName(t *testing.T) {
@@ -824,5 +825,58 @@ func TestValidateWebTabURL(t *testing.T) {
 		if got := ValidateWebTabURL(v); got == "" {
 			t.Errorf("reject %q: got valid, want error", v)
 		}
+	}
+}
+
+func TestSessionNameFromPath(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"plain folder", "~/code/hexokit", "hexokit"},
+		{"dots and hyphens", "~/code/my-app.v2", "my_app_v2"},
+		{"spaces", "~/code/my app", "my_app"},
+		{"trailing slash", "~/code/hexokit/", "hexokit"},
+		{"multiple trailing slashes", "/home/u/code/x//", "x"},
+		{"home tilde", "~", ""},
+		{"home tilde slash", "~/", ""},
+		{"empty", "", ""},
+		{"root", "/", ""},
+		{"dotfile folder", "~/.config", "config"},
+		{"only unsafe chars", "~/code/...", ""},
+		{"runs collapse", "~/code/a--b__c", "a_b_c"},
+		{"edges trimmed", "~/code/-x-", "x"},
+		{"colon and metachar", "~/code/a:b;c", "a_b_c"},
+		{"bare name", "hexokit", "hexokit"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SessionNameFromPath(tt.input)
+			if got != tt.want {
+				t.Fatalf("SessionNameFromPath(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+			if got != "" {
+				if msg := ValidateNewName(got, "Session name"); msg != "" {
+					t.Fatalf("derived %q fails ValidateNewName: %s", got, msg)
+				}
+			}
+		})
+	}
+}
+
+func TestSessionNameFromPathMaxLength(t *testing.T) {
+	long := "~/code/" + strings.Repeat("a", 300)
+	got := SessionNameFromPath(long)
+	if len(got) != MaxNameLength {
+		t.Fatalf("len = %d, want %d", len(got), MaxNameLength)
+	}
+	multi := "~/code/" + strings.Repeat("é", 100)
+	got = SessionNameFromPath(multi)
+	if len(got) > MaxNameLength || !utf8.ValidString(got) {
+		t.Fatalf("multibyte cap broke: len=%d valid=%v", len(got), utf8.ValidString(got))
+	}
+	if msg := ValidateNewName(got, "Session name"); msg != "" {
+		t.Fatalf("capped name fails ValidateNewName: %s", msg)
 	}
 }

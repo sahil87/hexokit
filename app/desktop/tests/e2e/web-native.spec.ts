@@ -7,11 +7,13 @@
  *
  * Shared setup: `beforeAll` creates a tmux session `e2e-desktop-<ts>` on the
  * rig's server and starts the guest stub (a `node:http` loopback listener
- * serving a titled page — guests load through the host origin's
- * `/proxy/<port>/` hop from the shell's `persist:rk-web` partition, which a
- * `page.route` stub cannot serve); `afterAll` kills both. `beforeEach`
+ * serving a titled page — on e2e-a the shell's web mode is `direct` (e2e-a's
+ * origin IS what `rk url` resolves under the harness env, see _shell.ts), so
+ * guests load the stub's LITERAL loopback URL from the per-host
+ * `persist:rk-web:<hostId>` partition, which a `page.route` stub cannot
+ * serve); `afterAll` kills both. `beforeEach`
  * launches a FRESH shell per test: a fresh `mkdtemp` XDG_CONFIG_HOME seeded
- * with a two-host `hosts.json` (e2e-a `localhost`, e2e-b `127.0.0.1`, both on
+ * with a two-host `hosts.json` (e2e-a `127.0.0.1`, e2e-b `localhost`, both on
  * E2E_PORT — a real host switch against ONE rig), so the developer's real
  * config and any running shell are untouched; `afterEach` closes the app and
  * removes the temp dir even on mid-test failure. `seedWindow(name)` creates a
@@ -40,7 +42,6 @@ import {
   stampWebTab,
 } from "../../../frontend/tests/e2e/_tmux";
 import {
-  E2E_PORT,
   GUEST_TITLE,
   hostOrigins,
   launchShell,
@@ -112,12 +113,13 @@ let app: ElectronApplication;
 let configHome: string;
 let hostPage: Page;
 
-/** The guest node in the window's view tree — the child loading through the
- *  stub's `/proxy/<port>/` hop (its URL is host-origin, so path, not origin,
- *  classifies it). */
+/** The guest node in the window's view tree — the child loading the stub's
+ *  LITERAL loopback URL (e2e-a's web mode is `direct`: its origin is what
+ *  `rk url` resolves under the harness env, so the native engine skips the
+ *  `/proxy/<port>/` hop and loads `http://127.0.0.1:<stubPort>/` as-is). */
 async function guestNode(): Promise<ViewNode | null> {
   const tree = await viewTree(app);
-  return tree.find((node) => node.url.includes(guest.proxyPath)) ?? null;
+  return tree.find((node) => node.url.startsWith(guest.literalUrl)) ?? null;
 }
 
 /** Poll until the guest exists in the tree and satisfies `pred`. */
@@ -144,7 +146,7 @@ async function seedWindow(name: string): Promise<string> {
   stampWebTab(found.windowId, `${guest.origin}/`);
   setWindowOption(found.windowId, "@rk_win_layout", "single:web");
   await hostPage.goto(
-    `http://localhost:${E2E_PORT}/${TMUX_SERVER}/${encodeURIComponent(found.windowId)}`,
+    `${hostOrigins().a}/${TMUX_SERVER}/${encodeURIComponent(found.windowId)}`,
   );
   await expect(hostPage.getByTestId("web-native-placeholder")).toBeVisible({
     timeout: READY_TIMEOUT,
@@ -183,7 +185,7 @@ async function pressGuestChord(): Promise<void> {
     target.focus();
     target.sendInputEvent({ type: "keyDown", keyCode: "k", modifiers: ["control"] });
     target.sendInputEvent({ type: "keyUp", keyCode: "k", modifiers: ["control"] });
-  }, guest.proxyPath);
+  }, guest.literalUrl);
 }
 
 test.beforeAll(async () => {
@@ -218,23 +220,32 @@ test.describe("web tile — native engine in the desktop shell", () => {
    * the guest paints exactly over its tile.
    * Steps:
    * 1. Seed a window with the stub URL + single:web; navigate the host page.
-   * 2. Read the placeholder's bounding box (host-view DIPs).
-   * 3. Poll the view tree for a visible guest; assert exactly one child loads
-   *    the stub's proxy path and its bounds match the box within 1 px.
+   * 2. Poll the view tree: exactly one child loads the stub's literal loopback
+   *    URL, and it is visible with non-zero bounds.
+   * 3. Poll the guest's live bounds against a FRESH placeholder bounding box
+   *    until every field matches within 1 px — the engine re-measures on a
+   *    rAF loop, so the guest converges onto the final layout; a one-shot box
+   *    read would race that settling.
    */
   test("a web tab creates one visible guest whose bounds match the tile rect", async () => {
     await seedWindow(`wn-bounds-${Date.now()}`);
-    const box = await hostPage.getByTestId("web-native-placeholder").boundingBox();
-    expect(box, "placeholder has a layout box").not.toBeNull();
 
-    const node = await pollGuest((n) => n.visible && n.bounds.width > 0);
+    await pollGuest((n) => n.visible && n.bounds.width > 0);
     const tree = await viewTree(app);
-    expect(tree.filter((n) => n.url.includes(guest.proxyPath))).toHaveLength(1);
-    for (const field of ["x", "y", "width", "height"] as const) {
-      expect(Math.abs(node.bounds[field] - box![field])).toBeLessThanOrEqual(
-        BOUNDS_TOLERANCE_PX,
-      );
-    }
+    expect(tree.filter((n) => n.url.startsWith(guest.literalUrl))).toHaveLength(1);
+    await expect
+      .poll(
+        async () => {
+          const node = await guestNode();
+          const box = await hostPage.getByTestId("web-native-placeholder").boundingBox();
+          if (!node || !box || !node.visible) return false;
+          return (["x", "y", "width", "height"] as const).every(
+            (field) => Math.abs(node.bounds[field] - box[field]) <= BOUNDS_TOLERANCE_PX,
+          );
+        },
+        { timeout: READY_TIMEOUT },
+      )
+      .toBe(true);
   });
 
   /**
@@ -321,8 +332,7 @@ test.describe("web tile — native engine in the desktop shell", () => {
     await seedWindow(`wn-switch-${Date.now()}`);
     await pollGuest((n) => n.visible);
     const origins = hostOrigins();
-    const isHostA = (n: ViewNode) =>
-      n.url.startsWith(`${origins.a}/`) && !n.url.includes("/proxy/");
+    const isHostA = (n: ViewNode) => n.url.startsWith(`${origins.a}/`);
     const isHostB = (n: ViewNode) => n.url.startsWith(`${origins.b}/`);
 
     await hostPage.evaluate((id) => {
@@ -333,7 +343,7 @@ test.describe("web tile — native engine in the desktop shell", () => {
       .poll(
         async () => {
           const tree = await viewTree(app);
-          const node = tree.find((n) => n.url.includes(guest.proxyPath));
+          const node = tree.find((n) => n.url.startsWith(guest.literalUrl));
           return tree.some(isHostB) && node !== undefined && !node.visible;
         },
         { timeout: READY_TIMEOUT },
@@ -348,7 +358,7 @@ test.describe("web tile — native engine in the desktop shell", () => {
       .poll(
         async () => {
           const tree = await viewTree(app);
-          const guestIndex = tree.findIndex((n) => n.url.includes(guest.proxyPath));
+          const guestIndex = tree.findIndex((n) => n.url.startsWith(guest.literalUrl));
           const hostIndex = tree.findIndex(isHostA);
           return (
             guestIndex >= 0 &&

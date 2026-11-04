@@ -1,5 +1,6 @@
 // Package codeserver owns the rk-managed code-server install: the versioned
-// directory layout under ~/.rk/code-server-bin, GitHub release resolution, and
+// directory layout under <state>/code-server/bin (the apphome state home,
+// ${XDG_STATE_HOME:-~/.local/state}/hexokit), GitHub release resolution, and
 // the download-verify-extract-flip install flow. It has zero tmux coupling —
 // the daemon (internal/daemon) and the CLI (cmd/rk) both consume it, mirroring
 // the desktop-installer precedent (install engine as a library, callers stay
@@ -7,12 +8,13 @@
 //
 // Layout (user-decided):
 //
-//	~/.rk/code-server-bin/<version>/   one extracted release per version dir,
-//	                                   top-level tarball directory stripped, so
-//	                                   the binary is <version>/bin/code-server
-//	~/.rk/code-server-bin/current      symlink → <version>; activation is an
-//	                                   atomic symlink flip (temp symlink +
-//	                                   os.Rename), never a remove+recreate
+//	<state>/code-server/bin/<version>/   one extracted release per version
+//	                                     dir, top-level tarball directory
+//	                                     stripped, so the binary is
+//	                                     <version>/bin/code-server
+//	<state>/code-server/bin/current      symlink → <version>; activation is an
+//	                                     atomic symlink flip (temp symlink +
+//	                                     os.Rename), never a remove+recreate
 //
 // The layout is derived from the filesystem at call time (Constitution II) —
 // InstalledVersion reads the current symlink's target; there is no registry.
@@ -23,21 +25,27 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"rk/internal/apphome"
 )
 
-const (
-	// binDirName is the managed-install root under ~/.rk.
-	binDirName = "code-server-bin"
-	// currentLinkName is the symlink beside the version dirs pointing at the
-	// active version.
-	currentLinkName = "current"
-)
+// currentLinkName is the symlink beside the version dirs pointing at the
+// active version.
+const currentLinkName = "current"
 
-// BinDir is the managed-install root: ~/.rk/code-server-bin. Its existence is
-// the ownership signal — a host without it has a user-managed (or no)
-// code-server, which rk never touches.
+// BinDir is the managed-install root: <state>/code-server/bin, resolved
+// through apphome. Its existence is the ownership signal — a host without it
+// has a user-managed (or no) code-server, which rk never touches.
+//
+// home backstops only the degenerate case where the state home itself is
+// unresolvable (XDG_STATE_HOME unset and $HOME missing — callers resolved home
+// from that same environment, so the apphome path otherwise always wins); it
+// keeps the result absolute rather than CWD-relative.
 func BinDir(home string) string {
-	return filepath.Join(home, ".rk", binDirName)
+	if dir, err := apphome.CodeServerBinDir(); err == nil {
+		return dir
+	}
+	return filepath.Join(home, ".local", "state", apphome.Name, "code-server", "bin")
 }
 
 // VersionDir is the install dir for one release version (no leading "v").

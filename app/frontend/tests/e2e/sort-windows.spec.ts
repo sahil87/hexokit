@@ -5,7 +5,7 @@ import { gotoWindow, openPalette, resolveWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
 /**
- * The `Session: Sort windows…` command-palette action and its option-picker
+ * The `Group: Sort tabs…` command-palette action and its option-picker
  * sub-step — the one-shot session-scoped reorder verb
  * (POST /api/sessions/{session}/sort-windows with an ordered key array).
  * Exercises the full real-tmux loop: palette → sub-step key pick → API →
@@ -21,7 +21,7 @@ import { TMUX_SERVER, createSession, killSession } from "./_tmux";
  * pass as created order. No route mocks — the app talks to the real dev
  * server and the real isolated tmux server; assertions poll tmux-side truth
  * (list-windows) AND the sidebar row order. openSortPicker(page) opens the
- * palette via `openPalette`, selects `Session: Sort windows…`, and waits for the
+ * palette via `openPalette`, selects `Group: Sort tabs…`, and waits for the
  * picker sub-step (`Pick sort keys — Space toggle · Enter apply`
  * placeholder). pickSortKeys(page, labels) clicks each named option row
  * (toggles it on in click order = priority order), then presses Enter to
@@ -100,7 +100,7 @@ function clearAgentState(name: string): void {
 
 /** This spec's sidebar window rows, in display order (raw read; callers poll). */
 function sidebarWindowOrder(page: Page): Promise<string[]> {
-  const sidebar = page.locator("nav[aria-label='Sessions']");
+  const sidebar = page.locator("nav[aria-label='Groups']");
   return sidebar.evaluate(
     (el, tag) => {
       const rows = el.querySelectorAll("[data-window-id] button");
@@ -112,11 +112,11 @@ function sidebarWindowOrder(page: Page): Promise<string[]> {
   );
 }
 
-/** Open the palette and select `Session: Sort windows…` — leaves the picker
+/** Open the palette and select `Group: Sort tabs…` — leaves the picker
  *  sub-step active. */
 async function openSortPicker(page: Page): Promise<void> {
   const paletteInput = await openPalette(page);
-  await paletteInput.fill("Session: Sort windows");
+  await paletteInput.fill("Group: Sort tabs");
   await page.keyboard.press("Enter");
   await expect(
     page.getByPlaceholder("Pick sort keys — Space toggle · Enter apply"),
@@ -135,7 +135,7 @@ async function pickSortKeys(page: Page, labels: string[]): Promise<void> {
  *  session gate for the palette sort entry is the snapshot-derived
  *  sessionName, which needs the SSE session list to have landed. */
 async function waitForSessionVisible(page: Page): Promise<void> {
-  const sidebar = page.locator("nav[aria-label='Sessions']");
+  const sidebar = page.locator("nav[aria-label='Groups']");
   await expect(sidebar.locator(`text=${TAG}`).first()).toBeVisible({ timeout: 10_000 });
 }
 
@@ -145,7 +145,7 @@ async function gotoSessionWindow(page: Page, name: string): Promise<void> {
   await waitForSessionVisible(page);
 }
 
-test.describe("Session: Sort windows", () => {
+test.describe("Group: Sort windows", () => {
   test.beforeAll(() => {
     createSession(SESSION, { windows: [...NAMES] });
   });

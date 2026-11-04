@@ -39,11 +39,6 @@ export type TopBarSlot = {
   server: string;
   onNavigate: (windowId: string) => void;
   onToggleSidebar: () => void;
-  onCreateWindow: (session: string) => void;
-  /** Open the spawn-agent dialog for a session (260713-sbk1). Registered by
-   *  `AppShell` on terminal/root routes; the window-switcher `+ New Agent` item
-   *  calls it. Absent (undefined) → the dropdown renders no `+ New Agent`. */
-  onSpawnAgent?: (session: string) => void;
   /** Board-mode metadata (registered by `BoardPage`; absent otherwise). */
   paneCount?: number;
   serverCount?: number;
@@ -71,7 +66,7 @@ export type TopBarSlot = {
   onToggleAutofit?: () => void;
   /** Terminal-mode surface-toggle group data: the tile surfaces the current
    *  window offers (`tty` first) plus a mode discriminant — TOGGLE (desktop:
-   *  the OPEN tiles (the resolved layout's `order`) and the shared toggle
+   *  the OPEN tiles (the resolved layout's leaves) and the shared toggle
    *  mutation (unlit → `addSurface`, lit → `closeSurface`)) or SWITCH (mobile:
    *  the VISIBLE tile and the switch-to-tile verb). Registered by `AppShell`
    *  on terminal routes (switch mode additionally gated on ≥2 shown surfaces);
@@ -82,6 +77,15 @@ export type TopBarSlot = {
         available: SurfaceKind[];
         open: SurfaceKind[];
         onToggle: (surface: SurfaceKind) => void;
+        /** The size-floor add gate — false disables the unlit buttons. */
+        canAdd: boolean;
+        /** Away predicate: the surface's slot is live in another tab. */
+        away?: (surface: SurfaceKind) => boolean;
+        /** Popped predicate: the surface's close-target leaf is popped out
+         *  for this viewer — the button carries a popped marker, and the
+         *  toggle reveals/hides the popped placeholder instead of closing
+         *  the tile. */
+        popped?: (surface: SurfaceKind) => boolean;
       }
     | {
         mode: "switch";
@@ -105,6 +109,12 @@ export type TopBarSlot = {
    *  routes (BoardPage does not register them) → no chip. */
   layout?: Layout;
   onApplyLayout?: (next: Layout) => void;
+  /** True while this viewer has a tile of the layout popped out: the ▦
+   *  template cycle (chip + menu rows) renders DISABLED — a template rebuilds
+   *  from the current slot order, and running one over the viewer's reduced
+   *  render would strand the popped leaf (spec surface-layout.md § Verbs →
+   *  Pop out). */
+  layoutTemplatesDisabled?: boolean;
 } | null;
 
 type TopBarSlotContextValue = {
@@ -118,6 +128,17 @@ type TopBarSlotContextValue = {
    */
   notFound: boolean;
   setNotFound: (notFound: boolean) => void;
+  /**
+   * The popout chrome mode (spec surface-layout.md § Verbs → Pop out): set by
+   * `AppShell` while the terminal route renders the `?pop=` popout posture —
+   * the root layout drops the persistent TopBar, the quake terminal, and the
+   * command palette for a chrome-less one-tile window. A bare boolean like
+   * `notFound`: the payload-dependent validity/ever-seen decision lives in
+   * AppShell, and the chrome must not flip back when the popout's window dies
+   * (the ended "Window closed" state is chrome-less too).
+   */
+  popout: boolean;
+  setPopout: (popout: boolean) => void;
 };
 
 const TopBarSlotContext = createContext<TopBarSlotContextValue | null>(null);
@@ -130,6 +151,7 @@ const TopBarSlotContext = createContext<TopBarSlotContextValue | null>(null);
 export function TopBarSlotProvider({ children }: { children: React.ReactNode }) {
   const [slot, setSlotState] = useState<TopBarSlot>(null);
   const [notFound, setNotFoundState] = useState(false);
+  const [popout, setPopoutState] = useState(false);
 
   // Keep the dispatchers referentially stable so registering pages can pass
   // them straight into a `useEffect` dep list without retriggering every
@@ -142,6 +164,10 @@ export function TopBarSlotProvider({ children }: { children: React.ReactNode }) 
   if (!setNotFoundRef.current) {
     setNotFoundRef.current = (next: boolean) => setNotFoundState(next);
   }
+  const setPopoutRef = useRef<((popout: boolean) => void) | null>(null);
+  if (!setPopoutRef.current) {
+    setPopoutRef.current = (next: boolean) => setPopoutState(next);
+  }
 
   const value = useMemo<TopBarSlotContextValue>(
     () => ({
@@ -149,8 +175,10 @@ export function TopBarSlotProvider({ children }: { children: React.ReactNode }) 
       setSlot: setSlotRef.current!,
       notFound,
       setNotFound: setNotFoundRef.current!,
+      popout,
+      setPopout: setPopoutRef.current!,
     }),
-    [slot, notFound],
+    [slot, notFound, popout],
   );
 
   return (
@@ -202,6 +230,32 @@ export function useSignalTopBarNotFound(): void {
     setNotFound(true);
     return () => setNotFound(false);
   }, [setNotFound]);
+}
+
+/** Read whether the terminal route is rendering the chrome-less popout
+ *  posture — the root layout drops the persistent TopBar, the quake terminal,
+ *  and the command palette while set. Throws outside a provider. */
+export function useTopBarPopout(): boolean {
+  const ctx = useContext(TopBarSlotContext);
+  if (!ctx) {
+    throw new Error("useTopBarPopout must be used within TopBarSlotProvider");
+  }
+  return ctx.popout;
+}
+
+/** Publish the popout chrome mode (AppShell, on the terminal route) — the
+ *  `useSignalTopBarNotFound` pattern: set on every posture flip, cleared on
+ *  unmount. */
+export function useRegisterTopBarPopout(popout: boolean): void {
+  const ctx = useContext(TopBarSlotContext);
+  if (!ctx) {
+    throw new Error("useRegisterTopBarPopout must be used within TopBarSlotProvider");
+  }
+  const { setPopout } = ctx;
+  useEffect(() => {
+    setPopout(popout);
+    return () => setPopout(false);
+  }, [setPopout, popout]);
 }
 
 /**

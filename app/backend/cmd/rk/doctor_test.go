@@ -16,7 +16,10 @@ import (
 	"time"
 
 	"rk/internal/codeserver"
+	"rk/internal/config"
 	"rk/internal/gui"
+	"rk/internal/homemigrate"
+	"rk/internal/portpolicy"
 	"rk/internal/settings"
 	"rk/internal/tmux"
 )
@@ -954,8 +957,11 @@ func TestLegacyOptionsScanSkipsFailingServer(t *testing.T) {
 // guidance, never brew.
 func TestCodeServerCheckAbsentBinaryIsWarnNotFail(t *testing.T) {
 	t.Setenv("RK_CODE_SERVER_PORT", "3939")
+	home := t.TempDir() // no managed install under this home
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", "") // codeserver paths resolve from the environment (apphome)
 	c := codeServerCheck(
-		t.TempDir(), // no managed install under this home
+		home,
 		func(string) (string, error) { return "", fmt.Errorf("not found") },
 		func(string) bool { return false },
 	)
@@ -983,6 +989,8 @@ func TestCodeServerCheckManagedVersion(t *testing.T) {
 	t.Setenv("RK_PORT", "3000")
 	t.Setenv("RK_CODE_SERVER_PORT", "")
 	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", "") // codeserver paths resolve from the environment (apphome)
 	bin := filepath.Join(codeserver.VersionDir(home, "4.132.0"), "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatal(err)
@@ -1002,6 +1010,12 @@ func TestCodeServerCheckManagedVersion(t *testing.T) {
 	if !c.OK || !strings.Contains(c.Note, "managed v4.132.0") {
 		t.Errorf("note = %q, want the managed version (rung 1 wins over PATH)", c.Note)
 	}
+	if !strings.Contains(c.Note, codeserver.BinDir(home)) {
+		t.Errorf("note = %q, want the managed install root %q (<state>/code-server/bin)", c.Note, codeserver.BinDir(home))
+	}
+	if strings.Contains(c.Note, ".rk/code-server-bin") {
+		t.Errorf("note = %q, must not name the retired ~/.rk/code-server-bin path", c.Note)
+	}
 	if !strings.Contains(c.Note, "reachable on 127.0.0.1:3002") {
 		t.Errorf("note = %q, want reachability alongside the version", c.Note)
 	}
@@ -1013,6 +1027,8 @@ func TestCodeServerCheckManagedVersion(t *testing.T) {
 func TestCodeServerCheckReachabilityNotes(t *testing.T) {
 	t.Setenv("RK_PORT", "3000")
 	t.Setenv("RK_CODE_SERVER_PORT", "")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", "") // codeserver paths resolve from the environment (apphome)
 	lookPath := func(string) (string, error) { return "/usr/bin/code-server", nil }
 
 	up := codeServerCheck(t.TempDir(), lookPath, func(string) bool { return true })
@@ -1065,7 +1081,7 @@ func TestRemovedEnvCheckRKSSHHost(t *testing.T) {
 		if c.OK {
 			t.Error("check OK = true, want false (set-but-ignored is a failure)")
 		}
-		want := "RK_SSH_HOST is no longer read — set the ssh_host key in ~/.config/run-kit/config.yaml"
+		want := "RK_SSH_HOST is no longer read — set the ssh_host key in ~/.config/hexokit/config.yaml"
 		if c.Hint != want {
 			t.Errorf("hint = %q, want %q", c.Hint, want)
 		}
@@ -1223,6 +1239,258 @@ func TestTmuxConfigCheckNeverFlipsVerdict(t *testing.T) {
 	}
 	if !found {
 		t.Error("runDoctorChecks must append the tmux config row unconditionally")
+	}
+}
+
+// --- ~/.rk row ---------------------------------------------------------------
+
+// setupRKHomeRow redirects HOME and XDG_STATE_HOME into temp dirs (the
+// hermeticity rule: apphome resolves the state home from the environment, so
+// env redirection — not a home-string seam — is what keeps the test off the
+// real ~/.rk and ~/.local/state) and returns (home, stateDir).
+func setupRKHomeRow(t *testing.T) (string, string) {
+	t.Helper()
+	home := t.TempDir()
+	state := filepath.Join(t.TempDir(), "state", "hexokit")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", filepath.Dir(state))
+	return home, state
+}
+
+// TestRKHomeCheckStates pins the three R10 row shapes plus the move-pending
+// state: absent is a clean OK with no warning; MOVED.md lists the remaining
+// user-owned files (tenant-shaped names and MOVED.md itself excluded); a
+// held-back tenant warns, naming the ~/.rk source and the existing state-home
+// destination. Every state stays OK — the row must never flip the verdict.
+func TestRKHomeCheckStates(t *testing.T) {
+	t.Run("absent is a clean pass with no warning", func(t *testing.T) {
+		home, _ := setupRKHomeRow(t)
+		c := rkHomeCheck(home)
+		if !c.OK {
+			t.Errorf("absent row must stay OK, got %+v", c)
+		}
+		if !strings.Contains(c.Note, "absent") || strings.Contains(c.Note, "WARNING") {
+			t.Errorf("note = %q, want 'absent' with no warning", c.Note)
+		}
+	})
+
+	t.Run("MOVED.md lists the remaining user-owned files", func(t *testing.T) {
+		home, state := setupRKHomeRow(t)
+		rkDir := filepath.Join(home, ".rk")
+		for name, content := range map[string]string{
+			"MOVED.md":               "# moved\n",
+			"tmux.conf":              "# hand-tuned\n",
+			"settings.yaml":          "port: 3000\n",
+			"notes.txt":              "mine\n",
+			"settings.yaml.migrated": "breadcrumb\n",
+		} {
+			p := filepath.Join(rkDir, name)
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		c := rkHomeCheck(home)
+		if !c.OK {
+			t.Errorf("MOVED.md row must stay OK, got %+v", c)
+		}
+		for _, want := range []string{"tmux.conf", "settings.yaml", "notes.txt", "MOVED.md"} {
+			if !strings.Contains(c.Note, want) {
+				t.Errorf("note = %q, want it to name %q", c.Note, want)
+			}
+		}
+		if !strings.Contains(c.Note, state) {
+			t.Errorf("note = %q, want it to name the state home %q", c.Note, state)
+		}
+		if strings.Contains(c.Note, "WARNING") {
+			t.Errorf("note = %q, a MOVED.md listing carries no warning", c.Note)
+		}
+		// Migration breadcrumbs are not user-owned: settings.yaml.migrated must
+		// not appear in the remaining-files list. (A tenant-shaped leftover like
+		// update.log never reaches this branch — with MOVED.md written it is
+		// always held back as a warning, covered by the subtests above.)
+		if strings.Contains(c.Note, "settings.yaml.migrated") {
+			t.Errorf("note = %q, breadcrumbs must be excluded from the user-owned list", c.Note)
+		}
+	})
+
+	t.Run("MOVED.md with nothing else left is safe-to-delete", func(t *testing.T) {
+		home, _ := setupRKHomeRow(t)
+		rkDir := filepath.Join(home, ".rk")
+		if err := os.MkdirAll(rkDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(rkDir, "MOVED.md"), []byte("# moved\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		c := rkHomeCheck(home)
+		if !c.OK || !strings.Contains(c.Note, "safe to delete") {
+			t.Errorf("note = %q, want OK + the safe-to-delete state", c.Note)
+		}
+	})
+
+	t.Run("held-back tenant warns, naming both paths", func(t *testing.T) {
+		home, state := setupRKHomeRow(t)
+		rkDir := filepath.Join(home, ".rk")
+		if err := os.MkdirAll(rkDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(rkDir, "vapid.json"), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(rkDir, "MOVED.md"), []byte("# moved\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(state, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(state, "vapid.json"), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		c := rkHomeCheck(home)
+		if !c.OK {
+			t.Errorf("held-back row must warn but stay OK, got %+v", c)
+		}
+		if !strings.Contains(c.Note, "WARNING") {
+			t.Errorf("note = %q, want a warning for the held-back tenant", c.Note)
+		}
+		src := filepath.Join(rkDir, "vapid.json")
+		dst := filepath.Join(state, "vapid.json")
+		if !strings.Contains(c.Note, src) || !strings.Contains(c.Note, dst) {
+			t.Errorf("note = %q, want it to name both %q and %q", c.Note, src, dst)
+		}
+	})
+
+	t.Run("MOVED.md with a tenant left behind and no destination warns", func(t *testing.T) {
+		home, state := setupRKHomeRow(t)
+		rkDir := filepath.Join(home, ".rk")
+		if err := os.MkdirAll(rkDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(rkDir, "MOVED.md"), []byte("# moved\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// The move marked itself done but vapid.json never arrived at the
+		// state home — the ~/.rk copy is the only one, so the row must warn
+		// rather than report safe-to-delete.
+		if err := os.WriteFile(filepath.Join(rkDir, "vapid.json"), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(state, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		c := rkHomeCheck(home)
+		if !c.OK {
+			t.Errorf("the row must warn but stay OK, got %+v", c)
+		}
+		if !strings.Contains(c.Note, "WARNING") || strings.Contains(c.Note, "safe to delete") {
+			t.Errorf("note = %q, want a warning, never safe-to-delete", c.Note)
+		}
+		src := filepath.Join(rkDir, "vapid.json")
+		if !strings.Contains(c.Note, src) {
+			t.Errorf("note = %q, want it to name the held-back source %q", c.Note, src)
+		}
+	})
+
+	t.Run("present without MOVED.md reports the pending move", func(t *testing.T) {
+		home, _ := setupRKHomeRow(t)
+		rkDir := filepath.Join(home, ".rk")
+		if err := os.MkdirAll(rkDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(rkDir, "vapid.json"), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		c := rkHomeCheck(home)
+		if !c.OK || !strings.Contains(c.Note, "daemon") {
+			t.Errorf("note = %q, want OK + the move-pending state naming the daemon start", c.Note)
+		}
+		if strings.Contains(c.Note, "WARNING") {
+			t.Errorf("note = %q, a pending move carries no warning", c.Note)
+		}
+	})
+}
+
+// --- legacy run-kit homes rows --------------------------------------------------
+
+// TestLegacyHomeNote pins the four note shapes: absent when the home is gone;
+// the path plus the guard reason when a guard holds it back; the retained cb/
+// when a live code-bridge host is registered; and the pending deletion. Every
+// shape is OK — doctor diagnoses, the daemon start heals.
+func TestLegacyHomeNote(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		st   homemigrate.LegacyHomeState
+		want []string // every fragment must appear in the note
+	}{
+		{
+			name: "absent",
+			st:   homemigrate.LegacyHomeState{Label: "config", Path: "/h/.config/run-kit"},
+			want: []string{"absent"},
+		},
+		{
+			name: "held back names the path and the guard",
+			st: homemigrate.LegacyHomeState{
+				Label: "config", Path: "/h/.config/run-kit", Present: true,
+				Hold: "symlink /h/.config/hexokit/tmux.d/x.conf in the hexokit config home points into the legacy home",
+			},
+			want: []string{"/h/.config/run-kit", "held back", "/h/.config/hexokit/tmux.d/x.conf"},
+		},
+		{
+			name: "retained cb names the live host",
+			st:   homemigrate.LegacyHomeState{Label: "state", Path: "/s/run-kit", Present: true, KeepCB: true},
+			want: []string{"/s/run-kit", "cb/", "live code-bridge host"},
+		},
+		{
+			name: "deletable names the next daemon start",
+			st:   homemigrate.LegacyHomeState{Label: "state", Path: "/s/run-kit", Present: true},
+			want: []string{"/s/run-kit", "deleted at the next daemon start"},
+		},
+		{
+			name: "unresolvable",
+			st:   homemigrate.LegacyHomeState{Label: "config", Hold: "the legacy config home path is unresolvable: no home"},
+			want: []string{"unresolvable", "no home"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := legacyHomeCheck(tc.st)
+			if !c.OK {
+				t.Errorf("the legacy-home row must always stay OK, got %+v", c)
+			}
+			if c.Name != "legacy "+tc.st.Label+" home" {
+				t.Errorf("row name = %q, want %q", c.Name, "legacy "+tc.st.Label+" home")
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(c.Note, want) {
+					t.Errorf("note = %q, want it to contain %q", c.Note, want)
+				}
+			}
+		})
+	}
+}
+
+// TestLegacyHomeRowsInReport proves runDoctorChecks appends one row per legacy
+// home, fed by the homemigrate.LegacyHomes seam.
+func TestLegacyHomeRowsInReport(t *testing.T) {
+	orig := legacyHomesFn
+	legacyHomesFn = func(context.Context) []homemigrate.LegacyHomeState {
+		return []homemigrate.LegacyHomeState{
+			{Label: "config", Path: "/h/.config/run-kit"},
+			{Label: "state", Path: "/s/run-kit", Present: true},
+		}
+	}
+	t.Cleanup(func() { legacyHomesFn = orig })
+
+	var names []string
+	for _, c := range runDoctorChecks().Checks {
+		names = append(names, c.Name)
+	}
+	for _, want := range []string{"legacy config home", "legacy state home"} {
+		if !slices.Contains(names, want) {
+			t.Errorf("runDoctorChecks checks = %v, want a %q row", names, want)
+		}
 	}
 }
 
@@ -1665,7 +1933,7 @@ func TestCronTickerCheck(t *testing.T) {
 		if !c.OK {
 			t.Errorf("row must always be OK-shaped, got %+v", c)
 		}
-		wantDir := filepath.Join(stateHome, "run-kit", "cron")
+		wantDir := filepath.Join(stateHome, "hexokit", "cron")
 		if !strings.Contains(c.Note, "cron_ticker on") || !strings.Contains(c.Note, wantDir) {
 			t.Errorf("note = %q, want the setting state and the state dir %s", c.Note, wantDir)
 		}
@@ -2192,7 +2460,7 @@ func TestRiffPresetsBlockCheck(t *testing.T) {
 		if c.Name != "riff presets" {
 			t.Errorf("name = %q, want %q", c.Name, "riff presets")
 		}
-		want := "fab/project/config.yaml has a riff: block that rk no longer reads — define presets under riff_presets in ~/.config/run-kit/config.yaml"
+		want := "fab/project/config.yaml has a riff: block that rk no longer reads — define presets under riff_presets in ~/.config/hexokit/config.yaml"
 		if c.Note != want {
 			t.Errorf("note = %q, want %q", c.Note, want)
 		}
@@ -2270,6 +2538,100 @@ func TestRiffPresetsBlockRowGating(t *testing.T) {
 	})
 }
 
+// TestPortsDoctorCheck table-tests the pure ports row builder: every shape
+// stays OK (advisory only), with the default listing note and the collision
+// note leading with the warning.
+func TestPortsDoctorCheck(t *testing.T) {
+	cases := []struct {
+		name     string
+		version  string
+		cfg      config.Config
+		wantNote string
+	}{
+		{
+			name:     "default port",
+			cfg:      config.Config{Port: portpolicy.DaemonDefault},
+			wantNote: fmt.Sprintf("daemon :%d (default); reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999", portpolicy.DaemonDefault),
+		},
+		{
+			name: "tunnel collision",
+			cfg:  config.Config{Port: 3150},
+			wantNote: "WARNING: port inside reserved block(s) tunnel 3100–3199: daemon :3150, code-server :3152 — set RK_PORT outside; " +
+				"daemon :3150; code-server :3152; reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999",
+		},
+		{
+			name:    "rig collision via code-server straddle, released build",
+			version: "1.2.3",
+			cfg:     config.Config{Port: 21297},
+			wantNote: "WARNING: port inside reserved block(s) rig 21000–21299: daemon :21297, code-server :21299 — set RK_PORT outside; " +
+				"daemon :21297; code-server :21299; reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999",
+		},
+		{
+			name: "code-server-only collision via explicit override",
+			cfg:  config.Config{Port: portpolicy.DaemonDefault, CodeServerPort: 3100},
+			wantNote: fmt.Sprintf("WARNING: port inside reserved block(s) tunnel 3100–3199: code-server :3100 — set RK_CODE_SERVER_PORT outside; "+
+				"daemon :%d (default); code-server :3100; reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999", portpolicy.DaemonDefault),
+		},
+		{
+			name:     "rig port, dev build — rig block exempt",
+			cfg:      config.Config{Port: 21297},
+			wantNote: "daemon :21297; reserved: rig 21000–21299, tunnel 3100–3199, sentinel 21999",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.version != "" {
+				orig := version
+				version = tc.version
+				t.Cleanup(func() { version = orig })
+			}
+			check := portsDoctorCheck(tc.cfg)
+			if check.Name != "ports" {
+				t.Errorf("name = %q, want ports", check.Name)
+			}
+			if !check.OK {
+				t.Errorf("OK = false; the ports row must never fail (note %q)", check.Note)
+			}
+			if check.Note != tc.wantNote {
+				t.Errorf("note = %q, want %q", check.Note, tc.wantNote)
+			}
+			// Worst-check-wins: appending the row can never flip the verdict.
+			report := doctorReport{OK: true}
+			report.Checks = append(report.Checks, check)
+			if !report.OK {
+				t.Error("ports row flipped report.OK")
+			}
+		})
+	}
+}
+
+// TestPortsRowNeverFlipsVerdict proves the advisory ports row cannot change
+// the overall report verdict (the riff-presets never-flips pattern): the same
+// machine with and without a colliding RK_PORT yields the same report.OK.
+func TestPortsRowNeverFlipsVerdict(t *testing.T) {
+	t.Setenv("RK_PORT", "")
+	without := runDoctorChecks().OK
+
+	t.Setenv("RK_PORT", "3150")
+	with := runDoctorChecks()
+	if with.OK != without {
+		t.Errorf("report.OK flipped with a colliding RK_PORT: %v → %v", without, with.OK)
+	}
+	for _, c := range with.Checks {
+		if c.Name != "ports" {
+			continue
+		}
+		if !c.OK {
+			t.Errorf("ports row not OK on collision: %+v", c)
+		}
+		if !strings.HasPrefix(c.Note, "WARNING:") || !strings.Contains(c.Note, "tunnel") {
+			t.Errorf("collision note must lead with the warning naming the block, got %q", c.Note)
+		}
+		return
+	}
+	t.Error("ports row absent from the report")
+}
+
 // TestRiffPresetsBlockRowNeverFlipsVerdict proves the advisory row cannot change
 // the overall report verdict: the same repo with and without the riff: key
 // yields the same report.OK.
@@ -2288,5 +2650,139 @@ func TestRiffPresetsBlockRowNeverFlipsVerdict(t *testing.T) {
 	}
 	if _, found := doctorHasRiffPresetsRow(with); !found {
 		t.Error("riff presets row should be present after adding the riff: key")
+	}
+}
+
+// TestPortPinCheck pins the advisory `port pin` row's gate and shape: it fires
+// only when config.yaml's port equals the legacy default, the current default
+// has moved off it, and RK_PORT is not overriding — and it is always OK-shaped
+// with a Note, never a verdict flipper.
+func TestPortPinCheck(t *testing.T) {
+	cases := []struct {
+		name        string
+		pinned      int
+		def         int
+		legacy      int
+		envOverride bool
+		wantRow     bool
+	}{
+		{"dormant while default equals legacy (today)", 3000, 3000, 3000, false, false},
+		{"fires when pinned at legacy and default moved", 3000, 6123, 3000, false, true},
+		{"RK_PORT override suppresses", 3000, 6123, 3000, true, false},
+		{"unpinned port suppresses", 4100, 6123, 3000, false, false},
+		{"no port in config.yaml suppresses", 0, 6123, 3000, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, present := portPinCheck(tc.pinned, tc.def, tc.legacy, tc.envOverride)
+			if present != tc.wantRow {
+				t.Fatalf("portPinCheck(%d, %d, %d, %v) present = %v, want %v", tc.pinned, tc.def, tc.legacy, tc.envOverride, present, tc.wantRow)
+			}
+			if !present {
+				return
+			}
+			if c.Name != "port pin" {
+				t.Errorf("name = %q, want %q", c.Name, "port pin")
+			}
+			if !c.OK {
+				t.Error("the pin row must stay OK-shaped (advisory)")
+			}
+			pinnedFrag := fmt.Sprintf("pinned at :%d", tc.pinned)
+			defFrag := fmt.Sprintf(":%d", tc.def)
+			if !strings.Contains(c.Note, pinnedFrag) || !strings.Contains(c.Note, defFrag) {
+				t.Errorf("note %q must name the pinned port and the new default", c.Note)
+			}
+			if !strings.Contains(c.Note, "rk daemon restart") {
+				t.Errorf("note %q must carry the move recipe", c.Note)
+			}
+		})
+	}
+}
+
+// TestPortPinRowRealPolicyValues runs the full report builder against the
+// embedded policy values (not injected constants): a config pinned at
+// DaemonLegacy shows the advisory `port pin` row naming the real default, a
+// config at the default or under an RK_PORT override shows none, and the
+// verdict never flips.
+func TestPortPinRowRealPolicyValues(t *testing.T) {
+	if portpolicy.DaemonDefault == portpolicy.DaemonLegacy {
+		t.Skip("DaemonDefault == DaemonLegacy: the pin row is dormant by design")
+	}
+
+	hasPinRow := func(report doctorReport) (doctorCheck, bool) {
+		for _, c := range report.Checks {
+			if c.Name == "port pin" {
+				return c, true
+			}
+		}
+		return doctorCheck{}, false
+	}
+	writePinnedConfig := func(t *testing.T, port int) {
+		t.Helper()
+		cfgDir := t.TempDir()
+		content := fmt.Sprintf("port: %d\n", port)
+		if err := os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(settings.ConfigDirEnv, cfgDir)
+	}
+
+	t.Run("pinned at the legacy port: row present, verdict unaffected", func(t *testing.T) {
+		writePinnedConfig(t, portpolicy.DaemonLegacy)
+		t.Setenv("RK_PORT", "")
+		report := runDoctorChecks()
+		row, found := hasPinRow(report)
+		if !found {
+			t.Fatal("port pin row absent for a config pinned at the legacy port")
+		}
+		if !row.OK {
+			t.Errorf("row = %+v, want OK-shaped (advisory)", row)
+		}
+		defFrag := fmt.Sprintf(":%d", portpolicy.DaemonDefault)
+		if !strings.Contains(row.Note, defFrag) || !strings.Contains(row.Note, "rk daemon restart") {
+			t.Errorf("note %q must name :%d and the move recipe", row.Note, portpolicy.DaemonDefault)
+		}
+		if !report.OK {
+			t.Error("the advisory pin row must never flip the report verdict")
+		}
+	})
+
+	t.Run("already on the default: no row", func(t *testing.T) {
+		writePinnedConfig(t, portpolicy.DaemonDefault)
+		t.Setenv("RK_PORT", "")
+		if row, found := hasPinRow(runDoctorChecks()); found {
+			t.Errorf("port pin row present for an install on the default: %+v", row)
+		}
+	})
+
+	t.Run("RK_PORT override: no row", func(t *testing.T) {
+		writePinnedConfig(t, portpolicy.DaemonLegacy)
+		t.Setenv("RK_PORT", strconv.Itoa(portpolicy.DaemonLegacy))
+		if row, found := hasPinRow(runDoctorChecks()); found {
+			t.Errorf("port pin row present under an RK_PORT override: %+v", row)
+		}
+	})
+}
+
+// TestRKPortOverride pins the valid-port rule behind the pin row's env gate:
+// only a parseable in-range RK_PORT counts as an override.
+func TestRKPortOverride(t *testing.T) {
+	cases := []struct {
+		value string
+		want  bool
+	}{
+		{"", false},
+		{"6123", true},
+		{"abc", false},
+		{"0", false},
+		{"65536", false},
+	}
+	for _, tc := range cases {
+		t.Run("RK_PORT="+tc.value, func(t *testing.T) {
+			t.Setenv("RK_PORT", tc.value)
+			if got := rkPortOverride(); got != tc.want {
+				t.Errorf("rkPortOverride() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

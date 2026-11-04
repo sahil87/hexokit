@@ -12,7 +12,7 @@ import type { CronDelivery } from "@/api/client";
  * `DataTable` (components/data-table.tsx) in the API's most-recent-first
  * order as-is (`initialSort: null`). No upcoming fires, no "now" divider —
  * the registry half lives in the Cron List tab. A header sort is an additive
- * per-viewer override persisted under `runkit-table-cron-log`; `Table: Reset
+ * per-viewer override persisted under `hexokit-table-cron-log`; `Table: Reset
  * columns` returns to API order. Data rides the mount fetch + state-socket
  * sessions cadence — no polling.
  *
@@ -76,7 +76,7 @@ export function CronLog({ server, inline = false }: { server: string; inline?: b
         className="flex-1 min-h-0 flex items-center justify-center px-4 text-xs text-text-secondary"
         data-testid="cron-log-unresolved"
       >
-        no server resolved — cron log unavailable
+        no workspace resolved — cron log unavailable
       </div>
     );
   }

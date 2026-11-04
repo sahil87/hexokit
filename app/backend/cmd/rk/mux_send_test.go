@@ -311,6 +311,8 @@ func resetMuxFlags() {
 	muxKillJSONFlag = false
 	muxProcessJSONFlag = false
 	muxPanesJSONFlag = false
+	muxInventoryJSONFlag, muxInventoryAgentsOnlyFlag = false, false
+	muxInventoryLimitFlag = 500
 	muxSessionsJSONFlag, muxSessionsAllFlag = false, false
 	muxNewEphemeralFlag = false
 	muxNewJSONFlag = false
@@ -321,6 +323,7 @@ func resetMuxFlags() {
 	resetFlagChanged(muxNewCmd, "ephemeral", "json")
 	resetFlagChanged(muxProcessCmd, "json")
 	resetFlagChanged(muxPanesCmd, "json")
+	resetFlagChanged(muxInventoryCmd, "json", "agents-only", "limit")
 	resetFlagChanged(muxSessionsCmd, "json", "all")
 	// The parent's persistent -L is shared by every mux invocation, so an
 	// explicit `-L x` from one test would otherwise leak into the next.

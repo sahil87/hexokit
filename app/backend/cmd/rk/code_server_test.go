@@ -35,10 +35,15 @@ func bareCmd(out, errOut *bytes.Buffer) *cobra.Command {
 
 // withCodeServerCLISeams points the CLI's home/installer/start/kill seams at a
 // temp home and (optionally) an httptest release server, returning recorders
-// for the kill/start calls. Restores via t.Cleanup.
+// for the kill/start calls. HOME and XDG_STATE_HOME are also redirected: the
+// codeserver package resolves its layout from the environment (apphome), so
+// the seam alone cannot keep the real state home untouched. Restores via
+// t.Cleanup.
 func withCodeServerCLISeams(t *testing.T, home string, srv *httptest.Server) (kills, starts *int) {
 	t.Helper()
 	kills, starts = new(int), new(int)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", "") // force the ~/.local/state fallback under the temp home
 
 	origHome, origNew := codeServerUserHomeFn, newCodeServerInstallerFn
 	origStart, origKill := codeServerStartFn, codeServerKillFn
@@ -247,7 +252,7 @@ func TestCodeServerStartDaemonDownPropagates(t *testing.T) {
 // --- R11: update ---
 
 func TestCodeServerUpdateNotManagedSkips(t *testing.T) {
-	home := t.TempDir() // no ~/.rk/code-server-bin
+	home := t.TempDir() // no managed install (~/.local/state/hexokit/code-server/bin)
 	kills, starts := withCodeServerCLISeams(t, home, nil)
 	installerBuilt := false
 	newCodeServerInstallerFn = func() *codeserver.Installer {

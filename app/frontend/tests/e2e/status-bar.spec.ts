@@ -355,7 +355,7 @@ test.describe("Status bar (260814-ldbs)", () => {
 
     const input = await openPalette(page);
     await input.fill("Copy:");
-    await expect(page.getByRole("option", { name: "Copy: Server Name" })).toBeVisible();
+    await expect(page.getByRole("option", { name: "Copy: Workspace Name" })).toBeVisible();
     await expect(page.getByRole("option", { name: "Copy: Host Name" })).toBeVisible();
     await page.getByRole("option", { name: "Copy: Git Branch" }).click();
 

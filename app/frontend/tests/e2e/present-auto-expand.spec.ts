@@ -16,8 +16,8 @@ import { stubProxyPorts } from "./_web-tile";
 // the expand): a viewer MOUNTED on a window's terminal route repaints from an
 // EXTERNAL `tmux set-option -w @rk_win_layout …` on the next option tick, with
 // no client-side state machine — this is the mechanism an agent uses to show
-// the web tile on a tab. The per-viewer toggle POSTs `single:tty` back through
-// the same option.
+// the web tile on a tab. The per-viewer toggle POSTs the bare `tty` leaf back
+// through the same option.
 //
 // Shared setup: beforeEach route-stubs the derived dead port's
 // /proxy/<port>/** (stubProxyPorts, _web-tile.ts; port from reserveDeadPort,
@@ -36,7 +36,7 @@ import { stubProxyPorts } from "./_web-tile";
 // safety ticker on a quiet server. makeWindow(name) creates a window with
 // cwd: "/tmp" (a plain non-repo cwd — the code surface is still available via
 // the cwd fallback, but nothing here asserts on it; the layout starts at a
-// deterministic single:tty regardless) and returns the @N id. awaitSnapshotReady(page, id) waits for the
+// deterministic bare `tty` leaf regardless) and returns the @N id. awaitSnapshotReady(page, id) waits for the
 // tty tile's role="application" aria-label to carry the SSE-derived session
 // name — proof the route's window record resolved, so an option write issued
 // after it is always an OBSERVED transition, never a cold first read (the
@@ -68,8 +68,10 @@ async function resolveWindow(page: Page, windowName: string): Promise<string> {
   return (await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName)).windowId;
 }
 
-/** Write the shared layout — the same write `rk present`'s --show arm makes;
- *  the `rk present` ≡ `rk tab web add --show` equivalence is pinned on a real
+/** Write the shared layout — a HAND-WRITTEN external write in the legacy
+ *  preset grammar (parse permanence is the point of these inputs; `rk
+ *  present`'s --show arm itself now writes the tree form). The `rk present` ≡
+ *  `rk tab web add --show` equivalence is pinned on a real
  *  socket by TestPresentEquivalentToWebAddShow (app/backend/cmd/rk). */
 function setLayoutOption(windowId: string, value: string): void {
   execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-w", "-t", windowId, "@rk_win_layout", value], {
@@ -79,7 +81,7 @@ function setLayoutOption(windowId: string, value: string): void {
 
 /** Create a window and return its @N id. `cwd: "/tmp"` is a plain non-repo
  *  cwd (the code surface resolves to the raw cwd via the fallback — irrelevant
- *  here); the layout starts at a deterministic `single:tty`. */
+ *  here); the layout starts at a deterministic bare `tty` leaf. */
 async function makeWindow(page: Page, name: string): Promise<string> {
   newWindow(TEST_SESSION, name, { cwd: "/tmp" });
   return resolveWindow(page, name);
@@ -139,22 +141,22 @@ test.describe("External @rk_win_layout writes repaint the mounted viewer", () =>
    * Proves: the external-write repaint — a `set-option -w @rk_win_layout`
    * issued while a viewer is mounted opens the web tile beside the terminal
    * on the next option tick (no client-side state machine, no client write),
-   * and closing the tile via the rail toggle POSTs `single:tty` back through
-   * the same option.
+   * and closing the tile via the top-bar toggle POSTs the bare `tty` leaf
+   * back through the same option.
    *
    * Steps:
    * 1. Create a window with a stamped slot-1 web tab; navigate to its route;
    *    assert the terminal renders, the option is UNSET, and the URL is bare;
    *    wait for the snapshot-readiness gate.
    * 2. `tmux set-option -w @rk_win_layout split-h:tty,web` (the external
-   *    write).
+   *    write — a LEGACY preset string, which parses permanently).
    * 3. Assert the web iframe becomes visible beside the still-visible
    *    terminal and the top-bar `Web tile` toggle reads pressed; assert the
    *    URL stays bare.
-   * 4. Click the rail's `Web tile` toggle; assert the iframe hides and the
-   *    option reads `single:tty`.
+   * 4. Click the top-bar `Web tile` toggle; assert the iframe hides and the
+   *    option reads `tty` (the bare leaf).
    */
-  test("an external set-option -w @rk_win_layout repaints the mounted viewer; the rail toggle writes single:tty back", async ({
+  test("an external set-option -w @rk_win_layout repaints the mounted viewer; the top-bar toggle writes the bare tty leaf back", async ({
     page,
   }) => {
     // The set-option write rides the 12s safety ticker worst-case; the suite's
@@ -165,15 +167,17 @@ test.describe("External @rk_win_layout writes repaint the mounted viewer", () =>
     stampWebTab(id, URL_A);
     await gotoWindow(page, id);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    // Cold entry resolved `single:tty` (the fallback — the option is unset),
-    // and the URL never carries layout state.
+    // Cold entry resolved the bare `tty` leaf (the fallback — the option is
+    // unset), and the URL never carries layout state.
     expect(windowOption(id, "@rk_win_layout")).toBe("");
     expect(new URL(page.url()).search).toBe("");
     // The client's first snapshot has landed, so the write below is always an
     // OBSERVED transition.
     await awaitSnapshotReady(page, id);
 
-    // The external write — an agent's expand, no client involvement.
+    // The external write — an agent's expand, no client involvement. The
+    // LEGACY preset string parses permanently (parse permanence IS the point
+    // of this input) and renders its tree.
     setLayoutOption(id, "split-h:tty,web");
     await expect(iframe(page)).toBeVisible({ timeout: OPTION_TICK_TIMEOUT });
     await expect(terminal(page)).toBeVisible();
@@ -185,20 +189,22 @@ test.describe("External @rk_win_layout writes repaint the mounted viewer", () =>
     await expect(iframe(page)).toBeHidden({ timeout: 10_000 });
     await expect
       .poll(() => windowOption(id, "@rk_win_layout"), { timeout: 10_000 })
-      .toBe("single:tty");
+      .toBe("tty");
   });
 
   /**
    * Proves: the repaint tracks a SECOND external write too — an agent
-   * collapsing the layout back to `single:tty` hides the tile on the next
+   * collapsing the layout back to `single:tty` (a legacy preset string —
+   * parse permanence) hides the tile on the next
    * tick, with the viewer never having written the option itself.
    *
    * Steps:
    * 1. Create a window with a stamped slot-1 web tab; navigate; wait for the
    *    snapshot-readiness gate.
-   * 2. External write `split-h:tty,web`; assert the web iframe appears.
-   * 3. External write `single:tty`; assert the iframe hides and the terminal
-   *    stays visible.
+   * 2. External write `split-h:tty,web` (legacy preset — still parses);
+   *    assert the web iframe appears.
+   * 3. External write `single:tty` (legacy); assert the iframe hides and the
+   *    terminal stays visible.
    */
   test("a second external write (single:tty) collapses the tile back on the next tick", async ({
     page,
@@ -220,7 +226,7 @@ test.describe("External @rk_win_layout writes repaint the mounted viewer", () =>
   });
 
   /**
-   * Proves: an invalid hand-written option value degrades to the `single:tty`
+   * Proves: an invalid hand-written option value degrades to the bare `tty`
    * fallback at render — the option itself is NEVER rewritten by the client
    * (the author sees their mistake with `show-options`).
    *
@@ -232,7 +238,7 @@ test.describe("External @rk_win_layout writes repaint the mounted viewer", () =>
    *    still reads the invalid value (a settle beat first, so a would-be
    *    rewrite could land).
    */
-  test("an invalid @rk_win_layout value renders the single:tty fallback and is never rewritten", async ({
+  test("an invalid @rk_win_layout value renders the bare tty fallback and is never rewritten", async ({
     page,
   }) => {
     test.setTimeout(90_000);

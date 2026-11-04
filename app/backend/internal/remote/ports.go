@@ -1,15 +1,20 @@
 package remote
 
-import "fmt"
+import (
+	"fmt"
 
-// The reserved local-port range for tunnel origins. Deliberately clear of the
-// dev/e2e ports (3000/3020/3333) and small enough to stay out of ephemeral
-// ranges. A port is assigned once at add-time and is immutable thereafter.
-const (
+	"rk/internal/portpolicy"
+)
+
+// The reserved local-port range for tunnel origins comes from the port
+// policy (internal/portpolicy/ports.env); assigned tunnel ports are persisted
+// in remotes.yaml and stay immutable thereafter. Declared as vars because Go
+// const cannot hold an init-time value.
+var (
 	// PortRangeStart is the first assignable local tunnel port.
-	PortRangeStart = 3100
+	PortRangeStart = portpolicy.Tunnel.Start
 	// PortRangeEnd is the last assignable local tunnel port (inclusive).
-	PortRangeEnd = 3199
+	PortRangeEnd = portpolicy.Tunnel.End
 )
 
 // AssignPort picks the local port for a new remote. taken is the host's

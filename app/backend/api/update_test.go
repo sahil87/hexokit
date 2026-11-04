@@ -392,19 +392,26 @@ func TestHandleUpdateSelfPathNoRecheck(t *testing.T) {
 // ----- shll-absent (run-kit-self) fallback path -----
 
 func TestHandleUpdateAcceptedSpawns(t *testing.T) {
-	var rec jobRecord
-	withSeams(t, "/opt/homebrew/Cellar/run-kit/3.8.0/bin/run-kit", nil, "", errNoShll, recordingJob(&rec))
-	s := newUpdateServer(qualifyingChecker(t))
+	for _, exe := range []string{
+		"/opt/homebrew/Cellar/hexokit/3.8.0/bin/hexokit",
+		"/opt/homebrew/Cellar/run-kit/3.8.0/bin/run-kit",
+	} {
+		t.Run(exe, func(t *testing.T) {
+			var rec jobRecord
+			withSeams(t, exe, nil, "", errNoShll, recordingJob(&rec))
+			s := newUpdateServer(qualifyingChecker(t))
 
-	res := postUpdate(t, s, "")
+			res := postUpdate(t, s, "")
 
-	if res.Code != http.StatusAccepted {
-		t.Fatalf("status = %d, want 202 (body=%s)", res.Code, res.Body.String())
-	}
-	assertJobBody(t, res, "updating", "update")
-	want := []string{"/opt/homebrew/Cellar/run-kit/3.8.0/bin/run-kit", "update"}
-	if strings.Join(rec.argv, " ") != strings.Join(want, " ") {
-		t.Errorf("job argv = %v, want %v", rec.argv, want)
+			if res.Code != http.StatusAccepted {
+				t.Fatalf("status = %d, want 202 (body=%s)", res.Code, res.Body.String())
+			}
+			assertJobBody(t, res, "updating", "update")
+			want := []string{exe, "update"}
+			if strings.Join(rec.argv, " ") != strings.Join(want, " ") {
+				t.Errorf("job argv = %v, want %v", rec.argv, want)
+			}
+		})
 	}
 }
 
@@ -417,6 +424,9 @@ func TestHandleUpdateNotBrewInstalled(t *testing.T) {
 
 	if res.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want 409 for non-brew install (body=%s)", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), "brew install sahil87/tap/hexokit") {
+		t.Errorf("error body = %q, want it to name brew install sahil87/tap/hexokit", res.Body.String())
 	}
 	if rec.called {
 		t.Errorf("must not spawn rk update when not brew-installed")

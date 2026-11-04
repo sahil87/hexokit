@@ -3,8 +3,8 @@
 // an append-only delivery log, and the tick orchestrator. This change ships the
 // library only — no CLI verb, daemon goroutine, or HTTP surface.
 //
-// State layout under $XDG_STATE_HOME/run-kit/cron/ (XDG-honoring, ~/.local/state
-// fallback — the snapshot.DefaultDir resolution):
+// State layout under the state home's cron/ dir (apphome.StateDir — XDG-honoring,
+// ~/.local/state fallback):
 //
 //	<server-slug>.yaml        entries (intent — the same class as .status.yaml)
 //	<server-slug>.log         delivery log (JSON lines; recovery-backup class)
@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"rk/internal/apphome"
 )
 
 const (
@@ -38,18 +40,16 @@ func ValidSlug(s string) bool {
 	return slugPattern.MatchString(s)
 }
 
-// DefaultDir resolves the cron state root: $XDG_STATE_HOME/run-kit/cron when
-// the env var is set, else ~/.local/state/run-kit/cron. Pure resolver, no side
-// effects (the snapshot.DefaultDir pattern).
+// DefaultDir resolves the cron state root: <state home>/cron, where the state
+// home is apphome.StateDir ($XDG_STATE_HOME when set, else ~/.local/state,
+// with the hexokit/run-kit dual-read rule). Pure resolver, no side effects
+// (the snapshot.DefaultDir pattern).
 func DefaultDir() (string, error) {
-	if v := os.Getenv("XDG_STATE_HOME"); v != "" {
-		return filepath.Join(v, "run-kit", "cron"), nil
-	}
-	home, err := os.UserHomeDir()
+	root, err := apphome.StateDir()
 	if err != nil {
 		return "", fmt.Errorf("resolving cron dir: %w", err)
 	}
-	return filepath.Join(home, ".local", "state", "run-kit", "cron"), nil
+	return filepath.Join(root, "cron"), nil
 }
 
 // EnsureDir creates the cron state root if absent (0700 class).

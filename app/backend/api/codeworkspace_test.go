@@ -192,10 +192,10 @@ func TestCodeWorkspaceTmuxFailure(t *testing.T) {
 }
 
 func TestCodeWorkspaceEnsureFailure(t *testing.T) {
-	// A file (not a dir) at the run-kit state path makes the server-dir
+	// A file (not a dir) at the hexokit state path makes the server-dir
 	// MkdirAll fail, surfacing the Ensure error text as a 500.
 	state := t.TempDir()
-	if err := os.WriteFile(filepath.Join(state, "run-kit"), []byte("x"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(state, "hexokit"), []byte("x"), 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	t.Setenv("XDG_STATE_HOME", state)

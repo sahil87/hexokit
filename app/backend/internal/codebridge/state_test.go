@@ -7,44 +7,48 @@ import (
 )
 
 func TestStateDirXDGOverride(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", "/custom/state")
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
 	dir, err := StateDir()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dir != filepath.Join("/custom/state", "run-kit", "cb") {
+	if dir != filepath.Join(state, "hexokit", "cb") {
 		t.Errorf("dir = %s", dir)
 	}
 
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	t.Setenv("XDG_STATE_HOME", "")
 	dir, err = StateDir()
 	if err != nil {
 		t.Fatal(err)
 	}
-	home, _ := os.UserHomeDir()
-	if dir != filepath.Join(home, ".local", "state", "run-kit", "cb") {
+	if dir != filepath.Join(home, ".local", "state", "hexokit", "cb") {
 		t.Errorf("default dir = %s", dir)
 	}
 }
 
 func TestHostsDir(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", "/custom/state")
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
 	dir, err := HostsDir()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dir != filepath.Join("/custom/state", "run-kit", "cb", "hosts") {
+	if dir != filepath.Join(state, "hexokit", "cb", "hosts") {
 		t.Errorf("hosts dir = %s", dir)
 	}
 }
 
 func TestBootsDir(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", "/custom/state")
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
 	dir, err := BootsDir()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dir != filepath.Join("/custom/state", "run-kit", "cb", "boots") {
+	if dir != filepath.Join(state, "hexokit", "cb", "boots") {
 		t.Errorf("boots dir = %s", dir)
 	}
 }

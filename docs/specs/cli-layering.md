@@ -31,6 +31,7 @@ Root noise is reduced by two mechanisms: **families** (for human-facing verbs, m
 |--------|------|------|
 | `rk mux send` | new (260815-a5vf) | free — lands here directly, nothing shipped |
 | `rk mux await` | new (260815-a5vf) | free |
+| `rk mux inventory` | new live fleet query | all live servers by default; `-L` scopes one; substrate session/pane facts only |
 | `rk mux reap` | `rk reaper` | rename + deprecation alias |
 | `rk mux snapshot list\|show\|restore` | `rk snapshot …` | move + deprecation alias (3-level depth has `fab pane window-name` precedent) |
 | `rk mux guard` | `rk tmux-guard` | move + **permanent hidden root alias** (installed PATH shims exec the literal name; `rk agent setup` writes the new form going forward) |

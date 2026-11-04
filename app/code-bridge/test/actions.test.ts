@@ -52,7 +52,7 @@ test('buildNotifyArgv renders the presenting message and title', () => {
     'notify',
     'presenting README.md',
     '--title',
-    'run-kit',
+    'HexoKit',
   ]);
 });
 

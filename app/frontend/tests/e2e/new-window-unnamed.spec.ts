@@ -78,7 +78,7 @@ test.describe("Unnamed tab creation (+ New Tab)", () => {
 
     await gotoServerReady(page, TMUX_SERVER, TEST_SESSION);
 
-    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const sidebar = page.locator("nav[aria-label='Groups']");
     // The session flyout card's `New tab` row is the create seam: hover the
     // session row to open the card, then click its create action. The
     // flow is deliberately SAME-server (the sidebar subscribes SSE to the
@@ -96,7 +96,7 @@ test.describe("Unnamed tab creation (+ New Tab)", () => {
     await expect(async () => {
       await page.mouse.move(700, 500);
       await sessionRow.hover();
-      await expect(card).toContainText(`Session ${TEST_SESSION}`, { timeout: 3_000 });
+      await expect(card).toContainText(`Group ${TEST_SESSION}`, { timeout: 3_000 });
     }).toPass({ timeout: 15_000 });
     // Enter the card at the reference row's own band before descending to a
     // lower action row (a diagonal sweep crosses the sibling sidebar row and

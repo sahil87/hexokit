@@ -22,8 +22,8 @@ import { stubProxyPorts } from "./_web-tile";
  * the view registry through the palette's `View: Code` action and the
  * tileable code surface (`Code tile` top-bar toggle —
  * the right rail is REMOVED, its toggles moved into the top bar's
- * `surface-toggles` group; `?panel=code` → `split-h:tty,code` via the same
- * translation), with availability =
+ * `surface-toggles` group; `?panel=code` → the tree form `h(tty,code)` via
+ * the same translation), with availability =
  * gitRoot derived (the port resolves by convention — `RK_CODE_SERVER_PORT`
  * preset, else `RK_PORT+2` — and no longer gates), and code-server
  * reachability governing only the surface CONTENT (live iframe vs the
@@ -50,7 +50,9 @@ import { stubProxyPorts } from "./_web-tile";
  *   backend with; an ephemeral port when unset, so bare runs never collide —
  *   serving a minimal page with a focusable `#inner` button; the second
  *   describe runs with the stub DOWN. The backend's reachability probe is
- *   TTL-cached (~5s), so down-state assertions use a 30s budget. The helper
+ *   TTL-cached (~5s), so down-state assertions use a 30s budget; the
+ *   down-state test also asserts NEITHER code-tile header verb renders (no
+ *   mounted frame for Reload editor, no drift for Follow terminal). The helper
  *   validates the env against the backend's own 1-65535 range before binding,
  *   so an out-of-range value fails with a named error instead of surfacing as
  *   unrelated missing-affordance assertions. The backend resolves the same
@@ -77,8 +79,8 @@ import { stubProxyPorts } from "./_web-tile";
  *   `holdWorkspaceFetch(page)` route-holds the frontend's GET so the
  *   pending → iframe transition is observable regardless of box load.
  * - The first-boot-rescue tests write fake pid-alive bridge registry files —
- *   a host record into `${XDG_STATE_HOME}/run-kit/cb/hosts/` (the negative
- *   arm) and an empty-boot marker into `${XDG_STATE_HOME}/run-kit/cb/boots/`
+ *   a host record into `${XDG_STATE_HOME}/hexokit/cb/hosts/` (the negative
+ *   arm) and an empty-boot marker into `${XDG_STATE_HOME}/hexokit/cb/boots/`
  *   (the positive arm) — after the tile's baseline status read, using the
  *   harness's per-run state home (forwarded from the harness, so the backend
  *   reads the SAME dir), and count `Code editor` iframe loads via an
@@ -102,7 +104,9 @@ import { stubProxyPorts } from "./_web-tile";
  *   describe (the first describe's afterAll has closed its stub), and its
  *   tests count `Code editor` iframe `load`s via the same addInitScript
  *   capture listener the rescue tests use — a retained frame re-showing must
- *   not fire a second `load` (no remount, no second focus grab).
+ *   not fire a second `load` (no remount, no second focus grab), and the
+ *   `Reload editor` verb must move the counter for the ACTIVE window's frame
+ *   only (the retained frame's element untouched).
  * - Locators: the `Code tile` / `Web tile` top-bar toggles (role + accessible
  *   name SCOPED to the `banner` — the top bar's aria-hidden measurement probe
  *   duplicates every in-bar control, so accessible-name queries are the only
@@ -397,8 +401,9 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
 
   /**
    * Proves: the retired `?panel=code` deep link translates inbound (a bare
-   * panel value maps against the tty default slot A → `split-h:tty,code`,
-   * written to `@rk_win_layout` once, params dropped from the URL); the tile's
+   * panel value maps against the tty default slot A → the tree form
+   * `h(tty,code)`, written to `@rk_win_layout` once, params dropped from the
+   * URL); the tile's
    * renderer iframes the derived RELATIVE `/code/?workspace=<path>` URL (never
    * an absolute origin; the port never appears) with the sandbox set (incl.
    * `allow-downloads`); and the workspace file behind that path exists on disk
@@ -409,7 +414,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
    * Steps:
    * 1. Create a repo-cwd window; navigate with `?panel=code`.
    * 2. Assert the `surface-tile-code` tile and the `Code editor` iframe are
-   *    visible, the option reads `split-h:tty,code`, and the URL is bare.
+   *    visible, the option reads `h(tty,code)`, and the URL is bare.
    * 3. GET the window's code-workspace; assert the iframe `src` attribute is
    *    exactly `/code/?workspace=<url-encoded path>`, the GET's `root` is the
    *    git root, and the sandbox contains `allow-downloads`.
@@ -424,12 +429,13 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await gotoWindow(page, id, "?panel=code");
 
     // The retired ?panel= param translates inbound (bare panel value →
-    // split-h:tty,code, one option write). The code TILE renders its iframe
+    // h(tty,code), one option write in the tree form). The code TILE renders
+    // its iframe
     // (stub reachable) at the fully DERIVED relative src on the STABLE /code/
     // route — never an absolute origin, and the port never
     // appears (it's a server-side implementation detail).
     await expect(codeTile(page)).toBeVisible({ timeout: 10_000 });
-    await expectWindowLayout(id, "split-h:tty,code");
+    await expectWindowLayout(id, "h(tty,code)");
     await expect.poll(() => new URL(page.url()).search, { timeout: 10_000 }).toBe("");
     const iframe = codeIframe(page);
     await expect(iframe).toBeVisible({ timeout: READY_TIMEOUT });
@@ -496,7 +502,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await expect(codeToggle(page)).toBeVisible();
 
     // Open web, then code — tiles are ADDITIVE now (R10 growth): both
-    // iframes render simultaneously (main-left:tty,web,code).
+    // iframes render simultaneously (a 3-tile tree).
     await webToggle(page).click();
     const webIframe = page.getByTitle("Proxied content");
     await expect(webIframe).toBeVisible({ timeout: 10_000 });
@@ -613,7 +619,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
    *    compare stale.
    * 3. Write the fake host record `{hostId, folder, pid: process.pid, sock,
    *    extVersion, startedAt: <now>, tab: <window id>, server: <E2E tmux
-   *    server>}` into `${XDG_STATE_HOME}/run-kit/cb/hosts/` (read from
+   *    server>}` into `${XDG_STATE_HOME}/hexokit/cb/hosts/` (read from
    *    process.env, never hardcoded) and register it for afterEach cleanup.
    * 4. Wait CODE_BOOT_RESCUE_WAIT_MS + 2 s, then assert the load counter is
    *    exactly 1 (a rescue reload would have fired a second `load`).
@@ -659,7 +665,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
 
     // Step 3: the confirming record — pid-alive (this process), tab-keyed to
     // the window under test, stamped now (newer than the empty baseline).
-    const hostsDir = join(stateHome, "run-kit", "cb", "hosts");
+    const hostsDir = join(stateHome, "hexokit", "cb", "hosts");
     mkdirSync(hostsDir, { recursive: true });
     const hostId = `e2e-rescue-${id.slice(1)}`;
     const recordPath = join(hostsDir, `${hostId}.json`);
@@ -669,7 +675,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
         hostId,
         folder: GIT_ROOT,
         pid: process.pid,
-        sock: join(stateHome, "run-kit", "cb", `${hostId}.sock`),
+        sock: join(stateHome, "hexokit", "cb", `${hostId}.sock`),
         extVersion: "0.0.0-e2e",
         startedAt: new Date().toISOString(),
         tab: id,
@@ -705,7 +711,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
    *    exist before the baseline read, or it would BE the baseline.
    * 3. Write the fake marker `{hostId, workspaceFile, tab: <window id>,
    *    server: <E2E tmux server>, pid: process.pid, extVersion, startedAt:
-   *    <now>}` into `${XDG_STATE_HOME}/run-kit/cb/boots/` and register it for
+   *    <now>}` into `${XDG_STATE_HOME}/hexokit/cb/boots/` and register it for
    *    afterEach cleanup.
    * 4. Wait out the verdict AND re-check windows (WAIT + RECHECK + slack),
    *    then assert the load counter is exactly 2: the initial mount and the
@@ -750,7 +756,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     // The positive empty-boot signal: pid-alive (this process), tab-keyed to
     // the window under test, stamped now — newer than the empty baseline.
     const ws = await fetchWorkspace(page, id);
-    const bootsDir = join(stateHome, "run-kit", "cb", "boots");
+    const bootsDir = join(stateHome, "hexokit", "cb", "boots");
     mkdirSync(bootsDir, { recursive: true });
     const hostId = `e2e-boot-${id.slice(1)}`;
     const markerPath = join(bootsDir, `${hostId}.json`);
@@ -777,6 +783,70 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     expect(loads).toBe(2);
   });
 
+  /**
+   * Proves: the code tile header's `Reload editor` verb reboots the ACTIVE
+   * window's frame in place — exactly one additional iframe `load` on the
+   * SAME element with the `src` attribute unchanged (the
+   * `contentWindow.location.reload()` seam keeps the `?workspace=` URL and
+   * tab identity; a `src` write would be a re-navigation). The verb is
+   * hidden while the tile pends (no frame to reload).
+   *
+   * Steps:
+   * 1. Register the capture-phase iframe `load` counter via addInitScript,
+   *    then create a repo-cwd window and navigate.
+   * 2. Route-hold the window's code-workspace GET, open the code tile via the
+   *    `Code tile` toggle, assert `code-surface-pending` shows AND the
+   *    `Reload editor` verb (scoped to `surface-tile-code`) is hidden;
+   *    release the GET.
+   * 3. Await the iframe and the counter reaching 1; capture the element
+   *    handle and the `src` attribute.
+   * 4. Click `Reload editor`; poll the counter to exactly 2; assert the
+   *    element handle is IDENTICAL and the `src` is unchanged.
+   */
+  test("the Reload editor verb reloads the live frame in place — one extra load, same element, same src", async ({
+    page,
+  }) => {
+    test.setTimeout(30_000);
+    await page.addInitScript(() => {
+      const w = window as unknown as { __codeIframeLoads: number };
+      w.__codeIframeLoads = 0;
+      document.addEventListener(
+        "load",
+        (e) => {
+          if (e.target instanceof HTMLIFrameElement && e.target.title === "Code editor") {
+            w.__codeIframeLoads++;
+          }
+        },
+        true,
+      );
+    });
+    const loadsOf = () =>
+      page.evaluate(() => (window as unknown as { __codeIframeLoads: number }).__codeIframeLoads);
+    const id = await makeWindow(page, `cs-reload-${Date.now()}`);
+    await gotoWindow(page, id);
+
+    // Pending has no frame, so no Reload verb (route-held GET makes the state
+    // observable under any load).
+    const release = await holdWorkspaceFetch(page);
+    await codeToggle(page).click();
+    await expect(pending(page)).toBeVisible({ timeout: READY_TIMEOUT });
+    const reloadVerb = codeTile(page).getByRole("button", { name: "Reload editor" });
+    await expect(reloadVerb).toBeHidden();
+    release();
+
+    await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(reloadVerb).toBeVisible();
+    await expect.poll(loadsOf, { timeout: READY_TIMEOUT }).toBe(1);
+    const handleBefore = await codeIframe(page).elementHandle();
+    const srcBefore = await codeIframe(page).getAttribute("src");
+
+    await reloadVerb.click();
+    await expect.poll(loadsOf, { timeout: READY_TIMEOUT }).toBe(2);
+    const handleAfter = await codeIframe(page).elementHandle();
+    expect(await page.evaluate(([a, b]) => a === b, [handleBefore, handleAfter])).toBe(true);
+    await expect(codeIframe(page)).toHaveAttribute("src", srcBefore!);
+  });
+
 });
 
 test.describe("Code lens & CODE surface (phase 2) — stub down", () => {
@@ -791,15 +861,23 @@ test.describe("Code lens & CODE surface (phase 2) — stub down", () => {
    * Proves: reachability governs CONTENT, not availability — with the stub
    * down, the top-bar toggle still renders (capability signals are stable) but
    * the code tile shows the terse portless `code-server not running — check rk
-   * doctor` empty state instead of a dead iframe.
+   * doctor` empty state, with its `Restart code-server` recovery button,
+   * instead of a dead iframe. Neither code-tile header
+   * verb renders on that state: `Reload editor` has no mounted frame to
+   * reload, and `Follow terminal` has no drift (the latched root and the
+   * derivation agree).
    *
    * Steps:
    * 1. (Stub is closed — this describe never binds the port.)
    * 2. Create a repo-cwd window; navigate with `?panel=code`; assert the `Code
    *    tile` top-bar toggle is visible.
-   * 3. Assert the `code-surface-empty` state reads `code-server not running —
-   *    check rk doctor` (30s budget — the backend's ~5s probe TTL must expire
-   *    first) and no `Code editor` iframe exists.
+   * 3. Assert the `code-surface-empty` state contains `code-server not running
+   *    — check rk doctor` (30s budget — the backend's ~5s probe TTL must expire
+   *    first; contains, since the state also holds the button), that it offers
+   *    the `Restart code-server` button (not clicked — a click would respawn
+   *    the rig daemon's code-server), and that no `Code editor` iframe exists.
+   * 4. Assert the `Reload editor` and `Follow terminal` verbs are both absent
+   *    from the tile header.
    */
   test("the surface renders the not-running empty state when the port is unreachable", async ({
     page,
@@ -811,13 +889,17 @@ test.describe("Code lens & CODE surface (phase 2) — stub down", () => {
     // the top-bar toggle renders; only the CONTENT is the empty state. Generous
     // timeout: the backend's ~5s probe TTL must expire before the flip lands.
     await expect(codeToggle(page)).toBeVisible({ timeout: READY_TIMEOUT });
-    await expect(notRunning(page)).toHaveText(
+    await expect(notRunning(page)).toContainText(
       "code-server not running — check rk doctor",
       {
         timeout: 30_000,
       },
     );
+    await expect(notRunning(page).getByRole("button", { name: "Restart code-server" })).toBeVisible();
     await expect(codeIframe(page)).toHaveCount(0);
+    // No frame and no drift: neither header verb renders on the empty state.
+    await expect(codeTile(page).getByRole("button", { name: "Reload editor" })).toBeHidden();
+    await expect(codeTile(page).getByRole("button", { name: "Follow terminal" })).toBeHidden();
   });
 });
 
@@ -933,5 +1015,76 @@ test.describe("Code frame retention — no focus-grab replay on a switch back", 
       )
       .toBe("grabbed");
     await expectActiveElement(page, "xterm");
+  });
+
+  /**
+   * Proves: the `Reload editor` verb reloads ONLY the active window's frame —
+   * the verb's nonce targets one frame by window id, so a retained
+   * (other-window) frame fires no `load` and its iframe element is untouched
+   * (a blind reload of every retained frame would destroy editor state the
+   * user did not ask to touch).
+   *
+   * Steps:
+   * 1. Register the capture-phase iframe `load` counter via addInitScript;
+   *    create repo-cwd windows A and B; navigate to A.
+   * 2. Open the code tile on A; await the iframe and the counter at 1;
+   *    capture A's element handle.
+   * 3. Switch to B in-app (A's tile demotes to `surface-tile-code-retained`
+   *    without moving in the DOM); open the code tile on B; await the iframe
+   *    and the counter at 2.
+   * 4. Click `Reload editor` on B's (active) tile header.
+   * 5. Assert the counter reaches exactly 3, B's iframe is the IDENTICAL
+   *    element (an in-place reload), and A's retained iframe is still the
+   *    SAME element captured in step 2 with no load of its own.
+   */
+  test("the Reload editor verb reloads only the active window's frame — the retained frame is untouched", async ({
+    page,
+  }) => {
+    // Two windows, one in-app switch, and a reload — carries the 30s budget
+    // (the retention round-trip precedent).
+    test.setTimeout(30_000);
+    await page.addInitScript(() => {
+      const w = window as unknown as { __codeIframeLoads: number };
+      w.__codeIframeLoads = 0;
+      document.addEventListener(
+        "load",
+        (e) => {
+          if (e.target instanceof HTMLIFrameElement && e.target.title === "Code editor") {
+            w.__codeIframeLoads++;
+          }
+        },
+        true,
+      );
+    });
+    const loadsOf = () =>
+      page.evaluate(() => (window as unknown as { __codeIframeLoads: number }).__codeIframeLoads);
+    const idA = await makeWindow(page, `cs-reload-a-${Date.now()}`);
+    const idB = await makeWindow(page, `cs-reload-b-${Date.now()}`);
+    await gotoWindow(page, idA);
+
+    await codeToggle(page).click();
+    await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect.poll(loadsOf, { timeout: READY_TIMEOUT }).toBe(1);
+    const handleA = await codeIframe(page).elementHandle();
+
+    // B becomes the active window with its own code tile; A's frame demotes
+    // to the retained wrapper (its DOM position is unchanged by this switch —
+    // B's tile is INSERTED before it, so A's frame fires no load).
+    await switchToWindow(page, idB);
+    await expect(terminal(page)).toBeVisible({ timeout: READY_TIMEOUT });
+    await codeToggle(page).click();
+    await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect.poll(loadsOf, { timeout: READY_TIMEOUT }).toBe(2);
+    const handleB = await codeIframe(page).elementHandle();
+
+    // The verb reloads the ACTIVE window's frame only: exactly one more load
+    // (B's), same element for both frames.
+    await codeTile(page).getByRole("button", { name: "Reload editor" }).click();
+    await expect.poll(loadsOf, { timeout: READY_TIMEOUT }).toBe(3);
+    const handleBAfter = await codeIframe(page).elementHandle();
+    expect(await page.evaluate(([a, b]) => a === b, [handleB, handleBAfter])).toBe(true);
+    const retainedA = page.getByTestId("surface-tile-code-retained").getByTitle("Code editor");
+    const handleAAfter = await retainedA.elementHandle();
+    expect(await page.evaluate(([a, b]) => a === b, [handleA, handleAAfter])).toBe(true);
   });
 });

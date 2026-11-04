@@ -9,8 +9,9 @@
  *    loopback dev server riding `/proxy/{port}`), `external` (any other
  *    absolute http(s) URL), `relative` (any other root-relative path).
  * 2. `displayForm` — the pretty REST form the address bar and header show:
- *    plumbing hidden (`/proxy/` prefix, the `?server=…&v=…&raw=…` params), never
- *    throwing (unparseable input degrades to the raw string).
+ *    plumbing hidden (`/proxy/` prefix, the `?server=…&v=…&raw=…` params), a
+ *    present address optionally led by its server-derived repo-relative prefix,
+ *    never throwing (unparseable input degrades to the raw string).
  * 3. `normalizeAddressInput` — the submit-time normalization: bare loopback
  *    `host:port` → `/proxy/{port}/…`, bare domain → `https://…`, valid
  *    values pass through.
@@ -18,6 +19,15 @@
  *    (http/https absolute, root-relative; the backend remains enforcement).
  * 5. `toProxySrc` — the iframe-src mapping: absolute loopback URLs ride the
  *    same-origin proxy, everything else passes through.
+ * 6. `toNativeSrc` — the native engine's mode-aware load target: in the
+ *    host-reported `direct`/`proxy` modes a stored `/proxy/{port}` slot is
+ *    re-expressed as its literal loopback URL, and in `proxy` any other
+ *    root-relative address resolves against the daemon's loopback origin
+ *    (`daemonLoopbackOrigin`); `legacy` is `toProxySrc`. `toTrackedLocation`
+ *    is the inverse for a navigated guest URL.
+ * 7. `webKindChip` — the address field's leading kind chip: text + hue
+ *    classes per kind (`present` / `:<port> proxy` / `external`), null for
+ *    `relative` and empty input.
  *
  * The STORED `@rk_win_web_<n>` is never rewritten by display work — the
  * display contract (`docs/site/skill/display.md`) keeps relative addresses
@@ -52,6 +62,11 @@ export const WEB_INSPECT_EVENT = "web-inspect";
 
 /** Loopback hostnames whose absolute URLs classify as proxied ports. */
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+
+/** The port a portless `http:` loopback URL targets. Mirrors the backend's
+ *  `rk present` rule (`internal/present`), which stores `http://localhost/x`
+ *  as `/proxy/80/x`; `URL.port` is also empty for an explicit `:80`. */
+const HTTP_DEFAULT_PORT = 80;
 
 /** Bare loopback `host:port[{path}]` input — no scheme (a scheme-bearing
  *  value parses as an absolute URL before this shape is consulted). */
@@ -91,15 +106,25 @@ function proxyPathPort(path: string): number | null {
  *  name or address. */
 const DIRECTORY_PRESENT_LABEL = "index.html";
 
-/** The path segments carrying content for a /present/ address, or null when
- *  only plumbing remains (degraded form — callers then fall back to the raw
+/** What a /present/ address displays: `tail` is the name path (every segment
+ *  after the plumbing, joined with `/`), `keyed` is true for the NEW
+ *  content-keyed form — the only form a repo-relative prefix describes. */
+interface PresentDisplay {
+  tail: string;
+  keyed: boolean;
+}
+
+/** The display parts of a /present/ address's path segments, or null when only
+ *  plumbing remains (degraded form — callers then fall back to the raw
  *  string, never display raw plumbing). The LEGACY form's segments are
  *  [windowId, slot?, name...]; the NEW content-keyed form's are
  *  [server, hash, name...] — so the first TWO segments are always plumbing.
  *  The legacy `@`-prefixed windowId segment is never a file name (the route
  *  gates it ^@[0-9]+$); the new-form hash segment is gated ^[0-9a-f]{8,64}$
- *  by the route, so presenting itself as a name is impossible there. */
-function presentDisplayBase(segments: string[]): string | null {
+ *  by the route, so presenting itself as a name is impossible there. The
+ *  legacy form keeps only its last name segment; the NEW form keeps the whole
+ *  tail so nested navigation inside a presented directory reads `sub/page.html`. */
+function presentDisplay(segments: string[]): PresentDisplay | null {
   // segments[0] is the literal "present"; skip it so the shapes line up.
   const path = segments[0] === "present" ? segments.slice(1) : segments;
   if (path.length < 2) return null;
@@ -110,31 +135,58 @@ function presentDisplayBase(segments: string[]): string | null {
     const names = rest.length > 1 && /^[1-8]$/.test(rest[0]) ? rest.slice(1) : rest;
     if (names.length === 0) return null;
     if (names.length === 1 && /^[1-8]$/.test(names[0])) return null;
-    return names[names.length - 1];
+    return { tail: names[names.length - 1], keyed: false };
   }
   // New content-keyed form has exactly two plumbing segments (server + hash).
   // A remainder of just those two is a directory present — the raw hash is
   // plumbing, not a name, and MUST NOT display, so the label is what the
   // directory form serves; more than two means a real file tail exists.
-  if (path.length === 2) return DIRECTORY_PRESENT_LABEL;
-  return path[path.length - 1];
+  if (path.length === 2) return { tail: DIRECTORY_PRESENT_LABEL, keyed: true };
+  return { tail: path.slice(2).join("/"), keyed: true };
 }
 
-/** Whether an absolute URL is a loopback address WITH an explicit port — the
- *  proxied-port shape (`http://localhost:3000/…`). Portless loopback is not
- *  proxied (there is no port to ride). */
+/** The `{server}/{hash}` identity of a content-keyed `/present/` address, or
+ *  null for every other shape (other kinds, the legacy `@windowId` form,
+ *  degraded paths). Two addresses with the same key sit under one presented
+ *  root, so a prefix derived for one still describes the other. Never throws. */
+export function presentRootKey(url: string): string | null {
+  try {
+    if (classifyAddress(url) !== "present") return null;
+    const segments = new URL(url, "http://x").pathname.split("/").filter(Boolean);
+    const path = segments[0] === "present" ? segments.slice(1) : segments;
+    if (path.length < 2 || path[0].startsWith("@")) return null;
+    return `${path[0]}/${path[1]}`;
+  } catch {
+    return null;
+  }
+}
+
+/** Join a server-derived repo-relative prefix to a present tail. A prefix
+ *  ending in `:` is a cross-repo label at that repo's top (`loom:` +
+ *  `x.html`), which joins without a `/`. */
+function joinPresentPrefix(prefix: string | undefined, tail: string): string {
+  if (!prefix) return tail;
+  return prefix.endsWith(":") ? `${prefix}${tail}` : `${prefix}/${tail}`;
+}
+
+/** The proxied port of an absolute loopback URL, or null when it is not
+ *  proxied: an explicit port rides `/proxy/{port}`, a portless `http:` URL
+ *  rides port 80, and a portless `https:` URL stays external (the backend
+ *  attaches every `https://` target verbatim). */
 function loopbackPortOf(u: URL): number | null {
   if (!LOOPBACK_HOSTS.has(u.hostname)) return null;
+  if (u.port === "") return u.protocol === "http:" ? HTTP_DEFAULT_PORT : null;
   const port = Number(u.port);
   return Number.isInteger(port) && port > 0 ? port : null;
 }
 
 /**
  * Classify a stored/tracked address. Order matters: root-relative `/present/`
- * and `/proxy/` before the generic relative fallback; absolute loopback
- * http(s) URLs WITH a port are proxied ports, every other absolute http(s)
- * URL is external. Anything unrecognized (including non-allowlist schemes,
- * which the backend rejects anyway) degrades to `relative` — never throws.
+ * and `/proxy/` before the generic relative fallback; absolute loopback URLs
+ * with a proxied port (`loopbackPortOf`) are proxied ports, every other
+ * absolute http(s) URL is external. Anything unrecognized (including
+ * non-allowlist schemes, which the backend rejects anyway) degrades to
+ * `relative` — never throws.
  */
 export function classifyAddress(url: string): AddressKind {
   const abs = parseHttpUrl(url);
@@ -144,6 +196,31 @@ export function classifyAddress(url: string): AddressKind {
   if (url.startsWith("/present/")) return "present";
   if (proxyPathPort(url) !== null) return "proxy";
   return "relative";
+}
+
+/**
+ * The address-kind chip for the web tile's address field (the leading
+ * site-identity chip): text and hue classes per kind — `present` green,
+ * `:<port> proxy` amber, `external` blue;
+ * `relative` and empty input render no chip. Never throws.
+ */
+export function webKindChip(url: string): { text: string; cls: string } | null {
+  const value = url.trim();
+  if (value === "") return null;
+  // A non-null port is exactly the proxy kind (`classifyAddress` and
+  // `proxyPortOf` share `loopbackPortOf`/`proxyPathPort`).
+  const port = proxyPortOf(value);
+  if (port !== null) {
+    return { text: `:${port} proxy`, cls: "text-signal-yellow border-signal-yellow/40 bg-signal-yellow/10" };
+  }
+  const kind = classifyAddress(value);
+  if (kind === "present") {
+    return { text: "present", cls: "text-accent-green border-accent-green/40 bg-accent-green/10" };
+  }
+  if (kind === "external") {
+    return { text: "external", cls: "text-signal-blue border-signal-blue/40 bg-signal-blue/10" };
+  }
+  return null;
 }
 
 /**
@@ -157,14 +234,19 @@ export function proxyPortOf(url: string): number | null {
 
 /**
  * The pretty REST form of an address, per kind:
- * - present  → the file's basename, plumbing params (`server`, `v`, `raw`) hidden
+ * - present  → the path tail after the plumbing (the file's basename for a
+ *   file present; `sub/page.html` after nested navigation), prefixed with the
+ *   server-derived repo-relative `prefix` when given (`docs/wiki/x.html`,
+ *   `loom:docs/wiki/x.html`); plumbing params (`server`, `v`, `raw`) hidden.
+ *   The prefix describes only the content-keyed form — it is ignored for the
+ *   legacy `@windowId` form and every other kind
  * - proxy    → `localhost:{port}{path}` — the `/proxy/` plumbing never shows
  * - external → `host{path}{?query}` with the scheme omitted
  * - relative → the raw path
  *
  * Never throws: unparseable or degenerate input degrades to the raw string.
  */
-export function displayForm(url: string): string {
+export function displayForm(url: string, prefix?: string): string {
   try {
     const kind = classifyAddress(url);
     if (kind === "present") {
@@ -175,8 +257,9 @@ export function displayForm(url: string): string {
       // the raw hash segment never displays.
       const u = new URL(url, "http://x");
       const segments = u.pathname.split("/").filter(Boolean);
-      const base = presentDisplayBase(segments);
-      if (base === null) return url;
+      const display = presentDisplay(segments);
+      if (display === null) return url;
+      const base = display.keyed ? joinPresentPrefix(prefix, display.tail) : display.tail;
       const params = new URLSearchParams(u.search);
       for (const plumbing of PRESENT_PLUMBING_PARAMS) params.delete(plumbing);
       const rest = params.toString();
@@ -185,7 +268,7 @@ export function displayForm(url: string): string {
     if (kind === "proxy") {
       const abs = parseHttpUrl(url);
       if (abs) {
-        return `localhost:${abs.port}${abs.pathname}${abs.search}${abs.hash}`;
+        return `localhost:${loopbackPortOf(abs)}${abs.pathname}${abs.search}${abs.hash}`;
       }
       const port = proxyPathPort(url);
       if (port !== null) {
@@ -223,12 +306,13 @@ export function webTabTitle(url: string): string {
     if (kind === "present") {
       const u = new URL(value, "http://x");
       const segments = u.pathname.split("/").filter(Boolean);
-      const base = presentDisplayBase(segments);
-      return base === null ? value : base;
+      const display = presentDisplay(segments);
+      if (display === null) return value;
+      return display.tail.slice(display.tail.lastIndexOf("/") + 1);
     }
     if (kind === "proxy") {
       const abs = parseHttpUrl(value);
-      if (abs) return `localhost:${abs.port}${abs.pathname}`;
+      if (abs) return `localhost:${loopbackPortOf(abs)}${abs.pathname}`;
       const port = proxyPathPort(value);
       if (port !== null) {
         const rest = value.replace(/^\/proxy\/\d+/, "").split(/[?#]/)[0];
@@ -336,6 +420,11 @@ export function routeAddressSubmit(input: string): AddressSubmitRoute {
   return { kind: "reject" };
 }
 
+/** A root-relative path: a single leading `/`, not scheme-relative `//`. */
+function isRootRelative(value: string): boolean {
+  return value.startsWith("/") && !value.startsWith("//");
+}
+
 /**
  * The frontend mirror of the backend @rk_win_url scheme allowlist (R1): absolute
  * http:/https: URLs with a host, and root-relative paths (a single leading
@@ -345,23 +434,22 @@ export function routeAddressSubmit(input: string): AddressSubmitRoute {
 export function isAllowedUrl(input: string): boolean {
   const value = input.trim();
   if (value === "") return false;
-  if (value.startsWith("/")) return !value.startsWith("//");
+  if (value.startsWith("/")) return isRootRelative(value);
   const abs = parseHttpUrl(value);
   return abs !== null && abs.host !== "";
 }
 
 /**
- * The iframe-src mapping: an absolute loopback URL re-expressed as the
- * same-origin `/proxy/{port}` path; every other address passes through
- * unchanged (relative addresses are already same-origin).
+ * The iframe-src mapping: an absolute loopback URL with a proxied port
+ * (`loopbackPortOf`) re-expressed as the same-origin `/proxy/{port}` path;
+ * every other address passes through unchanged (relative addresses are
+ * already same-origin).
  */
 export function toProxySrc(url: string): string {
   const abs = parseHttpUrl(url);
-  if (abs && LOOPBACK_HOSTS.has(abs.hostname)) {
-    const port = Number(abs.port);
-    if (Number.isInteger(port) && port > 0) {
-      return `/proxy/${abs.port}${abs.pathname}${abs.search}${abs.hash}`;
-    }
+  const port = abs ? loopbackPortOf(abs) : null;
+  if (abs && port !== null) {
+    return `/proxy/${port}${abs.pathname}${abs.search}${abs.hash}`;
   }
   return url;
 }
@@ -380,4 +468,73 @@ export function toWebAddTarget(url: string): string {
   if (port === null) return url;
   const rest = url.replace(/^\/proxy\/\d+/, "");
   return `http://localhost:${port}${rest === "" ? "/" : rest}`;
+}
+
+/** The native engine's host-reported load mode: `direct` when the host IS
+ *  this machine's daemon, `proxy` when a remote host's forward proxy carries
+ *  the guest session's traffic, `legacy` for anything else (older shell or a
+ *  host whose proxy capability check failed). */
+export type WebNativeMode = "direct" | "proxy" | "legacy";
+
+/**
+ * The rk daemon's loopback origin from its health-reported listen port
+ * (`tunnel`): `http://127.0.0.1:<port>` for an integer in 1..65535, else
+ * null. `127.0.0.1` (not `localhost`) is the exact target the shell's
+ * capability probe proves dialable through the tunnel before it grants
+ * `proxy` mode.
+ */
+export function daemonLoopbackOrigin(tunnel: unknown): string | null {
+  if (typeof tunnel !== "number" || !Number.isInteger(tunnel)) return null;
+  if (tunnel < 1 || tunnel > 65535) return null;
+  return `http://127.0.0.1:${tunnel}`;
+}
+
+/**
+ * The native engine's load target for a stored address, per the host's mode.
+ * In `direct`/`proxy` the guest session resolves loopback on the rk host, so
+ * a stored `/proxy/{port}` slot is re-expressed as the literal loopback URL it
+ * rides (the `toWebAddTarget` inverse mapping — the same slot value then still
+ * works in a browser viewer's iframe engine); absolute URLs pass through
+ * unchanged. In `proxy` the guest's request is dialed from the rk host, which
+ * need not resolve the viewer-side public origin a relative address would
+ * otherwise resolve against, so any other root-relative rk path resolves
+ * against `daemonOrigin` (the daemon's own loopback origin) when known; with
+ * a null origin, and in `direct` (where the viewer origin IS the local
+ * daemon), it passes through for the caller to resolve. `legacy` is exactly
+ * `toProxySrc`.
+ */
+export function toNativeSrc(
+  url: string,
+  mode: WebNativeMode,
+  daemonOrigin: string | null = null,
+): string {
+  if (mode === "legacy") return toProxySrc(url);
+  const target = toWebAddTarget(url);
+  if (mode === "proxy" && daemonOrigin !== null && isRootRelative(target)) {
+    return new URL(target, daemonOrigin).href;
+  }
+  return target;
+}
+
+/**
+ * The tracked (stored-form) location of a navigated guest URL: root-relative
+ * (`pathname + search + hash`) when it sits on the viewer's own origin or on
+ * the daemon's loopback origin (where `toNativeSrc` loads rk-relative pages
+ * in `proxy`); any other origin stays absolute and an unparsable string is
+ * kept raw. Never throws.
+ */
+export function toTrackedLocation(
+  absolute: string,
+  viewerOrigin: string,
+  daemonOrigin: string | null,
+): string {
+  try {
+    const parsed = new URL(absolute);
+    if (parsed.origin === viewerOrigin || parsed.origin === daemonOrigin) {
+      return parsed.pathname + parsed.search + parsed.hash;
+    }
+    return absolute;
+  } catch {
+    return absolute;
+  }
 }

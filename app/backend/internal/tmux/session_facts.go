@@ -13,6 +13,7 @@ import (
 const (
 	SessionRoleUser     = "user"
 	SessionRolePin      = "pin"
+	SessionRoleIso      = "iso"
 	SessionRoleControl  = "control"
 	SessionRoleOperator = "operator"
 	SessionRoleReserved = "reserved"
@@ -20,8 +21,8 @@ const (
 
 // ReservedSessionPrefix is run-kit's reserved session-name namespace. Every
 // infrastructure session run-kit creates is named under it (PinSessionPrefix,
-// ControlAnchorSessionName, OperatorSessionName); a prefixed name matching no
-// known kind classifies SessionRoleReserved, so external consumers that filter
+// IsoSessionPrefix, ControlAnchorSessionName, OperatorSessionName); a prefixed
+// name matching no known kind classifies SessionRoleReserved, so external consumers that filter
 // on `role != "user"` stay correct when a new reserved kind is introduced.
 const ReservedSessionPrefix = "_rk-"
 
@@ -32,6 +33,8 @@ func SessionRole(name string) string {
 	switch {
 	case strings.HasPrefix(name, PinSessionPrefix):
 		return SessionRolePin
+	case strings.HasPrefix(name, IsoSessionPrefix):
+		return SessionRoleIso
 	case name == ControlAnchorSessionName:
 		return SessionRoleControl
 	case name == OperatorSessionName:
@@ -86,7 +89,8 @@ func ListSessionFacts(ctx context.Context, server string) ([]SessionFacts, error
 // into SessionFacts rows. User-role rows follow parseSessions' keep decision
 // exactly — the single chokepoint's group-copy fold — so the user-facing set
 // can never diverge from what the dashboard shows. Infrastructure rows
-// (pin/control), which the chokepoint drops unconditionally, are re-included
+// (pin/iso/control), which the chokepoint drops unconditionally, are
+// re-included
 // from their raw lines: they are never group leaders (baseGroupName excludes
 // the anchor by design), so no fold decision applies to them. Pure (no I/O)
 // for testability.
@@ -111,7 +115,7 @@ func buildSessionFacts(lines []string, clients []ClientInfo) []SessionFacts {
 		}
 		name := parts[0]
 		role := SessionRole(name)
-		if role != SessionRolePin && role != SessionRoleControl && !kept[name] {
+		if role != SessionRolePin && role != SessionRoleIso && role != SessionRoleControl && !kept[name] {
 			continue
 		}
 		f := SessionFacts{

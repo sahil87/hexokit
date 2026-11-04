@@ -136,7 +136,7 @@ async function expectChromeMaterial(
 ) {
   await page.addInitScript((id) => {
     try {
-      localStorage.setItem("runkit-theme", id);
+      localStorage.setItem("hexokit-theme", id);
     } catch {
       // localStorage unavailable — the settings stub is authoritative anyway
     }
@@ -237,7 +237,7 @@ test.describe("Chrome material surfaces", () => {
    * still keeps its own tinted background.
    * Steps:
    * 1. Pin `solarized-light` through the persisted theme preference
-   *    (settings stub + the `runkit-theme` localStorage key), emulate the
+   *    (settings stub + the `hexokit-theme` localStorage key), emulate the
    *    light color scheme, navigate at 1440×900.
    * 2. Wait for sidebar, status bar and `.xterm`.
    * 3. Probe the same surfaces.

@@ -390,12 +390,12 @@ describe("QuakeTerminal", () => {
     expect(button).toHaveTextContent("Start operator");
     // The hint survives as the sub-line.
     expect(screen.getByTestId("quake-terminal-empty")).toHaveTextContent(
-      "no operator on this server — run rk operator",
+      "no operator on this workspace — run rk operator",
     );
 
     fireEvent.click(button);
     expect(mockStartOperator).toHaveBeenCalledTimes(1);
-    expect(mockStartOperator).toHaveBeenCalledWith("srv1");
+    expect(mockStartOperator).toHaveBeenCalledWith("srv1", undefined);
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute("aria-busy", "true");
     expect(button).toHaveTextContent("starting…");
@@ -421,6 +421,19 @@ describe("QuakeTerminal", () => {
     await screen.findByTestId("embedded-terminal");
     expect(screen.queryByTestId("quake-terminal-empty")).toBeNull();
     expect(screen.queryByTestId("quake-terminal-start-operator")).toBeNull();
+  });
+
+  it("Start operator on a same-server terminal route sends the viewed window", async () => {
+    mockStartOperator.mockResolvedValue({ windowId: "@9", server: "srv1" });
+    mockMatches = [{ params: { server: "srv1", window: "@1" } }];
+    renderQuake({
+      sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({ windowId: "@1" })] }]]]),
+    });
+    openDrawer();
+
+    fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
+
+    await waitFor(() => expect(mockStartOperator).toHaveBeenCalledWith("srv1", "@1"));
   });
 
   it("treats a 409 operator_exists as success — no error line, button stays pending", async () => {
@@ -485,10 +498,10 @@ describe("QuakeTerminal", () => {
     openDrawer();
 
     fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
-    expect(mockStartOperator).toHaveBeenCalledWith("a");
+    expect(mockStartOperator).toHaveBeenCalledWith("a", undefined);
     expect(screen.getByTestId("quake-terminal-start-operator")).toHaveTextContent("starting…");
 
-    const picker = screen.getByRole("combobox", { name: "Operator server" });
+    const picker = screen.getByRole("combobox", { name: "Operator workspace" });
     fireEvent.change(picker, { target: { value: "b" } });
     const onB = screen.getByTestId("quake-terminal-start-operator");
     expect(onB).toBeEnabled();
@@ -506,7 +519,7 @@ describe("QuakeTerminal", () => {
     openDrawer();
 
     fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
-    const picker = screen.getByRole("combobox", { name: "Operator server" });
+    const picker = screen.getByRole("combobox", { name: "Operator workspace" });
     fireEvent.change(picker, { target: { value: "b" } });
 
     // a's operator arrives while b is on screen.
@@ -516,7 +529,7 @@ describe("QuakeTerminal", () => {
     await act(async () => {});
     expect(screen.getByTestId("quake-terminal-start-operator")).toBeEnabled();
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Operator server" }), {
+    fireEvent.change(screen.getByRole("combobox", { name: "Operator workspace" }), {
       target: { value: "a" },
     });
     await screen.findByTestId("embedded-terminal");
@@ -600,7 +613,7 @@ describe("QuakeTerminal", () => {
     openDrawer();
 
     fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
-    const picker = screen.getByRole("combobox", { name: "Operator server" });
+    const picker = screen.getByRole("combobox", { name: "Operator workspace" });
     fireEvent.change(picker, { target: { value: "b" } });
 
     await act(async () => {
@@ -624,11 +637,11 @@ describe("QuakeTerminal", () => {
     openDrawer();
 
     fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
-    const picker = screen.getByRole("combobox", { name: "Operator server" });
+    const picker = screen.getByRole("combobox", { name: "Operator workspace" });
     fireEvent.change(picker, { target: { value: "b" } });
     fireEvent.click(screen.getByTestId("quake-terminal-start-operator"));
     expect(mockStartOperator).toHaveBeenCalledTimes(2);
-    expect(mockStartOperator).toHaveBeenLastCalledWith("b");
+    expect(mockStartOperator).toHaveBeenLastCalledWith("b", undefined);
     expect(screen.getByTestId("quake-terminal-start-operator")).toBeDisabled();
 
     fireEvent.change(picker, { target: { value: "a" } });
@@ -639,7 +652,7 @@ describe("QuakeTerminal", () => {
       quakeTree(["a", "b"], new Map([["a", operatorSessions()], ["b", operatorLess(["b"]).get("b")!]])),
     );
     await screen.findByTestId("embedded-terminal");
-    fireEvent.change(screen.getByRole("combobox", { name: "Operator server" }), {
+    fireEvent.change(screen.getByRole("combobox", { name: "Operator workspace" }), {
       target: { value: "b" },
     });
     expect(screen.getByTestId("quake-terminal-start-operator")).toBeDisabled();
@@ -901,7 +914,7 @@ describe("QuakeTerminal", () => {
     renderQuake();
     openDrawer();
 
-    expect(screen.queryByRole("combobox", { name: "Operator server" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Operator workspace" })).toBeNull();
     expect(terminalMounts[0]).toMatchObject({ server: "srv1", windowId: "@9", sessionName: "_rk-operator" });
   });
 
@@ -909,7 +922,7 @@ describe("QuakeTerminal", () => {
     renderQuake();
     openDrawer();
 
-    expect(screen.queryByRole("combobox", { name: "Operator server" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Operator workspace" })).toBeNull();
     expect(terminalMounts[0]?.server).toBe("srv1");
   });
 
@@ -924,7 +937,7 @@ describe("QuakeTerminal", () => {
     });
     openDrawer();
 
-    const picker = screen.getByRole("combobox", { name: "Operator server" });
+    const picker = screen.getByRole("combobox", { name: "Operator workspace" });
     expect(picker).toHaveValue("a");
 
     fireEvent.change(picker, { target: { value: "b" } });
@@ -937,7 +950,7 @@ describe("QuakeTerminal", () => {
     openDrawer();
 
     expect(screen.getByTestId("quake-terminal-empty")).toHaveTextContent(
-      "no operator on this server — run rk operator",
+      "no operator on this workspace — run rk operator",
     );
     expect(screen.queryByTestId("embedded-terminal")).toBeNull();
 
@@ -1149,7 +1162,7 @@ describe("QuakeTerminal", () => {
     expect(el.style.backgroundColor).toContain("100%");
   });
 
-  const storedGeometry = () => JSON.parse(localStorage.getItem("runkit-quake-terminal-geometry")!);
+  const storedGeometry = () => JSON.parse(localStorage.getItem("hexokit-quake-terminal-geometry")!);
 
   it("dragging the bottom grip resizes only the height and persists the geometry on release", async () => {
     renderQuake();
@@ -1307,7 +1320,7 @@ describe("QuakeTerminal", () => {
     expect(el.style.width).toBe("760px");
     fireEvent.pointerUp(grip, { pointerId: 2 });
     expect(el.className).toContain("rk-quake-dragging");
-    expect(localStorage.getItem("runkit-quake-terminal-geometry")).toBeNull();
+    expect(localStorage.getItem("hexokit-quake-terminal-geometry")).toBeNull();
 
     // The first pointer still owns the drag.
     fireEvent.pointerMove(grip, { clientX: 540, clientY: 100, pointerId: 1 });
@@ -1334,7 +1347,7 @@ describe("QuakeTerminal", () => {
 
   it("double-clicking any grip resets the geometry to the defaults", async () => {
     localStorage.setItem(
-      "runkit-quake-terminal-geometry",
+      "hexokit-quake-terminal-geometry",
       JSON.stringify({ heightVh: 70, widthPx: 900, centerOffsetPx: 40 }),
     );
     renderQuake();
@@ -1353,7 +1366,7 @@ describe("QuakeTerminal", () => {
 
   it("a viewport resize re-clamps the displayed offset without writing the store", async () => {
     localStorage.setItem(
-      "runkit-quake-terminal-geometry",
+      "hexokit-quake-terminal-geometry",
       JSON.stringify({ heightVh: 55, widthPx: 760, centerOffsetPx: 100 }),
     );
     const originalWidth = window.innerWidth;
@@ -1494,7 +1507,7 @@ describe("QuakeTerminal (docked compose)", () => {
     fireEvent.change(textarea(), { target: { value: "for a" } });
     expect(textarea()).toHaveValue("for a");
 
-    const picker = screen.getByRole("combobox", { name: "Operator server" });
+    const picker = screen.getByRole("combobox", { name: "Operator workspace" });
     fireEvent.change(picker, { target: { value: "b" } });
     expect(textarea()).toHaveValue("");
     expect(textarea()).not.toHaveAttribute("readonly");
@@ -1673,7 +1686,7 @@ describe("QuakeTerminal (docked compose)", () => {
     openDrawer();
     const strip = screen.getByTestId("quake-terminal-compose");
     const textarea = within(strip).getByTestId("quake-terminal-compose-input");
-    const dismiss = within(strip).getByRole("button", { name: "Detach window context" });
+    const dismiss = within(strip).getByRole("button", { name: "Detach tab context" });
 
     // The real dismissal sequence: focus leaves the textarea FOR the ✕, then
     // the click lands. If that blur stood the engaged flag down, the accent
@@ -1705,7 +1718,7 @@ describe("QuakeTerminal (docked compose)", () => {
     renderQuake();
     openDrawer();
     const strip = screen.getByTestId("quake-terminal-compose");
-    fireEvent.click(within(strip).getByRole("button", { name: "Detach window context" }));
+    fireEvent.click(within(strip).getByRole("button", { name: "Detach tab context" }));
     expect(within(strip).queryByTestId("quake-terminal-context")).toBeNull();
 
     const textarea = within(strip).getByTestId("quake-terminal-compose-input");
@@ -1723,7 +1736,7 @@ describe("QuakeTerminal (docked compose)", () => {
     openDrawer();
     const strip = screen.getByTestId("quake-terminal-compose");
 
-    const dismiss = within(strip).getByRole("button", { name: "Detach window context" });
+    const dismiss = within(strip).getByRole("button", { name: "Detach tab context" });
     // The compact mount drops the 24px fine-pointer floor; the coarse (touch)
     // floor is untouched.
     expect(dismiss.className).not.toContain("min-h-[24px]");
@@ -1739,7 +1752,7 @@ describe("QuakeTerminal (docked compose)", () => {
     renderQuake();
     openDrawer();
     const strip = screen.getByTestId("quake-terminal-compose");
-    fireEvent.click(within(strip).getByRole("button", { name: "Detach window context" }));
+    fireEvent.click(within(strip).getByRole("button", { name: "Detach tab context" }));
     expect(within(strip).queryByTestId("quake-terminal-context")).toBeNull();
 
     fireEvent.keyDown(document, { key: "Escape" });
@@ -2321,7 +2334,7 @@ describe("QuakeTerminal (mobile navigation)", () => {
 
     expect(mockNavigate).not.toHaveBeenCalled();
     // Repeated activations within one toast lifetime do not stack.
-    expect(screen.getAllByText("no operator on this server — run rk operator")).toHaveLength(1);
+    expect(screen.getAllByText("no operator on this workspace — run rk operator")).toHaveLength(1);
   });
 
   it("a cron-segment request on an operator-less server navigates to the Server page's Cron section, no toast", () => {
@@ -2339,7 +2352,7 @@ describe("QuakeTerminal (mobile navigation)", () => {
     for (const call of mockNavigate.mock.calls) {
       expect(call[0]).toEqual({ to: "/$server", params: { server: "srv1" }, hash: "cron" });
     }
-    expect(screen.queryByText("no operator on this server — run rk operator")).toBeNull();
+    expect(screen.queryByText("no operator on this workspace — run rk operator")).toBeNull();
   });
 
   it("terminal and tasks requests on an operator-less server still toast and never navigate", () => {
@@ -2355,7 +2368,7 @@ describe("QuakeTerminal (mobile navigation)", () => {
     });
 
     expect(mockNavigate).not.toHaveBeenCalled();
-    expect(screen.getAllByText("no operator on this server — run rk operator")).toHaveLength(1);
+    expect(screen.getAllByText("no operator on this workspace — run rk operator")).toHaveLength(1);
   });
 
   it("a cron-segment request with no resolvable server toasts and never navigates", () => {
@@ -2365,7 +2378,7 @@ describe("QuakeTerminal (mobile navigation)", () => {
     });
 
     expect(mockNavigate).not.toHaveBeenCalled();
-    expect(screen.getAllByText("no operator on this server — run rk operator")).toHaveLength(1);
+    expect(screen.getAllByText("no operator on this workspace — run rk operator")).toHaveLength(1);
   });
 
   it("a cron-segment request before the server's sessions have loaded toasts — an empty slice is not operator-less", () => {
@@ -2379,7 +2392,7 @@ describe("QuakeTerminal (mobile navigation)", () => {
     });
 
     expect(mockNavigate).not.toHaveBeenCalled();
-    expect(screen.getAllByText("no operator on this server — run rk operator")).toHaveLength(1);
+    expect(screen.getAllByText("no operator on this workspace — run rk operator")).toHaveLength(1);
   });
 });
 

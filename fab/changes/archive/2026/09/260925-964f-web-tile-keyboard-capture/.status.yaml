@@ -1,0 +1,57 @@
+id: 964f
+name: 260925-964f-web-tile-keyboard-capture
+created: 2026-09-25T12:51:10Z
+created_by: ashish-kumar-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 6
+    acceptance_count: 9
+    acceptance_completed: 9
+confidence:
+    certain: 3
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 81.0
+        reversibility: 87.0
+        competence: 84.0
+        disambiguation: 81.0
+stage_metrics:
+    intake: {started_at: "2026-09-25T12:51:10Z", driver: fab-new, iterations: 1, completed_at: "2026-09-25T13:04:58Z"}
+    apply: {started_at: "2026-09-25T13:04:58Z", iterations: 1, completed_at: "2026-09-25T13:04:58Z"}
+    review: {started_at: "2026-09-25T13:04:58Z", iterations: 1, completed_at: "2026-09-25T13:11:24Z"}
+    hydrate: {started_at: "2026-09-25T13:11:24Z", iterations: 1, completed_at: "2026-09-25T13:11:24Z"}
+    ship: {started_at: "2026-09-25T13:11:24Z", iterations: 1, completed_at: "2026-09-25T13:12:03Z"}
+    review-pr: {started_at: "2026-09-25T13:12:03Z", iterations: 1, completed_at: "2026-09-25T13:12:03Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/1044
+true_impact:
+    added: 567
+    deleted: 44
+    net: 523
+    excluding:
+        added: 395
+        deleted: 44
+        net: 351
+    tests:
+        added: 128
+        deleted: 5
+        net: 123
+    computed_at: "2026-09-25T13:12:03Z"
+    computed_at_stage: ship
+change_type_source: explicit
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-25T13:12:03Z

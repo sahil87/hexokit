@@ -179,7 +179,7 @@ func VersionNewer(remoteVersion, localVersion string) bool {
 }
 
 // parseRemotePort extracts the port from a remote `rk url` line
-// ("http://127.0.0.1:3000"). The origin itself is derived state — used for
+// ("http://127.0.0.1:6123"). The origin itself is derived state — used for
 // the -L forward spec and never stored (Constitution II).
 func parseRemotePort(output string) (int, error) {
 	raw := strings.TrimSpace(output)

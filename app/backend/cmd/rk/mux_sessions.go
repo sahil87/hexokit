@@ -63,7 +63,7 @@ func init() {
 	muxSessionsCmd.Flags().BoolVar(&muxSessionsJSONFlag, "json", false,
 		"Output as JSON")
 	muxSessionsCmd.Flags().BoolVar(&muxSessionsAllFlag, "all", false,
-		"Include infrastructure sessions (pin/control/operator/reserved roles)")
+		"Include infrastructure sessions (pin/iso/control/operator/reserved roles)")
 }
 
 // muxSessions*Fn are package-level seams so runMuxSessions can be tested

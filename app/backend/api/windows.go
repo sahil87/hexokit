@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -85,7 +86,7 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 	// atomic at creation. The body keeps the retired rkType/rkUrl field NAMES
 	// this release (the client's createWindow arm is renamed by the frontend
 	// layout change); "iframe" is the only accepted value — it maps onto
-	// layout=single:web + the first web slot + the active pointer.
+	// layout=web + the first web slot + the active pointer.
 	if body.RkType != "" {
 		if body.RkType != "iframe" {
 			writeError(w, http.StatusBadRequest, "Unsupported rkType: "+body.RkType)
@@ -108,7 +109,7 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, errMsg)
 			return
 		}
-		layout := "single:web"
+		layout := "web"
 		rkURL := body.RkUrl
 		active := "1"
 		ops := []tmux.WindowOptionOp{
@@ -397,7 +398,8 @@ func (s *Server) handleWindowMoveToSession(w http.ResponseWriter, r *http.Reques
 // reach `tmux set-option` — any other client-supplied key is rejected with 400
 // (constitution §I — closed key set bounds the injection/abuse surface, and a
 // closed set is what makes per-key validation possible). The indexed
-// @rk_win_web_<n> slots are matched by webTabIndex rather than eight consts.
+// @rk_win_web_<n> slots are matched by webTabIndex rather than one const per
+// slot.
 // optKeyLegacyURL/optKeyLegacyLens are the retired web option names, accepted
 // for one release and translated onto the web-tab family (see
 // translateLegacyOptionKeys).
@@ -417,9 +419,9 @@ const (
 )
 
 // webTabIndex matches the indexed @rk_win_web_<n> allowlist keys, returning the
-// 1-based slot. Out-of-range slots (@rk_win_web_9), the _root twins, and the
-// _active pointer do NOT match — the pointer has its own const and everything
-// else falls to the unknown-key 400.
+// 1-based slot. Slots above tmux.MaxWebTabs, the _root twins, and the _active
+// pointer do NOT match — the pointer has its own const and everything else
+// falls to the unknown-key 400.
 func webTabIndex(key string) (int, bool) {
 	const prefix = "@rk_win_web_"
 	if !strings.HasPrefix(key, prefix) {
@@ -439,7 +441,7 @@ func webTabIndex(key string) (int, bool) {
 //   - @rk_win_url: null → null on the ACTIVE slot (routed through WebRemove at
 //     execution); on an empty family the retired write was an unset of an
 //     unset option — a no-op.
-//   - @rk_win_lens: "iframe" → @rk_win_layout = single:web, only when the
+//   - @rk_win_lens: "iframe" → @rk_win_layout = web, only when the
 //     window has no layout yet and the batch doesn't set one explicitly; any
 //     other value (or null) has no family representation — a no-op.
 //
@@ -469,7 +471,7 @@ func translateLegacyOptionKeys(options map[string]*string, fam tmux.WebTabFamily
 			if _, explicit := options[optKeyLayout]; explicit {
 				continue
 			}
-			layout := "single:web"
+			layout := "web"
 			out[optKeyLayout] = &layout
 		default:
 			out[key] = value
@@ -522,7 +524,9 @@ func validateWindowOption(key string, value *string, fam tmux.WebTabFamily, appe
 			return errMsg
 		}
 	case optKeyLayout:
-		// The layout grammar (internal/layoutspec); empty unsets.
+		// The layout grammar (internal/layoutspec): the tree form
+		// (h(tty,v(code,web))) or a legacy preset string — the value is
+		// stored verbatim, never canonicalised. Empty unsets.
 		if *value != "" {
 			if _, err := layoutspec.Parse(*value); err != nil {
 				return err.Error()
@@ -605,7 +609,7 @@ func buildWindowOptionOps(options map[string]*string, armActive bool) (ops []tmu
 		}
 		op := tmux.WindowOptionOp{Key: key, Value: value}
 		// An empty string means unset for @rk_win_layout (revert to the
-		// single:tty render), @rk_win_marker, @rk_win_role, @rk_win_flair,
+		// bare-tty render), @rk_win_marker, @rk_win_role, @rk_win_flair,
 		// @rk_win_owner, @rk_win_note, and @rk_win_code_root — the same
 		// "empty clears" contract the retired @rk_win_lens carried.
 		if value != nil && *value == "" {
@@ -734,6 +738,29 @@ func (s *Server) handleWindowOptions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "a web tab removal (null) cannot be combined with other web-tab writes in one request")
 		return
 	}
+
+	// Live-in-one-place check (a layout write introducing a foreign leaf
+	// already held by another window): only a layout value carrying a foreign
+	// leaf can conflict, so the server window fetch is gated on that.
+	if value, ok := options[optKeyLayout]; ok && value != nil && *value != "" {
+		if tree, err := layoutspec.Parse(*value); err == nil && tree.HasForeign() {
+			windows, err := s.fetchServerWindows(ctx, server)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if err := tmux.CheckLiveInOnePlace(tree, windowID, windows); err != nil {
+				var held *tmux.LeafHeldError
+				if errors.As(err, &held) {
+					writeError(w, http.StatusConflict, err.Error())
+					return
+				}
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
+	}
+
 	ops, removeSlots, roleSet, roleClear := buildWindowOptionOps(options, armActive)
 
 	if len(ops) == 0 && len(removeSlots) == 0 {

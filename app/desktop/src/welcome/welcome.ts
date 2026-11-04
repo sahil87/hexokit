@@ -340,7 +340,7 @@ function daemonStatusOf(value: unknown): LocalDaemonStatus | null {
   return narrowDaemonStatus(value.status);
 }
 
-/** `http://127.0.0.1:3000` → `127.0.0.1:3000` (the mock's `{host}:{port}`). */
+/** `http://127.0.0.1:6123` → `127.0.0.1:6123` (the mock's `{host}:{port}`). */
 function hostPortOf(origin: string): string {
   try {
     return new URL(origin).host;
@@ -598,8 +598,8 @@ function wireLocalSection(els: WelcomeElements, daemon: DaemonBridge, heading: s
     } else if (status.state === "wedged") {
       els.localDot.className = "dot wedged";
       els.localStatus.textContent = `not responding${versionSuffix}`;
-      els.localDetail.textContent = `run-kit is running but isn't answering on ${status.origin}`;
-      els.localConnect.textContent = "Restart run-kit";
+      els.localDetail.textContent = `HexoKit is running but isn't answering on ${status.origin}`;
+      els.localConnect.textContent = "Restart HexoKit";
       els.localStop.hidden = true;
     } else {
       els.localDot.className = "dot";
@@ -802,7 +802,7 @@ function wireWelcomePage(els: WelcomeElements, bridge: WelcomeBridge): void {
       parsed = null;
     }
     if (parsed === null || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) {
-      showError("Enter a full http(s) URL, e.g. http://host:3000");
+      showError("Enter a full http(s) URL, e.g. http://host:6123");
       return;
     }
 
@@ -841,7 +841,7 @@ function wireWelcomePage(els: WelcomeElements, bridge: WelcomeBridge): void {
   const bridge = getWelcomeBridge();
   if (!bridge) {
     els.errorEl.textContent =
-      "Shell bridge unavailable — this page only works inside the Run Kit desktop app";
+      "Shell bridge unavailable — this page only works inside the HexoKit desktop app";
     els.errorEl.hidden = false;
     els.connectButton.disabled = true;
     return;

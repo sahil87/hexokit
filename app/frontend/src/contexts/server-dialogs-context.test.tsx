@@ -4,19 +4,13 @@ import { ServerDialogsProvider, useServerDialogs } from "./server-dialogs-contex
 
 function Probe() {
   const {
-    createServerOpen,
     killServerTarget,
-    openCreateServer,
     requestKillServer,
-    closeCreateServer,
     clearKillServerTarget,
   } = useServerDialogs();
   return (
     <div>
-      <span data-testid="create">{createServerOpen ? "open" : "closed"}</span>
       <span data-testid="kill">{killServerTarget ?? "none"}</span>
-      <button onClick={openCreateServer}>open-create</button>
-      <button onClick={closeCreateServer}>close-create</button>
       <button onClick={() => requestKillServer("rk")}>kill-rk</button>
       <button onClick={clearKillServerTarget}>clear-kill</button>
     </div>
@@ -25,19 +19,6 @@ function Probe() {
 
 describe("ServerDialogsContext", () => {
   afterEach(cleanup);
-
-  it("starts closed; openCreateServer/closeCreateServer toggle the create dialog", () => {
-    render(
-      <ServerDialogsProvider>
-        <Probe />
-      </ServerDialogsProvider>,
-    );
-    expect(screen.getByTestId("create").textContent).toBe("closed");
-    fireEvent.click(screen.getByText("open-create"));
-    expect(screen.getByTestId("create").textContent).toBe("open");
-    fireEvent.click(screen.getByText("close-create"));
-    expect(screen.getByTestId("create").textContent).toBe("closed");
-  });
 
   it("requestKillServer sets the target; clearKillServerTarget resets it", () => {
     render(
@@ -55,11 +36,11 @@ describe("ServerDialogsContext", () => {
   it("triggers are referentially stable across state changes", () => {
     const seen: unknown[] = [];
     function StabilityProbe() {
-      const { openCreateServer, requestKillServer } = useServerDialogs();
-      seen.push(openCreateServer, requestKillServer);
+      const { requestAdoptServer, requestKillServer } = useServerDialogs();
+      seen.push(requestAdoptServer, requestKillServer);
       return (
         <button onClick={() => {
-          openCreateServer();
+          requestAdoptServer("rk");
           requestKillServer("rk");
         }}>
           fire

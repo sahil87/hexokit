@@ -95,7 +95,7 @@ export const FLYOUT_WARM_WINDOW_MS = 500;
  * (Migrated verbatim from the retired status-dot-tip.tsx.)
  */
 export const STATUS_DOT_DOCS_URL =
-  "https://github.com/sahil87/run-kit/blob/main/docs/site/status-dot.md";
+  "https://github.com/sahil87/hexokit/blob/main/docs/site/status-dot.md";
 
 // ── Shared warm-window / single-open coordination ──────────────────────────
 //
@@ -404,24 +404,19 @@ export function NoteLine({ win }: { win: WindowInfo }) {
   );
 }
 
-/**
- * Provider whose conversations can be forked. The fork mechanism is Claude
- * Code's `--resume <id> --fork-session`, so the affordance is gated on the same
- * `agentProvider` field the agent session identity carries — no new data
- * plumbing (the field already rides `/api/sessions` + SSE).
- */
-const FORKABLE_AGENT_PROVIDER = "claude";
-
 /** Tooltip/aria copy for the fork affordance. Names the SAME-DIRECTORY semantics
  *  explicitly — that is what distinguishes a fork (branch this conversation
  *  here) from the spawn dialog (a fresh agent, usually in a new worktree). */
 export const FORK_TOOLTIP = "Fork conversation — new tab, same directory";
 
-/** True when this window's conversation can be forked: it carries a reconciled
- *  claude agent session identity. An equality guard, not a cast — a `codex`
- *  window and a plain shell pane both fall through to false. */
+/** Tooltip/aria copy for the worktree fork: the same conversation fork, but the
+ *  new tab opens in a NEW worktree on a NEW branch started at the source's HEAD,
+ *  so the two agents never share a checkout. */
+export const FORK_WORKTREE_TOOLTIP = "Fork to new worktree — new tab, new worktree + branch";
+
+/** Fork support follows the window's reconciled conversation provider. */
 export function canForkWindow(win: WindowInfo): boolean {
-  return win.agentProvider === FORKABLE_AGENT_PROVIDER;
+  return win.agentProvider === "claude" || win.agentProvider === "codex";
 }
 
 /**
@@ -522,7 +517,19 @@ export function CardActionRow({
  * promise settles is the spawn dialog's `disabled={busy}` idiom; the busy state
  * clears on settle (success and error alike) so a failed fork stays retryable.
  */
-function ForkActionRow({ onFork }: { onFork: () => Promise<void> }) {
+function ForkActionRow({
+  onFork,
+  label = "Fork conversation",
+  hint = "new tab, same directory",
+  tooltip = FORK_TOOLTIP,
+  testid = "row-flyout-fork-action",
+}: {
+  onFork: () => Promise<void>;
+  label?: string;
+  hint?: string;
+  tooltip?: string;
+  testid?: string;
+}) {
   const [busy, setBusy] = useState(false);
   // The card unmounts when the flyout closes (and a successful fork navigates
   // away), so a settle after unmount is a real possibility — guard the setState.
@@ -550,13 +557,13 @@ function ForkActionRow({ onFork }: { onFork: () => Promise<void> }) {
       }}
       disabled={busy}
       className={`${ACTION_ROW_CLASS} hover:text-text-primary hover:border-l-accent-green disabled:hover:border-l-transparent disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-text-secondary`}
-      aria-label={FORK_TOOLTIP}
-      title={FORK_TOOLTIP}
-      data-testid="row-flyout-fork-action"
+      aria-label={tooltip}
+      title={tooltip}
+      data-testid={testid}
     >
       <ForkIcon />
-      <span className="shrink-0">Fork conversation</span>
-      <span className={ACTION_ROW_HINT_CLASS}>new tab, same directory</span>
+      <span className="shrink-0">{label}</span>
+      <span className={ACTION_ROW_HINT_CLASS}>{hint}</span>
     </button>
   );
 }
@@ -670,6 +677,7 @@ export function WindowFlyoutContent({
   win,
   onChangeColorAction,
   onFork,
+  onForkWorktree,
   onFixTabName,
   hasOperator = false,
   onPinAction,
@@ -685,6 +693,9 @@ export function WindowFlyoutContent({
    *  color seam renders no row. */
   onChangeColorAction?: () => void;
   onFork?: () => Promise<void>;
+  /** Fork the conversation into a new worktree + branch. OPTIONAL, and gated
+   *  exactly like `onFork` (a forkable window AND a wired handler). */
+  onForkWorktree?: () => Promise<void>;
   /** Fire the operator-request seam for this window (fix-tab-name). OPTIONAL:
    *  a consumer wiring no seam renders no row. Renders only when the
    *  availability rule holds (canRequestWindowOperatorAction). */
@@ -725,6 +736,7 @@ export function WindowFlyoutContent({
   // site type-checks structurally instead of leaning on aliased-condition
   // narrowing, which a refactor could silently break.
   const forkHandler = canForkWindow(win) ? onFork : undefined;
+  const forkWorktreeHandler = canForkWindow(win) ? onForkWorktree : undefined;
   // The Fix tab name row keeps the same double gate: the derived availability
   // rule (operator present + subject agent session ref + not the operator's
   // own row) AND a wired handler.
@@ -862,7 +874,7 @@ export function WindowFlyoutContent({
           action row of every tier's card). Optional-handler idiom: a consumer
           wiring no handler renders no row. All rows stopPropagation so an
           action never selects the underlying row (the PR-link/docs idiom). */}
-      {(onChangeColorAction || forkHandler || fixNameHandler || onPinAction || onKillAction) && (
+      {(onChangeColorAction || forkHandler || forkWorktreeHandler || fixNameHandler || onPinAction || onKillAction) && (
         <CardActionList flush={!hasBody}>
           {onChangeColorAction && (
             <CardActionRow
@@ -873,6 +885,15 @@ export function WindowFlyoutContent({
             />
           )}
           {forkHandler && <ForkActionRow onFork={forkHandler} />}
+          {forkWorktreeHandler && (
+            <ForkActionRow
+              onFork={forkWorktreeHandler}
+              label="Fork to new worktree"
+              hint="new branch"
+              tooltip={FORK_WORKTREE_TOOLTIP}
+              testid="row-flyout-fork-worktree-action"
+            />
+          )}
           {fixNameHandler && <FixTabNameActionRow onFixTabName={fixNameHandler} />}
           {onPinAction && (
             <CardActionRow
@@ -974,7 +995,7 @@ type RowFlyout = {
  *  flyout consumer inside this `<nav>`). Resolved per positioning pass via
  *  `closest()` from the reference node; a reference outside it falls back to
  *  its own rect (today's geometry). */
-export const EDGE_ANCHOR_CONTAINER_SELECTOR = 'nav[aria-label="Sessions"]';
+export const EDGE_ANCHOR_CONTAINER_SELECTOR = 'nav[aria-label="Groups"]';
 
 /** floating-ui virtual position reference for `edgeAnchor`: the reference
  *  node's y-band at the sidebar container's right x (degenerate width-0 rect —

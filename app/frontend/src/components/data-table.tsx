@@ -4,7 +4,7 @@
  * (Operator Tasks / the Server page WATCHED zone), `cron-list.tsx`, and
  * `cron-log.tsx`. The component owns the table chrome — the header row with
  * `aria-sort` sort buttons, the fine-pointer-only resize handles, the
- * `<colgroup>` widths, the per-viewer `runkit-table-<id>` view-state store,
+ * `<colgroup>` widths, the per-viewer `hexokit-table-<id>` view-state store,
  * and the mounted-table registry behind the palette's `Table: Reset columns`;
  * consumers own their cells via per-column `cell(row)` renderers and per-row
  * `rowProps(row)`, plus the opt-in `cellClassName` (the Cron tabs' coarse-
@@ -45,8 +45,8 @@ import {
 import { Control } from "@/components/control";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 
-/** localStorage key prefix; one JSON key per table (`runkit-table-cron-list`). */
-export const DATA_TABLE_STORAGE_PREFIX = "runkit-table-";
+/** localStorage key prefix; one JSON key per table (`hexokit-table-cron-list`). */
+export const DATA_TABLE_STORAGE_PREFIX = "hexokit-table-";
 
 export const DATA_TABLE_MIN_COL_PX = 48;
 export const DATA_TABLE_MAX_COL_PX = 960;

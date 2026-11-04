@@ -31,6 +31,7 @@ import {
 } from "react";
 import { Control } from "./control";
 import { MENU_ROW_CHECK_MARK, POPOVER_SHELL } from "./controls";
+import { useOccludes } from "@/hooks/use-occludes";
 
 /** Vertical gap between the anchor chip's bottom edge and the menu's top
  *  (the BreadcrumbDropdown/TopBarOverflowMenu idiom). */
@@ -73,6 +74,11 @@ interface GuiToolbarMenuProps {
 export function GuiToolbarMenu({ kind, anchorRef, rows, ariaLabel, autoFocus = true, onClose }: GuiToolbarMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ top: 0, left: 0 });
+
+  // Mounts only while open, so the registration is unconditional — menus hold
+  // `transient` (overlay-presence) so a native guest composited above the DOM
+  // hides and the menu never paints underneath it.
+  useOccludes("transient", true);
 
   // Anchor under the chip, clamped horizontally to the positioned ancestor's
   // span (the header cluster). Measure before paint so the menu never flashes at 0,0.

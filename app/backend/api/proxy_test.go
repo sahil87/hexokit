@@ -3,14 +3,20 @@ package api
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+
+	"rk/internal/config"
+	"rk/internal/settings"
 )
 
 func TestProxyInvalidPort(t *testing.T) {
@@ -494,8 +500,9 @@ func TestCodeRouteUnresolvablePort(t *testing.T) {
 
 // TestCodeRouteFollowsResolvedPort proves the proxy cache is keyed by target
 // port, not by the /code prefix alone: /code's prefix is fixed while its port
-// resolves per request, so a prefix-only key would pin whichever port resolved
-// first and route every later request to the wrong upstream.
+// is seeded per server at startup, so a prefix-only key would pin whichever
+// port a first server resolved and route a later server's requests to the
+// wrong upstream.
 func TestCodeRouteFollowsResolvedPort(t *testing.T) {
 	newUpstream := func(marker string) *httptest.Server {
 		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -521,5 +528,80 @@ func TestCodeRouteFollowsResolvedPort(t *testing.T) {
 	}
 	if got := get(t, second); got != "SECOND" {
 		t.Errorf("body after the resolved port changed = %q, want %q (stale cached proxy)", got, "SECOND")
+	}
+}
+
+// TestPortsStableAcrossMidRunConfigEdit proves the startup-resolution
+// contract: a config.yaml `port:` edit made AFTER the server is up moves
+// neither the `/code/` proxy target nor the `/api/health` tunnel
+// advertisement — both follow the listener the process actually bound, and
+// the edit applies on the next daemon restart.
+func TestPortsStableAcrossMidRunConfigEdit(t *testing.T) {
+	// Upstream stands in for code-server on the startup-resolved port.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "CODE-UPSTREAM")
+	}))
+	defer upstream.Close()
+	codePort, err := strconv.Atoi(strings.TrimPrefix(upstream.URL, "http://127.0.0.1:"))
+	if err != nil {
+		t.Fatalf("parsing upstream port: %v", err)
+	}
+	listenPort := codePort - 2 // the +2 convention lands the code port on the upstream
+
+	// Startup: an isolated config root pins the listen port.
+	dir := t.TempDir()
+	configFile := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(configFile, []byte(fmt.Sprintf("port: %d\n", listenPort)), 0o644); err != nil {
+		t.Fatalf("writing config.yaml: %v", err)
+	}
+	t.Setenv(settings.ConfigDirEnv, dir)
+	// Set-but-empty reads as unset: the config.yaml rung decides.
+	t.Setenv(config.PortEnvVar, "")
+	t.Setenv(config.CodeServerPortEnvVar, "")
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	get := func(path string) *httptest.ResponseRecorder {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		return rec
+	}
+	tunnelPort := func(t *testing.T) float64 {
+		t.Helper()
+		var body map[string]any
+		if err := json.NewDecoder(get("/api/health").Body).Decode(&body); err != nil {
+			t.Fatalf("decode health: %v", err)
+		}
+		port, ok := body["tunnel"].(float64)
+		if !ok {
+			t.Fatalf("body.tunnel = %v (%T), want a JSON number", body["tunnel"], body["tunnel"])
+		}
+		return port
+	}
+
+	// Baseline: /code proxies to the startup-resolved port; health advertises
+	// the startup listen port.
+	if rec := get("/code/"); rec.Code != http.StatusOK {
+		t.Fatalf("baseline /code/ status = %d, want %d", rec.Code, http.StatusOK)
+	} else if body, _ := io.ReadAll(rec.Result().Body); string(body) != "CODE-UPSTREAM" {
+		t.Fatalf("baseline /code/ body = %q, want CODE-UPSTREAM", body)
+	}
+	if got := tunnelPort(t); int(got) != listenPort {
+		t.Fatalf("baseline tunnel = %v, want %d", got, listenPort)
+	}
+
+	// Mid-run edit: config.yaml moves to a different port.
+	if err := os.WriteFile(configFile, []byte("port: 5000\n"), 0o644); err != nil {
+		t.Fatalf("rewriting config.yaml: %v", err)
+	}
+
+	// Neither surface moves mid-run.
+	if rec := get("/code/"); rec.Code != http.StatusOK {
+		t.Fatalf("post-edit /code/ status = %d, want %d (the proxy target must not move)", rec.Code, http.StatusOK)
+	} else if body, _ := io.ReadAll(rec.Result().Body); string(body) != "CODE-UPSTREAM" {
+		t.Errorf("post-edit /code/ body = %q, want CODE-UPSTREAM (still the startup port)", body)
+	}
+	if got := tunnelPort(t); int(got) != listenPort {
+		t.Errorf("post-edit tunnel = %v, want %d (still the bound listen port)", got, listenPort)
 	}
 }

@@ -2,6 +2,7 @@ package codebridge
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -36,14 +37,22 @@ func recordPath(dir, hostID string) string {
 // host. A missing dir is an empty list, not an error; unreadable or undecodable
 // files are skipped.
 func ReadRecords(dir string) ([]HostRecord, error) {
-	return readJSONDir(dir, func(rec HostRecord) string { return rec.HostID })
+	return readJSONDir(dir, func(rec HostRecord) string { return rec.HostID }, false)
+}
+
+// ReadRecordsStrict is ReadRecords for deletion guards: an unreadable or
+// undecodable record file is an error, never a skipped entry — a guard that
+// cannot inspect a record cannot prove the host is dead, so any doubt must
+// surface rather than read as "no hosts".
+func ReadRecordsStrict(dir string) ([]HostRecord, error) {
+	return readJSONDir(dir, func(rec HostRecord) string { return rec.HostID }, true)
 }
 
 // readJSONDir is the one registry enumeration loop: every *.json file under
 // dir decoded into T, sorted by host id for deterministic listing. A missing
-// dir is an empty list, not an error; unreadable or undecodable files are
-// skipped.
-func readJSONDir[T any](dir string, hostID func(T) string) ([]T, error) {
+// dir is an empty list, not an error. Unreadable or undecodable files are
+// skipped, or fail the scan when strict is set.
+func readJSONDir[T any](dir string, hostID func(T) string, strict bool) ([]T, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -56,12 +65,19 @@ func readJSONDir[T any](dir string, hostID func(T) string) ([]T, error) {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		p := filepath.Join(dir, e.Name())
+		data, err := os.ReadFile(p)
 		if err != nil {
+			if strict {
+				return nil, fmt.Errorf("reading host record %s: %w", p, err)
+			}
 			continue
 		}
 		var item T
 		if err := json.Unmarshal(data, &item); err != nil {
+			if strict {
+				return nil, fmt.Errorf("decoding host record %s: %w", p, err)
+			}
 			continue
 		}
 		out = append(out, item)

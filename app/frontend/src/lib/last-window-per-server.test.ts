@@ -23,13 +23,13 @@ describe("readLastWindow / writeLastWindow", () => {
   });
 
   it("composes the per-server key from the named prefix", () => {
-    expect(LAST_WINDOW_KEY_PREFIX).toBe("runkit-last-window:");
-    expect(lastWindowStorageKey("work")).toBe("runkit-last-window:work");
+    expect(LAST_WINDOW_KEY_PREFIX).toBe("hexokit-last-window:");
+    expect(lastWindowStorageKey("work")).toBe("hexokit-last-window:work");
   });
 
   it("round-trips a written window id per server", () => {
     writeLastWindow("work", "@3");
-    expect(localStorage.getItem("runkit-last-window:work")).toBe("@3");
+    expect(localStorage.getItem("hexokit-last-window:work")).toBe("@3");
     expect(readLastWindow("work")).toBe("@3");
     expect(readLastWindow("home")).toBeNull();
   });

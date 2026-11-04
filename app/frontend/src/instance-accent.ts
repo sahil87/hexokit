@@ -14,7 +14,7 @@ import type { Theme } from "@/themes";
  * contract.
  *
  * The accent is a property of the INSTANCE (stored on its host in
- * ~/.config/run-kit/config.yaml `instance_color`), not the viewer — every
+ * ~/.config/hexokit/config.yaml `instance_color`), not the viewer — every
  * device viewing
  * the instance sees the same accent. Resolution order: explicit setting →
  * localStorage echo (paint cache only, never authoritative) → none. There is
@@ -26,7 +26,7 @@ import type { Theme } from "@/themes";
  *  is JSON `{"value": "<descriptor>", "hex": "#rrggbb"}` — `hex` is the final
  *  theme-color meta content so the index.html blocking script can tint the PWA
  *  titlebar before any fetch resolves. */
-export const INSTANCE_COLOR_STORAGE_KEY = "runkit-instance-color";
+export const INSTANCE_COLOR_STORAGE_KEY = "hexokit-instance-color";
 
 /** Ratio of the accent blended into the chrome surface for the top-bar wash
  *  (intake latitude: ~6-7%; one trivially-tunable constant). */

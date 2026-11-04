@@ -1,10 +1,9 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { createServer, createSession, createWindow, getSessions, isExternalServer, isInfraServer, DAEMON_SERVER } from "@/api/client";
-import { Dialog } from "@/components/dialog";
+import { CreateWorkspaceDialog } from "@/components/create-workspace-dialog";
+import { projectRoots } from "@/components/folder-path-input";
 import { controlClass } from "@/components/control";
-import { INPUT_COARSE, INPUT_FOCUS } from "@/components/controls";
-import { finalizeSafeName, toSafeServerName } from "@/lib/names";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
 import { useHostMetrics, useHostServices, useSessionContext } from "@/contexts/session-context";
@@ -72,7 +71,10 @@ export function HostOverviewPage() {
   // rendered nowhere), so this stays local.
   const [ghostServers, setGhostServers] = useState<string[]>([]);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [createName, setCreateName] = useState("");
+  const quickPicks = useMemo(
+    () => projectRoots([...sessionsByServer.values()].flat()),
+    [sessionsByServer],
+  );
   const navigate = useNavigate();
   const { addToast } = useToast();
   // Server-tile switch — resolves a landing window for the target server
@@ -184,8 +186,8 @@ export function HostOverviewPage() {
   const realNames = new Set(servers.map((s) => s.name));
   const visibleGhosts = ghostServers.filter((g) => !realNames.has(g));
 
-  const { execute: executeCreateServer } = useOptimisticAction<[string]>({
-    action: (name) => createServer(name),
+  const { execute: executeCreateServer } = useOptimisticAction<[string, string | undefined]>({
+    action: (name, cwd) => createServer(name, cwd),
     onOptimistic: (name) => {
       ghostNameRef.current = name;
       setGhostServers((prev) => [...prev, name]);
@@ -223,29 +225,26 @@ export function HostOverviewPage() {
     // root-level ToastProvider, which stays mounted across the navigation.
     onAlwaysRollback: () => {
       markServerPending("");
-      addToast("Failed to create server");
+      addToast("Failed to create workspace");
     },
   });
 
-  const handleCreate = useCallback(() => {
-    // The input applies the live server transform; commit trims the trailing
-    // separator. The regex stays as defense in depth (always passes post-
-    // transform).
-    const trimmed = finalizeSafeName(createName.trim());
-    if (!trimmed || !/^[a-zA-Z0-9_-]+$/.test(trimmed)) return;
-    executeCreateServer(trimmed);
-    // Mark the just-created server pending BEFORE navigating so the route guard
-    // shows the "Creating server…" waiting state (not "Server not found") until
-    // the refreshed list includes it. Cleared automatically by SessionContext
-    // once it appears. Mirrors AppShell.handleCreateServer.
-    markServerPending(trimmed);
-    navigate({
-      to: "/$server",
-      params: { server: trimmed },
-    });
-    setShowCreateDialog(false);
-    setCreateName("");
-  }, [createName, navigate, executeCreateServer, markServerPending]);
+  const handleCreate = useCallback(
+    (name: string, cwd: string | undefined) => {
+      executeCreateServer(name, cwd);
+      // Mark the just-created server pending BEFORE navigating so the route guard
+      // shows the "Creating server…" waiting state (not "Server not found") until
+      // the refreshed list includes it. Cleared automatically by SessionContext
+      // once it appears. Mirrors AppShell.handleCreateServer.
+      markServerPending(name);
+      navigate({
+        to: "/$server",
+        params: { server: name },
+      });
+      setShowCreateDialog(false);
+    },
+    [navigate, executeCreateServer, markServerPending],
+  );
 
   // "Open in tab" — open a listening service's UI in an iframe tmux window
   // (the `createWindow` web arm) via the existing /proxy/{port}/ reverse
@@ -332,7 +331,7 @@ export function HostOverviewPage() {
               metadata (here the live hostname) stays in the zone body at its
               original `text-xs` sizing, right below the heading. */}
           <SectionHeading label="Host Health" className="mb-2" />
-          {/* run-kit system card — the daemon read as a SYSTEM surface
+          {/* HexoKit system card — the daemon read as a SYSTEM surface
               (version/uptime/port + Restart, service rows + View deep-links).
               Renders independently of the metrics stream: the daemon serving
               this page is up by definition. */}
@@ -408,14 +407,14 @@ export function HostOverviewPage() {
         </section>
 
         {/* TMUX SERVERS zone (zone 2) — the tmux-server tile grid. */}
-        <section aria-label="Tmux servers" className="mb-6">
+        <section aria-label="Workspaces" className="mb-6">
           {/* Side slot stays empty on host zones (plan assumption #4); the
               server count stays in the zone body at its original text-xs sizing. */}
-          <SectionHeading label="Tmux Servers" className="mb-2" />
+          <SectionHeading label="Workspaces" className="mb-2" />
           <div className="text-xs text-text-secondary font-mono mb-2">
             {!serversLoaded
               ? "loading…"
-              : `${servers.length} server${servers.length !== 1 ? "s" : ""}`}
+              : `${servers.length} workspace${servers.length !== 1 ? "s" : ""}`}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -459,7 +458,7 @@ export function HostOverviewPage() {
                     surface, never hide. */}
                 <div className={`${isInfraServer(name) || ephemeral || isExternal ? "text-text-secondary" : "text-text-primary"} font-medium text-sm`}>
                   {isProtected && (
-                    <Tip label="Protected server — kill requires typing the name">
+                    <Tip label="Protected workspace — kill requires typing the name">
                       <span
                         role="img"
                         aria-label={`${name} is protected`}
@@ -511,7 +510,7 @@ export function HostOverviewPage() {
               onClick={() => setShowCreateDialog(true)}
               className="border border-dashed border-border rounded p-4 text-sm text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors min-h-[60px] flex items-center justify-center"
             >
-              + New Server
+              + New workspace
             </button>
           </div>
         </section>
@@ -570,7 +569,7 @@ export function HostOverviewPage() {
                   </div>
                   {/* Conditional tip: only the disabled state needs the "why"
                       (label undefined otherwise → child renders untouched). */}
-                  <Tip label={servers.length === 0 ? "Create a server first" : undefined}>
+                  <Tip label={servers.length === 0 ? "Create a workspace first" : undefined}>
                     <button
                       onClick={() => handleOpenInWindow(svc.port)}
                       disabled={servers.length === 0}
@@ -596,7 +595,7 @@ export function HostOverviewPage() {
             better than any other surface. */}
         {daemonVersion && (
           <div className="mt-2 text-xs text-text-secondary font-mono">
-            run-kit {displayVersion(daemonVersion)}
+            HexoKit {displayVersion(daemonVersion)}
           </div>
         )}
       </div>
@@ -614,39 +613,12 @@ export function HostOverviewPage() {
       )}
 
       {showCreateDialog && (
-        <Dialog
-          title="Create tmux server"
-          onClose={() => {
-            setShowCreateDialog(false);
-            setCreateName("");
-          }}
-        >
-          <input
-            autoFocus
-            type="text"
-            value={createName}
-            // Live safe-name conversion (server kind — strictest charset).
-            onChange={(e) => setCreateName(toSafeServerName(e.target.value))}
-            onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-            onFocus={(e) => e.target.select()}
-            aria-label="Server name"
-            placeholder="Server name..."
-            className={`w-full bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary`}
-          />
-          <p className="text-xs text-text-secondary mt-1.5">
-            Alphanumeric, hyphens, and underscores only.
-          </p>
-          <button
-            onClick={handleCreate}
-            disabled={
-              !createName.trim() ||
-              !/^[a-zA-Z0-9_-]+$/.test(createName.trim())
-            }
-            className={`mt-2.5 w-full ${controlClass({ variant: "wide", disabled: !createName.trim() || !/^[a-zA-Z0-9_-]+$/.test(createName.trim()) })}`}
-          >
-            Create
-          </button>
-        </Dialog>
+        <CreateWorkspaceDialog
+          existingNames={servers.map((s) => s.name)}
+          quickPicks={quickPicks}
+          onSubmit={handleCreate}
+          onClose={() => setShowCreateDialog(false)}
+        />
       )}
     </div>
   );

@@ -52,10 +52,25 @@ export function hasGui(host: GuiHost): boolean {
 export type ViewWindow = {
   layout?: string;
   webTabs?: string[];
+  webPaths?: string[];
   webActive?: number;
   codeRoot?: string;
   gitRoot?: string;
 };
+
+/**
+ * `webPaths` (the server-derived repo-relative display prefixes) when it is
+ * index-aligned with `tabs`, else undefined — a length mismatch means the two
+ * arrays describe different families (an older backend, or a payload caught
+ * mid-mutation), and a prefix must degrade to "none" rather than be
+ * attributed to the wrong tab.
+ */
+export function alignedWebPaths(
+  tabs: readonly string[],
+  paths: string[] | undefined,
+): string[] | undefined {
+  return paths && paths.length === tabs.length ? paths : undefined;
+}
 
 /**
  * The capability ordering: `availableViews` filters the window's lenses
@@ -85,6 +100,18 @@ export function activeWebUrl(win: ViewWindow | null | undefined): string {
   const tabs = win?.webTabs ?? [];
   const active = win?.webActive ?? 0;
   return tabs[(active >= 1 ? active : 1) - 1] ?? "";
+}
+
+/**
+ * The server-derived repo-relative display prefix of the active web slot (the
+ * `activeWebUrl` slot), "" when the window carries none or `webPaths` is not
+ * aligned with `webTabs`.
+ */
+export function activeWebPath(win: ViewWindow | null | undefined): string {
+  const tabs = win?.webTabs ?? [];
+  const paths = alignedWebPaths(tabs, win?.webPaths);
+  const active = win?.webActive ?? 0;
+  return paths?.[(active >= 1 ? active : 1) - 1] ?? "";
 }
 
 /**

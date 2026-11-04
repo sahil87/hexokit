@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -18,6 +19,8 @@ import (
 
 	"github.com/creack/pty"
 
+	"rk/internal/config"
+	"rk/internal/settings"
 	"rk/internal/testutil"
 	"rk/internal/tmux"
 )
@@ -1405,5 +1408,237 @@ func TestKillServer_NoWaitWhenSiblingNeverExisted(t *testing.T) {
 	}
 	if *probes != 0 {
 		t.Errorf("port probes = %d, want 0 — no sibling died, so no release to wait for", *probes)
+	}
+}
+
+// --- born-with-environment probe (the resolved-port -e pass) ----------------
+
+// envProbeStub writes a stub "serve" script that records its RK_PORT,
+// RK_HOST, and RK_CODE_SERVER_PORT into files in a temp dir and then stays
+// alive, returning (scriptPath, outputDir). An unset variable records as an
+// empty file.
+func envProbeStub(t *testing.T) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	testutil.WriteStub(t, dir, "fake-serve", "#!/bin/sh\n"+
+		"printf '%s' \"$RK_PORT\" > "+filepath.Join(dir, "port")+"\n"+
+		"printf '%s' \"$RK_HOST\" > "+filepath.Join(dir, "host")+"\n"+
+		"printf '%s' \"$RK_CODE_SERVER_PORT\" > "+filepath.Join(dir, "codeserver")+"\n"+
+		"sleep 300\n")
+	return filepath.Join(dir, "fake-serve"), dir
+}
+
+// probeValue waits for the env probe's output file for name to appear and
+// returns its content (empty = the variable was unset in the pane).
+func probeValue(t *testing.T, dir, name string) string {
+	t.Helper()
+	content := ""
+	testutil.MustWaitUntil(t, 5*time.Second, func() bool {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return false
+		}
+		content = string(data)
+		return true
+	}, "timed out waiting for the probe's %s file", name)
+	return content
+}
+
+// globalEnvOn reads one key from the given socket's global environment. tmux
+// reports an unset key as a `-KEY` line or a non-zero "unknown variable" exit
+// — both map to set=false.
+func globalEnvOn(t *testing.T, socket, key string) (string, bool) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "tmux", "-L", socket, "show-environment", "-g", key).Output()
+	if err != nil {
+		return "", false
+	}
+	line := strings.TrimSpace(string(out))
+	if strings.HasPrefix(line, "-") {
+		return "", false
+	}
+	k, v, ok := strings.Cut(line, "=")
+	if !ok || k != key {
+		t.Fatalf("show-environment -g %s = %q, want KEY=VALUE", key, line)
+	}
+	return v, true
+}
+
+// birthPlaceholderWithEnv births the test server (via a placeholder session)
+// so its global environment carries the caller's current RK_PORT.
+func birthPlaceholderWithEnv(t *testing.T, socket string) {
+	t.Helper()
+	if err := exec.Command("tmux", "-L", socket, "new-session", "-d", "-s", "placeholder", "sleep", "300").Run(); err != nil {
+		t.Fatalf("birthing placeholder session: %v", err)
+	}
+}
+
+// TestNewSession_BornWithEnvHazard is the empirical probe for the
+// born-with-environment hazard: a tmux server builds a new session's
+// environment from the GLOBAL environment it was born with, ignoring client
+// env outside update-environment. The server is birthed with RK_PORT=A; a
+// later new-session from a caller whose env has RK_PORT=B — WITHOUT an
+// explicit -e — is expected to yield A in the pane. If this tmux does not
+// behave that way the observed value is logged instead of failing (the -e
+// pass stays as defense in depth).
+func TestNewSession_BornWithEnvHazard(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not in PATH")
+	}
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	socket := testSocketName("bornwith")
+	_ = exec.Command("tmux", "-L", socket, "kill-server").Run()
+	t.Cleanup(func() { _ = exec.Command("tmux", "-L", socket, "kill-server").Run() })
+
+	t.Setenv(config.PortEnvVar, "3990")
+	birthPlaceholderWithEnv(t, socket)
+
+	t.Setenv(config.PortEnvVar, "3991")
+	script, dir := envProbeStub(t)
+	if err := exec.Command("tmux", "-L", socket, "new-session", "-d", "-s", "probe", script).Run(); err != nil {
+		t.Fatalf("creating probe session: %v", err)
+	}
+
+	switch got := probeValue(t, dir, "port"); got {
+	case "3990":
+		// Hazard confirmed: the pane saw the server's born-with value.
+	case "3991":
+		t.Logf("born-with-env hazard did not reproduce on this tmux: the new session saw the caller's RK_PORT")
+	default:
+		t.Errorf("pane RK_PORT = %q, want the born-with 3990 (hazard) or the caller 3991 (not reproduced)", got)
+	}
+}
+
+// TestStartSession_ResolvedPortReachesPane proves the fix: against a server
+// born with RK_PORT=A, startSession from a caller whose env has RK_PORT=B
+// passes the resolved value via -e, so the spawned serve sees B — and the
+// caller's raw env is mirrored into the server's global environment, so later
+// rk-jobs windows re-resolve the same value. The same -e pass covers RK_HOST
+// (always) and RK_CODE_SERVER_PORT (an explicit override).
+func TestStartSession_ResolvedPortReachesPane(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not in PATH")
+	}
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	socket := testSocketName("fixenv")
+	_ = exec.Command("tmux", "-L", socket, "kill-server").Run()
+	t.Cleanup(func() { _ = exec.Command("tmux", "-L", socket, "kill-server").Run() })
+	withServerSocket(t, socket)
+	withGUISetting(t, false)
+	withGUISeams(t, false)
+	withCodeServerSeams(t, true) // session-exists skip: no port or binary probes
+
+	// Birth the server with a stale born-with deployment env.
+	t.Setenv(config.PortEnvVar, "3990")
+	t.Setenv(config.HostEnvVar, "192.0.2.1")
+	birthPlaceholderWithEnv(t, socket)
+
+	// The caller resolves a different deployment binding.
+	t.Setenv(config.PortEnvVar, "3991")
+	t.Setenv(config.HostEnvVar, "10.9.9.9")
+	t.Setenv(config.CodeServerPortEnvVar, "4999")
+	script, dir := envProbeStub(t)
+	if err := startSession(script); err != nil {
+		t.Fatalf("startSession: %v", err)
+	}
+	for name, want := range map[string]string{"port": "3991", "host": "10.9.9.9", "codeserver": "4999"} {
+		if got := probeValue(t, dir, name); got != want {
+			t.Errorf("pane %s = %q, want %q (the caller-resolved value via -e)", name, got, want)
+		}
+	}
+	// The caller's raw env is mirrored into the server's global env.
+	for key, want := range map[string]string{config.PortEnvVar: "3991", config.HostEnvVar: "10.9.9.9", config.CodeServerPortEnvVar: "4999"} {
+		if val, set := globalEnvOn(t, socket, key); !set || val != want {
+			t.Errorf("global %s = (%q, set=%v), want (%s, true) — the caller's raw env must be mirrored", key, val, set, want)
+		}
+	}
+}
+
+// TestStartSession_ConfigOnlyPort proves the config.yaml rung end to end: a
+// caller with no RK_PORT whose config.yaml pins port: C spawns a serve that
+// sees C (via -e, against a server born with RK_PORT=A), and the sync REMOVES
+// the stale born-with RK_PORT from the server's global env, so job windows
+// re-resolve from config like the caller did. The same pass covers the other
+// two keys: RK_HOST still goes via -e (the default, since the caller has no
+// override), while RK_CODE_SERVER_PORT gets no -e (no override) and is
+// rescued from the born-with value by the sync's -gu arm alone.
+func TestStartSession_ConfigOnlyPort(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not in PATH")
+	}
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	socket := testSocketName("cfgport")
+	_ = exec.Command("tmux", "-L", socket, "kill-server").Run()
+	t.Cleanup(func() { _ = exec.Command("tmux", "-L", socket, "kill-server").Run() })
+	withServerSocket(t, socket)
+
+	cfgDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte("port: 4000\n"), 0o644); err != nil {
+		t.Fatalf("writing config.yaml: %v", err)
+	}
+	t.Setenv(settings.ConfigDirEnv, cfgDir)
+	withGUISeams(t, false)
+	withCodeServerSeams(t, true)
+
+	// Birth the server with a stale born-with value on all three keys.
+	t.Setenv(config.PortEnvVar, "3990")
+	t.Setenv(config.HostEnvVar, "192.0.2.1")
+	t.Setenv(config.CodeServerPortEnvVar, "4990")
+	birthPlaceholderWithEnv(t, socket)
+
+	// Set-but-empty reads as unset at every consumer: config.Load ignores it,
+	// and the sync takes the -gu branch.
+	t.Setenv(config.PortEnvVar, "")
+	t.Setenv(config.HostEnvVar, "")
+	t.Setenv(config.CodeServerPortEnvVar, "")
+
+	script, dir := envProbeStub(t)
+	if err := startSession(script); err != nil {
+		t.Fatalf("startSession: %v", err)
+	}
+	if got := probeValue(t, dir, "port"); got != "4000" {
+		t.Errorf("pane RK_PORT = %q, want 4000 (config.yaml via -e)", got)
+	}
+	if got := probeValue(t, dir, "host"); got != localhostAddr {
+		t.Errorf("pane RK_HOST = %q, want %q (the default — RK_HOST passes via -e even without an override)", got, localhostAddr)
+	}
+	if got := probeValue(t, dir, "codeserver"); got != "" {
+		t.Errorf("pane RK_CODE_SERVER_PORT = %q, want unset (no override → no -e; the +2 convention stays a convention, and the sync's -gu removed the born-with 4990)", got)
+	}
+	for _, key := range []string{config.PortEnvVar, config.HostEnvVar, config.CodeServerPortEnvVar} {
+		if val, set := globalEnvOn(t, socket, key); set {
+			t.Errorf("global %s = %q after a config-only start, want unset (the stale born-with value must go)", key, val)
+		}
+	}
+}
+
+// TestGuardPortAvailable_MessageNamesBothHomes pins the refusal text: the
+// substrings scripts pattern-match on, plus the config.yaml `port:` home.
+func TestGuardPortAvailable_MessageNamesBothHomes(t *testing.T) {
+	t.Setenv(settings.ConfigDirEnv, t.TempDir())
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	t.Setenv(config.PortEnvVar, strconv.Itoa(ln.Addr().(*net.TCPAddr).Port))
+
+	err = guardPortAvailable()
+	if err == nil {
+		t.Fatal("guardPortAvailable on a held port = nil, want the refusal error")
+	}
+	for _, sub := range []string{"already serving on", "not under the rk-daemon", "RK_PORT", "port:"} {
+		if !strings.Contains(err.Error(), sub) {
+			t.Errorf("refusal %q missing substring %q", err, sub)
+		}
 	}
 }

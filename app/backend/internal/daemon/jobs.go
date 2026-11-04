@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"rk/internal/apphome"
 	"rk/internal/shellq"
 	"rk/internal/validate"
 )
@@ -73,11 +74,6 @@ var jobWindowState = func(ctx context.Context, target string) (id string, dead b
 var jobRunTmux = runTmux
 var jobRunTmuxOutput = runTmuxOutput
 
-// jobUserHomeDir resolves the user's home for the durable job log path. A
-// package seam (mirroring codeServerUserHomeDir) so tests point the log at a
-// temp dir and never touch the real ~/.rk.
-var jobUserHomeDir = os.UserHomeDir
-
 // jobTargetFor returns the exact-match window target (=rk-jobs:=<window>) used
 // for every dedup/probe/kill/options call — prefix-match hijack is the class
 // of footgun the `=` anchors exist to prevent (tmux-sessions memory).
@@ -119,8 +115,9 @@ func jobTargetFor(window string) string {
 //  5. Post-spawn window options, BEST-EFFORT (warn-only, never fail the
 //     spawn): remain-on-exit on (the pane persists after ANY exit, so a
 //     completed job's output stays on screen until the next run respawns the
-//     window in place) and a pipe-pane tee to ~/.rk/<window>.log for durable
-//     log continuity with the pre-window update.log/restart.log paths.
+//     window in place) and a pipe-pane tee to <state>/logs/<window>.log
+//     (apphome.LogsDir) for durable log continuity with the pre-window
+//     update.log/restart.log paths.
 //
 // The window name is validated before it becomes a tmux target or a pipe-pane
 // shell-string component (Constitution I) — the same identifier class as
@@ -210,17 +207,18 @@ func RunJob(ctx context.Context, window string, argv []string) (target JobTarget
 	if err := jobRunTmux(cmdCtx, "set-option", "-w", "-t", winTarget, "remain-on-exit", "on"); err != nil {
 		slog.Warn("job window remain-on-exit failed to set; the window will close on exit and its output will not persist on screen", "window", window, "err", err)
 	}
-	if home, err := jobUserHomeDir(); err != nil {
-		slog.Warn("job window log pipe skipped: home directory unresolvable", "window", window, "err", err)
+	if logsDir, err := apphome.LogsDir(); err != nil {
+		slog.Warn("job window log pipe skipped: state home unresolvable", "window", window, "err", err)
 	} else {
-		logPath := filepath.Join(home, ".rk", window+".log")
-		if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		logPath := filepath.Join(logsDir, window+".log")
+		if err := os.MkdirAll(logsDir, 0o755); err != nil {
 			slog.Warn("job window log dir creation failed; the pipe-pane tee may not write", "window", window, "err", err)
 		}
 		// The one shell string in the spawn path — pipe-pane's command is shell-
 		// interpreted by tmux. window passed the ValidateToolName class above
-		// (no whitespace, quotes, or metacharacters), but home is arbitrary
-		// (e.g. /Users/Jane Doe), so the path is single-quoted for the shell.
+		// (no whitespace, quotes, or metacharacters), but the logs dir path is
+		// arbitrary (e.g. under /Users/Jane Doe), so it is single-quoted for
+		// the shell.
 		if err := jobRunTmux(cmdCtx, "pipe-pane", "-o", "-t", winTarget, "cat >> "+shellq.Quote(logPath)); err != nil {
 			slog.Warn("job window log pipe failed; output lives in scrollback only", "window", window, "err", err)
 		}

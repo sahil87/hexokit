@@ -35,13 +35,19 @@ export function urlSegmentToWindowId(segment: string): string {
 // values are DROPPED here (treated as absent), never errored, so a
 // stale/garbage deep link degrades to the default layout rather than a route
 // error. `layout` passes through as a raw string — validation lives in
-// `lib/surface-layout.ts`'s `parseLayout` (this module is a deliberately
+// `lib/surface-layout.ts`'s `parseLayoutTree` (this module is a deliberately
 // dependency-free leaf, so the parse helpers can't be imported here).
 // `from` is live state: the quake terminal's mobile navigation stamps the
 // origin window id here so the operator window's route can attach it as the
 // chat subject. It passes through as a raw string like `layout` — the
 // consumer validates it against the sessions payload, so an unknown or
-// foreign id degrades to absent rather than a route error. `tab` is the
+// foreign id degrades to absent rather than a route error. `pop` is live
+// state too: it names the popped-out leaf (`tty`, `tty#2`, `@12/tty`) a
+// popout window renders chrome-less. It passes through as a raw string — this
+// module stays a dependency-free leaf, so the leaf-grammar validation lives
+// in the consumer (`lib/popout.ts`), and an invalid value degrades to the
+// ordinary terminal render, never a route error. Unlike the retired params
+// above, the route-entry translation effect MUST NOT strip it. `tab` is the
 // operator route's segment selector (the notify deep-link carrier; Operator
 // Terminal | Operator Tasks | Cron List | Cron Log). Unknown values drop to
 // absent, which reads as "terminal" — the default segment. The legacy
@@ -56,6 +62,7 @@ export type TerminalSearch = {
   panel?: "web" | "code";
   layout?: string;
   from?: string;
+  pop?: string;
   tab?: "terminal" | "tasks" | "list" | "log";
 };
 
@@ -73,6 +80,9 @@ export function validateTerminalSearch(
   }
   if (typeof search.from === "string" && search.from.length > 0) {
     out.from = search.from;
+  }
+  if (typeof search.pop === "string" && search.pop.length > 0) {
+    out.pop = search.pop;
   }
   if (
     search.tab === "terminal" ||

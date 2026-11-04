@@ -77,9 +77,11 @@ func captureNode(cmd *cobra.Command) node {
 
 // buildDump assembles the full document from root and an injected version.
 // Pure function of its inputs so it is testable without spawning a process.
+// The tool field follows the root command's name so the envelope can never
+// drift from the binary's invocation name.
 func buildDump(root *cobra.Command, version string) dump {
 	return dump{
-		Tool:          "run-kit",
+		Tool:          root.Name(),
 		Version:       version,
 		SchemaVersion: schemaVersion,
 		Root:          captureNode(root),

@@ -34,7 +34,7 @@ lands in a verb, so every pane agent gets it for free.
    never a special tool.
 2. **Allowlist, default-excluded.** A verb is exposed if and only if it has a row in
    the compiled-in policy table (§ Policy table). New verbs ship unexposed. The budget
-   is **≤ 40 tools** (clients degrade above that); v1 ships 29.
+   is **≤ 40 tools** (clients degrade above that); v1 ships 31.
 3. **Flat tools.** One tool per verb, named in `snake_case` from the verb path with the
    family prefix dropped where unambiguous (`mux sessions` → `sessions`, `cron list`
    → `cron_list`, `tab web ls` → `tab_web_ls`). Exactly two tools take an action enum
@@ -79,9 +79,12 @@ The MCP server has no pane, no `$TMUX`, no `$TMUX_PANE`. Therefore:
   verb's own defaults are unsatisfiable under the executor (no `$TMUX`, no repo
   cwd): `riff` marks `server` **and** `repo` required (an absolute git-toplevel
   path the verb validates), and `operator` marks `server` required. Absent ⇒ the
-  verb's own rule applies, which with no `$TMUX` resolves to `default`. The
-  `sessions` tool's result carries server names, so a model can discover what
-  to pass.
+  verb's own rule applies, which with no `$TMUX` resolves to `default`, except
+  `inventory`: omitted `server` discovers all live tmux servers. Start with
+  `inventory` and pass each returned server name alongside its pane/window ids
+  on later calls; ids are scoped to their server. Recovery snapshots do not
+  establish live server state.
+- **Change bootstrap.** `new_server` takes a required positional `name`, not an inherited `server`/`-L`. Names match `^[A-Za-z0-9_-]{1,64}$`; `ephemeral` is optional and defaults to false in the CLI. Durable change servers stay persistent. `operator.dir` is an optional absolute existing directory validated by the CLI, selecting repo-local agent configuration for a new operator. Omission uses the recorded server directory then home; an existing singleton is never relocated. `rk skill change` defines the operator-led integration workflow, and the core MCP instructions carry its bootstrap.
 - No tool takes a shell string, a raw tmux target expression beyond the three forms
   above, or a filesystem path beyond what the verb already validates. `riff`'s
   `--cmd` (a pane shell command; its bare form drops into `$SHELL`) is therefore
@@ -137,8 +140,8 @@ below are the contract; a verb MAY add fields, never rename these.
 | Talk | `operator request` | `{"template":"<id>","window":"@N"?,"queued":bool}` — `queued:true` ⇔ the daemon answered `202` |
 | Spawn | `riff` | `{"windows":[{"id":"@N","name":"…","server":"…","panes":["%N",…],"worktree":"/abs/path","branch":"…"}]}` — one element per spawned window (`--count N` ⇒ N elements, in index order); `panes[0]` is the task pane. The verb gains `-L`/`--session =S`/`--repo` targeting flags so the tool is satisfiable with `$TMUX` stripped |
 | Spawn | `tab new` | `{"session":"<name>","session_rung":"explicit"\|"caller"\|"server"\|"sole-user"\|"cwd-root"\|"most-attached","window_id":"@N","pane_id":"%N"[,"ready":…]}` — the shipped document, verbatim inside `result` (the envelope wraps, never reshapes); `session_rung` (always present) says why the landing session was chosen (ui-state.md § `rk tab`) |
-| Spawn | `mux new` | `{"report":"created","server":"<name>","ephemeral":bool}` |
-| Spawn | `operator` | `{"window":"@N","server":"…","created":bool}` — idempotent; `created:false` when the operator tab already existed |
+| Spawn | `mux new` | `{"report":"created","server":"…","ephemeral":bool}` — not idempotent; a live collision fails without mutation |
+| Spawn | `operator` | `{"window":"@N","server":"…","created":bool,"dir":"/abs/path"?,"dir_rung":"explicit\|stored\|home"?}` — idempotent; existing operators return `created:false` and omit directory fields |
 | Spawn | `cron add` | `{"id":"<entry id>","name":"…","schedule":"…","target":"…"}` (the four fields the human line already prints, as the same strings) |
 | Steer UI | `tab layout` | `{"window":"@N","layout":"<shape>:<surfaces>"}` — read and mutate forms alike |
 | Steer UI | `tab web *` | `{"window":"@N","index":n,"url":"<resolved>"?,"tabs":[{"index","url","root"?},…]}` — `index` is the affected slot (mv: the destination), `url` is add's resolved target, `tabs` is the post-mutation family in the `tab web ls --json` entry shape; a failed read-back is a stderr note with `tabs` omitted, never an error |
@@ -231,7 +234,7 @@ Rules:
   required); every tool's `annotations` are declared here, so a client can drive its
   confirmation UX from `destructiveHint` without reading a verb.
 
-### Allowlist v1 (29 tools)
+### Allowlist v1 (31 tools)
 
 Annotations: **ro** = `readOnlyHint`, **destr** = `destructiveHint`, **idem** =
 `idempotentHint`. **Structured today** = the verb emits machine output at the time of
@@ -243,6 +246,7 @@ not this spec's.
 |--------|------|-----------|------|------------------|
 | See | `sessions` | `mux sessions --json` | ro | yes |
 | See | `panes` | `mux panes --json` | ro | yes |
+| See | `inventory` | `mux inventory [--agents-only] [--limit N] --json` | ro | yes |
 | See | `capture` | `mux capture <target> --json` | ro | yes |
 | See | `process` | `mux process <target> --json` | ro | yes |
 | See | `status` | `status --json` | ro | yes |
@@ -258,8 +262,9 @@ not this spec's.
 | Talk | `notify` | `notify <message> [--title]` | — | yes (`--json`) |
 | Talk | `operator_request` | `operator request <template> [--window @N] [--text] [--session]` | — | yes |
 | Spawn | `riff` | `riff [preset] [--skill…] [--layout] [--count]` (no `--cmd`) | — | yes (`--json`; plus `-L`/`--session`/`--repo` targeting flags) |
+| Spawn | `new_server` | `mux new <name> [--ephemeral] --json` | — | yes (envelope; live collision refuses) |
 | Spawn | `new_window` | `tab new [--session =S] [--cwd] [--name] [--layout]` | — | yes (`--json`; a bare document until the envelope lands) |
-| Spawn | `operator` | `operator [--workers] [-L]` | idem | yes (`--json`) |
+| Spawn | `operator` | `operator [--workers] [--dir /abs/path] [-L]` | idem | yes (`--json`) |
 | Spawn | `cron_add` | `cron add <prompt> (--every\|--backoff\|--cron) (--pane\|--session\|--role)` | — | yes (`--json`) |
 | Steer UI | `tab_layout` | `tab layout @N [L \| --add S \| --rm S \| --promote S \| --cycle]` | — | yes (`--json`) |
 | Steer UI | `tab_web` | `tab web add\|rm\|select\|mv` (action enum) | — | yes (`--json`) |
@@ -272,6 +277,20 @@ not this spec's.
 | See/Steer | `board` | `board show [name]` / `pin` / `unpin` / `reorder` (action enum) | — | yes |
 
 Row-level rules:
+
+- `inventory` is a read-only live fleet query, with optional `server` (one named
+  server), `agents_only` (agent evidence only), and `limit` (1–5000 returned
+  panes per server, default 500). One CLI invocation returns
+  `{observed_at, partial, servers:[{server, sessions, panes, pane_count, truncated, error}]}`.
+  Sessions include name-derived infrastructure roles; panes retain the `panes`
+  visibility and liveness rules. `pane_count` counts observed panes before
+  filtering; `truncated` signals omitted matching panes. Servers are sorted,
+  ids stay nested under their server, and uninstrumented agent state stays null.
+  `partial:true` and per-server errors preserve healthy and already observed
+  rows on exit 0; discovery failures exit 1, invalid inputs exit 2. Reads fan
+  out at most four servers with 5s per-server and 30s overall budgets. A bounded
+  walk is not atomic. Task text, transcripts, git and PR readiness are separate
+  drill-downs; recovery snapshots never answer this query.
 
 - `send` takes its body on **stdin** (`-`), never as an argv element — no escaping or
   length hazard, and no message text ever reaches a shell.
@@ -369,11 +388,16 @@ The SDK's streamable-HTTP handler, mounted on the daemon router and sharing
 - **Origin validation.** When a request carries an `Origin` header, the handler MUST
   reject it unless the origin's scheme, host, and port match an entry in an
   **allowlist derived from the daemon's own bind configuration** — the configured
-  `RK_HOST`:`RK_PORT` origin and the host's tailnet hostname and IP at that port —
-  with an explicit loopback exception. The request's `Host` header is **never** the
-  reference: under DNS rebinding an attacker-controlled name resolves to the daemon
-  and both headers carry the attacker's name, so `Origin == Host` defends nothing.
-  This is the MCP transport's DNS-rebinding guard (Constitution I). The root router's
+  `RK_HOST`:`RK_PORT` origin and the host's tailnet hostname and IP at that port,
+  plus `https://<tailnet DNS name>:443` (the origin a browser sends through
+  `tailscale serve`) — with an explicit loopback exception. The request's `Host`
+  header is **never** the reference: under DNS rebinding an attacker-controlled name
+  resolves to the daemon and both headers carry the attacker's name, so
+  `Origin == Host` defends nothing. This is the MCP transport's DNS-rebinding guard
+  (Constitution I). The SDK's own Host-keyed checks are therefore off — its
+  cross-origin protection and its localhost protection (which 403s a loopback
+  arrival carrying a non-loopback `Host`, i.e. every request through a reverse proxy
+  such as `tailscale serve` in front of a `127.0.0.1` bind). The root router's
   CORS allowlist `[GET, POST, OPTIONS]` is **unchanged**: MCP clients are not browsers,
   and CORS governs only browser preflights.
 - **Verb-shape exception.** The transport requires `POST` (client→server messages),
@@ -383,6 +407,10 @@ The SDK's streamable-HTTP handler, mounted on the daemon router and sharing
   grants nothing to `/api/*`.
 - `rk url --mcp` prints the `/mcp` URL for the resolved daemon origin (a new flag on
   the existing `url` verb); `rk doctor` gains a row for the route.
+- The dashboard shows the endpoint read-only in Settings → General (**This host**)
+  with a copy button, plus a `Copy: MCP Endpoint` palette entry. Its value is the
+  page's own origin + `/mcp` — the address that reached the daemon from that device,
+  through any proxy — not the daemon's bind address `rk url --mcp` reports.
 - The handler holds per-connection SDK session state in memory for the connection's
   life only; nothing persists (Constitution II).
 

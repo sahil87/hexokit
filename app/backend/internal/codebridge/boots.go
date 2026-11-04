@@ -20,5 +20,5 @@ type BootMarker struct {
 // the ReadRecords posture: a missing dir is an empty list, not an error, and
 // unreadable or undecodable files are skipped.
 func ReadBootMarkers(dir string) ([]BootMarker, error) {
-	return readJSONDir(dir, func(m BootMarker) string { return m.HostID })
+	return readJSONDir(dir, func(m BootMarker) string { return m.HostID }, false)
 }

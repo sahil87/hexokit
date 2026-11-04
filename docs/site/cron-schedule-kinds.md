@@ -1,8 +1,8 @@
 # Cron Schedule Kinds — Four Ways a Clock Can Wake an Agent
 
-> [← Back to the README](https://github.com/sahil87/run-kit/blob/main/README.md)
+> [← Back to the README](https://github.com/sahil87/hexokit/blob/main/README.md)
 
-An interactive explainer for `rk cron`: the three schedule kinds (`every`, `cron`, `backoff`) and the `wake_on` edge trigger, each as an animated timeline you can play, restart, and change the rules of — plus the `deliver` policy that decides what happens when the agent is busy at fire time. Companion to the [cron spec](https://github.com/sahil87/run-kit/blob/main/docs/specs/cron.md).
+An interactive explainer for `rk cron`: the three schedule kinds (`every`, `cron`, `backoff`) and the `wake_on` edge trigger, each as an animated timeline you can play, restart, and change the rules of — plus the `deliver` policy that decides what happens when the agent is busy at fire time. Companion to the [cron spec](https://github.com/sahil87/hexokit/blob/main/docs/specs/cron.md).
 
 <div class="rk-cron-clocks not-content"><div class="wrap">
   <header>

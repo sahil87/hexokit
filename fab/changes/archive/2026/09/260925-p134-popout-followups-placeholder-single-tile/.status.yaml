@@ -1,0 +1,58 @@
+id: p134
+name: 260925-p134-popout-followups-placeholder-single-tile
+created: 2026-09-25T17:39:00Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 10
+    acceptance_count: 26
+    acceptance_completed: 26
+confidence:
+    certain: 8
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.5
+    fuzzy: true
+    dimensions:
+        signal: 73.1
+        reversibility: 85.8
+        competence: 81.9
+        disambiguation: 80.8
+stage_metrics:
+    intake: {started_at: "2026-09-25T17:39:00Z", driver: fab-new, iterations: 1, completed_at: "2026-09-25T18:19:33Z"}
+    apply: {started_at: "2026-09-25T18:19:33Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T19:13:08Z"}
+    review: {started_at: "2026-09-25T19:13:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T19:19:43Z"}
+    hydrate: {started_at: "2026-09-25T19:19:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T19:25:35Z"}
+    ship: {started_at: "2026-09-25T19:25:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T19:27:35Z"}
+    review-pr: {started_at: "2026-09-25T19:27:35Z", driver: git-pr, iterations: 1, completed_at: "2026-09-25T19:53:56Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/1052
+base_branch: main
+true_impact:
+    added: 1656
+    deleted: 164
+    net: 1492
+    excluding:
+        added: 1172
+        deleted: 146
+        net: 1026
+    tests:
+        added: 361
+        deleted: 19
+        net: 342
+    computed_at: "2026-09-25T19:27:35Z"
+    computed_at_stage: ship
+summary: 'Popout follow-ups: pop out at any arity, per-viewer revealed set + popped SurfacePlaceholder variant (bring back / go to window via focusPopout / ✕), toggle-on-popped guard (popoutToggleAction) across every togglePanel path incl. palette onToggleSurface rows, popped toggle marker; Shell stage reserves the sidebar column only with sidebar children + inert sidebar chord; shell popout dedupe keyed (openerWindowId, hostId, route)'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-25T19:53:56Z

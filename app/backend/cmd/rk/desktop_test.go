@@ -76,8 +76,8 @@ func desktopReleaseServer(t *testing.T, version string, assetHits *int) *httptes
 		}
 		base := "http://" + r.Host
 		fmt.Fprintf(w, `{"tag_name":"v%s","assets":[
-			{"name":"run-kit-desktop-%s-arm64.dmg","browser_download_url":"%s/dl/arm64.dmg"},
-			{"name":"run-kit-desktop-%s-x64.dmg","browser_download_url":"%s/dl/x64.dmg"}]}`,
+			{"name":"hexokit-desktop-%s-arm64.dmg","browser_download_url":"%s/dl/arm64.dmg"},
+			{"name":"hexokit-desktop-%s-x64.dmg","browser_download_url":"%s/dl/x64.dmg"}]}`,
 			version, version, base, version, base)
 	}))
 	t.Cleanup(srv.Close)
@@ -149,11 +149,24 @@ func desktopFakeRunner(t *testing.T, installedVersion string, running bool) desk
 	}
 }
 
-// writeDesktopBundle creates <dir>/Run Kit.app/Contents/Info.plist so the
+// writeDesktopBundle creates <dir>/HexoKit.app/Contents/Info.plist so the
 // installed-version probe finds an installed app.
 func writeDesktopBundle(t *testing.T, dir string) {
 	t.Helper()
 	contents := filepath.Join(dir, desktop.AppBundleName, "Contents")
+	if err := os.MkdirAll(contents, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(contents, "Info.plist"), []byte("fake"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// writeDesktopLegacyBundle creates <dir>/Run Kit.app/Contents/Info.plist — a
+// pre-rename install with no current-name bundle beside it.
+func writeDesktopLegacyBundle(t *testing.T, dir string) {
+	t.Helper()
+	contents := filepath.Join(dir, "Run Kit.app", "Contents")
 	if err := os.MkdirAll(contents, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +216,7 @@ func TestDesktopRegisteredWithChildrenAndFlags(t *testing.T) {
 		if f.DefValue != "" {
 			t.Errorf("%s --path default = %q, want empty (resolved per platform at runtime)", c.Name(), f.DefValue)
 		}
-		if !strings.Contains(f.Usage, "/Applications on macOS, ~/.rk/desktop on Linux") {
+		if !strings.Contains(f.Usage, "/Applications on macOS, ~/.local/state/hexokit/desktop on Linux") {
 			t.Errorf("%s --path usage %q should name both platform defaults", c.Name(), f.Usage)
 		}
 	}
@@ -229,7 +242,7 @@ func TestDesktopRegisteredWithChildrenAndFlags(t *testing.T) {
 			t.Errorf("%s Long should describe the running-app auto-restart (quit gracefully → swap → relaunch)", c.Name())
 		}
 	}
-	if desktopCmd.Short != "Install and update the Run Kit desktop app (macOS, Linux)" {
+	if desktopCmd.Short != "Install and update the HexoKit desktop app (macOS, Linux)" {
 		t.Errorf("desktop Short = %q, want the macOS+Linux form", desktopCmd.Short)
 	}
 }
@@ -343,11 +356,39 @@ func TestDesktopInstallForceReinstalls(t *testing.T) {
 	if err != nil {
 		t.Fatalf("install --force: %v", err)
 	}
-	if !strings.Contains(stdout, "Installed Run Kit v3.13.0") {
+	if !strings.Contains(stdout, "Installed HexoKit v3.13.0") {
 		t.Errorf("stdout = %q, want an installed outcome line", stdout)
 	}
 	if assetHits != 1 {
 		t.Errorf("asset downloads = %d, want 1", assetHits)
+	}
+}
+
+func TestDesktopInstallLegacyOnlySameVersionMigrates(t *testing.T) {
+	// Only the pre-rename Run Kit.app exists, at the same version as the
+	// release: the version equality must NOT short-circuit — the install runs
+	// so HexoKit.app lands and the legacy bundle is removed.
+	var assetHits int
+	srv := desktopReleaseServer(t, "3.13.0", &assetHits)
+	withDesktopStub(t, srv, desktopFakeRunner(t, "3.13.0", false))
+	dir := t.TempDir()
+	writeDesktopLegacyBundle(t, dir)
+
+	stdout, _, err := execDesktop(t, "desktop", "install", "--path", dir)
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if !strings.Contains(stdout, "Installed HexoKit v3.13.0") {
+		t.Errorf("stdout = %q, want an installed outcome line (no already-installed short-circuit)", stdout)
+	}
+	if assetHits != 1 {
+		t.Errorf("asset downloads = %d, want 1", assetHits)
+	}
+	if _, err := os.Stat(filepath.Join(dir, desktop.AppBundleName)); err != nil {
+		t.Errorf("HexoKit.app missing after migration install: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "Run Kit.app")); !os.IsNotExist(err) {
+		t.Errorf("legacy Run Kit.app still present after migration install (err = %v)", err)
 	}
 }
 
@@ -388,6 +429,34 @@ func TestDesktopUpdateAlreadyUpToDate(t *testing.T) {
 	}
 }
 
+func TestDesktopUpdateLegacyOnlySameVersionMigrates(t *testing.T) {
+	// Only the pre-rename Run Kit.app exists, at the latest version: the
+	// up-to-date check must NOT short-circuit — the update runs so HexoKit.app
+	// lands and the legacy bundle is removed.
+	var assetHits int
+	srv := desktopReleaseServer(t, "3.13.0", &assetHits)
+	withDesktopStub(t, srv, desktopFakeRunner(t, "3.13.0", false))
+	dir := t.TempDir()
+	writeDesktopLegacyBundle(t, dir)
+
+	stdout, _, err := execDesktop(t, "desktop", "update", "--path", dir)
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if strings.Contains(stdout, "Already up to date") {
+		t.Errorf("stdout = %q, want no up-to-date short-circuit for a legacy-only install", stdout)
+	}
+	if assetHits != 1 {
+		t.Errorf("asset downloads = %d, want 1", assetHits)
+	}
+	if _, err := os.Stat(filepath.Join(dir, desktop.AppBundleName)); err != nil {
+		t.Errorf("HexoKit.app missing after migration update: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "Run Kit.app")); !os.IsNotExist(err) {
+		t.Errorf("legacy Run Kit.app still present after migration update (err = %v)", err)
+	}
+}
+
 func TestDesktopUpdateInstallsNewer(t *testing.T) {
 	var assetHits int
 	srv := desktopReleaseServer(t, "3.13.0", &assetHits)
@@ -399,7 +468,7 @@ func TestDesktopUpdateInstallsNewer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	if !strings.Contains(stdout, "Updated Run Kit v3.12.2 -> v3.13.0") {
+	if !strings.Contains(stdout, "Updated HexoKit v3.12.2 -> v3.13.0") {
 		t.Errorf("stdout = %q, want the updated outcome line", stdout)
 	}
 	if assetHits != 1 {
@@ -421,10 +490,10 @@ func TestDesktopUpdateRunningAppAutoRestarts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update with a running app must auto-restart, not refuse: %v", err)
 	}
-	if !strings.Contains(stdout, "Updated Run Kit v3.12.2 -> v3.13.0") {
+	if !strings.Contains(stdout, "Updated HexoKit v3.12.2 -> v3.13.0") {
 		t.Errorf("stdout = %q, want the updated outcome line", stdout)
 	}
-	if !strings.Contains(stdout, "Run Kit was running — restarted on the new version.") {
+	if !strings.Contains(stdout, "HexoKit was running — restarted on the new version.") {
 		t.Errorf("stdout = %q, want the restart announcement data line", stdout)
 	}
 	if assetHits != 1 {
@@ -445,7 +514,7 @@ func TestDesktopInstallForceRunningAppAutoRestarts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("install --force with a running app must auto-restart, not refuse: %v", err)
 	}
-	if !strings.Contains(stdout, "Installed Run Kit v3.13.0") {
+	if !strings.Contains(stdout, "Installed HexoKit v3.13.0") {
 		t.Errorf("stdout = %q, want the installed outcome line", stdout)
 	}
 	if !strings.Contains(stdout, "restarted on the new version") {
@@ -530,11 +599,11 @@ func writeLinuxFixtureTree(t *testing.T, dir, version string) {
 		}
 	}
 	mk("AppRun", "#!/bin/sh\nexit 0\n", 0o755)
-	mk("run-kit-desktop", "fake-elf", 0o755)
+	mk("hexokit-desktop", "fake-elf", 0o755)
 	mk(filepath.Join("resources", "app.asar"), "fake-asar", 0o644)
-	mk("run-kit-desktop.desktop",
-		"[Desktop Entry]\nName=Run Kit\nExec=AppRun --no-sandbox %U\nX-AppImage-Version="+version+"\n", 0o644)
-	mk(filepath.Join("usr", "share", "icons", "hicolor", "1024x1024", "apps", "run-kit-desktop.png"), "fake-png", 0o644)
+	mk("hexokit-desktop.desktop",
+		"[Desktop Entry]\nName=HexoKit\nExec=AppRun --no-sandbox %U\nX-AppImage-Version="+version+"\n", 0o644)
+	mk(filepath.Join("usr", "share", "icons", "hicolor", "1024x1024", "apps", "hexokit-desktop.png"), "fake-png", 0o644)
 }
 
 // linuxDesktopReleaseServer serves a latest-release document with
@@ -554,21 +623,31 @@ func linuxDesktopReleaseServer(t *testing.T, version *string, assetHits *int) *h
 		}
 		base := "http://" + r.Host
 		fmt.Fprintf(w, `{"tag_name":"v%s","assets":[
-			{"name":"run-kit-desktop-%s-arm64.AppImage","browser_download_url":"%s/dl/arm64.AppImage","digest":"sha256:%s"},
-			{"name":"run-kit-desktop-%s-x86_64.AppImage","browser_download_url":"%s/dl/x86_64.AppImage","digest":"sha256:%s"}]}`,
+			{"name":"hexokit-desktop-%s-arm64.AppImage","browser_download_url":"%s/dl/arm64.AppImage","digest":"sha256:%s"},
+			{"name":"hexokit-desktop-%s-x86_64.AppImage","browser_download_url":"%s/dl/x86_64.AppImage","digest":"sha256:%s"}]}`,
 			*version, *version, base, digest, *version, base, digest)
 	}))
 	t.Cleanup(srv.Close)
 	return srv
 }
 
-// withLinuxDesktopStub pins the gate to linux and wires the factory: the
-// UserHome seam points at the given temp home, RunInDir is the fake
+// linuxDesktopDefaultRoot is the path the platform default install root
+// resolves to under a stub-pinned home: <state>/hexokit/desktop per apphome
+// (with XDG_STATE_HOME pinned to <home>/.local/state).
+func linuxDesktopDefaultRoot(home string) string {
+	return filepath.Join(home, ".local", "state", "hexokit", "desktop")
+}
+
+// withLinuxDesktopStub pins the gate to linux and wires the factory: HOME and
+// XDG_STATE_HOME point at the given temp home so the platform default root
+// resolves through apphome (InstallDir is left EMPTY), the UserHome seam
+// points at the same home for the integration paths, RunInDir is the fake
 // extractor, Run records pgrep and answers update-desktop-database, Signal is
-// recorded. InstallDir is left EMPTY so the platform default
-// (~/.rk/desktop under the pinned home) resolves through the UserHome seam.
+// recorded.
 func withLinuxDesktopStub(t *testing.T, srv *httptest.Server, home string, version *string, running *bool) {
 	t.Helper()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
 	origGOOS := desktopGOOS
 	desktopGOOS = "linux"
 	origFactory := newDesktopInstallerFn
@@ -620,7 +699,7 @@ func TestDesktopLinuxInstallUpdateStatus(t *testing.T) {
 	home := t.TempDir()
 	running := false
 	withLinuxDesktopStub(t, srv, home, &version, &running)
-	root := filepath.Join(home, ".rk", "desktop")
+	root := linuxDesktopDefaultRoot(home)
 
 	// status before install: read-only report off the default root.
 	stdout, _, err := execDesktop(t, "desktop", "status")
@@ -635,14 +714,14 @@ func TestDesktopLinuxInstallUpdateStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	if !strings.Contains(stdout, "Installed Run Kit v3.21.0 to "+filepath.Join(root, "3.21.0")) {
+	if !strings.Contains(stdout, "Installed HexoKit v3.21.0 to "+filepath.Join(root, "3.21.0")) {
 		t.Errorf("install stdout = %q, want the installed outcome line with the default root", stdout)
 	}
 	if target, err := os.Readlink(filepath.Join(root, "current")); err != nil || target != "3.21.0" {
 		t.Errorf("current -> %q (%v), want 3.21.0", target, err)
 	}
 	// Desktop integration landed under the pinned home.
-	if _, err := os.Stat(filepath.Join(home, ".local", "share", "applications", "run-kit-desktop.desktop")); err != nil {
+	if _, err := os.Stat(filepath.Join(home, ".local", "share", "applications", "hexokit-desktop.desktop")); err != nil {
 		t.Errorf("launcher entry missing: %v", err)
 	}
 
@@ -660,12 +739,23 @@ func TestDesktopLinuxInstallUpdateStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	want := "Updated Run Kit v3.21.0 -> v3.22.0 (" + filepath.Join(root, "3.22.0") + ")"
+	want := "Updated HexoKit v3.21.0 -> v3.22.0 (" + filepath.Join(root, "3.22.0") + ")"
 	if !strings.Contains(stdout, want) {
 		t.Errorf("update stdout = %q, want %q", stdout, want)
 	}
+	// The pre-flip version survives as the rollback; the next update prunes it.
+	if _, err := os.Stat(filepath.Join(root, "3.21.0")); err != nil {
+		t.Errorf("previous version dir pruned after the flip — it is the kept rollback: %v", err)
+	}
+	version = "3.23.0"
+	if _, _, err := execDesktop(t, "desktop", "update"); err != nil {
+		t.Fatalf("second update: %v", err)
+	}
 	if _, err := os.Stat(filepath.Join(root, "3.21.0")); !os.IsNotExist(err) {
-		t.Error("the old version dir survived the flip")
+		t.Error("the pre-previous version dir survived the second flip")
+	}
+	if _, err := os.Stat(filepath.Join(root, "3.22.0")); err != nil {
+		t.Errorf("previous version dir missing after the second flip: %v", err)
 	}
 }
 
@@ -679,7 +769,7 @@ func TestDesktopLinuxUpdateRestartsRunningApp(t *testing.T) {
 	home := t.TempDir()
 	running := false
 	withLinuxDesktopStub(t, srv, home, &version, &running)
-	root := filepath.Join(home, ".rk", "desktop")
+	root := linuxDesktopDefaultRoot(home)
 
 	if _, _, err := execDesktop(t, "desktop", "install"); err != nil {
 		t.Fatalf("install: %v", err)
@@ -691,10 +781,10 @@ func TestDesktopLinuxUpdateRestartsRunningApp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update with a running app must auto-restart, not refuse: %v", err)
 	}
-	if !strings.Contains(stdout, "Updated Run Kit v3.21.0 -> v3.22.0") {
+	if !strings.Contains(stdout, "Updated HexoKit v3.21.0 -> v3.22.0") {
 		t.Errorf("stdout = %q, want the updated outcome line", stdout)
 	}
-	if !strings.Contains(stdout, "Run Kit was running — restarted on the new version.") {
+	if !strings.Contains(stdout, "HexoKit was running — restarted on the new version.") {
 		t.Errorf("stdout = %q, want the restart announcement data line", stdout)
 	}
 	if target, _ := os.Readlink(filepath.Join(root, "current")); target != "3.22.0" {
@@ -709,7 +799,7 @@ func TestDesktopLinuxUninstall(t *testing.T) {
 	home := t.TempDir()
 	running := false
 	withLinuxDesktopStub(t, srv, home, &version, &running)
-	root := filepath.Join(home, ".rk", "desktop")
+	root := linuxDesktopDefaultRoot(home)
 
 	if _, _, err := execDesktop(t, "desktop", "install"); err != nil {
 		t.Fatalf("install: %v", err)
@@ -718,13 +808,13 @@ func TestDesktopLinuxUninstall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
-	if !strings.Contains(stdout, "Uninstalled Run Kit from "+root) {
+	if !strings.Contains(stdout, "Uninstalled HexoKit from "+root) {
 		t.Errorf("stdout = %q, want the uninstalled outcome line naming the root", stdout)
 	}
 	if _, err := os.Stat(root); !os.IsNotExist(err) {
 		t.Error("install root still present after uninstall")
 	}
-	if _, err := os.Lstat(filepath.Join(home, ".local", "bin", "run-kit-desktop")); !os.IsNotExist(err) {
+	if _, err := os.Lstat(filepath.Join(home, ".local", "bin", "hexokit-desktop")); !os.IsNotExist(err) {
 		t.Error("bin symlink still present after uninstall")
 	}
 }
@@ -738,7 +828,7 @@ func TestDesktopLinuxUninstallNotInstalled(t *testing.T) {
 	withLinuxDesktopStub(t, srv, home, &version, &running)
 
 	_, _, err := execDesktop(t, "desktop", "uninstall")
-	if err == nil || !strings.Contains(err.Error(), "Run Kit is not installed at ") {
+	if err == nil || !strings.Contains(err.Error(), "HexoKit is not installed at ") {
 		t.Fatalf("error = %v, want the not-installed refusal", err)
 	}
 	if got := exitCode(err); got != 1 {
@@ -755,7 +845,7 @@ func TestDesktopUninstallDarwinRefusal(t *testing.T) {
 	t.Cleanup(func() { newDesktopInstallerFn = origFactory })
 
 	_, _, err := execDesktop(t, "desktop", "uninstall")
-	want := `rk desktop uninstall is Linux-only — on macOS drag "Run Kit.app" to the Trash`
+	want := `rk desktop uninstall is Linux-only — on macOS drag "HexoKit.app" to the Trash`
 	if err == nil || err.Error() != want {
 		t.Fatalf("error = %v, want %q", err, want)
 	}
@@ -765,8 +855,8 @@ func TestDesktopUninstallDarwinRefusal(t *testing.T) {
 }
 
 // TestDesktopLinuxDefaultPathResolution: with no --path, the linux default
-// root resolves through the UserHome seam — a pre-existing install under
-// <home>/.rk/desktop is what status reports.
+// root resolves through apphome (the pinned HOME/XDG_STATE_HOME) — a
+// pre-existing install under <state>/hexokit/desktop is what status reports.
 func TestDesktopLinuxDefaultPathResolution(t *testing.T) {
 	version := "3.21.0"
 	var assetHits int
@@ -775,7 +865,7 @@ func TestDesktopLinuxDefaultPathResolution(t *testing.T) {
 	running := false
 	withLinuxDesktopStub(t, srv, home, &version, &running)
 
-	root := filepath.Join(home, ".rk", "desktop")
+	root := linuxDesktopDefaultRoot(home)
 	if err := os.MkdirAll(filepath.Join(root, "3.20.7"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -787,6 +877,6 @@ func TestDesktopLinuxDefaultPathResolution(t *testing.T) {
 		t.Fatalf("status: %v", err)
 	}
 	if !strings.Contains(stdout, "Installed: v3.20.7") {
-		t.Errorf("status stdout = %q, want the install under ~/.rk/desktop reported", stdout)
+		t.Errorf("status stdout = %q, want the install under <state>/hexokit/desktop reported", stdout)
 	}
 }

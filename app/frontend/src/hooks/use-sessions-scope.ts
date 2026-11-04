@@ -1,9 +1,9 @@
 import { useLocalStorageEnum } from "./use-local-storage-enum";
 
 /** localStorage key for the sidebar sessions-pane scope. Deliberately NOT
- *  migrated from the old `runkit-panel-server` coupling — that key encodes
+ *  migrated from the old `hexokit-panel-server` coupling — that key encodes
  *  the SERVER panel's own collapse state, not scope intent. */
-export const SESSIONS_SCOPE_KEY = "runkit-panel-sessions-scope";
+export const SESSIONS_SCOPE_KEY = "hexokit-panel-sessions-scope";
 
 export const SESSIONS_SCOPES = ["all", "current"] as const;
 

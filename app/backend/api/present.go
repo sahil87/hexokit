@@ -61,8 +61,12 @@ import (
 // subprocess runs (tmux window ids are @N).
 var presentWindowIDPattern = regexp.MustCompile(`^@[0-9]+$`)
 
-// presentSlotPattern gates the web-tab slot segment: the first path segment
-// after the window id is the slot iff it matches, n-less otherwise (slot 1).
+// presentSlotPattern gates the slot segment of the RETIRED /present/@N/{n}/
+// form: the first path segment after the window id is the slot iff it matches,
+// n-less otherwise (slot 1). The gate stays pinned at ^[1-8]$ — the legacy
+// form was only ever composed under the 8-slot cap, so it does NOT follow
+// tmux.MaxWebTabs (internal/tmux legacyPresentSlotMax is the parse-side twin);
+// the web-verb {n} gate (webSlotParam) does.
 var presentSlotPattern = regexp.MustCompile(`^[1-8]$`)
 
 // presentHashPattern gates the new-form {roothash} segment BEFORE any tmux

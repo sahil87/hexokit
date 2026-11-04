@@ -12,6 +12,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"rk/internal/apphome"
 )
 
 // providerOpencode is the routing key for the OpenCode adapter.
@@ -120,19 +122,15 @@ var opencodeOnPathFn = func() bool {
 }
 
 // opencodeExportDirFn resolves the USER-PRIVATE materialization dir
-// ($XDG_STATE_HOME/run-kit/opencode-export, mirroring codebridge.StateDir's
-// XDG rule) — a same-machine attacker cannot pre-place content in a
-// user-owned state tree, unlike a predictable shared /tmp dir. A package-level
-// seam keeps tests hermetic.
+// (<state home>/opencode-export, via apphome.StateDir) — a same-machine
+// attacker cannot pre-place content in a user-owned state tree, unlike a
+// predictable shared /tmp dir. A package-level seam keeps tests hermetic.
 var opencodeExportDirFn = func() (string, error) {
-	if v := os.Getenv("XDG_STATE_HOME"); v != "" {
-		return filepath.Join(v, "run-kit", "opencode-export"), nil
-	}
-	home, err := os.UserHomeDir()
+	root, err := apphome.StateDir()
 	if err != nil {
 		return "", fmt.Errorf("resolving opencode export dir: %w", err)
 	}
-	return filepath.Join(home, ".local", "state", "run-kit", "opencode-export"), nil
+	return filepath.Join(root, "opencode-export"), nil
 }
 
 // ensureOpencodeExportDir creates the materialization dir private (0700) or

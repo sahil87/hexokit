@@ -17,7 +17,7 @@ rk present ./mock.html              # a file — served live, attached
 rk present ./dist/                  # a directory (index.html default)
 rk present :5173                    # a port already serving → /proxy/5173/
 rk present http://localhost:8080/x  # same, rewritten to /proxy/8080/x
-rk present "$(rk url)/path"          # same run-kit origin → /path
+rk present "$(rk url)/path"          # same HexoKit origin → /path
 rk present https://example.com/app  # external URL — attached verbatim
 ```
 
@@ -49,7 +49,7 @@ rk present --window https://staging.example.com   # name from the host
 rk present --window=report ./dist/                # explicit name
 ```
 
-`--window` spawns a new tmux window in your session carrying `@rk_win_layout=single:web` (the web tile leads) with the target as `@rk_win_web_1`.
+`--window` spawns a new tmux window in your session carrying `@rk_win_layout=web` (the web tile leads) with the target as `@rk_win_web_1`.
 
 ## Follow-up moves — `rk tab`
 
@@ -59,8 +59,8 @@ rk present --window=report ./dist/                # explicit name
 rk tab web ls                    # the strip: index, '*' on active, url (--json for machines: {"ok":true,"result":{…}})
 rk tab web select 2              # switch the tile to tab 2 (also @N/web/2 on another tab)
 rk tab web rm 2                  # drop tab 2; slots above shift down
-rk tab layout                    # print the effective layout (unset ⇒ single:tty)
-rk tab layout split-h:tty,web    # set it; --add/--rm/--promote/--cycle mutate through the table
+rk tab layout                    # print the effective layout (unset ⇒ tty)
+rk tab layout 'h(tty,web)'       # set it (tree form; a legacy split-h:tty,web string still parses); --add/--rm/--promote/--cycle mutate through the verbs
 ```
 
 Address another tab with a leading `@N` (`rk tab web ls @5`); `-L <server>` names a foreign server (then `@N` is mandatory). Depth: `rk tab --help`.
@@ -79,9 +79,9 @@ A service on port 8080 is available at `/proxy/8080/`. The **relative** form wor
 
 ### Tmux user options
 
-- `@rk_win_web_<n>` — the window's web-tab family (n = 1..8, dense): the attached web content the web tile shows; `@rk_win_web_active` is the 1-based tab the tile renders.
+- `@rk_win_web_<n>` — the window's web-tab family (n = 1..16, dense): the attached web content the web tile shows; `@rk_win_web_active` is the 1-based tab the tile renders.
 - `@rk_win_web_<n>_root` — the absolute serve root for a file/dir target held in slot n, resolved by the content-keyed `/present/<server>/<roothash>/...` route (the legacy `/present/<windowId>/<n>/...` form keeps serving for one release); set by `rk present` for file/dir targets. The URL survives slot renumbering and window kill while any window on the server still declares the root.
-- `@rk_win_layout` — the surface layout `<shape>:<surface,...>` (e.g. `single:web`, `split-h:tty,web`); empty renders the default terminal. `rk present --window` sets `single:web` on the new window; `rk present` on your own window adds `web` to the layout when absent (`--show` semantics).
+- `@rk_win_layout` — the surface layout tree (e.g. `web`, `h(tty,web)`; legacy `<shape>:<surface,...>` strings still parse); empty renders the default terminal. `rk present --window` sets `web` on the new window; `rk present` on your own window adds `web` to the layout when absent (`--show` semantics).
 
 The retired `@rk_win_url` / `@rk_win_lens` / `@rk_win_present_root` are accepted only via compat for one release (translated onto the family). Legacy option names (`@rk_type`, `@rk_url`, `@rk_note`) are still read for now.
 
@@ -99,7 +99,7 @@ On an rk too old to have `present`, spawn an iframe window by hand. Serve the co
 
 ```sh
 tmux new-window -n <name>
-tmux set-option -w @rk_win_layout single:web
+tmux set-option -w @rk_win_layout web
 tmux set-option -w @rk_win_web_1 /proxy/<port>/<filename>
 tmux set-option -w @rk_win_web_active 1
 ```

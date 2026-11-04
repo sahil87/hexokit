@@ -5,11 +5,12 @@ import { LogoSpinner, useBrandLogoSweep } from "@/components/logo-spinner";
 import { useChromeState, useChromeDispatch, TERMINAL_FONT_BOUNDS } from "@/contexts/chrome-context";
 import { STAGE_COLUMN_GAP_PX, STAGE_PADDING_PX } from "@/components/shell/shell";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
+import { useSplitPane } from "@/hooks/use-split-pane";
 import { useToast } from "@/components/toast";
 import { useUpdateClick } from "@/hooks/use-update-click";
 import { useUpdateNotification } from "@/contexts/session-context";
 import { updateChipToolSummary } from "@/lib/palette/update";
-import { splitWindow, closePane } from "@/api/client";
+import { closePane } from "@/api/client";
 import { useWindowRename } from "@/hooks/use-window-rename";
 import { finalizeSafeName, toSafeWindowName } from "@/lib/names";
 import { prefersReducedMotion } from "@/lib/motion";
@@ -17,6 +18,8 @@ import { isShell } from "@/lib/shell";
 import { WaitingBadge } from "@/components/waiting-badge";
 import { Tip, TipGroup } from "@/components/tip";
 import { OpenButton, OpenMenuRows } from "@/components/open-button";
+import { NewSplitButton } from "@/components/new-split-button";
+import { newSplitPrimary, nextHeadRung, type HeadRung } from "@/lib/new-split";
 import { useOpenTargets } from "@/hooks/use-open-targets";
 import { activePaneCwd, buildOpenTargets } from "@/lib/open-in-app";
 import {
@@ -46,18 +49,19 @@ import {
   TerminalFontGlyph,
 } from "@/components/top-bar-icons";
 import { LayoutChip, LayoutMenuRows } from "@/components/layout-chip";
-import { QuakeLauncher } from "@/components/quake-launcher";
+import { QuakeLauncher, QuakeLauncherFocusCapture } from "@/components/quake-launcher";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import { computeVisibleCount, orderForFit } from "@/lib/top-bar-overflow";
+import { computeFit, orderForFit, type FitItem } from "@/lib/top-bar-overflow";
 import type { GuiPaletteAction } from "@/lib/palette/gui";
 import type { GuiQuality } from "@/lib/gui-posture";
 import { GuiToolbarMobileOverflow } from "@/components/gui-toolbar";
 import { deriveCrumbsCollapsed } from "@/lib/crumb-collapse";
 import { useKeybindings } from "@/hooks/use-keybindings";
+import { useOccludes } from "@/hooks/use-occludes";
 import { formatCombo } from "@/lib/keybindings";
-import type { Layout, SurfaceKind } from "@/lib/surface-layout";
-import { SURFACE_GLYPH, SURFACE_LABEL } from "@/lib/surface-layout";
+import type { Layout, SurfaceKind, TemplateName } from "@/lib/surface-layout";
+import { applyTemplate, SURFACE_GLYPH, SURFACE_LABEL } from "@/lib/surface-layout";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
@@ -84,7 +88,16 @@ export type TopBarMode = "terminal" | "board" | "server" | "host";
  *                  (260731-oiho: View / Window / App, fixed order) — the menu
  *                  partitions rows by group, preserving registry order within
  *                  each section.
- *  - `barRender` — the in-bar icon-button form (may return null).
+ *  - `barRender` — the in-bar icon-button form (may return null). `probe` is
+ *                  true for the inert measurement copy, so a control can drop
+ *                  ids the live copy must own alone.
+ *  - `compactBarRenders` — optional narrower bar forms, widest first. The probe
+ *                  measures every form; the fit steps every compact-capable
+ *                  entry down one form at a time BEFORE any candidate overflows
+ *                  (lib/top-bar-overflow.ts `computeFit`).
+ *  - `dividerAfter` — a hairline divider follows the entry in the bar when
+ *                  another fit candidate renders after it. The probe always
+ *                  includes it, so the measured width is the worst case.
  *  - `menuRender`— the labeled menu-row form (may return null; the update chip
  *                  returns null because its function merges into the version row).
  */
@@ -110,7 +123,9 @@ type RegistryEntry = {
   dropLast?: boolean;
   /** Chevron-menu section (260731-oiho) — Tiles / View / Window / App. */
   menuGroup: MenuGroup;
-  barRender: () => ReactNode;
+  barRender: (probe?: boolean) => ReactNode;
+  compactBarRenders?: ((probe?: boolean) => ReactNode)[];
+  dividerAfter?: boolean;
   menuRender: () => ReactNode;
 };
 
@@ -164,6 +179,19 @@ type TopBarProps = {
         available: SurfaceKind[];
         open: SurfaceKind[];
         onToggle: (surface: SurfaceKind) => void;
+        /** The size-floor add gate (replaces the retired 3-tile count cap):
+         *  false ⇒ no further split fits the floor and the unlit buttons
+         *  render disabled instead of no-oping silently. */
+        canAdd: boolean;
+        /** Per-surface "away" predicate: the surface's slot is live in
+         *  another tab (the route window's `awayIn`) — the button carries an
+         *  away marker. Absent → no markers (legacy). */
+        away?: (surface: SurfaceKind) => boolean;
+        /** Per-surface "popped" predicate: the surface's close-target leaf is
+         *  popped out for this viewer — the button carries a popped marker
+         *  (`surface-popped-<surface>`) and the `<Label> — popped out`
+         *  tooltip. Absent → no markers (legacy). */
+        popped?: (surface: SurfaceKind) => boolean;
         /** Per-surface corner-dot predicate (260821-zqlq): the dot means
          *  "has content" for web (`hasWebUrl`); every other surface stays
          *  always-on. Absent → the dot renders unconditionally (legacy). */
@@ -175,14 +203,12 @@ type TopBarProps = {
         active: SurfaceKind;
         onSwitch: (surface: SurfaceKind) => void;
         /** Per-surface disabled predicate (switch mode): a not-open surface
-         *  whose growth the shared layout cannot host (3 tiles already)
-         *  renders disabled instead of no-oping silently — the toggle mode's
-         *  full-layout affordance. */
+         *  whose growth breaks the size floor renders disabled instead of
+         *  no-oping silently — the toggle mode's canAdd affordance. */
         disabled?: (surface: SurfaceKind) => boolean;
         /** Same contract as the toggle-mode `showDot`. */
         showDot?: (surface: SurfaceKind) => boolean;
       };
-  onCreateWindow: (session: string) => void;
   /** The gui header fold's mobile bottom rung: the `⚙` panel block pinned
    *  beside the mobile switch group, rendered only when switch mode shows the
    *  gui surface (the gate is at the render site). Carries the palette list
@@ -193,10 +219,6 @@ type TopBarProps = {
     visible: boolean;
     onVisibleChange: (visible: boolean) => void;
   };
-  /** Open the spawn-agent dialog for a session (260713-sbk1). When present, the
-   *  terminal-mode window-switcher dropdown shows a `+ New Agent` item beside
-   *  `+ New Tab`. Absent → no `+ New Agent` (e.g. before AppShell registers). */
-  onSpawnAgent?: (session: string) => void;
   /** Board-mode metadata. Required when `mode === "board"`. */
   boardName?: string;
   paneCount?: number;
@@ -227,11 +249,16 @@ type TopBarProps = {
   onToggleAutofit?: () => void;
   /** Surface-layout machinery (260812-ab5v R9), registered by AppShell on the
    *  terminal route via the slot context: the RESOLVED layout + the shared
-   *  user-mutation path (`applyLayout`). Feed the L1 ▦ Layout chip (preset
-   *  popover, current shape marked, direct jump). Absent → no chip, no menu
+   *  user-mutation path (`applyLayout`). Feed the L1 ▦ Layout chip (template
+   *  popover, current template marked, direct jump). Absent → no chip, no menu
    *  rows. */
   layout?: Layout;
   onApplyLayout?: (next: Layout) => void;
+  /** While true (this viewer has a tile popped out) the ▦ template cycle
+   *  renders disabled — chip, chord, and menu rows (spec surface-layout.md §
+   *  Verbs → Pop out: a template resolved on the reduced render would drop
+   *  the popped leaf from the shared layout). */
+  layoutTemplatesDisabled?: boolean;
 };
 
 function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
@@ -303,37 +330,93 @@ function HamburgerIcon({ isOpen }: { isOpen: boolean }) {
  *  centered heading. */
 const HEAD_MIN_BAR_PX = 600;
 
+/** Flex gap between the head's three items (brand, split, toggle) and the
+ *  head's horizontal padding — the fold measures against these. */
+const HEAD_GAP_PX = 8;
+const HEAD_PAD_X_PX = 12;
+
 function SidebarHead({
   width,
+  mode,
   onToggleSidebar,
   hamburgerOpen,
   brandSweep,
   toggleRef,
 }: {
   width: number;
+  mode: TopBarMode;
   onToggleSidebar: () => void;
   hamburgerOpen: boolean;
   brandSweep: ReturnType<typeof useBrandLogoSweep>;
   toggleRef: RefObject<HTMLButtonElement | null>;
 }) {
+  // The measured fold (lib/new-split.ts `nextHeadRung`): the rungs are
+  // measured by rendering them — R1 full, R2 wordmark hidden, R3 icon-only
+  // split. The recorded widths are per primary label, so a route whose label
+  // is longer (`+ Group`) re-measures from R1.
+  const label = newSplitPrimary(mode).label;
+  const [rung, setRung] = useState<HeadRung>(1);
+  const headRef = useRef<HTMLDivElement>(null);
+  const brandRef = useRef<HTMLAnchorElement>(null);
+  const splitRef = useRef<HTMLSpanElement>(null);
+  const widthsRef = useRef<{ label: string; needed: Partial<Record<HeadRung, number>> }>({
+    label,
+    needed: {},
+  });
+  useLayoutEffect(() => {
+    const head = headRef.current;
+    const brand = brandRef.current;
+    const split = splitRef.current;
+    const toggle = toggleRef.current;
+    if (!head || !brand || !split || !toggle) return;
+    const rec = widthsRef.current;
+    if (rec.label !== label) {
+      rec.label = label;
+      rec.needed = {};
+      if (rung !== 1) {
+        setRung(1);
+        return;
+      }
+    }
+    const measure = () => {
+      const content = brand.offsetWidth + split.offsetWidth + toggle.offsetWidth + 2 * HEAD_GAP_PX;
+      if (content > 0) rec.needed[rung] = content;
+      const next = nextHeadRung(rung, head.clientWidth - 2 * HEAD_PAD_X_PX, rec.needed);
+      if (next !== rung) setRung(next);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(head);
+    return () => ro.disconnect();
+  }, [rung, label, width, toggleRef]);
+
   return (
-    <div className="absolute inset-y-0 left-0 flex items-center gap-2 pl-3 pr-3" style={{ width }}>
+    <div
+      ref={headRef}
+      className="absolute inset-y-0 left-0 flex items-center gap-2 pl-3 pr-3"
+      style={{ width }}
+    >
       <Tip label="Host">
         <a
+          ref={brandRef}
           href="/"
-          aria-label="RunKit home"
+          aria-label="HexoKit home"
           className="rk-brand-glitch flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors"
           onMouseEnter={brandSweep.onMouseEnter}
         >
           <LogoSpinner size={20} loading={false} svgRef={brandSweep.svgRef} />
-          <span className="text-xs font-bold tracking-wide">RunKit</span>
+          {rung === 1 && <span className="text-xs font-bold tracking-wide">HexoKit</span>}
         </a>
       </Tip>
+      <span ref={splitRef} className="ml-auto flex">
+        <NewSplitButton mode={mode} iconOnly={rung === 3} />
+      </span>
       <button
         ref={toggleRef}
         onClick={onToggleSidebar}
         aria-label="Toggle navigation"
-        className={`ml-auto ${controlClass({ variant: "icon", rest: "border-border hover:border-text-secondary text-text-primary" })}`}
+        className={controlClass({ variant: "icon", rest: "border-border hover:border-text-secondary text-text-primary" })}
       >
         <HamburgerIcon isOpen={hamburgerOpen} />
       </button>
@@ -461,29 +544,35 @@ type SurfaceTogglesToggle = Extract<SurfaceToggles, { mode: "toggle" }>;
  * glyphs from `SURFACE_GLYPH`, LIT (`aria-pressed`, accent-green text on a
  * green wash), the corner dot driven by the
  * caller's per-surface `showDot` predicate (web = has-content; others
- * always-on):
+ * always-on), and the live-elsewhere markers: an away marker (amber ↩,
+ * top-left) when the caller's `away` predicate says the surface's slot is
+ * live in another tab, a popped marker (amber ↗, bottom-left) when the
+ * caller's `popped` predicate says the surface's close-target leaf is popped
+ * out for this viewer:
  *
- * - TOGGLE (desktop): lit = an open tile; at 3 open tiles the unlit buttons
- *   render DISABLED with a "Close a tile first" tooltip (Tip wraps a span so
- *   the disabled button still tips — disabled controls swallow pointer
- *   events). Clicking routes through the caller's shared `togglePanel`
- *   mutation semantics (unlit → `addSurface` 1→2 `split-h` / 2→3 `main-left`,
- *   lit → `closeSurface`, closing the last tile is a null no-op there).
+ * - TOGGLE (desktop): lit = an open tile; while the caller's floor-derived
+ *   `canAdd` is false the unlit buttons render DISABLED with a "No room for
+ *   another tile" tooltip — except a POPPED surface, whose toggle reveals or
+ *   hides the placeholder (never an add) and so stays actionable at the floor
+ *   (Tip wraps a span so the disabled button still
+ *   tips — disabled controls swallow pointer events). Clicking routes through
+ *   the caller's shared `togglePanel` mutation semantics (unlit →
+ *   `addSurface`, lit → `closeSurface`, closing the last tile is a null no-op
+ *   there).
  * - SWITCH (mobile): RADIO semantics — lit = the VISIBLE tile (exactly one);
  *   tapping an unlit button runs the caller's switch-to-tile verb, tapping the
- *   lit one is a no-op. The disabled-at-3 state does not apply (switching
- *   never adds a fourth tile).
+ *   lit one is a no-op. The floor-disabled state rides the caller's
+ *   per-surface `disabled` predicate.
  *
  * Buttons are flush segments inside the group's neutral border. Non-first
  * segments carry a neutral divider, only the outer corners round, and the
  * wash-only latch changes no border geometry when state flips.
  */
 function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
-  // Max 3 tiles (Constitution IV): at 3, further adds are disallowed — the
-  // unlit buttons render disabled instead of no-oping silently. Toggle mode
-  // checks the open-tile count; switch mode asks the caller's per-surface
-  // predicate (a not-open target whose growth is disallowed disables).
-  const full = toggles.mode === "toggle" && toggles.open.length >= 3;
+  // The add gate is the per-viewport size floor (the caller's `canAdd`), no
+  // longer a tile count. Toggle mode reads the shared flag; switch mode asks
+  // the caller's per-surface predicate.
+  const full = toggles.mode === "toggle" && !toggles.canAdd;
   const shown = toggles.available;
   return (
     <span data-testid="surface-toggles" className="flex items-center gap-1.5">
@@ -495,14 +584,32 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
             toggles.mode === "toggle"
               ? toggles.open.includes(surface)
               : toggles.active === surface;
+          const away =
+            toggles.mode === "toggle" && (toggles.away?.(surface) ?? false);
+          const popped =
+            toggles.mode === "toggle" && (toggles.popped?.(surface) ?? false);
+          // The floor gate exempts a popped surface: its toggle reveals/hides
+          // the placeholder — it never adds a tile or writes the layout.
           const disabled =
             !pressed &&
+            !popped &&
             (toggles.mode === "toggle"
               ? full
               : (toggles.disabled?.(surface) ?? false));
           const label = SURFACE_LABEL[surface];
           return (
-            <Tip key={surface} label={disabled ? "Close a tile first" : label}>
+            <Tip
+              key={surface}
+              label={
+                disabled
+                  ? "No room for another tile"
+                  : popped
+                    ? `${label} — popped out`
+                    : away
+                      ? `${label} — in another tab`
+                      : label
+              }
+            >
               {/* The span wrapper keeps the tooltip alive on the DISABLED button
                   (disabled controls swallow the pointer events Tip listens for). */}
               <span className="inline-flex">
@@ -521,6 +628,29 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
                   className={`rk-glint relative w-[26px] flex items-center justify-center text-[11px] font-mono transition-colors focus-visible:outline-2 focus-visible:outline-accent-green disabled:opacity-40 disabled:cursor-not-allowed ${index > 0 ? "border-l border-border" : ""} ${index === 0 ? "rounded-l-[3px]" : ""} ${index === shown.length - 1 ? "rounded-r-[3px]" : ""} ${controlClass({ variant: "segment", flush: true, pressed, rest: "text-text-secondary hover:text-text-primary" })}`}
                 >
                   <span aria-hidden="true">{SURFACE_GLYPH[surface]}</span>
+                  {/* Away marker: the surface's slot is live in another tab.
+                      The corner dot's top-right stays the content channel. */}
+                  {away && (
+                    <span
+                      aria-hidden="true"
+                      data-testid={`surface-away-${surface}`}
+                      className="absolute top-0 left-0.5 text-[9px] leading-none text-signal-yellow"
+                    >
+                      ↩
+                    </span>
+                  )}
+                  {/* Popped marker: the surface's close-target leaf is popped
+                      out for this viewer (the away marker's bottom-left
+                      sibling corner). */}
+                  {popped && (
+                    <span
+                      aria-hidden="true"
+                      data-testid={`surface-popped-${surface}`}
+                      className="absolute bottom-0 left-0.5 text-[9px] leading-none text-signal-yellow"
+                    >
+                      ↗
+                    </span>
+                  )}
                   {/* Availability/content dot — a collapsed tile may hide
                       content, never state that wants a human. The caller's
                       per-surface predicate decides (web = hasWebUrl, others
@@ -546,17 +676,23 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
  * The group's overflow-menu form (Tiles section): one `menuitemcheckbox` row
  * per shown surface — checked = tile open (the one checked treatment: primary
  * ink + trailing green ✓ on `aria-checked`), leading `SURFACE_GLYPH` glyph (the
- * leading-glyph parity rule), disabled-at-3 like the bar buttons. Clicking a
- * row runs the same shared toggle mutation as the bar group.
+ * leading-glyph parity rule), a muted "away"/"popped" suffix when the caller
+ * marks the surface away/popped, floor-disabled like the bar buttons (with
+ * the same popped-surface exemption). Clicking
+ * a row runs the same shared toggle mutation as the bar group.
  */
 function SurfaceToggleMenuRows({ toggles }: { toggles: SurfaceTogglesToggle }) {
-  const full = toggles.open.length >= 3;
+  const full = !toggles.canAdd;
   const shown = toggles.available;
   return (
     <>
       {shown.map((surface) => {
         const isOpen = toggles.open.includes(surface);
-        const disabled = !isOpen && full;
+        const away = toggles.away?.(surface) ?? false;
+        const popped = toggles.popped?.(surface) ?? false;
+        // The floor gate exempts a popped surface — its toggle reveals/hides
+        // the placeholder, never an add.
+        const disabled = !isOpen && full && !popped;
         return (
           <button
             key={surface}
@@ -573,6 +709,22 @@ function SurfaceToggleMenuRows({ toggles }: { toggles: SurfaceTogglesToggle }) {
               {SURFACE_GLYPH[surface]}
             </span>
             <span className="flex-1">{`${SURFACE_LABEL[surface]} tile`}</span>
+            {away && (
+              <span
+                data-testid={`surface-away-${surface}`}
+                className="text-[10px] text-signal-yellow"
+              >
+                away
+              </span>
+            )}
+            {popped && (
+              <span
+                data-testid={`surface-popped-${surface}`}
+                className="text-[10px] text-signal-yellow"
+              >
+                popped
+              </span>
+            )}
             {isOpen && (
               <span aria-hidden="true" className={MENU_ROW_CHECK_MARK}>
                 ✓
@@ -597,8 +749,6 @@ export function TopBar({
   onToggleSidebar,
   surfaceToggles,
   guiToolbar,
-  onCreateWindow,
-  onSpawnAgent,
   boardName,
   paneCount,
   serverCount,
@@ -610,16 +760,24 @@ export function TopBar({
   onToggleAutofit,
   layout,
   onApplyLayout,
+  layoutTemplatesDisabled = false,
 }: TopBarProps) {
+  // The ▦ chip emits a template NAME; the jump rebuilds the template's tree
+  // from the current slot order and rides the one mutation path (R16/R3).
+  const applyLayoutTemplate = useCallback(
+    (name: TemplateName) => {
+      if (!layout || !onApplyLayout) return;
+      const next = applyTemplate(layout, name);
+      if (next) onApplyLayout(next);
+    },
+    [layout, onApplyLayout],
+  );
   // `showChip` tells us whether the UpdateChip WOULD render in the bar (a
   // qualifying, undismissed, non-dev update). When it does but the chip's
   // registry entry is overflowed into the menu, the version row becomes the
   // update surface and the chevron shows an attention badge (change areas 2–3).
   const { showChip, key: updateKey } = useUpdateNotification();
   const isMobile = useIsMobile();
-  // The center heading never yields its cell to the quake launcher: the
-  // launcher stands beside the compact heading at rest and collapses to its
-  // glyph + chord while the drawer is open — at every width, on every mode.
 
   // Brand-crumb logo hover: the white glow "detach, orbit, land" sweep over
   // the ring segments (JS-driven, logo-spinner.tsx). Triggered from the whole
@@ -676,6 +834,10 @@ export function TopBar({
   const barKeepsRoom = useMediaQuery(`(min-width: ${headTrack + HEAD_MIN_BAR_PX}px)`);
   const sidebarHeadWidth = !isMobile && hasSidebar && sidebarOpen && barKeepsRoom ? headTrack : 0;
   const headShown = sidebarHeadWidth > 0;
+  // The head-less New fallback (icon-only `+▾` after the hamburger). Its ~46px
+  // comes out of the nav's floor below, so the rigid left cluster never
+  // outgrows its `1fr` track against the centered heading.
+  const fallbackSplitShown = hasSidebar && !headShown && !isMobile;
 
   // Focus handoff across the toggle's node swap: the head's toggle and the
   // cluster's toggle are different buttons, and clicking either one unmounts
@@ -834,8 +996,36 @@ export function TopBar({
   // + the `Board: Unpin Focused Pane` palette action. The split is absent when
   // the board is empty (no `focusedPane`); the Kill row is disabled then.
   const rightItems: RegistryEntry[] = [
-    // Surface-toggle group — terminal-only, at the registry's L1 HEAD
-    // (leftmost in the bar) but `dropLast`: it is the cluster's most
+    // Operator launcher — the quake terminal's button, at the registry head
+    // (leftmost in the bar, before the tile toggles) on every mode. `dropLast`
+    // with the toggle group after it, so the fit tail is
+    // `[…, operator, surface-toggles]`: it overflows only after everything
+    // else, then the toggles. Under width pressure it first folds to the
+    // keycap-less label form, then to the glyph-only form (`compactBarRenders`,
+    // widest first). A hairline divider keeps it from reading
+    // as a fifth tile toggle (the drawer is a viewer-level overlay, not a
+    // tile). Overflowed, its row is the "Operator" menu row. On mobile the
+    // entry is `menuOnly`: the row always shows and navigates to the operator
+    // window's terminal route (no bar form there).
+    {
+      id: "quake-terminal",
+      modes: ["terminal", "board", "server", "host"],
+      menuGroup: "app",
+      menuOnly: isMobile,
+      dropLast: true,
+      dividerAfter: true,
+      barRender: (probe) => (
+        <QuakeLauncher routeServer={server || null} routeWindow={currentWindow?.windowId ?? null} probe={probe} />
+      ),
+      compactBarRenders: (["label", "glyph"] as const).map((form) => (probe?: boolean) => (
+        <QuakeLauncher routeServer={server || null} routeWindow={currentWindow?.windowId ?? null} form={form} probe={probe} />
+      )),
+      menuRender: () => (
+        <QuakeTerminalMenuRow routeServer={server || null} routeWindow={currentWindow?.windowId ?? null} />
+      ),
+    },
+    // Surface-toggle group — terminal-only, right after the operator
+    // launcher (leftmost in the bar after it) and `dropLast`: it is the cluster's most
     // important control, so it overflows only after every other fit
     // candidate has. The retired right rail's open-tile toggles relocated as
     // ONE bordered sub-group. One entry (not
@@ -919,12 +1109,12 @@ export function TopBar({
         ) : null,
     },
     // ▦ Layout chip (260812-ab5v R9) — terminal-only, L1 tier: click opens a
-    // popover of the preset-shape glyphs valid for the CURRENT tile count
-    // (current marked, direct jump via `setShape` → `onApplyLayout`); the
-    // same-arity cycle chord is the registry's `layout-cycle` binding with
-    // palette parity (`Layout: Cycle Shape`). Overflowed, its rows are one
-    // `Layout: …` radio row per arity-valid shape (LayoutMenuRows). Hidden
-    // until AppShell registers the layout slot (or off the window route).
+    // popover of the template glyphs for the CURRENT tile count (current
+    // marked, direct jump via `applyTemplate` → `onApplyLayout`); the template
+    // cycle chord is the registry's `layout-cycle` binding with palette parity
+    // (`Layout: Cycle Template`). Overflowed, its rows are one `Layout: …`
+    // radio row per template (LayoutMenuRows). Hidden until AppShell registers
+    // the layout slot (or off the window route).
     {
       id: "layout",
       modes: ["terminal"],
@@ -932,11 +1122,11 @@ export function TopBar({
       hidden: !(mode === "terminal" && currentWindow && layout && onApplyLayout),
       barRender: () =>
         layout && onApplyLayout ? (
-          <LayoutChip layout={layout} onApply={onApplyLayout} />
+          <LayoutChip layout={layout} onApply={applyLayoutTemplate} disabled={layoutTemplatesDisabled} />
         ) : null,
       menuRender: () =>
         layout && onApplyLayout ? (
-          <LayoutMenuRows layout={layout} onApply={onApplyLayout} />
+          <LayoutMenuRows layout={layout} onApply={applyLayoutTemplate} disabled={layoutTemplatesDisabled} />
         ) : null,
     },
     // Fixed-width toggle — MENU-ONLY as of 260731-oiho: a sticky per-device
@@ -1079,17 +1269,6 @@ export function TopBar({
       barRender: () => null,
       menuRender: () => <KeyboardMenuRow />,
     },
-    // Quake terminal — the mobile path to the pull-down operator overlay
-    // (a phone has no keyboard for the chord; the palette carries desktop).
-    // MENU-ONLY on every mode, in the App section with Help/Keyboard.
-    {
-      id: "quake-terminal",
-      modes: ["terminal", "board", "server", "host"],
-      menuOnly: true,
-      menuGroup: "app",
-      barRender: () => null,
-      menuRender: () => <QuakeTerminalMenuRow />,
-    },
   ];
 
   // Candidate (non-exempt) entries for the current mode, minus any `hidden` ones.
@@ -1124,6 +1303,11 @@ export function TopBar({
   // before paint, so no flash of overflowing buttons is shown.
   const rightCellRef = useRef<HTMLDivElement>(null);
   const probeRef = useRef<HTMLDivElement>(null);
+  // One extra probe row per compact rung: that rung's form of every
+  // compact-capable fit candidate (one span per fit-order entry, empty for
+  // entries without one), so the fit knows every width without any control
+  // measuring itself.
+  const compactProbeRef = useRef<HTMLDivElement>(null);
   // Exempt-block ref whose measured width is RESERVED before fitting candidates:
   // the trailing chevron block (always present; the connection dot moved to the
   // sidebar footer, 260724-6j1v). Nothing is hardcoded — every reserved pixel
@@ -1133,6 +1317,11 @@ export function TopBar({
   // (the mobile surface-switch group — pinned in-bar, never overflowed).
   const pinnedRef = useRef<HTMLDivElement>(null);
   const [visibleCount, setVisibleCount] = useState(0);
+  // The rung the compact-capable entries render at (0 = full). The ref carries
+  // the previous verdict into the fit's expand-edge hysteresis.
+  const [rung, setRung] = useState(0);
+  const rungRef = useRef(0);
+  const compactDepth = Math.max(0, ...fitOrder.map((e) => e.compactBarRenders?.length ?? 0));
   // Serialize the FIT-candidate ids into a dependency key so the measure effect
   // re-runs when the probed SET changes (mode switch, a control appearing/
   // disappearing) — not on every render. `menuOnly` entries never affect the
@@ -1144,7 +1333,8 @@ export function TopBar({
   useLayoutEffect(() => {
     const cell = rightCellRef.current;
     const probe = probeRef.current;
-    if (!cell || !probe) return;
+    const compactProbe = compactProbeRef.current;
+    if (!cell || !probe || !compactProbe) return;
 
     const RIGHT_GAP_PX = 12; // the cluster's `gap-3` (0.75rem)
 
@@ -1165,9 +1355,21 @@ export function TopBar({
       // order. Reverse the widths (L3-end first) so `computeVisibleCount` greedily
       // fits from the tail; the returned N is how many trailing candidates fit.
       const widths = Array.from(probe.children).map((c) => (c as HTMLElement).offsetWidth);
-      const reversed = [...widths].reverse();
-      const n = computeVisibleCount(available, reversed, reserved, RIGHT_GAP_PX);
-      setVisibleCount(n);
+      const compactRows = Array.from(compactProbe.children).map((row) =>
+        Array.from(row.children).map((c) => (c as HTMLElement).offsetWidth),
+      );
+      const items: FitItem[] = fitOrder
+        .map((e, i) => ({
+          width: widths[i] ?? 0,
+          ...(e.compactBarRenders
+            ? { compactWidths: e.compactBarRenders.map((_, r) => compactRows[r]?.[i] ?? 0) }
+            : {}),
+        }))
+        .reverse();
+      const fit = computeFit(available, items, reserved, RIGHT_GAP_PX, rungRef.current);
+      rungRef.current = fit.rung;
+      setRung(fit.rung);
+      setVisibleCount(fit.count);
     };
 
     measure();
@@ -1183,11 +1385,12 @@ export function TopBar({
     const ro = new ResizeObserver(measure);
     ro.observe(cell);
     ro.observe(probe);
+    ro.observe(compactProbe);
     if (trailingRef.current) ro.observe(trailingRef.current);
     if (pinnedRef.current) ro.observe(pinnedRef.current);
     return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candidateKey, mode, updateKey, showChip]);
+  }, [candidateKey, compactDepth, mode, updateKey, showChip]);
 
   // Keep the LAST `visibleCount` entries of the fit ORDER in-bar (the L3-end
   // suffix plus any `dropLast` entries); the rest (L1-end prefix) overflow.
@@ -1203,6 +1406,31 @@ export function TopBar({
   const overflowRows: OverflowMenuRow[] = overflowItems
     .map((e) => ({ id: e.id, group: e.menuGroup, node: e.menuRender() }))
     .filter((r) => r.node != null);
+  // One entry's bar slot, shared by the visible row and both probe rows so the
+  // measured widths are the widths that render. `rung` picks the entry's
+  // compact form for that rung when it has one (an entry with fewer forms
+  // stays on its last); `empty` renders no content (a compact probe row's
+  // placeholder for entries without compact forms, keeping every probe row
+  // index-aligned).
+  const barSlot = (
+    e: RegistryEntry,
+    o: { rung: number; divider: boolean; probe?: boolean; empty?: boolean },
+  ) => {
+    const forms = e.compactBarRenders;
+    const render = o.rung > 0 && forms?.length ? forms[Math.min(o.rung, forms.length) - 1] : e.barRender;
+    return (
+    <span key={e.id} className="flex items-center shrink-0 gap-3">
+      {!o.empty && render(o.probe)}
+      {!o.empty && e.dividerAfter && o.divider && (
+        <span
+          aria-hidden="true"
+          data-testid={o.probe ? undefined : `${e.id}-divider`}
+          className="w-px h-4 bg-border"
+        />
+      )}
+    </span>
+    );
+  };
   // True when the undismissed chip's entry is currently overflowed into the
   // menu — drives the chevron attention badge, and is one of the menu's two
   // update-surface derivations (the other, dismissed-pending, is computed
@@ -1227,9 +1455,11 @@ export function TopBar({
       // no inline padding — `px-3` alone.
       style={headShown ? { paddingLeft: sidebarHeadWidth + 12 } : undefined}
     >
+      <QuakeLauncherFocusCapture />
       {headShown && (
         <SidebarHead
           width={sidebarHeadWidth}
+          mode={mode}
           onToggleSidebar={handleHeadToggle}
           hamburgerOpen={hamburgerOpen}
           brandSweep={brandSweep}
@@ -1286,6 +1516,14 @@ export function TopBar({
             </button>
           )}
 
+          {/* Head-less fallback for the New control: the sidebar head carries
+              it while shown; with the head gone (sidebar closed, or a bar too
+              narrow to leave room beside it) an icon-only `+▾` follows the
+              hamburger. Below `sm` it lives in the drawer's brand row, and the
+              Host page's `+ Workspace` follows its brand crumb instead (from `lg` up —
+              the Host body carries its own `+ New workspace` door below that). */}
+          {fallbackSplitShown && <NewSplitButton mode={mode} iconOnly />}
+
           {/* Browser-history ◀ ▶ arrows — LEFT cluster as of 260731-oiho
               (macOS convention: sidebar toggle → back → forward → brand
               crumb; the pair leads the cluster on the Host page and while the
@@ -1318,13 +1556,13 @@ export function TopBar({
               nav clips at its floor. */}
           <nav
             aria-label="Breadcrumb"
-            className={`flex items-center gap-1.5 text-sm overflow-hidden flex-1 ${headShown ? "min-w-0" : "sm:min-w-[150px]"}`}
+            className={`flex items-center gap-1.5 text-sm overflow-hidden flex-1 ${headShown ? "min-w-0" : fallbackSplitShown ? "sm:min-w-[96px]" : "sm:min-w-[150px]"}`}
           >
             {/* Brand root crumb — logo + wordmark, links to `/`. The nav's
                 first child (the breadcrumb's root — the `›` separator starts
                 after it); IS the home affordance ON ≥sm (no separate "Host"
                 crumb). Not rendered while the sidebar head is shown — the head
-                carries the brand anchor then, and `RunKit home` must stay
+                carries the brand anchor then, and `HexoKit home` must stay
                 unique in the document. Below `sm` the whole crumb is gone (the
                 `hidden sm:contents` wrapper — a wrapper, not classes on the
                 anchor, because `hidden` and CRUMB_BOX's `inline-flex` are
@@ -1337,7 +1575,7 @@ export function TopBar({
             <Tip label="Host">
             <a
               href="/"
-              aria-label="RunKit home"
+              aria-label="HexoKit home"
               className={`gap-2 shrink-0 rk-brand-glitch ${LINK_CRUMB_CLASS}`}
               onMouseEnter={brandSweep.onMouseEnter}
             >
@@ -1349,10 +1587,18 @@ export function TopBar({
                   text-decoration does not propagate into flex items, so an
                   underline-based LINK_CRUMB_CLASS would silently skip the
                   wordmark without it. No-op for non-underline variants. */}
-              <span className="text-xs [text-decoration:inherit]">RunKit</span>
+              <span className="text-xs [text-decoration:inherit]">HexoKit</span>
             </a>
             </Tip>
             </span>
+            )}
+
+            {/* Host page: no sidebar and no hamburger, so the New control is a
+                plain `+ Workspace` button right after the brand crumb. */}
+            {mode === "host" && !isMobile && (
+              <span className="hidden lg:flex shrink-0">
+                <NewSplitButton mode="host" />
+              </span>
             )}
 
             {mode === "board" ? (
@@ -1419,7 +1665,7 @@ export function TopBar({
                 {showServerCrumb && (
                   <span className="hidden md:flex items-center gap-1.5 min-w-0">
                     {rootSeparator && <BreadcrumbSeparator />}
-                    <Tip label="tmux Server">
+                    <Tip label="Workspace">
                       <a
                         href={serverHref}
                         className={`rk-glint ${LINK_CRUMB_CLASS} min-w-[calc(6ch+0.875rem)]`}
@@ -1525,8 +1771,7 @@ export function TopBar({
             LEFT-ALIGNS beside the hamburger — its column is content-sized and
             the leftover width goes to the button-heavy right cluster (see the
             grid comment above). At ≥ lg the heading compacts (the prefix span
-            hides) and the standing quake launcher sits beside it; at md–lg
-            the engaged ⌘J machine morphs the box in place of the heading. */}
+            hides). */}
         {/* No flex `gap` here: the single separator between the page-type prefix
             and the instance name is the boot sweep's own `sp` space cell (the
             cursor visibly crosses it) — a `gap-1` on top of it double-spaced
@@ -1584,15 +1829,6 @@ export function TopBar({
                   label="tab"
                   title="Tabs"
                   onNavigate={handleDropdownNavigate}
-                  action={{ label: "+ New Tab", onAction: () => onCreateWindow(sessionName) }}
-                  // + New Agent — the second window-switcher entry point for the
-                  // web-UI spawn flow (260713-sbk1). Rendered only when AppShell
-                  // published an onSpawnAgent handler (terminal route with a session).
-                  secondaryAction={
-                    onSpawnAgent
-                      ? { label: "+ New Agent", onAction: () => onSpawnAgent(sessionName) }
-                      : undefined
-                  }
                   triggerClassName="ml-1 text-text-secondary hover:text-text-primary transition-colors shrink-0"
                 />
               </>
@@ -1618,7 +1854,7 @@ export function TopBar({
               <PageHeadingDisplay
                 prefix={TMUX_SERVER_PREFIX}
                 name={server}
-                ariaLabel={`tmux Server ${server}`}
+                ariaLabel={`Workspace ${server}`}
               />
             )}
 
@@ -1634,15 +1870,6 @@ export function TopBar({
             )}
           </div>
           </TipGroup>
-          {/* The quake launcher — the quake terminal's standing affordance in
-              the center cell on desktop (standing box at ≥ lg beside the
-              compact heading, ghost at md–lg; while the drawer is open both
-              rungs collapse to the glyph + chord control that re-focuses the
-              docked compose). Renders on every mode;
-              self-gates to null on mobile. The route server and window arrive
-              as props so this center-cell component does not pull router
-              hooks. */}
-          <QuakeLauncher routeServer={server || null} routeWindow={currentWindow?.windowId ?? null} />
         </div>
 
         {/* Right cluster — registry-driven overflow (260715-h1ck). The ordered
@@ -1694,7 +1921,9 @@ export function TopBar({
           {/* Pinned entries — always in-bar, never overflowed, never probed
               (the mobile surface-switch group; its measured width is reserved
               from the fit budget). Rendered at the head: the only pinned entry
-              is the registry head, so registry order is preserved. */}
+              is the mobile surface-switch group, and on mobile the launcher
+              entry is menuOnly, so the pinned group is the first in-bar
+              entry and registry order is preserved. */}
           {pinnedItems.length > 0 && (
             <div ref={pinnedRef} className="flex items-center gap-3 shrink-0">
               {pinnedItems.map((e) => (
@@ -1720,11 +1949,9 @@ export function TopBar({
           )}
 
           {/* Visible fit candidates — the leading N that fit, as icon buttons. */}
-          {visibleItems.map((e) => (
-            <span key={e.id} className="flex items-center shrink-0">
-              {e.barRender()}
-            </span>
-          ))}
+          {visibleItems.map((e, i) =>
+            barSlot(e, { rung, divider: i < visibleItems.length - 1 }),
+          )}
 
           {/* Hidden measurement probe — renders every FIT candidate's bar form
               (menuOnly entries are excluded, 260722-n2n4 — the probe's children
@@ -1743,10 +1970,23 @@ export function TopBar({
             inert
             className="absolute -left-[9999px] top-0 flex items-center gap-3 pointer-events-none"
           >
-            {fitOrder.map((e) => (
-              <span key={e.id} className="flex items-center shrink-0">
-                {e.barRender()}
-              </span>
+            {fitOrder.map((e) => barSlot(e, { rung: 0, divider: true, probe: true }))}
+          </div>
+          {/* Compact-form probes — same contract as the row above: one row per
+              compact rung, one span per fit-order entry so every row stays
+              index-aligned. */}
+          <div
+            ref={compactProbeRef}
+            aria-hidden="true"
+            inert
+            className="absolute -left-[9999px] top-0 flex flex-col pointer-events-none"
+          >
+            {Array.from({ length: compactDepth }, (_, r) => (
+              <div key={r} className="flex items-center gap-3">
+                {fitOrder.map((e) =>
+                  barSlot(e, { rung: r + 1, divider: true, probe: true, empty: !e.compactBarRenders }),
+                )}
+              </div>
             ))}
           </div>
 
@@ -1962,7 +2202,7 @@ function SweepCells({
 // `terminalHeadingPrefix()` + `WEB_PREFIX`/`CHAT_PREFIX` were removed with it.
 const WINDOW_PREFIX = "Tab:";
 const BOARD_PREFIX = "Board:";
-const TMUX_SERVER_PREFIX = "tmux Server:";
+const TMUX_SERVER_PREFIX = "Workspace:";
 const HOST_SOLO = "Host";
 
 /**
@@ -2003,7 +2243,7 @@ function HeadingPrefix({
   // owns the separation — do not swap it for a margin/gap on the name).
   // The wide-desktop rung (≥ lg) renders the compact heading — the page-type
   // prefix span hides there too, extending the below-`sm` hiding, so the
-  // standing quake launcher fits beside `{name} ▾` (rename and ▾ untouched).
+  // freed width goes to the breadcrumbs (rename and ▾ untouched).
   return (
     <span className="hidden sm:inline lg:hidden text-sm text-text-secondary whitespace-pre shrink-0 -mr-1">
       <SweepCells cells={cells} scrambling={scrambling} />
@@ -2459,7 +2699,7 @@ function BoardSwitcher({
       label="board"
       title="Board"
       onNavigate={handleNavigate}
-      action={{ label: "← Sessions", onAction: () => navigate({ to: "/" }) }}
+      action={{ label: "← Workspaces", onAction: () => navigate({ to: "/" }) }}
       triggerClassName="ml-1 text-text-secondary hover:text-text-primary transition-colors shrink-0"
     />
   );
@@ -2506,14 +2746,12 @@ function SplitControl({
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const chevronRef = useRef<HTMLButtonElement>(null);
-  const { addToast } = useToast();
 
-  const { execute, isPending } = useOptimisticAction<[boolean]>({
-    action: (horizontal) => splitWindow(server, windowId, horizontal, cwd),
-    onError: (err) => {
-      addToast(err.message || "Failed to split pane");
-    },
-  });
+  // Menus register `transient` (overlay-presence): while open, a native guest
+  // composited above the DOM hides so the menu never paints underneath it.
+  useOccludes("transient", open);
+
+  const { split, isPending } = useSplitPane();
 
   // Outside-click + Escape close (the OpenButton popover pattern).
   useEffect(() => {
@@ -2540,7 +2778,7 @@ function SplitControl({
 
   const run = (horizontal: boolean) => {
     setOpen(false);
-    execute(horizontal);
+    split(server, windowId, horizontal, cwd);
   };
 
   // Host-effective split chords for the primary tip's kbd slot and the
@@ -2719,7 +2957,7 @@ function RefreshButton() {
  * button hover vocabulary). Clicking the chip body triggers POST /api/update and
  * enters a disabled `updating…` state; the daemon restart then drops SSE, and
  * the reconnect's differing `version` drives the reload guard (session-context).
- * A small `✕` dismisses per-version (localStorage `runkit-update-dismissed`).
+ * A small `✕` dismisses per-version (localStorage `hexokit-update-dismissed`).
  * Renders nothing unless a qualifying, un-dismissed update is pending and the
  * daemon is not the `dev` version.
  */
@@ -2739,7 +2977,7 @@ function UpdateChip() {
   const visibleLabel = singleRunKit ? `⬆ v${latest}` : `⬆ updates (${tools.length})`;
   const restLabel =
     singleRunKit && current
-      ? `Update run-kit: v${current} → v${latest}`
+      ? `Update HexoKit: v${current} → v${latest}`
       : `Update: ${updateChipToolSummary(tools)}`;
 
   // No `hidden sm:flex` (review M2 / R14): responsive gating is 100%
@@ -2754,7 +2992,7 @@ function UpdateChip() {
         type="button"
         onClick={triggerUpdate}
         disabled={updating}
-        aria-label={updating ? "Updating run-kit" : restLabel}
+        aria-label={updating ? "Updating HexoKit" : restLabel}
         className={`flex items-center gap-1 px-1.5 rounded transition-colors text-xs disabled:opacity-60 disabled:cursor-not-allowed ${controlClass({ variant: "icon", box: "height", rest: "border border-accent-green text-accent-green hover:border-accent-green" })}`}
       >
         {updating ? (
@@ -2842,11 +3080,7 @@ function SplitMenuRow({
   cwd?: string;
 }) {
   const label = horizontal ? "Split horizontal" : "Split vertical";
-  const { addToast } = useToast();
-  const { execute, isPending } = useOptimisticAction<[]>({
-    action: () => splitWindow(server, windowId, !!horizontal, cwd),
-    onError: (err) => addToast(err.message || "Failed to split pane"),
-  });
+  const { split, isPending } = useSplitPane();
   // Trailing keycap (260811-0f3d): the effective chord for this direction,
   // registry-derived and omitted when unbound — the SplitControl popover-row
   // treatment applied to the overflow menu's split rows.
@@ -2856,7 +3090,7 @@ function SplitMenuRow({
     ? formatCombo({ code: binding.code, tier: binding.tier }, keybindingHost.platform)
     : undefined;
   return (
-    <button type="button" role="menuitem" tabIndex={-1} disabled={isPending} onClick={() => execute()} className={controlClass({ variant: "menu-row" })}>
+    <button type="button" role="menuitem" tabIndex={-1} disabled={isPending} onClick={() => split(server, windowId, !!horizontal, cwd)} className={controlClass({ variant: "menu-row" })}>
       {horizontal ? <SplitHorizontalGlyph /> : <SplitVerticalGlyph />}
       {label}
       {chord && (

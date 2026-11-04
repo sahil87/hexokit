@@ -1,0 +1,57 @@
+id: ejam
+name: 261026-ejam-fix-shared-agent-paste-submission
+created: 2026-10-26T02:18:08Z
+created_by: Sahil Ahuja
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 6
+    acceptance_count: 18
+    acceptance_completed: 18
+confidence:
+    certain: 7
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 96.3
+        reversibility: 91.3
+        competence: 95.6
+        disambiguation: 96.3
+stage_metrics:
+    intake: {started_at: "2026-10-26T02:18:08Z", driver: fab-new, iterations: 1, completed_at: "2026-10-26T02:23:54Z"}
+    apply: {started_at: "2026-10-26T02:23:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-26T14:34:20Z"}
+    review: {started_at: "2026-10-26T14:34:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-26T14:41:26Z"}
+    hydrate: {started_at: "2026-10-26T14:41:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-26T14:47:13Z"}
+    ship: {started_at: "2026-10-26T14:47:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-26T14:48:46Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1090
+base_branch: main
+true_impact:
+    added: 1479
+    deleted: 33
+    net: 1446
+    excluding:
+        added: 967
+        deleted: 10
+        net: 957
+    tests:
+        added: 180
+        deleted: 0
+        net: 180
+    computed_at: "2026-10-26T14:48:46Z"
+    computed_at_stage: ship
+summary: extend the shared injection echo probe to recognize the observed Claude/Antigravity, Codex, Kimi, OpenCode, and Gemini collapsed-paste chips so submit proceeds on chip-rendering TUIs; cron scheduling unchanged; Gemini live-reply verification blocked by pre-existing invalid credentials
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-10-26T14:48:46Z

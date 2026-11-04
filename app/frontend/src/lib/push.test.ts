@@ -214,7 +214,7 @@ describe("sendTestNotification", () => {
     expect(await sendTestNotification()).toBe(true);
     expect(showNotification).toHaveBeenCalledTimes(1);
     expect(showNotification).toHaveBeenCalledWith(
-      "RunKit",
+      "HexoKit",
       expect.objectContaining({ body: expect.any(String) }),
     );
   });

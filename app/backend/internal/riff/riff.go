@@ -62,10 +62,11 @@ const (
 // The numeric values conform to the shll toolkit exit-code convention
 // (Principle 4): 1 = operational failure, 2 = usage error, 3 = the documented
 // subprocess class. ExitValidation (usage: bad flags/args/preset/layout/count)
-// is 2; ExitPrecondition (operational: $TMUX unset, wt missing) is 1.
+// is 2; ExitPrecondition (operational: $TMUX unset, wt missing, not in a git
+// repo) is 1.
 const (
 	ExitValidation   = 2 // usage: unknown layout, invalid count, unknown/conflicting preset (CLI flag-parse errors are tagged usageError in cmd/rk/riff.go, not emitted here)
-	ExitPrecondition = 1 // operational: $TMUX unset, wt not on PATH (CLI-only preconditions)
+	ExitPrecondition = 1 // operational: $TMUX unset, wt not on PATH, not in a git repo (CLI-only preconditions)
 	ExitSubprocess   = 3 // operational: wt/tmux non-zero exit, output parse failure, timeouts
 )
 
@@ -136,9 +137,14 @@ type EffectiveSpec struct {
 	// first. The CLI never sets this, so it is always the worktree default there.
 	Where string
 	// WorktreeName, when non-empty in worktree mode, is forwarded to
-	// `wt create --worktree-name`. Empty = wt generates the name (today's path).
+	// `wt create --name`. Empty = wt generates the name (today's path).
 	// Ignored in checkout mode. The CLI never sets this.
 	WorktreeName string
+	// WorktreeBase, when non-empty in worktree mode, is forwarded to
+	// `wt create --base` as the new branch's start point. Empty = wt's default
+	// (HEAD of the repo wt resolves). Ignored in checkout mode. The CLI never
+	// sets this (it forwards --base through Passthrough instead).
+	WorktreeBase string
 	// WindowNameBase, when non-empty, replaces the derived `riff-<basename>`
 	// window-name base (the collision suffixing in resolveWindowName still
 	// applies). Empty = today's derivation. The CLI never sets this.
@@ -162,6 +168,9 @@ type Result struct {
 	WindowID string
 	// PaneID is the captured pane-0 id (%N) — the typed task-delivery target.
 	PaneID string
+	// WorktreePath is the worktree wt created (worktree mode only; "" in
+	// checkout mode). The window itself may be rooted at a subdirectory of it.
+	WorktreePath string
 }
 
 // Options are the HTTP handler's inputs for a single (count=1) spawn.
@@ -175,35 +184,31 @@ type Options struct {
 	// (no worktree); "worktree" or "" (default) creates a worktree first.
 	Where string
 	// WorktreeName, when non-empty in worktree mode, names the created worktree
-	// (`wt create --worktree-name`). Empty = wt auto-generates. Ignored in
+	// (`wt create --name`). Empty = wt auto-generates. Ignored in
 	// checkout mode.
 	WorktreeName string
+	// WorktreeBase, when non-empty in worktree mode, is the start point of the
+	// created worktree's new branch (`wt create --base`). Ignored in checkout
+	// mode.
+	WorktreeBase string
+	// WorktreeSubdir, when non-empty in worktree mode, roots the window at this
+	// relative path inside the created worktree — a fork keeps the source pane's
+	// position within its repo. It must be local (filepath.IsLocal); a subdir
+	// absent from the new checkout falls back to the worktree root. Ignored in
+	// checkout mode.
+	WorktreeSubdir string
 	// Tier is the fab agent tier resolved for the launcher (`fab agent <tier>
 	// -o yaml`). Empty = the default tier (`fab agent -o yaml`, today's path).
 	Tier string
-	// ResumeSessionRef, when non-empty, is the Claude session uuid this spawn
-	// FORKS: the resolved launcher gains `--resume <uuid> --fork-session`, so the
-	// new pane's agent starts from a copy of that conversation's history under a
-	// fresh session id (the conversation-fork mechanism — 260806-s4av). Paired
-	// with Where:"checkout" it is a same-directory fork. Empty = an ordinary
-	// spawn, byte-identical to today. The CLI never sets this.
-	//
-	// The uuid is shape-validated at the API layer BEFORE it reaches here, and
-	// re-validated defensively at the launcher-composition seam
-	// (resumeForkLauncher) because it enters the deliberately-unescaped launcher
-	// string (constitution §I).
-	//
-	// `--resume`/`--fork-session` are Claude-only flags while ResolveLauncher
-	// returns a provider-opaque string, so a non-empty ref whose resolved launcher
-	// is NOT a claude invocation is a ValidationErr — never a silent plain spawn
-	// and never claude flags handed to another binary. Lives on Options only (no
-	// EffectiveSpec copy) — the Tier precedent for launcher-seam-consumed inputs.
+	// ResumeSessionRef identifies the conversation to fork (or resume with
+	// ResumePlain). Validated again at the launcher composition seam.
 	ResumeSessionRef string
-	// ResumePlain selects the resume suffix shape when ResumeSessionRef is set:
-	// true composes `--resume <uuid>` alone (the conversation re-attached under
-	// the SAME session id); false/unset composes the fork form `--resume <uuid>
-	// --fork-session`, byte-identical to today. Meaningless without
-	// ResumeSessionRef. Options-only, same seam precedent as ResumeSessionRef.
+	// ForkProvider pins a conversation fork to its source provider. When the
+	// configured launcher differs, use the provider executable with its own
+	// defaults. Empty preserves existing resume consumers' launcher validation.
+	ForkProvider string
+	// ResumePlain reattaches a Claude conversation under the same session ID
+	// using --resume. False selects a fork. Incompatible with ForkProvider.
 	ResumePlain bool
 	// WindowNameBase, when non-empty, replaces the derived `riff-<basename>`
 	// window-name base — the fork endpoint passes `<sourceWindowName>-fork`. The
@@ -239,8 +244,9 @@ var loadRiffPresets = settings.LoadRiffPresets
 //   - task empty, no preset → a single BARE skill pane (blank agent).
 //
 // Isolation (opts.Where):
-//   - "worktree" (or "", default) → `wt create` (optionally --worktree-name) then
-//     a tmux window rooted at the new worktree (base riff-<worktree-basename>).
+//   - "worktree" (or "", default) → `wt create` (optionally --name/--base)
+//     then a tmux window rooted at the new worktree, or at WorktreeSubdir
+//     inside it (base riff-<worktree-basename>).
 //   - "checkout"                  → NO wt call; a tmux window rooted at
 //     opts.RepoRoot (base riff-<repoRoot-basename>).
 //
@@ -251,19 +257,33 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 	if opts.RepoRoot == "" {
 		return Result{}, ValidationErr("run-kit riff: repo root is empty")
 	}
+	if opts.WorktreeSubdir != "" && !filepath.IsLocal(opts.WorktreeSubdir) {
+		return Result{}, ValidationErr("run-kit riff: worktree subdir %q must be a local relative path", opts.WorktreeSubdir)
+	}
 
-	// A non-empty ResumeSessionRef reattaches this spawn to the referenced
-	// conversation: the resolved launcher gains `--resume <uuid> --fork-session`
-	// (fork form, the default — a copy of the conversation under a fresh session
-	// id), or `--resume <uuid>` alone when ResumePlain is set (plain form — the
-	// conversation itself, re-attached under the SAME session id). Composed once
-	// here, at the single seam where the launcher is produced, so every pane of
-	// the window inherits it and the argv builders stay pure functions of the spec.
-	// resumeForkLauncher re-validates the uuid shape, is a no-op on an empty or
-	// malformed ref (constitution §I — the launcher is the unescaped element), and
-	// errors when the resolved launcher is not a claude invocation (the flags are
-	// Claude-only; failing beats a silent unresumed spawn — ExitValidation → 400).
+	// Preserve configured launcher options when they match the source provider.
+	// A fork must never hand a source session ID to another provider.
 	agent := ResolveAgent(ctx, opts.RepoRoot, opts.Tier)
+	if opts.ForkProvider != "" {
+		if opts.ResumePlain || !sessionUUIDRe.MatchString(opts.ResumeSessionRef) {
+			return Result{}, ValidationErr("run-kit riff: fork requires a valid session UUID and fork mode")
+		}
+		switch opts.ForkProvider {
+		case "claude", "codex":
+		default:
+			return Result{}, ValidationErr("run-kit riff: unsupported fork provider %q", opts.ForkProvider)
+		}
+		if launcherCommandName(agent.Launcher) != opts.ForkProvider {
+			agent = ResolvedAgent{Launcher: opts.ForkProvider, SkillPrefix: "/"}
+			if opts.ForkProvider == "codex" {
+				agent.SkillPrefix = "$"
+			}
+		}
+	}
+	// Older resume consumers carry Claude IDs without an explicit provider.
+	if opts.ForkProvider == "" && sessionUUIDRe.MatchString(opts.ResumeSessionRef) && launcherCommandName(agent.Launcher) != "claude" {
+		return Result{}, ValidationErr("run-kit riff: cannot resume a Claude conversation with launcher %q", agent.Launcher)
+	}
 	launcher, err := resumeForkLauncher(agent.Launcher, opts.ResumeSessionRef, opts.ResumePlain)
 	if err != nil {
 		return Result{}, err
@@ -303,8 +323,10 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 		spec.Where = whereWorktree
 	}
 	spec.WorktreeName = opts.WorktreeName
+	spec.WorktreeBase = opts.WorktreeBase
 	if opts.isCheckout() {
 		spec.WorktreeName = ""
+		spec.WorktreeBase = ""
 	}
 	// WindowNameBase is consumed by spawnRiffReturningName's base derivation. The
 	// fork ref needs no spec field — it was already folded into spec.Launcher
@@ -322,11 +344,13 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 	// (collision naming, new-window/split/select-layout/select-pane, window-id
 	// capture) — is identical, so both paths converge on spawnRiffReturningName.
 	windowRoot := opts.RepoRoot
+	var worktreePath string
 	if !opts.isCheckout() {
-		windowRoot, err = runWtCreate(ctx, spec, spec.Passthrough)
+		worktreePath, err = runWtCreate(ctx, spec, spec.Passthrough)
 		if err != nil {
 			return Result{}, err
 		}
+		windowRoot = worktreeWindowRoot(worktreePath, opts.WorktreeSubdir)
 	}
 	name, windowID, paneID, err := spawnRiffReturningName(ctx, windowRoot, spec)
 	if err != nil {
@@ -339,9 +363,24 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 		Server:     opts.Server,
 		Session:    opts.Session,
 		WindowName: name,
-		WindowID:   windowID,
-		PaneID:     paneID,
+		WindowID:     windowID,
+		PaneID:       paneID,
+		WorktreePath: worktreePath,
 	}, nil
+}
+
+// worktreeWindowRoot returns worktreePath/subdir when subdir names an existing
+// directory there, else worktreePath itself (a subdir that only existed
+// untracked in the source checkout is absent from a fresh worktree).
+func worktreeWindowRoot(worktreePath, subdir string) string {
+	if subdir == "" || subdir == "." {
+		return worktreePath
+	}
+	candidate := filepath.Join(worktreePath, subdir)
+	if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+		return candidate
+	}
+	return worktreePath
 }
 
 // SpawnReceipt is one spawned window's identity, returned by Run in index
@@ -571,25 +610,28 @@ func parseFabAgentOutput(stdout string, err error) (string, bool) {
 }
 
 // buildWtCreateArgs returns the argv (after "wt") for worktree creation:
-// `create [--worktree-name <name>] --non-interactive --worktree-open skip
+// `create [--name <name>] [--base <ref>] --non-interactive --open skip
 // <passthrough...>`. A non-empty WorktreeName (worktree mode only) is prepended
-// as `--worktree-name <name>` so it skips wt's name prompt; an empty name yields
-// the byte-identical pre-feature argv. The `spec.Where != whereCheckout` guard
-// keeps the helper self-contained (Spawn already blanks a checkout-mode name,
-// and checkout never reaches wt anyway; the CLI/fan-out paths pass no name). Pure.
+// as `--name <name>` so it skips wt's name prompt; an empty name omits the
+// element and wt generates one. WorktreeBase follows the same rule. The `spec.Where != whereCheckout` guard keeps the helper self-contained
+// (Spawn already blanks a checkout-mode name, and checkout never reaches wt
+// anyway; the CLI/fan-out paths pass no name). Long flag forms keep the argv
+// self-describing; they need wt >= v0.1.0. Pure.
 func buildWtCreateArgs(spec EffectiveSpec, passthrough []string) []string {
 	argv := []string{"create"}
 	if spec.Where != whereCheckout && spec.WorktreeName != "" {
-		argv = append(argv, "--worktree-name", spec.WorktreeName)
+		argv = append(argv, "--name", spec.WorktreeName)
 	}
-	argv = append(argv, "--non-interactive", "--worktree-open", "skip")
+	if spec.Where != whereCheckout && spec.WorktreeBase != "" {
+		argv = append(argv, "--base", spec.WorktreeBase)
+	}
+	argv = append(argv, "--non-interactive", "--open", "skip")
 	return append(argv, passthrough...)
 }
 
-// runWtCreate invokes `wt create [--worktree-name <name>] --non-interactive
-// --worktree-open skip <passthrough...>` (with Dir=RepoRoot when set) and parses
-// the `Path:` line for the worktree path. Returns a SubprocessErr on
-// failure/parse-miss/timeout.
+// runWtCreate invokes `wt create [--name <name>] --non-interactive --open skip
+// <passthrough...>` (with Dir=RepoRoot when set) and parses the `Path:` line
+// for the worktree path. Returns a SubprocessErr on failure/parse-miss/timeout.
 func runWtCreate(parent context.Context, spec EffectiveSpec, passthrough []string) (string, error) {
 	ctx, cancel := context.WithTimeout(parent, WtTimeout)
 	defer cancel()

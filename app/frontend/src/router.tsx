@@ -46,7 +46,7 @@ export function NotFoundPage() {
     <div className="flex flex-col items-center justify-center h-full gap-4 bg-bg-primary">
       <h1 className="text-xl text-text-primary">Page not found</h1>
       <a href="/" className="text-accent hover:underline">
-        Go to server list
+        Go to workspace list
       </a>
     </div>
   );

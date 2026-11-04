@@ -13,7 +13,7 @@
  * only, never a server-facing size), the key-bar visibility
  * (`rk-gui-keybar`: "0" = hidden, absent/other = shown — the default keeps
  * the bar rendering as it always has), the bare-WM strip dismissal
- * (`runkit-gui-wm-strip-dismissed`: "1" = dismissed, absent = shown —
+ * (`hexokit-gui-wm-strip-dismissed`: "1" = dismissed, absent = shown —
  * cleared by the tile when `wm` becomes non-empty so a LATER bare state
  * shows the strip again), the RFB quality
  * preset (`rk-gui-quality`: "sharp" | "balanced" | "smooth", absent/invalid =
@@ -70,7 +70,7 @@ const GUI_HIDPI_KEY = "rk-gui-hidpi";
 const GUI_KEYBAR_KEY = "rk-gui-keybar";
 const GUI_TOOLBAR_KEY = "rk-gui-toolbar";
 const GUI_CAPTURE_KEY = "rk-gui-capture";
-const GUI_WM_STRIP_DISMISSED_KEY = "runkit-gui-wm-strip-dismissed";
+const GUI_WM_STRIP_DISMISSED_KEY = "hexokit-gui-wm-strip-dismissed";
 
 /** Retired `rk-gui-view` key; read once to seed the zoom posture, removed on write. */
 const GUI_LEGACY_VIEW_KEY = "rk-gui-view";

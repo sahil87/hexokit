@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  isValidServerName,
   toSafeSessionName,
   toSafeWindowName,
   toSafeServerName,
@@ -107,5 +108,14 @@ describe("deriveNameFromPath", () => {
   ];
   it.each(cases)("%j → %j", (path, expected) => {
     expect(deriveNameFromPath(path)).toBe(expected);
+  });
+});
+
+describe("isValidServerName", () => {
+  it("accepts the backend server-name charset and rejects the rest", () => {
+    expect(isValidServerName("rk-dev_2")).toBe(true);
+    expect(isValidServerName("")).toBe(false);
+    expect(isValidServerName("my server")).toBe(false);
+    expect(isValidServerName("a.b")).toBe(false);
   });
 });

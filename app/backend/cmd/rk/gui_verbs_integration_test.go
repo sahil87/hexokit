@@ -78,7 +78,7 @@ func TestGuiVerbsIntegration(t *testing.T) {
 
 	// The backend on a temp socket; the WM on rk's seeded preferences (meters
 	// off — a ticking taskbar clock would keep wait --stable from converging).
-	dir := filepath.Join(stateHome, "run-kit", "gui")
+	dir := filepath.Join(stateHome, "hexokit", "gui")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}

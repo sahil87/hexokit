@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-25T16:13:35Z"}
+{"args":"Host default fix (P2 of fab/plans/sahil/26-09-12-hexokit-rebrand-remaining.md): committed .env RK_HOST=0.0.0.0 → 127.0.0.1 with 0.0.0.0 as commented LAN example; reconcile portless loopback URLs between present.go and web-url.ts","cmd":"fab-new","event":"command","ts":"2026-09-25T16:13:35Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-09-25T16:14:48Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-25T16:16:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-25T16:16:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-25T16:20:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-25T16:22:32Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T16:22:32Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-25T16:23:26Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-25T16:25:42Z"}
+{"event":"review","result":"passed","ts":"2026-09-25T16:34:09Z"}

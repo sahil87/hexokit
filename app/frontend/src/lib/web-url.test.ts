@@ -1,13 +1,18 @@
 import { describe, it, expect } from "vitest";
 import {
   classifyAddress,
+  daemonLoopbackOrigin,
   displayForm,
+  presentRootKey,
   isAllowedUrl,
   normalizeAddressInput,
   proxyPortOf,
   routeAddressSubmit,
+  toNativeSrc,
   toProxySrc,
+  toTrackedLocation,
   toWebAddTarget,
+  webKindChip,
   webTabTitle,
 } from "./web-url";
 
@@ -29,8 +34,15 @@ describe("classifyAddress (260819-v6y4 R3)", () => {
     expect(classifyAddress("")).toBe("relative");
   });
 
-  it("treats portless loopback absolute URLs as external (no port to proxy)", () => {
-    expect(classifyAddress("http://localhost/")).toBe("external");
+  it("treats portless http loopback URLs as proxied port 80 (the rk present rule)", () => {
+    expect(classifyAddress("http://localhost/")).toBe("proxy");
+    expect(classifyAddress("http://localhost:80/x")).toBe("proxy");
+    expect(classifyAddress("http://127.0.0.1/x")).toBe("proxy");
+    expect(classifyAddress("http://[::1]/x")).toBe("proxy");
+  });
+
+  it("keeps portless https loopback URLs external", () => {
+    expect(classifyAddress("https://localhost/")).toBe("external");
   });
 });
 
@@ -42,7 +54,7 @@ describe("displayForm (260819-v6y4 R3)", () => {
     expect(displayForm("/present/@320/dir/index.html?server=a")).toBe("index.html");
     // NEW content-keyed form: server + hash segments are plumbing too.
     expect(displayForm("/present/runKit/3f9a2c8e1b77/report.html?v=1")).toBe("report.html");
-    expect(displayForm("/present/runKit/3f9a2c8e1b77/dir/index.html?v=1")).toBe("index.html");
+    expect(displayForm("/present/runKit/3f9a2c8e1b77/dir/index.html?v=1")).toBe("dir/index.html");
     // A NEW-form directory present (empty path tail) shows the index.html it
     // serves — the raw hash segment never displays.
     expect(displayForm("/present/runKit/3f9a2c8e1b77/?v=1")).toBe("index.html");
@@ -68,6 +80,10 @@ describe("displayForm (260819-v6y4 R3)", () => {
     expect(displayForm("/proxy/3000")).toBe("localhost:3000/");
     expect(displayForm("http://localhost:8080/docs?x=1")).toBe("localhost:8080/docs?x=1");
     expect(displayForm("http://127.0.0.1:8080/docs")).toBe("localhost:8080/docs");
+    expect(displayForm("http://localhost/x?y=1")).toBe("localhost:80/x?y=1");
+    // A literal loopback URL (the native engine's direct/proxy load target)
+    // renders the same localhost form as the /proxy/ plumbing.
+    expect(displayForm("http://localhost:6000/x")).toBe("localhost:6000/x");
   });
 
   it("external: host + path, scheme omitted", () => {
@@ -87,11 +103,73 @@ describe("displayForm (260819-v6y4 R3)", () => {
   });
 });
 
+describe("displayForm — repo-relative prefix", () => {
+  const url = "/present/loom3/98baf10236d1/verses-3d.html?v=1793612360";
+
+  it("is unchanged without a prefix", () => {
+    expect(displayForm(url)).toBe("verses-3d.html");
+    expect(displayForm(url, "")).toBe("verses-3d.html");
+    expect(displayForm(url, undefined)).toBe("verses-3d.html");
+  });
+
+  it("leads the tail with the prefix", () => {
+    expect(displayForm(url, "docs/wiki")).toBe("docs/wiki/verses-3d.html");
+  });
+
+  it("keeps the whole nested tail", () => {
+    expect(displayForm("/present/loom3/98baf10236d1/sub/page.html?v=1", "docs/wiki")).toBe(
+      "docs/wiki/sub/page.html",
+    );
+    expect(displayForm("/present/loom3/98baf10236d1/sub/page.html?v=1")).toBe("sub/page.html");
+  });
+
+  it("labels a directory present with the prefixed index.html", () => {
+    expect(displayForm("/present/loom3/98baf10236d1/?v=1", "docs/wiki")).toBe("docs/wiki/index.html");
+  });
+
+  it("renders the cross-repo label, joined without a slash at the repo top", () => {
+    expect(displayForm(url, "loom:docs/wiki")).toBe("loom:docs/wiki/verses-3d.html");
+    expect(displayForm(url, "loom:")).toBe("loom:verses-3d.html");
+  });
+
+  it("keeps plumbing params hidden and the page's own query and hash", () => {
+    expect(
+      displayForm("/present/loom3/98baf10236d1/doc.html?server=a&v=1&raw=1&tab=perf#top", "docs"),
+    ).toBe("docs/doc.html?tab=perf#top");
+  });
+
+  it("ignores the prefix for the legacy @windowId form and other kinds", () => {
+    expect(displayForm("/present/@320/report.html?server=runKit&v=1", "docs/wiki")).toBe("report.html");
+    expect(displayForm("/proxy/3000/x", "docs/wiki")).toBe("localhost:3000/x");
+    expect(displayForm("https://shll.ai/rk", "docs/wiki")).toBe("shll.ai/rk");
+  });
+
+  it("falls back to the raw string for a degraded shape", () => {
+    expect(displayForm("/present/@5/?server=a", "docs/wiki")).toBe("/present/@5/?server=a");
+    expect(displayForm("/present/", "docs/wiki")).toBe("/present/");
+  });
+});
+
+describe("presentRootKey", () => {
+  it("returns server/hash for a content-keyed present address", () => {
+    expect(presentRootKey("/present/loom3/98baf10236d1/sub/page.html?v=1")).toBe("loom3/98baf10236d1");
+    expect(presentRootKey("/present/loom3/98baf10236d1/")).toBe("loom3/98baf10236d1");
+  });
+
+  it("is null for the legacy form, other kinds and degraded shapes", () => {
+    expect(presentRootKey("/present/@320/report.html")).toBeNull();
+    expect(presentRootKey("/proxy/3000/")).toBeNull();
+    expect(presentRootKey("/present/")).toBeNull();
+    expect(presentRootKey("")).toBeNull();
+  });
+});
+
 describe("webTabTitle", () => {
   it("derives the strip label per address kind", () => {
     expect(webTabTitle("/present/@3/1/report.html?v=17&server=x")).toBe("report.html");
     expect(webTabTitle("/proxy/3000/docs/api?q=1")).toBe("localhost:3000/docs/api");
     expect(webTabTitle("http://localhost:5173/?x=1")).toBe("localhost:5173/");
+    expect(webTabTitle("http://localhost/x?y=1")).toBe("localhost:80/x");
     expect(webTabTitle("https://docs.example.com/a/b#c")).toBe("docs.example.com");
     expect(webTabTitle("/foo")).toBe("/foo");
     expect(webTabTitle("")).toBe("");
@@ -105,6 +183,7 @@ describe("webTabTitle", () => {
   it("derives the NEW-form label with server+hash plumbing hidden", () => {
     expect(webTabTitle("/present/runKit/3f9a2c8e1b77/report.html?v=1")).toBe("report.html");
     expect(webTabTitle("/present/s/a1b2c3d4e5/dir/index.html?v=2")).toBe("index.html");
+    expect(webTabTitle("/present/s/a1b2c3d4e5/a/b/page.html?v=2")).toBe("page.html");
     // Directory present (empty path tail): the hash stays out of the label —
     // the served index.html is the name.
     expect(webTabTitle("/present/runKit/3f9a2c8e1b77/?v=1")).toBe("index.html");
@@ -120,7 +199,12 @@ describe("proxyPortOf", () => {
   it("returns null for non-proxy addresses", () => {
     expect(proxyPortOf("/present/@320/f.html")).toBeNull();
     expect(proxyPortOf("https://shll.ai/")).toBeNull();
-    expect(proxyPortOf("http://localhost/")).toBeNull();
+    expect(proxyPortOf("https://localhost/")).toBeNull();
+  });
+
+  it("resolves portless and :80 http loopback URLs to port 80", () => {
+    expect(proxyPortOf("http://localhost/")).toBe(80);
+    expect(proxyPortOf("http://localhost:80/x")).toBe(80);
   });
 });
 
@@ -284,10 +368,17 @@ describe("toProxySrc", () => {
     expect(toProxySrc("http://localhost:8080")).toBe("/proxy/8080/");
   });
 
+  it("maps portless http loopback URLs onto /proxy/80", () => {
+    expect(toProxySrc("http://localhost/")).toBe("/proxy/80/");
+    expect(toProxySrc("http://localhost")).toBe("/proxy/80/");
+    expect(toProxySrc("http://127.0.0.1/x?a=1")).toBe("/proxy/80/x?a=1");
+    expect(toProxySrc("http://localhost:80/x")).toBe("/proxy/80/x");
+  });
+
   it("passes everything else through unchanged", () => {
     expect(toProxySrc("/proxy/8080/docs")).toBe("/proxy/8080/docs");
     expect(toProxySrc("https://shll.ai/")).toBe("https://shll.ai/");
-    expect(toProxySrc("http://localhost/")).toBe("http://localhost/");
+    expect(toProxySrc("https://localhost/")).toBe("https://localhost/");
   });
 });
 
@@ -307,5 +398,172 @@ describe("toWebAddTarget", () => {
       "/present/runKit/3f9a2c8e1b77/report.html?v=1",
     );
     expect(toWebAddTarget("/foo")).toBe("/foo");
+  });
+});
+
+const DAEMON = "http://127.0.0.1:3000";
+
+describe("toNativeSrc", () => {
+  // The address-kind matrix runs against all three modes: proxy path, proxy
+  // root, absolute loopback, external, present, and plain relative.
+  it("direct/proxy: a stored /proxy/{port} slot maps to the literal loopback URL", () => {
+    for (const mode of ["direct", "proxy"] as const) {
+      expect(toNativeSrc("/proxy/6000/assets/x.js", mode)).toBe(
+        "http://localhost:6000/assets/x.js",
+      );
+      expect(toNativeSrc("/proxy/6000/docs?x=1", mode)).toBe("http://localhost:6000/docs?x=1");
+      // The root form gains its trailing slash.
+      expect(toNativeSrc("/proxy/6000", mode)).toBe("http://localhost:6000/");
+      expect(toNativeSrc("/proxy/6000/", mode)).toBe("http://localhost:6000/");
+    }
+  });
+
+  it("direct/proxy: absolute URLs pass through unchanged", () => {
+    for (const mode of ["direct", "proxy"] as const) {
+      expect(toNativeSrc("http://localhost:6000/x", mode, DAEMON)).toBe("http://localhost:6000/x");
+      expect(toNativeSrc("http://127.0.0.1:6000/x?a=1", mode, DAEMON)).toBe(
+        "http://127.0.0.1:6000/x?a=1",
+      );
+      expect(toNativeSrc("https://shll.ai/rk/skill", mode, DAEMON)).toBe(
+        "https://shll.ai/rk/skill",
+      );
+    }
+  });
+
+  it("direct: root-relative rk paths pass through unchanged, daemon origin or not", () => {
+    for (const origin of [null, DAEMON]) {
+      expect(toNativeSrc("/present/@320/report.html?server=a&v=1", "direct", origin)).toBe(
+        "/present/@320/report.html?server=a&v=1",
+      );
+      expect(
+        toNativeSrc("/present/runKit/3f9a2c8e1b77/report.html?v=1", "direct", origin),
+      ).toBe("/present/runKit/3f9a2c8e1b77/report.html?v=1");
+      expect(toNativeSrc("/board/runKit", "direct", origin)).toBe("/board/runKit");
+    }
+  });
+
+  it("proxy + daemon origin: root-relative rk paths resolve against the daemon loopback origin", () => {
+    expect(
+      toNativeSrc("/present/runKit/f65b8ea5966f/agents-settings-mock.html?v=1", "proxy", DAEMON),
+    ).toBe("http://127.0.0.1:3000/present/runKit/f65b8ea5966f/agents-settings-mock.html?v=1");
+    expect(toNativeSrc("/present/@320/report.html?server=a&v=1#top", "proxy", DAEMON)).toBe(
+      "http://127.0.0.1:3000/present/@320/report.html?server=a&v=1#top",
+    );
+    expect(toNativeSrc("/board/runKit", "proxy", DAEMON)).toBe("http://127.0.0.1:3000/board/runKit");
+  });
+
+  it("proxy + null daemon origin: root-relative paths pass through unchanged", () => {
+    expect(toNativeSrc("/present/runKit/3f9a2c8e1b77/report.html?v=1", "proxy")).toBe(
+      "/present/runKit/3f9a2c8e1b77/report.html?v=1",
+    );
+    expect(toNativeSrc("/board/runKit", "proxy", null)).toBe("/board/runKit");
+  });
+
+  it("proxy: a /proxy/{port} slot still maps to localhost, never the daemon origin", () => {
+    expect(toNativeSrc("/proxy/6000/docs?x=1", "proxy", DAEMON)).toBe(
+      "http://localhost:6000/docs?x=1",
+    );
+  });
+
+  it("proxy: a scheme-relative address is never rewritten against the daemon origin", () => {
+    expect(toNativeSrc("//evil.example/x", "proxy", DAEMON)).toBe("//evil.example/x");
+  });
+
+  it("legacy: exactly toProxySrc for every address kind, daemon origin ignored", () => {
+    const cases = [
+      "/proxy/6000/assets/x.js",
+      "/proxy/6000",
+      "http://localhost:6000/x",
+      "https://shll.ai/rk/skill",
+      "/present/runKit/3f9a2c8e1b77/report.html?v=1",
+      "/board/runKit",
+    ];
+    for (const url of cases) {
+      expect(toNativeSrc(url, "legacy")).toBe(toProxySrc(url));
+      expect(toNativeSrc(url, "legacy", DAEMON)).toBe(toProxySrc(url));
+    }
+    // The loopback absolute case is the one where legacy differs from the
+    // other modes: it rides the same-origin proxy path.
+    expect(toNativeSrc("http://localhost:6000/x", "legacy")).toBe("/proxy/6000/x");
+  });
+});
+
+describe("daemonLoopbackOrigin", () => {
+  it("builds the loopback origin from an integer port in 1..65535", () => {
+    expect(daemonLoopbackOrigin(3000)).toBe("http://127.0.0.1:3000");
+    expect(daemonLoopbackOrigin(1)).toBe("http://127.0.0.1:1");
+    expect(daemonLoopbackOrigin(65535)).toBe("http://127.0.0.1:65535");
+  });
+
+  it("is null for an absent, non-integer, or out-of-range port", () => {
+    for (const bad of [undefined, null, "3000", 1.5, NaN, 0, -1, 65536]) {
+      expect(daemonLoopbackOrigin(bad)).toBeNull();
+    }
+  });
+});
+
+describe("toTrackedLocation", () => {
+  const VIEWER = "https://rk.example.test";
+
+  it("folds the daemon loopback origin back to root-relative", () => {
+    expect(
+      toTrackedLocation("http://127.0.0.1:3000/present/x/y.html?v=1#h", VIEWER, DAEMON),
+    ).toBe("/present/x/y.html?v=1#h");
+  });
+
+  it("folds the viewer origin to root-relative, with or without a daemon origin", () => {
+    expect(toTrackedLocation("https://rk.example.test/board/runKit?a=1", VIEWER, DAEMON)).toBe(
+      "/board/runKit?a=1",
+    );
+    expect(toTrackedLocation("https://rk.example.test/board/runKit", VIEWER, null)).toBe(
+      "/board/runKit",
+    );
+  });
+
+  it("keeps a foreign origin absolute — including loopback when the daemon origin is unknown", () => {
+    expect(toTrackedLocation("https://shll.ai/rk/skill", VIEWER, DAEMON)).toBe(
+      "https://shll.ai/rk/skill",
+    );
+    expect(toTrackedLocation("http://127.0.0.1:3000/x", VIEWER, null)).toBe(
+      "http://127.0.0.1:3000/x",
+    );
+    expect(toTrackedLocation("http://127.0.0.1:4000/x", VIEWER, DAEMON)).toBe(
+      "http://127.0.0.1:4000/x",
+    );
+  });
+
+  it("keeps an unparsable string raw", () => {
+    expect(toTrackedLocation("not a url", VIEWER, DAEMON)).toBe("not a url");
+  });
+});
+
+describe("webKindChip", () => {
+  it("present renders the green chip", () => {
+    expect(webKindChip("/present/runKit/3f9a2c8e1b77/report.html?v=1")).toEqual({
+      text: "present",
+      cls: "text-accent-green border-accent-green/40 bg-accent-green/10",
+    });
+  });
+
+  it("proxy renders the amber chip with its port", () => {
+    expect(webKindChip("/proxy/5173/")).toEqual({
+      text: ":5173 proxy",
+      cls: "text-signal-yellow border-signal-yellow/40 bg-signal-yellow/10",
+    });
+    expect(webKindChip("http://localhost:6000/x")?.text).toBe(":6000 proxy");
+    expect(webKindChip("http://localhost/x")?.text).toBe(":80 proxy");
+  });
+
+  it("external renders the blue chip", () => {
+    expect(webKindChip("https://shll.ai/rk/skill")).toEqual({
+      text: "external",
+      cls: "text-signal-blue border-signal-blue/40 bg-signal-blue/10",
+    });
+  });
+
+  it("relative and empty render no chip", () => {
+    expect(webKindChip("/tutorial/tutorial.html#ch1")).toBeNull();
+    expect(webKindChip("")).toBeNull();
+    expect(webKindChip("   ")).toBeNull();
   });
 });

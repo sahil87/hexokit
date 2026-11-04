@@ -11,13 +11,13 @@
 /** Help — external docs/landing page. Opens in a new tab. Shared by the
  *  top-bar overflow menu's Help row (260812-d1at) and the command-palette
  *  "Help: Documentation" actions (app + board palettes). */
-export const HELP_URL = "https://shll.ai/run-kit";
+export const HELP_URL = "https://hexokit.com/docs/";
 
 /** Notifications help page (rendered by GitHub). Opens in a new tab from the
  *  settings dialog's Notifications row — the canonical "it says sent but
  *  nothing shows" guide. */
 export const NOTIFICATIONS_HELP_URL =
-  "https://github.com/sahil87/run-kit/blob/main/docs/site/notifications.md";
+  "https://github.com/sahil87/hexokit/blob/main/docs/site/notifications.md";
 
 /** Question-mark help glyph — the retired top-bar HelpLink's SVG. */
 export function HelpIcon() {

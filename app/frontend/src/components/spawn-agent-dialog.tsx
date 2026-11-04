@@ -44,7 +44,7 @@ const DEFAULT_TIER = "default";
  * the dialog stays open for correction. On success it closes and navigates to
  * the new window (guarding a falsy best-effort windowId — SSE surfaces the row).
  *
- * Follows the create-session-dialog patterns (Dialog shell, `text-xs` field
+ * Follows the shared dialog patterns (Dialog shell, `text-xs` field
  * labels, disabled-submit styling); the busy state deliberately shows no
  * per-step progression because the endpoint is synchronous and emits no
  * per-step events (intake assumption / plan A-9).
@@ -108,7 +108,7 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
   const handleSubmit = useCallback(() => {
     if (busy) return;
     if (!server || !session) {
-      setError("No target session — open a terminal tab first.");
+      setError("No target group — open a terminal tab first.");
       return;
     }
     setBusy(true);
@@ -165,7 +165,7 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
           onKeyDown={handleKeyDown}
           disabled={busy}
           aria-label="Task"
-          placeholder="What should the agent do? (blank = empty session)"
+          placeholder="What should the agent do? (blank = plain shell)"
           className={`w-full bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary disabled:opacity-40`}
         />
       </div>

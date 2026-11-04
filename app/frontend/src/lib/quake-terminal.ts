@@ -39,13 +39,13 @@ import { entryKey } from "@/store/window-store";
  *    than lost.
  *  - The ⌘J two-state machine (`rest | open`, focus and drawer linked) — the
  *    desktop quake terminal's controlling state, shared between the top-bar
- *    quake launcher and the drawer (module slot, the open-state idiom),
+ *    launcher button and the drawer (module slot, the open-state idiom),
  *    flanked by the pin slot, the compose-engaged slot, and the
  *    restore-origin slot (same idiom; all ephemeral).
  *  - The shared compose seam (`useOperatorCompose` + `sendOperatorMessage` +
  *    `attachOperatorFiles`) — ONE send/upload implementation whose desktop
- *    view is the drawer's docked compose strip while open (the standing quake
- *    launcher box is its rest-state affordance). The draft TEXT is a
+ *    view is the drawer's docked compose strip while open (the top-bar
+ *    launcher button opens it and shows its draft). The draft TEXT is a
  *    compose-draft-store entry keyed by the operator window target
  *    (`operatorComposeKey`), so a draft stays with the operator it addresses
  *    when the resolved server changes; the in-flight flags and the inline
@@ -81,7 +81,7 @@ export const OPERATOR_STATE_DOT: Record<string, string> = {
 
 export type QuakeTerminalRequest = {
   /** `toggle` steps the desktop ⌘J machine (rest ⇄ open); `open` always
-   *  opens (desktop: drawer plus quake launcher focus). On mobile both actions
+   *  opens (desktop: drawer plus docked compose focus). On mobile both actions
    *  collapse to navigation to the operator window's terminal route. */
   action: "toggle" | "open";
   /** Pin the quake terminal to this server (for example, the palette fallback
@@ -215,9 +215,9 @@ export function resolveFromOrigin(
 /** localStorage key for the desktop drawer geometry
  *  (`{heightVh, widthPx, centerOffsetPx}`; a stored record without the offset
  *  reads as offset 0). */
-export const QUAKE_GEOMETRY_KEY = "runkit-quake-terminal-geometry";
+export const QUAKE_GEOMETRY_KEY = "hexokit-quake-terminal-geometry";
 /** localStorage key for the desktop drawer background opacity. */
-export const QUAKE_OPACITY_KEY = "runkit-quake-terminal-opacity";
+export const QUAKE_OPACITY_KEY = "hexokit-quake-terminal-opacity";
 /** Retired key names; read as a fallback so viewers keep their drawer size
  *  and glass, removed on the next write (the fallback is one-shot). */
 export const LEGACY_QUAKE_GEOMETRY_KEY = "runkit-operator-console-geometry";
@@ -421,10 +421,10 @@ export function useQuakeOpacity(): [number, (next: number) => void] {
 // ── ⌘J two-state machine ─────────────────────────────────────────────────────
 //
 // The desktop quake terminal is a plain toggle: `rest` (drawer closed, the
-// standing launcher box in the top bar) ⇄ `open` (drawer down, the docked
-// compose textarea focused, the launcher collapsed to glyph + chord).
+// launcher button in the top bar) ⇄ `open` (drawer down, the docked
+// compose textarea focused, the launcher latched).
 // Focus and the expanded drawer are LINKED — engaging the machine from any
-// entry point (chord, box click, ghost) both drops the drawer and focuses the
+// entry point (chord, launcher click) both drops the drawer and focuses the
 // docked textarea; releasing it does both in reverse. A blur alone does NOT
 // release the machine: the drawer is a peek that outlives the compose's focus
 // (clicking into its terminal must not collapse it) — the outside-click
@@ -433,8 +433,8 @@ export function useQuakeOpacity(): [number, (next: number) => void] {
 // halves of the surface — the top-bar quake launcher and the layout-mounted
 // drawer — are mounted in different trees and must not own each other's
 // state. The drawer component is the controller (it interprets the
-// document-event seam); the quake launcher is a follower that also originates
-// transitions (click-to-focus, Enter). Mobile never engages the machine — its
+// document-event seam); the launcher button is a follower that also originates
+// transitions (click-to-open, click-to-focus). Mobile never engages the machine — its
 // seam arm navigates instead.
 
 export type QuakeMachineState = "rest" | "open";
@@ -538,7 +538,7 @@ export function setQuakeComposeEngaged(next: boolean): void {
 }
 
 /** True while the docked compose owns input — drives the accent border on
- *  both the strip's textarea and the collapsed launcher. Focus-derived, never
+ *  both the strip's textarea and the latched launcher button. Focus-derived, never
  *  pin-derived. */
 export function useQuakeComposeEngaged(): boolean {
   const [engaged, setEngaged] = useState(getQuakeComposeEngaged);
@@ -570,9 +570,9 @@ export function takeQuakeRestoreOrigin(): HTMLElement | null {
 
 // ── Shared compose seam ──────────────────────────────────────────────────────
 //
-// ONE compose implementation drives the quake terminal's input surfaces: the
-// drawer's docked compose strip while open, the standing quake launcher box
-// (top-bar center cell) at rest. The draft text lives in the compose-draft
+// ONE compose implementation drives the quake terminal's input surface: the
+// drawer's docked compose strip while open; the launcher button in the
+// top bar's right cluster reads its draft. The draft text lives in the compose-draft
 // store under the operator window's key; the in-flight flags and the inline
 // error are module state keyed per server; the send/upload logic exists
 // exactly once. Delivery rides the existing lanes: `sendToWindow(...,

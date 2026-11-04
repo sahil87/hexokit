@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 // PWA identity assets (`/manifest.json`, `/generated-icons/*`) served
 // dynamically by the Go backend through the Vite dev proxy. All assertions
 // are tint-agnostic: the box running the e2e suite may or may not have an
-// instance accent in its real ~/.config/run-kit/config.yaml, so the tests pin
+// instance accent in its real ~/.config/hexokit/config.yaml, so the tests pin
 // the serving pipeline (proxy → Go handler → valid asset), never the tint
 // state (the tint itself is golden-pixel tested in Go: api/pwa_test.go,
 // internal/icontint).
@@ -14,7 +14,7 @@ import { test, expect } from "@playwright/test";
 test.describe("PWA assets", () => {
   /**
    * Proves: /manifest.json reaches the Go dynamic handler (not Vite's
-   * public-dir static copy) and still parses as the RunKit manifest. The
+   * public-dir static copy) and still parses as the HexoKit manifest. The
    * discriminator is the application/manifest+json content-type — only the
    * Go handler sets it; Vite would serve the static file as
    * application/json.
@@ -23,7 +23,7 @@ test.describe("PWA assets", () => {
    * 1. request.get("/manifest.json").
    * 2. Assert status 200 and content-type contains
    *    application/manifest+json.
-   * 3. Parse the JSON; assert `name` is `RunKit` and there are exactly 3
+   * 3. Parse the JSON; assert `name` is `HexoKit` and there are exactly 3
    *    icons.
    * 4. Assert each icon `src` matches /generated-icons/icon-*.png with an
    *    optional ?c=<descriptor> cache-buster (present only when the box has
@@ -41,7 +41,7 @@ test.describe("PWA assets", () => {
       "application/manifest+json",
     );
     const manifest = await res.json();
-    expect(manifest.name).toBe("RunKit");
+    expect(manifest.name).toBe("HexoKit");
     expect(manifest.icons).toHaveLength(3);
     for (const icon of manifest.icons) {
       // Tint-agnostic: with an accent set the srcs carry ?c=<descriptor>.

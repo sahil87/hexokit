@@ -79,10 +79,11 @@ func badPaneTarget(s string) error {
 // PaneAgentState reads ONE pane's reconciled agent-state option on the given
 // server: the raw value (dual-read @rk_pane_agent_state then @rk_agent_state)
 // is parsed via parseAgentState and then reconciled
-// exactly as the sessions path (parsePanes) does — a pid-carrying value is
+// exactly as the sessions path does — a pid-carrying value is
 // trusted iff the agent process is alive (kill-0 liveness); a legacy
 // two-segment value falls back to the shell-command heuristic (a plain-shell
-// pane has no agent). Returns "" (unknown) for an absent, unparseable, or
+// pane has no agent). Codex waiting is checked against its runtime and questions.
+// Returns "" (unknown) for an absent, unparseable, or
 // reconciled-away value — never partial trust. A tmux failure (e.g. the pane
 // does not exist) is returned as the error.
 func PaneAgentState(ctx context.Context, paneID, server string) (string, error) {
@@ -104,6 +105,8 @@ type PaneFacts struct {
 	AgentState      string
 	AgentStateEpoch int64
 	AgentPID        int
+	AgentProvider   string
+	AgentSessionRef string
 }
 
 // PaneFactsCtx reads ONE pane's substrate facts on the given server in a single
@@ -116,30 +119,35 @@ type PaneFacts struct {
 // as the error.
 func PaneFactsCtx(ctx context.Context, paneID, server string) (PaneFacts, error) {
 	raw, err := tmuxExecRawServer(ctx, server, "display-message", "-pt", paneID,
-		"#{pane_current_path}\t#{pane_current_command}\t#{"+LegacyAgentStateOption+"}\t#{"+AgentStateOption+"}")
+		"#{pane_current_path}\t#{pane_current_command}\t#{"+LegacyAgentStateOption+"}\t#{"+AgentStateOption+"}\t#{"+LegacyAgentSessionOption+"}\t#{"+AgentSessionOption+"}")
 	if err != nil {
 		return PaneFacts{}, err
 	}
-	return parsePaneFacts(raw), nil
+	facts := parsePaneFacts(raw)
+	panes := []PaneInfo{{AgentState: facts.AgentState, AgentStateEpoch: facts.AgentStateEpoch, AgentProvider: facts.AgentProvider, AgentSessionRef: facts.AgentSessionRef}}
+	reconcileCodexWaiting(ctx, panes)
+	facts.AgentState = panes[0].AgentState
+	facts.AgentStateEpoch = panes[0].AgentStateEpoch
+	return facts, nil
 }
 
-// parsePaneFacts parses the cwd\tcommand\t@rk_agent_state\t@rk_pane_agent_state
-// quadruple read by PaneFactsCtx — the 4th field (the scope-named option) wins
-// when its trimmed value is non-empty. Only the trailing newline is trimmed
+// parsePaneFacts parses cwd, command, legacy/current state, and legacy/current
+// session identity. Each scope-named option wins when non-empty; older reads
+// without identity fields remain valid. Only the trailing newline is trimmed
 // before the split — TrimSpace on the whole raw string would eat the tabs
 // delimiting an empty first or last field and shift the remaining fields into
 // the wrong slots; the per-field trim below is safe because it runs after the
 // split.
 func parsePaneFacts(raw string) PaneFacts {
 	var facts PaneFacts
-	parts := strings.SplitN(strings.TrimRight(raw, "\r\n"), "\t", 4)
+	parts := strings.SplitN(strings.TrimRight(raw, "\r\n"), "\t", 6)
 	facts.CWD = parts[0]
 	command, stateRaw := "", ""
 	if len(parts) >= 2 {
 		command = parts[1]
 	}
 	facts.Command = command
-	if len(parts) == 4 {
+	if len(parts) >= 4 {
 		stateRaw = strings.TrimSpace(parts[3])
 	}
 	if stateRaw == "" && len(parts) >= 3 {
@@ -155,6 +163,14 @@ func parsePaneFacts(raw string) PaneFacts {
 		return facts
 	}
 	facts.AgentState, facts.AgentStateEpoch, facts.AgentPID = state, epoch, pid
+	sessionRaw := ""
+	if len(parts) == 6 {
+		sessionRaw = strings.TrimSpace(parts[5])
+	}
+	if sessionRaw == "" && len(parts) >= 5 {
+		sessionRaw = strings.TrimSpace(parts[4])
+	}
+	facts.AgentProvider, facts.AgentSessionRef = parseAgentSessionRef(sessionRaw)
 	return facts
 }
 

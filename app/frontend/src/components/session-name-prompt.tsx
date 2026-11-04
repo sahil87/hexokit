@@ -17,8 +17,8 @@ type SessionNamePromptProps = {
  * The save-as-style prompt behind `Session: Create` (palette + chord): a single
  * name input prefilled with the auto-derived session name, select-all'd so
  * Enter accepts the default and typing replaces it. Escape/backdrop close via
- * the Dialog shell. Deliberately lighter than CreateSessionDialog — no path
- * picker; `Tab: Create at Folder` remains the path-picking flow.
+ * the Dialog shell. Deliberately lighter than the New sheet — no path
+ * picker; `Group: Create at Folder` is the path-picking flow.
  */
 export function SessionNamePrompt({ sessions, defaultName, onSubmit, onClose }: SessionNamePromptProps) {
   const [name, setName] = useState(defaultName);
@@ -49,7 +49,7 @@ export function SessionNamePrompt({ sessions, defaultName, onSubmit, onClose }: 
   }
 
   return (
-    <Dialog title="New session" onClose={onClose}>
+    <Dialog title="New group" onClose={onClose}>
       <input
         ref={inputRef}
         type="text"
@@ -59,9 +59,9 @@ export function SessionNamePrompt({ sessions, defaultName, onSubmit, onClose }: 
           setName(toSafeSessionName(e.target.value));
         }}
         onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-        aria-label="Session name"
+        aria-label="Group name"
         aria-invalid={nameCollision}
-        placeholder="Session name..."
+        placeholder="Group name..."
         className={`w-full bg-transparent text-text-primary p-2 border rounded ${nameCollision ? "outline-none focus:border-red-500" : INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary ${
           nameCollision ? "border-red-500" : "border-border"
         }`}

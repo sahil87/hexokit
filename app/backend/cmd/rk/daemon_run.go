@@ -25,7 +25,8 @@ restart, exposed for scripts and debugging.
 The window is WATCHABLE: it appears on the dashboard under the rk-daemon
 server while the command runs. After the command exits (success or failure)
 the pane remains so the output stays visible; the next run of the same
---window respawns it in place. Output is also teed to ~/.rk/<name>.log.
+--window respawns it in place. Output is also teed to
+~/.local/state/hexokit/logs/<name>.log.
 
 The daemon must be running (rk serve -d) — the command refuses rather than
 birthing a tmux server. Re-running while a job window is live is a no-op: the

@@ -101,7 +101,7 @@ Two scope rules:
 
 ## Cron State
 
-**Location**: `$XDG_STATE_HOME/run-kit/cron/<server-slug>.yaml` — one file per
+**Location**: `$XDG_STATE_HOME/hexokit/cron/<server-slug>.yaml` — one file per
 tmux server, keyed by socket name (the pulse-plan sidecar precedent; a
 separate subdir, never parsed as anything else).
 

@@ -3,7 +3,7 @@
 #
 # Adds a Tailscale-shaped round trip to ONE loopback port so a Playwright
 # viewer on this host sees the latency a remote laptop or phone would, while
-# every other loopback consumer (the live rk daemon on :3000, tmux control
+# every other loopback consumer (the live rk daemon on :6123, tmux control
 # sockets, code-server) is untouched. Both directions of a loopback flow
 # traverse `lo`, so delaying packets whose source OR destination port matches
 # yields the full RTT. Delay the Go BACKEND port (E2E_PORT+1): the browser

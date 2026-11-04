@@ -1,0 +1,59 @@
+id: 3v9l
+name: 260925-3v9l-surface-popout
+created: 2026-09-25T12:20:39Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 14
+    acceptance_count: 31
+    acceptance_completed: 31
+confidence:
+    certain: 12
+    confident: 7
+    tentative: 0
+    unresolved: 0
+    score: 3.9
+    fuzzy: true
+    dimensions:
+        signal: 73.7
+        reversibility: 83.4
+        competence: 82.6
+        disambiguation: 78.9
+stage_metrics:
+    intake: {started_at: "2026-09-25T12:20:39Z", driver: fab-new, iterations: 1, completed_at: "2026-09-25T12:25:45Z"}
+    apply: {started_at: "2026-09-25T12:25:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T13:00:22Z"}
+    review: {started_at: "2026-09-25T13:00:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T13:05:39Z"}
+    hydrate: {started_at: "2026-09-25T13:05:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T13:11:01Z"}
+    ship: {started_at: "2026-09-25T13:11:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T13:12:31Z"}
+    review-pr: {started_at: "2026-09-25T13:12:31Z", driver: git-pr, iterations: 1, completed_at: "2026-09-25T13:25:15Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/1045
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 2908
+    deleted: 104
+    net: 2804
+    excluding:
+        added: 2364
+        deleted: 82
+        net: 2282
+    tests:
+        added: 990
+        deleted: 0
+        net: 990
+    computed_at: "2026-09-25T13:12:31Z"
+    computed_at_stage: ship
+summary: 'Surface popout: ?pop= chrome-less popout window + per-viewer popped set (rk-layout-popped, rk-popout channel); memory: lenses-and-layout § Surface popout + 3 design decisions, routes-and-shell ?pop= + chrome-less branch, keyboard-and-palette Tile: Pop Out / Pop Back In'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-25T13:25:15Z

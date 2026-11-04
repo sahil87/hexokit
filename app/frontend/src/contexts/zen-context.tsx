@@ -9,7 +9,7 @@ import { createContext, useContext, useState, useMemo, useRef } from "react";
  * TRANSIENT BY CONTRACT: nothing here reads or writes localStorage or a URL
  * param — the state is a render-time override on top of the persisted chrome
  * preferences (which is why this is NOT a ChromeContext field: that shape is
- * persisted chrome, and `setSidebarOpen` writing `runkit-sidebar-open` is
+ * persisted chrome, and `setSidebarOpen` writing `hexokit-sidebar-open` is
  * exactly what zen must never do). A reload — or leaving the terminal route —
  * restores exactly what persisted state says.
  *

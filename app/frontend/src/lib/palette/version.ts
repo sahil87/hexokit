@@ -1,5 +1,5 @@
 /**
- * Pure builder for the command-palette version entry (`run-kit: Version —
+ * Pure builder for the command-palette version entry (`HexoKit: Version —
  * v{version}`). Follows the lib/palette/update.ts pattern (pure,
  * dependency-free, unit-testable) so the label composition and null-gating are
  * verifiable without mounting the shell. The action body (copy-to-clipboard +
@@ -42,7 +42,7 @@ export function buildVersionAction(
   return [
     {
       id: "run-kit-version",
-      label: `run-kit: Version — ${displayVersion(version)}`,
+      label: `HexoKit: Version — ${displayVersion(version)}`,
       onSelect,
     },
   ];

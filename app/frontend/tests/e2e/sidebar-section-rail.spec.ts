@@ -8,18 +8,18 @@ const MOBILE_VIEWPORT = { width: 375, height: 812 };
  * Section-visibility micro-rail: a horizontal row of icon-only aria-pressed
  * toggle buttons — Boards · Server · Pane · Host, in that fixed
  * order — rendered as the first child of the sidebar's <nav>. Each toggle
- * flips a persisted `runkit-sidebar-section-*` boolean; the gated section
+ * flips a persisted `hexokit-sidebar-section-*` boolean; the gated section
  * fully unmounts/remounts. Defaults (Boards/Server on, Pane/Host off)
  * reproduce the pre-rail rendering on BOTH viewports, so the mobile drawer is
  * pure nav + footer unless the user opts in. Sessions has no toggle
  * (always-on core nav), and the rail itself always renders. A stale stored
- * `runkit-sidebar-section-clock` value from the retired CLOCK section is
+ * `hexokit-sidebar-section-clock` value from the retired CLOCK section is
  * ignored — no toggle reads it.
  *
  * Shared setup: no test session needed — the rail and the PANE panel's empty
  * state render on the plain server route. Desktop tests use
  * gotoServerReady(page, TMUX_SERVER) (status-bar Connected gate —
- * desktop-only chrome) and scope queries to the nav[aria-label='Sessions']
+ * desktop-only chrome) and scope queries to the nav[aria-label='Groups']
  * sidebar. The mobile describe runs test.use({ hasTouch: true, viewport:
  * 375×812 }) — hasTouch flips Chromium's (any-pointer: coarse) media query so
  * useIsMobile() reports mobile; navigation is a direct page.goto (no
@@ -85,16 +85,16 @@ test.describe("Sidebar section-visibility rail", () => {
     );
     expect(labels).toEqual([
       "Toggle Boards section",
-      "Toggle Servers section",
+      "Toggle Workspaces section",
       "Toggle Pane section",
       "Toggle Host section",
     ]);
-    await expect(page.getByRole("button", { name: /Sessions section/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Groups section/ })).toHaveCount(0);
 
     // Defaults: Boards/Server pressed, Pane/Host not — and the gated
     // sections render accordingly (PANE/HOST absent by default).
     await expect(railToggle(page, "Boards")).toHaveAttribute("aria-pressed", "true");
-    await expect(railToggle(page, "Servers")).toHaveAttribute("aria-pressed", "true");
+    await expect(railToggle(page, "Workspaces")).toHaveAttribute("aria-pressed", "true");
     await expect(railToggle(page, "Pane")).toHaveAttribute("aria-pressed", "false");
     await expect(railToggle(page, "Host")).toHaveAttribute("aria-pressed", "false");
     await expect(sidebar.getByRole("button", { name: /^Pane/ })).toHaveCount(0);
@@ -122,7 +122,7 @@ test.describe("Sidebar section-visibility rail", () => {
     await expect(sidebar.getByRole("button", { name: /^Pane/ })).toBeVisible();
 
     await page.reload();
-    const sidebarAfter = page.locator("nav[aria-label='Sessions']");
+    const sidebarAfter = page.locator("nav[aria-label='Groups']");
     await expect(railToggle(page, "Pane")).toHaveAttribute("aria-pressed", "true", {
       timeout: READY_TIMEOUT,
     });
@@ -208,7 +208,7 @@ test.describe("Sidebar section-visibility rail", () => {
 
       await expect(drawer.getByRole("button", { name: "Toggle Clock section" })).toHaveCount(0);
       await expect(railToggle(page, "Boards")).toBeVisible();
-      await expect(railToggle(page, "Servers")).toBeVisible();
+      await expect(railToggle(page, "Workspaces")).toBeVisible();
       await expect(railToggle(page, "Pane")).toBeVisible();
       await expect(railToggle(page, "Host")).toBeVisible();
     });

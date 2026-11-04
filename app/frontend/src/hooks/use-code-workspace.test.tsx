@@ -11,7 +11,7 @@ vi.mock("@/api/client", () => ({
 import { useCodeWorkspace } from "./use-code-workspace";
 import { codeServerSrc, codeServerWorkspaceSrc } from "@/components/code-surface";
 
-const WS_PATH = "/state/run-kit/code/default/@7-3fa1c9.code-workspace";
+const WS_PATH = "/state/hexokit/code/default/@7-3fa1c9.code-workspace";
 const WIN = { gitRoot: "/repo", codeRoot: "/repo" };
 
 beforeEach(() => {
@@ -113,7 +113,7 @@ describe("useCodeWorkspace — mount gating", () => {
       expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_PATH)),
     );
 
-    const otherPath = "/state/run-kit/code/default/@7-bbbbbb.code-workspace";
+    const otherPath = "/state/hexokit/code/default/@7-bbbbbb.code-workspace";
     fetchCodeWorkspace.mockResolvedValue({ status: "ok", path: otherPath, root: "/other" });
     rerender({ win: { gitRoot: "/other", codeRoot: "/other" } });
     await waitFor(() =>
@@ -130,19 +130,20 @@ describe("useCodeWorkspace — follow rule", () => {
       expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_PATH)),
     );
 
-    const newPath = "/state/run-kit/code/default/@7-cccccc.code-workspace";
+    const newPath = "/state/hexokit/code/default/@7-cccccc.code-workspace";
     fetchCodeWorkspace.mockResolvedValue({ status: "ok", path: newPath, root: "/other" });
-    act(() => result.current.followFolder("/other"));
+    act(() => { void result.current.followFolder("/other"); });
     await waitFor(() =>
       expect(result.current.followSrc).toEqual({
         src: codeServerWorkspaceSrc(newPath),
         nonce: 1,
         root: "/other",
+        windowId: "@7",
       }),
     );
     // A second navigation bumps the nonce — each follow is a fresh license.
     fetchCodeWorkspace.mockResolvedValue({ status: "ok", path: WS_PATH, root: "/repo" });
-    act(() => result.current.followFolder("/repo"));
+    act(() => { void result.current.followFolder("/repo"); });
     await waitFor(() => expect(result.current.followSrc?.nonce).toBe(2));
   });
 
@@ -154,9 +155,116 @@ describe("useCodeWorkspace — follow rule", () => {
     );
 
     fetchCodeWorkspace.mockRejectedValue(new Error("boom"));
-    act(() => result.current.followFolder("/other"));
+    act(() => { void result.current.followFolder("/other"); });
     await waitFor(() => expect(fetchCodeWorkspace).toHaveBeenCalledTimes(2));
     expect(result.current.followSrc).toBeNull();
+  });
+
+  it("a failed follow with degradeToFolder lands the frame on the ?folder= form (one warning)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    fetchCodeWorkspace.mockResolvedValue({ status: "ok", path: WS_PATH, root: "/repo" });
+    const { result } = renderHook(() => useCodeWorkspace("default", "@7", WIN, true, false));
+    await waitFor(() =>
+      expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_PATH)),
+    );
+
+    fetchCodeWorkspace.mockRejectedValue(new Error("boom"));
+    act(() => { void result.current.followFolder("/other", { degradeToFolder: true }); });
+    await waitFor(() =>
+      expect(result.current.followSrc).toEqual({
+        src: codeServerSrc("/other"),
+        nonce: 1,
+        root: "/other",
+        windowId: "@7",
+      }),
+    );
+    expect(warn).toHaveBeenCalledTimes(1);
+    // The map entry moved too — a future mount generation boots at the follow.
+    expect(result.current.codeSrcFor("@7")).toBeNull(); // no windowsById threaded
+    warn.mockRestore();
+  });
+
+  it("a non-ok follow result with degradeToFolder degrades the same way", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    fetchCodeWorkspace.mockResolvedValue({ status: "ok", path: WS_PATH, root: "/repo" });
+    const { result } = renderHook(() => useCodeWorkspace("default", "@7", WIN, true, false));
+    await waitFor(() =>
+      expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_PATH)),
+    );
+
+    fetchCodeWorkspace.mockResolvedValue({ status: "no-root" });
+    act(() => { void result.current.followFolder("/other", { degradeToFolder: true }); });
+    await waitFor(() => expect(result.current.followSrc?.src).toBe(codeServerSrc("/other")));
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it("a non-ok follow result without degradeToFolder leaves the editor in place", async () => {
+    fetchCodeWorkspace.mockResolvedValue({ status: "ok", path: WS_PATH, root: "/repo" });
+    const { result } = renderHook(() => useCodeWorkspace("default", "@7", WIN, true, false));
+    await waitFor(() =>
+      expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_PATH)),
+    );
+
+    fetchCodeWorkspace.mockResolvedValue({ status: "no-root" });
+    act(() => { void result.current.followFolder("/other"); });
+    await waitFor(() => expect(fetchCodeWorkspace).toHaveBeenCalledTimes(2));
+    expect(result.current.followSrc).toBeNull();
+  });
+
+  it("followFolder's returned promise settles only when the follow completes", async () => {
+    fetchCodeWorkspace.mockResolvedValue({ status: "ok", path: WS_PATH, root: "/repo" });
+    const { result } = renderHook(() => useCodeWorkspace("default", "@7", WIN, true, false));
+    await waitFor(() =>
+      expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_PATH)),
+    );
+
+    const newPath = "/state/hexokit/code/default/@7-dddddd.code-workspace";
+    let resolveFollow!: (v: unknown) => void;
+    fetchCodeWorkspace.mockReturnValue(new Promise((r) => { resolveFollow = r; }));
+    let settled = false;
+    act(() => {
+      void result.current.followFolder("/other").then(() => { settled = true; });
+    });
+    await waitFor(() => expect(fetchCodeWorkspace).toHaveBeenCalledTimes(2));
+    // The GET is still in flight: the promise (and any in-flight guard a
+    // caller hangs off it) must not have released yet.
+    expect(settled).toBe(false);
+
+    await act(async () => {
+      resolveFollow({ status: "ok", path: newPath, root: "/other" });
+    });
+    expect(settled).toBe(true);
+    expect(result.current.followSrc?.nonce).toBe(1);
+  });
+
+  it("a failed degrade-follow overlapping the option tick's derivation warns exactly once", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    fetchCodeWorkspace.mockResolvedValue({ status: "ok", path: WS_PATH, root: "/repo" });
+    const { result, rerender } = renderHook(
+      ({ win }) => useCodeWorkspace("default", "@7", win, true, false),
+      { initialProps: { win: WIN } },
+    );
+    await waitFor(() =>
+      expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_PATH)),
+    );
+
+    let rejectFollow!: (e: unknown) => void;
+    fetchCodeWorkspace.mockReturnValue(new Promise((_, r) => { rejectFollow = r; }));
+    act(() => {
+      void result.current.followFolder("/other", { degradeToFolder: true });
+    });
+    // The option tick lands while the follow's GET is in flight: the mount
+    // derivation fires for the new root against the same failing request —
+    // both warn sites see the rejection, but the key warns once.
+    rerender({ win: { gitRoot: "/other", codeRoot: "/other" } });
+    await act(async () => {
+      rejectFollow(new Error("boom"));
+    });
+    await waitFor(() => expect(result.current.followSrc?.src).toBe(codeServerSrc("/other")));
+    expect(result.current.codeSrc).toBe(codeServerSrc("/other"));
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
   });
 
   it("followSrc is scoped to its window (a window switch drops it)", async () => {
@@ -169,7 +277,7 @@ describe("useCodeWorkspace — follow rule", () => {
     await waitFor(() =>
       expect(result.current.codeSrc).toBe(codeServerWorkspaceSrc(WS_PATH)),
     );
-    act(() => result.current.followFolder("/other"));
+    act(() => { void result.current.followFolder("/other"); });
     await waitFor(() => expect(result.current.followSrc?.nonce).toBe(1));
 
     rerender({ windowId: "@8" });
@@ -229,8 +337,8 @@ describe("useCodeWorkspace — seed-refusal degrade", () => {
 describe("useCodeWorkspace — per-window map", () => {
   const WIN_A = { gitRoot: "/repo-a", codeRoot: "/repo-a" };
   const WIN_B = { gitRoot: "/repo-b", codeRoot: "/repo-b" };
-  const WS_A = "/state/run-kit/code/default/@7-aaaaaa.code-workspace";
-  const WS_B = "/state/run-kit/code/default/@8-bbbbbb.code-workspace";
+  const WS_A = "/state/hexokit/code/default/@7-aaaaaa.code-workspace";
+  const WS_B = "/state/hexokit/code/default/@8-bbbbbb.code-workspace";
   const windowsById = () =>
     new Map<string, { gitRoot: string; codeRoot: string }>([
       ["@7", WIN_A],
@@ -332,9 +440,9 @@ describe("useCodeWorkspace — per-window map", () => {
       options: { windowsById: windowsById() },
     });
 
-    const followPath = "/state/run-kit/code/default/@7-cccccc.code-workspace";
+    const followPath = "/state/hexokit/code/default/@7-cccccc.code-workspace";
     fetchCodeWorkspace.mockResolvedValue({ status: "ok", path: followPath, root: "/other" });
-    act(() => result.current.followFolder("/other"));
+    act(() => { void result.current.followFolder("/other"); });
     await waitFor(() => expect(result.current.followSrc?.nonce).toBe(1));
 
     // The payload catches up: A's codeRoot is now the followed folder, so the

@@ -26,7 +26,7 @@ func setupCronState(t *testing.T) string {
 	t.Helper()
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
-	dir := filepath.Join(state, "run-kit", "cron")
+	dir := filepath.Join(state, "hexokit", "cron")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}

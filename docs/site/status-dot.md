@@ -1,6 +1,6 @@
 # Status Dot — The Compositional Vocabulary
 
-> [← Back to the README](https://github.com/sahil87/run-kit/blob/main/README.md#status-dots--read-every-window-at-a-glance)
+> [← Back to the README](https://github.com/sahil87/hexokit/blob/main/README.md#status-dots--read-every-window-at-a-glance)
 
 > The single status dot reused on the sidebar window row, the dashboard window cards, and the
 > pane-panel header. It tells the window's **local story** — what runs in this pane: which journey,
@@ -16,7 +16,7 @@
 Implementation: `app/frontend/src/components/status-dot.tsx` (rendering) +
 `app/frontend/src/components/pr-status-model.ts` (`statusDotState` / `fabPhase` /
 `PHASE_HUE` / `prOwnsGlyph` / `prGlyphColor`). Design authority:
-[`docs/specs/status-pyramid.md`](https://github.com/sahil87/run-kit/blob/main/docs/specs/status-pyramid.md).
+[`docs/specs/status-pyramid.md`](https://github.com/sahil87/hexokit/blob/main/docs/specs/status-pyramid.md).
 
 ## Precedence — which input drives the dot (two families joined at the top)
 
@@ -59,7 +59,7 @@ here.**
 
 ## The four legend strips
 
-![StatusDot compositional reference](https://raw.githubusercontent.com/sahil87/run-kit/main/docs/img/status-dot-reference.svg)
+![StatusDot compositional reference](https://raw.githubusercontent.com/sahil87/hexokit/main/docs/img/status-dot-reference.svg)
 
 ### 1 · Core hue = journey (4)
 

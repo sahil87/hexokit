@@ -6,31 +6,54 @@ import (
 	"testing"
 )
 
-func TestLayoutPaths(t *testing.T) {
+// isolateHome points HOME at a temp dir and clears XDG_STATE_HOME, so the
+// apphome-resolved layout lands under <home>/.local/state and no test can
+// touch the real state home. Returns the temp home.
+func isolateHome(t *testing.T) string {
+	t.Helper()
 	home := t.TempDir()
-	if got, want := BinDir(home), filepath.Join(home, ".rk", "code-server-bin"); got != want {
-		t.Errorf("BinDir = %q, want %q", got, want)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", "") // force the ~/.local/state fallback under the temp home
+	return home
+}
+
+func TestLayoutPaths(t *testing.T) {
+	home := isolateHome(t)
+	binDir := filepath.Join(home, ".local", "state", "hexokit", "code-server", "bin")
+	if got := BinDir(home); got != binDir {
+		t.Errorf("BinDir = %q, want %q", got, binDir)
 	}
-	if got, want := VersionDir(home, "4.132.0"), filepath.Join(home, ".rk", "code-server-bin", "4.132.0"); got != want {
+	if got, want := VersionDir(home, "4.132.0"), filepath.Join(binDir, "4.132.0"); got != want {
 		t.Errorf("VersionDir = %q, want %q", got, want)
 	}
-	if got, want := CurrentPath(home), filepath.Join(home, ".rk", "code-server-bin", "current"); got != want {
+	if got, want := CurrentPath(home), filepath.Join(binDir, "current"); got != want {
 		t.Errorf("CurrentPath = %q, want %q", got, want)
 	}
-	if got, want := BinaryPath(home), filepath.Join(home, ".rk", "code-server-bin", "current", "bin", "code-server"); got != want {
+	if got, want := BinaryPath(home), filepath.Join(binDir, "current", "bin", "code-server"); got != want {
 		t.Errorf("BinaryPath = %q, want %q", got, want)
 	}
 }
 
+// R1: with XDG_STATE_HOME set, the managed-install root follows it.
+func TestBinDirFollowsXDGStateHome(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", xdg)
+	want := filepath.Join(xdg, "hexokit", "code-server", "bin")
+	if got := BinDir(t.TempDir()); got != want {
+		t.Errorf("BinDir = %q, want %q", got, want)
+	}
+}
+
 func TestInstalledVersionAbsent(t *testing.T) {
-	got, err := InstalledVersion(t.TempDir())
+	home := isolateHome(t)
+	got, err := InstalledVersion(home)
 	if err != nil || got != "" {
 		t.Errorf("InstalledVersion = %q, %v — want \"\", nil (absence is a state)", got, err)
 	}
 }
 
 func TestInstalledVersionReadsSymlinkTarget(t *testing.T) {
-	home := t.TempDir()
+	home := isolateHome(t)
 	// A RELATIVE target (the form Install writes) must basename to the version.
 	if err := os.MkdirAll(VersionDir(home, "4.132.0"), 0o755); err != nil {
 		t.Fatal(err)
@@ -45,7 +68,7 @@ func TestInstalledVersionReadsSymlinkTarget(t *testing.T) {
 }
 
 func TestManagedBinaryRequiresExecutable(t *testing.T) {
-	home := t.TempDir()
+	home := isolateHome(t)
 	bin := filepath.Join(VersionDir(home, "4.132.0"), "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatal(err)

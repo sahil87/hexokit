@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -893,5 +896,304 @@ func TestStreamTeardownUnregistersBeforeKill(t *testing.T) {
 	}
 	if cmd.ProcessState == nil {
 		t.Fatal("child not reaped — teardown must still Wait after unregistering")
+	}
+}
+
+// --- Isolated relay sessions (`isolate` on the open op) ---
+
+// isoMockConn builds a terminalsConn wired to a mockTmuxOps — the direct
+// attachStream-drive idiom (registryTestConn's mock twin). The stream registry
+// starts empty; attachStream's failure paths emit `closed` onto the reserved
+// control pseudo-stream, which awaitControlClosed drains.
+func isoMockConn(ops *mockTmuxOps) *terminalsConn {
+	tc := &terminalsConn{
+		s:           &Server{tmux: ops},
+		streams:     map[uint32]*stream{},
+		wake:        make(chan struct{}, 1),
+		done:        make(chan struct{}),
+		peer:        "100.64.0.12",
+		device:      "phone",
+		connectedAt: time.Now(),
+	}
+	tc.writeFrame = func(f outFrame) error { return nil }
+	return tc
+}
+
+// awaitControlClosed pops the next `closed` control frame from the reserved
+// control pseudo-stream after a synchronous attachStream run.
+func awaitControlClosed(t *testing.T, tc *terminalsConn, id uint32) closedFrame {
+	t.Helper()
+	tc.mu.Lock()
+	ctl := tc.streams[controlStreamID]
+	tc.mu.Unlock()
+	if ctl == nil {
+		t.Fatalf("no control stream — attachStream emitted no `closed` for id %d", id)
+	}
+	for {
+		select {
+		case f := <-ctl.queue:
+			if f.control == nil {
+				continue
+			}
+			var frame closedFrame
+			if err := json.Unmarshal(f.control, &frame); err != nil {
+				continue
+			}
+			if frame.Op == "closed" && frame.ID == id {
+				return frame
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("no `closed` frame for id %d on the control stream", id)
+		}
+	}
+}
+
+// driveAttachStream registers a placeholder stream and runs attachStream
+// synchronously against the mock ops. The server value is a nonexistent test
+// socket: attach-session on it spawns a short-lived client that errors out (so
+// the pick under test — recorded by the mock BEFORE the attach — is isolated
+// from any live tmux server), and cleanup kills the stray test server the
+// attach may have booted.
+func driveAttachStream(t *testing.T, tc *terminalsConn, id uint32, windowID string, isolate bool) {
+	t.Helper()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = exec.CommandContext(ctx, "tmux", "-L", "rk-test-relay-isomock", "kill-server").Run()
+	})
+	st := &stream{id: id, queue: make(chan outFrame, streamQueueDepth), closed: make(chan struct{})}
+	tc.streams[id] = st
+	tc.attachStream(openOp{Op: "open", ID: id, Server: "rk-test-relay-isomock", WindowID: windowID, Cols: 80, Rows: 24, Isolate: isolate}, st)
+}
+
+func TestOpenOp_IsolateDecodes(t *testing.T) {
+	var absent openOp
+	if err := json.Unmarshal([]byte(`{"op":"open","id":7,"windowId":"@42","cols":120,"rows":32}`), &absent); err != nil {
+		t.Fatal(err)
+	}
+	if absent.Isolate {
+		t.Error("absent isolate field must decode as false (back-compat)")
+	}
+	var present openOp
+	if err := json.Unmarshal([]byte(`{"op":"open","id":7,"windowId":"@42","isolate":true}`), &present); err != nil {
+		t.Fatal(err)
+	}
+	if !present.Isolate {
+		t.Error("isolate:true must decode as true")
+	}
+}
+
+func TestAttachStream_NonIsolatePicksHome(t *testing.T) {
+	ops := &mockTmuxOps{resolveWindowSessionResult: "home"}
+	tc := isoMockConn(ops)
+
+	driveAttachStream(t, tc, 1, "@42", false)
+
+	if ops.ensureIsoSessionCalled {
+		t.Error("non-isolated open must never call EnsureIsoSession")
+	}
+	if ops.resolveWindowSessionID != "@42" {
+		t.Errorf("ResolveWindowSession id = %q, want @42 (home resolution)", ops.resolveWindowSessionID)
+	}
+	if ops.selectWindowInSessionSession != "home" {
+		t.Errorf("SelectWindowInSession session = %q, want %q (home)", ops.selectWindowInSessionSession, "home")
+	}
+	// The attach child errors out on the test socket and is torn down here;
+	// regardless of that outcome, NO rollback kill may run — rollback is
+	// iso-only.
+	tc.teardown()
+	if called, name := ops.KillSessionWasCalled(); called {
+		t.Errorf("KillSession(%q) on a non-iso attach outcome — rollback must be iso-only", name)
+	}
+}
+
+func TestAttachStream_IsolateOnPinnedPicksPin(t *testing.T) {
+	pin, _ := tmux.PinSessionName("@42")
+	ops := &mockTmuxOps{hasSessionNames: map[string]bool{pin: true}}
+	tc := isoMockConn(ops)
+
+	driveAttachStream(t, tc, 1, "@42", true)
+	defer tc.teardown()
+
+	if ops.ensureIsoSessionCalled {
+		t.Error("a pinned window already isolates — EnsureIsoSession must never run for it")
+	}
+	if ops.selectWindowInSessionSession != pin {
+		t.Errorf("SelectWindowInSession session = %q, want pin-session %q", ops.selectWindowInSessionSession, pin)
+	}
+}
+
+func TestAttachStream_IsolateUnpinnedEnsuresIso(t *testing.T) {
+	ops := &mockTmuxOps{resolveWindowSessionResult: "home"}
+	tc := isoMockConn(ops)
+
+	driveAttachStream(t, tc, 1, "@42", true)
+	defer tc.teardown()
+
+	if !ops.ensureIsoSessionCalled || ops.ensureIsoSessionWindowID != "@42" {
+		t.Errorf("EnsureIsoSession called=%v windowID=%q, want (true, @42)", ops.ensureIsoSessionCalled, ops.ensureIsoSessionWindowID)
+	}
+	if ops.resolveWindowSessionID != "" {
+		t.Errorf("ResolveWindowSession called for an isolated open — the iso pick must not fall through to home resolution")
+	}
+	iso, _ := tmux.IsoSessionName("@42")
+	if ops.selectWindowInSessionSession != iso {
+		t.Errorf("SelectWindowInSession session = %q, want iso session %q", ops.selectWindowInSessionSession, iso)
+	}
+}
+
+// The attach-failure rollback decision: kill the iso session only when it has
+// zero attached clients (a failed attach never ran the destroy-unattached
+// chain, so a client-less session would leak) — and never under a shared
+// viewer or an unreadable probe.
+func TestRollbackIsoAttach(t *testing.T) {
+	iso, _ := tmux.IsoSessionName("@42")
+
+	t.Run("client-less iso session is killed", func(t *testing.T) {
+		ops := &mockTmuxOps{sessionClientCountResult: 0}
+		tc := isoMockConn(ops)
+		defer tc.teardown()
+		tc.rollbackIsoAttach("rk-test-relay-isomock", iso)
+		if called, name := ops.KillSessionWasCalled(); !called || name != iso {
+			t.Errorf("rollback kill = (%v, %q), want (true, %q)", called, name, iso)
+		}
+	})
+
+	t.Run("shared iso session survives", func(t *testing.T) {
+		ops := &mockTmuxOps{sessionClientCountResult: 1}
+		tc := isoMockConn(ops)
+		defer tc.teardown()
+		tc.rollbackIsoAttach("rk-test-relay-isomock", iso)
+		if called, name := ops.KillSessionWasCalled(); called {
+			t.Errorf("rollback killed %q with another viewer attached — a shared iso session must survive", name)
+		}
+	})
+
+	t.Run("probe failure leaves the session", func(t *testing.T) {
+		ops := &mockTmuxOps{sessionClientCountErr: errors.New("server gone")}
+		tc := isoMockConn(ops)
+		defer tc.teardown()
+		tc.rollbackIsoAttach("rk-test-relay-isomock", iso)
+		if called, name := ops.KillSessionWasCalled(); called {
+			t.Errorf("rollback killed %q on a failed client probe — unknown state must keep the session", name)
+		}
+	})
+}
+
+func TestAttachStream_IsolateEnsureFailureMissingWindow(t *testing.T) {
+	ops := &mockTmuxOps{ensureIsoSessionErr: errors.New(`window "@9999" not found`)}
+	tc := isoMockConn(ops)
+	defer close(tc.done)
+
+	driveAttachStream(t, tc, 1, "@9999", true)
+
+	if f := awaitControlClosed(t, tc, 1); f.Code != closeWindowNotFound {
+		t.Errorf("closed code = %d, want %d (4004 — the window is missing)", f.Code, closeWindowNotFound)
+	}
+	// Socket-level: the failure must be per-stream — the conn stays live.
+	select {
+	case <-tc.done:
+		t.Error("socket torn down for a per-stream ensure failure")
+	default:
+	}
+}
+
+// A pre-attach failure after a SUCCESSFUL ensure (select-window here) must
+// roll the ensured iso session back — the attach argv never ran, so
+// destroy-unattached was never chained and the client-less session would leak.
+func TestAttachStream_IsolateSelectFailureRollsBackIso(t *testing.T) {
+	iso, _ := tmux.IsoSessionName("@42")
+	ops := &mockTmuxOps{selectWindowInSessionErr: errors.New("window gone")}
+	tc := isoMockConn(ops)
+	defer close(tc.done)
+
+	driveAttachStream(t, tc, 1, "@42", true)
+
+	if f := awaitControlClosed(t, tc, 1); f.Code != closeWindowNotFound {
+		t.Errorf("closed code = %d, want %d (select-window failure maps to 4004)", f.Code, closeWindowNotFound)
+	}
+	if called, name := ops.KillSessionWasCalled(); !called || name != iso {
+		t.Errorf("rollback kill = (%v, %q), want (true, %q) — a pre-attach failure must not leak the ensured iso session", called, name, iso)
+	}
+}
+
+func TestAttachStream_IsolateEnsureFailureAttachClass(t *testing.T) {
+	ops := &mockTmuxOps{ensureIsoSessionErr: errors.New("create iso session: boom")}
+	tc := isoMockConn(ops)
+	defer close(tc.done)
+
+	driveAttachStream(t, tc, 1, "@42", true)
+
+	if f := awaitControlClosed(t, tc, 1); f.Code != closeAttachFailed {
+		t.Errorf("closed code = %d, want %d (4001 — ensure failure other than a missing window)", f.Code, closeAttachFailed)
+	}
+	select {
+	case <-tc.done:
+		t.Error("socket torn down for a per-stream ensure failure")
+	default:
+	}
+}
+
+func TestAttachArgv(t *testing.T) {
+	conf := tmux.ConfigPath()
+
+	home := attachArgv("default", "home", false)
+	wantTail := []string{"attach-session", "-t", "home"}
+	if len(home) < len(wantTail) || strings.Join(home[len(home)-len(wantTail):], " ") != strings.Join(wantTail, " ") {
+		t.Errorf("non-iso argv tail = %v, want %v (unchanged non-iso form)", home, wantTail)
+	}
+	for _, a := range home {
+		if a == ";" {
+			t.Errorf("non-iso argv %v carries the iso lifecycle chain", home)
+		}
+	}
+	if conf != "" && (len(home) < 2 || home[0] != "-f" || home[1] != conf) {
+		t.Errorf("default-server argv = %v, want no -L and the conf -f first", home)
+	}
+
+	iso, _ := tmux.IsoSessionName("@42")
+	got := attachArgv("srv", iso, true)
+	want := []string{"-L", "srv"}
+	if conf != "" {
+		want = append(want, "-f", conf)
+	}
+	want = append(want, "attach-session", "-t", iso, ";", "set-option", "-t", iso, "destroy-unattached", "on")
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("iso argv = %v, want %v", got, want)
+	}
+}
+
+// TestTerminals_IsolateFlagSurvivesTheWire pins the read-loop mapping: an
+// `isolate:true` JSON open op decoded through controlIn must reach attachStream
+// with Isolate set (the op is rebuilt field-by-field from the controlIn decode,
+// so a field present only on openOp would be silently dropped). Mock ops: the
+// ensure call itself is the assertion.
+func TestTerminals_IsolateFlagSurvivesTheWire(t *testing.T) {
+	ops := &mockTmuxOps{}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	router := NewTestRouter(logger, &mockSessionFetcher{}, ops, "test-host")
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = exec.CommandContext(ctx, "tmux", "-L", "rk-test-relay-isomock", "kill-server").Run()
+	})
+
+	conn := dialTerminals(t, ts)
+	defer conn.Close()
+
+	body, _ := json.Marshal(map[string]any{"op": "open", "id": 7, "server": "rk-test-relay-isomock", "windowId": "@42", "cols": 80, "rows": 24, "isolate": true})
+	if err := conn.WriteMessage(websocket.TextMessage, body); err != nil {
+		t.Fatalf("write open op: %v", err)
+	}
+	if !testutil.WaitUntil(t, 3*time.Second, func() bool {
+		called, _ := ops.EnsureIsoSessionWasCalled()
+		return called
+	}) {
+		t.Error("EnsureIsoSession never called — the isolate flag did not survive the wire decode")
+	}
+	if _, windowID := ops.EnsureIsoSessionWasCalled(); windowID != "@42" {
+		t.Errorf("EnsureIsoSession windowID = %q, want @42", windowID)
 	}
 }

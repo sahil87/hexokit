@@ -7,7 +7,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // the settings dialog's Shortcuts tab (the standalone overlay shell is
 // retired; ⇧CmdOrCtrl+/ on Win/Linux hosts, demoted to ⌘/ on mac, deep-links
 // into the one Settings dialog), click-to-capture rebinding persisted as diffs
-// to localStorage["runkit-keybindings"], palette `shortcut` hints sourced from
+// to localStorage["hexokit-keybindings"], palette `shortcut` hints sourced from
 // the effective map, and browser-reserved key inertness (Playwright is a plain
 // browser host, so the shifted N/T/W defaults resolve disabled while their
 // actions stay palette-reachable). Also covers the macOS ⌘-tier demotions via
@@ -48,7 +48,11 @@ import { mockStateSocket } from "./_state-socket-mock";
 // init-script getter override on Navigator.prototype.platform ("MacIntel") so
 // detectPlatform() resolves `mac` and the per-platform defaults demote to the
 // ⌘ tier; those chords are pressed as `Meta+<code>`, exercising the mac
-// terminal-seam refusal (metaKey-gated cmd-tier matches).
+// terminal-seam refusal (metaKey-gated cmd-tier matches). Because the stubbed
+// terminals socket never delivers the incoming window's first bytes, every
+// window switch arms the pending-switch mask (`.rk-window-switch-mask`) at
+// its ~300ms grace threshold — chords that land after it must survive the
+// mask's keyboard swallow.
 
 const SERVER = "default";
 
@@ -162,6 +166,35 @@ test.describe("shifted-tier window cycling", () => {
   });
 
   /**
+   * Proves: the tab-cycle chords still navigate while the pending-switch mask
+   * is up — the mask swallows terminal-bound keystrokes, but a registry chord
+   * the terminal refuses never reaches the pane and must pass through.
+   *
+   * Steps:
+   * 1. Mock the backend; open `/default/1`.
+   * 2. Press Shift+Ctrl+Down → URL is `/default/2`.
+   * 3. Wait for `.rk-window-switch-mask` to show (the stubbed socket never
+   *    confirms the switch, so the mask arms at its grace threshold).
+   * 4. Press Shift+Ctrl+Down → URL is `/default/3`.
+   * 5. Wait for the mask again; press Shift+Ctrl+Up → URL is `/default/2`.
+   */
+  test("tab-cycle chords pass through the pending-switch mask", async ({ page }) => {
+    await mockBackend(page);
+    await gotoWindowOne(page);
+    const mask = page.locator(".rk-window-switch-mask");
+
+    await page.keyboard.press("Shift+Control+ArrowDown");
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/2(?:$|[/?#])`));
+    await expect(mask).toBeVisible();
+    await page.keyboard.press("Shift+Control+ArrowDown");
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/3(?:$|[/?#])`));
+
+    await expect(mask).toBeVisible();
+    await page.keyboard.press("Shift+Control+ArrowUp");
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/2(?:$|[/?#])`));
+  });
+
+  /**
    * Proves: the flattened window step crosses a session boundary onto the
    * adjacent session's edge window, and the `session-next`/`session-prev`
    * bindings hop the adjacent session in sidebar order (wraparound), landing
@@ -265,7 +298,7 @@ test.describe("shortcuts overlay", () => {
    *    visible with the Shortcuts tab selected (`settings-shortcuts-panel`
    *    testid).
    * 2. Fill the filter with "waiting" → the "Next waiting agent" row remains,
-   *    the "New session" row is filtered out.
+   *    the "New group" row is filtered out.
    * 3. Press Shift+Ctrl+/ again (focus in the filter input) → the dialog
    *    closes.
    * 4. Reopen with the chord; press Escape → the dialog closes.
@@ -286,7 +319,7 @@ test.describe("shortcuts overlay", () => {
     // Filter narrows rows and hides empty groups.
     await page.getByLabel("Filter shortcuts").fill("waiting");
     await expect(panel.getByText("Next waiting agent")).toBeVisible();
-    await expect(panel.getByText("New session")).toHaveCount(0);
+    await expect(panel.getByText("New group")).toHaveCount(0);
 
     // The chord toggles the dialog closed even from the filter input
     // (`ignoreInputs`), then reopen and close via Escape.
@@ -368,7 +401,7 @@ test.describe("shortcuts overlay", () => {
   /**
    * Proves: clicking a row's combo arms capture, pressing a chord rebinds the
    * action, the override persists as a diff in
-   * `localStorage["runkit-keybindings"]`, and dispatch honors the override
+   * `localStorage["hexokit-keybindings"]`, and dispatch honors the override
    * (the new chord fires; the vacated default no longer does).
    *
    * Steps:
@@ -390,8 +423,8 @@ test.describe("shortcuts overlay", () => {
     await page.getByLabel("Change binding for Next tab").click();
     await page.keyboard.press("Shift+Control+KeyU");
 
-    // The diff persisted to localStorage["runkit-keybindings"].
-    const stored = await page.evaluate(() => localStorage.getItem("runkit-keybindings"));
+    // The diff persisted to localStorage["hexokit-keybindings"].
+    const stored = await page.evaluate(() => localStorage.getItem("hexokit-keybindings"));
     expect(JSON.parse(stored ?? "{}")).toEqual({
       "window-next": { code: "KeyU", tier: "shifted" },
     });
@@ -465,9 +498,10 @@ test.describe("tabbed settings dialog deep-links (260818-bncw)", () => {
    * 1. Open the dialog (Shift+Ctrl+,).
    * 2. Click the Appearance tab → it selects and the Theme mode group
    *    renders.
-   * 3. Focus the Appearance tab; press ArrowDown → Shortcuts selects and
-   *    takes focus.
-   * 4. Press ArrowDown again → All settings selects and takes focus (the
+   * 3. Focus the Appearance tab; press ArrowDown → Agents selects and takes
+   *    focus.
+   * 4. Press ArrowDown again → Shortcuts selects and takes focus.
+   * 5. Press ArrowDown again → All settings selects and takes focus (the
    *    registry-table tab is the rail's last entry).
    */
   test("tabs switch by pointer and by roving arrow keys", async ({ page }) => {
@@ -483,8 +517,11 @@ test.describe("tabbed settings dialog deep-links (260818-bncw)", () => {
     await expect(settingsDialog(page).getByRole("group", { name: "Theme mode" })).toBeVisible();
 
     // Roving arrow keys: ArrowDown from the focused tab activates the next —
-    // the rail order ends with the registry table: … Shortcuts, All settings.
+    // the rail order is General, Appearance, Agents, Shortcuts, All settings.
     await tab(page, "Appearance").focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(tab(page, "Agents")).toHaveAttribute("aria-selected", "true");
+    await expect(tab(page, "Agents")).toBeFocused();
     await page.keyboard.press("ArrowDown");
     await expect(tab(page, "Shortcuts")).toHaveAttribute("aria-selected", "true");
     await expect(tab(page, "Shortcuts")).toBeFocused();
@@ -641,17 +678,19 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
   });
 
   /**
-   * Proves: `create-session` spends no chord on any mac host — its mac-keyless
-   * default refinement leaves it unbound on both the shell and the browser —
-   * so neither ⌘N nor ⇧⌘N dispatches anything; the action stays palette-only.
+   * Proves: `create-session` rides ⌥⌘T on a mac host (the `optcmd` tier), so
+   * neither ⌘N nor ⇧⌘N dispatches anything, while ⌥⌘T opens the group name
+   * prompt.
    *
    * Steps:
    * 1. Spoof the mac platform; mock the backend plus a POST-tracking route on
    *    the sessions API route glob; open `/default/1`.
    * 2. Press Meta+N, then Shift+Meta+N.
-   * 3. Wait 300ms; assert no POST fired and the URL is unchanged.
+   * 3. Wait 300ms; assert no POST fired, the URL is unchanged and no dialog
+   *    is open.
+   * 4. Press Alt+Meta+T; assert the `New group` name dialog opens.
    */
-  test("⌘N and ⇧⌘N stay inert in a mac browser host (create-session palette-only)", async ({ page }) => {
+  test("⌘N/⇧⌘N stay inert and ⌥⌘T opens the group prompt in a mac browser host", async ({ page }) => {
     await spoofMacPlatform(page);
     await mockBackend(page);
     let created = false;
@@ -664,13 +703,15 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
     });
     await gotoWindowOne(page);
 
-    // create-session spends no chord on any mac host (a mac-keyless default)
-    // and reopen-window's ⇧⌘T is browser-reserved here — palette-only both.
     await page.keyboard.press("Meta+KeyN");
     await page.keyboard.press("Shift+Meta+KeyN");
     await page.waitForTimeout(300);
     expect(created).toBe(false);
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/1(?:$|[/?#])`));
+    await expect(page.getByRole("dialog", { name: "New group" })).toHaveCount(0);
+
+    await page.keyboard.press("Alt+Meta+KeyT");
+    await expect(page.getByRole("dialog", { name: "New group" })).toBeVisible();
   });
 
   /**
@@ -691,7 +732,7 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
 
     const sidebar = page.locator('aside[aria-label="Sidebar"]');
     const currentRow = page
-      .locator("nav[aria-label='Sessions']")
+      .locator("nav[aria-label='Groups']")
       .locator('[data-window-id] [aria-current="page"]');
     await expect(currentRow).toBeVisible();
 
@@ -882,7 +923,7 @@ test.describe("VS Code-aligned chrome chords (B / 2 / Backquote)", () => {
     await gotoWindowOne(page);
 
     const currentRow = page
-      .locator("nav[aria-label='Sessions']")
+      .locator("nav[aria-label='Groups']")
       .locator('[data-window-id] [aria-current="page"]');
     await expect(currentRow).toBeVisible();
 

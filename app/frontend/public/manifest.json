@@ -1,6 +1,6 @@
 {
-  "name": "RunKit",
-  "short_name": "RunKit",
+  "name": "HexoKit",
+  "short_name": "HexoKit",
   "description": "Web-based agent orchestration dashboard",
   "start_url": "/",
   "display": "standalone",

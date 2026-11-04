@@ -57,7 +57,7 @@ function deriveServiceRows(sessions: ProjectSession[]): ServiceRow[] {
 }
 
 /**
- * The run-kit system card — the daemon read as a SYSTEM surface (mounted inside
+ * The HexoKit system card — the daemon read as a SYSTEM surface (mounted inside
  * the host page's HOST HEALTH zone): a daemon line (version / uptime / port)
  * with the Restart service verb, and one row per daemon-hosted sibling service
  * (jobs, code-server, remotes) with live status + a View deep-link to that
@@ -71,7 +71,7 @@ function deriveServiceRows(sessions: ProjectSession[]): ServiceRow[] {
  * "3d 4h" granularity needs no ticking interval).
  *
  * Restart fires immediately via the context's restartNow() — the same seam the
- * kill dialog's Restart primary and the palette's `run-kit: Restart Daemon`
+ * kill dialog's Restart primary and the palette's `HexoKit: Restart Daemon`
  * entry use (no second restart implementation, no new palette entry). The
  * socket drop + reconnect drives the reload guard; a rejection (the backend
  * 409s a dev build) surfaces as a toast — the kill dialog's Restart precedent.
@@ -89,12 +89,12 @@ export function SystemCard() {
 
   return (
     <div
-      aria-label="run-kit system"
+      aria-label="HexoKit system"
       className="bg-bg-card border border-border rounded p-3 mb-2 text-xs font-mono flex flex-col gap-1"
     >
       {/* Daemon line: version / uptime / port + the Restart service verb. */}
       <div className="flex items-center gap-[1ch]">
-        <span className="text-text-primary shrink-0">run-kit</span>
+        <span className="text-text-primary shrink-0">HexoKit</span>
         <span className="text-text-secondary truncate">
           {daemonVersion ? `v${daemonVersion}` : "v…"}
           {uptime !== null && ` · up ${uptime}`}
@@ -104,7 +104,7 @@ export function SystemCard() {
           type="button"
           onClick={() =>
             void restartNow().catch((err: unknown) => {
-              addToast(err instanceof Error ? err.message : "Failed to restart run-kit");
+              addToast(err instanceof Error ? err.message : "Failed to restart HexoKit");
             })
           }
           className="ml-auto shrink-0 border border-border rounded px-1.5 text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors"

@@ -64,7 +64,7 @@ HexoKit must be fully usable on a phone. This is a primary use case, not an afte
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ ☰  run-kit / zsh          {logo} Run Kit ● ⇔ ⌘K  >_           │  ← top bar (border-b)
+│ ☰  run-kit / zsh          {logo} HexoKit ● ⇔ ⌘K  >_           │  ← top bar (border-b)
 ├────────────┬─────────────────────────────────────────────────────┤
 │ Sessions   │                                                     │
 │            │                                                     │
@@ -180,7 +180,7 @@ Single line with left-aligned navigation and right-aligned branding + controls.
 ```
 Desktop:
 ┌──────────────────────────────────────────────────────────────────┐
-│ ☰  run-kit / zsh              {logo} Run Kit  ●  ⇔  ⌘K  >_    │
+│ ☰  run-kit / zsh              {logo} HexoKit  ●  ⇔  ⌘K  >_    │
 └──────────────────────────────────────────────────────────────────┘
 
 Mobile:
@@ -200,8 +200,8 @@ The breadcrumb dropdowns are the **primary quick-navigation** mechanism. They av
 
 **Right section — Branding + Controls**
 
-- `{logo}` — RunKit hex logo SVG (decorative, not a button)
-- `Run Kit` — product name text, `text-text-secondary`, `text-xs`
+- `{logo}` — HexoKit hex logo SVG (decorative, not a button)
+- `HexoKit` — product name text, `text-text-secondary`, `text-xs`
 - `●` — green/gray connection dot. No text label — the dot color alone signals live (green) or disconnected (gray)
 - `⇔` — fixed-width toggle (unchanged)
 - `⌘K` — command palette trigger (desktop only, `hidden sm:inline-flex`). Clickable — dispatches `palette:open` event.

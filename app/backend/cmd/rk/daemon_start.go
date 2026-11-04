@@ -39,7 +39,10 @@ and surfaces the port-probe refusal if another process holds the port.
 
 With --force, on a port-in-use refusal: locates the port owner via lsof/ss and
 SIGTERMs it (with graceful-then-forceful escalation), then retries the start.
-Refuses to --force-kill the run-kit daemon itself.`,
+Refuses to --force-kill the run-kit daemon itself.
+
+The daemon resolves its port from config.yaml ('port:') plus RK_PORT at start
+time, so editing either and running 'run-kit daemon restart' moves it.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		force, _ := cmd.Flags().GetBool("force")
 

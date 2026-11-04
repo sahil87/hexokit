@@ -24,8 +24,8 @@ import { mockStateSocket } from "./_state-socket-mock";
 // the mocked spawn "creates", present in the static snapshot from the start
 // so post-spawn navigation confirms instead of tripping the switch-confirm
 // watchdog. `gotoWindowOne(page)` navigates to `/default/1` gated on
-// "win-one"; `seedMacro(page, macro, code)` pre-seeds the `runkit-macros` /
-// `runkit-keybindings` localStorage stores before page load. Chords are
+// "win-one"; `seedMacro(page, macro, code)` pre-seeds the `hexokit-macros` /
+// `hexokit-keybindings` localStorage stores before page load. Chords are
 // pressed as Shift+Control+<code> — the registry matches on
 // KeyboardEvent.code and accepts Ctrl in place of Meta on every platform.
 
@@ -118,9 +118,9 @@ async function gotoWindowOne(page: Page) {
 function seedMacro(page: Page, macro: Record<string, unknown>, code: string) {
   return page.addInitScript(
     ([m, c]) => {
-      localStorage.setItem("runkit-macros", JSON.stringify([m]));
+      localStorage.setItem("hexokit-macros", JSON.stringify([m]));
       localStorage.setItem(
-        "runkit-keybindings",
+        "hexokit-keybindings",
         JSON.stringify({ [(m as { actionId: string }).actionId]: { code: c, tier: "shifted" } }),
       );
     },
@@ -142,8 +142,8 @@ test.describe("overlay add-macro flow", () => {
    * 3. Search targets for "discuss"; pick `riff: discuss`; the name input
    *    pre-fills with the target label; click `add + capture key`.
    * 4. Capture arms on the fresh row (`press keys…`); press Shift+Ctrl+D.
-   * 5. Assert `runkit-macros` holds the definition (`macro:riff-discuss` →
-   *    preset `discuss`) and `runkit-keybindings` holds
+   * 5. Assert `hexokit-macros` holds the definition (`macro:riff-discuss` →
+   *    preset `discuss`) and `hexokit-keybindings` holds
    *    `{code: "KeyD", tier: "shifted"}`; the row shows the preview
    *    `rk riff --preset discuss`.
    * 6. Escape closes the dialog; press Shift+Ctrl+D.
@@ -172,9 +172,9 @@ test.describe("overlay add-macro flow", () => {
     await page.keyboard.press("Shift+Control+KeyD");
 
     // Definition + combo persisted to their two stores.
-    const storedMacros = await page.evaluate(() => localStorage.getItem("runkit-macros"));
+    const storedMacros = await page.evaluate(() => localStorage.getItem("hexokit-macros"));
     expect(JSON.parse(storedMacros ?? "[]")).toEqual([DISCUSS_MACRO]);
-    const storedBindings = await page.evaluate(() => localStorage.getItem("runkit-keybindings"));
+    const storedBindings = await page.evaluate(() => localStorage.getItem("hexokit-keybindings"));
     expect(JSON.parse(storedBindings ?? "{}")).toEqual({
       "macro:riff-discuss": { code: "KeyD", tier: "shifted" },
     });

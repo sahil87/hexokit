@@ -23,7 +23,7 @@ import (
 
 // rk code — the shell side of the rk-code-bridge channel: the code-server
 // extension (installed by rk code-server install) serves one same-user Unix
-// socket per open folder and registers a host record under the run-kit state
+// socket per open folder and registers a host record under the hexokit state
 // dir; these verbs resolve a host and speak NDJSON to it. The registry is a
 // discovery hint only — liveness is re-derived on every call
 // (internal/codebridge.LiveHosts), never cached (Constitution II).
@@ -243,8 +243,8 @@ func codeRequestID() string {
 	return hex.EncodeToString(b[:])
 }
 
-// codeLiveHosts enumerates the live hosts, printing a prune notice per dead
-// record (Notef — chatter; --quiet drops it).
+// codeLiveHosts enumerates the live hosts from the resolved cb hosts dir,
+// printing a prune notice per dead record (Notef — chatter; --quiet drops it).
 func codeLiveHosts(ctx context.Context, sink outputSink) ([]codebridge.HostRecord, error) {
 	dir, err := codebridge.HostsDir()
 	if err != nil {

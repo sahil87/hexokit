@@ -2,11 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useRouter } from "@tanstack/react-router";
 import { useBoardEntries, useBoards } from "@/hooks/use-boards";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useSplitPane } from "@/hooks/use-split-pane";
 import { usePaneWidths, BOARD_PANE_DEFAULT_WIDTH } from "@/hooks/use-pane-widths";
 import { useBoardAutofit } from "@/hooks/use-board-autofit";
 import { usePinActions } from "@/hooks/use-pin-actions";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
-import { useOptimisticContext } from "@/contexts/optimistic-context";
+import { useCreateGroup } from "@/hooks/use-create-group";
+import { useCreateTab } from "@/hooks/use-create-tab";
+import { useNewSheet } from "@/contexts/new-sheet-context";
 import { useSessionContext } from "@/contexts/session-context";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
@@ -20,7 +23,7 @@ import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
 import { useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { useRegisterFocusedPane } from "@/contexts/focused-pane-context";
-import { createSession, createWindow as createWindowApi, splitWindow, killWindow } from "@/api/client";
+import { createWindow as createWindowApi, killWindow } from "@/api/client";
 import { setBoardOrder } from "@/api/boards";
 import { computeMoveOrder } from "@/lib/palette/move";
 import { Dialog } from "@/components/dialog";
@@ -113,29 +116,15 @@ function BoardPageContent({ name }: { name: string }) {
   // `shortcuts-overlay` resolution below.
   const ctx = useSessionContext();
   const { addToast } = useToast();
-  const { addGhostSession, removeGhost } = useOptimisticContext();
-  const { openCreateServer, requestKillServer } = useServerDialogs();
+  const { requestKillServer } = useServerDialogs();
   // The `shortcuts-overlay` chord resolves the layout-level global entry
   // (260811-239r, R12) — via the globals-ONLY channel, which never changes in
   // response to this route's own registration (no render loop; see
   // palette-actions-context.tsx).
   const paletteGlobals = usePaletteGlobals();
-  const ghostSessionIdRef = useRef<string | null>(null);
-
-  const { execute: executeCreateSession } = useOptimisticAction<[string, string, string | undefined]>({
-    action: (srv, sessName, cwd) => createSession(srv, sessName, cwd),
-    onOptimistic: (srv, sessName) => {
-      ghostSessionIdRef.current = addGhostSession(srv, sessName);
-    },
-    onRollback: () => {
-      if (ghostSessionIdRef.current) {
-        removeGhost(ghostSessionIdRef.current);
-        ghostSessionIdRef.current = null;
-      }
-    },
-    onError: (err) => addToast(err.message || "Failed to create session"),
-    onSettled: () => { ghostSessionIdRef.current = null; },
-  });
+  const { createGroup } = useCreateGroup();
+  const createTab = useCreateTab();
+  const { openNewSheet } = useNewSheet();
 
   const { execute: executeCreateWindow } = useOptimisticAction<[string, string]>({
     action: (srv, sess) => createWindowApi(srv, sess),
@@ -160,9 +149,9 @@ function BoardPageContent({ name }: { name: string }) {
         candidate = `${base}-${i++}`;
         if (i > 99) break;
       }
-      executeCreateSession(srv, candidate, undefined);
+      createGroup(srv, candidate, undefined);
     },
-    [executeCreateSession],
+    [createGroup],
   );
 
   const handleCreateWindow = useCallback(
@@ -448,17 +437,15 @@ function BoardPageContent({ name }: { name: string }) {
   // hidden, so the layout palette is still a phone board user's only update
   // surface, now without the twin.
 
-  // Palette-surface split/close executors (Constitution V; 260715-6jwn). Mirror
-  // the terminal palette's wiring (app.tsx — useOptimisticAction-wrapped
-  // splitWindow/closePane with error toasts). Declared ABOVE `boardRouteActions`
+  // Palette-surface split/close executors (Constitution V). Split
+  // is the shared `useSplitPane`; close mirrors the terminal palette's wiring
+  // (app.tsx — useOptimisticAction-wrapped closePane with an error toast).
+  // Declared ABOVE `boardRouteActions`
   // so the memo can list them in its dep array. The board palette mirrors the
   // terminal PALETTE's `horizontal` mapping (Vertical → horizontal: true), a
   // pre-existing top-bar-chip-vs-palette divergence left out of scope. Close
   // schedules a self-heal refetch (`onSettled`) like the top-bar ✕.
-  const { execute: executeSplit } = useOptimisticAction<[string, string, boolean, string | undefined]>({
-    action: (srv, windowId, horizontal, cwd) => splitWindow(srv, windowId, horizontal, cwd),
-    onError: (err) => addToast(err.message || "Failed to split pane"),
-  });
+  const { split: executeSplit } = useSplitPane();
 
   // The focused tile's kill/split target — the SINGLE source of truth for the
   // focused window shared by the top-bar SplitControl + Kill-row slot AND the three
@@ -597,6 +584,47 @@ function BoardPageContent({ name }: { name: string }) {
         onSelect: toggleAutofit,
       },
     ];
+
+    // Create actions keyed to the FOCUSED pane — the board has no current
+    // window, so the New split button's rows resolve here by the same ids the
+    // terminal route registers. The group is the focused window's session,
+    // read at call time so the SSE tick never churns this list. Only the
+    // instant group create is registered: the name-prompt `create-session`
+    // dialog mounts in AppShell, not here.
+    if (focusedPane) {
+      const groupOfFocused = () =>
+        (sessionsByServerRef.current.get(focusedPane.server) ?? []).find((s) =>
+          s.windows.some((w) => w.windowId === focusedPane.windowId),
+        )?.name;
+      conditional.push(
+        {
+          id: "create-window",
+          label: "Tab: Create",
+          onSelect: () => {
+            const group = groupOfFocused();
+            if (group) createTab(focusedPane.server, group, focusedPane.cwd);
+          },
+        },
+        {
+          id: "create-window-at-folder",
+          label: "Tab: Create at Folder",
+          onSelect: () => {
+            const group = groupOfFocused();
+            if (group) openNewSheet({ level: "tab", server: focusedPane.server, group });
+          },
+        },
+        {
+          id: "create-session-instant",
+          label: "Group: Create Instantly",
+          onSelect: () => handleCreateSession(focusedPane.server),
+        },
+        {
+          id: "create-session-at-folder",
+          label: "Group: Create at Folder",
+          onSelect: () => openNewSheet({ level: "group", server: focusedPane.server }),
+        },
+      );
+    }
 
     // Board: Move up/down — reorder the CURRENT board within the board list,
     // built on the same `computeMoveOrder` helper + boundary-hidden / no-wraparound
@@ -760,7 +788,7 @@ function BoardPageContent({ name }: { name: string }) {
       bindingByAction,
       bindingHost.platform,
     );
-  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpinFocused, requestKillFocused, focusedPane, reorderWithFollow, executeSplit, navigate, addToast, bindingByAction, bindingHost]);
+  }, [boards, name, entries, focusedIndex, autofit, toggleAutofit, unpinFocused, requestKillFocused, focusedPane, reorderWithFollow, executeSplit, navigate, addToast, bindingByAction, bindingHost, createTab, openNewSheet, handleCreateSession]);
   // Publish this route's (already shortcut-decorated) list into the
   // palette-actions slot — the single layout-mounted CommandPalette renders
   // `[...routeActions, ...globalActions]`; cleared on unmount so the next
@@ -886,7 +914,6 @@ function BoardPageContent({ name }: { name: string }) {
         server: "",
         onNavigate: () => {},
         onToggleSidebar,
-        onCreateWindow: () => {},
         paneCount: entries.length,
         serverCount,
         waitingPaneCount,
@@ -975,7 +1002,6 @@ function BoardPageContent({ name }: { name: string }) {
       onSelectWindow={handleSelectWindow}
       onCreateWindow={handleCreateWindow}
       onCreateSession={handleCreateSession}
-      onCreateServer={openCreateServer}
       onKillServer={requestKillServer}
     />
   );
@@ -1117,7 +1143,7 @@ function BoardPageContent({ name }: { name: string }) {
           <p className="text-text-secondary mb-2.5">
             {killTarget.home ? (
               <>
-                This closes it everywhere — including session <strong>{killTarget.home}</strong>.
+                This closes it everywhere — including group <strong>{killTarget.home}</strong>.
               </>
             ) : (
               <>This closes the tab everywhere.</>

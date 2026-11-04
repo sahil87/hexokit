@@ -6,17 +6,17 @@ import type { ProjectSession } from "@/types";
  * tile, palette `Server: Switch to`, Host page tile) reopen the remembered
  * window instead of dropping on the session-tiles overview.
  *
- * Per-client only (Constitution II — no backend persistence); the `runkit-*`
+ * Per-client only (Constitution II — no backend persistence); the `hexokit-*`
  * key family mirrors the other navigation/preference keys
- * (`runkit-last-pinned-board`, `runkit-open-last-used`). The stored value is
+ * (`hexokit-last-pinned-board`, `hexokit-open-last-used`). The stored value is
  * the canonical `@N` window id — the URL-segment `N` form is a router-codec
  * concern (`lib/router-url.ts`), never stored here. Reads/writes are
  * best-effort with the try/catch-noop pattern from `lib/window-view.ts` so
  * private mode / quota / SSR never throw.
  */
-export const LAST_WINDOW_KEY_PREFIX = "runkit-last-window:";
+export const LAST_WINDOW_KEY_PREFIX = "hexokit-last-window:";
 
-/** Per-server storage key: `runkit-last-window:{server}`. */
+/** Per-server storage key: `hexokit-last-window:{server}`. */
 export function lastWindowStorageKey(server: string): string {
   return `${LAST_WINDOW_KEY_PREFIX}${server}`;
 }

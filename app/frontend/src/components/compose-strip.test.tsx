@@ -169,7 +169,7 @@ describe("ComposeStrip", () => {
     // The surface always mounts; the preference picks expanded vs. tongue.
     // These tests exercise the expanded body, so seed the preference ON after
     // the clear (ChromeProvider reads it at mount).
-    localStorage.setItem("runkit-compose-strip", "true");
+    localStorage.setItem("hexokit-compose-strip", "true");
     // Same for the sibling sent-history store — a leftover history would make
     // an ↑ recall in a fresh test see a prior test's sends.
     hydrateComposeSentHistory();
@@ -864,7 +864,7 @@ describe("ComposeStrip", () => {
   }
 
   it("focuses the textarea on the open transition (toggle off→on)", () => {
-    localStorage.setItem("runkit-compose-strip", "false");
+    localStorage.setItem("hexokit-compose-strip", "false");
     render(<ToggleHarness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
     expect(screen.queryByTestId("compose-strip-input")).toBeNull();
@@ -873,7 +873,7 @@ describe("ComposeStrip", () => {
   });
 
   it("open in the no-target state takes no focus and clears the flag (no stale steal later)", () => {
-    localStorage.setItem("runkit-compose-strip", "false");
+    localStorage.setItem("hexokit-compose-strip", "false");
     render(<ToggleHarness focus={null} />);
     // Open with no focused terminal: the no-target tongue shows, no textarea.
     act(() => fireEvent.click(screen.getByTestId("toggle-strip")));
@@ -1275,7 +1275,7 @@ describe("ComposeStrip", () => {
   it("the header-row × closes the strip via toggleComposeStrip; the draft survives close→reopen", () => {
     // Seed the preference ON so the gated strip mounts (readComposeStrip reads
     // localStorage at provider mount).
-    localStorage.setItem("runkit-compose-strip", "true");
+    localStorage.setItem("hexokit-compose-strip", "true");
     const first = render(<GatedHarness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
 
@@ -1289,13 +1289,13 @@ describe("ComposeStrip", () => {
     act(() => fireEvent.click(close));
     expect(screen.queryByTestId("compose-strip-input")).toBeNull();
     expect(screen.getByTestId("compose-tongue")).toHaveTextContent("Compose");
-    expect(localStorage.getItem("runkit-compose-strip")).toBe("false");
+    expect(localStorage.getItem("hexokit-compose-strip")).toBe("false");
 
     // …and reopening (same toggle, e.g. the `>_` chip) restores the strip with
     // the same target's draft intact — closing is lossless, no confirmation
     // needed (drafts are keyed by target, so the same focus recalls it).
     first.unmount();
-    localStorage.setItem("runkit-compose-strip", "true");
+    localStorage.setItem("hexokit-compose-strip", "true");
     render(<GatedHarness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
     expect(input().value).toBe("before-close");
@@ -1304,7 +1304,7 @@ describe("ComposeStrip", () => {
   it("the `a|` chip beside attach closes the strip via the same toggle path (260814-ldbs R7)", () => {
     // The opener/closer family: with the fine-pointer bottom bar gone, the
     // status bar's `a` hint opens the strip and this in-strip `a|` closes it.
-    localStorage.setItem("runkit-compose-strip", "true");
+    localStorage.setItem("hexokit-compose-strip", "true");
     render(<GatedHarness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
 
@@ -1319,7 +1319,7 @@ describe("ComposeStrip", () => {
     act(() => fireEvent.click(aClose));
     expect(screen.queryByTestId("compose-strip-input")).toBeNull();
     expect(screen.getByTestId("compose-tongue")).toHaveTextContent("Compose");
-    expect(localStorage.getItem("runkit-compose-strip")).toBe("false");
+    expect(localStorage.getItem("hexokit-compose-strip")).toBe("false");
   });
 
   it("the × does not steal focus (mousedown is default-prevented)", () => {
@@ -2298,7 +2298,7 @@ describe("ComposeStrip", () => {
     // focus-on-open already focused the textarea, and no new focus event fires
     // for the still-focused element — the mount-time sync from
     // document.activeElement is what re-publishes the flag.
-    localStorage.setItem("runkit-compose-strip", "false");
+    localStorage.setItem("hexokit-compose-strip", "false");
     render(
       <StrictMode>
         <ToggleHarness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
@@ -2341,7 +2341,7 @@ describe("ComposeStrip window send path", () => {
     // The surface always mounts; the preference picks expanded vs. tongue.
     // These tests exercise the expanded body, so seed the preference ON after
     // the clear (ChromeProvider reads it at mount).
-    localStorage.setItem("runkit-compose-strip", "true");
+    localStorage.setItem("hexokit-compose-strip", "true");
     hydrateComposeSentHistory();
     stubPointer(false);
     sendToWindowMock.mockReset();
@@ -2564,7 +2564,7 @@ describe("ComposeStrip operator chat lane", () => {
     // The surface always mounts; the preference picks expanded vs. tongue.
     // These tests exercise the expanded body, so seed the preference ON after
     // the clear (ChromeProvider reads it at mount).
-    localStorage.setItem("runkit-compose-strip", "true");
+    localStorage.setItem("hexokit-compose-strip", "true");
     hydrateComposeSentHistory();
     stubPointer(false);
     setOperatorChatSubject(null);
@@ -2692,7 +2692,7 @@ describe("ComposeStrip collapsed tongue", () => {
     addToastMock.mockReset();
     stubPointer(false);
     // The preference is ON by default; the tongue is the explicit opt-out.
-    localStorage.setItem("runkit-compose-strip", "false");
+    localStorage.setItem("hexokit-compose-strip", "false");
   });
   afterEach(() => {
     cleanup();
@@ -2761,7 +2761,7 @@ describe("ComposeStrip collapsed tongue", () => {
     });
     expect(notPrevented).toBe(false);
     act(() => fireEvent.click(tongue));
-    expect(localStorage.getItem("runkit-compose-strip")).toBe("true");
+    expect(localStorage.getItem("hexokit-compose-strip")).toBe("true");
     expect(screen.queryByTestId("compose-tongue")).toBeNull();
     expect(document.activeElement).toBe(input());
   });
@@ -2784,7 +2784,7 @@ describe("ComposeStrip collapsed tongue", () => {
   });
 
   it("preference on + selection target renders the broadcast card (a target)", () => {
-    localStorage.setItem("runkit-compose-strip", "true");
+    localStorage.setItem("hexokit-compose-strip", "true");
     render(
       <ChromeProvider>
         <FocusedTerminalProvider>
@@ -2803,7 +2803,7 @@ describe("ComposeStrip collapsed tongue", () => {
   });
 
   it("the draft survives collapse → expand through the tongue", () => {
-    localStorage.setItem("runkit-compose-strip", "true");
+    localStorage.setItem("hexokit-compose-strip", "true");
     render(<TongueHarness focus={FOCUS} />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
     act(() => fireEvent.change(input(), { target: { value: "half-typed" } }));
@@ -2872,7 +2872,7 @@ describe("ComposeStrip default-on notice", () => {
     const [message, variant] = addToastMock.mock.calls[0];
     expect(variant).toBe("info");
     expect(message).toMatch(/^Compose is on by default — .+ hides it$/);
-    expect(localStorage.getItem("runkit-compose-default-notice")).toBe("1");
+    expect(localStorage.getItem("hexokit-compose-default-notice")).toBe("1");
   });
 
   it("names the platform chord through the registry seam", () => {
@@ -2897,20 +2897,20 @@ describe("ComposeStrip default-on notice", () => {
   });
 
   it("is silent once the sentinel exists", () => {
-    localStorage.setItem("runkit-compose-default-notice", "1");
+    localStorage.setItem("hexokit-compose-default-notice", "1");
     render(<Harness />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
     expect(addToastMock).not.toHaveBeenCalled();
   });
 
   it("is silent for a stored preference, on or off", () => {
-    localStorage.setItem("runkit-compose-strip", "true");
+    localStorage.setItem("hexokit-compose-strip", "true");
     render(<Harness />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
     expect(addToastMock).not.toHaveBeenCalled();
-    expect(localStorage.getItem("runkit-compose-default-notice")).toBeNull();
+    expect(localStorage.getItem("hexokit-compose-default-notice")).toBeNull();
     cleanup();
-    localStorage.setItem("runkit-compose-strip", "false");
+    localStorage.setItem("hexokit-compose-strip", "false");
     render(<Harness />);
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
     expect(addToastMock).not.toHaveBeenCalled();
@@ -2919,7 +2919,7 @@ describe("ComposeStrip default-on notice", () => {
   it("is silent on the operator page's forced mount", () => {
     render(<Harness forceExpanded />);
     expect(addToastMock).not.toHaveBeenCalled();
-    expect(localStorage.getItem("runkit-compose-default-notice")).toBeNull();
+    expect(localStorage.getItem("hexokit-compose-default-notice")).toBeNull();
   });
 
   it("StrictMode's effect replay shows it once", () => {
@@ -2942,7 +2942,7 @@ describe("ComposeStrip Escape hand-off", () => {
   });
 
   it("Escape blurs the textarea, keeps the strip, and calls the mount's terminal focuser", () => {
-    localStorage.setItem("runkit-compose-strip", "true");
+    localStorage.setItem("hexokit-compose-strip", "true");
     const onEscapeToTerminal = vi.fn();
     render(
       <ChromeProvider>

@@ -3,8 +3,14 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
+
+	"rk/internal/portpolicy"
+	"rk/internal/settings"
 )
 
 // NOTE (tmux safety): these tests never start, attach to, or kill any tmux
@@ -39,10 +45,13 @@ func stubOriginSeams(t *testing.T, tmuxEnv, optionValue string, optionErr error)
 }
 
 func TestResolveOrigin(t *testing.T) {
+	defaultOrigin := fmt.Sprintf("http://127.0.0.1:%d", portpolicy.DaemonDefault)
 	cases := []struct {
 		name string
 		// env
 		rkHost, rkPort string
+		// config.yaml content (empty = no file); isolated via RK_CONFIG_DIR
+		configContent string
 		// pane state
 		tmuxEnv     string
 		optionValue string
@@ -64,7 +73,7 @@ func TestResolveOrigin(t *testing.T) {
 			rkHost:      "10.0.0.1",
 			tmuxEnv:     originTestSocket + ",1234,0",
 			optionValue: "http://127.0.0.1:3001\n",
-			want:        "http://10.0.0.1:3000",
+			want:        fmt.Sprintf("http://10.0.0.1:%d", portpolicy.DaemonDefault),
 			wantPrefix:  nil,
 		},
 		{
@@ -85,49 +94,66 @@ func TestResolveOrigin(t *testing.T) {
 			name:        "unset option falls through to default",
 			tmuxEnv:     originTestSocket + ",1234,0",
 			optionErr:   errors.New("exit status 1: invalid option"),
-			want:        "http://127.0.0.1:3000",
+			want:        defaultOrigin,
 			wantPrefix:  []string{"-S", originTestSocket, "show-option", "-sv", "@rk_srv_origin"},
 		},
 		{
 			name:        "empty option falls through to default",
 			tmuxEnv:     originTestSocket + ",1234,0",
 			optionValue: "\n",
-			want:        "http://127.0.0.1:3000",
+			want:        defaultOrigin,
 			wantPrefix:  []string{"-S", originTestSocket, "show-option", "-sv", "@rk_srv_origin"},
 		},
 		{
 			name:        "malformed option falls through to default",
 			tmuxEnv:     originTestSocket + ",1234,0",
 			optionValue: "not a url\n",
-			want:        "http://127.0.0.1:3000",
+			want:        defaultOrigin,
 			wantPrefix:  []string{"-S", originTestSocket, "show-option", "-sv", "@rk_srv_origin"},
 		},
 		{
 			name:        "hostile scheme rejected",
 			tmuxEnv:     originTestSocket + ",1234,0",
 			optionValue: "javascript:alert(1)\n",
-			want:        "http://127.0.0.1:3000",
+			want:        defaultOrigin,
 			wantPrefix:  []string{"-S", originTestSocket, "show-option", "-sv", "@rk_srv_origin"},
 		},
 		{
 			name:        "empty host rejected",
 			tmuxEnv:     originTestSocket + ",1234,0",
 			optionValue: "http://\n",
-			want:        "http://127.0.0.1:3000",
+			want:        defaultOrigin,
 			wantPrefix:  []string{"-S", originTestSocket, "show-option", "-sv", "@rk_srv_origin"},
 		},
 		{
 			name:        "path/query/fragment rejected (not an origin)",
 			tmuxEnv:     originTestSocket + ",1234,0",
 			optionValue: "http://127.0.0.1:3001/\n",
-			want:        "http://127.0.0.1:3000",
+			want:        defaultOrigin,
 			wantPrefix:  []string{"-S", originTestSocket, "show-option", "-sv", "@rk_srv_origin"},
 		},
 		{
 			name:       "no $TMUX falls through with zero subprocess calls",
 			tmuxEnv:    "",
-			want:       "http://127.0.0.1:3000",
+			want:       defaultOrigin,
 			wantPrefix: nil,
+		},
+		{
+			// A config.yaml port is not explicit env: it must not jump rung 1,
+			// and the covering server's stamp stays above it.
+			name:          "config.yaml port never jumps the option",
+			configContent: "port: 4000\n",
+			tmuxEnv:       originTestSocket + ",1234,0",
+			optionValue:   "http://127.0.0.1:3001\n",
+			want:          "http://127.0.0.1:3001",
+			wantPrefix:    []string{"-S", originTestSocket, "show-option", "-sv", "@rk_srv_origin"},
+		},
+		{
+			name:          "config.yaml port flows into the fallback",
+			configContent: "port: 4000\n",
+			tmuxEnv:       "",
+			want:          "http://127.0.0.1:4000",
+			wantPrefix:    nil,
 		},
 	}
 
@@ -135,6 +161,15 @@ func TestResolveOrigin(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("RK_HOST", tc.rkHost)
 			t.Setenv("RK_PORT", tc.rkPort)
+			// Isolate the settings root so the developer's real config.yaml
+			// (and its port key) never leaks into config.Load.
+			configDir := t.TempDir()
+			if tc.configContent != "" {
+				if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(tc.configContent), 0o644); err != nil {
+					t.Fatalf("writing config.yaml: %v", err)
+				}
+			}
+			t.Setenv(settings.ConfigDirEnv, configDir)
 			calls := stubOriginSeams(t, tc.tmuxEnv, tc.optionValue, tc.optionErr)
 
 			got := resolveOrigin(context.Background())

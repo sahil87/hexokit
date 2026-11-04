@@ -51,7 +51,7 @@ height, viewers, wm}]`) so per-session displays can land later without reshaping
  browser tile (GuiSurface: noVNC RFB → <canvas>)         state stream: gui[{id:"host", enabled, backend, reachable, display, width, height, viewers, wm}]
         │  wss  /ws/gui/host                                      ▲
         ▼                                                         │ probe (dial socket, TTL-cached like codeServerReachable; skipped while a relay viewer is live)
- rk daemon ── WS⇄stream relay (api/gui_ws.go, sibling of terminals_ws.go) ── Linux: unix  $XDG_STATE_HOME/run-kit/gui/host.sock
+ rk daemon ── WS⇄stream relay (api/gui_ws.go, sibling of terminals_ws.go) ── Linux: unix  $XDG_STATE_HOME/hexokit/gui/host.sock
         │                                                                  └─ macOS: tcp 127.0.0.1:5900 (Apple Screen Sharing)
         │ GET /api/gui/{id} (the status document: reason, apps, uptime_seconds)
         │ POST /api/gui/{id}/restart; on/off via POST /api/settings {"gui.enabled": …}
@@ -86,7 +86,7 @@ after 5 s — because signalling only the `dbus-run-session` child orphans
 `dbus-daemon` and the whole session.
 
 For the icewm rung the supervisor seeds a private profile at
-`$XDG_STATE_HOME/run-kit/gui/icewm/` (dir 0700, files 0600), passed as
+`$XDG_STATE_HOME/hexokit/gui/icewm/` (dir 0700, files 0600), passed as
 `ICEWM_PRIVCFG` — two file classes: `preferences` is write-once (seeded when
 absent; user edits persist; delete to re-seed), `toolbar` and `menu` are
 regenerated on every start from the launcher ladders (rows only for resolved
@@ -158,7 +158,7 @@ the relay pays for it.
 
 The LXQt rung is the one seeded desktop. When the resolved WM is `startlxqt`
 or `lxqt-session`, the supervisor writes five defaults files under
-`<state>/run-kit/gui/lxqt/etc` before the session starts and prepends that
+`<state>/hexokit/gui/lxqt/etc` before the session starts and prepends that
 directory to `XDG_CONFIG_DIRS` in the session's environment, so LXQt reads
 rk's values as system defaults while the user's own `~/.config` stays an
 override layer (no `XDG_CONFIG_HOME` redirect — a local LXQt user's
@@ -184,7 +184,7 @@ dir: `gui: window manager startlxqt (session under dbus-run-session; defaults
 ## The switch
 
 **Off by default. One switch, `gui.enabled`** — a settings-registry bool,
-default `false`, home `~/.config/run-kit/config.yaml`, **no env form** (env
+default `false`, home `~/.config/hexokit/config.yaml`, **no env form** (env
 stays the three binding keys — Constitution IV) — D3. A second registry key,
 **`gui.wm`** (string, default `""`, no env form), pins the window manager;
 empty picks the first ladder rung on PATH (§ The supervisor). It takes effect
@@ -380,7 +380,7 @@ design log.
 (`@novnc/novnc`) on a `<canvas>`** — D4. `GET /ws/gui/{id}` upgrades and pipes
 binary frames ⇄ the backend stream, a sibling of the terminal relay. VNC is
 never on TCP on Linux — a unix socket by convention under
-`$XDG_STATE_HOME/run-kit/gui/` (`host.sock`; dir 0700, socket 0600); auth
+`$XDG_STATE_HOME/hexokit/gui/` (`host.sock`; dir 0700, socket 0600); auth
 `None` (the same trust boundary as code-server's `--auth none`: the only
 client is rk on the same user). Mutations are `POST /api/gui/{id}/restart`,
 `POST /api/gui/{id}/launch` (the allowlisted two-role launcher; body

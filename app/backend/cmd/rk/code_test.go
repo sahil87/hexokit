@@ -55,7 +55,7 @@ func startFakeCodeHost(t *testing.T, stateHome, hostID, folder, extVersion, star
 // can register hosts carrying a tab identity.
 func startFakeCodeHostRecord(t *testing.T, stateHome string, rec codebridge.HostRecord) *fakeCodeHost {
 	t.Helper()
-	cbDir := filepath.Join(stateHome, "run-kit", "cb")
+	cbDir := filepath.Join(stateHome, "hexokit", "cb")
 	if err := os.MkdirAll(filepath.Join(cbDir, "hosts"), 0o700); err != nil {
 		t.Fatal(err)
 	}

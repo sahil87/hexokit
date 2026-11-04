@@ -8,7 +8,7 @@ const MOBILE_VIEWPORT = { width: 375, height: 812 };
 
 /**
  * CollapsiblePanel-based Host and Pane panels. The panels are
- * visibility-gated per section (the `runkit-sidebar-section-pane|host`
+ * visibility-gated per section (the `hexokit-sidebar-section-pane|host`
  * booleans), both defaulting OFF on every viewport — the drawer-only fork
  * became a default, not a hard `isMobile` gate. The panel tests run on a
  * mobile viewport with the drawer open and first opt both sections in via
@@ -28,7 +28,7 @@ const MOBILE_VIEWPORT = { width: 375, height: 812 };
  * 375×812 }) — `hasTouch` flips Chromium's `(any-pointer: coarse)` media
  * query, so combined with the 375px width `useIsMobile()` reports mobile and
  * the sidebar renders as the drawer — and its beforeEach seeds
- * `runkit-sidebar-section-pane=true` and `runkit-sidebar-section-host=true`
+ * `hexokit-sidebar-section-pane=true` and `hexokit-sidebar-section-host=true`
  * via `addInitScript` (both sections default OFF; the seed re-runs on every
  * navigation, so in-test reloads keep the panels mounted). gotoDrawer
  * navigates, then opens the drawer via the `Toggle navigation` button and
@@ -112,8 +112,8 @@ test.describe("Sidebar Host & Window Panels (visibility-gated, iha5)", () => {
       // tests exercise the panels themselves. The seed survives the in-test
       // `page.reload()` (init scripts re-run on every navigation).
       await page.addInitScript(() => {
-        localStorage.setItem("runkit-sidebar-section-pane", "true");
-        localStorage.setItem("runkit-sidebar-section-host", "true");
+        localStorage.setItem("hexokit-sidebar-section-pane", "true");
+        localStorage.setItem("hexokit-sidebar-section-host", "true");
       });
     });
 
@@ -226,14 +226,14 @@ test.describe("Sidebar Host & Window Panels (visibility-gated, iha5)", () => {
      * Steps:
      * 1. gotoDrawer and wait for the `cpu` line (metrics rendered).
      * 2. Click the Host header to collapse; assert aria-expanded="false".
-     * 3. Read localStorage.getItem('runkit-panel-host') and assert it equals
+     * 3. Read localStorage.getItem('hexokit-panel-host') and assert it equals
      *    the string "false".
      * 4. page.reload(); re-open the drawer via ensureDrawerOpen (the reload
      *    lands on the persisted sidebar preference, open or closed).
      * 5. Re-locate the Host header; assert it is still collapsed.
      * 6. Click to expand; assert aria-expanded="true" and the `cpu` line
      *    reappears within 8s.
-     * 7. Clean up the `runkit-panel-host` localStorage key for the next test.
+     * 7. Clean up the `hexokit-panel-host` localStorage key for the next test.
      */
     test("Collapsible panel toggle and persistence", async ({ page }) => {
       await gotoDrawer(page, `/${TMUX_SERVER}`);
@@ -252,7 +252,7 @@ test.describe("Sidebar Host & Window Panels (visibility-gated, iha5)", () => {
 
       // Verify localStorage was set
       const stored = await page.evaluate(() =>
-        localStorage.getItem("runkit-panel-host"),
+        localStorage.getItem("hexokit-panel-host"),
       );
       expect(stored).toBe("false");
 
@@ -274,7 +274,7 @@ test.describe("Sidebar Host & Window Panels (visibility-gated, iha5)", () => {
       ).toBeVisible({ timeout: 8_000 });
 
       // Clean up localStorage for other tests
-      await page.evaluate(() => localStorage.removeItem("runkit-panel-host"));
+      await page.evaluate(() => localStorage.removeItem("hexokit-panel-host"));
     });
 
     /**

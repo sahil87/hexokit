@@ -1,0 +1,59 @@
+id: inm3
+name: 260925-inm3-desktop-popout-windows
+created: 2026-09-25T13:41:36Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 14
+    acceptance_count: 31
+    acceptance_completed: 31
+confidence:
+    certain: 12
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.5
+    fuzzy: true
+    dimensions:
+        signal: 80.9
+        reversibility: 82.6
+        competence: 83.5
+        disambiguation: 84.1
+stage_metrics:
+    intake: {started_at: "2026-09-25T13:41:36Z", driver: fab-new, iterations: 1, completed_at: "2026-09-25T15:10:14Z"}
+    apply: {started_at: "2026-09-25T15:10:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T15:54:56Z"}
+    review: {started_at: "2026-09-25T15:54:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T15:59:25Z"}
+    hydrate: {started_at: "2026-09-25T15:59:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T16:06:13Z"}
+    ship: {started_at: "2026-09-25T16:06:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T16:12:12Z"}
+    review-pr: {started_at: "2026-09-25T16:12:12Z", driver: git-pr, iterations: 1, completed_at: "2026-09-25T16:29:37Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/1048
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 2230
+    deleted: 61
+    net: 2169
+    excluding:
+        added: 1688
+        deleted: 40
+        net: 1648
+    tests:
+        added: 1054
+        deleted: 1
+        net: 1053
+    computed_at: "2026-09-25T16:12:12Z"
+    computed_at_stage: ship
+summary: 'desktop shell popout windows: shell:popout channel + popout registry (same-host, deduped, host-pinned, unpersisted, page-title windows), popOut prefers the bridge with closeShellWindow close, native web guest moves live between windows by retention identity; memory: desktop-shell new § Popout Windows + bridge/web-views/windows updates + 2 design decisions, lenses-and-layout § Surface popout shell behavior + 1 design decision'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-25T16:29:37Z

@@ -2,23 +2,22 @@ package codebridge
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
+
+	"rk/internal/apphome"
 )
 
-// StateDir resolves the code-bridge state root: $XDG_STATE_HOME/run-kit/cb
-// when the env var is set, else ~/.local/state/run-kit/cb. It MUST mirror
-// snapshot.DefaultDir — both the extension and the CLI resolve this path
-// independently, so the rules may never drift apart.
+// StateDir resolves the code-bridge state root: <state home>/cb, where the
+// state home is apphome.StateDir ($XDG_STATE_HOME when set, else
+// ~/.local/state). It MUST mirror snapshot.DefaultDir — both the extension
+// and the CLI resolve this path independently, so the rules may never drift
+// apart.
 func StateDir() (string, error) {
-	if v := os.Getenv("XDG_STATE_HOME"); v != "" {
-		return filepath.Join(v, "run-kit", "cb"), nil
-	}
-	home, err := os.UserHomeDir()
+	root, err := apphome.StateDir()
 	if err != nil {
 		return "", fmt.Errorf("resolving code-bridge state dir: %w", err)
 	}
-	return filepath.Join(home, ".local", "state", "run-kit", "cb"), nil
+	return filepath.Join(root, "cb"), nil
 }
 
 // HostsDir is the host-record registry dir, <state dir>/hosts.

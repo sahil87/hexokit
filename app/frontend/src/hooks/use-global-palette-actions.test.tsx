@@ -4,6 +4,7 @@ import { useGlobalPaletteActions } from "./use-global-palette-actions";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import { SettingsDialogProvider, useSettingsDialog } from "@/contexts/settings-dialog-context";
+import { NewSheetProvider, useNewSheet } from "@/contexts/new-sheet-context";
 import { ToastProvider } from "@/components/toast";
 import { registerSidebarRowFocuser } from "@/lib/sidebar-events";
 import { HOST_MENU_OPEN_EVENT } from "@/lib/shell-strip";
@@ -13,7 +14,7 @@ import { HELP_TOPICS, openHelpTopic } from "@/lib/help-topics";
  * Tests for the layout-level global palette groups (260811-239r) — the hook
  * behind the single AppLayout-mounted CommandPalette. Verifies the group
  * composition/ordering (R9/R11: nav → font → refresh → help → shortcuts →
- * settings), the route-walk-driven nav mode (`Go: tmux Server` on terminal
+ * settings), the route-walk-driven nav mode (`Go: Workspace` on terminal
  * routes only), and the settings-dialog deep-link wiring (260818-bncw: the
  * `shortcuts-overlay` entry toggles the dialog's Shortcuts tab; `Settings:
  * Open` is a tab-less pure opener; `Settings: Appearance` deep-links).
@@ -46,6 +47,12 @@ import type { ProjectSession, WindowInfo } from "@/types";
 
 // The help-topic twins' only seam is `openHelpTopic`; the registry stays real
 // so the ids/labels under test are the shipped ones.
+// The MCP endpoint copy entry — assert the write, never the OS clipboard.
+vi.mock("@/lib/clipboard", () => ({
+  copyToClipboard: vi.fn().mockResolvedValue(true),
+}));
+import { copyToClipboard } from "@/lib/clipboard";
+
 vi.mock("@/lib/help-topics", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/help-topics")>();
   return { ...actual, openHelpTopic: vi.fn() };
@@ -59,9 +66,12 @@ let captured: PaletteAction[] = [];
 // Dialog-state probe so entry bodies can be asserted against the context.
 let dialogState: { isOpen: boolean; activeTab: string } = { isOpen: false, activeTab: "general" };
 
+let sheetRequest: ReturnType<typeof useNewSheet>["newSheetRequest"] = null;
+
 function Probe() {
   const actions = useGlobalPaletteActions();
   captured = actions;
+  sheetRequest = useNewSheet().newSheetRequest;
   const { isOpen, activeTab } = useSettingsDialog();
   dialogState = { isOpen, activeTab };
   return <CommandPalette actions={actions} />;
@@ -72,7 +82,9 @@ function renderHook() {
     <ToastProvider>
       <ChromeProvider>
         <SettingsDialogProvider>
-          <Probe />
+          <NewSheetProvider>
+            <Probe />
+          </NewSheetProvider>
         </SettingsDialogProvider>
       </ChromeProvider>
     </ToastProvider>,
@@ -86,6 +98,19 @@ function openPalette() {
 function ids(): string[] {
   return captured.map((a) => a.id);
 }
+
+describe("useGlobalPaletteActions — create-server", () => {
+  it("registers Workspace: Create globally (Host and Board have no AppShell) and opens the New sheet at Workspace level", () => {
+    mockMatches = [{ params: {} }];
+    sheetRequest = null;
+    renderHook();
+    const entry = captured.find((a) => a.id === "create-server");
+    expect(entry).toBeDefined();
+    expect(entry!.label).toBe("Workspace: Create");
+    act(() => entry!.onSelect());
+    expect(sheetRequest).toEqual({ level: "workspace" });
+  });
+});
 
 describe("useGlobalPaletteActions", () => {
   beforeEach(() => {
@@ -124,12 +149,13 @@ describe("useGlobalPaletteActions", () => {
       "help-topic-fkf",
       "settings-open",
       "settings-appearance",
+      "settings-agents",
       "settings-all",
     ];
     expect(order.slice(0, expectInOrder.length)).toEqual(expectInOrder);
   });
 
-  it("offers Go: tmux Server only on a terminal route (window param present)", () => {
+  it("offers Go: Workspace only on a terminal route (window param present)", () => {
     mockMatches = [{ params: { server: "alpha" } }, { params: { server: "alpha", window: "@1" } }];
     renderHook();
     expect(ids()).toContain("go-tmux-server");
@@ -188,6 +214,14 @@ describe("useGlobalPaletteActions", () => {
     expect(dialogState).toEqual({ isOpen: true, activeTab: "appearance" });
   });
 
+  it("Settings: Agents deep-links the Agents tab (id settings-agents)", () => {
+    renderHook();
+    const entry = captured.find((a) => a.id === "settings-agents");
+    expect(entry?.label).toBe("Settings: Agents");
+    act(() => entry?.onSelect());
+    expect(dialogState).toEqual({ isOpen: true, activeTab: "agents" });
+  });
+
   it("Settings: All deep-links the All settings tab (id settings-all)", () => {
     renderHook();
     const entry = captured.find((a) => a.id === "settings-all");
@@ -237,22 +271,32 @@ describe("useGlobalPaletteActions", () => {
     screenBreakStore._resetForTests();
   });
 
+  it("registers Copy: MCP Endpoint on every route, copying the page origin + /mcp", async () => {
+    renderHook();
+    const entry = captured.find((a) => a.id === "copy-mcp-endpoint");
+    expect(entry?.label).toBe("Copy: MCP Endpoint");
+    act(() => entry?.onSelect());
+    await waitFor(() =>
+      expect(copyToClipboard).toHaveBeenCalledExactlyOnceWith(`${window.location.origin}/mcp`),
+    );
+  });
+
   it("registers the four Panel: Toggle actions, each flipping its section's persisted boolean (iha5 R6, wuiu R13)", () => {
     renderHook();
     const byId = new Map(captured.map((a) => [a.id, a]));
     expect(byId.get("panel-toggle-boards")?.label).toBe("Panel: Toggle Boards");
-    expect(byId.get("panel-toggle-server")?.label).toBe("Panel: Toggle Servers");
+    expect(byId.get("panel-toggle-server")?.label).toBe("Panel: Toggle Workspaces");
     expect(byId.get("panel-toggle-pane")?.label).toBe("Panel: Toggle Pane");
     expect(byId.get("panel-toggle-host")?.label).toBe("Panel: Toggle Host");
     expect(byId.get("panel-toggle-clock")).toBeUndefined();
 
     // Defaults: boards/server on, pane/host off.
     act(() => byId.get("panel-toggle-pane")?.onSelect());
-    expect(localStorage.getItem("runkit-sidebar-section-pane")).toBe("true");
-    expect(localStorage.getItem("runkit-sidebar-section-host")).toBeNull();
+    expect(localStorage.getItem("hexokit-sidebar-section-pane")).toBe("true");
+    expect(localStorage.getItem("hexokit-sidebar-section-host")).toBeNull();
 
     act(() => byId.get("panel-toggle-boards")?.onSelect());
-    expect(localStorage.getItem("runkit-sidebar-section-boards")).toBe("false");
+    expect(localStorage.getItem("hexokit-sidebar-section-boards")).toBe("false");
   });
 
   it("Sidebar: Toggle flips the persisted visibility; Sidebar: Focus is the show+focus arm", () => {
@@ -274,9 +318,9 @@ describe("useGlobalPaletteActions", () => {
 
     // Toggle flips the persisted boolean both ways (jsdom default: open).
     act(() => fire("sidebar-toggle"));
-    expect(localStorage.getItem("runkit-sidebar-open")).toBe("false");
+    expect(localStorage.getItem("hexokit-sidebar-open")).toBe("false");
     act(() => fire("sidebar-toggle"));
-    expect(localStorage.getItem("runkit-sidebar-open")).toBe("true");
+    expect(localStorage.getItem("hexokit-sidebar-open")).toBe("true");
 
     // Focus on a visible sidebar routes through the registered row focuser
     // without touching visibility.
@@ -284,15 +328,15 @@ describe("useGlobalPaletteActions", () => {
     const unregister = registerSidebarRowFocuser(focus);
     act(() => fire("sidebar-focus"));
     expect(focus).toHaveBeenCalledOnce();
-    expect(localStorage.getItem("runkit-sidebar-open")).toBe("true");
+    expect(localStorage.getItem("hexokit-sidebar-open")).toBe("true");
 
     // Focus on a hidden sidebar opens it first, then focuses on the deferred
     // frame (the focuser registers on the sidebar's mount).
     focus.mockClear();
     act(() => fire("sidebar-toggle")); // hide
-    expect(localStorage.getItem("runkit-sidebar-open")).toBe("false");
+    expect(localStorage.getItem("hexokit-sidebar-open")).toBe("false");
     act(() => fire("sidebar-focus"));
-    expect(localStorage.getItem("runkit-sidebar-open")).toBe("true");
+    expect(localStorage.getItem("hexokit-sidebar-open")).toBe("true");
     expect(focus).toHaveBeenCalledOnce();
     unregister();
   });
@@ -451,12 +495,16 @@ describe("useGlobalPaletteActions — operator page entries", () => {
     { name: "_rk-operator", hidden: true, windows: [win({ windowId: "@9", name: "operator", role: "operator" })] },
   ];
 
-  function renderWithSessions(sessionsByServer: Map<string, ProjectSession[]>) {
-    mockMatches = [{ params: { server: "srv1" } }];
+  function renderWithSessions(
+    sessionsByServer: Map<string, ProjectSession[]>,
+    matches?: Array<{ params: Record<string, string> }>,
+  ) {
+    mockMatches = matches ?? [{ params: { server: "srv1" } }];
     render(
       <ToastProvider>
         <ChromeProvider>
           <SettingsDialogProvider>
+            <NewSheetProvider>
             <StandaloneSessionContextProvider
               value={{
                 servers: [{ name: "srv1", sessionCount: 1 }],
@@ -466,6 +514,7 @@ describe("useGlobalPaletteActions — operator page entries", () => {
             >
               <Probe />
             </StandaloneSessionContextProvider>
+            </NewSheetProvider>
           </SettingsDialogProvider>
         </ChromeProvider>
       </ToastProvider>,
@@ -508,7 +557,16 @@ describe("useGlobalPaletteActions — operator page entries", () => {
         params: { server: "srv1", window: "@7" },
       }),
     );
-    expect(mockStartOperator).toHaveBeenCalledWith("srv1");
+    expect(mockStartOperator).toHaveBeenCalledWith("srv1", undefined);
+  });
+
+  it("Start operator on a same-server terminal route posts the viewed window", async () => {
+    mockStartOperator.mockResolvedValue({ windowId: "@7", server: "srv1" });
+    renderWithSessions(new Map([["srv1", NO_OPERATOR]]), [{ params: { server: "srv1", window: "@1" } }]);
+
+    act(() => captured.find((a) => a.id === "operator-start")?.onSelect());
+
+    await waitFor(() => expect(mockStartOperator).toHaveBeenCalledWith("srv1", "@1"));
   });
 
   it("lists Operator: Open as tab only while the machine is open with a resolved target, after the pin entry", () => {

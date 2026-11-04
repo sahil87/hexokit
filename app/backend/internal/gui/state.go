@@ -8,8 +8,9 @@ package gui
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
+
+	"rk/internal/apphome"
 )
 
 // maxSocketPathBytes caps the unix socket path length: struct sockaddr_un's
@@ -17,18 +18,16 @@ import (
 // socket path beyond this bound can never be bound.
 const maxSocketPathBytes = 100
 
-// StateDir resolves the GUI state root: $XDG_STATE_HOME/run-kit/gui when the
-// env var is set, else ~/.local/state/run-kit/gui. Mirrors
-// codebridge.StateDir's rule for its own tenant.
+// StateDir resolves the GUI state root: <state home>/gui, where the state
+// home is apphome.StateDir ($XDG_STATE_HOME when set, else ~/.local/state,
+// with the hexokit/run-kit dual-read rule). Mirrors codebridge.StateDir's
+// rule for its own tenant.
 func StateDir() (string, error) {
-	if v := os.Getenv("XDG_STATE_HOME"); v != "" {
-		return filepath.Join(v, "run-kit", "gui"), nil
-	}
-	home, err := os.UserHomeDir()
+	root, err := apphome.StateDir()
 	if err != nil {
 		return "", fmt.Errorf("resolving gui state dir: %w", err)
 	}
-	return filepath.Join(home, ".local", "state", "run-kit", "gui"), nil
+	return filepath.Join(root, "gui"), nil
 }
 
 // SocketPath is the RFB unix socket for one GUI id: <StateDir>/<id>.sock.

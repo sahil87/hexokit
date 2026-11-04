@@ -150,7 +150,7 @@ var restartDaemonFn = func(binPath string) error {
 }
 
 // resolveExeFn is the package-level seam for resolving this binary's on-disk
-// path (used to detect a Homebrew install via the selfpath.CellarMarker).
+// path (used to detect a Homebrew install via selfpath.IsBrewInstalled).
 // Defaults to the shared selfpath.Resolve (os.Executable + EvalSymlinks) — the
 // same resolver api/update.go uses, so brew-install detection cannot drift
 // between the two entry points; tests stub it to return a synthetic Cellar path
@@ -174,27 +174,28 @@ independent legs:
                via --skip-brew-update), brew upgrade, then a daemon restart so
                the server picks up the new binary. A non-brew install prints
                manual-update guidance instead and moves on.
-  Desktop leg  (macOS, Linux) When the Run Kit desktop app is installed at
+  Desktop leg  (macOS, Linux) When the HexoKit desktop app is installed at
                the platform's default install root (/Applications on macOS,
-               ~/.rk/desktop on Linux): update it to the latest release,
-               auto-restarting a running app (staged download, graceful quit,
-               atomic swap, relaunch). Skipped silently when no app is
-               installed.
+               ~/.local/state/hexokit/desktop on Linux): update it to the
+               latest release, auto-restarting a running app (staged download,
+               graceful quit, atomic swap, relaunch). Skipped silently when no
+               app is installed.
   Code-server  When an rk-managed code-server install exists
-  leg          (~/.rk/code-server-bin): update it to the latest release and
-               respawn the session so the new binary takes effect.
-               Best-effort — a failure warns but never fails the command
-               (the daemon's install job retries later). Skipped silently
-               when nothing is rk-managed; a PATH install is never touched.
+  leg          (~/.local/state/hexokit/code-server/bin): update it to the
+               latest release and respawn the session so the new binary takes
+               effect. Best-effort — a failure warns but never fails the
+               command (the daemon's install job retries later). Skipped
+               silently when nothing is rk-managed; a PATH install is never
+               touched.
 
 Each leg is skipped when its target is not installed; skips exit 0. The exit
 code is non-zero only when a leg genuinely fails, and one leg's failure does
 not stop the other.
 
 The desktop leg only looks at the platform's default install root
-(/Applications on macOS, ~/.rk/desktop on Linux) — an app installed elsewhere
-is invisible to this command; keep using 'run-kit desktop update --path <dir>'
-for custom locations.`,
+(/Applications on macOS, ~/.local/state/hexokit/desktop on Linux) — an app
+installed elsewhere is invisible to this command; keep using 'run-kit desktop
+update --path <dir>' for custom locations.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// stdout carries data (outcome lines + the not-brew guidance), stderr
 		// carries chatter (progress/decoration + streamed brew output) which
@@ -242,9 +243,9 @@ func runUpdateCLILeg(sink outputSink) error {
 	if !selfpath.IsBrewInstalled(resolved) {
 		// The not-a-brew-install guidance is data: it explains why nothing
 		// happened, and silence there would misreport a no-op as success.
-		sink.Dataf("run-kit v%s was not installed via Homebrew.\n", version)
+		sink.Dataf("hexokit v%s was not installed via Homebrew.\n", version)
 		sink.Dataf("Update manually (git pull && just build), or reinstall with:\n")
-		sink.Dataf("  brew install sahil87/tap/run-kit\n")
+		sink.Dataf("  brew install %s\n", selfpath.BrewFormula)
 		return nil
 	}
 
@@ -264,7 +265,7 @@ func runUpdateCLILeg(sink outputSink) error {
 	infoCtx, infoCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer infoCancel()
 
-	infoOut, err := runBrewFn(infoCtx, "info", "--json=v2", "sahil87/tap/run-kit")
+	infoOut, err := runBrewFn(infoCtx, "info", "--json=v2", selfpath.BrewFormula)
 	if err != nil {
 		return fmt.Errorf("could not determine latest version: %w", err)
 	}
@@ -286,14 +287,14 @@ func runUpdateCLILeg(sink outputSink) error {
 	upgradeCtx, upgradeCancel := context.WithTimeout(context.Background(), brewUpgradeTimeout)
 	defer upgradeCancel()
 
-	if _, err := runBrewFn(upgradeCtx, "upgrade", "sahil87/tap/run-kit"); err != nil {
+	if _, err := runBrewFn(upgradeCtx, "upgrade", selfpath.BrewFormula); err != nil {
 		return fmt.Errorf("brew upgrade failed: %w", err)
 	}
 
 	// Outcome line — data (survives --quiet).
 	sink.Dataf("Updated to v%s.\n", latest)
 
-	// Restart via the stable Homebrew bin symlink (<prefix>/bin/run-kit), not
+	// Restart via the stable Homebrew bin symlink (<prefix>/bin/<keg>), not
 	// the Cellar path: brew has just deleted the keg this process ran from.
 	brewBinPath := selfpath.StableFor(resolved)
 
@@ -313,8 +314,9 @@ func runUpdateCLILeg(sink outputSink) error {
 // the shll update standard's "post-upgrade side effects" clause (the
 // standard's own cited example is a tool restarting its daemon). Semantics
 // are exactly `rk code-server update` (shared via runCodeServerUpdateFlow)
-// under the agreed constraints: it runs ONLY when ~/.rk/code-server-bin
-// exists (a user-managed PATH install is never touched — the standard's
+// under the agreed constraints: it runs ONLY when the managed install dir
+// (~/.local/state/hexokit/code-server/bin) exists (a user-managed PATH
+// install is never touched — the standard's
 // self-update-only-when-brew-installed mirror), it is best-effort (any
 // failure is a chatter warning and NEVER joins the command's exit code —
 // deliberately not taking the standard's failed-post-upgrade-step allowance:
@@ -344,10 +346,11 @@ func runUpdateCodeServerLeg(cmd *cobra.Command, sink outputSink) {
 	}
 }
 
-// runUpdateDesktopLeg updates the Run Kit desktop app when one is installed
+// runUpdateDesktopLeg updates the HexoKit desktop app when one is installed
 // at the platform's default install root (/Applications on macOS,
-// ~/.rk/desktop on Linux) — the umbrella's "whichever is installed" desktop
-// half. macOS/Linux only (desktopGOOS); another platform and a missing app
+// ~/.local/state/hexokit/desktop on Linux) — the umbrella's "whichever is
+// installed" desktop half. macOS/Linux only (desktopGOOS); another platform
+// and a missing app
 // are both silent exit-0 skips (absence is a valid state here, unlike
 // standalone `rk desktop update`, which errors so an explicit update of
 // nothing stays a user error). Custom --path installs are deliberately

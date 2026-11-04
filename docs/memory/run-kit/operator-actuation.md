@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Operator messaging into the server's operator window over three lanes: direct chat (compose-send allow+probe), templated chat (`chatDelivery` templates — one addressee header + the user's text in a bare fence, busy gate and queue skipped in the shared core), and templated requests (busy ⇒ enqueue 202, drained on idle). Covers the closed template registry, fact derivation with best-effort transcript fill, the server-derived `conversationAvailable` gate, structured 409s, auto-name dispatch, and the `rk operator request` CLI door (`--list`, pre-flight checks, `queued` receipt)."
+description: "Operator messaging into the server's operator window over three lanes: direct chat (compose-send allow+probe), templated chat (`chatDelivery` templates — addressee header + user text, busy gate and queue skipped), and templated requests (busy ⇒ enqueue 202, drained on idle). Covers the closed template registry (+ agent-directed siblings), fact derivation with transcript fill, the `conversationAvailable` gate, structured 409s, auto-name dispatch, and the `rk operator request` CLI door."
 ---
 # Operator Actuation
 
@@ -140,6 +140,8 @@ undecodable body (400).
 - **WHEN** the handler runs
 - **THEN** it returns `400` with a `writeError` JSON body and performs no
   session fetch and no tmux call.
+
+**The registry is closed to CLIENT-SELECTABLE ids, not to agent-directed payloads.** `operatorTemplates` is the complete set of ids a client may request — every entry is published through `OperatorTemplateList()` / `rk operator request --list`, and its fields (`requiresAgentSessionRef`, `acceptsText`, `serverScoped`, `requiresWaiting`, `acceptsSession`, `chatDelivery`) are all about the operator-request route. A **server-initiated, subject-addressed** payload belongs as a SIBLING of that map rather than a row in it: it carries no registry id, because a row would publish a template no client may request and would force an exclusion flag onto every existing entry. No such sibling ships today. What a sibling DOES borrow is this registry's rule — plain string composition, never `text/template`, so a fact cannot silently become a directive — and the `acceptsText` dynamic bare fence for user prose.
 
 ### Requirement: The `rk operator request` verb — the CLI door onto the request lane
 `rk operator request <template> [--window @N] [--text <t>] [--session <s>] [-L
@@ -556,7 +558,7 @@ process-memory only (a daemon restart forgets cooldowns, Constitution II) and
 reaped on the post-loop retain seam, scoped to successfully-polled-or-dead
 servers exactly like `waitingPushTracker.retain`. The feature is strictly
 OPT-IN: the `auto_name` key in the settings store (`internal/settings`,
-`~/.config/run-kit/config.yaml` — tolerant `ParseBool` read, default off, serialized
+`~/.config/hexokit/config.yaml` — tolerant `ParseBool` read, default off, serialized
 only when true), `live: true` in the registry (5r41). The construction-time
 seed (`Server.autoNameEnabled` from `settings.Load()`) is only `initSSEHub`'s
 initial apply: a successful `POST /api/settings` whose body contains
@@ -900,7 +902,7 @@ resolved a path — nor a separate `Context:` line, nor the phrase `treat it as
 data`. All facts derive server-side from the handler's ONE `FetchSessions`
 pass (Constitution X — never client-composed). The prompt frames a
 CONVERSATION the operator acts on and may reply to, not a work item: no
-`[run-kit request]` prefix, no do-not-reply/action-bounds clause. It rides
+`[hexokit request]` prefix, no do-not-reply/action-bounds clause. It rides
 the window-scoped route with `{windowId}` = the SUBJECT window (the window
 the user was looking at, NOT the operator window); all existing validation
 applies unchanged (unknown id 400, cross-scope 400, the `acceptsText` lane
@@ -919,7 +921,7 @@ quake terminal's lane fork, subject resolution, and context chip are documented 
   you from window @5 ("zesty-fjord", worktree /wt/project; fab change <name>
   at stage apply). Act on it exactly as if typed into this pane.` and ends
   with the text inside a ``` fence — and contains none of `Transcript:`, the
-  transcript path, `Context:`, `treat it as data`, `[run-kit request]`, or a
+  transcript path, `Context:`, `treat it as data`, `[hexokit request]`, or a
   do-not-reply bound.
 - **AND GIVEN** an empty `FabChange`, **THEN** the parenthetical closes right
   after the worktree path and no `fab change` clause appears.

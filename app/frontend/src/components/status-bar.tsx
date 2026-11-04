@@ -32,6 +32,7 @@ import { getAgentLine, getFabParts, getPrSegments, getTmxLabel, splitDatePrefix 
 import { FAB_STATE_COLORS } from "@/components/pr-status-model";
 import { controlClass } from "@/components/control";
 import { useCopyFeedback } from "@/hooks/use-copy-feedback";
+import { useOccludes } from "@/hooks/use-occludes";
 import { formatDuration, parseFabChange } from "@/lib/format";
 import { requestQuakeTerminal } from "@/lib/quake-terminal";
 import {
@@ -445,6 +446,10 @@ function OverflowMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const { copiedKey, copy } = useCopyFeedback<"git" | "tmx" | "cwd" | "version" | "server" | "host">();
 
+  // Menus register `transient` (overlay-presence): while open, a native guest
+  // composited above the DOM hides so the menu never paints underneath it.
+  useOccludes("transient", open);
+
   // The menu's rows in DOM (= visual) order. Every rendered row is a folded
   // segment, so no visibility filtering is needed — the rows list IS the
   // fold's folded set.
@@ -600,7 +605,7 @@ function OverflowMenu({
       case "clock":
         return clock?.kind === "next" ? actionRow("clk", "◷ Cron List", openCronList) : null;
       case "server":
-        return server ? copyRow("server", server, "", server, "Copy server name") : null;
+        return server ? copyRow("server", server, "", server, "Copy workspace name") : null;
       case "host":
         return hostName ? copyRow("host", hostName, "", hostName, "Copy host name") : null;
       case "version":
@@ -1015,7 +1020,7 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
         return (
           <button
             type="button"
-            aria-label={probe ? undefined : "Copy server name"}
+            aria-label={probe ? undefined : "Copy workspace name"}
             tabIndex={probe ? -1 : undefined}
             onClick={() => hostCopy("server", server)}
             className="shrink-0 whitespace-nowrap text-text-secondary cursor-pointer bg-transparent border-0 p-0 hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent-green"

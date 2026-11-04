@@ -1,7 +1,7 @@
 import { isShell } from "@/lib/shell";
 
-const SHELL_NOTIFICATIONS_KEY = "runkit-shell-notifications";
-const CLAIM_PREFIX = "runkit-notify-claim-";
+const SHELL_NOTIFICATIONS_KEY = "hexokit-shell-notifications";
+const CLAIM_PREFIX = "hexokit-notify-claim-";
 const CLAIM_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const CLAIM_KEEP_LIMIT = 32;
 const NOTIFICATION_ICON = "/generated-icons/icon-192.png";
@@ -118,7 +118,7 @@ export function showShellNotification(
   const rawID = stringField(source, "id");
   const id = rawID?.trim() ? rawID.trim() : null;
   const rawTitle = stringField(source, "title");
-  const title = rawTitle?.trim() || "RunKit";
+  const title = rawTitle?.trim() || "HexoKit";
   const body = stringField(source, "body") ?? "";
   const url = stringField(source, "url");
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTheme } from "@/contexts/theme-context";
+import { useOccludes } from "@/hooks/use-occludes";
 import { Tip, TipGroup } from "@/components/tip";
 import { FlairOverlay } from "@/components/flair-overlay";
 import {
@@ -148,6 +149,12 @@ export function SwatchPopover({
   onSelectFlair,
 }: SwatchPopoverProps) {
   const { theme } = useTheme();
+  // Mounts only while open, so the registration is unconditional — popovers
+  // hold `transient` (overlay-presence) so a native guest composited above
+  // the DOM hides and the picker never paints underneath it. (The app-shell
+  // modal mount ALSO counts `modal` through its own registration; the count
+  // signal tolerates both.)
+  useOccludes("transient", true);
   // Rows render on the sidebar chrome, so tints blend into the chrome hex —
   // a terminal-colored base would leave a halo around every tinted band.
   const rowTints = useMemo(

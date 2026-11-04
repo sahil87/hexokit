@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useCallback, useMemo } from "react";
 
 /** The settings dialog's tabs — a closed union (no casts). */
-export type SettingsTab = "general" | "appearance" | "all" | "shortcuts";
+export type SettingsTab = "general" | "appearance" | "agents" | "all" | "shortcuts";
 
 /**
  * Settings-dialog state (260723-o7q8; tabbed in 260818-bncw). Provided at the

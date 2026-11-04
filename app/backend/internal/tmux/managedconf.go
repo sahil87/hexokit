@@ -23,8 +23,17 @@ const (
 	// managedHeaderSuffix completes the managed header line. It doubles as the
 	// cheapest doc surface: the override pointer sits in the file at the
 	// moment of temptation.
-	managedHeaderSuffix = " — DO NOT EDIT; overrides go in ~/.config/run-kit/tmux.d/"
+	managedHeaderSuffix = " — DO NOT EDIT; overrides go in ~/.config/hexokit/tmux.d/"
 )
+
+// legacyManagedHeaderSuffixes holds prior suffixes a managed file may still
+// carry — written by earlier releases pointing at the pre-rename config home.
+// A stamp-verified legacy header classifies ConfManagedStale (never
+// ConfHandEdited) so EnsureConfig force-refreshes the migrated conf onto the
+// current header + embed.
+var legacyManagedHeaderSuffixes = []string{
+	" — DO NOT EDIT; overrides go in ~/.config/run-kit/tmux.d/",
+}
 
 // ConfState is the classification of the on-disk managed tmux.conf against the
 // embedded default (see ClassifyConfigFile).
@@ -57,6 +66,21 @@ func ManagedConfigBytes(body []byte) []byte {
 	return append([]byte(header), body...)
 }
 
+// matchManagedHeader splits a header line into its stamp and reports whether
+// the suffix is the current one. Only the prefix plus a known suffix (current
+// or legacy) qualify; anything else is not an rk-managed header.
+func matchManagedHeader(header string) (stamp string, current bool, ok bool) {
+	if !strings.HasPrefix(header, managedHeaderPrefix) {
+		return "", false, false
+	}
+	for i, suffix := range append([]string{managedHeaderSuffix}, legacyManagedHeaderSuffixes...) {
+		if strings.HasSuffix(header, suffix) {
+			return strings.TrimSuffix(strings.TrimPrefix(header, managedHeaderPrefix), suffix), i == 0, true
+		}
+	}
+	return "", false, false
+}
+
 // ClassifyManagedConf classifies file content against the embedded default.
 // Pure: it reads nothing but its inputs. Absence is a filesystem fact and is
 // not representable here — see ClassifyConfigFile for the full four-state
@@ -66,15 +90,16 @@ func ClassifyManagedConf(content, embed []byte) ConfState {
 	if !found {
 		return ConfHandEdited
 	}
-	header := string(line)
-	if !strings.HasPrefix(header, managedHeaderPrefix) || !strings.HasSuffix(header, managedHeaderSuffix) {
+	stamp, currentSuffix, ok := matchManagedHeader(string(line))
+	if !ok {
 		return ConfHandEdited
 	}
-	stamp := strings.TrimSuffix(strings.TrimPrefix(header, managedHeaderPrefix), managedHeaderSuffix)
 	if stamp != managedHash(body) {
 		return ConfHandEdited
 	}
-	if !bytes.Equal(body, embed) {
+	// A stamp-verified legacy header is stale by definition: the file must be
+	// rewritten onto the current header even when the body matches the embed.
+	if !currentSuffix || !bytes.Equal(body, embed) {
 		return ConfManagedStale
 	}
 	return ConfManagedCurrent
@@ -105,7 +130,7 @@ func writeManagedConfig(path string) error {
 
 // userConfStarter is the scaffolded override file: a commented starter only —
 // it changes nothing until the user uncomments the example.
-const userConfStarter = `# run-kit tmux overrides — sourced after the managed tmux.conf.
+const userConfStarter = `# HexoKit tmux overrides — sourced after the managed tmux.conf.
 # This file is yours: rk scaffolds it once and never overwrites it.
 #
 # Example:
@@ -131,7 +156,7 @@ func scaffoldUserConf() error {
 	return os.WriteFile(path, []byte(userConfStarter), 0o644)
 }
 
-// migrateLegacyConfPaths performs the ~/.rk → ~/.config/run-kit tmux migration
+// migrateLegacyConfPaths performs the ~/.rk → ~/.config/hexokit tmux migration
 // (migration 2), best-effort and never fatal: old tmux.d/*.conf drop-ins move
 // into the new tmux.d/ (a same-name file already at the new path wins — never
 // overwritten) and the old dir is breadcrumb-renamed; an old tmux.conf is

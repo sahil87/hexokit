@@ -1,0 +1,59 @@
+id: ww92
+name: 260925-ww92-surface-layout-tree
+created: 2026-09-25T03:17:15Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 17
+    acceptance_count: 33
+    acceptance_completed: 33
+confidence:
+    certain: 11
+    confident: 10
+    tentative: 0
+    unresolved: 0
+    score: 3.3
+    fuzzy: true
+    dimensions:
+        signal: 74.3
+        reversibility: 80.5
+        competence: 80.2
+        disambiguation: 76.7
+stage_metrics:
+    intake: {started_at: "2026-09-25T03:17:15Z", driver: fab-new, iterations: 1, completed_at: "2026-09-25T03:21:35Z"}
+    apply: {started_at: "2026-09-25T03:21:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T04:07:59Z"}
+    review: {started_at: "2026-09-25T04:07:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T04:13:12Z"}
+    hydrate: {started_at: "2026-09-25T04:13:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T04:32:55Z"}
+    ship: {started_at: "2026-09-25T04:32:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T04:35:50Z"}
+    review-pr: {started_at: "2026-09-25T04:35:50Z", driver: git-pr, iterations: 1, completed_at: "2026-09-25T04:55:34Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/1035
+base_branch: main
+change_type_source: explicit
+true_impact:
+    added: 5921
+    deleted: 2900
+    net: 3021
+    excluding:
+        added: 5071
+        deleted: 2682
+        net: 2389
+    tests:
+        added: 1501
+        deleted: 962
+        net: 539
+    computed_at: "2026-09-25T04:35:50Z"
+    computed_at_stage: ship
+summary: layout became a canonical split tree in @rk_win_layout (h(tty,v(code,web))) — legacy presets parse permanently, templates generate trees, generic add/close/promote/swap verbs, sizes keyed by structure signature, Go layoutspec ports the model
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-25T04:55:34Z

@@ -14,7 +14,7 @@
  * Gating (no handler mounts — the chord falls through untouched instead of
  * preventDefault-ing into a dead action, dispatcher rule 3): no window route
  * param, mobile viewport, a surface the window cannot tile (`availableTiles`),
- * or the arity-1 hide (the palette's `Tile: Hide` omission on `single`
+ * or the one-tile hide (the palette's `Tile: Hide` omission on `single`
  * layouts).
  *
  * Recording constraint: the handler writes NO focus memory itself — the tty
@@ -33,7 +33,7 @@ export type TileChordSeams = {
   isMobile: boolean;
   /** The surfaces the current window can tile. */
   panelSurfaces: readonly SurfaceKind[];
-  /** The CURRENT render layout's tile order. */
+  /** The CURRENT render layout's leaf kinds (the caller reads `leaves(tree)`). */
   order: readonly SurfaceKind[];
   focusedTileKind: SurfaceKind;
   /** Open/close a tile; returns whether the layout mutation applied. */
@@ -66,7 +66,7 @@ export function tileChordHandler(seams: TileChordSeams): (() => void) | undefine
       seams.focusTile(kind);
       return;
     }
-    // Race guard for the render gap before the arity-1 gate above re-mounts
+    // Race guard for the render gap before the one-tile gate above re-mounts
     // no handler.
     if (seams.order.length <= 1) return;
     if (seams.togglePanel(kind)) seams.restoreAfterHide(kind);

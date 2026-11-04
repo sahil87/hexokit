@@ -1,0 +1,59 @@
+id: rrax
+name: 260925-rrax-deterministic-operator-launch-dir
+created: 2026-09-25T02:59:46Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 11
+    acceptance_count: 24
+    acceptance_completed: 24
+confidence:
+    certain: 8
+    confident: 9
+    tentative: 0
+    unresolved: 0
+    score: 3.9
+    fuzzy: true
+    dimensions:
+        signal: 77.1
+        reversibility: 80.3
+        competence: 82.1
+        disambiguation: 80.0
+stage_metrics:
+    intake: {started_at: "2026-09-25T02:59:46Z", driver: fab-new, iterations: 1, completed_at: "2026-09-25T03:03:37Z"}
+    apply: {started_at: "2026-09-25T03:03:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T03:29:05Z"}
+    review: {started_at: "2026-09-25T03:29:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T03:33:52Z"}
+    hydrate: {started_at: "2026-09-25T03:33:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T03:38:57Z"}
+    ship: {started_at: "2026-09-25T03:38:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T03:41:05Z"}
+    review-pr: {started_at: "2026-09-25T03:41:05Z", driver: git-pr, iterations: 1, completed_at: "2026-09-25T03:50:41Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/1034
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 1244
+    deleted: 400
+    net: 844
+    excluding:
+        added: 685
+        deleted: 383
+        net: 302
+    tests:
+        added: 408
+        deleted: 202
+        net: 206
+    computed_at: "2026-09-25T03:41:05Z"
+    computed_at_stage: ship
+summary: 'Deterministic operator launch directory: explicit --dir (daemon-derived from the viewed window) → stored @rk_srv_operator_root → $HOME; ranking + skill-presence probe removed; dir_rung tokens now explicit|stored|home'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-25T03:50:41Z

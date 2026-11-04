@@ -54,6 +54,7 @@ func TestMuxFamilyRegistered(t *testing.T) {
 				case "process":
 				case "panes":
 				case "sessions":
+				case "inventory":
 				case "new":
 				case "adopt":
 				case "reap":
@@ -77,8 +78,8 @@ func TestMuxFamilyRegistered(t *testing.T) {
 					t.Errorf("mux %s does not inherit the -L/--server flag", sub.Name())
 				}
 			}
-			if len(c.Commands()) != 13 {
-				t.Errorf("mux has %d subcommands, want exactly 13 (send, await, capture, kill, process, panes, sessions, new, adopt, reap, snapshot, init-conf, guard)", len(c.Commands()))
+			if len(c.Commands()) != 14 {
+				t.Errorf("mux has %d subcommands, want exactly 14 (send, await, capture, kill, process, panes, sessions, inventory, new, adopt, reap, snapshot, init-conf, guard)", len(c.Commands()))
 			}
 			found = true
 		}

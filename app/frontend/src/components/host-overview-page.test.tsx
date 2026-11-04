@@ -89,7 +89,7 @@ vi.mock("@/hooks/use-boards", () => ({
 }));
 
 import { HostOverviewPage } from "./host-overview-page";
-import { createSession, createWindow, getSessions } from "@/api/client";
+import { createServer, createSession, createWindow, getSessions } from "@/api/client";
 import {
   InstanceNameValueProvider,
   type InstanceName,
@@ -148,7 +148,7 @@ afterEach(() => {
 });
 
 describe("HostOverviewPage — system card (HOST HEALTH zone)", () => {
-  it("renders the run-kit system card inside the Host health zone even with no metrics", () => {
+  it("renders the HexoKit system card inside the Host health zone even with no metrics", () => {
     mockHostMetrics = null;
     renderPage();
 
@@ -156,8 +156,8 @@ describe("HostOverviewPage — system card (HOST HEALTH zone)", () => {
     // The card renders independently of the metrics stream (the daemon serving
     // the page is up by definition) — with the context's null fields it
     // degrades to the version placeholder and not-running rows.
-    expect(zone.querySelector('[aria-label="run-kit system"]')).not.toBeNull();
-    expect(within(zone).getByText("run-kit")).toBeInTheDocument();
+    expect(zone.querySelector('[aria-label="HexoKit system"]')).not.toBeNull();
+    expect(within(zone).getByText("HexoKit")).toBeInTheDocument();
   });
 
   it("attaches the rk-daemon server so the service rows are live", () => {
@@ -189,7 +189,7 @@ describe("HostOverviewPage — system card (HOST HEALTH zone)", () => {
     ]);
     renderPage();
 
-    const card = screen.getByLabelText("run-kit system");
+    const card = screen.getByLabelText("HexoKit system");
     expect(within(card).getByText("1 job")).toBeInTheDocument();
     expect(within(card).getAllByText("not running")).toHaveLength(2);
     expect(within(card).getByRole("button", { name: "View" })).toBeInTheDocument();
@@ -202,7 +202,7 @@ describe("HostOverviewPage — system card (HOST HEALTH zone)", () => {
   });
 });
 
-describe("HostOverviewPage — protected-server shield glyph (TMUX SERVERS tiles)", () => {
+describe("HostOverviewPage — protected-server shield glyph (WORKSPACES tiles)", () => {
   it("renders the shield glyph for @rk_srv_protected servers and the rk-daemon server, absent otherwise", () => {
     mockServers = [
       { name: "runkit", sessionCount: 1 },
@@ -236,7 +236,7 @@ describe("HostOverviewPage — protected-server shield glyph (TMUX SERVERS tiles
   });
 });
 
-describe("HostOverviewPage — external-server glyph (TMUX SERVERS tiles)", () => {
+describe("HostOverviewPage — external-server glyph (WORKSPACES tiles)", () => {
   it("renders ↗ + grey name for managed === false only; managed true and absent field render no treatment", () => {
     mockServers = [
       { name: "ext", sessionCount: 1, managed: false },
@@ -289,6 +289,42 @@ describe("HostOverviewPage — Services zone", () => {
     expect(screen.getByText("api")).toBeTruthy();
   });
 
+  it("creates a workspace at the chosen folder, with the name following it", async () => {
+    mockServers = [];
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "+ New workspace" }));
+
+    const nameInput = screen.getByLabelText("Workspace name") as HTMLInputElement;
+    const folderInput = screen.getByLabelText("Workspace folder") as HTMLInputElement;
+    expect(folderInput.value).toBe("");
+
+    fireEvent.change(folderInput, { target: { value: "~/code/hexokit" } });
+    expect(nameInput.value).toBe("hexokit");
+
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(createServer).toHaveBeenCalledWith("hexokit", "~/code/hexokit"));
+    expect(markServerPendingMock).toHaveBeenCalledWith("hexokit");
+    expect(navigateMock).toHaveBeenCalledWith({ to: "/$server", params: { server: "hexokit" } });
+  });
+
+  it("blocks creating a workspace whose name already exists", async () => {
+    mockServers = [{ name: "runkit", sessionCount: 1 }];
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "+ New workspace" }));
+    fireEvent.change(screen.getByLabelText("Workspace name"), { target: { value: "runkit" } });
+    expect(screen.getByText("A workspace named runkit already exists")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Create" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("creates a workspace without cwd when the folder is left blank", async () => {
+    mockServers = [];
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "+ New workspace" }));
+    fireEvent.change(screen.getByLabelText("Workspace name"), { target: { value: "scratch" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(createServer).toHaveBeenCalledWith("scratch", undefined));
+  });
+
   it("disables 'Open in tab' with a hint when zero servers exist", async () => {
     mockServices = [{ port: 5173 }];
     mockServers = [];
@@ -301,7 +337,7 @@ describe("HostOverviewPage — Services zone", () => {
     // title attribute on the button in either state.
     expect(btn.title).toBe("");
     fireEvent.focus(btn);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("Create a server first");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Create a workspace first");
   });
 
   it("creates an instant session + iframe window and navigates when a server genuinely has no sessions", async () => {
@@ -471,7 +507,7 @@ describe("HostOverviewPage — TopBar mount moved to root (260707-4vq2)", () => 
   it("renders NO TopBar of its own — the brand crumb / controls / heading are not this component's DOM", () => {
     renderPage();
     // None of the shared TopBar's landmarks render from HostOverviewPage now.
-    expect(screen.queryByLabelText("RunKit home")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("HexoKit home")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Refresh page")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Host")).not.toBeInTheDocument();
   });
@@ -509,7 +545,7 @@ describe("HostOverviewPage — page root ground", () => {
 });
 
 describe("HostOverviewPage — BOARDS zone", () => {
-  it("renders board tiles above TMUX SERVERS and navigates on click", () => {
+  it("renders board tiles above WORKSPACES and navigates on click", () => {
     mockBoards = [
       { name: "main", pinCount: 3 },
       { name: "review", pinCount: 1 },
@@ -517,7 +553,7 @@ describe("HostOverviewPage — BOARDS zone", () => {
     renderPage();
 
     // Heading order: the "Host Overview" page heading, then the zones
-    // Host Health → Boards → Tmux Servers → Services.
+    // Host Health → Boards → WORKSPACES → Services.
     const headings = screen
       .getAllByRole("heading", { level: 2 })
       .map((h) => h.textContent);
@@ -525,7 +561,7 @@ describe("HostOverviewPage — BOARDS zone", () => {
       "Host Overview",
       "Host Health",
       "Boards",
-      "Tmux Servers",
+      "Workspaces",
       "Services",
     ]);
 
@@ -576,7 +612,7 @@ describe("HostOverviewPage — BOARDS zone", () => {
   });
 });
 
-describe("HostOverviewPage — TMUX SERVERS scratch badge (@rk_srv_ephemeral)", () => {
+describe("HostOverviewPage — WORKSPACES scratch badge (@rk_srv_ephemeral)", () => {
   it("renders the scratch chip + greyed name on a marked tile; unmarked tiles render unchanged", () => {
     mockServers = [
       { name: "alpha", sessionCount: 1 },

@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"rk/internal/versionprune"
 )
 
 // Installer carries the seams and platform configuration for the code-server
@@ -48,7 +50,7 @@ func New() *Installer {
 type InstallResult struct {
 	// Version is the now-active release version (no leading "v").
 	Version string
-	// Path is the active version dir (~/.rk/code-server-bin/<version>).
+	// Path is the active version dir (<state>/code-server/bin/<version>).
 	Path string
 	// AlreadyCurrent reports the idempotent skip: the managed install already
 	// matched the latest release, so nothing was downloaded or flipped.
@@ -56,12 +58,12 @@ type InstallResult struct {
 }
 
 // Install resolves the latest code-server release and makes it the active
-// managed install under ~/.rk/code-server-bin:
+// managed install under <state>/code-server/bin:
 //
 //  1. Resolve the latest release + host-platform asset via the GitHub API.
 //  2. Idempotency: when the current symlink already names that version, skip
 //     (AlreadyCurrent) — nothing is downloaded.
-//  3. Download the tarball to a staging dir under code-server-bin/, computing
+//  3. Download the tarball to a staging dir under BinDir, computing
 //     the SHA256 while streaming, bounded by downloadTimeout (~15 min — a
 //     generous network bound, per the agreed no-tight-timeout constraint).
 //  4. FAIL CLOSED on verification: a missing digest or a mismatch aborts
@@ -74,6 +76,9 @@ type InstallResult struct {
 //     temp symlink + os.Rename. Both promotions are single-syscall renames on
 //     the same filesystem, so a crash leaves either the old world intact or a
 //     garbage staging dir — never a torn active install.
+//  7. Prune superseded version dirs, keeping exactly the new current and the
+//     pre-flip target (the rollback version) — best-effort
+//     (internal/versionprune), never an install failure.
 //
 // The staging dir is removed best-effort on every failure path.
 func (ins *Installer) Install(ctx context.Context, home string) (InstallResult, error) {
@@ -150,6 +155,11 @@ func (ins *Installer) Install(ctx context.Context, home string) (InstallResult, 
 	if err := os.Rename(tmp, CurrentPath(home)); err != nil {
 		return InstallResult{}, fmt.Errorf("flipping the current symlink: %w", err)
 	}
+
+	// Post-flip bookkeeping: keep exactly the new current + the pre-flip target
+	// (the rollback version). Best-effort — a prune failure never fails the
+	// install.
+	versionprune.Prune(BinDir(home), installed, versionprune.WriterLogger(ins.Progress))
 
 	return InstallResult{Version: rel.Version, Path: dest}, nil
 }

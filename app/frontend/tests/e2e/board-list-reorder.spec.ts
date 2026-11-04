@@ -6,7 +6,7 @@ import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
 // Behavioural contract for the board-list-reorder backend surface: the
 // `board_order` key on POST /api/settings (persists the full ordered
-// board-name list to ~/.config/run-kit/config.yaml via partial merge), the
+// board-name list to ~/.config/hexokit/config.yaml via partial merge), the
 // API-layer rank-aware sort on GET /api/boards (stored order first by index,
 // then unranked boards alphabetically). Native HTML5 drag is
 // unreliable to simulate in Playwright, so the drag affordances,
@@ -19,7 +19,7 @@ import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 // SETTINGS_PATH (from ./_settings) derives from RK_CONFIG_DIR when set:
 // under `just test-e2e` the harness points backend and specs at a per-run
 // temp config root, so this suite's POST /api/settings writes never touch
-// the developer's real ~/.config/run-kit/config.yaml. The snapshot/restore
+// the developer's real ~/.config/hexokit/config.yaml. The snapshot/restore
 // pattern is KEPT as the fallback for the interactive `just pw` lane (a
 // `just dev` rig with no RK_CONFIG_DIR — SETTINGS_PATH is then the real
 // file and still needs protecting; under the harness the same pattern is a

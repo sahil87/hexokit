@@ -66,6 +66,10 @@ export interface HealthResponse {
    *  Display surfaces prefer it over `hostname`; absent when unset. The real
    *  hostname stays authoritative for the accent hash and SSH deeplinks. */
   instanceName?: string;
+  /** The daemon's startup-bound listen port. Always emitted by current
+   *  daemons; optional here so an older/unexpected response degrades rather
+   *  than throws (the native web tile derives its loopback origin from it). */
+  tunnel?: number;
 }
 
 export async function getHealth(): Promise<HealthResponse> {
@@ -523,18 +527,20 @@ export async function sendServerOperatorRequest(
 /**
  * Start the server's operator via POST /api/operator/start — the daemon
  * execs its own binary as `rk operator -L <server> --json` and answers once
- * the receipt line parses. A 409 with code `operator_exists` (an operator
- * appeared between the UI's pre-check and the launch) rejects as an ApiError
- * carrying `code` and `windowId` so callers can treat it as success and
- * navigate to the reported window.
+ * the receipt line parses. The optional `windowId` names the window the user
+ * is viewing; the daemon derives its pane cwd server-side and passes it as
+ * `--dir`, so the operator starts where the user is. A 409 with code
+ * `operator_exists` (an operator appeared between the UI's pre-check and the
+ * launch) rejects as an ApiError carrying `code` and `windowId` so callers
+ * can treat it as success and navigate to the reported window.
  */
 export type OperatorStartResult = { windowId: string; server: string };
 
-export async function startOperator(server: string): Promise<OperatorStartResult> {
+export async function startOperator(server: string, windowId?: string): Promise<OperatorStartResult> {
   const res = await fetch(withServer("/api/operator/start", server), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: "{}",
+    body: JSON.stringify(windowId ? { window: windowId } : {}),
   });
   if (!res.ok) await throwOnError(res);
   return res.json();
@@ -712,6 +718,20 @@ export async function restartGui(
   return { ok: true };
 }
 
+/**
+ * POST /api/code-server/restart — the code lens empty state's restart: kill +
+ * re-ensure the daemon-managed code-server (the binary is re-resolved, a
+ * missing one spawns the install job). Resolves the outcome on 200; any
+ * non-ok response throws with the server's error text.
+ */
+export type CodeServerRestartResult = { status: "started" | "installing" | "external" };
+
+export async function restartCodeServer(): Promise<CodeServerRestartResult> {
+  const res = await deduplicatedFetch("/api/code-server/restart", { method: "POST" });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 /** The two launcher roles (spec docs/specs/gui.md § Agent verbs / § Protocol
  *  and relay — the allowlisted `POST /api/gui/{id}/launch` body). */
 export type GuiLaunchApp = "terminal" | "browser";
@@ -827,6 +847,57 @@ export async function setWindowOptions(
       body: JSON.stringify({ options }),
     },
   );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+// --- Cross-tab layout verbs (borrow/return a surface leaf between windows) ---
+
+/** Body for POST /api/layout/borrow. `to` is the window adopting the leaf,
+ *  `leaf` the address being moved (`@A/<kind>`), `tree` the adopting window's
+ *  new layout tree (already containing the leaf — the server validates it and
+ *  chains the current holder's tree-minus-leaf write with it). */
+export type LayoutBorrowBody = {
+  to: string;
+  leaf: string;
+  tree: string;
+};
+
+/** Body for POST /api/layout/return. `from` is the window currently holding
+ *  the leaf; the server recomputes both trees from current tmux state, so the
+ *  client sends no tree. A leaf not present in `from` is a 409. */
+export type LayoutReturnBody = {
+  from: string;
+  leaf: string;
+};
+
+/** Move a surface leaf into window `to`, unholding it from its current holder
+ *  in one chained server-side write. Non-2xx (400 invalid ids/tree, 409
+ *  conflicts) rejects via the shared throwOnError path. */
+export async function borrowLayout(
+  server: string,
+  body: LayoutBorrowBody,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(withServer("/api/layout/borrow", server), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** Send a held surface leaf back to its home window. Non-2xx (409 leaf not
+ *  held by `from`) rejects via the shared throwOnError path. */
+export async function returnLayout(
+  server: string,
+  body: LayoutReturnBody,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(withServer("/api/layout/return", server), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
   if (!res.ok) await throwOnError(res);
   return res.json();
 }
@@ -965,6 +1036,21 @@ export async function getDirectories(prefix: string): Promise<string[]> {
   if (!res.ok) return [];
   const data = await res.json();
   return data.directories ?? [];
+}
+
+export type WorktreeEntry = { path: string; branch: string };
+export type WorktreesResponse = { repo: string; worktrees: WorktreeEntry[] };
+
+/** The git worktrees of `path`'s repo. A non-repo folder, an invalid path, or a
+ *  failed request all read as "no worktrees" — the New sheet just omits the
+ *  section. */
+export async function getWorktrees(path: string): Promise<WorktreesResponse> {
+  const empty: WorktreesResponse = { repo: "", worktrees: [] };
+  if (!path) return empty;
+  const res = await deduplicatedFetch(`/api/worktrees?path=${encodeURIComponent(path)}`);
+  if (!res.ok) return empty;
+  const data = await res.json();
+  return { repo: data.repo ?? "", worktrees: data.worktrees ?? [] };
 }
 
 export async function reloadTmuxConfig(server: string): Promise<{ ok: boolean }> {
@@ -1402,11 +1488,13 @@ export async function listServers(): Promise<ServerInfo[]> {
   return res.json();
 }
 
-export async function createServer(name: string): Promise<{ ok: boolean }> {
+/** Create a workspace. A non-empty `cwd` starts its first group in that folder
+ *  (named after it); without one the backend births the legacy "0" group at $HOME. */
+export async function createServer(name: string, cwd?: string): Promise<{ ok: boolean; group?: string }> {
   const res = await fetch("/api/servers", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(cwd ? { name, cwd } : { name }),
   });
   if (!res.ok) await throwOnError(res);
   return res.json();
@@ -1609,6 +1697,77 @@ export async function postSettings(patch: Record<string, unknown>): Promise<void
   if (!res.ok) await throwOnError(res);
 }
 
+// --- fab-kit system config (the Settings dialog's Agents tab) ---
+
+/** Provenance tier of a fab config value. `project` never occurs (the daemon
+ *  runs fab from $HOME) but renders as a read-only chip if it ever does. */
+export type FabOrigin = "default" | "env" | "system" | "project";
+
+export type FabField = {
+  value: string | number | boolean | null;
+  origin: FabOrigin;
+  originDetail?: string;
+  /** The system-tier value hidden behind an env winner. */
+  systemValue?: string | number | boolean | null;
+  description?: string;
+};
+
+export type FabRoleCell = {
+  /** Set only when the leaf's origin is the system tier. */
+  override: string | null;
+  effective: string;
+  /** Config key the effective value comes from ("" when none). */
+  source: string;
+  origin: FabOrigin | "";
+  originDetail?: string;
+  /** What the leaf resolves to with no override ("" when the provider has no fill). */
+  inherited: string;
+  /** The system-tier value hidden behind an env winner. */
+  systemValue?: string;
+};
+
+export type FabRole = {
+  role: string;
+  depth: "session" | "workers";
+  provider: FabRoleCell;
+  model: FabRoleCell;
+  effort: FabRoleCell;
+};
+
+export type FabConfigDocument =
+  | { installed: false }
+  | {
+      installed: true;
+      systemPath: string;
+      providers: string[];
+      fields: Record<string, FabField>;
+      roles: FabRole[];
+      modelSuggestions: Record<string, string[]>;
+      effortSuggestions: string[];
+      /** fab stderr warning lines from the last POST. */
+      warnings?: string[];
+    };
+
+/** Re-reads fab on every call (never deduplicated: the tab's freshness rule). */
+export async function getFabConfig(): Promise<FabConfigDocument> {
+  const res = await fetch("/api/fab-config");
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** Partial merge: present keys set, `null` unsets. Resolves to the fresh document. */
+export async function postFabConfig(
+  patch: Record<string, string | number | boolean | null>,
+): Promise<FabConfigDocument> {
+  const res = await fetch("/api/fab-config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 // --- Theme settings ---
 
 export async function getThemePreference(): Promise<{
@@ -1797,16 +1956,27 @@ export async function spawnRiff(
   return res.json();
 }
 
-/** Fork the window's agent conversation into a NEW window in the SAME session
- *  and directory. Window-keyed and body-less: the backend derives
+/** Where a conversation fork opens: the source's own directory (`checkout`,
+ *  the default) or a new worktree on a new branch started at the source's HEAD
+ *  (`worktree`). */
+export type ForkWhere = "checkout" | "worktree";
+
+/** Fork the window's agent conversation into a NEW window in the SAME session —
+ *  in the same directory, or (`where: "worktree"`) in a new worktree + branch.
+ *  Window-keyed and body-less: the backend derives
  *  the session, the Claude session uuid, the directory, and the new window's name
  *  server-side from `windowId` alone — the client never supplies a session ref.
  *  Returns riff's spawn result, so the caller navigates exactly as it does after
  *  a spawn. Throws on a non-ok response: `404` when the window has no forkable
  *  claude agent session, `400` when its directory is not inside a git repo. */
-export async function forkWindow(server: string, windowId: string): Promise<RiffSpawnResult> {
+export async function forkWindow(
+  server: string,
+  windowId: string,
+  where: ForkWhere = "checkout",
+): Promise<RiffSpawnResult> {
+  const query = where === "worktree" ? "?where=worktree" : "";
   const res = await fetch(
-    withServer(`/api/windows/${encodeURIComponent(windowId)}/fork`, server),
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/fork${query}`, server),
     { method: "POST" },
   );
   if (!res.ok) await throwOnError(res);

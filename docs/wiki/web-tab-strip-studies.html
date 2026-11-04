@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Web Tab Strip Studies</title>
+<style>
+:root, html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-primary: #0f1117;
+  --bg-card: #171b24;
+  --bg-raise: #1b202b;
+  --bg-inset: #0a0c12;
+  --text-primary: #e8eaf0;
+  --text-secondary: #7a8394;
+  --border: #454d66;
+  --card-border: color-mix(in srgb, var(--border) 55%, transparent);
+  --accent-green: #22c55e;
+  --signal-yellow: #facc15;
+  --signal-blue: #60a5fa;
+  --signal-red: #f87171;
+  --page: #0b0d13;
+  --doc-bg: #14171d;
+  --doc-ink: #d6d9df;
+}
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg-primary: #f6f7f9;
+  --bg-card: #ffffff;
+  --bg-raise: #ffffff;
+  --bg-inset: #e8eaef;
+  --text-primary: #1a1d24;
+  --text-secondary: #6b7280;
+  --border: #d1d5db;
+  --accent-green: #16a34a;
+  --signal-yellow: #ca8a04;
+  --signal-blue: #2563eb;
+  --signal-red: #dc2626;
+  --page: #eceef2;
+  --doc-bg: #ffffff;
+  --doc-ink: #22262e;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text-primary);
+  font-family: "MonaspiceNe Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 28px 16px 80px; }
+
+header.page { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 8px; }
+h1 { font-size: 19px; margin: 0 0 4px; letter-spacing: -0.01em; }
+.sub { color: var(--text-secondary); font-size: 12px; max-width: 76ch; margin: 0; }
+.toolbar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.toolbar button, .seg button {
+  font: inherit; font-size: 11px; padding: 5px 10px; border-radius: 4px;
+  border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text-secondary); cursor: pointer;
+}
+.toolbar button:hover, .seg button:hover { color: var(--text-primary); }
+.toolbar button[aria-pressed="true"], .seg button[aria-pressed="true"] { color: var(--accent-green); border-color: var(--accent-green); }
+.seg { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+h2 { font-size: 14px; margin: 44px 0 4px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+h2 .num { color: var(--accent-green); margin-right: 8px; }
+h3 { font-size: 12.5px; margin: 24px 0 6px; }
+p { margin: 8px 0; max-width: 86ch; }
+p.note { color: var(--text-secondary); font-size: 12px; }
+code { background: var(--bg-inset); padding: 1px 5px; border-radius: 3px; font-size: 11.5px; }
+.tag { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 3px; border: 1px solid; vertical-align: 1px; }
+.tag.rec { color: var(--accent-green); border-color: var(--accent-green); }
+.tag.rej { color: var(--signal-red); border-color: var(--signal-red); }
+.tag.open { color: var(--signal-yellow); border-color: var(--signal-yellow); }
+
+.controls { display: grid; grid-template-columns: max-content 1fr; gap: 8px 14px; align-items: center; margin: 14px 0; font-size: 11.5px; }
+.controls label { color: var(--text-secondary); }
+.controls input[type=range] { width: min(320px, 100%); accent-color: var(--accent-green); vertical-align: middle; }
+.controls .val { color: var(--text-primary); margin-left: 8px; font-size: 11px; }
+.stage { background: var(--bg-inset); border-radius: 8px; padding: 6px; overflow-x: auto; }
+.readout { font-size: 11px; color: var(--text-secondary); margin-top: 6px; }
+.readout b { color: var(--text-primary); font-weight: normal; }
+
+table { border-collapse: collapse; width: 100%; font-size: 12px; margin: 10px 0; }
+th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--card-border); }
+th { color: var(--text-secondary); font-weight: normal; font-size: 11px; }
+td:first-child { color: var(--accent-green); white-space: nowrap; }
+.tablewrap { overflow-x: auto; }
+
+ol.issues { padding-left: 0; list-style: none; counter-reset: i; max-width: 90ch; }
+ol.issues li { counter-increment: i; position: relative; padding-left: 30px; margin: 8px 0; }
+ol.issues li::before {
+  content: counter(i); position: absolute; left: 0; top: 1px;
+  width: 18px; height: 18px; border-radius: 50%; background: var(--accent-green); color: #04140a;
+  font-size: 10.5px; display: flex; align-items: center; justify-content: center; font-weight: bold;
+}
+
+/* ------------------------------------------------------------- tile mock */
+.tile {
+  position: relative; display: flex; flex-direction: column; overflow: hidden;
+  border: 1px solid var(--card-border); border-radius: 6px; background: var(--bg-primary);
+  font-size: 11px; color: var(--text-secondary); margin: 0 auto; user-select: none;
+}
+.tile.focused { border-color: var(--accent-green); }
+.ic svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; display: block; }
+.btn { width: 28px; height: 28px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 4px; color: var(--text-secondary); cursor: pointer; }
+.btn:hover { background: var(--bg-card); color: var(--text-primary); }
+.btn.sm { width: 24px; height: 24px; }
+.vdiv { width: 1px; height: 14px; background: var(--border); flex: none; }
+
+/* tile header (today: 32px + 3px rule) */
+.hdr { height: 35px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 6px; border-bottom: 3px solid var(--border); background: var(--bg-primary); position: relative; }
+.glyph { flex: none; }
+.tile.focused .glyph { color: var(--accent-green); }
+.badge { flex: none; border: 1px solid; border-radius: 3px; padding: 0 6px; font-size: 10px; }
+.k-present { color: var(--accent-green); border-color: color-mix(in srgb, var(--accent-green) 40%, transparent); background: color-mix(in srgb, var(--accent-green) 10%, transparent); }
+.k-proxy { color: var(--signal-yellow); border-color: color-mix(in srgb, var(--signal-yellow) 40%, transparent); background: color-mix(in srgb, var(--signal-yellow) 10%, transparent); }
+.k-external { color: var(--signal-blue); border-color: color-mix(in srgb, var(--signal-blue) 40%, transparent); background: color-mix(in srgb, var(--signal-blue) 10%, transparent); }
+.htitle { color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spacer { flex: 1; min-width: 32px; align-self: stretch; cursor: grab; }
+.verbs { display: flex; align-items: center; gap: 2px; flex: none; }
+
+/* today's strip */
+.strip0 { flex: none; display: flex; align-items: stretch; gap: 1px; padding: 0 4px; border-bottom: 1px solid var(--border); background: var(--bg-primary); overflow-x: auto; scrollbar-width: none; }
+.tab0 { display: flex; align-items: center; gap: 6px; padding: 4px 8px; white-space: nowrap; cursor: pointer; }
+.tab0.on { color: var(--text-primary); }
+.tab0:hover { color: var(--text-primary); }
+.tab0 .x { visibility: hidden; padding: 0 2px; }
+.tab0.on .x, .tab0:hover .x { visibility: visible; }
+.dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.dot.present { background: var(--accent-green); } .dot.proxy { background: var(--signal-yellow); } .dot.external { background: var(--signal-blue); }
+.plus { flex: none; align-self: center; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 4px; cursor: pointer; font-size: 14px; }
+.plus:hover { background: var(--bg-inset); color: var(--text-primary); }
+
+/* today's URL bar */
+.url0 { height: 35px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-bottom: 1px solid var(--border); background: var(--bg-primary); }
+.addr0 { flex: 1; min-width: 0; height: 28px; display: flex; align-items: center; padding: 0 8px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; color: var(--text-primary); font-size: 14px; white-space: nowrap; overflow: hidden; }
+.zoom0 { display: flex; align-items: center; }
+.zoom0 .pct { min-width: 44px; text-align: center; font-size: 12px; }
+
+/* proposed tabs */
+.tabs { display: flex; align-items: stretch; min-width: 0; overflow-x: auto; scrollbar-width: none; position: relative; }
+.tabs.scroll { mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); }
+.tab {
+  position: relative; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 6px 0 8px;
+  color: var(--text-secondary); cursor: pointer; min-width: 0;
+}
+.tab .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab .x { flex: none; width: 16px; height: 16px; border-radius: 3px; display: flex; align-items: center; justify-content: center; visibility: hidden; }
+.tab .x svg { width: 10px; height: 10px; }
+.tab .x:hover { background: var(--bg-inset); color: var(--text-primary); }
+.tab:hover { color: var(--text-primary); }
+.tab:hover .x, .tab.on .x, .coarse .tab .x { visibility: visible; }
+.tab.iconly { justify-content: center; padding: 0; }
+.tab.iconly .lbl, .tab.iconly .x { display: none; }
+/* separators between inactive tabs (Chrome idiom) */
+.tab + .tab::before { content: ""; position: absolute; left: 0; top: 30%; height: 40%; width: 1px; background: var(--card-border); }
+.tab.on::before, .tab.on + .tab::before { display: none; }
+.fav { width: 14px; height: 14px; border-radius: 3px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold; }
+.pageic { flex: none; color: var(--text-secondary); }
+.pageic svg { width: 13px; height: 13px; }
+.pageic.present { color: var(--accent-green); } .pageic.proxy { color: var(--signal-yellow); } .pageic.external { color: var(--signal-blue); }
+.tab.draft { border: 1px dashed var(--border); border-bottom: none; }
+
+/* treatment: folder */
+.t-folder .tab.on {
+  background: var(--bg-raise); color: var(--text-primary);
+  border: 1px solid var(--card-border); border-bottom: none; border-radius: 6px 6px 0 0;
+  z-index: 2;
+}
+/* treatment: underbar */
+.t-underbar .tab.on { color: var(--text-primary); }
+.t-underbar .tab.on::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 0; height: 2px; background: var(--accent-green); border-radius: 1px; }
+/* treatment: well */
+.t-well .tab.on { color: var(--text-primary); }
+.t-well .tab.on > .wellbg { position: absolute; inset: 4px 2px; background: var(--bg-inset); border-radius: 4px; box-shadow: inset 0 1px 2px rgba(0,0,0,.35); z-index: -1; }
+.t-well .tab { z-index: 0; isolation: isolate; }
+
+/* B: fixed strip row (3 rows kept) */
+.strip1 { height: 30px; flex: none; display: flex; align-items: stretch; padding: 4px 4px 0; background: var(--bg-inset); border-bottom: 1px solid var(--border); }
+.t-folder .strip1 .tab.on { margin-bottom: -1px; }
+.strip1 .plus { margin-left: 2px; }
+
+/* C: merged header */
+.hdrC { height: 35px; flex: none; display: flex; align-items: stretch; gap: 0; padding: 0 6px; background: var(--bg-primary); border-bottom: 3px solid var(--border); }
+.hdrC .glyph { align-self: center; margin-right: 6px; cursor: grab; }
+.hdrC .tabs { padding-top: 5px; }
+.t-folder .hdrC .tab.on { margin-bottom: -3px; }
+.hdrC .plus { margin-left: 2px; }
+.hdrC .verbs { align-self: center; }
+.t-folder .hdrC { border-bottom-color: var(--card-border); }
+
+/* proposed URL row */
+.url1 { height: 33px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 6px; border-bottom: 1px solid var(--card-border); background: var(--bg-primary); position: relative; }
+.t-folder .url1 { background: var(--bg-raise); }
+.addr1 { flex: 1; min-width: 0; height: 24px; margin: 0 4px; display: flex; align-items: center; gap: 6px; padding: 0 3px; background: var(--bg-inset); border: 1px solid transparent; border-radius: 4px; color: var(--text-primary); font-size: 11.5px; white-space: nowrap; overflow: hidden; }
+.addr1 .badge { font-size: 10px; line-height: 16px; }
+.addr1 .path { overflow: hidden; text-overflow: ellipsis; }
+.addr1 .path .dim { color: var(--text-secondary); }
+.zchip { flex: none; font-size: 10px; padding: 0 5px; border-radius: 3px; background: var(--bg-card); border: 1px solid var(--border); cursor: pointer; color: var(--text-primary); }
+.menu { position: absolute; right: 6px; top: 31px; z-index: 10; min-width: 190px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.35); font-size: 11px; }
+.menu .row { display: flex; align-items: center; justify-content: space-between; padding: 5px 8px; border-radius: 4px; color: var(--text-primary); cursor: pointer; }
+.menu .row:hover { background: var(--bg-inset); }
+.menu .row kbd { color: var(--text-secondary); font: inherit; font-size: 10px; }
+.menu .zr { display: flex; align-items: center; gap: 2px; }
+.menu .zr span { min-width: 40px; text-align: center; }
+
+/* page content */
+.content { flex: 1; background: var(--doc-bg); color: var(--doc-ink); font-family: -apple-system, "Segoe UI", system-ui, sans-serif; font-size: 13px; padding: 14px 18px; overflow: hidden; line-height: 1.6; }
+.content .pill { display: inline-block; font-family: ui-monospace, monospace; font-size: 11px; border: 1px solid #4f6bd8; border-radius: 4px; padding: 1px 8px; color: var(--doc-ink); margin-right: 14px; }
+.content .rowc { display: flex; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--card-border); }
+.content h4 { margin: 0 0 6px; font-size: 15px; }
+.draftpanel { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--text-secondary); background: var(--bg-primary); }
+.draftpanel b { color: var(--text-primary); font-weight: normal; }
+
+/* annotation pins */
+.pin { position: absolute; z-index: 20; width: 17px; height: 17px; border-radius: 50%; background: var(--accent-green); color: #04140a; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px var(--bg-inset); pointer-events: none; }
+
+.film { display: grid; gap: 14px; }
+.film .cap { font-size: 11px; color: var(--text-secondary); margin: 0 0 4px; }
+.pair { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
+.pair > div { flex: none; }
+.pair .cap { font-size: 11px; color: var(--text-secondary); text-align: center; margin-top: 6px; }
+
+@media (max-width: 640px) { .controls { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="page">
+  <div>
+    <h1>Web Tab Strip Studies</h1>
+    <p class="sub">Design study for the web tile's tab strip and the rows around it (261026 discussion). It covers the annotated current state, a live mock comparing <b>today</b>, <b>a fixed strip</b> and <b>a merged header</b> with three active-tab treatments, the tab-width ladder, kind signalling, the URL-row cleanup, mobile, the constraints the merge has to keep, and the recommendation. <b>Decided:</b> variant B (fixed strip) with the folder treatment; the header merge was rejected (§8).</p>
+  </div>
+  <div class="toolbar">
+    <button id="themeBtn" aria-pressed="false">light theme</button>
+  </div>
+</header>
+
+<h2><span class="num">§1</span>Today, annotated</h2>
+<p>This is a faithful mock of the shipped tile: the tile header (<code>surface-layout.tsx</code>, 32px plus a 3px rule), the web tab strip (<code>iframe-window.tsx</code>, 11px, <code>py-1</code>) and the URL bar (35px, address at <code>text-sm</code>). The data is from the screenshot that started this discussion.</p>
+<div class="stage"><div id="today"></div></div>
+<div class="readout" id="todayReadout"></div>
+<ol class="issues">
+  <li><b>The header duplicates the active tab.</b> <code>://&nbsp;present&nbsp;lib-verse in 3D</code> is the active tab's kind and title again, one row up. The header row carries no information of its own.</li>
+  <li><b>The active tab is indistinguishable.</b> It gets <code>bg-bg-primary</code>, the same colour as the strip itself, so the only difference is <code>text-text-primary</code> versus <code>text-text-secondary</code>. The always-visible <code>×</code> is the strongest selection cue left.</li>
+  <li><b>Kind dots are noise when every tab has the same kind.</b> A family of <code>rk present</code> pages shows four identical green dots. Present pages rarely ship a favicon, so the dot fallback is the common case, not the exception.</li>
+  <li><b>Tab width is unbounded.</b> Labels are <code>whitespace-nowrap</code> with no max width, so one long <code>&lt;title&gt;</code> takes a third of the strip. A full family (cap 16) scrolls instead of shrinking.</li>
+  <li><b>Type hierarchy is inverted.</b> The address is 14px in a bordered 28px field, while the tabs that choose what the address shows are 11px. The secondary control outweighs the primary one.</li>
+  <li><b>Controls are scattered.</b> Tile verbs sit in the header and page verbs sit in the URL row. Zoom takes four slots (<code>−&nbsp;100%&nbsp;+</code>) for a control that is almost always at 100%.</li>
+</ol>
+
+<h2><span class="num">§2</span>Live comparison</h2>
+<p>Click tabs to select them, <code>×</code> to close, <code>+</code> to open a draft and <code>⋯</code> for the page menu (zoom lives there; set it away from 100% to see the URL-row chip appear). The <b>width</b> and <b>tabs</b> sliders drive the sizing ladder in §3.</p>
+<div class="controls">
+  <label>Variant</label>
+  <div class="seg" id="segVariant">
+    <button data-v="A">A · today</button>
+    <button data-v="B">B · fixed strip (3 rows)</button>
+    <button data-v="C">C · merged header</button>
+  </div>
+  <label>Active tab</label>
+  <div class="seg" id="segTreat">
+    <button data-t="folder">folder</button>
+    <button data-t="underbar">underbar</button>
+    <button data-t="well">well</button>
+  </div>
+  <label>Family</label>
+  <div class="seg" id="segFamily">
+    <button data-f="same">all present</button>
+    <button data-f="mixed">mixed kinds</button>
+  </div>
+  <label>Tile</label>
+  <div class="seg" id="segTile">
+    <button data-x="focused">focused (arity &gt; 1)</button>
+    <button data-x="coarse">coarse pointer</button>
+  </div>
+  <label for="wR">Tile width</label>
+  <div><input type="range" id="wR" min="360" max="1160" step="10"><span class="val" id="wV"></span></div>
+  <label for="nR">Tabs</label>
+  <div><input type="range" id="nR" min="1" max="16" step="1"><span class="val" id="nV"></span></div>
+</div>
+<div class="stage"><div id="live"></div></div>
+<div class="readout" id="liveReadout"></div>
+
+<h3>Why the folder treatment</h3>
+<p><b>Folder</b> is the only treatment that answers "which tab does the URL row belong to?" without a legend: the active tab and the URL row share one raised surface (<code>--bg-raise</code>) and the rule under the tab is broken. <b>Underbar</b> works and is the cheapest change, but a green bar is already this app's focus and latch signal (the focused-tile frame, toggle latches), so a selected tab in an unfocused tile would borrow focus semantics. <b>Well</b> reads as a pressed toggle, which a tab is not, and it carries the light-theme ΔL problem recorded in the Toggle Depth study.</p>
+
+<h2><span class="num">§3</span>The width ladder</h2>
+<p>Tabs share the strip width evenly, from a maximum of <b>200px</b> down to a floor. The <b>active tab keeps 110px</b> so its title and <code>×</code> survive. Below <b>72px</b> an inactive tab drops to <b>icon-only (34px)</b>, and only when icon-only tabs no longer fit does the strip scroll, with a fade on the trailing edge. Inactive tabs under 72px hide their <code>×</code> even on coarse pointers; middle-click and the roving <kbd>Delete</kbd> still close them. Variant C at 760px:</p>
+<div class="film" id="film"></div>
+
+<h2><span class="num">§4</span>Kind signalling</h2>
+<div class="tablewrap"><table>
+  <tr><th>Where</th><th>Today</th><th>Proposed</th></tr>
+  <tr><td>Tile header</td><td>Kind badge plus page title (duplicates the active tab)</td><td>Removed: the header holds the tabs</td></tr>
+  <tr><td>Address field</td><td>Plain text</td><td>The kind badge becomes the address field's leading chip (<code>present</code> · <code>:5173 proxy</code> · <code>external</code>), like a browser's site-identity chip. It describes the active address, which is where that fact belongs.</td></tr>
+  <tr><td>Tab icon</td><td>Favicon, otherwise a kind dot, hued every time</td><td>Favicon first. Otherwise a neutral page glyph, hued by kind <b>only when the family mixes kinds</b>. Four present pages read as four documents; a proxy tab among them stands out.</td></tr>
+  <tr><td>Loading</td><td>Spinner in the icon slot</td><td>Unchanged</td></tr>
+</table></div>
+
+<h2><span class="num">§5</span>URL row</h2>
+<ul>
+  <li>The address drops to <b>11.5px</b> in an unbordered inset field (24px), matching the tabs.</li>
+  <li>Buttons: <code>◀ ▶ ↻ [address] ⌕ ↗ ⋯</code>. <b>Zoom</b> and <b>Inspect</b> move into <code>⋯</code> and keep their palette rows (Constitution V is unaffected).</li>
+  <li>A <b>zoom chip</b> (<code>125%</code>) appears beside the address only when zoom ≠ 100%; clicking it resets. This is Chrome's rule: the state is visible exactly when it is unusual.</li>
+  <li>The <code>keys → page</code> capture chip moves from the header into the URL row, right of the address, since the header now belongs to tabs.</li>
+</ul>
+
+<h2><span class="num">§6</span>Mobile</h2>
+<p>Mobile renders no tile header (<code>!mobile</code> gate in <code>surface-layout.tsx</code>), so there is nothing to merge: the strip stays its own row and gets the same folder treatment and width ladder. The URL row keeps <code>↻ [address] ⋯</code>, and back, forward, find and open-external move into <code>⋯</code>. The "today" frame on the left is approximate: it assumes the same strip and URL bar as desktop.</p>
+<div class="stage"><div class="pair" id="mobile"></div></div>
+
+<h2><span class="num">§7</span>What the merge must preserve</h2>
+<p class="note">Parked: variant C was rejected (§8). This table records what a future header merge would have to carry.</p>
+<div class="tablewrap"><table>
+  <tr><th>Constraint</th><th>Today</th><th>In variant C</th></tr>
+  <tr><td>Drag-to-snap grip</td><td>The whole header background is the tile grip</td><td>The <code>://</code> glyph plus the spare space after <code>+</code> (at least 32px reserved) stay the grip. Tabs are reorder-drag only. This is the browser-window idiom.</td></tr>
+  <tr><td>Double-click empty strip</td><td>Opens a draft</td><td>Unchanged on spare header space. No conflict: a tile drag arms on pointer movement past the threshold, a double-click doesn't move.</td></tr>
+  <tr><td>Focused-tile glyph</td><td><code>://</code> turns green</td><td>Unchanged</td></tr>
+  <tr><td>Foreign-tile home chip</td><td>After the title</td><td>Between the glyph and the first tab</td></tr>
+  <tr><td>Arity 1</td><td>No verbs</td><td>The header is just glyph, tabs and <code>+</code></td></tr>
+  <tr><td>Tips flip upward</td><td>Strip and URL Tips use <code>placement="top"</code> to clear the native guest view</td><td>Header tabs sit at the tile's top edge, so their Tips need a portal or a below-header placement that still clears the guest rect. <span class="tag open">verify</span></td></tr>
+  <tr><td>Other tile kinds</td><td>tty/code/gui share one header idiom</td><td>Only web changes. It is the only surface with its own tab family, and the gui tile already folds its toolbar into its header (GUI Toolbar Header Studies), so a kind-specific header has precedent.</td></tr>
+</table></div>
+
+<h2><span class="num">§8</span>Recommendation</h2>
+<div class="tablewrap"><table>
+  <tr><th>#</th><th>Decision</th><th>Status</th></tr>
+  <tr><td>1</td><td>Folder treatment for the active tab: a raised surface shared with the URL row, the rule broken under the tab</td><td><span class="tag rec">recommended</span></td></tr>
+  <tr><td>2</td><td>The width ladder (200 max · even shrink · active floor 110 · icon-only 34 under 72 · scroll last)</td><td><span class="tag rec">recommended</span></td></tr>
+  <tr><td>3</td><td>The kind badge moves to the address chip; tab icons fall back to a neutral page glyph, hued only in mixed families</td><td><span class="tag rec">recommended</span></td></tr>
+  <tr><td>4</td><td>URL row diet: 11.5px address, zoom and inspect behind <code>⋯</code>, the zoom chip only when ≠ 100%</td><td><span class="tag rec">recommended</span></td></tr>
+  <tr><td>5</td><td>The tile header drops its kind badge (the address chip carries it) and keeps the page title</td><td><span class="tag rec">decided</span></td></tr>
+  <tr><td>—</td><td>Merge the tabs into the desktop tile header (variant C)</td><td><span class="tag rej">rejected</span></td></tr>
+  <tr><td>—</td><td>Underbar and well as the active-tab treatment</td><td><span class="tag rej">rejected</span></td></tr>
+</table></div>
+<p><b>Decision (261026):</b> ship <b>variant B</b> as one fab change covering decisions 1–5. The header merge (variant C) was rejected: with the folder treatment and the width ladder in place, the fixed strip reads well enough that saving one row isn't worth the grip, Tip and home-chip work in §7, which stays here as the record of what a future merge would have to carry.</p>
+
+</div>
+
+<script>
+const ICON = {
+  kbd: '<svg viewBox="0 0 16 16"><rect x="1.5" y="4" width="13" height="8" rx="1.5"/><path d="M4.5 6.8h.01M7 6.8h.01M9.5 6.8h.01M12 6.8h.01M5 9.4h6"/></svg>',
+  pop: '<svg viewBox="0 0 16 16"><path d="M9 2.5h4.5V7M13.5 2.5 8 8M7 3.5H3.5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V9"/></svg>',
+  full: '<svg viewBox="0 0 16 16"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg>',
+  close: '<svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
+  back: '<svg viewBox="0 0 16 16"><path d="M13 8H3M7 4 3 8l4 4"/></svg>',
+  fwd: '<svg viewBox="0 0 16 16"><path d="M3 8h10M9 4l4 4-4 4"/></svg>',
+  reload: '<svg viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.5M13 2.5v3h-3"/></svg>',
+  find: '<svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>',
+  code: '<svg viewBox="0 0 16 16"><path d="M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.5M9 3 7 13"/></svg>',
+  ext: '<svg viewBox="0 0 16 16"><path d="M5 11 11 5M6 5h5v5"/></svg>',
+  more: '<svg viewBox="0 0 16 16"><circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none"/></svg>',
+  page: '<svg viewBox="0 0 16 16"><path d="M4 1.75h5.5l3 3v9.5H4zM9.5 1.75v3h3"/></svg>',
+};
+const ic = (k) => `<span class="ic">${ICON[k]}</span>`;
+
+const SAME = [
+  { t: "A Box, Two Transformations — an interactive story", u: "/present/loom/box-story.html", k: "present" },
+  { t: "Loom Coordinate Spaces", u: "/present/loom/coord-spaces.html", k: "present" },
+  { t: "lib-verse Solutions", u: "/present/loom/lib-verse-solutions.html", k: "present" },
+  { t: "lib-verse in 3D", u: "/present/loom/verses-3d.html", k: "present" },
+];
+const MIXED = [
+  { t: "Vite + React + TS", u: "/proxy/5173/", k: "proxy", port: 5173, fav: { bg: "linear-gradient(135deg,#41d1ff,#bd34fe)", fg: "#fff", ch: "V" } },
+  { t: "Fix Codex waiting indicator · Pull Request #1089 · sahil87/hexokit", u: "https://github.com/sahil87/hexokit/pull/1089", k: "external", fav: { bg: "#e8eaf0", fg: "#0f1117", ch: "◉" } },
+  { t: "Playwright Trace Viewer", u: "/proxy/9323/", k: "proxy", port: 9323 },
+];
+const POOL = [
+  "Status Pyramid — tier ladder", "Surface Drop-Zone Studies", "Marker 3×3 Studies", "Cron Schedule Kinds",
+  "Toggle Depth Studies", "Logo Design Studies", "Sidebar Material Studies", "Review Comment States",
+  "Window Row Studies", "GUI Toolbar — Final Proposal", "Tab Note Design Studies", "Mode Axis Studies",
+].map((t, i) => ({ t, u: `/present/wiki/study-${i + 1}.html`, k: "present" }));
+
+const S = { variant: "C", treat: "folder", family: "same", focused: true, coarse: false, width: 980, n: 4, active: 3, draft: false, zoom: 100, menu: false };
+let tabs = [];
+function rebuild() {
+  const src = S.family === "mixed" ? [...SAME.slice(0, 2), MIXED[0], SAME[2], MIXED[1], SAME[3], MIXED[2], ...POOL] : [...SAME, ...POOL];
+  tabs = src.slice(0, S.n);
+  if (S.family === "mixed" && S.n >= 4 && S.active === 3) S.active = Math.min(5, S.n - 1);
+  S.active = Math.min(S.active, tabs.length - 1);
+}
+
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+const mixedFamily = (list) => new Set(list.map((x) => x.k)).size > 1;
+
+function sizeTabs(n, avail, ai) {
+  const MAX = 200, ACT = 110, ICONW = 34;
+  if (n === 0) return { ws: [], scroll: false };
+  const w = avail / n;
+  if (w >= MAX) return { ws: Array(n).fill(MAX), scroll: false };
+  if (w >= ACT) return { ws: Array(n).fill(Math.floor(w)), scroll: false };
+  const rest = n > 1 ? (avail - ACT) / (n - 1) : 0;
+  const o = Math.max(Math.floor(rest), ICONW);
+  return { ws: Array.from({ length: n }, (_, i) => (i === ai ? ACT : o)), scroll: ACT + o * (n - 1) > avail };
+}
+
+function tabIcon(tab, mixed, legacy) {
+  if (tab.fav) return `<span class="fav" style="background:${tab.fav.bg};color:${tab.fav.fg}">${tab.fav.ch}</span>`;
+  if (legacy) return `<span class="dot ${tab.k}"></span>`;
+  return `<span class="pageic ic ${mixed ? tab.k : ""}">${ICON.page}</span>`;
+}
+
+function badgeOf(tab) {
+  if (tab.k === "proxy") return `<span class="badge k-proxy">:${tab.port} proxy</span>`;
+  if (tab.k === "external") return `<span class="badge k-external">external</span>`;
+  return `<span class="badge k-present">present</span>`;
+}
+
+function addrParts(tab) {
+  if (tab.k === "external") {
+    const m = tab.u.match(/^https:\/\/([^/]+)(.*)$/);
+    return `${esc(m[1])}<span class="dim">${esc(m[2])}</span>`;
+  }
+  const i = tab.u.lastIndexOf("/");
+  return `<span class="dim">${esc(tab.u.slice(0, i + 1))}</span>${esc(tab.u.slice(i + 1))}`;
+}
+
+const verbsHTML = (focused) => focused
+  ? `<div class="verbs"><span class="btn sm" title="Capture keys">${ic("kbd")}</span><span class="vdiv"></span><span class="btn sm" title="Pop out">${ic("pop")}</span><span class="vdiv"></span><span class="btn sm" title="Zoom tile">${ic("full")}</span><span class="vdiv"></span><span class="btn sm" title="Close tile">${ic("close")}</span></div>`
+  : "";
+
+function contentHTML(tab) {
+  if (!tab) return `<div class="draftpanel"><span style="font-size:20px">://</span><b>New tab</b><span>type an address above — Enter opens it here, Esc discards</span></div>`;
+  return `<div class="content"><h4>${esc(tab.t)}</h4>
+    <div class="rowc"><span class="pill">● viewport</span><span>The editor's canvas area. Subtract its top-left from a window point.</span></div>
+    <div class="rowc"><span class="pill">● zoomedCanvas</span><span>The canvas, measured in viewport px. It shares the origin with the viewport.</span></div>
+    <div class="rowc"><span class="pill">● canvas</span><span>canvas = (window − viewportOrigin − pan) ÷ zoom</span></div></div>`;
+}
+
+/* opts: variant, treat, tabs, active, width, focused, coarse, draft, zoom, menu, mobile, annotate, interactive */
+function renderTile(o) {
+  o = { zoom: 100, ...o };
+  const list = o.tabs, act = o.draft ? -1 : o.active, at = list[act];
+  const mixed = mixedFamily(list);
+  const W = o.width;
+  let h = `<div class="tile t-${o.treat}${o.focused && !o.mobile ? " focused" : ""}${o.coarse || o.mobile ? " coarse" : ""}" style="width:${W}px">`;
+
+  if (o.variant === "A") {
+    if (!o.mobile) {
+      h += `<div class="hdr"><span class="glyph">://</span>${at ? badgeOf(at) : ""}<span class="htitle" data-pin="1">${at ? esc(at.t) : "Web"}</span><span class="spacer"></span>${verbsHTML(o.focused)}</div>`;
+    }
+    h += `<div class="strip0">`;
+    list.forEach((t, i) => {
+      h += `<div class="tab0${i === act ? " on" : ""}" data-i="${i}"${i === act ? ' data-pin="2"' : ""}${i === 0 ? ' data-pin2="4"' : ""}>${tabIcon(t, mixed, true)}<span${i === 1 ? ' data-pin="3"' : ""}>${esc(t.t)}</span><span class="x" data-close="${i}">×</span></div>`;
+    });
+    if (o.draft) h += `<div class="tab0 on" style="border-bottom:2px dashed var(--text-secondary)"><span class="dot" style="background:var(--text-secondary)"></span>new tab 1<span class="x" data-discard>×</span></div>`;
+    h += `<span class="plus" data-add>+</span></div>`;
+    h += `<div class="url0">`;
+    if (o.mobile) {
+      h += `<span class="btn">${ic("reload")}</span><div class="addr0">${at ? esc(at.u.split("/").pop() || at.u) : ""}</div><span class="btn">${ic("find")}</span><span class="btn">${ic("ext")}</span>`;
+    } else {
+      h += `<span class="btn">${ic("back")}</span><span class="btn">${ic("fwd")}</span><span class="btn">${ic("reload")}</span><div class="addr0" data-pin="5">${at ? esc(at.u.split("/").pop() || at.u) : ""}</div><span class="btn">${ic("find")}</span><div class="zoom0" data-pin="6"><span class="btn">−</span><span class="pct">100%</span><span class="btn">+</span></div><span class="btn">${ic("code")}</span><span class="btn">${ic("ext")}</span>`;
+    }
+    h += `</div>`;
+  } else {
+    // available width for the tab run
+    const nCount = list.length + (o.draft ? 1 : 0);
+    let avail;
+    if (o.variant === "C" && !o.mobile) avail = W - 2 - 12 - 26 - 28 - 32 - (o.focused ? 124 : 0);
+    else avail = W - 2 - 8 - 28 - 12;
+    const ai = o.draft ? list.length : act;
+    const { ws, scroll } = sizeTabs(nCount, avail, ai);
+    let run = `<div class="tabs${scroll ? " scroll" : ""}">`;
+    list.forEach((t, i) => {
+      const w = ws[i], on = i === act;
+      const iconly = !on && w < 72;
+      run += `<div class="tab${on ? " on" : ""}${iconly ? " iconly" : ""}" data-i="${i}" style="width:${w}px" title="${esc(t.t)}">${on && o.treat === "well" ? '<span class="wellbg"></span>' : ""}${tabIcon(t, mixed, false)}<span class="lbl">${esc(t.t)}</span><span class="x" data-close="${i}">${ICON.close}</span></div>`;
+    });
+    if (o.draft) {
+      const w = ws[list.length];
+      run += `<div class="tab on draft" style="width:${w}px">${o.treat === "well" ? '<span class="wellbg"></span>' : ""}<span class="pageic ic">${ICON.page}</span><span class="lbl">New tab</span><span class="x" data-discard>${ICON.close}</span></div>`;
+    }
+    run += `</div><span class="plus" data-add>+</span>`;
+
+    if (o.variant === "C" && !o.mobile) {
+      h += `<div class="hdrC"><span class="glyph" title="drag to snap">://</span>${run}<span class="spacer" title="tile grip — drag to snap, double-click for a new tab"></span>${verbsHTML(o.focused)}</div>`;
+    } else {
+      if (!o.mobile) h += `<div class="hdr"><span class="glyph">://</span>${at ? badgeOf(at) : ""}<span class="htitle">${at ? esc(at.t) : "Web"}</span><span class="spacer"></span>${verbsHTML(o.focused)}</div>`;
+      h += `<div class="strip1">${run}</div>`;
+    }
+    // URL row
+    h += `<div class="url1">`;
+    if (!o.mobile) h += `<span class="btn sm">${ic("back")}</span><span class="btn sm">${ic("fwd")}</span>`;
+    h += `<span class="btn sm">${ic("reload")}</span>`;
+    h += `<div class="addr1">${at ? badgeOf(at) + `<span class="path">${addrParts(at)}</span>` : '<span class="path"><span class="dim">type an address…</span></span>'}</div>`;
+    if (o.zoom !== 100) h += `<span class="zchip" data-zreset title="reset zoom">${o.zoom}%</span>`;
+    if (!o.mobile) h += `<span class="btn sm">${ic("find")}</span><span class="btn sm">${ic("ext")}</span>`;
+    h += `<span class="btn sm" data-menu>${ic("more")}</span>`;
+    if (o.menu) {
+      h += `<div class="menu">`;
+      if (o.mobile) h += `<div class="row">Back<kbd>⌥←</kbd></div><div class="row">Forward<kbd>⌥→</kbd></div><div class="row">Find in page<kbd>⌘F</kbd></div><div class="row">Open in browser</div>`;
+      h += `<div class="row" style="cursor:default">Zoom<span class="zr"><span class="btn sm" data-z="-10">−</span><span>${o.zoom}%</span><span class="btn sm" data-z="10">+</span></span></div><div class="row">Inspect page<kbd>⌥⌘I</kbd></div></div>`;
+    }
+    h += `</div>`;
+  }
+  h += contentHTML(at) + `</div>`;
+  return h;
+}
+
+function placePins(root) {
+  root.querySelectorAll(".pin").forEach((p) => p.remove());
+  const tile = root.querySelector(".tile");
+  const tr = tile.getBoundingClientRect();
+  const pin = (el, n, dx = 0) => {
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const p = document.createElement("span");
+    p.className = "pin"; p.textContent = n;
+    p.style.left = `${Math.min(r.right - tr.left - 6 + dx, tr.width - 20)}px`;
+    p.style.top = `${r.top - tr.top - 6}px`;
+    tile.appendChild(p);
+  };
+  root.querySelectorAll("[data-pin]").forEach((el) => pin(el, el.dataset.pin));
+  root.querySelectorAll("[data-pin2]").forEach((el) => {
+    const r = el.getBoundingClientRect(), p = document.createElement("span");
+    p.className = "pin"; p.textContent = el.dataset.pin2;
+    p.style.left = `${r.left - tr.left + r.width / 2}px`; p.style.top = `${r.bottom - tr.top - 8}px`;
+    tile.appendChild(p);
+  });
+}
+
+function chromeHeight(root) {
+  const tile = root.querySelector(".tile"), c = root.querySelector(".content, .draftpanel");
+  return c.getBoundingClientRect().top - tile.getBoundingClientRect().top - 1;
+}
+
+/* §1 */
+function drawToday() {
+  const el = document.getElementById("today");
+  const w = Math.min(980, el.parentElement.clientWidth - 12);
+  el.innerHTML = renderTile({ variant: "A", treat: "folder", tabs: [...SAME], active: 3, width: Math.max(w, 720), focused: true });
+  placePins(el);
+  document.getElementById("todayReadout").innerHTML = `chrome above the page: <b>${Math.round(chromeHeight(el))}px</b> across three rows (header · strip · URL bar)`;
+}
+
+/* §2 */
+function drawLive() {
+  const el = document.getElementById("live");
+  el.innerHTML = renderTile({ variant: S.variant, treat: S.treat, tabs, active: S.active, width: S.width, focused: S.focused, coarse: S.coarse, draft: S.draft, zoom: S.zoom, menu: S.menu });
+  const rows = S.variant === "C" ? "two rows (header with tabs · URL row)" : "three rows (header · strip · URL row)";
+  document.getElementById("liveReadout").innerHTML = `variant ${S.variant} · chrome above the page: <b>${Math.round(chromeHeight(el))}px</b> across ${rows}`;
+  syncControls();
+}
+function syncControls() {
+  document.querySelectorAll("#segVariant button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.v === S.variant));
+  document.querySelectorAll("#segTreat button").forEach((b) => { b.setAttribute("aria-pressed", b.dataset.t === S.treat); b.disabled = S.variant === "A"; b.style.opacity = S.variant === "A" ? .4 : 1; });
+  document.querySelectorAll("#segFamily button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.f === S.family));
+  document.querySelector('#segTile [data-x="focused"]').setAttribute("aria-pressed", S.focused);
+  document.querySelector('#segTile [data-x="coarse"]').setAttribute("aria-pressed", S.coarse);
+  wR.value = S.width; wV.textContent = `${S.width}px`;
+  nR.value = tabs.length; nV.textContent = `${tabs.length}${tabs.length >= 16 ? " (cap)" : ""}`;
+}
+
+document.getElementById("live").addEventListener("click", (e) => {
+  const t = e.target.closest("[data-close],[data-discard],[data-add],[data-i],[data-menu],[data-z],[data-zreset]");
+  if (!t) { if (S.menu) { S.menu = false; drawLive(); } return; }
+  if (t.dataset.close !== undefined) {
+    const i = +t.dataset.close; tabs.splice(i, 1); S.n = tabs.length;
+    if (S.active >= i && S.active > 0) S.active--;
+  } else if (t.dataset.discard !== undefined) S.draft = false;
+  else if (t.dataset.add !== undefined) { if (tabs.length < 16) S.draft = true; }
+  else if (t.dataset.menu !== undefined) { S.menu = !S.menu; drawLive(); return; }
+  else if (t.dataset.z !== undefined) { S.zoom = Math.max(30, Math.min(300, S.zoom + +t.dataset.z)); drawLive(); return; }
+  else if (t.dataset.zreset !== undefined) S.zoom = 100;
+  else if (t.dataset.i !== undefined) { S.active = +t.dataset.i; S.draft = false; }
+  S.menu = false;
+  drawLive();
+});
+document.getElementById("live").addEventListener("auxclick", (e) => {
+  const t = e.target.closest("[data-i]");
+  if (e.button === 1 && t) { const i = +t.dataset.i; tabs.splice(i, 1); S.n = tabs.length; if (S.active >= i && S.active > 0) S.active--; drawLive(); }
+});
+document.getElementById("live").addEventListener("dblclick", (e) => {
+  if (e.target.classList.contains("spacer") && tabs.length < 16) { S.draft = true; drawLive(); }
+});
+document.querySelectorAll("#segVariant button").forEach((b) => b.onclick = () => { S.variant = b.dataset.v; S.menu = false; drawLive(); });
+document.querySelectorAll("#segTreat button").forEach((b) => b.onclick = () => { S.treat = b.dataset.t; drawLive(); drawFilm(); drawMobile(); });
+document.querySelectorAll("#segFamily button").forEach((b) => b.onclick = () => { S.family = b.dataset.f; S.n = Math.max(S.n, b.dataset.f === "mixed" ? 7 : 4); rebuild(); drawLive(); });
+document.querySelector('#segTile [data-x="focused"]').onclick = () => { S.focused = !S.focused; drawLive(); };
+document.querySelector('#segTile [data-x="coarse"]').onclick = () => { S.coarse = !S.coarse; drawLive(); };
+const wR = document.getElementById("wR"), wV = document.getElementById("wV"), nR = document.getElementById("nR"), nV = document.getElementById("nV");
+wR.oninput = () => { S.width = +wR.value; drawLive(); };
+nR.oninput = () => { S.n = +nR.value; rebuild(); drawLive(); };
+
+/* §3 */
+function drawFilm() {
+  const el = document.getElementById("film");
+  el.innerHTML = "";
+  [2, 5, 8, 12, 16].forEach((n) => {
+    const list = [...SAME, ...POOL].slice(0, n);
+    const d = document.createElement("div");
+    d.innerHTML = `<p class="cap">${n} tabs</p><div class="stage">${renderTile({ variant: "C", treat: S.treat, tabs: list, active: Math.min(3, n - 1), width: 760, focused: true })}</div>`;
+    d.querySelectorAll(".content, .draftpanel").forEach((c) => c.style.display = "none");
+    el.appendChild(d);
+  });
+}
+
+/* §6 */
+function drawMobile() {
+  const el = document.getElementById("mobile");
+  const list = [...SAME];
+  el.innerHTML = `<div>${renderTile({ variant: "A", treat: "folder", tabs: list, active: 3, width: 343, mobile: true })}<div class="cap">today (approx.)</div></div>
+    <div>${renderTile({ variant: "B", treat: S.treat, tabs: list, active: 3, width: 343, mobile: true })}<div class="cap">proposed</div></div>`;
+  el.querySelectorAll(".content").forEach((c) => c.style.height = "150px");
+}
+
+/* theme */
+document.getElementById("themeBtn").onclick = (e) => {
+  const light = document.documentElement.dataset.theme !== "light";
+  document.documentElement.dataset.theme = light ? "light" : "dark";
+  e.currentTarget.setAttribute("aria-pressed", light);
+  drawToday();
+};
+
+rebuild();
+drawToday(); drawLive(); drawFilm(); drawMobile();
+addEventListener("resize", drawToday);
+</script>
+</body>
+</html>

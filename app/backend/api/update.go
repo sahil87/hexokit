@@ -137,10 +137,10 @@ type updatesCheckRequest struct {
 //     sibling tools remain updatable.
 //
 //   - shll ABSENT → the run-kit-self behavior: (1) require a Homebrew install
-//     (Cellar marker) — else 409; (2) unless force, require a qualifying
+//     (Cellar keg) — else 409; (2) unless force, require a qualifying
 //     pending update — else 409; (3) run `rk update` (self) in the job window.
 //     The brew-409 (which also covers dev builds — a dev binary never lives
-//     under /Cellar/run-kit/) applies ONLY here.
+//     under a brew Cellar keg) applies ONLY here.
 //
 // Response shapes: fresh spawn → 202 {"status":"updating","watch":{…}}; a live
 // in-flight window → 200 {"status":"already-running","watch":{…}} (the second
@@ -304,7 +304,7 @@ func (s *Server) handleSelfUpdate(w http.ResponseWriter, r *http.Request, force 
 
 	if !selfpath.IsBrewInstalled(selfPath) {
 		writeError(w, http.StatusConflict,
-			"run-kit was not installed via Homebrew — update manually with `rk update` in a shell, or `brew install sahil87/tap/run-kit`")
+			"hexokit was not installed via Homebrew — update manually with `rk update` in a shell, or `brew install "+selfpath.BrewFormula+"`")
 		return
 	}
 

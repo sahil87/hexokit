@@ -169,6 +169,22 @@ export function listWindows(
   });
 }
 
+/** Synchronously list the server's attached clients: each client's session
+ *  and size (tmux-side truth). A server with no clients yields []. */
+export function listClients(
+  opts: TmuxOptions = {},
+): Array<{ session: string; width: number; height: number }> {
+  const out = tmux(
+    ["list-clients", "-F", "#{client_session}\t#{client_width}\t#{client_height}"],
+    opts,
+  ).trim();
+  if (!out) return [];
+  return out.split("\n").map((line) => {
+    const [session, width, height] = line.split("\t");
+    return { session, width: Number(width), height: Number(height) };
+  });
+}
+
 /** Set a user option at SESSION scope (exact-match `=name:` target — a bare
  *  `-t <session>` is a window target). Throws on failure. */
 export function setSessionOption(
@@ -214,6 +230,30 @@ export function windowOption(
   } catch {
     return "";
   }
+}
+
+/** Synchronously capture a pane's rendered content (tmux-side truth).
+ *  `scrollback: true` captures from the start of history (`-S -`); the default
+ *  is the visible pane only. Throws on failure — mid-test callers should see
+ *  the error. */
+export function capturePane(
+  target: string,
+  opts: TmuxOptions & { scrollback?: boolean } = {},
+): string {
+  const args = ["capture-pane", "-p", "-t", target];
+  if (opts.scrollback) args.push("-S", "-");
+  return tmux(args, opts);
+}
+
+/** The active pane id (`%N`) of a window id (`@N`). Throws on failure. */
+export function paneIdForWindow(windowId: string, opts: TmuxOptions = {}): string {
+  return tmux(["display-message", "-p", "-t", windowId, "#{pane_id}"], opts).trim();
+}
+
+/** Send literal tmux key names to a pane (e.g. "Enter", "Escape", "Down").
+ *  Throws on failure. */
+export function sendKeysToPane(paneId: string, keys: string[], opts: TmuxOptions = {}): void {
+  tmux(["send-keys", "-t", paneId, ...keys], opts);
 }
 
 /** Stamp the slot-1 web tab the way the frontend's address bar / migration

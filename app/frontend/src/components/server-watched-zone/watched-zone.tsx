@@ -49,7 +49,7 @@ export function WatchedZone({
       <SectionHeading label="Watched" side={side} className="mb-2" />
       {rows.length === 0 ? (
         <div className="text-xs text-text-secondary font-mono">
-          {hasOperator ? "No watched workers" : "No operator on this server"}
+          {hasOperator ? "No watched workers" : "No operator on this workspace"}
         </div>
       ) : (
         <WatchedTable

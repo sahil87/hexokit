@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import type { CDPSession } from "@playwright/test";
 
 /**
- * Idle contract for the "Server not found" fallback: loading a route whose
+ * Idle contract for the "Workspace not found" fallback: loading a route whose
  * tmux server the daemon does not have renders the fallback once and then
  * leaves the main thread quiet — no re-render or redirect loop keeps the
  * renderer busy while the tab is open.
@@ -48,26 +48,26 @@ async function measureIdleTaskS(page: Page): Promise<number> {
 /** Assert the fallback's copy: heading, the sentence naming the server, and
  *  the way home. */
 async function expectServerNotFound(page: Page, server: string): Promise<void> {
-  await expect(page.getByRole("heading", { name: "Server not found" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Workspace not found" })).toBeVisible();
   await expect(
-    page.getByRole("paragraph").filter({ hasText: "No tmux server named" }),
+    page.getByRole("paragraph").filter({ hasText: "No workspace named" }),
   ).toContainText(server);
-  await expect(page.getByRole("link", { name: "Go to server list" })).toHaveAttribute(
+  await expect(page.getByRole("link", { name: "Go to workspace list" })).toHaveAttribute(
     "href",
     "/",
   );
 }
 
-test.describe("Server not found — fallback renders once and idles", () => {
+test.describe("Workspace not found — fallback renders once and idles", () => {
   /**
    * Proves: the `/$server` form of a missing-server route renders the
-   * "Server not found" fallback with its copy and its way home, then leaves
+   * "Workspace not found" fallback with its copy and its way home, then leaves
    * the main thread quiet for the life of the tab.
    *
    * Steps:
    * 1. Open a `/$server` route whose name the rig's daemon cannot have.
-   * 2. Assert the fallback renders: the `Server not found` heading, the
-   *    sentence naming the server, and the `Go to server list` link to `/`.
+   * 2. Assert the fallback renders: the `Workspace not found` heading, the
+   *    sentence naming the server, and the `Go to workspace list` link to `/`.
    * 3. Measure the main-thread task-time delta over a 3 s idle window via a
    *    CDP `Performance.getMetrics` session.
    * 4. Assert the delta is under the budget — a re-render/redirect loop would
@@ -84,7 +84,7 @@ test.describe("Server not found — fallback renders once and idles", () => {
 
   /**
    * Proves: the `/$server/$window` form of a missing-server route renders the
-   * same "Server not found" fallback and idles the same way — the guard sits
+   * same "Workspace not found" fallback and idles the same way — the guard sits
    * on the server layout, so the terminal child route inherits it.
    *
    * Steps:

@@ -100,7 +100,7 @@ describe("SessionTiles", () => {
     renderTiles();
     expect(screen.getByTestId("session-tile-run-kit")).toBeInTheDocument();
     expect(screen.getByTestId("session-tile-ao-server")).toBeInTheDocument();
-    expect(screen.getByText(/2 sessions, 2 tabs/)).toBeInTheDocument();
+    expect(screen.getByText(/2 groups, 2 tabs/)).toBeInTheDocument();
   });
 
   it("hides window tiles until the session is expanded, then reveals them", () => {
@@ -360,12 +360,12 @@ describe("SessionTiles", () => {
     ).toBeTruthy();
   });
 
-  it("wires the New Session and New Tab actions", () => {
+  it("wires the New group and New Tab actions", () => {
     const onCreateSession = vi.fn();
     const onCreateWindow = vi.fn();
     renderTiles({ onCreateSession, onCreateWindow });
 
-    fireEvent.click(screen.getByText("+ New Session"));
+    fireEvent.click(screen.getByText("+ New group"));
     expect(onCreateSession).toHaveBeenCalled();
 
     fireEvent.click(screen.getByLabelText("Expand run-kit"));

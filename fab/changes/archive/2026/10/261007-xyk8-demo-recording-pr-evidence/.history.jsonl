@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-10-07T19:16:48Z"}
+{"args":"Add just demo \u003cname\u003e — Playwright screen-recording tool for PR evidence, plus constitution v2.0.0 (Principle II Disposable Daemon, § PR Evidence)","cmd":"fab-new","event":"command","ts":"2026-10-07T19:16:48Z"}
+{"delta":"+0.0","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-10-07T19:17:27Z"}
+{"delta":"+0.4","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-10-07T19:19:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-10-07T19:33:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-10-07T19:42:41Z"}
+{"event":"review","result":"failed","ts":"2026-10-07T19:47:22Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-10-07T19:47:22Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-10-07T19:53:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-10-07T19:57:02Z"}
+{"event":"review","result":"passed","ts":"2026-10-07T19:57:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-10-07T20:00:43Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-10-07T20:03:38Z"}
+{"event":"review","result":"passed","ts":"2026-10-07T20:12:16Z"}

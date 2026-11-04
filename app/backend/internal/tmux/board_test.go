@@ -202,6 +202,63 @@ func TestWindowIDFromPinSession_Invalid(t *testing.T) {
 	}
 }
 
+func TestIsoSessionNameRoundTrip(t *testing.T) {
+	tests := []struct {
+		windowID string
+		wantName string
+		wantOK   bool
+	}{
+		{"@42", "_rk-iso-42", true},
+		{"@0", "_rk-iso-0", true},
+		{"@9999999", "_rk-iso-9999999", true},
+		{"42", "", false},
+		{"@abc", "", false},
+		{"", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.windowID, func(t *testing.T) {
+			name, ok := IsoSessionName(tt.windowID)
+			if ok != tt.wantOK || name != tt.wantName {
+				t.Fatalf("IsoSessionName(%q) = (%q, %v), want (%q, %v)", tt.windowID, name, ok, tt.wantName, tt.wantOK)
+			}
+			if !ok {
+				return
+			}
+			id, rok := WindowIDFromIsoSession(name)
+			if !rok || id != tt.windowID {
+				t.Errorf("WindowIDFromIsoSession(%q) = (%q, %v), want (%q, true)", name, id, rok, tt.windowID)
+			}
+		})
+	}
+}
+
+func TestWindowIDFromIsoSession_Invalid(t *testing.T) {
+	for _, name := range []string{"dev", "_rk-ctl", "_rk-iso-", "_rk-iso-abc", "_rk-pin-42", "rk-relay-x"} {
+		if _, ok := WindowIDFromIsoSession(name); ok {
+			t.Errorf("WindowIDFromIsoSession(%q) = ok, want not-ok", name)
+		}
+	}
+}
+
+func TestIsHiddenLinkSession(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"_rk-pin-42", true},
+		{"_rk-iso-42", true},
+		{"_rk-ctl", false},
+		{"_rk-operator", false},
+		{"dev", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		if got := IsHiddenLinkSession(tt.name); got != tt.want {
+			t.Errorf("IsHiddenLinkSession(%q) = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
 // withBoardTmux starts an ephemeral tmux server with a single home session
 // ("home") for board integration tests. Reuses withSessionOrderTmux's
 // bootstrap, then renames the boot session to "home" so window moves have a

@@ -1,6 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { plainCodeStubHtml, startCodeStub, type CodeStub } from "./_ports";
 import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow, windowOption } from "./_tmux";
@@ -19,10 +21,13 @@ import { TMUX_SERVER, createSession, killSession, newWindow, windowOption } from
  * observably changes to the raw-cwd fallback (`/tmp`) while the option, the
  * tile, its header, and the iframe element all stay exactly as they were.
  *
- * Scope limit: the FOLLOW half of the rule — code-server's own File > Open
+ * Scope limit: the EDITOR-initiated follow — code-server's own File > Open
  * Folder navigation writing the option — is unit-tested only
  * (`src/components/code-surface.test.tsx`); the e2e harness has no live
- * code-server to navigate (the stub serves a single static page). What e2e
+ * code-server to navigate (the stub serves a single static page). The
+ * SHELL-initiated follow — the code tile header's Follow terminal verb — IS
+ * e2e-covered here: drift appears, the verb re-seeds the option from the
+ * terminal's derived root, and the live frame re-navigates. What e2e also
  * covers is the seed-once rule (asserted against the option itself) and its
  * consequences (pane switch, tile close/reopen, reload), plus the derived
  * workspace file's regeneration after deletion.
@@ -54,7 +59,11 @@ import { TMUX_SERVER, createSession, killSession, newWindow, windowOption } from
  * - `splitPaneOutsideRepo(id)`: `tmux split-window -c /tmp` on the window.
  *   tmux makes the new pane ACTIVE, so the backend's active-pane-preferring
  *   `deriveGitRoot` starts returning `/tmp` (the raw-cwd fallback for a
- *   non-repo cwd).
+ *   non-repo cwd). `splitPaneAtCwd(id, dir)` is the parameterized form — the
+ *   Follow-terminal test needs a NON-repo dir under `$HOME` (a `mkdtemp`
+ *   there, removed in `afterAll`): the `@rk_win_code_root` write path's
+ *   validation refuses roots outside `$HOME`, so the `/tmp` split would
+ *   fail the verb's option write with a 400.
  * - `expectDerivedGitRoot(page, id, expected)`: retrying read of the window's
  *   `gitRoot` in `GET /api/sessions` (`omitempty` — an absent field IS the
  *   empty derivation). Every test asserts the derivation actually MOVED, so a
@@ -154,7 +163,14 @@ async function makeWindow(page: Page, name: string): Promise<string> {
  *  exists for splits; this is the
  *  same direct `execFileSync` the code-surface spec uses for `set-option`. */
 function splitPaneOutsideRepo(windowId: string): void {
-  execFileSync("tmux", ["-L", TMUX_SERVER, "split-window", "-t", windowId, "-c", "/tmp"]);
+  splitPaneAtCwd(windowId, "/tmp");
+}
+
+/** The parameterized split: the new pane becomes ACTIVE at `cwd`, so the
+ *  window's derived `gitRoot` moves to it (the raw-cwd fallback for a
+ *  non-repo dir). */
+function splitPaneAtCwd(windowId: string, cwd: string): void {
+  execFileSync("tmux", ["-L", TMUX_SERVER, "split-window", "-t", windowId, "-c", cwd]);
 }
 
 /** Poll the backend snapshot until the window's LIVE derivation matches. The
@@ -202,6 +218,9 @@ const codeIframe = (page: Page) => page.getByTestId("surface-tile-code").getByTi
 const terminal = (page: Page) => page.locator(".xterm").first();
 
 let stub: CodeStub;
+// Non-repo drift dirs created under `$HOME` (the code-root write path's
+// validation constraint) — removed in afterAll.
+const driftDirs: string[] = [];
 
 test.beforeAll(async ({ browser }) => {
   createSession(TEST_SESSION);
@@ -219,6 +238,7 @@ test.beforeAll(async ({ browser }) => {
 test.afterAll(async () => {
   await new Promise((resolve) => stub.server.close(resolve));
   killSession(TEST_SESSION);
+  for (const dir of driftDirs) rmSync(dir, { recursive: true, force: true });
 });
 
 test.describe("Code root (@rk_win_code_root seed + stability)", () => {
@@ -429,5 +449,76 @@ test.describe("Code root (@rk_win_code_root seed + stability)", () => {
     await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(codeIframe(page)).toHaveAttribute("src", workspaceSrc(ws.path));
     expectWorkspaceFile(ws.path, GIT_ROOT, id);
+  });
+
+  /**
+   * Proves: drift between the latched code root and the terminal's live
+   * derivation surfaces as the code tile header's `Follow terminal` verb (its
+   * presence IS the drift indicator — hidden while the roots agree), and
+   * clicking it re-seeds `@rk_win_code_root` from the terminal's derived
+   * root through the shared follow path: the LIVE iframe (same element — a
+   * follow re-navigates, never remounts) lands on the new
+   * `/code/?workspace=<path>` URL, the header chip names the new folder, and
+   * the verb disappears once the roots agree again.
+   *
+   * Steps:
+   * 1. Create a repo-cwd window; navigate with `?layout=split-h:tty,code`;
+   *    wait for the iframe and the seed (the option reads the git root);
+   *    assert the `Follow terminal` verb (scoped to `surface-tile-code`) is
+   *    NOT visible.
+   * 2. `mkdtemp` a non-repo dir under `$HOME` (the option write path refuses
+   *    roots outside `$HOME`); `tmux split-window -c <dir>` — the new pane is
+   *    active, so the live derivation moves; poll `GET /api/sessions` until
+   *    `gitRoot` is `<dir>` while the option still reads the git root.
+   * 3. Assert the verb is now visible; capture the iframe's element handle.
+   * 4. Click the verb; poll the option until it reads `<dir>`; GET the
+   *    window's code-workspace and assert `root === <dir>`; poll the iframe
+   *    `src` to `/code/?workspace=<new path>` and assert the element handle
+   *    is IDENTICAL to the captured one.
+   * 5. Assert the tile header shows `<dir>`'s basename and the verb is gone.
+   */
+  test("the Follow terminal verb re-seeds the code root from the drifted terminal cwd", async ({
+    page,
+  }) => {
+    test.setTimeout(30_000);
+    const id = await makeWindow(page, `latch-follow-${Date.now()}`);
+    await page.goto(
+      `/${TMUX_SERVER}/${encodeURIComponent(id)}?layout=split-h:tty,code`,
+    );
+    await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
+    await expectCodeRoot(id, GIT_ROOT);
+    // No drift: the verb is the drift indicator, so it is absent.
+    const followVerb = codeTile(page).getByRole("button", { name: "Follow terminal" });
+    await expect(followVerb).toBeHidden();
+
+    // Drift: a worktree-switch-shaped cwd change — a NON-repo dir under
+    // `$HOME` (the `@rk_win_code_root` write path's validation constraint).
+    const dir = mkdtempSync(join(homedir(), ".rk-e2e-drift-"));
+    driftDirs.push(dir);
+    const dirBasename = dir.split("/").filter(Boolean).pop()!;
+    splitPaneAtCwd(id, dir);
+    await expectDerivedGitRoot(page, id, dir);
+    expect(windowOption(id, "@rk_win_code_root")).toBe(GIT_ROOT);
+
+    // The drift is visible: the verb appears on the code tile's header.
+    await expect(followVerb).toBeVisible({ timeout: READY_TIMEOUT });
+    const handleBefore = await codeIframe(page).elementHandle();
+
+    await followVerb.click();
+
+    // The follow re-seeds the shared option from the live derivation and
+    // re-navigates the LIVE frame to the new workspace URL (same element).
+    await expectCodeRoot(id, dir);
+    const ws = await fetchWorkspace(page, id);
+    expect(ws.root).toBe(dir);
+    await expect(codeIframe(page)).toHaveAttribute("src", workspaceSrc(ws.path), {
+      timeout: READY_TIMEOUT,
+    });
+    const handleAfter = await codeIframe(page).elementHandle();
+    expect(await page.evaluate(([a, b]) => a === b, [handleBefore, handleAfter])).toBe(true);
+
+    // Roots agree again: the header names the new folder and the verb is gone.
+    await expect(codeTile(page)).toContainText(dirBasename);
+    await expect(followVerb).toBeHidden();
   });
 });

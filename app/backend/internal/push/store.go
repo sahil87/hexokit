@@ -1,6 +1,6 @@
 // Package push owns the server-side Web Push state: the VAPID keypair and the
 // set of browser push subscriptions. Both are persisted as JSON files under
-// ~/.rk/ (no database — Constitution §II), mirroring internal/settings.
+// the state home (no database — Constitution §II), mirroring internal/settings.
 package push
 
 import (
@@ -10,6 +10,7 @@ import (
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 
+	"rk/internal/apphome"
 	"rk/internal/fsatomic"
 )
 
@@ -30,33 +31,24 @@ type Subscription struct {
 	} `json:"keys"`
 }
 
-// rkDir returns the absolute path to ~/.rk, creating it if absent.
-func rkDir() (string, error) {
-	home, err := os.UserHomeDir()
+// resolveStateLeaf resolves an apphome state-home leaf, creating the state
+// dir when absent so writers never fail on a fresh install.
+func resolveStateLeaf(path string, err error) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(home, ".rk")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return "", err
 	}
-	return dir, nil
+	return path, nil
 }
 
 func vapidPath() (string, error) {
-	dir, err := rkDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "vapid.json"), nil
+	return resolveStateLeaf(apphome.VAPIDPath())
 }
 
 func subscriptionsPath() (string, error) {
-	dir, err := rkDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "push-subscriptions.json"), nil
+	return resolveStateLeaf(apphome.PushSubscriptionsPath())
 }
 
 // LoadOrCreateVAPIDKeys returns the persisted VAPID keypair, generating and

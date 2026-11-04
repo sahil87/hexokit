@@ -32,6 +32,7 @@ func TestRootCmdHasSubcommands(t *testing.T) {
 		"daemon":    false,
 		"desktop":   false,
 		"url":       false,
+		"ports":     false,
 		"skill":     false,
 		"init-conf": false,
 		"agent":     false,
@@ -98,7 +99,7 @@ func TestRootCmdHasSubcommands(t *testing.T) {
 }
 
 // TestDisplayVersion pins the release-shape path of displayVersion (the
-// version standard's canonical first line is `run-kit version v{semver}`):
+// version standard's canonical first line is `hexokit version v{semver}`):
 // a numeric ldflags version gains the "v" prefix — the shape shll parses in
 // production — while an already-prefixed version and the "dev" sentinel pass
 // through untouched (never "vdev").
@@ -129,7 +130,7 @@ func TestVersionFlag(t *testing.T) {
 	}
 
 	got := strings.TrimSpace(buf.String())
-	want := "run-kit version dev"
+	want := "hexokit version dev"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -145,7 +146,7 @@ func TestShortVersionFlag(t *testing.T) {
 	}
 
 	got := strings.TrimSpace(buf.String())
-	want := "run-kit version dev"
+	want := "hexokit version dev"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -214,7 +215,7 @@ func TestExitCodeClassification(t *testing.T) {
 // exit code, never the message text — so cobra's existing stderr output is
 // untouched (no double-print, no rewrite).
 func TestUsageErrorPreservesMessage(t *testing.T) {
-	orig := errors.New("unknown command \"bogus\" for \"run-kit\"")
+	orig := errors.New("unknown command \"bogus\" for \"hexokit\"")
 	wrapped := usageError(orig)
 	if wrapped.Error() != orig.Error() {
 		t.Errorf("usageError changed the message: got %q, want %q", wrapped.Error(), orig.Error())

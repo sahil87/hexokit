@@ -8,7 +8,7 @@
  *   observation of a window never fires (merged is a terminal state visible
  *   forever on old windows); switching windows resets the observed-previous.
  * - `peek` — the UpdateChip's `showChip` becomes true (including a first
- *   observation with the chip already lit — the stored `runkit-egg-peek` key
+ *   observation with the chip already lit — the stored `hexokit-egg-peek` key
  *   is what makes a reload idempotent) or its `key` changes while lit
  *   (identity: `key ?? latest`).
  *

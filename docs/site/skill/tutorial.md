@@ -42,7 +42,7 @@ If either check fails, STOP: tell the user to open the HexoKit dashboard, create
 rk present "$RK/tutorial/tutorial.html#ch1"
 ```
 
-Every sidebar row is an agent (or plain terminal); the dot is its state. **Have the user ask you something** ("try: what's in this project?") and watch this row — busy, then idle. A yellow **waiting halo** = an agent needs a human (the session row adds a ⚠ count) — the whole game; Chapter 4 triggers it for real. Sessions group by project; this row is me.
+Every sidebar row is an agent (or plain terminal); the dot is its state. **Have the user ask you something** ("try: what's in this project?") and watch this row — busy, then idle. A yellow **waiting halo** = an agent needs a human (the group row adds a ⚠ count) — the whole game; Chapter 4 triggers it for real. Groups hold agents by project; this row is me.
 
 ## Chapter 2 — Make it show you things (`#ch2`)
 
@@ -50,7 +50,7 @@ Every sidebar row is an agent (or plain terminal); the dot is its state. **Have 
 rk present "$RK/tutorial/tutorial.html#ch2"
 ```
 
-Teach the phrase: end any request with **"…and present it to me"** — results arrive as live pages beside the terminal. Offer picks: *project brief · tour cheat sheet · mock KPI dashboard* — they ask in their own words, phrase included. Build it small, dark, self-contained; `rk present /tmp/rk-tutorial/<name>.html`; point at the new tab. Invite one tweak — edit, re-present: **asking again is the refresh**. Also: any URL or dev server (`:port`). Tile hidden? `rk tab layout split-h:tty,web` restores it.
+Teach the phrase: end any request with **"…and present it to me"** — results arrive as live pages beside the terminal. Offer picks: *project brief · tour cheat sheet · mock KPI dashboard* — they ask in their own words, phrase included. Build it small, dark, self-contained; `rk present /tmp/rk-tutorial/<name>.html`; point at the new tab. Invite one tweak — edit, re-present: **asking again is the refresh**. Also: any URL or dev server (`:port`). Tile hidden? `rk tab layout 'h(tty,web)'` restores it.
 
 ## Chapter 3 — Hire a second agent (`#ch3`)
 
@@ -58,7 +58,7 @@ Teach the phrase: end any request with **"…and present it to me"** — results
 rk present "$RK/tutorial/tutorial.html#ch3"
 ```
 
-HexoKit is agents in **parallel**, and the operator hires — from anywhere: **⌘J** (⇧Ctrl+J) drops the quake terminal under the top bar; type into the quake launcher ("Ask…"), Enter sends, the reply streams in the drawer; ⌘J or Esc tucks it away. Everything can start from that launcher.
+HexoKit is agents in **parallel**, and the operator hires — from anywhere: **⌘J** (⇧Ctrl+J) drops the quake terminal under the top bar — or click **Operator** in the top bar; type in the drawer's compose, Enter sends, the reply streams in the drawer; ⌘J or Esc tucks it away. Everything can start from there.
 
 - **Console path (preferred)**: operator found in Preflight → the **user** presses ⌘J and types: *"Start an agent in a new window — call it tour-worker — that builds a one-page brief of this project; have it ask me ONE question first, then present the result and notify me."*
 - **No operator**: run `rk operator` — it opens the pinned singleton and boots the operator agent; hire via ⌘J as above — or press **Start operator** in the quake terminal (⌘J) / the `Operator: Start operator` palette entry. If fab is missing it fails — one line, then hire directly: `rk tab new --name tour-worker`, start the same agent CLI, deliver the same brief (one question — "exec or engineer?" — then present + notify).
@@ -71,7 +71,7 @@ While it boots: **two rows busy at once** — have them find both. That's the pr
 rk present "$RK/tutorial/tutorial.html#ch4"
 ```
 
-Wait for the worker's question (`rk mux await` / `rk mux capture`; don't narrate mechanics). When it lands: the **waiting halo** on its dot, a **⚠ badge** on its session row, and — if enabled — a **push on their device**. For real: *click its row, read the question, answer right there, come back.* It finishes alone, presents, notifies — **delegate → interrupted only when needed → unblock → receive**. Degrade: no push → badge and halo carry it; never asks → nudge from its pane; died → show last output, move on.
+Wait for the worker's question (`rk mux await` / `rk mux capture`; don't narrate mechanics). When it lands: the **waiting halo** on its dot, a **⚠ badge** on its group row, and — if enabled — a **push on their device**. For real: *click its row, read the question, answer right there, come back.* It finishes alone, presents, notifies — **delegate → interrupted only when needed → unblock → receive**. Degrade: no push → badge and halo carry it; never asks → nudge from its pane; died → show last output, move on.
 
 ## Chapter 5 — Everywhere, and what's next (`#ch5`)
 
@@ -79,7 +79,7 @@ Wait for the worker's question (`rk mux await` / `rk mux capture`; don't narrate
 rk present "$RK/tutorial/tutorial.html#ch5"
 ```
 
-Three closers, user-driven. **Phone**: same address, any device — offer `rk notify "open me on your phone" --title run-kit` (fail-silent if unsubscribed); the pull-tab **tongue** under the top bar jumps to the operator. **Habit pair**: **⌘J to ask, ⌘K to find** (⇧Ctrl+J / ⇧Ctrl+K) — have them try ⌘K: `color`, then `settings`; every action lives there. **Challenge**: start one real agent on something they actually want — ⌘J the operator ("Start a claude session on <repo>") — phrase included. Engineers: `rk skill` (+ `display`, `mux`, `code`).
+Three closers, user-driven. **Phone**: same address, any device — offer `rk notify "open me on your phone" --title HexoKit` (fail-silent if unsubscribed); the pull-tab **tongue** under the top bar jumps to the operator. **Habit pair**: **⌘J to ask, ⌘K to find** (⇧Ctrl+J / ⇧Ctrl+K) — have them try ⌘K: `color`, then `settings`; every action lives there. **Challenge**: start one real agent on something they actually want — ⌘J the operator ("Start a claude session on <repo>") — phrase included. Engineers: `rk skill` (+ `display`, `mux`, `code`).
 
 ## Cleanup and recap
 

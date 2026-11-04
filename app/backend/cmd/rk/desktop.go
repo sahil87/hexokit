@@ -31,12 +31,12 @@ var errDesktopUnsupportedPlatform = fmt.Errorf("rk desktop supports macOS and Li
 // desktopRestartAnnouncement is the auto-restart outcome line — data (stdout,
 // survives --quiet): a caller must be able to tell "updated in place" from
 // "updated and the running app was restarted" (Toolkit Principle 9).
-const desktopRestartAnnouncement = "Run Kit was running — restarted on the new version.\n"
+const desktopRestartAnnouncement = "HexoKit was running — restarted on the new version.\n"
 
 var desktopCmd = &cobra.Command{
 	Use:   "desktop",
-	Short: "Install and update the Run Kit desktop app (macOS, Linux)",
-	Long: `Install and update the Run Kit desktop app — the Electron shell that wraps an
+	Short: "Install and update the HexoKit desktop app (macOS, Linux)",
+	Long: `Install and update the HexoKit desktop app — the Electron shell that wraps an
 rk serve dashboard (macOS and Linux).
 
 On macOS the CLI path produces a quarantine-free install: a browser DMG
@@ -46,11 +46,11 @@ attribute. The installer verifies the download itself before installing —
 SHA256 against the release digest, plus codesign --verify --deep --strict on
 the app bundle.
 
-On Linux the AppImage is extracted once into ~/.rk/desktop/<version>/ with a
-'current' symlink flipped atomically, the release digest is the hard
-verification gate (a release without one is refused), and a launcher entry,
-icon, and ~/.local/bin/run-kit-desktop symlink are written for desktop
-integration.
+On Linux the AppImage is extracted once into
+~/.local/state/hexokit/desktop/<version>/ with a 'current' symlink flipped
+atomically, the release digest is the hard verification gate (a release
+without one is refused), and a launcher entry, icon, and
+~/.local/bin/hexokit-desktop symlink are written for desktop integration.
 
 A running app does not block install/update: the new version is downloaded,
 verified, and staged while the app runs, then the app is asked to quit
@@ -74,7 +74,7 @@ See 'run-kit desktop <subcommand> --help' for flags on each.`,
 
 var desktopInstallCmd = &cobra.Command{
 	Use:   "install",
-	Short: "Download and install the Run Kit desktop app",
+	Short: "Download and install the HexoKit desktop app",
 	Long: `Download the latest desktop release (or a specific release via --version)
 and install it.
 
@@ -82,12 +82,13 @@ The download is verified before anything is touched: SHA256 against the
 release digest. On macOS the app bundle additionally passes
 codesign --verify --deep --strict; on Linux the digest is the only gate and a
 release without one is refused. On Linux the AppImage is extracted once into
-~/.rk/desktop/<version>/ with an atomically-flipped 'current' symlink, plus a
-launcher entry, icon, and ~/.local/bin/run-kit-desktop symlink. The new
+~/.local/state/hexokit/desktop/<version>/ with an atomically-flipped 'current'
+symlink, plus a launcher entry, icon, and ~/.local/bin/hexokit-desktop
+symlink. The new
 version is staged next to the install target and swapped in atomically, so a
 failed download or copy never destroys an existing install.
 
-A running Run Kit app is handled automatically: it is asked to quit gracefully
+A running HexoKit app is handled automatically: it is asked to quit gracefully
 just before the swap, then relaunched on the new version. If it does not quit
 within the wait bound, the install aborts with the existing app untouched.
 
@@ -96,8 +97,8 @@ When the resolved version is already installed, the command is a no-op;
 change how a running app is handled (quit, swap, relaunch).
 
 --path installs somewhere other than the default root (/Applications on macOS,
-~/.rk/desktop on Linux) — e.g. ~/Applications on a managed Mac where
-/Applications is not writable.`,
+~/.local/state/hexokit/desktop on Linux) — e.g. ~/Applications on a managed
+Mac where /Applications is not writable.`,
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE:         runDesktopInstall,
@@ -105,8 +106,8 @@ change how a running app is handled (quit, swap, relaunch).
 
 var desktopUpdateCmd = &cobra.Command{
 	Use:   "update",
-	Short: "Update the Run Kit desktop app when a newer release exists",
-	Long: `Update the Run Kit desktop app to the latest release. A no-op (exit 0) when
+	Short: "Update the HexoKit desktop app when a newer release exists",
+	Long: `Update the HexoKit desktop app to the latest release. A no-op (exit 0) when
 the installed app is already current; errors when no app is installed (run
 'run-kit desktop install' first).
 
@@ -116,7 +117,7 @@ equal to the CLI version. There is deliberately no --version flag: update
 means "go to latest"; to pin a specific release use
 'run-kit desktop install --version <tag>'.
 
-A running Run Kit app is handled automatically: the new version is staged
+A running HexoKit app is handled automatically: the new version is staged
 while the app runs, then the app is quit gracefully, swapped, and relaunched.
 If it does not quit within the wait bound, the update aborts with the existing
 app untouched.
@@ -125,7 +126,8 @@ app untouched.
 — it does not change how a running app is handled (quit, swap, relaunch).
 
 --path targets an install outside the default root (/Applications on macOS,
-~/.rk/desktop on Linux) — e.g. ~/Applications on a managed Mac.`,
+~/.local/state/hexokit/desktop on Linux) — e.g. ~/Applications on a managed
+Mac.`,
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE:         runDesktopUpdate,
@@ -133,14 +135,14 @@ app untouched.
 
 var desktopStatusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Show installed vs latest Run Kit desktop app version (read-only)",
-	Long: `Show the installed Run Kit desktop app version against the latest GitHub
+	Short: "Show installed vs latest HexoKit desktop app version (read-only)",
+	Long: `Show the installed HexoKit desktop app version against the latest GitHub
 release, and whether an update is available. Read-only: nothing is downloaded
 or modified. The report is the requested result (data), so --quiet changes
 nothing.
 
 --path points at an install outside the default root (/Applications on macOS,
-~/.rk/desktop on Linux).`,
+~/.local/state/hexokit/desktop on Linux).`,
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE:         runDesktopStatus,
@@ -148,16 +150,17 @@ nothing.
 
 var desktopUninstallCmd = &cobra.Command{
 	Use:   "uninstall",
-	Short: "Remove the Run Kit desktop app and its desktop integration (Linux)",
-	Long: `Remove the Run Kit desktop app from this machine (Linux only — on macOS drag
-"Run Kit.app" to the Trash).
+	Short: "Remove the HexoKit desktop app and its desktop integration (Linux)",
+	Long: `Remove the HexoKit desktop app from this machine (Linux only — on macOS drag
+"HexoKit.app" to the Trash).
 
 Refuses while the app is running (quit it first). Removes every installed
 version under the install root, the 'current' symlink, the launcher entry, the
-icon, and the ~/.local/bin/run-kit-desktop symlink. App settings and host
-registrations (~/.config/run-kit-desktop) are user data and are NOT removed.
+icon, and the ~/.local/bin/hexokit-desktop symlink. App settings and host
+registrations (~/.config/HexoKit) are user data and are NOT removed.
 
---path targets an install outside the default root (~/.rk/desktop).`,
+--path targets an install outside the default root
+(~/.local/state/hexokit/desktop).`,
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	RunE:         runDesktopUninstall,
@@ -166,11 +169,11 @@ registrations (~/.config/run-kit-desktop) are user data and are NOT removed.
 func init() {
 	desktopInstallCmd.Flags().String("version", "", "install a specific release tag instead of the latest (e.g. v3.13.0)")
 	desktopInstallCmd.Flags().Bool("force", false, "reinstall even when the requested version is already installed")
-	desktopInstallCmd.Flags().String("path", "", "install directory (default: /Applications on macOS, ~/.rk/desktop on Linux)")
+	desktopInstallCmd.Flags().String("path", "", "install directory (default: /Applications on macOS, ~/.local/state/hexokit/desktop on Linux)")
 	desktopUpdateCmd.Flags().Bool("force", false, "reinstall even when already current")
-	desktopUpdateCmd.Flags().String("path", "", "install directory (default: /Applications on macOS, ~/.rk/desktop on Linux)")
-	desktopStatusCmd.Flags().String("path", "", "install directory (default: /Applications on macOS, ~/.rk/desktop on Linux)")
-	desktopUninstallCmd.Flags().String("path", "", "install directory (default: /Applications on macOS, ~/.rk/desktop on Linux)")
+	desktopUpdateCmd.Flags().String("path", "", "install directory (default: /Applications on macOS, ~/.local/state/hexokit/desktop on Linux)")
+	desktopStatusCmd.Flags().String("path", "", "install directory (default: /Applications on macOS, ~/.local/state/hexokit/desktop on Linux)")
+	desktopUninstallCmd.Flags().String("path", "", "install directory (default: /Applications on macOS, ~/.local/state/hexokit/desktop on Linux)")
 
 	desktopCmd.AddCommand(desktopInstallCmd)
 	desktopCmd.AddCommand(desktopUpdateCmd)
@@ -203,7 +206,7 @@ func desktopInstaller(cmd *cobra.Command, sink outputSink) (*desktop.Installer, 
 	// Validate before constructing: the usage error must not require the
 	// installer factory to run.
 	if cmd.Flags().Changed("path") && p == "" {
-		return nil, usageError(fmt.Errorf("--path requires a non-empty directory (omit the flag for the platform default install root: /Applications on macOS, ~/.rk/desktop on Linux)"))
+		return nil, usageError(fmt.Errorf("--path requires a non-empty directory (omit the flag for the platform default install root: /Applications on macOS, ~/.local/state/hexokit/desktop on Linux)"))
 	}
 	ins := newDesktopInstallerFn()
 	ins.GOOS = desktopGOOS
@@ -234,9 +237,11 @@ func runDesktopInstall(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	if !force && installed == rel.Version {
+	if !force && installed == rel.Version && ins.CurrentBundleInstalled() {
+		// A legacy-only install at the same version is NOT a no-op: fall
+		// through so Install lands HexoKit.app and removes the old bundle.
 		// Outcome line — data: silence would misreport the no-op.
-		sink.Dataf("Run Kit v%s is already installed (%s). Use --force to reinstall.\n", installed, ins.AppPath())
+		sink.Dataf("HexoKit v%s is already installed (%s). Use --force to reinstall.\n", installed, ins.AppPath())
 		return nil
 	}
 
@@ -244,7 +249,7 @@ func runDesktopInstall(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	sink.Dataf("Installed Run Kit v%s to %s\n", res.Version, res.Path)
+	sink.Dataf("Installed HexoKit v%s to %s\n", res.Version, res.Path)
 	if res.Restarted {
 		sink.Dataf(desktopRestartAnnouncement)
 	}
@@ -266,7 +271,7 @@ func runDesktopUpdate(cmd *cobra.Command, _ []string) error {
 	}
 	if installed == "" {
 		// An update of nothing is a user error, not a silent no-op.
-		return fmt.Errorf("Run Kit is not installed at %s — run 'rk desktop install' first", ins.AppPath())
+		return fmt.Errorf("HexoKit is not installed at %s — run 'rk desktop install' first", ins.AppPath())
 	}
 
 	return desktopUpdateToLatest(ctx, ins, sink, installed, force)
@@ -284,7 +289,9 @@ func desktopUpdateToLatest(ctx context.Context, ins *desktop.Installer, sink out
 	if err != nil {
 		return err
 	}
-	if !force && !updatecheck.AnyIncrease(installed, rel.Version) {
+	if !force && !updatecheck.AnyIncrease(installed, rel.Version) && ins.CurrentBundleInstalled() {
+		// A legacy-only install at the latest version still migrates: fall
+		// through so Install lands HexoKit.app and removes the old bundle.
 		// Outcome line — data (mirrors `rk update`'s already-up-to-date shape).
 		sink.Dataf("Already up to date (v%s).\n", installed)
 		return nil
@@ -294,7 +301,7 @@ func desktopUpdateToLatest(ctx context.Context, ins *desktop.Installer, sink out
 	if err != nil {
 		return err
 	}
-	sink.Dataf("Updated Run Kit v%s -> v%s (%s)\n", installed, res.Version, res.Path)
+	sink.Dataf("Updated HexoKit v%s -> v%s (%s)\n", installed, res.Version, res.Path)
 	if res.Restarted {
 		sink.Dataf(desktopRestartAnnouncement)
 	}
@@ -310,14 +317,14 @@ func runDesktopUninstall(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	if desktopGOOS == "darwin" {
-		return fmt.Errorf(`rk desktop uninstall is Linux-only — on macOS drag "Run Kit.app" to the Trash`)
+		return fmt.Errorf(`rk desktop uninstall is Linux-only — on macOS drag "HexoKit.app" to the Trash`)
 	}
 	res, err := ins.Uninstall(cmd.Context())
 	if err != nil {
 		return err
 	}
 	// Outcome line — data (survives --quiet).
-	sink.Dataf("Uninstalled Run Kit from %s\n", res.Root)
+	sink.Dataf("Uninstalled HexoKit from %s\n", res.Root)
 	return nil
 }
 

@@ -1,0 +1,58 @@
+id: cybu
+name: 260929-cybu-hexokit-t2a-plan-doc-sync
+created: 2026-09-29T05:01:14Z
+created_by: Sahil Ahuja
+change_type: docs
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 2
+    acceptance_count: 4
+    acceptance_completed: 4
+confidence:
+    certain: 3
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 86.7
+        reversibility: 95.0
+        competence: 90.0
+        disambiguation: 88.3
+stage_metrics:
+    intake: {started_at: "2026-09-29T05:01:14Z", driver: fab-new, iterations: 1, completed_at: "2026-09-29T05:01:54Z"}
+    apply: {started_at: "2026-09-29T05:01:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-29T05:01:58Z"}
+    review: {started_at: "2026-09-29T05:01:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-29T05:04:10Z"}
+    hydrate: {started_at: "2026-09-29T05:04:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-29T05:04:10Z"}
+    ship: {started_at: "2026-09-29T05:04:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-29T05:05:51Z"}
+    review-pr: {started_at: "2026-09-29T05:05:51Z", driver: git-pr, iterations: 1, completed_at: "2026-09-29T05:09:41Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1065
+base_branch: main
+true_impact:
+    added: 167
+    deleted: 1
+    net: 166
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-29T05:05:51Z"
+    computed_at_stage: ship
+summary: 'Plan doc T2 row: (a) done — shll#105, shll v0.1.36; (b) not started'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-29T05:09:41Z

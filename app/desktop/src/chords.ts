@@ -22,13 +22,17 @@ export const WEB_CHORDS_MAX = 256;
 /** A key code is a short DOM token ("KeyK", "Escape") — bounded structurally. */
 export const CHORD_CODE_MAX_LENGTH = 64;
 
-/** One reclaimable chord: a key code plus its exact modifier set. */
+/** One reclaimable chord: a key code plus its exact modifier set.
+ *  `keepFocus` skips main's host focus hop for this chord (the web
+ *  keyboard-capture toggle: its result is "keep typing in the page", so
+ *  focus must stay in the guest). Optional — an older SPA never sends it. */
 export interface ChordSpec {
   code: string;
   ctrl: boolean;
   meta: boolean;
   shift: boolean;
   alt: boolean;
+  keepFocus?: boolean;
 }
 
 /** The slice of a `before-input-event` Input the matcher reads. */
@@ -49,6 +53,7 @@ function isChordSpec(value: unknown): value is ChordSpec {
   if (!("meta" in value) || typeof value.meta !== "boolean") return false;
   if (!("shift" in value) || typeof value.shift !== "boolean") return false;
   if (!("alt" in value) || typeof value.alt !== "boolean") return false;
+  if ("keepFocus" in value && value.keepFocus !== undefined && typeof value.keepFocus !== "boolean") return false;
   return true;
 }
 
@@ -60,21 +65,28 @@ export function parseChordSpecs(value: unknown): ChordSpec[] | null {
   const specs: ChordSpec[] = [];
   for (const entry of value) {
     if (!isChordSpec(entry)) return null;
-    specs.push({
+    const spec: ChordSpec = {
       code: entry.code,
       ctrl: entry.ctrl,
       meta: entry.meta,
       shift: entry.shift,
       alt: entry.alt,
-    });
+    };
+    if (entry.keepFocus === true) spec.keepFocus = true;
+    specs.push(spec);
   }
   return specs;
 }
 
 /** True iff a keyDown equals some spec on the code and every modifier. */
 export function matchChord(input: ChordInput, chords: readonly ChordSpec[]): boolean {
-  if (input.type !== "keyDown") return false;
-  return chords.some(
+  return findChord(input, chords) !== undefined;
+}
+
+/** The spec a keyDown matches (code + every modifier), or undefined. */
+export function findChord(input: ChordInput, chords: readonly ChordSpec[]): ChordSpec | undefined {
+  if (input.type !== "keyDown") return undefined;
+  return chords.find(
     (spec) =>
       spec.code === input.code &&
       spec.ctrl === input.control &&

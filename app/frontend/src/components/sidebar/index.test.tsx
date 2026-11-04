@@ -50,6 +50,18 @@ const NULL_NAME: InstanceName = {
 
 
 const mockNavigate = vi.fn();
+// The New split button has its own suite (new-split-button.test.tsx) and needs
+// the palette/session/slot providers; the sidebar tests only assert WHERE the
+// mobile brand row places it.
+vi.mock("@/components/new-split-button", () => ({
+  NewSplitButton: ({ mode, align }: { mode: string; align?: string }) => (
+    <div data-testid="new-split" data-mode={mode} data-align={align} />
+  ),
+}));
+vi.mock("@/hooks/use-top-bar-mode", () => ({
+  useTopBarMode: () => ({ mode: "terminal", serverParam: undefined, boardName: undefined }),
+}));
+
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
   useRouterState: ({ select }: { select: (s: { location: { pathname: string } }) => unknown }) =>
@@ -135,7 +147,7 @@ type RenderOpts = {
    *  through it; tests assert the invocation, never a direct kill call. */
   onKillServer?: (name: string) => void;
   /** Override the Sidebar's onCreateSession prop — the header + and the
-   *  server card's New session row route through it. */
+   *  server card's New group row route through it. */
   onCreateSession?: (server: string) => void;
   onWindowMarkerChange?: (
     server: string,
@@ -145,6 +157,8 @@ type RenderOpts = {
   ) => void;
   /** Override the Sidebar's onSelectWindow prop — tests assert the invocation. */
   onSelectWindow?: (server: string, session: string, windowId: string) => void;
+  /** Override the Sidebar's onCreateWindow prop. */
+  onCreateWindow?: (server: string, session: string) => void;
   /** Wire the operator placeholder row's activation handler (the shell's
    *  drawer opener) — absent ⇒ no placeholder renders (the board route). */
   onOperatorPlaceholder?: (server: string) => void;
@@ -195,10 +209,9 @@ function sidebarTree(opts: RenderOpts = {}) {
                         currentWindowId={opts.currentWindowId !== undefined ? opts.currentWindowId : currentServer ? "@0" : null}
                         isConnected={opts.isConnected ?? false}
                         onSelectWindow={opts.onSelectWindow ?? vi.fn()}
-                        onCreateWindow={vi.fn()}
+                        onCreateWindow={opts.onCreateWindow ?? vi.fn()}
                         onCreateSession={opts.onCreateSession ?? vi.fn()}
                         onWindowMarkerChange={opts.onWindowMarkerChange}
-                        onCreateServer={vi.fn()}
                         onKillServer={opts.onKillServer ?? vi.fn()}
                         onOperatorPlaceholder={opts.onOperatorPlaceholder}
                       />
@@ -231,7 +244,7 @@ function rerenderSidebar(
 }
 
 function getServerGroupHeader(name: string): HTMLElement | null {
-  return screen.queryByRole("button", { name: new RegExp(`Collapse ${name} sessions|Expand ${name} sessions`) });
+  return screen.queryByRole("button", { name: new RegExp(`Collapse ${name} groups|Expand ${name} groups`) });
 }
 
 beforeEach(() => {
@@ -244,10 +257,10 @@ afterEach(() => {
 });
 
 function getScopeChip(): HTMLElement {
-  return screen.getByRole("button", { name: "Toggle sessions scope" });
+  return screen.getByRole("button", { name: "Toggle groups scope" });
 }
 
-describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => {
+describe("Sidebar — sessions-pane scope (hexokit-panel-sessions-scope)", () => {
   it("marks the tree as the row-discoverable sidebar scroll container", () => {
     renderSidebar();
     expect(screen.getByRole("tree")).toHaveAttribute("data-sidebar-scroll", "");
@@ -269,7 +282,7 @@ describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => 
         ["beta", []],
       ]),
     });
-    fireEvent.click(screen.getByRole("button", { name: /Expand primary sessions/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand primary groups/ }));
     expect(screen.queryByTestId("marker-strip")).toBeNull();
   });
 
@@ -283,7 +296,7 @@ describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => 
   });
 
   it("renders only the current server's ServerGroup in `current` scope, force-opened", () => {
-    localStorage.setItem("runkit-panel-sessions-scope", "current");
+    localStorage.setItem("hexokit-panel-sessions-scope", "current");
     renderSidebar({ currentServer: "primary" });
 
     expect(getServerGroupHeader("primary")).toBeInTheDocument();
@@ -292,12 +305,12 @@ describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => 
     expect(getScopeChip()).toHaveTextContent("CUR");
 
     // Force-open: primary's group header reads "Collapse" (chevron points down).
-    const primaryHeader = screen.getByRole("button", { name: /Collapse primary sessions/ });
+    const primaryHeader = screen.getByRole("button", { name: /Collapse primary groups/ });
     expect(primaryHeader).toHaveAttribute("aria-expanded", "true");
   });
 
   it("falls back to all servers in `current` scope when currentServer is null (board route) — no hint", () => {
-    localStorage.setItem("runkit-panel-sessions-scope", "current");
+    localStorage.setItem("hexokit-panel-sessions-scope", "current");
     renderSidebar({ currentServer: null });
 
     expect(getServerGroupHeader("primary")).toBeInTheDocument();
@@ -309,7 +322,7 @@ describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => 
   });
 
   it("falls back to all servers in `current` scope when currentServer is missing from the list", () => {
-    localStorage.setItem("runkit-panel-sessions-scope", "current");
+    localStorage.setItem("hexokit-panel-sessions-scope", "current");
     // Stale/deleted route param: currentServer names a server not in `servers`.
     renderSidebar({ currentServer: "gone" });
 
@@ -319,7 +332,7 @@ describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => 
   });
 
   it("treats an unrecognized stored scope value as `all`", () => {
-    localStorage.setItem("runkit-panel-sessions-scope", "bogus");
+    localStorage.setItem("hexokit-panel-sessions-scope", "bogus");
     renderSidebar({ currentServer: "primary" });
 
     expect(getServerGroupHeader("primary")).toBeInTheDocument();
@@ -329,15 +342,15 @@ describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => 
 
   it("does not overwrite persisted per-server collapse keys when force-opening the current group", () => {
     // User has the primary group collapsed in the multi-server tree.
-    localStorage.setItem("runkit-panel-sessions-primary", "false");
-    localStorage.setItem("runkit-panel-sessions-scope", "current");
+    localStorage.setItem("hexokit-panel-sessions-primary", "false");
+    localStorage.setItem("hexokit-panel-sessions-scope", "current");
     renderSidebar({ currentServer: "primary" });
 
     // The persisted value is unchanged after rendering with force-open in effect.
-    expect(localStorage.getItem("runkit-panel-sessions-primary")).toBe("false");
+    expect(localStorage.getItem("hexokit-panel-sessions-primary")).toBe("false");
 
     // And the rendered state is open (force-open dominates).
-    const primaryHeader = screen.getByRole("button", { name: /Collapse primary sessions/ });
+    const primaryHeader = screen.getByRole("button", { name: /Collapse primary groups/ });
     expect(primaryHeader).toHaveAttribute("aria-expanded", "true");
   });
 
@@ -351,7 +364,7 @@ describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => 
     fireEvent.click(getScopeChip());
 
     // Narrowed to the current server; value persisted; chip reflects state.
-    expect(localStorage.getItem("runkit-panel-sessions-scope")).toBe("current");
+    expect(localStorage.getItem("hexokit-panel-sessions-scope")).toBe("current");
     expect(getScopeChip()).toHaveTextContent("CUR");
     expect(getServerGroupHeader("primary")).toBeInTheDocument();
     expect(getServerGroupHeader("alpha")).not.toBeInTheDocument();
@@ -360,7 +373,7 @@ describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => 
     fireEvent.click(getScopeChip());
 
     // Restored: all groups return, value persisted back to `all`.
-    expect(localStorage.getItem("runkit-panel-sessions-scope")).toBe("all");
+    expect(localStorage.getItem("hexokit-panel-sessions-scope")).toBe("all");
     expect(getScopeChip()).toHaveTextContent("ALL");
     expect(getServerGroupHeader("alpha")).toBeInTheDocument();
     expect(getServerGroupHeader("beta")).toBeInTheDocument();
@@ -369,7 +382,7 @@ describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => 
   it("SERVER panel expansion no longer affects the sessions tree (delink regression)", () => {
     // The old coupling filtered the tree when the SERVER panel was open. The
     // scope state is now the only filter input — the panel key must be inert.
-    localStorage.setItem("runkit-panel-server", "true");
+    localStorage.setItem("hexokit-panel-server", "true");
     renderSidebar({ currentServer: "primary" });
 
     expect(getServerGroupHeader("primary")).toBeInTheDocument();
@@ -377,21 +390,21 @@ describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => 
     expect(getServerGroupHeader("beta")).toBeInTheDocument();
 
     // Toggling the SERVER panel live changes nothing in the tree either.
-    const serverPaneToggle = screen.getByRole("button", { name: /^Server/ });
+    const serverPaneToggle = screen.getByRole("button", { name: /^Workspaces/ });
     fireEvent.click(serverPaneToggle);
     expect(getServerGroupHeader("alpha")).toBeInTheDocument();
     fireEvent.click(serverPaneToggle);
     expect(getServerGroupHeader("alpha")).toBeInTheDocument();
   });
 
-  it("falls back to 'No servers' when the server list is empty regardless of scope", () => {
-    localStorage.setItem("runkit-panel-sessions-scope", "current");
+  it("falls back to 'No workspaces' when the server list is empty regardless of scope", () => {
+    localStorage.setItem("hexokit-panel-sessions-scope", "current");
     renderSidebar({ servers: [], currentServer: null });
 
-    // Two "No servers" empty-states render: ServerPanel's tile grid and the
+    // Two "No workspaces" empty-states render: ServerPanel's tile grid and the
     // Sessions Pane's group list. The Sessions Pane variant has the centered
     // `py-4 text-center` classes; the ServerPanel variant uses `py-1`.
-    const sessionsEmpty = screen.getAllByText("No servers").find(
+    const sessionsEmpty = screen.getAllByText("No workspaces").find(
       (el) => el.className.includes("py-4") && el.className.includes("text-center"),
     );
     expect(sessionsEmpty).toBeDefined();
@@ -443,7 +456,7 @@ describe("Sidebar — selection pruning on ServerGroup unmount (260807-nf9f)", (
 
     // Open alpha's group so its window row paints (non-current groups start
     // collapsed), then Cmd-click that row into the selection.
-    fireEvent.click(screen.getByRole("button", { name: /Expand alpha sessions/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand alpha groups/ }));
     const alphaRow = await screen.findByText("feature");
     fireEvent.click(alphaRow, { metaKey: true });
 
@@ -464,7 +477,7 @@ describe("Sidebar — selection pruning on ServerGroup unmount (260807-nf9f)", (
     renderSidebar({ currentServer: "primary", sessionsByServer: MULTI_SESSIONS });
 
     // Select one row on alpha (departs) and one on primary (survives).
-    fireEvent.click(screen.getByRole("button", { name: /Expand alpha sessions/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand alpha groups/ }));
     fireEvent.click(await screen.findByText("feature"), { metaKey: true });
     // Scope to the tree — the window name also appears outside it (board/pin
     // surfaces), so a bare getByText is ambiguous. The click seam is the row's
@@ -490,7 +503,7 @@ describe("Sidebar — selection pruning on ServerGroup unmount (260807-nf9f)", (
   it("drops the anchor with the departed group so a later shift-click cannot use it", async () => {
     renderSidebar({ currentServer: "primary", sessionsByServer: MULTI_SESSIONS });
 
-    fireEvent.click(screen.getByRole("button", { name: /Expand alpha sessions/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand alpha groups/ }));
     fireEvent.click(await screen.findByText("feature"), { metaKey: true });
     // The Cmd-click parked the range anchor on the alpha row.
     expect(useSelectionStore.getState().anchor).toBe("alpha:@7");
@@ -671,23 +684,23 @@ describe("Sidebar — per-server group toggle under StrictMode (mss7)", () => {
     // non-current groups (alpha) start collapsed (aria-expanded="false").
     renderSidebar({ currentServer: "primary", strict: true });
 
-    const alphaToggle = screen.getByRole("button", { name: /Expand alpha sessions/ });
+    const alphaToggle = screen.getByRole("button", { name: /Expand alpha groups/ });
     expect(alphaToggle).toHaveAttribute("aria-expanded", "false");
 
     // First click: the group must open (the no-op bug manifested here).
     fireEvent.click(alphaToggle);
     expect(
-      screen.getByRole("button", { name: /Collapse alpha sessions/ }),
+      screen.getByRole("button", { name: /Collapse alpha groups/ }),
     ).toHaveAttribute("aria-expanded", "true");
     // Side-effect ran exactly once and agrees with the rendered state.
-    expect(localStorage.getItem("runkit-panel-sessions-alpha")).toBe("true");
+    expect(localStorage.getItem("hexokit-panel-sessions-alpha")).toBe("true");
 
     // Second click: the group must collapse again (full toggle cycle).
-    fireEvent.click(screen.getByRole("button", { name: /Collapse alpha sessions/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Collapse alpha groups/ }));
     expect(
-      screen.getByRole("button", { name: /Expand alpha sessions/ }),
+      screen.getByRole("button", { name: /Expand alpha groups/ }),
     ).toHaveAttribute("aria-expanded", "false");
-    expect(localStorage.getItem("runkit-panel-sessions-alpha")).toBe("false");
+    expect(localStorage.getItem("hexokit-panel-sessions-alpha")).toBe("false");
   });
 });
 
@@ -699,7 +712,7 @@ describe("Sidebar — per-session collapse persistence (kddk)", () => {
 
   /** The chevron on the SESSION row (`Collapse main` / `Expand main`) — the
    *  `$` anchor keeps it distinct from the server group header's
-   *  `Collapse primary sessions`. */
+   *  `Collapse primary groups`. */
   function collapseChipFor(session: string): HTMLElement {
     return screen.getByRole("button", { name: new RegExp(`(Collapse|Expand) ${session}$`) });
   }
@@ -885,7 +898,7 @@ describe("Sidebar — mobile drawer current-row focus bonus (R9 / T007)", () => 
   it("scroll+focuses the [aria-current=\"page\"] window row when the drawer is open on mobile", () => {
     stubMobileMatchMedia();
     // ChromeProvider seeds sidebarOpen from this key — open the drawer.
-    localStorage.setItem("runkit-sidebar-open", "true");
+    localStorage.setItem("hexokit-sidebar-open", "true");
     // Run the deferred focus synchronously instead of waiting a real frame.
     const rafSpy = vi
       .spyOn(window, "requestAnimationFrame")
@@ -972,7 +985,6 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
                         onSelectWindow={onSelectWindow}
                         onCreateWindow={vi.fn()}
                         onCreateSession={vi.fn()}
-                        onCreateServer={vi.fn()}
                         onKillServer={vi.fn()}
                       />
                       </SettingsDialogProvider>
@@ -1027,10 +1039,10 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
 
   it("renders a role=tree inside the Sessions nav landmark", () => {
     renderTree();
-    const nav = screen.getByRole("navigation", { name: "Sessions" });
+    const nav = screen.getByRole("navigation", { name: "Groups" });
     const treeEl = within(nav).getByRole("tree");
     expect(treeEl).toBeInTheDocument();
-    expect(treeEl).toHaveAttribute("aria-label", "Session tree");
+    expect(treeEl).toHaveAttribute("aria-label", "Workspace tree");
   });
 
   it("marks each per-server section wrapper role=presentation with no aria-labelledby", () => {
@@ -1162,7 +1174,7 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
     // Enter rename mode on the "main" session via double-click on its name.
     const nameBtn = screen.getByRole("button", { name: "Navigate to main" });
     act(() => { fireEvent.doubleClick(nameBtn); });
-    const input = screen.getByLabelText("Rename session") as HTMLInputElement;
+    const input = screen.getByLabelText("Rename group") as HTMLInputElement;
     // An ArrowDown whose target is the input must NOT move the roving cursor.
     act(() => { fireEvent.keyDown(input, { key: "ArrowDown" }); });
     expect(rovingKeyNow()).toBe(before);
@@ -1460,8 +1472,8 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
   }
   beforeEach(() => {
     stubMobilePanels();
-    localStorage.setItem("runkit-sidebar-section-pane", "true");
-    localStorage.setItem("runkit-sidebar-section-host", "true");
+    localStorage.setItem("hexokit-sidebar-section-pane", "true");
+    localStorage.setItem("hexokit-sidebar-section-host", "true");
   });
   afterEach(() => {
     vi.stubGlobal(
@@ -1483,8 +1495,8 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
     // Drop this block's opt-in seeds to exercise the defaults: with nothing
     // stored, neither panel mounts even in the mobile drawer (the drawer's
     // default is pure nav + footer).
-    localStorage.removeItem("runkit-sidebar-section-pane");
-    localStorage.removeItem("runkit-sidebar-section-host");
+    localStorage.removeItem("hexokit-sidebar-section-pane");
+    localStorage.removeItem("hexokit-sidebar-section-host");
     renderSidebar({
       currentServer: null,
       servers: boardServers,
@@ -1648,7 +1660,7 @@ describe("BottomPanels — opr register owning-session lookup", () => {
   });
 
   it("server route: the route session's stale/tick facts land on the opr register", () => {
-    localStorage.setItem("runkit-sidebar-section-pane", "true");
+    localStorage.setItem("hexokit-sidebar-section-pane", "true");
     const sessions: ProjectSession[] = [
       {
         name: "main",
@@ -1680,7 +1692,7 @@ describe("BottomPanels — opr register owning-session lookup", () => {
 
   it("board route: the focused pane's home session supplies fresh tick facts (no stale mark)", () => {
     stubMobilePanels();
-    localStorage.setItem("runkit-sidebar-section-pane", "true");
+    localStorage.setItem("hexokit-sidebar-section-pane", "true");
     const sessions: ProjectSession[] = [
       {
         name: "home",
@@ -1723,7 +1735,7 @@ describe("BottomPanels — opr register owning-session lookup", () => {
   });
 
   it("omits the register's tick segment when the owning session never ticked", () => {
-    localStorage.setItem("runkit-sidebar-section-pane", "true");
+    localStorage.setItem("hexokit-sidebar-section-pane", "true");
     const sessions: ProjectSession[] = [
       {
         name: "main",
@@ -1757,7 +1769,7 @@ describe("Sidebar — section-visibility rail + gating (iha5)", () => {
   const paneHeader = () => screen.queryByRole("button", { name: /^Pane/ });
   const hostHeader = () => screen.queryByRole("button", { name: /^Host/ });
   const boardsHeader = () => screen.queryByRole("button", { name: /^Boards/ });
-  const serverHeader = () => screen.queryByRole("button", { name: /^Server/ });
+  const serverHeader = () => screen.queryByRole("button", { name: /^Workspaces/ });
 
   function stubMobileViewport() {
     vi.stubGlobal(
@@ -1800,7 +1812,7 @@ describe("Sidebar — section-visibility rail + gating (iha5)", () => {
     renderSidebar();
     expect(screen.getByTestId("section-rail")).toBeInTheDocument();
     expect(railToggle("Boards").getAttribute("aria-pressed")).toBe("true");
-    expect(railToggle("Servers").getAttribute("aria-pressed")).toBe("true");
+    expect(railToggle("Workspaces").getAttribute("aria-pressed")).toBe("true");
     expect(railToggle("Pane").getAttribute("aria-pressed")).toBe("false");
     expect(railToggle("Host").getAttribute("aria-pressed")).toBe("false");
     expect(boardsHeader()).toBeInTheDocument();
@@ -1819,8 +1831,8 @@ describe("Sidebar — section-visibility rail + gating (iha5)", () => {
   });
 
   it("mounts PANE + HOST on the DESKTOP sidebar when their sections are toggled on (opt-in return of the ldbs panels)", () => {
-    localStorage.setItem("runkit-sidebar-section-pane", "true");
-    localStorage.setItem("runkit-sidebar-section-host", "true");
+    localStorage.setItem("hexokit-sidebar-section-pane", "true");
+    localStorage.setItem("hexokit-sidebar-section-host", "true");
     renderSidebar();
     expect(paneHeader()).toBeInTheDocument();
     expect(hostHeader()).toBeInTheDocument();
@@ -1830,32 +1842,32 @@ describe("Sidebar — section-visibility rail + gating (iha5)", () => {
     renderSidebar();
     fireEvent.click(railToggle("Boards"));
     expect(boardsHeader()).not.toBeInTheDocument();
-    expect(localStorage.getItem("runkit-sidebar-section-boards")).toBe("false");
+    expect(localStorage.getItem("hexokit-sidebar-section-boards")).toBe("false");
     fireEvent.click(railToggle("Boards"));
     expect(boardsHeader()).toBeInTheDocument();
   });
 
   it("collapse state survives a visibility round-trip untouched", () => {
-    localStorage.setItem("runkit-sidebar-section-pane", "true");
+    localStorage.setItem("hexokit-sidebar-section-pane", "true");
     renderSidebar();
     const header = paneHeader()!;
     expect(header.getAttribute("aria-expanded")).toBe("true");
 
     fireEvent.click(header); // collapse via the chevron
-    expect(localStorage.getItem("runkit-panel-window")).toBe("false");
+    expect(localStorage.getItem("hexokit-panel-window")).toBe("false");
 
     const toggle = railToggle("Pane");
     fireEvent.click(toggle); // section off — fully unmounts
     expect(paneHeader()).not.toBeInTheDocument();
     // The collapse storage key is NOT touched by visibility toggling.
-    expect(localStorage.getItem("runkit-panel-window")).toBe("false");
+    expect(localStorage.getItem("hexokit-panel-window")).toBe("false");
 
     fireEvent.click(toggle); // section on — remounts exactly as left
     expect(paneHeader()!.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("ignores a stored runkit-sidebar-section-clock value (retired section — no panel, no rail toggle, no error)", () => {
-    localStorage.setItem("runkit-sidebar-section-clock", "true");
+  it("ignores a stored hexokit-sidebar-section-clock value (retired section — no panel, no rail toggle, no error)", () => {
+    localStorage.setItem("hexokit-sidebar-section-clock", "true");
     renderSidebar();
     expect(screen.queryByRole("button", { name: /^Clock/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Toggle Clock section" })).not.toBeInTheDocument();
@@ -1887,7 +1899,7 @@ describe("Sidebar — tinted server-group header fill (t1ca)", () => {
 
   function toggleButton(server: string): HTMLElement {
     return within(headerContainer(server)).getByRole("button", {
-      name: new RegExp(`(Collapse|Expand) ${server} sessions`),
+      name: new RegExp(`(Collapse|Expand) ${server} groups`),
     });
   }
 
@@ -1976,15 +1988,15 @@ describe("Sidebar — tinted server-group header fill (t1ca)", () => {
     await renderWithColors({ alpha: "4" });
 
     // Toggle still works on the tinted header.
-    const toggle = screen.getByRole("button", { name: /Expand alpha sessions/ });
+    const toggle = screen.getByRole("button", { name: /Expand alpha groups/ });
     fireEvent.click(toggle);
     expect(
-      screen.getByRole("button", { name: /Collapse alpha sessions/ }),
+      screen.getByRole("button", { name: /Collapse alpha groups/ }),
     ).toHaveAttribute("aria-expanded", "true");
 
-    // New session lives on the header's flyout card now — no in-header + button.
+    // New group lives on the header's flyout card now — no in-header + button.
     expect(
-      within(headerContainer("alpha")).queryByRole("button", { name: "New session on alpha" }),
+      within(headerContainer("alpha")).queryByRole("button", { name: "New group on alpha" }),
     ).toBeNull();
   });
 });
@@ -1992,7 +2004,7 @@ describe("Sidebar — tinted server-group header fill (t1ca)", () => {
 describe("Sidebar — server-group header card + color picker (x4sf)", () => {
   // The header's server actions live in the shared flyout card (fine-pointer
   // hover/focus + coarse rail): Change color… opens the portalled
-  // SwatchPopover on the shared onServerColorChange seam, Kill server rides
+  // SwatchPopover on the shared onServerColorChange seam, Kill workspace rides
   // the lifted onKillServer confirmation flow. Queries are scoped WITHIN the
   // header container ([data-server]) because the SERVER-panel tiles carry the
   // same aria wording for the same actions.
@@ -2046,12 +2058,12 @@ describe("Sidebar — server-group header card + color picker (x4sf)", () => {
     const container = headerContainer("alpha");
     const buttons = within(container).getAllByRole("button");
     expect(buttons).toHaveLength(1);
-    expect(buttons[0]).toHaveAccessibleName(/(Expand|Collapse) alpha sessions/);
+    expect(buttons[0]).toHaveAccessibleName(/(Expand|Collapse) alpha groups/);
     // The palette/plus/close cluster is retired on every pointer class — its
     // actions are card rows now.
     expect(within(container).queryByRole("button", { name: "Set color for server alpha" })).toBeNull();
-    expect(within(container).queryByRole("button", { name: "New session on alpha" })).toBeNull();
-    expect(within(container).queryByRole("button", { name: "Kill server alpha" })).toBeNull();
+    expect(within(container).queryByRole("button", { name: "New group on alpha" })).toBeNull();
+    expect(within(container).queryByRole("button", { name: "Kill workspace alpha" })).toBeNull();
   });
 
   it("header focus opens the server card on a fine pointer — title, facts, action rows; the group never toggles", async () => {
@@ -2061,15 +2073,15 @@ describe("Sidebar — server-group header card + color picker (x4sf)", () => {
       fireEvent.focus(headerContainer("alpha"));
     });
     const card = screen.getByTestId("row-flyout-card");
-    expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Server alpha");
+    expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Workspace alpha");
     // alpha has no sessions in the default map.
-    expect(card).toHaveTextContent("tmux -L alpha · 0 sessions");
+    expect(card).toHaveTextContent("tmux -L alpha · 0 groups");
     expect(screen.getByTestId("row-flyout-color-action")).toHaveTextContent("Change color…");
-    expect(screen.getByTestId("row-flyout-create-action")).toHaveTextContent("New session");
-    expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill server");
+    expect(screen.getByTestId("row-flyout-create-action")).toHaveTextContent("New group");
+    expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill workspace");
     // Opening the card does not toggle the group.
     expect(
-      within(headerContainer("alpha")).getByRole("button", { name: /Expand alpha sessions/ }),
+      within(headerContainer("alpha")).getByRole("button", { name: /Expand alpha groups/ }),
     ).toHaveAttribute("aria-expanded", "false");
   });
 
@@ -2128,7 +2140,7 @@ describe("Sidebar — server-group header card + color picker (x4sf)", () => {
     expect(container.style.backgroundColor).toBe(rgb(tints.get(UNCOLORED_SELECTED_KEY)!.base));
   });
 
-  it("the card's Kill server row invokes the lifted onKillServer prop (confirmation is the parent's)", async () => {
+  it("the card's Kill workspace row invokes the lifted onKillServer prop (confirmation is the parent's)", async () => {
     const onKillServer = vi.fn();
     await renderWithColors({ alpha: "4" }, { onKillServer });
 
@@ -2150,11 +2162,11 @@ describe("Sidebar — server-group header card + color picker (x4sf)", () => {
     await renderWithColors({ alpha: "4" });
 
     const container = headerContainer("alpha");
-    const toggle = within(container).getByRole("button", { name: /Expand alpha sessions/ });
+    const toggle = within(container).getByRole("button", { name: /Expand alpha groups/ });
     expect(toggle.className).toContain("flex-1");
     fireEvent.click(toggle);
     expect(
-      within(container).getByRole("button", { name: /Collapse alpha sessions/ }),
+      within(container).getByRole("button", { name: /Collapse alpha groups/ }),
     ).toHaveAttribute("aria-expanded", "true");
   });
 });
@@ -2323,10 +2335,10 @@ describe("Sidebar — server-group rail + server card (260817-ve5m)", () => {
       expect(container).toHaveAttribute("data-rail-row");
       // Render-gated, not CSS-hidden: no cluster buttons exist on coarse.
       expect(within(container).queryByRole("button", { name: "Set color for server alpha" })).toBeNull();
-      expect(within(container).queryByRole("button", { name: "New session on alpha" })).toBeNull();
-      expect(within(container).queryByRole("button", { name: "Kill server alpha" })).toBeNull();
+      expect(within(container).queryByRole("button", { name: "New group on alpha" })).toBeNull();
+      expect(within(container).queryByRole("button", { name: "Kill workspace alpha" })).toBeNull();
       // The collapse toggle remains.
-      expect(within(container).getByRole("button", { name: /Expand alpha sessions/ })).toBeInTheDocument();
+      expect(within(container).getByRole("button", { name: /Expand alpha groups/ })).toBeInTheDocument();
     } finally {
       vi.mocked(getAllServerColors).mockResolvedValue({});
     }
@@ -2339,8 +2351,8 @@ describe("Sidebar — server-group rail + server card (260817-ve5m)", () => {
     const container = headerContainer("alpha");
     expect(within(container).queryByTestId("status-rail")).toBeNull();
     expect(within(container).queryByRole("button", { name: "Set color for server alpha" })).toBeNull();
-    expect(within(container).queryByRole("button", { name: "New session on alpha" })).toBeNull();
-    expect(within(container).queryByRole("button", { name: "Kill server alpha" })).toBeNull();
+    expect(within(container).queryByRole("button", { name: "New group on alpha" })).toBeNull();
+    expect(within(container).queryByRole("button", { name: "Kill workspace alpha" })).toBeNull();
   });
 
   it("rail tap opens the server card — title, facts, action rows in fixed order; actions route; the header never toggles", async () => {
@@ -2351,16 +2363,16 @@ describe("Sidebar — server-group rail + server card (260817-ve5m)", () => {
 
     tapRail("alpha");
     const card = screen.getByTestId("row-flyout-card");
-    expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Server alpha");
+    expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Workspace alpha");
     // Server names ARE socket names; the count derives from the group's data
     // (alpha has no sessions in the default map).
-    expect(card).toHaveTextContent("tmux -L alpha · 0 sessions");
+    expect(card).toHaveTextContent("tmux -L alpha · 0 groups");
     const color = screen.getByTestId("row-flyout-color-action");
     const create = screen.getByTestId("row-flyout-create-action");
     const kill = screen.getByTestId("row-flyout-kill-action");
     expect(color).toHaveTextContent("Change color…");
-    expect(create).toHaveTextContent("New session");
-    expect(kill).toHaveTextContent("Kill server");
+    expect(create).toHaveTextContent("New group");
+    expect(kill).toHaveTextContent("Kill workspace");
     expect(kill).toHaveTextContent("confirms first");
     expect(kill.className).toContain("hover:text-signal-red");
     expect(color.compareDocumentPosition(create) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -2374,7 +2386,7 @@ describe("Sidebar — server-group rail + server card (260817-ve5m)", () => {
     expect(onKillServer).toHaveBeenCalledExactlyOnceWith("alpha");
     // Card interactions never toggled the group.
     expect(
-      within(headerContainer("alpha")).getByRole("button", { name: /Expand alpha sessions/ }),
+      within(headerContainer("alpha")).getByRole("button", { name: /Expand alpha groups/ }),
     ).toHaveAttribute("aria-expanded", "false");
   });
 
@@ -2578,7 +2590,7 @@ describe("sidebar footer status row (260812-d1at — readouts + quiet status slo
 
   it("renders NO action buttons — Help/Keyboard/Theme/Gear relocated to the top bar (260812-d1at)", () => {
     renderSidebar();
-    expect(screen.queryByLabelText("Help — run-kit docs")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Help — HexoKit docs")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Keyboard shortcuts" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: / theme$/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open settings" })).not.toBeInTheDocument();
@@ -2604,7 +2616,7 @@ describe("sidebar footer status row (260812-d1at — readouts + quiet status slo
 
   it("renders the version readout beside the dot and copies the displayed form on click", async () => {
     renderSidebar({ daemonVersion: "0.9.3" });
-    const version = screen.getByRole("button", { name: "RunKit v0.9.3 (copy)" });
+    const version = screen.getByRole("button", { name: "HexoKit v0.9.3 (copy)" });
     expect(version).toHaveTextContent("v0.9.3");
     fireEvent.click(version);
     await waitFor(() => expect(vi.mocked(copyToClipboard)).toHaveBeenCalledWith("v0.9.3"));
@@ -2619,7 +2631,7 @@ describe("sidebar footer status row (260812-d1at — readouts + quiet status slo
   it("lays the footer out readouts-left with no action cluster (dot → version)", () => {
     renderSidebar({ isConnected: true, daemonVersion: "0.9.3" });
     const dot = screen.getByLabelText("Connected");
-    const version = screen.getByRole("button", { name: "RunKit v0.9.3 (copy)" });
+    const version = screen.getByRole("button", { name: "HexoKit v0.9.3 (copy)" });
     const follows = (a: Element, b: Element) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(follows(dot, version)).toBe(true);
@@ -2679,23 +2691,37 @@ describe("Sidebar — brand row (mobile-only)", () => {
     stubMatchMedia((q) => q.includes("prefers-color-scheme: dark"));
   });
 
-  it("renders the RunKit wordmark anchor to / as the nav's first row on mobile", () => {
+  it("renders the HexoKit wordmark anchor to / as the nav's first row on mobile", () => {
     stubMatchMedia((q) => q.includes("max-width") || q.includes("prefers-color-scheme: dark"));
     renderSidebar();
-    const nav = screen.getByRole("navigation", { name: "Sessions" });
+    const nav = screen.getByRole("navigation", { name: "Groups" });
     // The accessible name is the wordmark text — deliberately NOT the top
-    // bar's "RunKit home" aria-label, which e2e selects by label and must
+    // bar's "HexoKit home" aria-label, which e2e selects by label and must
     // stay unique on desktop.
-    const brand = within(nav).getByRole("link", { name: "RunKit" });
+    const brand = within(nav).getByRole("link", { name: "HexoKit" });
     expect(brand).toHaveAttribute("href", "/");
     expect(nav.firstElementChild).toContainElement(brand);
+  });
+
+  it("carries the New split at the brand row's right end on mobile", () => {
+    stubMatchMedia((q) => q.includes("max-width") || q.includes("prefers-color-scheme: dark"));
+    renderSidebar();
+    const nav = screen.getByRole("navigation", { name: "Groups" });
+    const brand = within(nav).getByRole("link", { name: "HexoKit" });
+    const split = within(nav).getByTestId("new-split");
+    const row = nav.firstElementChild!;
+    expect(row).toContainElement(split);
+    expect(brand.nextElementSibling).toBe(split);
+    // At the row's right edge the menu must open leftward (not clipped).
+    expect(split).toHaveAttribute("data-align", "end");
   });
 
   it("renders NO brand row on desktop", () => {
     // File-default stub: desktop (no max-width / coarse match).
     renderSidebar();
-    const nav = screen.getByRole("navigation", { name: "Sessions" });
-    expect(within(nav).queryByRole("link", { name: "RunKit" })).not.toBeInTheDocument();
+    const nav = screen.getByRole("navigation", { name: "Groups" });
+    expect(within(nav).queryByRole("link", { name: "HexoKit" })).not.toBeInTheDocument();
+    expect(within(nav).queryByTestId("new-split")).not.toBeInTheDocument();
   });
 });
 
@@ -2777,7 +2803,6 @@ describe("Sidebar — desktop selected-row autoscroll (nris)", () => {
                           onSelectWindow={onSelectWindow}
                           onCreateWindow={vi.fn()}
                           onCreateSession={vi.fn()}
-                          onCreateServer={vi.fn()}
                           onKillServer={vi.fn()}
                         />
                       </SettingsDialogProvider>
@@ -3160,16 +3185,16 @@ describe("Sidebar — operator pinned row (260813-ifya)", () => {
   it("hides the pinned row when its server group is collapsed (no floating orphan)", () => {
     // Collapse the primary group via its persisted key (scope defaults to ALL,
     // so per-server collapse applies — the current server is not force-open).
-    localStorage.setItem("runkit-panel-sessions-primary", "false");
+    localStorage.setItem("hexokit-panel-sessions-primary", "false");
     renderOperatorSidebar();
 
     expect(
-      screen.getByRole("button", { name: /Expand primary sessions/ }),
+      screen.getByRole("button", { name: /Expand primary groups/ }),
     ).toHaveAttribute("aria-expanded", "false");
     expect(rowByKey("primary:@1")).toBeNull();
 
     // Expanding the group brings the pinned row back.
-    fireEvent.click(screen.getByRole("button", { name: /Expand primary sessions/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand primary groups/ }));
     expect(rowByKey("primary:@1")).not.toBeNull();
   });
 
@@ -3209,7 +3234,7 @@ describe("Sidebar — operator pinned row (260813-ifya)", () => {
     });
 
     // Alpha's group starts collapsed on the ALL tree; open it.
-    fireEvent.click(screen.getByRole("button", { name: /Expand alpha sessions/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand alpha groups/ }));
 
     const rows = document.querySelectorAll('[role="tree"] [data-row-key="alpha:@1"]');
     expect(rows).toHaveLength(1);
@@ -3398,7 +3423,7 @@ describe("Sidebar — operator placeholder row", () => {
   });
 
   it("hides with its server group when the group is collapsed", () => {
-    localStorage.setItem("runkit-panel-sessions-primary", "false");
+    localStorage.setItem("hexokit-panel-sessions-primary", "false");
     renderSidebar({ onOperatorPlaceholder: vi.fn() });
 
     expect(screen.queryByTestId("operator-placeholder-row")).toBeNull();
@@ -3526,7 +3551,7 @@ describe("Sidebar — ⌘B row-focuser registry + Escape return (260819-qwr7 R5)
     unregisterRestorer = undefined;
   });
 
-  const sessionsNav = () => screen.getByRole("navigation", { name: "Sessions" });
+  const sessionsNav = () => screen.getByRole("navigation", { name: "Groups" });
 
   it("focusSidebarCurrentRow focuses the aria-current window row and syncs the roving tab stop", () => {
     // Default fixture: currentServer "primary", currentWindowId "@0" — that
@@ -3559,7 +3584,7 @@ describe("Sidebar — ⌘B row-focuser registry + Escape return (260819-qwr7 R5)
     // all render collapsed by default — expand one to have visible rows. The
     // harness's default sessions map keys its fixture rows on the current
     // server, so the sessions must be passed explicitly here.
-    localStorage.setItem("runkit-panel-sessions-primary", "true");
+    localStorage.setItem("hexokit-panel-sessions-primary", "true");
     renderSidebar({
       currentServer: null,
       sessionsByServer: new Map([["primary", PRIMARY_SESSIONS]]),
@@ -3633,5 +3658,43 @@ describe("Sidebar — ⌘B row-focuser registry + Escape return (260819-qwr7 R5)
 
     expect(restore).not.toHaveBeenCalled();
     input.remove();
+  });
+});
+
+describe("Sidebar — keyboard activation of controls inside tree rows", () => {
+  // The tree's Enter/Space handler activates the ROW; a focused control inside
+  // the row (the per-group `+`, the chevron) must keep its native activation,
+  // so the handler must neither preventDefault nor navigate for it.
+  it("Enter and Space on the per-group + are left to the button (not prevented, no row activation)", () => {
+    const onSelectWindow = vi.fn();
+    const onCreateWindow = vi.fn();
+    renderSidebar({ currentServer: "primary", onSelectWindow, onCreateWindow });
+    const plus = screen.getByLabelText("New tab in main");
+    for (const key of ["Enter", " "]) {
+      // fireEvent returns false when a handler called preventDefault — that
+      // would cancel the browser's synthesized click.
+      expect(fireEvent.keyDown(plus, { key })).toBe(true);
+    }
+    expect(onSelectWindow).not.toHaveBeenCalled();
+    // The browser turns an unprevented Enter/Space into this click.
+    fireEvent.click(plus);
+    expect(onCreateWindow).toHaveBeenCalledTimes(1);
+    expect(onCreateWindow).toHaveBeenCalledWith("primary", "main");
+  });
+
+  it("Enter on the chevron is likewise left to the button", () => {
+    const onSelectWindow = vi.fn();
+    renderSidebar({ currentServer: "primary", onSelectWindow });
+    const chevron = screen.getByLabelText("Collapse main");
+    expect(fireEvent.keyDown(chevron, { key: "Enter" })).toBe(true);
+    expect(onSelectWindow).not.toHaveBeenCalled();
+  });
+
+  it("Enter on the focused treeitem itself still activates the group's first window", () => {
+    const onSelectWindow = vi.fn();
+    renderSidebar({ currentServer: "primary", onSelectWindow });
+    const row = document.querySelector('[data-session-row="primary:main"]') as HTMLElement;
+    fireEvent.keyDown(row, { key: "Enter" });
+    expect(onSelectWindow).toHaveBeenCalledTimes(1);
   });
 });

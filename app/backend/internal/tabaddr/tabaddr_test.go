@@ -17,12 +17,14 @@ func TestParseAcceptedForms(t *testing.T) {
 		{"@12/web/3", Addr{WindowID: "@12", Surface: "web", Index: 3}},
 		{"@12/web/1", Addr{WindowID: "@12", Surface: "web", Index: 1}},
 		{"@12/web/8", Addr{WindowID: "@12", Surface: "web", Index: 8}},
+		{"@12/web/16", Addr{WindowID: "@12", Surface: "web", Index: 16}},
 		{"web", Addr{Surface: "web"}},
 		{"code", Addr{Surface: "code"}},
 		{"web/3", Addr{Surface: "web", Index: 3}},
 		{"3", Addr{Surface: "web", Index: 3}}, // bare integer = web/<n> on the own tab
 		{"1", Addr{Surface: "web", Index: 1}},
 		{"8", Addr{Surface: "web", Index: 8}},
+		{"16", Addr{Surface: "web", Index: 16}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
@@ -68,10 +70,10 @@ func TestParseRejections(t *testing.T) {
 		"@x",         // bad @N
 		"@12x",       // bad @N
 		"@",          // bad @N
-		"@1/web/9",   // <n> above MaxWebTabs
+		"@1/web/17",  // <n> above MaxWebTabs
 		"@1/web/0",   // <n> below 1
 		"@1/web/-1",  // negative <n>
-		"9",          // bare integer above MaxWebTabs
+		"17",         // bare integer above MaxWebTabs
 		"0",          // bare integer below 1
 		"@1/tty/2",   // <n> on a non-web surface
 		"@1/code/2",  // <n> on a non-web surface

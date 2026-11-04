@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"os"
 	"os/user"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -19,6 +21,7 @@ import (
 	"rk/internal/config"
 	"rk/internal/cron"
 	"rk/internal/daemon"
+	"rk/internal/fabsysconfig"
 	"rk/internal/gui"
 	"rk/internal/mcp"
 	"rk/internal/metrics"
@@ -70,6 +73,13 @@ type TmuxOps interface {
 	SelectWindowInSession(session, windowID, server string) error
 	ListWindows(ctx context.Context, session, server string) ([]tmux.WindowInfo, error)
 	ResolveWindowSession(ctx context.Context, server, windowID string) (string, error)
+	// EnsureIsoSession returns (creating on demand) the window's single-window
+	// isolated relay session `_rk-iso-<id>` for an `open` op with isolate:true
+	// (see tmux.EnsureIsoSession); SessionClientCount backs the attach-failure
+	// rollback, which kills a freshly ensured iso session only when no other
+	// isolated viewer is attached to it.
+	EnsureIsoSession(ctx context.Context, server, windowID string) (string, error)
+	SessionClientCount(ctx context.Context, server, session string) (int, error)
 	// ActiveWindowID reads the session's post-select active window id (@N);
 	// handleWindowSelect composes its response body from it, falling back to
 	// the requested id when the read fails.
@@ -91,6 +101,10 @@ type TmuxOps interface {
 	SetWindowOption(ctx context.Context, windowID, server, option, value string) error
 	UnsetWindowOption(ctx context.Context, windowID, server, option string) error
 	SetWindowOptions(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error
+	// SetWindowLayouts writes several windows' @rk_win_layout in ONE
+	// \;-chained invocation — the borrow/return two-tab write (pairs apply in
+	// slice order; the holder's removal comes first).
+	SetWindowLayouts(ctx context.Context, server string, pairs []tmux.WindowLayoutWrite) error
 	// ClearWindowRoleExceptOnServer is the server-scoped @rk_win_role radio clear:
 	// it unsets the role option on every window of the server except
 	// keepWindowID (see tmux.ClearWindowRoleExcept) and returns the cleared
@@ -198,6 +212,10 @@ type Server struct {
 	riff     RiffEngine
 	wt       WtOps
 	hostname string
+	// fabSys wraps the fab CLI for /api/fab-config. Nil means "the real fab
+	// binary" (fabSysClient builds it lazily); tests inject a Client over a
+	// fake runner so no fab write can reach the developer's real config.
+	fabSys *fabsysconfig.Client
 	// sshUser is the username the daemon runs as (os/user.Current at startup,
 	// or SetSSHUser in tests), surfaced on GET /api/health so remote clients
 	// can derive an SSH destination (`user@location.hostname`) when the
@@ -210,6 +228,14 @@ type Server struct {
 	// broadcasts the host-level {"reachable"} signal. Never leaves the server
 	// — the frontend embeds via the stable /code/ route.
 	codeServerPort int
+	// listenPort is the RESOLVED daemon listen port (code default <
+	// config.yaml `port` < RK_PORT), seeded from the same startup
+	// config.Load() as codeServerPort. handleHealth advertises it as the
+	// `tunnel` capability signal. Startup-fixed on purpose: the listener is
+	// bound at startup, so a mid-run config.yaml edit must not move the
+	// advertised port away from it (the change takes effect on the next
+	// daemon restart — the registry key's `live: false` contract).
+	listenPort int
 	// autoNameEnabled arms the auto-name-on-idle trigger (the `auto_name` key
 	// in the settings store, default off — the trigger injects prompts into
 	// the operator on its own, so it is strictly opt-in). Seeded from
@@ -224,6 +250,12 @@ type Server struct {
 	updateChecker   *updatecheck.Checker
 	sseHub          *sseHub
 	sseOnce         sync.Once
+	// sseHubRef mirrors sseHub for goroutines that must NOT create the hub
+	// just to read it — the PR change detector's wake path. Written inside
+	// sseOnce.Do (so the store happens-before any load that observes it), nil
+	// until the first client-driven init; a nil load means no SSE client has
+	// ever connected, so there is nobody to wake.
+	sseHubRef atomic.Pointer[sseHub]
 	// attachReloaded guards the pre-attach managed-conf reload: at most one
 	// attempt per tmux server (keys are server names) per daemon lifetime.
 	// The entry is released on a managed-check read failure so a transient
@@ -239,6 +271,13 @@ type Server struct {
 	// air process). In-memory only (Constitution II) — same lifetime as the
 	// SSE version slot.
 	version string
+
+	// layoutWriteMu serializes the borrow/return endpoints' read-modify-write
+	// (api/layout_borrow.go): holder lookup and the live-in-one-place check
+	// run from one fetched window snapshot, so a concurrent request must not
+	// interleave between fetchServerWindows and SetWindowLayouts and commit
+	// from a stale read.
+	layoutWriteMu sync.Mutex
 
 	// Manual status-refresh (POST /api/status/refresh) — the single frequency
 	// choke point for forced refreshes of BOTH PR pollers.
@@ -336,7 +375,21 @@ func (s *Server) initSSEHub() {
 		s.sseHub.codeServerPort = s.codeServerPort
 		s.sseHub.getOperatorQueue().deliver = s.operatorQueueDeliver()
 		s.sseHub.setAutoName(s.autoNameEnabled, s.autoNameDeliver())
+		s.sseHubRef.Store(s.sseHub)
 	})
+}
+
+// wakeAllSSE wakes every server the SSE hub is polling, so a
+// detector-triggered PR refresh reaches clients immediately instead of waiting
+// out the safety tick. Nil-guarded through sseHubRef: a daemon whose hub was
+// never created has nobody to wake, and this path must not create the hub just
+// to wake it.
+func (s *Server) wakeAllSSE() {
+	h := s.sseHubRef.Load()
+	if h == nil {
+		return
+	}
+	h.wakeAll()
 }
 
 // operatorQueueDeliver fetches fresh sessions inside the detached delivery
@@ -474,6 +527,12 @@ func (p *prodTmuxOps) ListWindows(ctx context.Context, session, server string) (
 func (p *prodTmuxOps) ResolveWindowSession(ctx context.Context, server, windowID string) (string, error) {
 	return tmux.ResolveWindowSession(ctx, server, windowID)
 }
+func (p *prodTmuxOps) EnsureIsoSession(ctx context.Context, server, windowID string) (string, error) {
+	return tmux.EnsureIsoSession(ctx, server, windowID)
+}
+func (p *prodTmuxOps) SessionClientCount(ctx context.Context, server, session string) (int, error) {
+	return tmux.SessionClientCount(ctx, server, session)
+}
 func (p *prodTmuxOps) ActiveWindowID(ctx context.Context, server, session string) (string, error) {
 	return tmux.ActiveWindowID(ctx, server, session)
 }
@@ -527,6 +586,9 @@ func (p *prodTmuxOps) UnsetWindowOption(ctx context.Context, windowID, server, o
 }
 func (p *prodTmuxOps) SetWindowOptions(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error {
 	return tmux.SetWindowOptions(ctx, windowID, server, ops)
+}
+func (p *prodTmuxOps) SetWindowLayouts(ctx context.Context, server string, pairs []tmux.WindowLayoutWrite) error {
+	return tmux.SetWindowLayouts(ctx, server, pairs)
 }
 func (p *prodTmuxOps) ClearWindowRoleExceptOnServer(ctx context.Context, server, keepWindowID string) ([]string, error) {
 	return tmux.ClearWindowRoleExceptOnServer(ctx, server, keepWindowID)
@@ -705,15 +767,19 @@ func (neighbourNotFoundError) Error() string { return "neighbour window not foun
 // NewRouter creates the chi router with all middleware and routes.
 // Uses production dependencies (live tmux, real session fetcher).
 // The ctx controls the lifecycle of background goroutines (e.g., metrics collector).
-func NewRouter(ctx context.Context, logger *slog.Logger) chi.Router {
-	router, _ := NewRouterAndServer(ctx, logger)
+// cfg is the caller's single startup-resolved config snapshot — the Server
+// never re-loads config, so the bound listener, /api/health's advertised
+// tunnel port, and the /code/ proxy target can never diverge.
+func NewRouter(ctx context.Context, logger *slog.Logger, cfg config.Config) chi.Router {
+	router, _ := NewRouterAndServer(ctx, logger, cfg)
 	return router
 }
 
 // NewRouterAndServer is the variant of NewRouter that also returns the
 // underlying *Server, so callers (`rk serve`) can wire in additional hooks
 // such as the tmuxctl WindowChangeSubscriber once their Supervisor is up.
-func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *Server) {
+// cfg is the caller's startup-resolved config snapshot (see NewRouter).
+func NewRouterAndServer(ctx context.Context, logger *slog.Logger, cfg config.Config) (chi.Router, *Server) {
 	hostname, _ := os.Hostname()
 
 	// The daemon's own username, for the frontend's derived SSH destination
@@ -747,7 +813,7 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 	pc.SetViewerPRSink(prstatus.DefaultBranchRefresher.StoreViewerIndex)
 
 	// Disk seed: pre-fill both pollers' last-good state from
-	// $XDG_STATE_HOME/run-kit/prstatus.json and attach the write hooks, BEFORE either
+	// $XDG_STATE_HOME/hexokit/prstatus.json and attach the write hooks, BEFORE either
 	// Start — the cold-start machinery above is network-gated, so a restart while
 	// gh is slow/offline/rate-limited would otherwise start blank. The seed is
 	// never authoritative (the immediate first fetch replaces it wholesale,
@@ -764,8 +830,6 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 	// viewer-wide collector; both exit on ctx cancellation.
 	prstatus.DefaultBranchRefresher.Start(ctx)
 
-	cfg := config.Load()
-
 	registry := &attachRegistry{byPID: map[int]sessions.AttachMeta{}}
 	s := &Server{
 		logger:          logger,
@@ -776,6 +840,7 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 		hostname:        hostname,
 		sshUser:         sshUser,
 		codeServerPort:  cfg.ResolvedCodeServerPort(), // 0 = degenerate config (probe off)
+		listenPort:      cfg.Port,
 		autoNameEnabled: settings.Load().AutoName,
 		metrics:         mc,
 		services:        svc,
@@ -793,6 +858,50 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 		}
 	}
 	s.refreshBranchFn = prstatus.DefaultBranchRefresher.RefreshNow
+
+	// Conditional-REST change detector: polls the live OPEN PRs' REST
+	// endpoints with ETag/If-None-Match at a tight cadence (304s are free
+	// against the primary rate limit) and, on a flip, drives the existing
+	// re-derivation chain — one batched collector refresh, a TARGETED branch
+	// re-resolve of the changed URLs (never a full RefreshNow: that is one
+	// `gh pr list` per registered pair), and a hub wake so clients see the new snapshot
+	// without waiting out the SSE safety tick. The detector writes no PR
+	// state itself; the timed pollers stay the reconciliation safety net.
+	// NewTestRouter leaves this unwired — unit tests never touch the network.
+	det := prstatus.NewDetector(prChangeDetectInterval)
+	det.SetSource(func() []string {
+		entries := prstatus.DefaultBranchRefresher.ObservedEntries()
+		snap := pc.Snapshot()
+		urls := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			if entry.PR.URL == "" {
+				continue
+			}
+			// OPEN-only: the branch channel's state, overridden by the
+			// collector snapshot on a URL hit (the collector is the fresher
+			// authority for PRs it covers). A merged/closed PR drops out of
+			// the set here, so the detector stops polling it.
+			state := entry.PR.State
+			if st, ok := snap[entry.PR.URL]; ok {
+				state = st.State
+			}
+			if !strings.EqualFold(state, "open") {
+				continue
+			}
+			urls = append(urls, entry.PR.URL)
+		}
+		return urls
+	})
+	det.SetOnChange(func(ctx context.Context, changed []prstatus.DetectedChange) {
+		urls := make([]string, 0, len(changed))
+		for _, ch := range changed {
+			urls = append(urls, ch.URL)
+		}
+		pc.RefreshNow(ctx)
+		prstatus.DefaultBranchRefresher.RefreshURLs(ctx, urls)
+		s.wakeAllSSE()
+	})
+	det.Start(ctx)
 	return s.buildRouter(), s
 }
 
@@ -806,7 +915,18 @@ func NewTestRouter(logger *slog.Logger, sf SessionFetcher, ops TmuxOps, hostname
 		tmux:     ops,
 		hostname: hostname,
 	}
+	seedTestPorts(s)
 	return s.buildRouter()
+}
+
+// seedTestPorts seeds the startup-resolved ports the way NewRouterAndServer
+// does, so test routers resolve them exactly once at construction — a later
+// env/config change inside the test must not move /code/ or `tunnel`, just
+// like a mid-run edit cannot move them in production.
+func seedTestPorts(s *Server) {
+	cfg := config.Load()
+	s.listenPort = cfg.Port
+	s.codeServerPort = cfg.ResolvedCodeServerPort()
 }
 
 // NewTestRouterAndServer is NewTestRouter plus the *Server, so tests can
@@ -818,6 +938,7 @@ func NewTestRouterAndServer(logger *slog.Logger, sf SessionFetcher, ops TmuxOps,
 		tmux:     ops,
 		hostname: hostname,
 	}
+	seedTestPorts(s)
 	return s.buildRouter(), s
 }
 
@@ -832,6 +953,7 @@ func NewTestRouterWithRiff(logger *slog.Logger, sf SessionFetcher, ops TmuxOps, 
 		riff:     engine,
 		hostname: hostname,
 	}
+	seedTestPorts(s)
 	return s.buildRouter()
 }
 
@@ -845,6 +967,7 @@ func NewTestRouterWithWt(logger *slog.Logger, sf SessionFetcher, ops TmuxOps, wt
 		wt:       wtOps,
 		hostname: hostname,
 	}
+	seedTestPorts(s)
 	return s.buildRouter()
 }
 
@@ -907,6 +1030,11 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/windows/{windowId}/move-to-session", s.handleWindowMoveToSession)
 	r.Post("/api/windows/{windowId}/rename", s.handleWindowRename)
 	r.Post("/api/windows/{windowId}/options", s.handleWindowOptions)
+	// Cross-tab layout verbs — a surface is live in one tab; moving it is a
+	// server-recomputed two-window write chained in one tmux invocation. See
+	// api/layout_borrow.go.
+	r.Post("/api/layout/borrow", s.handleLayoutBorrow)
+	r.Post("/api/layout/return", s.handleLayoutReturn)
 	// Web-tab verbs (POST only, §IX) — see api/windows_web.go.
 	r.Post("/api/windows/{windowId}/web", s.handleWindowWebAdd)
 	r.Post("/api/windows/{windowId}/web/{n}/remove", s.handleWindowWebRemove)
@@ -946,6 +1074,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/windows/closed/{id}/dismiss", s.handleClosedDismiss)
 	r.Post("/api/windows/closed/{id}/resume", s.handleClosedResume)
 	r.Get("/api/directories", s.handleDirectories)
+	r.Get("/api/worktrees", s.handleWorktrees)
 	r.Post("/api/sessions/{session}/upload", s.handleUpload)
 	r.Post("/api/preview-scope", s.handlePreviewScope)
 	r.Post("/api/tmux/reload-config", s.handleTmuxReloadConfig)
@@ -954,6 +1083,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/update", s.handleUpdate)
 	r.Post("/api/updates/check", s.handleUpdatesCheck)
 	r.Post("/api/restart", s.handleRestart)
+	r.Post("/api/code-server/restart", s.handleCodeServerRestart)
 
 	// Riff — web-UI agent spawn (POST) + preset list (GET). See api/riff.go.
 	r.Post("/api/riff", s.handleRiffSpawn)
@@ -988,6 +1118,12 @@ func (s *Server) buildRouter() chi.Router {
 	// (present keys set, null unsets) per Constitution IX.
 	r.Get("/api/settings", s.handleGetSettings)
 	r.Post("/api/settings", s.handlePostSettings)
+
+	// fab-kit's machine-wide config (~/.fab-kit/config.yaml) — the curated
+	// Agents tab inside the same settings surface. Wraps the `fab config` CLI;
+	// GET re-reads fab every time, POST is a partial merge (null unsets).
+	r.Get("/api/fab-config", s.handleGetFabConfig)
+	r.Post("/api/fab-config", s.handlePostFabConfig)
 
 	// GUI surface — the status document (GET, incl. the apps list the
 	// off-confirm renders), the supervisor restart, the allowlisted
@@ -1043,6 +1179,10 @@ func (s *Server) buildRouter() chi.Router {
 	// GUI relay — the raw RFB byte stream of the host desktop over WS (binary
 	// frames only; the backend never listens on TCP itself). See api/gui_ws.go.
 	r.Get("/ws/gui/{id}", s.handleGuiWS)
+
+	// Web-tile tunnel — dials target TCP from this host and pipes bytes over
+	// the socket (Origin-less clients only). See api/tunnel_ws.go.
+	r.Get("/ws/tunnel", s.handleTunnelWS)
 
 	// MCP streamable-HTTP transport — POST (client→server), GET (SSE stream),
 	// DELETE (session end) on ONE path, the single recorded Constitution IX

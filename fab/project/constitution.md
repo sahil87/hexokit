@@ -1,20 +1,29 @@
-# run-kit Constitution
+# HexoKit Constitution
 
 ## Core Principles
 
 ### I. Security First
 All process execution MUST use `exec.CommandContext` with explicit argument slices — never shell strings or `exec.Command` without a context/timeout. Shell injection is a show-stopper. User-provided input (session names, window names, paths) SHALL be validated before passing to any subprocess. This mirrors AO's security posture and is non-negotiable.
 
-### II. No Database
-State MUST be derived from tmux and the filesystem at request time. run-kit SHALL NOT introduce a database, ORM, migration system, or persistent state store. Session metadata comes from `tmux list-sessions`/`tmux list-windows`. Fab state comes from `.status.yaml` and `fab/current`. If you can't derive it from these sources, you don't need it.
+### II. Disposable Daemon
+The daemon MUST be killable at any instant — crash, restart, deploy — without losing anything a user or agent depends on, and a fresh daemon MUST rebuild its full working state from durable sources alone: tmux (sessions, windows, panes, `@rk_*` options), the filesystem (`.status.yaml`, `fab/current`, the state home under `$XDG_STATE_HOME/hexokit/`), git, and `gh`. Recoverability is the invariant; where state is *held* while the daemon runs is not.
 
-Two bounded disk carve-outs exist under `$XDG_STATE_HOME/run-kit/`: **recovery backups** (layout snapshots — artifacts about the past; a user-facing recovery reader MAY serve them read-only — listing restorable snapshots and their stored layouts, and driving user-initiated restore — but live state never derives from a backup: no live-state query is ever answered from one) and **startup seed caches**, which MAY pre-fill in-memory derived state at process start but are NEVER authoritative — state is still derived from tmux, the filesystem, and `gh`; a fresh derivation always overwrites a seeded value, and deleting any of these files changes nothing but cold-start latency. Neither class is a state store: no request-time read path may treat one as the source of truth, and a corrupt or absent file MUST degrade to the same behavior as a cold start.
+The daemon MAY hold any state in memory for speed — indexes, caches, a working copy of the durable sources — under two rules:
+
+1. **Durable before acknowledged.** State the daemon originates (a user action, a setting, a layout change) MUST reach a durable source before the request that produced it succeeds. Memory is never the only copy: no write-behind, no periodic flush.
+2. **External writes win.** The durable sources are shared with other writers — fab-kit, agent hooks, `wt`, a user's own `tmux` commands. The in-memory copy MUST reconcile against them and yield on conflict; it SHALL NOT overwrite an external change with a stale value.
+
+Ephemeral process state — open connections, subscriptions, in-flight requests — is exempt; it dies with the process by nature. HexoKit SHALL NOT introduce a database server, ORM, or migration system: durable state the daemon owns lives as plain files.
+
+Two bounded disk carve-outs exist under `$XDG_STATE_HOME/hexokit/`: **recovery backups** (layout snapshots — artifacts about the past; a user-facing recovery reader MAY serve them read-only — listing restorable snapshots and their stored layouts, and driving user-initiated restore — but live state never derives from a backup: no live-state query is ever answered from one) and **startup seed caches**, which MAY pre-fill in-memory state at process start but are NEVER authoritative — a fresh read of the durable sources always overwrites a seeded value, and deleting any of these files changes nothing but cold-start latency. A corrupt or absent carve-out file MUST degrade to the same behavior as a cold start.
+
+The line is drawn by *whose* state it is. Terminal session data and rk's own session state live in tmux and the filesystem. Integrations such as code-server keep their own state by their own means (code-server's extensions dir stays at its own default location). rk-managed assets — the VAPID keypair and push subscriptions, downloaded binaries (the managed code-server install, the Linux desktop install), and job logs — live in the state home under `$XDG_STATE_HOME/hexokit/` alongside the two carve-outs above (`vapid.json`, `push-subscriptions.json`, `code-server/{bin,profile}/`, `logs/`, `desktop/`). None of these is a source of truth for session state. The VAPID keypair sits in the state home, not the config home, because the config home is often dotfiles-managed and a private key there could leak into a repo.
 
 ### III. Wrap, Don't Reinvent
-Existing fab-kit utilities (`wt-create`, `wt-list`, `wt-delete`, `idea`, `changeman.sh`, `statusman.sh`) MUST be used via wrapper functions in `internal/` (Go). run-kit SHALL NOT reimplement worktree management, change management, or backlog management. When a fab-kit script does what you need, call it.
+Existing fab-kit utilities (`wt-create`, `wt-list`, `wt-delete`, `idea`, `changeman.sh`, `statusman.sh`) MUST be used via wrapper functions in `internal/` (Go). HexoKit SHALL NOT reimplement worktree management, change management, or backlog management. When a fab-kit script does what you need, call it.
 
 ### IV. Minimal Surface Area
-The UI MUST stay minimal — a small fixed route set (Host Overview `/`, tmux Server `/$server`, Terminal `/$server/$window`, Board `/board/$name`, plus the Not Found fallback), no settings pages, no admin panels — with exactly ONE carve-out: a single registry-driven settings surface (singular by design) backed by the `internal/settings` registry; no second settings surface may be added. Configuration is layered, and the override order is code default < config.yaml < env < CLI flag: deployment binding lives in environment variables (`RK_PORT`, `RK_HOST`, `RK_CODE_SERVER_PORT` — `.env` committed, `.env.local` for overrides — the bootstrap vehicle, and the ONLY keys with env forms); per-instance preferences live in `~/.config/run-kit/config.yaml` behind the settings registry; per-entity state lives in `@rk_*` tmux options; per-viewer state lives in localStorage. New pages SHOULD only be added when an existing page genuinely cannot accommodate the functionality. Resist feature creep.
+The UI MUST stay minimal — a small fixed route set (Host Overview `/`, tmux Server `/$server`, Terminal `/$server/$window`, Board `/board/$name`, plus the Not Found fallback), no settings pages, no admin panels — with exactly ONE carve-out: a single registry-driven settings surface (singular by design) backed by the `internal/settings` registry; no second settings surface may be added. That surface MAY also host a curated tab for fab-kit's machine-wide config (`~/.fab-kit/config.yaml`), read and written exclusively through the `fab config` CLI (Principle III) — HexoKit never parses or rewrites that file itself. Configuration is layered, and the override order is code default < config.yaml < env < CLI flag: deployment binding lives in environment variables (`RK_PORT`, `RK_HOST`, `RK_CODE_SERVER_PORT` — `.env` committed, `.env.local` for overrides — the bootstrap vehicle, and the ONLY keys with env forms); the daemon port is also a `config.yaml` key (`port`), so an install can pin it durably while `RK_PORT` still wins; per-instance preferences live in `~/.config/hexokit/config.yaml` behind the settings registry; per-entity state lives in `@rk_*` tmux options; per-viewer state lives in localStorage. New pages SHOULD only be added when an existing page genuinely cannot accommodate the functionality. Resist feature creep.
 
 ### V. Keyboard-First
 Every user-facing action MUST be reachable via keyboard. Mouse interaction is supported but secondary. The command palette (`Cmd+K`) SHALL be the primary discovery mechanism for actions and the complete action registry: every user-facing action reachable via a keyboard shortcut or a UI control MUST also be registered in the command palette. This guarantees the fallback for chords a surface reserves (e.g. browser-reserved desktop chords) is always palette → action.
@@ -23,7 +32,7 @@ Every user-facing action MUST be reachable via keyboard. Mouse interaction is su
 The tmux layer MUST be fully independent of the Go server. Agent sessions running in tmux windows SHALL NOT be affected by server restarts, crashes, or deployments. The supervisor manages only the web server process — never tmux.
 
 ### VII. Convention Over Configuration
-run-kit SHOULD derive values from conventions rather than requiring explicit configuration. Project IDs from directory names, session prefixes from project names, worktree paths from fab-kit defaults. The `config.yaml` settings file SHOULD require nothing; every key has a working default.
+HexoKit SHOULD derive values from conventions rather than requiring explicit configuration. Project IDs from directory names, session prefixes from project names, worktree paths from fab-kit defaults. The `config.yaml` settings file SHOULD require nothing; every key has a working default.
 
 ### VIII. Thin Justfile
 Justfile recipes MUST be one-liners that delegate to `scripts/`. Logic, loops, and conditionals belong in shell scripts — the justfile is an index, not an implementation.
@@ -31,7 +40,9 @@ Justfile recipes MUST be one-liners that delegate to `scripts/`. Logic, loops, a
 ### IX. Uniform HTTP Verb
 All mutating API endpoints MUST use `POST`. `PUT`, `PATCH`, and `DELETE` SHALL NOT be used — read operations are `GET`, everything else is `POST`. Fewer verb shapes means fewer ways for a client call to be wrong, and the operation's intent belongs in the URL path and request body, not the HTTP method. The CORS `AllowedMethods` allowlist MUST be `[GET, POST, OPTIONS]`. Endpoint semantics that would conventionally map to other verbs (e.g. partial updates) are expressed via the path and a documented body contract (e.g. partial-merge: present keys set, `null` unsets).
 
-One documented exception: the MCP streamable-HTTP transport binds `/mcp` — and only `/mcp` — to `POST` + `GET` + `DELETE` on a single path because the protocol mandates all three (`docs/specs/mcp.md` § Transports, `docs/specs/api.md` § MCP). The exception is transport-scoped, grants nothing to `/api/*`, and leaves the CORS allowlist at `[GET, POST, OPTIONS]`.
+One documented exception:
+
+**The MCP streamable-HTTP transport** binds `/mcp` — and only `/mcp` — to `POST` + `GET` + `DELETE` on a single path because the protocol mandates all three (`docs/specs/mcp.md` § Transports, `docs/specs/api.md` § MCP). The exception is transport-scoped, grants nothing to `/api/*`, and leaves the CORS allowlist at `[GET, POST, OPTIONS]`.
 
 ### X. Hooks Carry Only the Underivable
 Agent-harness hooks (lifecycle telemetry pushed by hook commands into tmux or the filesystem) SHALL carry only state that cannot be derived from tmux, the filesystem, or git at request time — ephemeral in-flight facts such as busy/waiting lifecycle and the pending question text, which exist nowhere on disk. Anything derivable from a pane's cwd, git, `gh`, or fab artifacts (PR links, branches, worktrees, change identity, diff stats) MUST be derived server-side per Principle II — never pushed by an agent. When a fact is available both ways, derivation wins.
@@ -47,12 +58,25 @@ Every Playwright `test()` in `app/frontend/tests/e2e/*.spec.ts` and `app/desktop
 ### Process Execution
 All `exec.CommandContext` calls MUST use a context with timeout (default 5-10 seconds for tmux operations, 30 seconds for build operations). Zombie processes from hung tmux commands MUST NOT block the server.
 
+### PR Evidence
+Every feature or bug fix that changes observable behavior in the web UI or desktop shell MUST be verified with Playwright against the affected user workflow and MUST include before/after screenshots or recordings directly in the PR body. This requirement follows the behavior, including backend or CLI changes whose effects are visible in the UI, such as delivery into an agent's terminal.
+
+Before evidence MUST show the base branch and after evidence MUST show the PR implementation under comparable conditions. For bugs, show the reproduction and the corrected behavior; for features, show the previous workflow or absence of the capability and the new behavior. Evidence SHALL be labeled **Before** / **After**, with the scenario and relevant agent, platform, or viewport identified. Screenshots are sufficient for static visual changes; interactions, timing, submission, and other behavior unfolding over time MUST use short recordings that show the outcome. A pasted prompt or a successful API response alone does not prove an agent received and acted on a submission.
+
+Verification MUST use a throwaway rig through the repository's `just` recipes, never a live `rk serve` instance or the user's tmux server. Recordings MUST be produced with `just demo`. Where correctness depends on an external integration, verification MUST exercise that integration; mocked browser tests alone do not establish compatibility. Changes to shared agent delivery MUST cover all supported agents. The PR body MUST list the scenarios and agents exercised, their results, and any unavailable or blocked coverage; unverified cases MUST NOT be reported as passing.
+
+Screenshots and recordings MUST be uploaded as GitHub attachments using `gh pr create --attach` / `gh pr edit --attach`, never committed to the repository. Screenshots SHALL be embedded inline; each video reference MUST stand alone in its own paragraph so it renders as a player. The PR body SHALL briefly describe the Playwright checks and their results alongside the evidence.
+
+Web-UI evidence MUST cover both desktop and mobile viewports unless the changed surface does not render on mobile. Desktop-shell changes — a diff touching `app/desktop/src/` or a shell-only SPA code path (the `runkitShell` bridge, the native web-tile engine, popout) — MUST carry a shell recording: `just demo` with a spec under `app/desktop/tests/demo/`, which records the Electron shell on a private Xvfb display. A change that behaves differently across engines (e.g. a web tile, an `<iframe>` in the browser and a native guest in the shell) MUST carry both the web and the shell recordings. Shell recordings have no mobile variant.
+
+Changes with nothing observable in the UI or shell, such as documentation, pure refactors, or internal backend/CLI behavior, are exempt from visual evidence; the PR body SHALL state `No recording: <reason>` and describe the relevant validation. Behavior specific to the macOS shell (⌘ chords, traffic lights, the macOS menu bar) cannot be recorded by `just demo`; such PRs state `No recording: macOS-only shell behavior not recordable by just demo` and document the verification performed. If a required before/after run cannot be completed, the PR body MUST explain the limitation and identify the missing evidence.
+
 ### Self-Improvement Safety
-The restart mechanism uses tmux-based kill-and-restart: `run-kit serve --restart` sends `C-c` to the daemon tmux pane, waits for graceful shutdown, then sends a fresh `run-kit serve` command. There is no supervisor loop, no `.restart-requested` signal file, and no automatic file-change watching. Rollback MUST be atomic (`git revert HEAD`).
+The restart mechanism uses tmux-based kill-and-restart: `rk serve --restart` sends `C-c` to the daemon tmux pane, waits for graceful shutdown, then sends a fresh `rk serve` command. There is no supervisor loop, no `.restart-requested` signal file, and no automatic file-change watching. Rollback MUST be atomic (`git revert HEAD`).
 
 ### Toolkit Standards
 This tool is part of the shll toolkit and MUST conform to the toolkit's published standards. The standards are enumerated by running `shll standards` — each entry names what it governs; read one with `shll standards <name>`. Before changing the CLI surface, help output, README.md, or docs/site/, the change MUST be checked against the standards governing that surface. If shll is unavailable, the canonical sources are the sahil87/shll repository's docs/site/standards/ tree (rendered on https://shll.ai). Standards added or revised there bind this repo without further amendment to this constitution.
 
 ## Governance
 
-**Version**: 1.12.1 | **Ratified**: 2026-03-02 | **Last Amended**: 2026-09-17
+**Version**: 2.3.0 | **Ratified**: 2026-03-02 | **Last Amended**: 2026-10-31

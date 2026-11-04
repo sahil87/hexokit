@@ -7,7 +7,7 @@ import {
   TERMINAL_FONT_BOUNDS,
 } from "./chrome-context";
 
-const FONT_KEY = "runkit-terminal-font-size";
+const FONT_KEY = "hexokit-terminal-font-size";
 
 function FontConsumer() {
   const { terminalFontSize } = useChromeState();
@@ -155,8 +155,8 @@ describe("ChromeProvider terminal font size", () => {
 // Each preference names its DEFAULT: the compose strip is on by default (only
 // an explicit stored "false" reads off), scroll lock is off by default.
 const booleanPreferences = [
-  { name: "compose strip", key: "runkit-compose-strip", defaultValue: true },
-  { name: "scroll lock", key: "runkit-scroll-lock", defaultValue: false },
+  { name: "compose strip", key: "hexokit-compose-strip", defaultValue: true },
+  { name: "scroll lock", key: "hexokit-scroll-lock", defaultValue: false },
 ] as const;
 
 type BooleanPreferenceName = (typeof booleanPreferences)[number]["name"];
@@ -238,19 +238,19 @@ describe("ChromeProvider boolean preferences", () => {
   });
 
   it("scroll lock degrades to false for a corrupt stored value", () => {
-    localStorage.setItem("runkit-scroll-lock", "banana");
+    localStorage.setItem("hexokit-scroll-lock", "banana");
     renderBooleanPreference("scroll lock");
     expect(booleanValue()).toBe("false");
   });
 
   it("compose strip: an explicit stored \"false\" is the only opt-out", () => {
-    localStorage.setItem("runkit-compose-strip", "false");
+    localStorage.setItem("hexokit-compose-strip", "false");
     renderBooleanPreference("compose strip");
     expect(booleanValue()).toBe("false");
   });
 
   it("compose strip: a corrupt stored value reads as the default (on)", () => {
-    localStorage.setItem("runkit-compose-strip", "banana");
+    localStorage.setItem("hexokit-compose-strip", "banana");
     renderBooleanPreference("compose strip");
     expect(booleanValue()).toBe("true");
   });
@@ -271,10 +271,10 @@ describe("ChromeProvider boolean preferences", () => {
     expect(screen.getByTestId("compose-defaulted").textContent).toBe("true");
     // A toggle writes the key, but the read-once flag never changes.
     click("toggle");
-    expect(localStorage.getItem("runkit-compose-strip")).toBe("false");
+    expect(localStorage.getItem("hexokit-compose-strip")).toBe("false");
     expect(screen.getByTestId("compose-defaulted").textContent).toBe("true");
     cleanup();
-    localStorage.setItem("runkit-compose-strip", "true");
+    localStorage.setItem("hexokit-compose-strip", "true");
     renderBooleanPreference("compose strip");
     expect(screen.getByTestId("compose-defaulted").textContent).toBe("false");
   });

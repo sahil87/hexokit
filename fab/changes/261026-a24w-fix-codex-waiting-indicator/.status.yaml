@@ -1,0 +1,57 @@
+id: a24w
+name: 261026-a24w-fix-codex-waiting-indicator
+created: 2026-10-26T02:19:05Z
+created_by: Sahil Ahuja
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 10
+    acceptance_count: 9
+    acceptance_completed: 9
+confidence:
+    certain: 5
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 96.4
+        reversibility: 90.0
+        competence: 87.9
+        disambiguation: 92.1
+stage_metrics:
+    intake: {started_at: "2026-10-26T02:19:05Z", driver: fab-new, iterations: 1, completed_at: "2026-10-26T02:25:22Z"}
+    apply: {started_at: "2026-10-26T15:14:51Z", driver: fab-fff, iterations: 4, completed_at: "2026-10-26T15:21:15Z"}
+    review: {started_at: "2026-10-26T15:21:15Z", driver: fab-fff, iterations: 4, completed_at: "2026-10-26T15:30:55Z"}
+    hydrate: {started_at: "2026-10-26T15:30:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-26T15:42:25Z"}
+    ship: {started_at: "2026-10-26T15:42:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-10-26T15:46:41Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1089
+base_branch: main
+true_impact:
+    added: 3341
+    deleted: 127
+    net: 3214
+    excluding:
+        added: 2641
+        deleted: 26
+        net: 2615
+    tests:
+        added: 1649
+        deleted: 7
+        net: 1642
+    computed_at: "2026-10-26T15:46:41Z"
+    computed_at_stage: ship
+summary: Distinguish Codex human waiting from automatic review, preserve pending questions, and reconcile approval resumption with bounded native runtime reads.
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-10-26T15:46:41Z

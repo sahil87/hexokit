@@ -12,9 +12,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
+	"rk/internal/apphome"
 	"rk/internal/codebridge"
 	"rk/internal/codeserver"
 	"rk/internal/config"
@@ -22,7 +24,9 @@ import (
 	"rk/internal/daemon"
 	"rk/internal/fabconfig"
 	"rk/internal/gui"
+	"rk/internal/homemigrate"
 	"rk/internal/mcp"
+	"rk/internal/portpolicy"
 	"rk/internal/settings"
 	"rk/internal/tmux"
 
@@ -154,6 +158,25 @@ func runDoctorChecks() doctorReport {
 	// (informational only: remediation is the note's recipe, never a failure).
 	report.Checks = append(report.Checks, tmuxConfigCheck())
 
+	// ~/.rk — the one-shot move's end state: absent, a held-back
+	// tenant (warn in the note), or MOVED.md with the remaining user-owned
+	// files. Always OK-shaped — doctor diagnoses, the daemon-start move heals.
+	if home != "" {
+		report.Checks = append(report.Checks, rkHomeCheck(home))
+	}
+
+	// Legacy run-kit homes — the daemon-start deletion's guard evaluation,
+	// read-only here: absent, present with the guard that holds it back, cb/
+	// retained for a live code-bridge host, or pending deletion. Always
+	// OK-shaped (doctor diagnoses, the daemon start heals).
+	{
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		for _, st := range legacyHomesFn(ctx) {
+			report.Checks = append(report.Checks, legacyHomeCheck(st))
+		}
+		cancel()
+	}
+
 	// Cron ticker — configuration + disk facts only (the setting state and
 	// the cron state dir's resolvability), always OK-shaped: doctor runs in a
 	// separate process from the daemon, so live goroutine state is not
@@ -191,7 +214,92 @@ func runDoctorChecks() doctorReport {
 		}
 	}
 
+	// Ports — the effective daemon port against the reserved blocks
+	// (portpolicy). Always OK-shaped (the code-server/ephemeral posture): a
+	// collision is advisory only — warn, never refuse, never a verdict flipper.
+	report.Checks = append(report.Checks, portsDoctorCheck(config.Load()))
+
+	// Port pin — the home migration pins existing installs at the legacy
+	// daemon port; once the default moves, nudge pinned installs toward it.
+	// Advisory only, OK-shaped (the removedEnvCheck "second return false → no
+	// row" pattern): no row while the pin is dormant or overridden.
+	if c, ok := portPinCheck(settings.Load().Port, portpolicy.DaemonDefault, portpolicy.DaemonLegacy, rkPortOverride()); ok {
+		report.Checks = append(report.Checks, c)
+	}
+
 	return report
+}
+
+// portPinCheck advises an install pinned at the pre-rename daemon port how to
+// move to the current default. OK-shaped with a Note, never a verdict
+// flipper; the second return value is false when no row should appear (the
+// removedEnvCheck pattern). The row fires only when config.yaml's port equals
+// the legacy default, the current default has moved off it, and RK_PORT is
+// not overriding — so it stays dormant while DaemonDefault == DaemonLegacy.
+// Pure over its inputs so table tests can inject both policy constants.
+func portPinCheck(pinned, def, legacy int, envOverride bool) (doctorCheck, bool) {
+	if pinned != legacy || def == legacy || envOverride {
+		return doctorCheck{}, false
+	}
+	return doctorCheck{
+		Name: "port pin",
+		OK:   true,
+		Note: fmt.Sprintf("pinned at :%d (kept through the HexoKit rename); new installs default to :%d — to move: set port: %d in ~/.config/hexokit/config.yaml, rk daemon restart, then re-point Tailscale Serve, bookmarks/phone shortcuts, and MCP clients at :%d/mcp",
+			pinned, def, def, def),
+	}, true
+}
+
+// rkPortOverride reports whether RK_PORT is set to a valid port — while it
+// wins over config.yaml anyway, the pin row stays quiet.
+func rkPortOverride() bool {
+	v := os.Getenv(config.PortEnvVar)
+	if v == "" {
+		return false
+	}
+	p, err := strconv.Atoi(v)
+	return err == nil && p >= 1 && p <= 65535
+}
+
+// portsDoctorCheck reports the effective daemon port and the reserved port
+// blocks (portpolicy). Always OK-shaped, never a verdict flipper: a collision
+// leads the note with a warning naming the block(s), the actual colliding
+// footprint port(s), and the remedy env var(s), followed by the full resolved
+// footprint — a code-server-only collision is never attributed to the daemon
+// port. A working daemon may already sit inside a block, so the row stays
+// advisory. Collisions come from reservedCollisions, the same read serve and
+// `rk ports` use (dev builds exempt the rig block). Pure over the resolved
+// config for table testing.
+func portsDoctorCheck(cfg config.Config) doctorCheck {
+	check := doctorCheck{Name: "ports", OK: true}
+	daemonFrag := fmt.Sprintf("daemon :%d", cfg.Port)
+	if cfg.Port == portpolicy.DaemonDefault {
+		daemonFrag += " (default)"
+	}
+	reserved := "reserved: " + portpolicy.Summary()
+	if blocks := reservedCollisions(cfg); len(blocks) > 0 {
+		details := make([]string, len(blocks))
+		seen := map[string]bool{}
+		var envVars []string
+		for i, b := range blocks {
+			ports, envs := footprintSummary(blockFootprintHits(cfg, b))
+			details[i] = b.String() + ": " + ports
+			for _, e := range envs {
+				if !seen[e] {
+					seen[e] = true
+					envVars = append(envVars, e)
+				}
+			}
+		}
+		footprint := daemonFrag
+		if cs := cfg.ResolvedCodeServerPort(); cs != 0 {
+			footprint += fmt.Sprintf("; code-server :%d", cs)
+		}
+		check.Note = fmt.Sprintf("WARNING: port inside reserved block(s) %s — set %s outside; %s; %s",
+			strings.Join(details, "; "), strings.Join(envVars, " / "), footprint, reserved)
+		return check
+	}
+	check.Note = fmt.Sprintf("%s; %s", daemonFrag, reserved)
+	return check
 }
 
 // localeForced / daemonGlobalEnv are the seams for the locale row — tests
@@ -268,7 +376,7 @@ func cronTickerCheck() doctorCheck {
 }
 
 // removedEnvCheck flags a set-but-ignored RK_SSH_HOST: the env read was
-// removed (the ssh_host key in ~/.config/run-kit/config.yaml is the only
+// removed (the ssh_host key in ~/.config/hexokit/config.yaml is the only
 // ssh-host source), so a still-exported value silently does nothing. The
 // second return value is false when the var is unset — no row, no noise.
 func removedEnvCheck() (doctorCheck, bool) {
@@ -278,14 +386,14 @@ func removedEnvCheck() (doctorCheck, bool) {
 	return doctorCheck{
 		Name:      "RK_SSH_HOST",
 		OK:        false,
-		Hint:      "RK_SSH_HOST is no longer read — set the ssh_host key in ~/.config/run-kit/config.yaml",
+		Hint:      "RK_SSH_HOST is no longer read — set the ssh_host key in ~/.config/hexokit/config.yaml",
 		failLabel: "RK_SSH_HOST set but ignored",
 	}, true
 }
 
 // riffPresetsBlockCheck advises when the repo's fab/project/config.yaml still
 // carries a top-level riff: key — rk no longer reads it (presets live under
-// riff_presets in ~/.config/run-kit/config.yaml). WARN-shaped: OK with a Note,
+// riff_presets in ~/.config/hexokit/config.yaml). WARN-shaped: OK with a Note,
 // never a verdict flipper. The second return value is false when the key is
 // absent — no row, no noise (the removedEnvCheck pattern).
 func riffPresetsBlockCheck(repoRoot string, hasKey func(string, string) bool) (doctorCheck, bool) {
@@ -295,7 +403,7 @@ func riffPresetsBlockCheck(repoRoot string, hasKey func(string, string) bool) (d
 	return doctorCheck{
 		Name: "riff presets",
 		OK:   true,
-		Note: "fab/project/config.yaml has a riff: block that rk no longer reads — define presets under riff_presets in ~/.config/run-kit/config.yaml",
+		Note: "fab/project/config.yaml has a riff: block that rk no longer reads — define presets under riff_presets in ~/.config/hexokit/config.yaml",
 	}, true
 }
 
@@ -469,7 +577,7 @@ var tmuxUserOwnedPath = tmux.UserOwnedConfigPath
 // created after reload.
 func tmuxConfigCheck() doctorCheck {
 	check := doctorCheck{Name: "tmux config", OK: true}
-	recipe := "move your customizations into ~/.config/run-kit/tmux.d/user.conf, then run `rk mux init-conf --force` to restore the managed file"
+	recipe := "move your customizations into ~/.config/hexokit/tmux.d/user.conf, then run `rk mux init-conf --force` to restore the managed file"
 	if tmuxUserOwnedPath() {
 		check.Note = "user-owned (tmux_conf set) — unmanaged"
 		return check
@@ -508,6 +616,141 @@ func tmuxConfigCheck() doctorCheck {
 		check.Note = "hand-edited — rk leaves it untouched; " + recipe
 	}
 	return check
+}
+
+// --- ~/.rk row ---------------------------------------------------------------
+
+// rkHomeCheck reports the one-shot ~/.rk → state-home move's end state
+// (261006-3ht0). Always OK-shaped (the code-server/ephemeral posture — doctor
+// diagnoses, the move at daemon start heals): absent is a clean pass; a
+// held-back tenant warns in the note naming both paths — its source still
+// present while the destination exists or, once MOVED.md is written, while
+// the destination is missing (the source is then the only copy); with
+// MOVED.md the note lists the remaining user-owned files; present without
+// MOVED.md means the move has not run yet. It reads $HOME/.rk and resolves
+// the state home via apphome, so tests redirect HOME and XDG_STATE_HOME into
+// temp dirs.
+func rkHomeCheck(home string) doctorCheck {
+	check := doctorCheck{Name: "~/.rk", OK: true}
+	rkDir := filepath.Join(home, ".rk")
+	entries, err := os.ReadDir(rkDir)
+	switch {
+	case os.IsNotExist(err):
+		check.Note = "absent"
+		return check
+	case err != nil:
+		check.Note = fmt.Sprintf("state unreadable: %v", err)
+		return check
+	}
+	state, err := apphome.NewStateDir()
+	if err != nil {
+		check.Note = fmt.Sprintf("present, but the state home is unresolvable: %v", err)
+		return check
+	}
+
+	movedNote := rkHomeExists(filepath.Join(rkDir, "MOVED.md"))
+	var held []string
+	hold := func(name, dstLeaf string) {
+		src := filepath.Join(rkDir, name)
+		dst := filepath.Join(state, dstLeaf)
+		if !rkHomeExists(src) {
+			return
+		}
+		if rkHomeExists(dst) {
+			held = append(held, fmt.Sprintf("%s still present while %s exists", src, dst))
+			return
+		}
+		// With MOVED.md written, a managed source whose destination never
+		// arrived is the only copy left — the tenant filter below hides it
+		// from the remaining-files list, so it must be held back here or the
+		// row would read "safe to delete" over the sole VAPID keypair.
+		if movedNote {
+			held = append(held, fmt.Sprintf("%s still present and %s is missing — the source is the only copy", src, dst))
+		}
+	}
+	// The move's own tenant table, so a tenant added there is reported here.
+	for _, t := range homemigrate.RKTenants {
+		if t.LinuxOnly && runtime.GOOS != "linux" {
+			continue
+		}
+		hold(t.Src, t.Dst)
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".log") {
+			hold(e.Name(), filepath.Join("logs", e.Name()))
+		}
+	}
+	if len(held) > 0 {
+		check.Note = "WARNING: " + strings.Join(held, "; ") + " — the move never overwrites; reconcile by hand, then remove the ~/.rk copy"
+		return check
+	}
+
+	var remaining []string
+	for _, e := range entries {
+		name := e.Name()
+		if name == "MOVED.md" || rkHomeTenantName(name) {
+			continue
+		}
+		remaining = append(remaining, name)
+	}
+	if !movedNote {
+		check.Note = fmt.Sprintf("present — the one-shot move into %s runs at daemon start (`rk daemon restart`)", state)
+		return check
+	}
+	if len(remaining) == 0 {
+		check.Note = "moved to the state home — only MOVED.md remains; ~/.rk is safe to delete"
+		return check
+	}
+	check.Note = fmt.Sprintf("moved to %s — the remaining files are yours: %s (see ~/.rk/MOVED.md; the folder is safe to delete once handled)", state, strings.Join(remaining, ", "))
+	return check
+}
+
+// rkHomeTenantName reports whether a top-level ~/.rk entry is one the move
+// owns (a tenant source, a per-window job log, or a migration breadcrumb)
+// rather than a user-owned file the MOVED.md branch lists.
+func rkHomeTenantName(name string) bool {
+	switch name {
+	case "vapid.json", "push-subscriptions.json", "code-server-bin", "code-server-profile", "code-server", "desktop", "settings.yaml.migrated", "tmux.d.migrated":
+		return true
+	}
+	return strings.HasSuffix(name, ".log")
+}
+
+// rkHomeExists is the row's stat probe (a seam-free os.Stat — doctor is
+// read-only, so a bare existence check is the whole contract).
+func rkHomeExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+// --- legacy run-kit homes rows ------------------------------------------------
+
+// legacyHomesFn is the seam for the legacy-home guard evaluation — tests
+// substitute it so doctor never reads the real homes or pings a cb socket.
+var legacyHomesFn = homemigrate.LegacyHomes
+
+// legacyHomeCheck renders one legacy run-kit home's guard evaluation as an
+// OK-shaped row named `legacy <config|state> home`.
+func legacyHomeCheck(st homemigrate.LegacyHomeState) doctorCheck {
+	return doctorCheck{Name: "legacy " + st.Label + " home", OK: true, Note: legacyHomeNote(st)}
+}
+
+// legacyHomeNote is the rows' pure note formatter: absent when the home is
+// gone; otherwise the path plus the guard that holds it back, the retained
+// cb/ (a live code-bridge host), or the pending deletion.
+func legacyHomeNote(st homemigrate.LegacyHomeState) string {
+	switch {
+	case st.Hold != "" && !st.Present:
+		return "unresolvable: " + st.Hold
+	case st.Hold != "":
+		return fmt.Sprintf("%s — held back: %s", st.Path, st.Hold)
+	case !st.Present:
+		return "absent"
+	case st.KeepCB:
+		return fmt.Sprintf("%s — a live code-bridge host is registered under cb/; cb/ is kept, the rest deletes at the next daemon start", st.Path)
+	default:
+		return fmt.Sprintf("%s — will be deleted at the next daemon start", st.Path)
+	}
 }
 
 // guiCheck reports the GUI surface's state: off (the default), on+reachable
@@ -586,12 +829,13 @@ func dialTCP(addr string) bool {
 }
 
 // codeServerCheck reports the daemon-managed code-server's state: install
-// source (rk-managed under ~/.rk/code-server-bin, else a user-managed PATH
-// install), the resolved port (preset RK_CODE_SERVER_PORT, else RK_PORT+2),
-// and reachability. Pure over an injected (home, lookPath, dial) triple so
-// tests never depend on the host. Never OK=false — absence is the WARN case
-// (the daemon warns and continues without it, spawning the install job), so
-// the row carries a remediation Note.
+// source (rk-managed under <state>/code-server/bin — display:
+// ~/.local/state/hexokit/code-server/bin — else a user-managed PATH install),
+// the resolved port (preset RK_CODE_SERVER_PORT, else RK_PORT+2), and
+// reachability. Pure over an injected (home, lookPath, dial) triple so tests
+// never depend on the host. Never OK=false — absence is the WARN case (the
+// daemon warns and continues without it, spawning the install job), so the row
+// carries a remediation Note.
 func codeServerCheck(home string, lookPath func(string) (string, error), dial func(string) bool) doctorCheck {
 	port := config.Load().ResolvedCodeServerPort()
 	check := doctorCheck{Name: "code-server", OK: true}
@@ -616,7 +860,7 @@ func codeServerCheck(home string, lookPath func(string) (string, error), dial fu
 			if err != nil || version == "" {
 				version = "unknown"
 			}
-			check.Note = fmt.Sprintf("managed v%s; %s", version, reachability())
+			check.Note = fmt.Sprintf("managed v%s at %s; %s", version, codeserver.BinDir(home), reachability())
 			return check
 		}
 	}
@@ -642,14 +886,14 @@ var codeBridgeEmbeddedVersion = func() string {
 	return version
 }
 var codeBridgeLiveHostCount = func() (int, error) {
+	// Bounded: each ping is capped inside LiveHosts and the sweep as a
+	// whole gets a ceiling so doctor never hangs on a dead socket.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	dir, err := codebridge.HostsDir()
 	if err != nil {
 		return 0, err
 	}
-	// Bounded: each ping is capped inside LiveHosts and the sweep as a whole
-	// gets a ceiling so doctor never hangs on a dead socket.
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 	live, _, err := codebridge.LiveHosts(ctx, dir)
 	if err != nil {
 		return 0, err

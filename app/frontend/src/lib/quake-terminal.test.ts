@@ -272,7 +272,7 @@ describe("shared compose seam", () => {
     const { result } = renderHook(() => useOperatorCompose("srvA", undefined));
     act(() => setOperatorComposeText("srvA", undefined, "typed into the void"));
     expect(result.current.text).toBe("");
-    expect(localStorage.getItem("runkit-compose-drafts")).toBeNull();
+    expect(localStorage.getItem("hexokit-compose-drafts")).toBeNull();
   });
 
   it("the returned state is reference-stable while neither text nor flags changed", () => {

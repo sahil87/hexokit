@@ -136,7 +136,9 @@ func ParseTargetWithOrigins(arg, cwd string, origins []string) (Target, error) {
 		// Only plaintext http on a localhost host rewrites to the relative
 		// proxy form; https (even to localhost) and any remote host attach
 		// verbatim — the proxy targets local http services only.
-		if u.Scheme == "http" && localhostHosts[u.Hostname()] {
+		// Hostnames are case-insensitive; the frontend's WHATWG URL parser
+		// lowercases them, so match lowercased here too (web-url.ts mirrors this set).
+		if u.Scheme == "http" && localhostHosts[strings.ToLower(u.Hostname())] {
 			port := 80
 			if p := u.Port(); p != "" {
 				n, err := parsePort(p)

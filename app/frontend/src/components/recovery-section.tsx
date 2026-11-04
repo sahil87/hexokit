@@ -235,7 +235,7 @@ function RecoveryRow({
         </div>
       </div>
       <div className="text-xs text-text-secondary font-mono mt-1 ml-5">
-        {offer.sessionCount} session{offer.sessionCount !== 1 ? "s" : ""}
+        {offer.sessionCount} group{offer.sessionCount !== 1 ? "s" : ""}
         {" · "}
         {offer.windowCount} tab{offer.windowCount !== 1 ? "s" : ""}
         {" · "}last seen {lastSeenLabel(offer.takenAt)}

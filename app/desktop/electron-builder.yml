@@ -2,8 +2,10 @@
 # Version is NOT read from package.json (0.0.0 placeholder) — it is injected at
 # build time: electron-builder --config.extraMetadata.version=$VERSION
 # (see scripts/build-desktop.sh; CI passes the release tag the same way).
+# appId stays ai.shll.run-kit so installed apps keep their OS identity across
+# the product rename (a new appId would orphan existing installs).
 appId: ai.shll.run-kit
-productName: Run Kit
+productName: HexoKit
 directories:
   buildResources: build
   output: release
@@ -48,5 +50,5 @@ linux:
 # Mac-only in effect: the hook itself guards on electronPlatformName and
 # returns immediately for win/linux packs (no codesign on those hosts).
 afterPack: ./after-pack.js
-artifactName: "run-kit-desktop-${version}-${arch}.${ext}"
+artifactName: "hexokit-desktop-${version}-${arch}.${ext}"
 npmRebuild: false

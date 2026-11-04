@@ -33,7 +33,7 @@ test.describe("API Integration", () => {
    *    layout-shift under the stationary pointer can fire a sibling row's
    *    hover intent while SSE settles), enter the card at the row's own band
    *    (a diagonal sweep to the bottom kill row would cross the sibling
-   *    sidebar row and retarget the card), click the card's `Kill session`
+   *    sidebar row and retarget the card), click the card's `Kill group`
    *    action row, then the `Kill` button inside the confirm dialog (scoped
    *    to role=dialog so no sidebar row whose text contains "Kill" can
    *    match).
@@ -73,7 +73,7 @@ test.describe("API Integration", () => {
       await expect(async () => {
         await page.mouse.move(700, 500);
         await sessionRow.hover();
-        await expect(card).toContainText(`Session ${sessionName}`, { timeout: 3_000 });
+        await expect(card).toContainText(`Group ${sessionName}`, { timeout: 3_000 });
       }).toPass({ timeout: 15_000 });
       const rowBox = (await sessionRow.boundingBox())!;
       const cardBox = (await card.boundingBox())!;

@@ -70,7 +70,7 @@ describe("useLocalStorageEnum", () => {
 });
 
 describe("useSessionsScope", () => {
-  it("defaults to 'all' and persists under runkit-panel-sessions-scope", () => {
+  it("defaults to 'all' and persists under hexokit-panel-sessions-scope", () => {
     const { result } = renderHook(() => useSessionsScope());
     expect(result.current[0]).toBe("all");
 

@@ -38,6 +38,18 @@ const NULL_NAME: InstanceName = {
 
 
 const mockNavigate = vi.fn();
+// The New split button has its own suite (new-split-button.test.tsx) and needs
+// the palette/session/slot providers; the sidebar tests only assert WHERE the
+// mobile brand row places it.
+vi.mock("@/components/new-split-button", () => ({
+  NewSplitButton: ({ mode, align }: { mode: string; align?: string }) => (
+    <div data-testid="new-split" data-mode={mode} data-align={align} />
+  ),
+}));
+vi.mock("@/hooks/use-top-bar-mode", () => ({
+  useTopBarMode: () => ({ mode: "terminal", serverParam: undefined, boardName: undefined }),
+}));
+
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
   useRouterState: ({ select }: { select: (s: { location: { pathname: string } }) => unknown }) =>
@@ -205,7 +217,6 @@ function buildTree(overrides: SidebarTestOverrides) {
                       onSelectWindow={vi.fn()}
                       onCreateWindow={vi.fn()}
                       onCreateSession={vi.fn()}
-                      onCreateServer={vi.fn()}
                       onKillServer={vi.fn()}
                       {...sidebarOverrides}
                     />
@@ -315,7 +326,7 @@ describe("Sidebar", () => {
     expect(mainBtn?.getAttribute("aria-current")).not.toBe("page");
 
     // Belt-and-suspenders: exactly one selected row in this session's tree.
-    const tree = screen.getByRole("navigation", { name: "Sessions" });
+    const tree = screen.getByRole("navigation", { name: "Groups" });
     const selected = within(tree).getAllByRole("button", { current: "page" });
     expect(selected).toHaveLength(1);
   });
@@ -399,7 +410,7 @@ describe("Sidebar", () => {
     // keyboard focus.
     stubPointer(false);
     renderSidebar();
-    expect(screen.queryAllByLabelText(/Kill session/)).toHaveLength(0);
+    expect(screen.queryAllByLabelText(/Kill group/)).toHaveLength(0);
     const sessionRows = screen
       .getAllByRole("treeitem")
       .filter((r) => r.getAttribute("aria-level") === "1");
@@ -408,14 +419,14 @@ describe("Sidebar", () => {
       act(() => {
         fireEvent.focus(row);
       });
-      expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill session");
+      expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill group");
       act(() => {
         fireEvent.keyDown(document, { key: "Escape" });
       });
     }
   });
 
-  it("shows kill confirmation dialog when the card's Kill session row is clicked", () => {
+  it("shows kill confirmation dialog when the card's Kill group row is clicked", () => {
     stubPointer(false);
     renderSidebar();
     const row = screen
@@ -428,14 +439,14 @@ describe("Sidebar", () => {
       fireEvent.click(screen.getByTestId("row-flyout-kill-action"));
     });
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText("Kill session?")).toBeInTheDocument();
+    expect(within(dialog).getByText("Kill group?")).toBeInTheDocument();
     expect(within(dialog).getByText(/3 tab/)).toBeInTheDocument();
   });
 
   it("shows empty-state hint row when no sessions", () => {
     const onCreateSession = vi.fn();
     renderSidebar({ sessions: [], onCreateSession });
-    const hint = screen.getByText(/^\(no sessions — a session groups tabs/);
+    const hint = screen.getByText(/^\(no groups — a group holds tabs/);
     expect(hint).toBeInTheDocument();
     fireEvent.click(hint);
     expect(onCreateSession).toHaveBeenCalledTimes(1);
@@ -450,14 +461,14 @@ describe("Sidebar", () => {
   it("no-sessions hint names the derived create-session chord", () => {
     stubPointer(false);
     localStorage.setItem(
-      "runkit-keybindings",
+      "hexokit-keybindings",
       JSON.stringify({ "create-session": { code: "Comma", tier: "shifted" } }),
     );
     renderSidebar({ sessions: [], onCreateSession: vi.fn() });
     expect(
-      screen.getByText("(no sessions — a session groups tabs; + new, or Shift+Ctrl+,)"),
+      screen.getByText("(no groups — a group holds tabs; + new, or Shift+Ctrl+,)"),
     ).toBeInTheDocument();
-    localStorage.removeItem("runkit-keybindings");
+    localStorage.removeItem("hexokit-keybindings");
   });
 
   it("no-sessions hint drops the chord clause on a coarse pointer", () => {
@@ -465,26 +476,26 @@ describe("Sidebar", () => {
     // even when the binding is live — the `+ new` row is the touch path.
     stubPointer(true);
     localStorage.setItem(
-      "runkit-keybindings",
+      "hexokit-keybindings",
       JSON.stringify({ "create-session": { code: "Comma", tier: "shifted" } }),
     );
     renderSidebar({ sessions: [], onCreateSession: vi.fn() });
-    expect(screen.getByText("(no sessions — a session groups tabs; + new)")).toBeInTheDocument();
-    localStorage.removeItem("runkit-keybindings");
+    expect(screen.getByText("(no groups — a group holds tabs; + new)")).toBeInTheDocument();
+    localStorage.removeItem("hexokit-keybindings");
   });
 
   it("no-sessions hint drops the chord clause when create-session is unbound", () => {
-    localStorage.setItem("runkit-keybindings", JSON.stringify({ "create-session": null }));
+    localStorage.setItem("hexokit-keybindings", JSON.stringify({ "create-session": null }));
     renderSidebar({ sessions: [], onCreateSession: vi.fn() });
-    expect(screen.getByText("(no sessions — a session groups tabs; + new)")).toBeInTheDocument();
+    expect(screen.getByText("(no groups — a group holds tabs; + new)")).toBeInTheDocument();
     expect(screen.queryByText(/Shift\+Ctrl\+N/)).not.toBeInTheDocument();
-    localStorage.removeItem("runkit-keybindings");
+    localStorage.removeItem("hexokit-keybindings");
   });
 
   it("empty-state hint click calls onCreateSession directly (no dialog)", () => {
     const onCreateSession = vi.fn();
     renderSidebar({ sessions: [], onCreateSession });
-    fireEvent.click(screen.getByText(/^\(no sessions — a session groups tabs/));
+    fireEvent.click(screen.getByText(/^\(no groups — a group holds tabs/));
     expect(onCreateSession).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
@@ -507,7 +518,7 @@ describe("Sidebar", () => {
     },
     {
       kind: "session",
-      label: "Rename session",
+      label: "Rename group",
       original: "run-kit",
       changed: "staging",
       blurInput: "blur-session",
@@ -628,10 +639,23 @@ describe("Sidebar", () => {
       expect(screen.queryByLabelText(renameCase.label)).not.toBeInTheDocument();
     });
 
+    it.each(renameCases)("suspends row drag while editing a $kind", (renameCase) => {
+      renderSidebar();
+      renameCase.start();
+      const input = screen.getByLabelText(renameCase.label);
+      const row = input.closest("[draggable]");
+      // A pointer drag in the input must select text, not drag the row.
+      expect(row?.getAttribute("draggable")).toBe("false");
+
+      fireEvent.keyDown(input, { key: "Escape" });
+      expect(screen.queryByLabelText(renameCase.label)).not.toBeInTheDocument();
+      expect(row?.getAttribute("draggable")).toBe("true");
+    });
+
     it("live-converts unsafe session-name characters", () => {
       renderSidebar();
       fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));
-      const input = screen.getByLabelText("Rename session");
+      const input = screen.getByLabelText("Rename group");
       fireEvent.change(input, { target: { value: "My problem" } });
       expect(input).toHaveValue("My_problem");
     });
@@ -652,7 +676,7 @@ describe("Sidebar", () => {
       // Double-click on session name — should cancel window edit without committing
       fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));
       expect(screen.queryByLabelText("Rename tab")).not.toBeInTheDocument();
-      expect(screen.getByLabelText("Rename session")).toBeInTheDocument();
+      expect(screen.getByLabelText("Rename group")).toBeInTheDocument();
       expect(renameWindowMock).not.toHaveBeenCalled();
     });
 
@@ -663,12 +687,12 @@ describe("Sidebar", () => {
       renderSidebar();
       // Start editing session "run-kit"
       fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));
-      const sessionInput = screen.getByLabelText("Rename session");
+      const sessionInput = screen.getByLabelText("Rename group");
       fireEvent.change(sessionInput, { target: { value: "renamed-run-kit" } });
 
       // Double-click on window name — should cancel session edit without committing
       fireEvent.doubleClick(screen.getByText("scratch"));
-      expect(screen.queryByLabelText("Rename session")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Rename group")).not.toBeInTheDocument();
       expect(screen.getByLabelText("Rename tab")).toBeInTheDocument();
       expect(renameSessionMock).not.toHaveBeenCalled();
     });
@@ -688,8 +712,8 @@ describe("Sidebar", () => {
       // coupling to nested text-node layout) compared with indexing into
       // `document.body.querySelectorAll("*")`.
       const boardsHeader = screen.getByText("Boards");
-      const serverHeader = screen.getByText("Servers", { selector: "span" });
-      const sessionsHeader = screen.getByText("Sessions", { selector: "span" });
+      const serverHeader = screen.getByText("Workspaces", { selector: "span" });
+      const sessionsHeader = screen.getByText("Groups", { selector: "span" });
 
       // Node.DOCUMENT_POSITION_FOLLOWING (4): the argument node follows the
       // reference node in document order.
@@ -1046,7 +1070,6 @@ describe("Sidebar", () => {
                           onSelectWindow={vi.fn()}
                           onCreateWindow={vi.fn()}
                           onCreateSession={vi.fn()}
-                          onCreateServer={vi.fn()}
                           onKillServer={vi.fn()}
                         />
                       </SettingsDialogProvider>

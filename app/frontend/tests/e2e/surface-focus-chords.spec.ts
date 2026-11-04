@@ -66,7 +66,7 @@ async function gotoWindow(page: Page, windowId: string): Promise<void> {
  *  very state under test (the focus-restore spec's pattern). */
 async function switchToWindow(page: Page, windowId: string): Promise<void> {
   const row = page
-    .locator("nav[aria-label='Sessions']")
+    .locator("nav[aria-label='Groups']")
     .locator(`[data-window-id="${windowId}"]`)
     .getByRole("button")
     .first();
@@ -96,7 +96,7 @@ const sidebarAside = (page: Page) => page.locator('aside[aria-label="Sidebar"]')
 
 /** The window's sidebar row wrapper (the roving treeitem). */
 const windowRow = (page: Page, windowId: string) =>
-  page.locator("nav[aria-label='Sessions']").locator(`[data-window-id="${windowId}"]`);
+  page.locator("nav[aria-label='Groups']").locator(`[data-window-id="${windowId}"]`);
 
 /** Poll until the stub's grab has FIRED inside the iframe (its document title
  *  flips to "grabbed") — keeps the specs non-vacuous (the focus-restore

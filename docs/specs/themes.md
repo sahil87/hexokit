@@ -319,7 +319,7 @@ For themes not in iTerm2-Color-Schemes, add an entry directly to `configs/themes
 
 Theme preference is stored in two places:
 
-1. **Backend** (canonical): `~/.config/run-kit/config.yaml` via `GET/PUT /api/settings/theme`
-2. **Frontend** (cache): `localStorage` key `"runkit-theme"` for instant reads before API responds
+1. **Backend** (canonical): `~/.config/hexokit/config.yaml` via `GET/PUT /api/settings/theme`
+2. **Frontend** (cache): `localStorage` key `"hexokit-theme"` for instant reads before API responds
 
 On init, the frontend calls the API. If it fails, falls back to localStorage, then to `"system"`. The `"system"` value auto-selects Default Dark or Default Light based on OS `prefers-color-scheme`.

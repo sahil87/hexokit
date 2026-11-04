@@ -1,4 +1,4 @@
-// Package desktop installs and updates the Run Kit desktop app (the Electron
+// Package desktop installs and updates the HexoKit desktop app (the Electron
 // viewer shell, app/desktop) from GitHub release assets: the macOS DMG and
 // the Linux AppImage.
 //
@@ -38,28 +38,49 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"rk/internal/apphome"
 )
 
 const (
 	// DefaultRepo is the GitHub repository the desktop DMGs are released from.
-	DefaultRepo = "sahil87/run-kit"
+	DefaultRepo = "sahil87/hexokit"
 	// AppBundleName is the installed bundle name (electron-builder's
-	// productName "Run Kit" + .app).
-	AppBundleName = "Run Kit.app"
+	// productName "HexoKit" + .app).
+	AppBundleName = "HexoKit.app"
+	// legacyAppBundleName is the pre-rename bundle name. One release window:
+	// status/install detect it so the rk-installed app upgrades in place
+	// instead of leaving two Dock entries.
+	legacyAppBundleName = "Run Kit.app"
 	// assetPrefix is the leading segment of every desktop asset name
-	// (run-kit-desktop-{version}-{arch}.{dmg,AppImage}, per the release CI's
+	// (hexokit-desktop-{version}-{arch}.{dmg,AppImage}, per the release CI's
 	// artifactName convention).
-	assetPrefix = "run-kit-desktop-"
+	assetPrefix = "hexokit-desktop-"
+	// legacyAssetPrefix covers releases published under the pre-rename
+	// artifactName (run-kit-desktop-…); matched only when no assetPrefix
+	// asset fits the host arch.
+	legacyAssetPrefix = "run-kit-desktop-"
 	// defaultAPIBase is the GitHub REST API origin.
 	defaultAPIBase = "https://api.github.com"
 )
 
 // DefaultInstallDirFor returns the platform's default install root:
-// /Applications on macOS, <home>/.rk/desktop on Linux. Overridable via the
+// /Applications on macOS, the state-home desktop dir on Linux
+// (apphome.DesktopDir() — <state>/desktop). Overridable via the
 // --path flag for managed-Mac / non-writable scenarios.
-func DefaultInstallDirFor(goos, home string) string {
+func DefaultInstallDirFor(goos string) (string, error) {
 	if goos == "linux" {
-		return filepath.Join(home, ".rk", "desktop")
+		return apphome.DesktopDir()
+	}
+	return "/Applications", nil
+}
+
+// defaultInstallDirDisplay is the degraded spelling of the default root for
+// messages when the real resolution failed — display only, never a filesystem
+// target.
+func defaultInstallDirDisplay(goos string) string {
+	if goos == "linux" {
+		return filepath.Join("~", ".local", "state", "hexokit", "desktop")
 	}
 	return "/Applications"
 }
@@ -111,9 +132,11 @@ type Installer struct {
 	// struct field so tests record the delivery instead of signaling real
 	// processes.
 	Signal func(pid int, sig syscall.Signal) error
-	// UserHome resolves the user's home directory for the Linux default
-	// install root (the codeServerUserHomeFn idiom; no env key — Constitution
-	// IV restricts env to deployment-bootstrap keys).
+	// UserHome resolves the user's home directory for the Linux desktop
+	// integration paths (~/.local/share, ~/.local/bin — the
+	// codeServerUserHomeFn idiom; no env key — Constitution IV restricts env
+	// to deployment-bootstrap keys). The default install root does not read
+	// it: that resolves through apphome.DesktopDir.
 	UserHome func() (string, error)
 	// Repo is the {owner}/{repo} the releases are resolved from.
 	Repo string
@@ -183,7 +206,7 @@ func githubToken() string {
 	return strings.TrimSpace(string(out))
 }
 
-// AppPath returns the display path of the installed app — <root>/Run Kit.app
+// AppPath returns the display path of the installed app — <root>/HexoKit.app
 // on macOS, <root>/current on Linux. It feeds messages and the not-installed
 // error only; operations resolve the root through effectiveInstallDir and
 // surface a home-resolution failure themselves, so here it degrades to the
@@ -191,7 +214,7 @@ func githubToken() string {
 func (ins *Installer) AppPath() string {
 	root, err := ins.effectiveInstallDir()
 	if err != nil {
-		root = DefaultInstallDirFor(ins.GOOS, "~")
+		root = defaultInstallDirDisplay(ins.GOOS)
 	}
 	if ins.GOOS == "linux" {
 		return filepath.Join(root, currentLinkName)
@@ -200,8 +223,8 @@ func (ins *Installer) AppPath() string {
 }
 
 // effectiveInstallDir resolves the install root: an explicit InstallDir
-// (--path) wins; empty means the platform default (DefaultInstallDirFor),
-// which on Linux needs the user's home via the UserHome seam.
+// (--path) wins; empty means the platform default (DefaultInstallDirFor) —
+// the apphome state-home desktop dir on Linux.
 func (ins *Installer) effectiveInstallDir() (string, error) {
 	if ins.InstallDir != "" {
 		// Absolute so the desktop entry, the PATH symlink, and the running-app
@@ -213,14 +236,11 @@ func (ins *Installer) effectiveInstallDir() (string, error) {
 		}
 		return abs, nil
 	}
-	if ins.GOOS != "linux" {
-		return DefaultInstallDirFor(ins.GOOS, ""), nil
-	}
-	home, err := ins.UserHome()
+	root, err := DefaultInstallDirFor(ins.GOOS)
 	if err != nil {
-		return "", fmt.Errorf("resolving the home directory for the default install root: %w", err)
+		return "", fmt.Errorf("resolving the default install root: %w", err)
 	}
-	return DefaultInstallDirFor(ins.GOOS, home), nil
+	return root, nil
 }
 
 // runCommand is the default Runner: exec.CommandContext with an argument

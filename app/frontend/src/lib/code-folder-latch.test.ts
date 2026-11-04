@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { codeRootFor, codeRootSeed } from "./code-folder-latch";
+import { codeRootFor, codeRootFollowTarget, codeRootSeed } from "./code-folder-latch";
 import type { Layout } from "./surface-layout";
 
-const codeOpen: Layout = { shape: "split-h", order: ["tty", "code"] };
-const codeClosed: Layout = { shape: "single", order: ["tty"] };
+const codeOpen: Layout = { dir: "h", children: [{ leaf: "tty" }, { leaf: "code" }] };
+const codeClosed: Layout = { leaf: "tty" };
 
 describe("codeRootFor", () => {
   it("prefers the shared codeRoot over the derived gitRoot", () => {
@@ -40,5 +40,31 @@ describe("codeRootSeed", () => {
     expect(codeRootSeed({}, codeOpen)).toBeNull();
     expect(codeRootSeed({ gitRoot: "" }, codeOpen)).toBeNull();
     expect(codeRootSeed(null, codeOpen)).toBeNull();
+  });
+});
+
+describe("codeRootFollowTarget", () => {
+  it("returns gitRoot when the latched root drifted from the live derivation", () => {
+    expect(codeRootFollowTarget({ codeRoot: "/repo", gitRoot: "/repo.worktrees/x" })).toBe(
+      "/repo.worktrees/x",
+    );
+  });
+
+  it("is null when the roots agree — no drift, no verb", () => {
+    expect(codeRootFollowTarget({ codeRoot: "/repo", gitRoot: "/repo" })).toBeNull();
+  });
+
+  it("is null when codeRoot is empty — a pre-seed window is about to be seeded", () => {
+    expect(codeRootFollowTarget({ gitRoot: "/repo" })).toBeNull();
+    expect(codeRootFollowTarget({ codeRoot: "", gitRoot: "/repo" })).toBeNull();
+  });
+
+  it("is null when gitRoot is empty — no resolvable cwd has no folder to follow", () => {
+    expect(codeRootFollowTarget({ codeRoot: "/repo", gitRoot: "" })).toBeNull();
+  });
+
+  it("is null for a null/undefined window", () => {
+    expect(codeRootFollowTarget(null)).toBeNull();
+    expect(codeRootFollowTarget(undefined)).toBeNull();
   });
 });

@@ -1,13 +1,13 @@
 # Customizing tmux
 
-HexoKit owns its default tmux configuration as a **managed file**: `~/.config/run-kit/tmux.conf`. rk writes it, stamps it, and refreshes it — you never edit it. Your customizations live next door in `~/.config/run-kit/tmux.d/`, which the managed file sources at the end (`source-file -q ~/.config/run-kit/tmux.d/*.conf`), so your settings always win.
+HexoKit owns its default tmux configuration as a **managed file**: `~/.config/hexokit/tmux.conf`. rk writes it, stamps it, and refreshes it — you never edit it. Your customizations live next door in `~/.config/hexokit/tmux.d/`, which the managed file sources at the end (`source-file -q ~/.config/hexokit/tmux.d/*.conf`), so your settings always win.
 
 ## The managed header
 
 Every rk-written `tmux.conf` starts with a hash-stamped first line:
 
 ```
-# rk-managed sha256:<hex> — DO NOT EDIT; overrides go in ~/.config/run-kit/tmux.d/
+# rk-managed sha256:<hex> — DO NOT EDIT; overrides go in ~/.config/hexokit/tmux.d/
 ```
 
 The stamp is the SHA-256 of everything below the header. It lets rk tell, deterministically and offline, whether you edited the file:
@@ -21,7 +21,7 @@ The stamp is the SHA-256 of everything below the header. It lets rk tell, determ
 
 ## `tmux.d/user.conf` — your override home
 
-`~/.config/run-kit/tmux.d/user.conf` is the conventional place for your settings. Every scaffold path (`rk mux init-conf`, daemon start, the API) creates it as a commented starter when absent, and **never overwrites it** — including under `--force`.
+`~/.config/hexokit/tmux.d/user.conf` is the conventional place for your settings. Every scaffold path (`rk mux init-conf`, daemon start, the API) creates it as a commented starter when absent, and **never overwrites it** — including under `--force`.
 
 Sibling drop-ins in `tmux.d/` are sourced in lexicographic order, so use numeric prefixes (`10-*.conf`, `20-*.conf`) when ordering matters.
 
@@ -33,11 +33,11 @@ The managed file refreshes at **daemon start only** (no timer, no watcher): a st
 
 rk never clobbers and never auto-migrates a hand-edited managed file. To get back onto the managed track:
 
-1. Move your customizations into `~/.config/run-kit/tmux.d/user.conf`.
+1. Move your customizations into `~/.config/hexokit/tmux.d/user.conf`.
 2. Run `rk mux init-conf --force` to restore the managed file (your `tmux.d/` overrides are untouched).
 
 `rk doctor` reports the drift state in its `tmux config` row and prints this recipe.
 
 ## Opting out entirely
 
-Set the `tmux_conf` key in `~/.config/run-kit/config.yaml` (or the `RK_TMUX_CONF` env var) to point rk at your own tmux.conf. In that mode rk performs no ensure, refresh, or drift analysis on the file — you own everything.
+Set the `tmux_conf` key in `~/.config/hexokit/config.yaml` (or the `RK_TMUX_CONF` env var) to point rk at your own tmux.conf. In that mode rk performs no ensure, refresh, or drift analysis on the file — you own everything.

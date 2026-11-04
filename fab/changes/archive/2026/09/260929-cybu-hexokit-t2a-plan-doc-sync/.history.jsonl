@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-29T05:01:14Z"}
+{"args":"Plan doc: mark T2(a) done (shll#105, shll v0.1.36); T2(b) not started","cmd":"fab-new","event":"command","ts":"2026-09-29T05:01:14Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-29T05:01:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-29T05:01:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-29T05:01:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-29T05:04:10Z"}
+{"event":"review","result":"passed","ts":"2026-09-29T05:04:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-29T05:04:10Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-29T05:05:51Z"}
+{"event":"review","result":"passed","ts":"2026-09-29T05:09:41Z"}

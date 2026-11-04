@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useOccludes } from "@/hooks/use-occludes";
 import {
   MARKER_INK,
   MARKER_MODES,
@@ -208,6 +209,11 @@ export function MarkerPad({
   labelPx = MARKER_PAD_LABEL_PREFERRED_WIDTH_PX,
   highlight,
 }: MarkerPadProps) {
+  // Mounts only while open, so the registration is unconditional — popovers
+  // hold `transient` (overlay-presence) so a native guest composited above
+  // the DOM hides and the pad never paints underneath it.
+  useOccludes("transient", true);
+
   const [cell, setCell] = useState<Marker | null>(
     highlight === undefined ? value : highlight,
   );

@@ -20,7 +20,7 @@
  * object per key while that key's draft is unchanged.
  *
  * Persistence: draft TEXT survives page refreshes via one localStorage key
- * (`runkit-compose-drafts`, a JSON map `{[entryKey]: {text, updatedAt}}`),
+ * (`hexokit-compose-drafts`, a JSON map `{[entryKey]: {text, updatedAt}}`),
  * written through synchronously on every commit and hydrated tolerantly at
  * module load (malformed content degrades to empty — the `parseOverrides`
  * posture from `keybindings.ts`). Writes prune: empty-text entries are never
@@ -31,7 +31,8 @@
  * is last-write-wins (no `storage`-event sync).
  *
  * A second subscriber class shares the store: the desktop quake terminal's
- * compose (the drawer's docked strip and the top-bar launcher box) keys its
+ * compose (the drawer's docked strip; the top-bar launcher's draft dot reads
+ * the same key) keys its
  * draft by the operator window target — `entryKey(server, operatorWindowId)`,
  * the same key the operator page's own strip uses, so the two views read one
  * draft. Quake drafts count toward the same cap and age out the same way.
@@ -49,7 +50,7 @@
  * a pane app that swallows the bytes), so every transmitted text is recorded
  * here and the strip's ↑ walks back through it. Recovery over verification.
  *
- * It rides a SIBLING localStorage key (`runkit-compose-sent-history`) rather
+ * It rides a SIBLING localStorage key (`hexokit-compose-sent-history`) rather
  * than folding into the draft schema: the shipped draft parser and prune
  * pipeline stay byte-compatible, and neither surface's corruption can take the
  * other down. Same posture otherwise — write-through on every push, tolerant
@@ -72,7 +73,7 @@ export type ComposeDraft = {
 };
 
 /** localStorage key holding the persisted draft-text map. */
-export const COMPOSE_DRAFTS_STORAGE_KEY = "runkit-compose-drafts";
+export const COMPOSE_DRAFTS_STORAGE_KEY = "hexokit-compose-drafts";
 
 /** Persist at most this many drafts (newest by `updatedAt` win). */
 export const MAX_PERSISTED_DRAFTS = 30;
@@ -269,7 +270,7 @@ hydrateComposeDrafts();
 
 /** localStorage key holding the persisted sent-history map — a SIBLING of
  * `COMPOSE_DRAFTS_STORAGE_KEY`, never folded into it (see the module header). */
-export const COMPOSE_SENT_HISTORY_STORAGE_KEY = "runkit-compose-sent-history";
+export const COMPOSE_SENT_HISTORY_STORAGE_KEY = "hexokit-compose-sent-history";
 
 /** Max recallable sent entries kept per target (newest first). */
 export const MAX_SENT_HISTORY_PER_TARGET = 10;

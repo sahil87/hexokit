@@ -125,7 +125,7 @@ export async function sendTestNotification(): Promise<boolean> {
   const reg = await readyRegistration();
   if (!reg) return false;
   try {
-    await reg.showNotification("RunKit", {
+    await reg.showNotification("HexoKit", {
       body: "Test notification — if you can see this, delivery works.",
       icon: "/generated-icons/icon-192.png",
     });

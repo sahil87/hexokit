@@ -10,8 +10,10 @@ func TestStableForMapsCellarPathToBrewPrefixSymlink(t *testing.T) {
 	cases := []struct {
 		name, in, want string
 	}{
-		{"linuxbrew cellar", "/home/linuxbrew/.linuxbrew/Cellar/run-kit/3.19.42/bin/run-kit", "/home/linuxbrew/.linuxbrew/bin/run-kit"},
-		{"macos cellar", "/opt/homebrew/Cellar/run-kit/0.5.3/bin/run-kit", "/opt/homebrew/bin/run-kit"},
+		{"linuxbrew hexokit cellar", "/home/linuxbrew/.linuxbrew/Cellar/hexokit/3.20.22/bin/hexokit", "/home/linuxbrew/.linuxbrew/bin/hexokit"},
+		{"macos hexokit cellar", "/opt/homebrew/Cellar/hexokit/3.20.22/bin/hexokit", "/opt/homebrew/bin/hexokit"},
+		{"linuxbrew legacy run-kit cellar", "/home/linuxbrew/.linuxbrew/Cellar/run-kit/3.19.42/bin/run-kit", "/home/linuxbrew/.linuxbrew/bin/run-kit"},
+		{"macos legacy run-kit cellar", "/opt/homebrew/Cellar/run-kit/0.5.3/bin/run-kit", "/opt/homebrew/bin/run-kit"},
 		{"usr local rk", "/usr/local/bin/rk", "/usr/local/bin/rk"},
 		{"go bin rk", "/home/u/go/bin/rk", "/home/u/go/bin/rk"},
 		{"empty", "", ""},
@@ -20,6 +22,29 @@ func TestStableForMapsCellarPathToBrewPrefixSymlink(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := StableFor(tc.in); got != tc.want {
 				t.Errorf("StableFor(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsBrewInstalled(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"hexokit keg", "/opt/homebrew/Cellar/hexokit/3.20.22/bin/hexokit", true},
+		{"linuxbrew hexokit keg", "/home/linuxbrew/.linuxbrew/Cellar/hexokit/3.20.22/bin/hexokit", true},
+		{"legacy run-kit keg", "/opt/homebrew/Cellar/run-kit/3.20.21/bin/run-kit", true},
+		{"retired rk keg", "/opt/homebrew/Cellar/rk/1.0.0/bin/rk", false},
+		{"dev build", "/home/u/code/run-kit/app/backend/bin/rk", false},
+		{"brew prefix symlink", "/opt/homebrew/bin/hexokit", false},
+		{"empty", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsBrewInstalled(tc.in); got != tc.want {
+				t.Errorf("IsBrewInstalled(%q) = %v, want %v", tc.in, got, tc.want)
 			}
 		})
 	}

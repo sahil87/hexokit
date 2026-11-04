@@ -1,0 +1,59 @@
+id: 9xq3
+name: 260925-9xq3-tty-isolated-session
+created: 2026-09-25T07:23:07Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 9
+    acceptance_count: 23
+    acceptance_completed: 23
+confidence:
+    certain: 7
+    confident: 6
+    tentative: 1
+    unresolved: 0
+    score: 3.6
+    fuzzy: true
+    dimensions:
+        signal: 73.6
+        reversibility: 80.7
+        competence: 78.9
+        disambiguation: 74.6
+stage_metrics:
+    intake: {started_at: "2026-09-25T07:23:07Z", driver: fab-new, iterations: 1, completed_at: "2026-09-25T07:26:22Z"}
+    apply: {started_at: "2026-09-25T07:26:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T07:48:15Z"}
+    review: {started_at: "2026-09-25T07:48:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T07:54:09Z"}
+    hydrate: {started_at: "2026-09-25T07:54:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T08:00:09Z"}
+    ship: {started_at: "2026-09-25T08:00:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-25T08:02:17Z"}
+    review-pr: {started_at: "2026-09-25T08:02:17Z", driver: git-pr, iterations: 1, completed_at: "2026-09-25T08:16:20Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/1038
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 1775
+    deleted: 134
+    net: 1641
+    excluding:
+        added: 1192
+        deleted: 88
+        net: 1104
+    tests:
+        added: 819
+        deleted: 5
+        net: 814
+    computed_at: "2026-09-25T08:02:18Z"
+    computed_at_stage: ship
+summary: 'Relay open op gains opt-in isolate: on-demand _rk-iso-* single-window sessions (pin → iso → home pick, attach-chained destroy-unattached lifecycle), shared IsHiddenLinkSession filtering across session lists/snapshots/home resolution, iso role in rk mux sessions'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-25T08:16:20Z

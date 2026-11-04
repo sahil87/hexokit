@@ -20,7 +20,7 @@ import { isShell } from "@/lib/shell";
 /**
  * Reactive keybinding store (260730-g40a). Thin React integration over the
  * pure `lib/keybindings.ts` registry: reads the per-device override diffs
- * from `localStorage["runkit-keybindings"]`, resolves the effective map for
+ * from `localStorage["hexokit-keybindings"]`, resolves the effective map for
  * this host, and keeps every subscriber in sync.
  *
  * Same-tab reactivity uses an in-module pub/sub (the

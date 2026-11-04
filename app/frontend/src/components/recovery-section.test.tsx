@@ -118,7 +118,7 @@ describe("RecoverySection", () => {
     const row = screen.getByTestId("recovery-row-kit");
     expect(row).toHaveTextContent("kit");
     expect(within(row).getByRole("img", { name: "not running" })).toBeInTheDocument();
-    expect(row).toHaveTextContent("1 session · 2 tabs · last seen 1h ago · system restart");
+    expect(row).toHaveTextContent("1 group · 2 tabs · last seen 1h ago · system restart");
     expect(within(row).getByRole("button", { name: "Restore kit" })).toBeInTheDocument();
     expect(within(row).getByRole("button", { name: "Dismiss recovery for kit" })).toBeInTheDocument();
     expect(within(row).getByRole("button", { name: "Show layout for kit" })).toHaveAttribute(

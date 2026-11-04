@@ -17,7 +17,7 @@ import (
 
 // codeServerUserHomeFn resolves the user's home for the managed-install
 // paths. A package seam (mirroring resolveExeFn) so tests point the managed
-// dir at a temp dir and never touch the real ~/.rk.
+// dir at a temp dir and never touch the real state home.
 var codeServerUserHomeFn = os.UserHomeDir
 
 // newCodeServerInstallerFn constructs the installer for the code-server
@@ -31,6 +31,7 @@ var newCodeServerInstallerFn = func() *codeserver.Installer { return codeserver.
 // tests drive the update respawn without a live tmux server.
 var codeServerStartFn = daemon.StartCodeServer
 var codeServerKillFn = daemon.KillCodeServerSession
+var codeServerRestartFn = daemon.RestartCodeServer
 
 // codeServerDaemonRunningFn / codeServerSessionCommandFn are the package seams
 // over the daemon-liveness probe and the session start-command reader, so
@@ -58,14 +59,16 @@ var codeServerCmd = &cobra.Command{
 
 run-kit installs code-server itself: the official standalone release tarball
 (SHA256-verified against the GitHub release digest) lands under
-~/.rk/code-server-bin/<version>/, activated by an atomic 'current' symlink
-flip. The daemon installs it automatically on first start (a code-server-install
-window in the rk-jobs session) when neither the managed install nor a
-code-server on PATH resolves; these subcommands are the manual surface for the
-same paths — and the only ones a remote host without Homebrew needs.
+~/.local/state/hexokit/code-server/bin/<version>/, activated by an atomic
+'current' symlink flip. The daemon installs it automatically on first start (a
+code-server-install window in the rk-jobs session) when neither the managed
+install nor a code-server on PATH resolves; these subcommands are the manual
+surface for the same paths — and the only ones a remote host without Homebrew
+needs.
 
 A code-server you installed yourself on PATH is always respected and never
-touched: 'update' acts only when ~/.rk/code-server-bin exists.
+touched: 'update' acts only when ~/.local/state/hexokit/code-server/bin
+exists.
 
 Subcommands:
   install  Download the latest release and activate it (idempotent)
@@ -81,7 +84,8 @@ var codeServerInstallCmd = &cobra.Command{
 	Long: `Download the latest standalone code-server release tarball for this host
 (linux/macos, amd64/arm64) from the official GitHub releases, verify its
 SHA256 against the release digest, and activate it under
-~/.rk/code-server-bin/<version>/ via an atomic 'current' symlink flip.
+~/.local/state/hexokit/code-server/bin/<version>/ via an atomic 'current'
+symlink flip.
 
 Idempotent: when the managed install already matches the latest release,
 nothing is downloaded and the command prints the already-current outcome. A
@@ -122,6 +126,22 @@ managed instance) is a skip, not an error. A missing binary IS an error here
 	RunE:         runCodeServerStart,
 }
 
+var codeServerRestartCmd = &cobra.Command{
+	Use:   "restart",
+	Short: "Kill and respawn the daemon-managed code-server session",
+	Long: `Kill the rk-code-server session (if any) and re-run the start path from
+scratch: the binary (managed install, then PATH) and RK_BIN are re-resolved,
+so a hung instance or one spawned from a since-removed binary path (e.g. after
+'brew upgrade') recovers. Waits up to 15s for the port to serve and errors if
+it never does. A missing binary spawns the install-then-start job in rk-jobs.
+The same action as the /code lens's "Restart code-server" button.
+
+Gated on the daemon running — start it with 'rk serve -d' first.`,
+	Args:         cobra.NoArgs,
+	SilenceUsage: true,
+	RunE:         runCodeServerRestart,
+}
+
 var codeServerUpdateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update the managed code-server to the latest release",
@@ -131,9 +151,10 @@ binary (code-server's hot exit preserves unsaved buffers; the /code lens
 reconnects briefly). The respawn requires the daemon to be running — with it
 down, nothing is killed and the command prints the manual recovery instead.
 
-Ownership posture: with no ~/.rk/code-server-bin, the command is a skip (exit
-0 with a data line) — a code-server you installed yourself on PATH is never
-touched. When the managed install is already current, nothing is downloaded
+Ownership posture: with no ~/.local/state/hexokit/code-server/bin, the command
+is a skip (exit 0 with a data line) — a code-server you installed yourself on
+PATH is never touched. When the managed install is already current, nothing is
+downloaded
 and the session is NOT restarted.
 
 'rk update' runs this leg automatically (best-effort) after upgrading the CLI.`,
@@ -145,6 +166,7 @@ and the session is NOT restarted.
 func init() {
 	codeServerCmd.AddCommand(codeServerInstallCmd)
 	codeServerCmd.AddCommand(codeServerStartCmd)
+	codeServerCmd.AddCommand(codeServerRestartCmd)
 	codeServerCmd.AddCommand(codeServerUpdateCmd)
 
 	// Arg-count violations on the children are usage-class (exit 2). root.go's
@@ -358,6 +380,23 @@ func runCodeServerStart(cmd *cobra.Command, _ []string) error {
 		sink.Dataf("code-server port already serving; respecting the externally managed instance.\n")
 	case daemon.EnsureStarted:
 		sink.Dataf("Started code-server (%s session).\n", daemon.CodeServerSessionName)
+	}
+	return nil
+}
+
+func runCodeServerRestart(cmd *cobra.Command, _ []string) error {
+	sink := newSink(cmd)
+	outcome, err := codeServerRestartFn()
+	if err != nil {
+		return err
+	}
+	switch outcome {
+	case daemon.EnsureExternallyManaged:
+		sink.Dataf("code-server port already serving; respecting the externally managed instance.\n")
+	case daemon.EnsureInstallJobSpawned:
+		sink.Dataf("code-server binary not found; spawned the %s job in rk-jobs.\n", daemon.CodeServerInstallJobWindow)
+	default:
+		sink.Dataf("Restarted code-server (%s session).\n", daemon.CodeServerSessionName)
 	}
 	return nil
 }

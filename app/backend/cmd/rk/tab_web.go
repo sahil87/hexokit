@@ -255,9 +255,11 @@ var (
 
 // webAddShow is the one code path behind `rk tab web add` and `rk present`:
 // add the target to windowID's web-tab family via WebAdd and, under show,
-// ensure web is in the window's layout (growing through the ordinary table;
-// a full 3-tile layout without web replaces its LAST slot — slot A is never
-// touched — so a show never fails on a full layout) and select the added tab.
+// ensure web is in the window's layout as a BARE leaf — a foreign @N/web tile
+// does not count (it tiles another window's surface) — growing through the
+// ordinary table (a full 3-tile layout without web replaces its LAST slot —
+// slot A is never touched — so a show never fails on a full layout), and
+// select the added tab.
 // Returns the slot index and the resolved URL of that slot.
 func webAddShow(ctx context.Context, windowID, server string, target present.Target, show bool) (index int, url string, err error) {
 	fam, err := presentReadFamilyFn(ctx, windowID, server)
@@ -288,14 +290,9 @@ func webAddShow(ctx context.Context, windowID, server string, target present.Tar
 	if lerr != nil {
 		layout = layoutspec.Default()
 	}
-	if !layout.Has("web") {
+	if !layout.HasBare("web") {
 		next, nerr := layoutspec.Add(layout, "web")
-		if errors.Is(nerr, layoutspec.ErrLayoutFull) {
-			// --show on a full layout yields the last slot (the least
-			// valuable tile; slot A stays dominant) rather than failing.
-			next = layoutspec.Layout{Shape: layout.Shape, Order: append([]string(nil), layout.Order...)}
-			next.Order[len(next.Order)-1] = "web"
-		} else if nerr != nil {
+		if nerr != nil {
 			return 0, "", fmt.Errorf("show web on window %s: %w", windowID, nerr)
 		}
 		v := next.String()

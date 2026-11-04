@@ -22,7 +22,8 @@ import { TMUX_SERVER } from "./_tmux";
  * `rk-test-e2e-<token>-0` primary) as the live server; no extra sessions are
  * created — the endpoint operates on the server socket itself.
  * `apiBase(baseURL)` (`_boards.ts`) resolves the backend origin from the
- * harness-seeded `E2E_PORT`, falling back to the fail-closed `:3333`.
+ * harness-seeded `E2E_PORT`, falling back to the policy's fail-closed
+ * sentinel (`_harness.ts`).
  * Persisted rank is harmless leftover state; no teardown reset is needed (the
  * option has no HTTP "unset" and ranks don't affect the alphabetical
  * `/api/servers` array).

@@ -25,7 +25,7 @@ import { addShellHostDirect } from "@/lib/shell";
  * spawn-agent in-flight convention) while the invoke is in flight.
  */
 
-export const INVALID_HOST_URL_MESSAGE = "Enter a full http(s) URL, e.g. http://host:3000";
+export const INVALID_HOST_URL_MESSAGE = "Enter a full http(s) URL, e.g. http://host:6123";
 
 type EditModeProps = {
   mode: "edit";

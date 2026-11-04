@@ -25,11 +25,11 @@ describe("SectionRail", () => {
     render(<SectionRail />);
     expect(railButtons().map((b) => b.getAttribute("aria-label"))).toEqual([
       "Toggle Boards section",
-      "Toggle Servers section",
+      "Toggle Workspaces section",
       "Toggle Pane section",
       "Toggle Host section",
     ]);
-    expect(screen.queryByRole("button", { name: /Sessions section/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Groups section/ })).not.toBeInTheDocument();
   });
 
   it("aria-pressed reflects the defaults (Boards/Server on, Pane/Host off)", () => {
@@ -48,15 +48,15 @@ describe("SectionRail", () => {
 
     fireEvent.click(pane);
     expect(pane.getAttribute("aria-pressed")).toBe("true");
-    expect(localStorage.getItem("runkit-sidebar-section-pane")).toBe("true");
+    expect(localStorage.getItem("hexokit-sidebar-section-pane")).toBe("true");
 
     fireEvent.click(pane);
     expect(pane.getAttribute("aria-pressed")).toBe("false");
-    expect(localStorage.getItem("runkit-sidebar-section-pane")).toBe("false");
+    expect(localStorage.getItem("hexokit-sidebar-section-pane")).toBe("false");
   });
 
   it("reads persisted values", () => {
-    localStorage.setItem("runkit-sidebar-section-boards", "false");
+    localStorage.setItem("hexokit-sidebar-section-boards", "false");
     render(<SectionRail />);
     expect(screen.getByRole("button", { name: "Toggle Boards section" }).getAttribute("aria-pressed")).toBe("false");
   });

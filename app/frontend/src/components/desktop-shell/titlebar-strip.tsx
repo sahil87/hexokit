@@ -38,6 +38,7 @@ import {
 } from "@/lib/shell-strip";
 import { matchesCombo, shouldSuppressChord } from "@/lib/keybindings";
 import { useKeybindings } from "@/hooks/use-keybindings";
+import { useOccludes } from "@/hooks/use-occludes";
 import type { ShellHostMenuRow } from "@/lib/shell-strip";
 
 /**
@@ -116,6 +117,11 @@ export function ShellTitlebarStrip() {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
+  // Menus register `transient` (overlay-presence): while the host menu is
+  // open, a native guest composited above the DOM hides so the menu never
+  // paints underneath it.
+  useOccludes("transient", open);
+
   // Mark <html> so the shell's injected fallback strip disables itself.
   useLayoutEffect(() => {
     document.documentElement.classList.add(SHELL_STRIP_MARKER_CLASS);
@@ -157,7 +163,7 @@ export function ShellTitlebarStrip() {
     (id: string) => {
       setOpen(false);
       void switchShellServer(id).then((ok) => {
-        if (!ok) addToast("Shell server switch failed", "error");
+        if (!ok) addToast("Host switch failed", "error");
       });
     },
     [addToast],

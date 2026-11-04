@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-26T14:54:01Z"}
+{"args":"HexoKit rebrand Phase 3 C5: daemon default port 3000 -\u003e 6123, sweep stated defaults, release notes, doctor nudge, plan bookkeeping","cmd":"fab-new","event":"command","ts":"2026-09-26T14:54:01Z"}
+{"delta":"+0.0","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-09-26T14:55:18Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-26T14:55:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-26T14:55:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-26T15:13:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-26T15:17:59Z"}
+{"event":"review","result":"passed","ts":"2026-09-26T15:17:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-26T15:24:15Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-26T15:25:36Z"}
+{"event":"review","result":"passed","ts":"2026-09-26T15:33:55Z"}

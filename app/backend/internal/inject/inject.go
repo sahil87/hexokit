@@ -283,12 +283,14 @@ func (e *Engine) Send(ctx context.Context, t Tmux, server, paneID, text string, 
 		// verify", so fail closed BEFORE touching the buffer — never a blind Enter.
 		return ProbeFailure{}
 	}
-	// The TUI can collapse a paste into a "[Pasted text #N …]" chip instead of
-	// echoing the raw text — for MULTILINE text (a "+M lines" chip) OR for a long
-	// single line (a suffix-less chip, empirically >800 chars). A paste is
-	// "collapsible" when either is possible, and only then is the chip a valid
-	// echo signal (see CollapseMinRunes). Short single-line pastes keep
-	// exact-needle-only matching.
+	// The TUI can collapse a paste into a chip instead of echoing the raw text —
+	// for MULTILINE text or for a long single line (Claude's "[Pasted text #N …]"
+	// forms and the other observed renderer placeholders in pasteChipRes —
+	// Codex's "[Pasted Content N chars]", Kimi's "[paste #K N chars]",
+	// OpenCode's "[Pasted ~N lines]"). A paste is "collapsible" when either is
+	// possible, and only then is a chip a valid echo signal (see
+	// CollapseMinRunes). Short single-line pastes keep exact-needle-only
+	// matching.
 	collapsible := strings.Contains(text, "\n") || utf8.RuneCountInString(text) >= CollapseMinRunes
 	// A bare image path MAY render as an "[Image #N]" chip instead of echoing
 	// (see imageCollapseRe); the gate admits the chip as a second valid echo
@@ -625,11 +627,52 @@ var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1
 // CollapseMinRunes), and ONLY as a fresh occurrence vs the pre-paste baseline
 // (a stale chip from a prior send is in the baseline count).
 //
+// The Antigravity CLI renders the same chip WITH the character count appended
+// ("[Pasted text #N 1426 chars]", agy 1.4.7), which the trailing optional
+// digit-run-plus-"chars" alternative covers; its numbered repeats increment #N
+// exactly like Claude's.
+//
 // The pattern matches the WHITESPACE-STRIPPED capture (stripForProbe removes all
-// whitespace — spaces, tabs, newlines, etc.), i.e. "[Pastedtext#1+12lines]" or
-// "[Pastedtext#5]"; the "+M lines" part
+// whitespace — spaces, tabs, newlines, etc.), i.e. "[Pastedtext#1+12lines]",
+// "[Pastedtext#5]", or "[Pastedtext#11426chars]"; the "+M lines" part
 // is optional and tolerant of singular/plural "line"/"lines" and any digit counts.
-var pasteCollapseRe = regexp.MustCompile(`\[Pastedtext#\d+(?:\+\d+lines?)?\]`)
+var pasteCollapseRe = regexp.MustCompile(`\[Pastedtext#\d+(?:\+\d+lines?|\d+chars?)?\]`)
+
+// codexPasteCollapseRe matches Codex's paste-collapse placeholder
+// ("[Pasted Content 1433 chars]", codex 0.164.0) — Codex replaces a long
+// paste (single-line OR multiline, one char-count chip either way) with this
+// chip instead of echoing the raw text. Repeating an IDENTICAL payload appends
+// a repeat counter to the later chips ("[Pasted Content 1433 chars] #2"),
+// which the optional "#K" suffix covers; each chip is still one occurrence, so
+// identical-count repeats are counted independently.
+var codexPasteCollapseRe = regexp.MustCompile(`\[PastedContent\d+chars?\](?:#\d+)?`)
+
+// kimiPasteCollapseRe matches Kimi Code's paste-collapse placeholder
+// ("[paste #1 1426 chars]", kimi 2.3.2) — chip ordinal and character count run
+// together once the capture is whitespace-stripped ("[paste#11426chars]"), so
+// one digit run covers both.
+var kimiPasteCollapseRe = regexp.MustCompile(`\[paste#\d+chars?\]`)
+
+// opencodePasteCollapseRe matches OpenCode's paste-collapse placeholder
+// ("[Pasted ~1 lines]", opencode 1.18.25) — an approximate LINE count with a
+// tilde, rendered even for a collapsed long single-line paste ("~1 lines").
+var opencodePasteCollapseRe = regexp.MustCompile(`\[Pasted~\d+lines?\]`)
+
+// Gemini CLI 0.65.0 uses "[Pasted Text: 1433 chars]" or
+// "[Pasted Text: 20 lines]", with repeats numbered inside the closing bracket.
+var geminiPasteCollapseRe = regexp.MustCompile(`\[PastedText:\d+(?:chars?|lines?)(?:#\d+)?\]`)
+
+// pasteChipRes is the full set of recognized collapsed-paste placeholders, one
+// entry per empirically observed renderer form. Every form counts only under
+// the collapsible gate and the strict-increase baseline discipline — see
+// CountOccurrences.
+var pasteChipRes = []*regexp.Regexp{
+	pasteCollapseRe,
+	codexPasteCollapseRe,
+	kimiPasteCollapseRe,
+	opencodePasteCollapseRe,
+	geminiPasteCollapseRe,
+}
 
 // imageCollapseRe matches Claude Code's image-attachment placeholder — the TUI
 // replaces a bracketed paste that is exactly one existing image-file path with
@@ -750,7 +793,9 @@ func CountOccurrences(capture, needle string, collapsible, imageish bool) int {
 	stripped := stripForProbe(capture)
 	n := strings.Count(stripped, needle)
 	if collapsible {
-		n += len(pasteCollapseRe.FindAllString(stripped, -1))
+		for _, re := range pasteChipRes {
+			n += len(re.FindAllString(stripped, -1))
+		}
 	}
 	if imageish {
 		n += len(imageCollapseRe.FindAllString(stripped, -1))

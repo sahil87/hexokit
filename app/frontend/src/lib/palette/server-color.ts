@@ -23,7 +23,7 @@ export function buildServerSetColorAction(
   return [
     {
       id: "server-set-color",
-      label: "Server: Set Color",
+      label: "Workspace: Set Color",
       onSelect: onOpen,
     },
   ];

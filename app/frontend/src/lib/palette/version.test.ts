@@ -24,13 +24,13 @@ describe("buildVersionAction", () => {
     const action = buildVersionAction("0.6.2", vi.fn());
     expect(action).toHaveLength(1);
     expect(action[0].id).toBe("run-kit-version");
-    expect(action[0].label).toBe("run-kit: Version — v0.6.2");
+    expect(action[0].label).toBe("HexoKit: Version — v0.6.2");
   });
 
   it("shows the dev sentinel bare in the label (display-only, not dev-gated)", () => {
     const action = buildVersionAction("dev", vi.fn());
     expect(action).toHaveLength(1);
-    expect(action[0].label).toBe("run-kit: Version — dev");
+    expect(action[0].label).toBe("HexoKit: Version — dev");
   });
 
   it("wires the action to the supplied onSelect", () => {

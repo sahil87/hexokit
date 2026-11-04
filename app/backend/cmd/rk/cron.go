@@ -44,7 +44,7 @@ var cronCmd = &cobra.Command{
 		"immutable); `rm`, `mute`, and " +
 		"`pin` mutate one entry by id; `tick` runs one evaluation sweep across " +
 		"every live server — flock-guarded, idempotent, safe to invoke " +
-		"repeatedly. Entry files live under $XDG_STATE_HOME/run-kit/cron/, keyed " +
+		"repeatedly. Entry files live under $XDG_STATE_HOME/hexokit/cron/, keyed " +
 		"by tmux server name: -L wins, else your own server (from $TMUX), else " +
 		"the default server. Agent briefing: `run-kit skill cron`.",
 }

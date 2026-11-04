@@ -83,7 +83,7 @@ ported from the old implementation where the logic is unchanged.
   - SSE: test hub fan-out, deduplication, client lifecycle
   - WebSocket relay: test connection upgrade, message routing, cleanup
 
-**Verification gate:** `just test-backend` passes. `go vet ./...` clean. Manual smoke test: `just dev` starts the backend, `curl localhost:3000/api/health` returns `{"status":"ok"}`, `curl localhost:3000/api/sessions` returns sessions from tmux.
+**Verification gate:** `just test-backend` passes. `go vet ./...` clean. Manual smoke test: `just dev` starts the backend on the worktree's derived rig port (Go backend on `RK_PORT+1`, where `RK_PORT` defaults to the `scripts/e2e-env.sh` derived port) — `curl localhost:<backend-port>/api/health` returns `{"status":"ok"}`, `curl localhost:<backend-port>/api/sessions` returns sessions from tmux.
 
 ---
 

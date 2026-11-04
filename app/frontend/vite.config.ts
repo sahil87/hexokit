@@ -2,6 +2,12 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { resolve } from "node:path";
 
+// Go backend target for the dev proxy: the daemon default + 1 (the single
+// source of truth is app/backend/internal/portpolicy/ports.env).
+const backendPort = parseInt(process.env.RK_PORT ?? "6123") + 1;
+const backendTarget = `http://127.0.0.1:${backendPort}`;
+const backendWsTarget = `ws://127.0.0.1:${backendPort}`;
+
 export default defineConfig({
   plugins: [
     react(),
@@ -39,15 +45,22 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       "/api": {
-        target: `http://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
+        target: backendTarget,
         changeOrigin: true,
       },
       // Muxed sockets (/ws/state, /ws/terminals). WebSocket, so `ws: true`
       // — without this the dev proxy would not forward the upgrade and the
       // SPA's sockets would fail to connect against `just dev` / `just test-e2e`.
       "/ws": {
-        target: `ws://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
+        target: backendWsTarget,
         ws: true,
+      },
+      // The MCP streamable-HTTP route, so the endpoint Settings → General shows
+      // (the page origin + /mcp) resolves under the dev rig too. Anchored: a
+      // bare "/mcp" prefix key would also swallow SPA routes for a tmux server
+      // named e.g. "mcp-test".
+      "^/mcp(?:$|[/?])": {
+        target: backendTarget,
       },
       // NO changeOrigin here (deliberate asymmetry with /api): rk's proxy
       // derives X-Forwarded-Host from the INBOUND Host, and proxied apps
@@ -57,7 +70,7 @@ export default defineConfig({
       // (same-origin GETs carry no Origin header). Preserving the original
       // Host keeps the forwarded-host chain truthful end to end.
       "/proxy": {
-        target: `http://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
+        target: backendTarget,
         ws: true,
       },
       // The stable code-server route (260811-a2bo) — forwarded to the Go
@@ -65,7 +78,7 @@ export default defineConfig({
       // /proxy: `ws: true`, NO changeOrigin (the Origin-vs-X-Forwarded-Host
       // WS-403 lesson).
       "/code": {
-        target: `http://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
+        target: backendTarget,
         ws: true,
       },
       // The `rk present` content route (/present/{server}/{roothash}/*, plus
@@ -77,7 +90,7 @@ export default defineConfig({
       // dev server's module graph, never built assets (which may exist after
       // `just build` but are only servable by the Go origin).
       "/present": {
-        target: `http://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
+        target: backendTarget,
         headers: { "X-Rk-Dev-Proxy": "1" },
       },
       // PWA identity assets — served dynamically by the Go backend so the
@@ -85,11 +98,11 @@ export default defineConfig({
       // runs before Vite's public-dir middleware, so these shadow the static
       // copies in public/.
       "/manifest.json": {
-        target: `http://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
+        target: backendTarget,
         changeOrigin: true,
       },
       "/generated-icons": {
-        target: `http://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
+        target: backendTarget,
         changeOrigin: true,
       },
     },

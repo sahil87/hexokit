@@ -1,18 +1,19 @@
 package mcp
 
 import (
+	"rk/internal/layoutspec"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 )
 
-// TestTableShape pins the seeded allowlist: exactly the twenty-nine tools (the
-// ten W1 seeds, board, operator_request, the answer/await messaging pair,
+// TestTableShape pins the seeded allowlist: exactly the thirty-one tools (the
+// ten W1 seeds, inventory, board, operator_request, the answer/await messaging pair,
 // snapshot_list, gui_shot, and the thirteen W2c rows), every timeout within the
 // cap, and no row exposing a forbidden flag form.
 func TestTableShape(t *testing.T) {
-	want := []string{"sessions", "panes", "capture", "process", "status", "cron_list", "gui_status", "tab_show", "tab_web_ls", "send", "board", "operator_request", "answer", "await", "snapshot_list", "gui_shot", "notify", "riff", "new_window", "operator", "cron_add", "tab_layout", "tab_web", "tab_code", "code_exec", "gui_exec", "kill", "cron_rm", "cron_mute"}
+	want := []string{"sessions", "panes", "inventory", "capture", "process", "status", "cron_list", "gui_status", "tab_show", "tab_web_ls", "send", "board", "operator_request", "answer", "await", "snapshot_list", "gui_shot", "notify", "riff", "new_server", "new_window", "operator", "cron_add", "tab_layout", "tab_web", "tab_code", "code_exec", "gui_exec", "kill", "cron_rm", "cron_mute"}
 	if len(Table) != len(want) {
 		t.Fatalf("Table has %d rows, want %d", len(Table), len(want))
 	}
@@ -342,8 +343,8 @@ func TestReadOnlyAnnotations(t *testing.T) {
 			t.Errorf("row %q result = %v, want %v", row.Tool, row.Result, wantResult)
 		}
 	}
-	if seen != 12 {
-		t.Errorf("%d read-only rows, want the nine See rows plus await, snapshot_list and gui_shot", seen)
+	if seen != 13 {
+		t.Errorf("%d read-only rows, want the nine See rows plus inventory, await, snapshot_list and gui_shot", seen)
 	}
 }
 
@@ -362,9 +363,36 @@ func TestMutationAnnotations(t *testing.T) {
 			t.Errorf("row %q annotations = %+v, want %+v", tool, row.Annotations, ann)
 		}
 	}
-	for _, tool := range []string{"notify", "riff", "new_window", "cron_add", "tab_layout", "tab_web", "tab_code", "code_exec", "gui_exec"} {
+	for _, tool := range []string{"notify", "riff", "new_server", "new_window", "cron_add", "tab_layout", "tab_web", "tab_code", "code_exec", "gui_exec"} {
 		if row := findRow(t, tool); row.Annotations != (Annotations{}) {
 			t.Errorf("row %q annotations = %+v, want all false", tool, row.Annotations)
 		}
+	}
+}
+
+// The tab tool's surface enums are DERIVED from the layout registry, not
+// restated. They were a hand-kept copy, and by the time this was noticed they
+// lagged the registry — so an agent driving run-kit over MCP could not reach
+// surfaces that `rk tab layout --add` from a terminal could. This pins the
+// derivation so the copy cannot come back.
+func TestTabSurfaceEnumsTrackTheRegistry(t *testing.T) {
+	want := layoutspec.SurfaceKinds()
+	if len(want) < 4 {
+		t.Fatalf("registry looks wrong: %v", want)
+	}
+	seen := 0
+	for _, row := range Table {
+		for _, arg := range row.Args {
+			switch arg.Name {
+			case "add", "rm", "promote":
+				seen++
+				if !slices.Equal(arg.Enum, want) {
+					t.Errorf("%s.%s enum = %v, want the registry %v", row.Tool, arg.Name, arg.Enum, want)
+				}
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatal("found no add/rm/promote surface args to check — has the tool been renamed?")
 	}
 }

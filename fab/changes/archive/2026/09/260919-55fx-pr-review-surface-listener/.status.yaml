@@ -1,0 +1,59 @@
+id: 55fx
+name: 260919-55fx-pr-review-surface-listener
+created: 2026-09-19T11:33:03Z
+created_by: asim-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 47
+    acceptance_count: 38
+    acceptance_completed: 38
+confidence:
+    certain: 11
+    confident: 19
+    tentative: 0
+    unresolved: 0
+    score: 3.3
+    fuzzy: true
+    dimensions:
+        signal: 69.5
+        reversibility: 75.0
+        competence: 85.3
+        disambiguation: 77.8
+stage_metrics:
+    intake: {started_at: "2026-09-19T11:33:03Z", driver: fab-new, iterations: 1, completed_at: "2026-09-21T08:18:14Z"}
+    apply: {started_at: "2026-09-21T11:31:39Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-22T05:43:46Z"}
+    review: {started_at: "2026-09-22T05:43:46Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-22T05:57:18Z"}
+    hydrate: {started_at: "2026-09-22T05:57:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-22T06:12:28Z"}
+    ship: {started_at: "2026-09-22T06:12:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-22T06:14:48Z"}
+    review-pr: {started_at: "2026-09-22T06:14:48Z", driver: git-pr, iterations: 1, completed_at: "2026-09-22T06:28:07Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/1027
+base_branch: main
+change_type_source: explicit
+true_impact:
+    added: 11810
+    deleted: 139
+    net: 11671
+    excluding:
+        added: 8604
+        deleted: 95
+        net: 8509
+    tests:
+        added: 2818
+        deleted: 32
+        net: 2786
+    computed_at: "2026-09-22T06:14:48Z"
+    computed_at_stage: ship
+summary: "Added the review surface and PR-comment listener: the PR-backed diff tile with server-side Chroma tokens, the prstatus thread digest + internal/prreview detail split, six /api/pr/review* routes, the actor-blind \U0001F440 dedupe contract, and the @rk_win_pr_listen tracker"
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-22T06:28:07Z

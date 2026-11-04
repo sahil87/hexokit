@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"rk/internal/apphome"
 	"rk/internal/codeserver"
 	"rk/internal/config"
 	"rk/internal/selfpath"
@@ -55,10 +56,11 @@ var codeServerSpawn = func(ctx context.Context, args ...string) error {
 // host's PATH contents.
 var codeServerLookPath = exec.LookPath
 
-// codeServerUserHomeDir resolves the user's home directory for the rk-owned
-// profile and managed-install paths. A package seam (os.UserHomeDir reads
-// platform-specific env) so tests point the profile at a temp dir and never
-// touch the real ~/.rk.
+// codeServerUserHomeDir resolves the user's home directory for the managed-
+// install and extensions-dir paths. A package seam (os.UserHomeDir reads
+// platform-specific env) so tests point those paths at a temp dir and never
+// touch the real state home. The profile dir resolves through apphome instead
+// — tests redirect HOME/XDG_STATE_HOME for it.
 var codeServerUserHomeDir = os.UserHomeDir
 
 // codeServerRunJob is the package seam over RunJob for the install-job spawn
@@ -91,55 +93,29 @@ var codeServerSelfPath = selfpath.LauncherOrStable
 var codeServerInstallSelfPath = selfpath.Stable
 
 // codeServerSeedSettings is the write-once baseline for the rk-owned profile:
-// the first two settings are settings-only (no CLI flags exist — verified
-// code-server 4.112.0 / Code 1.112.0). chat.disableAIFeatures hides the
-// "Build with Agent" chat panel; workbench.startupEditor "none" suppresses
-// the welcome tab in the embedded /code lens; rk.bridge.enabled keeps the
-// rk-code-bridge extension's command socket on in the managed profile (the
-// extension's own default is already true — the seed makes the profile
-// explicit). Seeded ONLY when settings.json is absent — user edits win
-// forever after.
+// the first three settings are settings-only (no CLI flags exist — verified
+// code-server 4.112.0 / Code 1.112.0; the compact key against 4.137.0 / Code
+// 1.137.0). chat.disableAIFeatures hides the "Build with Agent" chat panel;
+// workbench.startupEditor "none" suppresses the welcome tab in the embedded
+// /code lens; workbench.activityBar.compact true is the "Activity Bar Size →
+// Compact" menu choice (narrow icon rail — the lens tile is already narrow);
+// rk.bridge.enabled keeps the rk-code-bridge extension's command socket on in
+// the managed profile (the extension's own default is already true — the
+// seed makes the profile explicit). Seeded ONLY when settings.json is absent
+// — user edits win forever after.
 const codeServerSeedSettings = `{
     "chat.disableAIFeatures": true,
     "workbench.startupEditor": "none",
+    "workbench.activityBar.compact": true,
     "rk.bridge.enabled": true
 }
 `
 
-// codeServerProfileDir is the rk-owned --user-data-dir: ~/.rk/
-// code-server-profile (the ~/.rk/tmux.conf config-namespace precedent — the
-// seeded settings.json is the user-editable artifact here). The pre-260813
-// path was ~/.rk/code-server; migrateCodeServerProfile renames it one-shot.
-func codeServerProfileDir(home string) string {
-	return filepath.Join(home, ".rk", "code-server-profile")
-}
-
-// codeServerLegacyProfileDir is the pre-260813 profile path, kept solely as
-// the migration source.
-func codeServerLegacyProfileDir(home string) string {
-	return filepath.Join(home, ".rk", "code-server")
-}
-
-// migrateCodeServerProfile performs the one-shot rename of the legacy
-// ~/.rk/code-server profile dir to ~/.rk/code-server-profile, preserving
-// settings and hot-exit state across the path change. Old-exists ∧ new-absent
-// ⇒ os.Rename; both-exist leaves both untouched (new wins); old-absent is a
-// no-op. Runs before the seed so the write-once logic only ever sees the new
-// path.
-func migrateCodeServerProfile(home string) error {
-	newDir := codeServerProfileDir(home)
-	if _, err := os.Stat(newDir); err == nil {
-		return nil // new exists — leave both untouched
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	oldDir := codeServerLegacyProfileDir(home)
-	if _, err := os.Stat(oldDir); errors.Is(err, fs.ErrNotExist) {
-		return nil // fresh host — nothing to migrate
-	} else if err != nil {
-		return err
-	}
-	return os.Rename(oldDir, newDir)
+// codeServerProfileDir is the rk-owned --user-data-dir:
+// <state>/code-server/profile under the apphome state home (the seeded
+// settings.json is the user-editable artifact).
+func codeServerProfileDir() (string, error) {
+	return apphome.CodeServerProfileDir()
 }
 
 // seedCodeServerSettings writes the baseline User/settings.json into the
@@ -167,7 +143,7 @@ func seedCodeServerSettings(profileDir string) error {
 }
 
 // resolveCodeServerBinary is the two-rung resolution ladder: (1) the managed
-// install's absolute path (~/.rk/code-server-bin/current/bin/code-server,
+// install's absolute path (<state>/code-server/bin/current/bin/code-server,
 // verified executable — the tmux window's PATH is not rk's), then (2) a
 // user-managed code-server on PATH (same spirit as the externally-managed-port
 // carve-out). Returns "" when neither rung resolves.
@@ -201,8 +177,13 @@ const (
 	EnsureInstallJobSpawned
 )
 
+// errCodeServerMissing is the CLI-posture missing-binary error — a sentinel so
+// RestartCodeServer can branch into the install job instead of failing.
+var errCodeServerMissing = errors.New("code-server binary not found — install it with `rk code-server install`")
+
 // ensureCodeServerCore is the shared ensure path behind the daemon's
-// ensureCodeServer (cli=false) and the CLI's StartCodeServer (cli=true). The
+// ensureCodeServer (cli=false) and the CLI-posture StartCodeServer and
+// RestartCodeServer (cli=true; Restart branches on errCodeServerMissing). The
 // postures differ only on failure: the daemon warns and continues (an editor
 // must never block the dashboard) and, on a missing binary, spawns the
 // rk-jobs install job; the CLI returns operational errors instead. The skip
@@ -242,9 +223,9 @@ func ensureCodeServerCore(cli bool) (EnsureOutcome, error) {
 	}
 	if binary == "" {
 		if cli {
-			return EnsureAlreadyRunning, fmt.Errorf("code-server binary not found — install it with `rk code-server install`")
+			return EnsureAlreadyRunning, errCodeServerMissing
 		}
-		spawnCodeServerInstallJob(ctx)
+		_ = spawnCodeServerInstallJob(ctx) // warn-and-continue: logged inside
 		return EnsureInstallJobSpawned, nil
 	}
 
@@ -270,14 +251,16 @@ func ensureCodeServerCore(cli bool) (EnsureOutcome, error) {
 		"--disable-getting-started-override", "--app-name", "run-kit",
 	)
 	if homeErr == nil {
-		profileDir := codeServerProfileDir(home)
-		if err := migrateCodeServerProfile(home); err != nil {
-			slog.Warn("code-server profile migration failed; continuing with the current profile state", "err", err)
+		profileDir, err := codeServerProfileDir()
+		if err != nil {
+			slog.Warn("code-server profile dir unresolvable; spawning with only the extensions dir", "err", err)
+			args = append(args, "--extensions-dir", codeserver.ExtensionsDir(home))
+		} else {
+			if err := seedCodeServerSettings(profileDir); err != nil {
+				slog.Warn("code-server settings seed failed; continuing with an unseeded profile", "err", err)
+			}
+			args = append(args, "--user-data-dir", profileDir, "--extensions-dir", codeserver.ExtensionsDir(home))
 		}
-		if err := seedCodeServerSettings(profileDir); err != nil {
-			slog.Warn("code-server settings seed failed; continuing with an unseeded profile", "err", err)
-		}
-		args = append(args, "--user-data-dir", profileDir, "--extensions-dir", codeserver.ExtensionsDir(home))
 	}
 	if err := codeServerSpawn(ctx, args...); err != nil {
 		if cli {
@@ -297,12 +280,14 @@ func ensureCodeServerCore(cli bool) (EnsureOutcome, error) {
 // live window of the same name ⇒ no second spawn) is the duplicate-job guard;
 // a dead window from a failed prior run respawns naturally here on the next
 // daemon start. The chain's && IS the B→C sequencing (daemon start is
-// one-shot; no supervisor loop, Constitution VI).
-func spawnCodeServerInstallJob(ctx context.Context) {
+// one-shot; no supervisor loop, Constitution VI). Failures are logged AND
+// returned: the daemon ignores the error (warn-and-continue); RestartCodeServer
+// reports it so it never claims a job that does not exist.
+func spawnCodeServerInstallJob(ctx context.Context) error {
 	exe, err := codeServerInstallSelfPath()
 	if err != nil {
 		slog.Warn("code-server install job skipped: could not resolve the rk binary path — run `rk code-server install` manually", "err", err)
-		return
+		return fmt.Errorf("code-server binary not found and the rk path is unresolvable — run `rk code-server install`: %w", err)
 	}
 	// tmux joins the trailing argv words with spaces into its own sh -c, so the
 	// chain is one argv element and the exe path is single-quoted (the
@@ -313,11 +298,13 @@ func spawnCodeServerInstallJob(ctx context.Context) {
 	switch {
 	case err != nil:
 		slog.Warn("code-server binary not found and the install job failed to start — run `rk code-server install` manually", "err", err)
+		return fmt.Errorf("code-server binary not found and the install job failed to start — run `rk code-server install`: %w", err)
 	case !started:
 		slog.Info("code-server binary not found; the install job is already running", "window", target.Window)
 	default:
 		slog.Info("code-server binary not found; spawned the install job — the editor appears when the download finishes", "window", target.Window)
 	}
+	return nil
 }
 
 // ensureCodeServer starts the daemon-managed code-server beside the daemon on
@@ -355,8 +342,8 @@ func spawnCodeServerInstallJob(ctx context.Context) {
 // externally-managed skip below is unchanged.
 //
 // The spawn also carries the rk-owned profile (260812-71bv): --user-data-dir
-// ~/.rk/code-server-profile (the legacy ~/.rk/code-server is renamed one-shot
-// first), seeded write-once with settings that have no CLI flags
+// <state>/code-server/profile under the apphome state home, seeded write-once
+// with settings that have no CLI flags
 // (codeServerSeedSettings), plus --extensions-dir pinned back to code-server's
 // default location so the user's installed extensions stay visible. Both
 // degrade best-effort: a failed seed keeps the flags (code-server creates its
@@ -487,4 +474,49 @@ func KillCodeServerSession() (killed bool, err error) {
 	}
 	waitForCodeServerPortFree()
 	return true, nil
+}
+
+// codeServerPortUpTimeout bounds RestartCodeServer's wait for the respawned
+// instance to bind its port. A var so tests shrink it.
+var codeServerPortUpTimeout = 15 * time.Second
+
+// RestartCodeServer is the lens empty state's "Restart code-server" action
+// (POST /api/code-server/restart): kill the session (a hung or stale instance —
+// e.g. one spawned from a binary path a `brew upgrade` has since removed), then
+// re-run the full ensure ladder, so the binary and RK_BIN are re-resolved from
+// scratch. A missing binary spawns the install-then-start job (the daemon
+// posture) and reports EnsureInstallJobSpawned. On EnsureStarted it blocks —
+// bounded by codeServerPortUpTimeout — until the port serves, so a spawn that
+// dies on boot is an error rather than a silent success.
+func RestartCodeServer() (EnsureOutcome, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	if !jobDaemonRunning(ctx) {
+		return EnsureAlreadyRunning, fmt.Errorf("rk daemon is not running — start it with `rk serve -d`")
+	}
+	if _, err := KillCodeServerSession(); err != nil {
+		return EnsureAlreadyRunning, err
+	}
+	outcome, err := ensureCodeServerCore(true)
+	if errors.Is(err, errCodeServerMissing) {
+		// A fresh budget: the kill above may have spent ctx's on its
+		// port-free wait (a hung session), and an expired ctx fails the spawn.
+		jobCtx, jobCancel := context.WithTimeout(context.Background(), cmdTimeout)
+		defer jobCancel()
+		if err := spawnCodeServerInstallJob(jobCtx); err != nil {
+			return EnsureAlreadyRunning, err
+		}
+		return EnsureInstallJobSpawned, nil
+	}
+	if err != nil || outcome != EnsureStarted {
+		return outcome, err
+	}
+	deadline := time.Now().Add(codeServerPortUpTimeout)
+	for !codeServerPortBusy() {
+		if time.Now().After(deadline) {
+			return outcome, fmt.Errorf("code-server did not come up within %s — attach the %s tmux session or run `rk doctor`", codeServerPortUpTimeout, CodeServerSessionName)
+		}
+		time.Sleep(codeServerPortFreePoll)
+	}
+	return outcome, nil
 }

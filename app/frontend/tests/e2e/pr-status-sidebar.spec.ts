@@ -20,7 +20,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // prChecks pass, prReview approved — the gate satisfied; @1 is the active
 // window, so the Pane panel reflects it on load) and @2 "scratch-shell" (no
 // fabChange — the gate fails). beforeEach installs both routes before
-// navigation and seeds localStorage['runkit-sidebar-section-pane'] = 'true'
+// navigation and seeds localStorage['hexokit-sidebar-section-pane'] = 'true'
 // via addInitScript — the Pane panel is visibility-gated and defaults OFF,
 // and the seed re-runs on every navigation, keeping the panel mounted through
 // the in-test goto sequences.
@@ -106,7 +106,7 @@ test.describe("Pane panel PR status", () => {
     // section in. The init script re-runs on every navigation, so the
     // in-test goto/reload sequences keep the panel mounted.
     await page.addInitScript(() => {
-      localStorage.setItem("runkit-sidebar-section-pane", "true");
+      localStorage.setItem("hexokit-sidebar-section-pane", "true");
     });
   });
 
@@ -115,7 +115,7 @@ test.describe("Pane panel PR status", () => {
    * window is change-bound with a PR, the Pane panel shows the `pr` row (an
    * open-in-new-tab link titled with the PR URL); when the selected window is
    * a scratch window, no PR row appears. (Locators are scoped to the
-   * nav[aria-label='Sessions'] sidebar: with the Pane section opted in, the
+   * nav[aria-label='Groups'] sidebar: with the Pane section opted in, the
    * desktop status bar legitimately renders its own PR link copy, and an
    * unscoped [title] locator trips Playwright strict mode.)
    *
@@ -140,7 +140,7 @@ test.describe("Pane panel PR status", () => {
     // sidebar nav — the desktop status bar renders its own PR link copy (the
     // panel is opted-in here, so both surfaces legitimately render it).
     const prRow = page.locator(
-      "nav[aria-label='Sessions'] [title='https://github.com/o/r/pull/386']",
+      "nav[aria-label='Groups'] [title='https://github.com/o/r/pull/386']",
     );
     await expect(prRow).toBeVisible();
     await expect(prRow).toContainText("#386");
@@ -149,10 +149,10 @@ test.describe("Pane panel PR status", () => {
     // Scratch window (@2) — not change-bound → no pr row.
     await page.goto(SCRATCH_WINDOW_URL);
     await expect(
-      page.locator("nav[aria-label='Sessions'] [title='https://github.com/o/r/pull/386']"),
+      page.locator("nav[aria-label='Groups'] [title='https://github.com/o/r/pull/386']"),
     ).toHaveCount(0);
     // No PR-number text anywhere in the Pane panel for the scratch window.
-    await expect(page.locator("nav[aria-label='Sessions']").getByText(/#386/)).toHaveCount(0);
+    await expect(page.locator("nav[aria-label='Groups']").getByText(/#386/)).toHaveCount(0);
   });
 
   /**
@@ -177,7 +177,7 @@ test.describe("Pane panel PR status", () => {
     await page.goto(BOUND_WINDOW_URL);
     await page.locator("button[aria-label='Toggle navigation']").click();
     await expect(
-      page.locator("nav[aria-label='Sessions'] [title='https://github.com/o/r/pull/386']"),
+      page.locator("nav[aria-label='Groups'] [title='https://github.com/o/r/pull/386']"),
     ).toContainText("#386");
 
     // Desktop: persistent sidebar column — the pr row still renders (the Pane
@@ -186,7 +186,7 @@ test.describe("Pane panel PR status", () => {
     await page.setViewportSize({ width: 1024, height: 800 });
     await page.goto(BOUND_WINDOW_URL);
     await expect(
-      page.locator("nav[aria-label='Sessions'] [title='https://github.com/o/r/pull/386']"),
+      page.locator("nav[aria-label='Groups'] [title='https://github.com/o/r/pull/386']"),
     ).toContainText("#386");
   });
 });

@@ -24,7 +24,7 @@ export function buildSessionSortActions(
   return [
     {
       id: "session-sort-windows",
-      label: "Session: Sort windows…",
+      label: "Group: Sort tabs…",
       optionPicker: {
         options: [
           { key: "status", label: "By status" },

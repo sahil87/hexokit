@@ -12,13 +12,13 @@ import { readStoredOverrides, writeStoredOverrides } from "@/lib/keybindings";
 /**
  * Reactive macro store (260730-hbyh). Thin React integration over the pure
  * `lib/macros.ts` model: reads the per-device macro definitions from
- * `localStorage["runkit-macros"]` and keeps every subscriber in sync — the
+ * `localStorage["hexokit-macros"]` and keeps every subscriber in sync — the
  * same in-module pub/sub + native `storage`-event pattern as
  * `use-keybindings.ts` (which composes this hook so macro bindings ride the
  * shared effective map).
  *
  * A macro's KEY COMBO is not stored here — it lives as an ordinary override
- * entry in `localStorage["runkit-keybindings"]` keyed by the macro's actionId.
+ * entry in `localStorage["hexokit-keybindings"]` keyed by the macro's actionId.
  * `removeMacro` therefore also drops that diff entry (no orphaned overrides;
  * a later same-slug macro must not inherit a ghost combo). `useKeybindings`
  * re-reads override storage whenever macros change, so the cleanup is visible
@@ -37,7 +37,7 @@ export type UseMacros = {
   macros: MacroAction[];
   /** Create a macro (id derived from the label, uniquified). Returns its actionId. */
   addMacro: (label: string, target: MacroTarget) => string;
-  /** Delete a macro AND its `runkit-keybindings` diff entry. */
+  /** Delete a macro AND its `hexokit-keybindings` diff entry. */
   removeMacro: (actionId: string) => void;
 };
 

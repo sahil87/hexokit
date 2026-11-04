@@ -32,6 +32,7 @@
  *    by WebSocket-counting board specs).
  */
 import { expect, type APIRequestContext } from "@playwright/test";
+import { harnessOrigin } from "./_harness";
 
 /** A pinned-window identity, as sent to `/api/boards/{board}/pin|/unpin`. */
 export interface PinEntry {
@@ -101,12 +102,11 @@ export async function unpinAll(request: APIRequestContext): Promise<void> {
 // ---- verbatim-dupe fold-ins with the same home ----
 
 /** Resolve the backend origin for raw `request`-fixture calls:
- *  `baseURL ?? http://localhost:${E2E_PORT ?? 3333}` — the harness-only
- *  E2E_PORT read and the 3333 fallback mirror playwright.config.ts's
- *  fail-closed port (connects to nothing rather than silently targeting a
- *  live dev server via the ambient RK_PORT). */
+ *  `baseURL ?? harnessOrigin()` — the harness-only E2E_PORT read and its
+ *  fail-closed sentinel fallback live in _harness.ts (never the ambient
+ *  RK_PORT, which would silently target a live dev server). */
 export function apiBase(baseURL: string | undefined): string {
-  return baseURL ?? `http://localhost:${process.env.E2E_PORT ?? 3333}`;
+  return baseURL ?? harnessOrigin();
 }
 
 /** True for the terminals mux URL (`/ws/terminals`) — one socket per tab

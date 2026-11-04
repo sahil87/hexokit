@@ -25,7 +25,7 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
 const FRONTEND_DIR = path.join(REPO_ROOT, "app", "frontend");
 
-const DEFAULT_URL = "http://127.0.0.1:3000";
+const DEFAULT_URL = "http://127.0.0.1:6123";
 const DEFAULT_SECONDS = 30;
 const DEFAULT_VIEWPORT = "1600x1000";
 const SETTLE_AFTER_LOAD_MS = 6000;

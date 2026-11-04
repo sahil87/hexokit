@@ -233,7 +233,7 @@ func TestGuiSuperviseLxqtIntegration(t *testing.T) {
 		t.Errorf("@rk_gui_wm = %q, want %s (the pinned LXQt name)", wm, lxqtName)
 	}
 
-	defaultsDir := filepath.Join(stateHome, "run-kit", "gui", "lxqt", "etc")
+	defaultsDir := filepath.Join(stateHome, "hexokit", "gui", "lxqt", "etc")
 	for _, rel := range []string{
 		"lxqt/session.conf",
 		"lxqt/panel.conf",
@@ -400,7 +400,7 @@ func TestGuiSuperviseIcewmIntegration(t *testing.T) {
 
 	// Probe scripts land before the supervisor seeds — SeedProfile never
 	// removes foreign files from the profile dir.
-	profileDir := filepath.Join(stateHome, "run-kit", "gui", "icewm")
+	profileDir := filepath.Join(stateHome, "hexokit", "gui", "icewm")
 	if err := os.MkdirAll(profileDir, 0o700); err != nil {
 		t.Fatal(err)
 	}

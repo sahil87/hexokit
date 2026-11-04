@@ -11,15 +11,16 @@
  * emptying `gitRoot` — unavailability now only happens when no cwd is
  * resolvable at all.) Derivation therefore only SEEDS (`codeRootSeed`): the first render
  * of the code tile with an empty option writes the derived root once, and from
- * then on the only writer is the editor's own navigation (File > Open Folder,
- * reported by `CodeSurface`'s load-event seam). The terminal never moves the
- * editor.
+ * then on the writers are the editor's own navigation (File > Open Folder,
+ * reported by `CodeSurface`'s load-event seam) AND the explicit Follow
+ * terminal header verb (`codeRootFollowTarget` below) — the terminal still
+ * never moves the editor on its own.
  *
  * Pure and DOM-free — the `window-view.ts` / `right-panel.ts` module contract.
  */
 
 import type { ViewWindow } from "./window-view";
-import type { Layout } from "./surface-layout";
+import { leaves, type Layout } from "./surface-layout";
 
 /**
  * The folder the code surface opens: the shared code root, falling back to
@@ -43,7 +44,21 @@ export function codeRootSeed(
   win: ViewWindow | null | undefined,
   layout: Layout,
 ): string | null {
-  return layout.order.includes("code") && !win?.codeRoot && win?.gitRoot
+  return leaves(layout).includes("code") && !win?.codeRoot && win?.gitRoot
     ? win.gitRoot
     : null;
+}
+
+/**
+ * The Follow terminal verb's target: the live derived `gitRoot` when the
+ * latched code root has DRIFTED from it — both non-empty and different —
+ * else `null` (no drift ⇒ no verb, nothing to write). Empty inputs never
+ * count as drift: a pre-seed window (`codeRoot` empty) is about to be seeded
+ * from `gitRoot` anyway, and an empty derivation (no cwd resolvable) has no
+ * folder to follow.
+ */
+export function codeRootFollowTarget(win: ViewWindow | null | undefined): string | null {
+  const latched = win?.codeRoot ?? "";
+  const derived = win?.gitRoot ?? "";
+  return latched !== "" && derived !== "" && latched !== derived ? derived : null;
 }

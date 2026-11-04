@@ -15,13 +15,13 @@ import { StateSocket } from "@/lib/state-socket";
 import { computeUpdateKey } from "@/lib/palette/update";
 import type { MetricsSnapshot, ProjectSession, Service, ServicesSnapshot } from "@/types";
 
-const SERVER_STORAGE_KEY = "runkit-server";
+const SERVER_STORAGE_KEY = "hexokit-server";
 // localStorage key for composite update-notice dismissal. The value is the
 // dismissed composite `key` — the sorted `tool@latest` pairs (e.g.
 // "fab-kit@2.17.0,run-kit@3.9.0"); any change to the matched set (a newer latest
 // or a newly-matching tool) changes the key and re-shows the chip. No server
 // state (Constitution II).
-const UPDATE_DISMISSED_KEY = "runkit-update-dismissed";
+const UPDATE_DISMISSED_KEY = "hexokit-update-dismissed";
 // Sentinel running version for local (non-ldflags) builds — the update chip and
 // palette actions are suppressed for it.
 const DEV_VERSION = "dev";
@@ -139,6 +139,11 @@ export type SessionContextType = {
   sessionsByServer: Map<string, ProjectSession[]>;
   sessionOrderByServer: Map<string, string[]>;
   isConnectedByServer: Map<string, boolean>;
+  /** Per-server: true once the current subscription delivered a real sessions
+   *  snapshot (a `sessions` event or an array ack snapshot). The empty slice
+   *  seeded on subscribe is NOT a payload, so `sessionsByServer.has(server)`
+   *  cannot stand in for "the first payload arrived". */
+  sessionsReceivedByServer: Map<string, boolean>;
   metricsByServer: Map<string, MetricsSnapshot | null>;
   /** Per-server map of `windowId → pane-text preview` for the tile grid. Only
    *  windows in sessions the client declared expanded (via `setPreviewScope`)
@@ -218,7 +223,7 @@ export type SessionContextType = {
    *  clean re-check must not leave a lying chip lit. */
   applyManualCheckResult: (tools: UpdateTool[], source: string) => void;
   /** The composite `key` the user dismissed the update notice for (localStorage
-   *  `runkit-update-dismissed`), or `null` when none. The chip hides when this
+   *  `hexokit-update-dismissed`), or `null` when none. The chip hides when this
    *  equals the EFFECTIVE displayed key (the ambient `updateAvailable.key`, or
    *  the client-computed manual key when the manual feed is the lit one); the
    *  palette action ignores it. */
@@ -234,7 +239,7 @@ export type SessionContextType = {
   dismissUpdate: () => void;
   /** Whether the daemon is a Homebrew install, from the server-global
    *  `event: version` `brew` field. `false` until the first version event —
-   *  gates the palette-only `run-kit: Update Now` (force-update) entry. */
+   *  gates the palette-only `HexoKit: Update Now` (force-update) entry. */
   brew: boolean;
   /** Force a self-upgrade regardless of the qualifying snapshot: POST
    *  /api/update `{"force":true}`. Best-effort — the ensuing restart drops the
@@ -373,6 +378,7 @@ type ServerSlice = {
   isConnected: boolean;
   metrics: MetricsSnapshot | null;
   previews: Record<string, string>;
+  sessionsReceived: boolean;
 };
 
 const EMPTY_SLICE: ServerSlice = {
@@ -381,6 +387,7 @@ const EMPTY_SLICE: ServerSlice = {
   isConnected: false,
   metrics: null,
   previews: {},
+  sessionsReceived: false,
 };
 
 /** Read `currentServer` from the matched route. Returns the server param when
@@ -442,7 +449,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
   const [daemonPort, setDaemonPort] = useState<number | null>(null);
   // Whether the daemon is a Homebrew install, from the server-global
   // `event: version` `brew` field. `false` until the first version event (the
-  // brew-gated `run-kit: Update Now` palette entry stays hidden until observed).
+  // brew-gated `HexoKit: Update Now` palette entry stays hidden until observed).
   const [isBrew, setIsBrew] = useState(false);
   // Pending toolkit update from the server-global `event: update-available`.
   const [updateAvailable, setUpdateAvailable] = useState<UpdateAvailable | null>(null);
@@ -883,7 +890,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
         case "sessions": {
           const sessions = data as ProjectSession[];
           startTransition(() => {
-            updateSlice(key, { sessions, isConnected: true }, true);
+            updateSlice(key, { sessions, isConnected: true, sessionsReceived: true }, true);
           });
           break;
         }
@@ -1081,7 +1088,8 @@ export function SessionProvider({ children }: SessionProviderProps) {
         // frame (e.g. a sidebar server on `/`, whose cached replay preceded the
         // attach) would otherwise hold a null metrics slice until the host
         // snapshot next moves.
-        const sessions = Array.isArray(snapshot) ? (snapshot as ProjectSession[]) : [];
+        const hasSnapshot = Array.isArray(snapshot);
+        const sessions = hasSnapshot ? (snapshot as ProjectSession[]) : [];
         const seedMetrics = hostMetricsSnapRef.current;
         startTransition(() => {
           updateSlice(
@@ -1089,6 +1097,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
             {
               sessions,
               isConnected: socketConnectedRef.current,
+              ...(hasSnapshot ? { sessionsReceived: true } : {}),
               ...(seedMetrics ? { metrics: seedMetrics } : {}),
             },
             true,
@@ -1239,6 +1248,12 @@ export function SessionProvider({ children }: SessionProviderProps) {
     return m;
   }, [slicesByServer]);
 
+  const sessionsReceivedByServer = useMemo(() => {
+    const m = new Map<string, boolean>();
+    for (const [name, slice] of slicesByServer) m.set(name, slice.sessionsReceived);
+    return m;
+  }, [slicesByServer]);
+
   const metricsByServer = useMemo(() => {
     const m = new Map<string, MetricsSnapshot | null>();
     for (const [name, slice] of slicesByServer) m.set(name, slice.metrics);
@@ -1264,6 +1279,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       sessionsByServer,
       sessionOrderByServer,
       isConnectedByServer,
+      sessionsReceivedByServer,
       metricsByServer,
       previewsByServer,
       setPreviewScope,
@@ -1296,6 +1312,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       sessionsByServer,
       sessionOrderByServer,
       isConnectedByServer,
+      sessionsReceivedByServer,
       metricsByServer,
       previewsByServer,
       setPreviewScope,
@@ -1353,10 +1370,11 @@ export function useSessionContext(): SessionContextType {
   return ctx;
 }
 
-/** The run-kit manifest/roster tool name — the single tool that keeps today's
- *  `⬆ v{latest}` chip form (any other single tool, or multiple, uses a count
- *  form). Mirrors the backend's `runKitTool` constant. */
-const RUN_KIT_TOOL = "run-kit";
+/** The roster names of this app's own row — `hexokit` (shll >= v0.1.34) plus the
+ *  legacy `rk`/`run-kit` older shll reports. The self row is the single tool
+ *  that keeps today's `⬆ v{latest}` chip form (any other single tool, or
+ *  multiple, uses a count form). Mirrors the backend's `isSelfTool` names. */
+const SELF_TOOL_NAMES: ReadonlySet<string> = new Set(["hexokit", "rk", "run-kit"]);
 
 /** Frozen module-level empty tools list — the stable fallback for
  *  `updateAvailable?.tools ?? EMPTY_TOOLS` in `useUpdateNotification`, so a
@@ -1502,7 +1520,7 @@ export function useUpdateNotification(): {
     isDev,
     updateDismissedKey,
   );
-  const singleRunKit = tools.length === 1 && tools[0].tool === RUN_KIT_TOOL;
+  const singleRunKit = tools.length === 1 && SELF_TOOL_NAMES.has(tools[0].tool);
   // The run-kit row versions, surfaced only for the single-run-kit chip/palette
   // wording (`⬆ v{latest}` / `run-kit: Update to v{latest}`). Null otherwise —
   // a multi/non-run-kit chip uses the count form and per-tool detail.
@@ -1616,6 +1634,11 @@ export function StandaloneSessionContextProvider({
     sessionsByServer: value.sessionsByServer ?? new Map(),
     sessionOrderByServer: value.sessionOrderByServer ?? new Map(),
     isConnectedByServer: value.isConnectedByServer ?? new Map(),
+    // Absent ⇒ every supplied server has "received" its payload, so fixtures
+    // that hand in sessions keep modelling a post-snapshot state.
+    sessionsReceivedByServer:
+      value.sessionsReceivedByServer ??
+      new Map([...(value.sessionsByServer ?? new Map()).keys()].map((name) => [name, true])),
     metricsByServer: value.metricsByServer ?? new Map(),
     previewsByServer: value.previewsByServer ?? new Map(),
     setPreviewScope: value.setPreviewScope ?? (() => {}),

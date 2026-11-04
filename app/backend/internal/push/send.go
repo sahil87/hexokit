@@ -39,7 +39,7 @@ type NotifyResult struct {
 // vapidSubscriber is the `sub` claim in the VAPID JWT. A mailto:/https: URI is
 // expected by push services; a stable placeholder is acceptable for a
 // single-user box.
-const vapidSubscriber = "https://github.com/sahil87/run-kit"
+const vapidSubscriber = "https://github.com/sahil87/hexokit"
 
 // Notify sends a push to every stored subscription, signed with the server's
 // VAPID keypair, under a bounded timeout. Subscriptions the push service

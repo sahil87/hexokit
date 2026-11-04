@@ -50,13 +50,42 @@ describe("SessionRow", () => {
     expect(screen.getByText("agent-work")).toBeInTheDocument();
   });
 
-  it("renders no hover action cluster on a fine pointer — every action is a card row now", () => {
+  it("renders no hover action cluster on a fine pointer — every action but the + is a card row", () => {
     const session = makeSession({ name: "agent-work" });
     render(<SessionRow {...rowProps(session)} onSpawnAgent={noop} />);
     expect(screen.queryByLabelText("Set color for agent-work")).toBeNull();
     expect(screen.queryByLabelText("Spawn agent in agent-work")).toBeNull();
-    expect(screen.queryByLabelText("New tab in agent-work")).toBeNull();
-    expect(screen.queryByLabelText("Kill session agent-work")).toBeNull();
+    expect(screen.queryByLabelText("Kill group agent-work")).toBeNull();
+  });
+
+  it("carries a + visible at rest that creates a tab in this group without toggling or selecting the row", () => {
+    const onCreateWindow = vi.fn();
+    const onToggleCollapse = vi.fn();
+    const onSelectFirstWindow = vi.fn();
+    const session = makeSession({ name: "agent-work" });
+    render(
+      <SessionRow
+        {...rowProps(session)}
+        onCreateWindow={onCreateWindow}
+        onToggleCollapse={onToggleCollapse}
+        onSelectFirstWindow={onSelectFirstWindow}
+      />,
+    );
+    const plus = screen.getByLabelText("New tab in agent-work");
+    // Visible at rest: ~70% ink (no hover-reveal `opacity-0`), full ink on coarse.
+    expect(plus.className).toContain("opacity-70");
+    expect(plus.className).toContain("coarse:opacity-100");
+    expect(plus.className).not.toContain("opacity-0");
+    fireEvent.click(plus);
+    expect(onCreateWindow).toHaveBeenCalledWith("srv", "agent-work");
+    expect(onToggleCollapse).not.toHaveBeenCalled();
+    expect(onSelectFirstWindow).not.toHaveBeenCalled();
+  });
+
+  it("ghost groups render no + (there is no group to create into yet)", () => {
+    const ghost = { ...makeSession({ name: "ghosty" }), optimistic: true };
+    render(<SessionRow {...rowProps(ghost)} />);
+    expect(screen.queryByLabelText("New tab in ghosty")).toBeNull();
   });
 
   // Flair overlay (decoration-only channel): an always-on ambient CSS-only
@@ -255,13 +284,13 @@ describe("SessionRow", () => {
       const card = screen.getByTestId("row-flyout-card");
       const bar = screen.getByTestId("popup-title-bar");
       expect(card).toContainElement(bar);
-      expect(bar).toHaveTextContent("Session code-surface-latch-distill");
+      expect(bar).toHaveTextContent("Group code-surface-latch-distill");
       expect(card).toHaveTextContent("$4 · 3 tabs · ~/code/sahil87/run-kit");
       // Change color… leads the action rows.
       expect(screen.getByTestId("row-flyout-color-action")).toHaveTextContent("Change color…");
       expect(screen.getByTestId("row-flyout-spawn-action")).toHaveTextContent("Spawn agent…");
       expect(screen.getByTestId("row-flyout-create-action")).toHaveTextContent("New tab");
-      expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill session");
+      expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill group");
       // The card is the row's single hover surface — the tip is retired.
       expect(screen.queryByTestId("session-tip")).toBeNull();
     });
@@ -513,8 +542,9 @@ describe("SessionRow", () => {
       // Render-gated, not CSS-hidden: no cluster buttons exist on coarse.
       expect(screen.queryByLabelText("Set color for agent-work")).toBeNull();
       expect(screen.queryByLabelText("Spawn agent in agent-work")).toBeNull();
-      expect(screen.queryByLabelText("New tab in agent-work")).toBeNull();
-      expect(screen.queryByLabelText("Kill session agent-work")).toBeNull();
+      expect(screen.queryByLabelText("Kill group agent-work")).toBeNull();
+      // The per-group + is the one control kept at rest — full ink on coarse.
+      expect(screen.getByLabelText("New tab in agent-work").className).toContain("coarse:opacity-100");
     });
 
     it("renders no rail and no cluster on fine pointers — the hover card is the surface", () => {
@@ -523,8 +553,7 @@ describe("SessionRow", () => {
       render(<SessionRow {...rowProps(session)} />);
       expect(screen.queryByTestId("status-rail")).toBeNull();
       expect(screen.queryByLabelText("Set color for agent-work")).toBeNull();
-      expect(screen.queryByLabelText("New tab in agent-work")).toBeNull();
-      expect(screen.queryByLabelText("Kill session agent-work")).toBeNull();
+      expect(screen.queryByLabelText("Kill group agent-work")).toBeNull();
     });
 
     it("rail tap opens the session card — title, facts line, action rows in order, actions route", () => {
@@ -547,10 +576,10 @@ describe("SessionRow", () => {
       );
       tapRail();
       const card = screen.getByTestId("row-flyout-card");
-      expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Session agent-work");
+      expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Group agent-work");
       // The facts line (omission-degrading).
       expect(card).toHaveTextContent("$4 · 2 tabs · ~/code/run-kit");
-      // Fixed order: Change color… → Spawn agent… → New tab → Kill session.
+      // Fixed order: Change color… → Spawn agent… → New tab → Kill group.
       const color = screen.getByTestId("row-flyout-color-action");
       const spawn = screen.getByTestId("row-flyout-spawn-action");
       const create = screen.getByTestId("row-flyout-create-action");
@@ -558,7 +587,7 @@ describe("SessionRow", () => {
       expect(color).toHaveTextContent("Change color…");
       expect(spawn).toHaveTextContent("Spawn agent…");
       expect(create).toHaveTextContent("New tab");
-      expect(kill).toHaveTextContent("Kill session");
+      expect(kill).toHaveTextContent("Kill group");
       expect(kill).toHaveTextContent("confirms first");
       expect(kill.className).toContain("hover:text-signal-red");
       expect(color.compareDocumentPosition(spawn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

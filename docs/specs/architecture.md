@@ -9,7 +9,7 @@
 
 Two independent processes in production, three in development:
 
-1. **Go backend** (single binary, default `:3000`) — API, SSE, WebSocket terminal relay, SPA static serving
+1. **Go backend** (single binary, default `:6123`) — API, SSE, WebSocket terminal relay, SPA static serving
 2. **Bash supervisor** (`supervisor.sh`) — builds Go + frontend, manages the server process, health checks, rollback
 3. **Vite dev server** (dev only, `:5173`) — HMR, proxies `/api/*` and `/relay/*` to Go
 
@@ -236,9 +236,9 @@ MSW mocks the API and SSE stream, enabling frontend tests to run without a Go ba
 ```bash
 just dev
 # Starts concurrently:
-#   1. Go backend on :3000 (go run)
-#   2. Vite dev server on :5173 (proxies /api/* and /relay/* to :3000)
-# Browser connects to :5173
+#   1. Go backend (air live-reload) on RK_PORT + 1
+#   2. Vite dev server on RK_PORT (default: the worktree's derived rig port — see scripts/e2e-env.sh), proxying /api/* and /relay/* to the backend
+# Browser connects to the Vite port
 ```
 
 ### Production

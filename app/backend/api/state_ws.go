@@ -182,11 +182,13 @@ const stateWSWriteWait = 10 * time.Second
 // (terminals_ws.go uses the same cleanup-deadline pattern).
 const stateWSCleanupWait = 100 * time.Millisecond
 
-// Shared WebSocket upgrader for the muxed sockets (`/ws/state` here and
-// `/ws/terminals` in terminals_ws.go). The per-pane `/relay/{windowId}`
-// endpoint and its handleRelay were retired in 260717-803u-relay-mux.
+// Shared WebSocket upgrader for `/ws/state`, `/ws/terminals`
+// (terminals_ws.go), and `/ws/gui/{id}` (gui_ws.go). Browsers apply no CORS
+// to WebSocket handshakes, so CheckOrigin enforces the Fetch-Metadata-first
+// same-origin policy (ws_origin.go): cross-site pages must not open rk's
+// sockets.
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: checkSharedWSOrigin,
 }
 
 // handleStateWS upgrades a `/ws/state` request and runs the state-socket

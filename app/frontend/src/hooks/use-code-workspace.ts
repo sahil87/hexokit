@@ -35,7 +35,11 @@
  *   POSTed the latch), re-derive the workspace and return it as a
  *   nonce-keyed `followSrc`, the one sanctioned parent re-navigation. A
  *   failed follow leaves the editor at its own (working) `?folder=`
- *   navigation.
+ *   navigation — unless the caller passes `{ degradeToFolder: true }` (the
+ *   Follow terminal verb's posture): the verb's frame is still on the OLD
+ *   folder, so a failed re-derivation lands it on the `?folder=` form for
+ *   the NEW root (one console warning), keeping editor and option in
+ *   agreement.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -47,11 +51,14 @@ import type { ViewWindow } from "@/lib/window-view";
 /** The one sanctioned parent re-navigation payload: a fresh `nonce` is what
  *  licenses CodeSurface to override its per-mount-generation src ref, exactly
  *  once per nonce. `root` is the folder followed to — the frame record's
- *  eviction baseline moves with it before the payload catches up. */
+ *  eviction baseline moves with it before the payload catches up. `windowId`
+ *  names the frame's window (the code TILE's window — a foreign code tile's
+ *  home, not necessarily the route window). */
 export interface CodeFollowSrc {
   src: string;
   nonce: number;
   root: string;
+  windowId: string;
 }
 
 /** Optional cross-window inputs: `windowsById` backs the `codeSrcFor` lookup
@@ -72,7 +79,14 @@ export interface CodeWorkspace {
    *  another window is active. Null while that window is unresolved. */
   codeSrcFor: (windowId: string) => string | null;
   followSrc: CodeFollowSrc | null;
-  followFolder: (folder: string) => void;
+  /** Re-derive the workspace after the latch moved to `folder` and expose it
+   *  as a nonce-keyed `followSrc`. `degradeToFolder` (the shell-initiated
+   *  Follow terminal verb) lands the frame on the `?folder=` form when the
+   *  GET fails; without it a failed follow leaves the editor at its own
+   *  (working) `?folder=` navigation. The returned promise settles only when
+   *  the follow (or its degrade) completes — callers holding an in-flight
+   *  guard must await it, or the guard releases before `followSrc` exists. */
+  followFolder: (folder: string, opts?: { degradeToFolder?: boolean }) => Promise<void>;
 }
 
 export function useCodeWorkspace(
@@ -91,6 +105,13 @@ export function useCodeWorkspace(
   const [resolved, setResolved] = useState<ReadonlyMap<string, string>>(new Map());
   const [follow, setFollow] = useState<{ key: string; src: string; nonce: number; root: string } | null>(null);
   const followNonceRef = useRef(0);
+  // The folder-degrade warning fires exactly once per (server, window, root)
+  // across BOTH warn sites — the derivation effect's catch and a
+  // degrade-posture follow's — because the two can overlap on the same key:
+  // the latch POST's option tick arms the effect while the follow's own GET
+  // is still in flight (deduplicatedFetch shares the request, not the
+  // handlers), and either ordering of the two rejections must warn once.
+  const folderWarnedRef = useRef(new Set<string>());
 
   const rootKey =
     windowId && codeTileOpen && win?.codeRoot
@@ -108,10 +129,13 @@ export function useCodeWorkspace(
       })
       .catch((err: unknown) => {
         if (!alive) return;
-        console.warn(
-          "code workspace derivation failed; opening the editor at the ?folder= fallback",
-          err,
-        );
+        if (!folderWarnedRef.current.has(rootKey)) {
+          folderWarnedRef.current.add(rootKey);
+          console.warn(
+            "code workspace derivation failed; opening the editor at the ?folder= fallback",
+            err,
+          );
+        }
         setResolved((prev) => new Map(prev).set(rootKey, codeServerSrc(codeRootFor(win))));
       });
     return () => {
@@ -162,12 +186,37 @@ export function useCodeWorkspace(
   }, [liveWindowIds, server]);
 
   const followFolder = useCallback(
-    (folder: string) => {
-      if (!windowId) return;
+    (folder: string, opts?: { degradeToFolder?: boolean }): Promise<void> => {
+      if (!windowId) return Promise.resolve();
       const key = `${server}:${windowId}`;
-      fetchCodeWorkspace(server, windowId)
+      // The degrade half (the shell-initiated Follow terminal verb): the
+      // verb's frame still sits on the OLD folder, so a failed re-derivation
+      // must still land it on the terminal's folder — else the option moved
+      // and the editor visibly did nothing. The editor-initiated follow
+      // (option unset) keeps leave-in-place: its frame already navigated
+      // itself, so a degrade re-navigation would be a needless reload.
+      const degrade = () => {
+        if (!opts?.degradeToFolder) return;
+        const entryKey = `${key}:${folder}`;
+        if (!folderWarnedRef.current.has(entryKey)) {
+          folderWarnedRef.current.add(entryKey);
+          console.warn(
+            "code workspace re-derivation failed; following at the ?folder= fallback",
+          );
+        }
+        const src = codeServerSrc(folder);
+        followNonceRef.current += 1;
+        setFollow({ key, src, nonce: followNonceRef.current, root: folder });
+        setResolved((prev) => new Map(prev).set(entryKey, src));
+      };
+      // The chain is returned so the caller's in-flight guard covers the
+      // whole follow, not just the latch POST that precedes it.
+      return fetchCodeWorkspace(server, windowId)
         .then((result) => {
-          if (result.status !== "ok") return;
+          if (result.status !== "ok") {
+            degrade();
+            return;
+          }
           const src = codeServerWorkspaceSrc(result.path);
           followNonceRef.current += 1;
           setFollow({ key, src, nonce: followNonceRef.current, root: folder });
@@ -176,7 +225,9 @@ export function useCodeWorkspace(
           // workspace); the live frame ignores it — only the nonce moves it.
           setResolved((prev) => new Map(prev).set(`${key}:${folder}`, src));
         })
-        .catch(() => {});
+        .catch(() => {
+          degrade();
+        });
     },
     [server, windowId],
   );
@@ -213,8 +264,8 @@ export function useCodeWorkspace(
           : null,
     codeSrcFor,
     followSrc:
-      follow && follow.key === windowKey
-        ? { src: follow.src, nonce: follow.nonce, root: follow.root }
+      follow && follow.key === windowKey && windowId !== undefined
+        ? { src: follow.src, nonce: follow.nonce, root: follow.root, windowId }
         : null,
     followFolder,
   };

@@ -1,11 +1,11 @@
 package main
 
 // rk tab layout — read or mutate a tab's @rk_win_layout. The verbs are
-// internal/layoutspec's pure port of the frontend mutations, so agent and
-// human go through one growth/collapse table. An unset or unparseable stored
-// value reads as layoutspec.Default() (single:tty — the frontend's
-// effectiveLayout fallback) and is REPLACED on write, never an error
-// (Constitution II degrade rule).
+// internal/layoutspec's pure port of the frontend tree mutations, so agent
+// and human go through one add/close/promote/cycle model. An unset or
+// unparseable stored value reads as layoutspec.Default() (the bare tty leaf —
+// the frontend's effectiveLayout fallback) and is REPLACED on write, never an
+// error (Constitution II degrade rule).
 
 import (
 	"context"
@@ -37,15 +37,20 @@ type tabLayoutReceipt struct {
 var tabLayoutCmd = &cobra.Command{
 	Use:   "layout [@N] [L | --add S | --rm S | --promote S | --cycle]",
 	Short: "Read or mutate a tab's surface layout",
-	Long: "Read or mutate a tab's @rk_win_layout (<shape>:<surface,…>).\n\n" +
-		"With a positional value the layout is SET (validated; malformed is a\n" +
-		"usage error). The flag forms mutate the current value through the shared\n" +
-		"layout table: --add appends a surface (1→2 split-h, 2→3 main-left),\n" +
-		"--rm removes one (3→2 split-h, 2→1 single), --promote moves one to slot\n" +
-		"A, --cycle walks the same-arity shape presets. Exactly one form may be\n" +
-		"given. With neither, the effective layout prints and nothing is written.\n\n" +
-		"An unset or unparseable stored value reads as single:tty. Every mutating\n" +
-		"form prints the resulting layout value on stdout.",
+	Long: "Read or mutate a tab's @rk_win_layout — a canonical split tree\n" +
+		"(e.g. h(tty,v(code,web)): h lays children left→right, v top→bottom,\n" +
+		"1–3 tiles). Legacy <shape>:<surface,…> preset strings still parse and\n" +
+		"rewrite to the tree form.\n\n" +
+		"With a positional value the layout is SET (either grammar, validated;\n" +
+		"malformed is a usage error). The flag forms mutate the current value\n" +
+		"through the shared tree verbs: --add splits the last tile (reading\n" +
+		"order) along its longer axis, --rm removes a tile (its neighbours\n" +
+		"absorb the space, the structure is kept), --promote moves a tile to\n" +
+		"slot A (the template's main tile), --cycle walks the tile count's\n" +
+		"templates. Exactly one form may be given. With neither, the effective\n" +
+		"layout prints and nothing is written.\n\n" +
+		"An unset or unparseable stored value reads as tty. Every form prints\n" +
+		"the tree form of the resulting layout on stdout.",
 	Args:         cobra.MaximumNArgs(2),
 	SilenceUsage: true,
 	RunE:         runTabLayout,
@@ -53,13 +58,13 @@ var tabLayoutCmd = &cobra.Command{
 
 func init() {
 	tabLayoutCmd.Flags().StringVar(&tabLayoutAddFlag, "add", "",
-		"Append a surface to the layout (grows the shape)")
+		"Add a surface (splits the last tile along its longer axis)")
 	tabLayoutCmd.Flags().StringVar(&tabLayoutRmFlag, "rm", "",
-		"Remove a surface from the layout (collapses the shape)")
+		"Remove a surface from the layout (its neighbours absorb the space)")
 	tabLayoutCmd.Flags().StringVar(&tabLayoutPromoteFlag, "promote", "",
 		"Move a surface to slot A")
 	tabLayoutCmd.Flags().BoolVar(&tabLayoutCycleFlag, "cycle", false,
-		"Cycle to the next same-arity shape preset")
+		"Cycle to the next template for the tile count")
 	tabLayoutCmd.Flags().BoolVar(&tabLayoutJSONFlag, "json", false,
 		"Emit the machine-readable envelope (exactly one JSON document on stdout)")
 	tabLayoutCmd.MarkFlagsMutuallyExclusive("add", "rm", "promote", "cycle")
@@ -114,6 +119,23 @@ func runTabLayout(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return usageError(err)
 		}
+		// Live-in-one-place check: a set introducing a foreign leaf another
+		// window already holds is refused (borrow moves a held surface; a
+		// plain write never steals it). Only a foreign leaf can conflict, so
+		// the server-wide window enumeration is gated on that.
+		if parsed.HasForeign() {
+			windows, werr := tabServerWindows(ctx, server)
+			if werr != nil {
+				return werr
+			}
+			if cerr := tmux.CheckLiveInOnePlace(parsed, windowID, windows); cerr != nil {
+				var held *tmux.LeafHeldError
+				if errors.As(cerr, &held) {
+					return cerr
+				}
+				return usageError(cerr)
+			}
+		}
 		v := parsed.String()
 		if err := tabSetWindowOptionsFn(ctx, windowID, server, []tmux.WindowOptionOp{{Key: tmux.LayoutOption, Value: &v}}); err != nil {
 			return err
@@ -140,7 +162,7 @@ func runTabLayout(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	var next layoutspec.Layout
+	var next layoutspec.Node
 	switch {
 	case tabLayoutAddFlag != "":
 		next, err = layoutspec.Add(layout, tabLayoutAddFlag)
@@ -170,6 +192,25 @@ func runTabLayout(cmd *cobra.Command, args []string) error {
 	tabLayoutReport(sink, windowID, v)
 	tabWakeFn(ctx, server)
 	return nil
+}
+
+// tabServerWindows enumerates every window on the server across all sessions
+// — the holder-lookup input for the live-in-one-place check. @N is unique per
+// server, so a foreign leaf may name a window in any session.
+func tabServerWindows(ctx context.Context, server string) ([]tmux.WindowInfo, error) {
+	infos, err := tmux.ListSessions(ctx, server)
+	if err != nil {
+		return nil, err
+	}
+	var out []tmux.WindowInfo
+	for _, si := range infos {
+		windows, err := tmux.ListWindows(ctx, si.Name, server)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, windows...)
+	}
+	return out, nil
 }
 
 // tabLayoutReport prints the verb's one result line, or the --json receipt

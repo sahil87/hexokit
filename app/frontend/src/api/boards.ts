@@ -12,7 +12,7 @@ export interface BoardPaneInfo {
 
 /**
  * Board summary (list view). Returned in display order: boards present in the
- * stored order (`~/.config/run-kit/config.yaml` `board_order:`) first, ranked by their
+ * stored order (`~/.config/hexokit/config.yaml` `board_order:`) first, ranked by their
  * index, then any unranked boards alphabetically by `name`.
  */
 export interface BoardSummary {
@@ -100,7 +100,7 @@ export async function unpinWindow(
  * POST /api/settings — persist the user-defined board display order as the
  * `board_order` settings key (partial merge per Constitution IX). The client
  * sends the FULL ordered list of board names (rank = index); the backend
- * writes it to ~/.config/run-kit/config.yaml and broadcasts a server-global
+ * writes it to ~/.config/hexokit/config.yaml and broadcasts a server-global
  * `board-order` SSE event so every client re-sorts live. Mirrors
  * `setServerOrder`.
  */

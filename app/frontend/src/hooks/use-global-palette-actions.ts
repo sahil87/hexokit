@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMatches, useNavigate, useRouter } from "@tanstack/react-router";
 import { useChromeDispatch, useChromeState } from "@/contexts/chrome-context";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
+import { useNewSheet } from "@/contexts/new-sheet-context";
 import { useCurrentServerFromRoute, useUpdateNotification } from "@/contexts/session-context";
 import { useUpdateCheck } from "@/hooks/use-update-check";
 import { consumeUpdateWatchTarget } from "@/hooks/use-update-click";
@@ -25,6 +26,7 @@ import { buildVersionAction, displayVersion } from "@/lib/palette/version";
 import { buildEasterEggActions } from "@/lib/palette/easter-eggs";
 import { fire as fireScreenBreak } from "@/lib/screen-break-store";
 import { copyToClipboard } from "@/lib/clipboard";
+import { mcpEndpointUrl } from "@/lib/mcp-endpoint";
 
 /**
  * Layout-level global palette groups (260811-239r) — built ONCE for the single
@@ -61,12 +63,14 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     closeSettings,
   } = useSettingsDialog();
   const { addToast } = useToast();
+  const { openNewSheet } = useNewSheet();
   const { byAction: bindingByAction, host: bindingHost } = useKeybindings();
 
-  // Walk matches deepest-first for route params — the same walk `RootTopBar`
-  // does for its `mode` (param names are unique across the route tree, so
-  // their presence determines the mode). The host route carries no params and
-  // resolves to the `"server"` arm (history pair + `Go: Host` only).
+  // Walk matches deepest-first for route params — the same walk
+  // `useTopBarMode` does (param names are unique across the route tree, so
+  // their presence determines the mode). Kept separate because the nav arms
+  // differ: no not-found override, and the host route (no params) resolves to
+  // the `"server"` arm (history pair + `Go: Host` only).
   let serverParam: string | undefined;
   let windowParam: string | undefined;
   let boardParam: string | undefined;
@@ -193,6 +197,14 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     }),
     [openSettings],
   );
+  const settingsAgentsEntry: PaletteAction = useMemo(
+    () => ({
+      id: "settings-agents",
+      label: "Settings: Agents",
+      onSelect: () => openSettings("agents"),
+    }),
+    [openSettings],
+  );
   const settingsAllEntry: PaletteAction = useMemo(
     () => ({
       id: "settings-all",
@@ -213,7 +225,7 @@ export function useGlobalPaletteActions(): PaletteAction[] {
   const panelActions: PaletteAction[] = useMemo(
     () => [
       { id: "panel-toggle-boards", label: "Panel: Toggle Boards", onSelect: () => setBoardsVisible(!boardsVisible) },
-      { id: "panel-toggle-server", label: "Panel: Toggle Servers", onSelect: () => setServerVisible(!serverVisible) },
+      { id: "panel-toggle-server", label: "Panel: Toggle Workspaces", onSelect: () => setServerVisible(!serverVisible) },
       { id: "panel-toggle-pane", label: "Panel: Toggle Pane", onSelect: () => setPaneVisible(!paneVisible) },
       { id: "panel-toggle-host", label: "Panel: Toggle Host", onSelect: () => setHostVisible(!hostVisible) },
     ],
@@ -397,12 +409,15 @@ export function useGlobalPaletteActions(): PaletteAction[] {
   // window (degrade to absent, never disabled), on both form factors: it is
   // the mobile Start path (no drawer exists there). Success (or a racing
   // 409 carrying the window) navigates to the operator window's route — the
-  // palette has no drawer to retarget.
+  // palette has no drawer to retarget. The POST carries the viewed window
+  // when the Terminal route's server is the one being started, so the
+  // operator opens where the user is.
   const operatorStartEntry: PaletteAction | null = useMemo(
     () =>
       quakeCtx.server && !quakeCtx.target
         ? buildOperatorStartAction(
             quakeCtx.server,
+            windowParam !== undefined && serverParam === quakeCtx.server ? windowParam : undefined,
             (result) =>
               void navigate({
                 to: "/$server/$window",
@@ -411,7 +426,7 @@ export function useGlobalPaletteActions(): PaletteAction[] {
             (message) => addToast(message, "error"),
           )
         : null,
-    [quakeCtx.server, quakeCtx.target, navigate, addToast],
+    [quakeCtx.server, quakeCtx.target, serverParam, windowParam, navigate, addToast],
   );
 
   // Host switcher (260820-nv0o) — opens the desktop-shell titlebar strip's
@@ -441,7 +456,7 @@ export function useGlobalPaletteActions(): PaletteAction[] {
   // update chip. Gated on a qualifying pending update (dev version suppressed).
   // Only the Dismiss action remains here (mirroring the chip's `✕` for
   // keyboard users; it deliberately IGNORES chip dismissal — the palette is
-  // deliberate discovery). `run-kit: Update Now` (maintenanceActions) is THE
+  // deliberate discovery). `HexoKit: Update Now` (maintenanceActions) is THE
   // single update action, and version detail lives in the check-result toasts
   // + chip summary. Below `sm` the top-bar cluster is hidden, so the palette
   // is a phone user's only update surface — layout-level so boards get it too.
@@ -459,7 +474,7 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     [updateQualifies, updateTools, dismissUpdate],
   );
 
-  // Check actions — the two on-demand check commands (`run-kit: Check for
+  // Check actions — the two on-demand check commands (`HexoKit: Check for
   // Updates` / `… (incl. patches)`). One POST /api/updates/check, client-side
   // filtering, single result toast (shared flow: useUpdateCheck). Dev-gated
   // inside buildCheckActions, same pattern as the maintenance entries.
@@ -478,8 +493,8 @@ export function useGlobalPaletteActions(): PaletteAction[] {
   // Always available (independent of the qualifying-update gate): force update
   // reaches patch releases; restart bounces a wedged daemon without SSH. Both
   // fire immediately (no confirmation) — the SSE drop + boot/version reload IS
-  // the feedback; failures land in ~/.rk logs and a toast. Dev-gated + (for
-  // force) brew-gated inside buildMaintenanceActions.
+  // the feedback; failures land in ~/.local/state/hexokit/logs and a toast.
+  // Dev-gated + (for force) brew-gated inside buildMaintenanceActions.
   const maintenanceActions: PaletteAction[] = useMemo(
     () =>
       buildMaintenanceActions(
@@ -521,6 +536,22 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     [daemonVersion, addToast],
   );
 
+  // MCP endpoint copy — palette parity for the Settings → General row's Copy
+  // button. Layout-global because the Settings dialog (and so the button)
+  // mounts on every route; the value is the page origin + /mcp.
+  const mcpEndpointEntry: PaletteAction = useMemo(
+    () => ({
+      id: "copy-mcp-endpoint",
+      label: "Copy: MCP Endpoint",
+      onSelect: () => {
+        void copyToClipboard(mcpEndpointUrl()).then((ok) => {
+          addToast(ok ? "MCP endpoint copied" : "Copy failed", ok ? "info" : "error");
+        });
+      },
+    }),
+    [addToast],
+  );
+
   // App-window pair (260820-lfla) — the SPA-side claims on ⌘N (new app
   // window) and ⇧⌘W (close app window) inside the mac desktop shell, riding
   // the `windows` bridge group (shell:new-window / shell:close-window). The
@@ -559,6 +590,19 @@ export function useGlobalPaletteActions(): PaletteAction[] {
   // the only silent no-ops. No chord — the palette IS the chord.
   const easterEggActions: PaletteAction[] = useMemo(() => buildEasterEggActions(fireScreenBreak), []);
 
+  // `Workspace: Create` is global, not route-scoped: the Host page and the
+  // board have no AppShell to register it, and the New split button's
+  // `Workspace…` row and the host `+ Workspace` button resolve it by id on
+  // every route.
+  const createServerEntry: PaletteAction = useMemo(
+    () => ({
+      id: "create-server",
+      label: "Workspace: Create",
+      onSelect: () => openNewSheet({ level: "workspace" }),
+    }),
+    [openNewSheet],
+  );
+
   return useMemo(
     () =>
       // Every registered action with a palette entry renders its EFFECTIVE
@@ -566,10 +610,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...(quakeMachine === "open" && quakeTerminalOpenAsTabEntry ? [quakeTerminalOpenAsTabEntry] : []), ...(operatorStartEntry ? [operatorStartEntry] : []), ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, ...easterEggActions],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...(quakeMachine === "open" && quakeTerminalOpenAsTabEntry ? [quakeTerminalOpenAsTabEntry] : []), ...(operatorStartEntry ? [operatorStartEntry] : []), ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, mcpEndpointEntry, ...easterEggActions, createServerEntry],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, quakeTerminalOpenAsTabEntry, operatorStartEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, easterEggActions, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, quakeTerminalOpenAsTabEntry, operatorStartEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, mcpEndpointEntry, easterEggActions, createServerEntry, bindingByAction, bindingHost],
   );
 }

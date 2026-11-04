@@ -25,28 +25,30 @@ func testSnap(server string, takenAt time.Time, windowName string) *Snapshot {
 }
 
 func TestDefaultDirXDGOverride(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", "/custom/state")
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
 	dir, err := DefaultDir()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dir != filepath.Join("/custom/state", "run-kit", "snapshots") {
+	if dir != filepath.Join(state, "hexokit", "snapshots") {
 		t.Errorf("dir = %s", dir)
 	}
 
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	t.Setenv("XDG_STATE_HOME", "")
 	dir, err = DefaultDir()
 	if err != nil {
 		t.Fatal(err)
 	}
-	home, _ := os.UserHomeDir()
-	if dir != filepath.Join(home, ".local", "state", "run-kit", "snapshots") {
+	if dir != filepath.Join(home, ".local", "state", "hexokit", "snapshots") {
 		t.Errorf("default dir = %s", dir)
 	}
 }
 
 // TestMigrateLegacyDirMovesBackups: the legacy <state>/rk/snapshots tree is
-// renamed into the resolved run-kit dir intact (real store artifacts survive)
+// renamed into the resolved home dir intact (real store artifacts survive)
 // and a MOVED-to-run-kit breadcrumb naming the new path is left behind.
 func TestMigrateLegacyDirMovesBackups(t *testing.T) {
 	state := t.TempDir()
@@ -55,7 +57,7 @@ func TestMigrateLegacyDirMovesBackups(t *testing.T) {
 		t.Fatalf("seed legacy store: %v", err)
 	}
 
-	dir := filepath.Join(state, "run-kit", "snapshots")
+	dir := filepath.Join(state, "hexokit", "snapshots")
 	MigrateLegacyDir(dir)
 
 	snap, err := NewStore(dir).LoadLatest("srv")
@@ -82,7 +84,7 @@ func TestMigrateLegacyDirMovesBackups(t *testing.T) {
 func TestMigrateLegacyDirKeepsExistingTarget(t *testing.T) {
 	state := t.TempDir()
 	legacy := filepath.Join(state, "rk", "snapshots")
-	dir := filepath.Join(state, "run-kit", "snapshots")
+	dir := filepath.Join(state, "hexokit", "snapshots")
 	for _, d := range []string{legacy, dir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -111,7 +113,7 @@ func TestMigrateLegacyDirKeepsExistingTarget(t *testing.T) {
 // that creates nothing.
 func TestMigrateLegacyDirNoLegacy(t *testing.T) {
 	state := t.TempDir()
-	MigrateLegacyDir(filepath.Join(state, "run-kit", "snapshots"))
+	MigrateLegacyDir(filepath.Join(state, "hexokit", "snapshots"))
 	entries, err := os.ReadDir(state)
 	if err != nil {
 		t.Fatal(err)
@@ -131,9 +133,9 @@ func TestMigrateLegacyDirFailureDegrades(t *testing.T) {
 	if _, err := NewStore(legacy).Write(testSnap("srv", time.Now(), "work")); err != nil {
 		t.Fatalf("seed legacy store: %v", err)
 	}
-	dir := filepath.Join(state, "run-kit", "snapshots")
+	dir := filepath.Join(state, "hexokit", "snapshots")
 
-	blocker := filepath.Join(state, "run-kit")
+	blocker := filepath.Join(state, "hexokit")
 	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}

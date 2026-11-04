@@ -20,7 +20,7 @@ rk code hosts                 # aligned rows: ID FOLDER TAB SERVER PID AGE EXT
 rk code hosts --json          # the host records as an array inside {"ok":true,"result":[…]}
 ```
 
-A host is one open code-server window with the bridge extension active. Hosts opened from an rk-derived workspace file register their tab and server (`TAB`/`SERVER` columns, `-` when absent); tab-less hosts (user-opened windows, the `?folder=` degrade path) match by folder only. Host records live under the run-kit state dir, but liveness is re-derived on every call: a record counts only if its pid is alive AND its socket answers a ping; records failing either check are pruned as a side effect. Zero hosts prints nothing (`"result": []` under `--json`) and still exits 0 — gate on empty output, not on the exit code.
+A host is one open code-server window with the bridge extension active. Hosts opened from an rk-derived workspace file register their tab and server (`TAB`/`SERVER` columns, `-` when absent); tab-less hosts (user-opened windows, the `?folder=` degrade path) match by folder only. Host records live under the HexoKit state dir, but liveness is re-derived on every call: a record counts only if its pid is alive AND its socket answers a ping; records failing either check are pruned as a side effect. Zero hosts prints nothing (`"result": []` under `--json`) and still exits 0 — gate on empty output, not on the exit code.
 
 ## `rk code commands` — the palette, grep-able
 

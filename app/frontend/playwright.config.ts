@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { harnessPort } from "./tests/e2e/_harness";
 import { applyWorkerRig, rigCount } from "./tests/e2e/_rig";
 
 // Multi-rig lane: inside a worker process this re-points the harness env
@@ -6,11 +7,10 @@ import { applyWorkerRig, rigCount } from "./tests/e2e/_rig";
 // (and before any spec module loads) — see _rig.ts for the ordering contract.
 applyWorkerRig();
 
-// E2E_PORT is set only by the harness (scripts/test-e2e.sh, scripts/pw.sh).
-// Never read the ambient RK_PORT here: direnv exports it into every shell, so
-// consulting it would point a bare `playwright test` at a live dev server —
-// 3333 is the fail-closed connect-to-nothing fallback.
-const port = Number(process.env.E2E_PORT ?? "3333");
+// The harness-port read lives in _harness.ts (harness-set E2E_PORT, else the
+// policy's fail-closed sentinel; never the ambient RK_PORT) and MUST be
+// called after applyWorkerRig() so the worker's rewrite is already applied.
+const port = harnessPort();
 
 // Worker pool size = the number of rigs the harness actually started
 // (E2E_RIGS rows), never RK_E2E_WORKERS by itself: a worker with no rig of

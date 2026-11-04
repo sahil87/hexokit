@@ -44,6 +44,14 @@ func TestClassifyManagedConf(t *testing.T) {
 	// (the user edited below the header).
 	tampered := bytes.Replace(managed, []byte("history-limit 100000"), []byte("history-limit 999"), 1)
 
+	// Legacy-header fixtures: a managed file written by a pre-rename release
+	// (the run-kit suffix) with a stamp that verifies, and one whose stamp
+	// does not.
+	legacySuffix := legacyManagedHeaderSuffixes[0]
+	legacyStale := []byte(managedHeaderPrefix + managedHash(oldBody) + legacySuffix + "\n" + string(oldBody))
+	legacyTampered := []byte(managedHeaderPrefix + managedHash(embed) + legacySuffix + "\n" + string(oldBody))
+	legacyCurrentBody := []byte(managedHeaderPrefix + managedHash(embed) + legacySuffix + "\n" + string(embed))
+
 	cases := []struct {
 		name    string
 		content []byte
@@ -51,6 +59,9 @@ func TestClassifyManagedConf(t *testing.T) {
 	}{
 		{"managed current", managed, ConfManagedCurrent},
 		{"managed stale", stale, ConfManagedStale},
+		{"legacy header, valid stamp, old body", legacyStale, ConfManagedStale},
+		{"legacy header, valid stamp, current body", legacyCurrentBody, ConfManagedStale},
+		{"legacy header, stamp mismatch", legacyTampered, ConfHandEdited},
 		{"no header", embed, ConfHandEdited},
 		{"hash mismatch", tampered, ConfHandEdited},
 		{"empty file", nil, ConfHandEdited},
@@ -170,6 +181,32 @@ func TestEnsureConfigThreeState(t *testing.T) {
 		data, _ := os.ReadFile(dest)
 		if !bytes.Equal(data, ManagedConfigBytes(DefaultConfigBytes())) {
 			t.Error("stale file must be force-written with the current stamped embed")
+		}
+	})
+
+	// A managed conf migrated from the pre-rename config home carries the
+	// legacy header suffix; it must classify managed-stale (never hand-edited)
+	// so the refresh puts it on the current header + embed.
+	t.Run("legacy-suffix managed conf force-writes and reports refreshed", func(t *testing.T) {
+		dest := withTempDefaultConfig(t)
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		oldBody := []byte("set -g history-limit 2000\n")
+		legacy := []byte(managedHeaderPrefix + managedHash(oldBody) + legacyManagedHeaderSuffixes[0] + "\n" + string(oldBody))
+		if err := os.WriteFile(dest, legacy, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		refreshed, err := EnsureConfig()
+		if err != nil {
+			t.Fatalf("EnsureConfig() error: %v", err)
+		}
+		if !refreshed {
+			t.Error("legacy-header stale file must report refreshed so the caller sweeps")
+		}
+		data, _ := os.ReadFile(dest)
+		if !bytes.Equal(data, ManagedConfigBytes(DefaultConfigBytes())) {
+			t.Error("legacy-header file must be force-written with the current stamped embed")
 		}
 	})
 

@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { createServer, killServer as killServerApi, adoptServer as adoptServerApi, DAEMON_SERVER } from "@/api/client";
+import { killServer as killServerApi, adoptServer as adoptServerApi, DAEMON_SERVER } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { controlClass } from "@/components/control";
 import { INPUT_COARSE, INPUT_FOCUS } from "@/components/controls";
@@ -9,7 +9,6 @@ import { useSessionContext } from "@/contexts/session-context";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
-import { finalizeSafeName, toSafeServerName } from "@/lib/names";
 import type { ProjectSession } from "@/types";
 
 /** Blast-radius copy for a protected kill target, derived live from the
@@ -29,92 +28,37 @@ function protectedBlastRadius(target: string, sessions: ProjectSession[]): strin
   }
   const sessionCount = sessions.length;
   const windowCount = sessions.reduce((n, s) => n + s.windows.length, 0);
-  return `kills ${sessionCount} session${sessionCount === 1 ? "" : "s"}, ${windowCount} window${windowCount === 1 ? "" : "s"}`;
+  return `kills ${sessionCount} group${sessionCount === 1 ? "" : "s"}, ${windowCount} tab${windowCount === 1 ? "" : "s"}`;
 }
 
 /**
- * The single create-server + kill-server dialog implementation (260811-239r),
- * lifted verbatim from AppShell and mounted ONCE in `AppLayout` — the board
- * route does not render AppShell (DD-8), so both dialogs were twinned between
- * `app.tsx` and `board-page.tsx` and had drifted (the board copy lacked the
- * `DAEMON_SERVER` warning and the input sanitization). Open-state and the
- * close triggers come from `server-dialogs-context`; this component owns the
- * create-input local state and the submit/kill handlers.
+ * The single kill-server + adopt-server dialog implementation, mounted ONCE in
+ * `AppLayout` (the board route renders no AppShell, so a per-route copy would
+ * drift). Open-state and the close triggers come from
+ * `server-dialogs-context`; this component owns the kill/adopt handlers.
+ * Workspace creation is not here: it goes through the New sheet
+ * (`new-sheet-context`).
  *
- * Unified behavior is AppShell's former superset on ALL routes: the create
- * input applies `toSafeServerName` on change and `finalizeSafeName` on submit,
- * and the kill confirm renders the `DAEMON_SERVER` warning everywhere. After a
+ * The kill confirm renders the `DAEMON_SERVER` warning on every route. After a
  * confirmed kill the app navigates to `/` only when the killed server is
  * `SessionContext`'s `currentServer` — `null` on board routes, so a board kill
- * never navigates away (matching the board's previous behavior exactly).
+ * never navigates away.
  */
 export function ServerDialogs() {
   const {
-    createServerOpen,
     killServerTarget,
     adoptServerTarget,
-    closeCreateServer,
     clearKillServerTarget,
     clearAdoptServerTarget,
   } = useServerDialogs();
   const ctx = useSessionContext();
   const currentServer = ctx.currentServer;
   const refreshServers = ctx.refreshServers;
-  const markServerPending = ctx.markServerPending;
-  const { removeGhost, addGhostServer, markKilled, unmarkKilled } = useOptimisticContext();
+  const { markKilled, unmarkKilled } = useOptimisticContext();
   const { addToast } = useToast();
   const navigate = useNavigate();
 
-  const [createServerName, setCreateServerName] = useState("");
-  const ghostServerIdRef = useRef<string | null>(null);
   const killedServerNameRef = useRef<string | null>(null);
-
-  const { execute: executeCreateServer } = useOptimisticAction<[string]>({
-    action: (name) => createServer(name),
-    onOptimistic: (name) => {
-      ghostServerIdRef.current = addGhostServer(name);
-    },
-    onRollback: () => {
-      if (ghostServerIdRef.current) {
-        removeGhost(ghostServerIdRef.current);
-        ghostServerIdRef.current = null;
-      }
-    },
-    onError: (err) => {
-      addToast(err.message || "Failed to create server");
-    },
-    onSettled: () => {
-      ghostServerIdRef.current = null;
-    },
-    // Refresh the (otherwise one-time-fetched) server list once the create
-    // resolves so the new server appears and the waiting state swaps to the
-    // view. `onAlwaysSettled` runs even though the create dialog has already
-    // closed on navigation — this component (which owns the hook) is mounted
-    // at the AppLayout level and never unmounts on navigation, and
-    // `refreshServers` only touches root-level SessionContext.
-    onAlwaysSettled: () => {
-      refreshServers();
-    },
-    // A failed create must not strand the UI on the waiting state — clear the
-    // pending marker (empty string clears to null) on the rollback path (also
-    // unmount-safe, root-context only).
-    onAlwaysRollback: () => {
-      markServerPending("");
-    },
-  });
-
-  const handleCreateServer = useCallback(() => {
-    const trimmed = finalizeSafeName(createServerName.trim());
-    if (!trimmed || !/^[a-zA-Z0-9_-]+$/.test(trimmed)) return;
-    executeCreateServer(trimmed);
-    // Mark the just-created server pending so the route guard shows the brief
-    // waiting state (not "Server not found") until the refreshed list includes
-    // it. Cleared automatically by SessionContext once it appears.
-    markServerPending(trimmed);
-    navigate({ to: "/$server", params: { server: trimmed } });
-    closeCreateServer();
-    setCreateServerName("");
-  }, [createServerName, navigate, executeCreateServer, markServerPending, closeCreateServer]);
 
   const { execute: executeKillServer } = useOptimisticAction<[string, boolean]>({
     action: (name, force) => killServerApi(name, force),
@@ -129,7 +73,7 @@ export function ServerDialogs() {
       }
     },
     onError: (err) => {
-      addToast(err.message || "Failed to kill server");
+      addToast(err.message || "Failed to kill workspace");
     },
     onSettled: () => {
       killedServerNameRef.current = null;
@@ -157,7 +101,7 @@ export function ServerDialogs() {
     void adoptServerApi(adoptServerTarget)
       .then(() => refreshServers())
       .catch((err: unknown) => {
-        addToast(err instanceof Error ? err.message : "Failed to adopt server");
+        addToast(err instanceof Error ? err.message : "Failed to adopt workspace");
       });
     clearAdoptServerTarget();
   }, [adoptServerTarget, refreshServers, addToast, clearAdoptServerTarget]);
@@ -176,32 +120,6 @@ export function ServerDialogs() {
 
   return (
     <>
-      {createServerOpen && (
-        <Dialog title="Create tmux server" onClose={() => { closeCreateServer(); setCreateServerName(""); }}>
-          <input
-            autoFocus
-            type="text"
-            value={createServerName}
-            onChange={(e) => setCreateServerName(toSafeServerName(e.target.value))}
-            onKeyDown={(e) => e.key === "Enter" && handleCreateServer()}
-            onFocus={(e) => e.target.select()}
-            aria-label="Server name"
-            placeholder="Server name..."
-            className={`w-full bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary`}
-          />
-          <p className="text-xs text-text-secondary mt-1.5">
-            Alphanumeric, hyphens, and underscores only.
-          </p>
-          <button
-            onClick={handleCreateServer}
-            disabled={!createServerName.trim() || !/^[a-zA-Z0-9_-]+$/.test(createServerName.trim())}
-            className={`mt-2.5 w-full ${controlClass({ variant: "wide", disabled: !createServerName.trim() || !/^[a-zA-Z0-9_-]+$/.test(createServerName.trim()) })}`}
-          >
-            Create
-          </button>
-        </Dialog>
-      )}
-
       {killServerTarget && killTargetProtected && (
         <ProtectedKillDialog
           target={killServerTarget}
@@ -214,7 +132,7 @@ export function ServerDialogs() {
           }}
           onRestart={() => {
             void ctx.restartNow().catch((err: unknown) => {
-              addToast(err instanceof Error ? err.message : "Failed to restart run-kit");
+              addToast(err instanceof Error ? err.message : "Failed to restart HexoKit");
             });
             clearKillServerTarget();
           }}
@@ -222,13 +140,13 @@ export function ServerDialogs() {
       )}
 
       {killServerTarget && !killTargetProtected && (
-        <Dialog title="Kill tmux server?" onClose={clearKillServerTarget}>
+        <Dialog title="Kill workspace?" onClose={clearKillServerTarget}>
           <p className="text-text-secondary mb-2.5">
-            Kill server <strong>{killServerTarget}</strong> and all its sessions? This cannot be undone.
+            Kill workspace <strong>{killServerTarget}</strong> and all its groups? This cannot be undone.
           </p>
           {killServerTarget === DAEMON_SERVER && (
             <p className="text-signal-red mb-2.5">
-              <strong>{DAEMON_SERVER}</strong> hosts the run-kit daemon serving this dashboard — killing it takes the dashboard down.
+              <strong>{DAEMON_SERVER}</strong> hosts the HexoKit daemon serving this dashboard — killing it takes the dashboard down.
             </p>
           )}
           <div className="flex gap-2">
@@ -249,10 +167,10 @@ export function ServerDialogs() {
       )}
 
       {adoptServerTarget && (
-        <Dialog title="Adopt server into run-kit?" onClose={clearAdoptServerTarget}>
+        <Dialog title="Adopt workspace into HexoKit?" onClose={clearAdoptServerTarget}>
           <p className="text-text-secondary mb-2.5">
-            Adopt server <strong>{adoptServerTarget}</strong> into run-kit? run-kit's tmux config is
-            applied to it now — your own config returns only when the server restarts.
+            Adopt workspace <strong>{adoptServerTarget}</strong> into HexoKit? HexoKit's tmux config is
+            applied to it now — your own config returns only when the workspace restarts.
           </p>
           <div className="flex gap-2">
             <button
@@ -277,7 +195,7 @@ export function ServerDialogs() {
 /** The kill confirm for PROTECTED targets (rk-daemon by derivation, or any
  *  @rk_srv_protected server). The kill action is locked behind typing the exact
  *  server name (auto-focused, Enter submits only on match, Esc cancels via the
- *  Dialog's focus trap). The daemon additionally gets the "Restart run-kit"
+ *  Dialog's focus trap). The daemon additionally gets the "Restart HexoKit"
  *  primary — the safe action — wired to the existing POST /api/restart; other
  *  protected servers keep Cancel as the safe default. */
 function ProtectedKillDialog({
@@ -298,9 +216,9 @@ function ProtectedKillDialog({
   const isDaemon = target === DAEMON_SERVER;
 
   return (
-    <Dialog title="Kill protected server?" onClose={onCancel}>
+    <Dialog title="Kill protected workspace?" onClose={onCancel}>
       <p className="text-signal-red mb-2.5">
-        <strong>{target}</strong> is a protected server — killing it{" "}
+        <strong>{target}</strong> is a protected workspace — killing it{" "}
         {protectedBlastRadius(target, sessions)}. This cannot be undone.
       </p>
       <input
@@ -309,7 +227,7 @@ function ProtectedKillDialog({
         value={typed}
         onChange={(e) => setTyped(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && unlocked && onForceKill()}
-        aria-label="Type the server name to unlock force kill"
+        aria-label="Type the workspace name to unlock force kill"
         placeholder={`Type ${target} to unlock force kill`}
         className={`w-full bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary`}
       />
@@ -325,7 +243,7 @@ function ProtectedKillDialog({
             onClick={onRestart}
             className={`flex-1 ${controlClass({ variant: "wide" })}`}
           >
-            Restart run-kit
+            Restart HexoKit
           </button>
         )}
         <button

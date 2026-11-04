@@ -85,8 +85,8 @@ func deriveRepoRoot(ctx context.Context, ops TmuxOps, server, session string) (s
 // seed — a pane whose #{pane_current_path} came back blank (or an empty Panes
 // slice when list-panes failed non-fatally) must fall through to WorktreePath
 // rather than clobber it with "". Returns "" when no directory can be derived.
-// Pure. Shared by deriveRepoRoot (session-keyed, riff) and resolveForkSource
-// (window-keyed, fork) so the two cannot drift.
+// Pure. Used by deriveRepoRoot (session-keyed, riff). Conversation forks use
+// the resolved agent pane's cwd instead, which may differ from the active pane.
 func windowCwd(win tmux.WindowInfo) string {
 	cwd := win.WorktreePath
 	if len(win.Panes) > 0 {
@@ -230,7 +230,7 @@ var loadRiffPresets = settings.LoadRiffPresets
 //	GET /api/riff/presets?server=<name>&session=<name>
 //	200: {"presets":[{"name","layout","paneCount"}], "tiers":[...]}
 //	     (presets come from run-kit's riff_presets — the built-ins plus user
-//	     entries in ~/.config/run-kit/config.yaml — never empty; every row is
+//	     entries in ~/.config/hexokit/config.yaml — never empty; every row is
 //	     one skill pane: layout "", paneCount 1; tiers gated on
 //	     fabconfig.IsFabProject — fab-kit built-ins ∪ the repo's agent.tiers
 //	     ("default" first) for a fab project, [] for a non-fab repo)

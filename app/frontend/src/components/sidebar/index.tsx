@@ -1,7 +1,9 @@
 import { useState, useCallback, useRef, useEffect, useMemo, useReducer, memo } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
-import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, getAllServerColors, setServerColor as setServerColorApi, getAllServerFlairs, setServerFlair as setServerFlairApi, setSessionOrder, setServerProtected, isExternalServer, DAEMON_SERVER, type ServerInfo } from "@/api/client";
+import { NewSplitButton } from "@/components/new-split-button";
+import { useTopBarMode } from "@/hooks/use-top-bar-mode";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, getAllServerColors, setServerColor as setServerColorApi, getAllServerFlairs, setServerFlair as setServerFlairApi, setSessionOrder, setServerProtected, isExternalServer, DAEMON_SERVER, type ForkWhere, type ServerInfo } from "@/api/client";
 import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useFocusedPane } from "@/contexts/focused-pane-context";
 import { thinWindowFromFocusedPane } from "@/lib/focused-pane-window";
@@ -85,9 +87,9 @@ function arraysEqual(a: string[], b: string[]): boolean {
  *
  *  One map key rather than one key per session: per-session keys would sprawl
  *  unboundedly across killed sessions and could not be enumerated for cleanup.
- *  The sibling per-SERVER section keys (`runkit-panel-sessions-{server}`) are
+ *  The sibling per-SERVER section keys (`hexokit-panel-sessions-{server}`) are
  *  scalars only because their value is a single boolean per server. */
-export const SESSION_COLLAPSED_STORAGE_KEY = "runkit-session-collapsed";
+export const SESSION_COLLAPSED_STORAGE_KEY = "hexokit-session-collapsed";
 
 /** Tolerant read of the persisted collapse map. Malformed JSON, a non-object
  *  root (an array included), a throwing `localStorage` (privacy mode,
@@ -181,7 +183,7 @@ export type SidebarProps = {
    *  and directory (260806-s4av). Optional (mirrors `onSpawnAgent`): when
    *  omitted — e.g. the board-route sidebar — the row flyout's fork affordance is
    *  hidden. The flyout additionally gates on `agentProvider === "claude"`. */
-  onForkWindow?: (server: string, windowId: string) => Promise<void>;
+  onForkWindow?: (server: string, windowId: string, where?: ForkWhere) => Promise<void>;
   /** Ask the server's operator window to fix a subject window's tab name
    *  (260822-fih1-operator-request-fix-tab-name). Optional (mirrors
    *  `onForkWindow`): when omitted — e.g. the board-route sidebar — the row
@@ -196,7 +198,6 @@ export type SidebarProps = {
    *  `onOperatorCompose`): when omitted — e.g. the board-route sidebar — no
    *  placeholder renders. */
   onOperatorPlaceholder?: (server: string) => void;
-  onCreateServer: () => void;
   onKillServer: (name: string) => void;
   /** Optional waiting-badge click (260714-r7rq): navigate to the next waiting
    *  window in a session (the target renders its own stored layout). Passed
@@ -224,7 +225,6 @@ export function Sidebar({
   onFixTabName,
   onOperatorCompose,
   onOperatorPlaceholder,
-  onCreateServer,
   onKillServer,
   onWaitingBadgeClick,
   onSidebarResizeStart,
@@ -258,7 +258,7 @@ export function Sidebar({
   const navigate = useNavigate();
   const { addToast } = useToast();
 
-  // Sessions-pane scope — explicit persisted state (`runkit-panel-sessions-scope`),
+  // Sessions-pane scope — explicit persisted state (`hexokit-panel-sessions-scope`),
   // fully decoupled from the SERVER panel's expansion. `current` filters the
   // tree to the resolved current server (falling back to all servers when none
   // resolves); `all` (default) lists every server's group. The header chip,
@@ -312,7 +312,7 @@ export function Sidebar({
   );
 
   // Sessions section collapse state — per-server, persisted in localStorage
-  // under `runkit-panel-sessions-{server}`. Default-open for `currentServer`,
+  // under `hexokit-panel-sessions-{server}`. Default-open for `currentServer`,
   // collapsed for everyone else. Includes a one-time migration of the legacy
   // `runkit-panel-sessions` key to the current server's namespaced key.
   const [serverSectionsOpen, setServerSectionsOpen] = useState<Record<string, boolean>>(() => {
@@ -324,7 +324,7 @@ export function Sidebar({
       try {
         const legacy = localStorage.getItem("runkit-panel-sessions");
         if (legacy != null) {
-          const k = `runkit-panel-sessions-${currentServer}`;
+          const k = `hexokit-panel-sessions-${currentServer}`;
           if (localStorage.getItem(k) == null) {
             localStorage.setItem(k, legacy);
           }
@@ -345,7 +345,7 @@ export function Sidebar({
       const cached = serverSectionsOpen[server];
       if (cached !== undefined) return cached;
       try {
-        const v = localStorage.getItem(`runkit-panel-sessions-${server}`);
+        const v = localStorage.getItem(`hexokit-panel-sessions-${server}`);
         if (v === "false") return false;
         if (v === "true") return true;
       } catch {
@@ -381,7 +381,7 @@ export function Sidebar({
     const current = readServerOpen(server);
     const next = !current;
     try {
-      localStorage.setItem(`runkit-panel-sessions-${server}`, String(next));
+      localStorage.setItem(`hexokit-panel-sessions-${server}`, String(next));
     } catch {
       // localStorage unavailable
     }
@@ -403,7 +403,7 @@ export function Sidebar({
   }, [currentServer, attachServer, readServerOpen]);
 
   // Per-session window-list collapse, keyed by `${server}:${session.name}` and
-  // persisted as collapsed exceptions in `runkit-session-collapsed` (kddk).
+  // persisted as collapsed exceptions in `hexokit-session-collapsed` (kddk).
   // Seeded lazily from storage so a collapsed session paints collapsed on the
   // first frame; read sites keep their `?? false` default, so an unknown key
   // (a new session, a cleared browser) stays expanded exactly as before.
@@ -533,7 +533,7 @@ export function Sidebar({
       lastKillSessionRef.current = null;
     },
     onError: (err) => {
-      addToast(err.message || "Failed to kill session");
+      addToast(err.message || "Failed to kill group");
     },
   });
 
@@ -628,7 +628,7 @@ export function Sidebar({
       }
     },
     onError: (err) => {
-      addToast(err.message || "Failed to rename session");
+      addToast(err.message || "Failed to rename group");
     },
     onSettled: () => {
       lastRenameSessionRef.current = null;
@@ -702,7 +702,7 @@ export function Sidebar({
       lastMoveToSessionRef.current = null;
     },
     onError: (err) => {
-      addToast(err.message || "Failed to move tab to session");
+      addToast(err.message || "Failed to move tab to group");
     },
   });
 
@@ -851,7 +851,7 @@ export function Sidebar({
 
     // Cross-server drop rejection.
     if (data.server && data.server !== server) {
-      addToast("Moving tabs across tmux servers isn't supported yet");
+      addToast("Moving tabs across workspaces isn't supported yet");
       return;
     }
     if (data.session !== sessionName || data.index === windowIndex) return;
@@ -897,7 +897,7 @@ export function Sidebar({
 
     // Cross-server drop rejection.
     if (data.server && data.server !== server) {
-      addToast("Moving tabs across tmux servers isn't supported yet");
+      addToast("Moving tabs across workspaces isn't supported yet");
       return;
     }
     if (data.session === sessionName) return;
@@ -941,7 +941,7 @@ export function Sidebar({
     orderPutTimerRef.current = setTimeout(() => {
       orderPutTimerRef.current = null;
       setSessionOrder(server, orderToPut).catch((err) => {
-        addToast(err.message || "Failed to save session order");
+        addToast(err.message || "Failed to save group order");
       });
     }, SESSION_ORDER_DEBOUNCE_MS);
 
@@ -1512,6 +1512,12 @@ export function Sidebar({
       }
       case "Enter":
       case " ": { // Space
+        // A focused control INSIDE the row (chevron, per-group `+`, name
+        // button) activates natively: preventing default here would cancel its
+        // click and activate the row instead. Only the treeitem itself —
+        // focused directly — activates through the typed identity below.
+        const innerButton = target.closest("button");
+        if (innerButton && innerButton !== anchorRow) break;
         e.preventDefault();
         if (!currentEl) break;
         const key = rowKeyOf(currentEl);
@@ -1621,7 +1627,7 @@ export function Sidebar({
 
   const handleSessionColorChange = useCallback((server: string, name: string, c: string | null) => {
     setSessionColorApi(server, name, c).catch((err) =>
-      addToast(err.message || "Failed to set session color"),
+      addToast(err.message || "Failed to set group color"),
     );
   }, [addToast]);
 
@@ -1642,7 +1648,7 @@ export function Sidebar({
   // Persist a session's flair state. Mirrors handleSessionColorChange.
   const handleSessionFlairChange = useCallback((server: string, name: string, flair: string | null) => {
     setSessionFlairApi(server, name, flair).catch((err) =>
-      addToast(err.message || "Failed to set session flair"),
+      addToast(err.message || "Failed to set group flair"),
     );
   }, [addToast]);
 
@@ -1659,7 +1665,7 @@ export function Sidebar({
       return next;
     });
     setServerColorApi(targetServer, c).catch((err) =>
-      addToast(err.message || "Failed to set server color"),
+      addToast(err.message || "Failed to set workspace color"),
     );
   }, [addToast]);
 
@@ -1673,7 +1679,7 @@ export function Sidebar({
       return next;
     });
     setServerFlairApi(targetServer, f == null || f === "" ? null : f).catch((err) =>
-      addToast(err.message || "Failed to set server flair"),
+      addToast(err.message || "Failed to set workspace flair"),
     );
   }, [addToast]);
 
@@ -1685,7 +1691,7 @@ export function Sidebar({
     void setServerProtected(targetServer, next)
       .then(() => refreshServers())
       .catch((err: unknown) => {
-        addToast(err instanceof Error ? err.message : "Failed to update server protection");
+        addToast(err instanceof Error ? err.message : "Failed to update workspace protection");
       });
   }, [refreshServers, addToast]);
 
@@ -1704,7 +1710,7 @@ export function Sidebar({
     // across its tipped controls (scope chip, PANE refresh, waiting badges)
     // opens sibling tips instantly.
     <TipGroup>
-    <nav ref={navRef} aria-label="Sessions" className="flex flex-col h-full">
+    <nav ref={navRef} aria-label="Groups" className="flex flex-col h-full">
       {/* Brand row — logo + wordmark linking home (`/`). MOBILE-ONLY: on
           phones this is the brand's ONLY surface (the top-bar brand crumb
           hides below `sm`) and the sole pointer home affordance there; on
@@ -1712,8 +1718,8 @@ export function Sidebar({
           sidebar is open (and in the bar's left crumb while it is closed), so
           the row is not rendered and the section rail is the sidebar's first
           row. Carries the same glitch + ring-sweep hover treatments.
-          Accessible name comes from the wordmark text ("RunKit") —
-          deliberately NOT the top-bar's "RunKit home" aria-label, which e2e
+          Accessible name comes from the wordmark text ("HexoKit") —
+          deliberately NOT the top-bar's "HexoKit home" aria-label, which e2e
           selects by label and must stay unique on desktop. */}
       {isMobile && <SidebarBrand />}
 
@@ -1741,7 +1747,6 @@ export function Sidebar({
         rowTints={rowTints}
         rowBorders={rowBorders}
         onSwitchServer={handleSwitchServer}
-        onCreateServer={onCreateServer}
         onRefreshServers={refreshServers}
         onServerColorChange={handleServerColorChange}
         onCreateSession={onCreateSession}
@@ -1754,7 +1759,7 @@ export function Sidebar({
       {/* Sessions — flex-grows to fill remaining space; per-server groups inside */}
       <div className="border-t-[3px] border-border flex flex-col flex-1 min-h-0">
         <div className="flex items-center gap-1.5 w-full pl-1.5 pr-1.5 sm:pr-2 py-1 text-xs text-text-secondary shrink-0 border-b border-border">
-          <TypedLabel text="Sessions" className="font-bold uppercase tracking-wide" />
+          <TypedLabel text="Groups" className="font-bold uppercase tracking-wide" />
           <span className="ml-auto flex items-center gap-1.5 min-w-0">
             {currentServer && currentSession && (
               <span className="truncate text-text-primary font-mono">{currentSession}</span>
@@ -1767,13 +1772,13 @@ export function Sidebar({
                 what a CLICK does, the chip text (ALL/CUR) shows the state. */}
             <Tip
               label={
-                sessionsScope === "all" ? "Show current server only" : "Show all servers"
+                sessionsScope === "all" ? "Show current workspace only" : "Show all workspaces"
               }
             >
               <button
                 type="button"
                 onClick={() => setSessionsScope(sessionsScope === "all" ? "current" : "all")}
-                aria-label="Toggle sessions scope"
+                aria-label="Toggle groups scope"
                 aria-pressed={sessionsScope === "current"}
                 className="shrink-0 font-mono text-[10px] leading-none tracking-wide px-1 py-0.5 border border-border rounded-sm text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors"
               >
@@ -1786,7 +1791,7 @@ export function Sidebar({
           ref={treeRef}
           role="tree"
           data-sidebar-scroll=""
-          aria-label="Session tree"
+          aria-label="Workspace tree"
           // W3C-APG multiselect tree (260807-nf9f): window rows can be selected
           // as a set (cmd/ctrl-click, shift-click range, `x`) for the palette's
           // bulk move-to-session. Session/server rows stay unselectable.
@@ -1797,7 +1802,7 @@ export function Sidebar({
         >
           {(() => {
             if (servers.length === 0) {
-              return <div className="text-text-secondary text-xs py-4 text-center">No servers</div>;
+              return <div className="text-text-secondary text-xs py-4 text-center">No workspaces</div>;
             }
             // `currentOnly` (hoisted above the JSX) narrows to the resolved
             // current server, with the no-current-server fallback to all.
@@ -2055,19 +2060,27 @@ function SelectionIndicator({
  */
 /** Brand row at the sidebar's top — mobile-only; see the render-site comment
  *  for the phone-vs-desktop role split (on desktop the brand lives in the top
- *  bar's sidebar head). A plain anchor (full navigation), matching the
- *  top-bar brand crumb's reload-boundary behavior. */
+ *  bar's sidebar head). The brand is a plain anchor (full navigation),
+ *  matching the top-bar brand crumb's reload-boundary behavior; the New split
+ *  button sits at the row's right end — the mobile home of the control, since
+ *  the 375px top bar has no room for it. */
 function SidebarBrand() {
   const sweep = useBrandLogoSweep();
+  const { mode } = useTopBarMode();
   return (
-    <a
-      href="/"
-      className="rk-brand-glitch flex items-center gap-2 px-1.5 py-1 min-h-[28px] coarse:min-h-[40px] shrink-0 border-b border-border text-text-secondary hover:text-text-primary transition-colors"
-      onMouseEnter={sweep.onMouseEnter}
-    >
-      <LogoSpinner size={18} loading={false} svgRef={sweep.svgRef} />
-      <span className="text-xs font-bold tracking-wide">RunKit</span>
-    </a>
+    <div className="flex items-center gap-2 pr-1.5 shrink-0 border-b border-border">
+      <a
+        href="/"
+        className="rk-brand-glitch flex items-center gap-2 px-1.5 py-1 min-h-[28px] coarse:min-h-[40px] min-w-0 flex-1 text-text-secondary hover:text-text-primary transition-colors"
+        onMouseEnter={sweep.onMouseEnter}
+      >
+        <LogoSpinner size={18} loading={false} svgRef={sweep.svgRef} />
+        <span className="text-xs font-bold tracking-wide">HexoKit</span>
+      </a>
+      {/* Not on the Host page: it has no sidebar drawer, and its own tile grid
+          carries the create-workspace door. */}
+      {mode !== "host" && <NewSplitButton mode={mode} align="end" />}
+    </div>
   );
 }
 
@@ -2081,7 +2094,7 @@ function SidebarFooter({ isConnected }: { isConnected: boolean }) {
   const dotTitle = !isConnected
     ? "Disconnected"
     : daemonVersion
-      ? `Connected — run-kit ${displayVersion(daemonVersion)}`
+      ? `Connected — HexoKit ${displayVersion(daemonVersion)}`
       : "Connected";
 
   const versionText = daemonVersion ? displayVersion(daemonVersion) : null;
@@ -2123,7 +2136,7 @@ function SidebarFooter({ isConnected }: { isConnected: boolean }) {
             <button
               type="button"
               onClick={handleCopyVersion}
-              aria-label={`RunKit ${versionText} (copy)`}
+              aria-label={`HexoKit ${versionText} (copy)`}
               className="text-[10px] text-text-secondary hover:text-text-primary transition-colors truncate"
             >
               {versionText}
@@ -2328,7 +2341,7 @@ type ServerGroupProps = {
   onWindowFlairChange: (server: string, session: string, windowId: string, flair: string | null) => void;
   /** Forwarded to each `WindowRow` → its row flyout's fork affordance. Optional
    *  (the board-route sidebar passes none) — see `SidebarProps.onForkWindow`. */
-  onForkWindow?: (server: string, windowId: string) => Promise<void>;
+  onForkWindow?: (server: string, windowId: string, where?: ForkWhere) => Promise<void>;
   /** Forwarded to each `WindowRow` → its row flyout's Fix tab name affordance.
    *  Optional (the board-route sidebar passes none) — see
    *  `SidebarProps.onFixTabName`. */
@@ -2478,7 +2491,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     void setServerProtected(server, !serverProtected)
       .then(() => refreshServers())
       .catch((err: unknown) => {
-        addGroupToast(err instanceof Error ? err.message : "Failed to update server protection");
+        addGroupToast(err instanceof Error ? err.message : "Failed to update workspace protection");
       });
   }, [server, serverProtected, refreshServers, addGroupToast]);
 
@@ -2783,7 +2796,7 @@ function ServerGroupInner(props: ServerGroupProps) {
           type="button"
           onClick={() => onToggleOpen(server)}
           aria-expanded={isOpen}
-          aria-label={isOpen ? `Collapse ${server} sessions` : `Expand ${server} sessions`}
+          aria-label={isOpen ? `Collapse ${server} groups` : `Expand ${server} groups`}
           className={`flex-1 min-w-0 flex items-center gap-1.5 pl-2 pr-1.5 text-left text-[10px] uppercase tracking-wider font-semibold min-h-[26px] coarse:min-h-[28px] transition-colors ${
             isCurrent ? "text-text-primary" : ""
           }`}
@@ -2998,8 +3011,8 @@ function ServerGroupInner(props: ServerGroupProps) {
               className="block w-full pl-2 pr-2 py-1 text-left text-xs text-text-secondary hover:text-text-primary hover:bg-bg-chrome-raised transition-colors"
             >
               {createSessionChord
-                ? `(no sessions — a session groups tabs; + new, or ${createSessionChord})`
-                : "(no sessions — a session groups tabs; + new)"}
+                ? `(no groups — a group holds tabs; + new, or ${createSessionChord})`
+                : "(no groups — a group holds tabs; + new)"}
             </button>
           ) : (
             visibleSessions.map((session, sessionIdx) => {

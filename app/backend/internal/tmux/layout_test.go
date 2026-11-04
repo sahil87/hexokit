@@ -4,6 +4,7 @@ import (
 	"context"
 	"os/exec"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -27,9 +28,10 @@ func TestParseLayoutSessions(t *testing.T) {
 			},
 		},
 		{
-			name: "pin-sessions and control anchor filtered",
+			name: "pin/iso sessions and control anchor filtered",
 			lines: []string{
 				"_rk-pin-42\t1750000000\t",
+				"_rk-iso-9\t1750000000\t",
 				"_rk-ctl\t1750000001\t",
 				"real\t1750000002\t1+3",
 			},
@@ -66,10 +68,10 @@ func TestParseLayoutSessions(t *testing.T) {
 }
 
 // layoutLine builds a layout-capture line with every field placed explicitly:
-// rk_layout at idx 7, the web slots at idx 8..15, their roots at 16..23,
-// web_active at 24, code_root at 25, marker 26, role 27, flair 28, owner 29,
-// the note at 30 (strict single field), and the legacy note appended LAST
-// (31+).
+// rk_layout as the last fixed-prefix field, then the MaxWebTabs web slots,
+// their MaxWebTabs parallel roots, then web_active, code_root, marker, role,
+// flair, owner, the note (strict single field), and the legacy note appended
+// LAST.
 func layoutLine(session, id, index, name, active, layout, color, rkLayout, webActive, codeRoot, marker, role, flair, owner, note, legacyNote string, tabs, roots []string) string {
 	fields := []string{session, id, index, name, active, layout, color, rkLayout}
 	var slots, slotRoots [MaxWebTabs]string
@@ -85,28 +87,38 @@ func layoutLine(session, id, index, name, active, layout, color, rkLayout, webAc
 	return strings.Join(fields, listDelim) + listDelim + legacyNote
 }
 
+// fullLayoutLine pads a partial fixture line to the full current-format
+// length — the real format always emits every field, and a shorter line
+// parses as a pre-16-slot legacy capture (legacyWebTabSlots).
+func fullLayoutLine(fields []string) string {
+	for len(fields) < layoutWindowFullFields {
+		fields = append(fields, "")
+	}
+	return strings.Join(fields, listDelim)
+}
+
 func TestParseLayoutWindows(t *testing.T) {
-	// lineThroughMarker builds a line that stops at the marker field (idx 26) —
-	// role/flair/note absent, exercising the optional trailing fields.
+	// lineThroughMarker builds a full line with only the marker trailing field
+	// set — role/flair/note empty, exercising the optional trailing fields.
 	lineThroughMarker := func(marker string) string {
-		fields := make([]string, 27)
+		fields := make([]string, layoutWindowMarkerField+1)
 		copy(fields, []string{"kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1", "4"})
-		fields[26] = marker
-		return strings.Join(fields, listDelim)
+		fields[layoutWindowMarkerField] = marker
+		return fullLayoutLine(fields)
 	}
-	// lineThroughNote builds a line that stops at the note field (idx 30).
+	// lineThroughNote builds a full line with only the note trailing field set.
 	lineThroughNote := func(note string) string {
-		fields := make([]string, 31)
+		fields := make([]string, layoutWindowNoteField+1)
 		copy(fields, []string{"kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1"})
-		fields[30] = note
-		return strings.Join(fields, listDelim)
+		fields[layoutWindowNoteField] = note
+		return fullLayoutLine(fields)
 	}
-	// lineThroughOwner builds a line that stops at the owner field (idx 29).
+	// lineThroughOwner builds a full line with only the owner trailing field set.
 	lineThroughOwner := func(owner string) string {
-		fields := make([]string, 30)
+		fields := make([]string, layoutWindowOwnerField+1)
 		copy(fields, []string{"kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1"})
-		fields[29] = owner
-		return strings.Join(fields, listDelim)
+		fields[layoutWindowOwnerField] = owner
+		return fullLayoutLine(fields)
 	}
 
 	tests := []struct {
@@ -167,7 +179,7 @@ func TestParseLayoutWindows(t *testing.T) {
 			},
 		},
 		{
-			name: "owner field captured (idx 29), unknown value rides verbatim",
+			name: "owner field captured, unknown value rides verbatim",
 			lines: []string{
 				lineThroughOwner("operator"),
 			},
@@ -177,7 +189,7 @@ func TestParseLayoutWindows(t *testing.T) {
 			},
 		},
 		{
-			name: "new note in its strict single field (idx 30), verbatim",
+			name: "new note in its strict single field, verbatim",
 			lines: []string{
 				lineThroughNote("1756036800:blocked on flaky e2e"),
 			},
@@ -187,9 +199,10 @@ func TestParseLayoutWindows(t *testing.T) {
 			},
 		},
 		{
-			name: "pin-session link rows skipped, home row kept once",
+			name: "pin/iso link rows skipped, home row kept once",
 			lines: []string{
 				"_rk-pin-7\t@7\t0\tpinned\t1\tllll,1x1,0,0,7\t\t\t\t",
+				"_rk-iso-7\t@7\t0\tpinned\t1\tllll,1x1,0,0,7\t\t\t\t",
 				"home\t@7\t3\tpinned\t0\tllll,1x1,0,0,7\t\t\t\t",
 				"home\t@7\t3\tpinned\t0\tllll,1x1,0,0,7\t\t\t\t", // duplicate id
 			},
@@ -264,6 +277,138 @@ func TestParseLayoutWindowsNoteDualRead(t *testing.T) {
 				t.Errorf("Note = %q, want %q", got[0].Note, tt.wantNote)
 			}
 		})
+	}
+}
+
+// TestParseLayoutWindowsFullWebFamily pins the post-slot field offsets: a line
+// with every URL slot AND every root slot populated, plus a distinct value in
+// every trailing field, must land each field in its own struct member.
+func TestParseLayoutWindowsFullWebFamily(t *testing.T) {
+	tabs := make([]string, MaxWebTabs)
+	roots := make([]string, MaxWebTabs)
+	for i := range tabs {
+		tabs[i] = "/proxy/" + strconv.Itoa(4000+i) + "/"
+		roots[i] = "/r" + strconv.Itoa(i+1)
+	}
+	line := layoutLine("kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1", "4", "split-h:tty,web",
+		"9", "/work/repo", "manual:2", "operator", "nyan", "operator", "1756036800:full line", "", tabs, roots)
+
+	got := parseLayoutWindows([]string{line})
+	if len(got) != 1 {
+		t.Fatalf("parseLayoutWindows() returned %d windows, want 1", len(got))
+	}
+	w := got[0]
+	if !reflect.DeepEqual(w.WebTabs, tabs) {
+		t.Errorf("WebTabs = %v, want %v", w.WebTabs, tabs)
+	}
+	if !reflect.DeepEqual(w.WebRoots, roots) {
+		t.Errorf("WebRoots = %v, want %v", w.WebRoots, roots)
+	}
+	if w.WebActive != 9 {
+		t.Errorf("WebActive = %d, want 9", w.WebActive)
+	}
+	if w.CodeRoot != "/work/repo" {
+		t.Errorf("CodeRoot = %q, want /work/repo", w.CodeRoot)
+	}
+	if w.Marker != "manual:2" {
+		t.Errorf("Marker = %q, want manual:2", w.Marker)
+	}
+	if w.Role != "operator" {
+		t.Errorf("Role = %q, want operator", w.Role)
+	}
+	if w.Flair != "nyan" {
+		t.Errorf("Flair = %q, want nyan", w.Flair)
+	}
+	if w.Owner != "operator" {
+		t.Errorf("Owner = %q, want operator", w.Owner)
+	}
+	if w.Note != "1756036800:full line" {
+		t.Errorf("Note = %q, want the verbatim strict single field", w.Note)
+	}
+
+	// The legacy note fills in only when the new note field is empty, its
+	// free-text tail rejoined across embedded tabs.
+	legacy := layoutLine("kit", "@2", "2", "docs", "0", "abcd,204x48,0,0,2", "", "",
+		"1", "", "", "", "", "", "", "123:two\tpart\tnote", tabs[:1], roots[:1])
+	got = parseLayoutWindows([]string{legacy})
+	if len(got) != 1 {
+		t.Fatalf("parseLayoutWindows() returned %d windows, want 1", len(got))
+	}
+	if got[0].Note != "123:two\tpart\tnote" {
+		t.Errorf("Note = %q, want the rejoined legacy tail", got[0].Note)
+	}
+	if !reflect.DeepEqual(got[0].WebTabs, tabs[:1]) || !reflect.DeepEqual(got[0].WebRoots, roots[:1]) {
+		t.Errorf("WebTabs/WebRoots = %v/%v, want the single populated slot pair", got[0].WebTabs, got[0].WebRoots)
+	}
+}
+
+// TestParseLayoutWindowsShortLineTolerance: a capture line from the
+// pre-16-slot format (8 URL slots, 8 roots, trailing fields at the old
+// offsets) parses with the legacy offsets — the slots and roots it carries
+// survive and the fields the shorter line never carried read empty.
+func TestParseLayoutWindowsShortLineTolerance(t *testing.T) {
+	fields := []string{
+		"kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1", "4", "split-h:tty,web",
+		"/proxy/3000/", "https://x/", "", "", "", "", "", "", // the 8-slot-era URL slots
+		"/r1", "", "", "", "", "", "", "", // the 8-slot-era roots
+		"", "", "", "", "", "", // web_active .. note
+		"", // legacy note
+	}
+	got := parseLayoutWindows([]string{strings.Join(fields, listDelim)})
+	if len(got) != 1 {
+		t.Fatalf("parseLayoutWindows() returned %d windows, want 1", len(got))
+	}
+	w := got[0]
+	if !reflect.DeepEqual(w.WebTabs, []string{"/proxy/3000/", "https://x/"}) {
+		t.Errorf("WebTabs = %v, want the two populated slots", w.WebTabs)
+	}
+	if !reflect.DeepEqual(w.WebRoots, []string{"/r1", ""}) {
+		t.Errorf("WebRoots = %v, want the legacy root block parallel to the tabs", w.WebRoots)
+	}
+	if w.WebActive != 1 {
+		t.Errorf("WebActive = %d, want 1 (absent active clamps with tabs present)", w.WebActive)
+	}
+	if w.CodeRoot != "" || w.Marker != "" || w.Role != "" || w.Flair != "" || w.Owner != "" || w.Note != "" {
+		t.Errorf("trailing fields = %q/%q/%q/%q/%q/%q, want all empty on a short line",
+			w.CodeRoot, w.Marker, w.Role, w.Flair, w.Owner, w.Note)
+	}
+	if w.Color != "4" || w.RkLayout != "split-h:tty,web" {
+		t.Errorf("Color/RkLayout = %q/%q, want 4/split-h:tty,web", w.Color, w.RkLayout)
+	}
+}
+
+// TestParseLayoutWindowsDenseLegacyLine: a pre-16-slot capture with EVERY URL
+// and root slot populated parses at the legacy offsets — the root block must
+// not misread as extra URL slots, and the trailing fields land where the old
+// format put them.
+func TestParseLayoutWindowsDenseLegacyLine(t *testing.T) {
+	fields := []string{
+		"kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1", "4", "split-h:tty,web",
+	}
+	tabs := []string{"/p/1/", "/p/2/", "/p/3/", "/p/4/", "/p/5/", "/p/6/", "/p/7/", "/p/8/"}
+	roots := []string{"/r1", "/r2", "/r3", "/r4", "/r5", "/r6", "/r7", "/r8"}
+	fields = append(fields, tabs...)
+	fields = append(fields, roots...)
+	// The 8-slot-era trailing fields at the old offsets, then the legacy note.
+	fields = append(fields, "3", "/code", "solid", "operator", "nyan", "operator", "1700000001:n", "123:legacy")
+	got := parseLayoutWindows([]string{strings.Join(fields, listDelim)})
+	if len(got) != 1 {
+		t.Fatalf("parseLayoutWindows() returned %d windows, want 1", len(got))
+	}
+	w := got[0]
+	if !reflect.DeepEqual(w.WebTabs, tabs) {
+		t.Errorf("WebTabs = %v, want the 8 legacy URL slots (roots must not leak in)", w.WebTabs)
+	}
+	if !reflect.DeepEqual(w.WebRoots, roots) {
+		t.Errorf("WebRoots = %v, want %v", w.WebRoots, roots)
+	}
+	if w.WebActive != 3 {
+		t.Errorf("WebActive = %d, want 3", w.WebActive)
+	}
+	if w.CodeRoot != "/code" || w.Marker != "manual:1" || w.Role != "operator" ||
+		w.Flair != "nyan" || w.Owner != "operator" || w.Note != "1700000001:n" {
+		t.Errorf("trailing = %q/%q/%q/%q/%q/%q, want the legacy offsets' values",
+			w.CodeRoot, w.Marker, w.Role, w.Flair, w.Owner, w.Note)
 	}
 }
 

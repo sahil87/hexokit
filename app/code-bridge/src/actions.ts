@@ -11,7 +11,7 @@ export function buildWebAddArgv(identity: TabIdentity, target: string): string[]
 }
 
 export function buildNotifyArgv(basename: string): string[] {
-  return ['notify', 'presenting ' + basename, '--title', 'run-kit'];
+  return ['notify', 'presenting ' + basename, '--title', 'HexoKit'];
 }
 
 export function buildSendArgv(identity: TabIdentity, opts: { force: boolean }): string[] {

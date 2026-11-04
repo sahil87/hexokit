@@ -10,28 +10,29 @@ import (
 )
 
 // shellInitBanner returns the leading comment block emitted at the top of
-// `run-kit shell-init <shell>` output. It mirrors the pattern used by `tu`, `hop`,
+// `rk shell-init <shell>` output. It mirrors the pattern used by `tu`, `hop`,
 // and `wt` — a one-line tagline, an install hint, and an explanatory note that
 // the snippet is intended for `eval` (not for `$fpath` autoload).
 //
-// run-kit does NOT define a shell function wrapper (unlike hop/wt) because it has
-// no bare-name dispatch, no tool-form sugar, and no verb dispatch — every
-// subcommand is reached the regular way via `run-kit <subcommand>`. The shell-init
-// output is therefore completion-only.
+// hexokit does NOT define a shell function wrapper (unlike hop/wt) because it
+// has no bare-name dispatch, no tool-form sugar, and no verb dispatch — every
+// subcommand is reached the regular way via `hexokit <subcommand>` (or the
+// `rk`/`xk`/`run-kit` invocation names). The shell-init output is therefore
+// completion-only.
 func shellInitBanner(shell string) string {
 	installRC := "~/.zshrc"
 	if shell == "bash" {
 		installRC = "~/.bashrc"
 	}
-	return fmt.Sprintf(`# run-kit(1) %[1]s completion
+	return fmt.Sprintf(`# hexokit(1) %[1]s completion
 # Install:
-#   echo 'eval "$(run-kit shell-init %[1]s)"' >> %[2]s
+#   echo 'eval "$(rk shell-init %[1]s)"' >> %[2]s
 #
 # This snippet is intended for `+"`eval`"+`, not for autoload via $fpath. It defines
-# the cobra-generated _run-kit completion function and registers it with the shell's
-# completion system, for both the canonical `+"`run-kit`"+` command and its short alias
-# `+"`rk`"+`. run-kit has no shell function wrapper — every subcommand is reached via
-# `+"`run-kit <subcommand>`"+` (or `+"`rk <subcommand>`"+`), so this snippet is completion-only.
+# the cobra-generated _hexokit completion function and registers it with the shell's
+# completion system, for the canonical `+"`hexokit`"+` command name and the installed
+# invocation names `+"`rk`"+`, `+"`xk`"+`, and `+"`run-kit`"+`. hexokit has no shell function wrapper — every
+# subcommand is reached via `+"`hexokit <subcommand>`"+` (or `+"`rk <subcommand>`"+`), so this snippet is completion-only.
 `, shell, installRC)
 }
 
@@ -39,41 +40,49 @@ func shellInitBanner(shell string) string {
 // `compdef` is available even when the user's rc file hasn't already run
 // `compinit`. Without this, sourcing the eval'd output from a fresh shell
 // (or before compinit fires) fails with `compdef: command not found` and the
-// `_run-kit` function never registers.
+// `_hexokit` function never registers.
 const zshCompinitShim = `
 # Lazy-load compinit if the user hasn't already initialised the completion
-# system — ` + "`compdef`" + ` is provided by compinit and is required to register _run-kit
-# against the ` + "`run-kit`" + ` command (and its ` + "`rk`" + ` alias) at eval time.
+# system — ` + "`compdef`" + ` is provided by compinit and is required to register _hexokit
+# against the ` + "`hexokit`" + ` command (and the ` + "`rk`" + ` / ` + "`xk`" + ` / ` + "`run-kit`" + ` invocation names) at eval time.
 (( $+functions[compdef] )) || { autoload -Uz compinit && compinit -i }
 
 `
 
-// zshAliasCompdef registers the cobra-generated _run-kit completion function
-// against the short alias `rk` as well. Cobra's GenZshCompletion only emits
-// `compdef _run-kit run-kit` for the primary name, so without this line the
-// daily-typed `rk` would silently lose tab completion after the canonical-name
-// swap.
-const zshAliasCompdef = "\ncompdef _run-kit rk\n"
+// zshAliasCompdef registers the cobra-generated _hexokit completion function
+// against the installed invocation names `rk`, `xk`, and the legacy `run-kit`
+// as well. Cobra's GenZshCompletion only emits `compdef _hexokit hexokit` for
+// the root name, so without these lines the daily-typed names would silently
+// lose tab completion — the binary answers to all four names (root dispatch
+// is by argv[0]; the formula symlinks each name to the one binary), and
+// completion must cover each.
+const zshAliasCompdef = "\ncompdef _hexokit rk\ncompdef _hexokit xk\ncompdef _hexokit run-kit\n"
 
-// bashAliasComplete registers the cobra-generated __start_run-kit completion
-// function against the short alias `rk` as well. Cobra's GenBashCompletionV2
-// only emits a `complete ... run-kit` registration for the primary name; this
-// mirrors cobra's own compopt-conditional registration block verbatim (same
-// `-o default` / `-o default -o nospace` flags, same `__start_run-kit` entry
-// function) so `rk <TAB>` behaves identically to `run-kit <TAB>`.
+// bashAliasComplete registers the cobra-generated __start_hexokit completion
+// function against the installed invocation names `rk`, `xk`, and the legacy
+// `run-kit` as well. Cobra's GenBashCompletionV2 only emits a
+// `complete ... hexokit` registration for the root name; this mirrors cobra's
+// own compopt-conditional registration block verbatim (same `-o default` /
+// `-o default -o nospace` flags, same `__start_hexokit` entry function) so
+// `rk <TAB>`, `xk <TAB>`, and `run-kit <TAB>` behave identically to
+// `hexokit <TAB>`.
 const bashAliasComplete = `
 if [[ $(type -t compopt) = "builtin" ]]; then
-    complete -o default -F __start_run-kit rk
+    complete -o default -F __start_hexokit rk
+    complete -o default -F __start_hexokit xk
+    complete -o default -F __start_hexokit run-kit
 else
-    complete -o default -o nospace -F __start_run-kit rk
+    complete -o default -o nospace -F __start_hexokit rk
+    complete -o default -o nospace -F __start_hexokit xk
+    complete -o default -o nospace -F __start_hexokit run-kit
 fi
 `
 
-// newShellInitCmd returns the `run-kit shell-init <shell>` cobra command. It emits
+// newShellInitCmd returns the `rk shell-init <shell>` cobra command. It emits
 // shell-eval-safe content for the given shell, suitable for the user (or the
 // `shll` meta-CLI) to drop into their rc file as:
 //
-//	eval "$(run-kit shell-init zsh)"
+//	eval "$(rk shell-init zsh)"
 //
 // Supported shells: zsh, bash, fish, powershell. zsh/bash are the documented
 // targets; fish/powershell are included because the underlying cobra delegation
@@ -97,12 +106,12 @@ func newShellInitCmd() *cobra.Command {
 
 The output is intended to be sourced via:
 
-  eval "$(run-kit shell-init zsh)"
+  eval "$(rk shell-init zsh)"
 
-run-kit has no shell function wrapper — the snippet only registers the
-cobra-generated completion function for the run-kit command and its rk alias.
-compinit is lazy-loaded for zsh so the snippet is safe to eval from a shell that
-hasn't yet run compinit.`,
+hexokit has no shell function wrapper — the snippet only registers the
+cobra-generated completion function for the hexokit command and the rk, xk,
+and run-kit invocation names. compinit is lazy-loaded for zsh so the snippet is
+safe to eval from a shell that hasn't yet run compinit.`,
 		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -147,11 +156,13 @@ func runShellInit(cmd *cobra.Command, args []string) error {
 	// self-contained (the user evals one blob; no second `run-kit completion <shell>`
 	// call needed).
 	//
-	// After the canonical name swap to `run-kit`, cobra generates completion
-	// bound to `run-kit` only. zsh and bash additionally register the same
-	// generated completion function against the short alias `rk` so the
-	// daily-typed name keeps tab completion. fish/powershell keep cobra's
-	// single-name binding (undocumented targets — Assumption 9).
+	// Cobra generates completion bound to the root name `hexokit` only. zsh and
+	// bash additionally register the same generated completion function against
+	// the installed invocation names `rk`, `xk`, and `run-kit` (formula
+	// symlinks to the one binary) so every daily-typed name keeps tab
+	// completion.
+	// fish/powershell keep cobra's single-name binding (undocumented targets —
+	// Assumption 9).
 	switch shell {
 	case "zsh":
 		if _, err := io.WriteString(out, zshCompinitShim); err != nil {
