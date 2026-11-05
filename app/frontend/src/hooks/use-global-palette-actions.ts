@@ -3,14 +3,14 @@ import { useMatches, useNavigate, useRouter } from "@tanstack/react-router";
 import { useChromeDispatch, useChromeState } from "@/contexts/chrome-context";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { useNewSheet } from "@/contexts/new-sheet-context";
-import { useCurrentServerFromRoute, useUpdateNotification } from "@/contexts/session-context";
+import { useCurrentServerFromRoute, useOpenAIMCP, useUpdateNotification } from "@/contexts/session-context";
 import { useUpdateCheck } from "@/hooks/use-update-check";
 import { consumeUpdateWatchTarget } from "@/hooks/use-update-click";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useShellServers } from "@/hooks/use-shell-servers";
 import { useSidebarSectionVisible } from "@/hooks/use-sidebar-sections";
 import { useToast } from "@/components/toast";
-import { deleteCron, getCron, muteCron, type CronEntry } from "@/api/client";
+import { deleteCron, getCron, muteCron, postSettings, restartOpenAIMCP, type CronEntry } from "@/api/client";
 import type { PaletteAction } from "@/components/command-palette";
 import { HELP_URL } from "@/components/global-chrome";
 import { HELP_TOPICS, helpTopicActionId, helpTopicPaletteLabel, openHelpTopic } from "@/lib/help-topics";
@@ -27,6 +27,7 @@ import { buildEasterEggActions } from "@/lib/palette/easter-eggs";
 import { fire as fireScreenBreak } from "@/lib/screen-break-store";
 import { copyToClipboard } from "@/lib/clipboard";
 import { mcpEndpointUrl } from "@/lib/mcp-endpoint";
+import { buildOpenAIMCPActions } from "@/lib/palette/openai-mcp";
 
 /**
  * Layout-level global palette groups (260811-239r) — built ONCE for the single
@@ -552,6 +553,31 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     [addToast],
   );
 
+  // ChatGPT connector on/off/restart: palette parity for the Settings →
+  // General connector rows (Constitution V). Layout-global like the MCP
+  // endpoint copy: the connector is host-wide, not per route.
+  const openAIMCP = useOpenAIMCP();
+  const openAIMCPActions: PaletteAction[] = useMemo(() => {
+    const toastError = (err: unknown, fallback: string) =>
+      addToast(err instanceof Error && err.message ? err.message : fallback, "error");
+    return buildOpenAIMCPActions({
+      signal: openAIMCP,
+      onTurnOn: () => {
+        void postSettings({ "openai_mcp.enabled": true }).catch((err: unknown) => toastError(err, "Failed to save"));
+      },
+      onTurnOff: () => {
+        void postSettings({ "openai_mcp.enabled": false }).catch((err: unknown) => toastError(err, "Failed to save"));
+      },
+      onRestart: () => {
+        void restartOpenAIMCP()
+          .then((res) => {
+            if (!res.ok) addToast("The ChatGPT connector is off", "info");
+          })
+          .catch((err: unknown) => toastError(err, "Restart failed"));
+      },
+    });
+  }, [openAIMCP, addToast]);
+
   // App-window pair (260820-lfla) — the SPA-side claims on ⌘N (new app
   // window) and ⇧⌘W (close app window) inside the mac desktop shell, riding
   // the `windows` bridge group (shell:new-window / shell:close-window). The
@@ -610,10 +636,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...(quakeMachine === "open" && quakeTerminalOpenAsTabEntry ? [quakeTerminalOpenAsTabEntry] : []), ...(operatorStartEntry ? [operatorStartEntry] : []), ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, mcpEndpointEntry, ...easterEggActions, createServerEntry],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...(quakeMachine === "open" && quakeTerminalOpenAsTabEntry ? [quakeTerminalOpenAsTabEntry] : []), ...(operatorStartEntry ? [operatorStartEntry] : []), ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, mcpEndpointEntry, ...openAIMCPActions, ...easterEggActions, createServerEntry],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, quakeTerminalOpenAsTabEntry, operatorStartEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, mcpEndpointEntry, easterEggActions, createServerEntry, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, quakeTerminalOpenAsTabEntry, operatorStartEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, mcpEndpointEntry, openAIMCPActions, easterEggActions, createServerEntry, bindingByAction, bindingHost],
   );
 }

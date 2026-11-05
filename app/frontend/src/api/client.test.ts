@@ -27,6 +27,8 @@ import {
   launchGuiApp,
   resizeGui,
   restartGui,
+  saveOpenAIMCPKey,
+  restartOpenAIMCP,
   getDirectories,
   getWorktrees,
   uploadFile,
@@ -2001,5 +2003,59 @@ describe("gui client (host-global /api/gui/*)", () => {
     await expect(
       editCron("runkit", { id: "c_1", schedule: { kind: "nope" } }),
     ).rejects.toThrow("unknown schedule kind");
+  });
+});
+
+describe("ChatGPT connector client", () => {
+  it("saveOpenAIMCPKey POSTs the key and resolves keySet, never the key", async () => {
+    let body: unknown = null;
+    mswServer.use(
+      http.post("/api/openai-mcp/key", async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ ok: true, keySet: true });
+      }),
+    );
+    await expect(saveOpenAIMCPKey("sk-proj-abcdefghijklmnopqrstuvwxyz")).resolves.toEqual({ keySet: true });
+    expect(body).toEqual({ key: "sk-proj-abcdefghijklmnopqrstuvwxyz" });
+  });
+
+  it("saveOpenAIMCPKey with an empty key clears it", async () => {
+    let body: unknown = null;
+    mswServer.use(
+      http.post("/api/openai-mcp/key", async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ ok: true, keySet: false });
+      }),
+    );
+    await expect(saveOpenAIMCPKey("")).resolves.toEqual({ keySet: false });
+    expect(body).toEqual({ key: "" });
+  });
+
+  it("saveOpenAIMCPKey throws the server's validation message", async () => {
+    mswServer.use(
+      http.post("/api/openai-mcp/key", () =>
+        HttpResponse.json({ error: "API key must look like sk-…" }, { status: 400 }),
+      ),
+    );
+    await expect(saveOpenAIMCPKey("nope")).rejects.toThrow("API key must look like sk-…");
+  });
+
+  it("restartOpenAIMCP resolves ok on 200, maps 409 to off, throws otherwise", async () => {
+    mswServer.use(http.post("/api/openai-mcp/restart", () => HttpResponse.json({ status: "ok" })));
+    await expect(restartOpenAIMCP()).resolves.toEqual({ ok: true });
+
+    mswServer.use(
+      http.post("/api/openai-mcp/restart", () =>
+        HttpResponse.json({ error: "chatgpt connector is off" }, { status: 409 }),
+      ),
+    );
+    await expect(restartOpenAIMCP()).resolves.toEqual({ ok: false, off: true });
+
+    mswServer.use(
+      http.post("/api/openai-mcp/restart", () =>
+        HttpResponse.json({ error: "no API key saved" }, { status: 500 }),
+      ),
+    );
+    await expect(restartOpenAIMCP()).rejects.toThrow("no API key saved");
   });
 });

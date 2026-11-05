@@ -468,6 +468,11 @@ func startSession(exe string) error {
 	// default install issues zero gui tmux commands.
 	ensureGUI()
 
+	// Bring up the ChatGPT connector's tunnel-client beside the daemon. Same
+	// best-effort posture; the openai_mcp.enabled gate fires first, so a
+	// default install issues zero connector tmux commands.
+	ensureOpenAIMCP()
+
 	return nil
 }
 

@@ -83,6 +83,7 @@ func init() {
 	rootCmd.AddCommand(roleCmd)
 	rootCmd.AddCommand(codeServerCmd)
 	rootCmd.AddCommand(guiCmd)
+	rootCmd.AddCommand(openAIMCPCmd)
 	rootCmd.AddCommand(codeCmd)
 	rootCmd.AddCommand(presentCmd)
 	rootCmd.AddCommand(tabCmd)

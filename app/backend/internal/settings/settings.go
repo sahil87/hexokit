@@ -35,6 +35,7 @@ import (
 
 	"rk/internal/apphome"
 	"rk/internal/gui"
+	"rk/internal/openaimcp"
 	"rk/internal/portpolicy"
 	"rk/internal/validate"
 )
@@ -120,6 +121,16 @@ type Settings struct {
 	// follow the focused desktop viewer's tile. Applies live via RandR when
 	// the display is reachable.
 	GUIGeometry string
+	// OpenAIMCPEnabled turns the ChatGPT connector on: the daemon runs OpenAI's
+	// tunnel-client (the rk-openai-mcp sibling session) so ChatGPT reaches
+	// /mcp through an outbound-only tunnel. Strictly opt-in (default false);
+	// a settings POST applies the flip live (docs/specs/openai-mcp.md).
+	OpenAIMCPEnabled bool
+	// OpenAIMCPTunnelID is the OpenAI tunnel the connector polls, as shown on
+	// platform.openai.com. Empty leaves the connector unconfigured. The
+	// runtime API key is deliberately not a setting: it lives in a 0600 file
+	// in the state home (openaimcp.KeyPath).
+	OpenAIMCPTunnelID string
 	// TmuxConf is the path to the tmux.conf rk passes to tmux. Empty means
 	// "unset": tmux resolution falls back to its built-in default. The user
 	// owns the file — rk performs no ensure/refresh on it. Read at tmux
@@ -606,6 +617,35 @@ var registry = []registryEntry{
 		serialize: quotedScalarOmittingDefault("gui.geometry", gui.GeometryDefault, func(s *Settings) *string { return &s.GUIGeometry }),
 		read:      func(s *Settings) any { return s.GUIGeometry },
 		apply:     validatedScalar(func(s *Settings) *string { return &s.GUIGeometry }, gui.ValidateGeometry, gui.GeometryDefault),
+	},
+	{
+		key: "openai_mcp.enabled", kind: "bool", def: "false",
+		desc:     "Turns the ChatGPT connector on: runs OpenAI's tunnel-client (rk-openai-mcp session) so ChatGPT can call every MCP tool the daemon serves, including ones that type into agents and kill panes. Turning it on accepts that exposure. Off by default; nothing flips it but you.",
+		category: "connectivity", ui: true, live: true,
+		// Tolerant read: any strconv.ParseBool value; anything else keeps the
+		// default (off), the safe direction for an opt-in exposure.
+		parse: func(s *Settings, value string) {
+			if b, err := strconv.ParseBool(strings.Trim(value, "\"")); err == nil {
+				s.OpenAIMCPEnabled = b
+			}
+		},
+		serialize: func(s *Settings) string {
+			if s.OpenAIMCPEnabled {
+				return "openai_mcp.enabled: true\n"
+			}
+			return ""
+		},
+		read:  func(s *Settings) any { return s.OpenAIMCPEnabled },
+		apply: boolValue(func(s *Settings) *bool { return &s.OpenAIMCPEnabled }, false),
+	},
+	{
+		key: "openai_mcp.tunnel_id", kind: "string", def: "",
+		desc:     "The OpenAI tunnel the ChatGPT connector polls (tunnel_…, from platform.openai.com → Settings → Tunnels). Applies live.",
+		category: "connectivity", ui: true, live: true,
+		parse:     validatedQuoteTrimmedScalar(func(s *Settings) *string { return &s.OpenAIMCPTunnelID }, openaimcp.ValidateTunnelID),
+		serialize: quotedScalar("openai_mcp.tunnel_id", func(s *Settings) *string { return &s.OpenAIMCPTunnelID }),
+		read:      emptyableString(func(s *Settings) *string { return &s.OpenAIMCPTunnelID }),
+		apply:     validatedScalar(func(s *Settings) *string { return &s.OpenAIMCPTunnelID }, openaimcp.ValidateTunnelID, ""),
 	},
 	{
 		key: "tmux_conf", kind: "path", def: "",

@@ -118,6 +118,10 @@ func runDoctorChecks() doctorReport {
 	// a dependency failure. See guiDoctorCheck.
 	report.Checks = append(report.Checks, guiDoctorCheck())
 
+	// openai-mcp: the ChatGPT connector's tunnel-client. Always OK-shaped
+	// (the gui posture). See openAIMCPDoctorCheck.
+	report.Checks = append(report.Checks, openAIMCPDoctorCheck())
+
 	// mcp — the policy-table drift guard. Unlike the state rows above, a table
 	// that cannot resolve is a real defect, so this row is a verdict flipper.
 	c, mcpTools := mcpDoctorCheck()
@@ -1048,8 +1052,8 @@ const (
 )
 
 // doctorHTTPGet is the seam for the mcp route row's live probe (the dialTCP
-// idiom): a session-less GET with the SSE accept header — the SDK's stateful
-// handler answers it 400 without opening an MCP session, which is the
+// idiom): a session-less GET with the SSE accept header, which the SDK
+// handler rejects without opening an MCP session; that rejection is the
 // "route is mounted" signature. Tests substitute it so runDoctorChecks never
 // dials.
 var doctorHTTPGet = func(url string) (int, string, error) {
@@ -1071,10 +1075,11 @@ var doctorHTTPGet = func(url string) (int, string, error) {
 	return resp.StatusCode, string(body), nil
 }
 
-// mcpRouteCheck classifies a bounded GET <origin>/mcp. The SDK's stateful
-// handler answers a session-less GET with 400 ("GET requires an
-// Mcp-Session-Id header"), which is the positive signature — no MCP session
-// is opened by the probe. Pure over the injected probe so tests never dial.
+// mcpRouteCheck classifies a bounded GET <origin>/mcp. A stateless SDK
+// handler answers it 405 and a stateful one 400 ("GET requires an
+// Mcp-Session-Id header"); either is the positive signature, and no MCP
+// session is opened by the probe. Pure over the injected probe so tests
+// never dial.
 func mcpRouteCheck(origin string, tools int, get func(url string) (int, string, error)) doctorCheck {
 	check := doctorCheck{Name: "mcp route", OK: true}
 	status, _, err := get(origin + mcp.HTTPRoutePath)

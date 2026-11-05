@@ -298,6 +298,20 @@ type sseHub struct {
 	// payload ({"reachable"}), replayed on connect like
 	// cachedServicesJSON so late-joining clients see the signal immediately.
 	cachedCodeServerJSON string
+	// openAIMCPProbeAt/cachedOpenAIMCPJSON implement the host-global
+	// `event: openai-mcp` slot (the code-server slot's shape): a TTL-cached
+	// daemon.ProbeOpenAIMCP result, broadcast change-only and replayed to
+	// late joiners. refreshOpenAIMCP zeroes openAIMCPProbeAt so a POST's
+	// effect surfaces on the next tick. openAIMCPProbeFn is the test seam;
+	// nil runs the production probe, which makes no tmux calls while the
+	// connector is off or unconfigured. Guarded by h.mu.
+	openAIMCPProbeAt    time.Time
+	cachedOpenAIMCPJSON string
+	openAIMCPProbeFn    func() daemon.OpenAIMCPStatus
+	// openAIMCPGen counts refreshes, so a probe that was already in flight
+	// when one landed discards its result instead of stamping it over the
+	// refresh.
+	openAIMCPGen uint64
 	// The guiEnabled/guiProbeAt/guiInfo/guiBackend/guiDisplay/guiWM/guiViewers/
 	// cachedGuiJSON group implements the host-global `event: gui` slot
 	// (mirroring the code-server slot). guiEnabled and guiGeometry are re-read
@@ -760,6 +774,60 @@ func (h *sseHub) codeServerTick() (int, bool) {
 	return port, reachable
 }
 
+// openAIMCPProbeTTL bounds how often the hub re-probes the ChatGPT connector
+// (the codeServerProbeTTL cadence); refreshOpenAIMCP forces an earlier probe.
+const openAIMCPProbeTTL = 5 * time.Second
+
+// openAIMCPTickTimeout bounds one probe (tmux reads plus the /readyz GET).
+const openAIMCPTickTimeout = 5 * time.Second
+
+// refreshOpenAIMCP makes the next tick re-probe the connector regardless of
+// the TTL.
+func (h *sseHub) refreshOpenAIMCP() {
+	h.mu.Lock()
+	h.openAIMCPProbeAt = time.Time{}
+	h.openAIMCPGen++
+	h.mu.Unlock()
+}
+
+// openAIMCPTick maintains the `event: openai-mcp` slot: probe when the cache
+// is stale (outside h.mu, the codeServerTick discipline), then broadcast only
+// when the payload changed. Stopping a tunnel-client the settings no longer
+// allow is daemon.WatchOpenAIMCPSettings' job, not the hub's: the hub only
+// ticks while a browser is connected.
+func (h *sseHub) openAIMCPTick() {
+	h.mu.RLock()
+	stale := time.Since(h.openAIMCPProbeAt) >= openAIMCPProbeTTL
+	probe := h.openAIMCPProbeFn
+	gen := h.openAIMCPGen
+	h.mu.RUnlock()
+	if !stale {
+		return
+	}
+	if probe == nil {
+		probe = func() daemon.OpenAIMCPStatus {
+			ctx, cancel := context.WithTimeout(context.Background(), openAIMCPTickTimeout)
+			defer cancel()
+			return daemon.ProbeOpenAIMCP(ctx)
+		}
+	}
+	payload, err := json.Marshal(probe())
+	if err != nil {
+		return
+	}
+	str := string(payload)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.openAIMCPGen != gen {
+		return // a refresh landed mid-probe; the next tick re-probes
+	}
+	h.openAIMCPProbeAt = time.Now()
+	if str != h.cachedOpenAIMCPJSON {
+		h.cachedOpenAIMCPJSON = str
+		h.broadcastGlobalLocked(hubEvent{kind: kindGlobal, typ: "openai-mcp", data: str})
+	}
+}
+
 // guiProbeTTL bounds how often the hub re-probes the GUI backend: the probe
 // piggybacks the existing poll cadence and is never a per-request dial (the
 // codeServerProbeTTL shape). Overridable per hub via the guiProbeTTL field
@@ -1025,6 +1093,9 @@ func (h *sseHub) replayGlobalSlots(sc *stateConn) {
 	}
 	if h.cachedGuiJSON != "" {
 		h.sendConnLocked(sc, hubEvent{kind: kindGlobal, typ: "gui", data: h.cachedGuiJSON})
+	}
+	if h.cachedOpenAIMCPJSON != "" {
+		h.sendConnLocked(sc, hubEvent{kind: kindGlobal, typ: "openai-mcp", data: h.cachedOpenAIMCPJSON})
 	}
 	if h.cachedServerOrderJSON != "" {
 		h.sendConnLocked(sc, hubEvent{kind: kindGlobal, typ: "server-order", data: h.cachedServerOrderJSON})
@@ -2035,6 +2106,10 @@ func (h *sseHub) poll() {
 			// age-stripped key inside guiTick; replays to late joiners via
 			// cachedGuiJSON.
 			h.guiTick()
+
+			// The ChatGPT connector status: change-only, replayed via
+			// cachedOpenAIMCPJSON.
+			h.openAIMCPTick()
 
 			for _, server := range servers {
 				// Metrics-only clients (server-neutral, `?metrics=1`) have no tmux

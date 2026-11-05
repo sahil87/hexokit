@@ -402,6 +402,10 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 			cron.NewTicker(deps).Start(ctx)
 		}
 
+		// The ChatGPT connector's settings watch: stops a tunnel-client a hand
+		// edit or a dotfiles sync turned off, with or without a UI connected.
+		go daemon.WatchOpenAIMCPSettings(ctx, daemon.OpenAIMCPWatchInterval)
+
 		if err := supervisor.Start(ctx); err != nil {
 			slog.Warn("tmuxctl supervisor failed to start; falling back to safety-net poll", "err", err)
 		} else {

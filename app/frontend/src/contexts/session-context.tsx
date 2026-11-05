@@ -294,6 +294,47 @@ export type CodeServerSignal = { reachable: boolean };
 // provider (throw); `null` = no signal yet.
 const CodeServerContext = createContext<CodeServerSignal | null | undefined>(undefined);
 
+/** The ChatGPT connector's states, as the daemon classifies them
+ *  (docs/specs/openai-mcp.md § Status). */
+export const OPENAI_MCP_STATES = ["off", "unconfigured", "installing", "stopped", "starting", "ready", "degraded"] as const;
+export type OpenAIMCPState = (typeof OPENAI_MCP_STATES)[number];
+
+/** The host-global `openai-mcp` event: the connector switch, whether a tunnel
+ *  ID and key are saved (never the key itself), the classified state, and a
+ *  one-line detail for unconfigured/stopped/degraded. */
+export type OpenAIMCPSignal = {
+  enabled: boolean;
+  tunnelIdSet: boolean;
+  keySet: boolean;
+  state: OpenAIMCPState;
+  detail: string;
+};
+
+function isOpenAIMCPState(v: unknown): v is OpenAIMCPState {
+  return typeof v === "string" && (OPENAI_MCP_STATES as readonly string[]).includes(v);
+}
+
+/** Field-by-field narrowing of the `openai-mcp` payload. An unknown state
+ *  reads as off with every flag false: the safe reading for an opt-in
+ *  exposure. */
+export function narrowOpenAIMCPSignal(data: unknown): OpenAIMCPSignal {
+  const d: Record<string, unknown> = isRecord(data) ? data : {};
+  if (!isOpenAIMCPState(d.state)) {
+    return { enabled: false, tunnelIdSet: false, keySet: false, state: "off", detail: "" };
+  }
+  return {
+    enabled: d.enabled === true,
+    tunnelIdSet: d.tunnelIdSet === true,
+    keySet: d.keySet === true,
+    state: d.state,
+    detail: typeof d.detail === "string" ? d.detail : "",
+  };
+}
+
+// The connector signal lives in its own context (the CodeServerContext
+// precedent). `undefined` = outside provider (throw); `null` = no signal yet.
+const OpenAIMCPContext = createContext<OpenAIMCPSignal | null | undefined>(undefined);
+
 /** One entry of the host-global `event: gui` payload (the backend's
  *  gui.StreamEntry). The payload is a LIST (forward-compat for per-session
  *  displays); consumers select the `id === "host"` entry. Reachability and
@@ -436,6 +477,9 @@ export function SessionProvider({ children }: SessionProviderProps) {
   // now resolves by convention (RK_PORT+2), so the broadcast is always on and
   // `null` means "no signal yet", never "feature off".
   const [codeServer, setCodeServer] = useState<CodeServerSignal | null>(null);
+  // Latest ChatGPT connector status (the `openai-mcp` event). `null` until
+  // the first event.
+  const [openAIMCP, setOpenAIMCP] = useState<OpenAIMCPSignal | null>(null);
   // Latest host-global gui signal (the `gui` event) — the `id:"host"` entry of
   // the payload list, narrowed field-by-field. `null` until the first event.
   const [gui, setGui] = useState<GuiSignal | null>(null);
@@ -641,6 +685,14 @@ export function SessionProvider({ children }: SessionProviderProps) {
     if (raw === codeServerPrevRef.current) return;
     codeServerPrevRef.current = raw;
     setCodeServer(signal);
+  }, []);
+
+  // Same raw-payload dedup as `applyCodeServer`, for the `openai-mcp` event.
+  const openAIMCPPrevRef = useRef<string>("");
+  const applyOpenAIMCP = useCallback((raw: string, signal: OpenAIMCPSignal) => {
+    if (raw === openAIMCPPrevRef.current) return;
+    openAIMCPPrevRef.current = raw;
+    setOpenAIMCP(signal);
   }, []);
 
   // Same raw-payload dedup as `applyCodeServer`, for the `gui` broadcast.
@@ -969,6 +1021,10 @@ export function SessionProvider({ children }: SessionProviderProps) {
           applyGui(JSON.stringify(data), narrowGuiSignal(data));
           break;
         }
+        case "openai-mcp": {
+          applyOpenAIMCP(JSON.stringify(data), narrowOpenAIMCPSignal(data));
+          break;
+        }
         case "server-order": {
           const d = data as { order?: string[] };
           if (Array.isArray(d.order)) applyServerOrder(d.order);
@@ -1042,7 +1098,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
           break;
       }
     },
-    [applyHostMetrics, applyHostServices, applyCodeServer, applyGui, applyServerOrder, fireBoardOrder, fireStatusRefresh, fireNotify, applyVersion, applyUpdateAvailable, updateSlice],
+    [applyHostMetrics, applyHostServices, applyCodeServer, applyGui, applyOpenAIMCP, applyServerOrder, fireBoardOrder, fireStatusRefresh, fireNotify, applyVersion, applyUpdateAvailable, updateSlice],
   );
 
   // Latest handlers, kept in a ref so the one-time socket-construction effect
@@ -1354,7 +1410,9 @@ export function SessionProvider({ children }: SessionProviderProps) {
           <HostServicesContext.Provider value={hostServices}>
             <CodeServerContext.Provider value={codeServer}>
               <GuiContext.Provider value={gui}>
-                {children}
+                <OpenAIMCPContext.Provider value={openAIMCP}>
+                  {children}
+                </OpenAIMCPContext.Provider>
               </GuiContext.Provider>
             </CodeServerContext.Provider>
           </HostServicesContext.Provider>
@@ -1583,6 +1641,16 @@ export function useCodeServer(): CodeServerSignal | null {
   return ctx;
 }
 
+/** The ChatGPT connector status from the state socket's `openai-mcp` global
+ *  event. Available on every route. `null` before the first event, which
+ *  consumers read as "status unknown", never as on. Tolerant of a missing
+ *  provider (the useUpdateNotification posture): the palette rows and the
+ *  Settings section are chrome that must degrade to "no status", never crash,
+ *  when mounted outside SessionProvider. */
+export function useOpenAIMCP(): OpenAIMCPSignal | null {
+  return useContext(OpenAIMCPContext) ?? null;
+}
+
 /** Host-global gui signal from the state socket's `gui` global event — the
  *  narrowed `id:"host"` entry. Available on EVERY route. Returns `null` before
  *  the first event, which consumers MUST read as disabled (never-on-by-default;
@@ -1625,9 +1693,13 @@ export function HostMetricsProvider({
  *  defaults. */
 export function StandaloneSessionContextProvider({
   value,
+  openAIMCP = null,
   children,
 }: {
   value: Partial<SessionContextType>;
+  /** The connector status the standalone tree's `useOpenAIMCP` reads
+   *  (`null` = no status yet). */
+  openAIMCP?: OpenAIMCPSignal | null;
   children: React.ReactNode;
 }) {
   const fullValue: SessionContextType = {
@@ -1667,5 +1739,9 @@ export function StandaloneSessionContextProvider({
     forceUpdateNow: value.forceUpdateNow ?? (() => Promise.resolve({ status: "" })),
     restartNow: value.restartNow ?? (() => Promise.resolve({ status: "" })),
   };
-  return <SessionContext.Provider value={fullValue}>{children}</SessionContext.Provider>;
+  return (
+    <SessionContext.Provider value={fullValue}>
+      <OpenAIMCPContext.Provider value={openAIMCP}>{children}</OpenAIMCPContext.Provider>
+    </SessionContext.Provider>
+  );
 }

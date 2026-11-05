@@ -38,6 +38,7 @@ import {
   PreferenceRow,
 } from "@/components/text-setting-core";
 import { SettingsAgentsPanel } from "@/components/settings-agents-panel";
+import { OpenAIMCPSettingsRows } from "@/components/settings-openai-mcp";
 
 /**
  * VS Code-style settings dialog (260723-o7q8; desktop preference-pane layout
@@ -552,6 +553,7 @@ function GeneralPanel({
             commit={(trimmed) => registry.commitSetting("ssh_host", trimmed === "" ? null : trimmed)}
           />
           <McpEndpointRow />
+          <OpenAIMCPSettingsRows registry={registry} />
           <PreferenceRow
             label="Auto-name tabs"
             sublabel={autoNameEntry?.description}

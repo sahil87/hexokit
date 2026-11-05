@@ -557,8 +557,8 @@ allowlist, the `--json` envelope, and the timeout contract are owned by
 | Method | Role in the transport |
 |--------|-----------------------|
 | `POST` | Client → server JSON-RPC messages (tool calls, initialize, notifications) |
-| `GET` | Server → client SSE stream for the session |
-| `DELETE` | Session termination |
+| `GET` | `405`. The stateless handler has no session stream; bound so it never falls to the SPA catch-all |
+| `DELETE` | `405`. No session to terminate; bound for the same reason |
 
 **Handler:** the official Go SDK's streamable-HTTP handler
 (`github.com/modelcontextprotocol/go-sdk`), mounted on the root router. No protocol
@@ -566,9 +566,12 @@ code of our own.
 
 **Stance:**
 - **Tailnet-only, no auth of its own** — the same posture as every other daemon
-  route; never exposed publicly. Its clients are MCP clients already on the tailnet
-  (Claude Code and kin); the Claude Desktop app reaches HexoKit over stdio via
-  `ssh <box> rk mcp`, not this route.
+  route; never served on a public listener. Its clients are MCP clients already on
+  the tailnet (Claude Code and kin); the Claude Desktop app reaches HexoKit over
+  stdio via `ssh <box> rk mcp`, not this route. The one outward path is opt-in:
+  with `openai_mcp.enabled`, OpenAI's `tunnel-client` relays ChatGPT's requests to
+  `/mcp` over loopback, dialing out with no inbound port
+  ([`openai-mcp.md`](openai-mcp.md)).
 - **Origin validation** — when a request carries an `Origin` header, the handler
   rejects it unless the origin's scheme, host, and port match an allowlist derived
   from the daemon's own bind configuration (the configured `RK_HOST`:`RK_PORT`
@@ -580,8 +583,10 @@ code of our own.
   would 403 every request reaching a `127.0.0.1` bind through a reverse proxy.
 - **CORS allowlist unchanged** — § Middleware's `GET POST OPTIONS` stays as is. MCP
   clients are not browsers; CORS governs only browser preflights.
-- **Session state** — per-connection SDK state in memory for the connection's life
-  only; nothing persisted (Constitution II).
+- **Stateless**: no `Mcp-Session-Id` is issued and nothing is held between
+  requests (Constitution II). Required by MCP `2026-07-28` clients, which call
+  tools without `initialize`; older clients' handshake still works sessionless
+  ([`mcp.md`](mcp.md) § Transports).
 
 **Constitution IX exception.** This is the only route on the daemon that uses a
 verb other than `GET`/`POST`. The transport mandates all three methods on one path;
@@ -707,6 +712,13 @@ omit `Origin`.
 #### `GET /*` (catch-all, lowest priority)
 
 - Requests matching files in `app/frontend/dist/` → serve file directly
+- Unmatched `/.well-known/*` requests → `404`, never `index.html`. These are
+  RFC 8615 discovery URIs, not client routes: a discovery client reads any
+  `200` as the document it asked for, so an HTML fallback looks like malformed
+  metadata instead of "absent". MCP clients probe the OAuth pair
+  (`/.well-known/oauth-protected-resource[/mcp]`,
+  `/.well-known/oauth-authorization-server`) against the daemon's origin
+  before using `/mcp`, and `/mcp` has no auth of its own (§ MCP)
 - All other requests → serve `index.html` (client-side routing)
 - Path traversal prevented
 - Returns 404 if SPA not built
@@ -796,4 +808,6 @@ omit `Origin`.
 | `POST` | `/api/boards/:name/unpin` | `boards.go` | Unpin a window from a board |
 | `POST` | `/api/boards/:name/reorder` | `boards.go` | Reorder a pinned window (`{server, windowId, before?, after?}`) |
 | `POST` `GET` `DELETE` | `/mcp` | `mcp.go` | MCP streamable-HTTP transport (Constitution IX exception, see § MCP) |
+| `POST` | `/api/openai-mcp/key` | `openaimcp.go` | ChatGPT connector runtime key: `{"key":"sk-…"}` writes the `0600` key file, `{"key":""}` clears it; answers `{ok, keySet}`, never the key ([`openai-mcp.md`](openai-mcp.md) § Settings) |
+| `POST` | `/api/openai-mcp/restart` | `openaimcp.go` | Kill and re-ensure the connector's tunnel-client; `409` while `openai_mcp.enabled` is off |
 | `GET` | `/*` | `spa.go` | SPA static + fallback |

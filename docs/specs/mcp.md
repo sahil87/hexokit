@@ -382,9 +382,15 @@ The SDK's streamable-HTTP handler, mounted on the daemon router and sharing
 `internal/mcp`'s policy table and executor with the stdio server. Stance:
 
 - **Tailnet-only, no auth of its own** — the same posture as every other daemon
-  route. `/mcp` is never exposed publicly. Claude Desktop's remote connector requires
-  a public hostname and is therefore *not* this route's client; its clients are
-  Claude Code and other MCP clients already on the tailnet.
+  route. `/mcp` is never served on a public listener. Claude Desktop's remote
+  connector requires a public hostname and is therefore *not* this route's client;
+  its clients are Claude Code and other MCP clients already on the tailnet.
+- **One opt-in outward relay.** With `openai_mcp.enabled`, the daemon runs OpenAI's
+  `tunnel-client`, which dials out to OpenAI and forwards ChatGPT's requests to
+  `/mcp` over loopback ([`openai-mcp.md`](openai-mcp.md)). No inbound port opens.
+  OpenAI's workspace association and Tunnels permissions gate who can call it;
+  HexoKit adds no auth of its own, and every tool in the table is reachable.
+  Turning the switch on is the user's acceptance of that exposure.
 - **Origin validation.** When a request carries an `Origin` header, the handler MUST
   reject it unless the origin's scheme, host, and port match an entry in an
   **allowlist derived from the daemon's own bind configuration** — the configured
@@ -400,10 +406,12 @@ The SDK's streamable-HTTP handler, mounted on the daemon router and sharing
   such as `tailscale serve` in front of a `127.0.0.1` bind). The root router's
   CORS allowlist `[GET, POST, OPTIONS]` is **unchanged**: MCP clients are not browsers,
   and CORS governs only browser preflights.
-- **Verb-shape exception.** The transport requires `POST` (client→server messages),
+- **Verb-shape exception.** The transport defines `POST` (client→server messages),
   `GET` (the server→client SSE stream), and `DELETE` (session termination) on one
-  path. This is a documented exception to Constitution IX, recorded in
-  [`api.md`](api.md) § MCP. It is transport-mandated, scoped to `/mcp` alone, and
+  path. All three stay bound to the handler; the stateless handler answers `GET`
+  and `DELETE` with `405` itself, and binding them keeps a `GET /mcp` from falling
+  to the SPA catch-all. This is a documented exception to Constitution IX, recorded
+  in [`api.md`](api.md) § MCP. It is transport-defined, scoped to `/mcp` alone, and
   grants nothing to `/api/*`.
 - `rk url --mcp` prints the `/mcp` URL for the resolved daemon origin (a new flag on
   the existing `url` verb); `rk doctor` gains a row for the route.
@@ -411,15 +419,21 @@ The SDK's streamable-HTTP handler, mounted on the daemon router and sharing
   with a copy button, plus a `Copy: MCP Endpoint` palette entry. Its value is the
   page's own origin + `/mcp` — the address that reached the daemon from that device,
   through any proxy — not the daemon's bind address `rk url --mcp` reports.
-- The handler holds per-connection SDK session state in memory for the connection's
-  life only; nothing persists (Constitution II).
+- **Stateless.** The handler issues no `Mcp-Session-Id` and holds nothing between
+  requests (Constitution II), so every request is answered alone, whatever proxy or
+  tunnel carried it. MCP `2026-07-28` clients (ChatGPT through OpenAI's
+  `tunnel-client`) send `tools/call` with no `initialize`, and the SDK accepts that
+  version only in stateless mode. Older clients' `initialize` handshake still
+  works, sessionless. Nothing is lost: the tool list is static (no `listChanged`),
+  so the server never has anything to push over a `GET` stream.
 
 ## Security mapping
 
 - **I Security First** — allowlist default-excluded; every tool call is an argv exec
   through `exec.CommandContext`, never a shell string; destructive rows carry
   `destructiveHint` so clients confirm; `send` bodies travel on stdin; `/mcp` is
-  tailnet-only with Origin validation and no public exposure.
+  tailnet-only with Origin validation and no public listener. The only outward path
+  is the opt-in ChatGPT connector, which dials out ([`openai-mcp.md`](openai-mcp.md)).
 - **II No Database** — the policy table is compiled in; the server holds no state
   beyond the live transport; nothing is persisted.
 - **III Wrap, Don't Reinvent** — the official SDK owns the protocol; the tools are
@@ -438,7 +452,8 @@ The SDK's streamable-HTTP handler, mounted on the daemon router and sharing
   is a separate plan if ever.
 - Any tool that bypasses an `rk` verb, or any verb exposed without a policy row.
 - Changing any verb's default (non-`--json`) output.
-- An auth layer on `/mcp`, or public exposure of it.
+- An auth layer on `/mcp`, or serving it on a public listener (the opt-in
+  outward relay in § Transports is the one exception, and it opens no listener).
 - Action-enum tools beyond `tab_web` and `board`.
 - Exposing `mux kill --force`, `mux reap`, `cron tick`, or any never-tool.
 - MCP resources or prompts in v1 — tools only.
@@ -448,4 +463,6 @@ The SDK's streamable-HTTP handler, mounted on the daemon router and sharing
 - **MCP resources for pane captures** — a read model without a call; worth it only
   if clients start polling `capture`.
 - **`listChanged`** — only if the policy table ever becomes configurable.
-- **Remote (public) exposure** — would need the auth surface this spec declines.
+- **Public listener exposure** — would need the auth surface this spec declines.
+  The ChatGPT connector ([`openai-mcp.md`](openai-mcp.md)) reaches `/mcp` without
+  one: it relays outward over loopback.

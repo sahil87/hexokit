@@ -1487,13 +1487,13 @@ func TestSSEHubGlobalsNotRebroadcastWhenUnchanged(t *testing.T) {
 	time.Sleep(400 * time.Millisecond)
 	counts := map[string]int{}
 	for _, s := range drainConnEvents(client.ch) {
-		for _, typ := range []string{"metrics", "services", "code-server", "gui"} {
+		for _, typ := range []string{"metrics", "services", "code-server", "gui", "openai-mcp"} {
 			if strings.HasPrefix(s, "event: "+typ) {
 				counts[typ]++
 			}
 		}
 	}
-	for _, typ := range []string{"metrics", "services", "code-server", "gui"} {
+	for _, typ := range []string{"metrics", "services", "code-server", "gui", "openai-mcp"} {
 		if counts[typ] != 1 {
 			t.Errorf("%s frames over ~8 dispatch ticks = %d, want exactly 1 (the first emit)", typ, counts[typ])
 		}
@@ -1506,13 +1506,13 @@ func TestSSEHubGlobalsNotRebroadcastWhenUnchanged(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 	replayed := map[string]int{}
 	for _, s := range drainConnEvents(second.ch) {
-		for _, typ := range []string{"metrics", "services", "code-server", "gui"} {
+		for _, typ := range []string{"metrics", "services", "code-server", "gui", "openai-mcp"} {
 			if strings.HasPrefix(s, "event: "+typ) {
 				replayed[typ]++
 			}
 		}
 	}
-	for _, typ := range []string{"metrics", "services", "code-server", "gui"} {
+	for _, typ := range []string{"metrics", "services", "code-server", "gui", "openai-mcp"} {
 		if replayed[typ] != 1 {
 			t.Errorf("late joiner %s frames = %d, want exactly 1 (the replay)", typ, replayed[typ])
 		}

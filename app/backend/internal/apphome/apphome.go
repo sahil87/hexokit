@@ -80,6 +80,13 @@ func CodeServerProfileDir() (string, error) {
 	return stateLeaf("code-server", "profile")
 }
 
+// OpenAIMCPDir is the ChatGPT connector's root, <state>/openai-mcp: the
+// managed tunnel-client install, the 0600 runtime API key, and the derived
+// tunnel-client profile (internal/openaimcp owns the layout inside it).
+func OpenAIMCPDir() (string, error) {
+	return stateLeaf("openai-mcp")
+}
+
 // LogsDir holds per-window job logs, <state>/logs/<window>.log.
 func LogsDir() (string, error) {
 	return stateLeaf("logs")

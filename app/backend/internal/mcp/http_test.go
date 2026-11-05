@@ -44,7 +44,8 @@ func newHTTPTestServer(t *testing.T, policy OriginPolicy, logger *slog.Logger) (
 
 // TestHTTPHandlerRoundTrip: a real go-sdk client over the streamable-HTTP
 // transport lists the table's tools and round-trips a CallTool through the
-// stub executor; Close issues the transport's DELETE cleanly.
+// stub executor; Close returns cleanly (no session was issued, so there is no
+// DELETE to send).
 func TestHTTPHandlerRoundTrip(t *testing.T) {
 	srv, ts := newHTTPTestServer(t, NewOriginPolicy(nil), discardLogger())
 
@@ -84,7 +85,7 @@ func TestHTTPHandlerRoundTrip(t *testing.T) {
 	}
 
 	if err := cs.Close(); err != nil {
-		t.Errorf("Close (transport DELETE): %v", err)
+		t.Errorf("Close: %v", err)
 	}
 }
 
@@ -101,8 +102,8 @@ func (h hostRewriter) RoundTrip(r *http.Request) (*http.Response, error) {
 	return h.next.RoundTrip(r)
 }
 
-// TestHTTPHandlerProxiedHostRoundTrip: a full client session (initialize,
-// ListTools, DELETE) succeeds when every request reaches the loopback
+// TestHTTPHandlerProxiedHostRoundTrip: a full client exchange (initialize,
+// ListTools, Close) succeeds when every request reaches the loopback
 // listener carrying a non-loopback Host, as behind `tailscale serve`.
 func TestHTTPHandlerProxiedHostRoundTrip(t *testing.T) {
 	_, ts := newHTTPTestServer(t, NewOriginPolicy(nil), discardLogger())
@@ -119,13 +120,18 @@ func TestHTTPHandlerProxiedHostRoundTrip(t *testing.T) {
 		t.Fatalf("ListTools: %v", err)
 	}
 	if err := cs.Close(); err != nil {
-		t.Errorf("Close (transport DELETE): %v", err)
+		t.Errorf("Close: %v", err)
 	}
 }
 
+// sdkPassThroughStatus is how a GET that got past originGuard shows up: the
+// stateless SDK handler answers GET 405. Anything but the guard's own 403
+// proves the request reached the SDK.
+const sdkPassThroughStatus = http.StatusMethodNotAllowed
+
 // TestHTTPHandlerOriginGuard: raw-request cases over the guard. An allowed,
-// absent, or loopback Origin passes through to the SDK (observable as its
-// session-less GET 400, never a 403); a disallowed Origin — including the
+// absent, or loopback Origin passes through to the SDK (observable as
+// sdkPassThroughStatus, never a 403); a disallowed Origin — including the
 // rebinding shape where Origin equals a crafted Host — is 403 with the JSON
 // body; a PUT reaches the SDK and is answered 405.
 func TestHTTPHandlerOriginGuard(t *testing.T) {
@@ -157,32 +163,32 @@ func TestHTTPHandlerOriginGuard(t *testing.T) {
 
 	t.Run("allowed origin passes to the SDK", func(t *testing.T) {
 		status, _ := do(t, http.MethodGet, "http://box:3000", "")
-		if status != http.StatusBadRequest {
-			t.Errorf("status = %d, want 400 (the SDK's session-less GET signature)", status)
+		if status != sdkPassThroughStatus {
+			t.Errorf("status = %d, want %d (the SDK's stateless GET signature)", status, sdkPassThroughStatus)
 		}
 	})
 	t.Run("case-folded allowed origin passes", func(t *testing.T) {
 		status, _ := do(t, http.MethodGet, "http://BOX:3000", "")
-		if status != http.StatusBadRequest {
-			t.Errorf("status = %d, want 400", status)
+		if status != sdkPassThroughStatus {
+			t.Errorf("status = %d, want %d", status, sdkPassThroughStatus)
 		}
 	})
 	t.Run("absent origin passes", func(t *testing.T) {
 		status, _ := do(t, http.MethodGet, "", "")
-		if status != http.StatusBadRequest {
-			t.Errorf("status = %d, want 400", status)
+		if status != sdkPassThroughStatus {
+			t.Errorf("status = %d, want %d", status, sdkPassThroughStatus)
 		}
 	})
 	t.Run("loopback origin at another port passes", func(t *testing.T) {
 		status, _ := do(t, http.MethodGet, "http://127.0.0.1:5173", "")
-		if status != http.StatusBadRequest {
-			t.Errorf("status = %d, want 400", status)
+		if status != sdkPassThroughStatus {
+			t.Errorf("status = %d, want %d", status, sdkPassThroughStatus)
 		}
 	})
 	t.Run("localhost origin passes", func(t *testing.T) {
 		status, _ := do(t, http.MethodGet, "http://localhost", "")
-		if status != http.StatusBadRequest {
-			t.Errorf("status = %d, want 400", status)
+		if status != sdkPassThroughStatus {
+			t.Errorf("status = %d, want %d", status, sdkPassThroughStatus)
 		}
 	})
 	t.Run("disallowed origin is 403 JSON", func(t *testing.T) {
@@ -207,8 +213,8 @@ func TestHTTPHandlerOriginGuard(t *testing.T) {
 		// The tailscale-serve shape: the request arrives on the loopback
 		// listener carrying the tailnet name as Host.
 		status, body := do(t, http.MethodGet, "", "box.tail1234.ts.net")
-		if status != http.StatusBadRequest {
-			t.Errorf("status = %d, want 400 — a loopback arrival with a tailnet Host must not trip a Host check; body %q", status, body)
+		if status != sdkPassThroughStatus {
+			t.Errorf("status = %d, want %d — a loopback arrival with a tailnet Host must not trip a Host check; body %q", status, sdkPassThroughStatus, body)
 		}
 	})
 	t.Run("disallowed origin behind a proxied Host is 403 JSON", func(t *testing.T) {
@@ -242,5 +248,103 @@ func TestHTTPHandlerOriginGuard(t *testing.T) {
 	}
 	if !strings.Contains(logBuf.String(), `origin=http://evil.example:3000`) {
 		t.Errorf("WARN lines must name the rejected origin; log:\n%s", logBuf.String())
+	}
+}
+
+// rawPost sends one JSON-RPC message to /mcp without an SDK client, so a
+// test controls the exact protocol-version headers and _meta a given client
+// generation sends.
+func rawPost(t *testing.T, ts *httptest.Server, msg string, headers map[string]string) (*http.Response, string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, ts.URL+HTTPRoutePath, strings.NewReader(msg))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return resp, string(body)
+}
+
+// TestHTTPHandlerModernStatelessCall: a 2026-07-28 client (ChatGPT through
+// OpenAI's tunnel) sends tools/call with no initialize and no session, the
+// version carried in headers and _meta. The handler answers it directly.
+func TestHTTPHandlerModernStatelessCall(t *testing.T) {
+	_, ts := newHTTPTestServer(t, NewOriginPolicy(nil), discardLogger())
+
+	msg := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{` +
+		`"name":"capture","arguments":{"target":"%3","lines":100},` +
+		`"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",` +
+		`"io.modelcontextprotocol/clientCapabilities":{},` +
+		`"io.modelcontextprotocol/clientInfo":{"name":"modern-client","version":"0"}}}}`
+	resp, body := rawPost(t, ts, msg, map[string]string{
+		"Mcp-Protocol-Version": "2026-07-28",
+		"Mcp-Method":           "tools/call",
+		"Mcp-Name":             "capture",
+	})
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %q", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, `[{\"name\":\"boot\"}]`) {
+		t.Errorf("body = %q, want the stub executor's output", body)
+	}
+}
+
+// TestHTTPHandlerIssuesNoSessionID: a legacy 2025-06-18 initialize succeeds
+// but gets no Mcp-Session-Id. No session is held between requests, so any
+// request can be answered alone, whichever tunnel or proxy delivered it.
+func TestHTTPHandlerIssuesNoSessionID(t *testing.T) {
+	_, ts := newHTTPTestServer(t, NewOriginPolicy(nil), discardLogger())
+
+	msg := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{` +
+		`"protocolVersion":"2025-06-18","capabilities":{},` +
+		`"clientInfo":{"name":"legacy-client","version":"0"}}}`
+	resp, body := rawPost(t, ts, msg, map[string]string{"Mcp-Protocol-Version": "2025-06-18"})
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %q", resp.StatusCode, body)
+	}
+	if sid := resp.Header.Get("Mcp-Session-Id"); sid != "" {
+		t.Errorf("Mcp-Session-Id = %q, want none", sid)
+	}
+}
+
+// TestHTTPHandlerLegacyHandshake: a 2025-06-18 client's full handshake
+// (initialize, initialized, tools/list, tools/call) works with no session
+// header, which is how Claude Code and other pre-2026 clients call /mcp.
+func TestHTTPHandlerLegacyHandshake(t *testing.T) {
+	_, ts := newHTTPTestServer(t, NewOriginPolicy(nil), discardLogger())
+	legacy := map[string]string{"Mcp-Protocol-Version": "2025-06-18"}
+
+	steps := []struct {
+		name string
+		msg  string
+		want int
+	}{
+		{"initialize", `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"legacy-client","version":"0"}}}`, http.StatusOK},
+		{"initialized", `{"jsonrpc":"2.0","method":"notifications/initialized"}`, http.StatusAccepted},
+		{"tools/list", `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`, http.StatusOK},
+		{"tools/call", `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"capture","arguments":{"target":"%3","lines":100}}}`, http.StatusOK},
+	}
+	for _, step := range steps {
+		resp, body := rawPost(t, ts, step.msg, legacy)
+		if resp.StatusCode != step.want {
+			t.Fatalf("%s: status = %d, want %d; body %q", step.name, resp.StatusCode, step.want, body)
+		}
+		if strings.Contains(body, `"error"`) {
+			t.Fatalf("%s: JSON-RPC error %q", step.name, body)
+		}
+		if step.name == "tools/call" && !strings.Contains(body, `[{\"name\":\"boot\"}]`) {
+			t.Errorf("tools/call body = %q, want the stub executor's output", body)
+		}
 	}
 }

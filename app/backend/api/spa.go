@@ -39,6 +39,12 @@ const (
 	spaHTMLCacheControl   = "no-cache"
 )
 
+// wellKnownPrefix is the RFC 8615 discovery namespace. Files the SPA ships
+// under it are served like any other file, but a miss MUST 404 rather than
+// fall back to index.html: discovery clients (MCP's OAuth protected-resource
+// probe) read any 200 as the metadata document they asked for.
+const wellKnownPrefix = "/.well-known/"
+
 // setSPACacheControl applies the two-tier cache policy based on the path of
 // the file actually being served: hashed assets cache forever, everything
 // else revalidates. Call it at the serve point, not on the raw request — the
@@ -142,6 +148,11 @@ func (s *Server) mountEmbeddedSPA(r chi.Router) {
 			}
 		}
 
+		if strings.HasPrefix(req.URL.Path, wellKnownPrefix) {
+			http.NotFound(w, req)
+			return
+		}
+
 		// SPA fallback: serve index.html for client-side routing. Always the
 		// no-cache policy + index.html's ETag, whatever the request URL was.
 		w.Header().Set("Cache-Control", spaHTMLCacheControl)
@@ -183,6 +194,11 @@ func (s *Server) mountFilesystemSPA(r chi.Router) {
 		if info, err := os.Stat(filePath); err == nil && !info.IsDir() {
 			setSPACacheControl(w, req.URL.Path)
 			http.ServeFile(w, req, filePath)
+			return
+		}
+
+		if strings.HasPrefix(req.URL.Path, wellKnownPrefix) {
+			http.NotFound(w, req)
 			return
 		}
 
