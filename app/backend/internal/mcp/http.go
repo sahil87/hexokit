@@ -4,7 +4,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -12,17 +11,15 @@ import (
 // HTTPRoutePath is the daemon path the streamable-HTTP transport is mounted at.
 const HTTPRoutePath = "/mcp"
 
-// HTTPSessionIdleTimeout closes an SDK session that has received no HTTP
-// request for this long — a client that vanished without DELETE must not hold
-// its session forever (Constitution II: the handler's memory is the only
-// state).
-const HTTPSessionIdleTimeout = 30 * time.Minute
-
 // HTTPHandler returns the streamable-HTTP transport for this server, wrapped
-// in the Origin allowlist guard. Every session shares the one SDK server (and
-// so the one policy table and executor); per-session state lives inside the
-// SDK handler for the session's life only. Stateful mode: the GET SSE stream
-// and DELETE termination exist only there. originGuard is the only
+// in the Origin allowlist guard. Every request shares the one SDK server (and
+// so the one policy table and executor). Stateless: no session ID is issued
+// and nothing is held between requests, so each request is answered alone.
+// MCP 2026-07-28 clients (ChatGPT through OpenAI's tunnel) send tools/call
+// with no initialize, and the SDK accepts that version only in stateless
+// mode; legacy clients' initialize handshake still works, just sessionless.
+// GET and DELETE answer 405: they exist only for sessions, and the static
+// tool table never pushes anything over a GET stream. originGuard is the only
 // DNS-rebinding guard, so both SDK Host-keyed checks are off:
 // CrossOriginProtection stays nil (deprecated, and its Origin == Host
 // fail-open is the reference the spec forbids) and DisableLocalhostProtection
@@ -33,7 +30,7 @@ func (s *Server) HTTPHandler(policy OriginPolicy, logger *slog.Logger) http.Hand
 	h := mcpsdk.NewStreamableHTTPHandler(
 		func(*http.Request) *mcpsdk.Server { return s.sdk },
 		&mcpsdk.StreamableHTTPOptions{
-			SessionTimeout:             HTTPSessionIdleTimeout,
+			Stateless:                  true,
 			Logger:                     logger,
 			DisableLocalhostProtection: true,
 		},

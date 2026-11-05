@@ -509,21 +509,23 @@ func TestOptionalSettingRoundTrips(t *testing.T) {
 	}
 
 	fixtures := map[string]roundTripFixture{
-		"theme":          registryValueFixture(`"dark"`, ptr("dark"), `"light"`, ptr("light"), ptr("system")),
-		"theme_dark":     registryValueFixture(`"dracula"`, ptr("dracula"), `"nord"`, ptr("nord"), ptr("default-dark")),
-		"theme_light":    registryValueFixture(`"solarized-light"`, ptr("solarized-light"), `"paper"`, ptr("paper"), ptr("default-light")),
-		"instance_color": stringValueFixture("5", "1+3", SetInstanceColor, GetInstanceColor),
-		"ssh_host":       stringValueFixture("devbox", "user@host", SetSSHHost, GetSSHHost),
-		"port":           registryValueFixture(`4000`, 4000, `3000`, 3000, nil),
-		"instance_name":  stringValueFixture("my-box", "dev mini", SetInstanceName, GetInstanceName),
-		"auto_name":      registryValueFixture(`true`, true, `false`, false, false),
-		"cron_ticker":    registryValueFixture(`false`, false, `true`, true, true),
-		"easter_eggs":    registryValueFixture(`false`, false, `true`, true, true),
-		"gui.enabled":    registryValueFixture(`true`, true, `false`, false, false),
-		"gui.wm":         registryValueFixture(`"openbox"`, "openbox", `"xfwm4"`, "xfwm4", ""),
-		"gui.geometry":   registryValueFixture(`"auto"`, "auto", `"1600x900"`, "1600x900", "1920x1080"),
-		"tmux_conf":      registryValueFixture(`"/my/tmux.conf"`, ptr("/my/tmux.conf"), `"/other/tmux.conf"`, ptr("/other/tmux.conf"), (*string)(nil)),
-		"log_level":      registryValueFixture(`"debug"`, ptr("debug"), `"info"`, ptr("info"), ptr("info")),
+		"theme":                registryValueFixture(`"dark"`, ptr("dark"), `"light"`, ptr("light"), ptr("system")),
+		"theme_dark":           registryValueFixture(`"dracula"`, ptr("dracula"), `"nord"`, ptr("nord"), ptr("default-dark")),
+		"theme_light":          registryValueFixture(`"solarized-light"`, ptr("solarized-light"), `"paper"`, ptr("paper"), ptr("default-light")),
+		"instance_color":       stringValueFixture("5", "1+3", SetInstanceColor, GetInstanceColor),
+		"ssh_host":             stringValueFixture("devbox", "user@host", SetSSHHost, GetSSHHost),
+		"port":                 registryValueFixture(`4000`, 4000, `3000`, 3000, nil),
+		"instance_name":        stringValueFixture("my-box", "dev mini", SetInstanceName, GetInstanceName),
+		"auto_name":            registryValueFixture(`true`, true, `false`, false, false),
+		"cron_ticker":          registryValueFixture(`false`, false, `true`, true, true),
+		"easter_eggs":          registryValueFixture(`false`, false, `true`, true, true),
+		"gui.enabled":          registryValueFixture(`true`, true, `false`, false, false),
+		"gui.wm":               registryValueFixture(`"openbox"`, "openbox", `"xfwm4"`, "xfwm4", ""),
+		"gui.geometry":         registryValueFixture(`"auto"`, "auto", `"1600x900"`, "1600x900", "1920x1080"),
+		"openai_mcp.enabled":   registryValueFixture(`true`, true, `false`, false, false),
+		"openai_mcp.tunnel_id": registryValueFixture(`"tunnel_abc123"`, ptr("tunnel_abc123"), `"tunnel_def456"`, ptr("tunnel_def456"), (*string)(nil)),
+		"tmux_conf":            registryValueFixture(`"/my/tmux.conf"`, ptr("/my/tmux.conf"), `"/other/tmux.conf"`, ptr("/other/tmux.conf"), (*string)(nil)),
+		"log_level":            registryValueFixture(`"debug"`, ptr("debug"), `"info"`, ptr("info"), ptr("info")),
 		"server_colors": stringValueFixture("6", "1+3", func(v *string) error {
 			return SetServerColor("default", v)
 		}, func() *string { return GetServerColor("default") }),
@@ -1627,4 +1629,77 @@ func TestPortPinCommentDroppedByRegistryPortWrite(t *testing.T) {
 	if !strings.Contains(string(data), "port: 6123\n") {
 		t.Errorf("saved file = %q, want port: 6123", data)
 	}
+}
+
+func TestOpenAIMCPSettings(t *testing.T) {
+	t.Run("defaults off with no tunnel ID", func(t *testing.T) {
+		d := Default()
+		if d.OpenAIMCPEnabled || d.OpenAIMCPTunnelID != "" {
+			t.Errorf("Default() = enabled %v, tunnel %q; want off and empty", d.OpenAIMCPEnabled, d.OpenAIMCPTunnelID)
+		}
+		t.Setenv(ConfigDirEnv, t.TempDir())
+		if s := Load(); s.OpenAIMCPEnabled {
+			t.Error("Load() on an empty config dir: OpenAIMCPEnabled = true, want false")
+		}
+	})
+
+	t.Run("the switch's description states the exposure it accepts", func(t *testing.T) {
+		entry := findEntry("openai_mcp.enabled")
+		if entry == nil {
+			t.Fatal("no openai_mcp.enabled registry entry")
+		}
+		for _, want := range []string{"every MCP tool", "accepts that exposure"} {
+			if !strings.Contains(entry.desc, want) {
+				t.Errorf("description %q missing %q", entry.desc, want)
+			}
+		}
+	})
+
+	t.Run("omitted at defaults so untouched files round-trip", func(t *testing.T) {
+		if out := serialize(Default()); strings.Contains(out, "openai_mcp") {
+			t.Errorf("openai_mcp keys emitted at their defaults:\n%s", out)
+		}
+	})
+
+	t.Run("round-trips as flat dotted lines", func(t *testing.T) {
+		s := Default()
+		s.OpenAIMCPEnabled = true
+		s.OpenAIMCPTunnelID = "tunnel_0123456789abcdef0123456789abcdef"
+		out := serialize(s)
+		for _, line := range []string{"openai_mcp.enabled: true\n", "openai_mcp.tunnel_id: \"tunnel_0123456789abcdef0123456789abcdef\"\n"} {
+			if !strings.Contains(out, line) {
+				t.Errorf("serialize missing %q:\n%s", line, out)
+			}
+		}
+		got := parse(out)
+		if !got.OpenAIMCPEnabled || got.OpenAIMCPTunnelID != s.OpenAIMCPTunnelID {
+			t.Errorf("round-trip = enabled %v, tunnel %q", got.OpenAIMCPEnabled, got.OpenAIMCPTunnelID)
+		}
+	})
+
+	t.Run("a malformed tunnel ID is rejected without mutation", func(t *testing.T) {
+		entry := findEntry("openai_mcp.tunnel_id")
+		if entry == nil {
+			t.Fatal("no openai_mcp.tunnel_id registry entry")
+		}
+		s := Default()
+		s.OpenAIMCPTunnelID = "tunnel_keep"
+		for _, bad := range []string{`"6aec30ea"`, `"tunnel_abc def"`, `"tunnel_"`, `42`} {
+			if err := entry.apply(&s, json.RawMessage(bad)); err == nil {
+				t.Errorf("apply(%s) = nil error, want rejection", bad)
+			}
+			if s.OpenAIMCPTunnelID != "tunnel_keep" {
+				t.Fatalf("apply(%s) mutated the value to %q", bad, s.OpenAIMCPTunnelID)
+			}
+		}
+		if err := entry.apply(&s, json.RawMessage(`null`)); err != nil || s.OpenAIMCPTunnelID != "" {
+			t.Errorf("apply(null) = %v, tunnel %q; want unset", err, s.OpenAIMCPTunnelID)
+		}
+	})
+
+	t.Run("a malformed tunnel ID in the file is dropped", func(t *testing.T) {
+		if got := parse("openai_mcp.tunnel_id: \"not a tunnel\"\n").OpenAIMCPTunnelID; got != "" {
+			t.Errorf("parse kept malformed tunnel ID %q, want empty", got)
+		}
+	})
 }

@@ -72,7 +72,7 @@ func TestGetSettings_registryOrderAndDefaults(t *testing.T) {
 	entries := getSettingsList(t, router)
 	wantKeys := []string{
 		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host", "port",
-		"instance_name", "auto_name", "cron_ticker", "easter_eggs", "gui.enabled", "gui.wm", "gui.geometry",
+		"instance_name", "auto_name", "cron_ticker", "easter_eggs", "gui.enabled", "gui.wm", "gui.geometry", "openai_mcp.enabled", "openai_mcp.tunnel_id",
 		"tmux_conf",
 		"log_level", "server_colors", "server_flairs", "board_order", "riff_presets",
 	}

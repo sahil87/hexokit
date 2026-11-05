@@ -141,6 +141,7 @@ vi.mock("@/contexts/session-context", async (importOriginal) => {
     ...mod,
     useCodeServer: () => ({ reachable: false }),
     useGui: () => guiSignalMock.current,
+    useOpenAIMCP: () => null,
   };
 });
 

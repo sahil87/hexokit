@@ -7,6 +7,7 @@ import {
   useHostMetrics,
   useHostServices,
   useCodeServer,
+  useOpenAIMCP,
   useGui,
   useMetrics,
   StandaloneSessionContextProvider,
@@ -1554,5 +1555,51 @@ describe("SessionProvider — dismissUpdate writes the EFFECTIVE key (260807-s6z
     expect(setItem).not.toHaveBeenCalledWith("hexokit-update-dismissed", expect.anything());
     expect(result.current.updateDismissedKey).toBeNull();
     setItem.mockRestore();
+  });
+});
+
+describe("SessionProvider: openai-mcp signal (the ChatGPT connector status)", () => {
+  it("returns null outside SessionProvider instead of throwing", () => {
+    const { result } = renderHook(() => useOpenAIMCP());
+    expect(result.current).toBeNull();
+  });
+
+  it("returns null before the first openai-mcp event", async () => {
+    setMockMatches([{ params: {} }]);
+    const { result } = renderHook(() => useOpenAIMCP(), { wrapper: Wrapper });
+    await settle();
+    expect(result.current).toBeNull();
+  });
+
+  it("narrows the payload field by field", async () => {
+    setMockMatches([{ params: {} }]);
+    const { result } = renderHook(() => useOpenAIMCP(), { wrapper: Wrapper });
+    await settle();
+
+    act(() => {
+      WS.forHostMetrics()!.emit("openai-mcp", {
+        enabled: true, tunnelIdSet: true, keySet: true, state: "ready", detail: "", extra: "ignored",
+      });
+    });
+    expect(result.current).toEqual({ enabled: true, tunnelIdSet: true, keySet: true, state: "ready", detail: "" });
+
+    act(() => {
+      WS.forHostMetrics()!.emit("openai-mcp", {
+        enabled: true, tunnelIdSet: true, keySet: true, state: "degraded", detail: "startup catalog pending",
+      });
+    });
+    expect(result.current?.state).toBe("degraded");
+    expect(result.current?.detail).toBe("startup catalog pending");
+  });
+
+  it("reads an unknown state or malformed fields as off", async () => {
+    setMockMatches([{ params: {} }]);
+    const { result } = renderHook(() => useOpenAIMCP(), { wrapper: Wrapper });
+    await settle();
+
+    act(() => {
+      WS.forHostMetrics()!.emit("openai-mcp", { enabled: "yes", state: "exploded", detail: 7 });
+    });
+    expect(result.current).toEqual({ enabled: false, tunnelIdSet: false, keySet: false, state: "off", detail: "" });
   });
 });

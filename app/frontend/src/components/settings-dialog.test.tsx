@@ -20,6 +20,8 @@ vi.mock("@/api/client", () => ({
   getKeybindings: vi.fn().mockResolvedValue([]),
   getFabConfig: vi.fn().mockResolvedValue({ installed: false }),
   postFabConfig: vi.fn().mockResolvedValue({ installed: false }),
+  saveOpenAIMCPKey: vi.fn().mockResolvedValue({ keySet: false }),
+  restartOpenAIMCP: vi.fn().mockResolvedValue({ ok: true }),
 }));
 import { getFabConfig, getSettingsEntries, postSettings, setThemePreference, getThemePreference, type SettingsEntry } from "@/api/client";
 
@@ -39,6 +41,7 @@ vi.mock("@/contexts/session-context", () => ({
   useSessionContext: () => ({ currentServer: null, sessionsByServer: new Map() }),
   SessionContext: createContext(null),
   useCurrentServerFromRoute: () => null,
+  useOpenAIMCP: () => null,
 }));
 vi.mock("@tanstack/react-router", () => ({
   useMatches: () => [],

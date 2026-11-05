@@ -732,6 +732,35 @@ export async function restartCodeServer(): Promise<CodeServerRestartResult> {
   return res.json();
 }
 
+/**
+ * POST /api/openai-mcp/key: save (non-empty) or clear ("") the ChatGPT
+ * connector's runtime API key (docs/specs/openai-mcp.md § Settings). Resolves
+ * `keySet` only: the daemon never returns the key. A malformed key throws
+ * with the server's validation message.
+ */
+export async function saveOpenAIMCPKey(key: string): Promise<{ keySet: boolean }> {
+  const res = await fetch("/api/openai-mcp/key", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key }),
+  });
+  if (!res.ok) await throwOnError(res);
+  const body = (await res.json()) as { keySet?: unknown };
+  return { keySet: body.keySet === true };
+}
+
+/**
+ * POST /api/openai-mcp/restart: kill and re-ensure the connector's
+ * tunnel-client. A 409 (connector off) resolves `{ok: false, off: true}`;
+ * other non-ok responses throw with the server's error text.
+ */
+export async function restartOpenAIMCP(): Promise<{ ok: true } | { ok: false; off: true }> {
+  const res = await deduplicatedFetch("/api/openai-mcp/restart", { method: "POST" });
+  if (res.status === 409) return { ok: false, off: true };
+  if (!res.ok) await throwOnError(res);
+  return { ok: true };
+}
+
 /** The two launcher roles (spec docs/specs/gui.md § Agent verbs / § Protocol
  *  and relay — the allowlisted `POST /api/gui/{id}/launch` body). */
 export type GuiLaunchApp = "terminal" | "browser";

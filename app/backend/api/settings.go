@@ -91,8 +91,11 @@ func normalizeSettingValue(value any) any {
 // When the patch contains gui.geometry with a fixed WxH value and the GUI is
 // enabled and reachable, a successful save additionally applies the size live
 // via xrandr — best-effort, so a failure warns and the response stays 200;
-// `auto` needs no action (see applyGuiGeometryLive). No other key has a side
-// effect.
+// `auto` needs no action (see applyGuiGeometryLive). When the patch contains
+// openai_mcp.enabled or changes openai_mcp.tunnel_id, a successful save acts on
+// the rk-openai-mcp session (applyOpenAIMCPSettings: off ⇒ kill, a tunnel
+// change while on ⇒ restart, on ⇒ ensure; best-effort, the response stays
+// 200). No other key has a side effect.
 func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 	var patch map[string]json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
@@ -108,6 +111,8 @@ func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 	_, hasAutoName := patch["auto_name"]
 	_, hasGUIEnabled := patch["gui.enabled"]
 	_, hasGUIGeometry := patch["gui.geometry"]
+	_, hasOpenAIMCPEnabled := patch["openai_mcp.enabled"]
+	prevOpenAIMCPTunnelID := current.OpenAIMCPTunnelID
 	// Sorted keys, not map order: which validation error a multi-key invalid
 	// patch reports must be deterministic across runs.
 	keys := make([]string, 0, len(patch))
@@ -173,6 +178,13 @@ func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 	// request.
 	if hasGUIGeometry {
 		s.applyGuiGeometryLive(r.Context(), current)
+	}
+
+	// openai_mcp.* carry the rk-openai-mcp session side effects
+	// (docs/specs/openai-mcp.md § Lifecycle).
+	openAIMCPTunnelChanged := current.OpenAIMCPTunnelID != prevOpenAIMCPTunnelID
+	if hasOpenAIMCPEnabled || openAIMCPTunnelChanged {
+		s.applyOpenAIMCPSettings(current, hasOpenAIMCPEnabled, openAIMCPTunnelChanged)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

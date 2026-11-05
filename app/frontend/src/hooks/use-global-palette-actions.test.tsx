@@ -38,8 +38,10 @@ vi.mock("@/api/client", () => ({
   muteCron: vi.fn().mockResolvedValue({ ok: true }),
   deleteCron: vi.fn().mockResolvedValue({ ok: true }),
   startOperator: vi.fn(),
+  postSettings: vi.fn().mockResolvedValue(undefined),
+  restartOpenAIMCP: vi.fn().mockResolvedValue({ ok: true }),
 }));
-import { getCron, muteCron, deleteCron, startOperator } from "@/api/client";
+import { getCron, muteCron, deleteCron, startOperator, postSettings, restartOpenAIMCP } from "@/api/client";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 import * as screenBreakStore from "@/lib/screen-break-store";
 import { setQuakeMachineState } from "@/lib/quake-terminal";
@@ -269,6 +271,54 @@ describe("useGlobalPaletteActions", () => {
     expect(fire).toHaveBeenLastCalledWith("peek", { force: true });
     fire.mockRestore();
     screenBreakStore._resetForTests();
+  });
+
+  it("wires the ChatGPT connector rows to the settings POST and the restart route", async () => {
+    const off = { enabled: false, tunnelIdSet: true, keySet: true, state: "off" as const, detail: "" };
+    const { unmount } = render(
+      <ToastProvider>
+        <ChromeProvider>
+          <SettingsDialogProvider>
+            <NewSheetProvider>
+              <StandaloneSessionContextProvider value={{}} openAIMCP={off}>
+                <Probe />
+              </StandaloneSessionContextProvider>
+            </NewSheetProvider>
+          </SettingsDialogProvider>
+        </ChromeProvider>
+      </ToastProvider>,
+    );
+    const turnOn = captured.find((a) => a.id === "openai-mcp-turn-on");
+    expect(turnOn?.label).toBe("ChatGPT connector: Turn on");
+    act(() => turnOn?.onSelect());
+    await waitFor(() => expect(postSettings).toHaveBeenCalledWith({ "openai_mcp.enabled": true }));
+    unmount();
+
+    const ready = { ...off, enabled: true, state: "ready" as const };
+    render(
+      <ToastProvider>
+        <ChromeProvider>
+          <SettingsDialogProvider>
+            <NewSheetProvider>
+              <StandaloneSessionContextProvider value={{}} openAIMCP={ready}>
+                <Probe />
+              </StandaloneSessionContextProvider>
+            </NewSheetProvider>
+          </SettingsDialogProvider>
+        </ChromeProvider>
+      </ToastProvider>,
+    );
+    const restart = captured.find((a) => a.id === "openai-mcp-restart");
+    act(() => restart?.onSelect());
+    await waitFor(() => expect(restartOpenAIMCP).toHaveBeenCalledTimes(1));
+    const turnOff = captured.find((a) => a.id === "openai-mcp-turn-off");
+    act(() => turnOff?.onSelect());
+    await waitFor(() => expect(postSettings).toHaveBeenCalledWith({ "openai_mcp.enabled": false }));
+  });
+
+  it("lists no ChatGPT connector rows before the first status event", () => {
+    renderHook();
+    expect(ids().filter((id) => id.startsWith("openai-mcp-"))).toEqual([]);
   });
 
   it("registers Copy: MCP Endpoint on every route, copying the page origin + /mcp", async () => {

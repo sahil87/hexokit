@@ -25,6 +25,7 @@ import (
 	"rk/internal/gui"
 	"rk/internal/mcp"
 	"rk/internal/metrics"
+	"rk/internal/openaimcp"
 	"rk/internal/ports"
 	"rk/internal/prstatus"
 	"rk/internal/riff"
@@ -322,6 +323,15 @@ type Server struct {
 	// POST /api/gui/{id}/resize, and the gui.enabled/gui.geometry settings POST
 	// side effects (see api/gui.go and settings.go). Nil falls back to the
 	// production daemon/gui calls, mirroring the hub's gui seams in sse.go.
+	// The openAIMCP*Fn group is the seam layer behind POST
+	// /api/openai-mcp/{key,restart} and the openai_mcp.* settings POST side
+	// effects (see api/openaimcp.go). Nil falls back to the production
+	// daemon/openaimcp calls.
+	openAIMCPEnsureFn  func() (daemon.OpenAIMCPEnsureOutcome, error)
+	openAIMCPKillFn    func() (bool, error)
+	openAIMCPRestartFn func() error
+	openAIMCPLayoutFn  func() (openaimcp.Layout, error)
+
 	guiEnsureFn         func() (daemon.GUIEnsureOutcome, error)
 	guiKillFn           func() (bool, error)
 	guiRestartFn        func() error
@@ -1135,6 +1145,11 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/gui/{id}/launch", s.handleGuiLaunch)
 	r.Post("/api/gui/{id}/resize", s.handleGuiResize)
 	r.Post("/api/gui/{id}/ping", s.handleGuiPing)
+	// ChatGPT connector: the write-only runtime key and the restart verb (POST
+	// per §IX). On/off and the tunnel ID ride POST /api/settings. See
+	// api/openaimcp.go and docs/specs/openai-mcp.md.
+	r.Post("/api/openai-mcp/key", s.handleOpenAIMCPKey)
+	r.Post("/api/openai-mcp/restart", s.handleOpenAIMCPRestart)
 
 	// Web Push: VAPID key (read), subscribe + notify (mutations, POST per §IX)
 	r.Get("/api/push/vapid-public-key", s.handlePushVAPIDPublicKey)

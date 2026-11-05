@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -106,9 +107,10 @@ func setupEmbeddedSPA(t *testing.T) {
 
 	useEmbeddedSPA = true
 	mapFS := fstest.MapFS{
-		"index.html":              {Data: []byte("<html>SPA</html>")},
-		"assets/app-abc123.js":    {Data: []byte("console.log('app')")},
-		"favicon-precomposed.png": {Data: []byte("png-bytes")},
+		"index.html":               {Data: []byte("<html>SPA</html>")},
+		"assets/app-abc123.js":     {Data: []byte("console.log('app')")},
+		"favicon-precomposed.png":  {Data: []byte("png-bytes")},
+		".well-known/security.txt": {Data: []byte("Contact: mailto:security@example.com")},
 	}
 	embeddedSPASub = func() (fs.FS, error) { return mapFS, nil }
 
@@ -310,4 +312,78 @@ func TestSPANotBuilt(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
 	}
+}
+
+// wellKnownDiscoveryPaths are RFC 8615 URIs that discovery clients probe and
+// that the SPA ships no file for. The OAuth pair is what MCP tunnel clients
+// fetch against the daemon's origin before trusting /mcp.
+var wellKnownDiscoveryPaths = []string{
+	"/.well-known/oauth-protected-resource",
+	"/.well-known/oauth-protected-resource/mcp",
+	"/.well-known/oauth-authorization-server",
+	"/.well-known/openid-configuration",
+}
+
+func assertWellKnownNotFound(t *testing.T, router http.Handler) {
+	t.Helper()
+	for _, path := range wellKnownDiscoveryPaths {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s: status = %d, want %d", path, rec.Code, http.StatusNotFound)
+		}
+		if strings.Contains(rec.Body.String(), "<html>SPA</html>") {
+			t.Errorf("GET %s: served the SPA index.html, want no fallback", path)
+		}
+	}
+}
+
+func assertWellKnownFileServed(t *testing.T, router http.Handler) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/security.txt", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if body := rec.Body.String(); body != "Contact: mailto:security@example.com" {
+		t.Errorf("body = %q, want the shipped security.txt", body)
+	}
+}
+
+func TestSPAWellKnownNoFallbackFilesystem(t *testing.T) {
+	_, cleanup := setupSPADir(t)
+	defer cleanup()
+
+	assertWellKnownNotFound(t, newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{}))
+}
+
+func TestSPAWellKnownNoFallbackEmbedded(t *testing.T) {
+	setupEmbeddedSPA(t)
+
+	assertWellKnownNotFound(t, newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{}))
+}
+
+func TestSPAWellKnownShippedFileFilesystem(t *testing.T) {
+	dir, cleanup := setupSPADir(t)
+	defer cleanup()
+
+	wellKnownDir := filepath.Join(dir, ".well-known")
+	if err := os.MkdirAll(wellKnownDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wellKnownDir, "security.txt"), []byte("Contact: mailto:security@example.com"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	assertWellKnownFileServed(t, newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{}))
+}
+
+func TestSPAWellKnownShippedFileEmbedded(t *testing.T) {
+	setupEmbeddedSPA(t)
+
+	assertWellKnownFileServed(t, newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{}))
 }
