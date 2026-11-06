@@ -24,9 +24,10 @@ import (
 //     audited_kill false, and inventory does not list the server;
 //  2. `rk mux snapshot restore` recreates it, naming the former command;
 //  3. a second restore refuses the now-live server;
-//  4. `rk mux send -L` types a command into the restored fresh shell, which
-//     warns `sending ungated` and runs it at the recorded cwd;
-//  5. `rk mux inventory --json -L` shows the restored pane.
+//  4. `rk mux await -L --ready` reports the restored fresh shell `ready`;
+//  5. `rk mux send -L` types a command into it, which warns `sending
+//     ungated` and runs it at the recorded cwd;
+//  6. `rk mux inventory --json -L` shows the restored pane.
 //
 // Hermetic by construction: HOME and XDG_STATE_HOME are t.TempDir() roots, so
 // the snapshot store and config homes land in the sandbox. The server is named
@@ -143,6 +144,18 @@ func TestSkillRestoreProcedureE2E(t *testing.T) {
 	}
 
 	pane := restoreSkillPaneAt(t, server, "work", workDir)
+	restoreSkillWaitForShell(t, server, pane, filepath.Base(bash))
+
+	// The page's readiness gate: a fresh pane with no agent state is probed
+	// by sentinel echo and reports `ready`.
+	readyCtx, readyCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer readyCancel()
+	ready := exec.CommandContext(readyCtx, bin, "mux", "await", "-L", server, "--ready", "--timeout", "30", pane)
+	ready.Env = env
+	readyOut, err := ready.Output()
+	if err != nil || !strings.HasPrefix(strings.TrimSpace(string(readyOut)), "ready "+pane) {
+		t.Fatalf("mux await --ready: err=%v stdout=%q, want `ready %s ...`", err, readyOut, pane)
+	}
 
 	// Step 5 of the page: type the launch command into the fresh shell. A
 	// harmless marker command stands in for `claude --resume <uuid>`; the
@@ -226,6 +239,25 @@ func restoreSkillInventoryServers(t *testing.T, bin string, env []string) []stri
 		names = append(names, s.Server)
 	}
 	return names
+}
+
+// restoreSkillWaitForShell blocks until the restored pane's foreground command
+// is the shell, so nothing is typed into a shell that is still starting.
+func restoreSkillWaitForShell(t *testing.T, server, pane, shell string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		out, err := exec.CommandContext(ctx, "tmux", "-L", server, "display-message", "-p", "-t", pane, "#{pane_current_command}").Output()
+		cancel()
+		if err == nil && strings.TrimSpace(string(out)) == shell {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pane %s never reached shell %q (last: %q, err %v)", pane, shell, out, err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // restoreSkillPaneAt returns the id of the restored pane in session at cwd,

@@ -46,6 +46,8 @@ rk mux snapshot show <server> --at <unix>         # one history entry
 
 The latest is right when nothing touched the server after it died. If it was brought back once already (panes show `[zsh]` where agents ran), use the last history entry from **before** the kill: its `[claude]` panes are your work list.
 
+History keeps 10 entries per server, and a running daemon snapshots every change, so a restored server's fresh shells push the pre-kill entry out within minutes. Copy that `<unix>.json` somewhere safe before you restore anything.
+
 ## 3. Restore the layout
 
 ```sh
