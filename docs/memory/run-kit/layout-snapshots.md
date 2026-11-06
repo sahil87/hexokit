@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Per-server tmux layout snapshots (`internal/snapshot`): capture set + the hexokit state-home snapshots store (apphome dual-read, one-release legacy window; atomic latest, 10-entry history, content-dedup, zero-session guard, .died-{ts} tombstones), Snapshotter cadence + ephemeral opt-out, the per-window recently-closed ring ({server}.closed/, ClosedRingCap 10; consumers: closed-window routes + cron respawn by AgentRef), restore/reopen engines + rk mux snapshot CLI (no relaunch), recovery reader."
+description: "Per-server tmux layout snapshots (`internal/snapshot`): capture set + the hexokit state-home snapshots store (apphome dual-read, one-release legacy window; atomic latest, 10-entry history, content-dedup, zero-session guard, .died-{ts} tombstones), Snapshotter cadence + ephemeral opt-out, the per-window recently-closed ring ({server}.closed/, ClosedRingCap 10; consumers: closed-window routes + cron respawn by AgentRef), restore/reopen engines + rk mux snapshot CLI (no relaunch), recovery reader, and the rk skill restore agent procedure."
 ---
 # Layout Snapshots & Restore
 
@@ -156,6 +156,17 @@ A stored `@rk_win_layout` is reapplied **verbatim** and does not run the live-in
 - **GIVEN** a tombstoned snapshot whose panes recorded long-running commands
 - **WHEN** `rk mux snapshot restore <server>` runs
 - **THEN** every recreated pane is a fresh shell and the stored commands appear only in the report output
+
+### Requirement: `rk skill restore`, the agent procedure after a mass kill
+
+`rk skill restore` is the topic page (canonical `docs/site/skill/restore.md`, ≤150 lines, static-only, synced by `scripts/sync-skill.sh` into `cmd/rk/skill/restore.md`, drift-guarded and line-budgeted like every topic) an agent follows when the user asks to bring sessions back after an update or restart killed them. Restore recreates layout only, so the page carries the rest: find dead servers (snapshot rows minus `rk mux inventory`'s live servers: the reboot signature, since a daemon that died with its servers never tombstoned them and `list` still reads `live`), pick a pre-kill history entry when the latest already shows fresh shells, restore, then derive each agent pane's Claude conversation from Claude Code's own `~/.claude/sessions/` and `~/.claude/projects/` (snapshots record the command name, never a conversation id), resume with `--resume <uuid>` through `rk mux send` and `rk mux await --ready`, and leave operator-owned workers, post-restore closed windows, and non-agent commands to their owners. It also names the usual cause: a daemon under a systemd unit takes every tmux server it started down with the unit (`KillMode=control-group`).
+
+`TestSkillRestoreTopicCommandsResolve` resolves every `rk` invocation in the page's fenced blocks against the live cobra tree (command path, subcommand, and each `--long`/`-s` flag, local or inherited), so a renamed verb or dropped flag fails CI instead of mid-recovery. `TestSkillRestoreProcedureE2E` builds the real binary and walks the page against a real `rk-test-` tmux server in a temp state home: live-latest with no socket and no tombstone → `list` reads live, `inventory` omits it → restore names `was running: claude` → a second restore refuses → `mux send -L` warns `sending ungated` and runs at the recorded cwd → `inventory -L` shows the pane.
+
+#### Scenario: Agent restores a server the daemon died with
+- **GIVEN** a live-latest snapshot whose server has no socket and whose pane recorded `claude`
+- **WHEN** an agent follows `rk skill restore`
+- **THEN** it restores the layout, resumes the pane's own conversation by id (never `--continue` across a shared cwd), and prompts nothing before reading the agent's last turn
 
 ### Requirement: Restorable offers — the reboot signature
 

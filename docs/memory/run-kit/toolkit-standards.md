@@ -467,6 +467,16 @@ below (260815-mi5s-mux-guard-move):
   topic pages carry no new content; the audit found no old-form references in
   `docs/site/skill.md` or `docs/site/skill/mux.md`, and the byte-equality
   drift guards stay green.
+- **The `skill` standard covers the recovery verbs on the `restore` topic
+  page.** Recovery after a mass kill turned out to need an agent (snapshots
+  carry no conversation ids, so resuming means matching each pane to its
+  Claude transcript), so `snapshot list|show|restore` are taught there, on the
+  user's request only: canonical `docs/site/skill/restore.md` (≤150 lines,
+  static-only), synced by `scripts/sync-skill.sh`, drift-guarded and
+  budget-tested by the shared `TestSkillTopics*` tables, registered as
+  `skillTopics["restore"]`, with a core-bundle § Topics line.
+  `TestSkillRestoreTopicCommandsResolve` resolves every `rk` command and flag
+  the page shows against the live tree. The reaper stays unadvertised.
 
 The guard surface (`rk mux guard`; `tmux-guard`
 as a PERMANENT hidden root alias — full contract in
