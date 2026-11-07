@@ -5019,18 +5019,10 @@ function AppShell() {
     [sessionsScope, setSessionsScope],
   );
 
+  // Home navigation is `Go: Host` from the nav builder
+  // (lib/palette/nav.ts) — one entry on every palette-bearing mode.
   const serverActions: PaletteAction[] = useMemo(
     () => [
-      {
-        // Keyboard home path (Constitution V): below `sm` the top-bar brand
-        // crumb is gone and the pointer home affordance is the sidebar brand
-        // row, so the palette must carry the route too. Full navigation
-        // (location.assign, not router navigate) — home is a deliberate
-        // reload boundary, matching the brand crumb/sidebar anchors.
-        id: "host-overview",
-        label: "Host: Overview",
-        onSelect: () => window.location.assign("/"),
-      },
       // The server tier's keyboard color path (mirrors `Session: Set Color`'s
       // shape): opens the modal SwatchPopover's "server" arm below.
       ...buildServerSetColorAction(server, () => setShowColorPicker("server")),
