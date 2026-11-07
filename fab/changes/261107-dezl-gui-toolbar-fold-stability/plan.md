@@ -15,9 +15,9 @@ R1: The fix SHALL be preceded by an instrumented reproduction that names the mec
 
 ### E2E stability: Deterministic spring targeting
 
-R2: The spec's spring targeting SHALL land deterministically and assert inside stable bands. The viewport↔spring overhead SHALL be made constant for the test (pin the header meta chip's width via injected CSS or an equivalent test-only mechanism), the landed spring SHALL be verified before dependent assertions run, and assertion targets SHALL sit at band midpoints (or carry margins scaled to the real inputs — the 24px expand-edge hysteresis, the pinned-block reserve, measured probe widths) instead of fixed small offsets from fold boundaries.
+R2: The spec's spring targeting SHALL land deterministically and assert inside stable bands. Every viewport resize SHALL be frame-settled before it is measured against (the page's layout — and the fold's refit behind it — land only in the rendered frame AFTER a resize; a pre-frame evaluate reads stale geometry), the landed spring SHALL be verified before dependent assertions run, and assertion targets SHALL sit at band midpoints computed from the real inputs (measured probe widths, the 24px expand-edge hysteresis on widen-entered edges, the pinned-block reserve) instead of fixed small offsets from fold boundaries.
 
-- **GIVEN** a pinned-width meta chip and a target spring S
+- **GIVEN** a frame-settled read after each resize and a target spring S
 - **WHEN** the viewport is resized by the computed delta
 - **THEN** the landed spring equals S within a tolerance the test verifies before asserting fold state
 - **GIVEN** a fold band `[lo, hi]` bounded by measured widths
@@ -62,9 +62,9 @@ R5: The suite SHALL pass under repeated execution without retries: `just test-e2
 **Rejected**: blanket retries/timeouts (masks the flake); preemptive component change (behavior risk without evidence).
 *Introduced by*: 261107-dezl-gui-toolbar-fold-stability
 
-**Determinism by pinning the variable input (the meta chip), not by loosening tolerances**
-**Why**: the header's shrinkable meta chip is the one input making viewport↔spring overhead non-constant; pinning its width in the test makes the mapping affine so a single computed resize lands on target, while every width the fold consumes stays real (probe-measured, never hardcoded).
-**Rejected**: widening `resizeToSpring`'s tolerance (still nondeterministic, just less often); mocking layout back into jsdom (defeats the suite's purpose).
+**Determinism by frame-settled reads and verified landing, not by loosening tolerances**
+**Why**: the suspected variable overhead (the header's meta chip) measured CONSTANT on the rig — the viewport↔spring mapping is affine at slope 0.5 (the 50/50 tile split) — and the real nondeterminism was the read timing: post-resize layout lands only in the next rendered frame, so pre-frame evaluates read stale geometry. Awaiting that frame before every read makes each computed delta land deterministically; verifying the landing turns a silent out-of-band spring into a loud failure.
+**Rejected**: pinning the meta chip (it is already constant — a no-op); widening `resizeToSpring`'s tolerance (still nondeterministic, just less often); mocking layout back into jsdom (defeats the suite's purpose).
 *Introduced by*: 261107-dezl-gui-toolbar-fold-stability
 
 ## Tasks
@@ -75,7 +75,7 @@ R5: The suite SHALL pass under repeated execution without retries: `just test-e2
 
 ### Phase 2: Fix
 
-- [x] T002 Implement the fix at the layer T001's evidence names — expected: test-side determinism in `app/frontend/tests/e2e/gui-toolbar-fold.spec.ts` (pin the meta chip width via `page.addStyleTag`-injected CSS or equivalent so viewport↔spring overhead is constant; verify the landed spring before dependent assertions; re-target all assertions at band midpoints with hysteresis-scaled margins; remove the T001 instrumentation); if the evidence instead names the non-atomic re-fit, additionally make `app/frontend/src/components/gui-toolbar.tsx`'s measure path synchronous with the spring resize per R3. <!-- R2 R3 -->
+- [x] T002 Implement the fix at the layer T001's evidence names — expected: test-side determinism in `app/frontend/tests/e2e/gui-toolbar-fold.spec.ts` (frame-settled reads in `resizeToSpring` — await the post-resize rendered frame before every measurement; verify the landed spring before dependent assertions; derive every band target from measured widths and the expand-edge hysteresis, no fixed offsets; remove the T001 instrumentation); if the evidence instead names the non-atomic re-fit, additionally make `app/frontend/src/components/gui-toolbar.tsx`'s measure path synchronous with the spring resize per R3. <!-- R2 R3 --> <!-- rework: cycle 1 — review must-fix: collapse-edge targets still fixed -10 offsets, now input-derived via foldedSpringTarget; labels-band comment/arithmetic corrected; plan R2/DD2/assumption amended to the proven mechanism -->
 
 ### Phase 3: Verification
 
@@ -86,43 +86,47 @@ R5: The suite SHALL pass under repeated execution without retries: `just test-e2
 
 ### Functional Completeness
 
-- [ ] A-001 R1: Each of the three observed failure modes is attributed to a named mechanism with captured evidence, recorded in the apply result.
-- [ ] A-002 R2: Spring targeting lands deterministically — the landed spring is verified before dependent assertions, with the viewport↔spring overhead made constant for the test.
-- [ ] A-003 R2: Every assertion target sits at a band midpoint or carries a margin scaled to the real inputs (≥ 24px past the boundary on expand edges).
+- [x] A-001 R1: Each of the three observed failure modes is attributed to a named mechanism with captured evidence, recorded in the apply result.
+- [x] A-002 R2: Spring targeting lands deterministically — every read is frame-settled (the post-resize rendered frame is awaited before measuring) and the landed spring is verified before dependent assertions; the viewport↔spring overhead is observed constant on the rig (slope 0.5, fixed chrome), so no pinning is needed.
+- [x] A-003 R2: Every assertion target sits at a band midpoint or carries a margin scaled to the real inputs (≥ 24px past the boundary on expand edges).
 
 ### Behavioral Correctness
 
-- [ ] A-004 R3: The component arm is either implemented with its unit suites green, or explicitly cleared with the diagnostic evidence that the non-atomic re-fit is not causal.
-- [ ] A-005 R4: All four proof areas (tail-first ladder + `⚙` + panel rows; degradation before fold; reload persistence; fullscreen tile targeting) remain proven at real viewport widths with no deleted assertions.
+- [x] A-004 R3: The component arm is either implemented with its unit suites green, or explicitly cleared with the diagnostic evidence that the non-atomic re-fit is not causal.
+- [x] A-005 R4: All four proof areas (tail-first ladder + `⚙` + panel rows; degradation before fold; reload persistence; fullscreen tile targeting) remain proven at real viewport widths with no deleted assertions.
 
 ### Scenario Coverage
 
-- [ ] A-006 R4: The ladder test still proves tail-first folding order, `⚙` appear/disappear, and the panel's folded rows.
-- [ ] A-007 R4: The degradation test still proves quality-then-size label order with every rung inline.
+- [x] A-006 R4: The ladder test still proves tail-first folding order, `⚙` appear/disappear, and the panel's folded rows.
+- [x] A-007 R4: The degradation test still proves quality-then-size label order with every rung inline.
 
 ### Edge Cases & Error Handling
 
-- [ ] A-008 R2: Widening-back assertions sit at least the 24px one-sided hysteresis past their boundary, so a refit landing anywhere in the band cannot flap the expected state.
-- [ ] A-009 R5: The reload-persistence and fullscreen tests pass unchanged under the reworked targeting.
+- [x] A-008 R2: Widening-back assertions sit at least the 24px one-sided hysteresis past their boundary, so a refit landing anywhere in the band cannot flap the expected state.
+- [x] A-009 R5: The reload-persistence and fullscreen tests pass unchanged under the reworked targeting.
 
 ### Code Quality
 
-- [ ] A-010: Pattern consistency — the reworked helpers follow the sibling measured-fold specs' idioms (probe-measured targets, retrying post-resize expects) and the file's Proves/Steps JSDoc convention.
-- [ ] A-011: No magic numbers — margins and tolerances are named constants tied to the inputs they derive from (hysteresis, reserve, measured widths); comments state constraints, not narration.
-- [ ] A-012: Baseline — no unnecessary duplication (shared helper extraction only if both sibling specs would use it) and no retry/quota mechanism added as a flake mask.
+- [x] A-010: Pattern consistency — the reworked helpers follow the sibling measured-fold specs' idioms (probe-measured targets, retrying post-resize expects) and the file's Proves/Steps JSDoc convention.
+- [x] A-011: No magic numbers — margins and tolerances are named constants tied to the inputs they derive from (hysteresis, reserve, measured widths); comments state constraints, not narration.
+- [x] A-012: Baseline — no unnecessary duplication (shared helper extraction only if both sibling specs would use it) and no retry/quota mechanism added as a flake mask.
 
 ### Stability
 
-- [ ] A-013 R5: `just test-e2e gui-toolbar-fold --repeat-each 5 --retries 0` passes 20/20 locally.
-- [ ] A-014 R5: Sibling measured-fold specs and the gui toolbar unit suites pass unchanged; `tsc --noEmit` clean.
+- [x] A-013 R5: `just test-e2e gui-toolbar-fold --repeat-each 5 --retries 0` passes 20/20 locally.
+- [x] A-014 R5: Sibling measured-fold specs and the gui toolbar unit suites pass unchanged; `tsc --noEmit` clean.
 
 ## Assumptions
 
 | # | Grade | Decision | Rationale | Scores |
 |---|-------|----------|-----------|--------|
 | 1 | Confident | The fix's locus is decided by T001's evidence; expected test-side (spec helpers), component arm only on proof | Intake #3/#4 carried forward; the documented caveat says assertions already retry, pointing at sizing/convergence as the fragility | S:80 R:85 A:70 D:60 |
-| 2 | Confident | Determinism mechanism: pin the meta chip's width via test-injected CSS so viewport↔spring overhead is constant | The meta chip is the one non-constant input; pinning it is test-only and keeps all fold-consumed widths real | S:70 R:80 A:70 D:55 |
+| 2 | Confident | Determinism mechanism: frame-settled reads (await the post-resize rendered frame before measuring) with a verified landing — the meta chip measured constant, so no pinning is needed | Rig diagnosis: layout lands one frame after the resize, so pre-frame reads are stale; the mapping is affine at slope 0.5 | S:75 R:80 A:75 D:60 |
 | 3 | Certain | `lib/gui-toolbar-fold.ts`'s decision logic is out of scope — its unit suite is the contract | Non-Goals; the flake is in driving/measurement, not the pure arithmetic (unit-proven) | S:90 R:85 A:85 D:85 |
 | 4 | Confident | Sibling specs (`top-bar-overflow`, `crumb-collapse`) are not reworked — not observed flaky | Scope control; they may adopt an extracted helper only if it fits both | S:75 R:80 A:75 D:70 |
 
 4 assumptions (1 certain, 3 confident, 0 tentative, 0 unresolved).
+
+## Deletion Candidates
+
+- None — this change adds new functionality without making existing code redundant
