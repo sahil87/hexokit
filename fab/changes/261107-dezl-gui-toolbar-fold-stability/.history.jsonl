@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-07T06:30:14Z"}
+{"args":"Fix the flakiness in app/frontend/tests/e2e/gui-toolbar-fold.spec.ts — the gui header fold real-widths suite fails intermittently on main and in CI (sole cause of PR #1105's red CI; rerun passed). Local repro: just test-e2e gui-toolbar-fold --repeat-each 3 --retries 0 fails ~3-4 of 12 runs on both main and the ogop branch. Failure modes: (1) spring did not converge to 300 from resizeToSpring's iterate-to-2px loop, (2) Toggle stats not visible at full+cap+40 target, (3) resolution label not degraded at mid-band target. The ResizeObserver re-fit is not atomic with the resize and the header's shrinkable meta chip makes viewport-to-spring overhead non-constant, so pixel-boundary targets and 2px convergence are fragile. Make the suite deterministic without weakening what the tests prove. Acceptance: repeat-each 5 --retries 0 passes 20/20 locally; CI E2E shards pass.","cmd":"fab-new","event":"command","ts":"2026-11-07T06:30:14Z"}
+{"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-11-07T06:31:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-07T06:32:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-07T06:45:24Z"}
+{"event":"review","result":"failed","ts":"2026-11-07T06:54:07Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-07T06:54:07Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-07T06:57:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-11-07T07:03:28Z"}
+{"event":"review","result":"passed","ts":"2026-11-07T07:03:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-11-07T07:04:45Z"}

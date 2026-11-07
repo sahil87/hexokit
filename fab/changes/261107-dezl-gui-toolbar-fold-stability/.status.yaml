@@ -1,0 +1,57 @@
+id: dezl
+name: 261107-dezl-gui-toolbar-fold-stability
+created: 2026-11-07T06:30:14Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 4
+    acceptance_count: 14
+    acceptance_completed: 14
+confidence:
+    certain: 3
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.6
+    fuzzy: true
+    dimensions:
+        signal: 85.0
+        reversibility: 81.7
+        competence: 79.2
+        disambiguation: 73.3
+stage_metrics:
+    intake: {started_at: "2026-11-07T06:30:14Z", driver: fab-new, iterations: 1, completed_at: "2026-11-07T06:32:17Z"}
+    apply: {started_at: "2026-11-07T06:54:07Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-07T06:57:05Z"}
+    review: {started_at: "2026-11-07T06:57:05Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-07T07:03:28Z"}
+    hydrate: {started_at: "2026-11-07T07:03:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-07T07:04:45Z"}
+    ship: {started_at: "2026-11-07T07:04:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-07T07:08:20Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1111
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 382
+    deleted: 30
+    net: 352
+    excluding:
+        added: 94
+        deleted: 29
+        net: 65
+    tests:
+        added: 94
+        deleted: 29
+        net: 65
+    computed_at: "2026-11-07T07:08:20Z"
+    computed_at_stage: ship
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-07T07:09:04Z
