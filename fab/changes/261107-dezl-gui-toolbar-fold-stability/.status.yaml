@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-07T07:08:20Z
+last_updated: 2026-11-07T07:09:04Z
