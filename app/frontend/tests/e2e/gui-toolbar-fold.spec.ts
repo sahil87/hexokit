@@ -1,14 +1,17 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import { READY_TIMEOUT } from "./_ready";
 import { GUI_ON_1080P, mockGuiBackend, toggleButton } from "./_gui-mock";
+import { GUI_TOOLBAR_FOLD_HYSTERESIS_PX } from "../../src/lib/gui-toolbar-fold";
 
 // GUI header fold e2e (spec docs/specs/gui.md § The tile; design authority
 // docs/wiki/gui-toolbar-header-studies.html). The gui tile's session controls
 // live in the tile header as a MEASURED priority fold (lib/gui-toolbar-fold.ts
 // owns the decision; the component owns the DOM measurement) — jsdom has no
 // layout engine, so the ladder is driven here at REAL viewport widths. The
-// ResizeObserver re-fit is NOT atomic with the resize (the same caveat
-// top-bar-overflow.spec.ts / crumb-collapse.spec.ts document), so every
+// page's layout — and the fold's ResizeObserver re-fit behind it — land only
+// in the rendered frame AFTER a viewport resize (an evaluate that runs sooner
+// reads the pre-resize geometry), so `resizeToSpring` waits that frame out
+// before every read; the refit itself lags one further frame, so every
 // post-resize assertion is a retrying Playwright expect.
 //
 // Shared setup: the fully-mocked gui rig from `_gui-mock.ts` (state-socket
@@ -17,9 +20,11 @@ import { GUI_ON_1080P, mockGuiBackend, toggleButton } from "./_gui-mock";
 // input rung (⎘ ⌥) is absent and ↻ Reconnect is present). Every test opens
 // @1 and toggles the gui tile on, giving a 50/50 split-h whose header spring
 // sits in the few-hundred-px band where the ladder engages; `resizeToSpring`
-// iterates viewport resizes until the spring hits a computed target (the
-// header's shrinkable meta chip makes the viewport↔spring overhead
-// non-constant), and `measureFold` reads the hidden probe row's REAL widths,
+// iterates frame-settled viewport resizes until the spring hits a computed
+// target and verifies the landing (the spring moves at half the viewport
+// delta — the 50/50 tile split owns the other half; the header's fixed
+// chrome contributes a constant), and `measureFold` reads the hidden probe
+// row's REAL widths,
 // so fold targets are computed from measurement, never hardcoded. The pinned
 // block's permanent capture verb (fine pointers) is reserved from the spring
 // BEFORE the ladder is fitted, so every spring target below adds the probe's
@@ -96,19 +101,44 @@ async function openGuiTileSplit(page: Page): Promise<Locator> {
   return cluster;
 }
 
-/** Resize the viewport until the header spring lands within 1px of
- *  `springTarget`. Iterates because the header's shrinkable meta chip makes
- *  the viewport↔spring overhead non-constant. */
+/** Await the rendered frame that applies a viewport resize. The page's
+ *  layout lands only in the frame AFTER `setViewportSize` — an evaluate
+ *  that runs sooner reads the pre-resize geometry (rig-proven with paired
+ *  reads: the first post-resize evaluate sees the old spring, the next the
+ *  new one) — so every resize in this spec waits the frame out before it
+ *  is measured against. Double-rAF also covers the fold refit's own
+ *  one-frame lag behind the spring's box change. */
+async function awaitResizeFrame(page: Page) {
+  await page.evaluate(
+    () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+  );
+}
+
+/** Slack beyond the expand-edge hysteresis on widen-to-inline spring
+ *  targets — enough that a refit measuring anywhere in the verified 2px
+ *  landing tolerance still clears the expansion threshold. */
+const WIDEN_SLACK_PX = 16;
+
+/** Resize the viewport until the header spring lands within 2px of
+ *  `springTarget`, verifying the landing. The spring moves at half the
+ *  viewport delta (the 50/50 tile split owns the other half), so this
+ *  iterates; every read is frame-settled, so deltas are computed from
+ *  applied geometry, never stale reads. */
 async function resizeToSpring(page: Page, springTarget: number) {
-  // The meta chip re-expands into freed width, so each step gains only part
-  // of the delta — iterate to a 2px tolerance.
   for (let i = 0; i < 15; i++) {
     const m = await measureFold(page);
     const delta = springTarget - m.spring;
-    if (Math.abs(delta) <= 2) return;
+    if (Math.abs(delta) <= 2) {
+      // The fold refits one frame after the spring's box change; wait that
+      // frame so the caller's assertions read the settled cluster.
+      await awaitResizeFrame(page);
+      return;
+    }
     await page.setViewportSize({ width: Math.max(320, Math.round(m.viewport + delta)), height: 800 });
+    await awaitResizeFrame(page);
   }
-  throw new Error(`spring did not converge to ${springTarget}`);
+  const m = await measureFold(page);
+  throw new Error(`spring did not converge to ${springTarget} (landed ${m.spring} at viewport ${m.viewport})`);
 }
 
 test.describe("gui header fold — real widths", () => {
@@ -143,8 +173,10 @@ test.describe("gui header fold — real widths", () => {
     const full = ladderWidth(widths, LADDER.length, LADDER.length);
     const degradedAll = ladderWidth(widths, LADDER.length, 0);
     // Widen until everything fits (the header's meta chip eats spring width,
-    // so the default 1280 split already folds the tail).
-    await resizeToSpring(page, full + cap + 40);
+    // so the default 1280 split already folds the tail). The hysteresis +
+    // slack clear the expand edge from that folded state with margin.
+    const inlineSpring = full + cap + GUI_TOOLBAR_FOLD_HYSTERESIS_PX + WIDEN_SLACK_PX;
+    await resizeToSpring(page, inlineSpring);
     await expect(cluster.getByRole("button", { name: "Toggle stats" })).toBeVisible();
     await expect(cluster.getByRole("button", { name: "Reconnect" })).toBeVisible();
     await expect(cluster.getByTestId("gui-toolbar-overflow")).toHaveCount(0);
@@ -160,9 +192,9 @@ test.describe("gui header fold — real widths", () => {
     await expect(cluster.getByRole("button", { name: "Open terminal" })).toBeVisible();
     await expect(cluster.getByTestId("gui-capture-toggle")).toBeVisible();
 
-    // Widening back well past the threshold (hysteresis margin is 24px) —
-    // everything returns inline and ⚙ disappears.
-    await resizeToSpring(page, full + cap + 40);
+    // Widening back well past the threshold (the hysteresis + slack in
+    // `inlineSpring`) — everything returns inline and ⚙ disappears.
+    await resizeToSpring(page, inlineSpring);
     await expect(cluster.getByTestId("gui-toolbar-overflow")).toHaveCount(0);
     await expect(cluster.getByRole("button", { name: "Toggle stats" })).toBeVisible();
 
@@ -199,8 +231,11 @@ test.describe("gui header fold — real widths", () => {
     const degradedQuality = ladderWidth(widths, LADDER.length, 4);
     const degradedBoth = ladderWidth(widths, LADDER.length, 0);
 
-    // [degradedQuality, full): only the quality label pays.
-    await resizeToSpring(page, (degradedQuality + full) / 2 + cap);
+    // [degradedQuality, full): only the quality label pays. The band is
+    // entered by WIDENING from the cold mount's folded state, so its
+    // effective floor is the expand-edge hysteresis above the boundary —
+    // aim at the midpoint of [boundary + hysteresis, full].
+    await resizeToSpring(page, (degradedQuality + GUI_TOOLBAR_FOLD_HYSTERESIS_PX + full) / 2 + cap);
     await expect(cluster.getByRole("button", { name: "Quality" })).toHaveText("◐");
     await expect(cluster.getByTestId("gui-toolbar-resolution")).toHaveText("1920×1080 ▾");
     await expect(cluster.getByRole("button", { name: "Toggle stats" })).toBeVisible();
