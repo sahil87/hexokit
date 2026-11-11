@@ -24,10 +24,6 @@ import (
 // at login (RunAtLoad) and never kept alive. A boot-time LaunchDaemon would
 // run as root, which the autostart plan rules out, so macOS only ever starts
 // at login.
-//
-// Verified only against fakes: the plist shape and the launchctl sequence are
-// S1's untested macOS candidate (fab/plans/sahil/26-11-11-rk-daemon-autostart-s1-findings.md
-// § macOS) until checked on a real Mac.
 const (
 	launchdLabel         = "ai.shll.hexokit.daemon"
 	launchdAgentsRelDir  = "Library/LaunchAgents"
@@ -236,9 +232,17 @@ func (l *launchd) On(ctx context.Context, opts OnOptions) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	// launchd does not create the log file's directory and a missing one
+	// fails the job before the shell runs, so it is ensured on every On, not
+	// only when the plist is rewritten.
+	for _, dir := range []string{filepath.Dir(want.path), filepath.Dir(want.log)} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return Result{}, err
+		}
+	}
 	changed := !exists || !bytes.Equal(have, want.plist)
 	if changed {
-		if err := l.writePlist(want); err != nil {
+		if err := fsatomic.WriteFile(want.path, want.plist, 0o644); err != nil {
 			return Result{}, err
 		}
 	}
@@ -271,17 +275,6 @@ func (l *launchd) On(ctx context.Context, opts OnOptions) (Result, error) {
 	}
 	res.Started = true
 	return res, nil
-}
-
-func (l *launchd) writePlist(want launchdDesired) error {
-	// launchd does not create the log file's directory; a missing one makes
-	// the job fail before the shell runs.
-	for _, dir := range []string{filepath.Dir(want.path), filepath.Dir(want.log)} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
-		}
-	}
-	return fsatomic.WriteFile(want.path, want.plist, 0o644)
 }
 
 func (l *launchd) Off(ctx context.Context) (Result, error) {
@@ -330,6 +323,10 @@ func (l *launchd) Status(ctx context.Context) (Status, error) {
 	}
 	if err != nil {
 		return Status{}, err
+	}
+	if !bytes.Contains(have, []byte(ManagedMarker)) {
+		st.Hints = []string{"A plist at " + want.path + " was not written by rk daemon autostart; rk will not modify it. Remove it yourself to let `rk daemon autostart on` register."}
+		return st, nil
 	}
 	st.Registered = true
 	st.StartsAt = StartsAtLogin

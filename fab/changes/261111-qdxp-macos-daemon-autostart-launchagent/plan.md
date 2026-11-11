@@ -105,41 +105,45 @@ Every `launchctl`/`dscl` invocation MUST use `exec.CommandContext` with a timeou
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `For("darwin")` returns the launchd backend on a Linux host, with label/path/target as specified
-- [ ] A-002 R2: the rendered plist has the marker, Label, ProgramArguments (shell, `-lc`, StartScript), RunAtLoad, AbandonProcessGroup and log paths, and no KeepAlive
-- [ ] A-003 R3: the dscl-resolved shell is used; the fallback is `/bin/zsh`; `$SHELL` is never read
-- [ ] A-004 R4: `On` without Now never bootstraps; `On` with Now bootstraps (bootout first when loaded and changed); an identical, loaded plist is not rewritten and is re-run via kickstart
-- [ ] A-005 R5: `Off` bootouts if loaded and deletes the plist, never stops the daemon, and refuses a foreign plist
-- [ ] A-006 R6: `Status` fields and hints match R6, including disabled, never-exited and not-loaded parsing
+- [x] A-001 R1: `For("darwin")` returns the launchd backend on a Linux host, with label/path/target as specified
+- [x] A-002 R2: the rendered plist has the marker, Label, ProgramArguments (shell, `-lc`, StartScript), RunAtLoad, AbandonProcessGroup and log paths, and no KeepAlive
+- [x] A-003 R3: the dscl-resolved shell is used; the fallback is `/bin/zsh`; `$SHELL` is never read
+- [x] A-004 R4: `On` without Now never bootstraps; `On` with Now bootstraps (bootout first when loaded and changed); an identical, loaded plist is not rewritten and is re-run via kickstart
+- [x] A-005 R5: `Off` bootouts if loaded and deletes the plist, never stops the daemon, and refuses a foreign plist
+- [x] A-006 R6: `Status` fields and hints match R6, including disabled, never-exited and not-loaded parsing
 
 ### Scenario Coverage
 
-- [ ] A-007 R4: tests assert the exact launchctl argv sequence for on, on --now (fresh → bootstrap / unchanged-loaded → kickstart / changed-loaded → bootout+bootstrap)
-- [ ] A-008 R6: tests cover last-exit parsing for `0`, a non-zero code, `(never exited)` and not loaded
+- [x] A-007 R4: tests assert the exact launchctl argv sequence for on, on --now (fresh → bootstrap / unchanged-loaded → kickstart / changed-loaded → bootout+bootstrap)
+- [x] A-008 R6: tests cover last-exit parsing for `0`, a non-zero code, `(never exited)` and not loaded
 
 ### Edge Cases & Error Handling
 
-- [ ] A-009 R2: a path with XML-special characters renders a parseable plist
-- [ ] A-010 R4: a launchctl failure (bootstrap non-zero) surfaces as an error naming the command and its output
-- [ ] A-011 R5: `Off` on an absent registration is `Changed=false` with no launchctl mutation
+- [x] A-009 R2: a path with XML-special characters renders a parseable plist
+- [x] A-010 R4: a launchctl failure (bootstrap non-zero) surfaces as an error naming the command and its output
+- [x] A-011 R5: `Off` on an absent registration is `Changed=false` with no launchctl mutation
 
 ### Code Quality
 
-- [ ] A-012 Pattern consistency: seams follow the package-level/injected seam idiom of `internal/daemon` (e.g. `jobRunTmux`)
-- [ ] A-013 No unnecessary duplication: reuses `fsatomic`, `apphome.LogsDir`, `autostart.RKPath`/`StartScript`/`ManagedMarker`
-- [ ] A-014: all subprocesses use `exec.CommandContext` with a timeout and argument slices (Principle I)
-- [ ] A-015: no comment narration; comments state constraints only
-- [ ] A-016: shared files unchanged relative to `e7336e55`
+- [x] A-012 Pattern consistency: seams follow the package-level/injected seam idiom of `internal/daemon` (e.g. `jobRunTmux`)
+- [x] A-013 No unnecessary duplication: reuses `fsatomic`, `apphome.LogsDir`, `autostart.RKPath`/`StartScript`/`ManagedMarker`
+- [x] A-014: all subprocesses use `exec.CommandContext` with a timeout and argument slices (Principle I)
+- [x] A-015: no comment narration; comments state constraints only
+- [x] A-016: shared files unchanged relative to `e7336e55`
 
 ### Security
 
-- [ ] A-017 R7: no shell strings are built for launchctl/dscl; the label is a constant and the username is passed as one argv element
+- [x] A-017 R7: no shell strings are built for launchctl/dscl; the label is a constant and the username is passed as one argv element
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+None — this change adds new functionality without making existing code redundant. (`internal/remote/ssh.go:207` still matches the `daemon already running` text, but it parses remote SSH output, where `errors.Is` cannot reach, so it stays.)
 
 ## Assumptions
 

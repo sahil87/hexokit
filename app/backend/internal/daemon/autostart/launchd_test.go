@@ -567,3 +567,48 @@ func TestLaunchdRCHint(t *testing.T) {
 		}
 	}
 }
+
+func TestLaunchdOn_RecreatesMissingLogsDir(t *testing.T) {
+	f := &launchdFake{}
+	l, _ := newLaunchdTest(t, f)
+	if _, err := l.On(context.Background(), OnOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	logs, _ := l.logsDir()
+	if err := os.RemoveAll(logs); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := l.On(context.Background(), OnOptions{})
+	if err != nil {
+		t.Fatalf("second On: %v", err)
+	}
+	if res.Changed {
+		t.Error("Changed = true for an identical plist")
+	}
+	if _, err := os.Stat(logs); err != nil {
+		t.Errorf("logs dir not recreated with an unchanged plist: %v", err)
+	}
+}
+
+func TestLaunchdStatus_ForeignPlistIsNotRegistered(t *testing.T) {
+	f := &launchdFake{}
+	l, path := newLaunchdTest(t, f)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("<plist/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := l.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if st.Registered || st.Stale {
+		t.Errorf("foreign plist reported registered=%v stale=%v", st.Registered, st.Stale)
+	}
+	if len(st.Hints) != 1 || !strings.Contains(st.Hints[0], "not written by rk daemon autostart") {
+		t.Errorf("hints = %q", st.Hints)
+	}
+}
