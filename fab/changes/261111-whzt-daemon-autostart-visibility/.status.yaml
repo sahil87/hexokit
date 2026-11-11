@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: pending
+    review-pr: done
 plan:
     generated: true
     task_count: 10
@@ -34,6 +34,7 @@ stage_metrics:
     review: {started_at: "2026-11-11T11:59:01Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-11T12:05:13Z"}
     hydrate: {started_at: "2026-11-11T12:05:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T12:06:47Z"}
     ship: {started_at: "2026-11-11T12:06:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T12:07:36Z"}
+    review-pr: {started_at: "2026-11-11T12:15:36Z", driver: git-pr-review, iterations: 1, completed_at: "2026-11-11T12:15:40Z"}
 prs:
     - https://github.com/sahil87/hexokit/pull/1127
 change_type_source: explicit
@@ -55,4 +56,4 @@ true_impact:
 summary: 'Daemon autostart visibility: Status.Summary() vocabulary, rk doctor ''daemon autostart'' row, GET /api/daemon/autostart, read-only Host system-card row'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-11T12:07:36Z
+last_updated: 2026-11-11T12:15:40Z
