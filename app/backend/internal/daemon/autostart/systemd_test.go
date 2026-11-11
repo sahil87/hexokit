@@ -158,6 +158,8 @@ func TestSystemdRenderUnitRejectsUnsafePaths(t *testing.T) {
 		{"/usr/bin/my shell", systemdTestRK},
 		{"/usr/sbin/nologin", systemdTestRK},
 		{"/bin/false", systemdTestRK},
+		{`/usr/bin/it's`, systemdTestRK},
+		{systemdTestShell, `/opt/back\slash/rk`},
 	}
 	for _, c := range cases {
 		if _, err := systemdRenderUnit(c.shell, c.rk); err == nil {
@@ -193,6 +195,12 @@ func TestSystemdLoginShell(t *testing.T) {
 	}
 
 	f.fail["getent passwd sahil"] = false
+	f.out["getent passwd sahil"] = "sahil:x:1000:1000::/home/sahil:\n"
+	s.getenv = func(string) string { return "/bin/bash" }
+	if got, _ := s.loginShell(context.Background(), systemdTestUser); got != systemdFallbackShell {
+		t.Errorf("empty passwd shell field = %q, want %q (passwd(5)), not $SHELL", got, systemdFallbackShell)
+	}
+
 	f.out["getent passwd sahil"] = "sahil:x:1000:1000::/home/sahil:/usr/sbin/nologin\n"
 	if _, err := s.loginShell(context.Background(), systemdTestUser); err == nil {
 		t.Error("nologin shell accepted")
@@ -389,12 +397,66 @@ func TestSystemdOffNeverStops(t *testing.T) {
 	}
 
 	f.calls = nil
+	f.setEnabled(false) // the fake does not model disable's effect
 	res, err = s.Off(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if res.Changed || len(f.mutating()) != 0 {
 		t.Errorf("second off: changed=%v calls=%v", res.Changed, f.calls)
+	}
+}
+
+func TestSystemdOffDisablesUnitEnabledElsewhere(t *testing.T) {
+	f := newSystemdFakeRun()
+	s, _ := newSystemdTestBackend(t, f)
+	f.setEnabled(true)
+	res, err := s.Off(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := f.mutating(); !reflect.DeepEqual(got, []string{"systemctl --user disable " + systemdUnitName}) {
+		t.Errorf("mutating calls = %v, want only disable", got)
+	}
+	if !res.Changed || !systemdHasHint(res.Hints, "outside") {
+		t.Errorf("result = %+v", res)
+	}
+}
+
+func TestSystemdStatusForeignUnit(t *testing.T) {
+	f := newSystemdFakeRun()
+	s, path := newSystemdTestBackend(t, f)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("[Service]\nExecStart=/bin/true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st, err := s.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Registered || !systemdHasHint(st.Hints, "not managed") {
+		t.Errorf("registered=%v hints=%v for a foreign unit", st.Registered, st.Hints)
+	}
+}
+
+func TestSystemdStatusProbeFailures(t *testing.T) {
+	f := newSystemdFakeRun()
+	s, _ := newSystemdTestBackend(t, f)
+	if _, err := s.On(context.Background(), OnOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	// is-enabled exits non-zero printing not-found; show itself fails.
+	f.out["systemctl --user is-enabled "+systemdUnitName] = "not-found\n"
+	f.fail["systemctl --user is-enabled "+systemdUnitName] = true
+	f.fail["systemctl --user show "+systemdUnitName+" -p Result -p ExecMainStatus -p ExecMainStartTimestampMonotonic"] = true
+	st, err := s.Status(context.Background())
+	if err != nil {
+		t.Fatalf("status failed on degraded probes: %v", err)
+	}
+	if st.Enabled || st.StartsAt != "" || st.LastResult != "" || st.LastExitCode != nil {
+		t.Errorf("degraded status = %+v", st)
 	}
 }
 
@@ -491,15 +553,19 @@ func TestSystemdStatusStale(t *testing.T) {
 }
 
 func TestSystemdPasswdShell(t *testing.T) {
-	cases := map[string]string{
-		"sahil:x:1000:1000:Sahil,,,:/home/sahil:/usr/bin/fish\n": "/usr/bin/fish",
-		"sahil:x:1000:1000::/home/sahil:\n":                      "",
-		"garbage":                                                "",
-		"":                                                       "",
+	cases := []struct {
+		in        string
+		want      string
+		wantFound bool
+	}{
+		{"sahil:x:1000:1000:Sahil,,,:/home/sahil:/usr/bin/fish\n", "/usr/bin/fish", true},
+		{"sahil:x:1000:1000::/home/sahil:\n", "", true},
+		{"garbage", "", false},
+		{"", "", false},
 	}
-	for in, want := range cases {
-		if got := systemdPasswdShell([]byte(in)); got != want {
-			t.Errorf("systemdPasswdShell(%q) = %q, want %q", in, got, want)
+	for _, c := range cases {
+		if got, found := systemdPasswdShell([]byte(c.in)); got != c.want || found != c.wantFound {
+			t.Errorf("systemdPasswdShell(%q) = %q, %v; want %q, %v", c.in, got, found, c.want, c.wantFound)
 		}
 	}
 }

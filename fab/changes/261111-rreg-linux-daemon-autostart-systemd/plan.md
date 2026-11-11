@@ -56,7 +56,7 @@ The backend SHALL resolve the login shell with `getent passwd <user>` (field 7) 
 - **AND** `/usr/sbin/nologin` is refused
 
 #### R7: systemd presence check
-`on`, `off` and `status` SHALL fail with `rk daemon autostart: systemd not found — on Linux, autostart needs a systemd user manager (systemctl --user)` when `systemctl` is not on PATH or `/run/systemd/system` does not exist.
+`on`, `off` and `status` SHALL fail with `daemon autostart: systemd not found — on Linux, autostart needs a systemd user manager (systemctl --user)` when `systemctl` is not on PATH or `/run/systemd/system` does not exist.
 
 - **GIVEN** a Linux box without systemd
 - **WHEN** any verb runs
@@ -72,7 +72,7 @@ The backend SHALL resolve the login shell with `getent passwd <user>` (field 7) 
 - **AND** `on --now` additionally runs `restart` and returns `Started:true`
 
 #### R9: `off` never stops the daemon
-`off` SHALL return `Changed:false` when no unit file exists and the unit is not enabled; refuse to delete a file lacking `ManagedMarker`; otherwise run `systemctl --user disable hexokit-daemon.service` (no `--now`), remove the file, and run `systemctl --user daemon-reload`. It MUST NOT run `stop`, `kill`, or `disable --now`.
+`off` SHALL return `Changed:false` when no unit file exists and the unit is not enabled; when no file exists but `is-enabled` reports `enabled` (a copy on another search path), it SHALL run only `systemctl --user disable` and return `Changed:true` with a hint that the other file was left in place; refuse to delete a file lacking `ManagedMarker`; otherwise run `systemctl --user disable hexokit-daemon.service` (no `--now`), remove the file, and run `systemctl --user daemon-reload`. It MUST NOT run `stop`, `kill`, or `disable --now`.
 
 - **GIVEN** a managed unit is installed and enabled
 - **WHEN** `off` runs
@@ -80,7 +80,7 @@ The backend SHALL resolve the login shell with `getent passwd <user>` (field 7) 
 - **AND** a second `off` is a no-op with `Changed:false`
 
 #### R10: `status` reports registration, enablement, linger, last result, staleness
-`status` SHALL report `Platform:"linux"`, `Manager:"systemd"`, `Name`, `Path`, `Registered` (file exists with marker), `Enabled` (`is-enabled` prints `enabled`; non-zero exit with `disabled`/`not-found` is data), `LastResult`/`LastExitCode` (from `systemctl --user show -p Result -p ExecMainStatus -p ActiveState -p SubState`; empty/nil when the unit never ran), `Linger` (`loginctl show-user <user> -p Linger --value`, nil on error plus a hint), `StartsAt` (`boot` = enabled ∧ linger yes; `login` = enabled ∧ linger no/unknown; `""` otherwise), `Shell`, `RKPath`, `Stale` (on-disk bytes differ from a fresh render), and `Hints` (the `loginctl enable-linger <user>` command when linger is off, the per-shell rc-file caveat including rc-only `TMUX_TMPDIR`, and — when `Stale` — a re-run-`on` hint, which is how a moved or deleted rk path surfaces). A failing `show`/`loginctl` SHALL degrade the field, not fail the verb.
+`status` SHALL report `Platform:"linux"`, `Manager:"systemd"`, `Name`, `Path`, `Registered` (file exists with marker; a marker-less or unreadable file adds a hint saying why), `Enabled` (`is-enabled` prints `enabled`; non-zero exit with `disabled`/`not-found` is data), `LastResult`/`LastExitCode` (from `systemctl --user show -p Result -p ExecMainStatus -p ExecMainStartTimestampMonotonic`; empty/nil when the start timestamp is 0, i.e. the unit never ran, because `Result` defaults to `success` even then), `Linger` (`loginctl show-user <user> -p Linger --value`, nil on error plus a hint), `StartsAt` (`boot` = enabled ∧ linger yes; `login` = enabled ∧ linger no/unknown; `""` otherwise), `Shell`, `RKPath`, `Stale` (on-disk bytes differ from a fresh render), and `Hints` (the `loginctl enable-linger <user>` command when linger is off, the per-shell rc-file caveat including rc-only `TMUX_TMPDIR`, and — when `Stale` — a re-run-`on` hint, which is how a moved or deleted rk path surfaces). A failing `show`/`loginctl` SHALL degrade the field, not fail the verb.
 
 - **GIVEN** the unit is enabled, linger is `no`, and the last run was a success
 - **WHEN** `status` runs
@@ -132,56 +132,60 @@ Every subprocess SHALL go through `exec.CommandContext` with a timeout (10 s for
 ### Phase 3: Integration & Edge Cases
 
 - [x] T004 Write `app/backend/internal/daemon/autostart/systemd_test.go` with a fake runner and temp config dir: golden unit (no `Restart=`); escaping of space, `%`, `$`, `"`; refusal of relative/control-character paths; login-shell parse, fallbacks and nologin refusal; no-systemd error with zero subprocesses; `on` first run, re-run no-op, `--now` restart, foreign-file refusal; `off` sequence without `stop`, re-run no-op, foreign-file refusal; `status` matrix (enabled/disabled/not-found, linger yes/no/error, Result success/exit-code/never-ran, Stale, StartsAt) <!-- R3 R4 R5 R6 R7 R8 R9 R10 R11 -->
-- [x] T005 Verify: `just test-backend` green; `go vet ./...` and cross-builds `GOOS=darwin` / `GOOS=windows go build ./cmd/rk` compile (no build-tag leaks); render the unit for this machine to stdout via a throwaway Go test helper, without registering, enabling or touching the live daemon; check `rk daemon autostart --help` output against `shll standards` (help-dump) <!-- R1 R2 R3 R4 -->
+- [x] T005 Verify: `just test-backend` green; `go vet ./...` and `GOOS=darwin go build ./cmd/rk` compiles (no build-tag leaks; windows is not a build target — selfpath/ports/metrics already fail there on main); render the unit for this machine to stdout via a throwaway Go test helper, without registering, enabling or touching the live daemon; check `rk daemon autostart --help` output against `shll standards` (help-dump) <!-- R1 R2 R3 R4 -->
 
 ## Acceptance
 
 ### Functional Completeness
 
-- [ ] A-001 R1: The shared commit is cherry-picked unmodified from `origin/autostart-shared` (or authored to contract with the sha sent to A2), and no shared file differs from A2's copy
-- [ ] A-002 R2: `rk daemon start --if-not-running` exits 0 when the daemon is running; other failures still exit non-zero
-- [ ] A-003 R3: `systemd.go` registers for `linux` in `init()` and has no build tag
-- [ ] A-004 R4: The rendered unit matches the L7 golden (oneshot, RemainAfterExit=yes, KillMode=process, TimeoutStartSec=90, login-shell `-lc` ExecStart with the env strip and `--if-not-running`, WantedBy=default.target, marker comment) and contains no `Restart=`
-- [ ] A-005 R6: The login shell comes from `getent passwd` field 7 with the `$SHELL` → `/bin/sh` fallbacks
-- [ ] A-006 R8: `on` writes + `daemon-reload` + `enable`, starts only with `--now` (via `restart`)
-- [ ] A-007 R9: `off` runs `disable` + remove + `daemon-reload` and never `stop`
-- [ ] A-008 R10: `status` populates every `Status` field listed in R10
+- [x] A-001 R1: The shared commit is cherry-picked unmodified from `origin/autostart-shared` (or authored to contract with the sha sent to A2), and no shared file differs from A2's copy
+- [x] A-002 R2: `rk daemon start --if-not-running` exits 0 when the daemon is running; other failures still exit non-zero
+- [x] A-003 R3: `systemd.go` registers for `linux` in `init()` and has no build tag
+- [x] A-004 R4: The rendered unit matches the L7 golden (oneshot, RemainAfterExit=yes, KillMode=process, TimeoutStartSec=90, login-shell `-lc` ExecStart with the env strip and `--if-not-running`, WantedBy=default.target, marker comment) and contains no `Restart=`
+- [x] A-005 R6: The login shell comes from `getent passwd` field 7 with the `$SHELL` → `/bin/sh` fallbacks
+- [x] A-006 R8: `on` writes + `daemon-reload` + `enable`, starts only with `--now` (via `restart`)
+- [x] A-007 R9: `off` runs `disable` + remove + `daemon-reload` and never `stop`
+- [x] A-008 R10: `status` populates every `Status` field listed in R10
 
 ### Behavioral Correctness
 
-- [ ] A-009 R8: Re-running `on` with an identical unit is a no-op (`Changed:false`, no write, no `daemon-reload`)
-- [ ] A-010 R9: Re-running `off` after removal is a no-op (`Changed:false`)
+- [x] A-009 R8: Re-running `on` with an identical unit is a no-op (`Changed:false`, no write, no `daemon-reload`)
+- [x] A-010 R9: Re-running `off` after removal is a no-op (`Changed:false`)
 
 ### Scenario Coverage
 
-- [ ] A-011 R10: Tests cover the StartsAt matrix (boot / login / login-with-unknown-linger / off) and Stale detection
-- [ ] A-012 R8: A test asserts the exact argv sequence for `on`, `on --now`, and `off`
+- [x] A-011 R10: Tests cover the StartsAt matrix (boot / login / login-with-unknown-linger / off) and Stale detection
+- [x] A-012 R8: A test asserts the exact argv sequence for `on`, `on --now`, and `off`
 
 ### Edge Cases & Error Handling
 
-- [ ] A-013 R7: Without systemd, every verb returns the platform-naming error and no subprocess runs
-- [ ] A-014 R8: `on` and `off` refuse a file at the unit path that lacks `ManagedMarker`
-- [ ] A-015 R6: A `nologin`/`false`/relative login shell makes `on` fail clearly
-- [ ] A-016 R10: A failing `loginctl` or `systemctl show` degrades the field (nil/empty + hint) instead of failing `status`
+- [x] A-013 R7: Without systemd, every verb returns the platform-naming error and no subprocess runs
+- [x] A-014 R8: `on` and `off` refuse a file at the unit path that lacks `ManagedMarker`
+- [x] A-015 R6: A `nologin`/`false`/relative login shell makes `on` fail clearly
+- [x] A-016 R10: A failing `loginctl` or `systemctl show` degrades the field (nil/empty + hint) instead of failing `status`
 
 ### Code Quality
 
-- [ ] A-017 Pattern consistency: New code follows naming and structural patterns of surrounding code (cmd-level seams as func vars or struct fields, `fsatomic`, `selfpath`)
-- [ ] A-018 No unnecessary duplication: Existing utilities reused (`internal/fsatomic`, `internal/selfpath`, `internal/shellq`, `outputSink.Envelope`)
-- [ ] A-019: Every subprocess uses `exec.CommandContext` with an argv slice and a timeout, never a shell string from Go
-- [ ] A-020: Functions stay focused (no god functions over ~50 lines without reason); constants are named (unit name, timeouts, env list)
-- [ ] A-021: Comments state constraints only (no narration, no change IDs)
-- [ ] A-022: New behavior is covered by Go unit tests run via `just test-backend`
+- [x] A-017 Pattern consistency: New code follows naming and structural patterns of surrounding code (cmd-level seams as func vars or struct fields, `fsatomic`, `selfpath`)
+- [x] A-018 No unnecessary duplication: Existing utilities reused (`internal/fsatomic`, `internal/selfpath`, `internal/shellq`, `outputSink.Envelope`)
+- [x] A-019: Every subprocess uses `exec.CommandContext` with an argv slice and a timeout, never a shell string from Go
+- [x] A-020: Functions stay focused (no god functions over ~50 lines without reason); constants are named (unit name, timeouts, env list)
+- [x] A-021: Comments state constraints only (no narration, no change IDs)
+- [x] A-022: New behavior is covered by Go unit tests run via `just test-backend`
 
 ### Security
 
-- [ ] A-023 R5: Paths interpolated into the unit are validated (absolute, no control characters) and escaped for systemd (`\ " % $`) and shell-quoted for the login shell, so no injection reaches ExecStart
+- [x] A-023 R5: Paths interpolated into the unit are validated (absolute, no control characters) and escaped for systemd (`\ " % $`) and shell-quoted for the login shell, so no injection reaches ExecStart
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+None — this change adds new functionality without making existing code redundant
 
 ## Assumptions
 

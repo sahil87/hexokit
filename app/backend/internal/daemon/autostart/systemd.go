@@ -210,6 +210,17 @@ func (s *systemd) Off(ctx context.Context) (Result, error) {
 	res := Result{Name: systemdUnitName, Path: path}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
+		// An enabled unit with no file here was loaded from another search
+		// path (often a user manager whose XDG_CONFIG_HOME differs from
+		// rk's): drop its wants-link so autostart is really off.
+		if !s.isEnabled(ctx) {
+			return res, nil
+		}
+		if _, err := s.systemctl(ctx, systemdCtlTimeout, "disable", systemdUnitName); err != nil {
+			return res, err
+		}
+		res.Changed = true
+		res.Hints = []string{"the unit was enabled from a file outside " + path + "; it is disabled now but that file was left in place"}
 		return res, nil
 	}
 	if err != nil {
@@ -261,6 +272,12 @@ func (s *systemd) Status(ctx context.Context) (Status, error) {
 
 	data, err := os.ReadFile(path)
 	st.Registered = err == nil && systemdIsManaged(data)
+	switch {
+	case err == nil && !st.Registered:
+		st.Hints = append(st.Hints, systemdForeignError(path).Error())
+	case err != nil && !errors.Is(err, fs.ErrNotExist):
+		st.Hints = append(st.Hints, fmt.Sprintf("cannot read %s: %v", path, err))
+	}
 	if st.Registered && shellErr == nil && rkErr == nil {
 		if want, err := systemdRenderUnit(shell, rk); err == nil && want != string(data) {
 			st.Stale = true
@@ -388,16 +405,17 @@ func systemdProfileHint(shell string) string {
 
 // loginShell resolves the user's shell from the passwd database (getent also
 // covers NSS/LDAP accounts), not from $SHELL, which reflects whatever shell
-// ran rk; $SHELL and /bin/sh are only fallbacks.
+// ran rk; $SHELL is only the fallback when passwd cannot answer.
 func (s *systemd) loginShell(ctx context.Context, username string) (string, error) {
-	shell := ""
+	shell, found := "", false
 	if out, err := s.run(ctx, systemdLookupTimeout, "getent", "passwd", username); err == nil {
-		shell = systemdPasswdShell(out)
+		shell, found = systemdPasswdShell(out)
 	}
-	if shell == "" {
+	if !found {
 		shell = s.getenv("SHELL")
 	}
 	if shell == "" {
+		// passwd(5): an empty shell field means /bin/sh.
 		shell = systemdFallbackShell
 	}
 	if err := systemdCheckShell(shell); err != nil {
@@ -409,22 +427,25 @@ func (s *systemd) loginShell(ctx context.Context, username string) (string, erro
 	return shell, nil
 }
 
-// systemdPasswdShell returns field 7 of the first passwd line, or "".
-func systemdPasswdShell(out []byte) string {
+// systemdPasswdShell returns field 7 of the first passwd line; found is false
+// when the output holds no passwd entry at all.
+func systemdPasswdShell(out []byte) (shell string, found bool) {
 	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
 	fields := strings.Split(line, ":")
 	if len(fields) < 7 {
-		return ""
+		return "", false
 	}
-	return strings.TrimSpace(fields[6])
+	return strings.TrimSpace(fields[6]), true
 }
 
 func systemdCheckShell(shell string) error {
 	if err := systemdCheckPath("login shell", shell); err != nil {
 		return err
 	}
-	if strings.ContainsAny(shell, " \t") {
-		return fmt.Errorf("login shell %q contains whitespace", shell)
+	// The shell is ExecStart's unquoted first word, where systemd splits on
+	// whitespace and treats quotes as quoting.
+	if strings.ContainsAny(shell, " \t'\"") {
+		return fmt.Errorf("login shell %q contains whitespace or a quote", shell)
 	}
 	switch filepath.Base(shell) {
 	case "nologin", "false":
@@ -433,11 +454,16 @@ func systemdCheckShell(shell string) error {
 	return nil
 }
 
-// systemdCheckPath admits only absolute paths free of control characters: a
-// newline would end the ExecStart line and inject unit directives.
+// systemdCheckPath admits only absolute paths free of control characters and
+// backslashes: a newline would end the ExecStart line and inject unit
+// directives, and fish (unlike POSIX shells) unescapes backslashes inside the
+// single quotes StartScript wraps the rk path in.
 func systemdCheckPath(what, p string) error {
 	if !filepath.IsAbs(p) {
 		return fmt.Errorf("%s %q is not an absolute path", what, p)
+	}
+	if strings.Contains(p, `\`) {
+		return fmt.Errorf("%s %q contains a backslash", what, p)
 	}
 	for _, r := range p {
 		if r < 0x20 || r == 0x7f {
