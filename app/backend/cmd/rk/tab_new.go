@@ -16,11 +16,11 @@ package main
 // single-quoted via internal/shellq so the window's shell receives it as one
 // literal word; the quoted command runs through the user's interactive shell
 // (shellq.Interactive) unless --no-shell-profile, and rk's agent-exit fallback
-// (`; exec "${SHELL:-/bin/sh}"`) is appended unless --no-shell-fallback. --json swaps the bare @N datum for the
-// {session, session_rung, window_id, pane_id} object inside the standard
-// envelope; --ready
-// (requires --json and a command) adds the boot-readiness verdict via the
-// rk mux await --ready seam.
+// (`; exec "${SHELL:-/bin/sh}"`) is appended unless --no-shell-fallback.
+// --json swaps the bare @N datum for the {session, session_rung, window_id,
+// pane_id} object inside the standard envelope; --ready (requires --json and
+// a command) adds the boot-readiness verdict via the rk mux await --ready
+// seam.
 
 import (
 	"context"

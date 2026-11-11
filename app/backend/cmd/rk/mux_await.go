@@ -129,9 +129,9 @@ var muxAwaitCmd = &cobra.Command{
 		"(`parked %N`, exit 0, the screen snippet on stderr so the caller can " +
 		"judge what the wall wants). Claude Code's `Not logged in · Run /login` " +
 		"notice also reports `parked %N` (snippet: the notice), even though its " +
-		"composer echoes and its hooks may fire — once drawn: Claude paints it " +
-		"asynchronously (observed 2-20 s after boot), so an earlier verdict can " +
-		"precede it. The probe is gated on geometry: below the " +
+		"composer echoes and its hooks may fire. Claude paints the notice " +
+		"asynchronously (observed 2-20 s after boot), so a verdict reached " +
+		"before it is drawn cannot see it. The probe is gated on geometry: below the " +
 		"80x20 readiness floor (either dimension) a bordered composer reflows or " +
 		"is not drawn at all, so the pane classifies `narrow %N (WxH)` instead of " +
 		"probing — exit 0, the geometry and remedy on stderr; resize or relocate " +

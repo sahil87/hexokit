@@ -100,46 +100,50 @@ Under `ReadyOpts.WaitThroughWalls` a login wall MUST NOT end the wait: polling c
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `shellq.Interactive` exists and `buildSkillShellString` delegates to it; existing riff/operator/tutorial golden tests pass unchanged
-- [ ] A-002 R2: `rk tab new -- CMD` composes `Interactive(QuoteArgv(args))` plus the fallback by default
-- [ ] A-003 R3: `--no-shell-profile` restores the raw composition and is a usage error without a command
-- [ ] A-004 R4: help text, skill-bundle pair (byte-identical) and ui-state synopsis document the default and the opt-out
-- [ ] A-005 R5: `AwaitReady` returns a `ParkedError` with snippet `Not logged in · Run /login` for a login-wall screen on both the state and echo paths
-- [ ] A-006 R6: under `WaitThroughWalls` a persistent login wall is returned as the parked verdict at the deadline
+- [x] A-001 R1: `shellq.Interactive` exists and `buildSkillShellString` delegates to it; existing riff/operator/tutorial golden tests pass unchanged
+- [x] A-002 R2: `rk tab new -- CMD` composes `Interactive(QuoteArgv(args))` plus the fallback by default
+- [x] A-003 R3: `--no-shell-profile` restores the raw composition and is a usage error without a command
+- [x] A-004 R4: help text, skill-bundle pair (byte-identical) and ui-state synopsis document the default and the opt-out
+- [x] A-005 R5: `AwaitReady` returns a `ParkedError` with snippet `Not logged in · Run /login` for a login-wall screen on both the state and echo paths
+- [x] A-006 R6: under `WaitThroughWalls` a persistent login wall is returned as the parked verdict at the deadline
 
 ### Behavioral Correctness
 
-- [ ] A-007 R2: a pane spawned by `rk tab new` sees rc-exported variables (`TestTabNewCommandSeesShellProfile`), and tokens stay literal (`TestTabNewCommandRunsArgvVerbatim`, `TestInteractiveRoundTripKeepsTokensLiteral`)
-- [ ] A-008 R5: the login-wall check runs before any sentinel paste — no `set-buffer` call on a walled pane
+- [x] A-007 R2: a pane spawned by `rk tab new` sees rc-exported variables (`TestTabNewCommandSeesShellProfile`), and tokens stay literal (`TestTabNewCommandRunsArgvVerbatim`, `TestInteractiveRoundTripKeepsTokensLiteral`)
+- [x] A-008 R5: the login-wall check runs before any sentinel paste — no `set-buffer` call on a walled pane
 
 ### Scenario Coverage
 
-- [ ] A-009 R5: matcher table tests cover whole-line, right-aligned, inline-transcript (rejected) and absent cases
-- [ ] A-010 R5: built-binary check: `rk mux await --ready` on a minimal-env Claude pane prints `parked %N` with the snippet on stderr
+- [x] A-009 R5: matcher table tests cover whole-line, right-aligned, inline-transcript (rejected) and absent cases
+- [x] A-010 R5: built-binary check: `rk mux await --ready` on a minimal-env Claude pane prints `parked %N` with the snippet on stderr — re-verified at re-review on a throwaway tmux server with a simulated walled screen (`cat` composer): `parked %0` + notice on stderr; control pane `ready %1 (echo)`
 
 ### Edge Cases & Error Handling
 
-- [ ] A-011 R6: with no wall on screen every pre-existing `ready_test.go` case passes unchanged (state, echo, parked, narrow, gone, deadline)
-- [ ] A-012 R5: a capture error while state is present still returns `ReadyByState` (unless it matches `IsGone`)
+- [x] A-011 R6: with no wall on screen every pre-existing `ready_test.go` case passes unchanged (state, echo, parked, narrow, gone, deadline)
+- [x] A-012 R5: a capture error while state is present still returns `ReadyByState` (unless it matches `IsGone`) — `AwaitReady` orders `case opts.IsGone(capErr)` before the `case stateReady` fallback (`ready.go:286-289`); pinned by `TestAwaitReadyStateSurvivesCaptureError` and `TestAwaitReadyGoneBeatsState`
 
 ### Code Quality
 
-- [ ] A-013 Pattern consistency: new code follows the surrounding `inject`/`shellq` naming, doc-comment and pure-helper patterns
-- [ ] A-014 No unnecessary duplication: the interactive wrap has exactly one implementation (`shellq.Interactive`); the wall reuses `ParkedError`
-- [ ] A-015 Subprocess safety: all tmux interaction stays behind the injected `Tmux` interface / `exec.CommandContext` with timeouts — no shell strings built from user input
-- [ ] A-016 Magic strings: the login-wall signature is a named constant
-- [ ] A-017 Comment discipline: comments state constraints and why, never narrate or cite change IDs / PR numbers
-- [ ] A-018 Tests: new behavior (wrap, opt-out, login wall) has tests
+- [x] A-013 Pattern consistency: new code follows the surrounding `inject`/`shellq` naming, doc-comment and pure-helper patterns
+- [x] A-014 No unnecessary duplication: the interactive wrap has exactly one implementation (`shellq.Interactive`); the wall reuses `ParkedError`
+- [x] A-015 Subprocess safety: all tmux interaction stays behind the injected `Tmux` interface / `exec.CommandContext` with timeouts — no shell strings built from user input
+- [x] A-016 Magic strings: the login-wall signature is a named constant
+- [x] A-017 Comment discipline: comments state constraints and why, never narrate or cite change IDs / PR numbers
+- [x] A-018 Tests: new behavior (wrap, opt-out, login wall) has tests
 
 ### Security
 
-- [ ] A-019 R2: the tmux shell-command positional is built only from rk-quoted argv plus fixed literals (Constitution I)
+- [x] A-019 R2: the tmux shell-command positional is built only from rk-quoted argv plus fixed literals (Constitution I)
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- None — this change adds new functionality without making existing code redundant (riff's inline `fmt.Sprintf` interactive composition was already replaced by `shellq.Interactive` in the diff itself)
 
 ## Assumptions
 

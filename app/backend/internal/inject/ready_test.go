@@ -876,7 +876,7 @@ func TestAwaitReadyLoginWallWaitThroughWalls(t *testing.T) {
 }
 
 func TestAwaitReadyStateSurvivesCaptureError(t *testing.T) {
-	// The capture now precedes the state verdict; a transient capture failure
+	// The capture precedes the state verdict; a transient capture failure
 	// must not regress a state-proven pane.
 	ft := &fakeTmux{captureErr: errors.New("transient")}
 	r, err := AwaitReady(context.Background(), ft, "srv", "%1", ReadyOpts{
@@ -885,5 +885,20 @@ func TestAwaitReadyStateSurvivesCaptureError(t *testing.T) {
 	})
 	if err != nil || r != ReadyByState {
 		t.Fatalf("AwaitReady() = (%v, %v), want (ReadyByState, nil)", r, err)
+	}
+}
+
+func TestAwaitReadyGoneBeatsState(t *testing.T) {
+	// A pane that dies between the state read and the capture is gone, not
+	// ready: the gone predicate outranks the state fallback.
+	isGone := func(err error) bool { return strings.Contains(err.Error(), "can't find pane") }
+	ft := &fakeTmux{captureErr: errors.New("can't find pane: %1")}
+	_, err := AwaitReady(context.Background(), ft, "srv", "%1", ReadyOpts{
+		State:  stateScript(sp("idle:1751790000:4242", nil)),
+		IsGone: isGone,
+		Sleep:  noSleep,
+	})
+	if !errors.Is(err, ErrGone) {
+		t.Fatalf("AwaitReady() error = %v, want ErrGone", err)
 	}
 }

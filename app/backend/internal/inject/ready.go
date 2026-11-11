@@ -62,8 +62,9 @@ var ErrNotReady = errors.New("pane not boot-ready")
 // ErrParked is the sentinel ParkedError wraps: the pane settled on a screen
 // that does not echo typed input — a trust dialog, survey, theme picker, or
 // login wall — or shows Claude Code's login-wall notice, whose composer does
-// echo but whose agent cannot act on a delivery. It is an error (not a Readiness) so every consumer fails closed:
-// no delivery is ever attempted into a wall.
+// echo but whose agent cannot act on a delivery. It is an error (not a
+// Readiness) so every consumer fails closed: no delivery is ever attempted
+// into a wall.
 var ErrParked = errors.New("pane parked behind a wall")
 
 // ErrGone is the sentinel AwaitReady returns when a capture error satisfies
@@ -282,10 +283,10 @@ func AwaitReady(ctx context.Context, t Tmux, server, paneID string, opts ReadyOp
 			}
 			prev = cur
 			havePrev = true
-		case stateReady:
-			return ReadyByState, nil
 		case opts.IsGone != nil && opts.IsGone(capErr):
 			return 0, fmt.Errorf("%w: %w", ErrGone, capErr)
+		case stateReady:
+			return ReadyByState, nil
 		}
 		if !time.Now().Before(stop) {
 			// WaitThroughWalls deadline: report the LAST classification — the
