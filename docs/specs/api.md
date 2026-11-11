@@ -57,6 +57,33 @@ Supervisor health check. No authentication.
 | `status` | `string` | Always `"ok"` |
 | `tunnel` | `number` | The daemon's listen port, advertised so the desktop shell can self-test the tunnel against the host's own listen port (§ Tunnel). Older daemons omit the field; its absence reads as no tunnel capability |
 
+#### `GET /api/daemon/autostart`
+
+Read-only report of the daemon's autostart registration (`rk daemon autostart`) — whether the daemon comes back at boot or login. GET only; enabling or disabling stays a CLI act, and this handler never calls the backend's `On` or `Off`. The probe runs under a 10-second timeout.
+
+**Response** `200` — backend resolved and its status read:
+```json
+{
+  "supported": true,
+  "summary": "on (login only — enable lingering for boot)",
+  "status": { "platform": "linux", "manager": "systemd", "registered": true, "enabled": true, "starts_at": "login", "linger": false, "stale": false }
+}
+```
+
+**Response** `200` — no backend for this platform, or the service manager is unreachable:
+```json
+{ "supported": false, "summary": "unavailable", "error": "daemon autostart is not supported on darwin (supported: linux)" }
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `supported` | `boolean` | `false` when backend resolution or the status read failed; the failure is data, not an HTTP error |
+| `summary` | `string` | The one-line state from `autostart.Status.Summary()`, shared with `rk doctor` and `rk daemon autostart status`: `on (boot)`, `on (login only — enable lingering for boot)`, `on (login)`, `registered but disabled`, `off`; `unavailable` when `supported` is `false` |
+| `status` | `object` | The backend's full `autostart.Status` (snake_case keys: `platform`, `manager`, `name`, `path`, `registered`, `enabled`, `starts_at`, `linger`, `last_exit_code`, `last_result`, `rk_path`, `shell`, `stale`, `hints`). Present only when `supported` |
+| `error` | `string` | The failure text. Present only when not `supported` |
+
+Older daemons 404 the route; clients treat that as "no autostart information" and omit the surface. The Host page's HexoKit system card reads it once on mount.
+
 ---
 
 ### Sessions

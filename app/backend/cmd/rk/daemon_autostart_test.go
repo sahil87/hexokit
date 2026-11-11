@@ -168,7 +168,7 @@ func TestDaemonAutostartStatus_JSONAndText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
-	for _, want := range []string{"Autostart: on (login)", "(stale)", "Linger:  off", "exit 0 (success)", "Hint: first hint\n", "Hint: second hint\n"} {
+	for _, want := range []string{"Autostart: on (login only — enable lingering for boot)", "(stale)", "Linger:  off", "exit 0 (success)", "Hint: first hint\n", "Hint: second hint\n"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("status text lacks %q:\n%s", want, text)
 		}

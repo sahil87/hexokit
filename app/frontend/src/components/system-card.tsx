@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { DAEMON_SERVER } from "@/api/client";
+import { DAEMON_SERVER, getDaemonAutostart } from "@/api/client";
+import type { DaemonAutostartResponse } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
 import { formatUptime } from "@/components/host-metrics";
 import { Tip } from "@/components/tip";
@@ -19,6 +21,11 @@ type ServiceRow = {
   /** The session's active (or first) window — the View deep-link target. */
   window: WindowInfo | null;
 };
+
+/** Summary the daemon reports when autostart is not registered (Go's
+ *  autostart.SummaryOff — keep the two in step); the row swaps it for the
+ *  command that registers it. */
+const AUTOSTART_OFF_SUMMARY = "off";
 
 function activeOrFirstWindow(session: ProjectSession): WindowInfo | null {
   return (
@@ -70,6 +77,12 @@ function deriveServiceRows(sessions: ProjectSession[]): ServiceRow[] {
  * the fields) — no NaN/0 fallbacks. Uptime is computed at render (coarse
  * "3d 4h" granularity needs no ticking interval).
  *
+ * The autostart row is a read-only, mount-time read of GET
+ * /api/daemon/autostart (autostart changes out-of-band through the CLI, so no
+ * live refresh). It renders nothing when the fetch rejects — an older daemon
+ * 404s the route — and carries no control: turning autostart on stays a CLI
+ * act.
+ *
  * Restart fires immediately via the context's restartNow() — the same seam the
  * kill dialog's Restart primary and the palette's `HexoKit: Restart Daemon`
  * entry use (no second restart implementation, no new palette entry). The
@@ -81,6 +94,19 @@ export function SystemCard() {
     useSessionContext();
   const navigate = useNavigate();
   const { addToast } = useToast();
+  const [autostart, setAutostart] = useState<DaemonAutostartResponse | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getDaemonAutostart().then(
+      (res) => {
+        if (!cancelled) setAutostart(res);
+      },
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const rows = deriveServiceRows(sessionsByServer.get(DAEMON_SERVER) ?? []);
   const uptime =
     daemonStarted !== null
@@ -112,6 +138,25 @@ export function SystemCard() {
           Restart
         </button>
       </div>
+      {autostart && (
+        <div
+          data-testid="system-card-autostart"
+          className="flex items-baseline gap-[1ch]"
+        >
+          <span className="text-text-secondary shrink-0">autostart</span>
+          {/* The unavailable reason renders inline: a Tip on non-focusable
+              text is unreachable by keyboard and on coarse pointers. */}
+          <span className="text-text-secondary min-w-0 break-words">
+            {!autostart.supported
+              ? autostart.error
+                ? `unavailable — ${autostart.error}`
+                : "unavailable"
+              : autostart.summary === AUTOSTART_OFF_SUMMARY
+                ? "off — rk daemon autostart on"
+                : autostart.summary}
+          </span>
+        </div>
+      )}
       {/* Service rows: live status + View deep-links. Absent sibling sessions
           render not-running with no link. */}
       {rows.map((row) => {

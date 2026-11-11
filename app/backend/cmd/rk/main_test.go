@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"rk/internal/daemon/autostart"
 )
 
 // TestMain post-sweeps dead-PID test sockets AFTER all tests run, self-healing
@@ -25,7 +27,14 @@ import (
 // The sweep logic is duplicated from internal/tmux/main_test.go: Go _test.go
 // symbols are package-private and cannot be shared across packages, and a small
 // duplicated helper beats exporting test-only logic from production code.
+//
+// It also installs a package-wide autostartStatusFn fake: every test that runs
+// runDoctorChecks would otherwise reach the real service manager
+// (systemctl/loginctl) through the doctor autostart row.
 func TestMain(m *testing.M) {
+	autostartStatusFn = func(context.Context) (autostart.Status, error) {
+		return autostart.Status{}, nil
+	}
 	code := m.Run()
 	sweepDeadTestSockets()
 	os.Exit(code)

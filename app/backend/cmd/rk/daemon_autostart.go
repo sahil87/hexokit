@@ -141,14 +141,7 @@ func writeAutostartOffText(out io.Writer, r autostart.Result) {
 }
 
 func writeAutostartStatusText(out io.Writer, s autostart.Status) {
-	state := "off"
-	switch {
-	case s.Registered && s.Enabled:
-		state = "on (" + s.StartsAt + ")"
-	case s.Registered:
-		state = "registered but disabled"
-	}
-	fmt.Fprintf(out, "Autostart: %s\n", state)
+	fmt.Fprintf(out, "Autostart: %s\n", s.Summary())
 	fmt.Fprintf(out, "  Manager: %s (%s)\n", s.Manager, s.Name)
 	file := s.Path
 	if !s.Registered {
