@@ -870,7 +870,12 @@ readiness wait, then the engine's verified send) and is exposed on the CLI as
 § Backend Libraries → `internal/inject`. Between the state signal and the
 sentinel probe sits a geometry floor: a settled pane below 80×20
 (`inject.ReadyMinCols`×`inject.ReadyMinRows`) in either dimension classifies
-`narrow` — the probe cannot be trusted at that size — instead of being probed. For hook-less agents the documented
+`narrow` — the probe cannot be trusted at that size — instead of being probed.
+Ahead of both signals, a capture carrying Claude Code's right-aligned
+`Not logged in · Run /login` notice classifies **parked**: a state stamped by
+an unauthenticated boot is not boot-readiness, because the agent cannot act on
+a delivery. The notice paints 2–20 s after boot (after the SessionStart `idle`
+stamp), so the check only sees a wall already drawn. For hook-less agents the documented
 composition is `rk mux await --ready %5 && rk mux send --force %5 '<prompt>'`
 (`send` stays gated on agent state, which a hook-less pane never has; `--force`
 is the documented pairing). Caveat: a settled **first-run dialog** can

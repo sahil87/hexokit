@@ -1,9 +1,10 @@
 // Package shellq owns rk's single POSIX shell-quoting implementation, the
-// interactive-shell launch wrap, and the agent-exit shell-fallback tail. Consumers are the composition points where a
-// caller-supplied value becomes one word inside a shell-interpreted string
-// (tmux's shell-command positional, pipe-pane's command): every such value
-// goes through Quote/QuoteArgv so it reaches the shell as one literal word
-// (constitution §I). Pure — no I/O.
+// interactive-shell launch wrap, and the agent-exit shell-fallback tail.
+// Consumers are the composition points where a caller-supplied value becomes
+// one word inside a shell-interpreted string (tmux's shell-command
+// positional, pipe-pane's command): every such value goes through
+// Quote/QuoteArgv so it reaches the shell as one literal word (constitution
+// §I). Pure — no I/O.
 package shellq
 
 import (

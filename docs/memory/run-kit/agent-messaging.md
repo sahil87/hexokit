@@ -332,7 +332,20 @@ is byte-identical without the flag. (260911-i2vm-cli-send-await-receipts)
 **`--ready` is the boot-readiness condition** — a single-pane wait (no `--any`)
 for the moment a freshly spawned agent is safe to type into, driven by
 `inject.AwaitReady` ([agent-state](/run-kit/agent-state.md) § Boot-Ready Signal).
-**State-present** is checked first every poll: the reconciled
+**Login wall first**: every successful capture is checked for Claude Code's
+right-aligned `Not logged in · Run /login` notice (`hasLoginWall` — ANSI
+escapes stripped, since readiness captures use `capture-pane -e`; the line must
+end in the notice with only whitespace or a ≥ 2-space gap before it, so a
+transcript that quotes the phrase inline never matches) → **`parked %N`, exit
+0**, snippet = the notice, ahead of both ready verdicts (its composer echoes
+and its hooks may fire, but the agent cannot act). Claude paints the notice
+asynchronously — observed 2–20 s after boot, after the hooks stamp `idle` at
+~1.4 s — so only a verdict reached once it is drawn sees it; the
+interactive-shell launch is what keeps the wall from appearing. The capture
+therefore precedes the state verdict: a gone capture error ends the wait as
+`gone`, any other capture error with state present still reads `ready
+(state)`. Under `WaitThroughWalls` the wall is recorded as the parked frame
+and polling continues. **State-present** is checked next every poll: the reconciled
 `@rk_pane_agent_state` exists (hooks fired, so the TUI is up) → `ready %N
 (state)`, exit 0 — the sentinel is therefore only ever typed into a pane with
 no reconciled agent state. For hook-less agents a **settled screen is the probe
@@ -855,6 +868,13 @@ permanent: they are human-typed verbs, so they are removable in a future release
   with a deprecation pointer on stderr
 
 ## Design Decisions
+
+### Claude's login wall gates both ready verdicts
+**Decision**: `inject.AwaitReady` checks every successful capture for Claude Code's right-aligned `Not logged in · Run /login` notice before returning `ready (state)` or probing, and classifies it as `ParkedError` (snippet: the notice); the match requires the notice to end its line after only whitespace or a ≥ 2-space gap, on an ANSI-stripped capture.
+**Why**: an unauthenticated Claude boots a full TUI — its composer echoes and its SessionStart hook stamps `idle` — so both existing signals read ready and a delivery lands in an agent that cannot act. The shared classifier gives every `--ready` consumer (`rk mux await --ready`, `rk tab new --ready`, `fab dispatch ready`, operator kickoff, riff delivery) the verdict at once. The notice paints 2–20 s after boot, so this is a safety net for a wall already drawn; the interactive-shell launch prevents the wall.
+**Rejected**: a `rk tab new`-only check (leaves fab dispatch, kickoff, and riff delivery blind); matching the phrase anywhere on screen (a transcript that quotes it would refuse delivery to a healthy agent); holding every ready verdict ~20 s until the notice could have painted (slows every spawn for a rare failure whose root cause the launch wrap removes).
+*Introduced by*: 261111-c8sc-tab-new-interactive-shell-wrap
+
 
 ### Help GroupIDs stamped on family instances, never in the two-instance constructors
 **Decision**: The three `cobra.Group`s and all thirteen `GroupID` assignments live
