@@ -8,8 +8,8 @@ progress:
     intake: done
     apply: done
     review: done
-    hydrate: active
-    ship: pending
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
@@ -32,24 +32,26 @@ stage_metrics:
     intake: {started_at: "2026-11-11T10:58:17Z", driver: fab-new, iterations: 1, completed_at: "2026-11-11T11:12:55Z"}
     apply: {started_at: "2026-11-11T11:26:54Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-11T11:29:54Z"}
     review: {started_at: "2026-11-11T11:29:54Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-11T11:33:09Z"}
-    hydrate: {started_at: "2026-11-11T11:33:09Z", driver: fab-fff, iterations: 1}
+    hydrate: {started_at: "2026-11-11T11:33:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T11:34:32Z"}
+    ship: {started_at: "2026-11-11T11:34:32Z", driver: fab-fff, iterations: 1}
 prs: []
 change_type_source: explicit
 base_branch: fix/tab-new-interactive-shell
 true_impact:
-    added: 589
-    deleted: 7
-    net: 582
+    added: 682
+    deleted: 24
+    net: 658
     excluding:
-        added: 162
-        deleted: 7
-        net: 155
+        added: 236
+        deleted: 22
+        net: 214
     tests:
-        added: 99
-        deleted: 0
-        net: 99
-    computed_at: "2026-11-11T11:29:54Z"
-    computed_at_stage: apply
+        added: 158
+        deleted: 2
+        net: 156
+    computed_at: "2026-11-11T11:34:32Z"
+    computed_at_stage: hydrate
+summary: rk tab new runs its -- command through the user's interactive shell (shellq.Interactive; --no-shell-profile opts out); inject.AwaitReady classifies Claude's 'Not logged in · Run /login' notice as parked ahead of both ready verdicts
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-11T11:33:09Z
+last_updated: 2026-11-11T11:34:32Z
