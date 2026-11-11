@@ -15,7 +15,7 @@ import (
 
 const trackTestSocket = "/tmp/tmux-1000/opsrv"
 
-// resetOperatorFlags restores every flag under the track and adopt commands —
+// resetOperatorFlags restores every flag under the track, adopt and brief commands —
 // cobra and pflag keep flag values and Changed bits across Execute calls.
 func resetOperatorFlags() {
 	var reset func(c *cobra.Command)
@@ -37,6 +37,7 @@ func resetOperatorFlags() {
 	reset(operatorTrackCmd)
 	reset(operatorAdoptCmd)
 	reset(operatorCheckCmd)
+	reset(operatorBriefCmd)
 	quiet = false
 }
 

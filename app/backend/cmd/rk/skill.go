@@ -81,6 +81,15 @@ var skillMessagingTopic []byte
 //go:embed skill/mux.md
 var skillMuxTopic []byte
 
+// skillOperatorTopic holds the `operator` topic page, canonical at
+// docs/site/skill/operator.md and synced into skill/operator.md alongside the
+// core bundle. Same embed + drift-guard mechanism as the display topic, same
+// static-only rules, independently bounded at ≤150 lines. It is the operator
+// chat's skill: the ledger verbs, spawn rules and queue recipe.
+//
+//go:embed skill/operator.md
+var skillOperatorTopic []byte
+
 // skillTutorialTopic holds the guided first-run tour, canonical at
 // docs/site/skill/tutorial.md and synced beside the other topic pages.
 //
@@ -101,6 +110,7 @@ var skillTopics = map[string][]byte{
 	"gui":             skillGuiTopic,
 	"messaging":       skillMessagingTopic,
 	"mux":             skillMuxTopic,
+	"operator":        skillOperatorTopic,
 	tutorialTopicName: skillTutorialTopic,
 }
 

@@ -34,6 +34,7 @@ func TestSkillTopicsPrintByteIdentical(t *testing.T) {
 		{name: "code", topic: "code", want: skillCodeTopic},
 		{name: "messaging", topic: "messaging", want: skillMessagingTopic},
 		{name: "mux", topic: "mux", want: skillMuxTopic},
+		{name: "operator", topic: "operator", want: skillOperatorTopic},
 		{name: tutorialTopicName, topic: tutorialTopicName, want: skillTutorialTopic},
 	}
 
@@ -81,6 +82,7 @@ func TestSkillTopicsMatchCanonical(t *testing.T) {
 		{name: "code", embedded: skillCodeTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "code.md")},
 		{name: "messaging", embedded: skillMessagingTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "messaging.md")},
 		{name: "mux", embedded: skillMuxTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "mux.md")},
+		{name: "operator", embedded: skillOperatorTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "operator.md")},
 		{name: tutorialTopicName, embedded: skillTutorialTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", tutorialTopicName+".md")},
 	}
 
@@ -121,6 +123,7 @@ func TestSkillTopicsWithinLineBudget(t *testing.T) {
 		{name: "code", content: skillCodeTopic},
 		{name: "messaging", content: skillMessagingTopic},
 		{name: "mux", content: skillMuxTopic},
+		{name: "operator", content: skillOperatorTopic},
 		{name: tutorialTopicName, content: skillTutorialTopic},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -255,7 +258,7 @@ func TestSkillUnknownTopicFailsFast(t *testing.T) {
 	if exitCode(err) != exitUsage {
 		t.Errorf("skill bogus exit code = %d, want %d (usage)", exitCode(err), exitUsage)
 	}
-	for _, want := range []string{"unknown topic", "change, code, cron, display, gui, messaging, mux, " + tutorialTopicName} {
+	for _, want := range []string{"unknown topic", "change, code, cron, display, gui, messaging, mux, operator, " + tutorialTopicName} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("skill bogus error %q missing %q", err.Error(), want)
 		}
