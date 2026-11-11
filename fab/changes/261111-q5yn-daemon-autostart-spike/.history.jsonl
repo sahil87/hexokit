@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-11T07:40:50Z"}
+{"args":"Execute the plan at fab/plans/sahil/26-11-11-rk-daemon-autostart.md (S1 spike)","cmd":"fab-new","event":"command","ts":"2026-11-11T07:40:51Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-11-11T07:41:21Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-11T07:43:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-11T07:47:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-11T07:55:35Z"}
+{"event":"review","result":"failed","ts":"2026-11-11T08:47:11Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-11T08:47:11Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-11T08:48:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-11-11T08:54:28Z"}
+{"event":"review","result":"passed","ts":"2026-11-11T08:54:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-11-11T08:54:43Z"}
