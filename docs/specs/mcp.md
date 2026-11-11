@@ -34,7 +34,7 @@ lands in a verb, so every pane agent gets it for free.
    never a special tool.
 2. **Allowlist, default-excluded.** A verb is exposed if and only if it has a row in
    the compiled-in policy table (§ Policy table). New verbs ship unexposed. The budget
-   is **≤ 40 tools** (clients degrade above that); v1 ships 31.
+   is **≤ 40 tools** (clients degrade above that); v1 ships 34.
 3. **Flat tools.** One tool per verb, named in `snake_case` from the verb path with the
    family prefix dropped where unambiguous (`mux sessions` → `sessions`, `cron list`
    → `cron_list`, `tab web ls` → `tab_web_ls`). Exactly two tools take an action enum
@@ -234,7 +234,7 @@ Rules:
   required); every tool's `annotations` are declared here, so a client can drive its
   confirmation UX from `destructiveHint` without reading a verb.
 
-### Allowlist v1 (31 tools)
+### Allowlist v1 (34 tools)
 
 Annotations: **ro** = `readOnlyHint`, **destr** = `destructiveHint`, **idem** =
 `idempotentHint`. **Structured today** = the verb emits machine output at the time of
@@ -251,6 +251,8 @@ not this spec's.
 | See | `process` | `mux process <target> --json` | ro | yes |
 | See | `status` | `status --json` | ro | yes |
 | See | `snapshot_list` | `mux snapshot list [server] --json` | ro | yes |
+| See | `snapshot_show` | `mux snapshot show <server> [--at <unix>]` | ro | no (text) |
+| See | `skill_topic` | `skill <topic>` (required closed enum) | ro | no (text: a markdown page) |
 | See | `cron_list` | `cron list --json` | ro | yes |
 | See | `gui_status` | `gui status --json` | ro | yes |
 | See | `gui_shot` | `gui shot --json` → image block | ro | yes |
@@ -265,6 +267,7 @@ not this spec's.
 | Spawn | `new_server` | `mux new <name> [--ephemeral] --json` | — | yes (envelope; live collision refuses) |
 | Spawn | `new_window` | `tab new [--session =S] [--cwd] [--name] [--layout]` | — | yes (`--json`; a bare document until the envelope lands) |
 | Spawn | `operator` | `operator [--workers] [--dir /abs/path] [-L]` | idem | yes (`--json`) |
+| Spawn | `snapshot_restore` | `mux snapshot restore <server> [--at <unix>]` | — | no (text report) |
 | Spawn | `cron_add` | `cron add <prompt> (--every\|--backoff\|--cron) (--pane\|--session\|--role)` | — | yes (`--json`) |
 | Steer UI | `tab_layout` | `tab layout @N [L \| --add S \| --rm S \| --promote S \| --cycle]` | — | yes (`--json`) |
 | Steer UI | `tab_web` | `tab web add\|rm\|select\|mv` (action enum) | — | yes (`--json`) |
@@ -312,13 +315,24 @@ Row-level rules:
 - `kill` and `cron_rm` carry `destructiveHint`; `operator` and `cron_mute` carry
   `idempotentHint`; every See row carries `readOnlyHint`; `await` is read-only even
   though it blocks.
+- `snapshot_show` and `snapshot_restore` take the server as a required positional
+  (the snapshot family rejects an inherited `-L`) and an optional `at` unix
+  timestamp. `snapshot_restore` carries no hints: it refuses a server alive with
+  sessions, so it never destroys, and a repeat call refuses rather than
+  converging. Restore stays user-initiated (Constitution §VI): the tool is how a
+  model acts on the user's request, never a trigger the daemon fires. Its
+  description overrides the verb's Long, which suggests `claude -c` per agent
+  window, and points at the agent procedure (`skill_topic`, topic `restore`).
+- `skill_topic`'s topic enum mirrors the shipped pages; internal/mcp cannot import
+  the `cmd/rk` package that embeds them, so a `cmd/rk` test pins the mirror. The
+  reserved `topics` enumeration is not a page and stays out.
 
 ### Tier two
 
 Added only when usage asks for it; each needs a policy row like any other tool:
 `present` (today the own-tab alias of `tab web add --show` — needs an explicit
 `--tab @N` contract before it can satisfy the target rule; `tab_web add` carries the
-capability meanwhile), `mux snapshot show|restore`, `mux adopt`, `mux reap`,
+capability meanwhile), `mux adopt`, `mux reap`,
 `gui on|off|launch|open|windows|wait|click|type|key`, `doctor --json`,
 `code-server start`, `daemon status --json`, `code hosts`, `code commands`.
 
@@ -326,8 +340,9 @@ capability meanwhile), `mux snapshot show|restore`, `mux adopt`, `mux reap`,
 
 These MUST NOT gain a policy row: `serve`, `daemon *` (except `status`, tier two),
 `remote *`, `desktop *`, `update`, `agent setup|hook`, `mux guard|init-conf`,
-`completion`, `shell-init`, `help-dump`, `skill` (served as the server's instructions,
-§ Instructions and discovery), `role`, `tutorial`, `cron tick`, `gui supervise|env`,
+`completion`, `shell-init`, `help-dump`, bare `skill` (the core bundle is served as the
+server's instructions, § Instructions and discovery; `skill <topic>` is the
+`skill_topic` tool), `role`, `tutorial`, `cron tick`, `gui supervise|env`,
 and `mcp` itself.
 
 ## New verb families
@@ -361,7 +376,12 @@ family (like `tab`, with which it shares the `@N` grammar). Over `GET /api/board
 ## Instructions and discovery
 
 - The server's MCP `instructions` field is the output of `rk skill` (the full
-  bundle), captured at startup. Topic pages are content, not tools.
+  bundle), captured at startup. Topic pages are reached through one read-only
+  tool, `skill_topic`, whose `topic` is a required closed enum of the shipped
+  pages. The bundle's Topics index names `rk skill <topic>`, which an MCP-only
+  client cannot run, so it also names `skill_topic`. One tool rather than a tool
+  per page keeps the budget flat, and a tool rather than MCP resources reaches
+  clients that surface only tools.
 - A tool's `description` defaults to the verb's Cobra `Short` + `Long`; a policy row
   MAY override it.
 - The tool list is **static** for the life of a server process: no `listChanged`

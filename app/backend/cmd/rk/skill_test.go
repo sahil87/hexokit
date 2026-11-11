@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"rk/internal/layoutspec"
+	"rk/internal/mcp"
 )
 
 // skillLineBudget is the hard line-count ceiling for the skill bundle, per the
@@ -444,4 +445,62 @@ func assertRestoreTopicCommand(t *testing.T, invocation string) bool {
 		}
 	}
 	return true
+}
+
+// restoreTopicMCPCallRe finds a tool call written as `tool(input, input)` in
+// the restore page's MCP section.
+var restoreTopicMCPCallRe = regexp.MustCompile("`([a-z_]+)\\(([a-z_, ]*)\\)`")
+
+// TestSkillRestoreTopicMCPToolsResolve is the MCP half of the restore page's
+// drift guard: every `tool(input, …)` the page's "Over MCP" section shows must
+// be a row of the compiled-in MCP policy table, and every input it names must
+// be one of that row's inputs. An MCP-only agent runs the procedure from this
+// section, so a renamed tool or input fails here, not mid-recovery.
+func TestSkillRestoreTopicMCPToolsResolve(t *testing.T) {
+	page := string(skillRestoreTopic)
+	start := strings.Index(page, "\n## Over MCP\n")
+	if start < 0 {
+		t.Fatal("restore topic has no `## Over MCP` section")
+	}
+	section := page[start+1:]
+	if end := strings.Index(section[len("## Over MCP\n"):], "\n## "); end >= 0 {
+		section = section[:len("## Over MCP\n")+end]
+	}
+	inputs := map[string]map[string]bool{}
+	for _, row := range mcp.Table {
+		names := map[string]bool{}
+		for _, arg := range row.Args {
+			if arg.Name != "" {
+				names[arg.Name] = true
+			}
+		}
+		inputs[row.Tool] = names
+	}
+	calls := restoreTopicMCPCallRe.FindAllStringSubmatch(section, -1)
+	if len(calls) == 0 {
+		t.Fatal("restore topic's MCP section shows no tool(input) calls")
+	}
+	for _, call := range calls {
+		tool, args := call[1], call[2]
+		names, ok := inputs[tool]
+		if !ok {
+			t.Errorf("%s: no MCP tool %q", call[0], tool)
+			continue
+		}
+		for _, arg := range strings.Split(args, ",") {
+			if arg = strings.TrimSpace(arg); arg != "" && !names[arg] {
+				t.Errorf("%s: tool %q has no input %q", call[0], tool, arg)
+			}
+		}
+	}
+}
+
+// TestSkillCoreNamesTopicTool pins MCP discovery: the core bundle is the MCP
+// server's instructions and its Topics index reads `rk skill <topic>`, which
+// an MCP-only agent cannot run, so the bundle must name the tool that serves
+// the same pages.
+func TestSkillCoreNamesTopicTool(t *testing.T) {
+	if !bytes.Contains(skillBundle, []byte("`skill_topic`")) {
+		t.Error("core bundle never names the `skill_topic` MCP tool")
+	}
 }

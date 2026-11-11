@@ -107,6 +107,22 @@ rk mux inventory --json | jq -r '.result.servers[] | .server as $s | .panes[] | 
 
 Tell the user, per server and window: resumed `<uuid>`, left alone (and why), or not resumable (no transcript, non-agent command).
 
+## Over MCP
+
+An MCP client runs the same steps through this server's tools. Pass `server` to every pane tool: the MCP server has no pane of its own.
+
+| Step | Tools |
+|------|-------|
+| 1. Find | `snapshot_list()` rows missing from `inventory()` |
+| 2. Pick | `snapshot_show(server)`, or `snapshot_show(server, at)` for a history entry |
+| 3. Restore | `snapshot_restore(server)` or `snapshot_restore(server, at)` |
+| 4. Match | `send(server, target, message)` the step-4 commands into a restored shell pane, then `capture(server, target, lines)` |
+| 5. Resume | `send(server, target, message)` the launch command, `await(server, target, ready)`, then `answer(server, target, key)` for a wall |
+| 6. Read first | `capture(server, target, lines)` the resumed agent's screen before you send it anything |
+| 7. Verify | `inventory(server)` |
+
+No tool reads files, so anything in steps 2 and 4 that lists or reads files runs in a restored pane's own shell: `send` types the command, `capture` reads the output. A server that is still dead never needs a history entry (nothing touched it, so its latest is right), and one that is already alive has shell panes to run `ls` in.
+
 ## Before a planned update or restart
 
 Record which conversation each pane holds, the one fact snapshots lack. Step 4 then becomes a lookup:

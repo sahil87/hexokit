@@ -124,7 +124,7 @@ func TestMCPEndToEnd(t *testing.T) {
 		t.Errorf("instructions mismatch: got %d bytes, want the %d-byte skill bundle", len(got), len(skillBundle))
 	}
 
-	// ListTools: exactly the thirty-one allowlisted tools, with annotations and schemas.
+	// ListTools: exactly the thirty-four allowlisted tools, with annotations and schemas.
 	tools, err := session.ListTools(connectCtx, nil)
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
@@ -136,7 +136,7 @@ func TestMCPEndToEnd(t *testing.T) {
 		names = append(names, tool.Name)
 	}
 	sort.Strings(names)
-	want := []string{"answer", "await", "board", "capture", "code_exec", "cron_add", "cron_list", "cron_mute", "cron_rm", "gui_exec", "gui_shot", "gui_status", "inventory", "kill", "new_server", "new_window", "notify", "operator", "operator_request", "panes", "process", "riff", "send", "sessions", "snapshot_list", "status", "tab_code", "tab_layout", "tab_show", "tab_web", "tab_web_ls"}
+	want := []string{"answer", "await", "board", "capture", "code_exec", "cron_add", "cron_list", "cron_mute", "cron_rm", "gui_exec", "gui_shot", "gui_status", "inventory", "kill", "new_server", "new_window", "notify", "operator", "operator_request", "panes", "process", "riff", "send", "sessions", "skill_topic", "snapshot_list", "snapshot_restore", "snapshot_show", "status", "tab_code", "tab_layout", "tab_show", "tab_web", "tab_web_ls"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Fatalf("tools = %v, want %v", names, want)
 	}

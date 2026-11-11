@@ -4,7 +4,7 @@ The agent skill bundle for **HexoKit** — the tmux session manager with a web U
 
 ## Topics
 
-Depth for a specific job lives in topic pages — pull one at use-time:
+Depth for a specific job lives in topic pages. Pull one at use-time (over MCP, the `skill_topic` tool returns the same pages):
 
 - **large change through one operator** (dedicated server, worker worktrees, integration branch, PR and authorized merge) → `rk skill change`
 - **panes, iframes & visual display** → `rk skill display`
