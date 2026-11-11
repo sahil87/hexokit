@@ -158,54 +158,58 @@ Adopt SHALL run through `Mutate`, match items by id, leave ids already present u
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `internal/operator` exposes the schema, kinds table and caps; no `text` or `clock_override` field exists
-- [ ] A-002 R2: Predicate grammar parses/evaluates with ported tests passing
-- [ ] A-003 R3: Load/save tolerant-read typed-write behavior verified by tests
-- [ ] A-004 R4: Path resolves to `<state>/hexokit/operator/<slug>.yaml`, modes 0700/0600
-- [ ] A-005 R5: Mutate takes the sidecar lock with a 5 s timeout and re-reads inside it
-- [ ] A-006 R7: Notes append-only, 50/1000 caps, `by` validated, no delete verb
-- [ ] A-007 R8: All eight verbs exist; `track clock` and update pause/text flags do not
-- [ ] A-008 R9: `add` validation, github-pr argv, pane fingerprint, branch_map, note first-note, `--mode` validation behave as specified
-- [ ] A-009 R10: update/observe/pause/resume/rm semantics (failure pause, done-dep edge drop) hold
-- [ ] A-010 R12: `list` is read-only and `--json` includes notes
-- [ ] A-011 R13: `adopt` never modifies the fab file and creates no rk file when the source is absent
-- [ ] A-012 R14 R15: Legacy shapes convert in memory; note text seeds first note; `clock_override` dropped; `branch_map` carried
-- [ ] A-013 R16: Adopt merges by id, is idempotent, supports `--dry-run`/`--json`, skips invalid items with warnings
+- [x] A-001 R1: `internal/operator` exposes the schema, kinds table and caps; no `text` or `clock_override` field exists
+- [x] A-002 R2: Predicate grammar parses/evaluates with ported tests passing
+- [x] A-003 R3: Load/save tolerant-read typed-write behavior verified by tests
+- [x] A-004 R4: Path resolves to `<state>/hexokit/operator/<slug>.yaml`, modes 0700/0600
+- [x] A-005 R5: Mutate takes the sidecar lock with a 5 s timeout and re-reads inside it
+- [x] A-006 R7: Notes append-only, 50/1000 caps, `by` validated, no delete verb
+- [x] A-007 R8: All eight verbs exist; `track clock` and update pause/text flags do not
+- [x] A-008 R9: `add` validation, github-pr argv, pane fingerprint, branch_map, note first-note, `--mode` validation behave as specified
+- [x] A-009 R10: update/observe/pause/resume/rm semantics (failure pause, done-dep edge drop) hold
+- [x] A-010 R12: `list` is read-only and `--json` includes notes
+- [x] A-011 R13: `adopt` never modifies the fab file and creates no rk file when the source is absent
+- [x] A-012 R14 R15: Legacy shapes convert in memory; note text seeds first note; `clock_override` dropped; `branch_map` carried
+- [x] A-013 R16: Adopt merges by id, is idempotent, supports `--dry-run`/`--json`, skips invalid items with warnings
 
 ### Behavioral Correctness
 
-- [ ] A-014 R5: Two concurrent writers both land; lock contention past timeout errors without writing
-- [ ] A-015 R6: Timestamps come from the injectable clock; no flag accepts one
+- [x] A-014 R5: Two concurrent writers both land; lock contention past timeout errors without writing
+- [x] A-015 R6: Timestamps come from the injectable clock; no flag accepts one
 
 ### Scenario Coverage
 
-- [ ] A-016 R16: Re-running adopt reports 0 adopted and N skipped
-- [ ] A-017 R14: A legacy file with a running autopilot queue exits 1 and writes nothing
+- [x] A-016 R16: Re-running adopt reports 0 adopted and N skipped
+- [x] A-017 R14: A legacy file with a running autopilot queue exits 1 and writes nothing
 
 ### Edge Cases & Error Handling
 
-- [ ] A-018 R3: Unparsable state file errors naming the path; missing file is empty
-- [ ] A-019 R9: `gh repo view` failure is an add-time error; pane_pid lookup failure stores null
-- [ ] A-020 R8: Usage errors exit 2; operational errors exit 1
+- [x] A-018 R3: Unparsable state file errors naming the path; missing file is empty
+- [x] A-019 R9: `gh repo view` failure is an add-time error; pane_pid lookup failure stores null
+- [x] A-020 R8: Usage errors exit 2; operational errors exit 1
 
 ### Code Quality
 
-- [ ] A-021 Pattern consistency: New code follows naming and structural patterns of surrounding code (`cmd/rk/operator_request.go`, `internal/cron`)
-- [ ] A-022 No unnecessary duplication: `fsatomic`, `apphome`, `cron.FabOperatorSlug`, `tmux.PanePIDCtx` reused; no second slug rule
-- [ ] A-023: All subprocess calls use `exec.CommandContext` with argv slices and timeouts
-- [ ] A-024: No magic strings/numbers — constants named
-- [ ] A-025: Comments state constraints only (no narration, no change IDs)
-- [ ] A-026: New behavior covered by tests; `go test ./...` passes
+- [x] A-021 Pattern consistency: New code follows naming and structural patterns of surrounding code (`cmd/rk/operator_request.go`, `internal/cron`)
+- [x] A-022 No unnecessary duplication: `fsatomic`, `apphome`, `cron.FabOperatorSlug`, `tmux.PanePIDCtx` reused; no second slug rule
+- [x] A-023: All subprocess calls use `exec.CommandContext` with argv slices and timeouts
+- [x] A-024: No magic strings/numbers — constants named
+- [x] A-025: Comments state constraints only (no narration, no change IDs)
+- [x] A-026: New behavior covered by tests; `go test ./...` passes
 
 ### Security
 
-- [ ] A-027 R5 R13: State/lock files 0600 in a 0700 dir; no shell strings; fab's file opened read-only
+- [x] A-027 R5 R13: State/lock files 0600 in a 0700 dir; no shell strings; fab's file opened read-only
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- None — this change adds new functionality without making existing code redundant (`internal/cron/watchlist.go`'s tolerant reader of fab's file stays until R3 by design)
 
 ## Assumptions
 
