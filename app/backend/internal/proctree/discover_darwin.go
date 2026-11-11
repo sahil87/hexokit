@@ -1,6 +1,6 @@
 //go:build darwin
 
-package main
+package proctree
 
 import (
 	"context"
@@ -17,11 +17,11 @@ type psEntry struct {
 	comm string
 }
 
-// discoverProcessTree discovers the process tree for a given PID on macOS
+// Discover discovers the process tree for a given PID on macOS
 // by using ps to enumerate processes and filtering by PPID traversal. The ps
 // invocations run under the caller's context (exec.CommandContext argv slices
 // — Constitution §I).
-func discoverProcessTree(ctx context.Context, pid int) ([]processNode, error) {
+func Discover(ctx context.Context, pid int) ([]Node, error) {
 	out, err := exec.CommandContext(ctx, "ps", "-o", "pid,ppid,comm", "-ax").Output()
 	if err != nil {
 		return nil, fmt.Errorf("ps: %w", err)
@@ -73,21 +73,21 @@ func discoverProcessTree(ctx context.Context, pid int) ([]processNode, error) {
 	cmdlines := getPSCmdlines(ctx)
 
 	node := buildNodeFromPS(rootEntry, childrenMap, cmdlines)
-	return []processNode{node}, nil
+	return []Node{node}, nil
 }
 
-// buildNodeFromPS recursively builds a processNode from ps data. cmdlines is
+// buildNodeFromPS recursively builds a Node from ps data. cmdlines is
 // the PID→args map from getPSCmdlines; a PID missing from it (process exited
 // between the two ps passes) yields cmdline "" — the same degraded value the
 // per-pid spawn produced on failure.
-func buildNodeFromPS(entry psEntry, childrenMap map[int][]psEntry, cmdlines map[int]string) processNode {
-	node := processNode{
+func buildNodeFromPS(entry psEntry, childrenMap map[int][]psEntry, cmdlines map[int]string) Node {
+	node := Node{
 		PID:            entry.pid,
 		PPID:           entry.ppid,
 		Comm:           entry.comm,
 		Cmdline:        cmdlines[entry.pid],
-		Classification: classifyProcess(entry.comm, cmdlines[entry.pid]),
-		Children:       []processNode{},
+		Classification: Classify(entry.comm, cmdlines[entry.pid]),
+		Children:       []Node{},
 	}
 
 	for _, child := range childrenMap[entry.pid] {

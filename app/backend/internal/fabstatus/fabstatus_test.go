@@ -1,4 +1,4 @@
-package sessions
+package fabstatus
 
 import (
 	"os"
@@ -23,7 +23,7 @@ func mkFabWorktree(t *testing.T, change, statusBody string) string {
 		t.Fatal(err)
 	}
 	target := filepath.Join("fab", "changes", change, ".status.yaml")
-	if err := os.Symlink(target, filepath.Join(root, fabStatusLinkName)); err != nil {
+	if err := os.Symlink(target, filepath.Join(root, linkName)); err != nil {
 		t.Fatal(err)
 	}
 	return root
@@ -37,12 +37,12 @@ func TestFabStateWalkUpAndChangeName(t *testing.T) {
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	st := newFabStateMemo().derive(sub)
-	if st.change != "260820-hol4-mux-panes" {
-		t.Errorf("change = %q, want the symlink target's parent dir basename", st.change)
+	st := NewMemo().Derive(sub)
+	if st.Change != "260820-hol4-mux-panes" {
+		t.Errorf("change = %q, want the symlink target's parent dir basename", st.Change)
 	}
-	if st.stage != "apply" || st.displayState != "active" {
-		t.Errorf("stage/state = %q/%q, want apply/active", st.stage, st.displayState)
+	if st.Stage != "apply" || st.DisplayState != "active" {
+		t.Errorf("stage/state = %q/%q, want apply/active", st.Stage, st.DisplayState)
 	}
 }
 
@@ -62,9 +62,9 @@ func TestFabDisplayStageTiers(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			root := mkFabWorktree(t, "c", "progress:\n    "+tc.progress+"\n")
-			st := newFabStateMemo().derive(root)
-			if st.stage != tc.wantStage || st.displayState != tc.wantState {
-				t.Errorf("got (%q, %q), want (%q, %q)", st.stage, st.displayState, tc.wantStage, tc.wantState)
+			st := NewMemo().Derive(root)
+			if st.Stage != tc.wantStage || st.DisplayState != tc.wantState {
+				t.Errorf("got (%q, %q), want (%q, %q)", st.Stage, st.DisplayState, tc.wantStage, tc.wantState)
 			}
 		})
 	}
@@ -72,8 +72,8 @@ func TestFabDisplayStageTiers(t *testing.T) {
 
 func TestFabStateDegradesFailOpen(t *testing.T) {
 	t.Run("no symlink ancestor", func(t *testing.T) {
-		st := newFabStateMemo().derive(t.TempDir())
-		if st != (fabState{}) {
+		st := NewMemo().Derive(t.TempDir())
+		if st != (State{}) {
 			t.Errorf("got %+v, want zero value", st)
 		}
 	})
@@ -81,48 +81,48 @@ func TestFabStateDegradesFailOpen(t *testing.T) {
 	t.Run("dangling symlink (archived change)", func(t *testing.T) {
 		root := t.TempDir()
 		target := filepath.Join("fab", "changes", "gone", ".status.yaml")
-		if err := os.Symlink(target, filepath.Join(root, fabStatusLinkName)); err != nil {
+		if err := os.Symlink(target, filepath.Join(root, linkName)); err != nil {
 			t.Fatal(err)
 		}
-		st := newFabStateMemo().derive(root)
-		if st != (fabState{}) {
+		st := NewMemo().Derive(root)
+		if st != (State{}) {
 			t.Errorf("got %+v, want zero value", st)
 		}
 	})
 
 	t.Run("corrupt YAML", func(t *testing.T) {
 		root := mkFabWorktree(t, "c", "progress: [unclosed\n")
-		st := newFabStateMemo().derive(root)
-		if st != (fabState{}) {
+		st := NewMemo().Derive(root)
+		if st != (State{}) {
 			t.Errorf("got %+v, want zero value", st)
 		}
 	})
 
 	t.Run("empty progress map", func(t *testing.T) {
 		root := mkFabWorktree(t, "c", "id: x\nprogress:\n")
-		st := newFabStateMemo().derive(root)
-		if st != (fabState{}) {
+		st := NewMemo().Derive(root)
+		if st != (State{}) {
 			t.Errorf("got %+v, want zero value", st)
 		}
 	})
 
 	t.Run("progress not a mapping", func(t *testing.T) {
 		root := mkFabWorktree(t, "c", "progress: just-a-string\n")
-		st := newFabStateMemo().derive(root)
-		if st != (fabState{}) {
+		st := NewMemo().Derive(root)
+		if st != (State{}) {
 			t.Errorf("got %+v, want zero value", st)
 		}
 	})
 
 	t.Run("missing cwd is skipped", func(t *testing.T) {
-		st := newFabStateMemo().derive("")
-		if st != (fabState{}) {
+		st := NewMemo().Derive("")
+		if st != (State{}) {
 			t.Errorf("got %+v, want zero value", st)
 		}
 		// A cwd that no longer exists on disk walks up finding nothing.
 		gone := filepath.Join(t.TempDir(), "deleted-worktree")
-		st = newFabStateMemo().derive(gone)
-		if st != (fabState{}) {
+		st = NewMemo().Derive(gone)
+		if st != (State{}) {
 			t.Errorf("got %+v, want zero value", st)
 		}
 	})
@@ -135,20 +135,20 @@ func TestFabStateMemoDedupesWithinACall(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := newFabStateMemo()
-	first := m.derive(sub)
+	m := NewMemo()
+	first := m.Derive(sub)
 	// Break the fixture: a fresh read would now fail. A memoized second derive
 	// must still return the first result, proving one read per call.
-	if err := os.Remove(filepath.Join(root, fabStatusLinkName)); err != nil {
+	if err := os.Remove(filepath.Join(root, linkName)); err != nil {
 		t.Fatal(err)
 	}
-	second := m.derive(sub)
-	if first != second || second.change != "c" {
+	second := m.Derive(sub)
+	if first != second || second.Change != "c" {
 		t.Errorf("first = %+v, second = %+v, want the memoized first result", first, second)
 	}
 	// A NEW memo (the next FetchSessions call) sees the filesystem as it is —
 	// nothing persists across calls.
-	if st := newFabStateMemo().derive(sub); st != (fabState{}) {
+	if st := NewMemo().Derive(sub); st != (State{}) {
 		t.Errorf("fresh memo got %+v, want zero value after the link is gone", st)
 	}
 }
@@ -167,23 +167,23 @@ func TestFabWindowRollup(t *testing.T) {
 			{{Cwd: plain}, {Cwd: bound}},
 			{{Cwd: bound}, {Cwd: plain}},
 		} {
-			st := newFabStateMemo().windowState(panes)
-			if st.change != "change-x" || st.stage != "review" || st.displayState != "failed" {
+			st := NewMemo().WindowState(panes)
+			if st.Change != "change-x" || st.Stage != "review" || st.DisplayState != "failed" {
 				t.Errorf("panes %+v: got %+v, want change-x review/failed", panes, st)
 			}
 		}
 	})
 
 	t.Run("first change-bound pane in pane order wins", func(t *testing.T) {
-		st := newFabStateMemo().windowState([]tmux.PaneInfo{{Cwd: boundOther}, {Cwd: bound}})
-		if st.change != "change-y" {
-			t.Errorf("change = %q, want change-y (first in pane order)", st.change)
+		st := NewMemo().WindowState([]tmux.PaneInfo{{Cwd: boundOther}, {Cwd: bound}})
+		if st.Change != "change-y" {
+			t.Errorf("change = %q, want change-y (first in pane order)", st.Change)
 		}
 	})
 
 	t.Run("no derivable pane yields empty fields", func(t *testing.T) {
-		st := newFabStateMemo().windowState([]tmux.PaneInfo{{Cwd: plain}, {Cwd: ""}})
-		if st != (fabState{}) {
+		st := NewMemo().WindowState([]tmux.PaneInfo{{Cwd: plain}, {Cwd: ""}})
+		if st != (State{}) {
 			t.Errorf("got %+v, want zero value", st)
 		}
 	})

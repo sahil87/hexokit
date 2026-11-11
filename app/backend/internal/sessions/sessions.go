@@ -13,6 +13,7 @@ import (
 
 	"rk/internal/config"
 	"rk/internal/cron"
+	"rk/internal/fabstatus"
 	"rk/internal/gitinfo"
 	"rk/internal/prstatus"
 	"rk/internal/tmux"
@@ -851,7 +852,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 	// .status.yaml — see fabstate.go), fresh on every call: no subprocess, no
 	// cross-request cache, so a stage transition repaints on the next fetch.
 	// The memo dedupes reads within this one call (many panes share a worktree).
-	fabMemo := newFabStateMemo()
+	fabMemo := fabstatus.NewMemo()
 
 	// The operator-watchlist tier: ONE tolerant read of the fab-owned operator
 	// state file per fetch (server-scoped — no per-cwd memo needed, unlike the
@@ -897,10 +898,10 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 			// Fab tier proper (change/stage/displayState) from the native
 			// per-pane derivation, rolled up to the window (change-bound pane
 			// wins, else the first pane carrying one).
-			fab := fabMemo.windowState(sd.windows[j].Panes)
-			sd.windows[j].FabChange = fab.change
-			sd.windows[j].FabStage = fab.stage
-			sd.windows[j].FabDisplayState = fab.displayState
+			fab := fabMemo.WindowState(sd.windows[j].Panes)
+			sd.windows[j].FabChange = fab.Change
+			sd.windows[j].FabStage = fab.Stage
+			sd.windows[j].FabDisplayState = fab.DisplayState
 			for k := range sd.windows[j].Panes {
 				cwd := sd.windows[j].Panes[k].Cwd
 				if branch, ok := gitBranches[cwd]; ok {

@@ -123,7 +123,8 @@ type Note struct {
 }
 
 // TrackedItem is one `tracked` list entry. Field order pins the YAML key
-// order; seen and notes are omitempty.
+// order; seen, notes and reported are omitempty. Reported is the condition
+// keys the last check already surfaced as changes — written only by Check.
 type TrackedItem struct {
 	ID         string                 `yaml:"id" json:"id"`
 	Kind       string                 `yaml:"kind" json:"kind"`
@@ -136,6 +137,7 @@ type TrackedItem struct {
 	Last       map[string]interface{} `yaml:"last" json:"last"`
 	Seen       []string               `yaml:"seen,omitempty" json:"seen,omitempty"`
 	Notes      []Note                 `yaml:"notes,omitempty" json:"notes,omitempty"`
+	Reported   []string               `yaml:"reported,omitempty" json:"reported,omitempty"`
 	CheckedAt  *string                `yaml:"checked_at" json:"checked_at"`
 	Unchanged  int                    `yaml:"unchanged" json:"unchanged"`
 	Failures   int                    `yaml:"failures" json:"failures"`
@@ -151,12 +153,14 @@ type BranchMapEntry struct {
 	Repo   string `yaml:"repo" json:"repo"`
 }
 
-// State is the typed view of the state file: the two owned sections plus the
-// unknown top-level keys that survive a rewrite.
+// State is the typed view of the state file: the owned sections plus the
+// unknown top-level keys that survive a rewrite. LastCheckAt is the RFC3339
+// stamp of the last successful Check ("" = never checked, key omitted).
 type State struct {
-	Tracked   []TrackedItem
-	BranchMap map[string]BranchMapEntry
-	extra     map[string]interface{}
+	Tracked     []TrackedItem
+	BranchMap   map[string]BranchMapEntry
+	LastCheckAt string
+	extra       map[string]interface{}
 }
 
 // InvalidError marks a caller mistake (bad flag value, schema violation) as

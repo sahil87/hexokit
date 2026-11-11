@@ -8,6 +8,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"rk/internal/proctree"
 	"rk/internal/tmux"
 	"rk/internal/validate"
 
@@ -79,7 +80,7 @@ func inventoryAgentPane(p muxPanesRow) bool {
 	if p.HasAgent != nil {
 		return *p.HasAgent
 	}
-	return p.AgentState != nil || classifyProcess(p.Command, "") == "agent"
+	return p.AgentState != nil || proctree.Classify(p.Command, "") == proctree.ClassAgent
 }
 
 func readInventoryServer(ctx context.Context, server string, now int64) muxInventoryServer {

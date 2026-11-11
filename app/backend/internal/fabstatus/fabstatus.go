@@ -1,4 +1,4 @@
-package sessions
+package fabstatus
 
 import (
 	"os"
@@ -9,57 +9,57 @@ import (
 	"rk/internal/tmux"
 )
 
-// fabStatusLinkName is the symlink fab maintains at a worktree root pointing
+// linkName is the symlink fab maintains at a worktree root pointing
 // at the active change's status file: fab/changes/<name>/.status.yaml. It is
 // the L2 fab-register source docs/specs/status-pyramid.md documents for the
 // sessions enrichment path (Constitution II: fab state comes from .status.yaml,
 // derived at request time — never through a choreography subprocess).
-const fabStatusLinkName = ".fab-status.yaml"
+const linkName = ".fab-status.yaml"
 
-// fabState is one pane's fab tier (change/stage/displayState) derived natively
+// State is one pane's fab tier (change/stage/display state) derived natively
 // from the filesystem. The zero value is the degraded state: every failure
 // mode (no symlink ancestor, dangling symlink, unreadable or unparsable
 // .status.yaml, empty progress map) yields it — per-pane, never an error, so
 // one bad worktree cannot blank the whole fetch.
-type fabState struct {
-	change       string
-	stage        string
-	displayState string
+type State struct {
+	Change       string
+	Stage        string
+	DisplayState string
 }
 
-// fabStateMemo is the per-FetchSessions-call derivation memo. Many panes share
+// Memo is the per-FetchSessions-call derivation memo. Many panes share
 // one worktree, so the walk-up result (keyed by cwd) and the derived state
 // (keyed by the resolved symlink path) are deduped for the duration of one
 // call. It is created fresh per call and holds no state across requests — a
 // stage transition written to .status.yaml is visible on the very next fetch.
-type fabStateMemo struct {
-	links  map[string]string   // pane cwd → located .fab-status.yaml path ("" = none)
-	states map[string]fabState // resolved symlink path → derived state
+type Memo struct {
+	links  map[string]string // pane cwd → located .fab-status.yaml path ("" = none)
+	states map[string]State  // resolved symlink path → derived state
 }
 
-func newFabStateMemo() *fabStateMemo {
-	return &fabStateMemo{links: map[string]string{}, states: map[string]fabState{}}
+func NewMemo() *Memo {
+	return &Memo{links: map[string]string{}, states: map[string]State{}}
 }
 
-// windowState applies the window-level rollup over the window's panes (in pane
+// WindowState applies the window-level rollup over the window's panes (in pane
 // order): a change-bound pane's derivation wins; otherwise the first pane with
 // any derivation. The per-pane derivation is all-or-nothing (a pane either
 // resolves a full triple or degrades to the zero value), so the rule collapses
 // to the first pane carrying a change.
-func (m *fabStateMemo) windowState(panes []tmux.PaneInfo) fabState {
+func (m *Memo) WindowState(panes []tmux.PaneInfo) State {
 	for _, p := range panes {
-		if st := m.derive(p.Cwd); st.change != "" {
+		if st := m.Derive(p.Cwd); st.Change != "" {
 			return st
 		}
 	}
-	return fabState{}
+	return State{}
 }
 
-// derive returns the fab state for one pane cwd, memoized per call. A pane
+// Derive returns the fab state for one pane cwd, memoized per call. A pane
 // with an empty cwd is skipped outright.
-func (m *fabStateMemo) derive(cwd string) fabState {
+func (m *Memo) Derive(cwd string) State {
 	if cwd == "" {
-		return fabState{}
+		return State{}
 	}
 	link, ok := m.links[cwd]
 	if !ok {
@@ -67,7 +67,7 @@ func (m *fabStateMemo) derive(cwd string) fabState {
 		m.links[cwd] = link
 	}
 	if link == "" {
-		return fabState{}
+		return State{}
 	}
 	st, ok := m.states[link]
 	if !ok {
@@ -85,7 +85,7 @@ func (m *fabStateMemo) derive(cwd string) fabState {
 func locateFabStatusLink(cwd string) string {
 	dir := filepath.Clean(cwd)
 	for {
-		link := filepath.Join(dir, fabStatusLinkName)
+		link := filepath.Join(dir, linkName)
 		if _, err := os.Lstat(link); err == nil {
 			return link
 		}
@@ -102,27 +102,27 @@ func locateFabStatusLink(cwd string) string {
 // directory basename (fab/changes/<name>/.status.yaml); a relative target is
 // resolved against the symlink's own directory. A dangling symlink or an
 // unreadable/unparsable target degrades to the zero value.
-func parseFabStatusLink(link string) fabState {
+func parseFabStatusLink(link string) State {
 	target, err := os.Readlink(link)
 	if err != nil {
-		return fabState{}
+		return State{}
 	}
 	if !filepath.IsAbs(target) {
 		target = filepath.Join(filepath.Dir(link), target)
 	}
 	change := filepath.Base(filepath.Dir(target))
 	if change == "" || change == "." || change == string(filepath.Separator) {
-		return fabState{}
+		return State{}
 	}
 	data, err := os.ReadFile(target)
 	if err != nil {
-		return fabState{}
+		return State{}
 	}
 	stage, displayState := fabDisplayStage(parseProgressStates(data))
 	if stage == "" {
-		return fabState{}
+		return State{}
 	}
-	return fabState{change: change, stage: stage, displayState: displayState}
+	return State{Change: change, Stage: stage, DisplayState: displayState}
 }
 
 // stageState is one ordered entry of a .status.yaml progress: mapping. Order

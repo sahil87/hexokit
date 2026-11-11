@@ -295,3 +295,69 @@ func TestMutate_ConcurrentWritersLoseNothing(t *testing.T) {
 		t.Errorf("notes = %d, want %d (a concurrent write was lost)", got, writers+1)
 	}
 }
+
+const lastCheckSeed = `last_check_at: "2026-11-11T08:00:00Z"
+tracked:
+  - id: a
+    kind: task
+    probe: {mode: none}
+    depends_on: []
+    scope: {}
+    last: {}
+    reported: [done, pane_death]
+    added_at: "2026-09-09T00:00:00Z"
+    updated_at: "2026-09-09T00:00:00Z"
+`
+
+func TestLastCheckAt_TypedAndPreservedByOtherVerbs(t *testing.T) {
+	path := seededState(t, lastCheckSeed)
+	st := mustLoad(t, path)
+	if st.LastCheckAt != "2026-11-11T08:00:00Z" {
+		t.Fatalf("LastCheckAt = %q", st.LastCheckAt)
+	}
+	if _, extra := st.extra[keyLastCheck]; extra {
+		t.Error("last_check_at leaked into the extra keys")
+	}
+
+	if err := AddNote(path, "a", ByUser, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustLoad(t, path).LastCheckAt; got != "2026-11-11T08:00:00Z" {
+		t.Errorf("LastCheckAt after another verb = %q, want it unchanged", got)
+	}
+	raw, _ := os.ReadFile(path)
+	if strings.Count(string(raw), "last_check_at") != 1 {
+		t.Errorf("last_check_at must appear exactly once:\n%s", raw)
+	}
+}
+
+func TestLastCheckAt_OmittedWhenEmptyAndRoundTrips(t *testing.T) {
+	path := seededState(t, "")
+	if err := Mutate(path, func(st *State) error {
+		st.Tracked = append(st.Tracked, TrackedItem{ID: "n", Kind: KindTask, Probe: ProbeSpec{Mode: probeNone}})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(path)
+	if strings.Contains(string(raw), "last_check_at") {
+		t.Errorf("an empty LastCheckAt must not be written:\n%s", raw)
+	}
+	if err := Mutate(path, func(st *State) error { st.LastCheckAt = "2026-11-11T09:00:00Z"; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustLoad(t, path).LastCheckAt; got != "2026-11-11T09:00:00Z" {
+		t.Errorf("LastCheckAt = %q after roundtrip", got)
+	}
+}
+
+func TestReported_SurvivesTypedRewrite(t *testing.T) {
+	path := seededState(t, lastCheckSeed)
+	if err := Pause(path, "a"); err != nil {
+		t.Fatal(err)
+	}
+	got := item(t, path, "a").Reported
+	if len(got) != 2 || got[0] != "done" || got[1] != "pane_death" {
+		t.Errorf("Reported = %v, want [done pane_death]", got)
+	}
+}
