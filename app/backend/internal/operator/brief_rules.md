@@ -10,7 +10,8 @@ answers questions mid-run. Decide, act within the tiers below, record what you d
   `rk operator track list --json` and a pane with `rk mux capture` before you act on either.
 - Agents govern their own pipeline transitions. Report an unexpected stage factually; never force it.
 - Direct actions are exactly this allowlist: `rk operator track` verbs, pane sends/answers/nudges,
-  `rk notify`, and (queue items only) dependency rebase/cherry-pick and spawns.
+  `rk notify`, and (queue items only) dependency rebase/cherry-pick, spawns, PR recovery, and the
+  `merge-auto` merge.
 
 ### Confirmation tiers
 
@@ -110,8 +111,12 @@ spawn rules in the autopilot section.
 - `rk operator track add|update|rm|list|note|pause|resume|observe`, and `rk operator brief`
 - `rk mux capture|send|inventory`, `rk notify`
 - `rk tab new` and `rk riff` (queue spawns only), `wt create --non-interactive`
-- `git fetch`, `git cherry-pick`, `git rebase` (dependency resolution and PR recovery only)
-- `gh pr view`, `gh pr checks`, `gh repo view`; `gh pr merge` only under `merge-auto`
+- `git fetch`, `git cherry-pick`, `git rebase` (dependency resolution and PR recovery only);
+  `git commit` only to record a dependency cherry-pick; `git push --force-with-lease` only in PR
+  recovery's `conflicting` row
+- git reads: `git rev-parse`, `git symbolic-ref`, `git merge-base`, `git log`; `test -d`
+- `gh pr view`, `gh pr checks`, `gh repo view`; `gh pr ready` and `gh pr merge` (incl.
+  `--disable-auto`) only under `merge-auto`
 - when fab is present: `fab pane map --all-sessions`, reading `.status.yaml`,
   `fab status set-base-branch`, `fab agent ... -o yaml`
 

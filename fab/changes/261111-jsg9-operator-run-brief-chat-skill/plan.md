@@ -279,48 +279,52 @@ turns `/fab-operator` into a pointer to it.
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `RenderBrief` exists in `internal/operator`, takes `ChangedItem`s, performs no subprocess calls and no writes
-- [ ] A-002 R2: The brief's seven sections appear once each in the specified order
-- [ ] A-003 R9: The Rules text covers role, run confirmation tiers (destructive only under `merge-auto`), pre-send validation, routine-only answer model, strategic-left-open, idle auto-default, stuck nudge, bounded retries, fail-silent notify, notes as memory, allowed tools, agent probes
-- [ ] A-004 R10: The interim autopilot text is a separate embedded file with the interim marker as its first line and a single include site
-- [ ] A-005 R12: The Exit contract names `rk operator track note <id> "<text>" --by run` and the final `outcome: <one-line summary>` line
-- [ ] A-006 R13: `rk operator brief` prints the brief to stdout with `-L`, `--changed id[=reason]` (repeatable, reasons accumulate) and `--state`
-- [ ] A-007 R16: `rk skill operator` prints the topic byte-identical to `docs/site/skill/operator.md`; `rk skill topics` lists `operator`; the core bundle has the index line
-- [ ] A-008 R17: The topic page covers role/never-ticks, principles, tiers, ledger verbs, `--by chat` notes, two-axis spawn, queue creation with the mode ladder, and `rk operator brief`
-- [ ] A-009 R15: `rk operator brief --help` documents flags, examples and exit codes; `rk help-dump` includes the verb
+- [x] A-001 R1: `RenderBrief` exists in `internal/operator`, takes `ChangedItem`s, performs no subprocess calls and no writes
+- [x] A-002 R2: The brief's seven sections appear once each in the specified order
+- [x] A-003 R9: The Rules text covers role, run confirmation tiers (destructive only under `merge-auto`), pre-send validation, routine-only answer model, strategic-left-open, idle auto-default, stuck nudge, bounded retries, fail-silent notify, notes as memory, allowed tools, agent probes
+- [x] A-004 R10: The interim autopilot text is a separate embedded file with the interim marker as its first line and a single include site
+- [x] A-005 R12: The Exit contract names `rk operator track note <id> "<text>" --by run` and the final `outcome: <one-line summary>` line
+- [x] A-006 R13: `rk operator brief` prints the brief to stdout with `-L`, `--changed id[=reason]` (repeatable, reasons accumulate) and `--state`
+- [x] A-007 R16: `rk skill operator` prints the topic byte-identical to `docs/site/skill/operator.md`; `rk skill topics` lists `operator`; the core bundle has the index line
+- [x] A-008 R17: The topic page covers role/never-ticks, principles, tiers, ledger verbs, `--by chat` notes, two-axis spawn, queue creation with the mode ladder, and `rk operator brief`
+- [x] A-009 R15: `rk operator brief --help` documents flags, examples and exit codes; `rk help-dump` includes the verb
 
 ### Behavioral Correctness
 
-- [ ] A-010 R4: Affected items include the changed items and their direct dependency neighbours in both directions, each once, with lifecycle state matching `rk operator track list`
-- [ ] A-011 R8: Rendering the same input twice is byte-identical (golden test passes)
+- [x] A-010 R4: Affected items include the changed items and their direct dependency neighbours in both directions, each once, with lifecycle state matching `rk operator track list`
+- [x] A-011 R8: Rendering the same input twice is byte-identical (golden test passes)
 
 ### Scenario Coverage
 
-- [ ] A-012 R3: Tests cover a `gone` changed id and the empty-changed `nothing flagged — manual render` line
-- [ ] A-013 R5: Tests cover other items rendered as single `id · kind · state` lines
-- [ ] A-014 R6: Tests cover the 10-note cap with the `(+N earlier notes)` line
+- [x] A-012 R3: Tests cover a `gone` changed id and the empty-changed `nothing flagged — manual render` line
+- [x] A-013 R5: Tests cover other items rendered as single `id · kind · state` lines
+- [x] A-014 R6: Tests cover the 10-note cap with the `(+N earlier notes)` line
 
 ### Edge Cases & Error Handling
 
-- [ ] A-015 R7: An oversized state renders ≤ 100 KB, keeps header/What-changed/Rules/Interim autopilot/Exit contract, trims other-items first then notes, and ends with the truncation marker
-- [ ] A-016 R14: Missing state file → empty-ledger brief, exit 0; malformed → exit 1 with empty stdout; invalid `-L` or empty `--changed` id → exit 2
-- [ ] A-017 R11: Rules + autopilot embedded text totals ≤ 40 960 bytes (test-enforced)
-- [ ] A-018 R10: The rendered brief contains no `fab operator track` string
+- [x] A-015 R7: An oversized state renders ≤ 100 KB, keeps header/What-changed/Rules/Interim autopilot/Exit contract, trims other-items first then notes, and ends with the truncation marker
+- [x] A-016 R14: Missing state file → empty-ledger brief, exit 0; malformed → exit 1 with empty stdout; invalid `-L` or empty `--changed` id → exit 2
+- [x] A-017 R11: Rules + autopilot embedded text totals ≤ 40 960 bytes (test-enforced)
+- [x] A-018 R10: The rendered brief contains no `fab operator track` string
 
 ### Code Quality
 
-- [ ] A-019 Pattern consistency: New Go follows `internal/operator` and `cmd/rk/operator_track.go` patterns (thin CLI over library, `usageError` mapping, `newSink` output, help style)
-- [ ] A-020 No unnecessary duplication: State derivation reuses `listState`/`heldDep`/`itemDone`; server resolution reuses `operatorStateTarget`; skill embedding follows the existing topic pattern
-- [ ] A-021 Readability: No god functions (>50 lines without reason); caps are named constants, no magic numbers
-- [ ] A-022 Comments: Comments state constraints/why only — no narration, no change IDs or PR numbers
-- [ ] A-023 Tests: New behavior is covered by `*_test.go`; tests pass under `just test-backend`
-- [ ] A-024 Process safety: The renderer spawns no subprocesses; nothing touches the live rk daemon, live tmux servers, or installed binaries
+- [x] A-019 Pattern consistency: New Go follows `internal/operator` and `cmd/rk/operator_track.go` patterns (thin CLI over library, `usageError` mapping, `newSink` output, help style)
+- [x] A-020 No unnecessary duplication: State derivation reuses `listState`/`heldDep`/`itemDone`; server resolution reuses `operatorStateTarget`; skill embedding follows the existing topic pattern
+- [x] A-021 Readability: No god functions (>50 lines without reason); caps are named constants, no magic numbers
+- [x] A-022 Comments: Comments state constraints/why only — no narration, no change IDs or PR numbers
+- [x] A-023 Tests: New behavior is covered by `*_test.go`; tests pass under `just test-backend` (`rk/internal/operator` passes; `rk/cmd/rk` new tests pass — the only failures, `TestPortPinRowRealPolicyValues` and `TestHomeMigrationPickupE2E`, fail identically on base 4926e9d8: host-dependent / inotify exhaustion)
+- [x] A-024 Process safety: The renderer spawns no subprocesses; nothing touches the live rk daemon, live tmux servers, or installed binaries
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- None — this change adds new functionality without making existing code redundant (the `operatorStateTarget` server-label logic was extracted into `operatorServerLabel` and reused, not duplicated)
 
 ## Assumptions
 

@@ -198,6 +198,7 @@ func writeItemBlock(b *strings.Builder, items []TrackedItem, it TrackedItem, now
 	fmt.Fprintf(b, "- depends_on: %s\n", briefList(it.DependsOn))
 	fmt.Fprintf(b, "- scope: %s\n", briefMap(it.Scope, true))
 	fmt.Fprintf(b, "- last: %s\n", briefMap(it.Last, false))
+	fmt.Fprintf(b, "- unchanged: %d\n", it.Unchanged)
 	writeNotes(b, it.Notes, notesShown)
 	b.WriteString("\n")
 }
