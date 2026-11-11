@@ -1,0 +1,54 @@
+id: 7iz0
+name: 261111-7iz0-operator-state-engine
+created: 2026-11-11T07:42:21Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: active
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 14
+    acceptance_count: 27
+    acceptance_completed: 0
+confidence:
+    certain: 9
+    confident: 11
+    tentative: 0
+    unresolved: 0
+    score: 3.5
+    fuzzy: true
+    dimensions:
+        signal: 74.0
+        reversibility: 77.5
+        competence: 83.5
+        disambiguation: 77.3
+stage_metrics:
+    intake: {started_at: "2026-11-11T07:42:21Z", driver: fab-new, iterations: 1, completed_at: "2026-11-11T07:51:57Z"}
+    apply: {started_at: "2026-11-11T07:51:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T08:49:36Z"}
+    review: {started_at: "2026-11-11T08:49:36Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-11-11T08:49:36Z"
+    computed_at_stage: apply
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-11T08:49:36Z
