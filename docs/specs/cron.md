@@ -397,7 +397,7 @@ tiered; each tier reuses a shipped mechanism:
    probes, shell probes, held tasks) as item rows with kind chip, refs, latest
    note (truncated, expand-in-place to all notes), and paused/done state; done-but-unacked
    items render dimmed until the operator removes them, and the tab's count
-   line matches what `fab operator track list` reports. A row's note cell
+   line matches what `rk operator track list` reports (`fab operator track list` before cutover). A row's note cell
    shows the item's latest note (author, age, `+N` for further notes) and
    expands in place to every note, fetched on demand from
    `GET /api/operator/notes`; a worker row without an item note shows the

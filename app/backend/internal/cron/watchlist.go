@@ -4,6 +4,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -102,7 +103,6 @@ type Note struct {
 type TrackedItem struct {
 	ID        string   // tracked item id (fab-change: the change ID; other kinds: a slug) / the legacy monitored map's key
 	Kind      string   // pane | fab-change | github-pr | linear | slack | shell | task | note; "" for a legacy monitored: entry
-	Text      string   // fab's note prose (capped at 500 chars); "" for other kinds unless the item carries text
 	Notes     []Note   // notes: list in file order (oldest first); a fab note item's text becomes one user note when it has none
 	Refs      []string // scope.refs — change ids / branch or worktree names the item is about; nil when absent
 	Pane      string   // scope.pane ("%N") — the join key; "" for pane-less items
@@ -227,7 +227,7 @@ func parseTrackedItems(v any) []TrackedItem {
 		}
 		scope, _ := item["scope"].(map[string]any)
 		kind := strField(item, "kind")
-		text := strField(item, "text")
+		text := strings.TrimSpace(strField(item, "text"))
 		updatedAt := parseTickAt(item["updated_at"])
 		addedAt := parseTickAt(item["added_at"])
 		notes := parseNotes(item["notes"])
@@ -241,7 +241,6 @@ func parseTrackedItems(v any) []TrackedItem {
 		out = append(out, TrackedItem{
 			ID:        id,
 			Kind:      kind,
-			Text:      text,
 			Notes:     notes,
 			Refs:      refsField(scope, "refs"),
 			Pane:      strField(scope, "pane"),

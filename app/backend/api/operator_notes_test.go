@@ -71,7 +71,7 @@ func TestOperatorNotes(t *testing.T) {
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		want := []operatorNoteJSON{
+		want := []sessions.OperatorNote{
 			{At: 1700000100, By: "user", Text: "first"},
 			{At: 1700000200, By: "run", Text: "second\nline two"},
 		}
@@ -143,7 +143,7 @@ func TestOperatorNotes(t *testing.T) {
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil || rec.Code != http.StatusOK {
 			t.Fatalf("fallback: status = %d err=%v body=%s", rec.Code, err, rec.Body.String())
 		}
-		if len(body.Notes) != 1 || body.Notes[0] != (operatorNoteJSON{At: 1700000500, By: "user", Text: "from fab"}) {
+		if len(body.Notes) != 1 || body.Notes[0] != (sessions.OperatorNote{At: 1700000500, By: "user", Text: "from fab"}) {
 			t.Errorf("fallback notes = %+v, want fab's text as one user note", body.Notes)
 		}
 

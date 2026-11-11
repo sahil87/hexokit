@@ -22,7 +22,7 @@ import type { ProjectSession } from "@/types";
  * to `collectWatchedRows`-derived worker rows when no session carries
  * `operatorTracked` (an older backend). Above the table a one-line summary
  * (`watched-tasks-summary`) reads `{N} tracked · {W} watched` — N every item
- * (done included — the count that matches `fab operator track list`), W the
+ * (done included — the count that matches `rk operator track list`), W the
  * live worker rows.
  *
  * Anatomy top→bottom: (1) a pinned staleness banner rendered exactly when the

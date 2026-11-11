@@ -855,7 +855,7 @@ func TestProjectTrackedItems(t *testing.T) {
 	items := []cron.TrackedItem{
 		{ID: "pa9n", Kind: "fab-change", Pane: "%5", Repo: "/r", Session: "s", Stage: "apply", Agent: "idle", Branch: "b", UpdatedAt: 1700000100},
 		{ID: "gone", Kind: "fab-change", Pane: "%99", DoneAt: 1700000200},
-		{ID: "n3", Kind: "note", Text: "archive once merged", Refs: []string{"bf1l"}, Paused: true, AddedAt: 1700000000,
+		{ID: "n3", Kind: "note", Refs: []string{"bf1l"}, Paused: true, AddedAt: 1700000000,
 			Notes: []cron.Note{
 				{At: 1700000001, By: "user", Text: "first"},
 				{At: 1700000002, By: "run", Text: "second"},

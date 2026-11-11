@@ -263,7 +263,7 @@ tracked:
 			t.Fatal("parse failed")
 		}
 		want := []TrackedItem{{
-			ID: "n1", Kind: "note", Text: "A=71yx PR #834 still open — archive once merged",
+			ID: "n1", Kind: "note",
 			Refs: []string{"y60c", "np2w"}, DoneAt: 0, AddedAt: added, UpdatedAt: updated,
 			Notes: []Note{{At: updated, By: "user", Text: "A=71yx PR #834 still open — archive once merged"}},
 		}}
@@ -312,7 +312,7 @@ tracked:
 		if !ok {
 			t.Fatal("parse failed")
 		}
-		want := []TrackedItem{{ID: "chore", Kind: "task", Text: "sweep the board"}}
+		want := []TrackedItem{{ID: "chore", Kind: "task"}}
 		if !reflect.DeepEqual(state.Items, want) {
 			t.Errorf("Items = %+v, want %+v", state.Items, want)
 		}
@@ -382,7 +382,7 @@ tracked:
 		if !ok {
 			t.Fatal("parse failed")
 		}
-		want := []TrackedItem{{ID: "good", Kind: "note", Text: "kept", Notes: []Note{{By: "user", Text: "kept"}}}}
+		want := []TrackedItem{{ID: "good", Kind: "note", Notes: []Note{{By: "user", Text: "kept"}}}}
 		if !reflect.DeepEqual(state.Items, want) {
 			t.Errorf("Items = %+v, want %+v", state.Items, want)
 		}
@@ -547,6 +547,23 @@ func TestParseOperatorStateNotes(t *testing.T) {
 		}
 		if state.Items[2].Notes != nil {
 			t.Errorf("task item Notes = %+v, want none", state.Items[2].Notes)
+		}
+	})
+
+	t.Run("fab note text is trimmed and whitespace-only text yields no note, as adopt does", func(t *testing.T) {
+		body := `tracked:
+  - {id: n1, kind: note, text: "  padded  ", added_at: 1700000000}
+  - {id: n2, kind: note, text: "   ", added_at: 1700000000}
+`
+		state, ok := ParseOperatorState([]byte(body))
+		if !ok || len(state.Items) != 2 {
+			t.Fatalf("ok=%v Items=%+v", ok, state.Items)
+		}
+		if want := []Note{{At: 1700000000, By: "user", Text: "padded"}}; !reflect.DeepEqual(state.Items[0].Notes, want) {
+			t.Errorf("n1 Notes = %+v, want %+v", state.Items[0].Notes, want)
+		}
+		if state.Items[1].Notes != nil {
+			t.Errorf("whitespace-only note Notes = %+v, want none", state.Items[1].Notes)
 		}
 	})
 

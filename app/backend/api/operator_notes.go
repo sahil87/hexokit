@@ -16,16 +16,9 @@ import (
 // same source selection as the payload, so the two cannot disagree. `id` is
 // only compared for equality — never part of a path.
 
-// operatorNoteJSON is the wire shape of one note (unix-second at).
-type operatorNoteJSON struct {
-	At   int64  `json:"at"`
-	By   string `json:"by"`
-	Text string `json:"text"`
-}
-
 type operatorNotesJSON struct {
-	ID    string             `json:"id"`
-	Notes []operatorNoteJSON `json:"notes"`
+	ID    string                  `json:"id"`
+	Notes []sessions.OperatorNote `json:"notes"`
 }
 
 // readOperatorState reads the server's operator state through the injectable
@@ -54,9 +47,9 @@ func (s *Server) handleOperatorNotes(w http.ResponseWriter, r *http.Request) {
 		if item.ID != id {
 			continue
 		}
-		notes := make([]operatorNoteJSON, len(item.Notes))
+		notes := make([]sessions.OperatorNote, len(item.Notes))
 		for i, n := range item.Notes {
-			notes[i] = operatorNoteJSON{At: n.At, By: n.By, Text: n.Text}
+			notes[i] = sessions.OperatorNote{At: n.At, By: n.By, Text: n.Text}
 		}
 		writeJSON(w, http.StatusOK, operatorNotesJSON{ID: item.ID, Notes: notes})
 		return

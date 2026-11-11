@@ -162,48 +162,53 @@ A worker row SHALL render the item's latest-note cell (R6 behavior) when `item.l
 
 ### Functional Completeness
 
-- [ ] A-001 R1: With an rk file present, `FetchSessions` reads only rk's file; with it absent, fab's file is read as before; neither file is written
-- [ ] A-002 R2: An empty rk file yields `operatorTracked: []`; a corrupt rk file yields an absent `operatorTracked` with no fallback to fab
-- [ ] A-003 R3: Notes parse in file order with unix `at`; fab note-item `text` becomes one `user` note; `kind: pane` items join the watchlist
-- [ ] A-004 R4: `operatorTracked[]` items carry `latestNote` + `noteCount` (omitted when none) and no `text`
-- [ ] A-005 R5: `GET /api/operator/notes` returns 200 ordered notes / 400 missing id / 404 unknown id or no file, with the same source as the payload
-- [ ] A-006 R6: Item rows show latest note + author + age + `+N`, and expand to all notes fetched from the route
-- [ ] A-007 R7: Worker rows show the item's latest note when present, else the tab note with its stale dimming
-- [ ] A-008 R8: Frontend types and `getOperatorNotes` match the wire
-- [ ] A-009 R9: `docs/specs/api.md` and `docs/specs/cron.md` document the route, fields and source order
+- [x] A-001 R1: With an rk file present, `FetchSessions` reads only rk's file; with it absent, fab's file is read as before; neither file is written
+- [x] A-002 R2: An empty rk file yields `operatorTracked: []`; a corrupt rk file yields an absent `operatorTracked` with no fallback to fab
+- [x] A-003 R3: Notes parse in file order with unix `at`; fab note-item `text` becomes one `user` note; `kind: pane` items join the watchlist
+- [x] A-004 R4: `operatorTracked[]` items carry `latestNote` + `noteCount` (omitted when none) and no `text`
+- [x] A-005 R5: `GET /api/operator/notes` returns 200 ordered notes / 400 missing id / 404 unknown id or no file, with the same source as the payload
+- [x] A-006 R6: Item rows show latest note + author + age + `+N`, and expand to all notes fetched from the route
+- [x] A-007 R7: Worker rows show the item's latest note when present, else the tab note with its stale dimming
+- [x] A-008 R8: Frontend types and `getOperatorNotes` match the wire
+- [x] A-009 R9: `docs/specs/api.md` and `docs/specs/cron.md` document the route, fields and source order
 
 ### Behavioral Correctness
 
-- [ ] A-010 R4: The `text` field is gone from the Go projection and the TS type; no frontend code reads `item.text`
+- [x] A-010 R4: The `text` field is gone from the Go projection and the TS type; no frontend code reads `item.text`
 
 ### Scenario Coverage
 
-- [ ] A-011 R1: Go tests cover rk-wins, fab-fallback, both-absent, rk-empty, rk-corrupt, and the `operator.StatePath` parity
-- [ ] A-012 R6: A Playwright test with a `Proves:`/`Steps:` JSDoc exercises latest-note display and expand-to-all in the Operator Tasks segment
+- [x] A-011 R1: Go tests cover rk-wins, fab-fallback, both-absent, rk-empty, rk-corrupt, and the `operator.StatePath` parity
+- [x] A-012 R6: A Playwright test with a `Proves:`/`Steps:` JSDoc exercises latest-note display and expand-to-all in the Operator Tasks segment (verified by inspection; the rig could not start on this host — inotify instances 126/128, EMFILE — so the spec was not executed in review)
 
 ### Edge Cases & Error Handling
 
-- [ ] A-013 R6: Note fetch failure leaves the latest note visible with "notes unavailable"; the expand toggle remains a keyboard-reachable native button
-- [ ] A-014 R3: Malformed notes (non-map, empty text) are skipped, never fatal
+- [x] A-013 R6: Note fetch failure leaves the latest note visible with "notes unavailable"; the expand toggle remains a keyboard-reachable native button
+- [x] A-014 R3: Malformed notes (non-map, empty text) are skipped, never fatal
 
 ### Code Quality
 
-- [ ] A-015 Pattern consistency: New code follows naming and structural patterns of surrounding code (`getCron` client shape, `api/cron.go` handler shape, tolerant-read helpers)
-- [ ] A-016 No unnecessary duplication: The route and the payload share one source-selection resolver; `parseTickAt`/`strField` reused
-- [ ] A-017 Comments state constraints only — no narration, no change IDs in code comments
-- [ ] A-018 No client polling: notes are fetched only on expand, never on a timer
-- [ ] A-019 Frontend uses type narrowing, not `as` casts, for the new note shapes
-- [ ] A-020 No `internal/cron` → `internal/operator` import
+- [x] A-015 Pattern consistency: New code follows naming and structural patterns of surrounding code (`getCron` client shape, `api/cron.go` handler shape, tolerant-read helpers)
+- [x] A-016 No unnecessary duplication: The route and the payload share one source-selection resolver; `parseTickAt`/`strField` reused
+- [x] A-017 Comments state constraints only — no narration, no change IDs in code comments
+- [x] A-018 No client polling: notes are fetched only on expand, never on a timer
+- [x] A-019 Frontend uses type narrowing, not `as` casts, for the new note shapes
+- [x] A-020 No `internal/cron` → `internal/operator` import
 
 ### Security
 
-- [ ] A-021 R5: `id` is never used to build a path; `server` passes `serverFromRequest` validation; the socket-path query stays on the bounded tmux seam
+- [x] A-021 R5: `id` is never used to build a path; `server` passes `serverFromRequest` validation; the socket-path query stays on the bounded tmux seam
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- `app/backend/internal/cron/watchlist.go:105` `TrackedItem.Text` — no longer projected to the wire and has no non-test reader; the local `text` in `parseTrackedItems` already feeds the note synthesis, so the field could go
+- `app/backend/api/operator_notes.go:26` `operatorNoteJSON` — byte-identical (fields + JSON tags) to the new `sessions.OperatorNote`; the handler could emit `[]sessions.OperatorNote`
 
 ## Assumptions
 
