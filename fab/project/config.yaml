@@ -5,7 +5,7 @@ project:
     name: hexokit
 providers:
     claude:
-        interactive_command: ${SHELL:-/bin/sh} -i -c 'claude --dangerously-skip-permissions -n "$(basename "$(pwd)")" --model {model} --effort {effort}'
+        interactive_command: claude --dangerously-skip-permissions -n "$(basename "$(pwd)")" --model {model} --effort {effort}
 source_paths:
     - app/backend/
     - app/code-bridge/
