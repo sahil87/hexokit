@@ -1,0 +1,381 @@
+<title>Operator One-Shot Ticks</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<!-- Design study, 2026-11-08. Companion to operator-tick-anatomy.html (same token system).
+     Measurements: Claude Code transcripts of two loom2 operator sessions (snappy-gopher 149h, cordial-river 67h).
+     Prices: Opus 5.5 API list ($4 in / $20 out / $0.20 cache read per MTok); 1h cache write assumed 2x input. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column (70ch) inside a 1080px frame; figures and tables may use the full frame. Tokens shared with operator-tick-anatomy.html. */
+:root{
+  --bg:#F4F6F8; --panel:#FFFFFF; --ink:#1A212B; --muted:#626D7A; --line:#D3D9E0; --soft:#E9EDF1;
+  --accent:#BD6F0F; --accent-soft:#F6E7CF; --alert:#B23A32; --alert-soft:#F5DEDC; --ok:#2E7D57; --ok-soft:#DCEFE4;
+  --display:"Bricolage Grotesque","IBM Plex Sans",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#10151B; --panel:#171D25; --ink:#E4E8ED; --muted:#98A3B0; --line:#2A323D; --soft:#1F2731;
+    --accent:#E7A33E; --accent-soft:#3A2C13; --alert:#E2605A; --alert-soft:#3D1F1D; --ok:#55B283; --ok-soft:#173226;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#10151B; --panel:#171D25; --ink:#E4E8ED; --muted:#98A3B0; --line:#2A323D; --soft:#1F2731;
+  --accent:#E7A33E; --accent-soft:#3A2C13; --alert:#E2605A; --alert-soft:#3D1F1D; --ok:#55B283; --ok-soft:#173226;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--body);padding-block:40px 80px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1080px;margin:0 auto}
+.col{max-width:70ch}
+h1,h2,h3{font-family:var(--display);font-weight:600;letter-spacing:-.01em;text-wrap:balance;margin:0}
+h1{font-size:clamp(30px,4.2vw,44px);line-height:1.08}
+h2{font-size:24px;margin-top:56px;margin-bottom:12px;padding-top:20px;border-top:1px solid var(--line)}
+h3{font-size:17px;margin-top:24px;margin-bottom:6px}
+p{margin:0 0 14px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+.lede{font-size:18px;color:var(--muted);margin-top:14px}
+code{font-family:var(--mono);font-size:.9em;background:var(--soft);padding:1px 5px;border-radius:3px}
+ul{padding-left:20px;margin:0 0 14px}
+li{margin-bottom:6px}
+a{color:var(--accent)}
+a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:26px 0 8px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px 16px;min-width:0}
+.tile .k{font-family:var(--mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.tile .v{font-family:var(--display);font-weight:600;font-size:28px;line-height:1.1;margin-top:6px;font-variant-numeric:tabular-nums}
+.tile .s{font-size:14px;color:var(--muted);margin-top:4px}
+
+figure{margin:20px 0 28px;max-width:100%}
+.fig{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px;overflow-x:auto;position:relative}
+.fig svg{display:block;width:100%;height:auto;color:var(--ink);font-family:var(--body)}
+.fig.wide svg{min-width:760px}
+figcaption{font-size:14px;color:var(--muted);margin-top:10px;max-width:72ch}
+.charthead{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 16px;margin-bottom:8px}
+.charthead .t{font-weight:600}
+.charthead .u{font-family:var(--mono);font-size:12px;color:var(--muted)}
+
+/* SVG primitives */
+svg .grid{stroke:var(--line);stroke-width:1}
+svg .axis{fill:var(--muted);font-family:var(--mono);font-size:11px}
+svg .line{fill:none;stroke:var(--accent);stroke-width:2;stroke-linejoin:round}
+svg .area{fill:var(--accent);opacity:.12}
+svg .mark{stroke:var(--alert);stroke-width:1.2;stroke-dasharray:4 4}
+svg .marktxt{fill:var(--alert);font-size:12px}
+svg .ann{fill:var(--muted);font-size:12px}
+svg .cross{stroke:var(--muted);stroke-width:1}
+svg .dot{fill:var(--accent);stroke:var(--panel);stroke-width:2}
+svg .box{fill:var(--panel);stroke:var(--line);stroke-width:1.2}
+svg .box.acc{stroke:var(--accent);fill:var(--accent-soft)}
+svg .box.ok{stroke:var(--ok);fill:var(--ok-soft)}
+svg .box.bad{stroke:var(--alert);fill:var(--alert-soft)}
+svg .bt{fill:var(--ink);font-size:12.5px}
+svg .bs{fill:var(--muted);font-size:11.5px}
+svg .bm{fill:var(--ink);font-family:var(--mono);font-size:11.5px}
+svg .edge{fill:none;stroke:var(--muted);stroke-width:1.3}
+svg .el{fill:var(--muted);font-size:11.5px}
+svg .lane{fill:var(--muted);font-family:var(--mono);font-size:11px;letter-spacing:.08em}
+svg .arrowhead{fill:var(--muted)}
+
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--bg);font:12px/1.4 var(--mono);padding:6px 8px;border-radius:4px;white-space:nowrap;transform:translate(-50%,-120%)}
+
+.bars{display:grid;gap:10px;margin-top:6px}
+.bar{display:grid;grid-template-columns:minmax(0,15rem) minmax(0,1fr);gap:6px 14px;align-items:center}
+.bar .lab{font-size:14px}
+.bar .lab small{display:block;color:var(--muted);font-size:12.5px}
+.bar .trk{position:relative;height:26px}
+.bar .fill{height:100%;border-radius:0 4px 4px 0;background:var(--accent)}
+.bar .fill.est{background:repeating-linear-gradient(135deg,var(--accent-soft) 0 5px,transparent 5px 9px);border:1.5px dashed var(--accent);border-left:none}
+.bar .val{position:absolute;top:50%;transform:translateY(-50%);font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums;padding-left:8px;white-space:nowrap}
+@media (max-width:560px){.bar{grid-template-columns:1fr}}
+
+table{border-collapse:collapse;width:100%;font-size:14.5px;margin:10px 0 18px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:500}
+td.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.tblwrap{overflow-x:auto}
+.tblwrap table{min-width:760px}
+tr.us td{background:var(--accent-soft)}
+
+.pill{display:inline-block;font-family:var(--mono);font-size:11.5px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.pill.ok{color:var(--ok);border-color:var(--ok);background:var(--ok-soft)}
+.pill.alert{color:var(--alert);border-color:var(--alert);background:var(--alert-soft)}
+.pill.acc{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+
+ol.changes{list-style:none;padding:0;margin:14px 0;counter-reset:c}
+ol.changes>li{counter-increment:c;display:grid;grid-template-columns:44px minmax(0,1fr);gap:4px 12px;padding:16px 0;border-top:1px solid var(--line);margin:0}
+ol.changes>li:last-child{border-bottom:1px solid var(--line)}
+ol.changes>li::before{content:counter(c);font-family:var(--display);font-weight:600;font-size:28px;line-height:1;color:var(--accent)}
+ol.changes h3{margin:0 0 6px}
+ol.changes ul{margin-top:6px}
+
+.callout{border-left:3px solid var(--alert);background:var(--alert-soft);padding:12px 16px;border-radius:0 4px 4px 0;margin:16px 0;max-width:72ch}
+.callout.ok{border-left-color:var(--ok);background:var(--ok-soft)}
+details{margin:8px 0}
+summary{cursor:pointer;color:var(--muted);font-size:14px}
+@media (prefers-reduced-motion:no-preference){.bar .fill{transition:width .4s ease}}
+</style>
+
+<div class="wrap">
+  <div class="col">
+    <div class="eyebrow">fab-kit · operator · design study · 2026-11-08</div>
+    <h1>Stop chatting with the operator on a timer</h1>
+    <p class="lede">Today every tick is typed into one long chat session, so every tick pays to re-read everything that came before it. This page explains the proposed switch to a cheap Go check plus a fresh, short run only when something changed.</p>
+  </div>
+
+  <div class="tiles">
+    <div class="tile"><div class="k">Cost, one session</div><div class="v">≈ $451</div><div class="s">snappy-gopher, 149 h, 1,563 ticks, at API prices</div></div>
+    <div class="tile"><div class="k">Context per call</div><div class="v">537K</div><div class="s">median tokens re-read on every model call</div></div>
+    <div class="tile"><div class="k">Ticks with no change</div><div class="v">76%</div><div class="s">one tool call, then a status line</div></div>
+    <div class="tile"><div class="k">Skill after compaction</div><div class="v">Gone</div><div class="s">context drops to 74K; the ~55K-token skill is not reloaded</div></div>
+  </div>
+
+  <h2>What happens today</h2>
+  <div class="col">
+    <p>rk's cron types <code>operator tick</code> into the operator's chat every 3 to 30 minutes. The operator runs <code>fab operator tick-start --diff</code>, reads the result and prints a status line. Each model call re-reads the whole conversation from the prompt cache, so the price of a tick is set by how old the session is, not by how much work the tick does.</p>
+  </div>
+
+  <figure>
+    <div class="fig" id="ctxfig">
+      <div class="charthead"><span class="t">Context re-read per model call, snappy-gopher</span><span class="u">tokens · peak per half hour · hover for values</span></div>
+      <svg id="ctx" viewBox="0 0 760 270" role="img" aria-labelledby="ctxdesc">
+        <desc id="ctxdesc">Line chart. Context starts near 220K tokens, climbs steadily to 967K at hour 60, drops to about 100K at a compaction, then climbs again to 929K by hour 149.</desc>
+      </svg>
+      <div class="tip" id="tip" hidden></div>
+    </div>
+    <figcaption>About 1.6K tokens are added per tick, so context climbs until it reaches the 1M window and compacts. The session started at 220K because it opened with a long planning discussion. Cache reads are $0.20 per million tokens, so a tick at 900K costs about $0.18 per call even when nothing changed.</figcaption>
+  </figure>
+
+  <div class="col">
+    <h3>Where the money went</h3>
+    <ul>
+      <li><strong>2,056M tokens re-read from cache, ≈ $411.</strong> About 90% of the total. Output was 0.97M tokens (≈ $19) and cache writes 2.6M (≈ $21).</li>
+      <li><strong>1,195 of 1,563 ticks made exactly one tool call</strong> (<code>tick-start --diff</code>) and then printed "no change" or the same waiting-on-you line. Each one re-read about 1.07M tokens, ≈ $0.21.</li>
+      <li><strong>The smaller session tells the same story.</strong> cordial-river ran 67 h and 216 ticks at a 265K median context: ≈ $27, about $0.13 per tick, 85% of it re-reading.</li>
+    </ul>
+    <div class="callout">
+      <strong>Compaction quietly removes the operator's instructions.</strong> Right after the compaction at hour 61 the context is 73.5K tokens: the harness's own ~57K plus a ~16K summary. The operator skill and its helpers (about 216KB of markdown) are no longer in context, so from then on the operator works from a summary of its own rules. This is the same failure as the earlier "§8 reset per compaction" bug.
+    </div>
+  </div>
+
+  <h2>The proposed tick</h2>
+  <figure>
+    <div class="fig wide">
+      <svg viewBox="0 0 900 430" role="img" aria-labelledby="flowdesc">
+        <desc id="flowdesc">Two flows. Today: rk cron types a tick into one chat session that grows until compaction drops the skill. Proposed: rk cron fires a Go check; if nothing changed it stops with no model call; if something changed a fresh headless run reads the tick prompt and the state file, acts, and writes back an outcome and a suggested next check, which Go clamps. A separate chat session for the human writes directives into the same state file.</desc>
+        <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="arrowhead"/></marker></defs>
+
+        <text class="lane" x="20" y="22">TODAY</text>
+        <rect class="box" x="20" y="34" width="230" height="52" rx="4"/>
+        <text class="bt" x="34" y="56">rk cron types "operator tick"</text>
+        <text class="bs" x="34" y="74">into the chat, every 3–30 min</text>
+        <rect class="box" x="290" y="34" width="330" height="52" rx="4"/>
+        <text class="bt" x="304" y="56">One chat session</text>
+        <text class="bs" x="304" y="74">every call re-reads all history, 60K → 950K</text>
+        <rect class="box bad" x="660" y="34" width="220" height="52" rx="4"/>
+        <text class="bt" x="674" y="56">Compaction near 1M</text>
+        <text class="bs" x="674" y="74">skill text dropped, summary kept</text>
+        <path class="edge" d="M250 60 H286" marker-end="url(#ah)"/>
+        <path class="edge" d="M620 60 H656" marker-end="url(#ah)"/>
+        <path class="edge" d="M770 86 V104 H455 V90" marker-end="url(#ah)"/>
+        <text class="el" x="560" y="120">and the session keeps going</text>
+
+        <line class="grid" x1="20" y1="140" x2="880" y2="140"/>
+        <text class="lane" x="20" y="166">PROPOSED</text>
+
+        <rect class="box" x="20" y="180" width="150" height="56" rx="4"/>
+        <text class="bt" x="34" y="203">rk cron fires</text>
+        <text class="bs" x="34" y="221">or an agent changes state</text>
+
+        <rect class="box acc" x="205" y="180" width="210" height="56" rx="4"/>
+        <text class="bt" x="219" y="203">Go check, no model</text>
+        <text class="bm" x="219" y="221">tick-start --diff</text>
+
+        <rect class="box ok" x="450" y="180" width="210" height="56" rx="4"/>
+        <text class="bt" x="464" y="203">Nothing changed: stop</text>
+        <text class="bs" x="464" y="221">no model call, $0</text>
+
+        <rect class="box" x="695" y="180" width="185" height="56" rx="4"/>
+        <text class="bt" x="709" y="203">Go schedules next wake</text>
+        <text class="bs" x="709" y="221">backoff, clamps next_check</text>
+
+        <path class="edge" d="M170 208 H201" marker-end="url(#ah)"/>
+        <path class="edge" d="M415 208 H446" marker-end="url(#ah)"/>
+        <text class="el" x="420" y="174">no change · ~76%</text>
+        <path class="edge" d="M660 208 H691" marker-end="url(#ah)"/>
+
+        <path class="edge" d="M310 236 V272" marker-end="url(#ah)"/>
+        <text class="el" x="318" y="258">changed · ~24%</text>
+
+        <rect class="box acc" x="205" y="276" width="210" height="56" rx="4"/>
+        <text class="bt" x="219" y="299">Fresh headless run</text>
+        <text class="bs" x="219" y="317">short tick prompt + state</text>
+
+        <rect class="box" x="450" y="276" width="210" height="56" rx="4"/>
+        <text class="bt" x="464" y="299">Act</text>
+        <text class="bs" x="464" y="317">send, track, notify you</text>
+
+        <rect class="box" x="695" y="276" width="185" height="56" rx="4"/>
+        <text class="bt" x="709" y="299">Write back</text>
+        <text class="bs" x="709" y="317">outcome + next_check</text>
+
+        <path class="edge" d="M415 304 H446" marker-end="url(#ah)"/>
+        <path class="edge" d="M660 304 H691" marker-end="url(#ah)"/>
+        <path class="edge" d="M787 276 V240" marker-end="url(#ah)"/>
+
+        <rect class="box" x="20" y="364" width="150" height="56" rx="4"/>
+        <text class="bt" x="34" y="387">You ↔ operator chat</text>
+        <text class="bs" x="34" y="405">never receives ticks</text>
+
+        <rect class="box" x="205" y="364" width="675" height="56" rx="4"/>
+        <text class="bt" x="219" y="387">State file  .fab-operator.yaml</text>
+        <text class="bs" x="219" y="405">tracked items · your directives · last outcome per item · next_check</text>
+
+        <path class="edge" d="M170 392 H201" marker-end="url(#ah)"/>
+        <text class="el" x="174" y="356">directives</text>
+        <path class="edge" d="M280 364 V336" marker-end="url(#ah)"/>
+        <text class="el" x="288" y="352">read at start</text>
+        <path class="edge" d="M787 332 V360" marker-end="url(#ah)"/>
+      </svg>
+    </div>
+    <figcaption>rk already wakes the operator on agent state changes (<code>--wake-on agent-state-change</code>), so "rk cron fires" covers both the timer and those events. The 76% / 24% split is from snappy-gopher's 1,563 ticks.</figcaption>
+  </figure>
+
+  <h2>The two changes</h2>
+  <ol class="changes">
+    <li>
+      <div>
+        <h3>Check in Go first; run a fresh, short model session only when something changed</h3>
+        <ul>
+          <li><code>tick-start --diff</code> already computes what changed. When the answer is "nothing", the tick ends there and the model is never called.</li>
+          <li>When something changed, launch a headless run with a short tick-only prompt (about 10–15K tokens) plus the state file, instead of the full 108KB operator skill.</li>
+          <li>The run may suggest <code>next_check</code> (for example "CI finishes in about 2 minutes"). Go caps it to the backoff range, so the schedule stays predictable and testable.</li>
+          <li>Ticks run on a cheaper role (<code>fast</code>) at low effort. Your conversations with the operator stay on Opus.</li>
+          <li>The existing skip-if-busy rule keeps two ticks from overlapping.</li>
+        </ul>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h3>Move conversational memory into the state file, and give you your own chat</h3>
+        <ul>
+          <li>Each tracked item gets a <strong>directives</strong> field (what you told the operator, such as "don't merge until I say") and a <strong>last outcome</strong> field (what the previous run did, such as "nudged once at 14:05"). Every fresh run reads them. The existing <code>kind: note</code> items are the starting point.</li>
+          <li>Your chat with the operator becomes its own session. It never receives ticks, so it stays small. It writes directives into the state file, and tick results reach you through notifications and tab notes.</li>
+          <li>The chat session and a tick can now act on the same item at the same time, so writes to the state file need a lock.</li>
+        </ul>
+      </div>
+    </li>
+  </ol>
+
+  <h2>What it would cost</h2>
+  <figure>
+    <div class="fig">
+      <div class="charthead"><span class="t">snappy-gopher's 149 hours, replayed under each design</span><span class="u">USD at Opus 5.5 API prices</span></div>
+      <div class="bars" id="bars"></div>
+    </div>
+    <figcaption>The first bar is measured; the hatched bars are estimates. The second assumes about 120K tokens of context per call (harness plus full skill) and that the cache stays warm between ticks. The third adds the Go check and the short prompt, so only the ~370 ticks with changes call the model, at ≈ $0.05–0.08 each.</figcaption>
+  </figure>
+
+  <div class="col">
+    <div class="callout">
+      <strong>Watch the cache lifetime.</strong> The operator's backoff stretches to 24–30 minutes. If a headless run uses a 5-minute prompt cache, every tick rewrites its whole prompt into the cache. With the full skill that is about $0.60 a tick, which is worse than today. The observed sessions used a 1-hour cache; I have not verified what <code>claude -p</code> uses. A short tick prompt keeps a cold start cheap either way.
+    </div>
+    <p>Speed should improve too. A tick at 537K of context took a median 12 seconds; a "no change" tick under the Go check takes about a second. I have not measured how long a headless <code>claude -p</code> takes to start.</p>
+  </div>
+
+  <h2>How other tools do it</h2>
+  <div class="col"><p>Researched on 2026-11-08 from official docs and source. The clearest signal is OpenClaw: it ran its heartbeat inside the main chat session and retired that design in October 2026.</p></div>
+  <div class="tblwrap">
+    <table>
+      <thead><tr><th>Tool</th><th>A scheduled run goes into</th><th>Carried between runs</th><th>Skipping no-change runs</th><th>Next interval set by</th><th>Human chat</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Hermes Agent</strong></td><td>Always a fresh session</td><td>Skills; previous run's output (<code>continuity</code>); small memory files</td><td><span class="pill ok">script gate</span> <code>wakeAgent:false</code></td><td>Config</td><td>Separate; results delivered or mirrored</td></tr>
+        <tr><td><strong>OpenClaw</strong></td><td>Chosen per job; <code>isolated</code> for background work</td><td>Per-job scratch; last result injected into next prompt</td><td><span class="pill ok">script gate</span> <code>fire:false</code></td><td>Model's <code>next_check</code>, clamped to min/max</td><td>Main session; runs announce into it</td></tr>
+        <tr><td><strong>OpenAI dots</strong></td><td>Delegated tasks get their own conversation</td><td>The dot's own notes, "not a complete transcript"</td><td><span class="pill">prompt rules</span></td><td>Model wakes itself; fixed times need a schedule</td><td>Keep talking alongside</td></tr>
+        <tr><td><strong>Codex scheduled tasks</strong></td><td>Fresh by default; same chat is opt-in</td><td>Task prompt or skill</td><td><span class="pill">prompt rules</span></td><td>User, or model reschedules</td><td>Open a run and continue it</td></tr>
+        <tr><td><strong>Claude Managed Agents</strong></td><td>Fresh session per firing</td><td>Memory stores</td><td><span class="pill">budget cap</span></td><td>User (cron)</td><td>Event stream, webhooks</td></tr>
+        <tr class="us"><td><strong>Claude Code <code>/loop</code></strong> (fab operator today)</td><td>The same session</td><td>The chat itself</td><td><span class="pill alert">none</span></td><td>Model, 1–60 min</td><td>Same session</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="col">
+    <ul>
+      <li><strong>A fresh run per tick is the default for unattended work.</strong> Reusing the chat is opt-in everywhere except <code>/loop</code>, which Anthropic positions for interactive babysitting.</li>
+      <li><strong>The two open-source tools gate the model with a script</strong>, which is what <code>tick-start --diff</code> would become. Silence markers such as <code>NO_REPLY</code> only hide the reply; the model still runs.</li>
+      <li><strong>Interval control is converging on "model suggests, code clamps"</strong>, the same shape as change 1.</li>
+      <li><strong>The fab operator does more than report.</strong> It sends input to panes and spawns agents, which is why change 2 needs the state-file lock.</li>
+    </ul>
+    <details><summary>Less certain points</summary>
+      <ul>
+        <li>OpenClaw's old heartbeat behaviour and the dots "time budget" come from secondary write-ups, not from source or official docs.</li>
+        <li>Cache-write cost is assumed at 2× input for the 1-hour cache.</li>
+        <li>Letta's background memory jobs trigger on steps or compaction, not a timer, so they are left out of the table.</li>
+      </ul>
+    </details>
+  </div>
+
+  <h2>Open questions</h2>
+  <div class="col">
+    <ul>
+      <li>Do you still want to talk to the operator in chat, or give it instructions only through state, with chat used just for setup? Every other tool keeps chat separate from scheduled runs.</li>
+      <li>Which prompt cache does a headless <code>claude -p</code> run use? Measure this before choosing how big the tick prompt can be.</li>
+      <li>Which tick actions need Opus judgement (for example deciding to merge), and should they hand off to the chat session instead of acting from a cheap run?</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+(function(){
+  var DATA = [[0.0,219],[0.5,223],[1.0,230],[1.5,235],[2.0,242],[2.5,258],[3.0,266],[3.5,281],[4.0,287],[4.5,297],[5.0,308],[5.5,315],[6.0,321],[6.5,327],[7.0,331],[7.5,335],[8.0,339],[8.5,344],[9.0,347],[9.5,350],[10.0,354],[10.5,359],[11.0,363],[11.5,367],[12.0,371],[12.5,375],[13.0,378],[13.5,382],[14.0,385],[14.5,390],[15.0,393],[15.5,396],[16.0,400],[16.5,405],[17.0,409],[17.5,412],[18.0,416],[18.5,421],[19.0,425],[19.5,429],[20.0,434],[20.5,438],[21.0,442],[21.5,447],[22.0,451],[22.5,457],[23.0,459],[23.5,460],[24.0,464],[24.5,465],[25.0,467],[25.5,469],[26.0,473],[26.5,478],[27.0,484],[27.5,487],[28.0,500],[28.5,522],[29.0,542],[29.5,565],[30.0,584],[30.5,610],[31.0,623],[31.5,631],[32.0,634],[32.5,639],[33.0,643],[33.5,648],[34.0,652],[34.5,654],[35.0,656],[35.5,658],[36.0,659],[36.5,661],[37.0,662],[37.5,664],[38.0,666],[38.5,668],[39.0,670],[39.5,672],[40.0,673],[40.5,675],[41.0,676],[41.5,678],[42.0,680],[42.5,682],[43.0,684],[43.5,685],[44.0,686],[44.5,688],[45.0,689],[45.5,691],[46.0,693],[46.5,695],[47.0,699],[47.5,707],[48.0,716],[48.5,737],[49.0,744],[49.5,751],[50.0,754],[50.5,756],[51.0,759],[51.5,762],[52.0,765],[52.5,768],[53.0,770],[53.5,773],[54.0,776],[54.5,786],[55.0,795],[55.5,800],[56.0,811],[56.5,846],[57.0,862],[57.5,894],[58.0,913],[58.5,928],[59.0,950],[59.5,956],[60.0,963],[60.5,967],[61.0,104],[61.5,123],[62.0,127],[62.5,130],[63.0,133],[63.5,136],[64.0,139],[64.5,143],[65.0,146],[65.5,150],[66.0,167],[66.5,194],[67.0,214],[67.5,217],[68.0,223],[68.5,238],[69.0,262],[69.5,277],[70.0,287],[70.5,313],[71.0,317],[71.5,320],[72.0,326],[72.5,330],[73.0,345],[73.5,358],[74.0,367],[74.5,371],[75.0,375],[75.5,380],[76.0,388],[76.5,391],[77.0,395],[77.5,398],[78.0,402],[78.5,406],[79.0,409],[79.5,412],[80.0,415],[80.5,419],[81.0,422],[81.5,425],[82.0,428],[82.5,430],[83.0,434],[83.5,437],[84.0,440],[84.5,442],[85.0,446],[85.5,448],[86.0,451],[86.5,454],[87.0,457],[87.5,460],[88.0,463],[88.5,467],[89.0,469],[89.5,472],[90.0,475],[90.5,478],[91.0,480],[91.5,484],[92.0,486],[92.5,489],[93.0,492],[93.5,495],[94.0,498],[94.5,501],[95.0,504],[95.5,507],[96.0,510],[96.5,513],[97.0,517],[97.5,520],[98.0,523],[98.5,526],[99.0,529],[99.5,536],[100.0,540],[100.5,544],[101.0,548],[101.5,552],[102.0,556],[102.5,560],[103.0,564],[103.5,569],[104.0,573],[104.5,577],[105.0,581],[105.5,585],[106.0,589],[106.5,594],[107.0,598],[107.5,601],[108.0,605],[108.5,609],[109.0,614],[109.5,618],[110.0,622],[110.5,625],[111.0,629],[111.5,633],[112.0,636],[112.5,640],[113.0,644],[113.5,648],[114.0,651],[114.5,655],[115.0,659],[115.5,663],[116.0,667],[116.5,671],[117.0,674],[117.5,678],[118.0,682],[118.5,685],[119.0,690],[119.5,693],[120.0,697],[120.5,698],[121.0,699],[121.5,702],[122.0,705],[122.5,709],[123.0,713],[123.5,716],[124.0,721],[124.5,725],[125.0,729],[125.5,734],[126.0,739],[126.5,744],[127.0,749],[127.5,754],[128.0,758],[128.5,763],[129.0,768],[129.5,772],[130.0,775],[130.5,779],[131.0,783],[131.5,787],[132.0,792],[132.5,797],[133.0,801],[133.5,805],[134.0,809],[134.5,813],[135.0,818],[135.5,822],[136.0,826],[136.5,831],[137.0,836],[137.5,841],[138.0,846],[138.5,849],[139.0,854],[139.5,859],[140.0,863],[140.5,869],[141.0,871],[141.5,876],[142.0,880],[142.5,883],[143.0,887],[143.5,890],[144.0,894],[144.5,897],[145.0,901],[145.5,905],[146.0,908],[146.5,912],[147.0,916],[147.5,920],[148.0,924],[148.5,927],[149.0,929]];
+  var svg = document.getElementById('ctx'), NS = 'http://www.w3.org/2000/svg';
+  var L=60,R=744,T=16,B=236, XMAX=150, YMAX=1000;
+  function x(h){return L+(R-L)*h/XMAX} function y(k){return B-(B-T)*k/YMAX}
+  function el(n,a,txt){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;svg.appendChild(e);return e}
+  [0,250,500,750,1000].forEach(function(k){
+    el('line',{class:'grid',x1:L,x2:R,y1:y(k),y2:y(k)});
+    el('text',{class:'axis',x:L-8,y:y(k)+4,'text-anchor':'end'},k===0?'0':(k===1000?'1M':k+'K'));
+  });
+  [0,24,48,72,96,120,144].forEach(function(h){
+    el('text',{class:'axis',x:x(h),y:B+18,'text-anchor':'middle'},h===0?'0 h':h+' h');
+  });
+  var d='M'+DATA.map(function(p){return x(p[0]).toFixed(1)+' '+y(p[1]).toFixed(1)}).join(' L');
+  el('path',{class:'area',d:d+' L'+x(DATA[DATA.length-1][0]).toFixed(1)+' '+B+' L'+x(DATA[0][0])+' '+B+' Z'});
+  el('path',{class:'line',d:d});
+  el('line',{class:'mark',x1:x(60.9),x2:x(60.9),y1:T,y2:B});
+  el('text',{class:'marktxt',x:x(60.9)+6,y:T+14},'compaction, 967K → 74K');
+  el('text',{class:'ann',x:x(149),y:y(929)-10,'text-anchor':'end'},'929K at hour 149');
+  var cross=el('line',{class:'cross',x1:0,x2:0,y1:T,y2:B,visibility:'hidden'});
+  var dot=el('circle',{class:'dot',r:4.5,cx:0,cy:0,visibility:'hidden'});
+  var hit=el('rect',{x:L,y:T,width:R-L,height:B-T,fill:'transparent'});
+  var tip=document.getElementById('tip'), fig=document.getElementById('ctxfig');
+  function show(evt){
+    var r=svg.getBoundingClientRect(), sx=(evt.clientX-r.left)*760/r.width;
+    var h=(sx-L)/(R-L)*XMAX, best=DATA[0];
+    DATA.forEach(function(p){if(Math.abs(p[0]-h)<Math.abs(best[0]-h))best=p});
+    var cx=x(best[0]), cy=y(best[1]);
+    cross.setAttribute('x1',cx);cross.setAttribute('x2',cx);cross.setAttribute('visibility','visible');
+    dot.setAttribute('cx',cx);dot.setAttribute('cy',cy);dot.setAttribute('visibility','visible');
+    var fr=fig.getBoundingClientRect();
+    tip.textContent='hour '+best[0]+' · '+best[1]+'K tokens · ≈ $'+(best[1]*0.0002).toFixed(2)+' per call';
+    tip.style.left=(r.left-fr.left+cx*r.width/760+fig.scrollLeft)+'px';
+    tip.style.top=(r.top-fr.top+cy*r.height/270)+'px';
+    tip.hidden=false;
+  }
+  function hide(){cross.setAttribute('visibility','hidden');dot.setAttribute('visibility','hidden');tip.hidden=true}
+  hit.addEventListener('pointermove',show);hit.addEventListener('pointerleave',hide);
+
+  var BARS=[
+    {l:'Today: one chat session',s:'measured',v:451,est:false},
+    {l:'Fresh run every tick, full skill',s:'estimate',v:150,est:true},
+    {l:'Go check + short fresh run',s:'estimate',v:30,est:true}
+  ];
+  var host=document.getElementById('bars');
+  BARS.forEach(function(b){
+    var row=document.createElement('div');row.className='bar';
+    row.innerHTML='<div class="lab">'+b.l+'<small>'+b.s+'</small></div><div class="trk"><div class="fill'+(b.est?' est':'')+'" style="width:'+(b.v/500*85)+'%"></div><span class="val" style="left:'+(b.v/500*85)+'%">'+(b.est?'≈ ':'')+'$'+b.v+'</span></div>';
+    host.appendChild(row);
+  });
+})();
+</script>

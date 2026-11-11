@@ -1,0 +1,286 @@
+<title>Meet the Operator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<!-- Newcomer explainer, 2026-11-09. Simplified design from operator-one-shot-ticks.html and operator-quake-mock.html.
+     Figures from two loom2 operator sessions (snappy-gopher, cordial-river); the "after" cost is an estimate. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;700;800&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a single 66ch reading column; the hero fleet panel, loop diagram and timeline step out to a 960px frame. Agent states use HexoKit's own signals: green = fine, amber = needs you. */
+:root{
+  --bg:#EEF1F4; --paper:#FFFFFF; --ink:#16202A; --muted:#5B6773; --line:#CDD5DD; --soft:#E2E7EC;
+  --go:#17834A; --go-soft:#DDF0E4; --you:#B86A00; --you-soft:#F7E8CF; --idle:#7A8590;
+  --display:"Schibsted Grotesk","Helvetica Neue",Arial,sans-serif;
+  --body:"Source Serif 4",Georgia,"Times New Roman",serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0E1318; --paper:#151C23; --ink:#E3E8ED; --muted:#97A3AF; --line:#2A343E; --soft:#1C252E;
+    --go:#3CC57A; --go-soft:#14301F; --you:#F0A535; --you-soft:#3A2A10; --idle:#7F8B97;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0E1318; --paper:#151C23; --ink:#E3E8ED; --muted:#97A3AF; --line:#2A343E; --soft:#1C252E;
+  --go:#3CC57A; --go-soft:#14301F; --you:#F0A535; --you-soft:#3A2A10; --idle:#7F8B97;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:18px/1.6 var(--body);padding-block:48px 96px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.frame{max-width:960px;margin:0 auto}
+.col{max-width:66ch}
+h1,h2,h3{font-family:var(--display);letter-spacing:-.015em;text-wrap:balance;margin:0}
+h1{font-weight:800;font-size:clamp(34px,5.4vw,58px);line-height:1.02}
+h2{font-weight:700;font-size:clamp(24px,3vw,30px);line-height:1.15;margin-top:72px;margin-bottom:14px}
+h3{font-weight:700;font-size:18px;margin:0 0 4px}
+p{margin:0 0 16px}
+.kicker{font-family:var(--mono);font-size:12.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:14px}
+.lede{font-size:21px;line-height:1.5;color:var(--muted);margin-top:18px;max-width:58ch}
+code{font-family:var(--mono);font-size:.8em;background:var(--soft);padding:1px 5px;border-radius:3px}
+strong{font-weight:600}
+.small{font-size:15px;color:var(--muted)}
+
+/* hero fleet */
+.fleet{margin:36px 0 0;background:var(--paper);border:1px solid var(--line);border-radius:10px;overflow:hidden;font-family:var(--mono);font-size:13.5px}
+.fleet .row{display:grid;grid-template-columns:22px minmax(0,11rem) minmax(0,1fr) auto;gap:10px;align-items:center;padding:11px 16px;border-top:1px solid var(--line)}
+.fleet .row:first-child{border-top:none}
+.fleet .row.op{background:var(--soft)}
+.fleet .name{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fleet .what{color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sig{width:10px;height:10px;border-radius:50%;background:var(--idle)}
+.sig.go{background:var(--go)} .sig.you{background:var(--you);box-shadow:0 0 0 4px var(--you-soft)}
+.tag{font-size:11.5px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.tag.go{color:var(--go);border-color:var(--go);background:var(--go-soft)}
+.tag.you{color:var(--you);border-color:var(--you);background:var(--you-soft)}
+@media (max-width:620px){.fleet .row{grid-template-columns:22px minmax(0,1fr) auto}.fleet .what{grid-column:2/4;grid-row:2}}
+
+/* verbs */
+.verbs{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:18px 28px;margin:24px 0 10px}
+.verbs div{border-top:2px solid var(--ink);padding-top:10px}
+.verbs p{font-size:16px;color:var(--muted);margin:0}
+.never{margin-top:22px;padding:14px 18px;border:1px solid var(--you);background:var(--you-soft);border-radius:8px;max-width:66ch;font-size:16.5px}
+.never strong{color:var(--you)}
+
+/* loop diagram */
+figure{margin:26px 0 10px}
+.diagram{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:18px;overflow-x:auto}
+.diagram svg{display:block;width:100%;min-width:720px;height:auto;font-family:var(--display);color:var(--ink)}
+svg .b{fill:var(--paper);stroke:var(--line);stroke-width:1.4}
+svg .b.go{fill:var(--go-soft);stroke:var(--go)}
+svg .b.ai{fill:var(--soft);stroke:var(--ink)}
+svg .b.mem{fill:var(--you-soft);stroke:var(--you)}
+svg .t{fill:var(--ink);font-size:14px;font-weight:700}
+svg .s{fill:var(--muted);font-size:12.5px;font-family:var(--body)}
+svg .e{fill:none;stroke:var(--muted);stroke-width:1.5}
+svg .el{fill:var(--muted);font-size:12px;font-family:var(--mono)}
+svg .ah{fill:var(--muted)}
+svg .num{fill:var(--ink);font-size:12px;font-family:var(--mono)}
+figcaption{font-size:15px;color:var(--muted);margin-top:10px;max-width:66ch}
+
+.rules{list-style:none;padding:0;margin:26px 0 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px}
+.rules li{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:16px 18px;margin:0}
+.rules h3{font-size:19px}
+.rules p{font-size:16px;color:var(--muted);margin:4px 0 0}
+
+/* timeline */
+.day{margin:22px 0 0;border-left:2px solid var(--line);padding-left:0;list-style:none}
+.day li{display:grid;grid-template-columns:7.5rem minmax(0,1fr);gap:4px 18px;padding:12px 0 12px 18px;position:relative;margin:0}
+.day li::before{content:"";position:absolute;left:-7px;top:19px;width:12px;height:12px;border-radius:50%;background:var(--paper);border:2px solid var(--idle)}
+.day li.run::before{border-color:var(--ink);background:var(--ink)}
+.day li.you::before{border-color:var(--you);background:var(--you)}
+.day li.quiet::before{border-style:dashed}
+.day .when{font-family:var(--mono);font-size:13.5px;color:var(--muted);padding-top:3px;font-variant-numeric:tabular-nums}
+.day .what{font-size:17px}
+.day .what small{display:block;font-size:14.5px;color:var(--muted);margin-top:2px}
+@media (max-width:560px){.day li{grid-template-columns:1fr}}
+
+/* compare */
+.compare{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin:22px 0 6px}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:18px 20px}
+.card .lab{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.card .big{font-family:var(--display);font-weight:800;font-size:44px;line-height:1;margin:10px 0 6px;font-variant-numeric:tabular-nums}
+.card ul{margin:10px 0 0;padding-left:18px;font-size:15.5px;color:var(--muted)}
+.card li{margin-bottom:4px}
+.card.new{border-color:var(--go)}
+.card.new .big{color:var(--go)}
+
+/* glossary */
+dl.words{display:grid;grid-template-columns:minmax(0,9rem) minmax(0,1fr);gap:0;margin:20px 0 0;max-width:66ch}
+dl.words dt,dl.words dd{padding:11px 0;border-top:1px solid var(--line);margin:0}
+dl.words dt{font-family:var(--display);font-weight:700}
+dl.words dd{color:var(--muted);font-size:16.5px}
+@media (max-width:520px){dl.words{grid-template-columns:1fr}dl.words dd{border-top:none;padding-top:0}}
+
+.builders{margin-top:72px;padding:22px 24px;background:var(--paper);border:1px dashed var(--line);border-radius:10px}
+.builders h2{margin-top:0;font-size:22px}
+.builders ol{margin:6px 0 14px;padding-left:22px;font-size:16.5px}
+.builders li{margin-bottom:6px}
+.builders h3{margin-top:18px}
+.split{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:4px 28px;margin-top:6px}
+.split>div{min-width:0}
+.split ul{margin:6px 0 0;padding-left:20px;font-size:16px}
+.split li{margin-bottom:6px}
+</style>
+
+<div class="frame">
+  <div class="col">
+    <div class="kicker">fab-kit · HexoKit</div>
+    <h1>The operator watches your agents, so you don't have to.</h1>
+    <p class="lede">When you run several AI coding agents at once, someone has to keep an eye on them. The operator is the AI that does that job. It notices when an agent finishes, gets stuck or asks a question, handles what it safely can, and calls you for the rest.</p>
+  </div>
+
+  <div class="fleet" aria-label="Example: four agents and the operator">
+    <div class="row op"><span class="sig go"></span><span class="name">◉ operator</span><span class="what">checked 2 minutes ago · nothing new</span><span class="tag go">watching</span></div>
+    <div class="row"><span class="sig go"></span><span class="name">login-redesign</span><span class="what">writing tests for the new form</span><span class="tag">working</span></div>
+    <div class="row"><span class="sig you"></span><span class="name">pr-5158</span><span class="what">checks passed, ready to merge</span><span class="tag you">needs you</span></div>
+    <div class="row"><span class="sig"></span><span class="name">search-index</span><span class="what">asked "Proceed with apply?" · operator answered yes</span><span class="tag">handled</span></div>
+    <div class="row"><span class="sig"></span><span class="name">rename-api</span><span class="what">finished and shipped its PR</span><span class="tag">done</span></div>
+  </div>
+
+  <h2>What it does</h2>
+  <div class="verbs">
+    <div><h3>Notices</h3><p>An agent stopped, a PR's checks finished, a pane closed.</p></div>
+    <div><h3>Nudges</h3><p>Tells an idle agent to carry on, or restarts one that got stuck.</p></div>
+    <div><h3>Answers</h3><p>Routine prompts such as "Proceed with apply?" that its rules cover.</p></div>
+    <div><h3>Tells you</h3><p>A notification when something needs a human decision.</p></div>
+  </div>
+  <div class="never"><strong>It never does these on its own:</strong> merge a PR, close one, delete a branch or worktree. Those always come to you.</div>
+
+  <h2>How it works</h2>
+  <div class="col"><p>The operator is a loop that runs every few minutes, and sooner when an agent stops. Most of the time nothing has changed, so most passes end before any AI is involved.</p></div>
+
+  <figure>
+    <div class="diagram">
+      <svg viewBox="0 0 880 330" role="img" aria-labelledby="loopdesc">
+        <desc id="loopdesc">A clock starts a check. The check is a plain program. If nothing changed, it stops. If something changed, a fresh AI run starts with a brief, acts, and writes a note. Notes on each tracked item are the operator's memory; your chat reads and writes the same notes.</desc>
+        <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah"/></marker></defs>
+
+        <rect class="b" x="16" y="34" width="180" height="70" rx="8"/>
+        <text class="num" x="30" y="56">1</text><text class="t" x="46" y="57">Clock</text>
+        <text class="s" x="30" y="78">every few minutes, or</text><text class="s" x="30" y="94">when an agent stops</text>
+
+        <rect class="b go" x="236" y="34" width="210" height="70" rx="8"/>
+        <text class="num" x="250" y="56">2</text><text class="t" x="266" y="57">Check</text>
+        <text class="s" x="250" y="78">a plain program compares</text><text class="s" x="250" y="94">now with last time. No AI.</text>
+
+        <rect class="b" x="490" y="34" width="190" height="70" rx="8"/>
+        <text class="t" x="504" y="57">Nothing changed</text>
+        <text class="s" x="504" y="78">stop here. Costs nothing.</text><text class="s" x="504" y="94">3 out of 4 checks end here.</text>
+
+        <path class="e" d="M196 69H232" marker-end="url(#a)"/>
+        <path class="e" d="M446 69H486" marker-end="url(#a)"/>
+
+        <path class="e" d="M341 104V146" marker-end="url(#a)"/>
+        <text class="el" x="350" y="130">something changed</text>
+
+        <rect class="b ai" x="236" y="150" width="210" height="70" rx="8"/>
+        <text class="num" x="250" y="172">3</text><text class="t" x="266" y="173">Fresh AI run</text>
+        <text class="s" x="250" y="194">starts from a short brief:</text><text class="s" x="250" y="210">rules, notes, what changed</text>
+
+        <rect class="b ai" x="490" y="150" width="190" height="70" rx="8"/>
+        <text class="t" x="504" y="173">Acts</text>
+        <text class="s" x="504" y="194">nudge, answer, or</text><text class="s" x="504" y="210">notify you</text>
+
+        <rect class="b ai" x="720" y="150" width="144" height="70" rx="8"/>
+        <text class="t" x="734" y="173">Writes a note</text>
+        <text class="s" x="734" y="194">then the run</text><text class="s" x="734" y="210">ends</text>
+
+        <path class="e" d="M446 185H486" marker-end="url(#a)"/>
+        <path class="e" d="M680 185H716" marker-end="url(#a)"/>
+
+        <rect class="b mem" x="236" y="258" width="628" height="58" rx="8"/>
+        <text class="num" x="250" y="281">4</text><text class="t" x="266" y="282">Notes on each tracked item</text>
+        <text class="s" x="250" y="302">the operator's memory: what you asked for, and what the operator did</text>
+
+        <path class="e" d="M792 220V254" marker-end="url(#a)"/>
+        <path class="e" d="M300 258V224" marker-end="url(#a)"/>
+        <text class="el" x="308" y="245">read at start</text>
+
+        <rect class="b" x="16" y="258" width="180" height="58" rx="8"/>
+        <text class="t" x="30" y="281">You ↔ chat</text>
+        <text class="s" x="30" y="302">talk to it any time</text>
+        <path class="e" d="M196 287H232" marker-end="url(#a)"/>
+      </svg>
+    </div>
+    <figcaption>The loop has no long-running AI. Each run starts fresh, does one job and ends. The notes carry everything from one run to the next.</figcaption>
+  </figure>
+
+  <ul class="rules">
+    <li><h3>Checking is free</h3><p>A plain program decides whether anything changed. The AI only wakes up when there is something to think about.</p></li>
+    <li><h3>Every run starts fresh</h3><p>No run carries the history of the last one, so the hundredth run is as quick, cheap and well-briefed as the first.</p></li>
+    <li><h3>Notes are the memory</h3><p>Anything that should last is written down on the item it concerns: "hold this PR for me", "nudged once at 14:05".</p></li>
+  </ul>
+
+  <h2>One day, start to finish</h2>
+  <ol class="day">
+    <li class="you"><span class="when">09:12</span><span class="what">You tell the operator in chat: "Don't merge 5158 until I've read the diff."<small>Saved as a note on pr-5158.</small></span></li>
+    <li class="quiet"><span class="when">09:15 – 13:10</span><span class="what">40 checks. Nothing changed.<small>No AI ran. Cost: nothing.</small></span></li>
+    <li class="run"><span class="when">13:14</span><span class="what">search-index stops and asks "Proceed with apply?"<small>A fresh run reads the rules, answers yes, and notes it.</small></span></li>
+    <li class="quiet"><span class="when">13:20 – 14:30</span><span class="what">12 more checks. Nothing changed.</span></li>
+    <li class="run you"><span class="when">14:35</span><span class="what">PR 5158's checks pass.<small>A fresh run sees your 09:12 note, holds the merge, and sends you a notification.</small></span></li>
+    <li class="you"><span class="when">16:02</span><span class="what">You open the chat: "What happened today?"<small>The chat reads the notes and sums up the day. You say "merge it", and it does.</small></span></li>
+  </ol>
+
+  <h2>Why it's built this way</h2>
+  <div class="col">
+    <p>The first operator was a single chat session that never ended. Every few minutes the clock typed "check again" into it. That works, but a chat reads its whole conversation every time it replies, so each check got slower and more expensive as the day went on. When the conversation got too long, it was summarised, and the summary left out the operator's own rules.</p>
+  </div>
+  <div class="compare">
+    <div class="card">
+      <div class="lab">One chat that never ends · measured</div>
+      <div class="big">≈ $451</div>
+      <div class="small">for one 6-day session</div>
+      <ul><li>3 out of 4 checks found nothing but still cost money</li><li>each reply re-read about 537,000 tokens of history</li><li>forgot its rules after the conversation was summarised</li></ul>
+    </div>
+    <div class="card new">
+      <div class="lab">Check, then a fresh run · estimate</div>
+      <div class="big">≈ $30</div>
+      <div class="small">for the same 6 days</div>
+      <ul><li>checks that find nothing cost nothing</li><li>each run starts from a short brief</li><li>the rules are in every brief, so they can't be lost</li></ul>
+    </div>
+  </div>
+  <p class="small">At Claude Opus 5.5 API prices. The estimate assumes about 370 runs, one for each check that found a change, at about 5–8 cents each.</p>
+
+  <h2>Words you'll see</h2>
+  <dl class="words">
+    <dt>Operator</dt><dd>The AI that watches your other agents and your PRs.</dd>
+    <dt>Tracked item</dt><dd>Something the operator watches: an agent's tab, a PR, a reminder.</dd>
+    <dt>Check</dt><dd>A quick look by a plain program to see whether anything changed. Free.</dd>
+    <dt>Run</dt><dd>A short, fresh AI session started only when a check finds a change.</dd>
+    <dt>Note</dt><dd>A line saved on a tracked item. Notes are how the operator remembers.</dd>
+    <dt>Chat</dt><dd>Where you talk to the operator. In HexoKit, press ⌘J. Any agent tab can also become an operator chat by typing <code>/fab-operator</code>.</dd>
+  </dl>
+
+  <section class="builders">
+    <h2>For builders: where each part lives</h2>
+    <p class="small">The whole operator moves into HexoKit, autopilot included. fab only offers plain commands and files it already has. Calls go one way, from HexoKit to fab, and fab stays optional: without it, the operator still watches panes, PRs and shell probes.</p>
+    <div class="split">
+      <div>
+        <h3>HexoKit owns</h3>
+        <ul>
+          <li>Tracked items and their notes, as plain files under HexoKit's state folder.</li>
+          <li>The clock and the check. The daemon already has the clock and wake-on-agent-stop, so the check is a function it calls directly.</li>
+          <li>Starting each run in its own tmux window, so restarting the daemon can't kill a run halfway (run-kit Principle II).</li>
+          <li>The run brief, the chat skill, and the ⌘J drawer.</li>
+          <li>Autopilot: the queue, its three merge modes (<code>cherry-pick-ladder</code>, <code>merge-auto</code>, <code>stacked-prs</code>) and ordered merging, as tested Go code instead of skill text.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>fab provides (all exist today)</h3>
+        <ul>
+          <li><code>.status.yaml</code>, which HexoKit already reads, to tell when a change is done.</li>
+          <li><code>fab status set-base-branch</code>, so a stacked change's PR targets the right branch.</li>
+          <li><code>/fab-new</code> and <code>/fab-proceed</code>, used as the opening prompt when HexoKit starts an agent on a fab change.</li>
+          <li><code>fab agent operator --headless</code>, which tells HexoKit how to launch a run for your chosen AI provider.</li>
+        </ul>
+      </div>
+    </div>
+    <h3>Order of work</h3>
+    <ol>
+      <li><strong>Move the engine.</strong> Port tracked items and the change check into rk: about 4,400 lines of Go and 5,200 lines of tests. rk can import fab's existing state file, whose path it already knows.</li>
+      <li><strong>Build the new loop in HexoKit:</strong> check, fresh run, note. A short run brief and a chat skill replace about 160KB of skill and command docs. Autopilot rides along in the brief as text for now.</li>
+      <li><strong>Hand over and cut over.</strong> fab's <code>fab operator</code> commands become deprecated wrappers for one release, then each tmux server switches to the new loop, with you present.</li>
+      <li><strong>Port autopilot to Go</strong> and take its text out of the brief. Then delete fab's operator code.</li>
+    </ol>
+    <p class="small">Full plan with steps and dependencies: <code>fab/plans/sahil/26-11-10-operator-to-hexokit.md</code>. Dropped from the earlier draft: the model choosing its own next check time, separate cheap and expensive models for runs, a new Runs tab (runs appear in Cron Log and in item notes), separate "directive" and "last outcome" fields (both are notes), and a <code>fab operator brief</code> command.</p>
+  </section>
+</div>
