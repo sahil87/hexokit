@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Daemon autostart: `rk daemon autostart on|off|status` registers the daemon with the OS per-user service manager (systemd user unit / LaunchAgent) to start once at boot or login via the login shell — never supervised; shared Backend interface + GOOS registry in internal/daemon/autostart, one self-registering file per OS."
+description: "Daemon autostart: `rk daemon autostart on|off|status` registers the daemon with the OS per-user service manager (systemd user unit / LaunchAgent) to start once at boot or login via the login shell — never supervised; shared Backend interface + GOOS registry in internal/daemon/autostart, one self-registering file per OS; Status.Summary() is the shared state line shown by status, rk doctor and a read-only Host system-card row."
 ---
 # Daemon Autostart
 
@@ -16,6 +16,26 @@ description: "Daemon autostart: `rk daemon autostart on|off|status` registers th
 - **Start command**: every registration runs `<login shell> -lc "$(StartScript(rkPath, unsetEnv))"` → `exec [env -u V …] '<rk>' daemon start --if-not-running`. The login shell gives the daemon's tmux server (and every later agent) the environment a manual start from the user's profile would; `--if-not-running` (backed by `daemon.ErrAlreadyRunning`) makes a start against a live daemon a success while real failures stay the job's non-zero exit. `rkPath` is `selfpath.Stable()` — the brew-prefix symlink, never a Cellar keg.
 - **Managed marker**: each generated file carries `autostart.ManagedMarker` ("Managed by rk daemon autostart") as a comment; `off` refuses to delete a file at the registration path that lacks it.
 - **Invariants**: every verb is idempotent (`changed:false` is "already on/off"); `on` registers only, `--now` also starts through the service manager; `off` never stops a running daemon; every service-manager call is `exec.CommandContext` with a timeout.
+
+## Status summary and visibility
+
+`Status.Summary()` (`autostart.go`) is the one-line autostart state, a method on the platform-neutral `Status` that reads only its fields, never the platform. Five strings (exported `Summary*` constants):
+
+| Summary | Status |
+|---|---|
+| `on (boot)` | registered, enabled, `starts_at` boot |
+| `on (login only — enable lingering for boot)` | registered, enabled, `starts_at` login, `linger` known and off |
+| `on (login)` | registered, enabled, any other login case (incl. `linger` null) |
+| `registered but disabled` | registered, not enabled |
+| `off` | not registered |
+
+Three read-only surfaces print it verbatim:
+
+- **CLI**: `rk daemon autostart status` prints `Autostart: <summary>`.
+- **`rk doctor`**: a `daemon autostart` row, always OK-shaped, with note fragments (stale, non-zero last exit, a remediation pointer) or `unavailable — <err>`. See [cli](/run-kit/architecture/cli.md) § `doctor`.
+- **Host page**: `GET /api/daemon/autostart` (`api/autostart.go`) returns `{supported, summary, status | error}` and feeds a read-only `autostart` row on the HexoKit system card (mount-time fetch; off reads `off — rk daemon autostart on`; unavailable reads `unavailable — <err>` inline; the row is hidden when the fetch fails). See [api-and-sockets](/run-kit/api-and-sockets.md) and [sidebar](/run-kit/ui/sidebar.md) § HOST HEALTH Zone.
+
+Surfaces never change autostart: enabling or disabling stays `rk daemon autostart on|off`.
 
 ## Linux (systemd)
 
@@ -70,6 +90,18 @@ description: "Daemon autostart: `rk daemon autostart on|off|status` registers th
 <!-- A2 fills this section. -->
 
 ## Design Decisions
+
+#### Autostart is surfaced as a read-only status line, not a settings toggle
+**Decision**: The UI shows autostart as a read-only row on the HexoKit system card fed by `GET /api/daemon/autostart`; there is no settings-registry key, toggle, POST route, or palette action.
+**Why**: Autostart state lives in the OS service manager, not `config.yaml` — a registry key would be a drifting second copy; the HOST HEALTH zone is read-only by contract; turning autostart on is a deliberate CLI opt-in (off by default; lingering needs a privileged step a toggle cannot take).
+**Rejected**: A `daemon_autostart` settings-registry entry with an apply hook (second source of truth, mutates host state from a read-only zone, remote one-click enable); a card toggle + palette action (same remote-enable concern).
+*Introduced by*: 261111-whzt-daemon-autostart-visibility
+
+#### One `Status.Summary()` feeds CLI, doctor and UI
+**Decision**: The state vocabulary is a method on `autostart.Status`; the CLI status text, the doctor row and the API's `summary` all call it.
+**Why**: Three surfaces must say the same thing; keying the lingering clause on `Linger != nil` rather than the platform keeps every backend (macOS included) working with no surface change.
+**Rejected**: Deriving the label separately in the frontend from raw fields (a second copy of the rules in TypeScript).
+*Introduced by*: 261111-whzt-daemon-autostart-visibility
 
 #### Linux unit name `hexokit-daemon.service`
 **Decision**: The systemd user unit is `hexokit-daemon.service`.

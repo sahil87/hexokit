@@ -8,8 +8,8 @@ progress:
     intake: done
     apply: done
     review: done
-    hydrate: active
-    ship: pending
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
@@ -32,24 +32,26 @@ stage_metrics:
     intake: {started_at: "2026-11-11T11:27:04Z", driver: fab-new, iterations: 1, completed_at: "2026-11-11T11:28:51Z"}
     apply: {started_at: "2026-11-11T11:55:13Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-11T11:59:01Z"}
     review: {started_at: "2026-11-11T11:59:01Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-11T12:05:13Z"}
-    hydrate: {started_at: "2026-11-11T12:05:13Z", driver: fab-fff, iterations: 1}
+    hydrate: {started_at: "2026-11-11T12:05:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T12:06:47Z"}
+    ship: {started_at: "2026-11-11T12:06:47Z", driver: fab-fff, iterations: 1}
 prs: []
 change_type_source: explicit
 base_branch: main
 true_impact:
-    added: 3489
+    added: 3527
     deleted: 15
-    net: 3474
+    net: 3512
     excluding:
-        added: 2465
+        added: 2493
         deleted: 13
-        net: 2452
+        net: 2480
     tests:
-        added: 1209
+        added: 1218
         deleted: 1
-        net: 1208
-    computed_at: "2026-11-11T11:59:01Z"
-    computed_at_stage: apply
+        net: 1217
+    computed_at: "2026-11-11T12:06:47Z"
+    computed_at_stage: hydrate
+summary: 'Daemon autostart visibility: Status.Summary() vocabulary, rk doctor ''daemon autostart'' row, GET /api/daemon/autostart, read-only Host system-card row'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-11T12:05:13Z
+last_updated: 2026-11-11T12:06:47Z
