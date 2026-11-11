@@ -21,6 +21,7 @@ import (
 	"rk/internal/config"
 	"rk/internal/cron"
 	"rk/internal/daemon"
+	"rk/internal/daemon/autostart"
 	"rk/internal/fabsysconfig"
 	"rk/internal/gui"
 	"rk/internal/mcp"
@@ -346,6 +347,12 @@ type Server struct {
 	guiStatFn           func(path string) (os.FileInfo, error)
 	guiLaunchFn         func(argv, env []string) (int, error)
 	guiXrandrRunFn      gui.DisplayRunner
+
+	// autostartStatusFn is the seam behind GET /api/daemon/autostart (see
+	// api/autostart.go). Nil falls back to the production autostart backend
+	// for runtime.GOOS; tests inject a fake so no request reaches a real
+	// service manager.
+	autostartStatusFn func(ctx context.Context) (autostart.Status, error)
 
 	// tintCacheMu guards tintCache.
 	tintCacheMu sync.Mutex
@@ -1011,6 +1018,7 @@ func (s *Server) buildRouter() chi.Router {
 
 	// API routes
 	r.Get("/api/health", s.handleHealth)
+	r.Get("/api/daemon/autostart", s.handleDaemonAutostart)
 	r.Get("/api/sessions", s.handleSessionsList)
 	r.Post("/api/sessions", s.handleSessionCreate)
 	r.Get("/api/sessions/order", s.handleSessionOrderGet)

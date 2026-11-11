@@ -1,0 +1,6 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-11T11:27:04Z"}
+{"args":"Implement step A3 of fab/plans/sahil/26-11-11-rk-daemon-autostart.md: Visibility for daemon autostart — rk doctor row + daemon-status surface in the UI","cmd":"fab-new","event":"command","ts":"2026-11-11T11:27:04Z"}
+{"delta":"+0.0","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-11-11T11:28:18Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-11T11:28:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-11T11:28:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-11T11:48:33Z"}

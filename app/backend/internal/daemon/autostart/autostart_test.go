@@ -95,3 +95,29 @@ func TestStartScript(t *testing.T) {
 		})
 	}
 }
+
+func TestStatusSummary(t *testing.T) {
+	yes, no := true, false
+	cases := []struct {
+		name string
+		s    Status
+		want string
+	}{
+		{"unregistered", Status{}, SummaryOff},
+		{"unregistered but enabled flag", Status{Enabled: true, StartsAt: StartsAtBoot}, SummaryOff},
+		{"registered disabled", Status{Registered: true, StartsAt: StartsAtLogin}, SummaryDisabled},
+		{"boot", Status{Registered: true, Enabled: true, StartsAt: StartsAtBoot, Linger: &yes}, "on (boot)"},
+		{"boot, linger nil", Status{Registered: true, Enabled: true, StartsAt: StartsAtBoot}, "on (boot)"},
+		{"login, linger off", Status{Registered: true, Enabled: true, StartsAt: StartsAtLogin, Linger: &no}, "on (login only — enable lingering for boot)"},
+		{"login, linger nil", Status{Registered: true, Enabled: true, StartsAt: StartsAtLogin}, "on (login)"},
+		{"login, linger on", Status{Registered: true, Enabled: true, StartsAt: StartsAtLogin, Linger: &yes}, "on (login)"},
+		{"enabled, unknown starts_at", Status{Registered: true, Enabled: true}, "on (login)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.s.Summary(); got != tc.want {
+				t.Errorf("Summary() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

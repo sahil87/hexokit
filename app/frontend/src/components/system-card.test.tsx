@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import type { ProjectSession } from "@/types";
 import type { SessionContextType } from "@/contexts/session-context";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
@@ -9,6 +9,14 @@ import { ToastProvider } from "@/components/toast";
 const navigateMock = vi.fn();
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => navigateMock,
+}));
+
+// Partial mock: only the autostart getter is replaced so DAEMON_SERVER and the
+// rest of the client keep their real values.
+const getDaemonAutostartMock = vi.fn();
+vi.mock("@/api/client", async (importActual) => ({
+  ...(await importActual<typeof import("@/api/client")>()),
+  getDaemonAutostart: () => getDaemonAutostartMock(),
 }));
 
 import { SystemCard } from "./system-card";
@@ -45,6 +53,7 @@ function renderCard(overrides: Partial<SessionContextType> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  getDaemonAutostartMock.mockRejectedValue(new Error("404"));
 });
 
 afterEach(() => {
@@ -155,5 +164,78 @@ describe("SystemCard — service rows", () => {
     expect(screen.getByText("1 job")).toBeInTheDocument();
     expect(screen.getAllByText("not running")).toHaveLength(2);
     expect(screen.getAllByRole("button", { name: "View" })).toHaveLength(1);
+  });
+});
+
+describe("SystemCard — autostart row", () => {
+  it("renders the daemon's summary for an on (boot) state", async () => {
+    getDaemonAutostartMock.mockResolvedValue({ supported: true, summary: "on (boot)" });
+    renderCard();
+    const row = await screen.findByTestId("system-card-autostart");
+    expect(row).toHaveTextContent("autostart");
+    expect(row).toHaveTextContent("on (boot)");
+  });
+
+  it("renders the login-only summary verbatim", async () => {
+    getDaemonAutostartMock.mockResolvedValue({
+      supported: true,
+      summary: "on (login only — enable lingering for boot)",
+    });
+    renderCard();
+    const row = await screen.findByTestId("system-card-autostart");
+    expect(row).toHaveTextContent("autostart");
+    expect(row).toHaveTextContent("on (login only — enable lingering for boot)");
+  });
+
+  it("replaces 'off' with the command that turns autostart on", async () => {
+    getDaemonAutostartMock.mockResolvedValue({ supported: true, summary: "off" });
+    renderCard();
+    expect(await screen.findByTestId("system-card-autostart")).toHaveTextContent(
+      "off — rk daemon autostart on",
+    );
+  });
+
+  it("renders 'unavailable' when the platform has no backend, with the error as the tip", async () => {
+    getDaemonAutostartMock.mockResolvedValue({
+      supported: false,
+      summary: "unavailable",
+      error: "daemon autostart is not supported on darwin (supported: linux)",
+    });
+    renderCard();
+    const row = await screen.findByTestId("system-card-autostart");
+    expect(row).toHaveTextContent("unavailable");
+    fireEvent.focus(screen.getByText("unavailable"));
+    fireEvent.mouseEnter(screen.getByText("unavailable"));
+    expect(
+      await screen.findByText("daemon autostart is not supported on darwin (supported: linux)"),
+    ).toBeInTheDocument();
+  });
+
+  it("has no control: no button or link inside the row", async () => {
+    getDaemonAutostartMock.mockResolvedValue({ supported: true, summary: "off" });
+    renderCard();
+    const row = await screen.findByTestId("system-card-autostart");
+    expect(row.querySelector("button, a")).toBeNull();
+  });
+
+  it("hides the row when the fetch rejects and leaves the rest of the card intact", async () => {
+    renderCard({ sessionsByServer: new Map([["rk-daemon", []]]) });
+    await waitFor(() => expect(getDaemonAutostartMock).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId("system-card-autostart")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("HexoKit system")).toHaveTextContent("v3.9.1");
+    expect(screen.getAllByText("not running")).toHaveLength(3);
+  });
+
+  it("fetches once on mount and ignores a response that lands after unmount", async () => {
+    let resolve: (v: { supported: boolean; summary: string }) => void = () => {};
+    getDaemonAutostartMock.mockReturnValue(new Promise((r) => (resolve = r)));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { unmount } = renderCard();
+    unmount();
+    resolve({ supported: true, summary: "on (boot)" });
+    await Promise.resolve();
+    expect(getDaemonAutostartMock).toHaveBeenCalledTimes(1);
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 });

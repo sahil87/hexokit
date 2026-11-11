@@ -30,6 +30,16 @@ const (
 	StartsAtLogin = "login"
 )
 
+// Summary strings returned by Status.Summary; the CLI status text, `rk
+// doctor` and the Host page's system card print them verbatim.
+const (
+	SummaryOnBoot    = "on (boot)"
+	SummaryOnLogin   = "on (login)"
+	SummaryLoginOnly = "on (login only — enable lingering for boot)"
+	SummaryDisabled  = "registered but disabled"
+	SummaryOff       = "off"
+)
+
 // OnOptions carries the flags of `rk daemon autostart on`.
 type OnOptions struct {
 	// Now also starts the daemon through the service manager right away.
@@ -74,6 +84,24 @@ type Status struct {
 	// now (the rk path moved, the login shell changed); re-running On fixes it.
 	Stale bool     `json:"stale"`
 	Hints []string `json:"hints,omitempty"`
+}
+
+// Summary is the one-line autostart state. It reads only Status fields, never
+// the platform: the lingering advice keys off Linger being known and off, so a
+// backend without lingering (Linger nil) reads plain "on (login)".
+func (s Status) Summary() string {
+	switch {
+	case s.Registered && s.Enabled && s.StartsAt == StartsAtBoot:
+		return SummaryOnBoot
+	case s.Registered && s.Enabled && s.StartsAt == StartsAtLogin && s.Linger != nil && !*s.Linger:
+		return SummaryLoginOnly
+	case s.Registered && s.Enabled:
+		return SummaryOnLogin
+	case s.Registered:
+		return SummaryDisabled
+	default:
+		return SummaryOff
+	}
 }
 
 // Backend is one OS service manager's implementation of the three verbs.
