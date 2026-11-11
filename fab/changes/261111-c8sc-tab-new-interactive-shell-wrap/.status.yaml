@@ -9,7 +9,7 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
+    ship: done
     review-pr: pending
 plan:
     generated: true
@@ -33,14 +33,15 @@ stage_metrics:
     apply: {started_at: "2026-11-11T11:26:54Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-11T11:29:54Z"}
     review: {started_at: "2026-11-11T11:29:54Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-11T11:33:09Z"}
     hydrate: {started_at: "2026-11-11T11:33:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T11:34:32Z"}
-    ship: {started_at: "2026-11-11T11:34:32Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-11-11T11:34:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T11:35:04Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1126
 change_type_source: explicit
 base_branch: fix/tab-new-interactive-shell
 true_impact:
-    added: 682
-    deleted: 24
-    net: 658
+    added: 730
+    deleted: 36
+    net: 694
     excluding:
         added: 236
         deleted: 22
@@ -49,9 +50,9 @@ true_impact:
         added: 158
         deleted: 2
         net: 156
-    computed_at: "2026-11-11T11:34:32Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-11-11T11:35:04Z"
+    computed_at_stage: ship
 summary: rk tab new runs its -- command through the user's interactive shell (shellq.Interactive; --no-shell-profile opts out); inject.AwaitReady classifies Claude's 'Not logged in · Run /login' notice as parked ahead of both ready verdicts
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-11T11:34:32Z
+last_updated: 2026-11-11T11:35:04Z
