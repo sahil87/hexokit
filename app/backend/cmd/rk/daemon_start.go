@@ -20,6 +20,7 @@ var (
 	findPortOwnerFn  = ports.FindPortOwner
 	terminateOwnerFn = ports.TerminateOwner
 	ownerIsDaemonFn  = daemon.OwnerIsDaemon
+	daemonStartFn    = daemon.Start
 )
 
 // portInUseSubstring is the marker substring present in the daemon-package
@@ -42,11 +43,20 @@ SIGTERMs it (with graceful-then-forceful escalation), then retries the start.
 Refuses to --force-kill the run-kit daemon itself.
 
 The daemon resolves its port from config.yaml ('port:') plus RK_PORT at start
-time, so editing either and running 'run-kit daemon restart' moves it.`,
+time, so editing either and running 'run-kit daemon restart' moves it.
+
+With --if-not-running, an already-running daemon is success (exit 0) rather
+than an error; every other failure still exits non-zero. This is the form an
+OS autostart job runs ('rk daemon autostart').`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		force, _ := cmd.Flags().GetBool("force")
+		ifNotRunning, _ := cmd.Flags().GetBool("if-not-running")
 
-		err := daemon.Start()
+		err := daemonStartFn()
+		if ifNotRunning && errors.Is(err, daemon.ErrAlreadyRunning) {
+			fmt.Fprintln(cmd.OutOrStdout(), "run-kit daemon already running")
+			return nil
+		}
 		if err == nil {
 			fmt.Fprintf(cmd.OutOrStdout(), "run-kit daemon started (%s/%s/%s)\n",
 				daemon.ServerSocket, daemon.SessionName, daemon.WindowName)
@@ -73,7 +83,7 @@ time, so editing either and running 'run-kit daemon restart' moves it.`,
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Killed port owner: PID %d (%s)\n", owner.PID, owner.Command)
 
-		if err := daemon.Start(); err != nil {
+		if err := daemonStartFn(); err != nil {
 			return fmt.Errorf("starting daemon after --force port reclaim: %w", err)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "run-kit daemon started (%s/%s/%s)\n",
@@ -84,6 +94,7 @@ time, so editing either and running 'run-kit daemon restart' moves it.`,
 
 func init() {
 	daemonStartCmd.Flags().BoolP("force", "f", false, "SIGTERM a non-daemon port owner before starting")
+	daemonStartCmd.Flags().Bool("if-not-running", false, "Exit 0 when the daemon is already running instead of failing")
 }
 
 // isPortInUseErr reports whether the daemon-package Start() error is the
