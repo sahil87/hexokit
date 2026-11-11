@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, HEAD-build audit rule, per-standard PASS (help-dump, skill, principles, update, version, install-composition). Covers P9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator` (incl. `operator request`/`track`/`adopt`)/`gui`/`mcp`/`board` + the `mux` and `cron` families."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, HEAD-build audit rule, per-standard PASS (help-dump, skill, principles, update, version, install-composition). Covers P9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator` (incl. `operator request`/`track`/`adopt`/`brief`)/`gui`/`mcp`/`board` + `mux`/`cron` families."
 ---
 # Toolkit Standards Conformance
 
@@ -956,6 +956,28 @@ are measured against the same checks (261111-7iz0-operator-state-engine):
   `InvalidError` class and flag-shape errors).
 - **The `skill` and README surfaces do not list the verbs** — they are
   documented through `--help` and `rk help-dump` only.
+
+The `rk operator brief` verb (`operator_brief.go` — see
+[operator-brief](/run-kit/operator-brief.md)) and the `operator` skill topic
+are measured against the same checks (261111-jsg9-operator-run-brief-chat-skill):
+
+- **help-dump: registered on the existing `operator` parent.** `brief`
+  registers unconditionally on `operatorCmd` with a `Long:` block carrying
+  Flags, Examples and Exit codes sections, so the tree walk dumps it with no
+  help-dump code change; the contract is platform-stable.
+- **Principle 9: the brief is the data.** The rendered brief is one `Dataf` on
+  stdout and survives `--quiet`; nothing else is printed on stdout.
+- **Exit-code convention (P4)** — 0 printed (a missing state file included),
+  1 operational (state file unreadable or malformed), 2 usage (invalid `-L`,
+  empty `--changed` id).
+- **The `skill` standard covers an `operator` topic page** — canonical
+  `docs/site/skill/operator.md` (≤150 lines, static-only), synced to the
+  embedded copy by `scripts/sync-skill.sh`, registered as
+  `skillTopics["operator"]`, and drift-guarded and budget-tested by the shared
+  `TestSkillTopics*` tables, so `rk skill topics` and the `Topics:` help line
+  enumerate it; the core bundle `docs/site/skill.md` gains one topic-index
+  line for it and stays ≤150 lines. The page teaches the ledger and brief
+  verbs; the README does not list them.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

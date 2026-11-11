@@ -8,8 +8,8 @@ progress:
     intake: done
     apply: done
     review: done
-    hydrate: active
-    ship: pending
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
@@ -32,24 +32,26 @@ stage_metrics:
     intake: {started_at: "2026-11-11T13:06:35Z", driver: fab-new, iterations: 1, completed_at: "2026-11-11T13:16:32Z"}
     apply: {started_at: "2026-11-11T13:16:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T13:32:00Z"}
     review: {started_at: "2026-11-11T13:32:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T13:41:32Z"}
-    hydrate: {started_at: "2026-11-11T13:41:32Z", driver: fab-fff, iterations: 1}
+    hydrate: {started_at: "2026-11-11T13:41:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T13:45:15Z"}
+    ship: {started_at: "2026-11-11T13:45:15Z", driver: fab-fff, iterations: 1}
 prs: []
 change_type_source: explicit
 base_branch: main
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 2664
+    deleted: 11
+    net: 2653
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1821
+        deleted: 11
+        net: 1810
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-11-11T13:32:01Z"
-    computed_at_stage: apply
+        added: 602
+        deleted: 2
+        net: 600
+    computed_at: "2026-11-11T13:45:15Z"
+    computed_at_stage: hydrate
+summary: Add rk operator brief + RenderBrief run brief (seven sections, notes cap, 100 KB cap, embedded rules + interim autopilot, exit contract) and the rk skill operator chat topic
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-11T13:41:32Z
+last_updated: 2026-11-11T13:45:15Z
