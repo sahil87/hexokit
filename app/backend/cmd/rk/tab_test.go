@@ -21,7 +21,10 @@ import (
 // tabTestServer starts an isolated tmux server ("boot" session) and points
 // the own-tab seams at it: $TMUX reads as the server's socket and
 // display-message reads run for real through the ownTabRunOutputFn seam.
-// Skips when tmux is unavailable; the server is killed on cleanup.
+// Skips when tmux is unavailable; the server is killed on cleanup. The server
+// starts with SHELL=/bin/sh and ENV pointing at a test-owned rc file, so the
+// interactive wrap never runs the developer's own rc files and a pane whose
+// command sourced the rc file carries tabTestRCMarker.
 type tabTestEnv struct {
 	server string
 	socket string
@@ -36,6 +39,13 @@ func withTabTestServer(t *testing.T) *tabTestEnv {
 		t.Skip("tmux not available — skipping integration test")
 	}
 	server := fmt.Sprintf("rk-test-tab-%d-%d", os.Getpid(), time.Now().UnixNano())
+	rc := filepath.Join(t.TempDir(), "rc.sh")
+	if err := os.WriteFile(rc, []byte("export "+tabTestRCMarker+"=sourced\n"), 0o600); err != nil {
+		t.Fatalf("write rc file: %v", err)
+	}
+	t.Setenv("SHELL", "/bin/sh")
+	t.Setenv("ENV", rc)
+	t.Setenv(tabTestRCMarker, "")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -69,6 +79,10 @@ func withTabTestServer(t *testing.T) *tabTestEnv {
 	})
 	return env
 }
+
+// tabTestRCMarker is exported only by the test server's rc file — present in a
+// pane exactly when its command ran through an interactive shell.
+const tabTestRCMarker = "RK_TAB_TEST_RC"
 
 // tabTmuxOut runs a raw tmux command on the test server, failing on error.
 func tabTmuxOut(t *testing.T, server string, args ...string) string {
@@ -127,7 +141,7 @@ func resetTabFlagState(t *testing.T) {
 	t.Helper()
 	reset := func() {
 		resetFlagChanged(tabCmd, "server")
-		resetFlagChanged(tabNewCmd, "session", "cwd", "name", "layout", "json", "ready", "timeout", "no-shell-fallback")
+		resetFlagChanged(tabNewCmd, "session", "cwd", "name", "layout", "json", "ready", "timeout", "no-shell-fallback", "no-shell-profile")
 		// pflag resets argsLenAtDash only in Init, never in Parse, so a `--`
 		// from one Execute() run leaks into the next on the shared global
 		// commands. Init re-applies the name/error-handling cobra created the
@@ -146,7 +160,7 @@ func resetTabFlagState(t *testing.T) {
 		resetFlagChanged(tabOwnerCmd, "off")
 		tabServerFlag = ""
 		tabNewSessionFlag, tabNewCwdFlag, tabNewNameFlag, tabNewLayoutFlag = "", "", "", ""
-		tabNewJSONFlag, tabNewReadyFlag, tabNewNoShellFallbackFlag = false, false, false
+		tabNewJSONFlag, tabNewReadyFlag, tabNewNoShellFallbackFlag, tabNewNoShellProfileFlag = false, false, false, false
 		tabNewTimeoutFlag = awaitDefaultTimeoutSec
 		tabLayoutAddFlag, tabLayoutRmFlag, tabLayoutPromoteFlag, tabLayoutCycleFlag = "", "", "", false
 		tabLayoutJSONFlag = false
@@ -281,6 +295,45 @@ func TestTabNewCommandRunsArgvVerbatim(t *testing.T) {
 	}
 }
 
+// TestTabNewCommandSeesShellProfile pins the interactive wrap: by default the
+// command runs through the user's interactive shell and sees what its rc file
+// exports; --no-shell-profile runs it with only the tmux server's environment.
+func TestTabNewCommandSeesShellProfile(t *testing.T) {
+	cases := []struct {
+		name  string
+		flags []string
+		want  string
+	}{
+		{"default sources the rc file", nil, "sourced"},
+		{"--no-shell-profile skips it", []string{"--no-shell-profile"}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withTabTestServer(t)
+			dir := t.TempDir()
+			args := append([]string{"new", "--cwd", dir}, tc.flags...)
+			args = append(args, "--", "sh", "-c", `printf %s "$`+tabTestRCMarker+`" > OUT`)
+			if _, _, err := runTabCmd(t, args...); err != nil {
+				t.Fatalf("tab new: %v", err)
+			}
+			outPath := filepath.Join(dir, "OUT")
+			if !tabPollUntil(3*time.Second, func() bool {
+				_, statErr := os.Stat(outPath)
+				return statErr == nil
+			}) {
+				t.Fatalf("%s never appeared — the command did not run", outPath)
+			}
+			content, err := os.ReadFile(outPath)
+			if err != nil {
+				t.Fatalf("read OUT: %v", err)
+			}
+			if string(content) != tc.want {
+				t.Errorf("%s = %q, want %q", tabTestRCMarker, string(content), tc.want)
+			}
+		})
+	}
+}
+
 func TestTabNewShellFallbackKeepsPaneAlive(t *testing.T) {
 	env := withTabTestServer(t)
 
@@ -360,6 +413,7 @@ func TestTabNewUsageErrorsCreateNothing(t *testing.T) {
 		{"--ready without a command", []string{"new", "--json", "--ready"}, "--ready needs a command after --"},
 		{"--timeout without --ready", []string{"new", "--timeout", "5", "--", "true"}, "--timeout requires --ready"},
 		{"--no-shell-fallback without a command", []string{"new", "--no-shell-fallback"}, "--no-shell-fallback needs a command after --"},
+		{"--no-shell-profile without a command", []string{"new", "--no-shell-profile"}, "--no-shell-profile needs a command after --"},
 		{"negative timeout", []string{"new", "--json", "--ready", "--timeout=-5", "--", "true"}, "--timeout must be >= 0"},
 	}
 	for _, tc := range cases {

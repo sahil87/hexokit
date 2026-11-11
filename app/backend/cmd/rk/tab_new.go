@@ -14,8 +14,9 @@ package main
 //
 // The command form is argv after `--`, never a shell string: every token is
 // single-quoted via internal/shellq so the window's shell receives it as one
-// literal word, and rk's agent-exit fallback (`; exec "${SHELL:-/bin/sh}"`) is
-// appended unless --no-shell-fallback. --json swaps the bare @N datum for the
+// literal word; the quoted command runs through the user's interactive shell
+// (shellq.Interactive) unless --no-shell-profile, and rk's agent-exit fallback
+// (`; exec "${SHELL:-/bin/sh}"`) is appended unless --no-shell-fallback. --json swaps the bare @N datum for the
 // {session, session_rung, window_id, pane_id} object inside the standard
 // envelope; --ready
 // (requires --json and a command) adds the boot-readiness verdict via the
@@ -47,10 +48,11 @@ var (
 	tabNewReadyFlag           bool
 	tabNewTimeoutFlag         int
 	tabNewNoShellFallbackFlag bool
+	tabNewNoShellProfileFlag  bool
 )
 
 var tabNewCmd = &cobra.Command{
-	Use:   "new [--session =S] [--cwd DIR] [--name N] [--layout L] [--json] [--ready [--timeout SECS]] [--no-shell-fallback] [-- CMD [ARG…]]",
+	Use:   "new [--session =S] [--cwd DIR] [--name N] [--layout L] [--json] [--ready [--timeout SECS]] [--no-shell-fallback] [--no-shell-profile] [-- CMD [ARG…]]",
 	Short: "Create a window, optionally born with a layout and/or running a command",
 	Long: "Create a window and print its id (@N). --layout <shape>:<surface,…> is\n" +
 		"validated before creation and written as @rk_win_layout in the creation\n" +
@@ -75,6 +77,13 @@ var tabNewCmd = &cobra.Command{
 		"literal word ($(…), spaces, and quotes survive verbatim). Shell expansion\n" +
 		"inside the window is opt-in by naming the shell:\n" +
 		"  rk tab new --cwd DIR -- sh -c \"<string>\"\n" +
+		"The command runs through the user's interactive shell\n" +
+		"(${SHELL:-/bin/sh} -i -c '…'), so it sees the same environment as a pane\n" +
+		"you type into: variables exported by .zshrc/.bashrc (auth tokens and the\n" +
+		"like) are present even when the tmux server was started non-interactively.\n" +
+		"The quoted command is not alias-expanded. --no-shell-profile skips the\n" +
+		"wrap — no rc-file startup cost or side effects; the command gets only the\n" +
+		"tmux server's environment.\n" +
 		"The command gets rk's agent-exit fallback appended\n" +
 		"(; exec \"${SHELL:-/bin/sh}\") so the pane drops into an interactive shell\n" +
 		"when the command exits; --no-shell-fallback omits the tail and lets the\n" +
@@ -112,6 +121,8 @@ func init() {
 		"Seconds --ready waits before reporting `running` (0 = indefinite); requires --ready")
 	tabNewCmd.Flags().BoolVar(&tabNewNoShellFallbackFlag, "no-shell-fallback", false,
 		"Omit the `; exec \"${SHELL:-/bin/sh}\"` tail so the pane dies with the command")
+	tabNewCmd.Flags().BoolVar(&tabNewNoShellProfileFlag, "no-shell-profile", false,
+		"Run the command under tmux's non-interactive shell instead of ${SHELL:-/bin/sh} -i -c (no rc-file startup; the command gets only the tmux server's environment)")
 }
 
 // tabNewArgs gates positionals to the post-`--` command form: every positional
@@ -309,8 +320,8 @@ func resolveTabNewSession(ctx context.Context, serverFlag, cwd string) (session,
 
 // validateTabNewFlagRules enforces the flag-combination contract before any
 // window is created: --ready reports through --json and needs a command to
-// boot; --timeout bounds only a --ready wait; --no-shell-fallback only makes
-// sense with a command.
+// boot; --timeout bounds only a --ready wait; --no-shell-fallback and
+// --no-shell-profile only make sense with a command.
 func validateTabNewFlagRules(cmd *cobra.Command, hasCommand bool) error {
 	if cmd.Flags().Changed("timeout") && !tabNewReadyFlag {
 		return usageError(fmt.Errorf("--timeout requires --ready"))
@@ -323,6 +334,9 @@ func validateTabNewFlagRules(cmd *cobra.Command, hasCommand bool) error {
 	}
 	if tabNewNoShellFallbackFlag && !hasCommand {
 		return usageError(fmt.Errorf("--no-shell-fallback needs a command after --"))
+	}
+	if tabNewNoShellProfileFlag && !hasCommand {
+		return usageError(fmt.Errorf("--no-shell-profile needs a command after --"))
 	}
 	if tabNewReadyFlag && tabNewTimeoutFlag < 0 {
 		return usageError(fmt.Errorf("--timeout must be >= 0 (0 = indefinite)"))
@@ -369,11 +383,16 @@ func runTabNew(cmd *cobra.Command, args []string) error {
 	}
 
 	// The tmux shell-command positional is composed ONLY from rk-quoted argv
-	// tokens plus rk's fixed fallback literal (constitution §I) — the window's
-	// shell receives every token as one literal word.
+	// tokens plus rk's fixed interactive-wrap and fallback literals
+	// (constitution §I) — Interactive re-quotes the whole QuoteArgv string as
+	// one -c word, so the inner shell still receives every token as one
+	// literal word.
 	shellCmd := ""
 	if len(args) > 0 {
 		shellCmd = shellq.QuoteArgv(args)
+		if !tabNewNoShellProfileFlag {
+			shellCmd = shellq.Interactive(shellCmd)
+		}
 		if !tabNewNoShellFallbackFlag {
 			shellCmd = shellq.WithShellFallback(shellCmd)
 		}

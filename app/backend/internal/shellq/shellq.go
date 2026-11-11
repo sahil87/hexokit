@@ -1,5 +1,5 @@
-// Package shellq owns rk's single POSIX shell-quoting implementation and the
-// agent-exit shell-fallback tail. Consumers are the composition points where a
+// Package shellq owns rk's single POSIX shell-quoting implementation, the
+// interactive-shell launch wrap, and the agent-exit shell-fallback tail. Consumers are the composition points where a
 // caller-supplied value becomes one word inside a shell-interpreted string
 // (tmux's shell-command positional, pipe-pane's command): every such value
 // goes through Quote/QuoteArgv so it reaches the shell as one literal word
@@ -29,6 +29,18 @@ func QuoteArgv(argv []string) string {
 		quoted = append(quoted, Quote(tok))
 	}
 	return strings.Join(quoted, " ")
+}
+
+// Interactive wraps cmd for the user's interactive shell:
+// `${SHELL:-/bin/sh} -i -c <Quote(cmd)>`. tmux runs a window's shell-command
+// under a NON-interactive `default-shell -c`, which never sources the rc file
+// (.zshrc/.bashrc) — so anything exported only there (auth tokens such as
+// CLAUDE_CODE_OAUTH_TOKEN) is missing whenever the tmux server itself was not
+// started from an interactive terminal. The -i re-reads the rc file on every
+// launch. cmd is re-quoted as ONE word for -c, so its own quoting survives
+// verbatim. Pure.
+func Interactive(cmd string) string {
+	return "${SHELL:-/bin/sh} -i -c " + Quote(cmd)
 }
 
 // WithShellFallback appends `; exec "${SHELL:-/bin/sh}"` to cmd so the pane
