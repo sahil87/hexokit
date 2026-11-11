@@ -27,11 +27,12 @@ type State struct {
 	DisplayState string
 }
 
-// Memo is the per-FetchSessions-call derivation memo. Many panes share
-// one worktree, so the walk-up result (keyed by cwd) and the derived state
-// (keyed by the resolved symlink path) are deduped for the duration of one
-// call. It is created fresh per call and holds no state across requests — a
-// stage transition written to .status.yaml is visible on the very next fetch.
+// Memo is the per-call derivation memo, shared by the sessions fetch and the
+// operator check. Many panes share one worktree, so the walk-up result (keyed
+// by cwd) and the derived state (keyed by the resolved symlink path) are
+// deduped for the duration of one call. It is created fresh per call and holds
+// no state across requests — a stage transition written to .status.yaml is
+// visible on the very next call.
 type Memo struct {
 	links  map[string]string // pane cwd → located .fab-status.yaml path ("" = none)
 	states map[string]State  // resolved symlink path → derived state

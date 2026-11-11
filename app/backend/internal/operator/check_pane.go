@@ -17,6 +17,12 @@ import (
 // bare stage membership: a change entering hydrate is mid-pipeline.
 const terminusStage = "ship"
 
+// Stages whose transition is the rework reset: review failing back to apply.
+const (
+	stageReview = "review"
+	stageApply  = "apply"
+)
+
 // paneRow is one pane of the server snapshot: tmux's own facts, rk's
 // reconciled agent state, and the fab tier derived from the pane's cwd.
 type paneRow struct {
@@ -97,6 +103,20 @@ func hasDoneAt(it TrackedItem) bool {
 	return it.DoneAt != nil && *it.DoneAt != ""
 }
 
+// snapshotTargets maps each pane item id to the pane the snapshot is taken
+// for.
+func snapshotTargets(items []TrackedItem) map[string]string {
+	targets := map[string]string{}
+	for _, it := range items {
+		if it.Probe.Mode == probePane {
+			if id := scopeString(it.Scope, "pane"); id != "" {
+				targets[it.ID] = id
+			}
+		}
+	}
+	return targets
+}
+
 // anyPaneItems reports whether any item needs the pane snapshot.
 func anyPaneItems(items []TrackedItem) bool {
 	for _, it := range items {
@@ -161,18 +181,25 @@ func resolveBranches(ctx context.Context, st *State, panes map[string]paneRow) m
 type paneVerdict struct {
 	events []CheckDelta
 	conds  []condDelta
+	// unobserved marks a pane item the phase-1 snapshot did not cover: it
+	// was not diffed, so its stored pane conditions are neither reported nor
+	// cleared this round.
+	unobserved bool
 }
 
 // diffPane joins a pane item against the snapshot and applies the scope
 // baselines in place. First match wins: pane_death, pane_mismatch,
 // agent_exited, then a clean join (change, branch_map, completion, stage,
-// agent state). An item with no snapshot, no pane, or a persisted done_at is
-// neither joined nor diffed.
+// agent state). An item with no pane or a persisted done_at is neither joined
+// nor diffed, and one the snapshot was not taken for is reported unobserved.
 func diffPane(it *TrackedItem, st *State, obs observation, now time.Time) paneVerdict {
-	if obs.panes == nil || !livePaneItem(*it) {
+	if !livePaneItem(*it) {
 		return paneVerdict{}
 	}
 	paneID := scopeString(it.Scope, "pane")
+	if obs.panes == nil || obs.paneFor[it.ID] != paneID {
+		return paneVerdict{unobserved: true}
+	}
 	row, present := obs.panes[paneID]
 	switch {
 	case !present:
@@ -304,7 +331,7 @@ func trackStage(it *TrackedItem, row paneRow, nowStr string) (CheckDelta, bool) 
 		return CheckDelta{}, false
 	}
 	kind := DeltaStageAdvance
-	if baseline == "review" && row.Stage == "apply" {
+	if baseline == stageReview && row.Stage == stageApply {
 		kind = DeltaReviewFail
 	}
 	from, to := baseline, row.Stage
@@ -333,28 +360,13 @@ func trackAgent(it *TrackedItem, row paneRow, now time.Time) (condDelta, bool) {
 	}
 	var duration string
 	if row.AgentEpoch > 0 {
-		duration = formatAgentDuration(now.Unix() - row.AgentEpoch)
+		duration = tmux.FormatAgentDuration(now.Unix() - row.AgentEpoch)
 	}
 	to := row.AgentState
 	return condDelta{key, CheckDelta{
 		Kind: DeltaAgentState, ID: it.ID, Pane: row.PaneID,
 		From: nullable(prev), To: &to, Duration: nullable(duration),
 	}}, true
-}
-
-// formatAgentDuration renders elapsed seconds in the Ns/Nm/Nh style the
-// sessions payload uses (floor division); a non-positive value yields "".
-func formatAgentDuration(elapsedSeconds int64) string {
-	switch {
-	case elapsedSeconds <= 0:
-		return ""
-	case elapsedSeconds < 60:
-		return fmt.Sprintf("%ds", elapsedSeconds)
-	case elapsedSeconds < 3600:
-		return fmt.Sprintf("%dm", elapsedSeconds/60)
-	default:
-		return fmt.Sprintf("%dh", elapsedSeconds/3600)
-	}
 }
 
 // scopeInt reads an integer scope value (JSON decodes numbers as float64,

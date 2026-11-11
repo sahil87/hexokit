@@ -605,3 +605,56 @@ func TestCheck_ConcurrentChecksReportAnEdgeOnce(t *testing.T) {
 		t.Errorf("changes %d, open %d across both checks, want exactly one new and one open", total, open)
 	}
 }
+
+func TestCheck_PaneItemTrackedDuringPhaseOneIsNotDiffedAgainstTheOldSnapshot(t *testing.T) {
+	e := newCheckEnv(t)
+	e.panes["%1"] = paneRow{PaneID: "%1", Command: "claude", PanePID: 5}
+	e.seed(paneItem("early", map[string]interface{}{"pane": "%1"}), shellItem("probed", "state"))
+	started, release := blockingProbe(e, `{"state":"OPEN"}`)
+	done := runCheckAsync(e)
+	waitStarted(t, started)
+
+	// A pane spawned and tracked while the check runs: the phase-1 snapshot
+	// predates it, so it must not read as a dead pane.
+	e.panes["%2"] = paneRow{PaneID: "%2", Command: "claude", PanePID: 6}
+	if err := Mutate(e.path, func(st *State) error {
+		st.Tracked = append(st.Tracked, paneItem("late", map[string]interface{}{"pane": "%2"}))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	release()
+	waitDone(t, done)
+
+	if got := e.item("late").Reported; len(got) != 0 {
+		t.Errorf("late.Reported = %v, want no pane condition from a snapshot that predates it", got)
+	}
+	// The next check covers it and finds the pane alive.
+	wantKinds(t, "next check", e.run().Changes)
+}
+
+func TestCheck_PaneRepointedDuringPhaseOneKeepsItsReportedPaneConditions(t *testing.T) {
+	e := newCheckEnv(t)
+	e.panes["%1"] = paneRow{PaneID: "%1", Command: "claude", PanePID: 5}
+	it := paneItem("p", map[string]interface{}{"pane": "%1"})
+	it.Reported = []string{condAgentWaiting, condPaneDeath}
+	e.seed(it, shellItem("probed", "state"))
+	started, release := blockingProbe(e, `{"state":"OPEN"}`)
+	done := runCheckAsync(e)
+	waitStarted(t, started)
+
+	if err := Mutate(e.path, func(st *State) error {
+		st.Tracked[0].Scope["pane"] = "%404"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	release()
+	waitDone(t, done)
+
+	// Not diffed this round: nothing fabricated and nothing cleared.
+	got := e.item("p").Reported
+	if len(got) != 2 || got[0] != condAgentWaiting || got[1] != condPaneDeath {
+		t.Errorf("Reported = %v, want the stored pane keys kept", got)
+	}
+}

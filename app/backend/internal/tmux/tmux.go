@@ -4329,3 +4329,21 @@ func stampManagedOnBirth(ctx context.Context, server string, birthsServer bool) 
 			"server", server, "err", err)
 	}
 }
+
+// FormatAgentDuration formats an elapsed-seconds value in the Ns/Nm/Nh style
+// fab produced (floor division), so the frontend duration surface is
+// byte-compatible with the previous fab-formatted string. A non-positive
+// elapsed yields "".
+func FormatAgentDuration(elapsedSeconds int64) string {
+	if elapsedSeconds <= 0 {
+		return ""
+	}
+	switch {
+	case elapsedSeconds < 60:
+		return fmt.Sprintf("%ds", elapsedSeconds)
+	case elapsedSeconds < 3600:
+		return fmt.Sprintf("%dm", elapsedSeconds/60)
+	default:
+		return fmt.Sprintf("%dh", elapsedSeconds/3600)
+	}
+}

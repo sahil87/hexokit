@@ -210,6 +210,10 @@ type observation struct {
 	// panes is the server's pane snapshot by pane id; nil when no pane item
 	// needed one.
 	panes map[string]paneRow
+	// paneFor records, per pane item id, the scope.pane the snapshot was
+	// taken for. An item added or re-pointed while phase 1 ran is absent
+	// here, so the snapshot says nothing about it.
+	paneFor map[string]string
 	// exited marks snapshot panes whose foreground is a bare shell with no
 	// live agent anywhere under it.
 	exited map[string]bool
@@ -232,6 +236,7 @@ func observe(ctx context.Context, server string, st *State, opts CheckOptions) (
 			return obs, err
 		}
 		obs.panes = panes
+		obs.paneFor = snapshotTargets(st.Tracked)
 		obs.exited = resolveExited(ctx, st.Tracked, panes)
 		obs.branches = resolveBranches(ctx, st, panes)
 	}
@@ -279,6 +284,9 @@ func applyCheck(st *State, obs observation) CheckResult {
 			} else {
 				res.Changes = append(res.Changes, c.delta)
 			}
+		}
+		if pane.unobserved && !itemDone(*it) {
+			keys = append(keys, paneConditionKeys(it.Reported)...)
 		}
 		sort.Strings(keys)
 		it.Reported = nil

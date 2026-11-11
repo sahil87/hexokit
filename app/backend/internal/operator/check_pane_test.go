@@ -317,14 +317,6 @@ func TestCheck_AgentStateFiresOnlyIntoWaitingOrIdle(t *testing.T) {
 	}
 }
 
-func TestFormatAgentDuration(t *testing.T) {
-	for in, want := range map[int64]string{-5: "", 0: "", 59: "59s", 60: "1m", 3599: "59m", 3600: "1h", 7300: "2h"} {
-		if got := formatAgentDuration(in); got != want {
-			t.Errorf("formatAgentDuration(%d) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestCheck_UserPausedPaneItemStillConsumesBaselinesButReportsNoCondition(t *testing.T) {
 	e := newCheckEnv(t)
 	it := paneItem("p", map[string]interface{}{"pane": "%404"})

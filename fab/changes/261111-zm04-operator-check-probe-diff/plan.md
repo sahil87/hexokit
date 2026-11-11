@@ -149,21 +149,21 @@ A new `check` subcommand of `operatorCmd` (`cmd/rk/operator_check.go`) SHALL res
 
 ### Phase 1: Setup — shared packages
 
-- [x] T001 Move the fab-state derivation from `internal/sessions/fabstate.go` into new package `internal/fabstatus` (exported `State{Change, Stage, DisplayState}`, `Memo` with `Derive(cwd)`/`WindowState(panes)` or equivalent); make `internal/sessions` delegate to it; move/adapt `internal/sessions/fabstate_test.go` coverage so nothing is lost; `go test ./internal/sessions/... ./internal/fabstatus/...` passes <!-- R9 -->
-- [x] T002 Move the process-tree walk from `cmd/rk/mux_process.go`, `mux_process_linux.go`, `mux_process_darwin.go` into new package `internal/proctree` (exported `Node`, `Discover`, `PaneHasAgent(ctx, pid, agentPID)`, `HasAgent`, classification helpers as needed); keep `rk mux process`/`rk mux panes` output byte-identical by calling it; relocate the walk's unit tests from `cmd/rk/mux_process_test.go` as appropriate; `go test ./cmd/rk/... ./internal/proctree/...` passes <!-- R9 -->
+- [x] T001 Move the fab-state derivation from `internal/sessions/fabstate.go` into new package `internal/fabstatus` (exported `State{Change, Stage, DisplayState}`, `Memo` with `Derive(cwd)`/`WindowState(panes)` or equivalent); make `internal/sessions` delegate to it; move/adapt `internal/sessions/fabstate_test.go` coverage so nothing is lost; `go test ./internal/sessions/... ./internal/fabstatus/...` passes <!-- R9 --> <!-- rework: fix stale "see fabstate.go" comment at internal/sessions/sessions.go:852; Memo doc says per-FetchSessions-call — reword to per-call (sessions fetch or operator Check) -->
+- [x] T002 Move the process-tree walk from `cmd/rk/mux_process.go`, `mux_process_linux.go`, `mux_process_darwin.go` into new package `internal/proctree` (exported `Node`, `Discover`, `PaneHasAgent(ctx, pid, agentPID)`, `HasAgent`, classification helpers as needed); keep `rk mux process`/`rk mux panes` output byte-identical by calling it; relocate the walk's unit tests from `cmd/rk/mux_process_test.go` as appropriate; `go test ./cmd/rk/... ./internal/proctree/...` passes <!-- R9 --> <!-- rework: remove unused exported proctree.PaneHasAgent (zero call sites); unexport proctree.HasAgent (package-internal only) -->
 
 ### Phase 2: Core Implementation
 
 - [x] T003 Add `Reported []string` after `Notes` in `TrackedItem` (`internal/operator/schema.go`) and typed `LastCheckAt` in `State` with read/write handling in `internal/operator/store.go` (`stateFromMap`, `marshal`; keep it out of `extra`); add store tests that `last_check_at` round-trips and survives another verb's mutation, and that `reported` survives a typed rewrite <!-- R6 --> <!-- R7 -->
 - [x] T004 Create `internal/operator/check.go` with `CheckOptions`, `CheckResult`, `CheckDelta`, `CheckNotice` (JSON shapes per R8, nullable fields as pointers, empty lists as `[]`), the package-level seams (`paneSnapshotFn`, `agentAliveFn`, `probeRunnerFn`, `ghAvailableFn`, `gitBranchFn`), and the `Check` skeleton implementing the two-phase Load → observe → `Mutate` flow, the empty-list fast path, and `last_check_at` <!-- R1 --> <!-- R7 --> <!-- R8 -->
-- [x] T005 Implement the pane snapshot (`paneSnapshotFn` default: `tmux` session/window listing on `server` → map pane id → row with `PaneInfo` fields + `fabstatus` derivation) and the pane diff per R3 in `internal/operator/check_pane.go`: precedence, sticky change/stage baselines, branch_map write via `gitBranchFn` (argv `git -C <cwd> branch --show-current`, `exec.CommandContext`, 10 s), built-in completion with `stop_stage`, `review_fail`, `agent_state` transitions (into waiting/idle only), `agent_exited` via `tmux.IsShellCommand` + `proctree` walk <!-- R2 --> <!-- R3 -->
-- [x] T006 Implement the shell probe runner in `internal/operator/check_probe.go`: due rule, sequential execution under the budget deadline, `probeRunnerFn` default (LookPath + argv-only `exec.CommandContext` with `probeTimeout`, one-line error composition), `ghprobe.Available` gating for `github-pr`, outcome bookkeeping (`checked_at`, `failures`, pause at 3, `last`/`unchanged`, `fieldChanges` per declared fields), and the phase-2 apply guard on `checked_at`/argv <!-- R1 --> <!-- R4 -->
+- [x] T005 Implement the pane snapshot (`paneSnapshotFn` default: `tmux` session/window listing on `server` → map pane id → row with `PaneInfo` fields + `fabstatus` derivation) and the pane diff per R3 in `internal/operator/check_pane.go`: precedence, sticky change/stage baselines, branch_map write via `gitBranchFn` (argv `git -C <cwd> branch --show-current`, `exec.CommandContext`, 10 s), built-in completion with `stop_stage`, `review_fail`, `agent_state` transitions (into waiting/idle only), `agent_exited` via `tmux.IsShellCommand` + `proctree` walk <!-- R2 --> <!-- R3 --> <!-- rework: MUST-FIX phase-1/phase-2 pane race — an item added or whose scope.pane changed during phase 1 must skip the pane diff this round (no false pane_death); share FormatAgentDuration from a neutral package instead of the local copy; named constants for the review/apply stage literals -->
+- [x] T006 Implement the shell probe runner in `internal/operator/check_probe.go`: due rule, sequential execution under the budget deadline, `probeRunnerFn` default (LookPath + argv-only `exec.CommandContext` with `probeTimeout`, one-line error composition), `ghprobe.Available` gating for `github-pr`, outcome bookkeeping (`checked_at`, `failures`, pause at 3, `last`/`unchanged`, `fieldChanges` per declared fields), and the phase-2 apply guard on `checked_at`/argv <!-- R1 --> <!-- R4 --> <!-- rework: extract one due-rule helper (base RFC3339 + check_every default 5m, unparsable => due) shared by shellDue and agentDue -->
 - [x] T007 Implement condition derivation and edge verdicts in `internal/operator/check.go` (or `check_conditions.go`): per-item condition keys (`done`, pane keys, `agent:*`, `paused`, `stale`, `due@<base>`, `unknown_dep:<id>`), done/user-paused inertness, new-vs-open split against `reported`, `reported` replacement (sorted), `due`/`stale` for agent items, event deltas always new, deterministic ordering <!-- R5 --> <!-- R6 --> <!-- R8 -->
 
 ### Phase 3: Integration & Edge Cases
 
 - [x] T008 Add `cmd/rk/operator_check.go`: `rk operator check [--json]` under `operatorCmd`, sharing the `-L/--server` resolution used by `operator track` (reuse its helper; extract one if needed), human rendering per R10, `--json` via `outputSink` envelope, exit-code mapping (ErrBusy/IO/tmux ⇒ 1, usage ⇒ 2), help text with Examples and Exit codes sections <!-- R10 -->
-- [x] T009 Write `internal/operator/check_test.go` (+ `check_pane_test.go`, `check_probe_test.go` as fits): port the relevant `operator_tick_diff_test.go` cases (each pane delta and precedence, sticky baselines, completion with/without stop_stage, review_fail, branch_map write/skip/retry, probe success/unchanged/changed/failure/pause-at-3/non-JSON/dotted fields, budget skip, done items not re-probed, unknown dependency) adapted to the edge model, plus new cases: new-then-open, clear-and-return fires again, `due@` once per period, `agent_state` only into waiting/idle, probe outcome discarded when `checked_at`/argv moved between phases, item removed during phase 1 ignored, gh unavailable skips without failure, `AddNote` succeeds while a stubbed probe blocks in phase 1, empty list no-op writes `last_check_at` <!-- R1 --> <!-- R3 --> <!-- R4 --> <!-- R5 --> <!-- R6 -->
+- [x] T009 Write `internal/operator/check_test.go` (+ `check_pane_test.go`, `check_probe_test.go` as fits): port the relevant `operator_tick_diff_test.go` cases (each pane delta and precedence, sticky baselines, completion with/without stop_stage, review_fail, branch_map write/skip/retry, probe success/unchanged/changed/failure/pause-at-3/non-JSON/dotted fields, budget skip, done items not re-probed, unknown dependency) adapted to the edge model, plus new cases: new-then-open, clear-and-return fires again, `due@` once per period, `agent_state` only into waiting/idle, probe outcome discarded when `checked_at`/argv moved between phases, item removed during phase 1 ignored, gh unavailable skips without failure, `AddNote` succeeds while a stubbed probe blocks in phase 1, empty list no-op writes `last_check_at` <!-- R1 --> <!-- R3 --> <!-- R4 --> <!-- R5 --> <!-- R6 --> <!-- rework: add a test that a pane item tracked on a live pane during phase 1 gets no pane_death and empty reported; keep all existing tests green -->
 - [x] T010 Write `cmd/rk/operator_check_test.go`: human output (no change / changes with open + notices), `--json` envelope shape, `-L` validation exit 2, `ErrBusy` exit 1, and confirm `rk help-dump` lists `operator check` (existing help-dump tests/fixtures updated only if they enumerate commands) <!-- R10 -->
 
 ### Phase 4: Polish
@@ -181,58 +181,62 @@ A new `check` subcommand of `operatorCmd` (`cmd/rk/operator_check.go`) SHALL res
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `operator.Check(ctx, server, opts)` exists, resolves the path via `StatePathForServer`, performs no write in phase 1, and writes exactly once via `Mutate` in phase 2
-- [ ] A-002 R2: Pane rows come from `internal/tmux` listing plus `internal/fabstatus`; no `fab` subprocess is invoked anywhere in `Check`
-- [ ] A-003 R3: All pane deltas (`pane_death`, `pane_mismatch`, `agent_exited`, change appear/switch, `stage_advance`, `review_fail`, `agent_state`) and built-in completion are implemented with fab's precedence and sticky baselines
-- [ ] A-004 R4: Shell probes run argv-only with LookPath, 10 s timeout, sequential under the budget, with fab's failure/pause/last/unchanged bookkeeping; github-pr probes are gated by `ghprobe.Available`
-- [ ] A-005 R5: Agent-probe items are never executed; `due` and `stale` conditions are derived from `check_every`
-- [ ] A-006 R6: `TrackedItem.Reported` exists after `Notes`, is written only by `Check`, and drives the new-vs-open split
-- [ ] A-007 R7: `last_check_at` is a typed `State` field written by every check and preserved by other verbs
-- [ ] A-008 R8: `CheckResult`/`CheckDelta`/`CheckNotice` JSON shapes match the requirement, with `[]` for empty lists
-- [ ] A-009 R9: `internal/fabstatus` and `internal/proctree` exist; `internal/sessions` and `cmd/rk` mux commands use them; `internal/operator` imports neither `internal/sessions` nor `cmd/`
-- [ ] A-010 R10: `rk operator check [--json] [-L]` exists with the specified output, envelope, exit codes, and help sections, and is absent from the MCP allowlist
+- [x] A-001 R1: `operator.Check(ctx, server, opts)` exists, resolves the path via `StatePathForServer`, performs no write in phase 1, and writes exactly once via `Mutate` in phase 2
+- [x] A-002 R2: Pane rows come from `internal/tmux` listing plus `internal/fabstatus`; no `fab` subprocess is invoked anywhere in `Check`
+- [x] A-003 R3: All pane deltas (`pane_death`, `pane_mismatch`, `agent_exited`, change appear/switch, `stage_advance`, `review_fail`, `agent_state`) and built-in completion are implemented with fab's precedence and sticky baselines
+- [x] A-004 R4: Shell probes run argv-only with LookPath, 10 s timeout, sequential under the budget, with fab's failure/pause/last/unchanged bookkeeping; github-pr probes are gated by `ghprobe.Available`
+- [x] A-005 R5: Agent-probe items are never executed; `due` and `stale` conditions are derived from `check_every`
+- [x] A-006 R6: `TrackedItem.Reported` exists after `Notes`, is written only by `Check`, and drives the new-vs-open split
+- [x] A-007 R7: `last_check_at` is a typed `State` field written by every check and preserved by other verbs
+- [x] A-008 R8: `CheckResult`/`CheckDelta`/`CheckNotice` JSON shapes match the requirement, with `[]` for empty lists
+- [x] A-009 R9: `internal/fabstatus` and `internal/proctree` exist; `internal/sessions` and `cmd/rk` mux commands use them; `internal/operator` imports neither `internal/sessions` nor `cmd/`
+- [x] A-010 R10: `rk operator check [--json] [-L]` exists with the specified output, envelope, exit codes, and help sections, and is absent from the MCP allowlist
 
 ### Behavioral Correctness
 
-- [ ] A-011 R6: A standing condition appears in `changes` on its first check and in `open` on subsequent checks; a condition that clears and returns appears in `changes` again
-- [ ] A-012 R3: An `agent_state` delta fires only on a transition into `waiting` or `idle`; staying in that state or moving to `active` produces none
-- [ ] A-013 R4: A single probe failure below the cap is a notice and does not set `changed`; the third consecutive failure produces a gating `paused` condition
+- [x] A-011 R6: A standing condition appears in `changes` on its first check and in `open` on subsequent checks; a condition that clears and returns appears in `changes` again
+- [x] A-012 R3: An `agent_state` delta fires only on a transition into `waiting` or `idle`; staying in that state or moving to `active` produces none
+- [x] A-013 R4: A single probe failure below the cap is a notice and does not set `changed`; the third consecutive failure produces a gating `paused` condition
 
 ### Scenario Coverage
 
-- [ ] A-014 R1: A test shows `AddNote` succeeding while a stubbed probe is blocked in phase 1
-- [ ] A-015 R1: A test shows a probe outcome discarded when the item's `checked_at` moved between phases, and an item removed during phase 1 ignored
-- [ ] A-016 R3: Ported fab tick-diff cases for each pane delta, completion with and without `stop_stage`, and branch_map write/skip/retry pass
-- [ ] A-017 R5: A test shows `due@<base>` firing once per due period across consecutive checks
-- [ ] A-018 R10: CLI tests cover human output, `--json` envelope, and exit codes 0/1/2
+- [x] A-014 R1: A test shows `AddNote` succeeding while a stubbed probe is blocked in phase 1
+- [x] A-015 R1: A test shows a probe outcome discarded when the item's `checked_at` moved between phases, and an item removed during phase 1 ignored
+- [x] A-016 R3: Ported fab tick-diff cases for each pane delta, completion with and without `stop_stage`, and branch_map write/skip/retry pass
+- [x] A-017 R5: A test shows `due@<base>` firing once per due period across consecutive checks
+- [x] A-018 R10: CLI tests cover human output, `--json` envelope, and exit codes 0/1/2
 
 ### Edge Cases & Error Handling
 
-- [ ] A-019 R1: An empty tracked list takes no pane snapshot, runs no probe, returns `changed: false`, and writes `last_check_at`
-- [ ] A-020 R4: gh unavailable leaves a github-pr item's `failures` and `checked_at` untouched and adds a `gh_unavailable` notice
-- [ ] A-021 R4: Probes not started before the budget deadline produce `skipped` notices with nothing written for those items
-- [ ] A-022 R3: A process-tree walk error is treated as "agent alive" (no `agent_exited`)
-- [ ] A-023 R9: `rk mux process` and `rk mux panes` output is unchanged (existing tests pass without expectation changes)
+- [x] A-019 R1: An empty tracked list takes no pane snapshot, runs no probe, returns `changed: false`, and writes `last_check_at`
+- [x] A-020 R4: gh unavailable leaves a github-pr item's `failures` and `checked_at` untouched and adds a `gh_unavailable` notice
+- [x] A-021 R4: Probes not started before the budget deadline produce `skipped` notices with nothing written for those items
+- [x] A-022 R3: A process-tree walk error is treated as "agent alive" (no `agent_exited`)
+- [x] A-023 R9: `rk mux process` and `rk mux panes` output is unchanged (existing tests pass without expectation changes)
 
 ### Code Quality
 
-- [ ] A-024 Pattern consistency: New code follows `internal/operator` conventions (seams as package-level vars, `invalidf`/`InvalidError` for caller mistakes, clock-based RFC3339 UTC timestamps) and `cmd/rk/operator_track.go` CLI conventions
-- [ ] A-025 No unnecessary duplication: R1 helpers (`extractProbeFields`, `getPathValue`, `normalizeJSONNumbers`, `itemDone`, `itemStale`, `checkEveryDuration`, `heldDep`, `stageNames`, `formatAge`) are reused, not re-implemented
-- [ ] A-026: All subprocesses use `exec.CommandContext` with a timeout and argv slices; tmux access goes through `internal/tmux`
-- [ ] A-027: No god functions — the pane diff, probe runner, and condition derivation are separate functions under ~50 lines each where practical
-- [ ] A-028: Named constants for the budget, condition-key prefixes, and delta kinds; no magic strings scattered across files
-- [ ] A-029: Comments state constraints/why only — no narration, no change IDs or PR numbers
-- [ ] A-030: Constitution II — durable before acknowledged: `Check` returns success only after the atomic write; no in-memory cache of the state file
+- [x] A-024 Pattern consistency: New code follows `internal/operator` conventions (seams as package-level vars, `invalidf`/`InvalidError` for caller mistakes, clock-based RFC3339 UTC timestamps) and `cmd/rk/operator_track.go` CLI conventions
+- [x] A-025 No unnecessary duplication: R1 helpers (`extractProbeFields`, `getPathValue`, `normalizeJSONNumbers`, `itemDone`, `itemStale`, `checkEveryDuration`, `heldDep`, `stageNames`, `formatAge`) are reused, not re-implemented
+- [x] A-026: All subprocesses use `exec.CommandContext` with a timeout and argv slices; tmux access goes through `internal/tmux`
+- [x] A-027: No god functions — the pane diff, probe runner, and condition derivation are separate functions under ~50 lines each where practical
+- [x] A-028: Named constants for the budget, condition-key prefixes, and delta kinds; no magic strings scattered across files
+- [x] A-029: Comments state constraints/why only — no narration, no change IDs or PR numbers
+- [x] A-030: Constitution II — durable before acknowledged: `Check` returns success only after the atomic write; no in-memory cache of the state file
 
 ### Security
 
-- [ ] A-031 R4: Probe argv is never joined into a shell string; `-L` server names are validated before any tmux call
+- [x] A-031 R4: Probe argv is never joined into a shell string; `-L` server names are validated before any tmux call
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- `app/backend/cmd/rk/mux_process.go:69` `processNode` alias and `:118` `paneHasAgent` wrapper — now one-line forwards to `proctree.Node` / `proctree.PaneHasAgentVia`; callers could use proctree directly (kept today to leave the mux tests untouched)
 
 ## Assumptions
 

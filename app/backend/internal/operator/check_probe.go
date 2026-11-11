@@ -33,17 +33,23 @@ func (o probeOutcome) matches(it TrackedItem) bool {
 	return slices.Equal(o.argv, it.Probe.Argv) && equalStrPtr(o.checkedAt, it.CheckedAt)
 }
 
-// shellDue applies the cadence rule: a null or unparsable checked_at is always
-// due; otherwise due when now - checked_at >= check_every.
+// shellDue applies the cadence rule: a null checked_at is always due,
+// otherwise cadenceElapsed from checked_at.
 func shellDue(it TrackedItem, now time.Time) bool {
 	if it.CheckedAt == nil || *it.CheckedAt == "" {
 		return true
 	}
+	return cadenceElapsed(it, *it.CheckedAt, now)
+}
+
+// cadenceElapsed reports whether the item's check_every (default when missing
+// or invalid) has passed since base. An unparsable base is due.
+func cadenceElapsed(it TrackedItem, base string, now time.Time) bool {
 	ce, ok := checkEveryDuration(it)
 	if !ok {
 		ce = checkEveryDefault
 	}
-	t, err := time.Parse(time.RFC3339, *it.CheckedAt)
+	t, err := time.Parse(time.RFC3339, base)
 	if err != nil {
 		return true
 	}

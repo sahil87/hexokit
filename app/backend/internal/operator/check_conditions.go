@@ -25,6 +25,18 @@ type condDelta struct {
 	delta CheckDelta
 }
 
+// paneConditionKeys filters keys down to the ones a pane diff produces.
+func paneConditionKeys(keys []string) []string {
+	var out []string
+	for _, k := range keys {
+		switch k {
+		case condPaneDeath, condPaneMismatch, condAgentExited, condAgentWaiting, condAgentIdle:
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
 // openDelta is the delta as listed once its condition is already reported.
 // An agent_state transition has no "from" once the baseline equals the
 // observed state.
@@ -82,7 +94,7 @@ func agentItemConditions(it TrackedItem, now time.Time) []condDelta {
 	if itemStale(it, now) {
 		conds = append(conds, condDelta{condStale, CheckDelta{Kind: DeltaStale, ID: it.ID, Age: age}})
 	}
-	if agentDue(it, base, now) {
+	if cadenceElapsed(it, base, now) {
 		conds = append(conds, condDelta{condDuePrefix + base, CheckDelta{
 			Kind: DeltaDue, ID: it.ID, Age: age, Instruction: it.Probe.Instruction,
 		}})
@@ -95,18 +107,6 @@ func agentBase(it TrackedItem) string {
 		return *it.CheckedAt
 	}
 	return it.AddedAt
-}
-
-func agentDue(it TrackedItem, base string, now time.Time) bool {
-	ce, ok := checkEveryDuration(it)
-	if !ok {
-		ce = checkEveryDefault
-	}
-	t, err := time.Parse(time.RFC3339, base)
-	if err != nil {
-		return true
-	}
-	return !now.Before(t.Add(ce))
 }
 
 // checkAge renders the age since base for the stale/due delta.

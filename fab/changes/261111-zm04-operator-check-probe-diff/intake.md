@@ -153,7 +153,11 @@ Port the relevant cases from fab's `operator_tick_diff_test.go` (≈ 2,000 lines
 ## Affected Memory
 
 - `run-kit/operator-state`: (modify) add the check — `operator.Check` two-phase contract, pane/probe delta semantics, condition keys and the `reported` field, `last_check_at`, the result shape, and `rk operator check`; note the new schema field
-- `run-kit/tmux-sessions`: (modify) only if the fab-state derivation move changes how the sessions payload is documented (the derivation now lives in a shared package)
+- `run-kit/tmux-sessions`: (modify) references to `internal/sessions/fabstate.go` / `fabStateMemo` now point at `internal/fabstatus`
+- `run-kit/agent-messaging`: (modify) references to `classifyProcess` / `hasAgentInTree` in `cmd/rk` now point at `internal/proctree` (names injected via `SetAgentCommNames`); `sessions.FormatAgentDuration` is now `tmux.FormatAgentDuration`
+- `run-kit/agent-state`: (modify) reference to `internal/sessions/fabstate.go` now points at `internal/fabstatus`
+- `run-kit/architecture/backend-packages`: (modify) fabstate reference updated; `formatAgentDuration` moved from `internal/sessions` to `internal/tmux` (`FormatAgentDuration`); add `internal/fabstatus` and `internal/proctree` to the package inventory
+- `run-kit/architecture/overview`: (modify) reference to `internal/sessions/fabstate.go` now points at `internal/fabstatus`
 
 ## Impact
 

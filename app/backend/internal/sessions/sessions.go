@@ -3,7 +3,6 @@ package sessions
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -415,24 +414,6 @@ func agentStatePrecedence(state string) int {
 	}
 }
 
-// FormatAgentDuration formats an elapsed-seconds value in the Ns/Nm/Nh style
-// fab produced (floor division), so the frontend duration surface is
-// byte-compatible with the previous fab-formatted string. A non-positive
-// elapsed yields "".
-func FormatAgentDuration(elapsedSeconds int64) string {
-	if elapsedSeconds <= 0 {
-		return ""
-	}
-	switch {
-	case elapsedSeconds < 60:
-		return fmt.Sprintf("%ds", elapsedSeconds)
-	case elapsedSeconds < 3600:
-		return fmt.Sprintf("%dm", elapsedSeconds/60)
-	default:
-		return fmt.Sprintf("%dh", elapsedSeconds/3600)
-	}
-}
-
 // rollupAgentState derives the window-level agent state and duration from the
 // window's panes (post-reconciler), applying the waiting > active > idle
 // precedence. The duration is computed rk-side from the winning pane's
@@ -467,7 +448,7 @@ func rollupAgentState(panes []tmux.PaneInfo, nowUnix int64) (state string, durat
 	// its age too, so a lost write on a live agent is not stale forever
 	// without a signal.
 	if bestEpoch > 0 {
-		duration = FormatAgentDuration(nowUnix - bestEpoch)
+		duration = tmux.FormatAgentDuration(nowUnix - bestEpoch)
 	}
 	return state, duration
 }
@@ -849,7 +830,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 	cwdMissing := resolveCwdMissing(allCwds)
 
 	// The fab tier is derived natively from disk (cwd → .fab-status.yaml →
-	// .status.yaml — see fabstate.go), fresh on every call: no subprocess, no
+	// .status.yaml — see internal/fabstatus), fresh on every call: no subprocess, no
 	// cross-request cache, so a stage transition repaints on the next fetch.
 	// The memo dedupes reads within this one call (many panes share a worktree).
 	fabMemo := fabstatus.NewMemo()

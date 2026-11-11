@@ -137,11 +137,11 @@ func markAgentPID(nodes []Node, pid int) {
 	}
 }
 
-// HasAgent reports whether any node in the tree is classified agent
+// hasAgent reports whether any node in the tree is classified agent
 // (comm-derived or pid-cross-checked).
-func HasAgent(nodes []Node) bool {
+func hasAgent(nodes []Node) bool {
 	for _, n := range nodes {
-		if n.Classification == ClassAgent || HasAgent(n.Children) {
+		if n.Classification == ClassAgent || hasAgent(n.Children) {
 			return true
 		}
 	}
@@ -160,10 +160,5 @@ func PaneHasAgentVia(ctx context.Context, discover DiscoverFunc, pid, agentPID i
 		return nil, false, err
 	}
 	markAgentPID(tree, agentPID)
-	return tree, HasAgent(tree), nil
-}
-
-// PaneHasAgent is PaneHasAgentVia over the platform Discover.
-func PaneHasAgent(ctx context.Context, pid, agentPID int) ([]Node, bool, error) {
-	return PaneHasAgentVia(ctx, Discover, pid, agentPID)
+	return tree, hasAgent(tree), nil
 }
