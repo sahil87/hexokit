@@ -1,0 +1,54 @@
+id: q5yn
+name: 261111-q5yn-daemon-autostart-spike
+created: 2026-11-11T07:40:50Z
+created_by: sahil-noon
+change_type: docs
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: active
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 12
+    acceptance_completed: 0
+confidence:
+    certain: 3
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    fuzzy: true
+    dimensions:
+        signal: 78.1
+        reversibility: 76.3
+        competence: 83.1
+        disambiguation: 77.5
+stage_metrics:
+    intake: {started_at: "2026-11-11T07:40:50Z", driver: fab-new, iterations: 1, completed_at: "2026-11-11T07:47:18Z"}
+    apply: {started_at: "2026-11-11T07:47:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T07:55:35Z"}
+    review: {started_at: "2026-11-11T07:55:35Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-11-11T07:55:35Z"
+    computed_at_stage: apply
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-11T07:55:35Z
