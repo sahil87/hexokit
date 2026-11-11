@@ -65,31 +65,31 @@ The only committed output SHALL be `fab/plans/sahil/26-11-11-headless-run-spike.
 
 ### Functional Completeness
 
-- [ ] A-001 R1: Each of claude, codex, kimi is either run in an ephemeral window or documented as not exercisable with a reason
-- [ ] A-002 R2: Findings give start-up, first-token, total tokens and cache-TTL evidence per exercised provider, with sources
-- [ ] A-003 R3: Findings state whether the window survived SIGTERM and SIGKILL of an isolated daemon, and that a fresh daemon rediscovered it
-- [ ] A-004 R4: Findings file exists at `fab/plans/sahil/26-11-11-headless-run-spike.md` with an R5 recommendation
+- [x] A-001 R1: Each of claude, codex, kimi is either run in an ephemeral window or documented as not exercisable with a reason
+- [x] A-002 R2: Findings give start-up, first-token, total tokens and cache-TTL evidence per exercised provider, with sources — **N/A**: no provider was authenticated, so none was exercised end-to-end; start-up (window→wrapper→provider error) is reported, and first-token/tokens/cache are explicitly marked "Not measured (no auth)" with a recipe to finish
+- [x] A-003 R3: Findings state whether the window survived SIGTERM and SIGKILL of an isolated daemon, and that a fresh daemon rediscovered it
+- [x] A-004 R4: Findings file exists at `fab/plans/sahil/26-11-11-headless-run-spike.md` with an R5 recommendation
 
 ### Behavioral Correctness
 
-- [ ] A-005 R3: The live rk daemon, installed binaries and live operator state were not touched (no restart, no install, no writes to live state)
+- [x] A-005 R3: The live rk daemon, installed binaries and live operator state were not touched (no restart, no install, no writes to live state)
 
 ### Scenario Coverage
 
-- [ ] A-006 R2: Cache finding is observed from ≥ 2 runs per provider spaced > 5 min apart, or the gap is stated
+- [x] A-006 R2: Cache finding is observed from ≥ 2 runs per provider spaced > 5 min apart, or the gap is stated <!-- gap stated: Verdict + "Which prompt cache: Not measured (no auth)" -->
 
 ### Edge Cases & Error Handling
 
-- [ ] A-007 R1: Unauthenticated/unsupported providers are reported as findings, not hidden
+- [x] A-007 R1: Unauthenticated/unsupported providers are reported as findings, not hidden
 
 ### Code Quality
 
-- [ ] A-008 Pattern consistency: Findings file follows the `fab/plans/sahil/` doc convention
-- [ ] A-009 No unnecessary duplication: No production code or scripts committed
+- [x] A-008 Pattern consistency: Findings file follows the `fab/plans/sahil/` doc convention
+- [x] A-009 No unnecessary duplication: No production code or scripts committed
 
 ### Security
 
-- [ ] A-010 R4: No credentials or full transcripts in the findings file; spike processes ran via argv/`sh -c` wrappers with no secrets in commands
+- [x] A-010 R4: No credentials or full transcripts in the findings file; spike processes ran via argv/`sh -c` wrappers with no secrets in commands
 
 ## Notes
 

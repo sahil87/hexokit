@@ -45,17 +45,17 @@ note even on failure, or the Cron Log row for the fire will be empty.
   **not** an ancestor; this is what makes survival automatic (Constitution II/VI hold by
   construction).
 - **Brief delivery**: all three resolved commands read the brief from **stdin** (codex prints
-  `Reading prompt from stdin…`). The 40 KB (~7.5–9K token) synthetic brief reached a stub reader
+  `Reading prompt from stdin…`). The 40 KB (~9–10K token) synthetic brief reached a stub reader
   intact (`wc -c` → 40513). The kimi form passes the brief as **one argv word**
   (`-p "$(cat)"`): `execve` rejects a single argument over 128 KiB (`MAX_ARG_STRLEN`) — tested:
-  100 000 B ok, 140 000 B → `Argument list too long`. A 10–15K-token brief is ≈ 40–60 KB, so R5 is
+  100 000 B ok, 140 000 B → `Argument list too long`. A 10–15K-token brief is ≈ 45–80 KB, so R5 is
   safe today; cap the brief below ~120 KB or give kimi a file/stdin path.
 - zsh footgun when scripting: an unquoted `=spike` is expanded by zsh as a command lookup
   (`spike not found`). Quote `'=S'`.
 
 ## Daemon-restart survival (R5 acceptance)
 
-Setup: isolated daemon (`RK_PORT=21150`, own `XDG_STATE_HOME`/`XDG_DATA_HOME`/`RK_CONFIG_DIR`,
+Setup (this table is the **valid redo inside the user namespace**, not the first leaky run): isolated daemon (`RK_PORT=21150`, own `XDG_STATE_HOME`/`XDG_DATA_HOME`/`RK_CONFIG_DIR`,
 `RK_SERVER_ALLOWLIST=s1spike`) against a tmux server `s1spike`; run = a stub launcher
 (`wc -c; sleep 75; echo SURVIVED`) fed the 40 KB brief on stdin via the wrapper.
 
@@ -65,6 +65,18 @@ Setup: isolated daemon (`RK_PORT=21150`, own `XDG_STATE_HOME`/`XDG_DATA_HOME`/`R
 | Start daemon 2 | `/api/servers` showed `windowCount: 2` — window rediscovered from tmux alone |
 | `SIGKILL` daemon 2 | Process gone; `sleep` still running |
 | Start daemon 3, wait | Stub printed `SURVIVED` at +75 s, wrapper wrote `t_exit rc=0`; output file complete |
+
+Exact commands (all prefixed with `unshare -Ur`, so tmux and rk resolve `/tmp/tmux-0/`, which holds
+only the spike server; the process tree above was observed in this namespace):
+
+```sh
+unshare -Ur tmux -L s1spike new-session -d -s spike -c "$WORK"
+RK_PORT=21150 RK_HOST=127.0.0.1 RK_SERVER_ALLOWLIST=s1spike XDG_STATE_HOME=$S/state \
+  XDG_DATA_HOME=$S/data RK_CONFIG_DIR=$S/config unshare -Ur rk serve   # via setsid nohup
+unshare -Ur rk tab new -L s1spike --session '=spike' --cwd "$WORK" --json -- \
+  "$S/run.sh" stub1 sh -c 'wc -c; sleep 75; echo SURVIVED'
+kill -TERM|-KILL <pid of the listener on 127.0.0.1:21150>   # never pgrep -x rk
+```
 
 Limits of the test: a stub, not a real provider (a real provider holds a network connection to the
 API, which is independent of the daemon, so no difference is expected); the note-write at the end
@@ -77,7 +89,7 @@ of a run was not exercised (R5 work).
    `loom`, `rk-daemon`) for ~13 s before being SIGTERMed — only its read path (`/api/servers`) was
    filtered. No live session was touched (all six servers' session counts were unchanged afterwards;
    the live daemon was never signalled or restarted), but this is a gap in the e2e rig's isolation
-   claim and worth a follow-up (an allowlist-aware tmuxctl open). The test was redone inside
+   claim and a real bug (`RK_SERVER_ALLOWLIST` should also scope tmuxctl attach) to file as a follow-up (an allowlist-aware tmuxctl open). The test was redone inside
    `unshare -Ur` (uid 0 ⇒ `/tmp/tmux-0`, invisible to the live `/tmp/tmux-<uid>` sockets).
 2. `claude --dangerously-skip-permissions` refuses to run as root (the namespace uid), so the
    namespace trick is for daemon tests only, not for real claude runs.
@@ -99,13 +111,13 @@ of a run was not exercised (R5 work).
 
 ## Recipe to finish the measurements (needs a human `/login`)
 
-1. Log in: `claude /login`, `codex login`, `kimi` → `/login`.
+1. Log in: `claude auth login`, `codex login`, and `/login` inside `kimi`.
 2. Generate a ≈ 40 KB brief (any filler rules text ending with "Reply `S1 OK` and exit; use no tools").
 3. For each provider, in a new window (`rk tab new --session '=S' --cwd <tmpdir> --no-shell-fallback -- sh -c '<resolved command> < brief.md'`),
-   run twice at t₀ and t₀ + 6 min (beyond the 5-min TTL) and once at t₀ + 1 min.
+   run at t₀, t₀ + 1 min (inside the 5-min TTL) and t₀ + 6 min (beyond it), keeping the timestamp wrapper
+   (`run.sh`: `date +%s.%N` at start, per output line, and at exit).
 4. claude: sum `usage.input_tokens`, `output_tokens`, `cache_read_input_tokens`,
    `cache_creation_input_tokens` and read `usage.cache_creation.ephemeral_5m_input_tokens` vs
-   `ephemeral_1h_input_tokens` from `~/.claude/projects/<cwd-slug>/*.jsonl`. Run 2 inside the TTL
-   should show a large `cache_read`; run 3 shows whether the 5m or 1h bucket was re-created.
+   `ephemeral_1h_input_tokens` from `~/.claude/projects/<cwd-slug>/*.jsonl`. The t₀+1 run should show a large `cache_read`; the t₀+6 run shows whether the 5m or 1h bucket was re-created.
 5. codex/kimi: use `--json`/session logs for token counts; record "not observable" where absent.
    First-token = first transcript entry timestamp minus `t_start`.
