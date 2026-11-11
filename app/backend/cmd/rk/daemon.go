@@ -12,11 +12,12 @@ dedicated rk-daemon tmux session. The daemon survives shell exits and SSH
 disconnects; the foreground run-kit serve does not.
 
 Subcommands:
-  start    Start the daemon
-  stop     Stop the daemon (and optionally reclaim the port)
-  restart  Stop and start the daemon
-  status   Show daemon state and current port owner
-  run      Run a command in a managed job window (rk-jobs session)
+  start      Start the daemon
+  stop       Stop the daemon (and optionally reclaim the port)
+  restart    Stop and start the daemon
+  status     Show daemon state and current port owner
+  run        Run a command in a managed job window (rk-jobs session)
+  autostart  Start the daemon once at boot or login (on | off | status)
 
 See 'run-kit daemon <subcommand> --help' for flags on each.`,
 }
@@ -27,4 +28,5 @@ func init() {
 	daemonCmd.AddCommand(daemonRestartCmd)
 	daemonCmd.AddCommand(daemonStatusCmd)
 	daemonCmd.AddCommand(daemonRunCmd)
+	daemonCmd.AddCommand(daemonAutostartCmd)
 }

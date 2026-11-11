@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-11T10:56:17Z"}
+{"args":"Implement step A1 of fab/plans/sahil/26-11-11-rk-daemon-autostart.md: rk daemon autostart on|off|status on Linux (systemd user unit)","cmd":"fab-new","event":"command","ts":"2026-11-11T10:56:17Z"}
+{"delta":"+3.7","event":"confidence","score":3.7,"trigger":"calc-score","ts":"2026-11-11T10:58:00Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-11T10:58:21Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-11T10:58:32Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-11T11:10:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-11-11T11:22:11Z"}
+{"event":"review","result":"passed","ts":"2026-11-11T11:22:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-11-11T11:23:39Z"}
+{"action":"enter","driver":"git-pr-review","event":"stage-transition","stage":"review-pr","ts":"2026-11-11T11:41:38Z"}
+{"event":"review","result":"passed","ts":"2026-11-11T11:41:44Z"}
