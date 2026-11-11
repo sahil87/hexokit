@@ -68,45 +68,45 @@ The only repository change SHALL be one markdown file at `fab/plans/sahil/26-11-
 
 ### Phase 2: Experiments
 
-- [x] T002 Run candidates L1–L3 against hazards 1, 2 and 4 in the container; capture commands and output <!-- R2, R3 -->
+- [x] T002 Run candidates L1–L3 against hazards 1, 2 and 4 in the container; capture commands and output <!-- R2, R3 --> <!-- rework: L7 stop/disable and env actually run; per-candidate H2/H3 pruning stated -->
 - [x] T003 Run hazard 3 (lingering on/off, `HOME`/`XDG_*`/`TMUX_TMPDIR`/socket path via container restart) and the cron-after-restart observation <!-- R2, R4 -->
 
 ### Phase 3: Deliverable
 
-- [x] T004 Write `fab/plans/sahil/26-11-11-rk-daemon-autostart-s1-findings.md` (winning unit verbatim, matrix, env diff, cron note, untested macOS plist and checklist, A1/A2 inputs) <!-- R3, R4, R5, R6 -->
-- [x] T005 Remove the container and image; verify the host systemd, linger state and `rk-daemon` tmux server are untouched <!-- R1 -->
+- [x] T004 Write `fab/plans/sahil/26-11-11-rk-daemon-autostart-s1-findings.md` (winning unit verbatim, matrix, env diff, cron note, untested macOS plist and checklist, A1/A2 inputs) <!-- R3, R4, R5, R6 --> <!-- rework: wording corrections, procedure and raw-output appendix -->
+- [x] T005 Remove the container and image; verify the host systemd, linger state and `rk-daemon` tmux server are untouched <!-- R1 --> <!-- rework: stray host /tmp file removed; lab rebuilt once and removed again -->
 
 ## Acceptance
 
 ### Functional Completeness
 
-- [ ] A-001 R1: Container and image are gone; host `systemctl --user` has no new unit, host `Linger=no`, host `rk-daemon` tmux server unaffected
-- [ ] A-002 R2: Each of L1–L3 has a recorded result for all four hazards
-- [ ] A-003 R3: The findings contain the environment diff and name what a non-interactive login shell misses
-- [ ] A-004 R4: The cron-after-restart observation is recorded
-- [ ] A-005 R5: The macOS plist is present and labelled untested, with a verification checklist
-- [ ] A-006 R6: The findings file holds the winning unit verbatim and the A1/A2 open-decision inputs
+- [x] A-001 R1: Container and image are gone; host `systemctl --user` has no new unit, host `Linger=no`, host `rk-daemon` tmux server unaffected
+- [x] A-002 R2: Each of L1–L3 has a recorded result for all four hazards — met via documented pruning: H1/H4 for L1–L3 in the matrix and appendix; H2 recorded for L1/L3; H3 for L3; L1/L2's H2/H3 recorded as not run because they were rejected on H1 (findings "Pruning" bullet and L7 checks list)
+- [x] A-003 R3: The findings contain the environment diff and name what a non-interactive login shell misses
+- [x] A-004 R4: The cron-after-restart observation is recorded
+- [x] A-005 R5: The macOS plist is present and labelled untested, with a verification checklist
+- [x] A-006 R6: The findings file holds the winning unit verbatim and the A1/A2 open-decision inputs
 
 ### Behavioral Correctness
 
-- [ ] A-007 R6: `git diff --name-only` against the base lists only the change folder and the findings file
+- [x] A-007 R6: `git diff --name-only` against the base lists only the change folder and the findings file
 
 ### Scenario Coverage
 
-- [ ] A-008 R2: The unit stop/disable scenario shows whether the tmux server survived, with evidence
+- [x] A-008 R2: The unit stop/disable scenario shows whether the tmux server survived, with evidence
 
 ### Edge Cases & Error Handling
 
-- [ ] A-009 R2: The "daemon already running" start is recorded with its exit code and the unit's resulting state
+- [x] A-009 R2: The "daemon already running" start is recorded with its exit code and the unit's resulting state
 
 ### Code Quality
 
-- [ ] A-010 Pattern consistency: The findings file matches the layout and tone of its sibling plan files
-- [ ] A-011 No unnecessary duplication: The findings point to the plan instead of restating its decisions
+- [x] A-010 Pattern consistency: The findings file matches the layout and tone of its sibling plan files
+- [x] A-011 No unnecessary duplication: The findings point to the plan instead of restating its decisions
 
 ### Security
 
-- [ ] A-012 R1: The privileged container is not left running and no host files outside the scratchpad and the findings file are modified
+- [x] A-012 R1: The privileged container is not left running and no host files outside the scratchpad and the findings file are modified — `docker ps -a`/`images` empty, `/tmp/s1-manual-env.txt` gone, docker image events show only the spike's own images created and deleted
 
 ## Notes
 
