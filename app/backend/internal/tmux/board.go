@@ -456,6 +456,9 @@ func Unpin(ctx context.Context, server, windowID, board string) error {
 	// @rk_ses_pin_board is a real error.
 	curBoard, err := showSessionOption(ctx, server, pinSession, BoardOption)
 	if err != nil {
+		if pinSessionGone(ctx, server, pinSession) {
+			return nil
+		}
 		return fmt.Errorf("read %s: %w", BoardOption, err)
 	}
 	if curBoard != board {
@@ -464,6 +467,9 @@ func Unpin(ctx context.Context, server, windowID, board string) error {
 
 	home, err := showSessionOption(ctx, server, pinSession, HomeOption)
 	if err != nil {
+		if pinSessionGone(ctx, server, pinSession) {
+			return nil
+		}
 		return fmt.Errorf("read %s: %w", HomeOption, err)
 	}
 
@@ -474,6 +480,9 @@ func Unpin(ctx context.Context, server, windowID, board string) error {
 	// window could have been re-homed, and only an actual live link makes the
 	// kill-session safe.
 	if _, hasHome, herr := resolveHomeSession(ctx, server, windowID); herr != nil {
+		if pinSessionGone(ctx, server, pinSession) {
+			return nil
+		}
 		return fmt.Errorf("resolve home membership for %q: %w", windowID, herr)
 	} else if hasHome {
 		return killPinSessionIfPresent(ctx, server, pinSession)
@@ -570,6 +579,17 @@ func clearMembershipOptions(ctx context.Context, server, session string) {
 	_, _ = tmuxExecRawServer(ctx, server, "set-option", "-u", "-t", ExactSessionTarget(session), BoardOrderOption)
 }
 
+// pinSessionGone reports whether the pin-session no longer exists. Unpin's
+// idempotency probe and its later reads are not atomic: a concurrent Unpin of
+// the same window (a UI click racing an API call) can kill the pin-session in
+// between, which makes those reads fail. A pin-session that is gone by then
+// means the other call already reached the desired end state, so the failure
+// is success, not an error.
+func pinSessionGone(ctx context.Context, server, pinSession string) bool {
+	_, err := tmuxExecRawServer(ctx, server, "has-session", "-t", ExactSessionTarget(pinSession))
+	return err != nil
+}
+
 // killPinSessionIfPresent kills the pin-session, treating an
 // already-gone session ("can't find session" / "session not found") as success.
 // This is the normal-path Unpin teardown: because the window is LINKED into both
@@ -578,11 +598,14 @@ func clearMembershipOptions(ctx context.Context, server, session string) {
 // when its LAST link dies). The has-session guard tolerates a pin-session that
 // already vanished (e.g. a concurrent kill), so the kill is best-effort.
 func killPinSessionIfPresent(ctx context.Context, server, pinSession string) error {
-	if _, err := tmuxExecRawServer(ctx, server, "has-session", "-t", ExactSessionTarget(pinSession)); err != nil {
+	if pinSessionGone(ctx, server, pinSession) {
 		// Already gone — the desired end state.
 		return nil
 	}
-	return KillSessionCtx(ctx, server, pinSession)
+	if err := KillSessionCtx(ctx, server, pinSession); err != nil && !pinSessionGone(ctx, server, pinSession) {
+		return err
+	}
+	return nil
 }
 
 // Reorder updates the order key of an existing pin by rewriting only its

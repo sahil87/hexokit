@@ -784,6 +784,36 @@ func TestUnpin_Idempotent(t *testing.T) {
 	}
 }
 
+// TestUnpin_ConcurrentUnpinsBothSucceed races two Unpins of the same pin, the
+// shape of a UI unpin click landing alongside an API unpin. The loser of the
+// race finds the pin-session gone between its probe and its reads, and must
+// report success rather than a read error.
+func TestUnpin_ConcurrentUnpinsBothSucceed(t *testing.T) {
+	server := withBoardTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	wid := createHomeWindow(t, server, "home", "agent")
+	pin, _ := PinSessionName(wid)
+	for i := 0; i < 10; i++ {
+		if err := Pin(ctx, server, wid, "main"); err != nil {
+			t.Fatalf("round %d: Pin: %v", i, err)
+		}
+		errs := make(chan error, 2)
+		for j := 0; j < 2; j++ {
+			go func() { errs <- Unpin(ctx, server, wid, "main") }()
+		}
+		for j := 0; j < 2; j++ {
+			if err := <-errs; err != nil {
+				t.Fatalf("round %d: concurrent Unpin: %v", i, err)
+			}
+		}
+		if hasSession(t, server, pin) {
+			t.Fatalf("round %d: pin session %s survived Unpin", i, pin)
+		}
+	}
+}
+
 func TestReorder_RewritesOnlyOneVar(t *testing.T) {
 	server := withBoardTmux(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
