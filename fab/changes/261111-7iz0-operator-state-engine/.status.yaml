@@ -9,7 +9,7 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
+    ship: done
     review-pr: pending
 plan:
     generated: true
@@ -33,14 +33,15 @@ stage_metrics:
     apply: {started_at: "2026-11-11T07:51:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T08:49:36Z"}
     review: {started_at: "2026-11-11T08:49:36Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T08:56:56Z"}
     hydrate: {started_at: "2026-11-11T08:56:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T08:59:34Z"}
-    ship: {started_at: "2026-11-11T08:59:34Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-11-11T08:59:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T09:00:26Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1120
 change_type_source: explicit
 base_branch: main
 true_impact:
-    added: 6177
-    deleted: 0
-    net: 6177
+    added: 6313
+    deleted: 5
+    net: 6308
     excluding:
         added: 5665
         deleted: 0
@@ -49,9 +50,9 @@ true_impact:
         added: 2847
         deleted: 0
         net: 2847
-    computed_at: "2026-11-11T08:59:34Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-11-11T09:00:26Z"
+    computed_at_stage: ship
 summary: 'Operator state engine: new operator-state memory (internal/operator schema, notes, locked store, rk operator track verbs, explicit adopt); backend-packages row, cli operator row, toolkit-standards surface check, cron note'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-11T08:59:34Z
+last_updated: 2026-11-11T09:00:26Z
