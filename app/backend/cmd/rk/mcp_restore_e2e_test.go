@@ -196,7 +196,9 @@ func TestMCPRestoreProcedureE2E(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	// The pane is a detached 80-column default, so a long prompt wraps the
-	// echoed command across rows: join the rows before matching.
+	// echoed command across rows, and a wrap that lands on a space loses it
+	// (capture trims each row's trailing blanks). Compare with all whitespace
+	// removed so the match holds wherever the wrap falls.
 	var captured struct {
 		Content string `json:"content"`
 		Cwd     string `json:"cwd"`
@@ -204,7 +206,7 @@ func TestMCPRestoreProcedureE2E(t *testing.T) {
 	if err := json.Unmarshal([]byte(mustCall("capture", map[string]any{"server": server, "target": pane})), &captured); err != nil {
 		t.Fatalf("parse capture result: %v", err)
 	}
-	if !strings.Contains(strings.ReplaceAll(captured.Content, "\n", ""), "printf ok > resumed") || captured.Cwd != workDir {
+	if !strings.Contains(strings.Join(strings.Fields(captured.Content), ""), "printfok>resumed") || captured.Cwd != workDir {
 		t.Errorf("capture = cwd %q content %q, want the sent command at %s", captured.Cwd, captured.Content, workDir)
 	}
 
