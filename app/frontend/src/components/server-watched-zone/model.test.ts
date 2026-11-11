@@ -6,7 +6,8 @@ import { collectTrackedRows } from "./model";
 const NOTE: OperatorTrackedItem = {
   id: "n3",
   kind: "note",
-  text: "archive once merged",
+  latestNote: { at: 1_800_000_000, by: "user", text: "archive once merged" },
+  noteCount: 1,
   refs: ["bf1l"],
   updatedAt: 1_800_000_000,
 };

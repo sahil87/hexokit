@@ -5,6 +5,7 @@ import { resetMockSessions } from "../../tests/msw/handlers";
 import {
   forkWindow,
   getHealth,
+  getOperatorNotes,
   getOpenApps,
   openInApp,
   getSessions,
@@ -1655,6 +1656,38 @@ describe("fetchWindowHistory (terminal export)", () => {
     expect(body).toBe("line one\nline two\n");
   });
 
+});
+
+describe("getOperatorNotes", () => {
+  it("GETs /api/operator/notes with the server then the url-encoded id and returns the notes", async () => {
+    let capturedUrl = "";
+    mswServer.use(
+      http.get("/api/operator/notes", ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json({
+          id: "a b",
+          notes: [
+            { at: 1700000100, by: "user", text: "first" },
+            { at: "bad", by: "run", text: "dropped" },
+            { at: 1700000200, by: "run", text: "second" },
+          ],
+        });
+      }),
+    );
+    const notes = await getOperatorNotes("s", "a b");
+    expect(new URL(capturedUrl).search).toBe("?server=s&id=a%20b");
+    expect(notes).toEqual([
+      { at: 1700000100, by: "user", text: "first" },
+      { at: 1700000200, by: "run", text: "second" },
+    ]);
+  });
+
+  it("rejects with an ApiError on 404", async () => {
+    mswServer.use(
+      http.get("/api/operator/notes", () => HttpResponse.json({ error: "no tracked item with that id" }, { status: 404 })),
+    );
+    await expect(getOperatorNotes("s", "nope")).rejects.toBeInstanceOf(ApiError);
+  });
 });
 
 describe("fetchCodeWorkspace (tab-keyed workspace derivation)", () => {

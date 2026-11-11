@@ -9,15 +9,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// watchlist.go — the operator-state reader: the per-item parse of the
-// fab-owned operator state file's tracked: list, feeding the sessions
-// payload's watchlist join (by pane ID), the operator staleness timestamp,
-// and the per-server tracked-items list the Operator Tasks tab renders.
+// watchlist.go — the operator-state reader: the per-item parse of an
+// operator state file's tracked: list, feeding the sessions payload's
+// watchlist join (by pane ID), the operator staleness timestamp, and the
+// per-server tracked-items list the Operator Tasks tab renders.
 //
-// EXTERNAL CONTRACT: the file ($XDG_STATE_HOME/fab/operator/<fab-slug>.yaml,
-// resolved via FabOperatorStatePath) is fab's schema, read tolerantly for
-// DISPLAY only: unknown keys are ignored, an absent or unparseable file
-// degrades to (zero, false), never an error. rk NEVER writes this file.
+// Two files share one schema family and this one reader: rk's own
+// ($XDG_STATE_HOME/hexokit/operator/<slug>.yaml, the primary source, written
+// only by internal/operator) and fab's ($XDG_STATE_HOME/fab/operator/<fab-slug>.yaml,
+// resolved via FabOperatorStatePath, the fallback while no rk file exists).
+// Which one is read is the caller's choice (internal/sessions). internal/cron
+// must not import internal/operator, which imports it.
+//
+// EXTERNAL CONTRACT: both are read tolerantly for DISPLAY only: unknown keys
+// are ignored, an absent or unparseable file degrades to (zero, false), never
+// an error. This reader writes neither; rk NEVER writes fab's file.
 //
 // One parse, two projections. The reader surfaces EVERY tracked item — any
 // kind, pane-bearing or not, done or not — as a TrackedItem in list order:
@@ -42,6 +48,12 @@ import (
 // in the same write that introduces `tracked`, so both-present is residue:
 // `tracked` wins by key presence, even as an empty list, so a stale map can
 // never resurrect entries after the operator removes the last tracked item.
+
+// noteKind is the tracked-item kind whose fab-side `text` becomes a note.
+const noteKind = "note"
+
+// userNoteAuthor is the `by` of a note synthesized from fab's note text.
+const userNoteAuthor = "user"
 
 // DefaultWatchlistStaleThreshold is the UI-facing "is the whole monitoring
 // system dead" staleness window over the operator's last_tick_at — a
@@ -71,7 +83,16 @@ func parseTickAt(v any) int64 {
 	return 0
 }
 
-// TrackedItem is one item of the fab operator state file's tracked: list,
+// Note is one entry of a tracked item's notes: list — the operator's
+// per-item memory. At is unix seconds (0 when absent or unparseable); By is
+// user | run | chat, passed through verbatim.
+type Note struct {
+	At   int64
+	By   string
+	Text string
+}
+
+// TrackedItem is one item of an operator state file's tracked: list,
 // read tolerantly for display — every kind, pane-bearing or not, done or
 // not. The watchlist join consumes only the pane-bearing, not-done subset
 // (WatchlistEntries); the sessions payload's operatorTracked list carries
@@ -80,8 +101,9 @@ func parseTickAt(v any) int64 {
 // stop_stage/spawned_by/merge_mode/pr) are ignored by the tolerant read.
 type TrackedItem struct {
 	ID        string   // tracked item id (fab-change: the change ID; other kinds: a slug) / the legacy monitored map's key
-	Kind      string   // fab-change | github-pr | linear | slack | shell | task | note; "" for a legacy monitored: entry
-	Text      string   // note prose (fab caps it at 500 chars); "" for other kinds unless the item carries text
+	Kind      string   // pane | fab-change | github-pr | linear | slack | shell | task | note; "" for a legacy monitored: entry
+	Text      string   // fab's note prose (capped at 500 chars); "" for other kinds unless the item carries text
+	Notes     []Note   // notes: list in file order (oldest first); a fab note item's text becomes one user note when it has none
 	Refs      []string // scope.refs — change ids / branch or worktree names the item is about; nil when absent
 	Pane      string   // scope.pane ("%N") — the join key; "" for pane-less items
 	Repo      string   // scope.repo
@@ -204,10 +226,23 @@ func parseTrackedItems(v any) []TrackedItem {
 			continue
 		}
 		scope, _ := item["scope"].(map[string]any)
+		kind := strField(item, "kind")
+		text := strField(item, "text")
+		updatedAt := parseTickAt(item["updated_at"])
+		addedAt := parseTickAt(item["added_at"])
+		notes := parseNotes(item["notes"])
+		if len(notes) == 0 && kind == noteKind && text != "" {
+			at := updatedAt
+			if at == 0 {
+				at = addedAt
+			}
+			notes = []Note{{At: at, By: userNoteAuthor, Text: text}}
+		}
 		out = append(out, TrackedItem{
 			ID:        id,
-			Kind:      strField(item, "kind"),
-			Text:      strField(item, "text"),
+			Kind:      kind,
+			Text:      text,
+			Notes:     notes,
 			Refs:      refsField(scope, "refs"),
 			Pane:      strField(scope, "pane"),
 			Repo:      strField(scope, "repo"),
@@ -217,9 +252,25 @@ func parseTrackedItems(v any) []TrackedItem {
 			Branch:    strField(scope, "branch"),
 			Paused:    item["paused"] == true,
 			DoneAt:    parseTickAt(item["done_at"]),
-			AddedAt:   parseTickAt(item["added_at"]),
-			UpdatedAt: parseTickAt(item["updated_at"]),
+			AddedAt:   addedAt,
+			UpdatedAt: updatedAt,
 		})
+	}
+	return out
+}
+
+// parseNotes reads an item's notes: list in file order; a non-list value
+// yields none, and a non-map element or one with empty text is skipped.
+func parseNotes(v any) []Note {
+	list, _ := v.([]any)
+	var out []Note
+	for _, el := range list {
+		m, _ := el.(map[string]any)
+		text := strField(m, "text")
+		if text == "" {
+			continue
+		}
+		out = append(out, Note{At: parseTickAt(m["at"]), By: strField(m, "by"), Text: text})
 	}
 	return out
 }
@@ -256,7 +307,7 @@ func parseMonitoredMap(v any) []TrackedItem {
 	return out
 }
 
-// ReadOperatorState reads the fab operator state file tolerantly: absent or
+// ReadOperatorState reads an operator state file (rk's or fab's) tolerantly: absent or
 // corrupt ⇒ (zero, false), never an error.
 func ReadOperatorState(path string) (state OperatorState, present bool) {
 	data, err := os.ReadFile(path)

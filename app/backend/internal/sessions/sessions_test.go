@@ -855,13 +855,20 @@ func TestProjectTrackedItems(t *testing.T) {
 	items := []cron.TrackedItem{
 		{ID: "pa9n", Kind: "fab-change", Pane: "%5", Repo: "/r", Session: "s", Stage: "apply", Agent: "idle", Branch: "b", UpdatedAt: 1700000100},
 		{ID: "gone", Kind: "fab-change", Pane: "%99", DoneAt: 1700000200},
-		{ID: "n3", Kind: "note", Text: "archive once merged", Refs: []string{"bf1l"}, Paused: true, AddedAt: 1700000000},
+		{ID: "n3", Kind: "note", Text: "archive once merged", Refs: []string{"bf1l"}, Paused: true, AddedAt: 1700000000,
+			Notes: []cron.Note{
+				{At: 1700000001, By: "user", Text: "first"},
+				{At: 1700000002, By: "run", Text: "second"},
+				{At: 1700000003, By: "chat", Text: "third"},
+				{At: 1700000004, By: "run", Text: "newest"},
+			}},
 	}
 	got := projectTrackedItems(items, paneToWindowMap(data))
 	want := []OperatorTrackedItem{
 		{ID: "pa9n", Kind: "fab-change", Pane: "%5", WindowID: "@1", Repo: "/r", Session: "s", Stage: "apply", Agent: "idle", Branch: "b", UpdatedAt: 1700000100},
 		{ID: "gone", Kind: "fab-change", Pane: "%99", DoneAt: 1700000200},
-		{ID: "n3", Kind: "note", Text: "archive once merged", Refs: []string{"bf1l"}, Paused: true, AddedAt: 1700000000},
+		{ID: "n3", Kind: "note", Refs: []string{"bf1l"}, Paused: true, AddedAt: 1700000000,
+			LatestNote: &OperatorNote{At: 1700000004, By: "run", Text: "newest"}, NoteCount: 4},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("projectTrackedItems() = %+v, want %+v", got, want)
@@ -880,7 +887,8 @@ func TestProjectTrackedItems(t *testing.T) {
 func TestProjectSessionOperatorTrackedJSON(t *testing.T) {
 	tracked := []OperatorTrackedItem{
 		{ID: "pa9n", Kind: "fab-change", Pane: "%5", WindowID: "@1", Stage: "apply", UpdatedAt: 1700000100},
-		{ID: "n3", Kind: "note", Text: "archive once merged", Refs: []string{"bf1l"}, DoneAt: 1700000200},
+		{ID: "n3", Kind: "note", Refs: []string{"bf1l"}, DoneAt: 1700000200,
+			LatestNote: &OperatorNote{At: 1700000150, By: "run", Text: "archive once merged"}, NoteCount: 2},
 	}
 	with, err := json.Marshal(ProjectSession{Name: "s1", Windows: []tmux.WindowInfo{}, OperatorTracked: &tracked})
 	if err != nil {
@@ -890,11 +898,17 @@ func TestProjectSessionOperatorTrackedJSON(t *testing.T) {
 	for _, want := range []string{
 		`"operatorTracked":[`,
 		`{"id":"pa9n","kind":"fab-change","pane":"%5","windowId":"@1","stage":"apply","updatedAt":1700000100}`,
-		`{"id":"n3","kind":"note","text":"archive once merged","refs":["bf1l"],"doneAt":1700000200}`,
+		`{"id":"n3","kind":"note","refs":["bf1l"],"doneAt":1700000200,"latestNote":{"at":1700000150,"by":"run","text":"archive once merged"},"noteCount":2}`,
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("session JSON missing %s: %s", want, s)
 		}
+	}
+
+	// The pa9n match above ends at its closing brace, so an item without notes
+	// carries neither key; the full list never rides the payload.
+	if strings.Contains(s, `"notes"`) {
+		t.Errorf("the full notes list must not ride the sessions payload: %s", s)
 	}
 
 	without, err := json.Marshal(ProjectSession{Name: "s2", Windows: []tmux.WindowInfo{}})
@@ -1049,7 +1063,8 @@ func TestFetchSessionsWatchlistSlug(t *testing.T) {
 		// with its WindowID resolved, the pane-less note without one.
 		wantTracked := []OperatorTrackedItem{
 			{ID: changeKey, Kind: "fab-change", Pane: paneID, WindowID: "@1", Repo: "/repo", Stage: "apply", Agent: "claude", Branch: "feat/x"},
-			{ID: "n3", Kind: "note", Text: "archive once merged", Refs: []string{"bf1l"}},
+			{ID: "n3", Kind: "note", Refs: []string{"bf1l"},
+				LatestNote: &OperatorNote{By: "user", Text: "archive once merged"}, NoteCount: 1},
 		}
 		if got[0].OperatorTracked == nil || !reflect.DeepEqual(*got[0].OperatorTracked, wantTracked) {
 			t.Errorf("OperatorTracked = %+v, want %+v", got[0].OperatorTracked, wantTracked)

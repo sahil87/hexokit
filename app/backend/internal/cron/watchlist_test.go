@@ -265,6 +265,7 @@ tracked:
 		want := []TrackedItem{{
 			ID: "n1", Kind: "note", Text: "A=71yx PR #834 still open — archive once merged",
 			Refs: []string{"y60c", "np2w"}, DoneAt: 0, AddedAt: added, UpdatedAt: updated,
+			Notes: []Note{{At: updated, By: "user", Text: "A=71yx PR #834 still open — archive once merged"}},
 		}}
 		if !reflect.DeepEqual(state.Items, want) {
 			t.Errorf("Items = %+v, want %+v", state.Items, want)
@@ -381,7 +382,7 @@ tracked:
 		if !ok {
 			t.Fatal("parse failed")
 		}
-		want := []TrackedItem{{ID: "good", Kind: "note", Text: "kept"}}
+		want := []TrackedItem{{ID: "good", Kind: "note", Text: "kept", Notes: []Note{{By: "user", Text: "kept"}}}}
 		if !reflect.DeepEqual(state.Items, want) {
 			t.Errorf("Items = %+v, want %+v", state.Items, want)
 		}
@@ -465,4 +466,102 @@ func TestReadOperatorStateRoundTrip(t *testing.T) {
 	if entries := state.WatchlistEntries(); !reflect.DeepEqual(entries, want) {
 		t.Errorf("WatchlistEntries() = %+v, want %+v", entries, want)
 	}
+}
+
+// TestParseOperatorStateNotes covers the notes projection: rk's per-item
+// notes: list in file order, the skip rules for malformed elements, and the
+// synthesized user note for a fab note item that carries only text.
+func TestParseOperatorStateNotes(t *testing.T) {
+	t.Run("rk shape: pane kind, three notes in file order with unix at", func(t *testing.T) {
+		body := `tracked:
+  - id: x
+    kind: pane
+    scope: {pane: "%5", repo: /r}
+    done_at: null
+    notes:
+      - {at: "2026-11-10T08:00:00Z", by: user, text: "watch the review"}
+      - {at: "2026-11-10T09:00:00Z", by: run, text: "review passed"}
+      - {at: 1762851600, by: chat, text: "merge when green"}
+`
+		state, ok := ParseOperatorState([]byte(body))
+		if !ok || len(state.Items) != 1 {
+			t.Fatalf("ok=%v Items=%+v", ok, state.Items)
+		}
+		want := []Note{
+			{At: time.Date(2026, 11, 10, 8, 0, 0, 0, time.UTC).Unix(), By: "user", Text: "watch the review"},
+			{At: time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC).Unix(), By: "run", Text: "review passed"},
+			{At: 1762851600, By: "chat", Text: "merge when green"},
+		}
+		if !reflect.DeepEqual(state.Items[0].Notes, want) {
+			t.Errorf("Notes = %+v, want %+v", state.Items[0].Notes, want)
+		}
+		entries := state.WatchlistEntries()
+		if len(entries) != 1 || entries[0].Kind != "pane" || entries[0].Pane != "%5" {
+			t.Errorf("WatchlistEntries() = %+v, want the kind: pane item joined", entries)
+		}
+	})
+
+	t.Run("malformed note elements are skipped, never fatal", func(t *testing.T) {
+		body := `tracked:
+  - id: x
+    kind: task
+    notes:
+      - "just a string"
+      - {at: 1700000000, by: run}
+      - {at: 1700000001, by: run, text: ""}
+      - {at: 1700000002, by: user, text: kept}
+      - 7
+`
+		state, ok := ParseOperatorState([]byte(body))
+		if !ok || len(state.Items) != 1 {
+			t.Fatalf("ok=%v Items=%+v", ok, state.Items)
+		}
+		want := []Note{{At: 1700000002, By: "user", Text: "kept"}}
+		if !reflect.DeepEqual(state.Items[0].Notes, want) {
+			t.Errorf("Notes = %+v, want %+v", state.Items[0].Notes, want)
+		}
+	})
+
+	t.Run("a non-list notes value yields none", func(t *testing.T) {
+		state, ok := ParseOperatorState([]byte("tracked:\n  - {id: x, kind: task, notes: nope}\n"))
+		if !ok || len(state.Items) != 1 || state.Items[0].Notes != nil {
+			t.Errorf("ok=%v Items=%+v, want one item without notes", ok, state.Items)
+		}
+	})
+
+	t.Run("fab note text becomes one user note at updated_at, falling back to added_at", func(t *testing.T) {
+		body := `tracked:
+  - {id: n1, kind: note, text: "archive once merged", added_at: 1700000000, updated_at: 1700000500}
+  - {id: n2, kind: note, text: "only added", added_at: 1700000000}
+  - {id: t1, kind: task, text: "not a note kind"}
+`
+		state, ok := ParseOperatorState([]byte(body))
+		if !ok || len(state.Items) != 3 {
+			t.Fatalf("ok=%v Items=%+v", ok, state.Items)
+		}
+		if want := []Note{{At: 1700000500, By: "user", Text: "archive once merged"}}; !reflect.DeepEqual(state.Items[0].Notes, want) {
+			t.Errorf("n1 Notes = %+v, want %+v", state.Items[0].Notes, want)
+		}
+		if want := []Note{{At: 1700000000, By: "user", Text: "only added"}}; !reflect.DeepEqual(state.Items[1].Notes, want) {
+			t.Errorf("n2 Notes = %+v, want %+v", state.Items[1].Notes, want)
+		}
+		if state.Items[2].Notes != nil {
+			t.Errorf("task item Notes = %+v, want none", state.Items[2].Notes)
+		}
+	})
+
+	t.Run("an explicit notes list wins over the item text", func(t *testing.T) {
+		body := `tracked:
+  - id: n1
+    kind: note
+    text: stale prose
+    notes:
+      - {at: 1700000000, by: run, text: real note}
+`
+		state, _ := ParseOperatorState([]byte(body))
+		want := []Note{{At: 1700000000, By: "run", Text: "real note"}}
+		if !reflect.DeepEqual(state.Items[0].Notes, want) {
+			t.Errorf("Notes = %+v, want %+v", state.Items[0].Notes, want)
+		}
+	})
 }

@@ -1,7 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, within, waitFor } from "@testing-library/react";
+import { getOperatorNotes } from "@/api/client";
 import { makeSession, makeWindow } from "@/test-utils/fixtures";
 import { WatchedTasks } from "./watched-tasks";
+
+vi.mock("@/api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/client")>();
+  return { ...actual, getOperatorNotes: vi.fn() };
+});
+
+const mockedGetOperatorNotes = vi.mocked(getOperatorNotes);
 
 const NOW = Math.floor(Date.now() / 1000);
 
@@ -145,7 +153,8 @@ describe("WatchedTasks", () => {
             {
               id: "n3",
               kind: "note",
-              text: "Daemon reliability plan — archive once merged.",
+              latestNote: { at: NOW - 600, by: "user", text: "Daemon reliability plan — archive once merged." },
+              noteCount: 1,
               refs: ["bf1l"],
               updatedAt: NOW - 3600,
             },
@@ -162,9 +171,9 @@ describe("WatchedTasks", () => {
     expect(within(row).getByText("note").className).toContain("bg-accent/10");
     expect(within(row).getByText("n3")).toBeInTheDocument();
     expect(within(row).getByText("bf1l")).toBeInTheDocument();
-    expect(
-      within(row).getByText("Daemon reliability plan — archive once merged."),
-    ).toBeInTheDocument();
+    expect(row.querySelectorAll("td")[4]).toHaveTextContent(
+      "Daemon reliability plan — archive once merged. · user · 10m ago",
+    );
     expect(row.querySelectorAll("td")[5]).toHaveTextContent("updated 1h ago");
     // No navigation affordance on an item row.
     expect(row.querySelector('[data-testid="watched-row-navigate"]')).toBeNull();
@@ -179,7 +188,7 @@ describe("WatchedTasks", () => {
           operatorLastTickAt: NOW - 30,
           operatorTracked: [
             { id: "wuiu", kind: "fab-change", pane: "%1", windowId: "@1", updatedAt: NOW - 60 },
-            { id: "n9", kind: "note", text: "done note", doneAt: NOW - 600, updatedAt: NOW - 600 },
+            { id: "n9", kind: "note", latestNote: { at: NOW - 600, by: "run", text: "done note" }, noteCount: 1, doneAt: NOW - 600, updatedAt: NOW - 600 },
           ],
           windows: [MONITORED],
         }),
@@ -193,14 +202,25 @@ describe("WatchedTasks", () => {
     expect(within(row).getByText("done")).toBeInTheDocument();
   });
 
-  it("the expand toggle reveals the note's full text in place", () => {
-    const text = "A long note body that the cell truncates until expanded.";
+  it("the expand toggle lists every note, fetched for the server and item id", async () => {
+    mockedGetOperatorNotes.mockResolvedValue([
+      { at: NOW - 600, by: "user", text: "first" },
+      { at: NOW - 60, by: "run", text: "second" },
+    ]);
     renderTasks({
       server: "srv1",
       sessions: [
         makeSession({
           operatorLastTickAt: NOW - 30,
-          operatorTracked: [{ id: "n3", kind: "note", text, updatedAt: NOW - 60 }],
+          operatorTracked: [
+            {
+              id: "n3",
+              kind: "note",
+              latestNote: { at: NOW - 60, by: "run", text: "second" },
+              noteCount: 2,
+              updatedAt: NOW - 60,
+            },
+          ],
           windows: [],
         }),
       ],
@@ -208,11 +228,11 @@ describe("WatchedTasks", () => {
 
     const toggle = screen.getByTestId("tracked-item-expand");
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(toggle.className).toContain("truncate");
+    expect(toggle).toHaveTextContent("+1");
     fireEvent.click(toggle);
-    const expanded = screen.getByTestId("tracked-item-expand");
-    expect(expanded).toHaveAttribute("aria-expanded", "true");
-    expect(expanded.className).toContain("whitespace-pre-wrap");
+    expect(mockedGetOperatorNotes).toHaveBeenCalledWith("srv1", "n3");
+    expect(screen.getByTestId("tracked-item-expand")).toHaveAttribute("aria-expanded", "true");
+    await waitFor(() => expect(screen.getAllByTestId("tracked-item-note")).toHaveLength(2));
   });
 
   it("a payload without operatorTracked (older backend) still renders monitored-derived worker rows", () => {

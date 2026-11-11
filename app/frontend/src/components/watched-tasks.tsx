@@ -10,10 +10,12 @@ import type { ProjectSession } from "@/types";
 /**
  * The operator tracked-list segment body — the quake terminal's Operator Tasks
  * segment (desktop drawer, dense) and the mobile operator route's `?tab=tasks`
- * content slot. A pure projection over the sessions payload taken by PROP: no
- * hook, no fetch, no timer — every relative age is computed at render from
- * `Date.now()` and the sessions SSE cadence is the clock. Never an error
- * state: absent facets degrade to hint lines.
+ * content slot. A projection over the sessions payload taken by PROP: no hook,
+ * no timer — every relative age is computed at render from `Date.now()` and
+ * the sessions SSE cadence is the clock. The only fetch is the table's
+ * on-expand read of one item's full notes. Never an error state: absent
+ * facets degrade to hint lines. The rows come from rk's operator state file
+ * (fab's while no rk file exists), each carrying its latest note.
  *
  * Rows come from `collectTrackedRows` (the operator's WHOLE tracked list —
  * pane-bearing workers and pane-less items, done items dimmed), falling back
@@ -95,6 +97,7 @@ export function WatchedTasks({
               stale={stale}
               nowSeconds={nowSeconds}
               onNavigate={onNavigate}
+              server={server}
               dense={dense}
             />
           </div>
