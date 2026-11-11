@@ -8,8 +8,8 @@ progress:
     intake: done
     apply: done
     review: done
-    hydrate: active
-    ship: pending
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
@@ -32,24 +32,26 @@ stage_metrics:
     intake: {started_at: "2026-11-11T13:06:45Z", driver: fab-new, iterations: 1, completed_at: "2026-11-11T13:11:56Z"}
     apply: {started_at: "2026-11-11T13:47:36Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-11T13:53:18Z"}
     review: {started_at: "2026-11-11T13:53:18Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-11T13:58:10Z"}
-    hydrate: {started_at: "2026-11-11T13:58:10Z", driver: fab-fff, iterations: 1}
+    hydrate: {started_at: "2026-11-11T13:58:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T14:01:19Z"}
+    ship: {started_at: "2026-11-11T14:01:19Z", driver: fab-fff, iterations: 1}
 prs: []
 change_type_source: explicit
 base_branch: main
 true_impact:
-    added: 3772
-    deleted: 300
-    net: 3472
+    added: 3904
+    deleted: 351
+    net: 3553
     excluding:
-        added: 3264
-        deleted: 300
-        net: 2964
+        added: 3382
+        deleted: 351
+        net: 3031
     tests:
-        added: 1799
-        deleted: 101
-        net: 1698
-    computed_at: "2026-11-11T13:53:18Z"
-    computed_at_stage: apply
+        added: 1869
+        deleted: 123
+        net: 1746
+    computed_at: "2026-11-11T14:01:20Z"
+    computed_at_stage: hydrate
+summary: 'operator check: two-phase probe + edge-triggered diff gate (operator.Check, rk operator check); fab-state and process-tree walk moved to internal/fabstatus and internal/proctree'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-11T13:58:10Z
+last_updated: 2026-11-11T14:01:20Z
