@@ -428,25 +428,30 @@ test.describe("web tile — native engine in the desktop shell", () => {
    * the rect and leaves the guest hidden with unchanged live bounds —
    * setBounds on a hidden view would re-show it (Electron 43/Linux), so main
    * must not apply it before web:visible {true}.
+   * The baseline is read once the guest is HIDDEN, not while it is first
+   * visible: the engine keeps re-measuring the tile while the layout settles,
+   * so a visible-time read can predate a legitimate re-measure applied before
+   * the hide lands. Once hidden, main only records rects, so the hidden-time
+   * read is exactly the live bounds the probe call must leave untouched.
    * Steps:
-   * 1. Seed + navigate; poll the guest visible; read its bounds and the
-   *    placeholder's data-tab-key.
-   * 2. Open the palette; poll the guest hidden.
+   * 1. Seed + navigate; poll the guest visible; read the placeholder's
+   *    data-tab-key.
+   * 2. Open the palette; poll the guest hidden and read its bounds.
    * 3. Call runkitShell.web.bounds(tabKey, …) with a rect distinct on every
-   *    field from the pre-call read.
+   *    field from the hidden-time read.
    * 4. After a settle window, assert the guest's visible is still false and
-   *    its bounds still equal the pre-call read.
+   *    its bounds still equal the hidden-time read.
    */
   test("a hidden-time web:bounds parks the rect and leaves the guest hidden", async () => {
     await seedWindow(`wn-park-${Date.now()}`);
-    const before = await pollGuest((n) => n.visible && n.bounds.width > 0);
+    await pollGuest((n) => n.visible && n.bounds.width > 0);
     const tabKey = await hostPage
       .getByTestId("web-native-placeholder")
       .getAttribute("data-tab-key");
     expect(tabKey, "placeholder carries the guest's tabKey").not.toBeNull();
 
     await openPalette(hostPage);
-    await pollGuest((n) => !n.visible);
+    const before = await pollGuest((n) => !n.visible && n.bounds.width > 0);
 
     const probe = {
       x: before.bounds.x + PARK_PROBE_SHIFT_PX,
