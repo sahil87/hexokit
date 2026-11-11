@@ -76,7 +76,7 @@ The router (`app/backend/api/router.go`) SHALL register `GET /api/daemon/autosta
 ### UI: system-card autostart row
 
 #### R6: The HexoKit system card shows a read-only autostart row
-`app/frontend/src/components/system-card.tsx` SHALL fetch `getDaemonAutostart()` (new, in `app/frontend/src/api/client.ts`, typed `DaemonAutostartResponse`) once on mount and render one row between the daemon line and the service rows: label `autostart`, value = `summary`, `data-testid="system-card-autostart"`, styled like a service row. When `summary === "off"` the value reads `off — rk daemon autostart on`. When `supported === false` the value reads `unavailable` wrapped in a `Tip` whose label is the `error` text. The row has NO button, toggle or click handler.
+`app/frontend/src/components/system-card.tsx` SHALL fetch `getDaemonAutostart()` (new, in `app/frontend/src/api/client.ts`, typed `DaemonAutostartResponse`) once on mount and render one row between the daemon line and the service rows: label `autostart`, value = `summary`, `data-testid="system-card-autostart"`, styled like a service row. When `summary === "off"` the value reads `off — rk daemon autostart on`. When `supported === false` the value reads `unavailable — <error>` inline (bare `unavailable` when no error text) — not a `Tip`, which is unreachable on non-focusable text by keyboard and on coarse pointers (Constitution V). The row has NO button, toggle or click handler.
 
 - **GIVEN** the endpoint returns `{supported: true, summary: "on (login only — enable lingering for boot)"}`
 - **WHEN** the Host page renders the system card
@@ -122,10 +122,10 @@ When `getDaemonAutostart()` rejects (an older daemon 404s the route, network err
 
 ### Phase 2: Core implementation
 
-- [x] T003 [P] Add `autostartStatusFn` seam + pure `autostartCheck` to `app/backend/cmd/rk/doctor.go`, append it after the `cron ticker` row in `runDoctorChecks()` (never touching `report.OK`); add a table test in `app/backend/cmd/rk/doctor_test.go` covering off, boot, login-only, plain login, disabled, stale, non-zero exit (with and without LastResult), resolution error and Status error — every case `OK: true` <!-- R3 R4 -->
+- [x] T003 [P] Add `autostartStatusFn` seam + pure `autostartCheck` to `app/backend/cmd/rk/doctor.go`, append it after the `cron ticker` row in `runDoctorChecks()` (never touching `report.OK`); add a table test in `app/backend/cmd/rk/doctor_test.go` covering off, boot, login-only, plain login, disabled, stale, non-zero exit (with and without LastResult), resolution error and Status error — every case `OK: true` <!-- R3 R4 --> <!-- rework: install a fake autostartStatusFn for the whole cmd/rk test package (TestMain in cmd/rk/main_test.go) so tests calling runDoctorChecks() never reach the real service manager (A-019) -->
 - [x] T004 [P] Add `autostartStatusFn` seam field on `Server` (`app/backend/api/router.go`, documented beside the gui/openAIMCP seam group), register `r.Get("/api/daemon/autostart", s.handleDaemonAutostart)`, implement the handler in new `app/backend/api/autostart.go`, and add `app/backend/api/autostart_test.go` covering supported (boot/off/login-only summaries + verbatim `status`) and error → `supported:false` (use `NewTestRouterAndServer` to inject the seam) <!-- R5 -->
 - [x] T005 Add `DaemonAutostartResponse` type + `getDaemonAutostart()` to `app/frontend/src/api/client.ts` (throwOnError on non-OK, mirroring `getHealth`) <!-- R6 -->
-- [x] T006 Render the autostart row in `app/frontend/src/components/system-card.tsx` (mount-time fetch with a cancelled flag, hidden on rejection, off-hint copy, unavailable + `Tip`); extend `app/frontend/src/components/system-card.test.tsx` with a partial `vi.mock("@/api/client")` and cases for boot, login-only, off-hint, unavailable-with-tip, and rejection ⇒ row absent (existing tests keep passing) <!-- R6 R7 -->
+- [x] T006 Render the autostart row in `app/frontend/src/components/system-card.tsx` (mount-time fetch with a cancelled flag, hidden on rejection, off-hint copy, unavailable + `Tip`); extend `app/frontend/src/components/system-card.test.tsx` with a partial `vi.mock("@/api/client")` and cases for boot, login-only, off-hint, unavailable-with-tip, and rejection ⇒ row absent (existing tests keep passing) <!-- R6 R7 --> <!-- rework: value must wrap, not truncate, so the login-only advice survives the 375px card; make the after-unmount test meaningful or drop its claim; stub getDaemonAutostart in host-overview-page.test.tsx; declare status on DaemonAutostartResponse -->
 
 ### Phase 3: Integration & evidence
 
@@ -146,46 +146,50 @@ When `getDaemonAutostart()` rejects (an older daemon 404s the route, network err
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `Status.Summary()` exists in `internal/daemon/autostart` and returns the five exact strings per the R1 table, reading no platform field
-- [ ] A-002 R2: `rk daemon autostart status` text's first line is `Autostart: <Summary()>`
-- [ ] A-003 R3: `rk doctor` (human and `--json`) includes a `daemon autostart` row after `cron ticker` with the R3 note composition
-- [ ] A-004 R5: `GET /api/daemon/autostart` is registered (GET only) and returns the R5 success and unavailable shapes
-- [ ] A-005 R6: The system card renders the read-only `autostart` row between the daemon line and service rows, with off-hint and unavailable-tip variants
+- [x] A-001 R1: `Status.Summary()` exists in `internal/daemon/autostart` and returns the five exact strings per the R1 table, reading no platform field
+- [x] A-002 R2: `rk daemon autostart status` text's first line is `Autostart: <Summary()>`
+- [x] A-003 R3: `rk doctor` (human and `--json`) includes a `daemon autostart` row after `cron ticker` with the R3 note composition
+- [x] A-004 R5: `GET /api/daemon/autostart` is registered (GET only) and returns the R5 success and unavailable shapes
+- [x] A-005 R6: The system card renders the read-only `autostart` row between the daemon line and service rows, with off-hint and unavailable-tip variants
 
 ### Behavioral Correctness
 
-- [ ] A-006 R2: The CLI status text no longer computes its own state string; Linux login-only now reads `on (login only — enable lingering for boot)`
+- [x] A-006 R2: The CLI status text no longer computes its own state string; Linux login-only now reads `on (login only — enable lingering for boot)`
 
 ### Scenario Coverage
 
-- [ ] A-007 R1: A Go table test covers every Summary branch including linger nil/true/false
-- [ ] A-008 R3: A Go table test covers every doctor note fragment
-- [ ] A-009 R5: Go handler tests cover success and error responses through an injected seam
-- [ ] A-010 R6: Vitest covers boot, login-only, off-hint and unavailable rows; a stubbed Playwright e2e test asserts the row on `/` with a Proves/Steps JSDoc block
+- [x] A-007 R1: A Go table test covers every Summary branch including linger nil/true/false
+- [x] A-008 R3: A Go table test covers every doctor note fragment
+- [x] A-009 R5: Go handler tests cover success and error responses through an injected seam
+- [x] A-010 R6: Vitest covers boot, login-only, off-hint and unavailable rows; a stubbed Playwright e2e test asserts the row on `/` with a Proves/Steps JSDoc block
 
 ### Edge Cases & Error Handling
 
-- [ ] A-011 R4: The doctor row is `OK: true` for every input including both error kinds, and never changes `report.OK`
-- [ ] A-012 R7: A rejected fetch hides the row without affecting the rest of the card; no state update after unmount
+- [x] A-011 R4: The doctor row is `OK: true` for every input including both error kinds, and never changes `report.OK`
+- [x] A-012 R7: A rejected fetch hides the row without affecting the rest of the card; no state update after unmount
 
 ### Code Quality
 
-- [ ] A-013 Pattern consistency: New code follows the doctor row (pure check + seam), API seam-field, client getter and system-card row patterns of surrounding code
-- [ ] A-014 No unnecessary duplication: The summary rules live once (Go); the frontend renders `summary` rather than re-deriving it; the doctor seam reuses `autostartBackendFn`
-- [ ] A-015 Subprocess safety: No new subprocess calls; the status probe runs under a bounded context (Principle I / Process Execution)
-- [ ] A-016 No client polling: The row is a single mount-time fetch, no `setInterval`
-- [ ] A-017 Comments state constraints only — no narration, no change IDs or PR numbers
-- [ ] A-018 Minimal surface: No new page/route in the SPA, no settings-registry key, no new control (so no palette entry required)
+- [x] A-013 Pattern consistency: New code follows the doctor row (pure check + seam), API seam-field, client getter and system-card row patterns of surrounding code
+- [x] A-014 No unnecessary duplication: The summary rules live once (Go); the frontend renders `summary` rather than re-deriving it; the doctor seam reuses `autostartBackendFn`
+- [x] A-015 Subprocess safety: No new subprocess calls; the status probe runs under a bounded context (Principle I / Process Execution)
+- [x] A-016 No client polling: The row is a single mount-time fetch, no `setInterval`
+- [x] A-017 Comments state constraints only — no narration, no change IDs or PR numbers
+- [x] A-018 Minimal surface: No new page/route in the SPA, no settings-registry key, no new control (so no palette entry required)
 
 ### Security
 
-- [ ] A-019 R5: The endpoint is read-only — no code path in this change calls `Backend.On`/`Off`, `systemctl enable`, or `loginctl enable-linger`; tests and demos use seams/stubs only
+- [x] A-019 R5: The endpoint is read-only — no code path in this change calls `Backend.On`/`Off`, `systemctl enable`, or `loginctl enable-linger`; tests and demos use seams/stubs only
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- None — this change adds new functionality without making existing code redundant (the private state switch in `writeAutostartStatusText` it superseded was already removed in the same diff)
 
 ## Assumptions
 

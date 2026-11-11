@@ -195,20 +195,23 @@ describe("SystemCard — autostart row", () => {
     );
   });
 
-  it("renders 'unavailable' when the platform has no backend, with the error as the tip", async () => {
+  it("renders 'unavailable' with the reason inline when the platform has no backend", async () => {
     getDaemonAutostartMock.mockResolvedValue({
       supported: false,
       summary: "unavailable",
       error: "daemon autostart is not supported on darwin (supported: linux)",
     });
     renderCard();
+    expect(await screen.findByTestId("system-card-autostart")).toHaveTextContent(
+      "unavailable — daemon autostart is not supported on darwin (supported: linux)",
+    );
+  });
+
+  it("renders bare 'unavailable' when the daemon sent no reason", async () => {
+    getDaemonAutostartMock.mockResolvedValue({ supported: false, summary: "unavailable" });
+    renderCard();
     const row = await screen.findByTestId("system-card-autostart");
-    expect(row).toHaveTextContent("unavailable");
-    fireEvent.focus(screen.getByText("unavailable"));
-    fireEvent.mouseEnter(screen.getByText("unavailable"));
-    expect(
-      await screen.findByText("daemon autostart is not supported on darwin (supported: linux)"),
-    ).toBeInTheDocument();
+    expect(row).toHaveTextContent(/autostart\s*unavailable$/);
   });
 
   it("has no control: no button or link inside the row", async () => {
@@ -226,16 +229,17 @@ describe("SystemCard — autostart row", () => {
     expect(screen.getAllByText("not running")).toHaveLength(3);
   });
 
-  it("fetches once on mount and ignores a response that lands after unmount", async () => {
-    let resolve: (v: { supported: boolean; summary: string }) => void = () => {};
-    getDaemonAutostartMock.mockReturnValue(new Promise((r) => (resolve = r)));
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const { unmount } = renderCard();
-    unmount();
-    resolve({ supported: true, summary: "on (boot)" });
-    await Promise.resolve();
+  it("fetches the autostart state exactly once on mount, with no polling", async () => {
+    getDaemonAutostartMock.mockResolvedValue({ supported: true, summary: "on (boot)" });
+    const { rerender } = renderCard();
+    await screen.findByTestId("system-card-autostart");
+    rerender(
+      <ToastProvider>
+        <StandaloneSessionContextProvider value={{ daemonVersion: "3.9.1", sessionsByServer: new Map() }}>
+          <SystemCard />
+        </StandaloneSessionContextProvider>
+      </ToastProvider>,
+    );
     expect(getDaemonAutostartMock).toHaveBeenCalledTimes(1);
-    expect(errorSpy).not.toHaveBeenCalled();
-    errorSpy.mockRestore();
   });
 });

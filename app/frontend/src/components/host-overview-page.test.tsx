@@ -29,6 +29,8 @@ vi.mock("@/api/client", async () => {
     closePane: vi.fn().mockResolvedValue({ ok: true }),
     // The RECOVERY zone mounts with the page; empty offers → zero footprint.
     getRecoveryOffers: vi.fn().mockResolvedValue([]),
+    // The system card's autostart row fetches on mount; a rejection hides it.
+    getDaemonAutostart: vi.fn().mockRejectedValue(new Error("not stubbed")),
   };
 });
 

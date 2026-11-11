@@ -22,8 +22,9 @@ type ServiceRow = {
   window: WindowInfo | null;
 };
 
-/** Summary the daemon reports when autostart is not registered; the row swaps
- *  it for the command that registers it. */
+/** Summary the daemon reports when autostart is not registered (Go's
+ *  autostart.SummaryOff — keep the two in step); the row swaps it for the
+ *  command that registers it. */
 const AUTOSTART_OFF_SUMMARY = "off";
 
 function activeOrFirstWindow(session: ProjectSession): WindowInfo | null {
@@ -140,20 +141,20 @@ export function SystemCard() {
       {autostart && (
         <div
           data-testid="system-card-autostart"
-          className="flex items-center gap-[1ch]"
+          className="flex items-baseline gap-[1ch]"
         >
           <span className="text-text-secondary shrink-0">autostart</span>
-          {autostart.supported ? (
-            <span className="text-text-secondary truncate">
-              {autostart.summary === AUTOSTART_OFF_SUMMARY
+          {/* The unavailable reason renders inline: a Tip on non-focusable
+              text is unreachable by keyboard and on coarse pointers. */}
+          <span className="text-text-secondary min-w-0 break-words">
+            {!autostart.supported
+              ? autostart.error
+                ? `unavailable — ${autostart.error}`
+                : "unavailable"
+              : autostart.summary === AUTOSTART_OFF_SUMMARY
                 ? "off — rk daemon autostart on"
                 : autostart.summary}
-            </span>
-          ) : (
-            <Tip label={autostart.error ?? "Autostart status unavailable"}>
-              <span className="text-text-secondary truncate">unavailable</span>
-            </Tip>
-          )}
+          </span>
         </div>
       )}
       {/* Service rows: live status + View deep-links. Absent sibling sessions

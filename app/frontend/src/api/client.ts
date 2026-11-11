@@ -78,12 +78,24 @@ export async function getHealth(): Promise<HealthResponse> {
   return res.json();
 }
 
+/** The backend's autostart report (`autostart.Status`, snake_case JSON tags),
+ *  narrowed to the fields clients read. */
+export interface DaemonAutostartStatus {
+  registered: boolean;
+  enabled: boolean;
+  starts_at: string;
+  linger?: boolean;
+  stale: boolean;
+  hints?: string[];
+}
+
 /** GET /api/daemon/autostart. `summary` is the daemon's one-line state string
  *  (the same text `rk doctor` prints); `supported: false` carries `error`
  *  instead of `status`. Read-only — autostart is changed only through the CLI. */
 export interface DaemonAutostartResponse {
   supported: boolean;
   summary: string;
+  status?: DaemonAutostartStatus;
   error?: string;
 }
 
