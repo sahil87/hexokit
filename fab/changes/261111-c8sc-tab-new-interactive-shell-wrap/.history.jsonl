@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-11T10:58:17Z"}
+{"args":"rk tab new launches its command through the user's interactive shell by default (shellq.Interactive shared with riff; --no-interactive opt-out; login-wall parked classification follow-up)","cmd":"fab-new","event":"command","ts":"2026-11-11T10:58:17Z"}
+{"delta":"+1.8","event":"confidence","score":1.8,"trigger":"calc-score","ts":"2026-11-11T11:00:34Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-11-11T11:01:18Z"}
+{"delta":"+2.2","event":"confidence","score":4,"trigger":"calc-score","ts":"2026-11-11T11:12:28Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-11T11:12:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-11T11:12:55Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-11T11:20:16Z"}
+{"event":"review","result":"failed","ts":"2026-11-11T11:26:54Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-11T11:26:54Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-11T11:29:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-11-11T11:33:09Z"}
+{"event":"review","result":"passed","ts":"2026-11-11T11:33:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-11-11T11:34:32Z"}

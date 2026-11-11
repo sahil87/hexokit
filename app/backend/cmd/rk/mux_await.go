@@ -45,7 +45,11 @@ import (
 // screen is classified by a sentinel echo probe: a harmless sentinel is pasted
 // into the pane, an echo means a live input box, and no echo on a settled
 // non-blank screen means the pane is parked behind a wall (a trust dialog,
-// survey, or login wall that would eat a delivery). The probe is gated on
+// survey, or login wall that would eat a delivery). Claude Code's
+// `Not logged in · Run /login` notice is parked too, before either signal:
+// its composer echoes and its hooks may fire, but the agent cannot act. The
+// notice paints asynchronously (observed 2-20 s after boot), so only a check
+// made once it is drawn can see it. The probe is gated on
 // geometry: below the 80x20 readiness floor a bordered composer reflows or is
 // not drawn at all, so the pane classifies narrow instead of probing. Reports
 // "ready %N (state)" / "ready %N (echo)" / "parked %N" / "narrow %N (WxH)"
@@ -123,7 +127,11 @@ var muxAwaitCmd = &cobra.Command{
 		"echo means a live input box (`ready %N (echo)`), and no echo on a " +
 		"settled non-blank screen means the pane is parked behind a wall " +
 		"(`parked %N`, exit 0, the screen snippet on stderr so the caller can " +
-		"judge what the wall wants). The probe is gated on geometry: below the " +
+		"judge what the wall wants). Claude Code's `Not logged in · Run /login` " +
+		"notice also reports `parked %N` (snippet: the notice), even though its " +
+		"composer echoes and its hooks may fire. Claude paints the notice " +
+		"asynchronously (observed 2-20 s after boot), so a verdict reached " +
+		"before it is drawn cannot see it. The probe is gated on geometry: below the " +
 		"80x20 readiness floor (either dimension) a bordered composer reflows or " +
 		"is not drawn at all, so the pane classifies `narrow %N (WxH)` instead of " +
 		"probing — exit 0, the geometry and remedy on stderr; resize or relocate " +

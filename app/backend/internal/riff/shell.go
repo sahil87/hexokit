@@ -14,8 +14,9 @@ import (
 // three layers:
 //  1. launcher-with-cmd-arg: `<launcher> '<escaped-cmdArg>'` OR just `<launcher>`
 //     when cmdArg is empty (bare launcher: no positional).
-//  2. interactive wrap: `${SHELL:-/bin/sh} -i -c '<escaped-layer-1>'` so
-//     .zshrc/.bashrc aliases reach the launcher.
+//  2. interactive wrap (shellq.Interactive): `${SHELL:-/bin/sh} -i -c
+//     '<escaped-layer-1>'` so .zshrc/.bashrc aliases and exports reach the
+//     launcher.
 //  3. shellq.WithShellFallback suffix: `; exec "${SHELL:-/bin/sh}"` so the pane
 //     stays interactive.
 //
@@ -28,8 +29,7 @@ func buildSkillShellString(launcher, cmdArg string) string {
 	} else {
 		layer1 = fmt.Sprintf("%s %s", launcher, shellq.Quote(cmdArg))
 	}
-	interactive := fmt.Sprintf(`${SHELL:-/bin/sh} -i -c %s`, shellq.Quote(layer1))
-	return shellq.WithShellFallback(interactive)
+	return shellq.WithShellFallback(shellq.Interactive(layer1))
 }
 
 // SkillPaneCommand exposes the skill-pane shell composition to cmd/rk (rk

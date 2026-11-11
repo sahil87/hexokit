@@ -33,7 +33,7 @@ A freshly spawned agent TUI is not necessarily safe to type into: it may still b
 |--------|---------|-----------|
 | `ready %N (state)` | A reconciled agent state exists — hooks fired, the TUI is up. Nothing was typed into the pane | Deliver |
 | `ready %N (echo)` | No state (hook-less agent), but the screen settled and a harmless sentinel echoed at a live input box (typed, checked, cleared with `C-u`) | Deliver (`send --force` — see the pairing below) |
-| `parked %N` | The screen settled non-blank and the sentinel did **not** echo: the pane is behind a wall. Exit 0 — classification succeeded; the screen snippet is on stderr | Judge the wall (below) |
+| `parked %N` | The screen settled non-blank and the sentinel did **not** echo: the pane is behind a wall. Also reported, ahead of both ready signals, when Claude Code's `Not logged in · Run /login` notice is on screen (snippet: the notice) — its composer echoes and hooks may fire, but the agent cannot act; the notice paints 2–20 s after boot, so an earlier verdict cannot see it. Exit 0 — classification succeeded; the screen snippet is on stderr | Judge the wall (below) |
 | `narrow %N (WxH)` | The pane is below the 80×20 readiness floor (either dimension), so the probe cannot be trusted; nothing was typed. Exit 0 — classification succeeded; the geometry and remedy are on stderr | Resize or relocate the pane (a bigger window or column), then re-run `await --ready` |
 | `running` | `--timeout` expired — the timeout bounds YOU, never the pane | Re-arm or escalate |
 | `gone` | The pane died (exit 1) | Respawn or report |

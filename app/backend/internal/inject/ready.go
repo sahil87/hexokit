@@ -30,6 +30,12 @@ const (
 	// when ReadyOpts.BufferName is unset. Callers pass a per-invocation name so
 	// a probe can never clobber a concurrent send buffer.
 	defaultReadyBuffer = "rk-ready"
+	// loginWallSignature is Claude Code's unauthenticated-boot notice, drawn
+	// right-aligned on the line above its composer. The composer still echoes
+	// and hooks may still fire behind it, so neither ready signal sees the wall.
+	// It is drawn asynchronously — observed 2-20 s after boot, after the hooks
+	// stamp state — so a verdict reached before it paints cannot see it.
+	loginWallSignature = "Not logged in · Run /login"
 )
 
 // The readiness floor: the conventional minimum geometry agent TUIs assume.
@@ -55,8 +61,10 @@ var ErrNotReady = errors.New("pane not boot-ready")
 
 // ErrParked is the sentinel ParkedError wraps: the pane settled on a screen
 // that does not echo typed input — a trust dialog, survey, theme picker, or
-// login wall. It is an error (not a Readiness) so every consumer fails closed:
-// no delivery is ever attempted into a wall.
+// login wall — or shows Claude Code's login-wall notice, whose composer does
+// echo but whose agent cannot act on a delivery. It is an error (not a
+// Readiness) so every consumer fails closed: no delivery is ever attempted
+// into a wall.
 var ErrParked = errors.New("pane parked behind a wall")
 
 // ErrGone is the sentinel AwaitReady returns when a capture error satisfies
@@ -166,6 +174,12 @@ type ReadyOpts struct {
 // ClearAttempts fails closed with an operational error rather than reporting
 // ready over a polluted composer. ctx cancellation returns ctx.Err().
 //
+// Every successful capture is checked for Claude Code's login-wall notice
+// (hasLoginWall) before either ready verdict: a walled pane returns a
+// ParkedError whose snippet is the notice, even when its hooks fired or its
+// composer would echo. The capture therefore precedes the state verdict; a
+// non-gone capture error with state present still returns ReadyByState.
+//
 // With opts.WaitThroughWalls a parked classification is not a verdict: the
 // wait remembers the parked frame and keeps polling, re-probing only after
 // the frame has changed and re-settled (a static wall is never re-pasted).
@@ -203,12 +217,29 @@ func AwaitReady(ctx context.Context, t Tmux, server, paneID string, opts ReadyOp
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
+		stateReady := false
 		if opts.State != nil {
 			if state, err := opts.State(ctx, paneID, server); err == nil && state != "" {
-				return ReadyByState, nil
+				stateReady = true
 			}
 		}
-		if cur, err := t.CapturePane(ctx, paneID, readyCaptureLines, server); err == nil {
+		cur, capErr := t.CapturePane(ctx, paneID, readyCaptureLines, server)
+		switch {
+		case capErr == nil && hasLoginWall(cur):
+			lastCapture = cur
+			parked := &ParkedError{Snippet: loginWallSignature}
+			if !opts.WaitThroughWalls {
+				return 0, parked
+			}
+			// Recording the walled frame as the parked frame lets the
+			// deadline arm report the wall while the pane still shows it.
+			lastParked = parked
+			parkedFrame = cur
+			prev = cur
+			havePrev = true
+		case capErr == nil && stateReady:
+			return ReadyByState, nil
+		case capErr == nil:
 			lastCapture = cur
 			// A settle on the unchanged parked frame is the static wall: skip
 			// the probe. The probe re-arms only once the frame has changed and
@@ -252,8 +283,10 @@ func AwaitReady(ctx context.Context, t Tmux, server, paneID string, opts ReadyOp
 			}
 			prev = cur
 			havePrev = true
-		} else if opts.IsGone != nil && opts.IsGone(err) {
-			return 0, fmt.Errorf("%w: %w", ErrGone, err)
+		case opts.IsGone != nil && opts.IsGone(capErr):
+			return 0, fmt.Errorf("%w: %w", ErrGone, capErr)
+		case stateReady:
+			return ReadyByState, nil
 		}
 		if !time.Now().Before(stop) {
 			// WaitThroughWalls deadline: report the LAST classification — the
@@ -394,6 +427,22 @@ func probeReadiness(ctx context.Context, t Tmux, server, paneID, buffer, settled
 		return probeNotYet, &ParkedError{Snippet: readySnippet(settled)}
 	}
 	return probeNotYet, nil
+}
+
+// hasLoginWall reports Claude Code's login-wall notice: a capture line whose
+// content ends with loginWallSignature and is preceded by nothing or by at
+// least two spaces — the right-aligned notice slot. A transcript line that
+// merely quotes the phrase inline does not match, so a healthy agent whose
+// conversation mentions it is never refused delivery. ANSI escapes are
+// stripped first: readiness captures carry them (capture-pane -e). Pure.
+func hasLoginWall(capture string) bool {
+	for _, line := range strings.Split(ansiEscapeRe.ReplaceAllString(capture, ""), "\n") {
+		head, ok := strings.CutSuffix(strings.TrimRight(line, " \t\r"), loginWallSignature)
+		if ok && (strings.TrimSpace(head) == "" || strings.HasSuffix(head, "  ")) {
+			return true
+		}
+	}
+	return false
 }
 
 // readySnippet extracts the trailing fragment of a capture for the ErrNotReady

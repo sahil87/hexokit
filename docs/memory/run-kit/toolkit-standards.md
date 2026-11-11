@@ -334,16 +334,18 @@ the seventeenth surface measured against the same checks
   window is created), 2 usage (malformed address or
   layout, unknown surface, flag conflicts, arg counts, a `tab new` positional
   without `--`, `--ready` without `--json` or without a command, `--timeout`
-  without `--ready`, `--no-shell-fallback` without a command, a negative
+  without `--ready`, `--no-shell-fallback` or `--no-shell-profile` without a
+  command, a negative
   `--timeout`): every nested member
   re-wraps its `Args` validator with `usageArgs` at its own add site (root's
   central wrap loop covers only direct children — the `code.go` idiom), and an
   `-L` naming a foreign server without an explicit `@N` is a usage error.
 - **The `skill` standard teaches the family** — the core bundle
   `docs/site/skill.md` carries a "drive the tab UI" capability line —
-  `rk tab new [--layout L] [--name N] [--json] [--ready] [-- CMD…]` with the
-  argv-after-`--` rule, the `-- sh -c "…"` expansion recipe, the shell-fallback
-  / `--no-shell-fallback` note, and the standard `--json` envelope
+  `rk tab new [--layout L] [--name N] [--json] [--ready] [--no-shell-profile] [-- CMD…]`
+  with the argv-after-`--` rule, the `-- sh -c "…"` expansion recipe, the
+  interactive-shell default (rc-file exports present) / `--no-shell-profile`
+  note, the shell-fallback / `--no-shell-fallback` note, and the standard `--json` envelope
   (`{"ok":true,"result":{session, window_id, pane_id}}`) — and one
   quickref row per verb group; `docs/site/skill/display.md`'s follow-up-moves
   section teaches `rk tab web ls|select|rm` and `rk tab layout` after the
