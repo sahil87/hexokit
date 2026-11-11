@@ -1,0 +1,58 @@
+id: 7iz0
+name: 261111-7iz0-operator-state-engine
+created: 2026-11-11T07:42:21Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 14
+    acceptance_count: 27
+    acceptance_completed: 27
+confidence:
+    certain: 9
+    confident: 11
+    tentative: 0
+    unresolved: 0
+    score: 3.5
+    fuzzy: true
+    dimensions:
+        signal: 74.0
+        reversibility: 77.5
+        competence: 83.5
+        disambiguation: 77.3
+stage_metrics:
+    intake: {started_at: "2026-11-11T07:42:21Z", driver: fab-new, iterations: 1, completed_at: "2026-11-11T07:51:57Z"}
+    apply: {started_at: "2026-11-11T07:51:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T08:49:36Z"}
+    review: {started_at: "2026-11-11T08:49:36Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T08:56:56Z"}
+    hydrate: {started_at: "2026-11-11T08:56:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T08:59:34Z"}
+    ship: {started_at: "2026-11-11T08:59:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T09:00:26Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1120
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 6313
+    deleted: 5
+    net: 6308
+    excluding:
+        added: 5665
+        deleted: 0
+        net: 5665
+    tests:
+        added: 2847
+        deleted: 0
+        net: 2847
+    computed_at: "2026-11-11T09:00:26Z"
+    computed_at_stage: ship
+summary: 'Operator state engine: new operator-state memory (internal/operator schema, notes, locked store, rk operator track verbs, explicit adopt); backend-packages row, cli operator row, toolkit-standards surface check, cron note'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-11T09:00:26Z

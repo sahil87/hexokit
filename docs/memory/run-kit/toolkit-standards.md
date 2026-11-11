@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, HEAD-build audit rule, per-standard PASS (help-dump, skill, principles, update, version, install-composition). Covers P9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator` (incl. `operator request`)/`gui`/`mcp`/`board` + the `mux` and `cron` families."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, HEAD-build audit rule, per-standard PASS (help-dump, skill, principles, update, version, install-composition). Covers P9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator` (incl. `operator request`/`track`/`adopt`)/`gui`/`mcp`/`board` + the `mux` and `cron` families."
 ---
 # Toolkit Standards Conformance
 
@@ -931,6 +931,29 @@ surface measured against the same checks (sjs1):
   `TestSkillTopics*` guards) teaches `--list`, the window/server split, and the
   `queued:true` meaning; the README command-reference row carries
   `request <template>` (readme-extraction stays closed over the tree).
+
+The `rk operator track` family and `rk operator adopt` (`operator_track.go`,
+`operator_adopt.go` — see [cli](/run-kit/architecture/cli.md) § CLI
+Subcommands, `operator` row, and [operator-state](/run-kit/operator-state.md))
+are measured against the same checks (261111-7iz0-operator-state-engine):
+
+- **help-dump: registered on the existing `operator` parent.** Both register
+  unconditionally on `operatorCmd` with `Short`/`Long` blocks, so the tree walk
+  dumps `operator adopt` and `operator track` with its eight verbs and no
+  help-dump code change or fixture edit is needed; the contract is
+  platform-stable. Help text carries Examples and Exit codes sections and no
+  backticks in flag help (pflag would read them as the flag's metavar).
+- **Principle 9: the verb's result is data, warnings are chatter.** Report
+  lines (`<action> <id>`, `list` rows, the `adopted … skipped …` summary and its
+  per-id lines) are `Dataf` and survive `--quiet`; `--json` emits exactly one
+  envelope document through the shared sink, and adopt's trim warnings are
+  `Notef` chatter on stderr.
+- **Exit-code convention (P4)** — 0 success (adopt's nothing-to-adopt and
+  dry-run included), 1 operational (duplicate id, no such item, state file
+  busy or unreadable, running legacy autopilot queue), 2 usage (the library's
+  `InvalidError` class and flag-shape errors).
+- **The `skill` and README surfaces do not list the verbs** — they are
+  documented through `--help` and `rk help-dump` only.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

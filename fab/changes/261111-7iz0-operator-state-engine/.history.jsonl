@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-11T07:42:21Z"}
+{"args":"Plan step R1 (Operator state engine: schema, rk operator track, rk operator adopt) from operator-to-hexokit plan","cmd":"fab-new","event":"command","ts":"2026-11-11T07:42:21Z"}
+{"delta":"+0.0","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-11-11T07:44:54Z"}
+{"delta":"-0.3","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-11-11T07:45:09Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-11T07:51:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-11T07:51:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-11T08:49:36Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-11-11T08:56:56Z"}
+{"event":"review","result":"passed","ts":"2026-11-11T08:56:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-11-11T08:59:34Z"}
