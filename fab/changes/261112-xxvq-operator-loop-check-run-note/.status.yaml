@@ -8,8 +8,8 @@ progress:
     intake: done
     apply: done
     review: done
-    hydrate: active
-    ship: pending
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
@@ -32,24 +32,26 @@ stage_metrics:
     intake: {started_at: "2026-11-12T15:49:50Z", driver: fab-new, iterations: 1, completed_at: "2026-11-12T17:15:49Z"}
     apply: {started_at: "2026-11-12T18:21:18Z", driver: fab-fff, iterations: 4, completed_at: "2026-11-12T18:29:10Z"}
     review: {started_at: "2026-11-12T18:29:10Z", driver: fab-fff, iterations: 4, completed_at: "2026-11-12T18:39:13Z"}
-    hydrate: {started_at: "2026-11-12T18:39:13Z", driver: fab-fff, iterations: 1}
+    hydrate: {started_at: "2026-11-12T18:39:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-12T18:47:02Z"}
+    ship: {started_at: "2026-11-12T18:47:02Z", driver: fab-fff, iterations: 1}
 prs: []
 change_type_source: explicit
 base_branch: main
 true_impact:
-    added: 5270
-    deleted: 72
-    net: 5198
+    added: 6018
+    deleted: 113
+    net: 5905
     excluding:
-        added: 4482
-        deleted: 66
-        net: 4416
+        added: 5152
+        deleted: 107
+        net: 5045
     tests:
-        added: 2268
-        deleted: 0
-        net: 2268
-    computed_at: "2026-11-12T18:29:10Z"
-    computed_at_stage: apply
+        added: 2753
+        deleted: 1
+        net: 2752
+    computed_at: "2026-11-12T18:47:02Z"
+    computed_at_stage: hydrate
+summary: 'operator loop: run: operator-loop cron entry kind (log-derived ladder, tick seed/transcribe seams, seeding + legacy mute), operatorloop runner, _rk-operator run window, run-exec wrapper, operator-run role'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-12T18:39:13Z
+last_updated: 2026-11-12T18:47:02Z
