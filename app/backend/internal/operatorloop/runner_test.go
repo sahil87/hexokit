@@ -2,10 +2,12 @@ package operatorloop
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"rk/internal/operator"
+	"rk/internal/selfpath"
 	"rk/internal/tmux"
 )
 
@@ -282,5 +284,22 @@ func TestStateFileExists(t *testing.T) {
 	statePathFn = func(context.Context, string) (string, error) { return "", errBoom }
 	if StateFileExists(context.Background(), testServer) {
 		t.Fatal("an unresolvable state path must read as absent")
+	}
+}
+
+// TestDefaultWrapperBinaryIsTheRunningExecutable: the run window must start
+// the binary that is running the daemon, never the installed launcher symlink
+// (a non-brew daemon would otherwise run an rk that has no run-exec verb).
+func TestDefaultWrapperBinaryIsTheRunningExecutable(t *testing.T) {
+	want, err := selfpath.Stable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := selfPathFn()
+	if err != nil || got != want {
+		t.Fatalf("selfPathFn() = %q, %v; want the running executable %q", got, err, want)
+	}
+	if launcher, err := selfpath.Launcher(); err == nil && strings.HasPrefix(got, filepath.Dir(launcher)) {
+		t.Errorf("wrapper path %q is inside the launcher directory", got)
 	}
 }

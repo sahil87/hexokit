@@ -21,6 +21,7 @@ type TmuxSeam interface {
 	ResolveAgentPane(ctx context.Context, windowTarget, server string) (string, error)
 	PaneFacts(ctx context.Context, paneID, server string) (tmux.PaneFacts, error)
 	PaneExists(ctx context.Context, paneID, server string) (bool, error)
+	ListRunWindows(ctx context.Context, server string) ([]tmux.RunWindow, error)
 }
 
 // realTmux is the production seam — pure delegation to internal/tmux.
@@ -46,6 +47,10 @@ func (realTmux) PaneExists(ctx context.Context, paneID, server string) (bool, er
 	return tmux.PaneExists(ctx, paneID, server)
 }
 
+func (realTmux) ListRunWindows(ctx context.Context, server string) ([]tmux.RunWindow, error) {
+	return tmux.ListOperatorRunWindows(ctx, server)
+}
+
 // GatherFactsLive is the production GatherFacts binding — the real tmux seam
 // (internal/tmux via realTmux, which stays package-private so tests keep
 // substituting fakes). Callers outside this package (the HTTP API wave) use
@@ -61,10 +66,13 @@ func GatherFactsLive(ctx context.Context, server string, entries []Entry) Server
 type ServerFacts struct {
 	States  map[string]string
 	Targets map[string]TargetFacts
-	// RunPanes is the set of pane ids inside operator-run windows
-	// (Role == tmux.RoleOperatorRun) — the loop entry's wake-exclusion input.
+	// RunPanes is the set of live pane ids inside run windows — the loop
+	// entry's wake-exclusion input.
 	RunPanes map[string]bool
-	Diags    []Diagnostic
+	// RunInFlight is true while a run window is live: role operator-run, a
+	// valid run id, and at least one live pane (tmux.ListOperatorRunWindows).
+	RunInFlight bool
+	Diags       []Diagnostic
 }
 
 // GatherFacts resolves every entry's target on one live server and reads each
@@ -107,12 +115,16 @@ func GatherFacts(ctx context.Context, server string, entries []Entry, seam TmuxS
 		}
 	}
 	out.States = states
-	for _, wf := range windows {
-		if wf.window.Role != tmux.RoleOperatorRun {
-			continue
+	if hasLoopEntry(entries) {
+		runWins, err := seam.ListRunWindows(ctx, server)
+		if err != nil {
+			diag("", "enumeration-failed", fmt.Sprintf("list run windows: %v", err))
 		}
-		for _, p := range wf.window.Panes {
-			out.RunPanes[p.PaneID] = true
+		for _, w := range runWins {
+			out.RunInFlight = true
+			for _, id := range w.PaneIDs {
+				out.RunPanes[id] = true
+			}
 		}
 	}
 
@@ -199,4 +211,15 @@ func GatherFacts(ctx context.Context, server string, entries []Entry, seam TmuxS
 		}
 	}
 	return out
+}
+
+// hasLoopEntry reports whether any entry is the operator loop — the only kind
+// that reads the run-window facts.
+func hasLoopEntry(entries []Entry) bool {
+	for _, e := range entries {
+		if e.IsLoop() {
+			return true
+		}
+	}
+	return false
 }

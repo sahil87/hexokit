@@ -35,7 +35,7 @@ var (
 	launchWindowFn    = tmux.LaunchOperatorRunWindow
 	operatorRootFn    = tmux.GetOperatorRoot
 	resolveLauncherFn = riff.ResolveHeadlessAgent
-	selfPathFn        = selfpath.LauncherOrStable
+	selfPathFn        = selfpath.Stable
 	homeDirFn         = os.UserHomeDir
 	newRunIDFn        = func() (string, error) { return NewRunID(nowTime()) }
 )

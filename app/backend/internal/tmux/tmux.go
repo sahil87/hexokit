@@ -2863,6 +2863,26 @@ func hasSessionPrefix(ctx context.Context, prefix []string, session string) bool
 	return Run(ctx, hasSessionArgv(prefix, session), RunOpts{}) == nil
 }
 
+// ensureSessionCapturingPlaceholder guarantees session exists, creating it
+// detached when absent. It returns the id of the placeholder window tmux put
+// in the session it just created ("" when the session already existed — an
+// adopted session keeps its windows — or the id could not be read; a stray
+// placeholder is cosmetic). Callers kill the placeholder once the window they
+// are placing exists, so the session ends holding exactly that window.
+func ensureSessionCapturingPlaceholder(ctx context.Context, prefix []string, session string) (string, error) {
+	if hasSessionPrefix(ctx, prefix, session) {
+		return "", nil
+	}
+	if err := Run(ctx, newDetachedSessionArgv(prefix, session, ServerBirthDir()), RunOpts{}); err != nil {
+		return "", err
+	}
+	out, err := RunOutput(ctx, append(append([]string{}, prefix...), "list-windows", "-t", ExactSessionTarget(session), "-F", "#{window_id}"), RunOpts{})
+	if err != nil {
+		return "", nil
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // ensureDetachedSession creates session detached when missing (idempotent),
 // anchored to ServerBirthDir for session_path hygiene.
 func ensureDetachedSession(ctx context.Context, prefix []string, session string) error {
@@ -2912,17 +2932,9 @@ func MoveWindowIntoOperatorSession(ctx context.Context, prefix []string, windowI
 	if session == OperatorSessionName {
 		return nil
 	}
-	// Capture the placeholder only when WE create the session (it did not exist
-	// before this call); an adopted session keeps its windows.
-	var placeholder string
-	if !hasSessionPrefix(ctx, prefix, OperatorSessionName) {
-		if err := Run(ctx, newDetachedSessionArgv(prefix, OperatorSessionName, ServerBirthDir()), RunOpts{}); err != nil {
-			return err
-		}
-		out, err := RunOutput(ctx, append(append([]string{}, prefix...), "list-windows", "-t", ExactSessionTarget(OperatorSessionName), "-F", "#{window_id}"), RunOpts{})
-		if err == nil {
-			placeholder = strings.TrimSpace(string(out))
-		}
+	placeholder, err := ensureSessionCapturingPlaceholder(ctx, prefix, OperatorSessionName)
+	if err != nil {
+		return err
 	}
 	if err := Run(ctx, append(append([]string{}, prefix...), "move-window", "-s", windowID, "-t", ExactSessionTarget(OperatorSessionName)), RunOpts{}); err != nil {
 		return err
@@ -2986,17 +2998,9 @@ func DemoteWindowFromOperatorSession(ctx context.Context, prefix []string, windo
 		// name — moving out to itself is meaningless; leave the window in place.
 		return nil
 	}
-	// Capture the placeholder only when WE create the destination; an existing
-	// destination keeps its windows.
-	var placeholder string
-	if !hasSessionPrefix(ctx, prefix, dest) {
-		if err := Run(ctx, newDetachedSessionArgv(prefix, dest, ServerBirthDir()), RunOpts{}); err != nil {
-			return err
-		}
-		out, err := RunOutput(ctx, append(append([]string{}, prefix...), "list-windows", "-t", ExactSessionTarget(dest), "-F", "#{window_id}"), RunOpts{})
-		if err == nil {
-			placeholder = strings.TrimSpace(string(out))
-		}
+	placeholder, err := ensureSessionCapturingPlaceholder(ctx, prefix, dest)
+	if err != nil {
+		return err
 	}
 	if err := Run(ctx, append(append([]string{}, prefix...), "move-window", "-s", windowID, "-t", ExactSessionTarget(dest)), RunOpts{}); err != nil {
 		return err

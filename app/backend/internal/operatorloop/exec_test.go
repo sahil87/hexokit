@@ -91,8 +91,7 @@ func TestExecSuccessRecordsOutcomeAndNoNote(t *testing.T) {
 	}
 }
 
-// TestExecNonZeroWithoutOutcomeNotesChangedItems covers the R10 failure
-// scenario: exit 1 with no outcome line leaves a `by: run` note on every
+// TestExecNonZeroWithoutOutcomeNotesChangedItems: exit 1 with no outcome line leaves a `by: run` note on every
 // changed item still present, records exit 1 and pushes once.
 func TestExecNonZeroWithoutOutcomeNotesChangedItems(t *testing.T) {
 	r := newRig(t)

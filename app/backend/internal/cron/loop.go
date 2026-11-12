@@ -93,22 +93,39 @@ func isLoopRateOutcome(outcome string) bool {
 		strings.HasPrefix(outcome, outcomeCheckFailedPrefix)
 }
 
-// LoopLadder derives a loop entry's backoff ladder purely from its own log:
-// the anchor is the newest own line that is not `no change` (any run outcome,
-// `rescheduled`, `skipped-busy`, …) — created_by.at when there is none — and
-// each consecutive `no change` line after it climbs one rung. A pure function
-// of (entry, log), so the evaluator stays stateless.
-func LoopLadder(e Entry, log []LogLine) Ladder {
+// LoopRung is a loop entry's log-derived backoff position: the newest own
+// line's time (created_by.at when the entry has none) and how many consecutive
+// `no change` lines end its history.
+type LoopRung struct {
+	Anchor time.Time
+	Rung   int
+}
+
+// NextFire is the newest own line plus one gap at the current rung, so every
+// gap between consecutive checks is at most max no matter which fire (schedule,
+// wake, catch-up) wrote the preceding lines.
+func (l LoopRung) NextFire(min, max time.Duration) time.Time {
+	return l.Anchor.Add(gapAfter(min, max, l.Rung))
+}
+
+// Due reports whether the next check has come due by now.
+func (l LoopRung) Due(now time.Time, min, max time.Duration) bool {
+	return !now.Before(l.NextFire(min, max))
+}
+
+// LoopLadder derives a loop entry's backoff position purely from its own log:
+// each consecutive `no change` line at the end of the history climbs one rung,
+// and any other own line (a run outcome, `rescheduled`, `skipped-busy`, …)
+// ends the count. A pure function of (entry, log), so the evaluator stays
+// stateless.
+func LoopLadder(e Entry, log []LogLine) LoopRung {
 	own := OwnDeliveries(log, e.ID)
-	rung := 0
-	anchor := time.Unix(e.CreatedBy.At, 0)
-	for i := len(own) - 1; i >= 0; i-- {
-		if own[i].Outcome == OutcomeNoChange {
-			rung++
-			continue
-		}
-		anchor = time.Unix(own[i].TS, 0)
-		break
+	l := LoopRung{Anchor: time.Unix(e.CreatedBy.At, 0)}
+	if len(own) > 0 {
+		l.Anchor = time.Unix(own[len(own)-1].TS, 0)
 	}
-	return Ladder{Anchor: anchor, Rung: rung}
+	for i := len(own) - 1; i >= 0 && own[i].Outcome == OutcomeNoChange; i-- {
+		l.Rung++
+	}
+	return l
 }

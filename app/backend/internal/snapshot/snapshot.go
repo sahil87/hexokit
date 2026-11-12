@@ -160,9 +160,17 @@ func CaptureServer(ctx context.Context, server string) (*Snapshot, error) {
 	// and panes by index. Determinism matters — the store's write dedup
 	// compares serialized content, so equal layouts must serialize equally.
 	bySession := map[string][]Window{}
+	runOnly := map[string]bool{} // sessions that held run windows and nothing else
 	for _, w := range windows {
+		if w.Role == tmux.RoleOperatorRun {
+			if _, seen := bySession[w.Session]; !seen {
+				runOnly[w.Session] = true
+			}
+			continue
+		}
 		win := layoutWindowToSnapshot(w, panes[w.WindowID])
 		bySession[w.Session] = append(bySession[w.Session], win)
+		delete(runOnly, w.Session)
 	}
 
 	sort.Slice(sessions, func(i, j int) bool {
@@ -172,6 +180,9 @@ func CaptureServer(ctx context.Context, server string) (*Snapshot, error) {
 		return sessions[i].Name < sessions[j].Name
 	})
 	for _, ls := range sessions {
+		if runOnly[ls.Name] {
+			continue
+		}
 		sess := Session{
 			Name:      ls.Name,
 			CreatedAt: ls.Created,
@@ -184,6 +195,10 @@ func CaptureServer(ctx context.Context, server string) (*Snapshot, error) {
 
 	return snap, nil
 }
+
+// Run windows (tmux.RoleOperatorRun) are never captured: a run is an ephemeral
+// process whose wrapper a restore cannot resume, and a restored shell window
+// carrying the role would read as a run in flight forever.
 
 // layoutWindowToSnapshot maps one layout-read window plus its panes onto the
 // snapshot Window shape. The single mapping shared by CaptureServer and
@@ -236,6 +251,9 @@ func CaptureWindow(ctx context.Context, server, windowID string) (Window, string
 	}
 	if !found {
 		return Window{}, "", fmt.Errorf("capture %s: window %s is gone", server, windowID)
+	}
+	if lw.Role == tmux.RoleOperatorRun {
+		return Window{}, "", fmt.Errorf("capture %s: window %s is an operator run window", server, windowID)
 	}
 	panes, err := listLayoutPanesForWindow(ctx, server, windowID)
 	if err != nil {

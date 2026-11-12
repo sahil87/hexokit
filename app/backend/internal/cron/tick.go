@@ -303,6 +303,40 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 	cursor, _ := ReadWakeCursor(cursorPath) // absent/corrupt = cold start
 
 	logLines := ReadLog(logPath)
+
+	// appendLine mirrors every on-disk append into logLines so the rate cap
+	// (and the evaluation below) sees lines written earlier in this same tick.
+	// It reports whether the line is on disk.
+	appendLine := func(entryID string, line LogLine) bool {
+		if err := AppendLog(logPath, line); err != nil {
+			diags = append(diags, Diagnostic{Server: slug, EntryID: entryID, Reason: "log-append-failed", Detail: err.Error()})
+			return false
+		}
+		logLines = append(logLines, line)
+		fires++
+		return true
+	}
+
+	// Finished operator-loop runs go first, before evaluation: the tick is the
+	// cron log's only writer, so run outcomes reach it only here, and a run's
+	// line must already be in the log the evaluator reads (it re-anchors the
+	// loop's ladder, so the entry is not due again in this same tick). A run is
+	// marked logged only once its line is on disk: either appended just now or
+	// already present (a crash between append and mark) — a failed append
+	// leaves the record unmarked so the next tick retries it.
+	if loop.transcribe != nil {
+		for _, line := range loop.transcribe(ctx, slug) {
+			onDisk := runLogged(logLines, line.Run)
+			if !onDisk {
+				line.TS = now.Unix()
+				onDisk = appendLine(line.Entry, line)
+			}
+			if onDisk && loop.logged != nil && line.Run != "" {
+				loop.logged(ctx, slug, line.Run)
+			}
+		}
+	}
+
 	// gcLog is the pre-disposition log view the orphan-GC pass derives from.
 	// The capped full-slice keeps the appendLine mirror from writing into it.
 	gcLog := logLines[:len(logLines):len(logLines)]
@@ -315,20 +349,10 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 		Log:     logLines,
 		Cursor:  cursor,
 
-		RunPanes: facts.RunPanes,
+		RunPanes:    facts.RunPanes,
+		RunInFlight: facts.RunInFlight,
 	})
 	diags = append(diags, eval.Diags...)
-
-	// appendLine mirrors every on-disk append into logLines so the rate cap
-	// sees lines written earlier in this same tick.
-	appendLine := func(entryID string, line LogLine) {
-		if err := AppendLog(logPath, line); err != nil {
-			diags = append(diags, Diagnostic{Server: slug, EntryID: entryID, Reason: "log-append-failed", Detail: err.Error()})
-			return
-		}
-		logLines = append(logLines, line)
-		fires++
-	}
 
 	// rateCapped reports (and records) a suppression when the target is at or
 	// past the per-target cap. The rate-capped line IS appended: it is the
@@ -347,22 +371,6 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 			Outcome: "rate-capped",
 		})
 		return true
-	}
-
-	// Finished operator-loop runs: the tick is the cron log's only writer, so
-	// run outcomes reach it only here. logLines already mirrors earlier
-	// appends, and a run id the log already carries (a crash between append
-	// and the logged mark) is marked, never re-appended.
-	if loop.transcribe != nil {
-		for _, line := range loop.transcribe(ctx, slug) {
-			if !runLogged(logLines, line.Run) {
-				line.TS = now.Unix()
-				appendLine(line.Entry, line)
-			}
-			if loop.logged != nil && line.Run != "" {
-				loop.logged(ctx, slug, line.Run)
-			}
-		}
 	}
 
 	// Missed cron occurrences: one `missed` line per entry per gap, independent

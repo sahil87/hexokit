@@ -70,9 +70,10 @@ func waitFor(t *testing.T, what string, timeout time.Duration, cond func() bool)
 // server and state home (never the live daemon or the user's tmux servers): a
 // run is launched through the real runner and wrapper, the "daemon" is dropped
 // (a fresh Deps value — nothing the loop needs lives in memory), and a fresh
-// tick still sees the live window as busy, then transcribes the finished run
+// tick leaves the loop quiet while the window lives, then transcribes the finished run
 // into exactly one `ran · stub acted · …` line, with the run's note on the item
-// and no second line on the tick after.
+// and no second line on the tick after (the loop's ladder is re-anchored on the
+// run's line, so it is not due again).
 func TestRestartSurvival(t *testing.T) {
 	server := isolatedTmux(t)
 	ctx := context.Background()
@@ -156,12 +157,17 @@ func TestRestartSurvival(t *testing.T) {
 	}
 	checkedAt := loadLastCheck(t, statePath)
 
+	// The run window is the only window in _rk-operator (no placeholder shell).
+	opWins, err := tmux.ListWindows(ctx, tmux.OperatorSessionName, server)
+	if err != nil || len(opWins) != 1 || opWins[0].Role != tmux.RoleOperatorRun {
+		t.Fatalf("_rk-operator windows = %+v, err %v", opWins, err)
+	}
+
 	// Daemon #2 (the first one is gone): the window is still alive, so the
-	// fire is skipped-busy and Check is not called again.
+	// loop does not fire at all — no extra row, and Check is not called again.
 	tick()
-	lines := logLines()
-	if len(lines) != 1 || lines[0].Outcome != "skipped-busy: run "+runID {
-		t.Fatalf("log after the second daemon's tick = %+v", lines)
+	if lines := logLines(); len(lines) != 0 {
+		t.Fatalf("log after the second daemon's tick = %+v, want nothing while the run is alive", lines)
 	}
 	if got := loadLastCheck(t, statePath); got != checkedAt {
 		t.Errorf("Check ran while the run window was alive: last_check_at %q → %q", checkedAt, got)
@@ -180,11 +186,11 @@ func TestRestartSurvival(t *testing.T) {
 	// Daemon #3: transcribes exactly one line; the next tick adds nothing.
 	tick()
 	tick()
-	lines = logLines()
-	if len(lines) != 2 {
-		t.Fatalf("log = %+v, want the skipped-busy line plus exactly one ran line", lines)
+	lines := logLines()
+	if len(lines) != 1 {
+		t.Fatalf("log = %+v, want exactly one ran line", lines)
 	}
-	if ran := lines[1]; ran.Run != runID || !regexp.MustCompile(`^ran · stub acted · \d+s$`).MatchString(ran.Outcome) {
+	if ran := lines[0]; ran.Run != runID || !regexp.MustCompile(`^ran · stub acted · \d+s$`).MatchString(ran.Outcome) {
 		t.Fatalf("ran line = %+v", ran)
 	}
 	if rec, _ := ReadRecord(recPath); !rec.Logged {

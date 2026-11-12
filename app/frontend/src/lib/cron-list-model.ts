@@ -5,10 +5,10 @@
 // so the tabs re-derive on the SSE cadence alone.
 
 import { formatDuration } from "@/lib/format";
+import { OPERATOR_LOOP_RUN } from "@/lib/cron-schedule";
 import type { CronEntry } from "@/api/client";
 
-/** The loop entry's `run` value and its target-chip label. */
-export const OPERATOR_LOOP_RUN = "operator-loop";
+/** The loop entry's target-chip label. */
 export const OPERATOR_LOOP_LABEL = "operator loop";
 
 /** True for the target-less operator-loop entry (no target, no payload). */

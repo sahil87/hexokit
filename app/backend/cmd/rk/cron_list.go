@@ -65,14 +65,14 @@ type cronListRecord struct {
 	Target          string          `json:"target"`
 	// Run mirrors the on-disk `run` key of a target-less loop entry; omitted
 	// for every typed-payload entry so their fixed key set is unchanged.
-	Run     string   `json:"run,omitempty"`
-	Deliver string   `json:"deliver"`
-	IfAbsent        string          `json:"if_absent"`
-	Respawn         []string        `json:"respawn"`
-	Pinned          bool            `json:"pinned"`
-	Muted           bool            `json:"muted"`
-	MutedUntil      int64           `json:"muted_until,omitempty"`
-	LastFired       int64           `json:"last_fired"`
+	Run        string   `json:"run,omitempty"`
+	Deliver    string   `json:"deliver"`
+	IfAbsent   string   `json:"if_absent"`
+	Respawn    []string `json:"respawn"`
+	Pinned     bool     `json:"pinned"`
+	Muted      bool     `json:"muted"`
+	MutedUntil int64    `json:"muted_until,omitempty"`
+	LastFired  int64    `json:"last_fired"`
 	// OrphanedSince/ExpiresAt are the log-derived orphan streak (unix
 	// seconds; role targets always zero, ExpiresAt zero for pinned). The CLI
 	// gathers no live facts, so a target that re-resolved without a logged

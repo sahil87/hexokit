@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -46,13 +45,8 @@ const (
 	RunWindowPrefix = "run-"
 )
 
-// runIDPattern is the run id grammar: a sortable UTC timestamp, a dash, four
-// random [a-z0-9]. Every id is validated against it before it reaches a path
-// or a tmux argv.
-var runIDPattern = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}-[a-z0-9]{4}$`)
-
 // ValidRunID reports whether id is a well-formed run id.
-func ValidRunID(id string) bool { return runIDPattern.MatchString(id) }
+func ValidRunID(id string) bool { return validate.ValidRunID(id) }
 
 // NewRunID generates `YYYYMMDDTHHMMSS-xxxx` for now (UTC).
 func NewRunID(now time.Time) (string, error) {

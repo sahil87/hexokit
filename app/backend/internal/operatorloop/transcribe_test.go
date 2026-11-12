@@ -3,6 +3,7 @@ package operatorloop
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"rk/internal/tmux"
@@ -156,4 +157,24 @@ func mustRecordPath(t *testing.T, r *rig, id string) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// TestMarkLostDoesNotOverwriteACleanEnd: the wrapper records a clean end
+// between Transcribe's read (no end yet) and the window-gone write; the run
+// must still transcribe as `ran`, not `run-lost`.
+func TestMarkLostDoesNotOverwriteACleanEnd(t *testing.T) {
+	r := newRig(t)
+	stale := Record{ID: runA, Server: testServer, Entry: "lp01", FiredAt: "2026-11-12T10:15:00Z"}
+	path := r.writeRun(ended(runA, intp(0), "stub acted"))
+
+	got := markLost(path, stale, lostWindowGone)
+	if got.Lost != "" || !got.Ended() || got.Outcome != "stub acted" {
+		t.Fatalf("record = %+v", got)
+	}
+	if out := outcomeFor(got); !strings.HasPrefix(out, "ran · stub acted") {
+		t.Errorf("outcome = %q", out)
+	}
+	if onDisk, _ := ReadRecord(path); onDisk.Lost != "" {
+		t.Errorf("on-disk record was rewritten as lost: %+v", onDisk)
+	}
 }

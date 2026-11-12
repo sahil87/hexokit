@@ -74,6 +74,10 @@ type EvalInput struct {
 	// entry's wake fingerprint excludes them so the run's own agent going idle
 	// or vanishing never wakes the loop that launched it.
 	RunPanes map[string]bool
+	// RunInFlight reports a live operator-run window on the server: a loop
+	// entry does not fire while its run is going (the runner's own busy gate
+	// stays as the race backstop).
+	RunInFlight bool
 }
 
 // EvalResult carries the due fires, the due-but-target-unresolved fires, the
@@ -122,6 +126,14 @@ func Evaluate(in EvalInput) EvalResult {
 			continue
 		}
 
+		if e.IsLoop() && in.RunInFlight {
+			// A launch is Held and writes no line, so without this the entry
+			// stays due and the next tick adds a skipped-busy row for a run
+			// that is simply still going. The wake cursor is left untouched:
+			// a pending edge fires once the run is over.
+			diag("run-in-flight", "operator run window alive")
+			continue
+		}
 		facts := in.Facts[e.ID]
 		if e.IsLoop() {
 			// A loop entry fires a Go function: there is no target to resolve,

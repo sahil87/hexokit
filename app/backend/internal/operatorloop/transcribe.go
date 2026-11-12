@@ -95,10 +95,14 @@ func Transcribe(ctx context.Context, server string) []cron.LogLine {
 
 // markLost records that a run ended without an exit status.
 func markLost(path string, rec Record, reason string) Record {
+	// Lost is set only while the re-read record still has no end: the wrapper
+	// may have recorded a clean end between Transcribe's read and this write,
+	// and that run must not be rewritten as lost.
 	mut := func(r *Record) {
-		if r.EndedAt == "" {
-			r.EndedAt = FormatTime(nowTime())
+		if r.EndedAt != "" {
+			return
 		}
+		r.EndedAt = FormatTime(nowTime())
 		r.Lost = reason
 	}
 	if err := UpdateRecord(path, mut); err != nil {
