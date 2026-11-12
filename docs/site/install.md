@@ -68,10 +68,10 @@ rk daemon autostart off         # remove the registration; the running daemon ke
   sudo loginctl enable-linger "$USER"
   ```
 
-  Without lingering, the unit runs at your first login, and the daemon is torn down when your last session logs out. `autostart status` and `rk doctor` say `on (login only — enable lingering for boot)` until you enable it. A machine without a systemd user manager gets an error naming that requirement.
-- **macOS** — a LaunchAgent, `~/Library/LaunchAgents/ai.shll.hexokit.daemon.plist`, which starts the daemon at **login** (a boot-time job would have to run as root). Its output goes to `~/.local/state/hexokit/logs/autostart.log`. The [desktop app](#desktop-app) doesn't toggle autostart, and having both start the daemon still ends with one daemon.
+  Without lingering, the unit runs at your first login, and the daemon is torn down when your last session logs out. `autostart status` and `rk doctor` say `on (login only — enable lingering for boot)` until you enable it (or `on (login)` when lingering can't be read). A machine without a systemd user manager gets an error naming that requirement.
+- **macOS** — a LaunchAgent, `~/Library/LaunchAgents/ai.shll.hexokit.daemon.plist`, which starts the daemon at **login** (a boot-time job would have to run as root). Its output goes to `~/.local/state/hexokit/logs/autostart.log`.
 - **Your login profile is the environment.** The daemon is started through your login shell, and every agent HexoKit spawns later inherits that environment. A login shell reads `~/.zprofile` (zsh) or `~/.bash_profile` / `~/.profile` (bash), **not** `~/.zshrc` or `~/.bashrc`, so keep `PATH`, credentials and any `TMUX_TMPDIR` export in the login profile.
-- **Where it shows.** `rk daemon autostart status` prints `Autostart: on (boot)`, `on (login)`, `on (login only — enable lingering for boot)`, `registered but disabled` or `off`, plus hints (a stale registration after you moved `rk` or changed your shell — re-run `on` to refresh it). `rk doctor` has a `daemon autostart` row, and the Host page's HexoKit card shows the same line. Both are read-only: turning autostart on or off is always the CLI.
+- **Where it shows.** `rk daemon autostart status` prints `Autostart: on (boot)`, `on (login)`, `on (login only — enable lingering for boot)`, `registered but disabled` or `off`, plus hints (a stale registration after you moved `rk` or changed your shell — re-run `on` to refresh it). `rk doctor` has a `daemon autostart` row, and the Host page's HexoKit card shows the same line. Both are read-only: turning autostart on or off is always the CLI. The [desktop app](#desktop-app) doesn't toggle autostart either, and having both start the daemon still ends with one daemon.
 
 ## Upgrade
 

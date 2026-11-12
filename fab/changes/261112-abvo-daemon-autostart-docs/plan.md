@@ -62,28 +62,28 @@ The core bundle `docs/site/skill.md` SHALL carry exactly one new bullet under `#
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `docs/site/skill.md` has exactly one `rk daemon autostart` bullet under `## Capabilities`, and `app/backend/cmd/rk/skill/skill.md` is byte-identical
-- [ ] A-002 R2: `docs/site/install.md` has a `## Start at boot or login` section matching shipped behavior (verbs, Linux unit + lingering, macOS LaunchAgent, login-shell caveat, doctor/system-card visibility) and a quick-start pointer
-- [ ] A-003 R3: README's daemon prose and command-table row list `autostart`
-- [ ] A-004 R4: daemon-lifecycle memory states the reboot hole, the fix, the Linux lingering caveat, and what stays open
+- [x] A-001 R1: `docs/site/skill.md` has exactly one `rk daemon autostart` bullet under `## Capabilities`, and `app/backend/cmd/rk/skill/skill.md` is byte-identical
+- [x] A-002 R2: `docs/site/install.md` has a `## Start at boot or login` section matching shipped behavior (verbs, Linux unit + lingering, macOS LaunchAgent, login-shell caveat, doctor/system-card visibility) and a quick-start pointer
+- [x] A-003 R3: README's daemon prose and command-table row list `autostart`
+- [ ] A-004 R4: daemon-lifecycle memory states the reboot hole, the fix, the Linux lingering caveat, and what stays open — pending-by-design: R4 is delivered by the hydrate stage, not apply
 
 ### Behavioral Correctness
 
-- [ ] A-005 R2: No doc claims the plan's unshipped behavior (e.g. macOS `on` bootstrapping without `--now`, `on` enabling lingering, any restart/supervision)
+- [x] A-005 R2: No doc claims the plan's unshipped behavior (e.g. macOS `on` bootstrapping without `--now`, `on` enabling lingering, any restart/supervision)
 
 ### Scenario Coverage
 
-- [ ] A-006 R1: `just test-backend` passes, including `TestSkillTopicsMatchCanonical` and `TestSkillTopicsWithinLineBudget` (core ≤ 150 lines)
+- [x] A-006 R1: `just test-backend` passes, including `TestSkillTopicsMatchCanonical` and `TestSkillTopicsWithinLineBudget` (core ≤ 150 lines) — skill tests pass (core 118 lines); unrelated environment-dependent flakes seen in `rk/internal/snapshot` (TempDir cleanup) and `cmd/rk` `TestPortPinRowRealPolicyValues`, different on each run, no Go in this diff
 
 ### Edge Cases & Error Handling
 
-- [ ] A-007 R2: The Linux no-systemd failure and the lingering-off login-only behavior are documented
+- [x] A-007 R2: The Linux no-systemd failure and the lingering-off login-only behavior are documented
 
 ### Code Quality
 
-- [ ] A-008 Pattern consistency: new skill bullet and doc sections follow the surrounding one-line-per-subcommand / prose style
-- [ ] A-009 No unnecessary duplication: memory links to daemon-autostart instead of restating it; site docs don't copy the unit file verbatim
-- [ ] A-010 Toolkit standards: README/site links follow readme-extraction (relative links only into `docs/site/`), skill bundle stays static and ≤150 lines
+- [x] A-008 Pattern consistency: new skill bullet and doc sections follow the surrounding one-line-per-subcommand / prose style
+- [x] A-009 No unnecessary duplication: memory links to daemon-autostart instead of restating it; site docs don't copy the unit file verbatim — site-docs half met; memory half lands with R4 at hydrate
+- [x] A-010 Toolkit standards: README/site links follow readme-extraction (relative links only into `docs/site/`), skill bundle stays static and ≤150 lines
 
 ## Notes
 
