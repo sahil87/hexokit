@@ -319,6 +319,11 @@ type Server struct {
 	// backoff next-fire.
 	cronFactsFn func(ctx context.Context, server string, entries []cron.Entry) cron.ServerFacts
 
+	// operatorStateFn reads one server's operator state for GET
+	// /api/operator/notes. Nil falls back to sessions.ReadOperatorStateForServer
+	// (a live tmux socket-path query); tests inject a fixed state.
+	operatorStateFn func(ctx context.Context, server string) (cron.OperatorState, bool)
+
 	// The gui*Fn group is the injectable seam layer behind GET /api/gui/{id},
 	// POST /api/gui/{id}/restart, POST /api/gui/{id}/launch,
 	// POST /api/gui/{id}/resize, and the gui.enabled/gui.geometry settings POST
@@ -1037,6 +1042,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/cron/mute", s.handleCronMute)
 	r.Post("/api/cron/pin", s.handleCronPin)
 	r.Post("/api/cron/edit", s.handleCronEdit)
+	r.Get("/api/operator/notes", s.handleOperatorNotes)
 	r.Post("/api/sessions/{session}/color", s.handleSessionColor)
 	r.Post("/api/sessions/{session}/flair", s.handleSessionFlair)
 	r.Post("/api/sessions/{session}/kill", s.handleSessionKill)

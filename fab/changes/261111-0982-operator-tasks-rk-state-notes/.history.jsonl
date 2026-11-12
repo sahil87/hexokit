@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-11T13:08:18Z"}
+{"args":"Plan step R3 (Drawer + sessions payload read rk's own operator state; notes in Tasks) from fab/plans/sahil/26-11-10-operator-to-hexokit.md","cmd":"fab-new","event":"command","ts":"2026-11-11T13:08:18Z"}
+{"delta":"+0.0","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-11-11T13:09:50Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-11T13:11:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-11T13:13:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-11T13:44:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-11-11T13:49:53Z"}
+{"event":"review","result":"passed","ts":"2026-11-11T13:49:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-11-11T13:55:26Z"}

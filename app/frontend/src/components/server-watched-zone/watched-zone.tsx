@@ -7,11 +7,12 @@ import type { ProjectSession } from "@/types";
 /**
  * The WATCHED zone — the tmux Server page's detail table of the server's
  * operator watchlist. One row per window with
- * `monitored === true` (the fab operator state file's monitored map, joined
- * onto windows server-side; ghost windows excluded), ordered by session order
- * then window index. Read-only by design: the watchlist is derived, edits are
- * `fab operator` verbs — the only interaction is row-name navigation to the
- * window's terminal route.
+ * `monitored === true` (the operator state file's pane-bearing tracked items —
+ * rk's file, fab's while no rk file exists — joined onto windows server-side;
+ * ghost windows excluded), ordered by session order then window index.
+ * Read-only by design: the watchlist is derived, edits are `rk operator track`
+ * verbs — the only interaction is row-name navigation to the window's terminal
+ * route.
  *
  * Thin wrapper: the row collection and stale/tick/operator derivations live in
  * `./model.ts` (`collectWatchedRows`/`watchlistStatus`) and the table itself is

@@ -92,15 +92,15 @@ type ProjectSession struct {
 	// rebuild).
 	Viewers []Viewer `json:"viewers,omitempty"`
 	// OperatorLastTickAt / OperatorStale are the per-server operator-watchdog
-	// staleness facts — the fab operator state file's last_tick_at against
+	// staleness facts — the chosen operator state file's last_tick_at against
 	// cron.DefaultWatchlistStaleThreshold — populated identically on every
 	// session of one FetchSessions call (all sessions on a server share the
-	// one operator-state file). 0/false when the file is absent (nothing to
-	// be stale about).
+	// one operator-state file). 0/false when the file is absent or carries no
+	// last_tick_at (nothing to be stale about).
 	OperatorLastTickAt int64 `json:"operatorLastTickAt,omitempty"`
 	OperatorStale      bool  `json:"operatorStale,omitempty"`
-	// OperatorTracked is the sessions-payload projection of the operator state
-	// file's whole tracked: list — server-scoped like OperatorLastTickAt/
+	// OperatorTracked is the sessions-payload projection of the chosen operator
+	// state file's whole tracked: list — server-scoped like OperatorLastTickAt/
 	// OperatorStale and stamped identically on every session of one
 	// FetchSessions call. Display only: the frontend's Operator Tasks segment
 	// lists these; nothing in rk acts on them. A pointer so the two empties
@@ -116,11 +116,12 @@ type ProjectSession struct {
 // OperatorTrackedItem is the sessions-payload projection of one tracked item
 // (cron.TrackedItem). WindowID is the pane's live window when the pane
 // resolves in this fetch — the Tasks row's navigation target — and absent for
-// pane-less items and for a pane that no window carries (a dead pane).
+// pane-less items and for a pane that no window carries (a dead pane). The
+// item rides on every session, so only its newest note and the note count
+// cross the wire; the full list is GET /api/operator/notes.
 type OperatorTrackedItem struct {
 	ID        string   `json:"id"`
 	Kind      string   `json:"kind,omitempty"`
-	Text      string   `json:"text,omitempty"`
 	Refs      []string `json:"refs,omitempty"`
 	Pane      string   `json:"pane,omitempty"`
 	WindowID  string   `json:"windowId,omitempty"`
@@ -133,6 +134,18 @@ type OperatorTrackedItem struct {
 	DoneAt    int64    `json:"doneAt,omitempty"`
 	AddedAt   int64    `json:"addedAt,omitempty"`
 	UpdatedAt int64    `json:"updatedAt,omitempty"`
+	// LatestNote is the item's newest note (nil when it has none); NoteCount
+	// is the item's total notes (0 omitted).
+	LatestNote *OperatorNote `json:"latestNote,omitempty"`
+	NoteCount  int           `json:"noteCount,omitempty"`
+}
+
+// OperatorNote is the wire shape of one tracked-item note. At is unix seconds;
+// By is user | run | chat.
+type OperatorNote struct {
+	At   int64  `json:"at"`
+	By   string `json:"by"`
+	Text string `json:"text"`
 }
 
 // foldViewers buckets the size-arbitrating clients onto session names via the
@@ -253,22 +266,28 @@ func projectTrackedItems(items []cron.TrackedItem, paneToWindow map[string]strin
 	// wire as [] (present, empty) rather than vanish under omitempty.
 	out := make([]OperatorTrackedItem, len(items))
 	for i, item := range items {
+		var latest *OperatorNote
+		if n := len(item.Notes); n > 0 {
+			last := item.Notes[n-1]
+			latest = &OperatorNote{At: last.At, By: last.By, Text: last.Text}
+		}
 		out[i] = OperatorTrackedItem{
-			ID:        item.ID,
-			Kind:      item.Kind,
-			Text:      item.Text,
-			Refs:      item.Refs,
-			Pane:      item.Pane,
-			WindowID:  paneToWindow[item.Pane],
-			Repo:      item.Repo,
-			Session:   item.Session,
-			Stage:     item.Stage,
-			Agent:     item.Agent,
-			Branch:    item.Branch,
-			Paused:    item.Paused,
-			DoneAt:    item.DoneAt,
-			AddedAt:   item.AddedAt,
-			UpdatedAt: item.UpdatedAt,
+			ID:         item.ID,
+			Kind:       item.Kind,
+			Refs:       item.Refs,
+			Pane:       item.Pane,
+			WindowID:   paneToWindow[item.Pane],
+			Repo:       item.Repo,
+			Session:    item.Session,
+			Stage:      item.Stage,
+			Agent:      item.Agent,
+			Branch:     item.Branch,
+			Paused:     item.Paused,
+			DoneAt:     item.DoneAt,
+			AddedAt:    item.AddedAt,
+			UpdatedAt:  item.UpdatedAt,
+			LatestNote: latest,
+			NoteCount:  len(item.Notes),
 		}
 	}
 	return out
@@ -835,36 +854,28 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 	// The memo dedupes reads within this one call (many panes share a worktree).
 	fabMemo := fabstatus.NewMemo()
 
-	// The operator-watchlist tier: ONE tolerant read of the fab-owned operator
-	// state file per fetch (server-scoped — no per-cwd memo needed, unlike the
-	// fab tier), yielding two projections: the pane-bearing not-done subset
-	// joined onto windows by pane ID via joinWatchlist, and the whole tracked
-	// list stamped onto every session as OperatorTracked (display only — the
-	// Operator Tasks segment's data). The read's last_tick_at doubles as the
-	// per-server staleness timestamp populated identically on every
-	// ProjectSession below. The file name is the slugified SOCKET PATH, not the
-	// server name (fab's naming — a cross-repo contract, see
-	// cron.FabOperatorSlug); a failed socket-path query degrades to the
-	// "default" slug, fab's own cold-name fallback, and is never surfaced.
+	// The operator-watchlist tier: ONE tolerant read of the operator state file
+	// per fetch (server-scoped — no per-cwd memo needed, unlike the fab tier),
+	// yielding two projections: the pane-bearing not-done subset joined onto
+	// windows by pane ID via joinWatchlist, and the whole tracked list stamped
+	// onto every session as OperatorTracked (display only — the Operator Tasks
+	// segment's data). The read's last_tick_at doubles as the per-server
+	// staleness timestamp populated identically on every ProjectSession below.
+	// Which file is read (rk's, else fab's) is operatorstate.go's rule; a failed
+	// socket-path query degrades to the "default" slug for both candidates and
+	// is never surfaced.
 	var watchlistByPane map[string]cron.WatchlistEntry
 	var operatorLastTickAt int64
 	var operatorTracked *[]OperatorTrackedItem
-	slug := "default"
-	if sock, sockErr := socketPathFn(ctx, server); sockErr == nil {
-		slug = cron.FabOperatorSlug(sock)
-	}
-	if opPath, err := cron.FabOperatorStatePath(slug); err == nil {
-		state, present := cron.ReadOperatorState(opPath)
-		if present {
-			operatorLastTickAt = state.LastTickAt
-			entries := state.WatchlistEntries()
-			watchlistByPane = make(map[string]cron.WatchlistEntry, len(entries))
-			for _, we := range entries {
-				watchlistByPane[we.Pane] = we
-			}
-			tracked := projectTrackedItems(state.Items, paneToWindowMap(data))
-			operatorTracked = &tracked
+	if state, present := ReadOperatorStateForServer(ctx, server); present {
+		operatorLastTickAt = state.LastTickAt
+		entries := state.WatchlistEntries()
+		watchlistByPane = make(map[string]cron.WatchlistEntry, len(entries))
+		for _, we := range entries {
+			watchlistByPane[we.Pane] = we
 		}
+		tracked := projectTrackedItems(state.Items, paneToWindowMap(data))
+		operatorTracked = &tracked
 	}
 
 	// Build result with per-window fab enrichment and git branches.

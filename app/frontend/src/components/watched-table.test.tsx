@@ -1,13 +1,24 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import { render, screen, fireEvent, cleanup, within, waitFor } from "@testing-library/react";
+import { getOperatorNotes } from "@/api/client";
 import { makeWindow } from "@/test-utils/fixtures";
 import { NOTE_STALE_SECONDS } from "@/components/sidebar/row-flyout-card";
 import type { TrackedRow } from "@/components/server-watched-zone/model";
 import type { OperatorTrackedItem, WindowInfo } from "@/types";
 import { WatchedTable } from "./watched-table";
 
+vi.mock("@/api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/client")>();
+  return { ...actual, getOperatorNotes: vi.fn() };
+});
+
+const mockedGetOperatorNotes = vi.mocked(getOperatorNotes);
+
 const NOW = 1_800_000_000;
 
+beforeEach(() => {
+  mockedGetOperatorNotes.mockReset();
+});
 afterEach(cleanup);
 
 /** A worker row over a monitored window — the WATCHED zone's row shape. */
@@ -30,7 +41,12 @@ function itemRow(item: OperatorTrackedItem, done = false): TrackedRow {
 
 function renderTable(
   rows: TrackedRow[],
-  opts: { stale?: boolean; onNavigate?: (windowId: string) => void; dense?: boolean } = {},
+  opts: {
+    stale?: boolean;
+    onNavigate?: (windowId: string) => void;
+    dense?: boolean;
+    server?: string;
+  } = {},
 ) {
   return render(
     <WatchedTable
@@ -38,6 +54,7 @@ function renderTable(
       stale={opts.stale ?? false}
       nowSeconds={NOW}
       onNavigate={opts.onNavigate ?? vi.fn()}
+      server={opts.server}
       dense={opts.dense ?? false}
     />,
   );
@@ -235,7 +252,8 @@ describe("WatchedTable", () => {
       itemRow({
         id: "n3",
         kind: "note",
-        text: "Daemon reliability plan — archive once merged.",
+        latestNote: { at: NOW - 600, by: "user", text: "Daemon reliability plan — archive once merged." },
+        noteCount: 1,
         refs: ["bf1l", "xy8b"],
         session: "ops",
         repo: "/home/user/code/run-kit",
@@ -249,7 +267,10 @@ describe("WatchedTable", () => {
     expect(within(row as HTMLElement).getByText("n3").className).toContain("text-text-primary");
     expect(screen.getByText("ops")).toBeInTheDocument();
     expect(screen.getByText("bf1l, xy8b")).toBeInTheDocument();
-    expect(screen.getByText("Daemon reliability plan — archive once merged.")).toBeInTheDocument();
+    expect(row.querySelectorAll("td")[4]).toHaveTextContent(
+      "Daemon reliability plan — archive once merged. · user · 10m ago",
+    );
+    expect(row.querySelectorAll("td")[4]).not.toHaveTextContent("+");
     expect(row.querySelectorAll("td")[5]).toHaveTextContent("run-kit · updated 1h ago");
     // No navigation affordance on an item row.
     expect(row.querySelector('[data-testid="watched-row-navigate"]')).toBeNull();
@@ -258,7 +279,7 @@ describe("WatchedTable", () => {
   it("an item row's awaiting cell: paused (yellow) / done / pane gone / —", () => {
     renderTable([
       itemRow({ id: "p", kind: "task", paused: true }),
-      itemRow({ id: "d", kind: "note", text: "finished" }, true),
+      itemRow({ id: "d", kind: "note", latestNote: { at: NOW, by: "run", text: "finished" }, noteCount: 1 }, true),
       itemRow({ id: "g", kind: "fab-change", pane: "%99" }),
       itemRow({ id: "n", kind: "note" }),
     ]);
@@ -275,22 +296,164 @@ describe("WatchedTable", () => {
     expect(rows[1].className).toContain("opacity-50");
   });
 
-  it("the expand toggle swaps the truncated note for the full text and back", () => {
-    const text = "A very long note that would otherwise truncate in the cell.";
-    renderTable([itemRow({ id: "n3", kind: "note", text })]);
+  describe("item notes", () => {
+    const NOTES = [
+      { at: NOW - 7200, by: "user", text: "watch the review" },
+      { at: NOW - 3600, by: "run", text: "review passed" },
+      { at: NOW - 300, by: "chat", text: "merge when green\nthen archive" },
+    ];
+    const noted = (extra: Partial<OperatorTrackedItem> = {}): OperatorTrackedItem => ({
+      id: "x1",
+      kind: "pane",
+      latestNote: NOTES[2],
+      noteCount: 3,
+      ...extra,
+    });
 
-    const toggle = screen.getByTestId("tracked-item-expand");
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(toggle.className).toContain("truncate");
+    it("an item row shows the latest note with author, age and a +N hint", () => {
+      renderTable([itemRow(noted())], { server: "srv" });
+      const cell = screen.getByTestId("tracked-item-row").querySelectorAll("td")[4];
+      expect(cell).toHaveTextContent("merge when green then archive · chat · 5m ago · +2");
+      expect(mockedGetOperatorNotes).not.toHaveBeenCalled();
+    });
 
-    fireEvent.click(toggle);
-    const expanded = screen.getByTestId("tracked-item-expand");
-    expect(expanded).toHaveAttribute("aria-expanded", "true");
-    expect(expanded.className).toContain("whitespace-pre-wrap");
-    expect(expanded.className).not.toContain("truncate");
+    it("expanding fetches and lists every note oldest to newest, whitespace preserved", async () => {
+      mockedGetOperatorNotes.mockResolvedValue(NOTES);
+      renderTable([itemRow(noted())], { server: "srv" });
 
-    fireEvent.click(expanded);
-    expect(screen.getByTestId("tracked-item-expand")).toHaveAttribute("aria-expanded", "false");
+      const toggle = screen.getByTestId("tracked-item-expand");
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(toggle.className).not.toContain("whitespace-pre-wrap");
+      fireEvent.click(toggle);
+
+      expect(mockedGetOperatorNotes).toHaveBeenCalledWith("srv", "x1");
+      const expanded = screen.getByTestId("tracked-item-expand");
+      expect(expanded).toHaveAttribute("aria-expanded", "true");
+      expect(expanded.className).toContain("whitespace-pre-wrap");
+      expect(expanded).toHaveTextContent("loading…");
+      // While loading the latest note is still on screen.
+      expect(expanded).toHaveTextContent("merge when green");
+
+      await waitFor(() => expect(screen.getAllByTestId("tracked-item-note")).toHaveLength(3));
+      const lines = screen.getAllByTestId("tracked-item-note").map((el) => el.textContent);
+      expect(lines).toEqual([
+        "2h ago · user · watch the review",
+        "1h ago · run · review passed",
+        "5m ago · chat · merge when green\nthen archive",
+      ]);
+      expect(screen.getByTestId("tracked-item-expand")).not.toHaveTextContent("loading…");
+    });
+
+    it("collapse returns to the one-line view and a re-expand refetches", async () => {
+      mockedGetOperatorNotes.mockResolvedValue(NOTES);
+      renderTable([itemRow(noted())], { server: "srv" });
+
+      fireEvent.click(screen.getByTestId("tracked-item-expand"));
+      await waitFor(() => expect(screen.getAllByTestId("tracked-item-note")).toHaveLength(3));
+      fireEvent.click(screen.getByTestId("tracked-item-expand"));
+      expect(screen.getByTestId("tracked-item-expand")).toHaveAttribute("aria-expanded", "false");
+      expect(screen.queryAllByTestId("tracked-item-note")).toHaveLength(0);
+
+      fireEvent.click(screen.getByTestId("tracked-item-expand"));
+      await waitFor(() => expect(screen.getAllByTestId("tracked-item-note")).toHaveLength(3));
+      expect(mockedGetOperatorNotes).toHaveBeenCalledTimes(2);
+    });
+
+    it("a failed fetch keeps the latest note and says notes are unavailable", async () => {
+      mockedGetOperatorNotes.mockRejectedValue(new Error("boom"));
+      renderTable([itemRow(noted())], { server: "srv" });
+
+      fireEvent.click(screen.getByTestId("tracked-item-expand"));
+      await waitFor(() =>
+        expect(screen.getByTestId("tracked-item-expand")).toHaveTextContent("notes unavailable"),
+      );
+      const expanded = screen.getByTestId("tracked-item-expand");
+      expect(expanded).toHaveTextContent("merge when green");
+      expect(expanded.tagName).toBe("BUTTON");
+      expect(screen.getAllByTestId("tracked-item-note")).toHaveLength(1);
+    });
+
+    it("a collapse before the fetch settles drops the late result", async () => {
+      let resolve: (notes: typeof NOTES) => void = () => {};
+      mockedGetOperatorNotes.mockReturnValue(new Promise((r) => (resolve = r)));
+      renderTable([itemRow(noted())], { server: "srv" });
+
+      fireEvent.click(screen.getByTestId("tracked-item-expand"));
+      fireEvent.click(screen.getByTestId("tracked-item-expand"));
+      resolve(NOTES);
+      await Promise.resolve();
+      expect(screen.getByTestId("tracked-item-expand")).toHaveAttribute("aria-expanded", "false");
+    });
+
+    it("without a server the expand shows the latest note and fetches nothing", () => {
+      renderTable([itemRow(noted())]);
+      fireEvent.click(screen.getByTestId("tracked-item-expand"));
+      expect(mockedGetOperatorNotes).not.toHaveBeenCalled();
+      expect(screen.getAllByTestId("tracked-item-note")).toHaveLength(1);
+      expect(screen.getByTestId("tracked-item-expand")).not.toHaveTextContent("loading…");
+    });
+
+    it("a worker row with a latest note shows it instead of the tab note, undimmed", () => {
+      renderTable(
+        [
+          workerRow(
+            makeWindow({
+              windowId: "@1",
+              monitored: true,
+              note: "tab note",
+              noteEpoch: NOW - NOTE_STALE_SECONDS - 60,
+            }),
+            { item: { id: "wuiu", windowId: "@1", latestNote: NOTES[1], noteCount: 2 } },
+          ),
+        ],
+        { server: "srv" },
+      );
+      const cell = screen.getByTestId("watched-row").querySelectorAll("td")[4];
+      expect(cell).toHaveTextContent("review passed · run · 1h ago · +1");
+      expect(cell).not.toHaveTextContent("tab note");
+      expect(cell.className).not.toContain("opacity-50");
+      expect(within(cell as HTMLElement).getByTestId("tracked-item-expand")).toBeInTheDocument();
+    });
+
+    it("a worker row without a latest note keeps the tab note and its stale dimming", () => {
+      renderTable(
+        [
+          workerRow(
+            makeWindow({
+              windowId: "@1",
+              monitored: true,
+              note: "tab note",
+              noteEpoch: NOW - NOTE_STALE_SECONDS - 60,
+            }),
+          ),
+        ],
+        { server: "srv" },
+      );
+      const cell = screen.getByText(/tab note/).closest("td");
+      expect(cell?.className).toContain("opacity-50");
+      expect(screen.queryByTestId("tracked-item-expand")).toBeNull();
+    });
+
+    it("the note column sorts on the rendered text: item note, else the tab note", () => {
+      renderTable(
+        [
+          workerRow(makeWindow({ windowId: "@1", name: "w-tab", monitored: true, note: "mmm tab" })),
+          workerRow(makeWindow({ windowId: "@2", name: "w-item", monitored: true, note: "zzz ignored" }), {
+            item: { id: "i2", windowId: "@2", latestNote: { at: NOW, by: "run", text: "aaa item" }, noteCount: 1 },
+          }),
+          itemRow({ id: "bare", kind: "task" }),
+        ],
+        { server: "srv" },
+      );
+      fireEvent.click(screen.getByLabelText("Sort by note"));
+      const order = [
+        ...screen.getAllByTestId("watched-row-navigate").map((el) => el.textContent),
+      ];
+      // "" (bare item, no navigate button) sorts first; then aaa item, mmm tab.
+      expect(order).toEqual(["w-item", "w-tab"]);
+      const rows = screen.getAllByRole("row").slice(1);
+      expect(rows[0]).toHaveAttribute("data-testid", "tracked-item-row");
+    });
   });
 
   it("headers carry aria-sort, and sorting by awaiting puts waiting rows first", () => {

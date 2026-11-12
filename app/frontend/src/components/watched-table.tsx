@@ -9,10 +9,13 @@
  * a `worker` row is a tracked item on a live window (`StatusDot` + the
  * window-name navigate button, change · stage badge, awaiting, note, repo);
  * an `item` row is a pane-less or dead-pane tracked item (kind chip + id,
- * refs, paused/done/`pane gone`, truncated text with expand-in-place toggle,
- * repo + `updated … ago`) and never navigates. Done rows dim
- * (`opacity-50` + `data-done`). Read-only by design: the watchlist is
- * derived, edits are `fab operator` verbs.
+ * refs, paused/done/`pane gone`, the item's latest note with an
+ * expand-in-place toggle that lists every note, repo + `updated … ago`) and
+ * never navigates. A worker row shows its item's latest note the same way and
+ * falls back to the window's tab note only when the item has none. Done rows
+ * dim (`opacity-50` + `data-done`). Read-only by design: the watchlist is
+ * derived (rk's operator state file, fab's while no rk file exists), edits are
+ * `rk operator track` verbs.
  *
  * The table renders through the shared `DataTable` (components/data-table.tsx)
  * — the header row, click-to-sort, and fine-pointer resize are DataTable's;
@@ -26,26 +29,31 @@
  * (the server's `operatorStale` verdict) dims the whole table. `dense` is the
  * quake terminal variant: tighter cell/header padding, all six columns kept.
  */
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { getOperatorNotes } from "@/api/client";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { StatusDot } from "@/components/status-dot";
 import { Tip } from "@/components/tip";
 import { NOTE_STALE_SECONDS } from "@/components/sidebar/row-flyout-card";
 import { formatDuration } from "@/lib/format";
 import type { TrackedRow } from "@/components/server-watched-zone/model";
-import type { OperatorTrackedItem, WindowInfo } from "@/types";
+import type { OperatorNote, OperatorTrackedItem, WindowInfo } from "@/types";
 
 export function WatchedTable({
   rows,
   stale,
   nowSeconds,
   onNavigate,
+  server,
   dense = false,
 }: {
   rows: TrackedRow[];
   stale: boolean;
   nowSeconds: number;
   onNavigate: (windowId: string) => void;
+  /** Scope of the on-demand note fetch. Omitted by mounts whose rows carry no
+   *  item notes (the WATCHED zone); an expanded note then shows the latest only. */
+  server?: string;
   /** Quake terminal variant: tighter cell/header padding only — no column drop. */
   dense?: boolean;
 }) {
@@ -120,16 +128,24 @@ export function WatchedTable({
       {
         id: "note",
         header: "note",
-        sortValue: (row) => (row.kind === "worker" ? row.win.note : row.item.text) ?? "",
+        sortValue: (row) => rowNoteText(row) ?? "",
         size: 240,
         minSize: 80,
         className: (row) =>
-          row.kind === "worker" && noteStale(row.win, nowSeconds) ? "opacity-50" : undefined,
+          row.kind === "worker" && !row.item.latestNote && noteStale(row.win, nowSeconds)
+            ? "opacity-50"
+            : undefined,
         cell: (row) =>
-          row.kind === "worker" ? (
+          row.item.latestNote ? (
+            <ItemNoteCell
+              item={row.item}
+              note={row.item.latestNote}
+              server={server}
+              nowSeconds={nowSeconds}
+              dense={dense}
+            />
+          ) : row.kind === "worker" ? (
             <WorkerNoteCell win={row.win} nowSeconds={nowSeconds} />
-          ) : row.item.text ? (
-            <NoteCell text={row.item.text} dense={dense} />
           ) : (
             <span className="text-text-secondary">—</span>
           ),
@@ -148,7 +164,7 @@ export function WatchedTable({
           ),
       },
     ],
-    [stale, nowSeconds, onNavigate, dense],
+    [stale, nowSeconds, onNavigate, server, dense],
   );
 
   return (
@@ -236,6 +252,12 @@ function rowRefs(item: OperatorTrackedItem): string {
   return (item.refs ?? []).join(", ");
 }
 
+/** The note column's rendered text: the item's latest note, else (worker rows)
+ *  the window's tab note. */
+function rowNoteText(row: TrackedRow): string | undefined {
+  return row.item.latestNote?.text ?? (row.kind === "worker" ? row.win.note : undefined);
+}
+
 function noteStale(win: WindowInfo, nowSeconds: number): boolean {
   const noteEpoch = win.noteEpoch ?? 0;
   return noteEpoch > 0 && nowSeconds - noteEpoch > NOTE_STALE_SECONDS;
@@ -311,35 +333,105 @@ function RepoCell({ repo }: { repo: string }) {
   );
 }
 
-/** The item-species note cell: the only interaction on an item row is this
- *  expand-in-place toggle (a native button, so Enter/Space work and the row
- *  is keyboard-reachable). The expanded state is cell-local so the row itself
- *  stays stateless. */
-function NoteCell({ text, dense }: { text: string; dense: boolean }) {
+type NotesState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ready"; notes: OperatorNote[] }
+  | { status: "error" };
+
+/** `5m ago · run` style attribution; the age is omitted for an unstamped note. */
+function noteAge(note: OperatorNote, nowSeconds: number): string | null {
+  return note.at > 0 ? `${formatDuration(Math.max(0, nowSeconds - note.at))} ago` : null;
+}
+
+/** The note cell of a row whose item carries notes: the latest note with its
+ *  author and age and a `+N` hint, and a native-button toggle (Enter/Space
+ *  work, the row stays keyboard-reachable) that expands in place to every
+ *  note, oldest first. The full list is fetched on each expand — never on a
+ *  timer — and the expanded state is cell-local so the row stays stateless.
+ *  While the fetch is in flight or after it fails, the expanded view keeps the
+ *  latest note so the cell never goes blank. */
+function ItemNoteCell({
+  item,
+  note,
+  server,
+  nowSeconds,
+  dense,
+}: {
+  item: OperatorTrackedItem;
+  note: OperatorNote;
+  server: string | undefined;
+  nowSeconds: number;
+  dense: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
+  const [notes, setNotes] = useState<NotesState>({ status: "idle" });
+  const requestRef = useRef(0);
+
+  const expand = () => {
+    const request = ++requestRef.current;
+    setExpanded(true);
+    if (server === undefined) {
+      setNotes({ status: "idle" });
+      return;
+    }
+    setNotes({ status: "loading" });
+    getOperatorNotes(server, item.id).then(
+      (list) => {
+        if (requestRef.current === request) setNotes({ status: "ready", notes: list });
+      },
+      () => {
+        if (requestRef.current === request) setNotes({ status: "error" });
+      },
+    );
+  };
+  const collapse = () => {
+    requestRef.current++;
+    setExpanded(false);
+  };
+
   if (expanded) {
+    const list = notes.status === "ready" && notes.notes.length > 0 ? notes.notes : [note];
     return (
       <button
         type="button"
         aria-expanded="true"
         data-testid="tracked-item-expand"
-        onClick={() => setExpanded(false)}
+        onClick={collapse}
         className="block w-full text-left whitespace-pre-wrap text-text-secondary"
       >
-        {text}
+        {list.map((n, i) => {
+          const age = noteAge(n, nowSeconds);
+          return (
+            <span key={i} data-testid="tracked-item-note" className="block">
+              {age && `${age} · `}
+              {n.by} · {n.text}
+            </span>
+          );
+        })}
+        {notes.status === "loading" && <span className="block opacity-70">loading…</span>}
+        {notes.status === "error" && <span className="block opacity-70">notes unavailable</span>}
       </button>
     );
   }
+
+  const age = noteAge(note, nowSeconds);
+  const extra = (item.noteCount ?? 0) - 1;
   return (
-    <Tip label={text} placement="top">
+    <Tip label={note.text} placement="top">
       <button
         type="button"
         aria-expanded="false"
         data-testid="tracked-item-expand"
-        onClick={() => setExpanded(true)}
-        className={`block truncate text-left text-text-secondary ${dense ? "max-w-[40ch]" : "max-w-[24ch]"}`}
+        onClick={expand}
+        className={`flex items-baseline gap-1 text-left text-text-secondary ${dense ? "max-w-[40ch]" : "max-w-[24ch]"}`}
       >
-        {text}
+        <span className="truncate">{note.text}</span>
+        <span className="shrink-0 whitespace-nowrap opacity-70">
+          {` · ${note.by}`}
+          {age && ` · ${age}`}
+          {extra > 0 && ` · +${extra}`}
+        </span>
       </button>
     </Tip>
   );

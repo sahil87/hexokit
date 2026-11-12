@@ -1,4 +1,4 @@
-import type { ProjectSession } from "@/types";
+import type { OperatorNote, ProjectSession } from "@/types";
 
 export type { ProjectSession };
 
@@ -2135,6 +2135,32 @@ export async function getCron(server: string): Promise<CronListResponse> {
   if (!res.ok) await throwOnError(res);
   const data = (await res.json()) as { entries?: CronEntry[]; deliveries?: CronDelivery[] };
   return { entries: data.entries ?? [], deliveries: data.deliveries ?? [] };
+}
+
+function isOperatorNote(v: unknown): v is OperatorNote {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    "at" in v &&
+    typeof v.at === "number" &&
+    "by" in v &&
+    typeof v.by === "string" &&
+    "text" in v &&
+    typeof v.text === "string"
+  );
+}
+
+/** GET /api/operator/notes?server=<slug>&id=<item-id> — every note of one
+ *  tracked item, oldest → newest. Rejects with an ApiError on 400/404 (an
+ *  unknown item or no operator state file); malformed notes are dropped. */
+export async function getOperatorNotes(server: string, id: string): Promise<OperatorNote[]> {
+  const res = await deduplicatedFetch(
+    `${withServer("/api/operator/notes", server)}&id=${encodeURIComponent(id)}`,
+  );
+  if (!res.ok) await throwOnError(res);
+  const data: unknown = await res.json();
+  const notes = typeof data === "object" && data !== null && "notes" in data ? data.notes : null;
+  return Array.isArray(notes) ? notes.filter(isOperatorNote) : [];
 }
 
 /** Body for POST /api/cron/create — the `rk cron add` schema fields in

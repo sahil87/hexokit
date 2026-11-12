@@ -43,7 +43,8 @@ import { mockStateSocket } from "./_state-socket-mock";
 // and `operatorTracked` on the sessions (the server-watched-zone spec's stub
 // shape): `operatorTracked` is the whole tracked set the Operator Tasks
 // segment lists — the @2 worker item (pane %2, windowId @2) and a pane-less
-// n3 note item with refs/text.
+// n3 note item with refs, a `latestNote` and a `noteCount` of 3 (the full list
+// is served by the stubbed `GET /api/operator/notes`).
 // On MOBILE there is no
 // sheet: every quake terminal entry point navigates to the operator window's
 // ordinary terminal route (the tongue is the standing affordance, an
@@ -133,7 +134,8 @@ function sessionsPayload(withOperator: boolean, operatorState = "idle", watched 
       id: "n3",
       kind: "note",
       refs: ["bf1l"],
-      text: "Daemon reliability plan — A=71yx PR #834 still open, awaiting user merge — archive once merged.",
+      latestNote: N3_NOTES[2],
+      noteCount: N3_NOTES.length,
       updatedAt: NOW - 3600,
     },
   ];
@@ -200,6 +202,13 @@ const CRON = JSON.stringify({
   ],
 });
 
+/** The n3 item's full notes, oldest to newest; the last is its `latestNote`. */
+const N3_NOTES = [
+  { at: NOW - 86_400, by: "user", text: "Archive once PR #834 merges." },
+  { at: NOW - 7_200, by: "run", text: "PR #834 still open, awaiting user merge." },
+  { at: NOW - 600, by: "chat", text: "Daemon reliability plan — merged; archive now." },
+];
+
 /** Install the fully-mocked backend; returns the recorded send/request calls. */
 async function mockBackend(
   page: Page,
@@ -247,8 +256,19 @@ async function mockBackend(
   await page.route("**/api/cron*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: CRON }),
   );
+  // The operator notes read seam (Operator Tasks expand) — same trailing-`*`
+  // rule; records each requested URL.
+  const notesRequests: string[] = [];
+  await page.route("**/api/operator/notes*", (route) => {
+    notesRequests.push(route.request().url());
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ id: "n3", notes: N3_NOTES }),
+    });
+  });
   await mockStateSocket(page, { sessions: sessionsPayload(withOperator, operatorState, watched) });
-  return { sendBodies, requestCalls };
+  return { sendBodies, requestCalls, notesRequests };
 }
 
 /** Stub the file-upload endpoint (multipart body — only the URL/session is
@@ -887,31 +907,34 @@ test.describe("Quake terminal", () => {
   /**
    * Proves: the desktop drawer's Operator Tasks segment lists the operator's
    * WHOLE tracked set — the monitored @2 worker as a navigating worker row
-   * and the pane-less n3 note as an item row (kind chip, id, truncated text) —
-   * with the `{N} tracked · {W} watched` summary matching the operator's own
-   * count (the embedded terminal unmounted — one relay stream max per
-   * drawer). Expanding the note reveals its full text without navigating or
-   * collapsing the drawer; a worker row-name click navigates to that worker's
-   * terminal route and collapses the drawer.
+   * and the pane-less n3 note as an item row (kind chip, id, its latest note
+   * with author and a `+2` hint) — with the `{N} tracked · {W} watched`
+   * summary matching the operator's own count (the embedded terminal
+   * unmounted — one relay stream max per drawer). Expanding the note fetches
+   * the item's notes once and lists all three oldest to newest without
+   * navigating or collapsing the drawer; a worker row-name click navigates to
+   * that worker's terminal route and collapses the drawer.
    *
    * Steps:
    * 1. Mock the backend with an operator window plus a monitored @2 worker
-   *    (change/stage/repo facets, tick stamps) and a two-item operatorTracked
-   *    list (the worker item + the n3 note); land on the @1 terminal route.
+   *    (change/stage/repo facets, tick stamps), a two-item operatorTracked
+   *    list (the worker item + the n3 note carrying latestNote/noteCount) and
+   *    a stubbed GET /api/operator/notes; land on the @1 terminal route.
    * 2. Open the quake terminal via the palette `Operator: Show tasks` action.
    * 3. Assert the Operator Tasks tab is selected, the summary reads
    *    `2 tracked · 1 watched`, the table lists one worker row (change +
-   *    stage) and one tracked-item row (note chip, id, truncated text), and
-   *    no xterm frame is mounted.
-   * 4. Click the note row's expand toggle; assert the full text is revealed
-   *    while the URL and the open drawer are unchanged.
+   *    stage) and one tracked-item row (note chip, id, latest note, author,
+   *    `+2`), no notes request has fired, and no xterm frame is mounted.
+   * 4. Click the note row's expand toggle; assert the notes request carried
+   *    the item id, all three notes render in order, and the URL and the open
+   *    drawer are unchanged.
    * 5. Click the worker row's name button; assert the URL becomes the
    *    worker's terminal route and the drawer is gone.
    */
   test("the Operator Tasks segment lists every tracked item, expands notes in place, and a worker row click navigates and collapses the drawer", async ({
     page,
   }) => {
-    await mockBackend(page, true, SEND_OK, "idle", true);
+    const { notesRequests } = await mockBackend(page, true, SEND_OK, "idle", true);
     await gotoWindow(page);
 
     const paletteInput = await openPalette(page);
@@ -936,6 +959,10 @@ test.describe("Quake terminal", () => {
     await expect(noteRow.getByText("note")).toBeVisible();
     await expect(noteRow.getByText("n3")).toBeVisible();
     await expect(noteRow.getByTestId("tracked-item-expand")).toBeVisible();
+    await expect(noteRow.getByTestId("tracked-item-expand")).toContainText(N3_NOTES[2].text);
+    await expect(noteRow.getByTestId("tracked-item-expand")).toContainText("chat");
+    await expect(noteRow.getByTestId("tracked-item-expand")).toContainText("+2");
+    expect(notesRequests).toHaveLength(0);
     await expect(drawer(page).locator(".xterm")).toHaveCount(0);
 
     // Expanding the note is a per-row disclosure, not a navigation.
@@ -947,11 +974,14 @@ test.describe("Quake terminal", () => {
       "aria-expanded",
       "true",
     );
-    await expect(
-      noteRow.getByText(
-        "Daemon reliability plan — A=71yx PR #834 still open, awaiting user merge — archive once merged.",
-      ),
-    ).toBeVisible();
+    const noteLines = noteRow.getByTestId("tracked-item-note");
+    await expect(noteLines).toHaveCount(3);
+    for (const [i, note] of N3_NOTES.entries()) {
+      await expect(noteLines.nth(i)).toContainText(note.text);
+      await expect(noteLines.nth(i)).toContainText(note.by);
+    }
+    expect(notesRequests).toHaveLength(1);
+    expect(new URL(notesRequests[0]).searchParams.get("id")).toBe("n3");
     expect(page.url()).toBe(urlBefore);
     await expect(drawer(page)).toBeVisible();
 
