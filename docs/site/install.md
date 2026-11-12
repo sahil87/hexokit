@@ -23,6 +23,8 @@ rk riff                         # spawn an agent workspace (--skill /name picks 
 
 The daemon listens on port **6123** by default. To move it durably, set `port: 4000` in `~/.config/hexokit/config.yaml` and run `rk daemon restart` — `RK_PORT` still wins when set (precedence: default 6123 < config.yaml < `RK_PORT`). Re-point any Tailscale Serve mapping or bookmarks after a move.
 
+Nothing starts the daemon again after a reboot unless you ask for it — see [Start at boot or login](#start-at-boot-or-login).
+
 > **Upgrading from before the HexoKit rename?** Your install keeps its pinned port — the one-time home migration wrote `port: 3000` into `~/.config/hexokit/config.yaml`, so nothing you pointed at it breaks. `rk doctor` shows a `port pin` row while you're pinned, with the steps to move to 6123 whenever you choose.
 
 On macOS and Linux, the [desktop app](#desktop-app) is an alternative front door: `rk desktop install`, then open the app — its welcome page starts the daemon for you (one **Start & connect** click) and can also connect to HexoKit on other machines over SSH or a URL, so the `daemon start` and `open` steps above collapse into opening the app.
@@ -46,6 +48,30 @@ Two caveats:
 
 - **PATH order matters.** On Linux, `brew shellenv` must put Homebrew's bin **before** `/usr/bin`, or the distro tmux keeps winning and the runtime check keeps warning — it probes the `tmux` your `PATH` actually resolves, which is exactly the binary HexoKit uses.
 - **Upgrades are latent.** An upgraded binary takes effect only at the next `tmux kill-server` — the running tmux server keeps its old binary, and the upgrade itself never kills your sessions.
+
+## Start at boot or login
+
+By default the daemon runs only when you start it, so after a reboot it stays down until you run `rk daemon start` — and until then your scheduled `rk cron` prompts (reminders, the operator's ticks) don't fire. Autostart hands the start to your OS's per-user service manager:
+
+```bash
+rk daemon autostart on          # register; the daemon starts at the next boot or login
+rk daemon autostart on --now    # register and start it now too (a no-op if it is already running)
+rk daemon autostart status      # registered? enabled? boot or login only? last start result
+rk daemon autostart off         # remove the registration; the running daemon keeps running
+```
+
+- **Started once, never supervised.** The OS starts the daemon once and never restarts it. A daemon that crashes stays down until `rk daemon start`, the same as without autostart.
+- **Off by default.** Nothing is registered until you run `autostart on`. Every verb is idempotent and takes `--json`.
+- **Linux** — a systemd user unit, `~/.config/systemd/user/hexokit-daemon.service`. It starts at **boot** only when lingering is enabled for your user, a one-time privileged step that `autostart on` never takes for you:
+
+  ```bash
+  sudo loginctl enable-linger "$USER"
+  ```
+
+  Without lingering, the unit runs at your first login, and the daemon is torn down when your last session logs out. `autostart status` and `rk doctor` say `on (login only — enable lingering for boot)` until you enable it. A machine without a systemd user manager gets an error naming that requirement.
+- **macOS** — a LaunchAgent, `~/Library/LaunchAgents/ai.shll.hexokit.daemon.plist`, which starts the daemon at **login** (a boot-time job would have to run as root). Its output goes to `~/.local/state/hexokit/logs/autostart.log`. The [desktop app](#desktop-app) doesn't toggle autostart, and having both start the daemon still ends with one daemon.
+- **Your login profile is the environment.** The daemon is started through your login shell, and every agent HexoKit spawns later inherits that environment. A login shell reads `~/.zprofile` (zsh) or `~/.bash_profile` / `~/.profile` (bash), **not** `~/.zshrc` or `~/.bashrc`, so keep `PATH`, credentials and any `TMUX_TMPDIR` export in the login profile.
+- **Where it shows.** `rk daemon autostart status` prints `Autostart: on (boot)`, `on (login)`, `on (login only — enable lingering for boot)`, `registered but disabled` or `off`, plus hints (a stale registration after you moved `rk` or changed your shell — re-run `on` to refresh it). `rk doctor` has a `daemon autostart` row, and the Host page's HexoKit card shows the same line. Both are read-only: turning autostart on or off is always the CLI.
 
 ## Upgrade
 
