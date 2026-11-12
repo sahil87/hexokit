@@ -6,7 +6,6 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"rk/internal/sessions"
 	"rk/internal/tmux"
 
 	"github.com/spf13/cobra"
@@ -210,7 +209,7 @@ func collectMuxPanesWith(ctx context.Context, server string, nowUnix int64, wind
 					state := p.AgentState
 					row.AgentState = &state
 					if p.AgentStateEpoch > 0 {
-						if d := sessions.FormatAgentDuration(nowUnix - p.AgentStateEpoch); d != "" {
+						if d := tmux.FormatAgentDuration(nowUnix - p.AgentStateEpoch); d != "" {
 							row.AgentStateDuration = &d
 						}
 					}

@@ -15,7 +15,7 @@ Agent status splits into two tiers with distinct owners:
 
 - **Tier 1 — fab pipeline state** (change / stage / display-state): owned by the
   fab pipeline, derived natively per pane from `.fab-status.yaml` →
-  `.status.yaml` (`internal/sessions/fabstate.go` — see
+  `.status.yaml` (`internal/fabstatus` — see
   [tmux-sessions](/run-kit/tmux-sessions.md) § Fab-Tier Derivation). Stays
   fab's.
 - **Tier 2 — generic agent-lifecycle state** (`active` / `waiting` / `idle`):
@@ -172,10 +172,11 @@ or client polling loop. (a24w)
   states (`waiting`/`idle`) — the machine surfaces (`rk mux panes`, `rk mux
   capture` — see [agent-messaging](/run-kit/agent-messaging.md)) carry it for
   `active` as well.
-- **`formatAgentDuration(elapsedSeconds int64) string`** — the `Ns`/`Nm`/`Nh`
+- **`tmux.FormatAgentDuration(elapsedSeconds int64) string`** — the `Ns`/`Nm`/`Nh`
   floor-division style (`<60s`→`Ns`, `<3600s`→`Nm`, else `Nh`;
   non-positive → `""`), byte-compatible with fab's duration-string format so the
-  frontend surface is unchanged.
+  frontend surface is unchanged. It lives in `internal/tmux`, so the sessions
+  rollup and the operator check's `agent_state` delta format durations through one function.
 
 `FetchSessions` calls the rollup per window inside the enrichment loop
 (`nowUnix := time.Now().Unix()` captured once for the whole loop).
@@ -840,7 +841,7 @@ The `agentState` three-state value is a first-class UI input across every surfac
   § Web Push on Sustained Waiting.
 
 These surfaces consume the window-level rollup + `waiting > active > idle`
-precedence + the `formatAgentDuration` value documented above. The rollup
+precedence + the `tmux.FormatAgentDuration` value documented above. The rollup
 populates the duration for `active` too; the SPA renders it only for the two
 rest states (every consumer gates on `agentState === "waiting" || "idle"`, so
 rendered output is unchanged), while the machine surfaces carry it for `active`

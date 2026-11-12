@@ -31,6 +31,7 @@ const (
 
 	keyTracked   = "tracked"
 	keyBranchMap = "branch_map"
+	keyLastCheck = "last_check_at"
 )
 
 // lockTimeout bounds how long a writer waits for the sidecar lock before
@@ -112,7 +113,7 @@ func newState() *State {
 func stateFromMap(path string, data map[string]interface{}) (*State, error) {
 	st := newState()
 	for k, v := range data {
-		if k != keyTracked && k != keyBranchMap {
+		if k != keyTracked && k != keyBranchMap && k != keyLastCheck {
 			st.extra[k] = v
 		}
 	}
@@ -120,6 +121,9 @@ func stateFromMap(path string, data map[string]interface{}) (*State, error) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	if err := decodeSection(data, keyBranchMap, &st.BranchMap); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if err := decodeSection(data, keyLastCheck, &st.LastCheckAt); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	if st.Tracked == nil {
@@ -165,7 +169,7 @@ func normalizeItem(it *TrackedItem) {
 }
 
 // marshal renders the state: unknown top-level keys verbatim, the owned
-// sections from the typed structs.
+// sections and last_check_at from the typed fields.
 func (s *State) marshal() ([]byte, error) {
 	out := make(map[string]interface{}, len(s.extra)+2)
 	for k, v := range s.extra {
@@ -173,6 +177,9 @@ func (s *State) marshal() ([]byte, error) {
 	}
 	out[keyTracked] = s.Tracked
 	out[keyBranchMap] = s.BranchMap
+	if s.LastCheckAt != "" {
+		out[keyLastCheck] = s.LastCheckAt
+	}
 	return yaml.Marshal(out)
 }
 

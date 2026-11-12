@@ -4,10 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"path/filepath"
-	"strconv"
 	"strings"
 
+	"rk/internal/proctree"
 	"rk/internal/tmux"
 
 	"github.com/spf13/cobra"
@@ -67,14 +66,7 @@ func init() {
 }
 
 // processNode is a single process in the discovered tree.
-type processNode struct {
-	PID            int           `json:"pid"`
-	PPID           int           `json:"ppid"`
-	Comm           string        `json:"comm"`
-	Cmdline        string        `json:"cmdline"`
-	Classification string        `json:"classification"`
-	Children       []processNode `json:"children"`
-}
+type processNode = proctree.Node
 
 // muxProcessJSON is the --json output shape.
 type muxProcessJSON struct {
@@ -86,7 +78,7 @@ type muxProcessJSON struct {
 
 // muxProcess*Fn are package-level seams so runMuxProcess can be tested without
 // a live tmux server (the mux_send.go pattern); the defaults delegate to
-// internal/tmux / the platform discovery in mux_process_<os>.go.
+// internal/tmux / the platform discovery in internal/proctree.
 var (
 	muxProcessPanePIDFn = func(ctx context.Context, paneID, server string) (int, error) {
 		return tmux.PanePIDCtx(ctx, paneID, server)
@@ -94,19 +86,16 @@ var (
 	muxProcessFactsFn = func(ctx context.Context, paneID, server string) (tmux.PaneFacts, error) {
 		return tmux.PaneFactsCtx(ctx, paneID, server)
 	}
-	muxProcessDiscoverFn = func(ctx context.Context, pid int) ([]processNode, error) {
-		return discoverProcessTree(ctx, pid)
-	}
+	muxProcessDiscoverFn proctree.DiscoverFunc = proctree.Discover
 )
 
 // agentCommNames is the set of process basenames that identify an agent
 // process: every runtime's binary and comm literal from the agent setup
 // registry (the one source of harness names — a new harness registered there
-// is recognized here without a second table), plus `claude-code`. `node` is
-// excluded even though it is gemini's comm: a bare node process is not agent
-// evidence, and node-hosted CLIs are caught by the cmdline fallback instead.
-var agentCommNames = buildAgentCommNames()
-
+// is recognized by the walk without a second table), plus `claude-code`. `node`
+// is excluded even though it is gemini's comm: a bare node process is not
+// agent evidence, and node-hosted CLIs are caught by the cmdline fallback
+// instead. It is handed to internal/proctree at init.
 func buildAgentCommNames() map[string]bool {
 	names := map[string]bool{"claude-code": true}
 	for _, rt := range agentRuntimes() {
@@ -119,114 +108,15 @@ func buildAgentCommNames() map[string]bool {
 	return names
 }
 
-// processBasename normalizes a comm or cmdline token for set matching: quotes
-// stripped, directory prefix dropped, lowercased. Empty stays empty.
-func processBasename(token string) string {
-	token = strings.Trim(token, `"'`)
-	if token == "" {
-		return ""
-	}
-	return strings.ToLower(filepath.Base(token))
+func init() {
+	proctree.SetAgentCommNames(buildAgentCommNames())
 }
 
-// classifyProcess classifies a process: agent when its comm basename — or the
-// basename of either of the first two cmdline tokens — is in agentCommNames;
-// else node, git (git/gh), or other. The cmdline fallback is bounded to two
-// tokens so prompt text later in argv can never become liveness evidence.
-func classifyProcess(comm, cmdline string) string {
-	lower := processBasename(comm)
-	if agentCommNames[lower] {
-		return "agent"
-	}
-	fields := strings.Fields(cmdline)
-	if len(fields) > 2 {
-		fields = fields[:2]
-	}
-	for _, tok := range fields {
-		if agentCommNames[processBasename(tok)] {
-			return "agent"
-		}
-	}
-	switch lower {
-	case "node":
-		return "node"
-	case "git", "gh":
-		return "git"
-	default:
-		return "other"
-	}
-}
-
-// parsePSCmdlines parses `ps -axo pid=,args=` output into a PID→args map.
-// Each line is a (right-aligned) numeric PID followed by the full command
-// line; pid is numeric-first and the remainder is args, so the parse is
-// robust against spaces inside the command line. Lines whose first field is
-// not a PID are skipped. Lives in this un-tagged file (consumed by the
-// darwin process discovery) so the parsing is unit-testable on every
-// platform.
-func parsePSCmdlines(out string) map[int]string {
-	m := make(map[int]string)
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		fields := strings.SplitN(line, " ", 2)
-		pid, err := strconv.Atoi(fields[0])
-		if err != nil {
-			continue
-		}
-		args := ""
-		if len(fields) == 2 {
-			args = strings.TrimSpace(fields[1])
-		}
-		m[pid] = args
-	}
-	return m
-}
-
-// markAgentPID reclassifies the tree node carrying the instrumented agent pid
-// as agent, regardless of comm — the @rk_agent_state instrumentation is
-// authoritative over the comm heuristic table.
-func markAgentPID(nodes []processNode, pid int) {
-	if pid <= 0 {
-		return
-	}
-	for i := range nodes {
-		if nodes[i].PID == pid {
-			nodes[i].Classification = "agent"
-		}
-		markAgentPID(nodes[i].Children, pid)
-	}
-}
-
-// hasAgentInTree reports whether any node in the tree is classified agent
-// (comm-derived or pid-cross-checked).
-func hasAgentInTree(nodes []processNode) bool {
-	for _, n := range nodes {
-		if n.Classification == "agent" {
-			return true
-		}
-		if hasAgentInTree(n.Children) {
-			return true
-		}
-	}
-	return false
-}
-
-// paneHasAgent discovers pid's process tree, reclassifies the node carrying
-// agentPID as agent when agentPID > 0 (the pane's reconciled agent-state pid —
-// instrumentation beats the comm heuristics), and reports whether any node
-// classifies agent. It is the ONE liveness walk: `rk mux process` prints the
-// returned tree, `rk mux panes` consumes only the bool. Discovery goes through
-// muxProcessDiscoverFn so both verbs share one seam and one fake.
+// paneHasAgent is the process walk shared by `rk mux process` and `rk mux
+// panes`; discovery goes through muxProcessDiscoverFn so both verbs share one
+// seam and one fake.
 func paneHasAgent(ctx context.Context, pid, agentPID int) ([]processNode, bool, error) {
-	tree, err := muxProcessDiscoverFn(ctx, pid)
-	if err != nil {
-		return nil, false, err
-	}
-	markAgentPID(tree, agentPID)
-	return tree, hasAgentInTree(tree), nil
+	return proctree.PaneHasAgentVia(ctx, muxProcessDiscoverFn, pid, agentPID)
 }
 
 // runMuxProcess is the testable core: parse → resolve → pid → tree →

@@ -36,6 +36,7 @@ func resetOperatorFlags() {
 	}
 	reset(operatorTrackCmd)
 	reset(operatorAdoptCmd)
+	reset(operatorCheckCmd)
 	quiet = false
 }
 

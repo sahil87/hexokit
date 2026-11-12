@@ -3,7 +3,6 @@ package sessions
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -13,6 +12,7 @@ import (
 
 	"rk/internal/config"
 	"rk/internal/cron"
+	"rk/internal/fabstatus"
 	"rk/internal/gitinfo"
 	"rk/internal/prstatus"
 	"rk/internal/tmux"
@@ -414,24 +414,6 @@ func agentStatePrecedence(state string) int {
 	}
 }
 
-// FormatAgentDuration formats an elapsed-seconds value in the Ns/Nm/Nh style
-// fab produced (floor division), so the frontend duration surface is
-// byte-compatible with the previous fab-formatted string. A non-positive
-// elapsed yields "".
-func FormatAgentDuration(elapsedSeconds int64) string {
-	if elapsedSeconds <= 0 {
-		return ""
-	}
-	switch {
-	case elapsedSeconds < 60:
-		return fmt.Sprintf("%ds", elapsedSeconds)
-	case elapsedSeconds < 3600:
-		return fmt.Sprintf("%dm", elapsedSeconds/60)
-	default:
-		return fmt.Sprintf("%dh", elapsedSeconds/3600)
-	}
-}
-
 // rollupAgentState derives the window-level agent state and duration from the
 // window's panes (post-reconciler), applying the waiting > active > idle
 // precedence. The duration is computed rk-side from the winning pane's
@@ -466,7 +448,7 @@ func rollupAgentState(panes []tmux.PaneInfo, nowUnix int64) (state string, durat
 	// its age too, so a lost write on a live agent is not stale forever
 	// without a signal.
 	if bestEpoch > 0 {
-		duration = FormatAgentDuration(nowUnix - bestEpoch)
+		duration = tmux.FormatAgentDuration(nowUnix - bestEpoch)
 	}
 	return state, duration
 }
@@ -848,10 +830,10 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 	cwdMissing := resolveCwdMissing(allCwds)
 
 	// The fab tier is derived natively from disk (cwd → .fab-status.yaml →
-	// .status.yaml — see fabstate.go), fresh on every call: no subprocess, no
+	// .status.yaml — see internal/fabstatus), fresh on every call: no subprocess, no
 	// cross-request cache, so a stage transition repaints on the next fetch.
 	// The memo dedupes reads within this one call (many panes share a worktree).
-	fabMemo := newFabStateMemo()
+	fabMemo := fabstatus.NewMemo()
 
 	// The operator-watchlist tier: ONE tolerant read of the fab-owned operator
 	// state file per fetch (server-scoped — no per-cwd memo needed, unlike the
@@ -897,10 +879,10 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 			// Fab tier proper (change/stage/displayState) from the native
 			// per-pane derivation, rolled up to the window (change-bound pane
 			// wins, else the first pane carrying one).
-			fab := fabMemo.windowState(sd.windows[j].Panes)
-			sd.windows[j].FabChange = fab.change
-			sd.windows[j].FabStage = fab.stage
-			sd.windows[j].FabDisplayState = fab.displayState
+			fab := fabMemo.WindowState(sd.windows[j].Panes)
+			sd.windows[j].FabChange = fab.Change
+			sd.windows[j].FabStage = fab.Stage
+			sd.windows[j].FabDisplayState = fab.DisplayState
 			for k := range sd.windows[j].Panes {
 				cwd := sd.windows[j].Panes[k].Cwd
 				if branch, ok := gitBranches[cwd]; ok {

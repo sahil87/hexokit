@@ -332,22 +332,27 @@ func init() {
 	operatorCmd.AddCommand(operatorTrackCmd)
 }
 
-// operatorStateTarget resolves the tmux server label (explicit -L/--server,
-// else the caller's own server from $TMUX) and its state file path.
+// operatorServer resolves the tmux server label: explicit -L/--server
+// (validated; a bad name is a usage error), else the caller's own server from
+// $TMUX.
+func operatorServer(cmd *cobra.Command) (string, error) {
+	server, _ := cmd.Flags().GetString("server")
+	if server == "" {
+		return cliServerLabel(operatorOriginalTMUXFn()), nil
+	}
+	if msg := validate.ValidateServerName(server); msg != "" {
+		return "", usageError(errors.New(msg))
+	}
+	return server, nil
+}
+
+// operatorStateTarget resolves the tmux server label and its state file path.
 func operatorStateTarget(cmd *cobra.Command) (server, path string, err error) {
-	server, _ = cmd.Flags().GetString("server")
-	if server != "" {
-		if msg := validate.ValidateServerName(server); msg != "" {
-			return "", "", usageError(errors.New(msg))
-		}
-	} else {
-		server = cliServerLabel(operatorOriginalTMUXFn())
+	server, err = operatorServer(cmd)
+	if err != nil {
+		return "", "", err
 	}
-	ctx := cmd.Context()
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	path, err = operator.StatePath(operatorSocketPathFn(ctx, server))
+	path, err = operator.StatePath(operatorSocketPathFn(operatorTrackContext(cmd), server))
 	if err != nil {
 		return "", "", err
 	}
