@@ -17,6 +17,7 @@ import (
 
 	"rk/internal/codeserver"
 	"rk/internal/config"
+	"rk/internal/daemon/autostart"
 	"rk/internal/gui"
 	"rk/internal/homemigrate"
 	"rk/internal/portpolicy"
@@ -2785,4 +2786,83 @@ func TestRKPortOverride(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAutostartCheck(t *testing.T) {
+	yes, no := true, false
+	zero, three := 0, 3
+	reg := func(startsAt string, linger *bool) autostart.Status {
+		return autostart.Status{Registered: true, Enabled: true, StartsAt: startsAt, Linger: linger}
+	}
+	cases := []struct {
+		name   string
+		status autostart.Status
+		err    error
+		want   string
+	}{
+		{"off", autostart.Status{}, nil, "off; enable with 'rk daemon autostart on'"},
+		{"boot", reg(autostart.StartsAtBoot, &yes), nil, "on (boot)"},
+		{"login only", reg(autostart.StartsAtLogin, &no), nil, "on (login only — enable lingering for boot); details: 'rk daemon autostart status'"},
+		{"plain login", reg(autostart.StartsAtLogin, nil), nil, "on (login)"},
+		{"disabled", autostart.Status{Registered: true, StartsAt: autostart.StartsAtLogin}, nil, "registered but disabled"},
+		{"stale", func() autostart.Status { s := reg(autostart.StartsAtBoot, &yes); s.Stale = true; return s }(), nil,
+			"on (boot); registration stale — re-run 'rk daemon autostart on'"},
+		{"exit code zero is silent", func() autostart.Status { s := reg(autostart.StartsAtBoot, &yes); s.LastExitCode = &zero; return s }(), nil, "on (boot)"},
+		{"non-zero exit", func() autostart.Status { s := reg(autostart.StartsAtBoot, &yes); s.LastExitCode = &three; return s }(), nil,
+			"on (boot); last start exited 3"},
+		{"non-zero exit with result", func() autostart.Status {
+			s := reg(autostart.StartsAtBoot, &yes)
+			s.LastExitCode, s.LastResult = &three, "exit-code"
+			return s
+		}(), nil, "on (boot); last start exited 3 (exit-code)"},
+		{"stale and failed, in order", func() autostart.Status {
+			s := reg(autostart.StartsAtLogin, &no)
+			s.Stale, s.LastExitCode = true, &three
+			return s
+		}(), nil, "on (login only — enable lingering for boot); registration stale — re-run 'rk daemon autostart on'; last start exited 3; details: 'rk daemon autostart status'"},
+		{"backend resolution error", autostart.Status{}, fmt.Errorf("daemon autostart is not supported on darwin (supported: linux)"),
+			"unavailable — daemon autostart is not supported on darwin (supported: linux)"},
+		{"status error", autostart.Status{}, fmt.Errorf("systemd user manager not available"), "unavailable — systemd user manager not available"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := autostartCheck(func(context.Context) (autostart.Status, error) { return tc.status, tc.err })
+			if got.Name != "daemon autostart" {
+				t.Errorf("Name = %q", got.Name)
+			}
+			if !got.OK {
+				t.Errorf("row must always be OK: %+v", got)
+			}
+			if got.Hint != "" {
+				t.Errorf("Hint = %q, want empty (remediation rides the note)", got.Hint)
+			}
+			if got.Note != tc.want {
+				t.Errorf("Note = %q, want %q", got.Note, tc.want)
+			}
+		})
+	}
+}
+
+func TestDoctorReportHasAutostartRowAfterCronTicker(t *testing.T) {
+	orig := autostartStatusFn
+	autostartStatusFn = func(context.Context) (autostart.Status, error) {
+		return autostart.Status{Registered: true, Enabled: true, StartsAt: autostart.StartsAtBoot}, nil
+	}
+	t.Cleanup(func() { autostartStatusFn = orig })
+
+	report := runDoctorChecks()
+	for i, c := range report.Checks {
+		if c.Name != "cron ticker" {
+			continue
+		}
+		if i+1 >= len(report.Checks) || report.Checks[i+1].Name != "daemon autostart" {
+			t.Fatalf("row after cron ticker is not daemon autostart: %+v", report.Checks[i+1:])
+		}
+		next := report.Checks[i+1]
+		if !next.OK || next.Note != "on (boot)" {
+			t.Errorf("autostart row = %+v", next)
+		}
+		return
+	}
+	t.Fatal("no cron ticker row in report")
 }

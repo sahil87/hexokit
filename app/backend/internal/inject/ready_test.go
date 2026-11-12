@@ -788,3 +788,117 @@ func TestAwaitReadyWaitThroughWallsGoneMidWall(t *testing.T) {
 		t.Errorf("captures = %d, want %d (ErrGone on the first dead-pane poll, not at the deadline)", got, 2+ProbeAttempts+2+1)
 	}
 }
+
+// loginWallScreen is Claude Code's unauthenticated boot as captured: the full
+// TUI with a live composer, plus the right-aligned login notice.
+const loginWallScreen = " ▐▛███▜▌   Claude Code v2.1.311\n" +
+	"▝▜█████▛▘  Opus 5.5 · API Usage Billing\n" +
+	"                                                          Not logged in · Run /login\n" +
+	"────────────────────────────────────────\n" +
+	"❯ Try \"edit app.tsx to...\"\n" +
+	"────────────────────────────────────────\n" +
+	"  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+
+func TestHasLoginWall(t *testing.T) {
+	cases := []struct {
+		name    string
+		capture string
+		want    bool
+	}{
+		{"right-aligned notice", loginWallScreen, true},
+		{"notice alone on its line", "Not logged in · Run /login\n❯ ", true},
+		{"notice with SGR escapes (capture-pane -e)", "\x1b[39m                    \x1b[31mNot logged in · Run /login\x1b[39m\n❯ ", true},
+		{"notice beside another right-side notice", "tmux focus-events off   Not logged in · Run /login  ", true},
+		{"transcript quotes the phrase inline", "● Both agents report \"Not logged in · Run /login\".\n❯ ", false},
+		{"transcript line ending in the phrase after one space", "● The banner read: Not logged in · Run /login\n❯ ", false},
+		{"logged-in screen", "▝▜█████▛▘  Opus 5.5 · Claude Max\n❯ Try \"refactor tmux.go\"", false},
+		{"blank", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hasLoginWall(tc.capture); got != tc.want {
+				t.Errorf("hasLoginWall() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAwaitReadyLoginWallBeatsState(t *testing.T) {
+	// Hooks can fire on an unauthenticated boot: a state-present pane showing
+	// the login notice is parked, never ready.
+	ft := &fakeTmux{captureResult: loginWallScreen}
+	r, err := AwaitReady(context.Background(), ft, "srv", "%1", ReadyOpts{
+		State: stateScript(sp("idle:1751790000:4242", nil)),
+		Sleep: noSleep,
+	})
+	var parked *ParkedError
+	if r != 0 || !errors.As(err, &parked) {
+		t.Fatalf("AwaitReady() = (%v, %v), want ParkedError", r, err)
+	}
+	if parked.Snippet != loginWallSignature {
+		t.Errorf("snippet = %q, want %q", parked.Snippet, loginWallSignature)
+	}
+}
+
+func TestAwaitReadyLoginWallBeforeProbe(t *testing.T) {
+	fastProbe(t)
+	// The walled composer would echo the sentinel, so the wall is classified
+	// before any probe: parked, and nothing is pasted into the pane.
+	ft := &fakeTmux{captureResult: loginWallScreen}
+	_, err := AwaitReady(context.Background(), ft, "srv", "%1", ReadyOpts{
+		State: stateScript(sp("", errors.New("no hooks"))),
+		Sleep: noSleep,
+	})
+	if !errors.Is(err, ErrParked) {
+		t.Fatalf("AwaitReady() error = %v, want ErrParked", err)
+	}
+	if got := countCalls(ft.callStream(), "set-buffer"); got != 0 {
+		t.Errorf("set-buffer calls = %d, want 0 (no sentinel typed behind a login wall)", got)
+	}
+}
+
+func TestAwaitReadyLoginWallWaitThroughWalls(t *testing.T) {
+	// A wall-tolerant wait keeps polling past the login wall and, with the
+	// pane still walled at the deadline, reports the wall as its verdict.
+	ft := &fakeTmux{captureResult: loginWallScreen}
+	_, err := AwaitReady(context.Background(), ft, "srv", "%1", ReadyOpts{
+		WaitThroughWalls: true,
+		Deadline:         30 * time.Millisecond,
+		Sleep:            noSleep,
+	})
+	var parked *ParkedError
+	if !errors.As(err, &parked) || parked.Snippet != loginWallSignature {
+		t.Fatalf("AwaitReady() error = %v, want the login-wall ParkedError", err)
+	}
+	if got := countCalls(ft.callStream(), "capture-pane"); got < 2 {
+		t.Errorf("captures = %d, want >= 2 (the wall did not end the wait)", got)
+	}
+}
+
+func TestAwaitReadyStateSurvivesCaptureError(t *testing.T) {
+	// The capture precedes the state verdict; a transient capture failure
+	// must not regress a state-proven pane.
+	ft := &fakeTmux{captureErr: errors.New("transient")}
+	r, err := AwaitReady(context.Background(), ft, "srv", "%1", ReadyOpts{
+		State: stateScript(sp("idle:1751790000:4242", nil)),
+		Sleep: noSleep,
+	})
+	if err != nil || r != ReadyByState {
+		t.Fatalf("AwaitReady() = (%v, %v), want (ReadyByState, nil)", r, err)
+	}
+}
+
+func TestAwaitReadyGoneBeatsState(t *testing.T) {
+	// A pane that dies between the state read and the capture is gone, not
+	// ready: the gone predicate outranks the state fallback.
+	isGone := func(err error) bool { return strings.Contains(err.Error(), "can't find pane") }
+	ft := &fakeTmux{captureErr: errors.New("can't find pane: %1")}
+	_, err := AwaitReady(context.Background(), ft, "srv", "%1", ReadyOpts{
+		State:  stateScript(sp("idle:1751790000:4242", nil)),
+		IsGone: isGone,
+		Sleep:  noSleep,
+	})
+	if !errors.Is(err, ErrGone) {
+		t.Fatalf("AwaitReady() error = %v, want ErrGone", err)
+	}
+}

@@ -332,7 +332,20 @@ is byte-identical without the flag. (260911-i2vm-cli-send-await-receipts)
 **`--ready` is the boot-readiness condition** — a single-pane wait (no `--any`)
 for the moment a freshly spawned agent is safe to type into, driven by
 `inject.AwaitReady` ([agent-state](/run-kit/agent-state.md) § Boot-Ready Signal).
-**State-present** is checked first every poll: the reconciled
+**Login wall first**: every successful capture is checked for Claude Code's
+right-aligned `Not logged in · Run /login` notice (`hasLoginWall` — ANSI
+escapes stripped, since readiness captures use `capture-pane -e`; the line must
+end in the notice with only whitespace or a ≥ 2-space gap before it, so a
+transcript that quotes the phrase inline never matches) → **`parked %N`, exit
+0**, snippet = the notice, ahead of both ready verdicts (its composer echoes
+and its hooks may fire, but the agent cannot act). Claude paints the notice
+asynchronously — observed 2–20 s after boot, after the hooks stamp `idle` at
+~1.4 s — so only a verdict reached once it is drawn sees it; the
+interactive-shell launch is what keeps the wall from appearing. The capture
+therefore precedes the state verdict: a gone capture error ends the wait as
+`gone`, any other capture error with state present still reads `ready
+(state)`. Under `WaitThroughWalls` the wall is recorded as the parked frame
+and polling continues. **State-present** is checked next every poll: the reconciled
 `@rk_pane_agent_state` exists (hooks fired, so the TUI is up) → `ready %N
 (state)`, exit 0 — the sentinel is therefore only ever typed into a pane with
 no reconciled agent state. For hook-less agents a **settled screen is the probe
@@ -489,7 +502,7 @@ change/stage fields are NOT carried (choreography facts, fab's layer). The
 duration shows for any known state with epoch > 0 — `idle`, `waiting`, **and**
 `active` (the age of a live `active` is the only downstream staleness signal for
 a lost write),
-formatted floor `Ns`/`Nm`/`Nh` via `sessions.FormatAgentDuration` (the
+formatted floor `Ns`/`Nm`/`Nh` via `tmux.FormatAgentDuration` (the
 `rollupAgentState` semantics). Under `--json` the envelope's `result` document
 carries (two-space-indented):
 `{"pane", "lines", "content", "cwd", "agent_state", "agent_state_duration"}`
@@ -592,12 +605,14 @@ a `/proc` walk (`comm`, NUL-joined `cmdline`, children via
 two-pass `ps` (one `pid,ppid,comm -ax` enumeration plus one `pid=,args=` cmdline
 pass joined by PID — TOCTOU-free; a PID missing from the cmdline pass degrades
 to `""`), with the pure `parsePSCmdlines` parser in an un-tagged file so it
-unit-tests on every platform. Classification (`classifyProcess(comm, cmdline)`):
+unit-tests on every platform. The walk lives in `internal/proctree` (`Discover` per OS,
+`Node`, `Classify(comm, cmdline)`), shared with the operator check. Classification:
 `agent` when the comm basename — or the basename of either of the **first two**
 cmdline tokens (a bounded fallback that catches node-hosted CLIs such as
 `gemini`; a third token never counts, so prompt text in argv is never liveness
 evidence) — is in the agent name set, which is **derived from the agent setup
-registry** (`agentRuntimes()`: every runtime's `binary` and `comm` literal —
+registry** (`agentRuntimes()` in `cmd/rk`, injected into `internal/proctree` at init via
+`SetAgentCommNames`: every runtime's `binary` and `comm` literal —
 `claude`, `codex`, `gemini`, `copilot`, `kimi`/`kimi-code`, `opencode`, `agy` —
 plus `claude-code`, minus `node`, so a bare `node` stays `node`); `node` for
 `node`; `git` for `git`/`gh`; else `other`. Additionally, when the pane's reconciled
@@ -605,9 +620,11 @@ plus `claude-code`, minus `node`, so a bare `node` stays `node`); `node` for
 PID SHALL be classified `agent` regardless of comm — the instrumentation is
 authoritative, comm heuristics are fallback; a failed state read degrades to
 comm-only with a stderr warning. `has_agent` is true iff any node classifies
-`agent` by either route. The discover → pid-cross-check → `hasAgentInTree` core
-is the single helper `paneHasAgent(ctx, pid, agentPID)` (discovery through the
-`muxProcessDiscoverFn` seam), shared with the `rk mux panes` row field below —
+`agent` by either route. The discover → pid-cross-check → has-agent core
+is the single helper `proctree.PaneHasAgentVia(ctx, discover, pid, agentPID)`, reached from
+`cmd/rk` through the `paneHasAgent(ctx, pid, agentPID)` forwarder (discovery through the
+`muxProcessDiscoverFn` seam), shared with the `rk mux panes` row field below and the
+operator check's `agent_exited` walk ([operator-state](/run-kit/operator-state.md)) —
 `process` prints the tree it returns, `panes` consumes only the bool. Human
 output: `Pane %5 (PID 1234)` plus indented
 `PID comm [class]` lines (the tag omitted for `other`) plus a trailing
@@ -649,7 +666,7 @@ last so the preceding key set is byte-stable for prefix decoders (fab's
 is uninstrumented or the reconciler rejects the value (the `mux capture --json`
 semantics), and the duration appears for any known state with epoch > 0 —
 `active` included, so the fab operator can apply an "active for Nm with no
-stage/PR delta" staleness rule — formatted via `sessions.FormatAgentDuration`. **`has_agent` is
+stage/PR delta" staleness rule — formatted via `tmux.FormatAgentDuration`. **`has_agent` is
 liveness, not instrumentation** — a tri-state `*bool` computed lazily by the
 `paneHasAgent` walk (the `rk mux process` walk above, comm/cmdline classification
 plus the agent-state pid cross-check): the walk runs only for rows whose
@@ -856,6 +873,13 @@ permanent: they are human-typed verbs, so they are removable in a future release
 
 ## Design Decisions
 
+### Claude's login wall gates both ready verdicts
+**Decision**: `inject.AwaitReady` checks every successful capture for Claude Code's right-aligned `Not logged in · Run /login` notice before returning `ready (state)` or probing, and classifies it as `ParkedError` (snippet: the notice); the match requires the notice to end its line after only whitespace or a ≥ 2-space gap, on an ANSI-stripped capture.
+**Why**: an unauthenticated Claude boots a full TUI — its composer echoes and its SessionStart hook stamps `idle` — so both existing signals read ready and a delivery lands in an agent that cannot act. The shared classifier gives every `--ready` consumer (`rk mux await --ready`, `rk tab new --ready`, `fab dispatch ready`, operator kickoff, riff delivery) the verdict at once. The notice paints 2–20 s after boot, so this is a safety net for a wall already drawn; the interactive-shell launch prevents the wall.
+**Rejected**: a `rk tab new`-only check (leaves fab dispatch, kickoff, and riff delivery blind); matching the phrase anywhere on screen (a transcript that quotes it would refuse delivery to a healthy agent); holding every ready verdict ~20 s until the notice could have painted (slows every spawn for a rare failure whose root cause the launch wrap removes).
+*Introduced by*: 261111-c8sc-tab-new-interactive-shell-wrap
+
+
 ### Help GroupIDs stamped on family instances, never in the two-instance constructors
 **Decision**: The three `cobra.Group`s and all thirteen `GroupID` assignments live
 in `mux.go`'s `init()` on the family-member instances; the shared constructors
@@ -1061,7 +1085,7 @@ enumeration surface).
 *Introduced by*: `260910-7pek-mux-panes-has-agent`
 
 ### Agent classification derives from the agent setup registry
-**Decision**: `classifyProcess`'s agent name set is the union of every
+**Decision**: `proctree.Classify`'s agent name set is the union of every
 `agentRuntimes()` entry's `binary` and `comm` (minus `node`) plus `claude-code`,
 matched on the comm basename or on either of the first two cmdline token
 basenames.

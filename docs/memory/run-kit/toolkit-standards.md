@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, HEAD-build audit rule, per-standard PASS (help-dump, skill, principles, update, version, install-composition). Covers P9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator` (incl. `operator request`)/`gui`/`mcp`/`board` + the `mux` and `cron` families."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, HEAD-build audit rule, per-standard PASS (help-dump, skill, principles, update, version, install-composition). Covers P9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator` (incl. `operator request`/`track`/`adopt`/`brief`)/`gui`/`mcp`/`board` + `mux`/`cron` families."
 ---
 # Toolkit Standards Conformance
 
@@ -334,16 +334,18 @@ the seventeenth surface measured against the same checks
   window is created), 2 usage (malformed address or
   layout, unknown surface, flag conflicts, arg counts, a `tab new` positional
   without `--`, `--ready` without `--json` or without a command, `--timeout`
-  without `--ready`, `--no-shell-fallback` without a command, a negative
+  without `--ready`, `--no-shell-fallback` or `--no-shell-profile` without a
+  command, a negative
   `--timeout`): every nested member
   re-wraps its `Args` validator with `usageArgs` at its own add site (root's
   central wrap loop covers only direct children — the `code.go` idiom), and an
   `-L` naming a foreign server without an explicit `@N` is a usage error.
 - **The `skill` standard teaches the family** — the core bundle
   `docs/site/skill.md` carries a "drive the tab UI" capability line —
-  `rk tab new [--layout L] [--name N] [--json] [--ready] [-- CMD…]` with the
-  argv-after-`--` rule, the `-- sh -c "…"` expansion recipe, the shell-fallback
-  / `--no-shell-fallback` note, and the standard `--json` envelope
+  `rk tab new [--layout L] [--name N] [--json] [--ready] [--no-shell-profile] [-- CMD…]`
+  with the argv-after-`--` rule, the `-- sh -c "…"` expansion recipe, the
+  interactive-shell default (rc-file exports present) / `--no-shell-profile`
+  note, the shell-fallback / `--no-shell-fallback` note, and the standard `--json` envelope
   (`{"ok":true,"result":{session, window_id, pane_id}}`) — and one
   quickref row per verb group; `docs/site/skill/display.md`'s follow-up-moves
   section teaches `rk tab web ls|select|rm` and `rk tab layout` after the
@@ -941,6 +943,51 @@ surface measured against the same checks (sjs1):
   `TestSkillTopics*` guards) teaches `--list`, the window/server split, and the
   `queued:true` meaning; the README command-reference row carries
   `request <template>` (readme-extraction stays closed over the tree).
+
+The `rk operator track` family and `rk operator adopt` (`operator_track.go`,
+`operator_adopt.go` — see [cli](/run-kit/architecture/cli.md) § CLI
+Subcommands, `operator` row, and [operator-state](/run-kit/operator-state.md))
+are measured against the same checks (261111-7iz0-operator-state-engine):
+
+- **help-dump: registered on the existing `operator` parent.** Both register
+  unconditionally on `operatorCmd` with `Short`/`Long` blocks, so the tree walk
+  dumps `operator adopt` and `operator track` with its eight verbs and no
+  help-dump code change or fixture edit is needed; the contract is
+  platform-stable. Help text carries Examples and Exit codes sections and no
+  backticks in flag help (pflag would read them as the flag's metavar).
+- **Principle 9: the verb's result is data, warnings are chatter.** Report
+  lines (`<action> <id>`, `list` rows, the `adopted … skipped …` summary and its
+  per-id lines) are `Dataf` and survive `--quiet`; `--json` emits exactly one
+  envelope document through the shared sink, and adopt's trim warnings are
+  `Notef` chatter on stderr.
+- **Exit-code convention (P4)** — 0 success (adopt's nothing-to-adopt and
+  dry-run included), 1 operational (duplicate id, no such item, state file
+  busy or unreadable, running legacy autopilot queue), 2 usage (the library's
+  `InvalidError` class and flag-shape errors).
+- **The `skill` and README surfaces do not list the verbs** — they are
+  documented through `--help` and `rk help-dump` only.
+
+The `rk operator brief` verb (`operator_brief.go` — see
+[operator-brief](/run-kit/operator-brief.md)) and the `operator` skill topic
+are measured against the same checks (261111-jsg9-operator-run-brief-chat-skill):
+
+- **help-dump: registered on the existing `operator` parent.** `brief`
+  registers unconditionally on `operatorCmd` with a `Long:` block carrying
+  Flags, Examples and Exit codes sections, so the tree walk dumps it with no
+  help-dump code change; the contract is platform-stable.
+- **Principle 9: the brief is the data.** The rendered brief is one `Dataf` on
+  stdout and survives `--quiet`; nothing else is printed on stdout.
+- **Exit-code convention (P4)** — 0 printed (a missing state file included),
+  1 operational (state file unreadable or malformed), 2 usage (invalid `-L`,
+  empty `--changed` id).
+- **The `skill` standard covers an `operator` topic page** — canonical
+  `docs/site/skill/operator.md` (≤150 lines, static-only), synced to the
+  embedded copy by `scripts/sync-skill.sh`, registered as
+  `skillTopics["operator"]`, and drift-guarded and budget-tested by the shared
+  `TestSkillTopics*` tables, so `rk skill topics` and the `Topics:` help line
+  enumerate it; the core bundle `docs/site/skill.md` gains one topic-index
+  line for it and stays ≤150 lines. The page teaches the ledger and brief
+  verbs; the README does not list them.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

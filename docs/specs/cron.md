@@ -321,6 +321,18 @@ replace every remaining `/` with `-`, empty ⇒ `default` (e.g.
 `tmp-tmux--1001-runKit.yaml`). rk mirrors the rule exactly
 (`tmux.SocketPath` + `cron.FabOperatorSlug`), never writes the file, and
 falls back to slug `default` on a socket-path query failure — matching fab.
+rk's own operator state file (`$XDG_STATE_HOME/hexokit/operator/<slug>.yaml`,
+same slug, written only by `rk operator`) is the **primary source** of the
+watchlist seam: while it exists on disk — even empty, even corrupt — it is the
+only file read and fab's is ignored, so a corrupt or empty rk file reads as
+no list or an empty one, never as fab's frozen copy. Fab's file is the
+fallback while no rk file exists (before `rk operator adopt` or the first
+`rk operator track add`). The read never creates, converts or writes either
+file. Both files share the `tracked:` schema family, and items may carry a
+`notes:` list (`{at, by, text}`, oldest first) that the read parses
+tolerantly; a fab `note` item's `text` reads as one `user` note stamped at
+`updated_at` (else `added_at`), so the drawer shows the same note before and
+after adopt.
 rk **derives** the watchlist from this file — the same posture as its
 `.status.yaml` and `.fab-dispatch/` reads (Constitution II) — in one
 tolerant read with two projections: the whole `tracked:` list (every item —
@@ -382,10 +394,14 @@ tiered; each tier reuses a shipped mechanism:
    watched-table component as the Server page's WATCHED zone — pane-bearing
    workers as rows whose click navigates to the worker's terminal and
    collapses the drawer, pane-less items (notes, queued changes, github-pr
-   probes, shell probes, held tasks) as item rows with kind chip, refs, text
-   (truncated, expand-in-place), and paused/done state; done-but-unacked
+   probes, shell probes, held tasks) as item rows with kind chip, refs, latest
+   note (truncated, expand-in-place to all notes), and paused/done state; done-but-unacked
    items render dimmed until the operator removes them, and the tab's count
-   line matches what `fab operator track list` reports. Entry points: the
+   line matches what `rk operator track list` reports (`fab operator track list` before cutover). A row's note cell
+   shows the item's latest note (author, age, `+N` for further notes) and
+   expands in place to every note, fetched on demand from
+   `GET /api/operator/notes`; a worker row without an item note shows the
+   window's tab note. Entry points: the
    status-bar `◷` clock chip and the palette entries `Operator: Show tasks`,
    `Operator: Show cron list`, and `Operator: Show cron log` (mobile: the
    `?tab=tasks|list|log` content slots on the operator route); the quake
@@ -503,7 +519,7 @@ tmux event — the safety-poll lesson).
 
 | Surface | Form |
 |---------|------|
-| Read | `GET /api/cron?server=<slug>` — entries + derived next-fire + orphan state; watchlist rides the existing SSE state doc |
+| Read | `GET /api/cron?server=<slug>` — entries + derived next-fire + orphan state; watchlist rides the existing SSE state doc (`operatorTracked[]` carries each item's latest note and note count); `GET /api/operator/notes?server=<slug>&id=<item-id>` — one tracked item's full notes |
 | Mutate | `POST /api/cron/create`, `POST /api/cron/delete`, `POST /api/cron/mute` (optional `for` duration leases the mute), `POST /api/cron/edit` (partial-merge body; immutable target; returns the entry) — POST-only (Constitution IX) |
 | CLI | `rk cron add <prompt> --every 1h \| --idle-every 3m \| --backoff \| --cron "<expr>" [--json] [--name N] [--deliver when-idle\|skip-if-busy] [--if-absent skip] [--respawn <arg>…] [--wake-on agent-state-change [--wake-scope server] [--wake-debounce 60s]]`, `rk cron edit <id> [<schedule flag>] [--deliver P] [--name N] [--if-absent P] [--respawn <arg>…] [--wake-on <event>\|none …]` (target and creator immutable; a schedule or deliver change logs `rescheduled`; `--wake-on` replaces the whole block, `none`/`off` clears it, and a wake-only edit logs nothing), `rk cron list [--json]`, `rk cron rm <id> [--json]`, `rk cron mute <id> [--for <dur>] [--off] [--json]` — agent-friendly: no flags beyond the schedule are required |
 
@@ -525,7 +541,7 @@ move.
 | II (no database) | Entry files are intent read at request time (`.status.yaml` class); runtime facts derived or in-memory, re-derived on restart; the delivery log is recovery-backup class (history, never a live-state source) |
 | VI (tmux independent) | The clock lives in the daemon; tmux sessions and agents are untouched by daemon restarts — at worst one duplicate idempotent fire |
 | IX (POST-only) | All mutations are POST |
-| X (hooks carry only the underivable) | Nothing is pushed — the watchlist derives from the fab-owned operator state file, staleness from its `last_tick_at`; no new hook exists |
+| X (hooks carry only the underivable) | Nothing is pushed — the watchlist derives from the operator state file (rk's, else fab's), staleness from its `last_tick_at`; no new hook exists |
 | IV (minimal surface) | No new page or tile — the cron surface lives in the quake terminal's existing segment strip; the watchlist reuses the tree rows instead of duplicating them |
 
 ## Phasing
@@ -564,7 +580,7 @@ move.
   Terminal | Operator Tasks | Cron List | Cron Log`) on the desktop drawer
   and the mobile operator route + staleness banner + entry detail sheet,
   the Server page's WATCHED zone, watched-row underbar + the `opr` register
-  line (watchlist and `last_tick_at` read from the fab operator state file),
+  line (watchlist and `last_tick_at` read from the operator state file — rk's, else fab's),
   SSE wiring, palette actions, notify deep-links.
 - **P3 — generalization + replacement posture**: `session` targets with
   auto-capture, orphan GC, the closed-session resume default for

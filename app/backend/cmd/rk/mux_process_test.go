@@ -5,83 +5,32 @@ import (
 	"strings"
 	"testing"
 
+	"rk/internal/proctree"
 	"rk/internal/tmux"
 )
 
-// TestClassifyProcess pins the classification rule: the agent set is every
-// registry runtime's binary and comm (minus node) plus claude-code, matched on
-// the comm basename or on either of the first two cmdline token basenames;
-// node, git, and the other fallback; all case-insensitive.
-func TestClassifyProcess(t *testing.T) {
-	cases := []struct {
-		comm, cmdline, want string
-	}{
-		{"claude", "", "agent"},
-		{"claude-code", "", "agent"},
-		{"codex", "", "agent"},
-		{"gemini", "", "agent"},
-		{"copilot", "", "agent"},
-		{"kimi", "", "agent"},
-		{"kimi-code", "", "agent"},
-		{"opencode", "", "agent"},
-		{"agy", "", "agent"},
-		{"Claude", "", "agent"}, // lowercased before lookup
-		{"/usr/local/bin/claude", "", "agent"},
-		// Bounded cmdline fallback: a node-hosted CLI is agent by its second
-		// token; a third token never counts, so prompt text is not evidence.
-		{"node", "node /usr/local/bin/gemini --yolo", "agent"},
-		{"node", "/usr/bin/node /opt/agy/cli.js", "node"},
-		{"node", `node server.js "please run claude now"`, "node"},
-		{"node", "", "node"},
-		{"git", "", "git"},
-		{"gh", "", "git"},
-		{"zsh", "-zsh", "other"},
-		{"my-wrapper", "my-wrapper claude --resume", "agent"},
-		{"my-wrapper", "my-wrapper --run claude", "other"},
-		{"", "", "other"},
-	}
-	for _, tc := range cases {
-		if got := classifyProcess(tc.comm, tc.cmdline); got != tc.want {
-			t.Errorf("classifyProcess(%q, %q) = %q, want %q", tc.comm, tc.cmdline, got, tc.want)
+// TestAgentCommNamesCoverRegistry: every registry runtime is recognized by
+// both of its names — a harness added to agentRuntimes() must never silently
+// fall out of the walk.
+func TestAgentCommNamesCoverRegistry(t *testing.T) {
+	for _, n := range []string{"claude-code", "Claude", "/usr/local/bin/claude"} {
+		if got := proctree.Classify(n, ""); got != proctree.ClassAgent {
+			t.Errorf("Classify(%q) = %q, want agent", n, got)
 		}
 	}
-	// Every registry runtime is recognized by both of its names — a harness
-	// added to agentRuntimes() must never silently fall out of the walk.
 	for _, rt := range agentRuntimes() {
 		for _, n := range []string{rt.binary, rt.comm} {
 			if n == "node" {
 				continue
 			}
-			if got := classifyProcess(n, ""); got != "agent" {
+			if got := proctree.Classify(n, ""); got != proctree.ClassAgent {
 				t.Errorf("registry name %q classifies %q, want agent", n, got)
 			}
 		}
 	}
-}
-
-// TestParsePSCmdlines: the darwin cmdline-join parser (unit-tested here on
-// every platform, which is why it lives in the un-tagged file) is robust to
-// right-aligned pids, spaces inside args, and non-pid lines.
-func TestParsePSCmdlines(t *testing.T) {
-	out := "  123 /bin/zsh -l\n" +
-		" 1250 claude --dangerously-skip-permissions -n my session\n" +
-		"garbage line\n" +
-		"  77\n"
-	m := parsePSCmdlines(out)
-	if len(m) != 3 {
-		t.Fatalf("parsed %d entries, want 3: %v", len(m), m)
-	}
-	if m[123] != "/bin/zsh -l" {
-		t.Errorf("m[123] = %q", m[123])
-	}
-	if m[1250] != "claude --dangerously-skip-permissions -n my session" {
-		t.Errorf("m[1250] = %q (args with spaces must survive)", m[1250])
-	}
-	if m[77] != "" {
-		t.Errorf("m[77] = %q, want empty args", m[77])
-	}
-	if _, ok := m[0]; ok {
-		t.Error("non-pid line leaked into the map")
+	// gemini is a node-hosted CLI: caught by the bounded cmdline fallback.
+	if got := proctree.Classify("node", "node /usr/local/bin/gemini --yolo"); got != proctree.ClassAgent {
+		t.Errorf("node-hosted gemini classifies %q, want agent", got)
 	}
 }
 

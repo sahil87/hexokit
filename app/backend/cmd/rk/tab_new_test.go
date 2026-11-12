@@ -430,11 +430,53 @@ func TestTabNewInfraCallerNowhereToSpawn(t *testing.T) {
 }
 
 // TestTabNewHelpDocumentsTheRule pins the help surface: the rung ladder, the
-// nowhere-to-spawn error, and the session_rung key are all documented.
+// nowhere-to-spawn error, the session_rung key, and the interactive-shell
+// launch with its opt-out are all documented.
 func TestTabNewHelpDocumentsTheRule(t *testing.T) {
-	for _, want := range []string{"session_rung", "nowhere to spawn", "most-attached", "sole user"} {
+	for _, want := range []string{"session_rung", "nowhere to spawn", "most-attached", "sole user",
+		"${SHELL:-/bin/sh} -i -c", "not alias-expanded", "--no-shell-profile"} {
 		if !strings.Contains(tabNewCmd.Long, want) {
 			t.Errorf("tab new Long omits %q", want)
 		}
+	}
+}
+
+// TestTabNewCommandComposition pins the tmux shell-command positional for all
+// four wrap/fallback flag combinations, tmux-free through the creation seam.
+func TestTabNewCommandComposition(t *testing.T) {
+	cases := []struct {
+		name  string
+		flags []string
+		want  string
+	}{
+		{"default", nil,
+			`${SHELL:-/bin/sh} -i -c ''\''claude'\'' '\''--model'\'' '\''opus'\'''; exec "${SHELL:-/bin/sh}"`},
+		{"--no-shell-fallback", []string{"--no-shell-fallback"},
+			`${SHELL:-/bin/sh} -i -c ''\''claude'\'' '\''--model'\'' '\''opus'\'''`},
+		{"--no-shell-profile", []string{"--no-shell-profile"},
+			`'claude' '--model' 'opus'; exec "${SHELL:-/bin/sh}"`},
+		{"--no-shell-profile --no-shell-fallback", []string{"--no-shell-profile", "--no-shell-fallback"},
+			`'claude' '--model' 'opus'`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got string
+			origCreate, origWake := tabNewCreateWindowFn, tabWakeFn
+			tabNewCreateWindowFn = func(session, _, _, _, shellCmd string, _ []tmux.WindowOptionOp) (tmux.WindowBirth, error) {
+				got = shellCmd
+				return tmux.WindowBirth{Session: session, WindowID: "@1", PaneID: "%1"}, nil
+			}
+			tabWakeFn = func(context.Context, string) {}
+			t.Cleanup(func() { tabNewCreateWindowFn, tabWakeFn = origCreate, origWake })
+
+			args := append([]string{"new", "--session", "=s", "--cwd", t.TempDir()}, tc.flags...)
+			args = append(args, "--", "claude", "--model", "opus")
+			if _, _, err := runTabCmd(t, args...); err != nil {
+				t.Fatalf("tab new: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("shellCmd = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

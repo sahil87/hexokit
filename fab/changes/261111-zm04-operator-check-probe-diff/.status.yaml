@@ -1,0 +1,58 @@
+id: zm04
+name: 261111-zm04-operator-check-probe-diff
+created: 2026-11-11T13:06:45Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 11
+    acceptance_count: 31
+    acceptance_completed: 31
+confidence:
+    certain: 7
+    confident: 8
+    tentative: 0
+    unresolved: 0
+    score: 3.8
+    fuzzy: true
+    dimensions:
+        signal: 67.7
+        reversibility: 79.7
+        competence: 80.0
+        disambiguation: 75.7
+stage_metrics:
+    intake: {started_at: "2026-11-11T13:06:45Z", driver: fab-new, iterations: 1, completed_at: "2026-11-11T13:11:56Z"}
+    apply: {started_at: "2026-11-11T13:47:36Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-11T13:53:18Z"}
+    review: {started_at: "2026-11-11T13:53:18Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-11T13:58:10Z"}
+    hydrate: {started_at: "2026-11-11T13:58:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T14:01:19Z"}
+    ship: {started_at: "2026-11-11T14:01:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T14:02:16Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1129
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 4011
+    deleted: 378
+    net: 3633
+    excluding:
+        added: 3382
+        deleted: 351
+        net: 3031
+    tests:
+        added: 1869
+        deleted: 123
+        net: 1746
+    computed_at: "2026-11-11T14:02:16Z"
+    computed_at_stage: ship
+summary: 'operator check: two-phase probe + edge-triggered diff gate (operator.Check, rk operator check); fab-state and process-tree walk moved to internal/fabstatus and internal/proctree'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-11T14:02:16Z

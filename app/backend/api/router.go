@@ -21,6 +21,7 @@ import (
 	"rk/internal/config"
 	"rk/internal/cron"
 	"rk/internal/daemon"
+	"rk/internal/daemon/autostart"
 	"rk/internal/fabsysconfig"
 	"rk/internal/gui"
 	"rk/internal/mcp"
@@ -318,6 +319,11 @@ type Server struct {
 	// backoff next-fire.
 	cronFactsFn func(ctx context.Context, server string, entries []cron.Entry) cron.ServerFacts
 
+	// operatorStateFn reads one server's operator state for GET
+	// /api/operator/notes. Nil falls back to sessions.ReadOperatorStateForServer
+	// (a live tmux socket-path query); tests inject a fixed state.
+	operatorStateFn func(ctx context.Context, server string) (cron.OperatorState, bool)
+
 	// The gui*Fn group is the injectable seam layer behind GET /api/gui/{id},
 	// POST /api/gui/{id}/restart, POST /api/gui/{id}/launch,
 	// POST /api/gui/{id}/resize, and the gui.enabled/gui.geometry settings POST
@@ -346,6 +352,12 @@ type Server struct {
 	guiStatFn           func(path string) (os.FileInfo, error)
 	guiLaunchFn         func(argv, env []string) (int, error)
 	guiXrandrRunFn      gui.DisplayRunner
+
+	// autostartStatusFn is the seam behind GET /api/daemon/autostart (see
+	// api/autostart.go). Nil falls back to the production autostart backend
+	// for runtime.GOOS; tests inject a fake so no request reaches a real
+	// service manager.
+	autostartStatusFn func(ctx context.Context) (autostart.Status, error)
 
 	// tintCacheMu guards tintCache.
 	tintCacheMu sync.Mutex
@@ -1011,6 +1023,7 @@ func (s *Server) buildRouter() chi.Router {
 
 	// API routes
 	r.Get("/api/health", s.handleHealth)
+	r.Get("/api/daemon/autostart", s.handleDaemonAutostart)
 	r.Get("/api/sessions", s.handleSessionsList)
 	r.Post("/api/sessions", s.handleSessionCreate)
 	r.Get("/api/sessions/order", s.handleSessionOrderGet)
@@ -1029,6 +1042,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/cron/mute", s.handleCronMute)
 	r.Post("/api/cron/pin", s.handleCronPin)
 	r.Post("/api/cron/edit", s.handleCronEdit)
+	r.Get("/api/operator/notes", s.handleOperatorNotes)
 	r.Post("/api/sessions/{session}/color", s.handleSessionColor)
 	r.Post("/api/sessions/{session}/flair", s.handleSessionFlair)
 	r.Post("/api/sessions/{session}/kill", s.handleSessionKill)

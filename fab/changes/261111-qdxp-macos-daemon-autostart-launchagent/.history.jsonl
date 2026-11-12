@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-11T10:54:56Z"}
+{"args":"Implement step A2 of fab/plans/sahil/26-11-11-rk-daemon-autostart.md: rk daemon autostart on|off|status on macOS (LaunchAgent)","cmd":"fab-new","event":"command","ts":"2026-11-11T10:54:56Z"}
+{"delta":"+3.9","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-11-11T10:56:41Z"}
+{"delta":"+0.0","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-11-11T10:57:17Z"}
+{"delta":"+0.0","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-11-11T10:57:43Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-11T11:05:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-11T11:05:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-11T11:10:44Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-11-11T11:12:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-11-11T11:19:20Z"}
+{"event":"review","result":"passed","ts":"2026-11-11T11:19:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-11-11T11:20:08Z"}
+{"action":"enter","driver":"git-pr-review","event":"stage-transition","stage":"review-pr","ts":"2026-11-11T11:39:11Z"}
+{"event":"review","result":"passed","ts":"2026-11-11T11:39:17Z"}

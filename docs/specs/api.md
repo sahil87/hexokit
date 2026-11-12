@@ -57,6 +57,33 @@ Supervisor health check. No authentication.
 | `status` | `string` | Always `"ok"` |
 | `tunnel` | `number` | The daemon's listen port, advertised so the desktop shell can self-test the tunnel against the host's own listen port (§ Tunnel). Older daemons omit the field; its absence reads as no tunnel capability |
 
+#### `GET /api/daemon/autostart`
+
+Read-only report of the daemon's autostart registration (`rk daemon autostart`) — whether the daemon comes back at boot or login. GET only; enabling or disabling stays a CLI act, and this handler never calls the backend's `On` or `Off`. The probe runs under a 10-second timeout.
+
+**Response** `200` — backend resolved and its status read:
+```json
+{
+  "supported": true,
+  "summary": "on (login only — enable lingering for boot)",
+  "status": { "platform": "linux", "manager": "systemd", "registered": true, "enabled": true, "starts_at": "login", "linger": false, "stale": false }
+}
+```
+
+**Response** `200` — no backend for this platform, or the service manager is unreachable:
+```json
+{ "supported": false, "summary": "unavailable", "error": "daemon autostart is not supported on darwin (supported: linux)" }
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `supported` | `boolean` | `false` when backend resolution or the status read failed; the failure is data, not an HTTP error |
+| `summary` | `string` | The one-line state from `autostart.Status.Summary()`, shared with `rk doctor` and `rk daemon autostart status`: `on (boot)`, `on (login only — enable lingering for boot)`, `on (login)`, `registered but disabled`, `off`; `unavailable` when `supported` is `false` |
+| `status` | `object` | The backend's full `autostart.Status` (snake_case keys: `platform`, `manager`, `name`, `path`, `registered`, `enabled`, `starts_at`, `linger`, `last_exit_code`, `last_result`, `rk_path`, `shell`, `stale`, `hints`). Present only when `supported` |
+| `error` | `string` | The failure text. Present only when not `supported` |
+
+Older daemons 404 the route; clients treat that as "no autostart information" and omit the surface. The Host page's HexoKit system card reads it once on mount.
+
 ---
 
 ### Sessions
@@ -100,6 +127,8 @@ Returns all tmux sessions with their windows, enriched with fab-kit state where 
 | `fabChange` | `string?` | Active change name from `.fab-status.yaml`, omitted if no active change |
 | `fabStage` | `string?` | Current active stage (first `active` entry in `.fab-status.yaml` `progress` map), omitted if no active change |
 | `fabDisplayState` | `string?` | Pipeline state of the displayed stage from `fab pane map` `display_state` — one of `active`, `ready`, `done`, `failed`, `pending`, `skipped`; omitted when fab reports `null` or the field is absent (fab < 2.1.7) |
+
+**Operator fields** (server-scoped, stamped identically on every session of one response): `operatorLastTickAt` / `operatorStale` (the operator state file's `last_tick_at` against the 15-minute staleness threshold; omitted when the file carries none) and `operatorTracked[]`, the whole tracked list, omitted when no state file is readable and `[]` when the file tracks nothing. The file is rk's own operator state (`$XDG_STATE_HOME/hexokit/operator/<slug>.yaml`) as soon as it exists — even when empty or corrupt, in which case the list is omitted — and fab's operator state file only while no rk file exists. Neither is written by the read. Each `operatorTracked[]` item carries `id`, `kind`, `refs`, `pane`, `windowId`, `repo`, `session`, `stage`, `agent`, `branch`, `paused`, `doneAt`, `addedAt`, `updatedAt` (all but `id` omitted when empty), plus `latestNote` (`{at, by, text}` — the item's newest note, `at` in unix seconds, `by` one of `user`/`run`/`chat`) and `noteCount`, both omitted when the item has no notes. The full notes list never rides this payload; it is `GET /api/operator/notes`.
 
 **Behavior:**
 - Filters out byobu session-group copies (keep where `name == group` or `grouped == 0`)
@@ -279,6 +308,15 @@ Send a message into a window's resolved pane — the compose strip's single deli
 - `404` window not found (or no panes) · `target:"agent"` with no chat-carrying pane
 - `409` structured injection outcomes (`probe_failure` — Enter withheld, text staged; `staged_send_failure`; `submit_unverified`) — retrying would duplicate the staged text
 - `500` session fetch or tmux subprocess failure
+
+#### `GET /api/operator/notes?server=<slug>&id=<item-id>`
+
+One tracked item's full notes list — what the Operator Tasks row fetches when it expands. Read-only (notes are written by `rk operator track note`, runs and chat). The state file is chosen exactly as for `operatorTracked[]` (rk's file when it exists, else fab's), so the route and the sessions payload cannot disagree. `id` is compared for equality against the file's items and never used in a path; `server` rides `serverFromRequest`.
+
+**Responses:**
+- `200` `{ "id": "<item-id>", "notes": [{ "at": 1762850000, "by": "run", "text": "…" }, …] }` — oldest → newest, file order; `[]` for an item without notes
+- `400` `{ "error": "id is required" }` — `id` missing or empty
+- `404` `{ "error": "…" }` — no state file is readable (absent or corrupt), or no item has that id
 
 #### `POST /api/operator/start`
 
@@ -799,6 +837,7 @@ omit `Origin`.
 | `POST` | `/api/layout/return` | `layout_borrow.go` | Send a held surface leaf home (`{from, leaf}`); the server recomputes both trees from live tmux state and re-adds a dismissed home slot |
 | `POST` | `/api/windows/:windowId/operator-request` | `operator.go` | Window-scoped operator request (closed template registry; busy ⇒ 202 queued) |
 | `POST` | `/api/operator-request` | `operator.go` | Server-scoped operator request (same registry) |
+| `GET` | `/api/operator/notes` | `operator_notes.go` | One tracked item's full notes (`?server=&id=`), oldest → newest; read-only |
 | `POST` | `/api/operator/start` | `operator_start.go` | Start the server operator (execs `rk operator -L <server> --json`; answers on the receipt line) |
 | `POST` | `/api/notify` | `push.go` | Web Push notification to subscribed devices |
 | `POST` | `/api/riff` | `riff.go` | Spawn worktree + window + agent (riff engine) |

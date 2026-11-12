@@ -22,6 +22,7 @@ import (
 	"rk/internal/config"
 	"rk/internal/cron"
 	"rk/internal/daemon"
+	"rk/internal/daemon/autostart"
 	"rk/internal/fabconfig"
 	"rk/internal/gui"
 	"rk/internal/homemigrate"
@@ -186,6 +187,11 @@ func runDoctorChecks() doctorReport {
 	// separate process from the daemon, so live goroutine state is not
 	// reportable and nothing here may fail the report.
 	report.Checks = append(report.Checks, cronTickerCheck())
+
+	// Daemon autostart — the registration state, always OK-shaped: off is the
+	// default and login-only is a state, never a dependency failure, so the
+	// row can never flip the verdict.
+	report.Checks = append(report.Checks, autostartCheck(autostartStatusFn))
 
 	// Locale — whether this process and the rk-daemon server's global env pass
 	// tmux's client UTF-8 rule, always OK-shaped: the process side is already
@@ -376,6 +382,52 @@ func cronTickerCheck() doctorCheck {
 		return check
 	}
 	check.Note = fmt.Sprintf("cron_ticker %s; state dir %s", state, dir)
+	return check
+}
+
+// autostartStatusFn is the seam for the doctor autostart row: tests replace it
+// so no check reaches a real service manager. It resolves the backend through
+// autostartBackendFn so doctor and the CLI verbs share one GOOS seam.
+var autostartStatusFn = func(ctx context.Context) (autostart.Status, error) {
+	b, err := autostartBackendFn()
+	if err != nil {
+		return autostart.Status{}, err
+	}
+	return b.Status(ctx)
+}
+
+// autostartCheck reports the daemon autostart registration. Always OK-shaped
+// (the cron-ticker posture): a missing backend or service manager degrades to
+// an "unavailable" note. Remediation rides the note because the human
+// renderer prints Hint only on FAIL rows.
+func autostartCheck(status func(context.Context) (autostart.Status, error)) doctorCheck {
+	check := doctorCheck{Name: "daemon autostart", OK: true}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	s, err := status(ctx)
+	if err != nil {
+		check.Note = fmt.Sprintf("unavailable — %v", err)
+		return check
+	}
+	summary := s.Summary()
+	frags := []string{summary}
+	if s.Stale {
+		frags = append(frags, "registration stale — re-run 'rk daemon autostart on'")
+	}
+	if s.LastExitCode != nil && *s.LastExitCode != 0 {
+		frag := fmt.Sprintf("last start exited %d", *s.LastExitCode)
+		if s.LastResult != "" {
+			frag += " (" + s.LastResult + ")"
+		}
+		frags = append(frags, frag)
+	}
+	switch summary {
+	case autostart.SummaryOff:
+		frags = append(frags, "enable with 'rk daemon autostart on'")
+	case autostart.SummaryLoginOnly:
+		frags = append(frags, "details: 'rk daemon autostart status'")
+	}
+	check.Note = strings.Join(frags, "; ")
 	return check
 }
 

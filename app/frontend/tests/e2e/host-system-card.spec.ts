@@ -12,6 +12,10 @@ import { mockStateSocket } from "./_state-socket-mock";
 // so the card renders against a metrics-less zone (independent of the
 // host-metrics stream). /ws/terminals is accepted and held open — the
 // terminal route after a View navigation mounts a relay socket.
+// `GET /api/daemon/autostart` is always stubbed (default: the daemon reports
+// autostart `off`) so no run depends on the rig host's service manager; a test
+// passes its own payload to assert another state, or `null` for a 404 (an
+// older daemon).
 const STARTED = Math.floor(Date.now() / 1000) - 3600;
 
 const DAEMON_SESSIONS = JSON.stringify([
@@ -56,7 +60,21 @@ const DAEMON_SESSIONS = JSON.stringify([
 
 const REGULAR_SESSIONS = JSON.stringify([{ name: "main", windows: [] }]);
 
-async function mockBackend(page: Page) {
+type AutostartStub = { supported: boolean; summary: string; error?: string } | null;
+
+async function mockBackend(
+  page: Page,
+  autostart: AutostartStub = { supported: true, summary: "off" },
+) {
+  await page.route("**/api/daemon/autostart", (route) =>
+    autostart === null
+      ? route.fulfill({ status: 404, contentType: "application/json", body: '{"error":"not found"}' })
+      : route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(autostart),
+        }),
+  );
   await page.routeWebSocket(/\/ws\/terminals/, () => {
     /* accept and hold the socket open; send nothing */
   });
@@ -156,5 +174,59 @@ test.describe("HexoKit system card (HOST HEALTH zone)", () => {
 
     // The terminal route renders the window's heading — terminal access kept.
     await expect(page.getByText("update-check").first()).toBeVisible({ timeout: 10_000 });
+  });
+
+  /**
+   * Proves: the system card shows a read-only `autostart` row between the
+   * daemon line and the service rows carrying the daemon's summary verbatim,
+   * with no control inside it — turning autostart on stays a CLI act.
+   *
+   * Steps:
+   * 1. Install the mocked backend with the autostart endpoint stubbed to the
+   *    login-only summary, navigate to `/`.
+   * 2. Assert the `system-card-autostart` row is visible inside the
+   *    `HexoKit system` card and reads `autostart` + the full login-only
+   *    summary.
+   * 3. Assert the row contains no button or link.
+   * 4. Assert the Restart button and the service rows are still present.
+   */
+  test("shows the read-only autostart row with the daemon's summary", async ({ page }) => {
+    await mockBackend(page, {
+      supported: true,
+      summary: "on (login only — enable lingering for boot)",
+    });
+    await page.goto("/");
+
+    const card = page.getByLabel("HexoKit system");
+    await expect(card).toBeVisible({ timeout: 10_000 });
+    const row = card.getByTestId("system-card-autostart");
+    await expect(row).toBeVisible();
+    await expect(row).toContainText("autostart");
+    await expect(row).toContainText("on (login only — enable lingering for boot)");
+    await expect(row.locator("button, a")).toHaveCount(0);
+
+    await expect(card.getByRole("button", { name: "Restart" })).toBeVisible();
+    await expect(card.getByText("1 job")).toBeVisible();
+  });
+
+  /**
+   * Proves: an older daemon that 404s the autostart route leaves the card
+   * intact — the autostart row is simply absent.
+   *
+   * Steps:
+   * 1. Install the mocked backend with the autostart endpoint answering 404,
+   *    navigate to `/`.
+   * 2. Assert the card renders its daemon line and service rows.
+   * 3. Assert no `system-card-autostart` element exists.
+   */
+  test("hides the autostart row when the daemon does not serve the route", async ({ page }) => {
+    await mockBackend(page, null);
+    await page.goto("/");
+
+    const card = page.getByLabel("HexoKit system");
+    await expect(card).toBeVisible({ timeout: 10_000 });
+    await expect(card).toContainText("v3.9.1");
+    await expect(card.getByText("1 job")).toBeVisible();
+    await expect(card.getByTestId("system-card-autostart")).toHaveCount(0);
   });
 });

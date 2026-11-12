@@ -225,7 +225,7 @@ const snapshotRestoreDescription = "Recreate a DEAD tmux server's layout from it
 // cmd/rk's TestSkillTopicEnumMatchesTopics pins it to skillTopicNames(); a
 // topic added without the mirror fails the build. The reserved `topics`
 // enumeration is not a page and stays out.
-var skillTopicIDs = []string{"change", "code", "cron", "display", "gui", "messaging", "mux", "restore", "tutorial"}
+var skillTopicIDs = []string{"change", "code", "cron", "display", "gui", "messaging", "mux", "operator", "restore", "tutorial"}
 
 // skillTopicDescription overrides `skill`'s Cobra help, which documents the
 // bare core bundle and `topics` (neither is reachable through this row).

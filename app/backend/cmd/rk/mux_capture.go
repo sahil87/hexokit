@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"rk/internal/promptscan"
-	"rk/internal/sessions"
 	"rk/internal/tmux"
 
 	"github.com/spf13/cobra"
@@ -188,7 +187,7 @@ func runMuxCapture(cmd *cobra.Command, target string) error {
 	// otherwise invisible downstream.
 	var duration string
 	if facts.AgentState != "" && facts.AgentStateEpoch > 0 {
-		duration = sessions.FormatAgentDuration(muxCaptureNowFn().Unix() - facts.AgentStateEpoch)
+		duration = tmux.FormatAgentDuration(muxCaptureNowFn().Unix() - facts.AgentStateEpoch)
 	}
 
 	var classification promptscan.Result

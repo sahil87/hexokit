@@ -1,0 +1,333 @@
+<title>Operator Quake Mock</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<!-- Design mock, 2026-11-08. Companion to operator-one-shot-ticks.html.
+     HexoKit colours from run-kit docs/memory/run-kit/ui/visual-design.md; drawer anatomy from ui/quake-terminal.md.
+     All rows are example data modelled on the loom2 sessions. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&family=Bricolage+Grotesque:opsz,wght@12..96,600&display=swap">
+<style>
+/* Layout: explanatory column (70ch) around a fixed-width HexoKit app frame (scrolls sideways on phones); numbered markers on the frame map to the notes list below it. */
+:root{
+  /* page */
+  --bg:#F4F6F8; --ink:#1A212B; --muted:#626D7A; --line:#D3D9E0; --soft:#E9EDF1; --note:#BD6F0F;
+  /* HexoKit (light) */
+  --hk-bg:#f8f9fb; --hk-card:#ffffff; --hk-inset:#e8eaef; --hk-chrome:#e9eaeb; --hk-raised:#dedee0;
+  --hk-fg:#1a1d24; --hk-fg2:#6b7280; --hk-border:#d1d5db; --hk-accent:#4a7ae8; --hk-green:#16a34a; --hk-marker:#d97706; --hk-red:#c2410c;
+  --hk-green-soft:rgba(22,163,74,.12); --hk-marker-soft:rgba(217,119,6,.13); --hk-accent-soft:rgba(74,122,232,.12);
+  --display:"Bricolage Grotesque","IBM Plex Sans",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#10151B; --ink:#E4E8ED; --muted:#98A3B0; --line:#2A323D; --soft:#1F2731; --note:#E7A33E;
+    --hk-bg:#0f1117; --hk-card:#171b24; --hk-inset:#0a0c12; --hk-chrome:#1a1b1f; --hk-raised:#222327;
+    --hk-fg:#e8eaf0; --hk-fg2:#7a8394; --hk-border:#454d66; --hk-accent:#5b8af0; --hk-green:#22c55e; --hk-marker:#f59e0b; --hk-red:#f97316;
+    --hk-green-soft:rgba(34,197,94,.14); --hk-marker-soft:rgba(245,158,11,.15); --hk-accent-soft:rgba(91,138,240,.15);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#10151B; --ink:#E4E8ED; --muted:#98A3B0; --line:#2A323D; --soft:#1F2731; --note:#E7A33E;
+  --hk-bg:#0f1117; --hk-card:#171b24; --hk-inset:#0a0c12; --hk-chrome:#1a1b1f; --hk-raised:#222327;
+  --hk-fg:#e8eaf0; --hk-fg2:#7a8394; --hk-border:#454d66; --hk-accent:#5b8af0; --hk-green:#22c55e; --hk-marker:#f59e0b; --hk-red:#f97316;
+  --hk-green-soft:rgba(34,197,94,.14); --hk-marker-soft:rgba(245,158,11,.15); --hk-accent-soft:rgba(91,138,240,.15);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--body);padding-block:40px 80px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1080px;margin:0 auto}
+.col{max-width:70ch}
+h1,h2,h3{font-family:var(--display);font-weight:600;letter-spacing:-.01em;text-wrap:balance;margin:0}
+h1{font-size:clamp(28px,4vw,40px);line-height:1.1}
+h2{font-size:23px;margin-top:52px;margin-bottom:12px;padding-top:20px;border-top:1px solid var(--line)}
+p{margin:0 0 14px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+.lede{font-size:18px;color:var(--muted);margin-top:14px}
+code{font-family:var(--mono);font-size:.86em;background:var(--soft);padding:1px 5px;border-radius:3px}
+ul{padding-left:20px;margin:0 0 14px} li{margin-bottom:6px}
+button:focus-visible{outline:2px solid var(--hk-green);outline-offset:1px}
+
+/* ---------- HexoKit app frame ---------- */
+.scroller{overflow-x:auto;margin:26px 0 10px;padding-bottom:6px}
+.app{position:relative;width:1040px;height:660px;border:1px solid var(--hk-border);border-radius:8px;overflow:hidden;background:var(--hk-bg);color:var(--hk-fg);font:12.5px/1.5 var(--mono)}
+.topbar{height:40px;background:var(--hk-chrome);border-bottom:1px solid var(--hk-border);display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:0 12px;gap:12px}
+.brand{display:flex;align-items:center;gap:8px;color:var(--hk-fg2)}
+.brand b{color:var(--hk-fg);font-weight:700}
+.hex{width:16px;height:16px}
+.crumb{color:var(--hk-fg)}
+.tb-right{display:flex;justify-content:flex-end;gap:8px;align-items:center;color:var(--hk-fg2)}
+.opbtn{font:inherit;color:var(--hk-green);background:var(--hk-raised);border:1px solid var(--hk-border);border-radius:4px;padding:3px 10px;display:flex;gap:6px;align-items:center}
+.shell{display:grid;grid-template-columns:210px 1fr;height:calc(100% - 40px)}
+.side{background:var(--hk-chrome);border-right:1px solid var(--hk-border);padding:10px 0;color:var(--hk-fg2)}
+.side .h{padding:4px 12px;font-size:11px;letter-spacing:.08em}
+.side .row{padding:5px 12px;display:flex;gap:8px;align-items:center;white-space:nowrap;overflow:hidden}
+.side .row.op{color:var(--hk-fg);background:var(--hk-raised)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--hk-fg2);flex:none}
+.dot.g{background:var(--hk-green)} .dot.a{background:var(--hk-marker)}
+.route{padding:14px 18px;color:var(--hk-fg2);opacity:.55;white-space:pre;overflow:hidden}
+
+/* drawer */
+.drawer{position:absolute;left:250px;top:40px;width:760px;height:560px;background:color-mix(in srgb,var(--hk-card) 95%,transparent);border:1px solid var(--hk-border);border-top:none;border-radius:0 0 8px 8px;box-shadow:0 18px 40px rgba(0,0,0,.25);display:flex;flex-direction:column}
+.dhead{display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--hk-border);padding:4px 8px;font-size:12px;flex:none}
+.segs{display:flex;background:var(--hk-inset);border-radius:5px;padding:2px;gap:2px;flex:none}
+.seg{font:inherit;font-size:12px;color:var(--hk-fg2);background:transparent;border:0;border-radius:4px;padding:3px 9px;cursor:pointer;display:flex;gap:6px;align-items:center}
+.seg[aria-selected="true"]{background:var(--hk-card);color:var(--hk-fg);box-shadow:0 0 0 1px var(--hk-border)}
+.seg .new{font-size:9.5px;color:var(--hk-accent);border:1px solid var(--hk-accent);border-radius:3px;padding:0 3px;line-height:1.4}
+.meta{margin-left:auto;color:var(--hk-fg2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.meta .live{color:var(--hk-green)}
+.ibtn{color:var(--hk-fg2);flex:none;padding:0 3px}
+.dbody{flex:1;min-height:0;overflow:auto;position:relative}
+.panel{padding:10px 12px}
+
+/* chat (claude-code-like TUI) */
+.tui{padding:12px 14px;white-space:pre-wrap}
+.tui .u{color:var(--hk-fg2)} .tui .u b{color:var(--hk-fg);font-weight:500}
+.tui .a{color:var(--hk-fg)}
+.tui .bul{color:var(--hk-green)}
+.tui .tool{color:var(--hk-fg2)}
+.tui .tool b{color:var(--hk-accent);font-weight:500}
+.tui .dim{color:var(--hk-fg2)}
+.tui .mk{color:var(--hk-marker)}
+
+/* tables */
+table{border-collapse:collapse;width:100%;font-size:12px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--hk-border);vertical-align:top}
+th{color:var(--hk-fg2);font-weight:500;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+td.n{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.chip{display:inline-block;border:1px solid var(--hk-border);border-radius:3px;padding:0 5px;font-size:11px;color:var(--hk-fg2);white-space:nowrap}
+.chip.g{color:var(--hk-green);border-color:var(--hk-green);background:var(--hk-green-soft)}
+.chip.a{color:var(--hk-marker);border-color:var(--hk-marker);background:var(--hk-marker-soft)}
+.chip.b{color:var(--hk-accent);border-color:var(--hk-accent);background:var(--hk-accent-soft)}
+.dir{color:var(--hk-fg)}
+.dim{color:var(--hk-fg2)}
+.sum{display:flex;gap:16px;flex-wrap:wrap;color:var(--hk-fg2);padding:2px 0 8px}
+.sum b{color:var(--hk-fg);font-weight:500}
+tr.skip td{color:var(--hk-fg2)}
+tr.need td:first-child{box-shadow:inset 3px 0 0 var(--hk-marker)}
+tr.open td{background:var(--hk-inset)}
+.runlog{white-space:pre-wrap;color:var(--hk-fg2);padding:8px 10px;border-left:2px solid var(--hk-border);margin:4px 0 2px}
+.runlog b{color:var(--hk-fg);font-weight:500}
+.sub{font-size:11px;letter-spacing:.08em;color:var(--hk-fg2);margin:12px 0 4px;text-transform:uppercase}
+
+/* compose */
+.compose{border-top:1px solid var(--hk-border);padding:6px 10px 8px;flex:none}
+.compose .hdr{display:flex;gap:10px;color:var(--hk-fg2);font-size:11.5px;align-items:center}
+.compose .hdr .to{color:var(--hk-fg)}
+.compose .hdr .hint{margin-left:auto}
+.compose .box{margin-top:5px;border:1px solid var(--hk-green);border-radius:4px;padding:6px 8px;color:var(--hk-fg2)}
+
+/* toast */
+.toast{position:absolute;right:14px;bottom:14px;width:300px;background:var(--hk-card);border:1px solid var(--hk-marker);border-radius:6px;padding:10px 12px;box-shadow:0 10px 26px rgba(0,0,0,.25)}
+.toast .t{color:var(--hk-marker);font-weight:700;font-size:11.5px;letter-spacing:.04em}
+.toast p{margin:4px 0 0;font-size:12px}
+
+/* numbered markers on the frame */
+.pin{position:absolute;width:22px;height:22px;border-radius:50%;background:var(--note);color:var(--bg);font:700 12px/22px var(--body);text-align:center;box-shadow:0 0 0 3px var(--bg);z-index:5}
+
+ol.notes{list-style:none;padding:0;margin:16px 0;counter-reset:n;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:4px 28px}
+ol.notes li{counter-increment:n;display:grid;grid-template-columns:30px minmax(0,1fr);gap:10px;padding:10px 0;border-top:1px solid var(--line);margin:0}
+ol.notes li::before{content:counter(n);width:22px;height:22px;border-radius:50%;background:var(--note);color:var(--bg);font:700 12px/22px var(--body);text-align:center}
+ol.notes strong{display:block}
+
+/* small "any tab" frame */
+.mini{width:640px;border:1px solid var(--hk-border);border-radius:8px;overflow:hidden;background:var(--hk-bg);color:var(--hk-fg);font:12.5px/1.5 var(--mono)}
+.mini .bar{background:var(--hk-chrome);border-bottom:1px solid var(--hk-border);padding:6px 12px;color:var(--hk-fg2)}
+
+.qa{display:grid;gap:0;margin:10px 0}
+.qa>div{display:grid;grid-template-columns:minmax(0,15rem) minmax(0,1fr);gap:4px 20px;padding:12px 0;border-top:1px solid var(--line)}
+.qa>div:last-child{border-bottom:1px solid var(--line)}
+.qa .q{font-weight:600}
+.qa .a p:last-child{margin-bottom:0}
+@media (max-width:640px){.qa>div{grid-template-columns:1fr}}
+.tag{font-family:var(--mono);font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:0 7px;margin-left:6px;white-space:nowrap}
+</style>
+
+<div class="wrap">
+  <div class="col">
+    <div class="eyebrow">fab-kit · operator · HexoKit mock · example data</div>
+    <h1>The operator in HexoKit, after one-shot ticks</h1>
+    <p class="lede">⌘J still opens the operator drawer and you still chat with it. What changes is everything around the chat: scheduled checks run on their own and report into a new Runs tab, and what you tell the operator is saved on the tracked items.</p>
+  </div>
+
+  <div class="scroller">
+    <div class="app" role="img" aria-label="Mock of the HexoKit desktop with the operator drawer open on the Runs tab">
+      <div class="topbar">
+        <div class="brand"><svg class="hex" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 21 7v10l-9 5-9-5V7z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><b>HexoKit</b><span>/ loom2</span></div>
+        <div class="crumb">idn-4d-prompts</div>
+        <div class="tb-right"><span>⌘K</span><span class="opbtn"><span class="dot g"></span>Operator</span></div>
+      </div>
+      <div class="shell">
+        <div class="side">
+          <div class="h">LOOM2</div>
+          <div class="row op"><span class="dot g"></span>◉ operator</div>
+          <div class="row"><span class="dot a"></span>idn-4d-prompts</div>
+          <div class="row"><span class="dot g"></span>idn-4b-selection</div>
+          <div class="row"><span class="dot"></span>idn-4c-key</div>
+          <div class="row"><span class="dot"></span>scratch</div>
+        </div>
+        <div class="route">⏺ Running review sub-agent on plan.md …
+  ⎿  12 checks passed, 1 should-fix
+
+⏺ Update(src/identity/prompts.ts)
+  ⎿  Updated 3 lines
+
+⏺ Bash(npm test -- prompts)
+  ⎿  PASS  48 tests
+
+› Waiting for your input</div>
+      </div>
+
+      <div class="drawer">
+        <div class="dhead">
+          <div class="segs" role="tablist" aria-label="Operator drawer">
+            <button class="seg" role="tab" id="t-chat" aria-selected="false" data-p="chat">Chat</button>
+            <button class="seg" role="tab" id="t-tasks" aria-selected="false" data-p="tasks">Tasks</button>
+            <button class="seg" role="tab" id="t-runs" aria-selected="true" data-p="runs">Runs <span class="new">NEW</span></button>
+            <button class="seg" role="tab" id="t-cron" aria-selected="false" data-p="cron">Cron</button>
+          </div>
+          <div class="meta">loom2 · <span class="live">◉ chat idle 41m</span> · checked 2m ago · today 58 checks, 7 runs, $0.41</div>
+          <span class="ibtn">⌖</span><span class="ibtn">⤢</span><span class="ibtn">▼</span>
+        </div>
+
+        <div class="dbody">
+          <!-- RUNS -->
+          <div class="panel" id="p-runs">
+            <div class="sum"><span><b>58</b> checks today</span><span><b>51</b> no change, no model call</span><span><b>6</b> runs on Sonnet</span><span><b>1</b> on Opus</span><span><b>1</b> needs you</span></div>
+            <table>
+              <thead><tr><th>Time</th><th>Woke because</th><th>Result</th><th>Model</th><th class="n">Took</th><th class="n">Cost</th></tr></thead>
+              <tbody>
+                <tr class="skip"><td>14:41</td><td>timer · 6m</td><td>no change</td><td>none</td><td class="n">0.4s</td><td class="n">$0</td></tr>
+                <tr class="need open"><td>14:35</td><td>pr-5158 CI finished</td><td><span class="chip a">needs you</span> PR 5158 green and mergeable; your directive says wait</td><td>Sonnet</td><td class="n">11s</td><td class="n">$0.04</td></tr>
+                <tr class="open"><td colspan="6"><div class="runlog"><b>Changed:</b> pr-5158 checks pending → success, mergeable
+<b>Directive:</b> "don't merge 5158 until I've read the diff" (you, 09:12)
+<b>Did:</b> notified you · tab note on idn-4d-prompts · no merge
+<b>Next check:</b> suggested 30m, clamped to 24m</div></td></tr>
+                <tr><td>14:12</td><td>idn-4b-selection went idle</td><td>ship done · stopped tracking, cleared tab mark</td><td>Sonnet</td><td class="n">8s</td><td class="n">$0.03</td></tr>
+                <tr class="skip"><td>13:20 – 14:06</td><td>timer ×9</td><td>no change ×9</td><td>none</td><td class="n">—</td><td class="n">$0</td></tr>
+                <tr><td>13:14</td><td>idn-4d-prompts asked a question</td><td><span class="chip b">escalated</span> design question: chose option 2 per plan §3, replied</td><td>Opus</td><td class="n">26s</td><td class="n">$0.19</td></tr>
+                <tr><td>12:58</td><td>idn-4c-key waiting</td><td>routine prompt "Proceed with apply?" answered yes</td><td>Sonnet</td><td class="n">7s</td><td class="n">$0.03</td></tr>
+                <tr class="skip"><td>09:40 – 12:52</td><td>timer ×31</td><td>no change ×31</td><td>none</td><td class="n">—</td><td class="n">$0</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- CHAT -->
+          <div class="tui" id="p-chat" hidden><span class="u">› <b>what happened while I was out?</b></span>
+
+<span class="bul">⏺</span> <span class="tool"><b>Bash</b>(fab operator runs --since 09:12)</span>
+  <span class="dim">⎿  58 checks · 7 runs · 1 needs you</span>
+
+<span class="bul">⏺</span> <span class="a">Since 09:12:
+  - <span class="mk">PR 5158 is green and mergeable.</span> I held it because you said to
+    wait until you've read the diff.
+  - idn-4b-selection shipped; I stopped tracking it.
+  - idn-4d-prompts asked a design question at 13:14. That went to an Opus
+    run, which picked option 2 from plan §3. Worth a glance.
+  - idn-4c-key is in apply; I answered its routine "Proceed?" prompt.</span>
+
+<span class="u">› <b>read the diff, it's fine. merge 5158 and keep an eye on main CI</b></span>
+
+<span class="bul">⏺</span> <span class="tool"><b>Bash</b>(gh pr merge 5158 --squash)</span>
+  <span class="dim">⎿  Merged #5158</span>
+<span class="bul">⏺</span> <span class="tool"><b>Bash</b>(fab operator track directive pr-5158 --clear; fab operator track add main-ci …)</span>
+  <span class="dim">⎿  directive cleared · tracking main-ci (check every 5m until green)</span>
+
+<span class="bul">⏺</span> <span class="a">Merged. I'm watching main CI; scheduled checks will notify you if it goes red.</span>
+</div>
+
+          <!-- TASKS -->
+          <div class="panel" id="p-tasks" hidden>
+            <div class="sum"><span><b>4</b> tracked</span><span><b>3</b> watched panes</span><span><b>1</b> with a directive</span></div>
+            <table>
+              <thead><tr><th>Item</th><th>State</th><th>Your directive</th><th>Last outcome</th><th>Next check</th></tr></thead>
+              <tbody>
+                <tr class="need"><td>pr-5158<br><span class="dim">github-pr</span></td><td><span class="chip g">CI green</span> mergeable</td><td class="dir">"don't merge until I've read the diff"<br><span class="dim">you · 09:12</span></td><td>14:35 notified you, held merge</td><td>14:59</td></tr>
+                <tr><td>idn-4d-prompts<br><span class="dim">pane · loom2</span></td><td><span class="chip a">waiting</span> review</td><td class="dim">—</td><td>13:14 answered design question (Opus)</td><td>on state change</td></tr>
+                <tr><td>idn-4c-key<br><span class="dim">pane · loom2</span></td><td><span class="chip g">active</span> apply</td><td class="dim">—</td><td>12:58 answered "Proceed?"</td><td>on state change</td></tr>
+                <tr><td>n3<br><span class="dim">note</span></td><td>open</td><td class="dir">"remind me to rebase idn-4c after 5158 lands"</td><td>waiting on pr-5158</td><td>with pr-5158</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- CRON -->
+          <div class="panel" id="p-cron" hidden>
+            <div class="sub">Entries</div>
+            <table>
+              <thead><tr><th>Name</th><th>Schedule</th><th>Runs</th><th>State</th></tr></thead>
+              <tbody>
+                <tr><td>operator check</td><td>backoff 3m→24m · wakes on agent state change</td><td><code>fab operator tick</code> (command)</td><td><span class="chip g">active</span></td></tr>
+                <tr><td>morning digest</td><td>cron 0 9 * * *</td><td>prompt → operator chat</td><td><span class="chip">idle</span></td></tr>
+              </tbody>
+            </table>
+            <div class="sub">Recent deliveries</div>
+            <table>
+              <tbody>
+                <tr><td>14:41</td><td>operator check</td><td class="dim">ran command · exit 0 · no change</td></tr>
+                <tr><td>14:35</td><td>operator check</td><td class="dim">woke on pr-5158 · exit 0 · 1 run</td></tr>
+                <tr><td>09:00</td><td>morning digest</td><td class="dim">delivered to chat</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="compose">
+          <div class="hdr"><span class="to"><span class="dot g" style="display:inline-block"></span> ◉ → operator</span><span class="chip">viewing idn-4d-prompts</span><span class="hint">Enter sends · ⇧Enter newline</span></div>
+          <div class="box">Ask the operator…</div>
+        </div>
+      </div>
+
+      <div class="toast"><div class="t">OPERATOR · NEEDS YOU</div><p>PR 5158 is green and mergeable. You asked me to wait until you've read the diff.</p></div>
+
+      <span class="pin" style="left:445px;top:44px">1</span>
+      <span class="pin" style="left:584px;top:88px">2</span>
+      <span class="pin" style="left:770px;top:44px">3</span>
+      <span class="pin" style="left:996px;top:600px">4</span>
+      <span class="pin" style="left:184px;top:79px">5</span>
+    </div>
+  </div>
+  <p class="dim" style="font-size:14px;color:var(--muted)">Click the drawer's tabs to switch between Runs, Chat, Tasks and Cron. On a phone, scroll the frame sideways.</p>
+
+  <ol class="notes">
+    <li><div><strong>Four tabs: Chat, Tasks, Runs, Cron.</strong> Today the drawer has Operator Terminal, Operator Tasks, Cron List and Cron Log. The terminal becomes Chat, the two cron tabs merge, and Runs is new.</div></li>
+    <li><div><strong>Runs is where scheduled checks report.</strong> Each check is one row. Checks that found nothing collapse into a single "no change ×31" row and cost $0. Expanding a row shows what changed, which directive applied and what the run did.</div></li>
+    <li><div><strong>The header counts checks, runs and today's spend.</strong> "Chat idle 41m" is the chat session, which no longer gets interrupted by ticks. "Checked 2m ago" is the scheduler.</div></li>
+    <li><div><strong>Anything that needs you arrives as a push notification</strong> and a tab note, not as text typed into your chat.</div></li>
+    <li><div><strong>The pinned operator row is still the home chat.</strong> Other tabs can join as operator chats (see below), but the drawer and ⌘J always open this one.</div></li>
+  </ol>
+
+  <h2>Any tab can become an operator chat</h2>
+  <div class="col"><p>Because checks no longer run inside a chat, a chat is just the operator skill plus the shared state file. Typing <code>/fab-operator</code> in any agent tab joins it. It sees the same tracked items and directives and can act on them. It never receives scheduled checks, and it does not take over the pinned role.</p></div>
+  <div class="scroller">
+    <div class="mini">
+      <div class="bar">loom2 / scratch</div>
+      <div class="tui"><span class="u">› <b>/fab-operator</b></span>
+
+<span class="bul">⏺</span> <span class="a">Operator chat for loom2. 4 tracked items, 1 needs you (pr-5158).
+  The pinned operator tab is the home chat; scheduled checks keep running on their
+  own. Anything I change here is saved to the shared state.</span></div>
+    </div>
+  </div>
+
+  <h2>Answers to the open questions</h2>
+  <div class="qa">
+    <div><div class="q">Can any tab become an operator chat with <code>/fab-operator</code>?</div><div class="a"><p>Yes. Without ticks, a chat is just the skill plus the state file, so any number of tabs can join. Keep one pinned home (the <code>role=operator</code> window) for ⌘J, the sidebar and notifications. Concurrent writes go through a lock on the state file.</p></div></div>
+    <div><div class="q">Do scheduled runs get their own terminal?</div><div class="a"><p>No terminal. A run writes its transcript and a one-line outcome to the operator's run log, and HexoKit shows them in the Runs tab. Typing results into the chat would cost a full chat turn each time, which is what we're removing.</p><p class="dim" style="color:var(--muted)">This needs a run-kit change: rk cron only types prompts into panes today, so it would need to be able to run a command (<code>fab operator tick</code>) on its schedule.</p></div></div>
+    <div><div class="q">How many tabs in the drawer?</div><div class="a"><p>Today four: Operator Terminal, Operator Tasks, Cron List, Cron Log. Proposed four: Chat, Tasks, Runs (new), Cron (list and log merged).</p></div></div>
+    <div><div class="q">Which prompt cache?</div><div class="a"><p>Plan for a cold cache. In 390 recent transcripts, most interactive sessions used the 1-hour cache, but every dispatched worker run (the closest thing to a scheduled check) used the 5-minute cache, and checks with changes are often more than 5 minutes apart. So keep the check's prompt small (a short tick prompt, only the tools it needs) so a cold start costs cents. A warm cache is a bonus. This also works for codex and kimi, which manage caching their own way.</p></div></div>
+    <div><div class="q">Which actions need Opus?</div><div class="a"><p>Split by how reversible the action is. Sonnet handles looking, bookkeeping, notifying you and answering routine prompts covered by a rule. A run escalates to Opus before it answers a non-routine question from an agent, spawns an agent, or sends anything not covered by a rule. Merging, closing PRs and deleting branches always go to you. In snappy-gopher only 21 of 1,563 ticks sent anything to an agent, so escalations are rare and cheap.</p></div></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var tabs=document.querySelectorAll('.seg');
+  function pick(id){
+    tabs.forEach(function(t){
+      var on=t.dataset.p===id; t.setAttribute('aria-selected',on?'true':'false');
+      document.getElementById('p-'+t.dataset.p).hidden=!on;
+    });
+  }
+  tabs.forEach(function(t){t.addEventListener('click',function(){pick(t.dataset.p)})});
+  pick('runs');
+})();
+</script>

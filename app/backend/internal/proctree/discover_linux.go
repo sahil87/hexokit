@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package proctree
 
 import (
 	"context"
@@ -11,28 +11,28 @@ import (
 	"strings"
 )
 
-// discoverProcessTree discovers the process tree for a given PID on Linux
+// Discover discovers the process tree for a given PID on Linux
 // by reading /proc filesystem entries.
-func discoverProcessTree(_ context.Context, pid int) ([]processNode, error) {
+func Discover(_ context.Context, pid int) ([]Node, error) {
 	node, err := buildNodeFromProc(pid, 0)
 	if err != nil {
 		return nil, err
 	}
-	return []processNode{node}, nil
+	return []Node{node}, nil
 }
 
-// buildNodeFromProc recursively builds a processNode from /proc.
-func buildNodeFromProc(pid, ppid int) (processNode, error) {
+// buildNodeFromProc recursively builds a Node from /proc.
+func buildNodeFromProc(pid, ppid int) (Node, error) {
 	comm := readProcFile(fmt.Sprintf("/proc/%d/comm", pid))
 	cmdline := readProcCmdline(pid)
 
-	node := processNode{
+	node := Node{
 		PID:            pid,
 		PPID:           ppid,
 		Comm:           comm,
 		Cmdline:        cmdline,
-		Classification: classifyProcess(comm, cmdline),
-		Children:       []processNode{},
+		Classification: Classify(comm, cmdline),
+		Children:       []Node{},
 	}
 
 	// Read children from /proc/<pid>/task/<tid>/children

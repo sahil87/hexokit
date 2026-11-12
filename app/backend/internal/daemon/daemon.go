@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -57,6 +58,12 @@ const (
 	// localhostAddr is the loopback substitution target for wildcard/empty hosts.
 	localhostAddr = "127.0.0.1"
 )
+
+// ErrAlreadyRunning is returned by Start and StartWithBinary when a daemon
+// session already exists. `rk daemon start --if-not-running` matches it with
+// errors.Is so an OS autostart job can read "already up" as success without
+// parsing display text.
+var ErrAlreadyRunning = errors.New("daemon already running")
 
 // target returns the tmux target string for the daemon's window, with both
 // session and window segments anchored (`=`) so tmux performs exact-match
@@ -334,7 +341,7 @@ func Start() error {
 		return err
 	}
 	if IsRunning() {
-		return fmt.Errorf("daemon already running")
+		return ErrAlreadyRunning
 	}
 	if err := guardPortAvailable(); err != nil {
 		return err
@@ -367,7 +374,7 @@ func StartWithBinary(binPath string) error {
 		return err
 	}
 	if IsRunning() {
-		return fmt.Errorf("daemon already running")
+		return ErrAlreadyRunning
 	}
 	if err := guardPortAvailable(); err != nil {
 		return err

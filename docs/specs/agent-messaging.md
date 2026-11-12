@@ -98,6 +98,13 @@ deliver**, with a strict split of labor:
      **`parked %N`** (exit 0), with the screen snippet on stderr. This replaces
      today's false-fire hazard (a settled trust dialog reporting
      `ready (settled)`) with an honest classification.
+   - **Login wall**: Claude Code's right-aligned `Not logged in · Run /login`
+     notice reports **`parked %N`** (snippet: the notice) ahead of both the
+     state and echo verdicts — its composer echoes and its hooks may fire, but
+     the agent cannot act. The notice paints asynchronously (observed 2–20 s
+     after boot), so only a check made once it is drawn sees it; the
+     interactive-shell launch (`rk tab new`, riff, operator) is what keeps the
+     wall from appearing in the first place.
    - **Geometry floor**: the probe is gated on geometry — below the 80×20
      readiness floor (either dimension) a bordered composer reflows or is not
      drawn at all, so the pane reports **`narrow %N (WxH)`** (exit 0) instead

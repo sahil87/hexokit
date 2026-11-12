@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-11T07:41:56Z"}
+{"args":"Plan step S1 (Spike: headless run in a tmux window, per provider) from fab/plans/sahil/26-11-10-operator-to-hexokit.md","cmd":"fab-new","event":"command","ts":"2026-11-11T07:41:56Z"}
+{"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-11-11T07:42:38Z"}
+{"delta":"+0.0","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-11-11T07:42:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-11T07:43:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-11T07:49:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-11-11T07:51:09Z"}
+{"event":"review","result":"passed","ts":"2026-11-11T07:51:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-11-11T07:51:19Z"}

@@ -176,11 +176,28 @@ func enterCopyModeOn(socket, session string) error {
 		"-t", "="+session+":="+WindowName).Run()
 }
 
-// stopOn sends C-c and kills the named session on the given socket.
+// stopOn sends C-c and kills the named session on the given socket. Killing a
+// server's last session makes tmux exit asynchronously (exit-empty), and a
+// new-session sent in that window reaches the dying server and fails — so stopOn
+// returns only once the socket is released or the server still holds sessions.
 func stopOn(socket, session string) {
+	sockPath, _ := exec.Command("tmux", "-L", socket, "display-message", "-p", "#{socket_path}").Output()
 	_ = exec.Command("tmux", "-L", socket, "send-keys",
 		"-t", "="+session+":="+WindowName, "C-c").Run()
 	_ = exec.Command("tmux", "-L", socket, "kill-session", "-t", "="+session).Run()
+
+	path := strings.TrimSpace(string(sockPath))
+	if path == "" {
+		return
+	}
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			return
+		}
+		if out, err := exec.Command("tmux", "-L", socket, "list-sessions", "-F", "#{session_name}").Output(); err == nil && len(bytes.TrimSpace(out)) > 0 {
+			return
+		}
+	}
 }
 
 func TestIsRunning_NoSession(t *testing.T) {

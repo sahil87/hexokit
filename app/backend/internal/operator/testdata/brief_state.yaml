@@ -1,0 +1,97 @@
+tracked:
+  - id: pr-1
+    kind: github-pr
+    probe:
+      mode: shell
+      argv: [gh, pr, view, "1", --json, "state,mergedAt,mergeable"]
+      fields: [state, mergedAt, mergeable]
+    check_every: 5m
+    done_when: state == "MERGED"
+    then: arm next
+    depends_on: []
+    scope:
+      repo: /src/app
+      pr: 1
+      change: null
+    last:
+      state: OPEN
+      mergeable: MERGEABLE
+      mergedAt: null
+    notes:
+      - at: "2026-11-10T09:00:00Z"
+        by: chat
+        text: hold this until the design review lands
+    checked_at: "2026-11-11T11:55:00Z"
+    unchanged: 2
+    failures: 0
+    paused: false
+    done_at: null
+    added_at: "2026-11-10T08:00:00Z"
+    updated_at: "2026-11-10T09:00:00Z"
+  - id: w-2
+    kind: pane
+    probe:
+      mode: pane
+    check_every: null
+    done_when: null
+    then: null
+    depends_on: [pr-1]
+    scope:
+      pane: null
+      change: 261111-ab12-thing
+      repo: /src/app
+      merge_mode: cherry-pick-ladder
+    last: {}
+    checked_at: null
+    unchanged: 0
+    failures: 0
+    paused: false
+    done_at: null
+    added_at: "2026-11-10T08:05:00Z"
+    updated_at: "2026-11-10T08:05:00Z"
+  - id: linear-bugs
+    kind: linear
+    probe:
+      mode: agent
+      instruction: list new bugs
+    check_every: 10m
+    done_when: null
+    then: spawn into /src/app
+    depends_on: []
+    scope:
+      repo: /src/app
+      query:
+        team: DEV
+    last: {}
+    seen: [DEV-1]
+    checked_at: "2026-11-11T11:50:00Z"
+    unchanged: 0
+    failures: 0
+    paused: false
+    done_at: null
+    added_at: "2026-11-10T07:00:00Z"
+    updated_at: "2026-11-11T11:50:00Z"
+  - id: remember
+    kind: note
+    probe:
+      mode: none
+    check_every: null
+    done_when: null
+    then: null
+    depends_on: []
+    scope: {}
+    last: {}
+    notes:
+      - at: "2026-11-09T10:00:00Z"
+        by: user
+        text: |-
+          prefer squash merges
+          on this repo
+    checked_at: null
+    unchanged: 0
+    failures: 0
+    paused: false
+    done_at: null
+    added_at: "2026-11-09T10:00:00Z"
+    updated_at: "2026-11-09T10:00:00Z"
+branch_map: {}

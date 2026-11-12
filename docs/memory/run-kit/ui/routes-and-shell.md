@@ -128,7 +128,7 @@ The Workspace page's second content block — the operator watchlist's fleet vie
 
 Extensions the zone could consume beyond its current render:
 
-- **Pending escalations** — open questions awaiting the user; no surface renders them yet. The read they need exists — `operatorTracked` carries every tracked item's `text`/`refs` — so a pending-escalations surface is a consumer of item text, not a new read of the state file. (1rx0)
+- **Pending escalations** — open questions awaiting the user; no surface renders them yet. The read they need exists — `operatorTracked` carries every tracked item's `refs` and latest note (`GET /api/operator/notes` the full list) — so a pending-escalations surface is a consumer of item notes, not a new read of the state file. (1rx0)
 
 ## Shell Grid Layout
 

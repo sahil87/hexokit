@@ -420,10 +420,12 @@ pattern — tmux is the store, the daemon is a renderer).
 
 ```
 rk tab new [--session =S] [--cwd DIR] [--name N] [--layout L]      → prints @N
-           [--json] [--ready [--timeout S]] [--no-shell-fallback] [-- CMD [ARG…]]
+           [--json] [--ready [--timeout S]] [--no-shell-fallback] [--no-shell-profile]
+           [-- CMD [ARG…]]
            # --json prints {session, session_rung, window_id, pane_id[, ready]} instead;
-           # CMD after -- is argv (rk-quoted, one literal word per token) with
-           # the `; exec "${SHELL:-/bin/sh}"` fallback unless --no-shell-fallback
+           # CMD after -- is argv (rk-quoted, one literal word per token), run through
+           # `${SHELL:-/bin/sh} -i -c` (rc-file env present) unless --no-shell-profile,
+           # with the `; exec "${SHELL:-/bin/sh}"` fallback unless --no-shell-fallback
 rk tab layout [@N] <tree|legacy-shape:surface,…> [--json]            # set (prints the tree form)
 rk tab layout [@N] --add <surface> | --rm <surface> | --promote <surface> | --cycle [--json]
 rk tab web add    [@N] <target> [--show] [--json]                  → prints @N/web/<n>
