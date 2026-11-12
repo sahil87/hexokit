@@ -65,7 +65,7 @@ The core bundle `docs/site/skill.md` SHALL carry exactly one new bullet under `#
 - [x] A-001 R1: `docs/site/skill.md` has exactly one `rk daemon autostart` bullet under `## Capabilities`, and `app/backend/cmd/rk/skill/skill.md` is byte-identical
 - [x] A-002 R2: `docs/site/install.md` has a `## Start at boot or login` section matching shipped behavior (verbs, Linux unit + lingering, macOS LaunchAgent, login-shell caveat, doctor/system-card visibility) and a quick-start pointer
 - [x] A-003 R3: README's daemon prose and command-table row list `autostart`
-- [ ] A-004 R4: daemon-lifecycle memory states the reboot hole, the fix, the Linux lingering caveat, and what stays open — pending-by-design: R4 is delivered by the hydrate stage, not apply
+- [x] A-004 R4: daemon-lifecycle memory states the reboot hole, the fix, the Linux lingering caveat, and what stays open — pending-by-design: R4 is delivered by the hydrate stage, not apply
 
 ### Behavioral Correctness
 
