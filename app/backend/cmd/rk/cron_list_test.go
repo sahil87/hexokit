@@ -395,3 +395,50 @@ func TestCronListJSONWakeOnRoundTrip(t *testing.T) {
 		t.Errorf("row 1 wake_on = %v (present %v), want the key present and null", v, ok)
 	}
 }
+
+// TestCronListLoopEntry: the target-less operator-loop entry lists with target
+// `operator loop`, mirrors its `run` key under --json, never reports an orphan
+// streak, and leaves typed entries' key set untouched.
+func TestCronListLoopEntry(t *testing.T) {
+	dir := stubCronDir(t)
+	stubCronTMUX(t)
+	writeCronFixture(t, dir, "work", `
+entries:
+  - id: lp01
+    name: operator loop
+    run: operator-loop
+    schedule: { kind: backoff, min: 3m, max: 24m }
+    wake_on: { event: agent-state-change, scope: server, debounce: 60s }
+    pinned: true
+    created_by: { at: 1756999999 }
+  - id: a3f9
+    name: hourly sweep
+    schedule: { kind: every, interval: 1h }
+    target: { kind: pane, pane: "%42" }
+    payload: "sweep"
+`)
+	stdout, _, err := runCronCmd(t, "list")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if !strings.Contains(stdout, "operator loop") || !strings.Contains(stdout, "backoff 3m→24m") || !strings.Contains(stdout, "pane:%42") {
+		t.Errorf("table:\n%s", stdout)
+	}
+
+	stdout, _, err = runCronCmd(t, "list", "--json")
+	if err != nil {
+		t.Fatalf("list --json: %v", err)
+	}
+	var records []cronListRecord
+	unwrapEnvelopeResult(t, stdout, &records)
+	loop, typed := records[0], records[1]
+	if loop.Run != "operator-loop" || loop.Target != "operator loop" || !loop.Pinned || loop.OrphanedSince != 0 || loop.ExpiresAt != 0 {
+		t.Errorf("loop record = %+v", loop)
+	}
+	if typed.Run != "" {
+		t.Errorf("typed record carries run: %+v", typed)
+	}
+	if strings.Count(stdout, `"run"`) != 1 {
+		t.Errorf("run key must appear only on the loop record:\n%s", stdout)
+	}
+}

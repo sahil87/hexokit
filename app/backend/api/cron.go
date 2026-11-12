@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"rk/internal/cron"
+	"rk/internal/operatorloop"
 )
 
 // cron.go — the cron HTTP surface (docs/specs/cron.md § API & CLI): entries +
@@ -30,6 +32,7 @@ import (
 type cronEntryJSON struct {
 	ID            string           `json:"id"`
 	Name          string           `json:"name,omitempty"`
+	Run           string           `json:"run,omitempty"` // "operator-loop" for a target-less loop entry
 	Schedule      cronScheduleJSON `json:"schedule"`
 	WakeOn        *cronWakeOnJSON  `json:"wakeOn,omitempty"`
 	Target        cronTargetJSON   `json:"target"`
@@ -86,6 +89,7 @@ func cronEntryToJSON(e cron.Entry, d cron.DerivedEntry, now time.Time) cronEntry
 	out := cronEntryJSON{
 		ID:   e.ID,
 		Name: e.Name,
+		Run:  e.Run,
 		Schedule: cronScheduleJSON{
 			Kind:     e.Schedule.Kind,
 			Interval: cronDur(e.Schedule.Interval),
@@ -149,12 +153,48 @@ type cronDeliveryJSON struct {
 	Target  string `json:"target"`
 	Reason  string `json:"reason"`
 	Outcome string `json:"outcome"`
+	// Run is the operator-loop run id behind a transcribed outcome; RunLog is
+	// that run's log file and Transcript the provider transcript, each only
+	// while the run record still exists (records are pruned to the newest 50).
+	Run        string `json:"run,omitempty"`
+	RunLog     string `json:"runLog,omitempty"`
+	Transcript string `json:"transcript,omitempty"`
+}
+
+// cronRunFiles resolves the run-log and transcript paths of a delivery's run
+// from its on-disk record. The runs directory is resolved once per request.
+type cronRunFiles struct {
+	dir    string
+	loaded bool
+}
+
+func (c *cronRunFiles) lookup(ctx context.Context, dirFn func(context.Context, string) (string, error), server, runID string) (runLog, transcript string) {
+	if runID == "" || dirFn == nil {
+		return "", ""
+	}
+	if !c.loaded {
+		c.loaded = true
+		c.dir, _ = dirFn(ctx, server)
+	}
+	if c.dir == "" {
+		return "", ""
+	}
+	recPath, err := operatorloop.RecordPath(c.dir, runID)
+	if err != nil {
+		return "", ""
+	}
+	rec, err := operatorloop.ReadRecord(recPath)
+	if err != nil {
+		return "", ""
+	}
+	logPath, _ := operatorloop.LogPath(c.dir, runID)
+	return logPath, rec.Transcript
 }
 
 // cronDeliveriesToJSON projects the newest log lines (the log is
 // chronological, so the tail is newest) most-recent-first, capped at
 // maxCronDeliveries.
-func cronDeliveriesToJSON(log []cron.LogLine, entries []cron.Entry) []cronDeliveryJSON {
+func cronDeliveriesToJSON(log []cron.LogLine, entries []cron.Entry, runs func(runID string) (string, string)) []cronDeliveryJSON {
 	names := make(map[string]string, len(entries))
 	for _, e := range entries {
 		names[e.ID] = e.Name
@@ -162,14 +202,19 @@ func cronDeliveriesToJSON(log []cron.LogLine, entries []cron.Entry) []cronDelive
 	out := make([]cronDeliveryJSON, 0, min(len(log), maxCronDeliveries))
 	for i := len(log) - 1; i >= 0 && len(out) < maxCronDeliveries; i-- {
 		l := log[i]
-		out = append(out, cronDeliveryJSON{
+		d := cronDeliveryJSON{
 			TS:      l.TS,
 			Entry:   l.Entry,
 			Name:    names[l.Entry],
 			Target:  l.Target,
 			Reason:  l.Reason,
 			Outcome: l.Outcome,
-		})
+			Run:     l.Run,
+		}
+		if l.Run != "" && runs != nil {
+			d.RunLog, d.Transcript = runs(l.Run)
+		}
+		out = append(out, d)
 	}
 	return out
 }
@@ -214,12 +259,16 @@ func (s *Server) handleCronList(w http.ResponseWriter, r *http.Request) {
 		// cronFactsFn or a gatherer skip would mask the orphan and fabricate
 		// a backoff next-fire, contradicting the cronFactsFn contract.
 		f, ok := facts[e.ID]
-		if !ok {
+		if !ok && !e.IsLoop() {
 			f = cron.TargetFacts{Unresolved: "no target facts gathered"}
 		}
 		out = append(out, cronEntryToJSON(e, cron.DeriveEntry(e, log, f, now), now))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"entries": out, "deliveries": cronDeliveriesToJSON(log, entries)})
+	var runFiles cronRunFiles
+	runs := func(runID string) (string, string) {
+		return runFiles.lookup(r.Context(), s.cronRunsDirFn, server, runID)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"entries": out, "deliveries": cronDeliveriesToJSON(log, entries, runs)})
 }
 
 // cronScheduleBody is the schedule field shape of the create and edit bodies:

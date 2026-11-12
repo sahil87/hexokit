@@ -76,6 +76,31 @@ type Deps struct {
 	// returned Outcome is logged as the disposition (respawned /
 	// respawn-failed), and the absent-fire rate cap applies as before.
 	SessionRespawner func(ctx context.Context, fire Fire) Outcome
+	// LoopRunner handles a due `run: operator-loop` fire (probe-and-diff, then
+	// a run window) instead of the Deliverer. Nil logs `no-deliverer`, leaving
+	// a daemon built without it unchanged. A Held outcome is not logged: the
+	// run's single line is written later by transcription.
+	LoopRunner func(ctx context.Context, fire Fire) Outcome
+	// LoopTranscribe returns, once per swept server per tick before
+	// evaluation, the log lines for finished run records not yet logged. The
+	// tick appends them — it is the log's only writer — then reports each back
+	// through LoopLogged. Nil disables transcription.
+	LoopTranscribe func(ctx context.Context, server string) []LogLine
+	// LoopLogged marks a transcribed run id as logged once its line is on
+	// disk. Nil leaves records unmarked (they transcribe again).
+	LoopLogged func(ctx context.Context, server, runID string)
+	// LoopSeed reports whether rk's operator state file exists for the
+	// server — the switch for seeding the loop entry (SeedOperatorLoop). Nil
+	// disables seeding.
+	LoopSeed func(ctx context.Context, server string) bool
+}
+
+// loopSeams groups the operator-loop seams handed to tickServer.
+type loopSeams struct {
+	run        func(context.Context, Fire) Outcome
+	transcribe func(context.Context, string) []LogLine
+	logged     func(context.Context, string, string)
+	seed       func(context.Context, string) bool
 }
 
 // notifyDefault is the production Notifier: the daemon-side push fan-out.
@@ -129,7 +154,9 @@ const rateWindow = time.Hour
 // classes count (delivered/failed/notified/respawned); suppressions and
 // recorded misses do not — and neither do skipped-busy (a dropped fire, not a
 // delivery attempt) or rescheduled (schedule history, not delivery). Held
-// outcomes never reach the log at all, so they are inherently excluded.
+// outcomes never reach the log at all, so they are inherently excluded. The
+// operator-loop classes that cost a run or a probe failure count; `no change`
+// does not.
 func countsTowardRate(outcome string) bool {
 	switch {
 	case outcome == "delivered":
@@ -141,7 +168,7 @@ func countsTowardRate(outcome string) bool {
 	case strings.HasPrefix(outcome, "respawned"), strings.HasPrefix(outcome, "respawn-failed"):
 		return true
 	}
-	return false
+	return isLoopRateOutcome(outcome)
 }
 
 // rateCount counts trailing-window log lines for one cap key. Resolved fires
@@ -228,6 +255,8 @@ func Tick(ctx context.Context, deps Deps) (TickResult, error) {
 	if err != nil {
 		return res, err
 	}
+	loop := loopSeams{run: deps.LoopRunner, transcribe: deps.LoopTranscribe, logged: deps.LoopLogged, seed: deps.LoopSeed}
+	slugs = withSeedableServers(ctx, slugs, liveServers, loop.seed)
 	for _, slug := range slugs {
 		if !live[slug] {
 			// Dead server: skip entirely — diagnostic only, ZERO tmux commands.
@@ -235,7 +264,7 @@ func Tick(ctx context.Context, deps Deps) (TickResult, error) {
 				Detail: "entry file skipped: server not in the live set"})
 			continue
 		}
-		fires, diags := tickServer(ctx, slug, dir, now(), seam, deps.Deliverer, notifier, runRespawn, deps.SessionRespawner)
+		fires, diags := tickServer(ctx, slug, dir, now(), seam, deps.Deliverer, notifier, runRespawn, deps.SessionRespawner, loop)
 		res.Servers++
 		res.Fires += fires
 		res.Diags = append(res.Diags, diags...)
@@ -248,11 +277,12 @@ func Tick(ctx context.Context, deps Deps) (TickResult, error) {
 
 // tickServer runs the per-server pipeline: load → facts → Evaluate → deliver →
 // log → GC → cursor. A per-file failure is a diagnostic, never an aborted tick.
-func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxSeam, deliverer Deliverer, notifier func(context.Context, string, string, string) error, runRespawn RunRespawnFunc, sessionRespawner func(context.Context, Fire) Outcome) (fires int, diags []Diagnostic) {
+func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxSeam, deliverer Deliverer, notifier func(context.Context, string, string, string) error, runRespawn RunRespawnFunc, sessionRespawner func(context.Context, Fire) Outcome, loop loopSeams) (fires int, diags []Diagnostic) {
 	entriesPath, err := EntriesPath(dir, slug)
 	if err != nil {
 		return 0, []Diagnostic{{Server: slug, Reason: "path-invalid", Detail: err.Error()}}
 	}
+	diags = append(diags, seedLoop(ctx, slug, dir, now, loop.seed)...)
 	entries, loadDiags := LoadEntries(entriesPath)
 	for _, d := range loadDiags {
 		d.Server = slug
@@ -284,6 +314,8 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 		States:  facts.States,
 		Log:     logLines,
 		Cursor:  cursor,
+
+		RunPanes: facts.RunPanes,
 	})
 	diags = append(diags, eval.Diags...)
 
@@ -317,6 +349,22 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 		return true
 	}
 
+	// Finished operator-loop runs: the tick is the cron log's only writer, so
+	// run outcomes reach it only here. logLines already mirrors earlier
+	// appends, and a run id the log already carries (a crash between append
+	// and the logged mark) is marked, never re-appended.
+	if loop.transcribe != nil {
+		for _, line := range loop.transcribe(ctx, slug) {
+			if !runLogged(logLines, line.Run) {
+				line.TS = now.Unix()
+				appendLine(line.Entry, line)
+			}
+			if loop.logged != nil && line.Run != "" {
+				loop.logged(ctx, slug, line.Run)
+			}
+		}
+	}
+
 	// Missed cron occurrences: one `missed` line per entry per gap, independent
 	// of target resolution and if_absent (schedule history, not delivery). The
 	// append advances the entry's anchor past the gap, so subsequent ticks log
@@ -331,11 +379,23 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 	}
 
 	for _, fire := range eval.Fires {
-		if rateCapped(fire, fire.PaneID, true) {
+		// A loop fire keys the rate cap on its entry id (it has no target
+		// pane) and routes to the LoopRunner seam instead of the Deliverer.
+		isLoop := fire.Entry.IsLoop()
+		capKey, byPane := fire.PaneID, true
+		if isLoop {
+			capKey, byPane = fire.Entry.ID, false
+		}
+		if rateCapped(fire, capKey, byPane) {
 			continue
 		}
 		outcome := Outcome{Status: "no-deliverer"}
-		if deliverer != nil {
+		switch {
+		case isLoop:
+			if loop.run != nil {
+				outcome = loop.run(ctx, fire)
+			}
+		case deliverer != nil:
 			outcome = deliverer.Deliver(ctx, fire)
 		}
 		if outcome.Held {
@@ -432,8 +492,8 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 	// trailing run both views agree — this tick's lines only extend the run's
 	// newest end, and OrphanedSince takes the run's OLDEST timestamp.
 	for _, e := range entries {
-		if e.Pinned || (e.Target.Kind != TargetSession && e.Target.Kind != TargetPane) {
-			continue // pinned never expires; role targets never orphan
+		if e.Pinned || e.IsLoop() || (e.Target.Kind != TargetSession && e.Target.Kind != TargetPane) {
+			continue // pinned never expires; role targets never orphan; loop entries have no target
 		}
 		if tf, ok := facts.Targets[e.ID]; !ok || tf.Resolved() {
 			continue // resolved this tick is never expired, whatever the history

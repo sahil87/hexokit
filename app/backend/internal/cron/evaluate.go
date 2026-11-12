@@ -70,6 +70,10 @@ type EvalInput struct {
 	States  map[string]string
 	Log     []LogLine
 	Cursor  WakeCursor
+	// RunPanes is the set of pane ids inside operator-run windows. A loop
+	// entry's wake fingerprint excludes them so the run's own agent going idle
+	// or vanishing never wakes the loop that launched it.
+	RunPanes map[string]bool
 }
 
 // EvalResult carries the due fires, the due-but-target-unresolved fires, the
@@ -119,6 +123,11 @@ func Evaluate(in EvalInput) EvalResult {
 		}
 
 		facts := in.Facts[e.ID]
+		if e.IsLoop() {
+			// A loop entry fires a Go function: there is no target to resolve,
+			// so it can never reach Absent or trigger if_absent.
+			facts = TargetFacts{}
+		}
 
 		// Schedule predicate. dueAt tracks when the due fire came due on its own
 		// schedule; missedAt marks a stale cron occurrence (logged, not fired).
@@ -133,6 +142,11 @@ func Evaluate(in EvalInput) EvalResult {
 			dueAt = anchor.Add(e.Schedule.Interval.Duration)
 		case ScheduleBackoff:
 			switch {
+			case e.IsLoop():
+				ladder := LoopLadder(e, in.Log)
+				schedDue = ladder.Due(in.Now, e.Schedule.Min.Duration, e.Schedule.Max.Duration)
+				dueAt = ladder.NextFire(e.Schedule.Min.Duration, e.Schedule.Max.Duration)
+				rung = ladder.Rung + 1
 			case !facts.Resolved():
 				// Diagnosed unconditionally: backoff due-ness is unknowable
 				// without the epoch, so the anchor gap is reported every tick.
@@ -164,6 +178,9 @@ func Evaluate(in EvalInput) EvalResult {
 			} else {
 				obs, hasObs := in.Cursor.Entries[e.ID]
 				fp := fingerprintExcluding(in.States, facts.PaneID)
+				if e.IsLoop() {
+					fp = fingerprintExcludingSet(in.States, in.RunPanes)
+				}
 				var lastDelivery time.Time
 				last, hasDelivery := LastDelivery(in.Log, e.ID)
 				if hasDelivery {

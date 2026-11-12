@@ -63,7 +63,10 @@ type cronListRecord struct {
 	ScheduleSummary string          `json:"schedule_summary"`
 	WakeOn          *cronListWakeOn `json:"wake_on"`
 	Target          string          `json:"target"`
-	Deliver         string          `json:"deliver"`
+	// Run mirrors the on-disk `run` key of a target-less loop entry; omitted
+	// for every typed-payload entry so their fixed key set is unchanged.
+	Run     string   `json:"run,omitempty"`
+	Deliver string   `json:"deliver"`
 	IfAbsent        string          `json:"if_absent"`
 	Respawn         []string        `json:"respawn"`
 	Pinned          bool            `json:"pinned"`
@@ -163,7 +166,8 @@ func runCronList(cmd *cobra.Command) error {
 			Schedule:        newCronListSchedule(e.Schedule),
 			ScheduleSummary: cronScheduleSummary(e.Schedule),
 			WakeOn:          newCronListWakeOn(e.WakeOn),
-			Target:          cronTargetSummary(e.Target),
+			Target:          cronEntryTargetSummary(e),
+			Run:             e.Run,
 			Deliver:         e.Deliver,
 			IfAbsent:        e.IfAbsent,
 			Respawn:         e.Respawn,
@@ -179,7 +183,7 @@ func runCronList(cmd *cobra.Command) error {
 		if last, ok := cron.LastDelivery(log, e.ID); ok {
 			rec.LastFired = last.TS
 		}
-		if e.Target.Kind != cron.TargetRole {
+		if !e.IsLoop() && e.Target.Kind != cron.TargetRole {
 			rec.OrphanedSince = cron.OrphanedSince(log, e)
 			rec.ExpiresAt = cron.OrphanExpiresAt(rec.OrphanedSince, e.Pinned)
 		}

@@ -187,10 +187,11 @@ backoff, not the grid version.
   - **Debounce = hold after own delivery:** an actionable edge inside
     `debounce` of the entry's own newest delivery is held (kept pending, not
     dropped) and fires on a later poll; a burst still coalesces into one
-    delivery. The operator entry's consumer seeds `60s` (rk defines the schema
-    and the evaluator; the consumer — fab's clock reconcile — seeds and tunes
-    its entry through `rk cron add`/`edit`; `rk operator` is launcher-only and
-    never touches the entry).
+    delivery. The typed operator-tick entry's consumer seeds `60s` (rk defines
+    the schema and the evaluator; the consumer — fab's clock reconcile — seeds
+    and tunes it through `rk cron add`/`edit`; `rk operator` is launcher-only and
+    never touches it). The operator loop entry is rk's own — see § Operator Loop
+    Entry.
 
 **Catch-up policy**: a wall-clock `cron` fire missed while no invoker ran
 defaults to **skip** (never fire late); `catch_up: once` is the per-entry
@@ -202,6 +203,55 @@ stale occurrence past its window logs exactly one `missed` delivery-log line
 per gap (mute-gated like a fire, target-independent — schedule history, not
 delivery), which advances the anchor past the gap; `catch_up: once` lifts the
 lateness bound and fires the latest stale occurrence exactly once.
+
+## Operator Loop Entry
+
+A second entry kind fires a **daemon function instead of typing a prompt**: a
+top-level `run: operator-loop` key (a closed set of one) marks it. It has no
+target, so `payload`, `target`, `deliver`, `if_absent` and `respawn` are not
+used and validation rejects them; at most one loop entry exists per server file,
+`rk cron add` has no flag to create one, and `edit` (schedule, wake), `mute`,
+`pin` and `rm` work on it unchanged. An older binary reading a file with the key
+sees an entry with no target, skips it as invalid, and loads the rest.
+
+```yaml
+  - id: lp01
+    name: operator loop
+    run: operator-loop
+    schedule: { kind: backoff, min: 3m, max: 24m }
+    wake_on: { event: agent-state-change, scope: server, debounce: 60s }
+    pinned: true
+    created_by: { at: 1788254000 }
+```
+
+**Seeding.** rk seeds this entry itself. Each tick, for a live server whose rk
+operator state file exists (the same existence rule the operator display read
+uses) and whose cron file has no loop entry, the daemon adds the entry above and
+**mutes — never deletes —** every legacy typed `operator tick` role entry in the
+same atomic write. An existing loop entry, muted or not, is never re-seeded or
+rewritten, so a user who mutes the loop and unmutes the legacy entry has rolled
+back and stays rolled back. With no rk state file nothing changes: a server keeps
+fab's typed tick until `rk operator adopt` creates the file.
+
+**Schedule.** With no agent pane to read an idle epoch from, the backoff ladder
+derives from the entry's own log: each consecutive `no change` line climbs one
+rung, and any other own line (`ran`, `run-failed`, `run-lost`, `check-failed`,
+`skipped-busy`, `rescheduled`) resets it, anchored at that line. The wake
+fingerprint drops the panes of run windows, so a run's own agent never wakes the
+loop that launched it.
+
+**A fire** calls the loop runner (a nil-safe seam; unwired daemons log
+`no-deliverer`). In order: a live run window means busy and the fire is logged
+`skipped-busy: run <run-id>` without a check; the deterministic operator check
+runs; no change is logged `no change`; a change persists a run record and the
+rendered brief, then opens a run window in the server's `_rk-operator` session
+running the headless launcher (`fab agent operator --headless`, else
+`claude -p --dangerously-skip-permissions`) with the brief on stdin. The run is a
+tmux window, never a daemon child, so a daemon restart cannot lose it. A launch
+writes no log line: the tick — the log's only writer — transcribes the finished
+run record into the one line for the fire, `ran · <outcome> · <duration>`,
+`run-failed: …` or `run-lost: …`, tagged with the run id; `GET /api/cron` joins
+the id to the run log path. The newest 50 run records per server are kept.
 
 ## Targets & Fire-Time Resolution
 
@@ -566,7 +616,9 @@ move.
   fab-kit's clock reconcile seeded the entry itself (fab-kit ≥ 2.26.2 —
   `rk cron add … --pinned` on a server with no `role:operator` row, healed by
   every reconcile entry point and by `fab operator clock sync`), leaving `rk
-  operator` launcher-only. Silence while the
+  operator` launcher-only. (The operator loop entry is the exception: rk seeds
+  it itself once a server has rk's operator state file — § Operator Loop
+  Entry.) Silence while the
   operator's in-session `/loop` lives is **lease arbitration**: the loop
   renews a mute lease (`rk cron mute <id> --for <dur>`) each tick, and when
   the loop dies the lease lapses and the cron backstop resumes on its own.

@@ -109,6 +109,19 @@ const ManagedOption = "@rk_srv_managed"
 // option family (validate.MarkerValues / ValidateRoleValue).
 const RoleOption = "@rk_win_role"
 
+// RoleOperatorRun is the RoleOption value of an ephemeral operator-loop run
+// window. It is NOT user-settable (validate.RoleValues stays closed) and NOT
+// part of the "operator" radio: ClearWindowRoleExcept never clears it, so a
+// chat window taking the operator role cannot erase a live run's busy signal.
+// parseWindows surfaces it so the cron evaluator and the sessions projection
+// can recognize run windows.
+const RoleOperatorRun = "operator-run"
+
+// OperatorRunOption is the window-scoped user option carrying a run window's
+// run id (the key into the operator run records). Stamped together with
+// RoleOption=RoleOperatorRun at window creation.
+const OperatorRunOption = "@rk_win_operator_run"
+
 // NoteOption is the tmux window user option carrying a free-text one-line
 // status note — user/agent-authored annotation (the MarkerOption/FlairOption
 // user-preference class, not derived state). The value schema is
@@ -1773,7 +1786,7 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		// set (including "") to the empty unset state. Same idiom as Marker.
 		var role string
 		if len(parts) > roleField {
-			if r := strings.TrimSpace(parts[roleField]); validate.RoleValues[r] {
+			if r := strings.TrimSpace(parts[roleField]); validate.RoleValues[r] || r == RoleOperatorRun {
 				role = r
 			}
 		}
@@ -2765,7 +2778,8 @@ var roleCarriersFormat = strings.Join([]string{"#{window_id}", "#{" + RoleOption
 
 // roleCarriersToClear parses roleCarriersFormat lines into the window IDs whose
 // RoleOption must be unset: every window carrying a non-empty role except
-// keepWindowID. Pure so the radio rule is unit-testable without a live server.
+// keepWindowID, except operator-run windows (outside the radio). Pure so the
+// radio rule is unit-testable without a live server.
 func roleCarriersToClear(lines []string, keepWindowID string) []string {
 	var out []string
 	for _, line := range lines {
@@ -2774,7 +2788,8 @@ func roleCarriersToClear(lines []string, keepWindowID string) []string {
 			continue
 		}
 		id := strings.TrimSpace(parts[0])
-		if id == "" || id == keepWindowID || strings.TrimSpace(parts[1]) == "" {
+		role := strings.TrimSpace(parts[1])
+		if id == "" || id == keepWindowID || role == "" || role == RoleOperatorRun {
 			continue
 		}
 		out = append(out, id)

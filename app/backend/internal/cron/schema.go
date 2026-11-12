@@ -35,6 +35,11 @@ const (
 // literally (the operator-window lookup in push_url.go).
 const RoleOperator = "operator"
 
+// RunOperatorLoop is the one legal Entry.Run value: the entry fires the
+// operator loop (a Go function behind Deps.LoopRunner) instead of typing a
+// payload into a target agent.
+const RunOperatorLoop = "operator-loop"
+
 // Wake events.
 const (
 	WakeAgentStateChange = "agent-state-change"
@@ -130,12 +135,16 @@ type CreatedBy struct {
 
 // Entry is one cron intent record.
 type Entry struct {
-	ID       string   `yaml:"id"`
-	Name     string   `yaml:"name,omitempty"`
+	ID   string `yaml:"id"`
+	Name string `yaml:"name,omitempty"`
+	// Run marks a target-less entry that fires a Go function (RunOperatorLoop)
+	// instead of delivering a payload. With Run set, Target, Payload, Deliver,
+	// IfAbsent and Respawn are all unused and validation rejects them.
+	Run      string   `yaml:"run,omitempty"`
 	Schedule Schedule `yaml:"schedule"`
 	WakeOn   *WakeOn  `yaml:"wake_on,omitempty"`
-	Target   Target   `yaml:"target"`
-	Payload  string   `yaml:"payload"`
+	Target   Target   `yaml:"target,omitempty"`
+	Payload  string   `yaml:"payload,omitempty"`
 	Deliver  string   `yaml:"deliver,omitempty"`
 	IfAbsent string   `yaml:"if_absent,omitempty"`
 	// Respawn is the caller-supplied argv for if_absent: respawn (the {server}
@@ -157,12 +166,47 @@ func (e Entry) EffectivelyMuted(now time.Time) bool {
 	return e.Muted || (e.MutedUntil > 0 && now.Unix() < e.MutedUntil)
 }
 
+// IsLoop reports whether the entry is the target-less operator-loop kind.
+func (e Entry) IsLoop() bool { return e.Run == RunOperatorLoop }
+
 // validate is the per-entry gate the tolerant load applies: a failing entry is
 // skipped with a diagnostic, never failing the file.
 func (e Entry) validate() error {
 	if e.ID == "" {
 		return fmt.Errorf("missing id")
 	}
+	if err := e.validateSchedule(); err != nil {
+		return err
+	}
+	if e.Run != "" {
+		return e.validateLoop()
+	}
+	return e.validateDelivery()
+}
+
+// validateLoop gates a run-kind entry: a closed run value and none of the
+// delivery-only fields.
+func (e Entry) validateLoop() error {
+	if !e.IsLoop() {
+		return fmt.Errorf("unknown run value %q (only %q)", e.Run, RunOperatorLoop)
+	}
+	switch {
+	case e.Payload != "":
+		return fmt.Errorf("run %q entry must not carry a payload", e.Run)
+	case e.Target != (Target{}):
+		return fmt.Errorf("run %q entry must not carry a target", e.Run)
+	case e.Deliver != "":
+		return fmt.Errorf("run %q entry must not carry deliver", e.Run)
+	case e.IfAbsent != "":
+		return fmt.Errorf("run %q entry must not carry if_absent", e.Run)
+	case e.Respawn != nil:
+		return fmt.Errorf("run %q entry must not carry respawn", e.Run)
+	}
+	return nil
+}
+
+// validateSchedule gates the schedule shape shared by every entry kind.
+func (e Entry) validateSchedule() error {
 	switch e.Schedule.Kind {
 	case ScheduleEvery:
 		if e.Schedule.Interval.Duration <= 0 {
@@ -194,6 +238,11 @@ func (e Entry) validate() error {
 			return fmt.Errorf("unknown catch_up value %q (only %q)", e.Schedule.CatchUp, CatchUpOnce)
 		}
 	}
+	return nil
+}
+
+// validateDelivery gates the delivery fields of a typed-payload entry.
+func (e Entry) validateDelivery() error {
 	switch e.Deliver {
 	case "", DeliverImmediate, DeliverWhenIdle, DeliverSkipIfBusy:
 	default:

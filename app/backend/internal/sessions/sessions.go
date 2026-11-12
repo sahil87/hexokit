@@ -203,14 +203,15 @@ func foldViewers(clients []tmux.ClientInfo, resolve AttachResolver) map[string][
 
 // operatorSessionHidden is the pure content rule behind ProjectSession.Hidden:
 // hidden iff the session is the operator session AND it holds ≥1 window AND
-// every window carries role == "operator". Pure (no I/O) so the truth table is
-// unit-testable without a live server.
+// every window carries role == "operator" or an operator-loop run window's
+// role. Pure (no I/O) so the truth table is unit-testable without a live
+// server.
 func operatorSessionHidden(name string, windows []tmux.WindowInfo) bool {
 	if name != tmux.OperatorSessionName || len(windows) == 0 {
 		return false
 	}
 	for _, w := range windows {
-		if w.Role != "operator" {
+		if w.Role != "operator" && w.Role != tmux.RoleOperatorRun {
 			return false
 		}
 	}

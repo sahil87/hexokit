@@ -493,3 +493,80 @@ func mustOnlyEntry(t *testing.T, path string) Entry {
 	}
 	return entries[0]
 }
+
+func TestLoadEntriesMixedLoopFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dev.yaml")
+	content := `
+entries:
+  - id: lp01
+    run: operator-loop
+    payload: "should not be here"
+    schedule: { kind: backoff, min: 3m, max: 24m }
+  - id: lp02
+    run: operator-loop
+    schedule: { kind: backoff, min: 3m, max: 24m }
+  - id: a3f9
+    schedule: { kind: every, interval: 1h }
+    target: { kind: pane, pane: "%12" }
+    payload: "tick"
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	entries, diags := LoadEntries(path)
+	if len(entries) != 2 || entries[0].ID != "lp02" || entries[1].ID != "a3f9" {
+		t.Fatalf("entries = %+v", entries)
+	}
+	if len(diags) != 1 || diags[0].Reason != "entry-invalid" || diags[0].EntryID != "lp01" {
+		t.Fatalf("diags = %+v", diags)
+	}
+}
+
+func TestAddLoopEntryOnePerServer(t *testing.T) {
+	dir := t.TempDir()
+	loop := Entry{Run: RunOperatorLoop, Name: "operator loop", Pinned: true,
+		Schedule:  Schedule{Kind: ScheduleBackoff, Min: Duration{3 * time.Minute}, Max: Duration{24 * time.Minute}},
+		CreatedBy: CreatedBy{At: 1}}
+	first, err := Add(dir, "dev", loop)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Add(dir, "dev", loop); err == nil || !strings.Contains(err.Error(), first.ID) {
+		t.Fatalf("second loop Add err = %v, want refusal naming %s", err, first.ID)
+	}
+	// A typed entry still adds beside it, and a loop entry on another server.
+	if _, err := Add(dir, "dev", Entry{Schedule: Schedule{Kind: ScheduleEvery, Interval: Duration{time.Hour}},
+		Target: Target{Kind: TargetPane, Pane: "%1"}, Payload: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Add(dir, "other", loop); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoopEntryMutationsWork(t *testing.T) {
+	dir := t.TempDir()
+	e, err := Add(dir, "dev", Entry{Run: RunOperatorLoop,
+		Schedule: Schedule{Kind: ScheduleBackoff, Min: Duration{3 * time.Minute}, Max: Duration{24 * time.Minute}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := SetMuted(dir, "dev", e.ID, true); err != nil || !ok {
+		t.Fatalf("mute: %v %v", ok, err)
+	}
+	if ok, err := SetPinned(dir, "dev", e.ID, true); err != nil || !ok {
+		t.Fatalf("pin: %v %v", ok, err)
+	}
+	got, ok, err := Update(dir, "dev", e.ID, func(m *Entry) {
+		m.Schedule = Schedule{Kind: ScheduleBackoff, Min: Duration{time.Minute}, Max: Duration{10 * time.Minute}}
+	})
+	if err != nil || !ok || got.Schedule.Min.Duration != time.Minute || !got.IsLoop() {
+		t.Fatalf("edit: %+v %v %v", got, ok, err)
+	}
+	if _, _, err := Update(dir, "dev", e.ID, func(m *Entry) { m.Payload = "x" }); err == nil {
+		t.Error("edit adding a payload to a loop entry must fail validation")
+	}
+	if ok, err := Remove(dir, "dev", e.ID); err != nil || !ok {
+		t.Fatalf("rm: %v %v", ok, err)
+	}
+}

@@ -89,6 +89,35 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("CronList operator loop row", () => {
+  it("renders the target-less loop entry with the `operator loop` chip and no payload", async () => {
+    installFetch({
+      entries: [
+        makeEntry({
+          id: "lp01",
+          name: "operator loop",
+          run: "operator-loop",
+          target: { kind: "" },
+          payload: "",
+          schedule: { kind: "backoff", min: "3m", max: "24m" },
+          rung: 2,
+          pinned: true,
+          nextFire: NOW_SEC + 360,
+        }),
+      ],
+      deliveries: [],
+    });
+    renderList(SERVER);
+    const row = await screen.findByTestId("cron-list-row-lp01");
+    expect(row).toHaveTextContent("operator loop");
+    expect(row).toHaveTextContent(
+      "checks tracked items, backing off from 3 minutes up to 24 minutes while nothing changes",
+    );
+    expect(row).not.toHaveTextContent("role:");
+    expect(row).toHaveTextContent("rung 2");
+  });
+});
+
 describe("CronList", () => {
   it("sorts soonest-fire-first with undated entries last, dimmed never omitted", async () => {
     installFetch();

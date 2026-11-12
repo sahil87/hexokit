@@ -1117,3 +1117,80 @@ func TestCronEditRoute(t *testing.T) {
 		}
 	})
 }
+
+// TestCronListOperatorLoop: a loop entry projects with run set and an empty
+// target, derives its next fire from its own log, and its transcribed delivery
+// carries the run id plus the run-log path while the run record exists.
+func TestCronListOperatorLoop(t *testing.T) {
+	const T = int64(1_700_000_000)
+	const runID = "20261112T101500-ab12"
+	dir := setupCronState(t)
+	writeCronEntries(t, dir, "default", `entries:
+  - id: lp01
+    name: operator loop
+    run: operator-loop
+    schedule: {kind: backoff, min: 3m, max: 24m}
+    wake_on: {event: agent-state-change, scope: server, debounce: 60s}
+    pinned: true
+    created_by: {at: `+jsonNumber(T-3600)+`}
+`)
+	log := strings.Join([]string{
+		`{"ts":` + jsonNumber(T-100) + `,"entry":"lp01","target":"","reason":"schedule","outcome":"ran · gone · 5s","run":"20261112T090000-zzzz"}`,
+		`{"ts":` + jsonNumber(T) + `,"entry":"lp01","target":"","reason":"schedule","outcome":"ran · stub acted · 20s","run":"` + runID + `"}`,
+		`{"ts":` + jsonNumber(T+180) + `,"entry":"lp01","target":"","reason":"schedule","outcome":"no change"}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "default.log"), []byte(log), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runsDir := filepath.Join(t.TempDir(), "runs")
+	if err := os.MkdirAll(runsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runsDir, runID+".json"), []byte(`{"id":"`+runID+`","server":"default","entry":"lp01","transcript":"/tmp/transcript.jsonl"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	server, _ := newWakeSeamServer(t, &mockTmuxOps{})
+	server.cronFactsFn = cronFactsStub(nil) // a loop entry has no target facts
+	server.cronRunsDirFn = func(context.Context, string) (string, error) { return runsDir, nil }
+	rec := httptest.NewRecorder()
+	server.buildRouter().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/cron?server=default", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Entries    []cronEntryJSON    `json:"entries"`
+		Deliveries []cronDeliveryJSON `json:"deliveries"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Entries) != 1 {
+		t.Fatalf("entries = %+v", body.Entries)
+	}
+	e := body.Entries[0]
+	if e.Run != "operator-loop" || e.Target.Kind != "" || e.Payload != "" || e.Orphaned || e.Rung != 2 {
+		t.Errorf("entry = %+v", e)
+	}
+	// anchor = the ran line at T; one no-change ⇒ rung 2 ⇒ T + 3m + 6m
+	if want := T + 9*60; e.NextFire != want {
+		t.Errorf("nextFire = %d, want %d", e.NextFire, want)
+	}
+	if len(body.Deliveries) != 3 {
+		t.Fatalf("deliveries = %+v", body.Deliveries)
+	}
+	byOutcome := map[string]cronDeliveryJSON{}
+	for _, d := range body.Deliveries {
+		byOutcome[d.Outcome] = d
+	}
+	ran := byOutcome["ran · stub acted · 20s"]
+	if ran.Run != runID || ran.RunLog != filepath.Join(runsDir, runID+".log") || ran.Transcript != "/tmp/transcript.jsonl" {
+		t.Errorf("ran delivery = %+v", ran)
+	}
+	if gone := byOutcome["ran · gone · 5s"]; gone.Run == "" || gone.RunLog != "" {
+		t.Errorf("a pruned run keeps its id but has no run log: %+v", gone)
+	}
+	if nc := byOutcome["no change"]; nc.Run != "" || nc.RunLog != "" {
+		t.Errorf("no-change delivery = %+v", nc)
+	}
+}

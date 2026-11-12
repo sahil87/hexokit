@@ -10,7 +10,7 @@ import {
   type CronEntry,
   type CronSchedule,
 } from "@/api/client";
-import { targetChip } from "@/lib/cron-list-model";
+import { isLoopEntry, targetChip } from "@/lib/cron-list-model";
 
 type ScheduleKind = "every" | "backoff" | "cron";
 type Deliver = "immediate" | "when-idle" | "skip-if-busy";
@@ -220,7 +220,7 @@ export function CronCreateDialog({
                 className="mt-1 whitespace-pre-wrap text-text-primary"
                 data-testid="cron-edit-payload"
               >
-                {entry.payload}
+                {isLoopEntry(entry) ? "—" : entry.payload}
               </p>
             </div>
             {(entry.muted === true || entry.pinned === true) && (

@@ -184,7 +184,7 @@ func runCronEdit(cmd *cobra.Command, id string) error {
 		return fmt.Errorf("no entry %s", id)
 	}
 	newSink(cmd).Dataf("edited %s %s [%s -> %s]\n", entry.ID, entry.Name,
-		cronScheduleSummary(entry.Schedule), cronTargetSummary(entry.Target))
+		cronScheduleSummary(entry.Schedule), cronEntryTargetSummary(entry))
 	return nil
 }
 

@@ -61,14 +61,17 @@ func GatherFactsLive(ctx context.Context, server string, entries []Entry) Server
 type ServerFacts struct {
 	States  map[string]string
 	Targets map[string]TargetFacts
-	Diags   []Diagnostic
+	// RunPanes is the set of pane ids inside operator-run windows
+	// (Role == tmux.RoleOperatorRun) — the loop entry's wake-exclusion input.
+	RunPanes map[string]bool
+	Diags    []Diagnostic
 }
 
 // GatherFacts resolves every entry's target on one live server and reads each
 // resolved pane's agent-state epoch, plus the server-scoped agent-state map.
 // Enumeration failures degrade (diagnostics), never abort.
 func GatherFacts(ctx context.Context, server string, entries []Entry, seam TmuxSeam) ServerFacts {
-	out := ServerFacts{Targets: map[string]TargetFacts{}}
+	out := ServerFacts{Targets: map[string]TargetFacts{}, RunPanes: map[string]bool{}}
 	diag := func(entryID, reason, detail string) {
 		out.Diags = append(out.Diags, Diagnostic{Server: server, EntryID: entryID, Reason: reason, Detail: detail})
 	}
@@ -104,6 +107,14 @@ func GatherFacts(ctx context.Context, server string, entries []Entry, seam TmuxS
 		}
 	}
 	out.States = states
+	for _, wf := range windows {
+		if wf.window.Role != tmux.RoleOperatorRun {
+			continue
+		}
+		for _, p := range wf.window.Panes {
+			out.RunPanes[p.PaneID] = true
+		}
+	}
 
 	// paneFacts fills the resolved pane's agent-state read.
 	paneFacts := func(entryID, paneID string) TargetFacts {
@@ -116,6 +127,9 @@ func GatherFacts(ctx context.Context, server string, entries []Entry, seam TmuxS
 	}
 
 	for _, e := range entries {
+		if e.IsLoop() {
+			continue // fires a Go function: no target to resolve
+		}
 		switch e.Target.Kind {
 		case TargetRole:
 			// The @rk_win_role radio semantics: find the window carrying the

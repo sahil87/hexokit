@@ -162,3 +162,53 @@ describe("CronLog", () => {
     expect(log.className).toContain("relative");
   });
 });
+
+describe("CronLog operator-loop runs", () => {
+  it("opens a run delivery's sheet with the run id, outcome and run log path", async () => {
+    const loop: CronEntry = {
+      id: "lp01",
+      name: "operator loop",
+      run: "operator-loop",
+      schedule: { kind: "backoff", min: "3m", max: "24m" },
+      target: { kind: "" },
+      payload: "",
+      lastFired: NOW_SEC - 60,
+    };
+    installFetch({
+      entries: [loop],
+      deliveries: [
+        {
+          ts: NOW_SEC - 60,
+          entry: "lp01",
+          name: "operator loop",
+          target: "",
+          reason: "schedule",
+          outcome: "ran · stub acted · 20s",
+          run: "20261112T101500-ab12",
+          runLog: "/state/operator/runs/s/20261112T101500-ab12.log",
+        },
+        { ts: NOW_SEC - 300, entry: "lp01", name: "operator loop", target: "", reason: "schedule", outcome: "no change" },
+      ],
+    });
+    renderLog(SERVER);
+    const rows = await screen.findAllByTestId("cron-delivery-row-lp01");
+    expect(rows[0]).toHaveTextContent("ran · stub acted · 20s");
+    fireEvent.click(rows[0]);
+    expect(await screen.findByTestId("cron-entry-run-log")).toHaveTextContent(
+      "/state/operator/runs/s/20261112T101500-ab12.log",
+    );
+    expect(screen.getByTestId("cron-entry-run-id")).toHaveTextContent("20261112T101500-ab12");
+    cleanup();
+
+    installFetch({
+      entries: [loop],
+      deliveries: [
+        { ts: NOW_SEC - 300, entry: "lp01", name: "operator loop", target: "", reason: "schedule", outcome: "no change" },
+      ],
+    });
+    renderLog(SERVER);
+    fireEvent.click(await screen.findByTestId("cron-delivery-row-lp01"));
+    await screen.findByRole("dialog", { name: "Cron entry operator loop" });
+    expect(screen.queryByTestId("cron-entry-run")).toBeNull();
+  });
+});

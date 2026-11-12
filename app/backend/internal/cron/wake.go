@@ -111,6 +111,22 @@ func fingerprintExcluding(states map[string]string, pane string) string {
 	return Fingerprint(view)
 }
 
+// fingerprintExcludingSet renders states without any pane in exclude — the
+// loop entry's view, which drops every run-window pane. The shared map is
+// never mutated.
+func fingerprintExcludingSet(states map[string]string, exclude map[string]bool) string {
+	if len(exclude) == 0 {
+		return Fingerprint(states)
+	}
+	view := make(map[string]string, len(states))
+	for k, v := range states {
+		if !exclude[k] {
+			view[k] = v
+		}
+	}
+	return Fingerprint(view)
+}
+
 // actionableTransition reports whether a pane moving from prev to cur (cur ""
 // = the pane vanished) needs the wake target's attention. `active` is the one
 // state an agent enters on its own without needing anyone; every other value

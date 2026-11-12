@@ -27,10 +27,12 @@ import type { CronDelivery } from "@/api/client";
  */
 export function CronLog({ server, inline = false }: { server: string; inline?: boolean }) {
   const { entries, deliveries } = useCronData(server);
-  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  // The tapped delivery line itself: the sheet needs its entry AND, for an
+  // operator-loop run, the run fields the line carries.
+  const [selectedDelivery, setSelectedDelivery] = useState<CronDelivery | null>(null);
 
-  const selectedEntry = selectedEntryId
-    ? entries.find((e) => e.id === selectedEntryId)
+  const selectedEntry = selectedDelivery
+    ? entries.find((e) => e.id === selectedDelivery.entry)
     : undefined;
 
   const nowMs = Date.now();
@@ -119,11 +121,11 @@ export function CronLog({ server, inline = false }: { server: string; inline?: b
                 role: "button",
                 tabIndex: 0,
                 className: "cursor-pointer",
-                onClick: () => setSelectedEntryId(delivery.entry),
+                onClick: () => setSelectedDelivery(delivery),
                 onKeyDown: (event: KeyboardEvent<HTMLTableRowElement>) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    setSelectedEntryId(delivery.entry);
+                    setSelectedDelivery(delivery);
                   }
                 },
               };
@@ -135,7 +137,8 @@ export function CronLog({ server, inline = false }: { server: string; inline?: b
         <CronEntryDetailSheet
           server={server}
           entry={selectedEntry}
-          onClose={() => setSelectedEntryId(null)}
+          delivery={selectedDelivery ?? undefined}
+          onClose={() => setSelectedDelivery(null)}
           inline={inline}
         />
       )}
