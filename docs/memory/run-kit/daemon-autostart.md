@@ -87,7 +87,36 @@ Surfaces never change autostart: enabling or disabling stays `rk daemon autostar
 
 ## macOS (launchd)
 
-<!-- A2 fills this section. -->
+`internal/daemon/autostart/launchd.go` registers for `darwin`. It is a per-user **LaunchAgent** in the `gui/<uid>` domain, so `starts_at` is always `login`: a boot-time LaunchDaemon would run as root.
+
+- **Identity**: label `ai.shll.hexokit.daemon`; plist `~/Library/LaunchAgents/ai.shll.hexokit.daemon.plist`; service target `gui/<uid>/ai.shll.hexokit.daemon`.
+- **Plist**: the `ManagedMarker` comment; `ProgramArguments = [<login shell>, -lc, StartScript(rkPath, nil)]`; `RunAtLoad` and `AbandonProcessGroup` true; **no `KeepAlive`**; stdout and stderr go to `<state home>/logs/autostart.log` (`apphome.LogsDir()`). It is rendered by hand with `encoding/xml` text escaping, so the output is byte-stable and `stale` is a plain byte comparison.
+- **Login shell**: `dscl . -read /Users/<user> UserShell`, falling back to `/bin/zsh`. `$SHELL` is never read.
+- **`on`**:
+  - Ensures `~/Library/LaunchAgents` and the logs dir exist on every run. launchd does not create the log file's directory, and a missing one fails the job before the shell starts.
+  - Writes the plist only when it differs.
+  - Runs `launchctl enable <service>`, which clears a stale disable override and neither loads nor starts the job.
+  - Never bootstraps without `--now`. With `--now`:
+    - not loaded → `bootstrap gui/<uid> <plist>` (`RunAtLoad` runs it);
+    - loaded with a changed plist → `bootout` then `bootstrap`;
+    - loaded and unchanged → `kickstart <service>` (no `-k`).
+  - Refuses to overwrite a plist that lacks the marker.
+- **`off`**: refuses a foreign plist, otherwise `bootout` if loaded and delete the plist. It never stops the daemon: the job's shell has already exited after its single run, and the tmux server lives in its own session.
+- **`status`**:
+  - `enabled` comes from `launchctl print-disabled gui/<uid>`; `=> disabled` (macOS 13+) and `=> true` (older releases) both count as disabled.
+  - `last_exit_code` / `last_result` are parsed from `launchctl print <service>`'s `last exit code = N[: signal]` line. `(never exited)` → `never run`; an unknown service → `not loaded`.
+  - A foreign plist reports `registered: false` with a hint to remove it.
+  - Hints cover: disabled, stale, a failed last start (naming the log), and for zsh/bash the profile-vs-rc caveat (`~/.zprofile` but not `~/.zshrc`; `~/.bash_profile` but not `~/.bashrc`). fish gets no caveat because it reads `config.fish` for login shells.
+- **Seams**: one `run(ctx, name, args…) → (out, exitCode, err)` (production: `exec.CommandContext`, 10 s timeout), plus `homeDir`, `uid`, `username`, `rkPath` and `logsDir` fields. Tests drive every verb on Linux with a recording fake and `t.TempDir()` homes.
+- **Desktop app**: it does not expose the switch. Starting from both the app and launchd ends with one daemon: `rk daemon start` refuses a second one and the agent's `--if-not-running` reads that as success. A start race between the two can still record a non-zero `last exit code` while the daemon ends up running.
+- **Unverified on a real Mac** (A5's checklist, from S1 § macOS and review):
+  - the tmux server outliving the job, with and without `AbandonProcessGroup`;
+  - `bootout` leaving the daemon running;
+  - the `zsh -lc` environment diff against a manual start;
+  - the tmux socket path under the agent's `TMPDIR`;
+  - no second daemon on a second login;
+  - an intermittent `Bootstrap failed: 5: Input/output error` right after a `bootout`;
+  - `launchctl enable` failing in an SSH-only session that has no `gui/<uid>` domain.
 
 ## Design Decisions
 
@@ -126,3 +155,15 @@ Surfaces never change autostart: enabling or disabling stays `rk daemon autostar
 **Why**: `$SHELL` reflects whatever shell ran rk, not the account's login shell. An absolute path can be validated (executable, not `nologin`/`false`, unquoted-safe) and compared byte-for-byte in `status`.
 **Rejected**: systemd's `%s` specifier, which follows `chsh` automatically but can't be validated or reported, and silently runs a `nologin` shell; `$SHELL`, which is the wrong source.
 *Introduced by*: 261111-rreg-linux-daemon-autostart-systemd
+
+#### Bootstrap only with --now on macOS
+**Decision**: `on` writes and enables the LaunchAgent. Only `on --now` runs `launchctl bootstrap` (or `kickstart` when the job is already loaded).
+**Why**: With `RunAtLoad`, a bootstrap runs the job immediately, so an unconditional bootstrap would start the daemon on every `on`, breaking the shared "register only unless `--now`" contract. launchd loads `~/Library/LaunchAgents` at login anyway.
+**Rejected**: Bootstrapping on every `on`, which is the plan brief's literal wording.
+*Introduced by*: 261111-qdxp-macos-daemon-autostart-launchagent
+
+#### Shared surface as one byte-identical commit, backends self-register
+**Decision**: The platform-neutral code (the interface, documents, registry, CLI and start script) ships as one commit carried unchanged by both platform PRs. Each backend lives in its own file, registers from `init()`, prefixes every package-level identifier with its manager name (`launchd…`, `systemd…`), and uses no build tags.
+**Why**: The Linux and macOS backends were built in parallel. With an identical shared commit, whichever PR merges second drops it on rebase (same patch-id). Self-registration keeps each PR compiling on its own. Prefixed names keep the two files from colliding inside one package. Without build tags, both backends are tested on Linux CI.
+**Rejected**: `_darwin.go`/`_linux.go` build tags, because the macOS backend would then never compile or run in CI. A shared selector that names both constructors, because each PR would fail to compile without the other.
+*Introduced by*: 261111-qdxp-macos-daemon-autostart-launchagent
