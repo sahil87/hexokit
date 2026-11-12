@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The operator state engine — `internal/operator`'s tracked-item schema (kinds, probe modes, caps, notes, reported conditions), the rk-owned per-server state file, its tolerant-read/typed-write + sidecar-lock + atomic-write contract, the `rk operator track` verbs, the read-only `rk operator adopt` import, and `operator.Check` / `rk operator check` — the two-phase, edge-triggered probe-and-diff gate that runs before any model call."
+description: "The operator state engine — `internal/operator`'s tracked-item schema (kinds, probe modes, caps, notes, reported conditions), the rk-owned per-server state file, its tolerant-read/typed-write + sidecar-lock + atomic-write contract, the `rk operator track` verbs, the read-only `rk operator adopt` import, `operator.Check` / `rk operator check` — the two-phase, edge-triggered probe-and-diff gate that runs before any model call — and the read-only `rk operator brief` consumer."
 ---
 # Operator State
 
@@ -8,7 +8,7 @@ description: "The operator state engine — `internal/operator`'s tracked-item s
 
 ## Overview
 
-The operator's tracked-item ledger is a plain YAML file that rk owns and writes, one per tmux server, at `<apphome.StateDir()>/operator/<slug>.yaml` (`$XDG_STATE_HOME/hexokit/operator/<slug>.yaml`). `internal/operator` (`app/backend/internal/operator`) is the library behind it — schema, store, verbs, importer — and `rk operator track …` / `rk operator adopt` / `rk operator check` (`cmd/rk/operator_track.go`, `operator_adopt.go`, `operator_check.go`) are its CLI doors. The schema is the one fab-kit's operator already uses (ported), plus per-item **notes** as the operator's memory and a per-item `reported` list that makes the check edge-triggered. `operator.Check` is the deterministic gate of the operator loop — clock → check (Go, no model) → nothing changed → stop; changed → a model run — and is a library call with no daemon caller, HTTP route, or cron entry yet. The file is also the display source: the sessions payload (the watchlist join, the staleness facts, `operatorTracked`) and `GET /api/operator/notes` read it read-only through the tolerant cron reader whenever it exists, with fab's file read only while it does not ([cron](/run-kit/cron.md) § External Contracts); nothing on the read path creates, converts, or writes it, and nothing adopts on read. The file is a plain-file durable source under Constitution II — a fresh daemon rebuilds from it with no cache.
+The operator's tracked-item ledger is a plain YAML file that rk owns and writes, one per tmux server, at `<apphome.StateDir()>/operator/<slug>.yaml` (`$XDG_STATE_HOME/hexokit/operator/<slug>.yaml`). `internal/operator` (`app/backend/internal/operator`) is the library behind it — schema, store, verbs, importer — and `rk operator track …` / `rk operator adopt` / `rk operator check` (`cmd/rk/operator_track.go`, `operator_adopt.go`, `operator_check.go`) are its CLI doors. `rk operator brief` is a read-only consumer: it loads the file and renders the run brief ([operator-brief](/run-kit/operator-brief.md)). The schema is the one fab-kit's operator already uses (ported), plus per-item **notes** as the operator's memory and a per-item `reported` list that makes the check edge-triggered. `operator.Check` is the deterministic gate of the operator loop — clock → check (Go, no model) → nothing changed → stop; changed → a model run — and is a library call with no daemon caller, HTTP route, or cron entry yet. The file is also the display source: the sessions payload (the watchlist join, the staleness facts, `operatorTracked`) and `GET /api/operator/notes` read it read-only through the tolerant cron reader whenever it exists, with fab's file read only while it does not ([cron](/run-kit/cron.md) § External Contracts); nothing on the read path creates, converts, or writes it, and nothing adopts on read. The file is a plain-file durable source under Constitution II — a fresh daemon rebuilds from it with no cache.
 
 ## Requirements
 
@@ -52,6 +52,10 @@ Every item carries `notes: [{at, by, text}]`, an append-only memory list. `at` i
 | `pause <id>` / `resume <id>` | `pause` sets `paused`; `resume` clears it and zeroes `failures`. |
 
 Mutating verbs print one `<action> <id>` line (`add` with `--mode` first prints `mode: <m> (flag)`) or, with `--json`, the shared `outputSink` envelope around `{id, action, mode?}`. Exit codes: 0 ok, 1 operational (duplicate id, no such item, state file busy or unreadable), 2 usage. `track clock` and `update --text/--pause/--resume` do not exist.
+
+### Requirement: Read-only consumers
+
+`rk operator brief` reads the state file through `operator.Load` — lock-free, never writing — and shares `track`'s server-label resolution (`operatorServer`). A missing file is an empty ledger; a malformed one is exit 1. Lifecycle states shown in a brief come from the same `listState` derivation as `track list`. See [operator-brief](/run-kit/operator-brief.md).
 
 ### Requirement: `rk operator adopt`
 
@@ -121,7 +125,7 @@ A done item yields only `done` plus any `unknown_dep:*`; a user-paused item belo
 
 ### Requirement: Surface conformance
 
-`rk help-dump` walks the cobra tree, so `operator adopt`, `operator check`, and `operator track` with its eight verbs appear without a fixture change. Help text follows the toolkit conventions — Examples and Exit codes sections, no backticks in flag help ([toolkit-standards](/run-kit/toolkit-standards.md) § A new command surface is checked against help-dump and Principle 9). The verbs and `check` are CLI-only: the MCP proxy's allowlisted table has no rows for them.
+`rk help-dump` walks the cobra tree, so `operator adopt`, `operator brief`, `operator check`, and `operator track` with its eight verbs appear without a fixture change. Help text follows the toolkit conventions — Examples and Exit codes sections, no backticks in flag help ([toolkit-standards](/run-kit/toolkit-standards.md) § A new command surface is checked against help-dump and Principle 9). The verbs, `check`, and `brief` are CLI-only: the MCP proxy's allowlisted table has no rows for them.
 
 ## Design Decisions
 

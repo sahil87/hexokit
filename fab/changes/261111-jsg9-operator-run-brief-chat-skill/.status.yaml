@@ -1,0 +1,58 @@
+id: jsg9
+name: 261111-jsg9-operator-run-brief-chat-skill
+created: 2026-11-11T13:06:35Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 11
+    acceptance_count: 24
+    acceptance_completed: 24
+confidence:
+    certain: 5
+    confident: 9
+    tentative: 0
+    unresolved: 0
+    score: 3.8
+    fuzzy: true
+    dimensions:
+        signal: 74.3
+        reversibility: 79.6
+        competence: 77.9
+        disambiguation: 75.4
+stage_metrics:
+    intake: {started_at: "2026-11-11T13:06:35Z", driver: fab-new, iterations: 1, completed_at: "2026-11-11T13:16:32Z"}
+    apply: {started_at: "2026-11-11T13:16:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T13:32:00Z"}
+    review: {started_at: "2026-11-11T13:32:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T13:41:32Z"}
+    hydrate: {started_at: "2026-11-11T13:41:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T13:45:15Z"}
+    ship: {started_at: "2026-11-11T13:45:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-11T13:46:55Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1128
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 2789
+    deleted: 17
+    net: 2772
+    excluding:
+        added: 1821
+        deleted: 11
+        net: 1810
+    tests:
+        added: 602
+        deleted: 2
+        net: 600
+    computed_at: "2026-11-11T13:46:55Z"
+    computed_at_stage: ship
+summary: Add rk operator brief + RenderBrief run brief (seven sections, notes cap, 100 KB cap, embedded rules + interim autopilot, exit contract) and the rk skill operator chat topic
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-11T13:46:55Z
