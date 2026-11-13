@@ -8,7 +8,7 @@ description: "Daemon autostart: `rk daemon autostart on|off|status` registers th
 
 ## Overview
 
-`rk daemon autostart on [--now] | off | status`, each with `--json` (the standard `{ok,result}` envelope), registers the rk daemon with the OS's per-user service manager so it starts **once** at boot or login. The OS never restarts it: a crashed daemon stays down until `rk daemon start`. Off by default. Design and rationale: `fab/plans/sahil/26-11-11-rk-daemon-autostart.md`; spike evidence: `fab/plans/sahil/26-11-11-rk-daemon-autostart-s1-findings.md`.
+`rk daemon autostart on [--now] | off | status`, each with `--json` (the standard `{ok,result}` envelope), registers the rk daemon with the OS's per-user service manager so it starts **once** at boot or login. The OS never restarts it: a crashed daemon stays down until `rk daemon start`. Off by default. Design and rationale: `fab/plans/sahil/26-11-11-rk-daemon-autostart.md`; spike evidence: `fab/plans/sahil/26-11-11-rk-daemon-autostart-s1-findings.md`. User docs: `docs/site/install.md` § Start at boot or login, and one line under Capabilities in the `rk skill` core bundle (`docs/site/skill.md`).
 
 ## Shared surface
 

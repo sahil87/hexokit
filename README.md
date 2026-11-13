@@ -111,7 +111,7 @@ rk serve                                # foreground on 127.0.0.1:6123
 RK_HOST=0.0.0.0 RK_PORT=8080 rk serve   # bind all interfaces, port 8080
 ```
 
-To run it in the background, use the `rk daemon` subcommands (`start`, `restart`, `stop`, `status`). The daemon runs in its own dedicated tmux server (`rk-daemon`), completely separate from your sessions; restarts are idempotent kill-and-restart with no polling loop or signal files. Restart the daemon and everything you're running keeps running — the console reconnects automatically.
+To run it in the background, use the `rk daemon` subcommands (`start`, `restart`, `stop`, `status`). The daemon runs in its own dedicated tmux server (`rk-daemon`), completely separate from your sessions; restarts are idempotent kill-and-restart with no polling loop or signal files. Restart the daemon and everything you're running keeps running — the console reconnects automatically. To have the OS start it once at boot or login, run `rk daemon autostart on` — see [Start at boot or login](docs/site/install.md#start-at-boot-or-login).
 
 The daemon also manages a **code-server** beside it, powering the dashboard's `code` lens — a full editor at the window's git root, served same-origin behind `/code/`. It installs itself on first daemon start (or `rk code-server install`); a code-server you installed yourself is respected and never touched. Details in the [install & access guide](docs/site/install.md#code-server-the-code-lens).
 
@@ -209,7 +209,7 @@ eval "$(rk shell-init zsh)"   # in ~/.zshrc — also: bash, fish, powershell
 | `rk tutorial` | Open the guided tour — an agent-run `tutorial` tab in this session. |
 | `rk operator` | Open the operator — the server-wide orchestrator agent tab (singleton); `request <template>` hands it a templated work item. |
 | `rk serve` | Start the HTTP server (foreground). |
-| `rk daemon` | Manage the background daemon (`start`, `restart`, `stop`, `status`). |
+| `rk daemon` | Manage the background daemon (`start`, `restart`, `stop`, `status`, `autostart on\|off\|status`). |
 | `rk status` | Show a tmux session summary. |
 | `rk url` | Print the HexoKit server URL (config-derived; a heuristic for agents, not a liveness probe). `--mcp` prints the `/mcp` MCP endpoint. |
 | `rk ports` | Print the port policy — reserved blocks, daemon default, effective port, and collision warnings (not a listing of listening ports). |
