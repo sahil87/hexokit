@@ -15,7 +15,7 @@ import (
 // TestMCPTableResolves is the drift guard against the real Cobra tree: every
 // policy row's path and flags resolve (docs/specs/mcp.md § Policy table rules
 // — a renamed or re-flagged verb fails the build, never the model). Also pins
-// the thirty-one allowlisted tool names, the timeout cap, and the never-tools exclusion.
+// the thirty-four allowlisted tool names, the timeout cap, and the never-tools exclusion.
 func TestMCPTableResolves(t *testing.T) {
 	resolved, err := mcp.Resolve(rootCmd, mcp.Table)
 	if err != nil {
@@ -29,7 +29,7 @@ func TestMCPTableResolves(t *testing.T) {
 		}
 	}
 	sort.Strings(names)
-	want := []string{"answer", "await", "board", "capture", "code_exec", "cron_add", "cron_list", "cron_mute", "cron_rm", "gui_exec", "gui_shot", "gui_status", "inventory", "kill", "new_server", "new_window", "notify", "operator", "operator_request", "panes", "process", "riff", "send", "sessions", "snapshot_list", "status", "tab_code", "tab_layout", "tab_show", "tab_web", "tab_web_ls"}
+	want := []string{"answer", "await", "board", "capture", "code_exec", "cron_add", "cron_list", "cron_mute", "cron_rm", "gui_exec", "gui_shot", "gui_status", "inventory", "kill", "new_server", "new_window", "notify", "operator", "operator_request", "panes", "process", "riff", "send", "sessions", "skill_topic", "snapshot_list", "snapshot_restore", "snapshot_show", "status", "tab_code", "tab_layout", "tab_show", "tab_web", "tab_web_ls"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Errorf("tool names = %v, want %v", names, want)
 	}
@@ -191,5 +191,29 @@ func TestOperatorRequestEnumMatchesRegistry(t *testing.T) {
 	}
 	if !slices.Equal(enum, ids) {
 		t.Errorf("policy enum = %v, want the registry ids %v", enum, ids)
+	}
+}
+
+// TestSkillTopicEnumMatchesTopics pins the skill_topic row's mirrored topic
+// enum to the shipped topic pages: internal/mcp cannot import this main
+// package, so this test is the drift guard: a topic added to skillTopics
+// without the mirror (or the reverse) fails the build.
+func TestSkillTopicEnumMatchesTopics(t *testing.T) {
+	var enum []string
+	for _, row := range mcp.Table {
+		if row.Tool != "skill_topic" {
+			continue
+		}
+		for _, arg := range row.Args {
+			if arg.Name == "topic" {
+				enum = arg.Enum
+			}
+		}
+	}
+	if enum == nil {
+		t.Fatal("skill_topic row has no topic arg")
+	}
+	if !slices.Equal(enum, skillTopicNames()) {
+		t.Errorf("skill_topic enum = %v, want the shipped topics %v", enum, skillTopicNames())
 	}
 }

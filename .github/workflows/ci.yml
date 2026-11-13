@@ -101,7 +101,12 @@ jobs:
 
   e2e:
     name: E2E (shard ${{ matrix.shard }}/4)
-    runs-on: ubuntu-latest
+    # Pinned below ubuntu-latest: that label now resolves to Ubuntu 26.04, where
+    # the Playwright in app/frontend (1.59.1) refuses to install chromium and its
+    # system deps (`Playwright does not support chromium on ubuntu26.04-x64`),
+    # failing `just setup` before any test runs. Move back to ubuntu-latest
+    # when the Playwright pin supports the newer image.
+    runs-on: ubuntu-24.04
     # Blocking gate (since 260602-a1wo). The e2e suite is SSE-driven and shares
     # two rigs per shard; under a 4-vCPU runner's contention a
     # rotating subset of tests can lose the timing race (the flaky set is
@@ -227,7 +232,12 @@ jobs:
   # that flag is test-only and never reaches dev-desktop or packaging.
   desktop:
     name: Desktop (node --test + electron e2e)
-    runs-on: ubuntu-latest
+    # Pinned below ubuntu-latest: that label now resolves to Ubuntu 26.04, where
+    # the Playwright in app/frontend (1.59.1) refuses to install chromium and its
+    # system deps (`Playwright does not support chromium on ubuntu26.04-x64`),
+    # failing `just setup` before any test runs. Move back to ubuntu-latest
+    # when the Playwright pin supports the newer image.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 

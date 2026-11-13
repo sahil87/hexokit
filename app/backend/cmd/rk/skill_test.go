@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"rk/internal/layoutspec"
+	"rk/internal/mcp"
 )
 
 // skillLineBudget is the hard line-count ceiling for the skill bundle, per the
@@ -34,6 +35,7 @@ func TestSkillTopicsPrintByteIdentical(t *testing.T) {
 		{name: "code", topic: "code", want: skillCodeTopic},
 		{name: "messaging", topic: "messaging", want: skillMessagingTopic},
 		{name: "mux", topic: "mux", want: skillMuxTopic},
+		{name: "restore", topic: "restore", want: skillRestoreTopic},
 		{name: "operator", topic: "operator", want: skillOperatorTopic},
 		{name: tutorialTopicName, topic: tutorialTopicName, want: skillTutorialTopic},
 	}
@@ -82,6 +84,7 @@ func TestSkillTopicsMatchCanonical(t *testing.T) {
 		{name: "code", embedded: skillCodeTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "code.md")},
 		{name: "messaging", embedded: skillMessagingTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "messaging.md")},
 		{name: "mux", embedded: skillMuxTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "mux.md")},
+		{name: "restore", embedded: skillRestoreTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "restore.md")},
 		{name: "operator", embedded: skillOperatorTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "operator.md")},
 		{name: tutorialTopicName, embedded: skillTutorialTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", tutorialTopicName+".md")},
 	}
@@ -123,6 +126,7 @@ func TestSkillTopicsWithinLineBudget(t *testing.T) {
 		{name: "code", content: skillCodeTopic},
 		{name: "messaging", content: skillMessagingTopic},
 		{name: "mux", content: skillMuxTopic},
+		{name: "restore", content: skillRestoreTopic},
 		{name: "operator", content: skillOperatorTopic},
 		{name: tutorialTopicName, content: skillTutorialTopic},
 	} {
@@ -258,7 +262,7 @@ func TestSkillUnknownTopicFailsFast(t *testing.T) {
 	if exitCode(err) != exitUsage {
 		t.Errorf("skill bogus exit code = %d, want %d (usage)", exitCode(err), exitUsage)
 	}
-	for _, want := range []string{"unknown topic", "change, code, cron, display, gui, messaging, mux, operator, " + tutorialTopicName} {
+	for _, want := range []string{"unknown topic", "change, code, cron, display, gui, messaging, mux, operator, restore, " + tutorialTopicName} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("skill bogus error %q missing %q", err.Error(), want)
 		}
@@ -335,5 +339,171 @@ func TestSkillTooManyArgsFailsFast(t *testing.T) {
 	}
 	if stderr == "" {
 		t.Error("skill display extra wrote nothing to stderr, want the arg-count diagnostic")
+	}
+}
+
+// TestSkillCoreIndexesEveryTopic pins discoverability: the core bundle is what
+// an agent loads every session (and what the MCP server serves as its
+// instructions), so a topic page it never names is a page no agent finds. Every
+// shipped content topic must appear in the core bundle as `rk skill <topic>`.
+func TestSkillCoreIndexesEveryTopic(t *testing.T) {
+	for _, name := range skillTopicNames() {
+		ref := "`rk skill " + name + "`"
+		if !bytes.Contains(skillBundle, []byte(ref)) {
+			t.Errorf("core bundle never names topic %q (want %s in its Topics index)", name, ref)
+		}
+	}
+}
+
+// restoreTopicQuotedRe matches a quoted shell word. Quoted words are payloads
+// (a message for `rk mux send`, a jq filter), never rk flags, so they are
+// blanked before an invocation is parsed.
+var restoreTopicQuotedRe = regexp.MustCompile(`"[^"]*"|'[^']*'`)
+
+// restoreTopicCommandRe marks where an rk invocation starts in a fenced shell
+// line: `rk ` at line start or after whitespace, `(` or `$`.
+var restoreTopicCommandRe = regexp.MustCompile(`(?:^|[\s($])rk `)
+
+// restoreTopicSeparators end an invocation: a comment, pipe, list operator,
+// subshell close, or redirect.
+var restoreTopicSeparators = []string{" #", " |", "&&", ";", ")", " >"}
+
+// TestSkillRestoreTopicCommandsResolve is the restore page's drift guard: the
+// page is a procedure an agent runs verbatim while sessions are down, so every
+// rk command and flag it shows in a fenced block must exist in the live command
+// tree. A renamed verb or dropped flag fails here instead of mid-recovery.
+func TestSkillRestoreTopicCommandsResolve(t *testing.T) {
+	inFence := false
+	checked := 0
+	for _, line := range strings.Split(string(skillRestoreTopic), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			inFence = !inFence
+			continue
+		}
+		if !inFence {
+			continue
+		}
+		line = restoreTopicQuotedRe.ReplaceAllString(line, "QUOTED")
+		for _, loc := range restoreTopicCommandRe.FindAllStringIndex(line, -1) {
+			invocation := line[loc[1]-len("rk "):]
+			for _, sep := range restoreTopicSeparators {
+				if i := strings.Index(invocation, sep); i >= 0 {
+					invocation = invocation[:i]
+				}
+			}
+			if assertRestoreTopicCommand(t, strings.TrimSpace(invocation)) {
+				checked++
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("restore topic shows no rk commands in fenced blocks")
+	}
+}
+
+// assertRestoreTopicCommand resolves one rk invocation against rootCmd: the
+// leading words must walk to a runnable command (a group command left with a
+// non-flag word means a misspelt or removed subcommand), and every --long or
+// -s flag token must be a local or inherited flag of that command. A bare
+// `rk` with no command word (the `command -v rk` gate) is a mention, not an
+// invocation: it reports false and checks nothing.
+func assertRestoreTopicCommand(t *testing.T, invocation string) bool {
+	t.Helper()
+	fields := strings.Fields(invocation)[1:]
+	var words []string
+	for _, f := range fields {
+		if strings.HasPrefix(f, "-") || strings.ContainsAny(f, "<>$%=@~/") || f == "QUOTED" {
+			break
+		}
+		words = append(words, f)
+	}
+	if len(words) == 0 {
+		return false
+	}
+	cmd, rest, err := rootCmd.Find(words)
+	if err != nil || cmd == rootCmd {
+		t.Errorf("%q: no rk command for %v (err %v)", invocation, words, err)
+		return true
+	}
+	if cmd.HasSubCommands() && len(rest) > 0 {
+		t.Errorf("%q: %q has no subcommand %q", invocation, cmd.CommandPath(), rest[0])
+	}
+	if !cmd.Runnable() {
+		t.Errorf("%q: %q is not runnable", invocation, cmd.CommandPath())
+	}
+	for _, f := range fields {
+		var flagFound bool
+		switch {
+		case strings.HasPrefix(f, "--"):
+			name := strings.SplitN(strings.TrimPrefix(f, "--"), "=", 2)[0]
+			flagFound = cmd.Flags().Lookup(name) != nil || cmd.InheritedFlags().Lookup(name) != nil
+		case len(f) == 2 && f[0] == '-':
+			short := f[1:]
+			flagFound = cmd.Flags().ShorthandLookup(short) != nil || cmd.InheritedFlags().ShorthandLookup(short) != nil
+		default:
+			continue
+		}
+		if !flagFound {
+			t.Errorf("%q: %q has no flag %s", invocation, cmd.CommandPath(), f)
+		}
+	}
+	return true
+}
+
+// restoreTopicMCPCallRe finds a tool call written as `tool(input, input)` in
+// the restore page's MCP section.
+var restoreTopicMCPCallRe = regexp.MustCompile("`([a-z_]+)\\(([a-z_, ]*)\\)`")
+
+// TestSkillRestoreTopicMCPToolsResolve is the MCP half of the restore page's
+// drift guard: every `tool(input, …)` the page's "Over MCP" section shows must
+// be a row of the compiled-in MCP policy table, and every input it names must
+// be one of that row's inputs. An MCP-only agent runs the procedure from this
+// section, so a renamed tool or input fails here, not mid-recovery.
+func TestSkillRestoreTopicMCPToolsResolve(t *testing.T) {
+	page := string(skillRestoreTopic)
+	start := strings.Index(page, "\n## Over MCP\n")
+	if start < 0 {
+		t.Fatal("restore topic has no `## Over MCP` section")
+	}
+	section := page[start+1:]
+	if end := strings.Index(section[len("## Over MCP\n"):], "\n## "); end >= 0 {
+		section = section[:len("## Over MCP\n")+end]
+	}
+	inputs := map[string]map[string]bool{}
+	for _, row := range mcp.Table {
+		names := map[string]bool{}
+		for _, arg := range row.Args {
+			if arg.Name != "" {
+				names[arg.Name] = true
+			}
+		}
+		inputs[row.Tool] = names
+	}
+	calls := restoreTopicMCPCallRe.FindAllStringSubmatch(section, -1)
+	if len(calls) == 0 {
+		t.Fatal("restore topic's MCP section shows no tool(input) calls")
+	}
+	for _, call := range calls {
+		tool, args := call[1], call[2]
+		names, ok := inputs[tool]
+		if !ok {
+			t.Errorf("%s: no MCP tool %q", call[0], tool)
+			continue
+		}
+		for _, arg := range strings.Split(args, ",") {
+			if arg = strings.TrimSpace(arg); arg != "" && !names[arg] {
+				t.Errorf("%s: tool %q has no input %q", call[0], tool, arg)
+			}
+		}
+	}
+}
+
+// TestSkillCoreNamesTopicTool pins MCP discovery: the core bundle is the MCP
+// server's instructions and its Topics index reads `rk skill <topic>`, which
+// an MCP-only agent cannot run, so the bundle must name the tool that serves
+// the same pages.
+func TestSkillCoreNamesTopicTool(t *testing.T) {
+	if !bytes.Contains(skillBundle, []byte("`skill_topic`")) {
+		t.Error("core bundle never names the `skill_topic` MCP tool")
 	}
 }

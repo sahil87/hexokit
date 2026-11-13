@@ -108,7 +108,10 @@ type Row struct {
 // neverTools are command paths that MUST NOT gain a policy row
 // (docs/specs/mcp.md § Never tools). Matched as a prefix of a row's Path, so
 // "daemon" covers every daemon member. Tier-two verbs are not listed — they
-// are simply not seeded yet.
+// are simply not seeded yet. Bare `skill` is a never-tool too (the core bundle
+// is already the server's instructions), but `skill <topic>` is skill_topic,
+// so the rule is held by that row's REQUIRED topic input rather than by a path
+// prefix here.
 var neverTools = []string{
 	"serve",
 	"daemon",
@@ -122,7 +125,6 @@ var neverTools = []string{
 	"completion",
 	"shell-init",
 	"help-dump",
-	"skill",
 	"role",
 	"tutorial",
 	"cron tick",
@@ -203,9 +205,31 @@ var operatorTemplateIDs = []string{
 const operatorRequestDescription = "Hand the server's operator agent a templated work item through run-kit's operator-request lane (the same closed registry the dashboard's operator actions use). Window-scoped templates (fix-tab-name, annotate-tab, user-message) REQUIRE `window`; every other template is server-scoped and REJECTS it. `text` is accepted only by spawn-task, find-discussion, and user-message; `session` only by update-annotations. A busy operator queues the request and the result reports `queued:true` — the work is not lost, it drains when the operator goes idle (user-message skips the gate and is never queued). whats-stuck refuses when nothing on the server is waiting. The verb's `--list` is the source of truth for the template set and its flags."
 
 // snapshotListDescription overrides `mux snapshot list`'s Cobra help: the verb
-// has no Long of its own, and the parent's help describes the unexposed
-// show/restore subcommands (docs/specs/mcp.md § Policy table rules).
-const snapshotListDescription = "List layout-recovery snapshots of tmux servers, newest first. Each row is {server, taken_at, died_at, audited_kill, sessions, windows, history_count}; died_at is null for a live server and set on a died tombstone. `show` and `restore` are not exposed."
+// has no Long of its own, and the parent's help is terminal prose about the
+// whole family (docs/specs/mcp.md § Policy table rules).
+const snapshotListDescription = "List layout-recovery snapshots of tmux servers, newest first. Each row is {server, taken_at, died_at, audited_kill, sessions, windows, history_count}; died_at is null for a live server and set on a died tombstone. A live row whose server is missing from `inventory` died together with the daemon (an update or restart). Drill into one with `snapshot_show`; recreate a dead one with `snapshot_restore`."
+
+// snapshotShowDescription overrides `mux snapshot show`'s Cobra help, whose
+// one-line Short leaves out what a model needs: the history selector and that
+// the command is the only record of what each pane ran.
+const snapshotShowDescription = "Print one tmux server's stored layout snapshot as text: sessions, windows, and each pane's working directory and former command in brackets (`[claude]` marks an agent to resume). Touches no tmux. `at` selects a history or tombstone entry by unix timestamp (default: the latest)."
+
+// snapshotRestoreDescription overrides `mux snapshot restore`'s Cobra help:
+// its Long suggests `claude -c` per agent window, which resumes the wrong
+// conversation when two agents shared a directory, and it cannot point at the
+// agent procedure.
+const snapshotRestoreDescription = "Recreate a DEAD tmux server's layout from its snapshot: sessions and windows with their original names and indexes, panes as fresh shells at the recorded working directories, and run-kit window options. Nothing is relaunched; the text report names each window's former command (`was running: claude`). Refuses, touching nothing, when the server is alive with sessions. `at` restores a history or tombstone entry (default: the latest). Resuming the agents is a separate procedure: read it with skill_topic(topic: restore) before calling this."
+
+// skillTopicIDs is the shipped topic-page set, mirrored here because
+// internal/mcp cannot import the cmd/rk main package that embeds the pages.
+// cmd/rk's TestSkillTopicEnumMatchesTopics pins it to skillTopicNames(); a
+// topic added without the mirror fails the build. The reserved `topics`
+// enumeration is not a page and stays out.
+var skillTopicIDs = []string{"change", "code", "cron", "display", "gui", "messaging", "mux", "operator", "restore", "tutorial"}
+
+// skillTopicDescription overrides `skill`'s Cobra help, which documents the
+// bare core bundle and `topics` (neither is reachable through this row).
+const skillTopicDescription = "Read one HexoKit skill topic page (static markdown, identical on every call). This server's instructions are the core skill bundle; its Topics list points at pages as `rk skill <topic>`, and over MCP this tool returns the same page. `restore` is the procedure for bringing tmux servers and their agents back after an update or restart killed them."
 
 // guiShotDescription overrides `gui shot`'s Cobra help because its Long
 // promises "the absolute path on stdout" (true only without --json) and names
@@ -238,7 +262,9 @@ const (
 // route bodies (show) and {board, window, orderKey?} receipts
 // (pin/unpin/reorder), and the thirteen mutating W2c rows (notify…cron_mute)
 // ride the --json envelope their verbs emit (new_window and code_exec are
-// bare-JSON until the envelope lands on those verbs).
+// bare-JSON until the envelope lands on those verbs). The three text rows are
+// the recovery pair snapshot_show/snapshot_restore (their verbs have no
+// --json yet) and skill_topic, whose result is a markdown page by nature.
 var Table = []Row{
 	{
 		Tool: "sessions", Path: "mux sessions",
@@ -428,6 +454,37 @@ var Table = []Row{
 		Description: snapshotListDescription,
 	},
 	{
+		// The server is the positional (the family rejects an inherited -L);
+		// the pattern mirrors ValidateServerName like snapshot_list's filter.
+		Tool: "snapshot_show", Path: "mux snapshot show",
+		Args: []Arg{
+			{
+				Name: "server", Positional: 1, Type: ArgString, Required: true,
+				Pattern:     `^[a-zA-Z0-9_-]{1,64}$`,
+				Description: "The tmux server whose snapshot to print",
+			},
+			{Name: "at", Flag: "--at", Type: ArgInteger, Minimum: intPtr(0)},
+		},
+		Result:      ResultText,
+		Annotations: readOnlyAnn,
+		Description: snapshotShowDescription,
+	},
+	{
+		// Topic is required: bare `rk skill` is the core bundle, already the
+		// server's instructions (docs/specs/mcp.md § Never tools).
+		Tool: "skill_topic", Path: "skill",
+		Args: []Arg{
+			{
+				Name: "topic", Positional: 1, Type: ArgString, Required: true,
+				Enum:        skillTopicIDs,
+				Description: "The topic page to read",
+			},
+		},
+		Result:      ResultText,
+		Annotations: readOnlyAnn,
+		Description: skillTopicDescription,
+	},
+	{
 		// max_width is the only exposed input: --scale is float64 and --window
 		// uint64 (both outside the drift guard's type set), and --out is a
 		// filesystem path outside the target rule.
@@ -490,6 +547,22 @@ var Table = []Row{
 		Result:      ResultJSON,
 		Annotations: Annotations{},
 		Description: newServerDescription,
+	},
+	{
+		// Not destructive: the verb refuses a server alive with sessions, so
+		// it only ever creates. Not idempotent: a repeat call refuses rather
+		// than converging.
+		Tool: "snapshot_restore", Path: "mux snapshot restore",
+		Args: []Arg{
+			{
+				Name: "server", Positional: 1, Type: ArgString, Required: true,
+				Pattern:     `^[a-zA-Z0-9_-]{1,64}$`,
+				Description: "The dead tmux server to recreate from its snapshot",
+			},
+			{Name: "at", Flag: "--at", Type: ArgInteger, Minimum: intPtr(0)},
+		},
+		Result:      ResultText,
+		Description: snapshotRestoreDescription,
 	},
 	{
 		Tool: "new_window", Path: "tab new",

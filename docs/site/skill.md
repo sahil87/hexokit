@@ -4,7 +4,7 @@ The agent skill bundle for **HexoKit** — the tmux session manager with a web U
 
 ## Topics
 
-Depth for a specific job lives in topic pages — pull one at use-time:
+Depth for a specific job lives in topic pages. Pull one at use-time (over MCP, the `skill_topic` tool returns the same pages):
 
 - **large change through one operator** (dedicated server, worker worktrees, integration branch, PR and authorized merge) → `rk skill change`
 - **panes, iframes & visual display** → `rk skill display`
@@ -13,6 +13,7 @@ Depth for a specific job lives in topic pages — pull one at use-time:
 - **act inside the `code` lens editor** (run VS Code palette commands in the open code-server window from the shell) → `rk skill code`
 - **drive and screenshot the host GUI display** (launch apps with DISPLAY set, take a PNG the human also sees in the GUI tile) → `rk skill gui`
 - **schedule a prompt for later or on a cadence** (user says "check on this every 30 min", "nudge me when…", "remind me at 9") → `rk skill cron`
+- **bring tmux servers and their agents back after an update or restart killed them** (user says "restore my sessions") → `rk skill restore`
 - **be the operator chat** (keep the tracked-item ledger with `rk operator track`, spawn agents, build queues, see what a run sees with `rk operator brief`) → `rk skill operator`
 - **guided first-run tour** (when the user asks for a tutorial, tour, or onboarding) → `rk skill tutorial`
 - **drive the tab UI** (layouts, web-tab strip, code folder, sidebar signals — `rk tab --help`); works with `rk serve` down

@@ -8,12 +8,13 @@ import (
 	"time"
 )
 
-// TestTableShape pins the seeded allowlist: exactly the thirty-one tools (the
+// TestTableShape pins the seeded allowlist: exactly the thirty-four tools (the
 // ten W1 seeds, inventory, board, operator_request, the answer/await messaging pair,
-// snapshot_list, gui_shot, and the thirteen W2c rows), every timeout within the
-// cap, and no row exposing a forbidden flag form.
+// the snapshot_list/show/restore recovery trio, skill_topic, gui_shot, and the
+// thirteen W2c rows), every timeout within the cap, and no row exposing a
+// forbidden flag form.
 func TestTableShape(t *testing.T) {
-	want := []string{"sessions", "panes", "inventory", "capture", "process", "status", "cron_list", "gui_status", "tab_show", "tab_web_ls", "send", "board", "operator_request", "answer", "await", "snapshot_list", "gui_shot", "notify", "riff", "new_server", "new_window", "operator", "cron_add", "tab_layout", "tab_web", "tab_code", "code_exec", "gui_exec", "kill", "cron_rm", "cron_mute"}
+	want := []string{"sessions", "panes", "inventory", "capture", "process", "status", "cron_list", "gui_status", "tab_show", "tab_web_ls", "send", "board", "operator_request", "answer", "await", "snapshot_list", "snapshot_show", "skill_topic", "gui_shot", "notify", "riff", "new_server", "snapshot_restore", "new_window", "operator", "cron_add", "tab_layout", "tab_web", "tab_code", "code_exec", "gui_exec", "kill", "cron_rm", "cron_mute"}
 	if len(Table) != len(want) {
 		t.Fatalf("Table has %d rows, want %d", len(Table), len(want))
 	}
@@ -323,8 +324,9 @@ func TestTableNeverTools(t *testing.T) {
 
 // TestReadOnlyAnnotations pins the annotation semantics of every See row plus
 // await (read-only even though it blocks) — readOnlyAnn, and ResultJSON for all
-// but gui_shot (the one ResultImage row); the mutating rows carry all-false (or
-// destructive/idempotent) annotations instead.
+// but gui_shot (the one ResultImage row) and the two text rows: skill_topic (a
+// markdown page) and snapshot_show (no --json yet); the mutating rows carry
+// all-false (or destructive/idempotent) annotations instead.
 func TestReadOnlyAnnotations(t *testing.T) {
 	seen := 0
 	for _, row := range Table {
@@ -336,21 +338,26 @@ func TestReadOnlyAnnotations(t *testing.T) {
 			t.Errorf("row %q annotations = %+v, want readOnlyAnn", row.Tool, row.Annotations)
 		}
 		wantResult := ResultJSON
-		if row.Tool == "gui_shot" {
+		switch row.Tool {
+		case "gui_shot":
 			wantResult = ResultImage
+		case "skill_topic", "snapshot_show":
+			wantResult = ResultText
 		}
 		if row.Result != wantResult {
 			t.Errorf("row %q result = %v, want %v", row.Tool, row.Result, wantResult)
 		}
 	}
-	if seen != 13 {
-		t.Errorf("%d read-only rows, want the nine See rows plus inventory, await, snapshot_list and gui_shot", seen)
+	if seen != 15 {
+		t.Errorf("%d read-only rows, want the nine See rows plus inventory, await, snapshot_list, snapshot_show, skill_topic and gui_shot", seen)
 	}
 }
 
 // TestMutationAnnotations pins the destructive/idempotent hints of the W2c
 // mutation rows: kill and cron_rm are destructive, operator and cron_mute are
-// idempotent, everything else carries no hints.
+// idempotent, everything else carries no hints. snapshot_restore is neither:
+// it refuses a live server, so it never destroys, and a repeat call refuses
+// rather than converging.
 func TestMutationAnnotations(t *testing.T) {
 	want := map[string]Annotations{
 		"kill":      {Destructive: true},
@@ -363,7 +370,7 @@ func TestMutationAnnotations(t *testing.T) {
 			t.Errorf("row %q annotations = %+v, want %+v", tool, row.Annotations, ann)
 		}
 	}
-	for _, tool := range []string{"notify", "riff", "new_server", "new_window", "cron_add", "tab_layout", "tab_web", "tab_code", "code_exec", "gui_exec"} {
+	for _, tool := range []string{"notify", "riff", "new_server", "snapshot_restore", "new_window", "cron_add", "tab_layout", "tab_web", "tab_code", "code_exec", "gui_exec"} {
 		if row := findRow(t, tool); row.Annotations != (Annotations{}) {
 			t.Errorf("row %q annotations = %+v, want all false", tool, row.Annotations)
 		}
@@ -394,5 +401,80 @@ func TestTabSurfaceEnumsTrackTheRegistry(t *testing.T) {
 	}
 	if seen == 0 {
 		t.Fatal("found no add/rm/promote surface args to check — has the tool been renamed?")
+	}
+}
+
+// TestTableSnapshotRecoveryRows pins snapshot_show and snapshot_restore: the
+// server is a required positional validated like ValidateServerName (the
+// family rejects an inherited -L), `at` is the optional non-negative unix
+// timestamp, and both return text (the verbs have no --json). restore's
+// description must carry the refusal and point at the agent procedure, and
+// snapshot_list must stop claiming the pair is unexposed.
+func TestTableSnapshotRecoveryRows(t *testing.T) {
+	for _, tool := range []string{"snapshot_show", "snapshot_restore"} {
+		row := findRow(t, tool)
+		wantPath := "mux snapshot " + strings.TrimPrefix(tool, "snapshot_")
+		if row.Path != wantPath {
+			t.Errorf("%s path = %q, want %q", tool, row.Path, wantPath)
+		}
+		if row.Result != ResultText {
+			t.Errorf("%s result = %v, want ResultText", tool, row.Result)
+		}
+		var server, at *Arg
+		for i := range row.Args {
+			switch row.Args[i].Name {
+			case "server":
+				server = &row.Args[i]
+			case "at":
+				at = &row.Args[i]
+			}
+		}
+		if server == nil || server.Positional != 1 || !server.Required || server.Flag != "" || server.Pattern != `^[a-zA-Z0-9_-]{1,64}$` {
+			t.Errorf("%s server arg = %+v, want required positional 1 with the server-name pattern", tool, server)
+		}
+		if at == nil || at.Flag != "--at" || at.Type != ArgInteger || at.Minimum == nil || *at.Minimum != 0 || at.Required {
+			t.Errorf("%s at arg = %+v, want optional --at integer with minimum 0", tool, at)
+		}
+		if len(row.Args) != 2 {
+			t.Errorf("%s has %d args, want exactly server and at", tool, len(row.Args))
+		}
+	}
+	restore := findRow(t, "snapshot_restore")
+	for _, want := range []string{"Refuses", "fresh shells", "skill_topic"} {
+		if !strings.Contains(restore.Description, want) {
+			t.Errorf("snapshot_restore description missing %q: %q", want, restore.Description)
+		}
+	}
+	if list := findRow(t, "snapshot_list"); strings.Contains(list.Description, "not exposed") {
+		t.Errorf("snapshot_list description still claims show/restore are unexposed: %q", list.Description)
+	}
+}
+
+// TestTableSkillTopicRow pins skill_topic: a read-only text tool over
+// `rk skill <topic>` whose topic is a REQUIRED closed enum. Required is what
+// keeps bare `rk skill` (the core bundle, already the server's instructions)
+// a never-tool, and the reserved `topics` enumeration is not a page.
+func TestTableSkillTopicRow(t *testing.T) {
+	row := findRow(t, "skill_topic")
+	if row.Path != "skill" || row.Result != ResultText || row.Annotations != readOnlyAnn {
+		t.Errorf("skill_topic = path %q result %v annotations %+v, want skill / ResultText / readOnlyAnn", row.Path, row.Result, row.Annotations)
+	}
+	if len(row.Args) != 1 {
+		t.Fatalf("skill_topic has %d args, want exactly topic", len(row.Args))
+	}
+	topic := row.Args[0]
+	if topic.Name != "topic" || topic.Positional != 1 || !topic.Required || topic.Type != ArgString || len(topic.Enum) == 0 {
+		t.Errorf("skill_topic topic arg = %+v, want a required positional string enum", topic)
+	}
+	if slices.Contains(topic.Enum, "topics") {
+		t.Errorf("skill_topic enum %v contains the reserved name topics", topic.Enum)
+	}
+	for _, other := range Table {
+		if other.Path == "skill" && other.Tool != "skill_topic" {
+			t.Errorf("row %q also maps bare skill; only skill_topic may", other.Tool)
+		}
+	}
+	if !strings.Contains(row.Description, "restore") {
+		t.Errorf("skill_topic description does not name the restore page: %q", row.Description)
 	}
 }

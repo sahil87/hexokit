@@ -81,6 +81,16 @@ var skillMessagingTopic []byte
 //go:embed skill/mux.md
 var skillMuxTopic []byte
 
+// skillRestoreTopic holds the `restore` topic page, canonical at
+// docs/site/skill/restore.md and synced into skill/restore.md alongside the
+// core bundle. Same embed + drift-guard mechanism as the display topic, same
+// static-only rules, independently bounded at ≤150 lines. It is the
+// user-initiated procedure for bringing tmux servers and their agent sessions
+// back after an update or restart killed them: snapshot restore recreates the
+// layout, and the page covers resuming each agent in it.
+//
+//go:embed skill/restore.md
+var skillRestoreTopic []byte
 // skillOperatorTopic holds the `operator` topic page, canonical at
 // docs/site/skill/operator.md and synced into skill/operator.md alongside the
 // core bundle. Same embed + drift-guard mechanism as the display topic, same
@@ -110,6 +120,7 @@ var skillTopics = map[string][]byte{
 	"gui":             skillGuiTopic,
 	"messaging":       skillMessagingTopic,
 	"mux":             skillMuxTopic,
+	"restore":         skillRestoreTopic,
 	"operator":        skillOperatorTopic,
 	tutorialTopicName: skillTutorialTopic,
 }
