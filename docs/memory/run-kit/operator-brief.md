@@ -8,7 +8,7 @@ description: "The operator run brief — `rk operator brief` and `operator.Rende
 
 ## Overview
 
-A scheduled operator run is a headless, one-shot agent that wakes for a few changed ledger items. It needs one self-contained prompt: what changed, the ledger around it, the rules for acting unattended, and how to report. `operator.RenderBrief` (`app/backend/internal/operator/brief.go`) renders that prompt as Markdown from a loaded [operator state](/run-kit/operator-state.md); `rk operator brief` (`cmd/rk/operator_brief.go`) is its CLI door. The interactive counterpart is the static `rk skill operator` chat topic. Launching runs, producing the changed list, and restricting a run's tools at launch belong to the cron/launch layer, not this file; the `rk operator` kickoff still launches `/fab-operator`.
+A scheduled operator run is a headless, one-shot agent that wakes for a few changed ledger items. It needs one self-contained prompt: what changed, the ledger around it, the rules for acting unattended, and how to report. `operator.RenderBrief` (`app/backend/internal/operator/brief.go`) renders that prompt as Markdown from a loaded [operator state](/run-kit/operator-state.md); `rk operator brief` (`cmd/rk/operator_brief.go`) is its CLI door. The interactive counterpart is the static `rk skill operator` chat topic. The launcher is the operator loop ([operator-loop](/run-kit/operator-loop.md)): it builds the changed list from `operator.Check`, calls `RenderBrief` in-process, persists the result as the run's brief file, and the run wrapper delivers it on the headless launcher's stdin; this file owns only the rendering. A run's tools are not restricted at launch — the launcher is provider-opaque, so the brief's allowed-tool list stays declarative. The `rk operator` kickoff still launches `/fab-operator`.
 
 ## Requirements
 
@@ -44,7 +44,7 @@ The Interim autopilot section is `brief_autopilot.md`, a separate embedded file 
 
 ### Requirement: Exit contract
 
-The Exit contract instructs the run to append at least one note per item it acted on (or one note on the most relevant item when nothing needed doing) with `rk operator track note <id> "<text>" --by run`, then print exactly one final stdout line `outcome: <one-line summary>`, and nothing after it.
+The Exit contract instructs the run to append at least one note per item it acted on (or one note on the most relevant item when nothing needed doing) with `rk operator track note <id> "<text>" --by run`, then print exactly one final stdout line `outcome: <one-line summary>`, and nothing after it. The run wrapper reads the LAST stdout line matching `^outcome: (.*)$`; a run that exits non-zero or prints none is a failed run, and the wrapper leaves a `run failed` note on each changed item ([operator-loop](/run-kit/operator-loop.md) § The `rk operator run-exec` wrapper).
 
 ### Requirement: `rk operator brief`
 
@@ -72,7 +72,7 @@ The chat topic is the static page `docs/site/skill/operator.md` (≤150 lines), 
 
 ### Brief rendered by a verb, not a static skill page
 **Decision**: The run brief is rendered by `RenderBrief` in `internal/operator` behind `rk operator brief`, combining embedded rule text with the live state file.
-**Why**: The brief carries per-run content (changed items, notes); `rk skill` pages are static by contract. One renderer keeps assembly in one tested place, and the launcher pipes stdout to the headless command's stdin.
+**Why**: The brief carries per-run content (changed items, notes); `rk skill` pages are static by contract. One renderer keeps assembly in one tested place, and the same call serves the verb and the operator loop, which persists the result as the run's brief file and feeds it to the headless launcher's stdin.
 **Rejected**: A static `rk skill operator-run` page with the launcher prepending the dynamic part — assembly split across two places, and the static page would still exceed the 150-line budget.
 *Introduced by*: 261111-jsg9-operator-run-brief-chat-skill
 

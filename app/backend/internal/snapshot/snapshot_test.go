@@ -216,3 +216,44 @@ func TestCaptureWindowReadErrorsPropagate(t *testing.T) {
 		t.Fatal("want error for a failed pane read")
 	}
 }
+
+// TestCaptureServerSkipsRunWindows: an operator-run window is never captured,
+// and a session that held only run windows is dropped with them, so a
+// restored snapshot cannot hold a window that reads as a run in flight.
+func TestCaptureServerSkipsRunWindows(t *testing.T) {
+	stubLayoutReads(t,
+		[]tmux.LayoutSession{
+			{Name: tmux.OperatorSessionName, Created: 100},
+			{Name: "work", Created: 200},
+		}, nil,
+		[]tmux.LayoutWindow{
+			{Session: tmux.OperatorSessionName, WindowID: "@1", Index: 0, Name: "run-ab12", Role: tmux.RoleOperatorRun},
+			{Session: "work", WindowID: "@2", Index: 0, Name: "main"},
+			{Session: "work", WindowID: "@3", Index: 1, Name: "run-cd34", Role: tmux.RoleOperatorRun},
+		}, nil,
+		map[string][]tmux.LayoutPane{}, nil,
+		nil, nil,
+	)
+
+	snap, err := CaptureServer(context.Background(), "kit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Sessions) != 1 || snap.Sessions[0].Name != "work" {
+		t.Fatalf("sessions = %+v, want only work (the run-only session is dropped)", snap.Sessions)
+	}
+	if ws := snap.Sessions[0].Windows; len(ws) != 1 || ws[0].ID != "@2" {
+		t.Errorf("work windows = %+v, want only @2", ws)
+	}
+}
+
+// TestCaptureWindowRefusesRunWindow: the kill-seam capture records nothing for
+// a run window.
+func TestCaptureWindowRefusesRunWindow(t *testing.T) {
+	stubWindowReads(t,
+		tmux.LayoutWindow{Session: tmux.OperatorSessionName, WindowID: "@7", Name: "run-ab12", Role: tmux.RoleOperatorRun},
+		true, nil, nil, nil)
+	if _, _, err := CaptureWindow(context.Background(), "kit", "@7"); err == nil {
+		t.Fatal("want error for a run window")
+	}
+}

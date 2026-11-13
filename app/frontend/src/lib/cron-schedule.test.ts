@@ -27,6 +27,18 @@ describe("humanizeDuration", () => {
 });
 
 describe("describeSchedule", () => {
+  it("words the operator-loop ladder around tracked items, not agent activity", () => {
+    expect(
+      describeSchedule({
+        run: "operator-loop",
+        schedule: { kind: "backoff", min: "3m", max: "24m" },
+        wakeOn: { event: "agent-state-change" },
+      }),
+    ).toBe(
+      "checks tracked items, backing off from 3 minutes up to 24 minutes while nothing changes; wakes on agent-state-change",
+    );
+  });
+
   it('describes {kind:"every"} as "every {duration}"', () => {
     expect(describeSchedule({ schedule: { kind: "every", interval: "1h" } })).toBe("every hour");
     expect(describeSchedule({ schedule: { kind: "every", interval: "30m" } })).toBe(

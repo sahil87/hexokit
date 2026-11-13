@@ -482,6 +482,9 @@ func TestOperatorSessionHidden(t *testing.T) {
 	}{
 		{"all-operator single window is hidden", tmux.OperatorSessionName, []tmux.WindowInfo{op}, true},
 		{"all-operator multi window is hidden", tmux.OperatorSessionName, []tmux.WindowInfo{op, {WindowID: "@3", Role: "operator"}}, true},
+		{"operator plus run windows is hidden", tmux.OperatorSessionName, []tmux.WindowInfo{op, {WindowID: "@4", Role: tmux.RoleOperatorRun}}, true},
+		{"run windows alone are hidden", tmux.OperatorSessionName, []tmux.WindowInfo{{WindowID: "@4", Role: tmux.RoleOperatorRun}}, true},
+		{"run window beside a plain window is visible", tmux.OperatorSessionName, []tmux.WindowInfo{{WindowID: "@4", Role: tmux.RoleOperatorRun}, plain}, false},
 		{"mixed population is visible", tmux.OperatorSessionName, []tmux.WindowInfo{op, plain}, false},
 		{"lone non-operator window is visible", tmux.OperatorSessionName, []tmux.WindowInfo{plain}, false},
 		{"empty operator session is not hidden", tmux.OperatorSessionName, nil, false},

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { CronEntryDetailSheet } from "./cron-entry-detail-sheet";
-import type { CronEntry } from "@/api/client";
+import type { CronDelivery, CronEntry } from "@/api/client";
 import { _resetForTests as resetOverlayPresence, count as overlayCount } from "@/lib/overlay-presence";
 
 const ENTRY: CronEntry = {
@@ -41,6 +41,79 @@ function renderSheet(entry: CronEntry = ENTRY, onClose = vi.fn()) {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+const LOOP_ENTRY: CronEntry = {
+  id: "lp01",
+  name: "operator loop",
+  run: "operator-loop",
+  schedule: { kind: "backoff", min: "3m", max: "24m" },
+  target: { kind: "" },
+  payload: "",
+  lastFired: 0,
+  pinned: true,
+};
+
+const RAN: CronDelivery = {
+  ts: 1_800_000_000,
+  entry: "lp01",
+  name: "operator loop",
+  target: "",
+  reason: "schedule",
+  outcome: "ran · nudged pr-41, noted · 2m13s",
+  run: "20261112T101500-ab12",
+  runLog: "/state/hexokit/operator/runs/s/20261112T101500-ab12.log",
+  transcript: "/state/transcripts/ab12.jsonl",
+};
+
+describe("CronEntryDetailSheet run fields", () => {
+  it("shows run id, outcome, run log and transcript as copyable text for a run delivery", async () => {
+    installFetch();
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    render(<CronEntryDetailSheet server="srv" entry={LOOP_ENTRY} delivery={RAN} onClose={vi.fn()} />);
+    expect(screen.getByTestId("cron-entry-run-id")).toHaveTextContent("20261112T101500-ab12");
+    expect(screen.getByTestId("cron-entry-run-outcome")).toHaveTextContent("ran · nudged pr-41, noted · 2m13s");
+    expect(screen.getByTestId("cron-entry-run-log")).toHaveTextContent("/state/hexokit/operator/runs/s/20261112T101500-ab12.log");
+    expect(screen.getByTestId("cron-entry-run-transcript")).toHaveTextContent("/state/transcripts/ab12.jsonl");
+    // Copyable: selectable text plus a Copy button writing the value.
+    expect(screen.getByTestId("cron-entry-run-log")).toHaveClass("select-all");
+    fireEvent.click(screen.getByRole("button", { name: "Copy run log" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(RAN.runLog));
+  });
+
+  it("omits the transcript row when the run has none and the whole block without a run", () => {
+    installFetch();
+    const { runLog, ...rest } = RAN;
+    render(
+      <CronEntryDetailSheet
+        server="srv"
+        entry={LOOP_ENTRY}
+        delivery={{ ...rest, transcript: undefined, runLog }}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("cron-entry-run-log")).toBeInTheDocument();
+    expect(screen.queryByTestId("cron-entry-run-transcript")).toBeNull();
+    cleanup();
+    render(
+      <CronEntryDetailSheet
+        server="srv"
+        entry={LOOP_ENTRY}
+        delivery={{ ...RAN, run: undefined, outcome: "no change" }}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("cron-entry-run")).toBeNull();
+  });
+
+  it("describes the loop entry's schedule in loop words", () => {
+    installFetch();
+    renderSheet(LOOP_ENTRY);
+    expect(
+      screen.getByText("checks tracked items, backing off from 3 minutes up to 24 minutes while nothing changes"),
+    ).toBeInTheDocument();
+  });
 });
 
 describe("CronEntryDetailSheet", () => {

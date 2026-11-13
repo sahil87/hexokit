@@ -640,3 +640,11 @@ func SanitizeFilename(name string) string {
 	}
 	return sanitized
 }
+
+// runIDPattern is the operator-loop run id grammar: a sortable UTC timestamp,
+// a dash, four random [a-z0-9].
+var runIDPattern = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}-[a-z0-9]{4}$`)
+
+// ValidRunID reports whether id is a well-formed operator-loop run id. Every id
+// is checked before it reaches a path, a tmux argv, or the busy signal.
+func ValidRunID(id string) bool { return runIDPattern.MatchString(id) }

@@ -27,6 +27,7 @@ import (
 	"rk/internal/mcp"
 	"rk/internal/metrics"
 	"rk/internal/openaimcp"
+	"rk/internal/operatorloop"
 	"rk/internal/ports"
 	"rk/internal/prstatus"
 	"rk/internal/riff"
@@ -318,6 +319,11 @@ type Server struct {
 	// router) degrades to no facts: every entry derives orphaned with no
 	// backoff next-fire.
 	cronFactsFn func(ctx context.Context, server string, entries []cron.Entry) cron.ServerFacts
+
+	// cronRunsDirFn resolves a server's operator-loop runs directory so GET
+	// /api/cron can join a delivery's run id to its record (run log and
+	// transcript paths). Nil (the test router) joins nothing.
+	cronRunsDirFn func(ctx context.Context, server string) (string, error)
 
 	// operatorStateFn reads one server's operator state for GET
 	// /api/operator/notes. Nil falls back to sessions.ReadOperatorStateForServer
@@ -868,6 +874,7 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger, cfg config.Con
 		services:        svc,
 		prStatus:        pc,
 		cronFactsFn:     cron.GatherFactsLive,
+		cronRunsDirFn:   operatorloop.Dir,
 		attachRegistry:  registry,
 	}
 	// Wire the two on-demand PR-refresh kicks for POST /api/status/refresh. The

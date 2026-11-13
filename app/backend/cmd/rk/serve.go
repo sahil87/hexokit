@@ -399,6 +399,7 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 				// degrade stands byte-identical.
 				deps.SessionRespawner = rkCronRespawnSession(snapStore)
 			}
+			wireOperatorLoop(&deps, selfpath.Stable)
 			cron.NewTicker(deps).Start(ctx)
 		}
 

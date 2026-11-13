@@ -363,7 +363,11 @@ func WindowOptionOps(win Window) []tmux.WindowOptionOp {
 	add(tmux.CodeRootOption, win.CodeRoot)
 	add(tmux.MarkerOption, tmux.NormalizeMarker(win.Marker))
 	add(tmux.FlairOption, win.Flair)
-	add(tmux.RoleOption, win.Role)
+	if win.Role != tmux.RoleOperatorRun {
+		// A run window is an ephemeral process: restoring its role onto a
+		// fresh shell would read as a run in flight forever.
+		add(tmux.RoleOption, win.Role)
+	}
 	add(tmux.OwnerOption, win.Owner)
 	add(tmux.NoteOption, win.Note)
 	return ops

@@ -829,6 +829,7 @@ func TestParseWindowsRole(t *testing.T) {
 		wantRole string
 	}{
 		{"operator role", windowLineRole("@0", 0, "a", "/p", fakeNow, 1, "zsh", "operator"), "operator"},
+		{"operator-run role is surfaced", windowLineRole("@0", 0, "a", "/p", fakeNow, 1, "zsh", RoleOperatorRun), RoleOperatorRun},
 		{"empty role", windowLineRole("@0", 0, "a", "/p", fakeNow, 1, "zsh", ""), ""},
 		{"unknown role dropped to empty", windowLineRole("@0", 0, "a", "/p", fakeNow, 1, "zsh", "manager"), ""},
 		{"line without a role field has empty role", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "solid"), ""},
@@ -1565,6 +1566,12 @@ func TestRoleCarriersToClear(t *testing.T) {
 			[]string{"", "@3"},
 			"@9",
 			nil,
+		},
+		{
+			"operator-run windows sit outside the radio and are never cleared",
+			[]string{"@3" + listDelim + "operator", "@4" + listDelim + RoleOperatorRun},
+			"@9",
+			[]string{"@3"},
 		},
 	}
 	for _, tt := range tests {

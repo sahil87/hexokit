@@ -27,6 +27,9 @@ type LogLine struct {
 	Target  string `json:"target"`
 	Reason  string `json:"reason"`
 	Outcome string `json:"outcome"`
+	// Run is the operator-loop run id a transcribed outcome belongs to; empty
+	// on every other line.
+	Run string `json:"run,omitempty"`
 }
 
 // AppendLog appends one delivery line, then trims to the newest tail when the

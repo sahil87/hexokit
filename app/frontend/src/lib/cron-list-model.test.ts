@@ -4,6 +4,7 @@ import {
   compareCronEntries,
   cronEntryLabel,
   isCronDimmed,
+  isLoopEntry,
   mutedLabel,
   sortCronEntries,
   targetChip,
@@ -32,6 +33,13 @@ describe("targetChip", () => {
     );
     expect(targetChip(makeEntry({ target: { kind: "pane", pane: "%3" } }))).toBe("pane: %3");
     expect(targetChip(makeEntry({ target: { kind: "role" } }))).toBe("role");
+  });
+
+  it("reads `operator loop` for the target-less loop entry", () => {
+    const loop = makeEntry({ run: "operator-loop", target: { kind: "" }, payload: "" });
+    expect(isLoopEntry(loop)).toBe(true);
+    expect(isLoopEntry(makeEntry())).toBe(false);
+    expect(targetChip(loop)).toBe("operator loop");
   });
 });
 

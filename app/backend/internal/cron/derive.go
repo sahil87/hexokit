@@ -45,7 +45,7 @@ type DerivedEntry struct {
 // entry's next-fire is unknowable without the anchor epoch). now drives the
 // cron-kind next-fire (a due occurrence, else the next occurrence after now).
 func DeriveEntry(e Entry, log []LogLine, facts TargetFacts, now time.Time) DerivedEntry {
-	d := DerivedEntry{Orphaned: !facts.Resolved()}
+	d := DerivedEntry{Orphaned: !e.IsLoop() && !facts.Resolved()}
 	if d.Orphaned && e.Target.Kind != TargetRole {
 		d.OrphanedSince = OrphanedSince(log, e)
 		d.ExpiresAt = OrphanExpiresAt(d.OrphanedSince, e.Pinned)
@@ -58,7 +58,12 @@ func DeriveEntry(e Entry, log []LogLine, facts TargetFacts, now time.Time) Deriv
 		d.NextFire = everyAnchor(e, log).Add(e.Schedule.Interval.Duration)
 		d.HasNextFire = true
 	case ScheduleBackoff:
-		if facts.Resolved() && facts.StateEpoch > 0 {
+		if e.IsLoop() {
+			ladder := LoopLadder(e, log)
+			d.Rung = ladder.Rung + 1
+			d.NextFire = ladder.NextFire(e.Schedule.Min.Duration, e.Schedule.Max.Duration)
+			d.HasNextFire = true
+		} else if facts.Resolved() && facts.StateEpoch > 0 {
 			ladder := JoinAnchor(facts.StateEpoch, ScheduleHistory(log, e.ID),
 				e.Schedule.Min.Duration, e.Schedule.Max.Duration)
 			d.Rung = ladder.Rung + 1

@@ -321,3 +321,72 @@ func TestNewID(t *testing.T) {
 		taken[id] = true
 	}
 }
+
+const loopEntryYAML = `
+entries:
+  - id: lp01
+    name: operator loop
+    run: operator-loop
+    schedule: { kind: backoff, min: 3m, max: 24m }
+    wake_on: { event: agent-state-change, scope: server, debounce: 60s }
+    pinned: true
+    created_by: { at: 1788254000 }
+`
+
+func TestLoopEntryLoadsClean(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dev.yaml")
+	if err := os.WriteFile(path, []byte(loopEntryYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	entries, diags := LoadEntries(path)
+	if len(diags) != 0 || len(entries) != 1 {
+		t.Fatalf("entries=%+v diags=%+v", entries, diags)
+	}
+	e := entries[0]
+	if !e.IsLoop() || e.Run != RunOperatorLoop || e.Target != (Target{}) || e.Payload != "" {
+		t.Errorf("entry = %+v", e)
+	}
+}
+
+func TestLoopEntryValidation(t *testing.T) {
+	base := func() Entry {
+		return Entry{ID: "lp01", Run: RunOperatorLoop,
+			Schedule: Schedule{Kind: ScheduleBackoff, Min: Duration{3 * time.Minute}, Max: Duration{24 * time.Minute}}}
+	}
+	if err := base().validate(); err != nil {
+		t.Fatalf("valid loop entry rejected: %v", err)
+	}
+	cases := []struct {
+		name string
+		mut  func(*Entry)
+		want string
+	}{
+		{"unknown run", func(e *Entry) { e.Run = "other" }, "unknown run value"},
+		{"payload", func(e *Entry) { e.Payload = "x" }, "payload"},
+		{"target", func(e *Entry) { e.Target = Target{Kind: TargetRole, Role: "operator"} }, "target"},
+		{"deliver", func(e *Entry) { e.Deliver = DeliverImmediate }, "deliver"},
+		{"if_absent", func(e *Entry) { e.IfAbsent = IfAbsentSkip }, "if_absent"},
+		{"respawn", func(e *Entry) { e.Respawn = []string{"rk"} }, "respawn"},
+		{"bad schedule", func(e *Entry) { e.Schedule = Schedule{Kind: "bogus"} }, "unknown schedule kind"},
+	}
+	for _, c := range cases {
+		e := base()
+		c.mut(&e)
+		err := e.validate()
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: err = %v, want containing %q", c.name, err, c.want)
+		}
+	}
+}
+
+func TestLoopEntryYAMLOmitsDeliveryFields(t *testing.T) {
+	out, err := yaml.Marshal(entryFileOut{Entries: []Entry{{ID: "lp01", Run: RunOperatorLoop,
+		Schedule: Schedule{Kind: ScheduleBackoff, Min: Duration{3 * time.Minute}, Max: Duration{24 * time.Minute}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if !strings.Contains(s, "run: operator-loop") || strings.Contains(s, "target") || strings.Contains(s, "payload") {
+		t.Errorf("yaml = %s", s)
+	}
+}

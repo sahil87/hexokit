@@ -880,3 +880,16 @@ func TestSessionNameFromPathMaxLength(t *testing.T) {
 		t.Fatalf("capped name fails ValidateNewName: %s", msg)
 	}
 }
+
+func TestValidRunID(t *testing.T) {
+	for _, id := range []string{"20261112T101500-ab12", "20261112T101500-0000"} {
+		if !ValidRunID(id) {
+			t.Errorf("ValidRunID(%q) = false, want true", id)
+		}
+	}
+	for _, id := range []string{"", "../x", "20261112T101500-AB12", "20261112T101500-abc", "20261112T101500-ab12\n", "2026-11-12"} {
+		if ValidRunID(id) {
+			t.Errorf("ValidRunID(%q) = true, want false", id)
+		}
+	}
+}

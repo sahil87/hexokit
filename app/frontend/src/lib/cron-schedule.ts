@@ -4,8 +4,13 @@
 // structural, so api/client.ts's CronEntry is assignable without an import
 // edge.
 
+/** The `run` value that marks the target-less operator-loop entry. */
+export const OPERATOR_LOOP_RUN = "operator-loop";
+
 /** The schedule/wakeOn slice of a cron entry this helper reads. */
 export type CronScheduleLike = {
+  /** `"operator-loop"` marks the target-less loop entry. */
+  run?: string;
   schedule: {
     kind: string;
     interval?: string;
@@ -97,6 +102,12 @@ export function describeSchedule(entry: CronScheduleLike): string {
     case "backoff": {
       const min = humanizeDuration(schedule.min ?? "");
       const max = humanizeDuration(schedule.max ?? "");
+      if (entry.run === OPERATOR_LOOP_RUN) {
+        // The loop has no agent pane whose activity to back off from: it
+        // checks the tracked items, and the gap grows while nothing changes.
+        base = `checks tracked items, backing off from ${min || "unknown"} up to ${max || "unknown"} while nothing changes`;
+        break;
+      }
       base = `backs off from ${min || "unknown"} up to ${max || "unknown"} since last activity`;
       break;
     }

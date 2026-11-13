@@ -5,11 +5,22 @@
 // so the tabs re-derive on the SSE cadence alone.
 
 import { formatDuration } from "@/lib/format";
+import { OPERATOR_LOOP_RUN } from "@/lib/cron-schedule";
 import type { CronEntry } from "@/api/client";
 
+/** The loop entry's target-chip label. */
+export const OPERATOR_LOOP_LABEL = "operator loop";
+
+/** True for the target-less operator-loop entry (no target, no payload). */
+export function isLoopEntry(entry: CronEntry): boolean {
+  return entry.run === OPERATOR_LOOP_RUN;
+}
+
 /** The target chip's discriminant: `role: operator`, `session: foo`, or
- *  `pane: %3` — the first target facet the entry carries. */
+ *  `pane: %3` — the first target facet the entry carries; the loop entry
+ *  reads `operator loop` (it has no target). */
 export function targetChip(entry: CronEntry): string {
+  if (isLoopEntry(entry)) return OPERATOR_LOOP_LABEL;
   const discriminant = entry.target.role ?? entry.target.session ?? entry.target.pane;
   return discriminant ? `${entry.target.kind}: ${discriminant}` : entry.target.kind;
 }

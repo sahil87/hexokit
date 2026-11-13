@@ -1,0 +1,58 @@
+id: xxvq
+name: 261112-xxvq-operator-loop-check-run-note
+created: 2026-11-12T15:49:50Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 20
+    acceptance_count: 34
+    acceptance_completed: 34
+confidence:
+    certain: 8
+    confident: 10
+    tentative: 0
+    unresolved: 0
+    score: 4.1
+    fuzzy: true
+    dimensions:
+        signal: 94.4
+        reversibility: 77.8
+        competence: 77.8
+        disambiguation: 71.1
+stage_metrics:
+    intake: {started_at: "2026-11-12T15:49:50Z", driver: fab-new, iterations: 1, completed_at: "2026-11-12T17:15:49Z"}
+    apply: {started_at: "2026-11-12T18:21:18Z", driver: fab-fff, iterations: 4, completed_at: "2026-11-12T18:29:10Z"}
+    review: {started_at: "2026-11-12T18:29:10Z", driver: fab-fff, iterations: 4, completed_at: "2026-11-12T18:39:13Z"}
+    hydrate: {started_at: "2026-11-12T18:39:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-12T18:47:02Z"}
+    ship: {started_at: "2026-11-12T18:47:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-12T18:49:15Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1132
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 6317
+    deleted: 154
+    net: 6163
+    excluding:
+        added: 5152
+        deleted: 107
+        net: 5045
+    tests:
+        added: 2753
+        deleted: 1
+        net: 2752
+    computed_at: "2026-11-12T18:49:15Z"
+    computed_at_stage: ship
+summary: 'operator loop: run: operator-loop cron entry kind (log-derived ladder, tick seed/transcribe seams, seeding + legacy mute), operatorloop runner, _rk-operator run window, run-exec wrapper, operator-run role'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-12T18:49:15Z

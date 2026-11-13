@@ -1,0 +1,24 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-12T15:49:50Z"}
+{"args":"Plan step R5 (The loop: cron fire → check → run window → note; Cron Log outcome) from fab/plans/sahil/26-11-10-operator-to-hexokit.md","cmd":"fab-new","event":"command","ts":"2026-11-12T15:49:50Z"}
+{"delta":"+0.0","event":"confidence","score":2.7,"trigger":"calc-score","ts":"2026-11-12T16:05:04Z"}
+{"delta":"+0.0","event":"confidence","score":2.7,"trigger":"calc-score","ts":"2026-11-12T16:05:14Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-12T16:06:30Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-11-12T16:49:23Z"}
+{"delta":"+1.4","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-11-12T16:59:21Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-11-12T16:59:25Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-12T17:15:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-12T17:15:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-12T17:43:39Z"}
+{"event":"review","result":"failed","ts":"2026-11-12T17:51:34Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-12T17:51:34Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-12T17:59:55Z"}
+{"event":"review","result":"failed","ts":"2026-11-12T18:05:24Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-12T18:05:24Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-12T18:11:16Z"}
+{"event":"review","result":"failed","ts":"2026-11-12T18:21:18Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-12T18:21:18Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-12T18:29:10Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-11-12T18:29:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-11-12T18:39:13Z"}
+{"event":"review","result":"passed","ts":"2026-11-12T18:39:13Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-11-12T18:47:02Z"}

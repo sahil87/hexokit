@@ -510,6 +510,52 @@ func TestResolveLauncher_StubFab(t *testing.T) {
 	})
 }
 
+// TestResolveHeadlessAgent_StubFab: `fab agent <tier> --headless -o yaml`
+// resolves the launcher; every failure falls back to DefaultHeadlessLauncher.
+func TestResolveHeadlessAgent_StubFab(t *testing.T) {
+	t.Run("stub fab prints YAML", func(t *testing.T) {
+		dir := stubFab(t, "#!/bin/sh\nprintf 'selector: operator\\ncommand: %s\\ndispatch:\\n    command: %s\\n' 'claude -p --model x' 'pane-launcher'\n")
+		t.Setenv("PATH", dir)
+		if got := ResolveHeadlessAgent(context.Background(), "", "operator"); got != "claude -p --model x" {
+			t.Errorf("ResolveHeadlessAgent() = %q", got)
+		}
+	})
+
+	t.Run("tier and --headless reach fab", func(t *testing.T) {
+		dir := stubFab(t, "#!/bin/sh\nprintf 'command: args: %s\\n' \"$*\"\n")
+		t.Setenv("PATH", dir)
+		if got, want := ResolveHeadlessAgent(context.Background(), "", "operator"), "args: agent operator --headless -o yaml"; got != want {
+			t.Errorf("ResolveHeadlessAgent() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("non-zero exit falls back", func(t *testing.T) {
+		dir := stubFab(t, "#!/bin/sh\nexit 1\n")
+		t.Setenv("PATH", dir)
+		if got := ResolveHeadlessAgent(context.Background(), "", "operator"); got != DefaultHeadlessLauncher {
+			t.Errorf("ResolveHeadlessAgent() = %q, want default", got)
+		}
+	})
+
+	t.Run("no command key falls back", func(t *testing.T) {
+		dir := stubFab(t, "#!/bin/sh\nprintf 'provider: claude\\n'\n")
+		t.Setenv("PATH", dir)
+		if got := ResolveHeadlessAgent(context.Background(), "", "operator"); got != DefaultHeadlessLauncher {
+			t.Errorf("ResolveHeadlessAgent() = %q, want default", got)
+		}
+	})
+
+	t.Run("fab absent falls back", func(t *testing.T) {
+		t.Setenv("PATH", t.TempDir())
+		if got := ResolveHeadlessAgent(context.Background(), "", ""); got != DefaultHeadlessLauncher {
+			t.Errorf("ResolveHeadlessAgent() = %q, want default", got)
+		}
+		if DefaultHeadlessLauncher != "claude -p --dangerously-skip-permissions" {
+			t.Errorf("DefaultHeadlessLauncher = %q", DefaultHeadlessLauncher)
+		}
+	})
+}
+
 // TestBuildWtCreateArgs covers the worktree naming argv: an empty name yields the
 // plain `create --non-interactive --open skip` argv; a name in worktree mode
 // prepends `--name <name>`; a name in checkout mode is defensively ignored

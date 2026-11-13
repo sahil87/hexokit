@@ -2083,6 +2083,10 @@ export interface CronWakeOn {
 export interface CronEntry {
   id: string;
   name?: string;
+  /** Present (`"operator-loop"`) on the target-less operator-loop entry: it
+   *  fires a daemon function rather than typing `payload` into a `target`, so
+   *  both are empty on it. */
+  run?: string;
   schedule: CronSchedule;
   wakeOn?: CronWakeOn;
   target: { kind: string; role?: string; session?: string; pane?: string };
@@ -2120,6 +2124,12 @@ export interface CronDelivery {
   target: string;
   reason: string;
   outcome: string;
+  /** Operator-loop run id behind a `ran`/`run-failed`/`run-lost` outcome;
+   *  `runLog` is that run's log file path and `transcript` the provider
+   *  transcript path — each present only while the run record still exists. */
+  run?: string;
+  runLog?: string;
+  transcript?: string;
 }
 
 export interface CronListResponse {

@@ -17,6 +17,7 @@ type fakeTmux struct {
 	panes    map[string]map[string]tmux.PaneFacts    // server → paneID → facts
 	alive    map[string]map[string]bool              // server → paneID → alive
 	agent    map[string]map[string]string            // server → windowID → agent pane
+	runWins  map[string][]tmux.RunWindow             // server → live run windows
 }
 
 func newFakeTmux() *fakeTmux {
@@ -26,6 +27,7 @@ func newFakeTmux() *fakeTmux {
 		panes:    map[string]map[string]tmux.PaneFacts{},
 		alive:    map[string]map[string]bool{},
 		agent:    map[string]map[string]string{},
+		runWins:  map[string][]tmux.RunWindow{},
 	}
 }
 
@@ -60,6 +62,11 @@ func (f *fakeTmux) PaneExists(ctx context.Context, paneID, server string) (bool,
 	return f.alive[server][paneID], nil
 }
 
+func (f *fakeTmux) ListRunWindows(ctx context.Context, server string) ([]tmux.RunWindow, error) {
+	f.calls = append(f.calls, "ListRunWindows "+server)
+	return f.runWins[server], nil
+}
+
 func (f *fakeTmux) callsFor(server string) int {
 	n := 0
 	for _, c := range f.calls {
@@ -71,7 +78,7 @@ func (f *fakeTmux) callsFor(server string) int {
 }
 
 func containsCall(call, server string) bool {
-	for _, m := range []string{"ListSessions ", "ListWindows ", "ResolveAgentPane ", "PaneFacts ", "PaneExists "} {
+	for _, m := range []string{"ListSessions ", "ListWindows ", "ResolveAgentPane ", "PaneFacts ", "PaneExists ", "ListRunWindows "} {
 		if len(call) > len(m)+len(server) && call[:len(m)] == m && call[len(m):len(m)+len(server)] == server {
 			return true
 		}

@@ -381,3 +381,27 @@ func TestOldFormatSnapshotDecodesAndNormalizesMarker(t *testing.T) {
 		t.Errorf("normalized marker not restored:\n%s", f.trace())
 	}
 }
+
+// TestRestoreNeverStampsRunRole: a snapshot that holds an operator-run window
+// (captured by an earlier binary, or hand-built) restores it without the role,
+// so no restored window can read as a run in flight.
+func TestRestoreNeverStampsRunRole(t *testing.T) {
+	snap := &Snapshot{
+		Server: "kit",
+		Sessions: []Session{{
+			Name: tmux.OperatorSessionName, CreatedAt: 100,
+			Windows: []Window{{Index: 0, ID: "@1", Name: "run-ab12", Role: tmux.RoleOperatorRun, Color: "2",
+				Panes: []Pane{{ID: "%0", Index: 0, Cwd: "/p", Command: "sh"}}}},
+		}},
+	}
+	f := &fakeRestore{}
+	if _, err := restore(context.Background(), "kit", snap, f.ops()); err != nil {
+		t.Fatalf("restore: %v\ntrace:\n%s", err, f.trace())
+	}
+	if strings.Contains(f.trace(), tmux.RoleOption) || strings.Contains(f.trace(), tmux.RoleOperatorRun) {
+		t.Errorf("restore re-stamped the run role:\n%s", f.trace())
+	}
+	if !strings.Contains(f.trace(), "@rk_win_color=2") {
+		t.Errorf("other window options were dropped:\n%s", f.trace())
+	}
+}

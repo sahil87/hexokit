@@ -109,6 +109,19 @@ const ManagedOption = "@rk_srv_managed"
 // option family (validate.MarkerValues / ValidateRoleValue).
 const RoleOption = "@rk_win_role"
 
+// RoleOperatorRun is the RoleOption value of an ephemeral operator-loop run
+// window. It is NOT user-settable (validate.RoleValues stays closed) and NOT
+// part of the "operator" radio: ClearWindowRoleExcept never clears it, so a
+// chat window taking the operator role cannot erase a live run's busy signal.
+// parseWindows surfaces it so the cron evaluator and the sessions projection
+// can recognize run windows.
+const RoleOperatorRun = "operator-run"
+
+// OperatorRunOption is the window-scoped user option carrying a run window's
+// run id (the key into the operator run records). Stamped together with
+// RoleOption=RoleOperatorRun at window creation.
+const OperatorRunOption = "@rk_win_operator_run"
+
 // NoteOption is the tmux window user option carrying a free-text one-line
 // status note — user/agent-authored annotation (the MarkerOption/FlairOption
 // user-preference class, not derived state). The value schema is
@@ -1773,7 +1786,7 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		// set (including "") to the empty unset state. Same idiom as Marker.
 		var role string
 		if len(parts) > roleField {
-			if r := strings.TrimSpace(parts[roleField]); validate.RoleValues[r] {
+			if r := strings.TrimSpace(parts[roleField]); validate.RoleValues[r] || r == RoleOperatorRun {
 				role = r
 			}
 		}
@@ -2765,7 +2778,8 @@ var roleCarriersFormat = strings.Join([]string{"#{window_id}", "#{" + RoleOption
 
 // roleCarriersToClear parses roleCarriersFormat lines into the window IDs whose
 // RoleOption must be unset: every window carrying a non-empty role except
-// keepWindowID. Pure so the radio rule is unit-testable without a live server.
+// keepWindowID, except operator-run windows (outside the radio). Pure so the
+// radio rule is unit-testable without a live server.
 func roleCarriersToClear(lines []string, keepWindowID string) []string {
 	var out []string
 	for _, line := range lines {
@@ -2774,7 +2788,8 @@ func roleCarriersToClear(lines []string, keepWindowID string) []string {
 			continue
 		}
 		id := strings.TrimSpace(parts[0])
-		if id == "" || id == keepWindowID || strings.TrimSpace(parts[1]) == "" {
+		role := strings.TrimSpace(parts[1])
+		if id == "" || id == keepWindowID || role == "" || role == RoleOperatorRun {
 			continue
 		}
 		out = append(out, id)
@@ -2848,6 +2863,26 @@ func hasSessionPrefix(ctx context.Context, prefix []string, session string) bool
 	return Run(ctx, hasSessionArgv(prefix, session), RunOpts{}) == nil
 }
 
+// ensureSessionCapturingPlaceholder guarantees session exists, creating it
+// detached when absent. It returns the id of the placeholder window tmux put
+// in the session it just created ("" when the session already existed — an
+// adopted session keeps its windows — or the id could not be read; a stray
+// placeholder is cosmetic). Callers kill the placeholder once the window they
+// are placing exists, so the session ends holding exactly that window.
+func ensureSessionCapturingPlaceholder(ctx context.Context, prefix []string, session string) (string, error) {
+	if hasSessionPrefix(ctx, prefix, session) {
+		return "", nil
+	}
+	if err := Run(ctx, newDetachedSessionArgv(prefix, session, ServerBirthDir()), RunOpts{}); err != nil {
+		return "", err
+	}
+	out, err := RunOutput(ctx, append(append([]string{}, prefix...), "list-windows", "-t", ExactSessionTarget(session), "-F", "#{window_id}"), RunOpts{})
+	if err != nil {
+		return "", nil
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // ensureDetachedSession creates session detached when missing (idempotent),
 // anchored to ServerBirthDir for session_path hygiene.
 func ensureDetachedSession(ctx context.Context, prefix []string, session string) error {
@@ -2897,17 +2932,9 @@ func MoveWindowIntoOperatorSession(ctx context.Context, prefix []string, windowI
 	if session == OperatorSessionName {
 		return nil
 	}
-	// Capture the placeholder only when WE create the session (it did not exist
-	// before this call); an adopted session keeps its windows.
-	var placeholder string
-	if !hasSessionPrefix(ctx, prefix, OperatorSessionName) {
-		if err := Run(ctx, newDetachedSessionArgv(prefix, OperatorSessionName, ServerBirthDir()), RunOpts{}); err != nil {
-			return err
-		}
-		out, err := RunOutput(ctx, append(append([]string{}, prefix...), "list-windows", "-t", ExactSessionTarget(OperatorSessionName), "-F", "#{window_id}"), RunOpts{})
-		if err == nil {
-			placeholder = strings.TrimSpace(string(out))
-		}
+	placeholder, err := ensureSessionCapturingPlaceholder(ctx, prefix, OperatorSessionName)
+	if err != nil {
+		return err
 	}
 	if err := Run(ctx, append(append([]string{}, prefix...), "move-window", "-s", windowID, "-t", ExactSessionTarget(OperatorSessionName)), RunOpts{}); err != nil {
 		return err
@@ -2971,17 +2998,9 @@ func DemoteWindowFromOperatorSession(ctx context.Context, prefix []string, windo
 		// name — moving out to itself is meaningless; leave the window in place.
 		return nil
 	}
-	// Capture the placeholder only when WE create the destination; an existing
-	// destination keeps its windows.
-	var placeholder string
-	if !hasSessionPrefix(ctx, prefix, dest) {
-		if err := Run(ctx, newDetachedSessionArgv(prefix, dest, ServerBirthDir()), RunOpts{}); err != nil {
-			return err
-		}
-		out, err := RunOutput(ctx, append(append([]string{}, prefix...), "list-windows", "-t", ExactSessionTarget(dest), "-F", "#{window_id}"), RunOpts{})
-		if err == nil {
-			placeholder = strings.TrimSpace(string(out))
-		}
+	placeholder, err := ensureSessionCapturingPlaceholder(ctx, prefix, dest)
+	if err != nil {
+		return err
 	}
 	if err := Run(ctx, append(append([]string{}, prefix...), "move-window", "-s", windowID, "-t", ExactSessionTarget(dest)), RunOpts{}); err != nil {
 		return err

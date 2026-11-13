@@ -134,29 +134,20 @@ func cronScheduleSummary(s cron.Schedule) string {
 	return s.Kind
 }
 
-// cronDurationShort renders a duration compactly, dropping zero-valued
-// components (1h, 30m, 1m30s, 90s) where time.Duration.String would print
-// "1h0m0s".
-func cronDurationShort(d time.Duration) string {
-	if d == 0 {
-		return "0s"
+// cronDurationShort renders a duration compactly (1h, 30m, 1m30s, 90s); the
+// shared formatter lives in internal/cron beside the log outcomes that use it.
+func cronDurationShort(d time.Duration) string { return cron.DurationShort(d) }
+
+// cronLoopTargetLabel is the target column of a target-less loop entry.
+const cronLoopTargetLabel = "operator loop"
+
+// cronEntryTargetSummary renders an entry's target column: the loop entry has
+// no target, so it reads as its kind.
+func cronEntryTargetSummary(e cron.Entry) string {
+	if e.IsLoop() {
+		return cronLoopTargetLabel
 	}
-	if d%time.Second != 0 {
-		return d.String()
-	}
-	out := ""
-	if h := d / time.Hour; h > 0 {
-		out += fmt.Sprintf("%dh", h)
-		d %= time.Hour
-	}
-	if m := d / time.Minute; m > 0 {
-		out += fmt.Sprintf("%dm", m)
-		d %= time.Minute
-	}
-	if s := d / time.Second; s > 0 {
-		out += fmt.Sprintf("%ds", s)
-	}
-	return out
+	return cronTargetSummary(e.Target)
 }
 
 // cronTargetSummary renders a target for the list table and add confirmation

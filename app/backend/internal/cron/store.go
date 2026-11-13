@@ -102,6 +102,12 @@ func loadForMutate(dir, slug string) (path string, entries []Entry, err error) {
 // processes only the first cap-many entries of a (hand-edited) larger file.
 const MaxEntriesPerServer = 50
 
+// errEntryCap is the refusal Add and the loop seeder return past
+// MaxEntriesPerServer.
+func errEntryCap(slug string) error {
+	return fmt.Errorf("server %s already holds the maximum %d cron entries", slug, MaxEntriesPerServer)
+}
+
 // EntryValidationError wraps a merged-entry validation failure from Update
 // (validate / ValidateRespawnIntent) so Edit callers can tell a client-fixable
 // body problem (HTTP 400, CLI usage error) apart from a store failure (HTTP
@@ -139,7 +145,7 @@ func Add(dir, slug string, e Entry) (Entry, error) {
 		return Entry{}, err
 	}
 	if len(entries) >= MaxEntriesPerServer {
-		return Entry{}, fmt.Errorf("server %s already holds the maximum %d cron entries", slug, MaxEntriesPerServer)
+		return Entry{}, errEntryCap(slug)
 	}
 	taken := make(map[string]bool, len(entries))
 	for _, existing := range entries {
@@ -155,6 +161,13 @@ func Add(dir, slug string, e Entry) (Entry, error) {
 	}
 	if err := ValidateRespawnIntent(e); err != nil {
 		return Entry{}, err
+	}
+	if e.IsLoop() {
+		for _, existing := range entries {
+			if existing.IsLoop() {
+				return Entry{}, fmt.Errorf("server %s already has a %s entry (%s)", slug, RunOperatorLoop, existing.ID)
+			}
+		}
 	}
 	if err := saveEntries(path, append(entries, e)); err != nil {
 		return Entry{}, err

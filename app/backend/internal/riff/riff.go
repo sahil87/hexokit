@@ -53,6 +53,10 @@ const (
 	FabTimeout       = 10 * time.Second
 	DefaultRiffSkill = settings.RiffDiscussSkill // the built-in `discuss` preset's value — one source for the bare `rk riff` default
 	DefaultLauncher  = "claude --dangerously-skip-permissions"
+	// DefaultHeadlessLauncher is the non-interactive floor for a scheduled
+	// run: it reads the prompt from stdin, acts, and exits. Used when fab's
+	// `agent <tier> --headless` resolution is unavailable.
+	DefaultHeadlessLauncher = "claude -p --dangerously-skip-permissions"
 )
 
 // Exit code discipline — the CLI maps these to os.Exit codes; the HTTP handler
@@ -516,6 +520,32 @@ func ResolveAgent(parent context.Context, repoRoot, tier string) ResolvedAgent {
 		return ResolvedAgent{Launcher: launcher, SkillPrefix: "/"}
 	}
 	return defaultResolvedAgent
+}
+
+// ResolveHeadlessAgent resolves the non-interactive launcher for a tier via
+// `fab agent <tier> --headless -o yaml` (Dir = repoRoot), taking the same
+// tolerant top-level `command` extraction as ResolveAgent. Best-effort and
+// never errors: any failure (fab absent, non-zero exit, timeout, no command)
+// returns DefaultHeadlessLauncher. There is no legacy `--print` retry — fabs
+// predating --headless have no headless launcher to retry for. The result is
+// provider-opaque and meant to run as `sh -c '<launcher>'` with the prompt on
+// stdin.
+func ResolveHeadlessAgent(parent context.Context, repoRoot, tier string) string {
+	out, err := runFabAgent(parent, repoRoot, fabAgentHeadlessArgs(tier))
+	if agent, ok := parseFabAgentYAML(string(out), err); ok {
+		return agent.Launcher
+	}
+	return DefaultHeadlessLauncher
+}
+
+// fabAgentHeadlessArgs builds the `fab` argv for headless resolution:
+// `agent [<tier>] --headless -o yaml`. Pure.
+func fabAgentHeadlessArgs(tier string) []string {
+	args := []string{"agent"}
+	if tier != "" {
+		args = append(args, tier)
+	}
+	return append(args, "--headless", "-o", "yaml")
 }
 
 // runFabAgent runs one `fab` argv with the FabTimeout bound and Dir=repoRoot

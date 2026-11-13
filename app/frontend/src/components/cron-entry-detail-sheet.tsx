@@ -8,7 +8,8 @@ import {
   SWITCH_TRACK_OFF,
   SWITCH_TRACK_ON,
 } from "@/components/controls";
-import { deleteCron, muteCron, pinCron, type CronEntry } from "@/api/client";
+import { deleteCron, muteCron, pinCron, type CronDelivery, type CronEntry } from "@/api/client";
+import { copyToClipboard } from "@/lib/clipboard";
 import { describeDeliver, describeSchedule } from "@/lib/cron-schedule";
 import { formatDuration } from "@/lib/format";
 import { CronCreateDialog } from "@/components/cron-create-dialog";
@@ -33,6 +34,37 @@ function agoLabel(ts: number, nowMs: number): string {
 function inLabel(ts: number, nowMs: number): string {
   const delta = Math.floor(ts - nowMs / 1000);
   return delta > 0 ? `in ${formatDuration(delta)}` : "due";
+}
+
+/** One labelled, copyable value (a run id or a file path). The value is
+ *  selectable text — `select-all` lets one tap/click select it for a manual
+ *  copy — and the Copy button writes it to the clipboard. */
+function CopyableRow({ label, value, testId }: { label: string; value: string; testId: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void copyToClipboard(value).then((ok) => setCopied(ok));
+  };
+  return (
+    <div className="flex items-start justify-between gap-3 border-t border-border px-3 py-2.5">
+      <div className="min-w-0 flex-1">
+        <div className="text-xs text-text-primary">{label}</div>
+        <code
+          className="mt-0.5 block select-all break-all text-xs text-text-secondary"
+          data-testid={testId}
+        >
+          {value}
+        </code>
+      </div>
+      <button
+        type="button"
+        aria-label={`Copy ${label.toLowerCase()}`}
+        onClick={copy}
+        className="rk-glint shrink-0 rounded px-1 text-xs text-text-secondary transition-colors hover:text-text-primary coarse:min-h-[36px]"
+      >
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </div>
+  );
 }
 
 /** The track visual for a bool row — the shared switch color recipe around
@@ -81,11 +113,15 @@ export function CronEntryDetailSheet({
   entry,
   onClose,
   inline = false,
+  delivery,
 }: {
   server: string;
   entry: CronEntry;
   onClose: () => void;
   inline?: boolean;
+  /** The delivery-log line the sheet was opened from (Cron Log). When it
+   *  carries a `run`, the sheet shows that run's id, outcome and log paths. */
+  delivery?: CronDelivery;
 }) {
   const sheetRef = useRef<HTMLDivElement>(null);
   useFocusTrap(sheetRef, true, onClose);
@@ -183,6 +219,18 @@ export function CronEntryDetailSheet({
         )}
       </div>
       <p className="px-3 pb-2 text-xs text-text-secondary">{describeSchedule(entry)}</p>
+      {delivery?.run && (
+        <div className="border-t border-border" data-testid="cron-entry-run">
+          <CopyableRow label="Run" value={delivery.run} testId="cron-entry-run-id" />
+          <CopyableRow label="Outcome" value={delivery.outcome} testId="cron-entry-run-outcome" />
+          {delivery.runLog && (
+            <CopyableRow label="Run log" value={delivery.runLog} testId="cron-entry-run-log" />
+          )}
+          {delivery.transcript && (
+            <CopyableRow label="Transcript" value={delivery.transcript} testId="cron-entry-run-transcript" />
+          )}
+        </div>
+      )}
       <div className="border-t border-border">
         <div className={rowClass}>
           <span className={labelClass}>Last fired</span>
