@@ -366,3 +366,12 @@ func TestReported_SurvivesTypedRewrite(t *testing.T) {
 		t.Errorf("Reported = %v, want [done pane_death]", got)
 	}
 }
+
+func TestServerLabel(t *testing.T) {
+	if got := ServerLabel(""); got != DefaultServer {
+		t.Errorf("ServerLabel(\"\") = %q, want %q", got, DefaultServer)
+	}
+	if got := ServerLabel("loom"); got != "loom" {
+		t.Errorf("ServerLabel(loom) = %q", got)
+	}
+}

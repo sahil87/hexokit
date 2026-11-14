@@ -5,3 +5,11 @@
 {"cmd":"fab-fff","event":"command","ts":"2026-11-14T11:24:31Z"}
 {"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-14T11:24:36Z"}
 {"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-14T11:38:39Z"}
+{"event":"review","result":"failed","ts":"2026-11-14T11:44:09Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-14T11:44:09Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-14T11:48:33Z"}
+{"event":"review","result":"failed","ts":"2026-11-14T11:51:14Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-14T11:51:14Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-14T11:53:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-11-14T11:56:32Z"}
+{"event":"review","result":"passed","ts":"2026-11-14T11:56:32Z"}

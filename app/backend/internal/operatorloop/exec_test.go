@@ -236,8 +236,8 @@ func TestExecLauncherEnvRestoresTMUX(t *testing.T) {
 		r := newRig(t)
 		_, logPath := execRig(t, r, "pr-41")
 		stubTMUX(t, "")
-		t.Setenv(tmuxEnvKey, "")
-		if err := os.Unsetenv(tmuxEnvKey); err != nil {
+		t.Setenv("TMUX", "")
+		if err := os.Unsetenv("TMUX"); err != nil {
 			t.Fatal(err)
 		}
 		_, stdout, _, _ := doExec(t, "sh", "-c", script)
@@ -272,8 +272,12 @@ func TestExecHeader(t *testing.T) {
 		t.Errorf("default socket against server default warned: %q", got)
 	}
 	opts.Server = ""
-	if got := execHeader(opts, "/tmp/tmux-1000/default,1,0", "/work"); strings.Contains(got, "WARNING") {
+	got := execHeader(opts, "/tmp/tmux-1000/default,1,0", "/work")
+	if strings.Contains(got, "WARNING") {
 		t.Errorf("default socket against an empty server warned: %q", got)
+	}
+	if !strings.HasPrefix(got, "run-exec: server=default run=") {
+		t.Errorf("an empty server must read server=default: %q", got)
 	}
 }
 

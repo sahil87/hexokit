@@ -60,6 +60,14 @@ func nowRFC3339() string {
 	return clock().UTC().Format(time.RFC3339)
 }
 
+// ServerLabel is the server's display label: the empty server is `default`.
+func ServerLabel(server string) string {
+	if server == "" {
+		return DefaultServer
+	}
+	return server
+}
+
 // StatePath resolves <state home>/operator/<slug>.yaml for a tmux socket path.
 // The slug uses the same injective rule as the fab operator file's name, so
 // one server maps to one file and adopt is a 1:1 mapping.

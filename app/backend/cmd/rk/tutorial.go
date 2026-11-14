@@ -129,7 +129,7 @@ func runTutorialWithExitCode(cmd *cobra.Command, _ []string) error {
 	var ece *riff.ExitCodeError
 	if errors.As(err, &ece) {
 		fmt.Fprintln(cmd.ErrOrStderr(), ece.Msg)
-		os.Exit(ece.Code)
+		exitRecorded(err, ece.Code)
 	}
 	return err
 }
@@ -149,7 +149,7 @@ func runTutorial(cmd *cobra.Command) error {
 	ctx, cancel := context.WithTimeout(parent, tutorialCmdTimeout)
 	defer cancel()
 
-	env := cliChildEnv(tutorialOriginalTMUXFn())
+	env := tmux.ChildEnv(tutorialOriginalTMUXFn())
 
 	// Singleton probe: list-windows with $TMUX restored enumerates only the
 	// current session's windows. The @N id is the select target — window-id

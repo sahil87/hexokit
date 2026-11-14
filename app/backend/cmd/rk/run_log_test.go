@@ -3,13 +3,16 @@ package main
 import (
 	"bytes"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"rk/internal/operatorloop"
+	"rk/internal/riff"
 
 	"github.com/spf13/cobra"
 )
@@ -26,7 +29,7 @@ func runLoggedCommand(t *testing.T, argv []string, run func(*cobra.Command) erro
 	tee = attachRunLog(root, tracker)
 	root.SetArgs(argv)
 	err = root.Execute()
-	tee.record(argv, err)
+	tee.record(argv, err, exitCode(err))
 	return realOut.String(), tee, err
 }
 
@@ -117,6 +120,40 @@ func TestRunLog_ExecuteExitsAndLogsTheUsageError(t *testing.T) {
 	}
 	got, _ := os.ReadFile(path)
 	for _, want := range []string{" exit=2\n", "error: unknown flag: --nope\n", "stderr: Error: unknown flag: --nope\n"} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("record missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestRunLog_ExitRecordedWritesTheRecordBeforeExiting(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.log")
+	t.Setenv(operatorloop.RunLogEnv, path)
+
+	var exited []int
+	prevExit, prevLog := exitFn, activeRunLog
+	exitFn = func(code int) { exited = append(exited, code) }
+	t.Cleanup(func() { exitFn, activeRunLog = prevExit, prevLog })
+
+	root := &cobra.Command{Use: "rk", SilenceUsage: true, SilenceErrors: true, RunE: func(cmd *cobra.Command, _ []string) error {
+		err := &riff.ExitCodeError{Code: riff.ExitSubprocess, Msg: "wt create failed"}
+		cmd.PrintErrln(err.Msg)
+		exitRecorded(err, err.Code)
+		return nil
+	}}
+	activeRunLog = attachRunLog(root, io.Discard)
+	root.SetArgs(nil)
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(exited) != 1 || exited[0] != riff.ExitSubprocess {
+		t.Fatalf("exit codes = %v, want [%d]", exited, riff.ExitSubprocess)
+	}
+	got, _ := os.ReadFile(path)
+	for _, want := range []string{
+		" exit=" + strconv.Itoa(riff.ExitSubprocess) + "\n", "error: wt create failed\n", "stderr: wt create failed\n",
+	} {
 		if !strings.Contains(string(got), want) {
 			t.Errorf("record missing %q in:\n%s", want, got)
 		}

@@ -157,12 +157,12 @@ func execute() {
 	// output. GUI- and service-launched rk processes commonly carry no LANG.
 	tmux.EnsureUTF8Locale()
 	out := &writeTracker{w: os.Stdout}
-	runLog := attachRunLog(rootCmd, out)
+	activeRunLog = attachRunLog(rootCmd, out)
 	execCmd, err := rootCmd.ExecuteC()
 	if err != nil && !out.wrote {
 		jsonErrorEnvelope(execCmd, err)
 	}
-	runLog.record(os.Args[1:], err)
+	activeRunLog.record(os.Args[1:], err, exitCode(err))
 	if err != nil {
 		os.Exit(exitCode(err))
 	}

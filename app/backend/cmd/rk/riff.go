@@ -238,7 +238,7 @@ func runRiffWithExitCode(cmd *cobra.Command, args []string) error {
 			newSink(cmd).JSONError(envelopeError{Code: code, Message: ece.Msg})
 		}
 		fmt.Fprintln(cmd.ErrOrStderr(), ece.Msg)
-		os.Exit(ece.Code)
+		exitRecorded(err, ece.Code)
 	}
 	return err
 }

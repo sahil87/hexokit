@@ -275,6 +275,17 @@ const SessionFlairOption = "@rk_ses_flair"
 // when querying the pane's own tmux server.
 var OriginalTMUX = os.Getenv("TMUX")
 
+// ChildEnv returns the process environment with a captured $TMUX restored, so
+// a child's bare tmux (and rk) calls reach the caller's current server after
+// init() stripped it from this process.
+func ChildEnv(originalTMUX string) []string {
+	env := os.Environ()
+	if originalTMUX != "" {
+		env = append(env, "TMUX="+originalTMUX)
+	}
+	return env
+}
+
 // DefaultConfigPath is the default location for the tmux config file.
 var DefaultConfigPath string
 

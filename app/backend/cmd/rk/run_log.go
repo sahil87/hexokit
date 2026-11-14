@@ -17,6 +17,21 @@ type runLogTee struct {
 	stdout, stderr *operatorloop.TailBuffer
 }
 
+// activeRunLog is the running invocation's tee, set by execute(); verbs that
+// must os.Exit inside RunE exit through exitRecorded so their record is still
+// written.
+var activeRunLog *runLogTee
+
+// exitFn is the process-exit seam of exitRecorded.
+var exitFn = os.Exit
+
+// exitRecorded records the invocation under err with the given exit code, then
+// exits with that code.
+func exitRecorded(err error, code int) {
+	activeRunLog.record(os.Args[1:], err, code)
+	exitFn(code)
+}
+
 // attachRunLog routes the root's stdout through out and, when self-logging is
 // enabled, tees both root streams into capped tails. It returns nil when
 // disabled; record on a nil tee does nothing.
@@ -37,14 +52,14 @@ func attachRunLog(root *cobra.Command, out io.Writer) *runLogTee {
 }
 
 // record appends the finished invocation to the run log, fail-silent.
-func (t *runLogTee) record(argv []string, err error) {
+func (t *runLogTee) record(argv []string, err error, code int) {
 	if t == nil {
 		return
 	}
 	operatorloop.AppendInvocation(t.path, operatorloop.Invocation{
 		Time:     time.Now(),
 		PID:      os.Getpid(),
-		ExitCode: exitCode(err),
+		ExitCode: code,
 		Argv:     argv,
 		Err:      err,
 		Stderr:   t.stderr.String(),

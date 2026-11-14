@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -123,7 +122,7 @@ safe to eval from a shell that hasn't yet run compinit.`,
 			var ece *exitCodeError
 			if errors.As(err, &ece) {
 				fmt.Fprintln(cmd.ErrOrStderr(), ece.msg)
-				os.Exit(ece.code)
+				exitRecorded(err, ece.code)
 			}
 			return err
 		},

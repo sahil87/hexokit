@@ -102,7 +102,7 @@ func renderBriefLayout(in BriefInput, layout briefLayout) string {
 	writeWhatChanged(&b, items, in.Changed)
 	writeAffected(&b, items, affected, now, layout.notesShown)
 	writeOthers(&b, items, affected, now, layout.showOthers)
-	flag := "-L " + briefServer(in)
+	flag := "-L " + ServerLabel(in.Server)
 	writeSection(&b, "Rules", withServerFlag(briefRules, flag))
 	writeSection(&b, "Interim autopilot", withServerFlag(briefAutopilot, flag))
 	writeSection(&b, "Exit contract", withServerFlag(briefExitContract, flag))
@@ -111,13 +111,6 @@ func renderBriefLayout(in BriefInput, layout briefLayout) string {
 
 func withServerFlag(text, flag string) string {
 	return strings.ReplaceAll(text, briefServerFlag, flag)
-}
-
-func briefServer(in BriefInput) string {
-	if in.Server == "" {
-		return DefaultServer
-	}
-	return in.Server
 }
 
 func briefItems(st *State) []TrackedItem {
@@ -129,7 +122,7 @@ func briefItems(st *State) []TrackedItem {
 
 func writeBriefHeader(b *strings.Builder, in BriefInput) {
 	fmt.Fprintf(b, "# Operator run brief\n\n- server: %s\n- rendered: %s\n\n%s\n\n",
-		briefServer(in), in.Now.UTC().Format(time.RFC3339), briefRoleLine)
+		ServerLabel(in.Server), in.Now.UTC().Format(time.RFC3339), briefRoleLine)
 }
 
 func writeSection(b *strings.Builder, title, body string) {

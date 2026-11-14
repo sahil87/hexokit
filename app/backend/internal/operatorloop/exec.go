@@ -43,7 +43,6 @@ const (
 
 	notifyTitle = "operator run failed"
 
-	tmuxEnvKey       = "TMUX"
 	tmuxSocketUnset  = "unset"
 	headerPrefix     = "run-exec:"
 	headerSocketWarn = " WARNING: TMUX socket does not match --server"
@@ -175,15 +174,11 @@ func runLauncher(parent context.Context, opts ExecOptions, briefPath, logPath st
 	}
 }
 
-// launcherEnv is the launcher's environment: the wrapper's, with the $TMUX
-// internal/tmux stripped restored so a bare tmux/rk/fab call in the run
-// reaches the run's own server, plus the run-log path for rk's self-log.
+// launcherEnv is the launcher's environment: the wrapper's, with $TMUX
+// restored so a bare tmux/rk/fab call in the run reaches the run's own server,
+// plus the run-log path for rk's self-log.
 func launcherEnv(originalTMUX, logPath string) []string {
-	env := os.Environ()
-	if originalTMUX != "" {
-		env = append(env, tmuxEnvKey+"="+originalTMUX)
-	}
-	return append(env, RunLogEnv+"="+logPath)
+	return append(tmux.ChildEnv(originalTMUX), RunLogEnv+"="+logPath)
 }
 
 // execHeader is the one diagnostic line written before the launcher starts,
@@ -195,8 +190,8 @@ func execHeader(opts ExecOptions, originalTMUX, cwd string) string {
 		shown = tmuxSocketUnset
 	}
 	line := fmt.Sprintf("%s server=%s run=%s tmux=%s cwd=%s launcher=%s",
-		headerPrefix, opts.Server, opts.RunID, shown, cwd, shellq.QuoteArgv(opts.Argv))
-	if socket != "" && filepath.Base(socket) != serverLabel(opts.Server) {
+		headerPrefix, operator.ServerLabel(opts.Server), opts.RunID, shown, cwd, shellq.QuoteArgv(opts.Argv))
+	if socket != "" && filepath.Base(socket) != operator.ServerLabel(opts.Server) {
 		line += headerSocketWarn
 	}
 	return line + "\n"
@@ -206,13 +201,6 @@ func execHeader(opts ExecOptions, originalTMUX, cwd string) string {
 func tmuxSocket(tmuxEnv string) string {
 	socket, _, _ := strings.Cut(tmuxEnv, ",")
 	return socket
-}
-
-func serverLabel(server string) string {
-	if server == "" {
-		return operator.DefaultServer
-	}
-	return server
 }
 
 func workingDir() string {

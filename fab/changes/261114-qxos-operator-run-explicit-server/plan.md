@@ -145,54 +145,64 @@ State-path resolution for a server label other than `default` SHALL fail with `t
 - [x] T005 Launcher env and header in `app/backend/internal/operatorloop/exec.go` `runLauncher`: set `cmd.Env` = `os.Environ()` + restored `TMUX` (from `tmux.OriginalTMUX`, via a test seam var) + `RunLogEnv=<logPath>`. Write the R2 header line to the log and `opts.Stdout` before `cmd.Run`, with the mismatch warning (cwd from `os.Getwd`, launcher via `shellq.QuoteArgv`). Tests in `exec_test.go`: a stub launcher prints `TMUX` and `RK_OPERATOR_RUN_LOG` (set / unset cases); the header line is present; the mismatch warning appears for another socket and is absent for a match; outcome capture is unaffected by the header. Make `cmd/rk/agent_kickoff.go` `cliChildEnv` and this share one helper only if that's cycle-free and trivial, otherwise leave both. <!-- R1 R2 -->
 - [x] T006 Add a `cmd/rk` test asserting every rendered brief command shape parses with `-L` (R5): for each shape (`mux capture|send|inventory`, `operator track list|note|update|add|rm|pause|observe`, `operator brief`, `tab new`, `riff`), run `rootCmd.Find` + `ParseFlags` on the argv taken from the rendered brief form and check the `server` flag equals the server, without executing RunE. Then run `cd app/backend && gofmt -l . && go vet ./... && go test ./...` and fix failures. <!-- R5 -->
 
+### Phase 3: Rework (review cycle 1)
+
+- [x] T007 Make every rk exit path record the self-log (R6). `cmd/rk/riff.go:241` and `cmd/rk/operator.go:271` (`runOperatorWithExitCode`) call `os.Exit` inside RunE on a typed exit-code error, so `execute()`'s run-log record never runs. Route them through the `execute()` seam: return a typed error that `exitCode()` maps to the same code, and mark it so `jsonErrorEnvelope` doesn't write a second envelope (the verb already wrote one, e.g. by wrapping it as the existing `envelopedError` shape). Preserve the exact exit codes and stdout/stderr bytes of today's riff/operator failure paths. Grep `cmd/rk` for any other `os.Exit` inside a RunE and treat it the same way, or record before exiting through one shared helper if a return is impossible. Tests in `cmd/rk`: with `RK_OPERATOR_RUN_LOG` set, a riff exit-code failure appends a record with its exit code and message; existing riff/operator exit-code tests stay green. <!-- R6 -->
+- [x] T008 <!-- rework: unused tmuxEnvKey const left at internal/operatorloop/exec.go:46; execHeader should print operator.ServerLabel(opts.Server) --> Remove the duplication the review flagged (Code Quality). (a) Move the env-restore helper into `internal/tmux` (e.g. `tmux.ChildEnv(originalTMUX string) []string`: `os.Environ()` plus `TMUX=<value>` when non-empty). Use it from `cmd/rk/agent_kickoff.go` `cliChildEnv`'s callers (or make `cliChildEnv` a thin call) and from `internal/operatorloop/exec.go` `launcherEnv`, which then only appends `RunLogEnv`, and drop `tmuxEnvKey`. (b) Export one empty→`default` server-label helper next to `operator.DefaultServer` (e.g. `operator.ServerLabel(server string) string`), and use it from `internal/operator/brief.go` (`briefServer`) and `internal/operatorloop/exec.go` (`serverLabel`), deleting both private copies. Keep all existing tests green. <!-- R1 R3 -->
+
 ## Execution Order
 
 - T001, T002 and T003 are independent.
 - T003 blocks T004 and T005 (they use `RunLogEnv` / `AppendInvocation`).
 - T002 blocks T006 (it parses the rendered shapes).
+- T007 and T008 are independent rework tasks (cycle 1).
 
 ## Acceptance
 
 ### Functional Completeness
 
-- [ ] A-001 R1: The launcher's environment carries the wrapper's original `TMUX` when set, and always carries `RK_OPERATOR_RUN_LOG=<run log path>`
-- [ ] A-002 R2: The run log starts with the `run-exec:` header line (server, run, tmux socket or `unset`, cwd, launcher)
-- [ ] A-003 R3: Every `rk mux`/`rk operator`/`rk tab`/`rk riff` occurrence in the rendered Rules, Interim autopilot and Exit contract carries `-L <server>` after its verb path, `rk notify` carries none, and the golden brief is regenerated
-- [ ] A-004 R4: The Rules section contains the rendered always-pass-`-L` line
-- [ ] A-005 R5: A test proves every rendered command shape parses with the `server` flag set
-- [ ] A-006 R6: With `RK_OPERATOR_RUN_LOG` set, an rk invocation appends one record with time, pid, exit, argv, error (on failure), and capped stderr/stdout
-- [ ] A-007 R8: A non-`default` server with an empty socket path errors in both `operator.StatePathForServer` and `operatorStateTarget`
+- [x] A-001 R1: The launcher's environment carries the wrapper's original `TMUX` when set, and always carries `RK_OPERATOR_RUN_LOG=<run log path>`
+- [x] A-002 R2: The run log starts with the `run-exec:` header line (server, run, tmux socket or `unset`, cwd, launcher)
+- [x] A-003 R3: Every `rk mux`/`rk operator`/`rk tab`/`rk riff` occurrence in the rendered Rules, Interim autopilot and Exit contract carries `-L <server>` after its verb path, `rk notify` carries none, and the golden brief is regenerated
+- [x] A-004 R4: The Rules section contains the rendered always-pass-`-L` line
+- [x] A-005 R5: A test proves every rendered command shape parses with the `server` flag set
+- [x] A-006 R6: With `RK_OPERATOR_RUN_LOG` set, an rk invocation appends one record with time, pid, exit, argv, error (on failure), and capped stderr/stdout — every in-RunE exit (riff, operator, tutorial, shell-init, tmux guard) now goes through `exitRecorded` (cmd/rk/run_log.go:30)
+- [x] A-007 R8: A non-`default` server with an empty socket path errors in both `operator.StatePathForServer` and `operatorStateTarget`
 
 ### Behavioral Correctness
 
-- [ ] A-008 R8: `rk operator track …` for the `default` label with no running server still resolves to `default.yaml`
-- [ ] A-009 R7: With `RK_OPERATOR_RUN_LOG` unset, `execute()` output, exit codes and the JSON-envelope guard behave exactly as before
+- [x] A-008 R8: `rk operator track …` for the `default` label with no running server still resolves to `default.yaml`
+- [x] A-009 R7: With `RK_OPERATOR_RUN_LOG` unset, `execute()` output, exit codes and the JSON-envelope guard behave exactly as before
 
 ### Scenario Coverage
 
-- [ ] A-010 R2: Tests cover the mismatch warning (present for a foreign socket, absent for a matching one, `default` ↔ `default`)
-- [ ] A-011 R3: Tests cover the empty-server case rendering `-L default` and the raw token never surviving
+- [x] A-010 R2: Tests cover the mismatch warning (present for a foreign socket, absent for a matching one, `default` ↔ `default`)
+- [x] A-011 R3: Tests cover the empty-server case rendering `-L default` and the raw token never surviving
 
 ### Edge Cases & Error Handling
 
-- [ ] A-012 R7: A relative, empty or unwritable `RK_OPERATOR_RUN_LOG` writes nothing and changes no exit code or output
-- [ ] A-013 R6: Streams over the cap are tail-truncated with the `…[truncated]` marker, and empty streams' lines are omitted
-- [ ] A-014 R2: Outcome capture and the failure contract are unaffected by the header line (an `outcome:` line still wins, and a no-outcome run still fails)
+- [x] A-012 R7: A relative, empty or unwritable `RK_OPERATOR_RUN_LOG` writes nothing and changes no exit code or output
+- [x] A-013 R6: Streams over the cap are tail-truncated with the `…[truncated]` marker, and empty streams' lines are omitted
+- [x] A-014 R2: Outcome capture and the failure contract are unaffected by the header line (an `outcome:` line still wins, and a no-outcome run still fails)
 
 ### Code Quality
 
-- [ ] A-015 Pattern consistency: New code follows naming and structural patterns of surrounding code (test seams as package vars, `exec.CommandContext` argv, no inline tmux commands)
-- [ ] A-016 No unnecessary duplication: `RunLogEnv` and the record writer have one owner; the state-path rule is implemented once in `internal/operator`
-- [ ] A-017 Readability: `execute()` stays small; self-log logic lives in a helper; no god functions
-- [ ] A-018 Tests: Every requirement's behavior is covered by Go tests, and `go test ./...` passes
-- [ ] A-019 No magic strings: the env var name, caps and the `-L <server>` token are named constants
-- [ ] A-020 Comments: no comment narration; comments state only constraints the code can't show
+- [x] A-015 Pattern consistency: New code follows naming and structural patterns of surrounding code (test seams as package vars, `exec.CommandContext` argv, no inline tmux commands)
+- [x] A-016 No unnecessary duplication: `RunLogEnv` and the record writer have one owner; the state-path rule is implemented once in `internal/operator`
+- [x] A-017 Readability: `execute()` stays small; self-log logic lives in a helper; no god functions
+- [x] A-018 Tests: Every requirement's behavior is covered by Go tests, and `go test ./...` passes — `go vet ./...` clean; `go test ./internal/operator/ ./internal/operatorloop/ ./cmd/rk/` passes except the environment-dependent `TestPortPinRowRealPolicyValues` (not this change)
+- [x] A-019 No magic strings: the env var name, caps and the `-L <server>` token are named constants
+- [x] A-020 Comments: no comment narration; comments state only constraints the code can't show
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- `app/backend/internal/operatorloop/record.go:121` `statePathFn` — its "unknown socket refuses" rule overlaps `operator.StatePathFor` (internal/operator/store.go:96); it stays stricter (also refuses `default`), so keep it but consider delegating the named-server case
 
 ## Assumptions
 
