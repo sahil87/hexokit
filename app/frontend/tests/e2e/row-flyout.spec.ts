@@ -490,6 +490,80 @@ test.describe("Row flyout card (fine pointer)", () => {
   });
 
   /**
+   * Proves: while a worktree fork is in flight the clicked row shows the
+   * LogoSpinner and a "creating worktree…" hint, the same-directory fork row is
+   * blocked, and a placeholder `<name>-fork` row (the + New tab ghost) sits in
+   * the sidebar — and the placeholder outlives the hover card, so the fork stays
+   * visible after the pointer leaves. Releasing the response navigates as usual.
+   *
+   * Steps:
+   * 1. Route the window-fork API glob to a 200 returning windowId "@9", held
+   *    until the test releases it.
+   * 2. Hover @1 (feature-work) and click "Fork to new worktree".
+   * 3. Assert the row's spinner + progress hint, the fork row disabled, and a
+   *    ghost row named feature-work-fork.
+   * 4. Move the pointer off the row; assert the card closes and the ghost row
+   *    is still visible.
+   * 5. Release the response; assert the URL becomes /default/9.
+   */
+  test("a pending worktree fork shows the row spinner and a placeholder row that outlives the card", async ({ page }) => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    await page.route("**/api/windows/*/fork*", async (route) => {
+      await held;
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ server: SERVER, session: "dev", window: "feature-work-fork", windowId: "@9" }),
+      });
+    });
+
+    await prRow(page).hover();
+    const forkWtRow = card(page).getByTestId("row-flyout-fork-worktree-action");
+    await forkWtRow.click();
+
+    await expect(forkWtRow.getByTestId("row-flyout-fork-spinner")).toBeVisible();
+    await expect(forkWtRow).toContainText("creating worktree…");
+    await expect(card(page).getByTestId("row-flyout-fork-action")).toBeDisabled();
+    const ghost = tree(page).locator("[role='treeitem'][data-window-id^='ghost-']");
+    await expect(ghost).toHaveCount(1);
+    await expect(ghost).toContainText("feature-work-fork");
+
+    // Pointer leaves: the hover card closes, the placeholder row stays.
+    await page.mouse.move(900, 600);
+    await expect(card(page)).toHaveCount(0);
+    await expect(ghost).toBeVisible();
+
+    release();
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/9(?:$|[/?#])`), { timeout: 5_000 });
+  });
+
+  /**
+   * Proves: a failed worktree fork drops the placeholder row and surfaces the
+   * server's error, and the row is retryable (spinner gone, row enabled).
+   *
+   * Steps:
+   * 1. Route the window-fork API glob to a 500 with an error body.
+   * 2. Hover @1 and click "Fork to new worktree".
+   * 3. Assert the error toast text, no ghost row, and the row back at rest.
+   */
+  test("a failed worktree fork drops the placeholder row and shows the error", async ({ page }) => {
+    await page.route("**/api/windows/*/fork*", (route) =>
+      route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "wt create failed" }) }),
+    );
+
+    await prRow(page).hover();
+    const forkWtRow = card(page).getByTestId("row-flyout-fork-worktree-action");
+    await forkWtRow.click();
+
+    await expect(page.getByText("wt create failed")).toBeVisible();
+    await expect(tree(page).locator("[data-window-id^='ghost-']")).toHaveCount(0);
+    await expect(forkWtRow).toBeEnabled();
+    await expect(forkWtRow.getByTestId("row-flyout-fork-spinner")).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
+  });
+
+  /**
    * Proves: the PR link's stopPropagation guard — activating a card link
    * never selects the underlying row (the SPA URL stays on the server route).
    *
