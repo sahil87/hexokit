@@ -73,7 +73,7 @@ func TestGetSettings_registryOrderAndDefaults(t *testing.T) {
 	wantKeys := []string{
 		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host", "port",
 		"instance_name", "auto_name", "cron_ticker", "easter_eggs", "gui.enabled", "gui.wm", "gui.geometry", "openai_mcp.enabled", "openai_mcp.tunnel_id",
-		"tmux_conf",
+		"operator.merge_mode", "tmux_conf",
 		"log_level", "server_colors", "server_flairs", "board_order", "riff_presets",
 	}
 	if len(entries) != len(wantKeys) {
@@ -126,6 +126,9 @@ func TestGetSettings_registryOrderAndDefaults(t *testing.T) {
 	}
 	if got := byKey["gui.enabled"].Value; got != false {
 		t.Errorf("gui.enabled.value = %v, want false", got)
+	}
+	if e := byKey["operator.merge_mode"]; e.Kind != "enum" || e.Default != "cherry-pick-ladder" || e.Value != "cherry-pick-ladder" || !e.UI || len(e.Options) != 3 {
+		t.Errorf("operator.merge_mode entry = %+v, want a UI enum defaulting to cherry-pick-ladder with 3 options", e)
 	}
 	if got := byKey["log_level"].Value; got != "info" {
 		t.Errorf("log_level.value = %v, want %q", got, "info")

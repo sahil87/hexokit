@@ -244,11 +244,18 @@ func pickLandingSession(candidates []tmux.SessionFacts, mainRoot string, rootOf 
 // the cwd-root rung (the window's own start directory, already resolved by
 // the caller).
 func resolveTabNewSession(ctx context.Context, serverFlag, cwd string) (session, server, rung string, err error) {
-	if tabNewSessionFlag != "" {
-		if !strings.HasPrefix(tabNewSessionFlag, "=") {
-			return "", "", "", usageError(fmt.Errorf("--session takes the =S exact form (got %q)", tabNewSessionFlag))
+	return resolveLandingSession(ctx, tabNewSessionFlag, serverFlag, cwd)
+}
+
+// resolveLandingSession is the rung ladder behind resolveTabNewSession, with
+// the explicit =S session passed in instead of read from the flag, so other
+// callers (the operator autopilot's spawns) land windows by the same rule.
+func resolveLandingSession(ctx context.Context, explicit, serverFlag, cwd string) (session, server, rung string, err error) {
+	if explicit != "" {
+		if !strings.HasPrefix(explicit, "=") {
+			return "", "", "", usageError(fmt.Errorf("--session takes the =S exact form (got %q)", explicit))
 		}
-		name := tabNewSessionFlag[1:]
+		name := explicit[1:]
 		if errMsg := validate.ValidateName(name, "Session name"); errMsg != "" {
 			return "", "", "", usageError(fmt.Errorf("--session: %s", errMsg))
 		}
