@@ -140,6 +140,8 @@ type StatusItem struct {
 	// Sequence is the item's merge-sequence position ("2/3"), "" before one
 	// exists.
 	Sequence string `json:"sequence"`
+	// Queue is the id stamped by `autopilot queue` ("" for a legacy item).
+	Queue    string `json:"queue"`
 	Recovery string `json:"recovery"`
 	Halted   bool   `json:"halted"`
 }
@@ -163,7 +165,12 @@ func Status(ctx context.Context, env Env) (StatusResult, error) {
 	res := StatusResult{Items: []StatusItem{}}
 	var queue []operator.TrackedItem
 	for _, it := range st.Tracked {
-		if isQueueItem(it) && it.Scope["merge_mode"] != nil {
+		// Every repo-bearing pane item is queue work. scope.queue marks the items
+		// `autopilot queue` created; an item without it predates the marker (or
+		// came from `track add`) and is listed too: showing a user-tracked pane is
+		// harmless, silently dropping a real queue item is not, and a legacy null
+		// mode reads as cherry-pick-ladder.
+		if isQueueItem(it) {
 			queue = append(queue, it)
 		}
 	}
@@ -176,6 +183,7 @@ func Status(ctx context.Context, env Env) (StatusResult, error) {
 		row := StatusItem{
 			ID: it.ID, State: state, Mode: modeOf(it), Repo: operator.ScopeString(it.Scope, "repo"),
 			Branch: itemBranch(st, it), DependsOn: append([]string{}, it.DependsOn...),
+			Queue: operator.ScopeString(it.Scope, scopeQueue),
 		}
 		for _, p := range st.Tracked {
 			if !isPRItem(p) || operator.ScopeString(p.Scope, scopeItem) != it.ID {

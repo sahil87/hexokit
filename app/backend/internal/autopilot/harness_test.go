@@ -544,16 +544,6 @@ func hasAction(res *StepResult, kind, item string) bool {
 	return false
 }
 
-func countActions(res *StepResult, kind string) int {
-	n := 0
-	for _, a := range res.Actions {
-		if a.Kind == kind {
-			n++
-		}
-	}
-	return n
-}
-
 // shipped marks the named queue items done with a branch `<name>-branch` and an
 // open PR numbered from first, and returns the PRs in order.
 func (h *harness) shipped(first int, names ...string) []*simPR {

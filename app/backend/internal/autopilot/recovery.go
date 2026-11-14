@@ -45,7 +45,11 @@ func (e *engine) stall(ctx context.Context, st *operator.State, head operator.Tr
 	if err != nil {
 		return
 	}
-	cur := fresh.Tracked[operator.IndexOf(fresh.Tracked, head.ID)]
+	ci := operator.IndexOf(fresh.Tracked, head.ID)
+	if ci < 0 {
+		return // removed by an external writer: it wins
+	}
+	cur := fresh.Tracked[ci]
 	if cur.Unchanged >= stallUnchanged && strings.EqualFold(v.Mergeable, "CONFLICTING") {
 		e.conflicting(ctx, fresh, cur, v)
 	}

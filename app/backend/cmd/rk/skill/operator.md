@@ -84,13 +84,43 @@ A plain agent gets a chained `github-pr` item once its PR URL is known (`track a
 
 A queue is created, advanced and merged by `rk operator autopilot` — never by hand-writing items or running the git/gh choreography yourself. Confirm upfront, naming the mode:
 
-| Mode | Confirmation line | Meaning |
-|---|---|---|
-| `cherry-pick-ladder` | "creates PRs — merge after review" | chained PRs; each change gets its dependencies cherry-picked in |
-| `stacked-prs` | "creates stacked PRs — merge after review" | chained PRs; each is cut from its dependency's branch |
-| `merge-auto` | "merges PRs on completion" | each PR is armed to merge as it ships; the next change waits for the verified merge |
+Confirmation lines: `cherry-pick-ladder` "creates PRs — merge after review"; `stacked-prs` "creates stacked PRs — merge after review"; `merge-auto` "merges PRs on completion".
 
-The mode comes from the first source that has one: the user's instruction (`--mode`), then the `operator.merge_mode` setting, then `cherry-pick-ladder`. The verb resolves it, prints `mode: <name> (flag|setting|default)`, and stamps it on every item — say it in the confirmation. Ask the mode question only on a misfit: the verb's receipt reports `misfit: …` when `merge-auto` meets same-repo dependencies, and you ask when the user's words contradict the mode. Put it as one line with the glyphs and tradeoff — `▂▄▆` cherry-pick-ladder (one PR per change, dependencies copied in), `░▒▓█` stacked-prs (each PR targets the one before it), `▄▀` merge-auto (each merges as it ships) — and re-run with `--mode`.
+The mode comes from the first source that has one: the user's instruction (`--mode`), then the `operator.merge_mode` setting, then `cherry-pick-ladder`. The verb resolves it, prints `mode: <name> (flag|setting|default)`, and stamps it on every item — say it in the confirmation. Ask the mode question only on a misfit: the verb's receipt reports `misfit: …` when `merge-auto` meets same-repo dependencies, and you ask when the user's words contradict the mode (they say "merge as you go" while the mode is a held one). The question includes the glyphs, the three diagrams below and a one-line tradeoff each, then you re-run with `--mode`.
+
+At a glance: `▂▄▆` cherry-pick-ladder · `░▒▓█` merge-auto · `▄▀` stacked-prs.
+
+`cherry-pick-ladder` (default) — every PR stands on main; each successive diff is taller because it carries cherry-picked copies of its predecessors (`a'`, `b'`). All PRs are held and merged base-first on "merge all".
+
+```
+                    ┌───┐
+            ┌───┐   │ C │
+    ┌───┐   │ B │   ├╌╌╌┤
+    │ A │   ├╌╌╌┤   │ b'│
+    │   │   │ a'│   │ a'│
+────┴───┴───┴───┴───┴───┴──▶ main
+     PR1     PR2     PR3
+```
+
+`merge-auto` — no PRs pile up for review: each PR is armed the moment it lands and GitHub merges it into main when checks pass (▼ into ●). Each successor stays held until its predecessor's merge is verified, then starts from the advanced main — no batch review, no re-stacking.
+
+```
+    ┌───┐          ┌───┐          ┌───┐
+    │ A │          │ B │          │ C │
+────┴─▼─┴●─────────┴─▼─┴●─────────┴─▼─┴●──▶ main
+       merged         merged         merged
+```
+
+`stacked-prs` — uniform height: every diff shows only its own delta. Each PR's base is the previous PR's branch, so merging a bottom box means re-seating the ones above it (retarget + rebase, step by step on "merge all").
+
+```
+                    ┌───┐
+            ┌───┐   │ C │  PR3 · base: B
+    ┌───┐   │ B │   └───┘
+    │ A │   └───┘  PR2 · base: A
+────┴───┴──────────────────▶ main
+    PR1 · base: main
+```
 
 Pipe the entries as a JSON array; the first carries no dependency, every later one chains to its nearest same-repo predecessor (else the previous entry, ordering-only across repos) unless it names `depends_on`:
 
@@ -102,7 +132,7 @@ echo '[
 ]' | rk operator autopilot queue [--mode stacked-prs]
 ```
 
-An entry names an existing change (`change`), raw text (`task`), or neither (a bare agent — nothing may depend on it). Runs spawn the entries as they become ready; `rk operator autopilot step` does one pass of that work on demand and `rk operator autopilot status` shows each item's state, PR and merge position (read-only). Both print escalations — send `rk notify` for each one.
+An entry names an existing change (`change`), raw text (`task`), or neither (a bare agent — nothing may depend on it). Runs spawn the entries as they become ready; `rk operator autopilot step` does one pass of that work on demand and `rk operator autopilot status` shows each item's state, PR and merge position (read-only). `step` prints escalations — send `rk notify` for each one; `status` is read-only and prints none.
 
 - **"merge all"** → `rk operator autopilot merge` (once the queue is complete and the user has said yes; it refuses while items are not done and does nothing for `merge-auto`). It starts the ordered merge; later runs advance it.
 - **"stop"** → `rk operator autopilot stop`: disarms every armed PR and pauses the unspawned entries; live panes keep running.
@@ -110,15 +140,7 @@ An entry names an existing change (`change`), raw text (`task`), or neither (a b
 
 ## What a run sees
 
-`rk operator brief` prints the brief a one-shot run would be handed — the changed items with their dependency neighbours and notes, one line for every other item, the run rules and the exit contract. It only reads the ledger:
-
-```sh
-rk operator brief                                    # nothing flagged — manual render
-rk operator brief --changed pr-913=merged            # as if pr-913 had merged
-rk operator brief --state ./ledger.yaml -L work      # a specific file / server
-```
-
-Use it to check that your items, `then` prose and notes read the way you intend, and to debug why a run did what it did.
+`rk operator brief` prints the brief a one-shot run would be handed — the changed items with their dependency neighbours and notes, one line for every other item, the run rules and the exit contract. It only reads the ledger: `rk operator brief [--changed pr-913=merged] [--state ./ledger.yaml] [-L work]`. Use it to check that your items, `then` prose and notes read the way you intend, and to debug why a run did what it did.
 
 ## Gotchas
 

@@ -52,29 +52,38 @@ func StartMerge(ctx context.Context, env Env, opts MergeOptions) (*StepResult, e
 		return e.res, err
 	}
 	repoFilter := cleanRepo(opts.Repo)
-	var queue []operator.TrackedItem
-	var pending []string
+	var all []operator.TrackedItem
+	started := map[string]bool{}
 	for _, it := range st.Tracked {
 		if !isQueueItem(it) || !isChainMode(modeOf(it)) || isBare(it) {
 			continue
 		}
-		if repoFilter != "" && cleanRepo(operator.ScopeString(it.Scope, "repo")) != repoFilter {
-			continue
+		all = append(all, it)
+		if repoFilter == "" || cleanRepo(operator.ScopeString(it.Scope, "repo")) == repoFilter {
+			started[it.ID] = true
 		}
-		queue = append(queue, it)
+	}
+	if len(started) == 0 {
+		return e.res, nil
+	}
+	// A started repo's PRs wait on the PRs of the repos it depends on, so those
+	// get their items too (registered, not started) and must be done.
+	queue := closureOf(all, started)
+	var pending []string
+	for _, it := range queue {
 		if !operator.ItemDone(it) {
 			pending = append(pending, it.ID)
 		}
 	}
-	if len(queue) == 0 {
-		return e.res, nil
-	}
 	if len(pending) > 0 {
 		return e.res, fmt.Errorf("queue items not done yet: %s", strings.Join(pending, ", "))
 	}
-	items, err := e.buildPRChains(ctx, st, queue)
+	items, err := e.buildPRChains(ctx, st, queue, started)
 	if err != nil {
 		return e.res, err
+	}
+	if err := e.startChains(started); err != nil {
+		return e.res, fmt.Errorf("starting the registered sequences: %w", err)
 	}
 	if len(items) > 0 {
 		for _, it := range items {
@@ -93,7 +102,7 @@ func StartMerge(ctx context.Context, env Env, opts MergeOptions) (*StepResult, e
 // buildPRChains makes one github-pr item per queue item: base-first within a
 // repo (depends_on the previous PR of the repo), and across repos behind the
 // PRs of the item's cross-repo dependencies.
-func (e *engine) buildPRChains(ctx context.Context, st *operator.State, queue []operator.TrackedItem) ([]operator.TrackedItem, error) {
+func (e *engine) buildPRChains(ctx context.Context, st *operator.State, queue []operator.TrackedItem, started map[string]bool) ([]operator.TrackedItem, error) {
 	taken := map[string]bool{}
 	for _, it := range st.Tracked {
 		taken[it.ID] = true
@@ -136,6 +145,9 @@ func (e *engine) buildPRChains(ctx context.Context, st *operator.State, queue []
 		if err != nil {
 			return nil, err
 		}
+		if !started[qi.ID] {
+			it.Scope[scopeDeferred] = true
+		}
 		taken[it.ID] = true
 		prOf[qi.ID] = it.ID
 		lastInRepo[repo] = it.ID
@@ -144,12 +156,68 @@ func (e *engine) buildPRChains(ctx context.Context, st *operator.State, queue []
 	return out, nil
 }
 
+// closureOf returns the queue items in ledger order that are started or that a
+// started item transitively depends on.
+func closureOf(all []operator.TrackedItem, started map[string]bool) []operator.TrackedItem {
+	need := map[string]bool{}
+	var visit func(id string)
+	visit = func(id string) {
+		if need[id] {
+			return
+		}
+		need[id] = true
+		for _, it := range all {
+			if it.ID == id {
+				for _, d := range it.DependsOn {
+					visit(d)
+				}
+			}
+		}
+	}
+	for id := range started {
+		visit(id)
+	}
+	var out []operator.TrackedItem
+	for _, it := range all {
+		if need[it.ID] {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+// startChains lifts the deferred mark from the PR items of started queue items,
+// so a repo registered earlier as another repo's barrier begins when its own
+// merge is started.
+func (e *engine) startChains(started map[string]bool) error {
+	return e.mutate(func(st *operator.State) error {
+		changed := false
+		for i := range st.Tracked {
+			it := &st.Tracked[i]
+			if isPRItem(*it) && scopeBool(*it, scopeDeferred) && started[operator.ScopeString(it.Scope, scopeItem)] {
+				it.Scope[scopeDeferred] = false
+				changed = true
+			}
+		}
+		if !changed {
+			return operator.ErrNoWrite
+		}
+		return nil
+	})
+}
+
 // newPRItem builds the github-pr item for a queue item's PR. A PR that already
 // merged is born done, so the chain behind it is not blocked.
 func (e *engine) newPRItem(ctx context.Context, qi operator.TrackedItem, repo, branch string, v prView, seq string, deps []string, mode string, taken map[string]bool) (operator.TrackedItem, error) {
 	id := fmt.Sprintf("pr-%d", v.Number)
 	if taken[id] {
-		id = fmt.Sprintf("pr-%s-%d", filepath.Base(repo), v.Number)
+		// Repos sharing a basename and a PR number need a deterministic third
+		// form: count up until the id is free.
+		base := fmt.Sprintf("pr-%s-%d", filepath.Base(repo), v.Number)
+		id = base
+		for n := 2; taken[id]; n++ {
+			id = fmt.Sprintf("%s-%d", base, n)
+		}
 	}
 	scope := map[string]interface{}{
 		"repo": repo, "pr": v.Number, "change": operator.ScopeString(qi.Scope, "change"),
@@ -171,8 +239,13 @@ func (e *engine) newPRItem(ctx context.Context, qi operator.TrackedItem, repo, b
 func (e *engine) addPRItems(items []operator.TrackedItem) error {
 	return e.mutate(func(st *operator.State) error {
 		for _, it := range items {
-			if operator.IndexOf(st.Tracked, it.ID) >= 0 {
-				continue
+			if i := operator.IndexOf(st.Tracked, it.ID); i >= 0 {
+				// The same PR registered by a concurrent writer is fine; a
+				// different item under this id would silently lose its sequence.
+				if operator.ScopeString(st.Tracked[i].Scope, scopeItem) == operator.ScopeString(it.Scope, scopeItem) {
+					continue
+				}
+				return fmt.Errorf("tracked item %s already exists for another item", it.ID)
 			}
 			st.Tracked = append(st.Tracked, it)
 		}
@@ -277,7 +350,7 @@ func (e *engine) advanceSeq(ctx context.Context, seq string, unreviewed *[]strin
 				break
 			}
 		}
-		if pos < 0 || scopeBool(head, scopeHalted) || e.blockedByDeps(st, head) {
+		if pos < 0 || scopeBool(head, scopeHalted) || scopeBool(head, scopeDeferred) || e.blockedByDeps(st, head) {
 			return
 		}
 		repo := cleanRepo(operator.ScopeString(head.Scope, "repo"))
@@ -377,9 +450,11 @@ func (e *engine) driveHead(ctx context.Context, st *operator.State, items []oper
 	mode := modeOf(head)
 	if mode == operator.MergeModeStackedPRs {
 		if pos > 0 && !scopeBool(head, scopeHalted) && !scopeBool(head, scopePrepared) {
-			if !e.prepareStacked(ctx, st, items[pos-1], head, v) {
-				return false
-			}
+			// The retarget, rebase and force-push change the PR's base and head:
+			// the checks and mergeability in v describe the old ones. Merge on
+			// a later step, from fresh state.
+			e.prepareStacked(ctx, st, items[pos-1], head, v)
+			return false
 		}
 		return e.stackedStep(ctx, st, head, v)
 	}
@@ -398,19 +473,30 @@ func (e *engine) driveHead(ctx context.Context, st *operator.State, items []oper
 func (e *engine) arm(ctx context.Context, st *operator.State, head operator.TrackedItem, v prView) bool {
 	repo := cleanRepo(operator.ScopeString(head.Scope, "repo"))
 	n := prNum(head.Scope)
-	if v.IsDraft {
-		if _, err := e.gh(ctx, repo, "pr", "ready", n); err != nil {
-			e.escalate(head.ID, fmt.Sprintf("cannot ready draft PR #%s: %s", n, stderrOf(err)))
-			return false
-		}
+	if !e.readyDraft(ctx, head, &v) {
+		return false
+	}
+	// The marker is durable before GitHub is asked to arm: `stop` disarms only
+	// the PRs that carry it, so an armed PR without one could merge unattended.
+	if err := e.markArmed(head.ID, true); err != nil {
+		e.escalate(head.ID, fmt.Sprintf("PR #%s was not armed: the armed marker could not be written: %s", n, err))
+		return false
 	}
 	_, err := e.gh(ctx, repo, "pr", "merge", "--auto", "--squash", n)
 	if err == nil {
-		_ = e.setScope(head.ID, map[string]interface{}{scopeArmed: true})
 		e.act(ActArmed, head.ID, "PR #"+n)
 		return false
 	}
 	msg := strings.ToLower(stderrOf(err))
+	if strings.Contains(msg, "already enabled") || strings.Contains(msg, "already has auto") {
+		return false // armed: the marker stays
+	}
+	if cerr := e.markArmed(head.ID, false); cerr != nil {
+		// gh's outcome is uncertain and the marker could not be cleared: leave
+		// it set so `stop` still disarms, and say so.
+		e.escalate(head.ID, fmt.Sprintf("arming PR #%s failed (%s) and the armed marker could not be cleared (%s): the marker stays so stop will disarm it", n, stderrOf(err), cerr))
+		return false
+	}
 	switch {
 	case strings.Contains(msg, "clean status"):
 		// No required checks: auto-merge has nothing to wait for, so merge now.
@@ -419,12 +505,43 @@ func (e *engine) arm(ctx context.Context, st *operator.State, head operator.Trac
 		_ = e.setScope(head.ID, map[string]interface{}{scopeDirect: true})
 		_ = e.note(head.ID, "auto-merge is disabled on this repo: merging step by step")
 		return e.directMerge(ctx, st, head, v)
-	case strings.Contains(msg, "already enabled"), strings.Contains(msg, "already has auto"):
-		_ = e.setScope(head.ID, map[string]interface{}{scopeArmed: true})
-		return false
 	}
 	e.escalate(head.ID, fmt.Sprintf("arming PR #%s failed: %s", n, stderrOf(err)))
 	return false
+}
+
+// markArmed writes the durable armed marker. Unlike setScope it fails when the
+// item has vanished, so a caller never believes a marker exists that no `stop`
+// could find.
+func (e *engine) markArmed(id string, armed bool) error {
+	if e.env.DryRun {
+		return nil
+	}
+	return operator.Mutate(e.env.StatePath, func(st *operator.State) error {
+		i := operator.IndexOf(st.Tracked, id)
+		if i < 0 {
+			return fmt.Errorf("item %s is no longer tracked", id)
+		}
+		st.Tracked[i].Scope[scopeArmed] = armed
+		st.Tracked[i].UpdatedAt = operator.NowRFC3339()
+		return nil
+	})
+}
+
+// readyDraft marks a draft PR ready and reports whether the PR may proceed. A
+// draft cannot be merged or armed: fab-created queue PRs open as drafts.
+func (e *engine) readyDraft(ctx context.Context, head operator.TrackedItem, v *prView) bool {
+	if !v.IsDraft {
+		return true
+	}
+	repo := cleanRepo(operator.ScopeString(head.Scope, "repo"))
+	n := prNum(head.Scope)
+	if _, err := e.gh(ctx, repo, "pr", "ready", n); err != nil {
+		e.escalate(head.ID, fmt.Sprintf("cannot ready draft PR #%s: %s", n, stderrOf(err)))
+		return false
+	}
+	v.IsDraft = false
+	return true
 }
 
 func (e *engine) mergeNow(ctx context.Context, head operator.TrackedItem, n, repo string) bool {
@@ -453,6 +570,9 @@ func (e *engine) directMerge(ctx context.Context, st *operator.State, head opera
 	if checksPending(runs) || !strings.EqualFold(v.Mergeable, "MERGEABLE") {
 		return false
 	}
+	if !e.readyDraft(ctx, head, &v) {
+		return false
+	}
 	return e.mergeNow(ctx, head, n, repo)
 }
 
@@ -462,31 +582,31 @@ func (e *engine) stackedStep(ctx context.Context, st *operator.State, head opera
 	return e.directMerge(ctx, st, head, v)
 }
 
-// prepareStacked reports whether the PR is ready to merge-check: it retargets the next PR onto the default branch (GitHub does it
+// prepareStacked retargets the next PR onto the default branch (GitHub does it
 // itself when the merged base branch was deleted) and rebases its branch onto
 // the new default tip, replaying only its own commits. A conflict halts and
-// escalates; it never skips.
-func (e *engine) prepareStacked(ctx context.Context, st *operator.State, prev, head operator.TrackedItem, v prView) bool {
+// escalates; it never skips. The caller never merges in the same pass.
+func (e *engine) prepareStacked(ctx context.Context, st *operator.State, prev, head operator.TrackedItem, v prView) {
 	repo := cleanRepo(operator.ScopeString(head.Scope, "repo"))
 	n := prNum(head.Scope)
 	branch := safeBranch(operator.ScopeString(head.Scope, "branch"))
 	prevBranch := safeBranch(operator.ScopeString(prev.Scope, "branch"))
 	if _, err := e.git(ctx, repo, "fetch", "origin"); err != nil {
 		e.escalate(head.ID, "git fetch failed: "+stderrOf(err))
-		return false
+		return
 	}
 	def := e.defaultBranch(ctx, repo)
 	if v.BaseRefName != def {
 		if _, err := e.gh(ctx, repo, "pr", "edit", n, "--base", def); err != nil {
 			e.escalate(head.ID, fmt.Sprintf("retargeting PR #%s onto %s failed: %s", n, def, stderrOf(err)))
-			return false
+			return
 		}
 		e.act(ActRetargeted, head.ID, fmt.Sprintf("PR #%s → %s", n, def))
 	}
 	wt, cleanup, err := e.worktreeFor(ctx, repo, branch)
 	if err != nil {
 		e.escalate(head.ID, "no worktree to rebase in: "+err.Error())
-		return false
+		return
 	}
 	defer cleanup()
 	upstream := prevBranch
@@ -497,15 +617,14 @@ func (e *engine) prepareStacked(ctx context.Context, st *operator.State, prev, h
 		files := e.conflictFiles(ctx, wt)
 		_, _ = e.git(ctx, wt, "rebase", "--abort")
 		e.haltCone(ctx, st, head, fmt.Sprintf("rebase of %s onto %s conflicted%s (aborted, not skipped)", branch, def, files))
-		return false
+		return
 	}
 	if _, err := e.git(ctx, wt, "push", "--force-with-lease", "origin", branch); err != nil {
 		e.escalate(head.ID, "push after rebase failed: "+stderrOf(err))
-		return false
+		return
 	}
 	_ = e.setScope(head.ID, map[string]interface{}{scopePrepared: true})
 	e.act(ActRebased, head.ID, fmt.Sprintf("%s onto %s", branch, def))
-	return true
 }
 
 // conflictFiles names the unmerged paths of a stopped rebase or cherry-pick.

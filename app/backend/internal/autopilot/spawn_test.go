@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"rk/internal/operator"
+	"rk/internal/riff"
 )
 
 func TestSpawnPinsFetchedTipNotStaleLocalHead(t *testing.T) {
@@ -549,4 +550,65 @@ func TestLockIsNeverHeldAcrossASubprocess(t *testing.T) {
 	if probes == 0 {
 		t.Fatal("no subprocess ran")
 	}
+}
+
+func TestStackedRawTextPromptRendersThroughTheProductionPrefixRenderer(t *testing.T) {
+	h := newHarness(t)
+	resolveAgentFn = func(context.Context, string, string) riff.ResolvedAgent {
+		return riff.ResolvedAgent{Launcher: "codex", SkillPrefix: "$"}
+	}
+	foo := newRepo(t, "foo")
+	commitFile(t, foo.Dir, "fab/project/config.yaml", "x: 1\n", "fab")
+	runGit(t, foo.Dir, "push", "origin", "main")
+	h.queue("stacked-prs", Entry{ID: "dep", Repo: foo.Dir, Task: "dep"}, Entry{ID: "child", Repo: foo.Dir, Task: "child work"})
+	foo.branch("dep-branch", "main", "dep.txt", "x\n")
+	foo.pushBranch("dep-branch")
+	h.setDone("dep")
+	h.attachBranch("dep", "dep-branch")
+	h.gh.add(1, "dep-branch")
+	h.step()
+
+	prompt := h.spawn.reqs[0].Prompt
+	rendered := riff.ApplySkillPrefix(riff.EffectiveSpec{SkillPrefix: "$", Panes: []riff.PaneSpec{{Kind: riff.PaneKindSkill, Value: prompt}}}).Panes[0].Value
+	if !strings.HasPrefix(rendered, "$fab-new child work") {
+		t.Fatalf("the production renderer left the invocation unrendered: %q", rendered)
+	}
+	if !strings.Contains(rendered, "After $fab-new creates the change") || strings.Contains(rendered, "/fab-new") {
+		t.Fatalf("rendered prompt = %q", rendered)
+	}
+}
+
+func TestRespawnKeepsTheStackedBase(t *testing.T) {
+	setup := func(t *testing.T, withFab bool) (*harness, string) {
+		h := newHarness(t)
+		foo := newRepo(t, "foo")
+		if withFab {
+			commitFile(t, foo.Dir, "fab/project/config.yaml", "x: 1\n", "fab")
+			runGit(t, foo.Dir, "push", "origin", "main")
+		}
+		h.queue("stacked-prs", Entry{ID: "dep", Repo: foo.Dir, Task: "dep"}, Entry{ID: "child", Repo: foo.Dir, Task: "child work"})
+		foo.branch("dep-branch", "main", "dep.txt", "x\n")
+		foo.pushBranch("dep-branch")
+		h.setDone("dep")
+		h.attachBranch("dep", "dep-branch")
+		h.gh.add(1, "dep-branch")
+		h.step()
+		delete(h.panes.panes, "%101")
+		h.step()
+		return h, foo.Dir
+	}
+	t.Run("raw-text fab entry that died before recording its base", func(t *testing.T) {
+		h, _ := setup(t, true)
+		req := h.spawn.reqs[len(h.spawn.reqs)-1]
+		if req.CheckoutBranch == "" || !strings.HasPrefix(req.Prompt, "/fab-new child work") || !strings.Contains(req.Prompt, "set-base-branch <new-change> dep-branch") {
+			t.Fatalf("respawn request = %+v", req)
+		}
+	})
+	t.Run("plain agent", func(t *testing.T) {
+		h, _ := setup(t, false)
+		req := h.spawn.reqs[len(h.spawn.reqs)-1]
+		if !strings.Contains(req.Prompt, "open a draft PR against dep-branch") {
+			t.Fatalf("respawn prompt = %q", req.Prompt)
+		}
+	})
 }

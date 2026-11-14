@@ -22,7 +22,9 @@ const (
 )
 
 // derivedState is the item's state from stored facts alone, consistent with
-// `rk operator track list`: done › paused › held › pending › spawned.
+// `rk operator track list`: done › paused › held › pending › spawned. The
+// precedence is strict: an unsatisfied dependency holds an item that already has
+// a pane.
 func derivedState(st *operator.State, it operator.TrackedItem) string {
 	switch {
 	case operator.ItemDone(it):
@@ -30,13 +32,13 @@ func derivedState(st *operator.State, it operator.TrackedItem) string {
 	case it.Paused:
 		return StatePaused
 	}
-	if operator.ScopeString(it.Scope, "pane") != "" {
-		return StateSpawned
-	}
 	if storedHeldBy(st, it) != "" {
 		return StateHeld
 	}
-	return StatePending
+	if operator.ScopeString(it.Scope, "pane") == "" {
+		return StatePending
+	}
+	return StateSpawned
 }
 
 // storedHeldBy returns the first dependency the stored state does not satisfy

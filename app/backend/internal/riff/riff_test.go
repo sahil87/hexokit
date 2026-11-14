@@ -162,6 +162,8 @@ func TestRenderSkillRef(t *testing.T) {
 		{"arguments preserved verbatim", "$", "/fab-clarify resolve the auth question", "$fab-clarify resolve the auth question"},
 		{"argument whitespace preserved", "$", "/fab-x  double  space", "$fab-x  double  space"},
 		{"underscore is name charset", "$", "/fab_discuss", "$fab_discuss"},
+		{"a multiline argument tail is still one invocation", "$", "/fab-new fix it\n\nThen run `fab status x`.", "$fab-new fix it\n\nThen run `fab status x`."},
+		{"a newline straight after the name is not an invocation", "$", "/fab-new\nfix it", "/fab-new\nfix it"},
 		{"prose task passes through", "$", "fix the flaky test in internal/tmux", "fix the flaky test in internal/tmux"},
 		{"empty value passes through", "$", "", ""},
 		{"already-$-prefixed passes through", "$", "$fab-discuss", "$fab-discuss"},

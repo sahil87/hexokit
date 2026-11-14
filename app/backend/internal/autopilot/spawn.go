@@ -384,7 +384,7 @@ func (e *engine) respawnDead(ctx context.Context, st *operator.State) {
 		if !isQueueItem(it) || pane == "" || operator.ItemDone(it) || it.Paused || skipped(it) {
 			continue
 		}
-		if _, alive := panes[pane]; alive {
+		if _, alive := panes[pane]; alive || derivedState(st, it) == StateHeld {
 			continue
 		}
 		e.respawn(ctx, st, it)
@@ -408,6 +408,17 @@ func (e *engine) respawn(ctx context.Context, st *operator.State, it operator.Tr
 		e.act(ActRespawned, id, "would respawn on "+branch)
 		return
 	}
+	// A stacked worker that died before recording its base would otherwise be
+	// replaced by one that cuts its change against the default branch.
+	stackedBase := ""
+	if modeOf(it) == operator.MergeModeStackedPRs {
+		b, err := e.stackedBase(ctx, st, repo, sameRepoDeps(st, it))
+		if err != nil {
+			e.escalate(id, "cannot rebuild the stacked base for the respawn: "+err.Error())
+			return
+		}
+		stackedBase = b
+	}
 	// Recorded before acting so a crash mid-respawn cannot buy a second one.
 	if err := e.setScope(id, map[string]interface{}{scopeRespawned: true}); err != nil {
 		e.escalate(id, "respawn marker not written: "+err.Error())
@@ -421,7 +432,7 @@ func (e *engine) respawn(ctx context.Context, st *operator.State, it operator.Tr
 	req := SpawnRequest{
 		Repo: repo, Session: session, WorktreeName: id, CheckoutBranch: branch,
 		ExistingWorktree: e.worktreeForBranch(ctx, repo, branch),
-		Prompt:           e.buildPrompt(ctx, it, repo, e.defaultBranch(ctx, repo), ""),
+		Prompt:           e.buildPrompt(ctx, it, repo, e.defaultBranch(ctx, repo), stackedBase),
 		Note:             id + " · respawned",
 	}
 	res, err := e.env.Spawn.Spawn(ctx, req)

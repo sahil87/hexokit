@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 
@@ -35,6 +36,8 @@ const (
 	scopePrepared  = "prepared"
 	scopeFixItem   = "fix_item"
 	scopeFixFor    = "fix_for"
+	scopeDeferred  = "deferred"
+	scopeQueue     = "queue"
 )
 
 var itemIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
@@ -58,6 +61,9 @@ func ParseEntries(data []byte) ([]Entry, error) {
 	var entries []Entry
 	if err := dec.Decode(&entries); err != nil {
 		return nil, operatorInvalid("invalid queue entries (want a JSON array of {id, repo, change|task, depends_on?, stop_stage?}): %v", err)
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, operatorInvalid("invalid queue entries: unexpected input after the JSON array")
 	}
 	if len(entries) == 0 {
 		return nil, operatorInvalid("queue is empty")
@@ -180,7 +186,8 @@ func Enqueue(ctx context.Context, env Env, entries []Entry, opts QueueOptions, s
 // items with implicit chaining applied.
 func (e *engine) buildQueue(ctx context.Context, st *operator.State, entries []Entry, mode string) ([]operator.TrackedItem, []string, error) {
 	byID := map[string]Entry{}
-	for _, en := range entries {
+	pos := map[string]int{}
+	for i, en := range entries {
 		if !itemIDRe.MatchString(en.ID) {
 			return nil, nil, operatorInvalid("invalid id %q (letters, digits, '.', '_', '-'; at most 64)", en.ID)
 		}
@@ -204,8 +211,10 @@ func (e *engine) buildQueue(ctx context.Context, st *operator.State, entries []E
 			return nil, nil, operatorInvalid("entry %s: invalid stop_stage %q", en.ID, *en.StopStage)
 		}
 		byID[en.ID] = en
+		pos[en.ID] = i
 	}
 
+	queueID := e.queueID(entries[0].ID)
 	var misfits []string
 	items := make([]operator.TrackedItem, 0, len(entries))
 	for i, en := range entries {
@@ -218,12 +227,15 @@ func (e *engine) buildQueue(ctx context.Context, st *operator.State, entries []E
 			if err := checkDep(st, byID, en, d); err != nil {
 				return nil, nil, err
 			}
+			if j, inQueue := pos[d]; inQueue && j >= i {
+				return nil, nil, operatorInvalid("entry %s depends on %s, which is not an earlier entry in the queue: a dependency must come before its dependent", en.ID, d)
+			}
 			if mode == operator.MergeModeMergeAuto && explicit && en.DependsOn != nil && sameRepoDep(st, byID, en, d) {
 				misfits = append(misfits, fmt.Sprintf("misfit: merge-auto with same-repo depends_on (%s → %s): each entry is based on the default branch independently, so the dependency's code never reaches it; ask whether stacked-prs or cherry-pick-ladder is meant", en.ID, d))
 			}
 		}
 		scope := map[string]interface{}{
-			"repo": en.Repo, "merge_mode": mode, scopeBare: en.Change == "" && en.Task == "",
+			"repo": en.Repo, "merge_mode": mode, scopeBare: en.Change == "" && en.Task == "", scopeQueue: queueID,
 		}
 		if en.Change != "" {
 			scope["change"] = en.Change
@@ -241,6 +253,13 @@ func (e *engine) buildQueue(ctx context.Context, st *operator.State, entries []E
 		items = append(items, it)
 	}
 	return items, misfits, nil
+}
+
+// queueID names one `queue` call: the first entry's id plus the call time, so
+// the items of a queue can be told apart from user-tracked panes and from other
+// queues.
+func (e *engine) queueID(first string) string {
+	return fmt.Sprintf("%s-%x", first, e.env.now().Unix())
 }
 
 // depsFor is the implicit chaining for entry i: the nearest earlier entry in

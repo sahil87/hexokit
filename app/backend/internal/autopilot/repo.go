@@ -119,20 +119,35 @@ func (e *engine) nameWithOwner(ctx context.Context, repo string) string {
 	return v.NameWithOwner
 }
 
-// safeBranch returns name when it is safe to hand to git and gh as an argv
-// element, else "". The state file is shared with other writers, so a branch
-// read from it is validated like user input: no leading '-' (an option), no
-// whitespace, control or ref-syntax characters, no "..".
+// safeBranch returns name when it is a valid branch name, else "": the rules of
+// `git check-ref-format --branch`, which also keeps a leading '-' (an option)
+// and every ref-syntax or whitespace character out of the argv of git, gh and
+// wt. The state file is shared with other writers, so a branch read from it is
+// validated like user input. A test pins this to the real git.
 func safeBranch(name string) string {
-	if name == "" || strings.HasPrefix(name, "-") || strings.Contains(name, "..") || strings.HasSuffix(name, ".lock") {
+	if !validBranchName(name) {
 		return ""
 	}
+	return name
+}
+
+func validBranchName(name string) bool {
+	if name == "" || name == "@" || name == "HEAD" || strings.HasPrefix(name, "-") ||
+		strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/") || strings.HasSuffix(name, ".") ||
+		strings.Contains(name, "..") || strings.Contains(name, "@{") || strings.Contains(name, "//") {
+		return false
+	}
 	for _, r := range name {
-		if r <= ' ' || r == 0x7f || strings.ContainsRune("~^:?*[\\", r) {
-			return ""
+		if r < ' ' || r == 0x7f || strings.ContainsRune(" ~^:?*[\\", r) {
+			return false
 		}
 	}
-	return name
+	for _, comp := range strings.Split(name, "/") {
+		if strings.HasPrefix(comp, ".") || strings.HasSuffix(comp, ".lock") {
+			return false
+		}
+	}
+	return true
 }
 
 // prNum reads scope.pr as a PR number: digits only, else "" (a string from

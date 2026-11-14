@@ -196,7 +196,6 @@ const (
 	ActRecoverySent  = "recovery-sent"
 	ActRecoverySpawn = "recovery-spawned"
 	ActPaused        = "paused"
-	ActQueued        = "queued"
 	ActDone          = "done"
 	ActPRTracked     = "pr-tracked"
 )
@@ -293,8 +292,8 @@ func (e *engine) setScope(id string, kv map[string]interface{}) error {
 
 // note appends a note unless the item's latest note already says the same.
 func (e *engine) note(id, text string) error {
-	if len(text) > operator.NoteTextCap {
-		text = text[:operator.NoteTextCap]
+	if r := []rune(text); len(r) > operator.NoteTextCap {
+		text = string(r[:operator.NoteTextCap])
 	}
 	by := e.env.by()
 	return e.mutate(func(st *operator.State) error {

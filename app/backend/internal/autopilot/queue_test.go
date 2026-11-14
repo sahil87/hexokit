@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"rk/internal/operator"
 	"rk/internal/settings"
@@ -249,5 +250,91 @@ func TestEnqueueRejectsAnOptionShapedChange(t *testing.T) {
 	var inv *InvalidError
 	if !errors.As(err, &inv) || !strings.Contains(err.Error(), "invalid change") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestParseEntriesRejectsTrailingInput(t *testing.T) {
+	for _, in := range []string{
+		`[{"id":"a","repo":"/r","change":"a"}] [{"id":"b"}]`,
+		`[{"id":"a","repo":"/r","change":"a"}]garbage`,
+	} {
+		if _, err := ParseEntries([]byte(in)); err == nil || !strings.Contains(err.Error(), "after the JSON array") {
+			t.Errorf("ParseEntries(%q) err = %v", in, err)
+		}
+	}
+	if _, err := ParseEntries([]byte("[{\"id\":\"a\",\"repo\":\"/r\",\"change\":\"a\"}]\n  \n")); err != nil {
+		t.Errorf("trailing whitespace must be accepted: %v", err)
+	}
+}
+
+func TestNoteTruncationIsRuneSafe(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
+	e := newEngine(h.env)
+	long := strings.Repeat("é", operator.NoteTextCap+50)
+	if err := e.note("a", long); err != nil {
+		t.Fatalf("note: %v", err)
+	}
+	notes := h.item("a").Notes
+	if len(notes) != 1 || utf8.RuneCountInString(notes[0].Text) != operator.NoteTextCap || !utf8.ValidString(notes[0].Text) {
+		t.Fatalf("note = %d runes, valid=%v", utf8.RuneCountInString(notes[0].Text), utf8.ValidString(notes[0].Text))
+	}
+}
+
+func TestEnqueueRejectsForwardAndCyclicDependencies(t *testing.T) {
+	foo := newRepo(t, "foo")
+	cases := []struct {
+		name    string
+		entries []Entry
+	}{
+		{"forward", []Entry{
+			{ID: "a", Repo: foo.Dir, Task: "a", DependsOn: &[]string{"b"}},
+			{ID: "b", Repo: foo.Dir, Task: "b", DependsOn: &[]string{}},
+		}},
+		{"cycle", []Entry{
+			{ID: "a", Repo: foo.Dir, Task: "a", DependsOn: &[]string{"b"}},
+			{ID: "b", Repo: foo.Dir, Task: "b", DependsOn: &[]string{"a"}},
+		}},
+		{"self", []Entry{{ID: "a", Repo: foo.Dir, Task: "a", DependsOn: &[]string{"a"}}}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t)
+			_, err := Enqueue(context.Background(), h.env, c.entries, QueueOptions{}, "")
+			var inv *InvalidError
+			if !errors.As(err, &inv) || !strings.Contains(err.Error(), "a") {
+				t.Fatalf("err = %v", err)
+			}
+			if _, statErr := os.Stat(h.env.StatePath); statErr == nil {
+				t.Fatal("a rejected queue wrote the state file")
+			}
+		})
+	}
+	h := newHarness(t)
+	_, err := Enqueue(context.Background(), h.env, cases[0].entries, QueueOptions{}, "")
+	if err == nil || !strings.Contains(err.Error(), "a dependency must come before its dependent") || !strings.Contains(err.Error(), "b") {
+		t.Fatalf("the error must name the offending ids: %v", err)
+	}
+}
+
+func TestSafeBranchMatchesGitCheckRefFormat(t *testing.T) {
+	pieces := []string{"a", "/", ".", "..", "@", "{", "}", "-", "~", "^", ":", "?", "*", "[", "\\", " ", ".lock", "é", "\x01", "\x7f", "b"}
+	names := []string{"main", "feat/x", "foo@{1}", "foo//bar", "@", "@{", "HEAD", "-x", ".hidden", "a/.b", "a.lock", "a/b.lock/c",
+		"a.", "/a", "a/", "a b", "a\\b", "a..b", "260101-ab12-x", "feat/x_y.z", "a+b", "x@y"}
+	for _, p := range pieces {
+		names = append(names, p)
+		for _, q := range pieces {
+			names = append(names, p+q, "a"+p+q)
+		}
+	}
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	for _, n := range names {
+		// git expands "@" and "HEAD" to the current branch; neither names one.
+		want := gitOK(dir, "check-ref-format", "--branch", n) && n != "HEAD" && n != "@"
+		if got := safeBranch(n) != ""; got != want {
+			t.Errorf("safeBranch(%q) accepted=%v, git check-ref-format --branch accepts=%v", n, got, want)
+		}
 	}
 }

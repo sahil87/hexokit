@@ -28,13 +28,34 @@ func TestDerivedStatePrecedence(t *testing.T) {
 	if got := derivedState(h.state(), h.item("a")); got != StatePaused {
 		t.Errorf("a = %s, want paused", got)
 	}
+	// A pane does not lift the hold: a dependency still unsatisfied wins.
 	h.attachBranch("b", "bb")
-	if got := derivedState(h.state(), h.item("b")); got != StateSpawned {
-		t.Errorf("b = %s, want spawned", got)
+	if got := derivedState(h.state(), h.item("b")); got != StateHeld {
+		t.Errorf("b = %s, want held (a spawned item with an unsatisfied dependency)", got)
 	}
 	h.setDone("a")
 	if got := derivedState(h.state(), h.item("a")); got != StateDone {
 		t.Errorf("a = %s, want done (above paused)", got)
+	}
+	if got := derivedState(h.state(), h.item("b")); got != StateSpawned {
+		t.Errorf("b = %s, want spawned once its dependency is done", got)
+	}
+}
+
+func TestHeldItemWithADeadPaneIsNotRespawned(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"}, Entry{ID: "b", Repo: foo.Dir, Task: "b"})
+	h.attachBranch("b", "bb")
+	delete(h.panes.panes, "%900") // b's pane is gone, a is still unfinished
+	h.step()
+	for _, r := range h.spawn.reqs {
+		if r.WorktreeName == "b" {
+			t.Fatalf("a held item was respawned: %+v", r)
+		}
+	}
+	if v, _ := h.item("b").Scope[scopeRespawned].(bool); v {
+		t.Fatal("the respawn marker was written for a held item")
 	}
 }
 

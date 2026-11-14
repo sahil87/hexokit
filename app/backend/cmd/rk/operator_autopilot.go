@@ -320,9 +320,12 @@ func runAutopilotQueue(cmd *cobra.Command, args []string) error {
 	}
 	dry, _ := cmd.Flags().GetBool("dry-run")
 	mode, _ := cmd.Flags().GetString("mode")
-	raw, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), autopilotStdinCap))
+	raw, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), autopilotStdinCap+1))
 	if err != nil {
 		return autopilotFinish(cmd, nil, nil, fmt.Errorf("read entries from stdin: %w", err))
+	}
+	if len(raw) > autopilotStdinCap {
+		return autopilotFinish(cmd, nil, nil, usageError(fmt.Errorf("queue entries exceed the %d-byte stdin limit", autopilotStdinCap)))
 	}
 	entries, err := autopilot.ParseEntries(raw)
 	if err != nil {

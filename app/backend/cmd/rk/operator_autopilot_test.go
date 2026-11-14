@@ -147,6 +147,8 @@ func TestAutopilotQueueUsageErrors(t *testing.T) {
 		{"empty queue", "", "[]", nil, "queue is empty"},
 		{"relative repo", "", `[{"id":"a","repo":"rel","task":"a"}]`, nil, "absolute"},
 		{"bad author", "", queueJSON(repo), []string{"--by", "robot"}, "invalid --by"},
+		{"trailing input after the array", "", queueJSON(repo) + ` {"id":"x"}`, nil, "unexpected input after the JSON array"},
+		{"input over the cap", "", queueJSON(repo) + strings.Repeat(" ", autopilotStdinCap), nil, "exceed the"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

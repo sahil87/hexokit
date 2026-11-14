@@ -17,10 +17,6 @@ func ItemDone(it TrackedItem) bool { return itemDone(it) }
 // ScopeString reads a string scope value ("" for absent, null or non-string).
 func ScopeString(scope map[string]interface{}, key string) string { return scopeString(scope, key) }
 
-// ScopeInt reads an integer scope value; ok is false for absent, null or
-// non-numeric values.
-func ScopeInt(scope map[string]interface{}, key string) (int, bool) { return scopeInt(scope, key) }
-
 // ScopePRNumber renders scope.pr as the PR-number argv token ("" when unset).
 func ScopePRNumber(scope map[string]interface{}) string { return scopePRNumber(scope) }
 
@@ -38,9 +34,6 @@ func ValidMergeMode(mode string) bool { return validMergeMode(mode) }
 func BuiltInCompleted(stopStage, stage, displayState string) bool {
 	return builtInCompleted(stopStage, stage, displayState)
 }
-
-// PaneScope returns a fresh pane scope with the pinned keys set to null.
-func PaneScope() map[string]interface{} { return paneScope() }
 
 // NewPaneItem builds a pending pane item (no pane yet) for the given scope and
 // dependencies, with the pane-kind defaults. The scope is merged over the
@@ -115,9 +108,6 @@ func NewGitHubPRItem(id string, deps []string, scope map[string]interface{}, nwo
 // ValidateDeps checks the item's depends_on against the list: every id exists
 // and no item depends on itself.
 func ValidateDeps(it TrackedItem, existing []TrackedItem) error { return validateDeps(it, existing) }
-
-// ValidateNote checks a note's author and text and returns the trimmed text.
-func ValidateNote(by, text string) (string, error) { return validateNote(by, text) }
 
 // AppendNote adds a note to the item in a loaded state, pruning past NoteCap.
 // It is the in-Mutate form of AddNote, for callers batching several changes
