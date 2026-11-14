@@ -82,17 +82,31 @@ A plain agent gets a chained `github-pr` item once its PR URL is known (`track a
 
 ## Queues
 
-Confirm upfront, naming the mode ("creates PRs — merge after review" for `cherry-pick-ladder` and `stacked-prs`; "merges PRs on completion" for `merge-auto`). The mode comes from the first source that has one: the user's instruction, then `fab config get autopilot.merge_mode` when fab is present, then `cherry-pick-ladder`. Resolve silently and say it in the confirmation; ask only when the user's words contradict it, or `merge-auto` meets same-repo dependencies.
+A queue is created, advanced and merged by `rk operator autopilot` — never by hand-writing items or running the git/gh choreography yourself. Confirm upfront, naming the mode:
 
-Persist the queue as N `pane` items. The first carries `--mode <mode>`, the rest `--depends-on` their nearest same-repo predecessor (else the previous entry, which is ordering-only across repos). They have no pane yet, so they sit `held`, then `pending`; runs spawn them.
+| Mode | Confirmation line | Meaning |
+|---|---|---|
+| `cherry-pick-ladder` | "creates PRs — merge after review" | chained PRs; each change gets its dependencies cherry-picked in |
+| `stacked-prs` | "creates stacked PRs — merge after review" | chained PRs; each is cut from its dependency's branch |
+| `merge-auto` | "merges PRs on completion" | each PR is armed to merge as it ships; the next change waits for the verified merge |
+
+The mode comes from the first source that has one: the user's instruction (`--mode`), then the `operator.merge_mode` setting, then `cherry-pick-ladder`. The verb resolves it, prints `mode: <name> (flag|setting|default)`, and stamps it on every item — say it in the confirmation. Ask the mode question only on a misfit: the verb's receipt reports `misfit: …` when `merge-auto` meets same-repo dependencies, and you ask when the user's words contradict the mode. Put it as one line with the glyphs and tradeoff — `▂▄▆` cherry-pick-ladder (one PR per change, dependencies copied in), `░▒▓█` stacked-prs (each PR targets the one before it), `▄▀` merge-auto (each merges as it ships) — and re-run with `--mode`.
+
+Pipe the entries as a JSON array; the first carries no dependency, every later one chains to its nearest same-repo predecessor (else the previous entry, ordering-only across repos) unless it names `depends_on`:
 
 ```sh
-rk operator track add q1 --kind pane --repo /src/app --change 260101-ab12-first --mode cherry-pick-ladder
-rk operator track add q2 --kind pane --repo /src/app --change 260101-cd34-second --depends-on q1
-rk operator track add q3 --kind pane --repo /src/web --change 260101-ef56-third --depends-on q2
+echo '[
+  {"id": "q1", "repo": "/src/app", "change": "260101-ab12-first"},
+  {"id": "q2", "repo": "/src/web", "task": "fix login after password reset"},
+  {"id": "q3", "repo": "/src/app", "change": "260101-ef56-third", "depends_on": ["q1"], "stop_stage": null}
+]' | rk operator autopilot queue [--mode stacked-prs]
 ```
 
-Skipping an entry is `track rm <id>`; pausing the unspawned ones is `track pause`. "Stop after current" means `rm` the entries not yet spawned.
+An entry names an existing change (`change`), raw text (`task`), or neither (a bare agent — nothing may depend on it). Runs spawn the entries as they become ready; `rk operator autopilot step` does one pass of that work on demand and `rk operator autopilot status` shows each item's state, PR and merge position (read-only). Both print escalations — send `rk notify` for each one.
+
+- **"merge all"** → `rk operator autopilot merge` (once the queue is complete and the user has said yes; it refuses while items are not done and does nothing for `merge-auto`). It starts the ordered merge; later runs advance it.
+- **"stop"** → `rk operator autopilot stop`: disarms every armed PR and pauses the unspawned entries; live panes keep running.
+- Skipping an entry is `rk operator track rm <id>`.
 
 ## What a run sees
 

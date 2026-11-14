@@ -3,6 +3,7 @@ package riff
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -566,9 +567,35 @@ func TestBuildWtCreateArgs(t *testing.T) {
 		where       string
 		wtName      string
 		wtBase      string
+		wtBranch    string
+		checkout    string
 		passthrough []string
 		want        []string
 	}{
+		{
+			name:     "new branch rides as the trailing positional",
+			where:    "worktree",
+			wtName:   "ab12",
+			wtBase:   "3c51d29",
+			wtBranch: "260101-ab12-x",
+			want:     []string{"create", "--name", "ab12", "--base", "3c51d29", "--non-interactive", "--open", "skip", "260101-ab12-x"},
+		},
+		{
+			name:     "existing-branch checkout drops base and positional",
+			where:    "worktree",
+			wtName:   "ab12",
+			wtBase:   "3c51d29",
+			wtBranch: "ignored",
+			checkout: "feat/x",
+			want:     []string{"create", "--name", "ab12", "--checkout", "feat/x", "--non-interactive", "--open", "skip"},
+		},
+		{
+			name:     "checkout mode ignores branch fields",
+			where:    "checkout",
+			wtBranch: "x",
+			checkout: "y",
+			want:     []string{"create", "--non-interactive", "--open", "skip"},
+		},
 		{
 			name: "no name → plain argv",
 			want: []string{"create", "--non-interactive", "--open", "skip"},
@@ -607,7 +634,7 @@ func TestBuildWtCreateArgs(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			spec := EffectiveSpec{Where: tc.where, WorktreeName: tc.wtName, WorktreeBase: tc.wtBase}
+			spec := EffectiveSpec{Where: tc.where, WorktreeName: tc.wtName, WorktreeBase: tc.wtBase, WorktreeBranch: tc.wtBranch, CheckoutBranch: tc.checkout}
 			got := buildWtCreateArgs(spec, tc.passthrough)
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("buildWtCreateArgs() = %#v\nwant %#v", got, tc.want)
@@ -721,6 +748,40 @@ func TestSpawn_WhereModes(t *testing.T) {
 			t.Errorf("Result.WindowName = %q, want riff-swift-fox", res.WindowName)
 		}
 	})
+}
+
+// A PrepareWorktree failure deletes the worktree and opens no window.
+func TestSpawn_PrepareWorktreeFailureRollsBack(t *testing.T) {
+	dir := t.TempDir()
+	worktree := filepath.Join(t.TempDir(), "swift-fox")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	newWindowLog := filepath.Join(dir, "new-window.log")
+	deleteLog := filepath.Join(dir, "wt-delete.log")
+	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\ncase \"$1\" in\n  create) printf 'Path: %s\\n' '"+worktree+"';;\n  delete) echo \"$*\" >> "+deleteLog+";;\nesac\n")
+	testutil.WriteStub(t, dir, "tmux", stubTmuxScript(newWindowLog))
+	testutil.WriteStub(t, dir, "fab", "#!/bin/sh\necho 'claude'\n")
+	t.Setenv("PATH", dir)
+
+	var gotPath string
+	_, err := SpawnPrepared(context.Background(), Options{RepoRoot: t.TempDir()}, func(_ context.Context, path string) error {
+		gotPath = path
+		return fmt.Errorf("cherry-pick conflict")
+	})
+	if err == nil || !strings.Contains(err.Error(), "cherry-pick conflict") {
+		t.Fatalf("Spawn err = %v, want the hook's error", err)
+	}
+	if gotPath != worktree {
+		t.Errorf("hook path = %q, want %q", gotPath, worktree)
+	}
+	del, _ := os.ReadFile(deleteLog)
+	if !strings.Contains(string(del), "delete --non-interactive swift-fox") {
+		t.Errorf("worktree not rolled back; wt delete log = %q", del)
+	}
+	if _, statErr := os.Stat(newWindowLog); statErr == nil {
+		t.Error("a window was opened for a failed worktree")
+	}
 }
 
 // TestResumeForkLauncher covers the conversation-fork launcher suffix
