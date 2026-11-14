@@ -33,18 +33,23 @@ func TestStatePath(t *testing.T) {
 	}
 }
 
-func TestStatePathForServerFallsBackToDefaultWhenSocketPathFails(t *testing.T) {
+func TestStatePathForServerWhenSocketPathFails(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", "/x")
 	prev := socketPathFn
 	socketPathFn = func(context.Context, string) (string, error) { return "", errors.New("no server") }
 	t.Cleanup(func() { socketPathFn = prev })
 
-	got, err := StatePathForServer(context.Background(), "ghost")
+	got, err := StatePathForServer(context.Background(), DefaultServer)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := "/x/hexokit/operator/default.yaml"; got != want {
-		t.Errorf("path = %q, want %q", got, want)
+		t.Errorf("default path = %q, want %q", got, want)
+	}
+
+	_, err = StatePathForServer(context.Background(), "ghost")
+	if err == nil || !strings.Contains(err.Error(), `"ghost"`) {
+		t.Errorf("named server error = %v, want one naming ghost", err)
 	}
 
 	socketPathFn = func(_ context.Context, server string) (string, error) {
@@ -359,5 +364,14 @@ func TestReported_SurvivesTypedRewrite(t *testing.T) {
 	got := item(t, path, "a").Reported
 	if len(got) != 2 || got[0] != "done" || got[1] != "pane_death" {
 		t.Errorf("Reported = %v, want [done pane_death]", got)
+	}
+}
+
+func TestServerLabel(t *testing.T) {
+	if got := ServerLabel(""); got != DefaultServer {
+		t.Errorf("ServerLabel(\"\") = %q, want %q", got, DefaultServer)
+	}
+	if got := ServerLabel("loom"); got != "loom" {
+		t.Errorf("ServerLabel(loom) = %q", got)
 	}
 }

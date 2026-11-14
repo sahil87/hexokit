@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -58,18 +57,6 @@ func cliServerLabel(originalTMUX string) string {
 		return "default"
 	}
 	return filepath.Base(socket)
-}
-
-// cliChildEnv returns the subprocess env with a captured $TMUX restored
-// (internal/tmux's init() strips it from the process) so bare tmux calls
-// reach the caller's current server — the riff CLI-path pattern (childEnv
-// with an empty server label).
-func cliChildEnv(originalTMUX string) []string {
-	env := os.Environ()
-	if originalTMUX != "" {
-		env = append(env, "TMUX="+originalTMUX)
-	}
-	return env
 }
 
 // isPaneGoneErr is the inject.ReadyOpts.IsGone predicate shared by the

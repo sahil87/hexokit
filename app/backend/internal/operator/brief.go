@@ -27,6 +27,10 @@ const (
 	briefGoneState     = "gone"
 	briefNoReasons     = "no reason given"
 	briefSep           = " · "
+
+	// briefServerFlag is the placeholder the embedded run text carries where a
+	// command takes its explicit tmux server; the renderer substitutes it.
+	briefServerFlag = "-L <server>"
 )
 
 //go:embed brief_rules.md
@@ -38,7 +42,7 @@ var briefAutopilot string
 const briefExitContract = `Before exiting, append at least one note per item you acted on, or one note on the
 most relevant item when nothing needed doing:
 
-    rk operator track note <id> "<text>" --by run
+    rk operator track note -L <server> <id> "<text>" --by run
 
 Then print exactly one final line to stdout, and nothing after it:
 
@@ -98,10 +102,15 @@ func renderBriefLayout(in BriefInput, layout briefLayout) string {
 	writeWhatChanged(&b, items, in.Changed)
 	writeAffected(&b, items, affected, now, layout.notesShown)
 	writeOthers(&b, items, affected, now, layout.showOthers)
-	writeSection(&b, "Rules", briefRules)
-	writeSection(&b, "Interim autopilot", briefAutopilot)
-	writeSection(&b, "Exit contract", briefExitContract)
+	flag := "-L " + ServerLabel(in.Server)
+	writeSection(&b, "Rules", withServerFlag(briefRules, flag))
+	writeSection(&b, "Interim autopilot", withServerFlag(briefAutopilot, flag))
+	writeSection(&b, "Exit contract", withServerFlag(briefExitContract, flag))
 	return b.String()
+}
+
+func withServerFlag(text, flag string) string {
+	return strings.ReplaceAll(text, briefServerFlag, flag)
 }
 
 func briefItems(st *State) []TrackedItem {
@@ -112,12 +121,8 @@ func briefItems(st *State) []TrackedItem {
 }
 
 func writeBriefHeader(b *strings.Builder, in BriefInput) {
-	server := in.Server
-	if server == "" {
-		server = "default"
-	}
 	fmt.Fprintf(b, "# Operator run brief\n\n- server: %s\n- rendered: %s\n\n%s\n\n",
-		server, in.Now.UTC().Format(time.RFC3339), briefRoleLine)
+		ServerLabel(in.Server), in.Now.UTC().Format(time.RFC3339), briefRoleLine)
 }
 
 func writeSection(b *strings.Builder, title, body string) {

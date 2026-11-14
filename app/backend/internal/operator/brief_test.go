@@ -261,7 +261,7 @@ func TestRenderBrief_SizeCapTrimsNotesOldestFirstAndKeepsRequiredSections(t *tes
 			t.Errorf("section %q was dropped", h)
 		}
 	}
-	if !strings.Contains(out, "- hub · task · done\n") || !strings.Contains(out, briefRules) {
+	if !strings.Contains(out, "- hub · task · done\n") || !strings.Contains(out, withServerFlag(briefRules, "-L work")) {
 		t.Error("What changed or the rules were trimmed")
 	}
 	if strings.Contains(out, "other-001") {
@@ -292,7 +292,7 @@ func TestRenderBrief_InterimAutopilotSection(t *testing.T) {
 
 func TestRenderBrief_ExitContract(t *testing.T) {
 	body := sectionBody(t, renderFixture(t), "## Exit contract")
-	for _, want := range []string{`rk operator track note <id> "<text>" --by run`, "outcome: <one-line summary>"} {
+	for _, want := range []string{`rk operator track note -L work <id> "<text>" --by run`, "outcome: <one-line summary>"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Exit contract missing %q", want)
 		}
@@ -302,7 +302,7 @@ func TestRenderBrief_ExitContract(t *testing.T) {
 func TestBriefRules_CoverTheRunContract(t *testing.T) {
 	for _, want := range []string{
 		"Coordinate, don't execute", "merge-auto", "never", "--force", "@rk_pane_agent_state",
-		"rk mux capture <pane> --lines 40 --classify --json", "--answer", "--key",
+		"rk mux capture -L <server> <pane> --lines 40 --classify --json", "--answer", "--key",
 		"Strategic prompts are never auto-picked", "30 minutes", "at most one nudge",
 		"command -v rk", "by: user", "by: chat", "probe.instruction",
 		"rk operator track observe", "### Allowed tools", "No file-editing tools",
@@ -391,4 +391,64 @@ func TestRenderBrief_NilStateIsEmptyLedger(t *testing.T) {
 func firstLine(s string) string {
 	line, _, _ := strings.Cut(s, "\n")
 	return line
+}
+
+const briefServerRuleMarker = "command in this run"
+
+var (
+	briefRkCommand  = regexp.MustCompile("rk (?:mux|operator|tab|riff)(?: [a-z|]+)*")
+	briefRkWithFlag = regexp.MustCompile("^rk (?:mux|operator|tab|riff)(?: [a-z|]+)*" + regexp.QuoteMeta(" "+briefServerFlag))
+)
+
+func renderedRunSections(t *testing.T, in BriefInput) string {
+	t.Helper()
+	out := RenderBrief(in)
+	return sectionBody(t, out, "## Rules") + sectionBody(t, out, "## Interim autopilot") + sectionBody(t, out, "## Exit contract")
+}
+
+func TestRenderBrief_EveryRkCommandCarriesTheServer(t *testing.T) {
+	text := renderedRunSections(t, BriefInput{State: fixtureState(t), Server: "loom", Now: briefTestNow})
+	if strings.Contains(text, briefServerFlag) {
+		t.Errorf("the raw %q token survived rendering", briefServerFlag)
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if strings.Contains(line, briefServerRuleMarker) {
+			continue
+		}
+		for _, loc := range briefRkCommand.FindAllStringIndex(line, -1) {
+			cmd := strings.Replace(line[loc[0]:], "-L loom", briefServerFlag, 1)
+			if !briefRkWithFlag.MatchString(cmd) {
+				t.Errorf("rk command without -L loom: %q in %q", line[loc[0]:], line)
+			}
+		}
+	}
+	if strings.Contains(text, "rk notify -L") {
+		t.Error("rk notify must not carry -L")
+	}
+}
+
+func TestRenderBrief_EmptyServerRendersDefault(t *testing.T) {
+	text := renderedRunSections(t, BriefInput{State: fixtureState(t), Now: briefTestNow})
+	if !strings.Contains(text, "rk mux capture -L default <pane>") || !strings.Contains(text, "rk operator track note -L default <id>") {
+		t.Error("an empty server must render -L default")
+	}
+	if strings.Contains(text, briefServerFlag) {
+		t.Errorf("the raw %q token survived rendering", briefServerFlag)
+	}
+}
+
+func TestRenderBrief_RulesCarryTheAlwaysPassServerLine(t *testing.T) {
+	body := sectionBody(t, renderFixture(t), "## Rules")
+	if !strings.Contains(body, "passes `-L work`, exactly as written here. Never drop it or rely on `$TMUX`.") {
+		t.Error("Rules missing the always-pass -L line")
+	}
+}
+
+func TestRenderBrief_NotesAreNotSubstituted(t *testing.T) {
+	st := fixtureState(t)
+	st.Tracked[0].Notes = []Note{{At: briefTestNow.Format(time.RFC3339), By: "user", Text: "keep " + briefServerFlag + " verbatim"}}
+	out := RenderBrief(BriefInput{State: st, Server: "work", Now: briefTestNow, Changed: []ChangedItem{{ID: st.Tracked[0].ID}}})
+	if !strings.Contains(out, "keep "+briefServerFlag+" verbatim") {
+		t.Error("note text was altered by the server substitution")
+	}
 }

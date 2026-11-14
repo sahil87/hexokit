@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The operator run brief — `rk operator brief` and `operator.RenderBrief`: the seven-section Markdown a one-shot operator run is handed (affected set, notes cap, 100 KB cap with best-effort trim), the embedded run rules and isolated interim autopilot text, the exit contract (`--by run` note + `outcome:` line), and the static `rk skill operator` chat topic."
+description: "The operator run brief — `rk operator brief` and `operator.RenderBrief`: the seven-section Markdown a one-shot operator run is handed (affected set, notes cap, 100 KB cap with best-effort trim), the embedded run rules (every server-addressed command rendered with `-L <server>`) and isolated interim autopilot text, the exit contract (`--by run` note + `outcome:` line), and the static `rk skill operator` chat topic."
 ---
 # Operator Run Brief
 
@@ -42,9 +42,15 @@ The Rules section is `brief_rules.md`, embedded with `//go:embed` in `internal/o
 
 The Interim autopilot section is `brief_autopilot.md`, a separate embedded file whose first line marks it interim ("Interim — replaced by the R6 autopilot engine; R7 deletes this file."), bound to one embed variable with one include site in the renderer, so deleting it is one file and one line. It condenses queue and dependency resolution — held/ready queue items, fetch-first `--base <SHA>` spawn via `wt create --non-interactive`, the three merge modes' dependency code, the done definition, ordered merge, PR recovery with `scope.recovery` written before acting, and mode = stored `scope.merge_mode` (null ⇒ `cherry-pick-ladder`) — using `rk operator track …` verbs only. The rendered brief contains no `fab operator track`. The rules and autopilot files together stay ≤ 40 960 bytes (test-enforced).
 
+### Requirement: Explicit server on every command
+
+Every `rk mux`, `rk operator`, `rk tab` and `rk riff` command in the Rules, Interim autopilot and Exit contract sections carries `-L <server>` right after its verb path, before positional arguments (`rk mux capture -L loom <pane> --lines 40 --classify --json`, `rk operator track note -L loom <id> "<text>" --by run`), and prose mentions of a verb family carry it too. `rk notify` takes no server and carries none. The embedded markdown holds the literal token `-L <server>` (`briefServerFlag`) so the raw files stay readable; `renderBriefLayout` substitutes it with `-L <label>` in all three sections, where the label is `operator.ServerLabel(BriefInput.Server)` — the empty server renders `-L default`, as the header does. The raw token never reaches the rendered output, and a test runs each rendered command shape through cobra flag parsing to confirm `-L` parses in that position. `rk operator brief`'s manual render goes through the same path, so `-L loom` shows `-L loom` commands.
+
+The Rules section also carries one line stating the contract: every such command in the run passes `-L <server>` exactly as written, and the run never drops it or relies on `$TMUX`. The static `rk skill operator` chat topic is session-agnostic and is unchanged.
+
 ### Requirement: Exit contract
 
-The Exit contract instructs the run to append at least one note per item it acted on (or one note on the most relevant item when nothing needed doing) with `rk operator track note <id> "<text>" --by run`, then print exactly one final stdout line `outcome: <one-line summary>`, and nothing after it. The run wrapper reads the LAST stdout line matching `^outcome: (.*)$`; a run that exits non-zero or prints none is a failed run, and the wrapper leaves a `run failed` note on each changed item ([operator-loop](/run-kit/operator-loop.md) § The `rk operator run-exec` wrapper).
+The Exit contract instructs the run to append at least one note per item it acted on (or one note on the most relevant item when nothing needed doing) with `rk operator track note -L <server> <id> "<text>" --by run` (rendered with the run's server), then print exactly one final stdout line `outcome: <one-line summary>`, and nothing after it. The run wrapper reads the LAST stdout line matching `^outcome: (.*)$`; a run that exits non-zero or prints none is a failed run, and the wrapper leaves a `run failed` note on each changed item ([operator-loop](/run-kit/operator-loop.md) § The `rk operator run-exec` wrapper).
 
 ### Requirement: `rk operator brief`
 
@@ -75,6 +81,12 @@ The chat topic is the static page `docs/site/skill/operator.md` (≤150 lines), 
 **Why**: The brief carries per-run content (changed items, notes); `rk skill` pages are static by contract. One renderer keeps assembly in one tested place, and the same call serves the verb and the operator loop, which persists the result as the run's brief file and feeds it to the headless launcher's stdin.
 **Rejected**: A static `rk skill operator-run` page with the launcher prepending the dynamic part — assembly split across two places, and the static page would still exceed the 150-line budget.
 *Introduced by*: 261111-jsg9-operator-run-brief-chat-skill
+
+### Explicit `-L` by renderer substitution
+**Decision**: The renderer substitutes the run's server into placeholder tokens in the embedded run text, and the run is told to pass `-L` verbatim on every server-addressed command.
+**Why**: The renderer already knows the server, so the output is deterministic and golden-testable, and the model copies commands rather than deriving the flag. A run whose launcher lost `$TMUX` would otherwise target the `default` server ([operator-loop](/run-kit/operator-loop.md) § The `rk operator run-exec` wrapper).
+**Rejected**: Asking the model to add `-L` itself (the compliance dependency that failed in practice); relying on the launcher's restored `$TMUX` alone.
+*Introduced by*: 261114-qxos-operator-run-explicit-server
 
 ### Interim autopilot text in its own embedded file
 **Decision**: The condensed autopilot text lives in a separate embedded file with one include site.

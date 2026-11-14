@@ -26,6 +26,10 @@ const (
 	// lockPoll is the retry interval while waiting for the sidecar lock.
 	lockPoll = 25 * time.Millisecond
 
+	// DefaultServer is the label of tmux's default server; it is the only one
+	// whose state file may be resolved without a known socket path.
+	DefaultServer = "default"
+
 	stateSubdir = "operator"
 	lockSuffix  = ".lock"
 
@@ -56,6 +60,14 @@ func nowRFC3339() string {
 	return clock().UTC().Format(time.RFC3339)
 }
 
+// ServerLabel is the server's display label: the empty server is `default`.
+func ServerLabel(server string) string {
+	if server == "" {
+		return DefaultServer
+	}
+	return server
+}
+
 // StatePath resolves <state home>/operator/<slug>.yaml for a tmux socket path.
 // The slug uses the same injective rule as the fab operator file's name, so
 // one server maps to one file and adopt is a 1:1 mapping.
@@ -68,7 +80,7 @@ func StatePath(socketPath string) (string, error) {
 }
 
 // ServerSocketPath returns the named tmux server's socket path, or "" when it
-// cannot be queried (the slug then falls back to "default").
+// cannot be queried.
 func ServerSocketPath(ctx context.Context, server string) string {
 	p, err := socketPathFn(ctx, server)
 	if err != nil {
@@ -77,9 +89,20 @@ func ServerSocketPath(ctx context.Context, server string) string {
 	return p
 }
 
+// StatePathFor resolves the state file of a server from its socket path. The
+// `default` label keeps the `default` slug fallback for an unknown socket; any
+// other server with an unknown socket is an error, since the fallback would
+// read and write another server's ledger.
+func StatePathFor(server, socketPath string) (string, error) {
+	if socketPath == "" && server != "" && server != DefaultServer {
+		return "", fmt.Errorf("tmux socket path for server %q unavailable (is the server running?)", server)
+	}
+	return StatePath(socketPath)
+}
+
 // StatePathForServer resolves the state file of the named tmux server.
 func StatePathForServer(ctx context.Context, server string) (string, error) {
-	return StatePath(ServerSocketPath(ctx, server))
+	return StatePathFor(server, ServerSocketPath(ctx, server))
 }
 
 // Load reads the state file tolerantly and without locking: a missing file is

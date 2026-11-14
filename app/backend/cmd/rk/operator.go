@@ -268,7 +268,7 @@ func runOperatorWithExitCode(cmd *cobra.Command, _ []string) error {
 			newSink(cmd).JSONError(envelopeError{Code: code, Message: ece.Msg})
 		}
 		fmt.Fprintln(cmd.ErrOrStderr(), ece.Msg)
-		os.Exit(ece.Code)
+		exitRecorded(err, ece.Code)
 	}
 	return err
 }
@@ -328,7 +328,7 @@ func runOperator(cmd *cobra.Command) error {
 	if serverMode {
 		serverPrefix = operatorServerPrefix(operatorServerFlag)
 	} else {
-		env = cliChildEnv(originalTMUX)
+		env = tmux.ChildEnv(originalTMUX)
 	}
 
 	// Server-wide singleton probe: list-windows -a enumerates every session's

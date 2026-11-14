@@ -352,7 +352,7 @@ func operatorStateTarget(cmd *cobra.Command) (server, path string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	path, err = operator.StatePath(operatorSocketPathFn(operatorTrackContext(cmd), server))
+	path, err = operator.StatePathFor(server, operatorSocketPathFn(operatorTrackContext(cmd), server))
 	if err != nil {
 		return "", "", err
 	}

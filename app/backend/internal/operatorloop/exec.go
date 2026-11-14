@@ -10,12 +10,17 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 	"unicode/utf8"
+
+	"rk/internal/operator"
+	"rk/internal/shellq"
+	"rk/internal/tmux"
 )
 
 // exec.go — the body of the hidden `rk operator run-exec` wrapper: it runs
@@ -37,7 +42,15 @@ const (
 	killWaitDelay = 2 * time.Second
 
 	notifyTitle = "operator run failed"
+
+	tmuxSocketUnset  = "unset"
+	headerPrefix     = "run-exec:"
+	headerSocketWarn = " WARNING: TMUX socket does not match --server"
 )
+
+// originalTMUXFn is the wrapper's $TMUX as captured before internal/tmux's
+// init() stripped it; a seam so tests choose it.
+var originalTMUXFn = func() string { return tmux.OriginalTMUX }
 
 // outcomeLine matches the run's exit-contract line (the LAST one wins).
 var outcomeLine = regexp.MustCompile(`^outcome: (.*)$`)
@@ -131,8 +144,13 @@ func runLauncher(parent context.Context, opts ExecOptions, briefPath, logPath st
 	}
 	defer brief.Close()
 
+	header := execHeader(opts, originalTMUXFn(), workingDir())
+	_, _ = io.WriteString(logFile, header)
+	_, _ = io.WriteString(opts.Stdout, header)
+
 	capture := &outcomeCapture{}
 	cmd := exec.CommandContext(ctx, opts.Argv[0], opts.Argv[1:]...)
+	cmd.Env = launcherEnv(originalTMUXFn(), logPath)
 	// The launcher runs in its own process group so a ceiling or a killed
 	// window stops its whole tree (a provider spawns children that would
 	// otherwise keep the output pipes open); WaitDelay bounds the wait for
@@ -154,6 +172,43 @@ func runLauncher(parent context.Context, opts ExecOptions, briefPath, logPath st
 	default:
 		return exitStatus(err, opts.Stderr), capture.Outcome()
 	}
+}
+
+// launcherEnv is the launcher's environment: the wrapper's, with $TMUX
+// restored so a bare tmux/rk/fab call in the run reaches the run's own server,
+// plus the run-log path for rk's self-log.
+func launcherEnv(originalTMUX, logPath string) []string {
+	return append(tmux.ChildEnv(originalTMUX), RunLogEnv+"="+logPath)
+}
+
+// execHeader is the one diagnostic line written before the launcher starts,
+// recording what the launcher was handed.
+func execHeader(opts ExecOptions, originalTMUX, cwd string) string {
+	socket := tmuxSocket(originalTMUX)
+	shown := socket
+	if shown == "" {
+		shown = tmuxSocketUnset
+	}
+	line := fmt.Sprintf("%s server=%s run=%s tmux=%s cwd=%s launcher=%s",
+		headerPrefix, operator.ServerLabel(opts.Server), opts.RunID, shown, cwd, shellq.QuoteArgv(opts.Argv))
+	if socket != "" && filepath.Base(socket) != operator.ServerLabel(opts.Server) {
+		line += headerSocketWarn
+	}
+	return line + "\n"
+}
+
+// tmuxSocket is the socket part of a $TMUX value (before the first comma).
+func tmuxSocket(tmuxEnv string) string {
+	socket, _, _ := strings.Cut(tmuxEnv, ",")
+	return socket
+}
+
+func workingDir() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "?"
+	}
+	return cwd
 }
 
 // exitStatus maps a Run error to an exit status: the child's own, 128+signal

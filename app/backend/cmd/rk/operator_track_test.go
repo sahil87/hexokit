@@ -406,3 +406,27 @@ func TestOperatorTrackServerResolution(t *testing.T) {
 		}
 	}
 }
+
+func TestOperatorTrackUnknownSocket(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", home)
+	prevSock, prevTmux := operatorSocketPathFn, operatorOriginalTMUXFn
+	operatorSocketPathFn = func(context.Context, string) string { return "" }
+	operatorOriginalTMUXFn = func() string { return "" }
+	t.Cleanup(func() { operatorSocketPathFn, operatorOriginalTMUXFn = prevSock, prevTmux })
+
+	t.Run("a named server is an operational error", func(t *testing.T) {
+		_, err := track(t, "list", "-L", "loom", "--json")
+		wantExit(t, err, 1, `"loom"`)
+		if _, statErr := os.Stat(filepath.Join(home, "hexokit", "operator")); !os.IsNotExist(statErr) {
+			t.Error("a named server with an unknown socket touched the state directory")
+		}
+	})
+
+	t.Run("the default server keeps the default ledger", func(t *testing.T) {
+		mustTrack(t, "add", "a", "--kind", "task")
+		if _, err := os.Stat(filepath.Join(home, "hexokit", "operator", "default.yaml")); err != nil {
+			t.Errorf("default.yaml missing: %v", err)
+		}
+	})
+}

@@ -656,7 +656,7 @@ func newTmuxGuardCmd(use string) *cobra.Command {
 			var ece *exitCodeError
 			if errors.As(err, &ece) {
 				fmt.Fprintln(cmd.ErrOrStderr(), ece.msg)
-				os.Exit(ece.code)
+				exitRecorded(err, ece.code)
 				return nil
 			}
 			return err

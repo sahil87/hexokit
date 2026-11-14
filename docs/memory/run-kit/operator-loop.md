@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The operator loop runner (`internal/operatorloop`) behind the cron `run: operator-loop` entry — decision order (busy gate → `operator.Check` → run), the `_rk-operator` run window, run records/brief/log under `<state>/operator/runs/<slug>/` with newest-50 retention, the hidden `rk operator run-exec` wrapper and its failure-note contract, exactly-once transcription, launcher resolution, and the restart-survival invariants."
+description: "The operator loop runner (`internal/operatorloop`) behind the cron `run: operator-loop` entry — decision order (busy gate → `operator.Check` → run), the `_rk-operator` run window, run records/brief/log under `<state>/operator/runs/<slug>/` with newest-50 retention, the hidden `rk operator run-exec` wrapper (launcher env with restored `$TMUX`, header line, rk self-log) and its failure-note contract, exactly-once transcription, launcher resolution, and the restart-survival invariants."
 ---
 # Operator Loop
 
@@ -63,7 +63,7 @@ A run counts as in flight — for the runner's busy gate, the evaluator's `RunIn
 
 ### Requirement: Run records, brief, and log
 
-Per run, under `<state home>/operator/runs/<slug>/` (dir 0700, files 0600; `<slug>` is the operator state-file slug for S), three files exist: `<run-id>.json` (the record), `<run-id>.brief.md` (the rendered brief), and `<run-id>.log` (the wrapper's tee'd output). The run id is `YYYYMMDDTHHMMSS-xxxx` (UTC time, four random `[a-z0-9]`), so ids sort chronologically. The record is `{id, server, entry, fired_at, changed, window, started_at, ended_at, exit_code, outcome, lost, transcript, logged}` with RFC3339 UTC timestamps and zero values omitted; `exit_code` is a pointer so a real `0` is recorded and "not exited" stays absent; `lost` is the reason a run never produced an exit status. The `transcript` field is never populated for headless runs — the launcher is provider-opaque and nothing in the exit contract carries a session reference — and exists, with its API and UI plumbing, for a launcher that reports one.
+Per run, under `<state home>/operator/runs/<slug>/` (dir 0700, files 0600; `<slug>` is the operator state-file slug for S), three files exist: `<run-id>.json` (the record), `<run-id>.brief.md` (the rendered brief), and `<run-id>.log` (the wrapper's header line and tee'd launcher output, plus the self-log records of every `rk` the run invokes — § The `rk operator run-exec` wrapper). The run id is `YYYYMMDDTHHMMSS-xxxx` (UTC time, four random `[a-z0-9]`), so ids sort chronologically. The record is `{id, server, entry, fired_at, changed, window, started_at, ended_at, exit_code, outcome, lost, transcript, logged}` with RFC3339 UTC timestamps and zero values omitted; `exit_code` is a pointer so a real `0` is recorded and "not exited" stays absent; `lost` is the reason a run never produced an exit status. The `transcript` field is never populated for headless runs — the launcher is provider-opaque and nothing in the exit contract carries a session reference — and exists, with its API and UI plumbing, for a launcher that reports one.
 
 - The record and brief are written atomically (`fsatomic`) BEFORE the window is created: durable before acknowledged.
 - Path resolution uses one tmux socket-path query and fails when the socket path is unknown, with no fallback to the `default` slug, so a transient query failure cannot move run files, failure notes, or seeding onto another server's files. Server names and run ids are validated before they reach any path or tmux argv; the slug is checked as a path component.
@@ -75,10 +75,16 @@ Per run, under `<state home>/operator/runs/<slug>/` (dir 0700, files 0600; `<slu
 `rk operator run-exec --server S --run <run-id> -- <launcher argv…>` (hidden; `cmd/rk/operator_run_exec.go`, body in `operatorloop.Exec`; excluded from the MCP policy table) runs inside the run window, so the wrapper — not the daemon — is the run's parent and the only writer of the run's end state. It SHALL:
 
 1. Record `started_at`.
-2. Run the launcher (`exec.CommandContext`, its own process group so a ceiling or a killed window stops the whole tree) with stdin read from the brief file and stdout/stderr tee'd to the window and to the run log. A 2-hour ceiling (`ExecCeiling`) bounds a hung provider; SIGTERM, SIGHUP, and SIGINT (the window being killed) stop the child and are recorded like any other end.
+2. Write one header line to the run log and the window, then run the launcher (`exec.CommandContext`, its own process group so a ceiling or a killed window stops the whole tree) with stdin read from the brief file and stdout/stderr tee'd to the window and to the run log. A 2-hour ceiling (`ExecCeiling`) bounds a hung provider; SIGTERM, SIGHUP, and SIGINT (the window being killed) stop the child and are recorded like any other end.
 3. Take the LAST complete stdout line matching `^outcome: (.*)$` as the run's outcome.
 4. On a non-zero exit or no outcome line: append `run failed: exit <n> — <≤200-byte whitespace-collapsed log tail>` with `--by run` to each `changed` item still in the ledger (removed items are skipped silently, one failure never stops the rest), and send a fail-silent push titled `operator run failed` (best-effort — a push error never changes the run's recorded end).
 5. Record `ended_at`, `exit_code`, and `outcome`.
+
+**Launcher environment.** The launcher's `cmd.Env` is the wrapper's environment (`tmux.ChildEnv`) with `$TMUX` restored from `tmux.OriginalTMUX` — `internal/tmux`'s `init()` strips `$TMUX` from every rk process, so without the restore a bare `rk`, `fab`, or `tmux` call in the run resolves to the `default` server — plus `RK_OPERATOR_RUN_LOG=<absolute path of <run-id>.log>` (`operatorloop.RunLogEnv`). The brief additionally names the server with `-L` on every command ([operator-brief](/run-kit/operator-brief.md) § Embedded run rules), so a run does not depend on the ambient `$TMUX`.
+
+**Header line.** Before the launcher starts the wrapper writes `run-exec: server=<server> run=<run-id> tmux=<socket|unset> cwd=<cwd> launcher=<shell-quoted argv>` (server rendered through `operator.ServerLabel`; `tmux=` is the restored `$TMUX` up to its first comma, else `unset`). When `$TMUX` is set and its socket basename differs from the server label, the line ends ` WARNING: TMUX socket does not match --server`; the mismatch is not fatal. The header is not an `outcome:` line and takes no part in outcome capture or the failure contract.
+
+**Run-log self-log.** When `RK_OPERATOR_RUN_LOG` holds an absolute path, every `rk` process the run starts appends one record to it as it exits ([cli](/run-kit/architecture/cli.md) § Run-log self-log), so a failing tool call is diagnosable from the run log alone — the launcher is provider-opaque and its own log holds only its final message. The `run failed` note's ≤200-byte log tail may therefore show the last record.
 
 The wrapper never writes the cron log. Its exit status mirrors the child's (124 on the ceiling, 127 on a failure to start, 128+signal when signalled).
 
@@ -86,6 +92,11 @@ The wrapper never writes the cron log. Its exit status mirrors the child's (124 
 - **GIVEN** a launcher that prints `outcome: stub acted` and exits 0
 - **WHEN** the wrapper finishes
 - **THEN** the record carries `exit_code: 0`, `outcome: "stub acted"`, and `ended_at`, and no failure note was written
+
+#### Scenario: Run on a non-default server
+- **GIVEN** the wrapper started inside a window on server `loom` (`$TMUX` names `/tmp/tmux-1000/loom`)
+- **WHEN** the launcher runs
+- **THEN** its environment carries that `$TMUX` and `RK_OPERATOR_RUN_LOG`, and the log's first line is `run-exec: server=loom … tmux=/tmp/tmux-1000/loom …` with no warning
 
 #### Scenario: Failing run
 - **GIVEN** a launcher that exits 1 with no outcome line
@@ -142,6 +153,18 @@ Every daemon-originated write is durable before a run launches, and the daemon h
 **Why**: A busy signal that outlives its run silently disables the loop forever: a user's `remain-on-exit on` leaves a dead husk, a restore re-stamps the role onto a fresh shell, and a crash between create and stamp strands an unstamped wrapper.
 **Rejected**: Treating any `operator-run`-role window as busy; stamping after creation; capturing run windows as inert history.
 *Introduced by*: 261112-xxvq-operator-loop-check-run-note
+
+### The run launcher keeps its tmux server
+**Decision**: The wrapper hands the launcher its own captured `$TMUX` (via `tmux.ChildEnv`) and exports `RK_OPERATOR_RUN_LOG`; the brief also renders `-L <server>` on every server-addressed command.
+**Why**: `internal/tmux`'s `init()` strips `$TMUX` process-wide, so a child of any rk binary loses its server unless it is restored, and every bare tmux/rk/fab call in the run then targets `default` — it cannot capture panes and reads another server's ledger while still exiting 0. The restore fixes bare commands, including tools rk does not own; the explicit `-L` keeps a later environment regression from silently retargeting a run.
+**Rejected**: Brief `-L` alone (bare `fab` and `tmux` calls still need `$TMUX`); env restore alone (one regression from the same silent failure).
+*Introduced by*: 261114-qxos-operator-run-explicit-server
+
+### rk self-logs into the run log
+**Decision**: Diagnostics come from rk itself — each rk invocation inside a run appends its argv, exit code, error, and capped streams to the run log — not from rendering the launcher's output.
+**Why**: Provider-neutral and deterministic: the run's tools are mostly rk verbs, and a plain headless launcher's log holds only its final prose.
+**Rejected**: Stream-json rendering for Claude launchers (Claude-only, breaks the provider-opaque launcher rule); a brief rule to quote errors (depends on model compliance).
+*Introduced by*: 261114-qxos-operator-run-explicit-server
 
 ### Failure notes at the wrapper and launch, because the check consumed the edges
 **Decision**: Both a failed launch and a failed run (non-zero exit or no outcome line) append a `--by run` failure note to each changed item.
