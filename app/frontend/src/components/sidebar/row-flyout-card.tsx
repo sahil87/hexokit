@@ -17,6 +17,8 @@ import {
   autoUpdate,
 } from "@floating-ui/react";
 import { PinIcon } from "@/components/pin-icon";
+import { LogoSpinner } from "@/components/logo-spinner";
+import type { ForkWhere } from "@/api/client";
 import { BringBackIcon, CloseIcon, PaletteIcon, PopOutIcon } from "./icons";
 import { getFabParts, getOperatorParts, getPrSegments } from "./registers";
 import type { OperatorLoopFacts } from "./registers";
@@ -508,29 +510,30 @@ export function CardActionRow({
 }
 
 /**
- * The fork action row, with its own IN-FLIGHT state so the busy flag is
- * leaf-scoped (the card's render-performance discipline — only this row
- * re-renders while a fork is in flight).
+ * The card's two fork rows ("Fork conversation" and "Fork to new worktree")
+ * with ONE shared IN-FLIGHT state, kept in this leaf (the card's
+ * render-performance discipline — only these rows re-render while a fork is in
+ * flight).
  *
- * The guard is load-bearing, not cosmetic: `onFork` POSTs a mutating endpoint that
- * CREATES a tmux window, so N clicks would create N forks. Disabling until the
- * promise settles is the spawn dialog's `disabled={busy}` idiom; the busy state
+ * The guard is load-bearing, not cosmetic: each handler POSTs a mutating
+ * endpoint that CREATES a tmux window, so N clicks would create N forks.
+ * Sharing it means a fork in flight blocks BOTH rows. Disabling until the
+ * promise settles is the spawn dialog's `disabled={busy}` idiom; the state
  * clears on settle (success and error alike) so a failed fork stays retryable.
+ *
+ * Feedback: the clicked row swaps its fork glyph for the LogoSpinner and its
+ * hint for a progress phrase (the split button's icon swap + the update row's
+ * "updating…" idiom). The sidebar's placeholder row (app.tsx handleForkWindow)
+ * is what stays visible once the card closes.
  */
-function ForkActionRow({
+function ForkActionRows({
   onFork,
-  label = "Fork conversation",
-  hint = "new tab, same directory",
-  tooltip = FORK_TOOLTIP,
-  testid = "row-flyout-fork-action",
+  onForkWorktree,
 }: {
-  onFork: () => Promise<void>;
-  label?: string;
-  hint?: string;
-  tooltip?: string;
-  testid?: string;
+  onFork?: () => Promise<void>;
+  onForkWorktree?: () => Promise<void>;
 }) {
-  const [busy, setBusy] = useState(false);
+  const [inFlight, setInFlight] = useState<ForkWhere | null>(null);
   // The card unmounts when the flyout closes (and a successful fork navigates
   // away), so a settle after unmount is a real possibility — guard the setState.
   const mountedRef = useRef(true);
@@ -540,30 +543,96 @@ function ForkActionRow({
       mountedRef.current = false;
     };
   }, []);
+  const start = (where: ForkWhere, run: () => Promise<void>) => {
+    if (inFlight) return;
+    setInFlight(where);
+    void run().finally(() => {
+      if (mountedRef.current) setInFlight(null);
+    });
+  };
 
+  return (
+    <>
+      {onFork && (
+        <ForkActionRow
+          onClick={() => start("checkout", onFork)}
+          busy={inFlight === "checkout"}
+          disabled={inFlight !== null}
+          label="Fork conversation"
+          hint="new tab, same directory"
+          busyHint="forking…"
+          tooltip={FORK_TOOLTIP}
+          testid="row-flyout-fork-action"
+        />
+      )}
+      {onForkWorktree && (
+        <ForkActionRow
+          onClick={() => start("worktree", onForkWorktree)}
+          busy={inFlight === "worktree"}
+          disabled={inFlight !== null}
+          label="Fork to new worktree"
+          hint="new branch"
+          busyHint="creating worktree…"
+          tooltip={FORK_WORKTREE_TOOLTIP}
+          testid="row-flyout-fork-worktree-action"
+        />
+      )}
+    </>
+  );
+}
+
+function ForkActionRow({
+  onClick,
+  busy,
+  disabled,
+  label,
+  hint,
+  busyHint,
+  tooltip,
+  testid,
+}: {
+  onClick: () => void;
+  /** This row's fork is in flight: spinner glyph + progress hint. */
+  busy: boolean;
+  /** Any fork from this card is in flight. */
+  disabled: boolean;
+  label: string;
+  hint: string;
+  busyHint: string;
+  tooltip: string;
+  testid: string;
+}) {
   return (
     <button
       type="button"
       // stopPropagation so forking never also selects the underlying row (the
       // PR/docs links' idiom). The click is a no-op while a fork is in flight —
-      // `disabled` already blocks it, this is the belt to that braces.
+      // `disabled` already blocks it, the parent's guard is the belt to that braces.
       onClick={(e) => {
         e.stopPropagation();
-        if (busy) return;
-        setBusy(true);
-        void onFork().finally(() => {
-          if (mountedRef.current) setBusy(false);
-        });
+        if (disabled) return;
+        onClick();
       }}
-      disabled={busy}
-      className={`${ACTION_ROW_CLASS} hover:text-text-primary hover:border-l-accent-green disabled:hover:border-l-transparent disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-text-secondary`}
+      disabled={disabled}
+      aria-busy={busy || undefined}
+      // The busy row keeps full opacity so its spinner reads; only the OTHER
+      // fork row dims while it is blocked.
+      className={`${ACTION_ROW_CLASS} hover:text-text-primary hover:border-l-accent-green disabled:hover:border-l-transparent disabled:cursor-not-allowed disabled:hover:text-text-secondary ${busy ? "" : "disabled:opacity-40"}`}
       aria-label={tooltip}
       title={tooltip}
       data-testid={testid}
     >
-      <ForkIcon />
+      {busy ? (
+        <span className="inline-flex shrink-0" data-testid="row-flyout-fork-spinner">
+          <LogoSpinner size={12} />
+        </span>
+      ) : (
+        <ForkIcon />
+      )}
       <span className="shrink-0">{label}</span>
-      <span className={ACTION_ROW_HINT_CLASS}>{hint}</span>
+      <span className={ACTION_ROW_HINT_CLASS} role={busy ? "status" : undefined}>
+        {busy ? busyHint : hint}
+      </span>
     </button>
   );
 }
@@ -574,14 +643,14 @@ function ForkActionRow({
  * POST (the backend derives every prompt fact server-side) and toasts the
  * outcome; the rename itself arrives later via the normal SSE derive tick, so
  * there is no spinner beyond the in-flight guard. The guard mirrors
- * ForkActionRow's: the POST is mutating, so N clicks must not fire N requests;
+ * ForkActionRows': the POST is mutating, so N clicks must not fire N requests;
  * the busy state clears on settle (success and error alike) so a rejected
  * request stays retryable.
  */
 function FixTabNameActionRow({ onFixTabName }: { onFixTabName: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   // The card unmounts when the flyout closes, so a settle after unmount is a
-  // real possibility — guard the setState (the ForkActionRow idiom).
+  // real possibility — guard the setState (the ForkActionRows idiom).
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -907,15 +976,8 @@ export function WindowFlyoutContent({
               onClick={onChangeColorAction}
             />
           )}
-          {forkHandler && <ForkActionRow onFork={forkHandler} />}
-          {forkWorktreeHandler && (
-            <ForkActionRow
-              onFork={forkWorktreeHandler}
-              label="Fork to new worktree"
-              hint="new branch"
-              tooltip={FORK_WORKTREE_TOOLTIP}
-              testid="row-flyout-fork-worktree-action"
-            />
+          {(forkHandler || forkWorktreeHandler) && (
+            <ForkActionRows onFork={forkHandler} onForkWorktree={forkWorktreeHandler} />
           )}
           {fixNameHandler && <FixTabNameActionRow onFixTabName={fixNameHandler} />}
           {onOpenInNewWindow && (

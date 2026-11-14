@@ -238,7 +238,7 @@ import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 import type { ProjectSession, WindowInfo } from "@/types";
 
-import { selectWindow, createWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, borrowLayout, returnLayout, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, launchGuiApp, getSettingsEntries, fetchGuiStatus, resizeGui, fetchCodeBridge, restartCodeServer, DAEMON_SERVER, ApiError, HttpError, type ForkWhere, type SortWindowsBy, type CronEntry } from "@/api/client";
+import { selectWindow, createWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, borrowLayout, returnLayout, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, launchGuiApp, getSettingsEntries, fetchGuiStatus, resizeGui, fetchCodeBridge, restartCodeServer, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
 import { useCronData } from "@/hooks/use-cron";
 import { buildCronActions, type CronActionHandlers } from "@/lib/palette/cron";
 import { buildDataTableActions } from "@/lib/palette/data-table";
@@ -269,6 +269,7 @@ import { useBrowserTitle } from "@/hooks/use-browser-title";
 import { usePushSubscription } from "@/hooks/use-push-subscription";
 import { useShellNotifications } from "@/hooks/use-shell-notifications";
 import { useWindowStore } from "@/store/window-store";
+import { useForkWindow } from "@/hooks/use-fork-window";
 
 const CommandPalette = lazy(() => import("@/components/command-palette").then(m => ({ default: m.CommandPalette })));
 const ThemeSelector = lazy(() => import("@/components/theme-selector").then(m => ({ default: m.ThemeSelector })));
@@ -3509,26 +3510,9 @@ function AppShell() {
     [recentlyClosedStack, reopenClosed],
   );
 
-  // Fork a window's agent conversation (260806-s4av): a NEW window in the SAME
-  // session — same directory, or (where="worktree") a new worktree + branch —
-  // resuming that agent's session with its provider's fork command. The
-  // backend derives everything from the windowId, so the client sends nothing but
-  // the identity. On success navigate to the fork; a best-effort empty windowId
-  // (the backend's display-message resolve failed) skips navigation and lets SSE
-  // surface the row, matching the spawn dialog's rule.
-  //
-  // RETURNS the settle promise (already error-handled here, so it never rejects):
-  // the flyout's fork button awaits it to hold its in-flight disabled state, so
-  // repeated clicks cannot fire multiple mutating POSTs and create N forks.
-  const handleForkWindow = useCallback(
-    (srv: string, windowId: string, where?: ForkWhere): Promise<void> =>
-      forkWindow(srv, windowId, where)
-        .then((res) => {
-          if (res.windowId) navigateToSpawnedWindow(srv, res.windowId);
-        })
-        .catch((err: Error) => addToast(err.message || "Failed to fork conversation", "error")),
-    [navigateToSpawnedWindow, addToast],
-  );
+  // Fork a window's agent conversation (260806-s4av) — lifecycle, placeholder
+  // row and in-flight contract live in useForkWindow.
+  const handleForkWindow = useForkWindow(navigateToSpawnedWindow);
 
   // The sidebar's tab-popout seam (spec surface-layout.md § Verbs → Pop out,
   // sidebar entry point): a window row's card pops the tab's terminal into
