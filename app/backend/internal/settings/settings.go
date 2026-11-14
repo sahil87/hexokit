@@ -136,6 +136,11 @@ type Settings struct {
 	// owns the file — rk performs no ensure/refresh on it. Read at tmux
 	// command construction, so a change applies on the next daemon restart.
 	TmuxConf string
+	// OperatorMergeMode is the merge mode `rk operator autopilot queue` stamps
+	// on a new queue when no --mode flag is given. An out-of-set value read
+	// from a hand-edited file is kept verbatim so the queue verb can refuse it
+	// by name; writes through the registry are validated.
+	OperatorMergeMode string
 	// LogLevel is the daemon log verbosity: "info" or "debug". Read at serve
 	// startup (the LOG_LEVEL env escape wins when set), so a change applies on
 	// the next daemon restart.
@@ -152,7 +157,27 @@ func Default() Settings {
 		EasterEggs:  true,
 		GUIGeometry: gui.GeometryDefault,
 		LogLevel:    "info",
+
+		OperatorMergeMode: DefaultOperatorMergeMode,
 	}
+}
+
+// DefaultOperatorMergeMode is the merge mode a queue gets when neither a flag
+// nor the setting names one.
+const DefaultOperatorMergeMode = "cherry-pick-ladder"
+
+// OperatorMergeModes is the closed set of operator.merge_mode values. It
+// mirrors operator.MergeModes (settings cannot import operator: tmux imports
+// settings), and a test pins the two together.
+var OperatorMergeModes = []string{"cherry-pick-ladder", "stacked-prs", "merge-auto"}
+
+func validateOperatorMergeMode(value string) string {
+	for _, m := range OperatorMergeModes {
+		if m == value {
+			return ""
+		}
+	}
+	return "operator.merge_mode must be one of: " + strings.Join(OperatorMergeModes, ", ")
 }
 
 // ConfigDirEnv is the test-isolation env var that relocates the config root.
@@ -646,6 +671,19 @@ var registry = []registryEntry{
 		serialize: quotedScalar("openai_mcp.tunnel_id", func(s *Settings) *string { return &s.OpenAIMCPTunnelID }),
 		read:      emptyableString(func(s *Settings) *string { return &s.OpenAIMCPTunnelID }),
 		apply:     validatedScalar(func(s *Settings) *string { return &s.OpenAIMCPTunnelID }, openaimcp.ValidateTunnelID, ""),
+	},
+	{
+		key: "operator.merge_mode", kind: "enum", def: DefaultOperatorMergeMode,
+		desc:     "How a new operator queue merges: cherry-pick-ladder and stacked-prs create PRs to merge after review; merge-auto arms each PR to merge as it ships. A queue's --mode flag wins; read only when a queue is created.",
+		category: "behavior", ui: true, live: true,
+		options: OperatorMergeModes,
+		// Stored verbatim on read (no validation) so `rk operator autopilot
+		// queue` can refuse a hand-edited bad value instead of silently
+		// falling back; the destructive tier never guesses.
+		parse:     quoteTrimmedScalar(func(s *Settings) *string { return &s.OperatorMergeMode }),
+		serialize: quotedScalarOmittingDefault("operator.merge_mode", DefaultOperatorMergeMode, func(s *Settings) *string { return &s.OperatorMergeMode }),
+		read:      func(s *Settings) any { v := s.OperatorMergeMode; return &v },
+		apply:     validatedScalar(func(s *Settings) *string { return &s.OperatorMergeMode }, validateOperatorMergeMode, DefaultOperatorMergeMode),
 	},
 	{
 		key: "tmux_conf", kind: "path", def: "",

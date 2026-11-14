@@ -207,7 +207,7 @@ eval "$(rk shell-init zsh)"   # in ~/.zshrc — also: bash, fish, powershell
 |---------|--------------|
 | `rk riff` | Create a worktree + tmux window + agent/command pane(s). |
 | `rk tutorial` | Open the guided tour — an agent-run `tutorial` tab in this session. |
-| `rk operator` | Open the operator — the server-wide orchestrator agent tab (singleton); `request <template>` hands it a templated work item. |
+| `rk operator` | Open the operator — the server-wide orchestrator agent tab (singleton); `request <template>` hands it a templated work item; `autopilot queue|step|merge|stop|status` runs spawn-and-merge queues deterministically. |
 | `rk serve` | Start the HTTP server (foreground). |
 | `rk daemon` | Manage the background daemon (`start`, `restart`, `stop`, `status`, `autostart on\|off\|status`). |
 | `rk status` | Show a tmux session summary. |

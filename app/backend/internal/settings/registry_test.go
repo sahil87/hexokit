@@ -18,7 +18,7 @@ func TestRegistry_orderAndMetadata(t *testing.T) {
 	wantKeys := []string{
 		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host", "port",
 		"instance_name", "auto_name", "cron_ticker", "easter_eggs", "gui.enabled", "gui.wm", "gui.geometry",
-		"openai_mcp.enabled", "openai_mcp.tunnel_id", "tmux_conf", "log_level", "server_colors", "server_flairs", "board_order", "riff_presets",
+		"openai_mcp.enabled", "openai_mcp.tunnel_id", "operator.merge_mode", "tmux_conf", "log_level", "server_colors", "server_flairs", "board_order", "riff_presets",
 	}
 	if len(infos) != len(wantKeys) {
 		t.Fatalf("Registry() returned %d entries, want %d", len(infos), len(wantKeys))
@@ -49,6 +49,7 @@ func TestRegistry_orderAndMetadata(t *testing.T) {
 		{"gui.geometry", "string", "1920x1080", "behavior", true, true, nil},
 		{"openai_mcp.enabled", "bool", "false", "connectivity", true, true, nil},
 		{"openai_mcp.tunnel_id", "string", "", "connectivity", true, true, nil},
+		{"operator.merge_mode", "enum", "cherry-pick-ladder", "behavior", true, true, []string{"cherry-pick-ladder", "stacked-prs", "merge-auto"}},
 		{"port", "port", strconv.Itoa(portpolicy.DaemonDefault), "connectivity", false, false, nil},
 		{"log_level", "enum", "info", "advanced", true, false, []string{"info", "debug"}},
 		{"server_colors", "map", "{}", "appearance", true, true, nil},

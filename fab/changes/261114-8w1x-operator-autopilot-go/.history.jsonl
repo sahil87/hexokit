@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-14T11:13:28Z"}
+{"args":"R6 from fab/plans/sahil/26-11-10-operator-to-hexokit.md: autopilot in Go (queue, readiness gate, spawn, dependency code, ordered merge, three merge modes cherry-pick-ladder/stacked-prs/merge-auto). Depends on C1, which is complete. Resolve the open decision on where merge_mode lives (rk settings vs reading fab config via the fab CLI) at intake.","cmd":"fab-new","event":"command","ts":"2026-11-14T11:13:28Z"}
+{"delta":"+3.1","event":"confidence","score":3.1,"trigger":"calc-score","ts":"2026-11-14T11:17:01Z"}
+{"delta":"-0.7","event":"confidence","score":2.4,"trigger":"calc-score","ts":"2026-11-14T11:17:06Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-11-14T12:17:49Z"}
+{"delta":"+0.5","event":"confidence","score":2.9,"trigger":"calc-score","ts":"2026-11-14T12:17:49Z"}
+{"delta":"+0.8","event":"confidence","score":3.7,"trigger":"calc-score","ts":"2026-11-14T14:10:57Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-14T14:11:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-14T14:11:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-14T14:41:06Z"}
