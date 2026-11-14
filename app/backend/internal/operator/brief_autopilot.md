@@ -1,8 +1,8 @@
 Interim — replaced by the R6 autopilot engine; R7 deletes this file.
 
 Queues are plain `pane` items chained by `depends_on`. There is no queue state beyond the items:
-skipping an entry is `rk operator track rm <id>`, pausing unspawned entries is
-`rk operator track pause <id>`. Work a queue only when a changed item is in it or unblocks it.
+skipping an entry is `rk operator track rm -L <server> <id>`, pausing unspawned entries is
+`rk operator track pause -L <server> <id>`. Work a queue only when a changed item is in it or unblocks it.
 
 ### Items and readiness
 
@@ -64,7 +64,7 @@ Never `fab init`. Never send raw implementation instructions to a fab-project ag
    prompt token):
 
    ```sh
-   rk tab new --cwd <worktree> --name <wt> --ready --json -- <session-command-argv…> ["<prompt>"]
+   rk tab new -L <server> --cwd <worktree> --name <wt> --ready --json -- <session-command-argv…> ["<prompt>"]
    ```
 
    Read `pane_id` and `session` from the JSON result. `ready:` of `parked` or `narrow` means a wall
@@ -72,13 +72,13 @@ Never `fab init`. Never send raw implementation instructions to a fab-project ag
 5. **Track it.** An unspawned queue item already exists, so attach the pane:
 
    ```sh
-   rk operator track update <id> --scope '{"pane":"<pane-id>","session":"<session>"}'
+   rk operator track update -L <server> <id> --scope '{"pane":"<pane-id>","session":"<session>"}'
    ```
 
-   A brand-new spawn is `rk operator track add <id> --kind pane --pane <pane-id> --session <session> --repo <repo> [--change <change> --branch <branch>] [--stop-stage <stage>] [--spawned-by <item-id>]`.
+   A brand-new spawn is `rk operator track add -L <server> <id> --kind pane --pane <pane-id> --session <session> --repo <repo> [--change <change> --branch <branch>] [--stop-stage <stage>] [--spawned-by <item-id>]`.
    A plain-agent spawn is a change-less pane item whose id is the worktree name, with `--branch <wt>`;
-   once its PR URL is known, add `rk operator track add <wt>-pr --kind github-pr --scope '{"repo":"<repo>","pr":<n>}' --check-every 2m`
-   and `rk operator track rm <wt>`. Nothing may `--depends-on` a bare agent.
+   once its PR URL is known, add `rk operator track add -L <server> <wt>-pr --kind github-pr --scope '{"repo":"<repo>","pr":<n>}' --check-every 2m`
+   and `rk operator track rm -L <server> <wt>`. Nothing may `--depends-on` a bare agent.
 
 ### Merging
 
@@ -91,7 +91,7 @@ Queue PRs are created, not merged, unless the mode says otherwise. In a run:
   directly with `gh pr merge --squash <pr>`; auto-merge disabled on the repo means notify and stop).
   Arm only one PR per repo sequence, and only after the previous PR's merge is verified by its
   `github-pr` item turning done. The sequence is a chain of `github-pr` items:
-  `rk operator track add pr-<n> --kind github-pr --scope '{"repo":"<repo>","pr":<n>,"change":"<id>"}' --then "arm next: gh pr merge --auto --squash <next>" --depends-on pr-<n-1>`.
+  `rk operator track add -L <server> pr-<n> --kind github-pr --scope '{"repo":"<repo>","pr":<n>,"change":"<id>"}' --then "arm next: gh pr merge --auto --squash <next>" --depends-on pr-<n-1>`.
   When a merge is verified, spawn the next change (step 1 pins the advanced tip).
 - A halted sequence (CI failure after recovery, conflict after recovery) disarms its remaining armed
   PRs with `gh pr merge --disable-auto <pr>`, halts only that repo's sequence and the repos that
@@ -105,8 +105,8 @@ from a first sighting.
 
 | Reason | Detected by | One action | Then |
 |--------|-------------|-----------|------|
-| `ci-failed` | `gh pr checks <n> --required --json name,state,link` has a `FAILURE` | `rk operator track update pr-<n> --scope '{"recovery":"ci-fix","fix_head":"<headRefOid>"}'`, then send the authoring pane the fix request below (it stays armed). Pane gone: one recovery spawn with the same text | green: continue. Still red on a head other than `fix_head`, or 30 minutes with no push: halt, disarm, notify with the agent's one-line diagnosis |
-| `conflicting` | `unchanged` ≥ 3 on the armed item, no failed check, `gh pr view <n> --json mergeable` is `CONFLICTING` | `rk operator track update pr-<n> --scope '{"recovery":"rebase"}'`, then in the change's worktree `git fetch origin && git rebase origin/<default_branch> && git push --force-with-lease`, then `gh pr merge --auto --squash <n>` | `CONFLICTING` again with `recovery` already `rebase`, or the rebase conflicts (`git rebase --abort`): disarm, halt, notify naming the files |
+| `ci-failed` | `gh pr checks <n> --required --json name,state,link` has a `FAILURE` | `rk operator track update -L <server> pr-<n> --scope '{"recovery":"ci-fix","fix_head":"<headRefOid>"}'`, then send the authoring pane the fix request below (it stays armed). Pane gone: one recovery spawn with the same text | green: continue. Still red on a head other than `fix_head`, or 30 minutes with no push: halt, disarm, notify with the agent's one-line diagnosis |
+| `conflicting` | `unchanged` ≥ 3 on the armed item, no failed check, `gh pr view <n> --json mergeable` is `CONFLICTING` | `rk operator track update -L <server> pr-<n> --scope '{"recovery":"rebase"}'`, then in the change's worktree `git fetch origin && git rebase origin/<default_branch> && git push --force-with-lease`, then `gh pr merge --auto --squash <n>` | `CONFLICTING` again with `recovery` already `rebase`, or the rebase conflicts (`git rebase --abort`): disarm, halt, notify naming the files |
 
 The authoring pane is the one whose `change` (from `fab pane map --all-sessions`) equals the item's
 `scope.change`. The fix request is the one sanctioned raw send into a fab-project agent, because it
@@ -117,8 +117,8 @@ CI failed on PR #<n> (<repo>): check `<check name>` — run <run link>.
 Diagnose and fix on this branch, push, and report the root cause in one line.
 ```
 
-One recovery spawn per item per reason: `rk operator track add <change>-fix --kind pane --pane … --repo … --branch <branch>`
-with no `--change`, removed with `rk operator track rm <change>-fix` when the round resolves.
+One recovery spawn per item per reason: `rk operator track add -L <server> <change>-fix --kind pane --pane … --repo … --branch <branch>`
+with no `--change`, removed with `rk operator track rm -L <server> <change>-fix` when the round resolves.
 For a merged PR with no non-pending review (`gh pr view <n> --json reviews`), say "unreviewed" in the
 note.
 

@@ -208,3 +208,100 @@ func TestOutcomeCaptureAcrossWrites(t *testing.T) {
 		t.Errorf("only a line STARTING with outcome: counts, got %q", d.Outcome())
 	}
 }
+
+func stubTMUX(t *testing.T, value string) {
+	t.Helper()
+	prev := originalTMUXFn
+	originalTMUXFn = func() string { return value }
+	t.Cleanup(func() { originalTMUXFn = prev })
+}
+
+// TestExecLauncherEnvRestoresTMUX: the launcher gets the wrapper's original
+// TMUX and the run-log path, because internal/tmux stripped TMUX from the
+// wrapper's own environment.
+func TestExecLauncherEnvRestoresTMUX(t *testing.T) {
+	const script = `echo "TMUX=${TMUX-unset}"; echo "LOG=${RK_OPERATOR_RUN_LOG-unset}"; echo "outcome: ok"`
+	t.Run("set", func(t *testing.T) {
+		r := newRig(t)
+		_, logPath := execRig(t, r, "pr-41")
+		stubTMUX(t, "/tmp/tmux-1000/loom,123,0")
+		_, stdout, _, _ := doExec(t, "sh", "-c", script)
+		for _, want := range []string{"TMUX=/tmp/tmux-1000/loom,123,0\n", "LOG=" + logPath + "\n"} {
+			if !strings.Contains(stdout, want) {
+				t.Errorf("launcher stdout missing %q in %q", want, stdout)
+			}
+		}
+	})
+	t.Run("unset", func(t *testing.T) {
+		r := newRig(t)
+		_, logPath := execRig(t, r, "pr-41")
+		stubTMUX(t, "")
+		t.Setenv(tmuxEnvKey, "")
+		if err := os.Unsetenv(tmuxEnvKey); err != nil {
+			t.Fatal(err)
+		}
+		_, stdout, _, _ := doExec(t, "sh", "-c", script)
+		for _, want := range []string{"TMUX=unset\n", "LOG=" + logPath + "\n"} {
+			if !strings.Contains(stdout, want) {
+				t.Errorf("launcher stdout missing %q in %q", want, stdout)
+			}
+		}
+	})
+}
+
+func TestExecHeader(t *testing.T) {
+	opts := ExecOptions{Server: "loom", RunID: "20261114T111009-e2mv", Argv: []string{"sh", "-c", "claude -p"}}
+	cases := []struct {
+		name, tmuxEnv, want string
+	}{
+		{"matching socket", "/tmp/tmux-1000/loom,1,0",
+			"run-exec: server=loom run=20261114T111009-e2mv tmux=/tmp/tmux-1000/loom cwd=/work launcher='sh' '-c' 'claude -p'\n"},
+		{"foreign socket", "/tmp/tmux-1000/hexokit,1,0",
+			"run-exec: server=loom run=20261114T111009-e2mv tmux=/tmp/tmux-1000/hexokit cwd=/work launcher='sh' '-c' 'claude -p' WARNING: TMUX socket does not match --server\n"},
+		{"no TMUX", "",
+			"run-exec: server=loom run=20261114T111009-e2mv tmux=unset cwd=/work launcher='sh' '-c' 'claude -p'\n"},
+	}
+	for _, c := range cases {
+		if got := execHeader(opts, c.tmuxEnv, "/work"); got != c.want {
+			t.Errorf("%s: header = %q, want %q", c.name, got, c.want)
+		}
+	}
+
+	opts.Server = "default"
+	if got := execHeader(opts, "/tmp/tmux-1000/default,1,0", "/work"); strings.Contains(got, "WARNING") {
+		t.Errorf("default socket against server default warned: %q", got)
+	}
+	opts.Server = ""
+	if got := execHeader(opts, "/tmp/tmux-1000/default,1,0", "/work"); strings.Contains(got, "WARNING") {
+		t.Errorf("default socket against an empty server warned: %q", got)
+	}
+}
+
+// TestExecWritesHeaderAndKeepsOutcomeCapture: the header leads the run log and
+// the window, and never counts as the outcome line or hides a missing one.
+func TestExecWritesHeaderAndKeepsOutcomeCapture(t *testing.T) {
+	r := newRig(t)
+	_, logPath := execRig(t, r, "pr-41")
+	stubTMUX(t, "/tmp/tmux-1000/other,1,0")
+
+	res, stdout, _, _ := doExec(t, "sh", "-c", `echo "outcome: acted"`)
+	if res.Failed || res.Outcome != "acted" {
+		t.Fatalf("result = %+v", res)
+	}
+	log, _ := os.ReadFile(logPath)
+	head := firstLine(string(log))
+	if !strings.HasPrefix(head, "run-exec: server="+testServer+" run="+runA+" tmux=/tmp/tmux-1000/other ") ||
+		!strings.HasSuffix(head, "WARNING: TMUX socket does not match --server") {
+		t.Errorf("log header = %q", head)
+	}
+	if firstLine(stdout) != head {
+		t.Errorf("window header = %q, want %q", firstLine(stdout), head)
+	}
+
+	r2 := newRig(t)
+	execRig(t, r2, "pr-41")
+	res, _, _, _ = doExec(t, "sh", "-c", `echo done`)
+	if !res.Failed || res.Outcome != "" {
+		t.Errorf("a run with no outcome line must still fail: %+v", res)
+	}
+}

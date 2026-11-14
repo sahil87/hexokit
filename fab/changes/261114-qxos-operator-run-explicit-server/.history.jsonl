@@ -1,0 +1,7 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-14T11:20:33Z"}
+{"args":"Operator runs on a non-default tmux server hit 'tmux socket error' on rk mux capture (loom run 20261114T111009-e2mv). Fix: (1) brief rk commands pass -L \u003cserver\u003e, (2) run log records tool output and error text, (3) check headless launcher loses TMUX/socket path, fix. Also check whether a run can read a stale or wrong ledger.","cmd":"fab-new","event":"command","ts":"2026-11-14T11:20:33Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-11-14T11:22:08Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-11-14T11:22:19Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-14T11:24:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-14T11:24:36Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-14T11:38:39Z"}

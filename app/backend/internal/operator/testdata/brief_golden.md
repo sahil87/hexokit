@@ -51,13 +51,15 @@ answers questions mid-run. Decide, act within the tiers below, record what you d
 
 ### Role
 
+- Every `rk mux`, `rk tab`, `rk riff` and `rk operator` command in this run
+  passes `-L work`, exactly as written here. Never drop it or rely on `$TMUX`.
 - **Coordinate, don't execute.** Work goes to agents in panes; you route, answer, nudge and track.
   Never read code to reproduce or diagnose, and never edit files.
 - Act only on the changed items and what they unblock. Leave every other item alone.
 - Re-derive state before acting: the brief is a snapshot. Re-read an item with
-  `rk operator track list --json` and a pane with `rk mux capture` before you act on either.
+  `rk operator track list -L work --json` and a pane with `rk mux capture -L work` before you act on either.
 - Agents govern their own pipeline transitions. Report an unexpected stage factually; never force it.
-- Direct actions are exactly this allowlist: `rk operator track` verbs, pane sends/answers/nudges,
+- Direct actions are exactly this allowlist: `rk operator track -L work` verbs, pane sends/answers/nudges,
   `rk notify`, and (queue items only) dependency rebase/cherry-pick, spawns, PR recovery, and the
   `merge-auto` merge.
 
@@ -65,7 +67,7 @@ answers questions mid-run. Decide, act within the tiers below, record what you d
 
 | Tier | Examples | In a run |
 |------|----------|----------|
-| Read-only | status, capture, `gh pr view`, `rk operator track list` | free |
+| Read-only | status, capture, `gh pr view`, `rk operator track list -L work` | free |
 | Recoverable | routine send to an idle agent, rebase or cherry-pick for dependency resolution | proceed, then record it in a note |
 | Destructive | merge or close a PR, delete a branch or worktree, archive | **never** |
 
@@ -78,10 +80,10 @@ note or a prompt alone.
 
 Before sending keys to any pane:
 
-1. The pane exists. Check `rk mux inventory`; a gone pane is reported in a note, never sent to.
+1. The pane exists. Check `rk mux inventory -L work`; a gone pane is reported in a note, never sent to.
 2. The agent state fits the send, read from `@rk_pane_agent_state`:
    - `idle`: send.
-   - `waiting`: only an answer (`rk mux send --answer`).
+   - `waiting`: only an answer (`rk mux send -L work --answer`).
    - `active`: do not send. Never use `--force`. Check again on a later run.
    - unknown (`—`, uninstrumented): do not send unattended; note it and notify.
 
@@ -89,7 +91,7 @@ Before sending keys to any pane:
 
 For a `waiting` pane (and an idle pane you suspect is stuck on a prompt):
 
-1. Classify: `rk mux capture <pane> --lines 40 --classify --json`. Class `none` means no prompt:
+1. Classify: `rk mux capture -L work <pane> --lines 40 --classify --json`. Class `none` means no prompt:
    apply the stuck rule below.
 2. Answer **routine** prompts:
    - yes/no or confirmation, `[Y/n]`, `[y/N]`, a permission or tool-approval prompt → `y`
@@ -97,8 +99,8 @@ For a `waiting` pane (and an idle pane you suspect is stuck on a prompt):
      first or default option
 3. Before sending, re-capture the pane. If its output changed since you classified it, abort: the
    agent is no longer waiting.
-4. Send: `rk mux send <pane> "<text>" --answer`; key names (Enter, arrows) go through
-   `rk mux send <pane> --key <name>`. If the send reports `unverified`, capture and decide; never
+4. Send: `rk mux send -L work <pane> "<text>" --answer`; key names (Enter, arrows) go through
+   `rk mux send -L work <pane> --key <name>`. If the send reports `unverified`, capture and decide; never
    blind-resend.
 
 **Strategic prompts are never auto-picked in a run.** A choice with real trade-offs, an open
@@ -147,8 +149,8 @@ call it names, filtered by `scope.query`), skip any id already in `seen`, and ev
 for what to do with each new id. Record the result:
 
 ```sh
-rk operator track observe <id> --json '{"new":[...]}' --seen <source-id> --seen <source-id>
-rk operator track observe <id> --error "<message>"    # the probe failed; the third in a row pauses the item
+rk operator track observe -L work <id> --json '{"new":[...]}' --seen <source-id> --seen <source-id>
+rk operator track observe -L work <id> --error "<message>"    # the probe failed; the third in a row pauses the item
 ```
 
 `--seen` goes on only after a spawn or a deliberate skip. When a spawn is called for, follow the
@@ -156,9 +158,9 @@ spawn rules in the autopilot section.
 
 ### Allowed tools
 
-- `rk operator track add|update|rm|list|note|pause|resume|observe`, and `rk operator brief`
-- `rk mux capture|send|inventory`, `rk notify`
-- `rk tab new` and `rk riff` (queue spawns only), `wt create --non-interactive`
+- `rk operator track add|update|rm|list|note|pause|resume|observe -L work`, and `rk operator brief -L work`
+- `rk mux capture|send|inventory -L work`, `rk notify`
+- `rk tab new -L work` and `rk riff -L work` (queue spawns only), `wt create --non-interactive`
 - `git fetch`, `git cherry-pick`, `git rebase` (dependency resolution and PR recovery only);
   `git commit` only to record a dependency cherry-pick; `git push --force-with-lease` only in PR
   recovery's `conflicting` row
@@ -175,8 +177,8 @@ No file-editing tools. Anything outside this list is out of bounds for a run.
 Interim — replaced by the R6 autopilot engine; R7 deletes this file.
 
 Queues are plain `pane` items chained by `depends_on`. There is no queue state beyond the items:
-skipping an entry is `rk operator track rm <id>`, pausing unspawned entries is
-`rk operator track pause <id>`. Work a queue only when a changed item is in it or unblocks it.
+skipping an entry is `rk operator track rm -L work <id>`, pausing unspawned entries is
+`rk operator track pause -L work <id>`. Work a queue only when a changed item is in it or unblocks it.
 
 ### Items and readiness
 
@@ -238,7 +240,7 @@ Never `fab init`. Never send raw implementation instructions to a fab-project ag
    prompt token):
 
    ```sh
-   rk tab new --cwd <worktree> --name <wt> --ready --json -- <session-command-argv…> ["<prompt>"]
+   rk tab new -L work --cwd <worktree> --name <wt> --ready --json -- <session-command-argv…> ["<prompt>"]
    ```
 
    Read `pane_id` and `session` from the JSON result. `ready:` of `parked` or `narrow` means a wall
@@ -246,13 +248,13 @@ Never `fab init`. Never send raw implementation instructions to a fab-project ag
 5. **Track it.** An unspawned queue item already exists, so attach the pane:
 
    ```sh
-   rk operator track update <id> --scope '{"pane":"<pane-id>","session":"<session>"}'
+   rk operator track update -L work <id> --scope '{"pane":"<pane-id>","session":"<session>"}'
    ```
 
-   A brand-new spawn is `rk operator track add <id> --kind pane --pane <pane-id> --session <session> --repo <repo> [--change <change> --branch <branch>] [--stop-stage <stage>] [--spawned-by <item-id>]`.
+   A brand-new spawn is `rk operator track add -L work <id> --kind pane --pane <pane-id> --session <session> --repo <repo> [--change <change> --branch <branch>] [--stop-stage <stage>] [--spawned-by <item-id>]`.
    A plain-agent spawn is a change-less pane item whose id is the worktree name, with `--branch <wt>`;
-   once its PR URL is known, add `rk operator track add <wt>-pr --kind github-pr --scope '{"repo":"<repo>","pr":<n>}' --check-every 2m`
-   and `rk operator track rm <wt>`. Nothing may `--depends-on` a bare agent.
+   once its PR URL is known, add `rk operator track add -L work <wt>-pr --kind github-pr --scope '{"repo":"<repo>","pr":<n>}' --check-every 2m`
+   and `rk operator track rm -L work <wt>`. Nothing may `--depends-on` a bare agent.
 
 ### Merging
 
@@ -265,7 +267,7 @@ Queue PRs are created, not merged, unless the mode says otherwise. In a run:
   directly with `gh pr merge --squash <pr>`; auto-merge disabled on the repo means notify and stop).
   Arm only one PR per repo sequence, and only after the previous PR's merge is verified by its
   `github-pr` item turning done. The sequence is a chain of `github-pr` items:
-  `rk operator track add pr-<n> --kind github-pr --scope '{"repo":"<repo>","pr":<n>,"change":"<id>"}' --then "arm next: gh pr merge --auto --squash <next>" --depends-on pr-<n-1>`.
+  `rk operator track add -L work pr-<n> --kind github-pr --scope '{"repo":"<repo>","pr":<n>,"change":"<id>"}' --then "arm next: gh pr merge --auto --squash <next>" --depends-on pr-<n-1>`.
   When a merge is verified, spawn the next change (step 1 pins the advanced tip).
 - A halted sequence (CI failure after recovery, conflict after recovery) disarms its remaining armed
   PRs with `gh pr merge --disable-auto <pr>`, halts only that repo's sequence and the repos that
@@ -279,8 +281,8 @@ from a first sighting.
 
 | Reason | Detected by | One action | Then |
 |--------|-------------|-----------|------|
-| `ci-failed` | `gh pr checks <n> --required --json name,state,link` has a `FAILURE` | `rk operator track update pr-<n> --scope '{"recovery":"ci-fix","fix_head":"<headRefOid>"}'`, then send the authoring pane the fix request below (it stays armed). Pane gone: one recovery spawn with the same text | green: continue. Still red on a head other than `fix_head`, or 30 minutes with no push: halt, disarm, notify with the agent's one-line diagnosis |
-| `conflicting` | `unchanged` ≥ 3 on the armed item, no failed check, `gh pr view <n> --json mergeable` is `CONFLICTING` | `rk operator track update pr-<n> --scope '{"recovery":"rebase"}'`, then in the change's worktree `git fetch origin && git rebase origin/<default_branch> && git push --force-with-lease`, then `gh pr merge --auto --squash <n>` | `CONFLICTING` again with `recovery` already `rebase`, or the rebase conflicts (`git rebase --abort`): disarm, halt, notify naming the files |
+| `ci-failed` | `gh pr checks <n> --required --json name,state,link` has a `FAILURE` | `rk operator track update -L work pr-<n> --scope '{"recovery":"ci-fix","fix_head":"<headRefOid>"}'`, then send the authoring pane the fix request below (it stays armed). Pane gone: one recovery spawn with the same text | green: continue. Still red on a head other than `fix_head`, or 30 minutes with no push: halt, disarm, notify with the agent's one-line diagnosis |
+| `conflicting` | `unchanged` ≥ 3 on the armed item, no failed check, `gh pr view <n> --json mergeable` is `CONFLICTING` | `rk operator track update -L work pr-<n> --scope '{"recovery":"rebase"}'`, then in the change's worktree `git fetch origin && git rebase origin/<default_branch> && git push --force-with-lease`, then `gh pr merge --auto --squash <n>` | `CONFLICTING` again with `recovery` already `rebase`, or the rebase conflicts (`git rebase --abort`): disarm, halt, notify naming the files |
 
 The authoring pane is the one whose `change` (from `fab pane map --all-sessions`) equals the item's
 `scope.change`. The fix request is the one sanctioned raw send into a fab-project agent, because it
@@ -291,8 +293,8 @@ CI failed on PR #<n> (<repo>): check `<check name>` — run <run link>.
 Diagnose and fix on this branch, push, and report the root cause in one line.
 ```
 
-One recovery spawn per item per reason: `rk operator track add <change>-fix --kind pane --pane … --repo … --branch <branch>`
-with no `--change`, removed with `rk operator track rm <change>-fix` when the round resolves.
+One recovery spawn per item per reason: `rk operator track add -L work <change>-fix --kind pane --pane … --repo … --branch <branch>`
+with no `--change`, removed with `rk operator track rm -L work <change>-fix` when the round resolves.
 For a merged PR with no non-pending review (`gh pr view <n> --json reviews`), say "unreviewed" in the
 note.
 
@@ -308,7 +310,7 @@ over 30 minutes or a queue over 2 hours: flag in a note and notify.
 Before exiting, append at least one note per item you acted on, or one note on the
 most relevant item when nothing needed doing:
 
-    rk operator track note <id> "<text>" --by run
+    rk operator track note -L work <id> "<text>" --by run
 
 Then print exactly one final line to stdout, and nothing after it:
 
