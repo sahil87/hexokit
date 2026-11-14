@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, act, within } from "@testing-library/react";
 import { safePolygon } from "@floating-ui/react";
 import {
   useRowFlyout,
@@ -529,6 +529,12 @@ describe("Fork action row (260806-s4av)", () => {
     });
     expect(onFork).toHaveBeenCalledTimes(1);
     expect(fork).toBeDisabled();
+    // In flight: the LogoSpinner replaces the fork glyph and the hint reads the
+    // progress phrase; the row keeps full opacity so the spinner reads.
+    expect(within(fork).getByTestId("row-flyout-fork-spinner")).toBeInTheDocument();
+    expect(fork).toHaveTextContent("forking…");
+    expect(fork).toHaveAttribute("aria-busy", "true");
+    expect(fork.className).not.toContain("disabled:opacity-40");
 
     act(() => {
       fireEvent.click(fork);
@@ -536,11 +542,16 @@ describe("Fork action row (260806-s4av)", () => {
     expect(onFork).toHaveBeenCalledTimes(1);
 
     // Settling re-enables it — a failed fork must stay retryable (the app's
-    // handler resolves on error too, after surfacing a toast).
+    // handler resolves on error too, after surfacing a toast) — and restores
+    // the resting glyph + hint.
     await act(async () => {
       settle();
     });
-    expect(screen.getByTestId("row-flyout-fork-action")).toBeEnabled();
+    const settled = screen.getByTestId("row-flyout-fork-action");
+    expect(settled).toBeEnabled();
+    expect(within(settled).queryByTestId("row-flyout-fork-spinner")).toBeNull();
+    expect(settled).toHaveTextContent("new tab, same directory");
+    expect(settled).not.toHaveAttribute("aria-busy");
   });
 
   it("renders the worktree fork row directly after the same-directory fork row", () => {
@@ -568,7 +579,7 @@ describe("Fork action row (260806-s4av)", () => {
     expect(screen.queryByTestId("row-flyout-fork-worktree-action")).toBeNull();
   });
 
-  it("worktree fork calls its own handler, not the same-directory one, and holds its own in-flight guard", async () => {
+  it("worktree fork calls its own handler, not the same-directory one, and blocks both fork rows while in flight", async () => {
     let settle: () => void = () => {};
     const onFork = forkResolved();
     const onForkWorktree = vi.fn<() => Promise<void>>(
@@ -599,13 +610,25 @@ describe("Fork action row (260806-s4av)", () => {
     expect(onFork).not.toHaveBeenCalled();
     expect(onRowClick).not.toHaveBeenCalled();
     expect(forkWt).toBeDisabled();
-    // The guard is per-row: the same-directory fork stays clickable.
-    expect(screen.getByTestId("row-flyout-fork-action")).toBeEnabled();
+    expect(within(forkWt).getByTestId("row-flyout-fork-spinner")).toBeInTheDocument();
+    expect(forkWt).toHaveTextContent("creating worktree…");
+    // The guard is shared: the same-directory fork is blocked (dimmed, no
+    // spinner) and a click on it fires nothing.
+    const forkSame = screen.getByTestId("row-flyout-fork-action");
+    expect(forkSame).toBeDisabled();
+    expect(forkSame.className).toContain("disabled:opacity-40");
+    expect(within(forkSame).queryByTestId("row-flyout-fork-spinner")).toBeNull();
+    act(() => {
+      fireEvent.click(forkSame);
+    });
+    expect(onFork).not.toHaveBeenCalled();
 
     await act(async () => {
       settle();
     });
     expect(screen.getByTestId("row-flyout-fork-worktree-action")).toBeEnabled();
+    expect(screen.getByTestId("row-flyout-fork-worktree-action")).toHaveTextContent("new branch");
+    expect(screen.getByTestId("row-flyout-fork-action")).toBeEnabled();
   });
 
   it("canForkWindow supports Claude and Codex", () => {
