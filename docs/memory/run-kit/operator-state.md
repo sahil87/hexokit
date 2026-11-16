@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The operator state engine — `internal/operator`'s tracked-item schema, the rk-owned per-server state file (tolerant read, locked atomic write, autopilot pass lock beside it), `rk operator track` with deny-by-default scope ownership (`--force`, `scope.memo`), read-only `adopt`, and `operator.Check` — the edge-triggered probe-and-diff gate that runs before any model call — plus the `brief` consumer."
+description: "The operator state engine — `internal/operator`'s tracked-item schema, the rk-owned per-server state file (tolerant read, locked atomic write, with the autopilot engine file and pass lock beside it), `rk operator track` (free `--scope` merge, per-member `scope.memo`, engine-id refusal), read-only `adopt`, and `operator.Check` — the edge-triggered probe-and-diff gate that runs before any model call — plus the `brief` consumer."
 ---
 # Operator State
 
@@ -8,7 +8,7 @@ description: "The operator state engine — `internal/operator`'s tracked-item s
 
 ## Overview
 
-The operator's tracked-item ledger is a plain YAML file that rk owns and writes, one per tmux server, at `<apphome.StateDir()>/operator/<slug>.yaml` (`$XDG_STATE_HOME/hexokit/operator/<slug>.yaml`). `internal/operator` (`app/backend/internal/operator`) is the library behind it — schema, store, verbs, importer — and `rk operator track …` / `rk operator adopt` / `rk operator check` (`cmd/rk/operator_track.go`, `operator_adopt.go`, `operator_check.go`) are its CLI doors. `rk operator brief` is a read-only consumer: it loads the file and renders the run brief ([operator-brief](/run-kit/operator-brief.md)). The schema is the one fab-kit's operator already uses (ported), plus per-item **notes** as the operator's memory and a per-item `reported` list that makes the check edge-triggered. `operator.Check` is the deterministic gate of the operator loop — clock → check (Go, no model) → nothing changed → stop; changed → a model run — and has two callers: the daemon's operator loop, where a due `run: operator-loop` cron fire calls it on every fire and launches a run only on a change ([operator-loop](/run-kit/operator-loop.md)), and `rk operator check` from the CLI. There is no HTTP route for it. The file is also the display source: the sessions payload (the watchlist join, the staleness facts, `operatorTracked`) and `GET /api/operator/notes` read it read-only through the tolerant cron reader whenever it exists, with fab's file read only while it does not ([cron](/run-kit/cron.md) § External Contracts); nothing on the read path creates, converts, or writes it, and nothing adopts on read. The file is a plain-file durable source under Constitution II — a fresh daemon rebuilds from it with no cache. `rk operator autopilot` ([operator-autopilot](/run-kit/operator-autopilot.md)) reads and writes the same file: a queue is its tracked items and every engine key lives in the items' opaque `scope`; nothing is migrated on disk.
+The operator's tracked-item ledger is a plain YAML file that rk owns and writes, one per tmux server, at `<apphome.StateDir()>/operator/<slug>.yaml` (`$XDG_STATE_HOME/hexokit/operator/<slug>.yaml`). `internal/operator` (`app/backend/internal/operator`) is the library behind it — schema, store, verbs, importer — and `rk operator track …` / `rk operator adopt` / `rk operator check` (`cmd/rk/operator_track.go`, `operator_adopt.go`, `operator_check.go`) are its CLI doors. `rk operator brief` is a read-only consumer: it loads the file and renders the run brief ([operator-brief](/run-kit/operator-brief.md)). The schema is the one fab-kit's operator already uses (ported), plus per-item **notes** as the operator's memory and a per-item `reported` list that makes the check edge-triggered. `operator.Check` is the deterministic gate of the operator loop — clock → check (Go, no model) → nothing changed → stop; changed → a model run — and has two callers: the daemon's operator loop, where a due `run: operator-loop` cron fire calls it on every fire and launches a run only on a change ([operator-loop](/run-kit/operator-loop.md)), and `rk operator check` from the CLI. There is no HTTP route for it. The file is also the display source: the sessions payload (the watchlist join, the staleness facts, `operatorTracked`) and `GET /api/operator/notes` read it read-only through the tolerant cron reader whenever it exists, with fab's file read only while it does not ([cron](/run-kit/cron.md) § External Contracts); nothing on the read path creates, converts, or writes it, and nothing adopts on read. The file is a plain-file durable source under Constitution II — a fresh daemon rebuilds from it with no cache. `rk operator autopilot` ([operator-autopilot](/run-kit/operator-autopilot.md)) keeps its own intent in a separate engine file, `<slug>.autopilot.yaml`, beside this one; the ledger holds only projection items for engine work (a pane's binding and identity, a PR's repo and number, their notes and check facts) and no engine field.
 
 ## Requirements
 
@@ -20,7 +20,7 @@ The operator's tracked-item ledger is a plain YAML file that rk owns and writes,
 - **Kinds**: `pane, github-pr, linear, slack, shell, task, note`. Each kind allows exactly its default probe mode — `pane`→`pane`, `github-pr`/`shell`→`shell`, `linear`/`slack`→`agent`, `task`/`note`→`none` — and a non-default `--probe` is rejected. `github-pr` defaults `done_when` to `state == "MERGED"` and its probe fields to `state,mergedAt,mergeable`; a `shell` item requires `--argv`, `--fields`, and `--done-when`.
 - **Constants**: probe subprocess timeout 10s, failure-pause cap 3 (the third consecutive failure sets `paused`), `seen` cap 200 (oldest pruned), `check_every` floor 1m and default `5m` (shell/agent items; forced `null` for pane/none), staleness multiplier 2 (an agent item is stale when `now − checked_at > 2 × check_every`, `checked_at` null falling back to `added_at`).
 - **Pane scope** seeds eleven pinned keys as `null`: `pane, pane_pid, change, repo, session, branch, stage, agent, stop_stage, spawned_by, merge_mode`.
-- **Merge modes** for `scope.merge_mode`: `cherry-pick-ladder`, `stacked-prs`, `merge-auto`. An omitted `--mode` leaves `merge_mode` null (read as `cherry-pick-ladder`); the library reads no config. `rk operator autopilot queue` resolves the mode (flag > `operator.merge_mode` setting > default) and stamps it on every queued item together with `scope.queue`.
+- **Merge modes** (`cherry-pick-ladder`, `stacked-prs`, `merge-auto`) belong to the engine: `rk operator autopilot queue` resolves the mode (flag > `operator.merge_mode` setting > default) and stores it on the engine item. The ledger library reads no config, and `track add` has no `--mode`.
 - **Completion**: `done_at` is set once and never cleared; any writer may set it. Autopilot persists it for change-less items whose PR checks pass or that merged.
 - **`done_when` grammar** (`predicate.go`, `Parse` / `Predicate.Eval`): one or more `<path> <op> <literal>` clauses joined by ` and `; `<op>` is `==` or `!=`; the literal is a JSON scalar; the path is a field name or dotted path, and a path absent from the evaluated object compares as null. `or`, comparison operators, regex, and functions are parse errors. An item is *done* when its persisted `done_at` is set (a pane item's built-in completion wins) or its `done_when` holds against `last`.
 - **Errors** split into `InvalidError` (a caller mistake — bad flag value, schema violation) and everything else (IO, lock, missing item); the CLI maps the first to exit 2 and the rest to exit 1.
@@ -36,7 +36,7 @@ Every item carries `notes: [{at, by, text}]`, an append-only memory list. `at` i
 - **Read** (`Load`): lock-free. A missing file is an empty state; an unparsable file is a hard error naming the path. `fsatomic` writes guarantee a reader sees the old or the complete new file.
 - **Typed write**: the file is decoded into `tracked`, `branch_map` and `last_check_at` typed fields plus the remaining top-level keys. A mutation re-marshals the owned sections from the typed fields — a field invented inside `tracked` does not survive — and writes the other top-level keys back verbatim, so unknown top-level keys survive.
 - **Mutate**: `Mutate(path, fn)` creates the directory, takes an exclusive `flock` on the sidecar `<slug>.yaml.lock`, re-reads the data file inside the lock (external writes win), applies `fn` to the typed state, writes with `fsatomic.WriteFile`, and releases the lock on every return path. A failing `fn` writes nothing; an `fn` returning the internal `errNoWrite` writes nothing and succeeds. Success is returned only after the rename — no cache, no write-behind. The lock is polled non-blocking every 25ms for at most 5s, then fails with `ErrBusy` ("operator state file busy"). The lock is never taken on the data file, because the rename-based write would orphan it; the lock file is created lazily and left in place.
-- **Pass lock**: `rk operator autopilot step|merge|stop` additionally hold an exclusive non-blocking `flock` on `<slug>.autopilot.lock` in the same directory, for the whole pass. It is separate from the sidecar lock, serialises autopilot passes only, and is released by the OS when the process dies ([operator-autopilot](/run-kit/operator-autopilot.md) § Single-writer pass lock). `track`, `check` and the daemon keep writing under the sidecar lock while a pass runs.
+- **Engine file and pass lock**: beside the ledger sit `<slug>.autopilot.yaml` (the autopilot engine's own state, mode `0600`, written through `fsatomic` only by `rk operator autopilot` verbs holding the pass lock) and `<slug>.autopilot.lock` (an exclusive non-blocking `flock` those verbs hold for the whole verb, released by the OS when the process dies). Neither is touched by `Mutate`, and no ledger verb reads or writes the engine file ([operator-autopilot](/run-kit/operator-autopilot.md) § Engine state file, § Single-writer pass lock). `track`, `check` and the daemon keep writing the ledger under the sidecar lock while a pass runs.
 - **Timestamps** (`added_at`, `updated_at`, `checked_at`, note `at`) come from one injectable `clock`, formatted `time.RFC3339` in UTC; no verb accepts a timestamp.
 
 ### Requirement: `rk operator track`
@@ -45,48 +45,36 @@ Every item carries `notes: [{at, by, text}]`, an append-only memory list. `at` i
 
 | Verb | Behavior |
 |---|---|
-| `add <id> --kind <k>` | Flags `--probe --argv (repeatable) --fields --instruction --check-every --done-when --then --depends-on --scope (JSON object) --mode`, the pane flags `--pane --repo --session --branch --stage --agent --stop-stage --spawned-by --change`, and `--text`/`--by` (kind `note` only; `--by` defaults to `user`). Validation: known kind, kind-allowed probe, shell argv/fields/done-when, a parseable `done_when`, a unique id, `depends_on` existing and not self, `check_every` normalized. `github-pr` builds `gh pr view <n> [--repo <nwo>] --json state,mergedAt,mergeable` from `scope.pr`; `--repo` comes from `gh repo view --json nameWithOwner` run in `scope.repo` (argv-only `exec.CommandContext` under the 10s probe timeout, seam `ghNameWithOwnerFn`) and its failure is an add-time error. A pane item records `scope.pane_pid` through `tmux.PanePIDCtx` (seam `panePIDFn`, 5s bound; any failure stores `null`), and with both `branch` and `repo` writes `branch_map` keyed by `scope.change`, else the item id. Pane flags and `--mode` on a non-pane kind are usage errors. Free `--scope` keys follow the scope allow-list (§ Scope ownership); `--force` bypasses it. The external lookups run before the lock is taken. |
-| `update <id>` | `--check-every --done-when --then --depends-on --scope`; only flags given change; an empty `--done-when`/`--then` clears to null; `--scope` merges per key (`scope.memo` merges per member) and a changed `scope.pane` re-records `pane_pid`; `--force` bypasses the scope allow-list for manual repair. |
+| `add <id> --kind <k>` | Flags `--probe --argv (repeatable) --fields --instruction --check-every --done-when --then --depends-on --scope (JSON object) --mode`, the pane flags `--pane --repo --session --branch --stage --agent --stop-stage --spawned-by --change`, and `--text`/`--by` (kind `note` only; `--by` defaults to `user`). Validation: known kind, kind-allowed probe, shell argv/fields/done-when, a parseable `done_when`, a unique id, `depends_on` existing and not self, `check_every` normalized. `github-pr` builds `gh pr view <n> [--repo <nwo>] --json state,mergedAt,mergeable` from `scope.pr`; `--repo` comes from `gh repo view --json nameWithOwner` run in `scope.repo` (argv-only `exec.CommandContext` under the 10s probe timeout, seam `ghNameWithOwnerFn`) and its failure is an add-time error. A pane item records `scope.pane_pid` through `tmux.PanePIDCtx` (seam `panePIDFn`, 5s bound; any failure stores `null`), and with both `branch` and `repo` writes `branch_map` keyed by `scope.change`, else the item id. Pane flags on a non-pane kind are usage errors, and `--mode` does not exist (passing it is a usage error naming `rk operator autopilot queue`). An id that names an autopilot engine item (a queue or PR item in the engine file) is a usage error, so an unrelated ledger item is never overlaid onto engine work. `--scope` merges any key (§ Scope memo). The external lookups run before the lock is taken. |
+| `update <id>` | `--check-every --done-when --then --depends-on --scope`; only flags given change; an empty `--done-when`/`--then` clears to null; `--scope` merges per key (`scope.memo` merges per member) and a changed `scope.pane` re-records `pane_pid`. |
 | `observe <id>` | Exactly one of `--json <object>` (here the observed fields, not an output switch) or `--error <msg>`; `--seen <id>` repeatable. A success stores `last` per `probe.fields` (dotted paths, absent ⇒ null), bumps `unchanged` when `last` is unchanged else resets it, zeroes `failures`, appends unseen `seen` ids and prunes to 200. A failure counts toward the pause cap. |
-| `rm <id>` | Removes the item and its notes. A *done* item is also dropped from every dependent's `depends_on` so the chain advances; a not-done removal keeps the edges. `branch_map` is untouched. A not-done `github-pr` item with `scope.merge_seq` (an autopilot sequence PR, which may be armed — armed is read from GitHub, not stored) is refused (usage error, exit 2) unless `--force`: an armed PR would have no item left to disarm it. A done item or one without `merge_seq` is removed. |
+| `rm <id>` | Removes the item and its notes. A *done* item is also dropped from every dependent's `depends_on` so the chain advances; a not-done removal keeps the edges. `branch_map` is untouched. Removing a projection item never removes engine work: the engine keeps managing the item from its own file and escalates the removal once (`autopilot rm` drops engine items). |
 | `list [--kind k]` | A pure read — never locks, writes, or converts. One line per item `id · kind · state · checked-age · next`; states `done, paused, held, pending, stale, live, watching`; `--json` emits the full items array including notes. |
 | `note <id> <text> [--by user\|run\|chat]` | Appends a note; `<text>` of `-` reads stdin (capped at 64 KiB). |
 | `pause <id>` / `resume <id>` | `pause` sets `paused`; `resume` clears it and zeroes `failures`. |
 
-Mutating verbs print one `<action> <id>` line (`add` with `--mode` first prints `mode: <m> (flag)`) or, with `--json`, the shared `outputSink` envelope around `{id, action, mode?}`. Exit codes: 0 ok, 1 operational (duplicate id, no such item, state file busy or unreadable), 2 usage. `track clock` and `update --text/--pause/--resume` do not exist.
+Mutating verbs print one `<action> <id>` line or, with `--json`, the shared `outputSink` envelope around `{id, action}`. Exit codes: 0 ok, 1 operational (duplicate id, no such item, state file busy or unreadable), 2 usage. `--force`, `track clock` and `update --text/--pause/--resume` do not exist.
 
-### Requirement: Scope ownership
+### Requirement: Scope memo and projection items
 
-Every scope key has one owner, and `track add --scope` / `track update --scope` are **deny-by-default** allow-list writes (`ownership.go`). The one table `scopeKeys` classifies each key; a key absent from it is refused. A refusal is a usage error (`InvalidError`, exit 2) naming the key and its owner (an unknown key points at `memo`); `--force` (`AddSpec.Force`, `UpdateSpec.Force`) bypasses it for manual repair, for example clearing a stuck `scope.spawning` with `track update --force <id> --scope '{"spawning":null}'`.
+`track add --scope` and `track update --scope` merge any key per key: the ledger has no allow-list, no key owner and no identity immutability. `scope.memo` is a free-form map owned by AI and people: runs, chat and the user keep anything extra about an item there (`--scope '{"memo":{"why":"…"}}'`), merged per member on update (a null member deletes it, null clears the map) and required to be a JSON object. No code path reads it for a decision; the run brief renders it on its own `memo:` line ([operator-brief](/run-kit/operator-brief.md)).
 
-| Class | Keys | Writer | `track add` / `update` without `--force` |
-|---|---|---|---|
-| Engine | `queue`, `merge_mode`, `merge_seq`, `item`, `url`, `spawning`, `respawned`, `skipped`, `halted`, `deferred`, `escalated`, plus `armed`, `direct`, `stall_seen` | autopilot | refused (`merge_mode` is set only by `track add --mode` or `autopilot queue`); `armed`, `direct` and `stall_seen` stay registered so hand writes are refused and old values on disk are tolerated, but the engine neither reads nor writes them |
-| Check | `pane_pid`, `stage`, `agent` | `rk operator check` and pane lookups | refused |
-| Identity | `repo`, `change`, `pr`, `task`, `bare` | the creator | allowed at creation and on update only while empty; immutable once set (`task`/`bare` immutable on a queue item) |
-| Binding | `pane`, `session`, `branch` | autopilot on a queue item; whoever tracks the item otherwise | allowed on a non-queue item and at creation; refused on a queue item |
-| Free | `memo`, `stop_stage`, `spawned_by`, `query`, `recovery`, `fix_head` | people, chat and runs | allowed (`recovery` and `fix_head` are written by the brief's PR-recovery text until the engine takes recovery over; `query` is a linear/slack watcher's search) |
+Engine work appears in the ledger as **projection items** only: a `pane` item carrying `pane`, `session`, `repo`, `change`, `branch`, `stop_stage` and `spawned_by`, or a `github-pr` item carrying `repo`, `pr` and `change`, each with `depends_on: []`, plus notes and `rk operator check` fields. The engine's decisions never read a ledger item's `scope` beyond those projection keys, so a hand-written `scope.queue`, `merge_mode`, `spawning` or `halted` on a ledger item is inert. A user control on a projection is a fact the engine reads — `paused` (`track pause`/`resume`), removal (`track rm`), `done_at` — and takes effect on the next pass. Notes are append-only and **code never decides anything from note text**.
 
-Queue membership for the binding rule is `operator.IsQueueItem`: a `pane` item with `scope.queue`, or (legacy) a non-null `scope.merge_mode`, or a `depends_on` edge with another pane item. Control fields — `paused` (`track pause`/`resume`), `depends_on`, `done_when`, `then`, `check_every`, `track rm` — and `notes` stay writable by anyone; a change made through them while an autopilot pass is in flight takes effect on the next pass. Notes are append-only and **code never decides anything from note text**.
+#### Scenario: Any scope key merges
+- **GIVEN** a tracked item `x`
+- **WHEN** `rk operator track update x --scope '{"foo":1,"spawning":"t"}'` runs
+- **THEN** it exits 0 and both keys are set on the ledger item; the engine never reads them
 
-`scope.memo` is a free-form map owned by AI and people: runs, chat and the user keep anything extra about an item there (`--scope '{"memo":{"why":"…"}}'`), merged per member on update (a null member deletes it, null clears the map) and required to be a JSON object. No code path reads it for a decision; the run brief renders it on its own `memo:` line ([operator-brief](/run-kit/operator-brief.md)).
+#### Scenario: An engine id is not overlaid
+- **GIVEN** a queue item `a1` in the engine file
+- **WHEN** `rk operator track add a1 --kind pane` runs
+- **THEN** it exits 2 and nothing is written
 
-The engine keys are exported constants in `internal/operator` (`EngineScopeKeys`, `EngineMayWrite`, `ScopeKeyKnown`), the single list `internal/autopilot` uses; a drift test fails when the engine writes a scope key that is not registered there.
-
-#### Scenario: A hand write to an engine field is refused
-- **GIVEN** a PR item with `scope.deferred: true`
-- **WHEN** `rk operator track update <id> --scope '{"deferred":false}'` runs
-- **THEN** it exits 2 naming `deferred` and its owner, and writes nothing
-
-#### Scenario: Binding differs by item class
-- **GIVEN** an unspawned queue item and a hand-tracked pane item
-- **WHEN** `track update --scope '{"pane":"%9"}'` runs on each
-- **THEN** the queue item is refused (exit 2) and the hand-tracked item is updated
-
-#### Scenario: A sequence PR item is not removed silently
-- **GIVEN** a not-done `github-pr` item with `scope.merge_seq` (and no `armed` key)
-- **WHEN** `rk operator track rm <id>` runs without `--force`
-- **THEN** it exits 2 and the item remains
+#### Scenario: `--force` does not exist
+- **GIVEN** any `rk operator track` verb
+- **WHEN** `--force` is passed
+- **THEN** cobra reports an unknown flag (exit 2)
 
 ### Requirement: Read-only consumers
 
@@ -224,14 +212,14 @@ A done item yields only `done` plus any `unknown_dep:*`; a user-paused item belo
 **Rejected**: Shelling out to `fab pane map` (fab dependency, a subprocess per check); importing `internal/sessions` from `operator` (import cycle once the sessions payload reads operator state).
 *Introduced by*: 261111-zm04-operator-check-probe-diff
 
-### Scope writes are deny-by-default, with a free-form `memo`
-**Decision**: `track add/update --scope` accept only allow-listed keys from one ownership table; engine-owned, check-owned and unknown keys are refused unless `--force`, and `scope.memo` is the free-form area for AI and people.
-**Why**: Autopilot acts on fields it owns (queue, pane, PR identity, halted markers); if another writer can change them mid-pass the engine can arm the wrong PR or duplicate an agent. A refused-list drifted from the engine's real keys, so a new engine key is protected only if the default is to refuse. Giving the AI a sanctioned free-form place stops it from inventing scope keys.
-**Rejected**: A hand-kept refused-key list (drifted); claim/compare-and-set machinery in the engine (unbounded surface); a physical regroup of the file into owner sections (a later schema change).
-*Introduced by*: 261114-8w1x-operator-autopilot-go
+### Scope writes are free, with a free-form `memo`
+**Decision**: `track add/update --scope` merge any key with no allow-list, owner table or `--force`; `scope.memo` is the free-form area for AI and people, merged per member.
+**Why**: The engine's intent lives in its own file ([operator-autopilot](/run-kit/operator-autopilot.md) § Engine state file), so no ledger scope key is something another writer can change under a running pass, and the allow-list that protected those keys has nothing left to protect. Giving the AI a sanctioned free-form place still keeps its extra facts in one inspectable spot.
+**Rejected**: Keeping a deny-by-default allow-list with `--force` (covers writers by enumeration and grows with every key); claim/compare-and-set machinery in the engine (unbounded surface).
+*Introduced by*: 261116-rxic-autopilot-own-state-mechanical-runs
 
 ### Code never decides from note text
-**Decision**: Autopilot's escalation de-duplication uses a structured, engine-owned `scope.escalated` map; notes are still written for humans and the run brief but are never read by a decision.
+**Decision**: Autopilot's escalation de-duplication uses a structured map on the engine item in its own file; notes are still written for humans and the run brief but are never read by a decision.
 **Why**: Note text is an append-only log anyone may write; deciding from it lets a user note suppress or forge an escalation.
 **Rejected**: Prefix-matching `escalated: …` notes.
 *Introduced by*: 261114-8w1x-operator-autopilot-go
