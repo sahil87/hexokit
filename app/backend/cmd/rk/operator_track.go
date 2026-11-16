@@ -195,12 +195,13 @@ var operatorTrackRmCmd = &cobra.Command{
 from every dependent's depends_on so the chain advances; a not-done removal
 keeps the edges. The branch_map is untouched.
 
-A github-pr item autopilot has armed for auto-merge is refused: removing it
-would leave the PR armed with nothing to disarm it. Disarm it first
-(gh pr merge --disable-auto) or pass --force.
+An unfinished github-pr item of an autopilot merge sequence (scope.merge_seq
+set) is refused: it may be armed for auto-merge, and removing it would leave the
+PR armed with nothing to disarm it. Disarm it first (gh pr merge --disable-auto)
+or pass --force.
 
 Flags:
-  --force         remove an armed github-pr item anyway
+  --force         remove an unfinished merge-sequence github-pr item anyway
   -L, --server    tmux server (default: the caller's own server from $TMUX)
   --json          machine-readable envelope on stdout
 
@@ -210,7 +211,7 @@ Examples:
 Exit codes:
   0  removed
   1  operational failure (no such item, state file busy or unreadable)
-  2  usage error (an armed github-pr item without --force)`,
+  2  usage error (an unfinished merge-sequence github-pr item without --force)`,
 	Args:         usageArgs(cobra.ExactArgs(1)),
 	SilenceUsage: true,
 	RunE:         runOperatorTrackRm,
@@ -348,7 +349,7 @@ func init() {
 	f.String("error", "", "probe failure message (counts a failure; the third consecutive one pauses the item)")
 	f.StringArray("seen", nil, "handled item id to append to seen (repeatable; capped at 200, oldest pruned)")
 
-	operatorTrackRmCmd.Flags().Bool("force", false, "remove an armed github-pr item anyway")
+	operatorTrackRmCmd.Flags().Bool("force", false, "remove an unfinished merge-sequence github-pr item anyway")
 	operatorTrackRmCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 	operatorTrackPauseCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 	operatorTrackResumeCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")

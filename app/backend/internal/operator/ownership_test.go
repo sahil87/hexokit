@@ -104,11 +104,23 @@ func TestMemo_MergesPerKeyAndNeverEngineOwned(t *testing.T) {
 	}
 }
 
-func TestRemove_ArmedPRItemNeedsForce(t *testing.T) {
-	path := ownershipState(t)
-	if err := Update(context.Background(), path, UpdateSpec{ID: "pr-done", Force: true, Scope: map[string]interface{}{"armed": true}}); err != nil {
+// openSequencePR turns the seeded github-pr item into an unfinished engine
+// sequence PR: merge_seq set and not merged.
+func openSequencePR(t *testing.T, path string) {
+	t.Helper()
+	if err := Mutate(path, func(st *State) error {
+		it := &st.Tracked[indexOf(st.Tracked, "pr-done")]
+		it.Last = map[string]interface{}{"state": "OPEN"}
+		it.Scope[ScopeMergeSeq] = "s-1"
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestRemove_SequencePRItemNeedsForce(t *testing.T) {
+	path := ownershipState(t)
+	openSequencePR(t, path)
 	before, _ := os.ReadFile(path)
 	err := Remove(path, "pr-done", false)
 	wantErr(t, err, "armed for auto-merge")
@@ -119,13 +131,24 @@ func TestRemove_ArmedPRItemNeedsForce(t *testing.T) {
 	if after, _ := os.ReadFile(path); string(before) != string(after) {
 		t.Error("state file changed on a refused remove")
 	}
-	if err := Update(context.Background(), path, UpdateSpec{ID: "pr-done", Force: true, Scope: map[string]interface{}{"armed": false}}); err != nil {
+	if err := Mutate(path, func(st *State) error {
+		now := nowRFC3339()
+		st.Tracked[indexOf(st.Tracked, "pr-done")].DoneAt = &now
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := Remove(path, "pr-done", false); err != nil {
-		t.Fatalf("a disarmed PR item must remove: %v", err)
+		t.Fatalf("a merged sequence PR item must remove: %v", err)
 	}
-	if err := Update(context.Background(), path, UpdateSpec{ID: "q1", Force: true, Scope: map[string]interface{}{"armed": true}}); err != nil {
+}
+
+func TestRemove_OnlySequencePRItemsAreProtected(t *testing.T) {
+	path := ownershipState(t)
+	if err := Remove(path, "pr-done", false); err != nil {
+		t.Fatalf("a PR item outside a merge sequence is ordinary tracking: %v", err)
+	}
+	if err := Update(context.Background(), path, UpdateSpec{ID: "q1", Force: true, Scope: map[string]interface{}{"merge_seq": "s-1"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := Remove(path, "q1", false); err != nil {
@@ -133,11 +156,9 @@ func TestRemove_ArmedPRItemNeedsForce(t *testing.T) {
 	}
 }
 
-func TestRemove_ArmedPRItemForce(t *testing.T) {
+func TestRemove_SequencePRItemForce(t *testing.T) {
 	path := ownershipState(t)
-	if err := Update(context.Background(), path, UpdateSpec{ID: "pr-done", Force: true, Scope: map[string]interface{}{"armed": true}}); err != nil {
-		t.Fatal(err)
-	}
+	openSequencePR(t, path)
 	if err := Remove(path, "pr-done", true); err != nil {
 		t.Fatalf("--force: %v", err)
 	}

@@ -65,6 +65,10 @@ depends_on; a merge sequence is a chain of github-pr items. Every verb re-reads
 the operator state file, acts, and writes back under a lock, so nothing is held
 in memory and a fresh run picks up exactly where the last one stopped.
 
+Each pass observes the facts of the items that can act, derives a status per
+item, picks at most one rule row per item, and executes the chosen actions in
+ledger order. step --dry-run prints the chosen rows and runs nothing.
+
 Verbs: queue, step, merge, stop, status. Only status is a pure read. The engine
 never notifies: failures and halts come back as escalations, and the caller (a
 run or the chat) turns them into rk notify. All verbs take -L/--server (default:
@@ -141,23 +145,27 @@ Exit codes:
 var operatorAutopilotStepCmd = &cobra.Command{
 	Use:   "step [--by run|chat] [--dry-run] [--all] [--json]",
 	Short: "Advance every queue and merge sequence one idempotent pass",
-	Long: `Run one pass over the server's tracked items: persist newly observed
-completions, advance every in-progress merge sequence (verify merges, arm the
-next PR, arm merge-auto PRs, retry any disarm that failed), report stalls as
-"recovery needed" escalations, spawn every pending queue item whose
-dependencies are satisfied, and flag slow ones. No call waits for CI; call step
-again later.
+	Long: `Run one pass over the server's tracked items: observe, derive each item's
+status, pick at most one rule row per item, and execute the chosen actions. A
+queue item whose completion is observed is recorded done; a pending item whose
+dependencies are satisfied is spawned; a dead pane is respawned once. A merge
+sequence advances one PR per pass: the head PR is readied if draft, armed while
+its checks are pending, and merged when green (a repo without auto-merge is
+merged on green); a PR merged on GitHub is recorded and its successor acts on
+the next pass. Every armed PR of a halted sequence is disarmed, whoever armed
+it. No call waits for CI; call step again later.
 
-A stalled PR (a failed required check, or CONFLICTING with no progress) is only
-escalated as "recovery needed: <ci-failed|conflicting> — PR #<n> (<repo>)", once
-per head commit. The PR stays armed and the engine does nothing to it.
+A failed required check, or CONFLICTING with no progress, is only escalated as
+"recovery needed: <ci-failed|conflicting> — PR #<n> (<repo>)", once per head
+commit. The engine does not arm such a PR and does nothing else to it.
 
 step takes the per-server pass lock (a --dry-run does not). If another pass
 holds it, step does nothing, prints "busy" and exits 0.
 
 The output lists actions taken (spawned, cherry-picked, armed, merged,
-disarmed), per-merge report lines, and escalations for the caller to notify on.
---dry-run reads but changes nothing.
+disarmed, readied), per-merge report lines, and escalations for the caller to
+notify on. --dry-run reads but changes nothing: it lists each chosen row as
+"dry-run: <action> <item> (<row>)", for example "dry-run: spawn ab12 (Q2)".
 
 Flags:
   --by            note author: run (default) or chat
@@ -184,8 +192,9 @@ var operatorAutopilotMergeCmd = &cobra.Command{
 	Use:   "merge [--repo <path>] [--all] [--json]",
 	Short: "Start the ordered merge of a completed queue",
 	Long: `Start the ordered merge for completed cherry-pick-ladder queues (every repo, or
-one with --repo): create the github-pr chain items and arm or merge the first PR
-of each repo's sequence. Later steps advance it. Run this only on the user's
+one with --repo): create the github-pr chain items, then run one pass, which
+readies, arms or merges the first PR of each repo's sequence. Later steps
+advance it, one PR per pass. Run this only on the user's
 confirmation to merge all. It refuses while queue items are not done, does
 nothing for merge-auto items, and refuses a stacked-prs queue (merge those by the
 run brief's stacked-prs text).
@@ -216,12 +225,14 @@ Exit codes:
 var operatorAutopilotStopCmd = &cobra.Command{
 	Use:   "stop [--all] [--json]",
 	Short: "Disarm every armed PR and pause every unspawned queue item",
-	Long: `Global user stop: disarm every armed PR (gh pr merge --disable-auto), halt the
-unfinished merge sequences so a later step does not re-arm them, and pause every
-unspawned queue item. Live panes are left untouched. A disarm that fails keeps
-the PR's armed marker and is retried by the next stop or step. To resume a
-halted PR item (halted is autopilot's field, so the write needs --force):
-rk operator track update --force <id> --scope '{"halted":false}'.
+	Long: `Global user stop: halt the unfinished merge sequences so a later step does
+not re-arm them, pause every unspawned queue item, and disarm every armed PR in
+the halted sequences (gh pr merge --disable-auto), whoever armed it. Live panes
+are left untouched. Armed is read from GitHub, so a disarm that fails is retried
+by the next stop or step until GitHub reports it disarmed. To resume a halted
+PR item (halted is autopilot's field, so the write needs --force):
+rk operator track update --force <id> --scope '{"halted":false}'; clearing it on
+the one item that carries it resumes the PRs behind it.
 
 stop takes the per-server pass lock. If another pass holds it, stop does
 nothing, prints "busy" and exits 0.
@@ -247,14 +258,18 @@ Exit codes:
 var operatorAutopilotStatusCmd = &cobra.Command{
 	Use:   "status [--all] [--json]",
 	Short: "Show the queue: state, mode, repo, branch, PR, position",
-	Long: `Queue view: per item the derived state (done, paused, held, pending, spawned),
-mode, repo, branch, PR, merge-sequence position and halted marker. It writes
-nothing, takes no pass lock and reports no escalations.
+	Long: `Queue view: per item the derived status (done, paused, skipped, held,
+pending, spawn-unknown, spawned, dead), mode, repo, branch and, for an item with
+a PR item, the PR number, the PR item's derived status (merged, halted, closed,
+deferred, blocked, draft, failed, conflicting, green, waiting) and its
+merge-sequence position, e.g. "PR #12 · green · 1/3". It writes nothing, takes
+no pass lock and reports no escalations.
 
-States follow the same readiness rule as step, so status makes read-only GitHub
-calls: gh pr view decides whether a same-repo dependency's PR exists (a
-dependency with no PR yet is simply held), and the Queue Completion Summary
-(shown when every item is done) reads each PR link. If a gh lookup fails, the
+Statuses are derived by the same observe and derive stages as step, so status
+makes read-only GitHub calls: gh pr view and gh pr checks for the PRs that can
+act, and for readiness whether a same-repo dependency's PR exists (a dependency
+with no PR yet is simply held). The Queue Completion Summary (shown when every
+item is done) reads each PR link. If a gh lookup fails, the
 failures are printed as plain text, nothing else is listed in the human view,
 and the command exits 1; with --json the envelope reports ok:false with that
 error and still carries the items it derived.
@@ -262,7 +277,8 @@ error and still carries the items it derived.
 Flags:
   -L, --server    tmux server (default: the caller's own server from $TMUX)
   --all           show every entry (human lists default to 20 entries each)
-  --json          complete machine-readable envelope on stdout
+  --json          complete machine-readable envelope on stdout (items carry
+                  state and pr_status)
 
 Examples:
   rk operator autopilot status
@@ -470,11 +486,11 @@ func runAutopilotStatus(cmd *cobra.Command, args []string) error {
 			if it.PR != "" {
 				line += " · PR #" + it.PR
 			}
+			if it.PRStatus != "" {
+				line += " · " + it.PRStatus
+			}
 			if it.Sequence != "" {
 				line += " · " + it.Sequence
-			}
-			if it.Halted {
-				line += " · halted"
 			}
 			s.Dataf("%s\n", line)
 		}

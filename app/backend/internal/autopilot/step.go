@@ -7,23 +7,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"rk/internal/operator"
 )
 
-const (
-	// slowStage and slowQueue flag a stage or a whole queue that has run long;
-	// they only flag, never act.
-	slowStage = 30 * time.Minute
-	slowQueue = 2 * time.Hour
-)
-
-// Step runs one idempotent pass over the server's ledger: persist observed
-// completions, advance every merge sequence (verify, arm, merge, detect
-// stalls), spawn every ready queue item, and flag slow ones. No call waits for
-// CI: the next step picks up where this one stopped. It runs under the pass
-// lock; under DryRun it reads but never writes or acts, and takes no lock.
+// Step runs one idempotent pass over the server's ledger: observe the facts
+// of the items that can act, derive their statuses, decide one rule row per
+// item, and execute the chosen actions in ledger order. No call waits for CI:
+// the next step picks up where this one stopped. It runs under the pass lock;
+// under DryRun it reads but never writes or acts, and takes no lock.
 func Step(ctx context.Context, env Env) (*StepResult, error) {
 	return passLocked(env, func() (*StepResult, error) { return step(ctx, env) })
 }
@@ -35,87 +27,43 @@ func step(ctx context.Context, env Env) (result *StepResult, resultErr error) {
 			e.escalate("", "step failed: "+resultErr.Error())
 		}
 	}()
-	if err := e.observeDone(ctx); err != nil {
-		return e.res, err
-	}
-	if err := e.advance(ctx); err != nil {
-		return e.res, err
-	}
-	if err := e.spawnPending(ctx); err != nil {
-		return e.res, err
-	}
-	e.flagSlow()
-	return e.res, nil
+	return e.pass(ctx)
 }
 
-// flagSlow notes and escalates a spawned item whose stage has not moved for
-// slowStage, and a queue that has been open for slowQueue.
-func (e *engine) flagSlow() {
-	st, err := e.load()
+// pass is the one pass every writing verb runs: observe → derive → decide →
+// execute. Under DryRun it renders the decisions instead of executing them.
+func (e *engine) pass(ctx context.Context) (*StepResult, error) {
+	st, f, err := e.observe(ctx)
 	if err != nil {
-		return
+		return e.res, err
 	}
-	now := e.env.now()
-	var oldest time.Time
-	var oldestID string
-	for _, it := range st.Tracked {
-		if !operator.IsQueueItem(st, it) || operator.ItemDone(it) {
-			continue
-		}
-		if t, err := time.Parse(time.RFC3339, it.AddedAt); err == nil && (oldest.IsZero() || t.Before(oldest)) {
-			oldest, oldestID = t, it.ID
-		}
-		if operator.ScopeString(it.Scope, "pane") == "" || it.Paused {
-			continue
-		}
-		if t, err := time.Parse(time.RFC3339, it.UpdatedAt); err == nil && now.Sub(t) > slowStage {
-			e.flagOnce(it, fmt.Sprintf("stage %s over %s without moving", stageLabel(it), slowStage))
-		}
+	ds := decide(st, f, e.env.now())
+	if e.env.DryRun {
+		e.renderDecisions(ds)
+		return e.res, nil
 	}
-	if oldestID != "" && now.Sub(oldest) > slowQueue {
-		if i := operator.IndexOf(st.Tracked, oldestID); i >= 0 {
-			e.flagOnce(st.Tracked[i], fmt.Sprintf("queue open for over %s", slowQueue))
-		}
-	}
+	return e.res, e.execute(ctx, f, ds)
 }
 
-func stageLabel(it operator.TrackedItem) string {
-	if s := operator.ScopeString(it.Scope, "stage"); s != "" {
-		return s
-	}
-	return "(unknown)"
-}
-
-func (e *engine) flagOnce(it operator.TrackedItem, text string) {
-	if escalatedSeen(it, text) {
-		return
-	}
-	e.escalate(it.ID, text)
-}
-
-// Stop is the global user stop: disarm every armed PR, halt the unfinished
-// merge sequences so a later step does not re-arm them, and pause every
-// unspawned queue item. Live panes are left untouched. A disarm that fails
-// keeps its armed marker and is retried by the next stop or step. It runs
-// under the pass lock.
+// Stop is the global user stop: it halts the unfinished merge sequences so a
+// later step does not re-arm them, pauses every unspawned queue item, and runs
+// one pass, in which row P3 disarms every armed PR in the halted cone. Live
+// panes are left untouched. A disarm that fails is retried by the next stop or
+// step. It runs under the pass lock.
 func Stop(ctx context.Context, env Env) (*StepResult, error) {
 	return passLocked(env, func() (*StepResult, error) { return stop(ctx, env) })
 }
 
 func stop(ctx context.Context, env Env) (*StepResult, error) {
 	e := newEngine(env)
-	var targets []operator.TrackedItem
 	var paused []string
 	if err := e.mutate(func(st *operator.State) error {
+		unfinished := false
 		for i := range st.Tracked {
 			it := &st.Tracked[i]
-			if isPRItem(*it) {
-				if !operator.ItemDone(*it) {
-					it.Scope[scopeHalted] = true
-				}
-				if scopeBool(*it, scopeArmed) {
-					targets = append(targets, *it)
-				}
+			if isSeqPR(*it) && !operator.ItemDone(*it) {
+				it.Scope[scopeHalted] = true
+				unfinished = true
 			}
 			if operator.IsQueueItem(st, *it) && operator.ScopeString(it.Scope, "pane") == "" && !operator.ItemDone(*it) && !it.Paused {
 				it.Paused = true
@@ -123,12 +71,7 @@ func stop(ctx context.Context, env Env) (*StepResult, error) {
 				paused = append(paused, it.ID)
 			}
 		}
-		if len(paused) == 0 && len(targets) == 0 {
-			for _, it := range st.Tracked {
-				if isPRItem(it) && !operator.ItemDone(it) {
-					return nil
-				}
-			}
+		if len(paused) == 0 && !unfinished {
 			return operator.ErrNoWrite
 		}
 		return nil
@@ -139,28 +82,28 @@ func stop(ctx context.Context, env Env) (*StepResult, error) {
 	for _, id := range paused {
 		e.act(ActPaused, id, "")
 	}
-	var err error
-	for _, it := range targets {
-		err = errors.Join(err, e.disarm(ctx, it))
-	}
-	return e.res, err
+	_, err := e.pass(ctx)
+	return e.res, errors.Join(err, e.disarmErr, e.coneErr)
 }
 
 // StatusItem is one queue item in the status view.
 type StatusItem struct {
-	ID        string   `json:"id"`
-	State     string   `json:"state"`
-	Mode      string   `json:"mode"`
-	Repo      string   `json:"repo"`
-	Branch    string   `json:"branch"`
-	PR        string   `json:"pr"`
-	DependsOn []string `json:"depends_on"`
+	ID        string      `json:"id"`
+	State     QueueStatus `json:"state"`
+	Mode      string      `json:"mode"`
+	Repo      string      `json:"repo"`
+	Branch    string      `json:"branch"`
+	PR        string      `json:"pr"`
+	DependsOn []string    `json:"depends_on"`
 	// Sequence is the item's merge-sequence position ("2/3"), "" before one
 	// exists.
 	Sequence string `json:"sequence"`
 	// Queue is the id stamped by `autopilot queue` ("" for a legacy item).
-	Queue  string `json:"queue"`
-	Halted bool   `json:"halted"`
+	Queue string `json:"queue"`
+	// PRStatus is the derived status of the item's PR item ("" before one
+	// exists).
+	PRStatus string `json:"pr_status"`
+	Halted   bool   `json:"halted"`
 }
 
 // StatusResult is the read-only queue view. Summary is the Queue Completion
@@ -174,17 +117,16 @@ type StatusResult struct {
 	MergeOrder   []string `json:"-"`
 }
 
-// Status derives the queue view from stored state, applying the same readiness
-// rule as step (a read-only gh probe decides whether a same-repo dependency's
-// PR exists); the completion summary also reads PR links through gh. It takes
-// no pass lock, writes nothing and reports no escalations: a failed lookup is
-// returned as plain error text.
+// Status derives the queue view with the same observe and derive stages as
+// step, so it shows the statuses step acts on. It makes read-only gh calls,
+// takes no pass lock, writes nothing and reports no escalations: a failed
+// lookup is returned as plain error text.
 func Status(ctx context.Context, env Env) (StatusResult, error) {
 	// Status reports failures without writing notes to the ledger.
 	env.DryRun = true
 	e := newEngine(env)
 	e.readOnly = true
-	st, err := e.load()
+	st, f, err := e.observe(ctx)
 	if err != nil {
 		return StatusResult{Items: []StatusItem{}}, err
 	}
@@ -197,8 +139,8 @@ func Status(ctx context.Context, env Env) (StatusResult, error) {
 	}
 	allDone := len(queue) > 0
 	for _, it := range queue {
-		state := e.stateOf(ctx, st, it)
-		if state != StateDone {
+		state := deriveQueue(st, f, it)
+		if state != QueueDone {
 			allDone = false
 		}
 		row := StatusItem{
@@ -211,7 +153,8 @@ func Status(ctx context.Context, env Env) (StatusResult, error) {
 				continue
 			}
 			row.PR = prNum(p.Scope)
-			row.Halted = scopeBool(p, scopeHalted)
+			ps := derivePR(st, f, p)
+			row.PRStatus, row.Halted = string(ps), ps == PRHalted
 			seq := seqItems(st, seqOf(p))
 			for i, s := range seq {
 				if s.ID == p.ID {

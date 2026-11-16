@@ -1,0 +1,57 @@
+id: qtgq
+name: 261116-qtgq-autopilot-status-rule-table
+created: 2026-11-16T14:19:36Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 16
+    acceptance_count: 31
+    acceptance_completed: 31
+confidence:
+    certain: 7
+    confident: 8
+    tentative: 1
+    unresolved: 0
+    score: 3.4
+    fuzzy: true
+    dimensions:
+        signal: 75.3
+        reversibility: 78.8
+        competence: 79.4
+        disambiguation: 74.1
+stage_metrics:
+    intake: {started_at: "2026-11-16T14:19:36Z", driver: fab-new, iterations: 1, completed_at: "2026-11-16T14:23:52Z"}
+    apply: {started_at: "2026-11-16T15:16:59Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-16T15:22:46Z"}
+    review: {started_at: "2026-11-16T15:22:46Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-16T15:28:23Z"}
+    hydrate: {started_at: "2026-11-16T15:28:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-16T15:31:10Z"}
+    ship: {started_at: "2026-11-16T15:31:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-16T15:32:24Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1138
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 4263
+    deleted: 1422
+    net: 2841
+    excluding:
+        added: 3575
+        deleted: 1379
+        net: 2196
+    tests:
+        added: 2000
+        deleted: 353
+        net: 1647
+    computed_at: "2026-11-16T15:32:24Z"
+    computed_at_stage: ship
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-16T15:32:24Z

@@ -34,50 +34,8 @@ func (c *conflictError) Error() string {
 	return fmt.Sprintf("cherry-pick of the %s dependency conflicted: %v", c.dep, c.err)
 }
 
-// spawnPending is step phase (d): respawn dead panes once, then spawn every
-// pending, unpaused queue item whose gate passes, in queue order. An item
-// whose spawn marker is set is never launched again: the pass cannot tell
-// whether a window exists, so a person decides.
-func (e *engine) spawnPending(ctx context.Context) error {
-	st, err := e.load()
-	if err != nil {
-		return err
-	}
-	e.escalateInterrupted(st)
-	if err := e.respawnDead(ctx, st); err != nil {
-		return err
-	}
-	for _, snapshot := range st.Tracked {
-		fresh, err := e.load()
-		if err != nil {
-			return err
-		}
-		i := operator.IndexOf(fresh.Tracked, snapshot.ID)
-		if i < 0 {
-			continue
-		}
-		it := fresh.Tracked[i]
-		if !operator.IsQueueItem(fresh, it) || spawningSet(it) || skipped(it) || e.stateOf(ctx, fresh, it) != StatePending {
-			continue
-		}
-		e.spawnItem(ctx, fresh, it)
-	}
-	return nil
-}
-
 func spawningSet(it operator.TrackedItem) bool {
 	return operator.ScopeString(it.Scope, scopeSpawning) != ""
-}
-
-// escalateInterrupted reports every unfinished queue item left with a spawn
-// marker: a previous pass died, or failed to record the window, between the
-// marker and the pane.
-func (e *engine) escalateInterrupted(st *operator.State) {
-	for _, it := range st.Tracked {
-		if operator.IsQueueItem(st, it) && spawningSet(it) && !operator.ItemDone(it) {
-			e.escalate(it.ID, fmt.Sprintf("spawn interrupted: %s — check for an orphaned window, then clear scope.spawning with rk operator track update --force %s --scope '{\"spawning\":null}'", it.ID, it.ID))
-		}
-	}
 }
 
 func skipped(it operator.TrackedItem) bool {
@@ -106,9 +64,20 @@ func sameRepoDeps(st *operator.State, it operator.TrackedItem) []operator.Tracke
 	return out
 }
 
+// spawn is the executor of row Q2: the spawn sequence for one pending item,
+// whose readiness was decided from the pass's facts.
+func (e *engine) spawn(ctx context.Context, d Decision) error {
+	st, it, ok := e.reread(d)
+	if !ok {
+		return nil
+	}
+	e.spawnItem(ctx, st, it, d.fp)
+	return nil
+}
+
 // spawnItem runs the spawn sequence for one pending item. Every refusal is an
 // escalation that leaves the item pending, to be retried by the next step.
-func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.TrackedItem) {
+func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.TrackedItem, fp string) {
 	id := it.ID
 	repo := cleanRepo(operator.ScopeString(it.Scope, "repo"))
 	mode := modeOf(it)
@@ -117,10 +86,6 @@ func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.
 	}
 	if err := e.validateRepo(ctx, repo); err != nil {
 		e.escalate(id, err.Error())
-		return
-	}
-	if e.env.DryRun {
-		e.act(ActSpawned, id, "would spawn in "+repo+" ("+mode+")")
 		return
 	}
 
@@ -205,7 +170,7 @@ func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.
 			return e.prepareWorktree(ctx, wt, id, change, def, mode, ladder, stackedBranch)
 		},
 	}
-	e.launch(ctx, it, req, ActSpawned, false)
+	e.launch(ctx, it, fp, req, ActSpawned, false)
 }
 
 // launch is the only window-opening site. The spawning marker (with respawned
@@ -214,14 +179,20 @@ func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.
 // before a window opens clears the marker again so the item is retried; one
 // that opened a window it could not record leaves the marker, so no pass
 // relaunches over an orphan.
-func (e *engine) launch(ctx context.Context, it operator.TrackedItem, req SpawnRequest, action string, respawn bool) {
+func (e *engine) launch(ctx context.Context, it operator.TrackedItem, fp string, req SpawnRequest, action string, respawn bool) {
 	id := it.ID
-	marker := map[string]interface{}{scopeSpawning: e.env.now().UTC().Format(time.RFC3339)}
-	if respawn {
-		marker[scopeRespawned] = true
-	}
-	if err := e.setScope(id, marker); err != nil {
-		e.escalate(id, "spawn marker not written, nothing launched: "+err.Error())
+	stamp := e.env.now().UTC().Format(time.RFC3339)
+	if err := e.guarded(id, fp, func(t *operator.TrackedItem) {
+		t.Scope[scopeSpawning] = stamp
+		if respawn {
+			t.Scope[scopeRespawned] = true
+		}
+	}); err != nil {
+		if errors.Is(err, errItemChanged) {
+			e.writeFailed(id, false, "", err)
+		} else {
+			e.escalate(id, "spawn marker not written, nothing launched: "+err.Error())
+		}
 		return
 	}
 	opened, pane := false, ""
@@ -494,56 +465,22 @@ func (e *engine) attach(ctx context.Context, it operator.TrackedItem, repo strin
 	})
 }
 
-// respawnDead gives a spawned item whose pane is gone one respawn on its
-// existing branch; after that it is skipped with an escalation and its
-// dependents stay held.
-func (e *engine) respawnDead(ctx context.Context, st *operator.State) error {
-	var panes map[string]operator.PaneInfo
-	for _, snapshot := range st.Tracked {
-		fresh, err := e.load(snapshot.ID)
-		if err != nil {
-			return err
-		}
-		i := operator.IndexOf(fresh.Tracked, snapshot.ID)
-		if i < 0 {
-			continue
-		}
-		it := fresh.Tracked[i]
-		pane := operator.ScopeString(it.Scope, "pane")
-		if !operator.IsQueueItem(fresh, it) || spawningSet(it) || pane == "" || operator.ItemDone(it) || it.Paused || skipped(it) {
-			continue
-		}
-		if panes == nil {
-			if panes, err = e.env.Panes.Snapshot(ctx); err != nil {
-				e.escalate(it.ID, "respawn pane snapshot failed: "+err.Error())
-				return err
-			}
-		}
-		if _, alive := panes[pane]; alive || e.stateOf(ctx, fresh, it) == StateHeld {
-			continue
-		}
-		e.respawn(ctx, fresh, it)
+// respawnItem is the executor of row Q4: a spawned item whose pane is gone
+// gets its one existing-branch respawn.
+func (e *engine) respawnItem(ctx context.Context, d Decision) error {
+	st, it, ok := e.reread(d)
+	if !ok {
+		return nil
 	}
+	e.respawn(ctx, st, it, d.fp)
 	return nil
 }
 
-func (e *engine) respawn(ctx context.Context, st *operator.State, it operator.TrackedItem) {
+func (e *engine) respawn(ctx context.Context, st *operator.State, it operator.TrackedItem, fp string) {
 	id := it.ID
 	repo := cleanRepo(operator.ScopeString(it.Scope, "repo"))
 	branch := itemBranch(st, it)
 	if _, ok := e.checkedBranch(id, branch, "respawn"); !ok {
-		return
-	}
-	if scopeBool(it, scopeRespawned) {
-		if err := e.setScope(id, map[string]interface{}{scopeSkipped: true}); err != nil {
-			e.escalate(id, "skipped marker not written: "+err.Error())
-			return
-		}
-		e.escalate(id, "pane died after its one respawn: skipped, dependents stay held")
-		return
-	}
-	if e.env.DryRun {
-		e.act(ActRespawned, id, "would respawn on "+branch)
 		return
 	}
 	// A stacked worker that died before recording its base would otherwise be
@@ -578,5 +515,5 @@ func (e *engine) respawn(ctx context.Context, st *operator.State, it operator.Tr
 		Prompt:           prompt,
 		Note:             id + " · respawned",
 	}
-	e.launch(ctx, it, req, ActRespawned, true)
+	e.launch(ctx, it, fp, req, ActRespawned, true)
 }

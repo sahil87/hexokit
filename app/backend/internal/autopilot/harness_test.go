@@ -195,10 +195,12 @@ type ghSim struct {
 	prs  map[int]*simPR
 	run  *scriptRunner
 	repo string
+	// noAutoMerge lists the repos (by owner/name) whose autoMergeAllowed is false.
+	noAutoMerge map[string]bool
 }
 
 func newGHSim(t *testing.T, run *scriptRunner) *ghSim {
-	g := &ghSim{t: t, prs: map[int]*simPR{}, run: run}
+	g := &ghSim{t: t, prs: map[int]*simPR{}, run: run, noAutoMerge: map[string]bool{}}
 	run.on("gh ", g.handle)
 	return g
 }
@@ -227,7 +229,15 @@ func (g *ghSim) handle(dir string, argv []string) (string, error) {
 	args := argv[1:]
 	switch {
 	case len(args) >= 2 && args[0] == "repo" && args[1] == "view":
-		if strings.Contains(strings.Join(args, " "), "nameWithOwner") {
+		joined := strings.Join(args, " ")
+		if strings.Contains(joined, "autoMergeAllowed") {
+			nwo := ""
+			if len(args) > 2 && args[2] != "--json" {
+				nwo = args[2]
+			}
+			return fmt.Sprintf(`{"autoMergeAllowed":%t}`, !g.noAutoMerge[nwo]), nil
+		}
+		if strings.Contains(joined, "nameWithOwner") {
 			return `{"nameWithOwner":"o/` + filepath.Base(dir) + `"}`, nil
 		}
 		return "main\n", nil
@@ -236,9 +246,13 @@ func (g *ghSim) handle(dir string, argv []string) (string, error) {
 		if p == nil {
 			return "", ghErr(argv, "no pull requests found for "+args[2])
 		}
+		var armed interface{}
+		if p.Armed {
+			armed = map[string]string{"mergeMethod": "SQUASH"}
+		}
 		b, _ := json.Marshal(map[string]interface{}{
 			"number": p.Number, "url": p.URL, "state": p.State, "isDraft": p.IsDraft, "mergedAt": mergedAt(p),
-			"mergeable": p.Mergeable, "headRefOid": p.HeadOid,
+			"mergeable": p.Mergeable, "headRefOid": p.HeadOid, "autoMergeRequest": armed,
 			"reviews": p.Reviews, "statusCheckRollup": rollup(p.Checks),
 		})
 		return string(b), nil
@@ -557,9 +571,93 @@ func (h *harness) startMerge() *StepResult {
 
 func (f *fakePanes) PID(context.Context, string) (int, error) { return 123, nil }
 
-// stateOf is the engine's readiness verdict for the item, read-only.
-func (h *harness) stateOf(it operator.TrackedItem) string {
+// stateOf is the engine's derived queue status for the item, read-only.
+func (h *harness) stateOf(it operator.TrackedItem) QueueStatus {
+	h.t.Helper()
 	e := newEngine(h.env)
 	e.readOnly = true
-	return e.stateOf(context.Background(), h.state(), it)
+	st, f, err := e.observe(context.Background())
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return deriveQueue(st, f, st.Tracked[operator.IndexOf(st.Tracked, it.ID)])
+}
+
+// prStatusOf is the engine's derived PR status for the item, read-only.
+func (h *harness) prStatusOf(id string) PRStatus {
+	h.t.Helper()
+	e := newEngine(h.env)
+	e.readOnly = true
+	st, f, err := e.observe(context.Background())
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return derivePR(st, f, st.Tracked[operator.IndexOf(st.Tracked, id)])
+}
+
+// pending gives each PR one pending required check, so an unarmed PR is
+// `waiting` (armed by P6) instead of `green` (merged by P7).
+func pending(prs ...*simPR) {
+	for _, p := range prs {
+		p.Checks = []checkRun{{Name: "ci", State: "PENDING"}}
+	}
+}
+
+// decideFor runs observe and decide against the harness state and returns the
+// engine (with its facts, ready for execute) and the item's decision.
+func (h *harness) decideFor(id string) (*engine, Decision) {
+	h.t.Helper()
+	e := newEngine(h.env)
+	st, f, err := e.observe(context.Background())
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	e.facts = f
+	for _, d := range decide(st, f, h.env.Now()) {
+		if d.Item == id {
+			return e, d
+		}
+	}
+	h.t.Fatalf("no decision for %s", id)
+	return nil, Decision{}
+}
+
+// decisionRows lists the rows decide picks for the harness state, by item.
+func (h *harness) decisionRows() map[string]string {
+	h.t.Helper()
+	e := newEngine(h.env)
+	e.readOnly = true
+	st, f, err := e.observe(context.Background())
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	rows := map[string]string{}
+	for _, d := range decide(st, f, h.env.Now()) {
+		rows[d.Item] = d.Row
+	}
+	return rows
+}
+
+// decisions observes and decides against the harness state with e, leaving
+// e.facts set for execute.
+func (h *harness) decisions(e *engine) []Decision {
+	h.t.Helper()
+	st, f, err := e.observe(context.Background())
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	e.facts = f
+	return decide(st, f, h.env.Now())
+}
+
+// setScope merges keys into the item's scope; a nil value stores null.
+func (e *engine) setScope(id string, kv map[string]interface{}) error {
+	return e.patch(id, func(it *operator.TrackedItem) {
+		if it.Scope == nil {
+			it.Scope = map[string]interface{}{}
+		}
+		for k, v := range kv {
+			it.Scope[k] = v
+		}
+	})
 }

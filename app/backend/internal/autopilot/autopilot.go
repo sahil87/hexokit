@@ -10,6 +10,14 @@
 // for the whole pass and returns busy when another pass holds it, so no
 // engine state needs a claim or a compare-and-set.
 //
+// A pass is observe → derive → decide → execute. Observe reads the external
+// facts of the items that can act; derive turns the ledger and the facts into
+// a status per item (status.go); decide is a pure function that picks at most
+// one row of the rule table per item (rules.go); execute runs one typed
+// executor per chosen action in ledger order (execute.go, spawn.go). The
+// ledger stores only intent the engine cannot derive; armed, repo auto-merge,
+// the halted cone and the stall head are derived each pass, never stored.
+//
 // The engine never notifies: a failure or halt is an Escalation in the result
 // plus a note on the item, and the caller turns it into a notification.
 package autopilot
@@ -193,6 +201,7 @@ const (
 	ActPaused       = "paused"
 	ActDone         = "done"
 	ActPRTracked    = "pr-tracked"
+	ActReadied      = "readied"
 )
 
 // Action is one thing a verb did (or, under --dry-run, would do).
@@ -236,10 +245,20 @@ type engine struct {
 	// reported as escalations and never written as notes.
 	readOnly bool
 	warnings []string
+	// facts is the pass's observation, read by executors that need a fact
+	// (halt disarms its own item only if it was observed armed).
+	facts *facts
+	// autoMergeFailed remembers repos whose autoMergeAllowed could not be read,
+	// so one pass escalates each once.
+	autoMergeFailed map[string]bool
+	// disarmErr joins this pass's failed disarms and coneErr the halted PRs
+	// whose armed state could not be read, for `stop` to report; both are
+	// retried by the next pass either way.
+	disarmErr, coneErr error
 }
 
 func newEngine(env Env) *engine {
-	return &engine{env: env, res: newResult(env.DryRun), meta: map[string]*repoMeta{}}
+	return &engine{env: env, res: newResult(env.DryRun), meta: map[string]*repoMeta{}, autoMergeFailed: map[string]bool{}}
 }
 
 func (e *engine) act(kind, item, detail string) {
@@ -252,14 +271,18 @@ func (e *engine) reportf(format string, a ...interface{}) {
 
 // escalate records an escalation and, once per distinct reason, a note on the
 // item, so a retried step does not repeat itself in the ledger.
-func (e *engine) escalate(id, reason string) {
+func (e *engine) escalate(id, reason string) { e.escalateAs(id, escalationKey(reason), reason) }
+
+// escalateAs is escalate with an explicit dedupe key: an escalate-once row keys
+// its reason by more than the text (P5 adds the head commit).
+func (e *engine) escalateAs(id, key, reason string) {
 	if e.readOnly {
 		e.warnings = append(e.warnings, id+": "+reason)
 		return
 	}
 	e.res.Escalations = append(e.res.Escalations, Escalation{Item: id, Reason: reason})
 	if id != "" {
-		if err := e.recordEscalation(id, reason); err != nil {
+		if err := e.recordEscalation(id, key, reason, ""); err != nil {
 			e.res.Escalations = append(e.res.Escalations, Escalation{Item: id, Reason: "escalation note not written: " + err.Error()})
 		}
 	}
@@ -300,23 +323,11 @@ func (e *engine) patch(id string, fn func(*operator.TrackedItem)) error {
 	})
 }
 
-// setScope merges keys into the item's scope; a nil value stores null.
-func (e *engine) setScope(id string, kv map[string]interface{}) error {
-	return e.patch(id, func(it *operator.TrackedItem) {
-		if it.Scope == nil {
-			it.Scope = map[string]interface{}{}
-		}
-		for k, v := range kv {
-			it.Scope[k] = v
-		}
-	})
-}
-
 // escalatedSeen reports whether the item's structured escalation record already
-// holds reason. Decisions read this map, never note text.
-func escalatedSeen(it operator.TrackedItem, reason string) bool {
+// holds key. Decisions read this map, never note text.
+func escalatedSeen(it operator.TrackedItem, key string) bool {
 	seen, _ := it.Scope[scopeEscalated].(map[string]interface{})
-	_, ok := seen[escalationKey(reason)]
+	_, ok := seen[key]
 	return ok
 }
 
@@ -329,10 +340,9 @@ func escalationKey(reason string) string {
 	return reason
 }
 
-// recordEscalation stores the reason's first-seen time in scope.escalated and,
-// on that first sighting only, appends a human note.
-func (e *engine) recordEscalation(id, reason string) error {
-	key := escalationKey(reason)
+// recordEscalation stores the key's first-seen time in scope.escalated and, on
+// that first sighting only, appends a human note.
+func (e *engine) recordEscalation(id, key, reason, fp string) error {
 	by := e.env.by()
 	return e.mutate(func(st *operator.State) error {
 		i := operator.IndexOf(st.Tracked, id)
@@ -340,7 +350,10 @@ func (e *engine) recordEscalation(id, reason string) error {
 			return operator.ErrNoWrite
 		}
 		it := &st.Tracked[i]
-		if escalatedSeen(*it, reason) {
+		if fp != "" && fingerprint(*it) != fp {
+			return errItemChanged
+		}
+		if escalatedSeen(*it, key) {
 			return operator.ErrNoWrite
 		}
 		seen := map[string]interface{}{}

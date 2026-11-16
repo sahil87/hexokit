@@ -39,6 +39,7 @@ func (p faultPanes) PID(ctx context.Context, pane string) (int, error) {
 
 func TestObservationFailureDoesNotDriveMerge(t *testing.T) {
 	h, pr, head := armFixture(t)
+	pending(pr)
 	e := newEngine(h.env)
 	if err := e.setScope(head.ID, map[string]interface{}{scopeDeferred: false}); err != nil {
 		t.Fatal(err)
@@ -51,13 +52,11 @@ func TestObservationFailureDoesNotDriveMerge(t *testing.T) {
 }
 
 func TestStateReloadFailuresEscalate(t *testing.T) {
-	h, _, head := armFixture(t)
+	h, _, _ := armFixture(t)
 	write(t, h.env.StatePath, "tracked: [broken")
 	e := newEngine(h.env)
-	var unreviewed []string
-	e.advanceSeq(context.Background(), seqOf(head), &unreviewed)
-	if !hasEscalation(e.res, "state load failed") {
-		t.Fatalf("reload hidden: %+v", e.res)
+	if _, _, err := e.observe(context.Background()); err == nil || !hasEscalation(e.res, "state load failed") {
+		t.Fatalf("reload hidden: err=%v %+v", err, e.res)
 	}
 }
 
@@ -93,11 +92,14 @@ func TestMergeRepoFilterValidation(t *testing.T) {
 func TestAlreadyDisabledStopConverges(t *testing.T) {
 	for _, message := range []string{"auto-merge is already disabled", "Pull request Auto merge is not currently enabled", "auto-merge is not enabled"} {
 		t.Run(message, func(t *testing.T) {
-			h, _, head := armFixture(t)
-			armOnce(t, h, head)
-			h.run.fail("gh pr merge --disable-auto", message)
+			h, pr, head := armFixture(t)
+			pr.Armed = true
+			h.run.on("gh pr merge --disable-auto", func(_ string, argv []string) (string, error) {
+				pr.Armed = false
+				return "", ghErr(argv, message)
+			})
 			res, err := Stop(context.Background(), h.env)
-			if err != nil || !hasAction(res, ActDisarmed, head.ID) || scopeBool(h.item(head.ID), scopeArmed) {
+			if err != nil || !hasAction(res, ActDisarmed, head.ID) {
 				t.Fatalf("stop=%+v err=%v", res, err)
 			}
 			count := h.run.called("gh pr merge --disable-auto")
@@ -110,16 +112,25 @@ func TestAlreadyDisabledStopConverges(t *testing.T) {
 }
 
 func TestAlreadyAppliedReadyAndArm(t *testing.T) {
-	h, _, head := armFixture(t)
+	h, pr, head := armableFixture(t)
+	pr.IsDraft = true
 	h.run.fail("gh pr ready", "Pull request is already ready for review")
-	h.run.fail("gh pr merge --auto", "auto-merge is already enabled")
-	e := newEngine(h.env)
-	view := prView{IsDraft: true}
-	if !e.readyDraft(context.Background(), head, &view) || view.IsDraft {
+	e, d := h.decideFor(head.ID)
+	if d.Action != ActionReady {
+		t.Fatalf("decision = %+v", d)
+	}
+	execOne(t, e, d)
+	if !hasAction(e.res, ActReadied, head.ID) {
 		t.Fatal("ready did not converge")
 	}
-	e.arm(context.Background(), head, view)
-	if !scopeBool(h.item(head.ID), scopeArmed) || !hasAction(e.res, ActArmed, head.ID) {
+	pr.IsDraft = false
+	h.run.fail("gh pr merge --auto", "auto-merge is already enabled")
+	e, d = h.decideFor(head.ID)
+	if d.Action != ActionArm {
+		t.Fatalf("decision = %+v", d)
+	}
+	execOne(t, e, d)
+	if !hasAction(e.res, ActArmed, head.ID) {
 		t.Fatal("arm did not converge")
 	}
 	for _, op := range []string{"ready", "arm", "disarm", "merge"} {
@@ -141,18 +152,6 @@ func TestEscalationNoteWriteFailureIsVisible(t *testing.T) {
 	e.escalate("a", "operation failed")
 	if len(e.res.Escalations) != 2 || !strings.Contains(e.res.Escalations[1].Reason, "note not written") {
 		t.Fatalf("note failure hidden: %+v", e.res)
-	}
-}
-
-func TestArmRollbackWriteFailureRetainsMarker(t *testing.T) {
-	h, _, head := armFixture(t)
-	h.run.on("gh pr merge --auto", func(_ string, argv []string) (string, error) {
-		readOnlyState(t, h)
-		return "", ghErr(argv, "Pull request is not in the correct state to enable auto-merge")
-	})
-	res := armOnce(t, h, head)
-	if !hasEscalation(res, "armed marker could not be cleared") || !scopeBool(h.item(head.ID), scopeArmed) || hasAction(res, ActArmed, "") {
-		t.Fatalf("rollback=%+v", res)
 	}
 }
 

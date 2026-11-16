@@ -140,7 +140,7 @@ func TestSpawnRejectsSharedDependencyBranchesBeforeFetch(t *testing.T) {
 				t.Fatal(err)
 			}
 			h.run.reset()
-			if err := e.spawnPending(context.Background()); err != nil {
+			if err := e.execute(context.Background(), e.facts, h.decisions(e)); err != nil {
 				t.Fatal(err)
 			}
 			assertNoBranchMutations(t, h, e.res)

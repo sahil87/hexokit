@@ -19,8 +19,10 @@ const (
 	SourceDefault = "default"
 )
 
-// Scope keys the engine writes; operator owns the definitions and the refusal
-// of hand writes to them.
+// Scope keys the engine reads and writes; operator owns the definitions and the
+// refusal of hand writes to them. scopeArmed, scopeDirect and scopeStallSeen
+// are retired: old values stay on disk, but the engine neither reads nor
+// writes them (a test pins that), so only their registration remains.
 const (
 	scopeTask      = operator.ScopeTask
 	scopeBare      = operator.ScopeBare

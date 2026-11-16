@@ -48,7 +48,7 @@ Every item carries `notes: [{at, by, text}]`, an append-only memory list. `at` i
 | `add <id> --kind <k>` | Flags `--probe --argv (repeatable) --fields --instruction --check-every --done-when --then --depends-on --scope (JSON object) --mode`, the pane flags `--pane --repo --session --branch --stage --agent --stop-stage --spawned-by --change`, and `--text`/`--by` (kind `note` only; `--by` defaults to `user`). Validation: known kind, kind-allowed probe, shell argv/fields/done-when, a parseable `done_when`, a unique id, `depends_on` existing and not self, `check_every` normalized. `github-pr` builds `gh pr view <n> [--repo <nwo>] --json state,mergedAt,mergeable` from `scope.pr`; `--repo` comes from `gh repo view --json nameWithOwner` run in `scope.repo` (argv-only `exec.CommandContext` under the 10s probe timeout, seam `ghNameWithOwnerFn`) and its failure is an add-time error. A pane item records `scope.pane_pid` through `tmux.PanePIDCtx` (seam `panePIDFn`, 5s bound; any failure stores `null`), and with both `branch` and `repo` writes `branch_map` keyed by `scope.change`, else the item id. Pane flags and `--mode` on a non-pane kind are usage errors. Free `--scope` keys follow the scope allow-list (§ Scope ownership); `--force` bypasses it. The external lookups run before the lock is taken. |
 | `update <id>` | `--check-every --done-when --then --depends-on --scope`; only flags given change; an empty `--done-when`/`--then` clears to null; `--scope` merges per key (`scope.memo` merges per member) and a changed `scope.pane` re-records `pane_pid`; `--force` bypasses the scope allow-list for manual repair. |
 | `observe <id>` | Exactly one of `--json <object>` (here the observed fields, not an output switch) or `--error <msg>`; `--seen <id>` repeatable. A success stores `last` per `probe.fields` (dotted paths, absent ⇒ null), bumps `unchanged` when `last` is unchanged else resets it, zeroes `failures`, appends unseen `seen` ids and prunes to 200. A failure counts toward the pause cap. |
-| `rm <id>` | Removes the item and its notes. A *done* item is also dropped from every dependent's `depends_on` so the chain advances; a not-done removal keeps the edges. `branch_map` is untouched. A `github-pr` item whose `scope.armed` is set is refused (usage error, exit 2) unless `--force`: the armed PR would have no item left to disarm it. |
+| `rm <id>` | Removes the item and its notes. A *done* item is also dropped from every dependent's `depends_on` so the chain advances; a not-done removal keeps the edges. `branch_map` is untouched. A not-done `github-pr` item with `scope.merge_seq` (an autopilot sequence PR, which may be armed — armed is read from GitHub, not stored) is refused (usage error, exit 2) unless `--force`: an armed PR would have no item left to disarm it. A done item or one without `merge_seq` is removed. |
 | `list [--kind k]` | A pure read — never locks, writes, or converts. One line per item `id · kind · state · checked-age · next`; states `done, paused, held, pending, stale, live, watching`; `--json` emits the full items array including notes. |
 | `note <id> <text> [--by user\|run\|chat]` | Appends a note; `<text>` of `-` reads stdin (capped at 64 KiB). |
 | `pause <id>` / `resume <id>` | `pause` sets `paused`; `resume` clears it and zeroes `failures`. |
@@ -61,7 +61,7 @@ Every scope key has one owner, and `track add --scope` / `track update --scope` 
 
 | Class | Keys | Writer | `track add` / `update` without `--force` |
 |---|---|---|---|
-| Engine | `queue`, `merge_mode`, `merge_seq`, `item`, `url`, `spawning`, `respawned`, `skipped`, `armed`, `halted`, `direct`, `stall_seen`, `deferred`, `escalated` | autopilot | refused (`merge_mode` is set only by `track add --mode` or `autopilot queue`) |
+| Engine | `queue`, `merge_mode`, `merge_seq`, `item`, `url`, `spawning`, `respawned`, `skipped`, `halted`, `deferred`, `escalated`, plus `armed`, `direct`, `stall_seen` | autopilot | refused (`merge_mode` is set only by `track add --mode` or `autopilot queue`); `armed`, `direct` and `stall_seen` stay registered so hand writes are refused and old values on disk are tolerated, but the engine neither reads nor writes them |
 | Check | `pane_pid`, `stage`, `agent` | `rk operator check` and pane lookups | refused |
 | Identity | `repo`, `change`, `pr`, `task`, `bare` | the creator | allowed at creation and on update only while empty; immutable once set (`task`/`bare` immutable on a queue item) |
 | Binding | `pane`, `session`, `branch` | autopilot on a queue item; whoever tracks the item otherwise | allowed on a non-queue item and at creation; refused on a queue item |
@@ -83,8 +83,8 @@ The engine keys are exported constants in `internal/operator` (`EngineScopeKeys`
 - **WHEN** `track update --scope '{"pane":"%9"}'` runs on each
 - **THEN** the queue item is refused (exit 2) and the hand-tracked item is updated
 
-#### Scenario: An armed PR item is not removed silently
-- **GIVEN** a `github-pr` item with `scope.armed: true`
+#### Scenario: A sequence PR item is not removed silently
+- **GIVEN** a not-done `github-pr` item with `scope.merge_seq` (and no `armed` key)
 - **WHEN** `rk operator track rm <id>` runs without `--force`
 - **THEN** it exits 2 and the item remains
 
@@ -226,7 +226,7 @@ A done item yields only `done` plus any `unknown_dep:*`; a user-paused item belo
 
 ### Scope writes are deny-by-default, with a free-form `memo`
 **Decision**: `track add/update --scope` accept only allow-listed keys from one ownership table; engine-owned, check-owned and unknown keys are refused unless `--force`, and `scope.memo` is the free-form area for AI and people.
-**Why**: Autopilot acts on fields it owns (queue, pane, PR identity, armed/halted markers); if another writer can change them mid-pass the engine can arm the wrong PR or duplicate an agent. A refused-list drifted from the engine's real keys, so a new engine key is protected only if the default is to refuse. Giving the AI a sanctioned free-form place stops it from inventing scope keys.
+**Why**: Autopilot acts on fields it owns (queue, pane, PR identity, halted markers); if another writer can change them mid-pass the engine can arm the wrong PR or duplicate an agent. A refused-list drifted from the engine's real keys, so a new engine key is protected only if the default is to refuse. Giving the AI a sanctioned free-form place stops it from inventing scope keys.
 **Rejected**: A hand-kept refused-key list (drifted); claim/compare-and-set machinery in the engine (unbounded surface); a physical regroup of the file into owner sections (a later schema change).
 *Introduced by*: 261114-8w1x-operator-autopilot-go
 

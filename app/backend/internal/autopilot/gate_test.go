@@ -17,30 +17,30 @@ func TestDerivedStatePrecedence(t *testing.T) {
 		Entry{ID: "a", Repo: foo.Dir, Task: "a"},
 		Entry{ID: "b", Repo: foo.Dir, Task: "b"},
 	)
-	if got := h.stateOf(h.item("a")); got != StatePending {
+	if got := h.stateOf(h.item("a")); got != QueuePending {
 		t.Errorf("a = %s, want pending", got)
 	}
-	if got := h.stateOf(h.item("b")); got != StateHeld {
+	if got := h.stateOf(h.item("b")); got != QueueHeld {
 		t.Errorf("b = %s, want held", got)
 	}
 	if err := operator.Pause(h.env.StatePath, "a"); err != nil {
 		t.Fatal(err)
 	}
-	if got := h.stateOf(h.item("a")); got != StatePaused {
+	if got := h.stateOf(h.item("a")); got != QueuePaused {
 		t.Errorf("a = %s, want paused", got)
 	}
 	// A pane does not lift the hold: a dependency still unsatisfied wins.
 	h.attachBranch("b", "bb")
-	if got := h.stateOf(h.item("b")); got != StateHeld {
+	if got := h.stateOf(h.item("b")); got != QueueHeld {
 		t.Errorf("b = %s, want held (a spawned item with an unsatisfied dependency)", got)
 	}
 	h.attachBranch("a", "a-branch")
 	h.gh.add(1, "a-branch")
 	h.setDone("a")
-	if got := h.stateOf(h.item("a")); got != StateDone {
+	if got := h.stateOf(h.item("a")); got != QueueDone {
 		t.Errorf("a = %s, want done (above paused)", got)
 	}
-	if got := h.stateOf(h.item("b")); got != StateSpawned {
+	if got := h.stateOf(h.item("b")); got != QueueSpawned {
 		t.Errorf("b = %s, want spawned once its dependency is done", got)
 	}
 }
@@ -65,8 +65,14 @@ func TestHeldItemWithADeadPaneIsNotRespawned(t *testing.T) {
 func gateOf(t *testing.T, h *harness, id string) (bool, string) {
 	t.Helper()
 	e := newEngine(h.env)
-	st := h.state()
-	return e.gate(context.Background(), st, h.item(id))
+	e.readOnly = true
+	st, f, err := e.observe(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := f.queueFor(id)
+	why := unmetDep(st, f, st.Tracked[operator.IndexOf(st.Tracked, id)], func(d operator.TrackedItem, branch string) bool { return branch != "" && q.depPR[d.ID] })
+	return why == "", why
 }
 
 func TestGateSameRepoDependencyNeedsItsPR(t *testing.T) {
@@ -90,7 +96,7 @@ func TestGateDependencyNotDoneHolds(t *testing.T) {
 	foo := newRepo(t, "foo")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"}, Entry{ID: "b", Repo: foo.Dir, Task: "b"})
 	h.attachBranch("a", "a-branch")
-	h.gh.add(7, "a-branch")
+	pending(h.gh.add(7, "a-branch"))
 	if ok, why := gateOf(t, h, "b"); ok || why != "a" {
 		t.Fatalf("ok=%v why=%q, want held by a", ok, why)
 	}
@@ -221,10 +227,7 @@ func TestPlainAgentCompletionIgnoresOptionalChecks(t *testing.T) {
 			default:
 				h.run.reply("gh pr checks a-branch --required", `[{"name":"ci","state":"`+required+`"}]`)
 			}
-			e := newEngine(h.env)
-			if err := e.observeDone(context.Background()); err != nil {
-				t.Fatal(err)
-			}
+			h.step()
 			want := required == "SUCCESS" || required == "none"
 			if operator.ItemDone(h.item("a")) != want || h.run.called("gh pr checks a-branch --required") != 1 {
 				t.Fatalf("done = %v; want %v", operator.ItemDone(h.item("a")), want)
@@ -250,13 +253,13 @@ func TestStatusHoldsAnItemWhoseSameRepoDependencyHasNoPR(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a missing PR is a held item, not a failure: %v", err)
 	}
-	if got := res.Items[1]; got.ID != "b" || got.State != StateHeld {
+	if got := res.Items[1]; got.ID != "b" || got.State != QueueHeld {
 		t.Fatalf("b = %+v, want held while a has no PR", got)
 	}
 
 	h.gh.add(1, "a-branch")
 	res, err = Status(context.Background(), h.env)
-	if err != nil || res.Items[1].State != StatePending {
+	if err != nil || res.Items[1].State != QueuePending {
 		t.Fatalf("with a's PR, b = %+v err %v", res.Items[1], err)
 	}
 	after, _ := os.ReadFile(h.env.StatePath)
@@ -279,7 +282,7 @@ func TestStatusReportsNoEscalationsAndWritesNoNotes(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "gh unavailable") {
 		t.Fatalf("a failed lookup must be returned as error text: %v", err)
 	}
-	if res.Items[1].State != StateHeld {
+	if res.Items[1].State != QueueHeld {
 		t.Fatalf("b = %+v", res.Items[1])
 	}
 	raw, _ := json.Marshal(res)

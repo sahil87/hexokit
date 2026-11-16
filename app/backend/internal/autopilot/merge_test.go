@@ -42,6 +42,7 @@ func TestLadderArmsOnePRPerSequenceAndReportsMerges(t *testing.T) {
 	foo := newRepo(t, "foo")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"}, Entry{ID: "b", Repo: foo.Dir, Task: "b"})
 	prs := h.shipped(1, "a", "b")
+	pending(prs...)
 
 	res := h.startMerge()
 	if !prs[0].Armed || prs[1].Armed {
@@ -66,8 +67,8 @@ func TestLadderArmsOnePRPerSequenceAndReportsMerges(t *testing.T) {
 
 	prs[0].State = "MERGED"
 	res = h.step()
-	if !prs[1].Armed {
-		t.Fatal("the next PR was not armed after the merge was verified")
+	if prs[1].Armed {
+		t.Fatal("the successor was armed in the pass that recorded its predecessor's merge")
 	}
 	if !operator.ItemDone(h.item("pr-1")) {
 		t.Fatal("pr-1 not done after a verified merge")
@@ -75,6 +76,10 @@ func TestLadderArmsOnePRPerSequenceAndReportsMerges(t *testing.T) {
 	wantLine := "a: merged (foo 1/2) · unreviewed"
 	if len(res.Report) != 2 || res.Report[0] != wantLine || res.Report[1] != "merged without review: #1 (a)" {
 		t.Fatalf("report = %q", res.Report)
+	}
+	h.step()
+	if !prs[1].Armed {
+		t.Fatal("the next PR was not armed on the pass after the merge was recorded")
 	}
 
 	prs[1].State = "MERGED"
@@ -90,49 +95,58 @@ func TestLadderReadiesADraftBeforeArming(t *testing.T) {
 	foo := newRepo(t, "foo")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
 	prs := h.shipped(1, "a")
+	pending(prs...)
 	prs[0].IsDraft = true
-	h.startMerge()
-	if prs[0].IsDraft || !prs[0].Armed {
-		t.Fatalf("draft=%v armed=%v", prs[0].IsDraft, prs[0].Armed)
+	res := h.startMerge()
+	if prs[0].IsDraft || prs[0].Armed || !hasAction(res, ActReadied, "pr-1") {
+		t.Fatalf("draft=%v armed=%v: a draft is readied by its own pass, armed by the next", prs[0].IsDraft, prs[0].Armed)
+	}
+	h.step()
+	if !prs[0].Armed {
+		t.Fatal("the readied PR was not armed on the next pass")
 	}
 }
 
-func TestLadderAlreadyCleanRejectionMergesDirectly(t *testing.T) {
+func TestLadderGreenPRMergesDirectlyWithoutArming(t *testing.T) {
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"}, Entry{ID: "b", Repo: foo.Dir, Task: "b"})
 	prs := h.shipped(1, "a", "b")
-	prs[0].AutoErr = "GraphQL: Pull request is in clean status (enablePullRequestAutoMerge)"
 	res := h.startMerge()
-	if prs[0].MergeCalls != 1 || prs[0].State != "MERGED" {
-		t.Fatalf("PR1 merges = %d state %s: a clean PR has nothing for auto-merge to wait on", prs[0].MergeCalls, prs[0].State)
+	if prs[0].MergeCalls != 1 || prs[0].State != "MERGED" || h.run.called("gh pr merge --auto") != 0 {
+		t.Fatalf("PR1 merges = %d state %s: a green PR has nothing for auto-merge to wait on", prs[0].MergeCalls, prs[0].State)
 	}
-	if !prs[1].Armed {
-		t.Fatal("the sequence did not move on after the direct merge was verified")
+	if !hasAction(res, ActMerged, "a") || prs[1].MergeCalls != 0 || prs[1].Armed {
+		t.Fatalf("the successor acted in the pass of its predecessor's merge: %+v", res)
 	}
-	if len(res.Report) == 0 || !strings.HasPrefix(res.Report[0], "a: merged (foo 1/2)") {
-		t.Fatalf("report = %q", res.Report)
+	res = h.step()
+	if len(res.Report) == 0 || !strings.HasPrefix(res.Report[0], "a: merged (foo 1/2)") || prs[1].MergeCalls != 0 {
+		t.Fatalf("report = %q, PR2 merges = %d", res.Report, prs[1].MergeCalls)
+	}
+	h.step()
+	if prs[1].State != "MERGED" {
+		t.Fatal("the sequence did not move on after the merge was recorded")
 	}
 }
 
-func TestLadderAutoMergeDisabledFallsBackToDirectMerge(t *testing.T) {
+func TestLadderRepoWithoutAutoMergeMergesOnGreen(t *testing.T) {
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
 	prs := h.shipped(1, "a")
-	prs[0].AutoErr = "GraphQL: Auto merge is not allowed for this repository (enablePullRequestAutoMerge)"
-	prs[0].Checks = []checkRun{{Name: "ci", State: "PENDING"}}
-	h.startMerge()
-	if prs[0].State == "MERGED" || prs[0].Armed {
+	pending(prs...)
+	h.gh.noAutoMerge["o/foo"] = true
+	res := h.startMerge()
+	if prs[0].State == "MERGED" || prs[0].Armed || h.run.called("gh pr merge") != 0 {
 		t.Fatal("merged with pending checks, or armed on a repo that forbids it")
 	}
-	if !scopeBool(h.item("pr-1"), scopeDirect) {
-		t.Fatal("the direct-merge fallback is not recorded on the sequence")
+	if hasEscalation(res, "auto-merge is disabled") {
+		t.Fatalf("a repo without auto-merge is a fact, not an escalation: %+v", res.Escalations)
 	}
 	prs[0].Checks = []checkRun{{Name: "ci", State: "SUCCESS"}}
 	h.step()
-	if prs[0].State != "MERGED" {
-		t.Fatal("the step-driven direct merge did not run once checks were green")
+	if prs[0].State != "MERGED" || h.run.called("gh pr merge --auto") != 0 {
+		t.Fatal("the green PR was not merged directly")
 	}
 }
 
@@ -148,6 +162,7 @@ func TestHaltDisarmsOnlyTheCone(t *testing.T) {
 	fp := h.shipped(1, "f1")
 	bp := h.shipped(2, "b1")
 	zp := h.shipped(3, "z1")
+	pending(fp[0], bp[0], zp[0])
 	h.startMerge()
 	if !fp[0].Armed || bp[0].Armed || !zp[0].Armed {
 		t.Fatalf("armed foo=%v bar=%v baz=%v: bar waits behind foo across repos", fp[0].Armed, bp[0].Armed, zp[0].Armed)
@@ -158,8 +173,11 @@ func TestHaltDisarmsOnlyTheCone(t *testing.T) {
 	if fp[0].Disarms != 1 || zp[0].Disarms != 0 || !zp[0].Armed {
 		t.Fatalf("disarms foo=%d baz=%d bazArmed=%v: only the halted cone is disarmed", fp[0].Disarms, zp[0].Disarms, zp[0].Armed)
 	}
-	if !scopeBool(h.item("pr-2"), scopeHalted) || scopeBool(h.item("pr-3"), scopeHalted) {
-		t.Fatal("bar's sequence is in foo's cone; baz's is independent")
+	if !scopeBool(h.item("pr-1"), scopeHalted) || scopeBool(h.item("pr-2"), scopeHalted) || scopeBool(h.item("pr-3"), scopeHalted) {
+		t.Fatal("a halt writes halted on the failing item only")
+	}
+	if h.prStatusOf("pr-2") != PRHalted || h.prStatusOf("pr-3") == PRHalted {
+		t.Fatalf("bar's sequence is in foo's cone (%s); baz's is independent (%s)", h.prStatusOf("pr-2"), h.prStatusOf("pr-3"))
 	}
 	zp[0].State = "MERGED"
 	res := h.step()
@@ -181,7 +199,7 @@ func TestStopDisarmsEverythingAndPausesUnspawnedItems(t *testing.T) {
 	bp := h.shipped(2, "b1")
 	h.setDone("later")
 	h.attachBranch("later", "later-branch")
-	h.gh.add(9, "later-branch")
+	pending(fp[0], bp[0], h.gh.add(9, "later-branch"))
 	h.startMerge()
 	if !fp[0].Armed || !bp[0].Armed {
 		t.Fatal("fixture: both repos' first PRs should be armed")
@@ -221,10 +239,15 @@ func TestMergeAutoDefersTheNextSpawnUntilTheMergeIsVerified(t *testing.T) {
 	h.setDone("a")
 	h.attachBranch("a", "a-branch")
 	pr := h.gh.add(1, "a-branch")
+	pending(pr)
 
 	res := h.step()
-	if !pr.Armed || !hasAction(res, ActPRTracked, "a") {
-		t.Fatalf("a shipped merge-auto item must get its PR armed: %+v", res.Actions)
+	if !hasAction(res, ActPRTracked, "a") || pr.Armed {
+		t.Fatalf("a shipped merge-auto item gets its PR tracked first and armed on the next pass: %+v", res.Actions)
+	}
+	res = h.step()
+	if !pr.Armed || !hasAction(res, ActArmed, "pr-1") {
+		t.Fatalf("the tracked PR was not armed: %+v", res.Actions)
 	}
 	if len(h.spawn.reqs) != 0 {
 		t.Fatalf("spawned b before a's merge was verified: %+v", h.spawn.reqs)
@@ -237,14 +260,18 @@ func TestMergeAutoDefersTheNextSpawnUntilTheMergeIsVerified(t *testing.T) {
 	pr.State = "MERGED"
 	tip := foo.advanceOrigin("merged.txt", "m\n")
 	res = h.step()
+	if len(h.spawn.reqs) != 0 {
+		t.Fatal("b spawned in the pass that recorded a's merge")
+	}
+	if len(res.Report) == 0 || !strings.HasPrefix(res.Report[0], "a: merged (foo 1/1)") {
+		t.Fatalf("report = %q", res.Report)
+	}
+	h.step()
 	if len(h.spawn.reqs) != 1 || h.spawn.reqs[0].WorktreeName != "b" {
 		t.Fatalf("spawn requests = %+v", h.spawn.reqs)
 	}
 	if got := h.spawn.reqs[0].BaseSHA; got != tip {
 		t.Fatalf("b based on %s, want the advanced origin tip %s", got, tip)
-	}
-	if len(res.Report) == 0 || !strings.HasPrefix(res.Report[0], "a: merged (foo 1/1)") {
-		t.Fatalf("report = %q", res.Report)
 	}
 }
 
@@ -255,7 +282,12 @@ func TestMergeAutoHaltDisarmsOnePRAndKeepsTheNextDeferred(t *testing.T) {
 	h.setDone("a")
 	h.attachBranch("a", "a-branch")
 	pr := h.gh.add(1, "a-branch")
+	pending(pr)
 	h.step()
+	h.step()
+	if !pr.Armed {
+		t.Fatal("fixture: the merge-auto PR should be armed")
+	}
 	pr.State = "CLOSED"
 	res := h.step()
 	if !hasEscalation(res, "closed without merging") || pr.Disarms != 1 {
@@ -279,7 +311,7 @@ func TestStatusDerivesFromStoredStateAndSummarises(t *testing.T) {
 	if err != nil || len(res.Items) != 3 || res.Complete || res.Summary != "" {
 		t.Fatalf("status = %+v err %v", res, err)
 	}
-	if res.Items[0].State != StatePending || res.Items[1].State != StateHeld || res.Items[0].Mode != "cherry-pick-ladder" {
+	if res.Items[0].State != QueuePending || res.Items[1].State != QueueHeld || res.Items[0].Mode != "cherry-pick-ladder" {
 		t.Fatalf("items = %+v", res.Items)
 	}
 
@@ -310,6 +342,7 @@ func TestMergeRepoFilterKeepsTheCrossRepoBarrier(t *testing.T) {
 	)
 	fp := h.shipped(1, "f1")
 	bp := h.shipped(2, "b1")
+	pending(fp[0], bp[0])
 
 	// Start only the downstream repo first.
 	if _, err := StartMerge(context.Background(), h.env, MergeOptions{Repo: bar.Dir}); err != nil {
@@ -337,6 +370,10 @@ func TestMergeRepoFilterKeepsTheCrossRepoBarrier(t *testing.T) {
 		t.Fatalf("armed foo=%v bar=%v", fp[0].Armed, bp[0].Armed)
 	}
 	fp[0].State = "MERGED"
+	h.step()
+	if bp[0].Armed {
+		t.Fatal("bar's PR was armed in the pass that recorded foo's merge")
+	}
 	h.step()
 	if !bp[0].Armed {
 		t.Fatal("bar's PR was not armed after foo's merged")
@@ -420,7 +457,7 @@ func TestStallSurvivesTheItemBeingRemovedByAnExternalWriter(t *testing.T) {
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
-	h.shipped(1, "a")
+	pending(h.shipped(1, "a")...)
 	h.startMerge()
 	h.run.onRun = func(argv []string) {
 		if len(argv) > 3 && argv[1] == "pr" && argv[2] == "checks" {
@@ -514,10 +551,19 @@ func armFixture(t *testing.T) (*harness, *simPR, operator.TrackedItem) {
 	return h, fp[0], h.item("pr-1")
 }
 
-func armOnce(t *testing.T, h *harness, head operator.TrackedItem) *StepResult {
-	e := newEngine(h.env)
-	e.arm(context.Background(), head, prView{State: "OPEN", Mergeable: "MERGEABLE"})
-	return e.res
+// armableFixture is armFixture with foo's sequence started but its PR still
+// unarmed: its checks are pending, so the head is `waiting` and the next pass
+// decides row P6.
+func armableFixture(t *testing.T) (*harness, *simPR, operator.TrackedItem) {
+	h, pr, _ := armFixture(t)
+	pending(pr)
+	if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
+		st.Tracked[operator.IndexOf(st.Tracked, "pr-1")].Scope[scopeDeferred] = false
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return h, pr, h.item("pr-1")
 }
 
 func readOnlyState(t *testing.T, h *harness) {
@@ -531,109 +577,71 @@ func readOnlyState(t *testing.T, h *harness) {
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 }
 
-func TestArmMarkerIsDurableBeforeGitHubIsAsked(t *testing.T) {
-	h, pr, head := armFixture(t)
-	var atArm operator.TrackedItem
-	h.run.on("gh pr merge --auto", func(_ string, argv []string) (string, error) {
-		atArm = h.item("pr-1")
-		pr.Armed = true
-		return "", nil
-	})
-	armOnce(t, h, head)
-	if !scopeBool(atArm, scopeArmed) {
-		t.Fatal("the armed marker was not durable when gh pr merge --auto ran")
-	}
-	if !pr.Armed || !scopeBool(h.item("pr-1"), scopeArmed) {
-		t.Fatal("armed PR without its marker")
+// execOne runs a single decision through the executors.
+func execOne(t *testing.T, e *engine, d Decision) {
+	t.Helper()
+	if err := e.execute(context.Background(), e.facts, []Decision{d}); err != nil {
+		t.Logf("execute: %v", err)
 	}
 }
 
-func TestArmNeverArmsWhenTheMarkerCannotBeWritten(t *testing.T) {
-	h, pr, head := armFixture(t)
-	readOnlyState(t, h)
-	res := armOnce(t, h, head)
-	if pr.Armed || h.run.called("gh pr merge --auto") != 0 {
-		t.Fatal("GitHub was asked to arm a PR whose marker could not be persisted")
+func TestArmExecutorArmsThePinnedPRAndWritesNoMarker(t *testing.T) {
+	h, pr, head := armableFixture(t)
+	e, d := h.decideFor(head.ID)
+	if d.Row != "P6" || d.Action != ActionArm {
+		t.Fatalf("decision = %+v", d)
 	}
-	if hasAction(res, ActArmed, "") || !hasEscalation(res, "was not armed") {
-		t.Fatalf("a failed marker write must not report success: %+v", res)
+	execOne(t, e, d)
+	if !pr.Armed || !hasAction(e.res, ActArmed, head.ID) {
+		t.Fatalf("armed=%v res=%+v", pr.Armed, e.res)
+	}
+	for _, k := range []string{"armed", "direct", "stall_seen"} {
+		if _, ok := h.item(head.ID).Scope[k]; ok {
+			t.Errorf("the engine wrote scope.%s", k)
+		}
 	}
 }
 
-func TestArmClearsTheMarkerWhenGitHubRefuses(t *testing.T) {
-	h, pr, head := armFixture(t)
+func TestArmRefusedByGitHubEscalatesAndIsRetriedFromObservation(t *testing.T) {
+	h, pr, head := armableFixture(t)
 	pr.AutoErr = "GraphQL: Pull request is not in the correct state to enable auto-merge"
-	res := armOnce(t, h, head)
-	if scopeBool(h.item("pr-1"), scopeArmed) || pr.Armed {
-		t.Fatal("a refused arm left the marker set")
+	e, d := h.decideFor(head.ID)
+	execOne(t, e, d)
+	if pr.Armed || hasAction(e.res, ActArmed, "") || !hasEscalation(e.res, "arming PR #1 failed") {
+		t.Fatalf("result = %+v", e.res)
 	}
-	if hasAction(res, ActArmed, "") || !hasEscalation(res, "arming PR #1 failed") {
-		t.Fatalf("result = %+v", res)
-	}
-}
-
-func TestArmUncertainOutcomeKeepsTheMarkerSoStopDisarms(t *testing.T) {
-	h, pr, head := armFixture(t)
-	if os.Geteuid() == 0 {
-		t.Skip("a read-only directory does not stop root")
-	}
-	dir := filepath.Dir(h.env.StatePath)
-	// gh arms the PR but reports a failure, and the state becomes unwritable
-	// before the marker can be cleared.
-	h.run.on("gh pr merge --auto", func(_ string, argv []string) (string, error) {
-		pr.Armed = true
-		_ = os.Chmod(dir, 0o500)
-		return "", ghErr(argv, "gh: HTTP 502")
-	})
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
-	res := armOnce(t, h, head)
-	if !hasEscalation(res, "arm outcome uncertain") {
-		t.Fatalf("escalations = %+v", res.Escalations)
-	}
-	_ = os.Chmod(dir, 0o700)
-	if !scopeBool(h.item("pr-1"), scopeArmed) {
-		t.Fatal("the marker must stay set when gh's outcome is uncertain")
-	}
-	if _, err := Stop(context.Background(), h.env); err != nil {
-		t.Fatal(err)
-	}
-	if pr.Armed || pr.Disarms != 1 {
-		t.Fatalf("stop did not disarm the PR with the uncertain arm: armed=%v disarms=%d", pr.Armed, pr.Disarms)
+	pr.AutoErr = ""
+	res := h.step()
+	if !pr.Armed || !hasAction(res, ActArmed, head.ID) {
+		t.Fatalf("the next pass did not arm: %+v", res)
 	}
 }
 
-func TestArmUncertainErrorsRetainMarkerAndStopDisarms(t *testing.T) {
+// An arm whose outcome is unknown (gh errored after arming) needs no marker:
+// the next pass reads autoMergeRequest, and stop disarms what it finds.
+func TestUncertainArmOutcomeIsReobservedAndStopDisarmsIt(t *testing.T) {
 	for _, msg := range []string{"context deadline exceeded", "gh: HTTP 502", "connection reset by peer", "GraphQL: something unexpected"} {
 		t.Run(msg, func(t *testing.T) {
-			h, pr, head := armFixture(t)
+			h, pr, head := armableFixture(t)
 			h.run.on("gh pr merge --auto", func(_ string, argv []string) (string, error) {
 				pr.Armed = true
 				return "", ghErr(argv, msg)
 			})
-			res := armOnce(t, h, head)
-			if !scopeBool(h.item("pr-1"), scopeArmed) || !hasEscalation(res, "arm outcome uncertain") || hasAction(res, ActArmed, "") {
-				t.Fatalf("result = %+v", res)
+			e, d := h.decideFor(head.ID)
+			execOne(t, e, d)
+			if !hasEscalation(e.res, "arming PR #1 failed") || hasAction(e.res, ActArmed, "") {
+				t.Fatalf("result = %+v", e.res)
+			}
+			if res := h.step(); hasAction(res, ActArmed, "") || h.run.called("gh pr merge --auto") != 1 {
+				t.Fatalf("an armed PR was armed again: %+v", res)
 			}
 			if _, err := Stop(context.Background(), h.env); err != nil {
 				t.Fatal(err)
 			}
 			if pr.Armed || pr.Disarms != 1 {
-				t.Fatal("stop missed uncertain arm")
+				t.Fatal("stop missed the uncertain arm")
 			}
 		})
-	}
-}
-
-func TestDefinitiveArmRejectionList(t *testing.T) {
-	for _, msg := range []string{"auto merge is not allowed", "auto-merge is not allowed", "pull request is in clean status", "pull request is not in the correct state to enable auto-merge"} {
-		if !definitiveArmRejection("graphql: " + msg + " (enablepullrequestautomerge)") {
-			t.Errorf("not classified: %s", msg)
-		}
-	}
-	for _, msg := range []string{"http 500", "not mergeable", "unknown", "request timed out"} {
-		if definitiveArmRejection(msg) {
-			t.Errorf("uncertain error classified definitive: %s", msg)
-		}
 	}
 }
 
@@ -698,16 +706,20 @@ func TestStepDoesNotDriveAStackedPRItem(t *testing.T) {
 		t.Fatal(err)
 	}
 	res := h.step()
-	if prs[0].Armed || prs[0].MergeCalls != 0 || h.run.called("gh pr merge") != 0 || !hasEscalation(res, "stacked-prs") {
+	if prs[0].Armed || prs[0].MergeCalls != 0 || h.run.called("gh pr merge") != 0 || h.run.called("gh pr ready") != 0 {
 		t.Fatalf("a stacked PR item was driven: %+v", res)
+	}
+	if row := h.decisionRows()["pr-1"]; row != "" {
+		t.Fatalf("a stacked PR item matched row %q, want an explicit wait", row)
 	}
 }
 
-func TestLadderFailedRequiredCheckEscalatesRecoveryNeededAndLeavesThePRArmed(t *testing.T) {
+func TestLadderFailedRequiredCheckEscalatesRecoveryNeededAndLeavesAnArmedPRArmed(t *testing.T) {
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Change: "ab12"})
 	prs := h.shipped(1, "a")
+	pending(prs...)
 	h.startMerge()
 	h.panes.panes["%7"] = operator.PaneInfo{PaneID: "%7", Change: "260101-ab12-x"}
 	prs[0].Checks = []checkRun{{Name: "test (2/4)", State: "FAILURE", Link: "https://ci/run/9"}}
@@ -736,13 +748,17 @@ func TestLadderFailedRequiredCheckEscalatesRecoveryNeededAndLeavesThePRArmed(t *
 	if res := h.step(); !hasEscalation(res, "recovery needed: ci-failed") {
 		t.Fatalf("a new head failing again must escalate again: %+v", res.Escalations)
 	}
+	if _, ok := h.item("pr-1").Scope["stall_seen"]; ok {
+		t.Fatal("the engine wrote scope.stall_seen")
+	}
 }
 
-func TestLadderConflictingStallEscalatesAfterQuietPollsAndLeavesThePRArmed(t *testing.T) {
+func TestLadderConflictingStallEscalatesAfterQuietPollsAndLeavesAnArmedPRArmed(t *testing.T) {
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Change: "ab12"})
 	prs := h.shipped(1, "a")
+	pending(prs...)
 	h.startMerge()
 	prs[0].Mergeable = "CONFLICTING"
 	h.run.reset()
@@ -763,19 +779,18 @@ func TestLadderConflictingStallEscalatesAfterQuietPollsAndLeavesThePRArmed(t *te
 
 func TestHaltedArmedPRIsDisarmedAgainOnTheNextStepUntilDurable(t *testing.T) {
 	h, pr, head := armFixture(t)
-	armOnce(t, h, head)
+	pr.Armed = true
 	h.run.fail("gh pr merge --disable-auto", "HTTP 502")
 	if _, err := Stop(context.Background(), h.env); err == nil {
 		t.Fatal("a failed disarm must fail the stop")
 	}
-	it := h.item(head.ID)
-	if !scopeBool(it, scopeHalted) || !scopeBool(it, scopeArmed) || !pr.Armed {
-		t.Fatalf("a failed disarm must leave the PR halted and still marked armed: %+v", it.Scope)
+	if !scopeBool(h.item(head.ID), scopeHalted) || !pr.Armed {
+		t.Fatalf("a failed disarm must leave the PR halted and still armed: %+v", h.item(head.ID).Scope)
 	}
 
 	res := h.step()
-	if !hasEscalation(res, "disarming PR #1 failed") || !scopeBool(h.item(head.ID), scopeArmed) {
-		t.Fatalf("each failed retry must escalate and keep the marker: %+v", res)
+	if !hasEscalation(res, "disarming PR #1 failed") {
+		t.Fatalf("each failed retry must escalate: %+v", res)
 	}
 	if h.run.called("gh pr merge --disable-auto") != 2 {
 		t.Fatalf("the step did not retry the disarm: %q", h.run.calls)
@@ -783,44 +798,44 @@ func TestHaltedArmedPRIsDisarmedAgainOnTheNextStepUntilDurable(t *testing.T) {
 
 	h.run.on("gh pr merge --disable-auto", h.gh.handle)
 	res = h.step()
-	if pr.Armed || scopeBool(h.item(head.ID), scopeArmed) || !hasAction(res, ActDisarmed, head.ID) {
-		t.Fatalf("a successful retry must disarm and clear the marker: armed=%v %+v", pr.Armed, res)
+	if pr.Armed || !hasAction(res, ActDisarmed, head.ID) {
+		t.Fatalf("a successful retry must disarm: armed=%v %+v", pr.Armed, res)
 	}
 	if h.step(); h.run.called("gh pr merge --disable-auto") != 3 {
-		t.Fatalf("a cleared marker was disarmed again: %q", h.run.calls)
+		t.Fatalf("a disarmed PR was disarmed again: %q", h.run.calls)
 	}
-	if h.run.called("gh pr merge --auto") != 1 {
-		t.Fatal("a halted head was armed again")
+	if h.run.called("gh pr merge --auto") != 0 {
+		t.Fatal("a halted head was armed")
 	}
 }
 
 func TestStopRetriesAFailedDisarm(t *testing.T) {
 	h, pr, head := armFixture(t)
-	armOnce(t, h, head)
+	pr.Armed = true
 	h.run.fail("gh pr merge --disable-auto", "connection reset by peer")
 	if _, err := Stop(context.Background(), h.env); err == nil {
 		t.Fatal("a failed disarm must fail the stop")
 	}
 	h.run.on("gh pr merge --disable-auto", h.gh.handle)
 	res, err := Stop(context.Background(), h.env)
-	if err != nil || pr.Armed || scopeBool(h.item(head.ID), scopeArmed) || !hasAction(res, ActDisarmed, head.ID) {
+	if err != nil || pr.Armed || !hasAction(res, ActDisarmed, head.ID) {
 		t.Fatalf("stop did not converge: armed=%v err=%v %+v", pr.Armed, err, res)
 	}
 }
 
-func TestDisarmOfAMergedOrClosedPRClearsTheMarker(t *testing.T) {
+func TestDisarmOfAMergedOrClosedPRCountsAsDone(t *testing.T) {
 	for _, state := range []string{"MERGED", "CLOSED"} {
 		t.Run(state, func(t *testing.T) {
 			h, pr, head := armFixture(t)
-			armOnce(t, h, head)
+			pr.Armed = true
 			h.run.fail("gh pr merge --disable-auto", "GraphQL: pull request is not open")
 			pr.State = state
 			e := newEngine(h.env)
 			if err := e.disarm(context.Background(), h.item(head.ID)); err != nil {
 				t.Fatalf("disarm = %v", err)
 			}
-			if scopeBool(h.item(head.ID), scopeArmed) {
-				t.Fatal("a finished PR kept its armed marker")
+			if !hasAction(e.res, ActDisarmed, head.ID) || hasEscalation(e.res, "disarming") || e.disarmErr != nil {
+				t.Fatalf("a finished PR is disarmed: %+v", e.res)
 			}
 		})
 	}
@@ -835,6 +850,7 @@ func TestGitHubPRCallsTargetThePinnedRepoNotTheCheckoutInScope(t *testing.T) {
 			foo, bar := newRepo(t, "foo"), newRepo(t, "bar")
 			h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
 			prs := h.shipped(1, "a")
+			pending(prs...)
 			h.startMerge()
 			if !prs[0].Armed {
 				t.Fatal("fixture: PR 1 should be armed")
@@ -850,7 +866,7 @@ func TestGitHubPRCallsTargetThePinnedRepoNotTheCheckoutInScope(t *testing.T) {
 				prs[0].Checks = []checkRun{{Name: "ci", State: "FAILURE"}}
 				h.step() // view, checks
 				if _, err := Stop(context.Background(), h.env); err != nil {
-					t.Fatal(err) // disarm
+					t.Fatal(err) // view, checks not needed, disarm
 				}
 				if prs[0].Disarms != 1 {
 					t.Fatalf("disarms = %d", prs[0].Disarms)
@@ -879,26 +895,34 @@ func TestGitHubPRCallsTargetThePinnedRepoNotTheCheckoutInScope(t *testing.T) {
 	}
 }
 
-func TestArmReadyAndMergeAreAllPinned(t *testing.T) {
-	h := newHarness(t)
-	foo := newRepo(t, "foo")
-	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
-	prs := h.shipped(1, "a")
-	prs[0].IsDraft = true
-	prs[0].AutoErr = "GraphQL: Pull request is in clean status (enablePullRequestAutoMerge)"
-	if _, err := StartMerge(context.Background(), h.env, MergeOptions{Repo: foo.Dir}); err != nil {
-		t.Fatal(err)
-	}
-	if prs[0].State != "MERGED" {
-		t.Fatalf("fixture: clean PR should merge directly (state %s)", prs[0].State)
-	}
-	for _, c := range h.run.calls {
-		if (strings.HasPrefix(c, "gh pr ready") || strings.HasPrefix(c, "gh pr merge")) && !strings.Contains(c, "--repo o/foo") {
-			t.Fatalf("mutation not pinned: %q", c)
-		}
-	}
-	if h.run.called("gh pr ready 1 --repo o/foo") != 1 || h.run.called("gh pr merge --auto --squash 1 --repo o/foo") != 1 || h.run.called("gh pr merge --squash 1 --repo o/foo") != 1 {
-		t.Fatalf("calls = %q", h.run.calls)
+func TestReadyArmAndMergeAreAllPinned(t *testing.T) {
+	for _, scenario := range []string{"arm", "merge"} {
+		t.Run(scenario, func(t *testing.T) {
+			h := newHarness(t)
+			foo := newRepo(t, "foo")
+			h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
+			prs := h.shipped(1, "a")
+			prs[0].IsDraft = true
+			if scenario == "arm" {
+				pending(prs...)
+			}
+			if _, err := StartMerge(context.Background(), h.env, MergeOptions{Repo: foo.Dir}); err != nil {
+				t.Fatal(err)
+			}
+			h.step()
+			for _, c := range h.run.calls {
+				if (strings.HasPrefix(c, "gh pr ready") || strings.HasPrefix(c, "gh pr merge")) && !strings.Contains(c, "--repo o/foo") {
+					t.Fatalf("mutation not pinned: %q", c)
+				}
+			}
+			want := "gh pr merge --squash 1 --repo o/foo"
+			if scenario == "arm" {
+				want = "gh pr merge --auto --squash 1 --repo o/foo"
+			}
+			if h.run.called("gh pr ready 1 --repo o/foo") != 1 || h.run.called(want) != 1 {
+				t.Fatalf("calls = %q", h.run.calls)
+			}
+		})
 	}
 }
 
@@ -907,11 +931,11 @@ func TestAPRItemWithoutAPinnedRepoIsNeverActedOn(t *testing.T) {
 	foo := newRepo(t, "foo")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
 	prs := h.shipped(1, "a")
+	pending(prs...)
 	h.startMerge()
 	if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
 		it := &st.Tracked[operator.IndexOf(st.Tracked, "pr-1")]
 		it.Probe.Argv = []string{"gh", "pr", "view", "1"}
-		it.Scope["armed"] = true
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -922,19 +946,16 @@ func TestAPRItemWithoutAPinnedRepoIsNeverActedOn(t *testing.T) {
 		t.Fatalf("escalations = %+v", res.Escalations)
 	}
 	if _, err := Stop(context.Background(), h.env); err == nil {
-		t.Fatal("stop must fail rather than disarm a PR it cannot place")
+		t.Fatal("stop must fail rather than claim to have disarmed a PR it cannot place")
 	}
 	if h.run.called("gh pr") != 0 || prs[0].Disarms != 0 {
 		t.Fatalf("an unpinned PR item reached gh: %q", h.run.calls)
 	}
-	if !scopeBool(h.item("pr-1"), scopeArmed) {
-		t.Fatal("the armed marker must survive a refused disarm")
-	}
 }
 
 // A hand-edited state file (track update refuses these fields) can re-point a
-// github-pr item between a pass's snapshot and its writes. Every identity
-// change must stop the marker write, and with it the gh mutation.
+// github-pr item between a pass's observation and its action. Every identity
+// change must stop the executor before it reaches gh.
 var prIdentityChanges = map[string]func(it *operator.TrackedItem, other string){
 	"scope.pr":   func(it *operator.TrackedItem, _ string) { it.Scope["pr"] = 2 },
 	"scope.repo": func(it *operator.TrackedItem, other string) { it.Scope["repo"] = other },
@@ -957,31 +978,63 @@ func changePRItem(t *testing.T, h *harness, id, other string, change func(*opera
 	}
 }
 
-func TestArmNeitherMarksNorArmsAPRItemThatChangedAfterTheSnapshot(t *testing.T) {
-	for name, change := range prIdentityChanges {
-		t.Run(name, func(t *testing.T) {
-			h, pr, head := armFixture(t)
-			changePRItem(t, h, head.ID, t.TempDir(), change)
-			h.run.reset()
-			res := armOnce(t, h, head)
-			if h.run.called("gh pr merge") != 0 || pr.Armed || scopeBool(h.item(head.ID), scopeArmed) {
-				t.Fatalf("armed or marked a changed item: calls=%q", h.run.calls)
-			}
-			if !hasEscalation(res, "PR item pr-1 changed externally; skipped") || hasAction(res, ActArmed, "") {
-				t.Fatalf("res = %+v", res)
-			}
-		})
+// A green PR is merged only at the head whose checks were read: a commit pushed
+// between the read and the merge makes gh refuse it.
+func TestMergeIsPinnedToTheObservedHead(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
+	prs := h.shipped(1, "a")
+	h.startMerge()
+	want := "gh pr merge --squash 1 --repo o/foo --match-head-commit " + prs[0].HeadOid
+	if h.run.called(want) != 1 {
+		t.Fatalf("merge not pinned to the observed head %s: %q", prs[0].HeadOid, h.run.calls)
 	}
 }
 
-func TestMarkMergedRefusesAChangedPRItem(t *testing.T) {
-	h, _, head := armFixture(t)
-	changePRItem(t, h, head.ID, "", prIdentityChanges["scope.pr"])
-	e := newEngine(h.env)
-	var unreviewed []string
-	if e.markMerged(context.Background(), head, prView{State: "MERGED"}, 1, 1, &unreviewed) {
-		t.Fatal("acknowledged a merge for a PR the item no longer names")
+func TestExecutorsSkipAPRItemThatChangedAfterObservation(t *testing.T) {
+	scenarios := map[string]func(h *harness, pr *simPR) (want ActionKind, gh string){
+		"arm":    func(h *harness, pr *simPR) (ActionKind, string) { return ActionArm, "gh pr merge" },
+		"ready":  func(h *harness, pr *simPR) (ActionKind, string) { pr.IsDraft = true; return ActionReady, "gh pr ready" },
+		"merge":  func(h *harness, pr *simPR) (ActionKind, string) { pr.Checks = nil; return ActionMerge, "gh pr merge" },
+		"disarm": func(h *harness, pr *simPR) (ActionKind, string) { pr.Armed = true; return ActionDisarm, "gh pr merge" },
 	}
+	for scenario, setup := range scenarios {
+		for name, change := range prIdentityChanges {
+			t.Run(scenario+"/"+name, func(t *testing.T) {
+				h, pr, head := armableFixture(t)
+				want, ghCall := setup(h, pr)
+				if want == ActionDisarm {
+					changePRItem(t, h, head.ID, "", func(it *operator.TrackedItem, _ string) { it.Scope[scopeHalted] = true })
+				}
+				e, d := h.decideFor(head.ID)
+				if d.Action != want {
+					t.Fatalf("decision = %+v, want %s", d, want)
+				}
+				changePRItem(t, h, head.ID, t.TempDir(), change)
+				h.run.reset()
+				execOne(t, e, d)
+				if h.run.called(ghCall) != 0 || len(e.res.Actions) != 0 {
+					t.Fatalf("acted on a changed item: calls=%q actions=%+v", h.run.calls, e.res.Actions)
+				}
+				if !hasEscalation(e.res, "PR item pr-1 changed externally; skipped") {
+					t.Fatalf("res = %+v", e.res)
+				}
+			})
+		}
+	}
+}
+
+func TestRecordMergedRefusesAChangedPRItem(t *testing.T) {
+	h, pr, head := armFixture(t)
+	changePRItem(t, h, head.ID, "", func(it *operator.TrackedItem, _ string) { it.Scope[scopeDeferred] = false })
+	pr.State = "MERGED"
+	e, d := h.decideFor(head.ID)
+	if d.Action != ActionRecordMerged {
+		t.Fatalf("decision = %+v", d)
+	}
+	changePRItem(t, h, head.ID, "", prIdentityChanges["scope.pr"])
+	execOne(t, e, d)
 	if operator.ItemDone(h.item(head.ID)) || hasAction(e.res, ActMerged, "") || !hasEscalation(e.res, "changed externally; skipped") {
 		t.Fatalf("res = %+v", e.res)
 	}
@@ -992,7 +1045,7 @@ func TestObservationOfAChangedPRItemWritesNothing(t *testing.T) {
 	changePRItem(t, h, head.ID, "", prIdentityChanges["scope.pr"])
 	before := h.item(head.ID)
 	e := newEngine(h.env)
-	if err := e.observePR(head, prView{State: "OPEN", Mergeable: "CONFLICTING"}); err == nil {
+	if err := e.observePRWrite(head, prView{State: "OPEN", Mergeable: "CONFLICTING"}); err == nil {
 		t.Fatal("observation of another PR was written")
 	}
 	after := h.item(head.ID)
@@ -1001,35 +1054,59 @@ func TestObservationOfAChangedPRItemWritesNothing(t *testing.T) {
 	}
 }
 
-func TestReadyAndDirectMergeSkipAChangedPRItem(t *testing.T) {
-	for name, change := range prIdentityChanges {
-		t.Run(name, func(t *testing.T) {
-			h, pr, head := armFixture(t)
-			pr.IsDraft = true
-			changePRItem(t, h, head.ID, t.TempDir(), change)
-			h.run.reset()
-			e := newEngine(h.env)
-			view := prView{IsDraft: true, Mergeable: "MERGEABLE"}
-			if e.readyDraft(context.Background(), head, &view) || e.mergeNow(context.Background(), head, "1", operator.ScopeString(head.Scope, "repo")) {
-				t.Fatal("acted on a changed item")
+// Q7 finds the PR by branch with reads that take time. If its queue item is
+// removed meanwhile, nothing is persisted: no orphan sequence a later pass
+// could arm or merge.
+func TestTrackPRWritesNothingWhenItsQueueItemChangedDuringTheReads(t *testing.T) {
+	for _, scenario := range []string{"removed", "changed"} {
+		t.Run(scenario, func(t *testing.T) {
+			h := newHarness(t)
+			foo := newRepo(t, "foo")
+			h.queue("merge-auto", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
+			h.setDone("a")
+			h.attachBranch("a", "a-branch")
+			pending(h.gh.add(1, "a-branch"))
+			e, d := h.decideFor("a")
+			if d.Action != ActionTrackPR {
+				t.Fatalf("decision = %+v", d)
 			}
-			if h.run.called("gh pr ready") != 0 || h.run.called("gh pr merge") != 0 || !pr.IsDraft {
-				t.Fatalf("gh mutated: %q", h.run.calls)
+			h.run.onRun = func(argv []string) {
+				if len(argv) > 3 && argv[1] == "pr" && argv[2] == "view" && argv[3] == "a-branch" {
+					h.run.onRun = nil
+					if scenario == "removed" {
+						_ = operator.Remove(h.env.StatePath, "a", true)
+					} else {
+						_ = operator.Mutate(h.env.StatePath, func(st *operator.State) error {
+							st.Tracked[operator.IndexOf(st.Tracked, "a")].Scope["task"] = "edited"
+							return nil
+						})
+					}
+				}
+			}
+			execOne(t, e, d)
+			if h.has("pr-1") || hasAction(e.res, ActPRTracked, "") || !hasEscalation(e.res, "item a changed externally; skipped") {
+				t.Fatalf("an orphan PR item was persisted or the skip not reported: %+v", e.res)
 			}
 		})
 	}
 }
 
-func TestDisarmKeepsTheMarkerWhenTheItemChangedUnderIt(t *testing.T) {
-	h, _, head := armFixture(t)
-	armOnce(t, h, head)
-	snap := h.item(head.ID)
-	changePRItem(t, h, head.ID, "", prIdentityChanges["scope.pr"])
-	e := newEngine(h.env)
-	if err := e.disarm(context.Background(), snap); err == nil {
-		t.Fatal("cleared the marker of an item that names another PR")
+// An escalate-once row writes its note and dedupe key under the item's
+// fingerprint: an item whose edges changed since observe gets neither.
+func TestEscalateRowWritesNothingToAnItemThatChanged(t *testing.T) {
+	h, pr, head := armableFixture(t)
+	pr.Checks = []checkRun{{Name: "ci", State: "FAILURE"}}
+	e, d := h.decideFor(head.ID)
+	if d.Row != "P5" {
+		t.Fatalf("decision = %+v", d)
 	}
-	if !scopeBool(h.item(head.ID), scopeArmed) || !hasEscalation(e.res, "changed externally; skipped") {
+	changePRItem(t, h, head.ID, "", func(it *operator.TrackedItem, _ string) { it.DependsOn = []string{"other"} })
+	execOne(t, e, d)
+	it := h.item(head.ID)
+	if _, ok := it.Scope[scopeEscalated]; ok || len(it.Notes) != 0 {
+		t.Fatalf("an escalation landed on a changed item: %+v notes=%v", it.Scope, it.Notes)
+	}
+	if hasEscalation(e.res, "recovery needed") || !hasEscalation(e.res, "PR item pr-1 changed externally; skipped") {
 		t.Fatalf("res = %+v", e.res)
 	}
 }
