@@ -25,7 +25,7 @@ display-precedence ladder built on them.
 | L0 — tmux output | `activity` (active/idle), `activityTimestamp` | always, every window | `#{window_activity}` within 10s (`ActivityThresholdSeconds`) |
 | L1 — agent lifecycle | `agentState` (active / waiting / idle) + epoch | an instrumented agent runs in a pane of the window | `@rk_pane_agent_state` pane option, window rollup `waiting > active > idle`; absent = unknown; PID-liveness reconciler clears dead-agent values, shell-name fallback for legacy two-segment values (see agent-state.md) |
 | L2 — fab pipeline | `fabChange`, `fabStage`, `fabDisplayState` | the pane's worktree has an active change | cwd → `.fab-status.yaml` → `.status.yaml`, via the pane-map join |
-| L3 — PR | `prNumber`/`prUrl` + `prState`/`prChecks`/`prReview`/`prIsDraft` | the pane's branch resolves to a PR — never for the repo's default branch (#389, see invariant 6) | branch → `gh` lookup in the prstatus collector (post-#314; previously fab's `.status.yaml` `prs:` list) |
+| L3 — PR | `prNumber`/`prUrl` + `prState`/`prChecks`/`prReview`/`prIsDraft` | the window's fab change records a PR, or the pane's branch resolves to one; the default-branch carve-out (#389) applies only to branch fallback | fab `.status.yaml` `prs:` (last entry, resolved by URL) first for fab-bound windows; otherwise branch → `gh` lookup, with MERGED/CLOSED candidates admitted only when their head commit is HEAD or its ancestor (invariant 6) |
 
 Two orthogonal *axes* run across these layers:
 
@@ -256,6 +256,15 @@ waiting   →  additive yellow halo, over anything (core hue + shape kept)
    (`git symbolic-ref refs/remotes/origin/HEAD`, per-repo cached, fail-open
    on lookup failure) and resolves excluded pairs to an authoritative
    negative, clearing any stale positive within one pass.
+   **Branch-reuse ownership**: an OPEN candidate still matches by head-ref name
+   alone and outranks terminal candidates. A MERGED or CLOSED candidate is
+   attributable only when its `headRefOid` is HEAD or an ancestor of HEAD
+   (`git merge-base --is-ancestor`); a missing head commit is not owned. This
+   filter runs before precedence picking, so a historical PR cannot attach to a
+   fresh branch that merely reuses its name, while a branch that genuinely
+   contains its merged PR's head keeps the durable purple glyph. Fab-recorded
+   `prs:` identity is explicit and outranks both this fallback and the default-
+   branch carve-out.
 7. **Unknown beats wrong**: absent `@rk_pane_agent_state`, or a value on a pane whose
    command is a plain shell (reconciler), means *no agent tier* — the ladder
    falls through to tmux. Nothing renders a guessed agent state.
@@ -437,5 +446,5 @@ One overlay at a time: `waiting` outranks `stuck`.
 | ID | Question | Resolution |
 |----|----------|-----------|
 | ~~D1~~ | ~~PR tier gate: `prNumber` alone?~~ | **Dissolved (compositional vocabulary — aqo6)**: no family owns the dot via PR — the PR was evicted to the row's rest-state glyph, which is un-family-gated as it already was (any pane with an owned PR shows it; derivation stays universal in the register view). *History*: palette v3 first resolved this per-family (purple = `fabChange && prNumber`, orange = `fresh agentState && prNumber`) before the eviction removed PR dot-ownership entirely |
-| D2 | Merged/closed PR retention under branch-derivation | **Revised after production observation** (first resolution — `--state open` + 10-min in-memory grace — decayed the merged-purple signal on grace expiry or rk restart): derivation queries **all PR states**; precedence open (most recent) > merged (most recent) > closed (most recent); merged renders **the glyph's durable purple state** statelessly; closed-unmerged renders the glyph's red ✕ state (GitHub's closed color, matching `PR_STATE_COLORS.closed` on the register line). Grace-window machinery retired. Post-eviction the consumer is the GLYPH, not a dot square — the derivation itself is unchanged. **Default-branch carve-out (#389)**: the derivation never runs for a pane on the repo's default branch — head-name-only matching makes every such candidate degenerate, so excluded pairs resolve to an authoritative negative (invariant 6). **[current]** |
+| D2 | Merged/closed PR retention under branch-derivation | **Revised after production observation** (first resolution — `--state open` + 10-min in-memory grace — decayed the merged-purple signal on grace expiry or rk restart): derivation queries **all PR states**; precedence open (most recent) > merged (most recent) > closed (most recent); merged renders **the glyph's durable purple state** statelessly; closed-unmerged renders the glyph's red ✕ state (GitHub's closed color, matching `PR_STATE_COLORS.closed` on the register line). Grace-window machinery retired. Post-eviction the consumer is the GLYPH, not a dot square. **Default-branch carve-out (#389)**: branch fallback never runs for a pane on the repo's default branch — head-name-only matching makes every such candidate degenerate, so excluded pairs resolve to an authoritative negative. **Branch-reuse ownership (invariant 6)**: before precedence picking, MERGED/CLOSED candidates require their `headRefOid` in HEAD's ancestry; OPEN matches by name. Fab `prs:` identity outranks branch fallback and the carve-out. **[current]** |
 | ~~D3~~ | ~~Is a 7px halo pulse salient enough for `waiting`?~~ | **Resolved (additive halo, palette v3 — carried forward unchanged)**: `waiting` = constant-**yellow** pulsing halo around the dot, core hue and shape untouched. Rejected: hue-flip (destroys family identity precisely when attention is highest — e.g. fab intake asking); self-colored halo (reduced-motion form nearly invisible + collides with the `ring` shape); fuchsia (its motivating amber collision no longer exists). Reduced-motion: static yellow outer ring |

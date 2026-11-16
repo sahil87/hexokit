@@ -3,6 +3,9 @@ package prstatus
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,6 +31,12 @@ func newTestRefresher(available bool, exec func(ctx context.Context, repoDir, br
 	// it (an unseeded index short-circuits before it is even consulted).
 	r.originExec = func(context.Context, string) ([]byte, error) {
 		return nil, errors.New("no origin (test default: fail-open)")
+	}
+	r.headExec = func(context.Context, string) ([]byte, error) {
+		return []byte("fixture-head\n"), nil
+	}
+	r.ancestorExec = func(context.Context, string, string, string) ancestryVerdict {
+		return ancestryOwned
 	}
 	// Fixed clock; tests advance it via r.now reassignment when they need TTL math.
 	base := time.Unix(1_000_000, 0)
@@ -114,8 +123,12 @@ func branchNode(number int, url, updatedAt string) string {
 // | CLOSED — the `gh pr list --json state` enum) so precedence tests can build
 // mixed-state branches.
 func branchNodeState(number int, url, state, updatedAt string) string {
+	return branchNodeStateOID(number, url, state, updatedAt, "fixture-head")
+}
+
+func branchNodeStateOID(number int, url, state, updatedAt, oid string) string {
 	return `{"number":` + strconv.Itoa(number) + `,"url":"` + url +
-		`","state":"` + state + `","updatedAt":"` + updatedAt + `"}`
+		`","state":"` + state + `","updatedAt":"` + updatedAt + `","headRefOid":"` + oid + `"}`
 }
 
 // TestBranchRefresher_SinglePR: a registered pair resolves to its single open PR
@@ -2474,5 +2487,368 @@ func TestBranchRefresher_RefreshURLsNoMatch(t *testing.T) {
 	r.RefreshURLs(context.Background(), []string{ghPRURL("o/r", 99)})
 	if calls != 1 {
 		t.Errorf("execs = %d, want 1 (the initial refresh only)", calls)
+	}
+}
+
+func TestBranchRefresherOpenSkipsOwnershipChecks(t *testing.T) {
+	headCalls, ancestorCalls := 0, 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(branchNodeState(9, "https://x/pull/9", "OPEN", "2026-07-01T00:00:00Z")), nil
+	})
+	r.headExec = func(context.Context, string) ([]byte, error) {
+		headCalls++
+		return nil, errors.New("not in history")
+	}
+	r.ancestorExec = func(context.Context, string, string, string) ancestryVerdict {
+		ancestorCalls++
+		return ancestryNotOwned
+	}
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+	if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr.Number != 9 {
+		t.Fatalf("open PR must resolve by branch name, got ok=%v pr=%v", ok, pr)
+	}
+	if headCalls != 0 || ancestorCalls != 0 {
+		t.Fatalf("open PR ran ownership checks: head=%d ancestor=%d", headCalls, ancestorCalls)
+	}
+}
+
+func TestBranchRefresherTerminalOwnershipVerdicts(t *testing.T) {
+	const missingOID = `{"number":4,"url":"https://x/pull/4","state":"MERGED","updatedAt":"2026-07-01T00:00:00Z"}`
+	tests := []struct {
+		name     string
+		node     string
+		verdict  ancestryVerdict
+		positive bool
+	}{
+		{name: "owned", node: branchNodeState(4, "https://x/pull/4", "MERGED", "2026-07-01T00:00:00Z"), verdict: ancestryOwned, positive: true},
+		{name: "not ancestor", node: branchNodeState(4, "https://x/pull/4", "MERGED", "2026-07-01T00:00:00Z"), verdict: ancestryNotOwned},
+		{name: "unknown object", node: branchNodeState(4, "https://x/pull/4", "MERGED", "2026-07-01T00:00:00Z"), verdict: ancestryNotOwned},
+		{name: "missing head oid", node: missingOID, verdict: ancestryOwned},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+				return branchListJSON(tc.node), nil
+			})
+			r.ancestorExec = func(context.Context, string, string, string) ancestryVerdict { return tc.verdict }
+			r.Register("/repo", "feat")
+			r.refresh(context.Background())
+			pr, ok := r.Snapshot("/repo", "feat")
+			if tc.positive && (!ok || pr == nil || pr.Number != 4) {
+				t.Fatalf("owned terminal PR missing: ok=%v pr=%v", ok, pr)
+			}
+			if !tc.positive && (ok || pr != nil) {
+				t.Fatalf("unowned terminal PR attached: ok=%v pr=%v", ok, pr)
+			}
+			r.mu.RLock()
+			negativeAt := r.entries[branchPRCacheKey("/repo", "feat")].negativeAt
+			r.mu.RUnlock()
+			if !tc.positive && negativeAt.IsZero() {
+				t.Error("filtered gh result must stamp an authoritative negative")
+			}
+		})
+	}
+}
+
+func TestBranchRefresherFilteredIndexFallsThroughToGH(t *testing.T) {
+	ghCalls := 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		ghCalls++
+		return branchListJSON(branchNode(9, "https://github.com/o/r/pull/9", "2026-07-01T00:00:00Z")), nil
+	})
+	r.originExec = func(context.Context, string) ([]byte, error) {
+		return originURLOutput("git@github.com:o/r.git"), nil
+	}
+	r.ancestorExec = func(context.Context, string, string, string) ancestryVerdict { return ancestryNotOwned }
+	indexed := viewerPR(4, "https://github.com/o/r/pull/4", "MERGED", "o/r", "feat", time.Now())
+	indexed.HeadOid = "old-head"
+	seedIndex(r, indexed)
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+	if ghCalls != 1 {
+		t.Fatalf("filtered index must fall through to gh once, calls=%d", ghCalls)
+	}
+	if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr.Number != 9 {
+		t.Fatalf("gh fallback PR missing: ok=%v pr=%v", ok, pr)
+	}
+}
+
+func TestBranchRefresherOwnershipFailureKeepsLastGood(t *testing.T) {
+	t.Run("ancestor failure", func(t *testing.T) {
+		head := "head-1"
+		r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+			return branchListJSON(branchNodeState(4, "https://x/pull/4", "MERGED", "2026-07-01T00:00:00Z")), nil
+		})
+		r.headExec = func(context.Context, string) ([]byte, error) { return []byte(head + "\n"), nil }
+		r.ancestorExec = func(context.Context, string, string, string) ancestryVerdict {
+			if head == "head-1" {
+				return ancestryOwned
+			}
+			return ancestryUnknown
+		}
+		r.Register("/repo", "feat")
+		r.refresh(context.Background())
+		key := branchPRCacheKey("/repo", "feat")
+		r.mu.RLock()
+		before := r.entries[key]
+		r.mu.RUnlock()
+		head = "head-2"
+		r.refresh(context.Background())
+		r.mu.RLock()
+		after := r.entries[key]
+		r.mu.RUnlock()
+		if !reflect.DeepEqual(before, after) {
+			t.Fatalf("transient ancestor failure changed last-good: before=%+v after=%+v", before, after)
+		}
+	})
+
+	t.Run("HEAD failure", func(t *testing.T) {
+		fail := false
+		r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+			return branchListJSON(branchNodeState(4, "https://x/pull/4", "MERGED", "2026-07-01T00:00:00Z")), nil
+		})
+		r.headExec = func(context.Context, string) ([]byte, error) {
+			if fail {
+				return nil, errors.New("git unavailable")
+			}
+			return []byte("head\n"), nil
+		}
+		r.Register("/repo", "feat")
+		r.refresh(context.Background())
+		key := branchPRCacheKey("/repo", "feat")
+		r.mu.RLock()
+		before := r.entries[key]
+		r.mu.RUnlock()
+		fail = true
+		r.refresh(context.Background())
+		r.mu.RLock()
+		after := r.entries[key]
+		r.mu.RUnlock()
+		if !reflect.DeepEqual(before, after) {
+			t.Fatalf("HEAD failure changed last-good: before=%+v after=%+v", before, after)
+		}
+	})
+}
+
+func TestBranchRefresherOwnershipFiltersBeforePrecedence(t *testing.T) {
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(
+			branchNodeStateOID(9, "https://x/pull/9", "MERGED", "2026-07-05T00:00:00Z", "unowned"),
+			branchNodeStateOID(4, "https://x/pull/4", "CLOSED", "2026-07-01T00:00:00Z", "owned"),
+		), nil
+	})
+	r.ancestorExec = func(_ context.Context, _, oid, _ string) ancestryVerdict {
+		if oid == "unowned" {
+			return ancestryNotOwned
+		}
+		return ancestryOwned
+	}
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+	if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr.Number != 4 || pr.State != "CLOSED" {
+		t.Fatalf("owned older closed PR must beat unowned newer merged PR: ok=%v pr=%v", ok, pr)
+	}
+}
+
+func TestBranchRefresherAncestryCacheAndPruning(t *testing.T) {
+	ancestorCalls := 0
+	now := time.Unix(1_000_000, 0)
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		return branchListJSON(branchNodeState(4, "https://x/pull/4", "MERGED", "2026-07-01T00:00:00Z")), nil
+	})
+	r.now = func() time.Time { return now }
+	r.ancestorExec = func(context.Context, string, string, string) ancestryVerdict {
+		ancestorCalls++
+		return ancestryOwned
+	}
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+	r.refresh(context.Background())
+	if ancestorCalls != 1 {
+		t.Fatalf("cached verdict ran ancestor check %d times, want 1", ancestorCalls)
+	}
+	now = now.Add(branchPRObservedTTL + time.Second)
+	r.refresh(context.Background())
+	r.mu.RLock()
+	remaining := len(r.ancestry)
+	r.mu.RUnlock()
+	if remaining != 0 {
+		t.Fatalf("ancestry cache for unobserved repo retained %d entries", remaining)
+	}
+}
+
+func TestBranchCommandArgvAndAncestorExitCodes(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "argv")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$COMMAND_LOG\"\nif [ \"$1\" = rev-parse ]; then printf 'abc123\\n'; fi\nif [ \"$1 $2\" = 'pr list' ]; then printf '[]\\n'; fi\nif [ \"$1 $2\" = 'pr view' ]; then printf '{}\\n'; fi\nexit \"${COMMAND_EXIT:-0}\"\n"
+	for _, name := range []string{"gh", "git"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("COMMAND_LOG", logPath)
+	t.Setenv("COMMAND_EXIT", "0")
+
+	if _, err := branchPRExec(context.Background(), dir, "feat"); err != nil {
+		t.Fatalf("branchPRExec: %v", err)
+	}
+	argv, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(argv), "--json\nnumber,url,state,updatedAt,isDraft,headRefOid\n") {
+		t.Fatalf("gh pr list argv lacks headRefOid:\n%s", argv)
+	}
+
+	if _, err := branchPRViewExec(context.Background(), "https://github.com/o/r/pull/4"); err != nil {
+		t.Fatalf("branchPRViewExec: %v", err)
+	}
+	argv, err = os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(argv), "pr\nview\nhttps://github.com/o/r/pull/4\n--json\nnumber,url,state,isDraft,updatedAt,headRefOid\n") {
+		t.Fatalf("gh pr view argv mismatch:\n%s", argv)
+	}
+
+	for _, tc := range []struct {
+		exit string
+		want ancestryVerdict
+	}{{"0", ancestryOwned}, {"1", ancestryNotOwned}, {"128", ancestryNotOwned}, {"2", ancestryUnknown}} {
+		t.Setenv("COMMAND_EXIT", tc.exit)
+		if got := branchAncestorExec(context.Background(), dir, "oid", "head"); got != tc.want {
+			t.Errorf("exit %s verdict = %v, want %v", tc.exit, got, tc.want)
+		}
+		argv, err = os.ReadFile(logPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(argv) != "merge-base\n--is-ancestor\noid\nhead\n" {
+			t.Fatalf("ancestor argv = %q", argv)
+		}
+	}
+}
+
+func TestBranchRefresherRegisterURLWakesOnce(t *testing.T) {
+	r := newTestRefresher(true, nil)
+	r.RegisterURL("https://github.com/o/r/pull/4")
+	if got := drainWake(r); got != 1 {
+		t.Fatalf("first URL registration wakes=%d, want 1", got)
+	}
+	r.RegisterURL("https://github.com/o/r/pull/4")
+	if got := drainWake(r); got != 0 {
+		t.Fatalf("re-registration wakes=%d, want 0", got)
+	}
+}
+
+func TestBranchRefresherURLViewerHitSkipsGH(t *testing.T) {
+	const rawURL = "https://github.com/o/r/pull/4"
+	r := newTestRefresher(true, nil)
+	r.viewExec = func(context.Context, string) ([]byte, error) {
+		t.Fatal("viewer-covered URL must not invoke gh")
+		return nil, nil
+	}
+	r.StoreViewerIndex([]ViewerPR{{Number: 4, URL: rawURL, State: "OPEN"}})
+	r.RegisterURL(rawURL)
+	r.refresh(context.Background())
+	pr, ok := r.SnapshotURL(rawURL)
+	if !ok || pr.Number != 4 || pr.State != "OPEN" {
+		t.Fatalf("viewer URL resolution = ok=%v pr=%v", ok, pr)
+	}
+}
+
+func TestBranchRefresherURLCanonicalizesAndMergedIsTerminal(t *testing.T) {
+	const oldURL = "https://github.com/sahil87/run-kit/pull/811"
+	const canonicalURL = "https://github.com/sahil87/hexokit/pull/811"
+	calls := 0
+	r := newTestRefresher(true, nil)
+	r.viewExec = func(context.Context, string) ([]byte, error) {
+		calls++
+		return []byte(branchNodeState(811, canonicalURL, "MERGED", "2026-07-01T00:00:00Z")), nil
+	}
+	r.RegisterURL(oldURL)
+	r.refresh(context.Background())
+	pr, ok := r.SnapshotURL(oldURL)
+	if !ok || pr.URL != canonicalURL || pr.State != "MERGED" {
+		t.Fatalf("canonical URL resolution = ok=%v pr=%v", ok, pr)
+	}
+	r.refresh(context.Background())
+	if calls != 1 {
+		t.Fatalf("merged URL re-queried: calls=%d, want 1", calls)
+	}
+}
+
+func TestBranchRefresherURLFailureKeepsLastGood(t *testing.T) {
+	const rawURL = "https://github.com/o/r/pull/4"
+	fail := false
+	r := newTestRefresher(true, nil)
+	r.viewExec = func(context.Context, string) ([]byte, error) {
+		if fail {
+			return nil, errors.New("network error")
+		}
+		return []byte(branchNodeState(4, rawURL, "OPEN", "2026-07-01T00:00:00Z")), nil
+	}
+	r.RegisterURL(rawURL)
+	r.refresh(context.Background())
+	fail = true
+	r.refresh(context.Background())
+	if pr, ok := r.SnapshotURL(rawURL); !ok || pr.Number != 4 || pr.State != "OPEN" {
+		t.Fatalf("URL transient failure lost last-good: ok=%v pr=%v", ok, pr)
+	}
+}
+
+func TestBranchRefresherURLAgesOut(t *testing.T) {
+	const rawURL = "https://github.com/o/r/pull/4"
+	now := time.Unix(1_000_000, 0)
+	r := newTestRefresher(true, nil)
+	r.now = func() time.Time { return now }
+	r.viewExec = func(context.Context, string) ([]byte, error) {
+		return []byte(branchNodeState(4, rawURL, "OPEN", "2026-07-01T00:00:00Z")), nil
+	}
+	r.RegisterURL(rawURL)
+	r.refresh(context.Background())
+	now = now.Add(branchPRRetainTTL + time.Second)
+	r.refresh(context.Background())
+	if pr, ok := r.SnapshotURL(rawURL); ok || pr != nil {
+		t.Fatalf("unobserved URL survived retain TTL: ok=%v pr=%v", ok, pr)
+	}
+}
+
+func TestBranchRefresherRefreshURLsIncludesURLEntries(t *testing.T) {
+	const rawURL = "https://github.com/o/r/pull/4"
+	state := "OPEN"
+	r := newTestRefresher(true, nil)
+	r.viewExec = func(context.Context, string) ([]byte, error) {
+		return []byte(branchNodeState(4, rawURL, state, "2026-07-01T00:00:00Z")), nil
+	}
+	r.RegisterURL(rawURL)
+	r.refresh(context.Background())
+	state = "CLOSED"
+	r.RefreshURLs(context.Background(), []string{rawURL})
+	if pr, ok := r.SnapshotURL(rawURL); !ok || pr.State != "CLOSED" {
+		t.Fatalf("targeted URL refresh = ok=%v pr=%v", ok, pr)
+	}
+}
+
+func TestBranchRefresherHeadResolvedOncePerRepoPerPass(t *testing.T) {
+	headCalls := 0
+	r := newTestRefresher(true, func(_ context.Context, _, branch string) ([]byte, error) {
+		oid := "head-a"
+		if branch == "feat-b" {
+			oid = "head-b"
+		}
+		return branchListJSON(branchNodeStateOID(4, "https://x/pull/4", "MERGED", "2026-07-01T00:00:00Z", oid)), nil
+	})
+	r.headExec = func(context.Context, string) ([]byte, error) {
+		headCalls++
+		return []byte("current-head\n"), nil
+	}
+	r.Register("/repo", "feat-a")
+	r.Register("/repo", "feat-b")
+	r.refresh(context.Background())
+	if headCalls != 1 {
+		t.Fatalf("HEAD resolved %d times for two branches in one repo, want 1", headCalls)
 	}
 }

@@ -81,6 +81,8 @@ type ViewerPR struct {
 	HeadRepo string
 	// HeadRef is the head branch name (GraphQL headRefName).
 	HeadRef string
+	// HeadOid is the head commit used to prove branch ownership for terminal PRs.
+	HeadOid string
 	// UpdatedAt breaks precedence ties within a state class.
 	UpdatedAt time.Time
 }
@@ -367,6 +369,7 @@ func viewerPRsFrom(prs []ghPR) []ViewerPR {
 			State:     p.State,
 			HeadRepo:  headRepo,
 			HeadRef:   p.HeadRefName,
+			HeadOid:   p.HeadRefOid,
 			UpdatedAt: p.UpdatedAt,
 		})
 	}
@@ -416,6 +419,7 @@ const ghQuery = `query($limit: Int!) {
         reviewDecision
         updatedAt
         headRefName
+        headRefOid
         headRepository { nameWithOwner }
         commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
       }
@@ -462,6 +466,7 @@ type ghPR struct {
 	// skipped at index time.
 	UpdatedAt      time.Time `json:"updatedAt"`
 	HeadRefName    string    `json:"headRefName"`
+	HeadRefOid     string    `json:"headRefOid"`
 	HeadRepository *struct {
 		NameWithOwner string `json:"nameWithOwner"`
 	} `json:"headRepository"`

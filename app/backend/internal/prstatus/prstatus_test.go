@@ -770,3 +770,26 @@ func TestSnapshotIsCopy(t *testing.T) {
 		t.Error("mutating the snapshot must not affect the collector's map")
 	}
 }
+
+func TestViewerPRHeadRefOidFlowsIntoIndex(t *testing.T) {
+	node := `{"number":7,"url":"https://github.com/o/r/pull/7","state":"MERGED","isDraft":false,"reviewDecision":"","updatedAt":"2026-08-01T00:00:00Z","headRefName":"feat","headRefOid":"abc123","headRepository":{"nameWithOwner":"o/r"},"commits":{"nodes":[]}}`
+	batch, err := parseBatch(ghJSON(node))
+	if err != nil {
+		t.Fatalf("parseBatch: %v", err)
+	}
+	prs := viewerPRsFrom(batch.PRs)
+	if len(prs) != 1 || prs[0].HeadOid != "abc123" {
+		t.Fatalf("ViewerPR head oid = %+v, want abc123", prs)
+	}
+	r := NewBranchRefresher(time.Hour)
+	r.StoreViewerIndex(prs)
+	r.mu.RLock()
+	candidates := r.viewerIndex[viewerIndexKey("github.com/o/r", "feat")]
+	r.mu.RUnlock()
+	if len(candidates) != 1 || candidates[0].HeadRefOid != "abc123" {
+		t.Fatalf("index candidates = %+v, want headRefOid abc123", candidates)
+	}
+	if !strings.Contains(ghQuery, "headRefOid") {
+		t.Error("GraphQL query must select headRefOid")
+	}
+}

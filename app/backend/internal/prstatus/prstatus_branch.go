@@ -3,6 +3,7 @@ package prstatus
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"os/exec"
 	"strings"
@@ -168,7 +169,8 @@ type BranchPR struct {
 	// for up to one collector generation. That precedence is deliberate: it leaves
 	// the self-authored case (which the collector already covered) behaving
 	// exactly as before.
-	IsDraft bool `json:"isDraft"`
+	IsDraft    bool   `json:"isDraft"`
+	HeadRefOid string `json:"headRefOid"`
 }
 
 // branchPRExec runs `gh pr list --head <branch> --state all` in repoDir and
@@ -197,9 +199,18 @@ var branchPRExec = func(ctx context.Context, repoDir, branch string) ([]byte, er
 		// explicit cap keeps pickBranchPR's precedence ranking correct without
 		// unbounded output — a single head realistically never has this many PRs.
 		"--limit", "100",
-		"--json", "number,url,state,updatedAt,isDraft",
+		"--json", "number,url,state,updatedAt,isDraft,headRefOid",
 	)
 	cmd.Dir = repoDir
+	return cmd.Output()
+}
+
+var branchPRViewExec = func(ctx context.Context, rawURL string) ([]byte, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, ghTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(queryCtx, "gh", "pr", "view", rawURL,
+		"--json", "number,url,state,isDraft,updatedAt,headRefOid",
+	)
 	return cmd.Output()
 }
 
@@ -249,6 +260,37 @@ var branchOriginExec = func(ctx context.Context, repoDir string) ([]byte, error)
 	cmd := exec.CommandContext(queryCtx, "git", "remote", "get-url", "origin")
 	cmd.Dir = repoDir
 	return cmd.Output()
+}
+
+var branchHeadExec = func(ctx context.Context, repoDir string) ([]byte, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, ghTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(queryCtx, "git", "rev-parse", "HEAD")
+	cmd.Dir = repoDir
+	return cmd.Output()
+}
+
+type ancestryVerdict uint8
+
+const (
+	ancestryUnknown ancestryVerdict = iota
+	ancestryNotOwned
+	ancestryOwned
+)
+
+var branchAncestorExec = func(ctx context.Context, repoDir, oid, head string) ancestryVerdict {
+	queryCtx, cancel := context.WithTimeout(ctx, ghTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(queryCtx, "git", "merge-base", "--is-ancestor", oid, head)
+	cmd.Dir = repoDir
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && (exitErr.ExitCode() == 1 || exitErr.ExitCode() == 128) {
+			return ancestryNotOwned
+		}
+		return ancestryUnknown
+	}
+	return ancestryOwned
 }
 
 // originSchemes are the URL schemes that carry a hosted-remote authority. A
@@ -398,6 +440,11 @@ type branchEntry struct {
 	seeded bool
 }
 
+type urlEntry struct {
+	pr         *BranchPR
+	observedAt time.Time
+}
+
 // originEntry is a per-repo cached origin-identity verdict. Like
 // defaultBranchEntry it caches BOTH a successful resolution (repo set, ok=true)
 // AND a lookup failure (repo "", ok=false → the caller fails open to the per-pair
@@ -418,6 +465,22 @@ type defaultBranchEntry struct {
 	name string    // resolved default branch (empty on a cached failure)
 	ok   bool      // true when the lookup succeeded; false is a cached fail-open verdict
 	at   time.Time // wall-clock time the verdict was taken
+}
+
+type ancestryKey struct {
+	repoDir string
+	oid     string
+	head    string
+}
+
+type ancestryEntry struct {
+	owned bool
+	at    time.Time
+}
+
+type branchHeadResult struct {
+	sha string
+	ok  bool
 }
 
 // BranchRefresher resolves registered (repo, branch) pairs → their PR (any
@@ -463,6 +526,11 @@ type BranchRefresher struct {
 	// pair observes the repo. Feeds the viewer-index join (see viewerIndex).
 	origins map[string]originEntry
 
+	// ancestry caches immutable ownership verdicts for fixed commit pairs.
+	ancestry map[ancestryKey]ancestryEntry
+
+	urlEntries map[string]urlEntry
+
 	// viewerIndex is the head-index seeded from the viewer-wide Collector's ONE
 	// batched GraphQL call: (origin `host/owner/name`, headRefName) → candidate PRs
 	// (see viewerIndexKey). It is replaced WHOLESALE by StoreViewerIndex on each
@@ -470,6 +538,7 @@ type BranchRefresher struct {
 	// per-pair `gh pr list` fallback — which is what collapses N sequential gh
 	// subprocesses per pass into one already-fetched batch. Guarded by mu.
 	viewerIndex map[string][]BranchPR
+	viewerURLs  map[string]BranchPR
 
 	// viewerIndexSeeded reports whether the CURRENT viewerIndex came from the disk
 	// seed (SeedViewerIndex) rather than from a live collector fetch
@@ -497,10 +566,13 @@ type BranchRefresher struct {
 	// get-url. All are fields so tests can stub them per instance (matching the
 	// ghExec/available seams on Collector). They default to the package-var
 	// seams.
-	exec        func(ctx context.Context, repoDir, branch string) ([]byte, error)
-	available   func(ctx context.Context) bool
-	defaultExec func(ctx context.Context, repoDir string) ([]byte, error)
-	originExec  func(ctx context.Context, repoDir string) ([]byte, error)
+	exec         func(ctx context.Context, repoDir, branch string) ([]byte, error)
+	available    func(ctx context.Context) bool
+	defaultExec  func(ctx context.Context, repoDir string) ([]byte, error)
+	originExec   func(ctx context.Context, repoDir string) ([]byte, error)
+	headExec     func(ctx context.Context, repoDir string) ([]byte, error)
+	ancestorExec func(ctx context.Context, repoDir, oid, head string) ancestryVerdict
+	viewExec     func(ctx context.Context, rawURL string) ([]byte, error)
 
 	// onRefreshed, when non-nil, is called at the TAIL of a refresh pass that had
 	// pairs to resolve — the disk-cache write seam (SeedCache.branchRefreshed).
@@ -652,6 +724,8 @@ func NewBranchRefresher(interval time.Duration) *BranchRefresher {
 		entries:         make(map[string]branchEntry),
 		defaultBranches: make(map[string]defaultBranchEntry),
 		origins:         make(map[string]originEntry),
+		ancestry:        make(map[ancestryKey]ancestryEntry),
+		urlEntries:      make(map[string]urlEntry),
 		interval:        interval,
 		wake:            make(chan struct{}, 1),
 		wakeDebounce:    branchPRWakeDebounce,
@@ -659,6 +733,9 @@ func NewBranchRefresher(interval time.Duration) *BranchRefresher {
 		available:       branchPRAvailable,
 		defaultExec:     branchDefaultExec,
 		originExec:      branchOriginExec,
+		headExec:        branchHeadExec,
+		ancestorExec:    branchAncestorExec,
+		viewExec:        branchPRViewExec,
 		now:             time.Now,
 	}
 }
@@ -744,6 +821,35 @@ func (r *BranchRefresher) Snapshot(repoDir, branch string) (*BranchPR, bool) {
 	return &pr, true
 }
 
+func (r *BranchRefresher) RegisterURL(rawURL string) {
+	if rawURL == "" {
+		return
+	}
+	now := r.now()
+	r.mu.Lock()
+	e, seen := r.urlEntries[rawURL]
+	e.observedAt = now
+	r.urlEntries[rawURL] = e
+	r.mu.Unlock()
+	if !seen {
+		r.signalWake()
+	}
+}
+
+func (r *BranchRefresher) SnapshotURL(rawURL string) (*BranchPR, bool) {
+	if rawURL == "" {
+		return nil, false
+	}
+	r.mu.RLock()
+	e, ok := r.urlEntries[rawURL]
+	r.mu.RUnlock()
+	if !ok || e.pr == nil {
+		return nil, false
+	}
+	pr := *e.pr
+	return &pr, true
+}
+
 // viewerIndexKey builds the viewer head-index key from a HOST-QUALIFIED head
 // repository identity (`host/owner/name` — the shape parseOriginRepo returns, and
 // what StoreViewerIndex composes from a node's URL host + nameWithOwner) and a
@@ -795,8 +901,20 @@ func (r *BranchRefresher) StoreViewerIndex(prs []ViewerPR) {
 // the mark — and a seeded store never signals the wake (see SeedViewerIndex).
 func (r *BranchRefresher) storeViewerIndex(prs []ViewerPR, seeded bool) {
 	next := make(map[string][]BranchPR, len(prs))
+	nextURLs := make(map[string]BranchPR, len(prs))
 	for _, p := range prs {
-		if p.URL == "" || p.HeadRef == "" || p.HeadRepo == "" {
+		if p.URL == "" {
+			continue
+		}
+		candidate := BranchPR{
+			Number:     p.Number,
+			URL:        p.URL,
+			State:      p.State,
+			UpdatedAt:  p.UpdatedAt,
+			HeadRefOid: p.HeadOid,
+		}
+		nextURLs[p.URL] = candidate
+		if p.HeadRef == "" || p.HeadRepo == "" {
 			continue
 		}
 		host, ok := prURLHost(p.URL)
@@ -804,18 +922,14 @@ func (r *BranchRefresher) storeViewerIndex(prs []ViewerPR, seeded bool) {
 			continue // no host authority → no joinable identity (see viewerIndexKey)
 		}
 		key := viewerIndexKey(host+"/"+p.HeadRepo, p.HeadRef)
-		next[key] = append(next[key], BranchPR{
-			Number:    p.Number,
-			URL:       p.URL,
-			State:     p.State,
-			UpdatedAt: p.UpdatedAt,
-		})
+		next[key] = append(next[key], candidate)
 	}
 	r.mu.Lock()
 	r.viewerIndex = next
+	r.viewerURLs = nextURLs
 	r.viewerIndexSeeded = seeded
 	r.mu.Unlock()
-	if !seeded && len(next) > 0 {
+	if !seeded && len(nextURLs) > 0 {
 		r.signalWake()
 	}
 }
@@ -989,6 +1103,7 @@ func (r *BranchRefresher) refreshWhere(ctx context.Context, onlyURLs map[string]
 		freshNegative bool
 	}
 	var todo []pending
+	var urlTodo []string
 	liveRepos := make(map[string]struct{})
 	for key, e := range r.entries {
 		if onlyURLs != nil {
@@ -1021,6 +1136,23 @@ func (r *BranchRefresher) refreshWhere(ctx context.Context, onlyURLs map[string]
 			freshNegative: !e.negativeAt.IsZero() && now.Sub(e.negativeAt) < branchPRNegativeTTL,
 		})
 	}
+	for rawURL, e := range r.urlEntries {
+		if onlyURLs != nil {
+			if !onlyURLs[rawURL] && (e.pr == nil || !onlyURLs[e.pr.URL]) {
+				continue
+			}
+			urlTodo = append(urlTodo, rawURL)
+			continue
+		}
+		age := now.Sub(e.observedAt)
+		if age > branchPRRetainTTL {
+			delete(r.urlEntries, rawURL)
+			continue
+		}
+		if age <= branchPRObservedTTL {
+			urlTodo = append(urlTodo, rawURL)
+		}
+	}
 	// Prune per-repo default-branch verdicts for repos no live pair observes
 	// anymore. Best-effort, timestamp-guarded: a repo whose newest verdict is
 	// still within branchDefaultBranchTTL is kept (it may be re-observed within
@@ -1045,10 +1177,15 @@ func (r *BranchRefresher) refreshWhere(ctx context.Context, onlyURLs map[string]
 				delete(r.origins, repoDir)
 			}
 		}
+		for key := range r.ancestry {
+			if _, live := liveRepos[key.repoDir]; !live {
+				delete(r.ancestry, key)
+			}
+		}
 	}
 	r.mu.Unlock()
 
-	if len(todo) == 0 {
+	if len(todo) == 0 && len(urlTodo) == 0 {
 		return
 	}
 
@@ -1078,6 +1215,7 @@ func (r *BranchRefresher) refreshWhere(ctx context.Context, onlyURLs map[string]
 		}
 		return ghOK
 	}
+	headMemo := make(map[string]branchHeadResult)
 
 	for _, p := range todo {
 		// Default-branch exclusion: a pane parked on the repo's DEFAULT branch
@@ -1116,7 +1254,11 @@ func (r *BranchRefresher) refreshWhere(ctx context.Context, onlyURLs map[string]
 		// inside the top-prFetchLimit recently-updated window, so it cannot
 		// distinguish "no PR" from "not covered". Misses therefore fall THROUGH to
 		// the gh path, which alone may write a negative.
-		if pr, seeded, hit := r.viewerIndexPR(ctx, now, p.repoDir, p.branch); hit {
+		pr, seeded, hit, ownershipUnknown := r.viewerIndexPR(ctx, now, p.repoDir, p.branch, headMemo)
+		if ownershipUnknown {
+			continue
+		}
+		if hit {
 			r.mu.Lock()
 			if e, present := r.entries[p.key]; present { // may have aged out concurrently
 				e.pr = pr
@@ -1151,22 +1293,29 @@ func (r *BranchRefresher) refreshWhere(ctx context.Context, onlyURLs map[string]
 		// gh is unavailable (keeping last-good, stale-while-revalidate) — the
 		// exclusion above already ran regardless of gh.
 		if !ghAvailableNow() {
+
 			continue
 		}
 
 		out, err := r.exec(ctx, p.repoDir, p.branch)
 		if err != nil {
+
 			// Transient exec/network error: keep last-good (stale-while-
 			// revalidate). Do NOT downgrade a good entry to a negative.
 			continue
 		}
-		pr, parseErr := pickBranchPR(out) // nil,nil == confirmed no PR (valid negative)
+		candidates, parseErr := parseBranchPRs(out)
 		if parseErr != nil {
 			// Partial/malformed gh output (broken JSON): treat like a transient
 			// error and keep last-good rather than clearing a previously-good PR
 			// mapping. Only a successfully parsed result updates the entry.
 			continue
 		}
+		candidates, ownershipUnknown = r.ownedCandidates(ctx, now, p.repoDir, candidates, headMemo)
+		if ownershipUnknown {
+			continue
+		}
+		pr = pickBranchCandidate(candidates)
 		r.mu.Lock()
 		if e, ok := r.entries[p.key]; ok { // may have aged out concurrently
 			// A successfully parsed result is authoritative: a picked PR (open/
@@ -1188,6 +1337,10 @@ func (r *BranchRefresher) refreshWhere(ctx context.Context, onlyURLs map[string]
 		r.mu.Unlock()
 	}
 
+	for _, rawURL := range urlTodo {
+		r.refreshURL(ctx, rawURL, ghAvailableNow)
+	}
+
 	// Mirror the new last-good derivations to the disk cache. Nil for every
 	// unwired refresher. The document this assembles carries the COLLECTOR's state
 	// too, whose fetchedAt is re-stamped by every successful 90s pass — the dedup
@@ -1199,6 +1352,34 @@ func (r *BranchRefresher) refreshWhere(ctx context.Context, onlyURLs map[string]
 	if saved != nil {
 		saved()
 	}
+}
+
+func (r *BranchRefresher) refreshURL(ctx context.Context, rawURL string, ghAvailableNow func() bool) {
+	r.mu.RLock()
+	entry, present := r.urlEntries[rawURL]
+	viewerPR, covered := r.viewerURLs[rawURL]
+	r.mu.RUnlock()
+	if !present || (entry.pr != nil && strings.EqualFold(entry.pr.State, "MERGED")) {
+		return
+	}
+
+	pr := viewerPR
+	if !covered {
+		if !ghAvailableNow() || r.viewExec == nil {
+			return
+		}
+		out, err := r.viewExec(ctx, rawURL)
+		if err != nil || json.Unmarshal(out, &pr) != nil || pr.URL == "" {
+			return
+		}
+	}
+
+	r.mu.Lock()
+	if current, ok := r.urlEntries[rawURL]; ok {
+		current.pr = &pr
+		r.urlEntries[rawURL] = current
+	}
+	r.mu.Unlock()
 }
 
 // checkAvailable returns the cached gh-availability verdict, re-probing only when
@@ -1249,6 +1430,76 @@ func (r *BranchRefresher) defaultBranch(ctx context.Context, now time.Time, repo
 	return name, ok
 }
 
+func (r *BranchRefresher) ownedCandidates(ctx context.Context, now time.Time, repoDir string, candidates []BranchPR, headMemo map[string]branchHeadResult) ([]BranchPR, bool) {
+	for _, candidate := range candidates {
+		if candidate.URL != "" && strings.EqualFold(candidate.State, "OPEN") {
+			return candidates, false
+		}
+	}
+
+	owned := make([]BranchPR, 0, len(candidates))
+	unknown := false
+	for _, candidate := range candidates {
+		if candidate.URL == "" {
+			continue
+		}
+		state := strings.ToUpper(candidate.State)
+		if state != "MERGED" && state != "CLOSED" {
+			owned = append(owned, candidate)
+			continue
+		}
+		if candidate.HeadRefOid == "" {
+			continue
+		}
+
+		head, memoized := headMemo[repoDir]
+		if !memoized {
+			if r.headExec != nil {
+				if out, err := r.headExec(ctx, repoDir); err == nil {
+					head.sha = strings.TrimSpace(string(out))
+					head.ok = head.sha != ""
+				}
+			}
+			headMemo[repoDir] = head
+		}
+		if !head.ok {
+			unknown = true
+			continue
+		}
+
+		key := ancestryKey{repoDir: repoDir, oid: candidate.HeadRefOid, head: head.sha}
+		r.mu.RLock()
+		cached, present := r.ancestry[key]
+		r.mu.RUnlock()
+		if present {
+			if cached.owned {
+				owned = append(owned, candidate)
+			}
+			continue
+		}
+		if r.ancestorExec == nil {
+			unknown = true
+			continue
+		}
+
+		verdict := r.ancestorExec(ctx, repoDir, candidate.HeadRefOid, head.sha)
+		if verdict == ancestryUnknown {
+			unknown = true
+			continue
+		}
+		r.mu.Lock()
+		if r.ancestry == nil {
+			r.ancestry = make(map[ancestryKey]ancestryEntry)
+		}
+		r.ancestry[key] = ancestryEntry{owned: verdict == ancestryOwned, at: now}
+		r.mu.Unlock()
+		if verdict == ancestryOwned {
+			owned = append(owned, candidate)
+		}
+	}
+	return owned, unknown
+}
+
 // viewerIndexPR resolves a (repoDir, branch) pair against the stored viewer
 // head-index, reporting hit=false for every "not covered" case — no index seeded
 // yet, origin identity unresolvable, or no candidate under the pair's
@@ -1269,7 +1520,7 @@ func (r *BranchRefresher) defaultBranch(ctx context.Context, now time.Time, repo
 // DiscardSeeded can land in between, and the entry would then be written with
 // account A's data but NOT marked seed-originated — invisible to any later
 // discard, and persisted under account B's login.
-func (r *BranchRefresher) viewerIndexPR(ctx context.Context, now time.Time, repoDir, branch string) (pr *BranchPR, seeded, hit bool) {
+func (r *BranchRefresher) viewerIndexPR(ctx context.Context, now time.Time, repoDir, branch string, headMemo map[string]branchHeadResult) (pr *BranchPR, seeded, hit, unknown bool) {
 	r.mu.RLock()
 	indexSize := len(r.viewerIndex)
 	r.mu.RUnlock()
@@ -1277,23 +1528,27 @@ func (r *BranchRefresher) viewerIndexPR(ctx context.Context, now time.Time, repo
 		// No seed yet (collector unwired, or its first fetch has not landed).
 		// Short-circuit BEFORE resolving origin identity so an unwired collector
 		// costs zero `git remote get-url` subprocesses.
-		return nil, false, false
+		return nil, false, false, false
 	}
 
 	repo, ok := r.originRepo(ctx, now, repoDir)
 	if !ok {
-		return nil, false, false // identity unresolvable → fail open to the gh path
+		return nil, false, false, false // identity unresolvable → fail open to the gh path
 	}
 
 	r.mu.RLock()
 	candidates := r.viewerIndex[viewerIndexKey(repo, branch)]
 	seeded = r.viewerIndexSeeded
 	r.mu.RUnlock()
+	candidates, unknown = r.ownedCandidates(ctx, now, repoDir, candidates, headMemo)
+	if unknown {
+		return nil, false, false, true
+	}
 	pr = pickBranchCandidate(candidates)
 	if pr == nil {
-		return nil, false, false
+		return nil, false, false, false
 	}
-	return pr, seeded, true
+	return pr, seeded, true, false
 }
 
 // originRepo returns the repo's HOST-QUALIFIED `host/owner/name` origin identity,
@@ -1352,6 +1607,14 @@ func SnapshotBranchPR(repoDir, branch string) (*BranchPR, bool) {
 	return DefaultBranchRefresher.Snapshot(repoDir, branch)
 }
 
+func RegisterURL(rawURL string) {
+	DefaultBranchRefresher.RegisterURL(rawURL)
+}
+
+func SnapshotURLPR(rawURL string) (*BranchPR, bool) {
+	return DefaultBranchRefresher.SnapshotURL(rawURL)
+}
+
 // MapBranchState collapses a branch-derived PR's raw GitHub state enum
 // (OPEN|MERGED|CLOSED, case-insensitive) to the frontend display value
 // open|merged|closed. Unlike the viewer-wide collector's mapState (which
@@ -1407,11 +1670,19 @@ func branchStateRank(state string) int {
 // negative on transient/partial gh output; a successfully parsed empty array is a
 // valid negative (nil pr, nil err).
 func pickBranchPR(out []byte) (*BranchPR, error) {
+	prs, err := parseBranchPRs(out)
+	if err != nil {
+		return nil, err
+	}
+	return pickBranchCandidate(prs), nil
+}
+
+func parseBranchPRs(out []byte) ([]BranchPR, error) {
 	var prs []BranchPR
 	if err := json.Unmarshal(out, &prs); err != nil {
 		return nil, err
 	}
-	return pickBranchCandidate(prs), nil
+	return prs, nil
 }
 
 // pickBranchCandidate is the precedence ranker shared by BOTH derivation paths —

@@ -188,3 +188,33 @@ func TestFabWindowRollup(t *testing.T) {
 		}
 	})
 }
+
+func TestFabStatusPRURL(t *testing.T) {
+	tests := []struct {
+		name string
+		prs  string
+		want string
+	}{
+		{name: "absent"},
+		{name: "empty", prs: "prs: []\n"},
+		{name: "one entry", prs: "prs:\n    - https://github.com/o/r/pull/1\n", want: "https://github.com/o/r/pull/1"},
+		{name: "last entry wins", prs: "prs:\n    - https://github.com/o/r/pull/1\n    - https://github.com/o/r/pull/2\n", want: "https://github.com/o/r/pull/2"},
+		{name: "mapping is malformed", prs: "prs:\n    url: https://github.com/o/r/pull/1\n"},
+		{name: "scalar is malformed", prs: "prs: https://github.com/o/r/pull/1\n"},
+		{name: "non-scalar item is malformed", prs: "prs:\n    - https://github.com/o/r/pull/1\n    - nested: value\n"},
+		{name: "trailing empty entry skipped", prs: "prs:\n    - https://github.com/o/r/pull/1\n    - \"\"\n", want: "https://github.com/o/r/pull/1"},
+		{name: "non-URL scalar passes through", prs: "prs:\n    - not-a-url\n", want: "not-a-url"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := mkFabWorktree(t, "c", "progress:\n    apply: active\n"+tc.prs)
+			st := NewMemo().Derive(root)
+			if st.Change != "c" || st.Stage != "apply" || st.DisplayState != "active" {
+				t.Fatalf("malformed prs changed fab derivation: %+v", st)
+			}
+			if st.PRURL != tc.want {
+				t.Errorf("PRURL = %q, want %q", st.PRURL, tc.want)
+			}
+		})
+	}
+}

@@ -5,8 +5,11 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -711,44 +714,57 @@ func windowPRKey(w *tmux.WindowInfo) (repoDir, branch string) {
 	return repoDir, branch
 }
 
-// enrichWindowPR populates the window's PrURL/PrNumber (and a fallback PrState)
-// from its branch (Constitution §X — PR links are derivable, not pushed):
-// any pane on a branch with a PR (open, merged, or closed) gets its link, in
-// any repo, under any workflow.
+func parsePRNumber(rawURL string) (int, bool) {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return 0, false
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) != 4 || parts[2] != "pull" {
+		return 0, false
+	}
+	number, err := strconv.Atoi(parts[3])
+	return number, err == nil && number > 0
+}
+
+var (
+	registerBranchPRFn = prstatus.Register
+	snapshotBranchPRFn = prstatus.SnapshotBranchPR
+	registerURLPRFn    = prstatus.RegisterURL
+	snapshotURLPRFn    = prstatus.SnapshotURLPR
+)
+
+// enrichWindowPR prefers the fab change's recorded PR, then falls back to the
+// branch-derived PR. Both paths only register observations and join in-memory
+// snapshots; all GitHub resolution runs on the background refresher.
 //
-// CRITICAL — this runs on the SSE hot path (FetchSessions), so it does ZERO
-// network/subprocess work: it (a) REGISTERS the (repoDir, branch) pair with the
-// prstatus background refresher — a cheap, lock-guarded set touch — and (b)
-// JOINS the last-good derived PR from the refresher's in-memory snapshot. The
-// actual `gh pr list` resolution happens off-tick on the refresher goroutine
-// (see internal/prstatus.BranchRefresher). A window with no branch is skipped; a
-// branch not yet resolved, with no PR, or gh absent leaves the fields nil.
-//
-// PrState is seeded as a FALLBACK from the branch-derived state so that the
-// authoritative viewer-wide collector (sse.attachPRStatus, keyed by PR URL) can
-// override it on a hit but a MISS does not strand PrState empty. Without this, a
-// branch-derived CLOSED PR outside the viewer's top-$limit collector window
-// would carry prNumber set + prState "" and the frontend's prOwnsDot would paint
-// a solid done-square for a dead PR. MapBranchState maps unknown/empty to "" so
-// an unconfident state never defaults to "open" and re-creates that bug.
-//
-// PrIsDraft is seeded the same way and for a sharper reason: the viewer-wide
-// collector queries `viewer { pullRequests }`, so it only ever sees the
-// AUTHENTICATED USER'S OWN PRs. A draft opened by a teammate is resolved by this
-// branch channel (author-agnostic) but MISSES the URL join, so without this seed
-// its prIsDraft stays false and the row glyph renders as a non-draft. The
-// collector still overrides on a hit, and since it polls at 90s against this
-// channel's 30s it can serve a briefly stale flag — accepted, and exactly how
-// PrState already behaves.
-func enrichWindowPR(w *tmux.WindowInfo) {
+// PrState and PrIsDraft are fallbacks for the collector join in attachPRStatus.
+// An unresolved fab PR deliberately keeps an unknown state rather than defaulting
+// to open.
+func enrichWindowPR(w *tmux.WindowInfo, fabPRURL string) {
+	if number, ok := parsePRNumber(fabPRURL); ok {
+		registerURLPRFn(fabPRURL)
+		w.PrURL = &fabPRURL
+		w.PrNumber = &number
+		w.PrState = ""
+		w.PrIsDraft = false
+		if pr, resolved := snapshotURLPRFn(fabPRURL); resolved {
+			w.PrState = prstatus.MapBranchState(pr.State)
+			w.PrIsDraft = pr.IsDraft
+			if pr.URL != "" {
+				canonicalURL := pr.URL
+				w.PrURL = &canonicalURL
+			}
+		}
+		return
+	}
+
 	repoDir, branch := windowPRKey(w)
 	if branch == "" {
 		return
 	}
-	// Report the pair so the background refresher resolves it (cheap; no exec).
-	prstatus.Register(repoDir, branch)
-	// Join the last-good result from the in-memory snapshot (no exec).
-	if pr, ok := prstatus.SnapshotBranchPR(repoDir, branch); ok {
+	registerBranchPRFn(repoDir, branch)
+	if pr, ok := snapshotBranchPRFn(repoDir, branch); ok {
 		url := pr.URL
 		num := pr.Number
 		w.PrURL = &url
@@ -932,10 +948,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 			// Repo-relative display prefix per web slot (needs GitRoot for the
 			// cross-repo label); the raw absolute roots stay server-side.
 			sd.windows[j].WebPaths = deriveWebPaths(&sd.windows[j])
-			// PR-from-branch derivation (260705-dmex): register the window's
-			// branch with the prstatus refresher and join its last-good PR from
-			// the in-memory snapshot — no subprocess on this hot path.
-			enrichWindowPR(&sd.windows[j])
+			enrichWindowPR(&sd.windows[j], fab.PRURL)
 		}
 
 		// Two-tier active-window derivation. The user-facing session name IS

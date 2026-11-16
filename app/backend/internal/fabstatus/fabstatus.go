@@ -3,6 +3,7 @@ package fabstatus
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -25,6 +26,7 @@ type State struct {
 	Change       string
 	Stage        string
 	DisplayState string
+	PRURL        string
 }
 
 // Memo is the per-call derivation memo, shared by the sessions fetch and the
@@ -119,11 +121,12 @@ func parseFabStatusLink(link string) State {
 	if err != nil {
 		return State{}
 	}
-	stage, displayState := fabDisplayStage(parseProgressStates(data))
+	states, prURL := parseFabStatus(data)
+	stage, displayState := fabDisplayStage(states)
 	if stage == "" {
 		return State{}
 	}
-	return State{Change: change, Stage: stage, DisplayState: displayState}
+	return State{Change: change, Stage: stage, DisplayState: displayState, PRURL: prURL}
 }
 
 // stageState is one ordered entry of a .status.yaml progress: mapping. Order
@@ -134,36 +137,43 @@ type stageState struct {
 	state string
 }
 
-// parseProgressStates extracts the ordered stage→state pairs from a
-// .status.yaml document's top-level progress: mapping. Anything else (corrupt
-// YAML, progress absent or not a mapping, an empty mapping) yields nil.
-func parseProgressStates(data []byte) []stageState {
+func parseFabStatus(data []byte) (states []stageState, prURL string) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil
+		return nil, ""
 	}
 	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
-		return nil
+		return nil, ""
 	}
 	root := doc.Content[0]
 	for i := 0; i+1 < len(root.Content); i += 2 {
-		if root.Content[i].Value != "progress" {
-			continue
+		key, value := root.Content[i], root.Content[i+1]
+		switch key.Value {
+		case "progress":
+			states = nil
+			if value.Kind != yaml.MappingNode {
+				continue
+			}
+			for j := 0; j+1 < len(value.Content); j += 2 {
+				states = append(states, stageState{stage: value.Content[j].Value, state: value.Content[j+1].Value})
+			}
+		case "prs":
+			prURL = ""
+			if value.Kind != yaml.SequenceNode {
+				continue
+			}
+			for _, item := range value.Content {
+				if item.Kind != yaml.ScalarNode {
+					prURL = ""
+					break
+				}
+				if candidate := strings.TrimSpace(item.Value); candidate != "" {
+					prURL = candidate
+				}
+			}
 		}
-		mapping := root.Content[i+1]
-		if mapping.Kind != yaml.MappingNode {
-			return nil
-		}
-		var states []stageState
-		for j := 0; j+1 < len(mapping.Content); j += 2 {
-			states = append(states, stageState{
-				stage: mapping.Content[j].Value,
-				state: mapping.Content[j+1].Value,
-			})
-		}
-		return states
 	}
-	return nil
+	return states, prURL
 }
 
 // fabDisplayStage derives (stage, displayState) from the ordered progress
