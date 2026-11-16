@@ -317,6 +317,19 @@ describe("WatchedTable", () => {
       expect(mockedGetOperatorNotes).not.toHaveBeenCalled();
     });
 
+    it("shows escalation notes legibly on the item row", () => {
+      renderTable([
+        itemRow(
+          noted({
+            latestNote: { at: NOW - 60, by: "run", text: "escalated: restack needed: PR #41" },
+            noteCount: 1,
+          }),
+        ),
+      ], { server: "srv" });
+      const cell = screen.getByTestId("tracked-item-row").querySelectorAll("td")[4];
+      expect(cell).toHaveTextContent("escalated: restack needed: PR #41 · run · 1m ago");
+    });
+
     it("expanding fetches and lists every note oldest to newest, whitespace preserved", async () => {
       mockedGetOperatorNotes.mockResolvedValue(NOTES);
       renderTable([itemRow(noted())], { server: "srv" });

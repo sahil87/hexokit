@@ -7,7 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"rk/internal/autopilot"
 	"rk/internal/operator"
+	"rk/internal/tmux"
 )
 
 // TestMain doubles as the run window's wrapper binary for the integration
@@ -49,10 +51,39 @@ func helperRunExec(args []string) int {
 		}
 	}
 	opts.Stdout, opts.Stderr = os.Stdout, os.Stderr
-	res, err := Exec(context.Background(), opts)
+	ctx := context.Background()
+	statePath, err := statePathFn(ctx, opts.Server)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "run-exec:", err)
+		return 1
+	}
+	env := autopilot.Env{Server: opts.Server, StatePath: statePath, Run: autopilot.ExecRunner{}, By: operator.ByRun, Panes: helperPanes{server: opts.Server}}
+	opts.Pass = func(ctx context.Context) (*PassRecord, error) {
+		step, stepErr := autopilot.Step(ctx, env)
+		pass := &PassRecord{Escalations: []string{}}
+		if step != nil {
+			pass.Busy, pass.Actions = step.Busy, len(step.Actions)
+			for _, escalation := range step.Escalations {
+				pass.Escalations = append(pass.Escalations, escalation.Item)
+			}
+		}
+		return pass, stepErr
+	}
+	opts.OwnedIDs = func(context.Context) (map[string]bool, error) { return autopilot.OwnedIDs(statePath) }
+	res, err := Exec(ctx, opts)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "run-exec:", strings.TrimSpace(err.Error()))
 		return 1
 	}
 	return res.ExitCode
+}
+
+type helperPanes struct{ server string }
+
+func (p helperPanes) Snapshot(ctx context.Context) (map[string]operator.PaneInfo, error) {
+	return operator.SnapshotPanes(ctx, p.server)
+}
+
+func (p helperPanes) PID(ctx context.Context, pane string) (int, error) {
+	return tmux.PanePIDCtx(ctx, pane, p.server)
 }

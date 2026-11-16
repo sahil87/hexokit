@@ -57,18 +57,21 @@ func Stop(ctx context.Context, env Env) (*StepResult, error) {
 func stop(ctx context.Context, env Env) (*StepResult, error) {
 	e := newEngine(env)
 	var paused []string
-	if err := e.mutate(func(st *operator.State) error {
+	if err := e.mutateEngine(func(st *engineState) error {
 		unfinished := false
-		for i := range st.Tracked {
-			it := &st.Tracked[i]
-			if isSeqPR(*it) && !operator.ItemDone(*it) {
-				it.Scope[scopeHalted] = true
-				unfinished = true
-			}
-			if operator.IsQueueItem(st, *it) && operator.ScopeString(it.Scope, "pane") == "" && !operator.ItemDone(*it) && !it.Paused {
+		for i := range st.Queue {
+			it := &st.Queue[i]
+			if it.Pane == "" && it.DoneAt == nil && !it.Paused {
 				it.Paused = true
 				it.UpdatedAt = operator.NowRFC3339()
 				paused = append(paused, it.ID)
+			}
+		}
+		for i := range st.PRs {
+			it := &st.PRs[i]
+			if it.DoneAt == nil {
+				it.Halted = true
+				unfinished = true
 			}
 		}
 		if len(paused) == 0 && !unfinished {
@@ -133,7 +136,7 @@ func Status(ctx context.Context, env Env) (StatusResult, error) {
 	res := StatusResult{Items: []StatusItem{}}
 	var queue []operator.TrackedItem
 	for _, it := range st.Tracked {
-		if operator.IsQueueItem(st, it) {
+		if isQueueItem(st, it) {
 			queue = append(queue, it)
 		}
 	}

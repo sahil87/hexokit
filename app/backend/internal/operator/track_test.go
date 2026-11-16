@@ -299,22 +299,18 @@ func TestAdd_PanePIDLookupFailureStoresNull(t *testing.T) {
 	}
 }
 
-func TestAdd_ModeSetsMergeMode(t *testing.T) {
+func TestAdd_AcceptsAnyScopeKey(t *testing.T) {
 	path := seededState(t, "")
 	stubSeams(t)
 
-	res := mustAdd(t, path, AddSpec{ID: "m1", Kind: KindPane, Mode: MergeModeMergeAuto})
-	if res.MergeMode != MergeModeMergeAuto {
-		t.Errorf("result mode = %q", res.MergeMode)
-	}
-	if got := scopeString(item(t, path, "m1").Scope, "merge_mode"); got != MergeModeMergeAuto {
+	mustAdd(t, path, AddSpec{ID: "m1", Kind: KindPane,
+		Scope: map[string]interface{}{"merge_mode": MergeModeMergeAuto, "custom": "value"}})
+	it := item(t, path, "m1")
+	if got := scopeString(it.Scope, "merge_mode"); got != MergeModeMergeAuto {
 		t.Errorf("scope.merge_mode = %q", got)
 	}
-
-	// A chain without --mode keeps merge_mode null: no config is consulted.
-	res = mustAdd(t, path, AddSpec{ID: "m2", Kind: KindPane, DependsOn: []string{"m1"}})
-	if res.MergeMode != "" || item(t, path, "m2").Scope["merge_mode"] != nil {
-		t.Errorf("chained add without --mode set merge_mode: %v", item(t, path, "m2").Scope["merge_mode"])
+	if it.Scope["custom"] != "value" {
+		t.Errorf("scope.custom = %v", it.Scope["custom"])
 	}
 }
 
@@ -368,8 +364,6 @@ func TestAdd_ValidationErrors(t *testing.T) {
 		{"note with unknown author", "", AddSpec{ID: "x", Kind: KindNote, Text: "hi", TextSet: true, By: "robot"}, "invalid --by", true},
 		{"text on non-note kind", "", AddSpec{ID: "x", Kind: KindTask, Text: "hi", TextSet: true}, "--text applies only to kind note", true},
 		{"pane sugar on non-pane kind", "", AddSpec{ID: "x", Kind: KindTask, PaneSugar: map[string]string{"pane": "%3"}}, "--pane applies only to kind pane", true},
-		{"mode on non-pane kind", "", AddSpec{ID: "x", Kind: KindTask, Mode: MergeModeMergeAuto}, "--mode applies only to kind pane", true},
-		{"invalid mode", "", AddSpec{ID: "x", Kind: KindPane, Mode: "yolo"}, `unknown --mode "yolo"`, true},
 		{"empty change sugar rejected", "", AddSpec{ID: "x", Kind: KindPane, PaneSugar: map[string]string{"pane": "%3", "change": ""}}, "--change requires a non-empty change id", true},
 		{"retired kind fab-change is unknown at add", "", AddSpec{ID: "x", Kind: "fab-change"}, `unknown --kind "fab-change" (valid: pane, github-pr, linear, slack, shell, task, note)`, true},
 		{"invalid stage sugar", "", AddSpec{ID: "x", Kind: KindPane, PaneSugar: map[string]string{"stage": "deploy"}}, "invalid --stage", true},
@@ -524,67 +518,11 @@ func ownershipState(t *testing.T) string {
 	t.Helper()
 	path := seededState(t, seedShell)
 	stubSeams(t)
-	mustAdd(t, path, AddSpec{ID: "q1", Kind: KindPane, Force: true, Scope: map[string]interface{}{"queue": "q", "merge_mode": "cherry-pick-ladder", "repo": "/r", "task": "t", "bare": false}})
+	mustAdd(t, path, AddSpec{ID: "q1", Kind: KindPane, Scope: map[string]interface{}{"queue": "q", "merge_mode": "cherry-pick-ladder", "repo": "/r", "task": "t", "bare": false}})
 	mustAdd(t, path, AddSpec{ID: "l1", Kind: KindPane})
 	mustAdd(t, path, AddSpec{ID: "l2", Kind: KindPane, DependsOn: []string{"l1"}})
 	mustAdd(t, path, AddSpec{ID: "hand", Kind: KindPane, Scope: map[string]interface{}{"pane": "%1"}})
 	return path
-}
-
-func TestUpdate_RefusesFieldsTheCallerDoesNotOwn(t *testing.T) {
-	tests := []struct {
-		name  string
-		id    string
-		scope map[string]interface{}
-		want  string
-	}{
-		{"pr changed", "pr-done", map[string]interface{}{"pr": float64(13)}, "scope.pr is identity"},
-		{"repo changed", "pr-done", map[string]interface{}{"repo": "/y"}, "scope.repo is identity"},
-		{"identity cleared", "pr-done", map[string]interface{}{"pr": nil}, "scope.pr is identity"},
-		{"queue repo changed", "q1", map[string]interface{}{"repo": "/other"}, "scope.repo is identity"},
-		{"queue pane", "q1", map[string]interface{}{"pane": "%9"}, "scope.pane on a queue item is owned by autopilot"},
-		{"queue session", "q1", map[string]interface{}{"session": "s"}, "scope.session on a queue item"},
-		{"queue branch", "q1", map[string]interface{}{"branch": "b"}, "scope.branch on a queue item"},
-		{"legacy queue pane", "l2", map[string]interface{}{"pane": "%9"}, "scope.pane on a queue item"},
-		{"legacy chain head pane", "l1", map[string]interface{}{"pane": "%9"}, "scope.pane on a queue item"},
-		{"spawning", "q1", map[string]interface{}{"spawning": nil}, "scope.spawning is owned by autopilot"},
-		{"armed", "pr-done", map[string]interface{}{"armed": true}, "scope.armed is owned by autopilot"},
-		{"halted", "pr-done", map[string]interface{}{"halted": false}, "scope.halted is owned by autopilot"},
-		{"respawned", "q1", map[string]interface{}{"respawned": false}, "scope.respawned is owned by autopilot"},
-		{"merge_mode", "q1", map[string]interface{}{"merge_mode": "merge-auto"}, "scope.merge_mode is set once by track add --mode"},
-		{"deferred", "pr-done", map[string]interface{}{"deferred": false}, "scope.deferred is owned by autopilot"},
-		{"direct", "pr-done", map[string]interface{}{"direct": true}, "scope.direct is owned by autopilot"},
-		{"item", "pr-done", map[string]interface{}{"item": "other"}, "scope.item is owned by autopilot"},
-		{"skipped", "q1", map[string]interface{}{"skipped": false}, "scope.skipped is owned by autopilot"},
-		{"stall_seen", "pr-done", map[string]interface{}{"stall_seen": "x"}, "scope.stall_seen is owned by autopilot"},
-		{"url", "pr-done", map[string]interface{}{"url": "https://x"}, "scope.url is owned by autopilot"},
-		{"stage", "q1", map[string]interface{}{"stage": "apply"}, "scope.stage is owned by rk operator check"},
-		{"agent", "q1", map[string]interface{}{"agent": "claude"}, "scope.agent is owned by rk operator check"},
-		{"pane_pid", "hand", map[string]interface{}{"pane_pid": 7}, "scope.pane_pid is owned by rk operator check"},
-		{"unknown key", "hand", map[string]interface{}{"foo": 1}, "scope.foo is not a key rk defines; keep your own facts in scope.memo"},
-		{"task on a queue item", "q1", map[string]interface{}{"task": "other"}, "scope.task is identity stamped when the item was queued"},
-		{"bare on a queue item", "q1", map[string]interface{}{"bare": true}, "scope.bare is identity stamped when the item was queued"},
-		{"queue", "q1", map[string]interface{}{"queue": "z"}, "scope.queue is owned by autopilot"},
-		{"merge_seq", "pr-done", map[string]interface{}{"merge_seq": 1}, "scope.merge_seq is owned by autopilot"},
-		{"escalated", "q1", map[string]interface{}{"escalated": map[string]interface{}{}}, "scope.escalated is owned by autopilot"},
-		{"refusal wins over allowed key", "q1", map[string]interface{}{"stop_stage": "apply", "pane": "%9"}, "scope.pane on a queue item"},
-		{"refusal wins over memo", "hand", map[string]interface{}{"memo": map[string]interface{}{"a": 1}, "foo": 1}, "scope.foo is not a key"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			path := ownershipState(t)
-			before, _ := os.ReadFile(path)
-			err := Update(context.Background(), path, UpdateSpec{ID: tc.id, Scope: tc.scope})
-			wantErr(t, err, tc.want)
-			wantErr(t, err, "--force")
-			if !isInvalid(err) {
-				t.Errorf("err = %T, want an InvalidError (usage class)", err)
-			}
-			if after, _ := os.ReadFile(path); string(before) != string(after) {
-				t.Error("state file changed on a refused update")
-			}
-		})
-	}
 }
 
 func TestUpdate_AllowsFieldsTheCallerOwns(t *testing.T) {
@@ -609,28 +547,29 @@ func TestUpdate_AllowsFieldsTheCallerOwns(t *testing.T) {
 	if err := Update(ctx, path, UpdateSpec{ID: "q1", DependsOn: &deps}); err != nil {
 		t.Errorf("control field depends_on refused: %v", err)
 	}
-	// An identity key that is still empty may be set once.
-	if err := Update(ctx, path, UpdateSpec{ID: "hand", Scope: map[string]interface{}{"repo": "/h"}}); err != nil {
-		t.Errorf("setting an empty identity key refused: %v", err)
+	for _, repo := range []string{"/h", "/h2"} {
+		if err := Update(ctx, path, UpdateSpec{ID: "hand", Scope: map[string]interface{}{"repo": repo}}); err != nil {
+			t.Errorf("scope.repo update refused: %v", err)
+		}
 	}
-	if err := Update(ctx, path, UpdateSpec{ID: "hand", Scope: map[string]interface{}{"repo": "/h2"}}); err == nil {
-		t.Error("changing a set identity key succeeded")
+	if got := scopeString(item(t, path, "hand").Scope, "repo"); got != "/h2" {
+		t.Errorf("scope.repo = %q", got)
 	}
 }
 
-func TestUpdate_ForceBypassesTheRefusals(t *testing.T) {
+func TestUpdate_MergesArbitraryScopeKeys(t *testing.T) {
 	path := ownershipState(t)
-	if err := Update(context.Background(), path, UpdateSpec{ID: "q1", Force: true, Scope: map[string]interface{}{"spawning": "2026-11-16T00:00:00Z"}}); err != nil {
-		t.Fatalf("seed spawning: %v", err)
+	if err := Update(context.Background(), path, UpdateSpec{ID: "q1", Scope: map[string]interface{}{
+		"spawning": "2026-11-16T00:00:00Z", "foo": float64(1),
+	}}); err != nil {
+		t.Fatal(err)
 	}
-	if err := Update(context.Background(), path, UpdateSpec{ID: "q1", Force: true, Scope: map[string]interface{}{"spawning": nil}}); err != nil {
-		t.Fatalf("--force: %v", err)
+	it := item(t, path, "q1")
+	if fmt.Sprint(it.Scope["foo"]) != "1" || it.Scope["spawning"] == nil {
+		t.Fatalf("scope = %#v", it.Scope)
 	}
-	if v, ok := item(t, path, "q1").Scope["spawning"]; !ok || v != nil {
-		t.Errorf("scope.spawning = %v (present %v), want null", v, ok)
-	}
-	if err := Update(context.Background(), path, UpdateSpec{ID: "pr-done", Force: true, Scope: map[string]interface{}{"pr": float64(6)}}); err != nil {
-		t.Fatalf("--force identity: %v", err)
+	if err := Update(context.Background(), path, UpdateSpec{ID: "pr-done", Scope: map[string]interface{}{"pr": float64(6)}}); err != nil {
+		t.Fatal(err)
 	}
 	if pr := item(t, path, "pr-done").Scope["pr"]; fmt.Sprint(pr) != "6" {
 		t.Errorf("scope.pr = %v", pr)
@@ -677,8 +616,8 @@ branch_map:
   ab12: {branch: 260909-ab12-x, repo: /home/u/foo}
 `
 	path := seededState(t, seed)
-	wantErr(t, Remove(path, "zz", false), "no tracked item zz")
-	if err := Remove(path, "ab12", false); err != nil {
+	wantErr(t, Remove(path, "zz"), "no tracked item zz")
+	if err := Remove(path, "ab12"); err != nil {
 		t.Fatal(err)
 	}
 	st := mustLoad(t, path)
@@ -720,13 +659,13 @@ func TestRemove_DoneDependencyDropsSatisfiedEdges(t *testing.T) {
     updated_at: "2026-09-09T00:00:00Z"
 `
 	path := seededState(t, seed)
-	if err := Remove(path, "pr-1", false); err != nil {
+	if err := Remove(path, "pr-1"); err != nil {
 		t.Fatal(err)
 	}
 	if got := item(t, path, "n34").DependsOn; !reflect.DeepEqual(got, []string{"other"}) {
 		t.Errorf("n34.depends_on = %v after removing the done dep, want [other]", got)
 	}
-	if err := Remove(path, "other", false); err != nil {
+	if err := Remove(path, "other"); err != nil {
 		t.Fatal(err)
 	}
 	if got := item(t, path, "n34").DependsOn; !reflect.DeepEqual(got, []string{"other"}) {

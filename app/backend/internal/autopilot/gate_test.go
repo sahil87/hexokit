@@ -23,7 +23,8 @@ func TestDerivedStatePrecedence(t *testing.T) {
 	if got := h.stateOf(h.item("b")); got != QueueHeld {
 		t.Errorf("b = %s, want held", got)
 	}
-	if err := operator.Pause(h.env.StatePath, "a"); err != nil {
+	e := newEngine(h.env)
+	if err := e.patch("a", func(it *operator.TrackedItem) { it.Paused = true }); err != nil {
 		t.Fatal(err)
 	}
 	if got := h.stateOf(h.item("a")); got != QueuePaused {
@@ -132,18 +133,18 @@ func TestGateDependencyOnlyInBranchMapPasses(t *testing.T) {
 	h.queue("", Entry{ID: "b", Repo: foo.Dir, Task: "b"})
 	if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
 		st.BranchMap["gone"] = operator.BranchMapEntry{Branch: "gone-branch", Repo: foo.Dir}
-		st.Tracked[0].DependsOn = one
 		return nil
 	}); err != nil {
+		t.Fatal(err)
+	}
+	e := newEngine(h.env)
+	if err := e.patch("b", func(it *operator.TrackedItem) { it.DependsOn = one }); err != nil {
 		t.Fatal(err)
 	}
 	if ok, why := gateOf(t, h, "b"); !ok {
 		t.Fatalf("a dep removed on its own done and kept in branch_map is held by %q", why)
 	}
-	if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
-		st.Tracked[0].DependsOn = []string{"unknown"}
-		return nil
-	}); err != nil {
+	if err := e.patch("b", func(it *operator.TrackedItem) { it.DependsOn = []string{"unknown"} }); err != nil {
 		t.Fatal(err)
 	}
 	if ok, why := gateOf(t, h, "b"); ok || why != "unknown" {
@@ -193,18 +194,12 @@ func TestObserveDoneFabItemFromPaneSnapshot(t *testing.T) {
 	foo := newRepo(t, "foo")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Change: "a"})
 	h.attachBranch("a", "a-branch")
-	if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
-		st.Tracked[0].Scope["pane"] = "%5"
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	h.panes.panes["%5"] = operator.PaneInfo{PaneID: "%5", Change: "260101-a-x", Stage: "hydrate", DisplayState: "done"}
+	h.panes.panes["%900"] = operator.PaneInfo{PaneID: "%900", Change: "260101-a-x", Stage: "hydrate", DisplayState: "done"}
 	h.step()
 	if operator.ItemDone(h.item("a")) {
 		t.Fatal("hydrate done is mid-pipeline for a change with no stop_stage")
 	}
-	h.panes.panes["%5"] = operator.PaneInfo{PaneID: "%5", Change: "260101-a-x", Stage: "ship", DisplayState: "done"}
+	h.panes.panes["%900"] = operator.PaneInfo{PaneID: "%900", Change: "260101-a-x", Stage: "ship", DisplayState: "done"}
 	h.step()
 	if !operator.ItemDone(h.item("a")) {
 		t.Fatal("ship done must persist done_at")

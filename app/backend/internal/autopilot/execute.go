@@ -34,6 +34,8 @@ func (e *engine) execute(ctx context.Context, f *facts, ds []Decision) error {
 			err = e.skip(d)
 		case ActionEscalate:
 			err = e.escalateRow(d)
+		case ActionReProject:
+			err = e.reProject(d)
 		case ActionTrackPR:
 			err = e.trackPR(ctx, d)
 		case ActionRecordMerged:
@@ -93,20 +95,29 @@ func (e *engine) reread(d Decision) (*operator.State, operator.TrackedItem, bool
 // checking the item still carries the fingerprint observe saw: the write and
 // the re-read are one step.
 func (e *engine) guarded(id, fp string, fn func(*operator.TrackedItem)) error {
-	return e.mutate(func(st *operator.State) error {
-		i := operator.IndexOf(st.Tracked, id)
+	return e.mutateEngine(func(st *engineState) error {
+		view, _, err := engineView(e.env.StatePath)
+		if err != nil {
+			return err
+		}
+		i := operator.IndexOf(view.Tracked, id)
 		if i < 0 {
 			return fmt.Errorf("item %s is no longer tracked", id)
 		}
-		if fp != "" && fingerprint(st.Tracked[i]) != fp {
+		it := view.Tracked[i]
+		if fp != "" && fingerprint(it) != fp {
 			return errItemChanged
 		}
-		it := &st.Tracked[i]
 		if it.Scope == nil {
 			it.Scope = map[string]interface{}{}
 		}
-		fn(it)
+		fn(&it)
 		it.UpdatedAt = operator.NowRFC3339()
+		item, ok := st.find(id)
+		if !ok {
+			return fmt.Errorf("item %s is no longer in the engine state", id)
+		}
+		applyEngineItem(item, it, item.Projected)
 		return nil
 	})
 }
@@ -156,6 +167,18 @@ func (e *engine) escalateRow(d Decision) error {
 			Escalation{Item: d.Item, Reason: "escalation note not written: " + err.Error()})
 	default:
 		e.res.Escalations = append(e.res.Escalations, Escalation{Item: d.Item, Reason: d.Reason})
+	}
+	return nil
+}
+
+func (e *engine) reProject(d Decision) error {
+	_, it, ok := e.reread(d)
+	if !ok {
+		return nil
+	}
+	if err := e.upsertProjection(it); err != nil {
+		e.escalate(it.ID, err.Error())
+		return err
 	}
 	return nil
 }

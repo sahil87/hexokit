@@ -441,28 +441,28 @@ func (e *engine) attach(ctx context.Context, it operator.TrackedItem, repo strin
 	} else {
 		panePID = pid
 	}
-	key := operator.ScopeString(it.Scope, "change")
-	if key == "" {
-		key = it.ID
+	if res.Branch != "" && safeBranch(res.Branch) == "" {
+		return fmt.Errorf("spawn returned invalid branch %q", res.Branch)
 	}
-	return e.mutate(func(st *operator.State) error {
-		i := operator.IndexOf(st.Tracked, it.ID)
-		if i < 0 {
+	var bound operator.TrackedItem
+	if err := e.mutateEngine(func(st *engineState) error {
+		item, ok := st.find(it.ID)
+		if !ok {
 			return errItemRemoved
 		}
-		cur := &st.Tracked[i]
-		if cur.Scope == nil {
-			cur.Scope = map[string]interface{}{}
-		}
-		cur.Scope["pane"], cur.Scope["pane_pid"], cur.Scope["session"] = res.PaneID, panePID, session
-		delete(cur.Scope, scopeSpawning)
+		item.Pane, item.Session, item.Worktree, item.Spawning = res.PaneID, session, res.WorktreePath, ""
 		if res.Branch != "" {
-			cur.Scope["branch"] = res.Branch
-			st.BranchMap[key] = operator.BranchMapEntry{Branch: res.Branch, Repo: repo}
+			item.Branch = res.Branch
 		}
-		cur.UpdatedAt = operator.NowRFC3339()
+		item.UpdatedAt = operator.NowRFC3339()
+		bound = item.tracked()
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	bound.Scope["repo"] = repo
+	bound.Scope["pane_pid"] = panePID
+	return e.upsertProjection(bound)
 }
 
 // respawnItem is the executor of row Q4: a spawned item whose pane is gone

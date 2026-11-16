@@ -1,25 +1,17 @@
 // Package autopilot is the operator's deterministic queue engine: the git, gh
-// and wt choreography behind `rk operator autopilot`. It owns no state of its
-// own. A queue is N `pane` tracked items chained by depends_on, a merge
-// sequence is a chain of `github-pr` items, and every verb re-derives what to
-// do from the operator state file, acts, and writes back under the store's
-// lock. The lock is never held across a subprocess, and every write merges by
-// item id, so an external writer's change between a load and a write survives.
+// and wt choreography behind `rk operator autopilot`. Durable intent lives in
+// the per-server engine file; the tracked ledger carries projections and check
+// facts only. Every lock-holding verb runs under one pass lock and writes the
+// engine file atomically before returning.
 //
-// step, merge and stop are single-writer: each takes the server's pass lock
-// for the whole pass and returns busy when another pass holds it, so no
-// engine state needs a claim or a compare-and-set.
+// A pass is observe → derive → decide → execute. Observe reads engine state,
+// projections, and external facts; derive computes a status per item; decide
+// picks at most one rule-table action per item; executors apply those actions
+// in engine order. Armed state, repo auto-merge, halt cones, and recovery heads
+// are derived each pass rather than stored.
 //
-// A pass is observe → derive → decide → execute. Observe reads the external
-// facts of the items that can act; derive turns the ledger and the facts into
-// a status per item (status.go); decide is a pure function that picks at most
-// one row of the rule table per item (rules.go); execute runs one typed
-// executor per chosen action in ledger order (execute.go, spawn.go). The
-// ledger stores only intent the engine cannot derive; armed, repo auto-merge,
-// the halted cone and the stall head are derived each pass, never stored.
-//
-// The engine never notifies: a failure or halt is an Escalation in the result
-// plus a note on the item, and the caller turns it into a notification.
+// Escalations are reported in the result, written as by: run notes on ledger
+// projections, and sent through Env.Notify once per engine-file dedupe key.
 package autopilot
 
 import (
@@ -170,10 +162,12 @@ type Env struct {
 	// Session resolves the tmux session a repo's windows land in (the
 	// role-aware default `rk tab new` uses).
 	Session func(ctx context.Context, repo string) (string, error)
-	// By is the note author: operator.ByRun or operator.ByChat.
+	// By is the caller identity; escalation notes are always written by run.
 	By     string
 	DryRun bool
 	Now    func() time.Time
+	// Notify delivers an escalation best-effort. Nil disables push delivery.
+	Notify func(ctx context.Context, title, body string)
 }
 
 func (e Env) now() time.Time {
@@ -281,23 +275,9 @@ func (e *engine) escalateAs(id, key, reason string) {
 		return
 	}
 	e.res.Escalations = append(e.res.Escalations, Escalation{Item: id, Reason: reason})
-	if id != "" {
-		if err := e.recordEscalation(id, key, reason, ""); err != nil {
-			e.res.Escalations = append(e.res.Escalations, Escalation{Item: id, Reason: "escalation note not written: " + err.Error()})
-		}
+	if err := e.recordEscalation(id, key, reason, ""); err != nil {
+		e.res.Escalations = append(e.res.Escalations, Escalation{Item: id, Reason: "escalation note not written: " + err.Error()})
 	}
-}
-
-func (e *engine) load(ids ...string) (*operator.State, error) {
-	st, err := operator.Load(e.env.StatePath)
-	if err != nil {
-		id := ""
-		if len(ids) > 0 {
-			id = ids[0]
-		}
-		e.escalate(id, "state load failed: "+err.Error())
-	}
-	return st, err
 }
 
 // mutate applies fn under the store's lock. The lock covers only fn, which is
@@ -312,13 +292,15 @@ func (e *engine) mutate(fn func(*operator.State) error) error {
 // patch applies fn to the item with id, re-read under the lock. An item
 // removed since the load is an error: no advancing action may be acknowledged.
 func (e *engine) patch(id string, fn func(*operator.TrackedItem)) error {
-	return e.mutate(func(st *operator.State) error {
-		i := operator.IndexOf(st.Tracked, id)
-		if i < 0 {
+	return e.mutateEngine(func(st *engineState) error {
+		item, ok := st.find(id)
+		if !ok {
 			return fmt.Errorf("item %s is no longer tracked", id)
 		}
-		fn(&st.Tracked[i])
-		st.Tracked[i].UpdatedAt = operator.NowRFC3339()
+		it := item.tracked()
+		fn(&it)
+		it.UpdatedAt = operator.NowRFC3339()
+		applyEngineItem(item, it, item.Projected)
 		return nil
 	})
 }
@@ -340,35 +322,74 @@ func escalationKey(reason string) string {
 	return reason
 }
 
-// recordEscalation stores the key's first-seen time in scope.escalated and, on
-// that first sighting only, appends a human note.
+// recordEscalation stores the engine-file dedupe key first. Only that first
+// sighting writes a run note and sends a notification; a missing projection
+// after a successful earlier projection is deliberately not recreated.
 func (e *engine) recordEscalation(id, key, reason, fp string) error {
-	by := e.env.by()
-	return e.mutate(func(st *operator.State) error {
-		i := operator.IndexOf(st.Tracked, id)
-		if i < 0 {
-			return operator.ErrNoWrite
+	if id == "" {
+		e.notifyEscalation(id, reason)
+		return nil
+	}
+	if fp != "" {
+		st, err := e.load(id)
+		if err != nil {
+			return err
 		}
-		it := &st.Tracked[i]
-		if fp != "" && fingerprint(*it) != fp {
+		i := operator.IndexOf(st.Tracked, id)
+		if i < 0 || fingerprint(st.Tracked[i]) != fp {
 			return errItemChanged
 		}
-		if escalatedSeen(*it, key) {
-			return operator.ErrNoWrite
+	}
+	first := false
+	var tracked operator.TrackedItem
+	if err := e.mutateEngine(func(st *engineState) error {
+		item, ok := st.find(id)
+		if !ok {
+			return fmt.Errorf("item %s is no longer in the engine state", id)
 		}
-		seen := map[string]interface{}{}
-		if cur, ok := it.Scope[scopeEscalated].(map[string]interface{}); ok {
-			for k, v := range cur {
-				seen[k] = v
-			}
+		tracked = item.tracked()
+		if escalatedSeen(tracked, key) {
+			return nil
 		}
-		seen[key] = operator.NowRFC3339()
-		if it.Scope == nil {
-			it.Scope = map[string]interface{}{}
+		if item.Escalated == nil {
+			item.Escalated = map[string]interface{}{}
 		}
-		it.Scope[scopeEscalated] = seen
-		return operator.AppendNote(it, by, escalationKey("escalated: "+reason))
-	})
+		item.Escalated[key] = operator.NowRFC3339()
+		first = true
+		return nil
+	}); err != nil {
+		return err
+	}
+	if !first {
+		return nil
+	}
+	var noteErr error
+	_, present, err := e.projection(id)
+	if err != nil {
+		noteErr = err
+	} else if !present && scopeBool(tracked, scopeProjected) {
+		// A user removed the projection: notify only and keep managing the engine item.
+	} else {
+		if !present {
+			noteErr = e.upsertProjection(tracked)
+		}
+		if noteErr == nil {
+			noteErr = operator.AddNote(e.env.StatePath, id, operator.ByRun, escalationKey("escalated: "+reason))
+		}
+	}
+	e.notifyEscalation(id, reason)
+	return noteErr
+}
+
+func (e *engine) notifyEscalation(id, reason string) {
+	if e.env.Notify == nil || e.env.DryRun {
+		return
+	}
+	title := id
+	if title == "" {
+		title = "autopilot"
+	}
+	e.env.Notify(context.Background(), title, reason)
 }
 
 func (e *engine) run(ctx context.Context, dir string, argv ...string) (string, error) {

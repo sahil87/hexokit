@@ -78,7 +78,7 @@ func TestRenderedBriefCommandShapesAcceptServerFlag(t *testing.T) {
 		"mux capture", "mux send", "mux inventory",
 		"operator track add", "operator track update", "operator track rm", "operator track list",
 		"operator track note", "operator track pause", "operator track observe",
-		"operator brief", "tab new", "riff",
+		"operator brief", "operator autopilot queue", "operator autopilot step", "operator autopilot status",
 	} {
 		if !slices.Contains(shapes, want) {
 			t.Errorf("the rendered brief carries no %q command with -L", want)

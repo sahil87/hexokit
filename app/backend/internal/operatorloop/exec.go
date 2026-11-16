@@ -68,6 +68,10 @@ type ExecOptions struct {
 	Ceiling time.Duration
 	// Notify is the fail-silent push on a failed run; nil sends nothing.
 	Notify func(ctx context.Context, title, body string)
+	// Pass runs the deterministic engine before any launcher.
+	Pass func(ctx context.Context) (*PassRecord, error)
+	// OwnedIDs identifies ledger ids whose pane conditions the engine handles.
+	OwnedIDs func(ctx context.Context) (map[string]bool, error)
 }
 
 // ExecResult is what the wrapper recorded.
@@ -101,7 +105,21 @@ func Exec(ctx context.Context, opts ExecOptions) (ExecResult, error) {
 		return ExecResult{}, fmt.Errorf("recording run start: %w", err)
 	}
 
-	exit, outcome := runLauncher(ctx, opts, briefPath, logPath)
+	exit, outcome := 0, ""
+	launch := true
+	if opts.Pass != nil {
+		var actions int
+		launch, actions, err = mechanicalPhase(ctx, opts, recPath, briefPath)
+		if err != nil {
+			return ExecResult{}, err
+		}
+		if !launch {
+			outcome = fmt.Sprintf("mechanical · %d actions", actions)
+		}
+	}
+	if launch {
+		exit, outcome = runLauncher(ctx, opts, briefPath, logPath)
+	}
 	res := ExecResult{ExitCode: exit, Outcome: outcome, Failed: exit != 0 || outcome == ""}
 
 	rec, _ := ReadRecord(recPath)
@@ -116,6 +134,59 @@ func Exec(ctx context.Context, opts ExecOptions) (ExecResult, error) {
 		return res, fmt.Errorf("recording run end: %w", err)
 	}
 	return res, nil
+}
+
+func mechanicalPhase(ctx context.Context, opts ExecOptions, recPath, briefPath string) (launch bool, actions int, err error) {
+	rec, err := ReadRecord(recPath)
+	if err != nil {
+		return false, 0, err
+	}
+	pass, passErr := opts.Pass(ctx)
+	if pass == nil {
+		pass = &PassRecord{}
+	}
+	if pass.Escalations == nil {
+		pass.Escalations = []string{}
+	}
+	if passErr != nil {
+		pass.Error = passErr.Error()
+	}
+	actions = pass.Actions
+	changes := rec.Changes
+	if len(changes) == 0 {
+		for _, id := range rec.Changed {
+			changes = append(changes, ChangeRecord{ID: id})
+		}
+	}
+	owned := map[string]bool{}
+	if opts.OwnedIDs != nil {
+		ids, err := opts.OwnedIDs(ctx)
+		if err != nil {
+			pass.Error = strings.TrimSpace(pass.Error + "; " + err.Error())
+		} else {
+			owned = ids
+		}
+	}
+	statePath, err := statePathFn(ctx, opts.Server)
+	if err != nil {
+		return false, 0, err
+	}
+	state, err := loadStateFn(statePath)
+	if err != nil {
+		return false, 0, err
+	}
+	judgment := judgmentSet(changes, pass, state, owned)
+	if err := UpdateRecord(recPath, func(r *Record) { r.Pass = pass }); err != nil {
+		return false, 0, fmt.Errorf("recording mechanical pass: %w", err)
+	}
+	if len(judgment) == 0 {
+		return false, actions, nil
+	}
+	brief := operator.RenderBrief(operator.BriefInput{State: state, Server: opts.Server, Now: nowTime(), Changed: judgment})
+	if err := writeFile(briefPath, []byte(brief)); err != nil {
+		return false, 0, fmt.Errorf("writing judgment brief: %w", err)
+	}
+	return true, actions, nil
 }
 
 // runLauncher executes the launcher and returns its exit status and the last

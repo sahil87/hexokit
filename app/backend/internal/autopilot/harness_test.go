@@ -455,7 +455,7 @@ func newHarness(t *testing.T) *harness {
 
 func (h *harness) state() *operator.State {
 	h.t.Helper()
-	st, err := operator.Load(h.env.StatePath)
+	st, _, err := engineView(h.env.StatePath)
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -486,7 +486,7 @@ func ids(items []operator.TrackedItem) []string {
 
 func (h *harness) queue(mode string, entries ...Entry) QueueReceipt {
 	h.t.Helper()
-	rec, err := Enqueue(context.Background(), h.env, entries, QueueOptions{Mode: mode}, "")
+	rec, err := enqueue(context.Background(), h.env, entries, QueueOptions{Mode: mode}, "", false)
 	if err != nil {
 		h.t.Fatalf("Enqueue: %v", err)
 	}
@@ -505,11 +505,9 @@ func (h *harness) step() *StepResult {
 // setDone marks an item done with the evidence a finished pane leaves.
 func (h *harness) setDone(id string) {
 	h.t.Helper()
+	e := newEngine(h.env)
 	now := time.Now().UTC().Format(time.RFC3339)
-	if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
-		st.Tracked[operator.IndexOf(st.Tracked, id)].DoneAt = &now
-		return nil
-	}); err != nil {
+	if err := e.patch(id, func(it *operator.TrackedItem) { it.DoneAt = &now }); err != nil {
 		h.t.Fatal(err)
 	}
 }
@@ -518,13 +516,14 @@ func (h *harness) setDone(id string) {
 func (h *harness) attachBranch(id, branch string) {
 	h.t.Helper()
 	h.panes.panes["%900"] = operator.PaneInfo{PaneID: "%900"}
-	if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
-		it := &st.Tracked[operator.IndexOf(st.Tracked, id)]
+	e := newEngine(h.env)
+	if err := e.patch(id, func(it *operator.TrackedItem) {
 		it.Scope["branch"] = branch
 		it.Scope["pane"] = "%900"
-		st.BranchMap[id] = operator.BranchMapEntry{Branch: branch, Repo: operator.ScopeString(it.Scope, "repo")}
-		return nil
 	}); err != nil {
+		h.t.Fatal(err)
+	}
+	if err := e.upsertProjection(h.item(id)); err != nil {
 		h.t.Fatal(err)
 	}
 }

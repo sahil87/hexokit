@@ -119,7 +119,7 @@ func TestNotes_AttachToAnyKind(t *testing.T) {
 
 func TestRemove_TakesTheNotesWithTheItem(t *testing.T) {
 	path := noteFixture(t)
-	if err := Remove(path, "n1", false); err != nil {
+	if err := Remove(path, "n1"); err != nil {
 		t.Fatal(err)
 	}
 	if st := mustLoad(t, path); len(st.Tracked) != 0 {

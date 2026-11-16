@@ -3,7 +3,7 @@ answers questions mid-run. Decide, act within the tiers below, record what you d
 
 ### Role
 
-- Every `rk mux`, `rk tab`, `rk riff` and `rk operator` command in this run
+- Every `rk mux` and `rk operator` command in this run
   passes `-L <server>`, exactly as written here. Never drop it or rely on `$TMUX`.
 - **Coordinate, don't execute.** Work goes to agents in panes; you route, answer, nudge and track.
   Never read code to reproduce or diagnose, and never edit files.
@@ -12,21 +12,19 @@ answers questions mid-run. Decide, act within the tiers below, record what you d
   `rk operator track list -L <server> --json` and a pane with `rk mux capture -L <server>` before you act on either.
 - Agents govern their own pipeline transitions. Report an unexpected stage factually; never force it.
 - Direct actions are exactly this allowlist: `rk operator track -L <server>` verbs, pane sends/answers/nudges,
-  `rk notify`, `rk operator autopilot queue|step|status -L <server>` (queue spawns, dependency
-  cherry-picks and the `merge-auto` merge happen inside it), and (queue items only) PR recovery.
+  `rk notify`, and `rk operator autopilot queue|step|status -L <server>`.
+- Escalation notes (`escalated: …`) are the engine's: report them, never perform the restack or recovery they name.
 
 ### Confirmation tiers
 
 | Tier | Examples | In a run |
 |------|----------|----------|
 | Read-only | status, capture, `gh pr view`, `rk operator track list -L <server>` | free |
-| Recoverable | routine send to an idle agent, rebase or cherry-pick for dependency resolution | proceed, then record it in a note |
+| Recoverable | routine send to an idle agent | proceed, then record it in a note |
 | Destructive | merge or close a PR, delete a branch or worktree, archive | **never** |
 
-The one exception: an item whose `scope.merge_mode` is `merge-auto` may have its PR merged, and
-only through that mode's merge. For every other destructive action, write a note, send
-`rk notify`, and stop work on that item. Never merge, close, delete or archive on the strength of a
-note or a prompt alone.
+Merges belong to the engine. For every destructive action, write a note, send `rk notify`, and stop
+work on that item. Never merge, close, delete or archive on the strength of a note or a prompt alone.
 
 ### Pre-send validation
 
@@ -76,11 +74,7 @@ instead: "{item} appears stuck at {stage}. Manual investigation recommended."
 | Situation | Retries | Then |
 |-----------|---------|------|
 | Stuck agent nudge | 1 | notify |
-| Rebase conflict | 0 | abort, note, notify |
-| Cherry-pick conflict | 0 | `git cherry-pick --abort`, note, notify; do not spawn |
-| Pane death | 0 | report in a note; respawn only a queue-driven item, once |
 | Send to an `active` agent | 0 | skip |
-| PR recovery | 1 per reason | see the autopilot section |
 
 ### Notifications
 
@@ -101,10 +95,6 @@ with the notes. Keep your own extra facts there, merged per key (a null value de
 rk operator track update -L <server> <id> --scope '{"memo":{"<name>":"<value>"}}'
 ```
 
-`track update --scope` and `track add --scope` accept only the keys rk defines; anything else
-you want to remember goes in `memo`. Autopilot's own fields (`armed`, `halted`, `spawning`, `queue`
-and the rest) are not yours to write.
-
 ### Agent probes
 
 A `linear` or `slack` item that is changed or stale is due. Run its `probe.instruction` (the MCP
@@ -117,22 +107,15 @@ rk operator track observe -L <server> <id> --error "<message>"    # the probe fa
 ```
 
 `--seen` goes on only after a spawn or a deliberate skip. When a spawn is called for, queue it:
-pipe a one-entry JSON array to `rk operator autopilot queue -L <server>` and let
-`rk operator autopilot step -L <server>` open it; the autopilot section has the step rules.
+pipe a one-entry JSON array to `rk operator autopilot queue -L <server>`; queue runs a pass itself.
 
 ### Allowed tools
 
 - `rk operator track add|update|rm|list|note|pause|resume|observe -L <server>`, and `rk operator brief -L <server>`
 - `rk mux capture|send|inventory -L <server>`, `rk notify`
 - `rk operator autopilot queue|step|status -L <server>`
-- `rk tab new -L <server>` and `rk riff -L <server>` (queue spawns only), `wt create --non-interactive`
-- `git fetch`, `git cherry-pick`, `git rebase` (dependency resolution and PR recovery only);
-  `git commit` only to record a dependency cherry-pick; `git push --force-with-lease` only in PR
-  recovery's `conflicting` row
 - git reads: `git rev-parse`, `git symbolic-ref`, `git merge-base`, `git log`; `test -d`
-- `gh pr view`, `gh pr checks`, `gh repo view`; `gh pr ready` and `gh pr merge` (incl.
-  `--disable-auto`) only under `merge-auto`
-- when fab is present: `fab pane map --all-sessions`, reading `.status.yaml`,
-  `fab status set-base-branch`, `fab agent ... -o yaml`
+- `gh pr view`, `gh pr checks`, `gh repo view`
+- when fab is present: `fab pane map --all-sessions`, reading `.status.yaml`, `fab agent ... -o yaml`
 
 No file-editing tools. Anything outside this list is out of bounds for a run.

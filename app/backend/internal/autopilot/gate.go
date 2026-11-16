@@ -14,7 +14,7 @@ import (
 // mergeAutoBarrier reports whether dep is a merge-auto queue item the
 // dependent must wait on until its PR merge is verified.
 func mergeAutoBarrier(st *operator.State, it, dep operator.TrackedItem) bool {
-	return operator.IsQueueItem(st, it) && operator.IsQueueItem(st, dep) && modeOf(it) == operator.MergeModeMergeAuto && modeOf(dep) == operator.MergeModeMergeAuto
+	return isQueueItem(st, it) && isQueueItem(st, dep) && modeOf(it) == operator.MergeModeMergeAuto && modeOf(dep) == operator.MergeModeMergeAuto
 }
 
 // prMerged reports whether the github-pr item created for queue item id is
@@ -43,7 +43,7 @@ func fabPresent(repo string) (bool, error) {
 // task in a repo with no fab/, which has no pipeline to finish and is done when
 // its PR is ready.
 func isPlainAgent(st *operator.State, it operator.TrackedItem) (bool, error) {
-	if !operator.IsQueueItem(st, it) || operator.ScopeString(it.Scope, scopeTask) == "" || operator.ScopeString(it.Scope, "change") != "" {
+	if !isQueueItem(st, it) || operator.ScopeString(it.Scope, scopeTask) == "" || operator.ScopeString(it.Scope, "change") != "" {
 		return false, nil
 	}
 	fab, err := fabPresent(operator.ScopeString(it.Scope, "repo"))

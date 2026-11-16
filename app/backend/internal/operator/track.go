@@ -70,12 +70,9 @@ type AddSpec struct {
 	DependsOn   []string
 	Scope       map[string]interface{}
 	PaneSugar   map[string]string // changed pane sugar flags, by flag name
-	Mode        string            // merge mode (pane only)
 	Text        string            // first note (note kind only)
 	TextSet     bool
 	By          string // first note's author, default user
-	// Force writes scope keys the allow-list refuses.
-	Force bool
 }
 
 // AddResult reports what Add stored beyond the item itself.
@@ -99,11 +96,6 @@ func Add(ctx context.Context, path string, spec AddSpec) (AddResult, error) {
 	if err := validateMemo(spec.Scope); err != nil {
 		return res, err
 	}
-	if !spec.Force {
-		if err := checkScopeAdd(spec.Scope); err != nil {
-			return res, err
-		}
-	}
 	scope := spec.Scope
 	if _, hasMemo := scope[ScopeMemo]; hasMemo {
 		scope = mergeScope(nil, scope)
@@ -117,24 +109,12 @@ func Add(ctx context.Context, path string, spec AddSpec) (AddResult, error) {
 		if err := applyPaneSugar(spec.PaneSugar, scope); err != nil {
 			return res, err
 		}
-		if spec.Mode != "" {
-			if !validMergeMode(spec.Mode) {
-				return res, invalidf("unknown --mode %q (valid: %s)", spec.Mode, strings.Join(MergeModes, ", "))
-			}
-			scope[ScopeMergeMode] = spec.Mode
-			res.MergeMode = spec.Mode
-		}
 		recordPanePID(ctx, spec.Server, scope)
-	} else {
-		if len(spec.PaneSugar) > 0 {
-			for _, name := range paneSugarFlags {
-				if _, set := spec.PaneSugar[name]; set {
-					return res, invalidf("--%s applies only to kind pane", name)
-				}
+	} else if len(spec.PaneSugar) > 0 {
+		for _, name := range paneSugarFlags {
+			if _, set := spec.PaneSugar[name]; set {
+				return res, invalidf("--%s applies only to kind pane", name)
 			}
-		}
-		if spec.Mode != "" {
-			return res, invalidf("--mode applies only to kind pane")
 		}
 	}
 	if scope == nil {
@@ -359,15 +339,10 @@ type UpdateSpec struct {
 	Then       *string
 	DependsOn  *[]string
 	Scope      map[string]interface{} // merged per key
-	// Force bypasses the scope allow-list for manual repair.
-	Force bool
 }
 
 // Update changes an item's cadence, predicate, then, depends_on, or scope. A
 // scope.pane change re-records the pane_pid fingerprint in the same mutation.
-// Only allow-listed scope keys are written (memo, identity while empty,
-// binding on a non-queue item, stop_stage, spawned_by, recovery, fix_head,
-// query); every other key is refused as an InvalidError unless Force is set.
 // scope.memo merges per key.
 func Update(ctx context.Context, path string, spec UpdateSpec) error {
 	if spec.DoneWhen != nil && *spec.DoneWhen != "" {
@@ -413,11 +388,6 @@ func Update(ctx context.Context, path string, spec UpdateSpec) error {
 		if spec.Scope != nil {
 			if err := validateMemo(spec.Scope); err != nil {
 				return err
-			}
-			if !spec.Force {
-				if err := checkScopeUpdate(st, it, spec.Scope); err != nil {
-					return err
-				}
 			}
 			scope := mergeScope(it.Scope, spec.Scope)
 			if _, touched := spec.Scope["pane"]; touched {
@@ -582,19 +552,14 @@ func dropString(list []string, s string) []string {
 
 // Remove deletes an item and its notes. A done item is also dropped from every
 // dependent's depends_on so the chain advances after the ack; a not-done
-// removal keeps the edges. branch_map is untouched. An unfinished github-pr item
-// of an autopilot merge sequence is refused unless force: it may be armed for
-// auto-merge, and nothing would be left to disarm it.
-func Remove(path, id string, force bool) error {
+// removal keeps the edges. branch_map is untouched.
+func Remove(path, id string) error {
 	return Mutate(path, func(st *State) error {
 		idx := indexOf(st.Tracked, id)
 		if idx < 0 {
 			return fmt.Errorf("no tracked item %s", id)
 		}
 		removed := st.Tracked[idx]
-		if !force && sequencePRItem(removed) {
-			return invalidf("%s is an autopilot merge-sequence PR that may be armed for auto-merge; removing it would leave the PR armed with no item to disarm it (disarm with gh pr merge --disable-auto, or use --force)", id)
-		}
 		st.Tracked = append(st.Tracked[:idx], st.Tracked[idx+1:]...)
 		if itemDone(removed) {
 			for i := range st.Tracked {

@@ -6,8 +6,11 @@ import (
 	"strings"
 	"testing"
 
+	"rk/internal/autopilot"
 	"rk/internal/mcp"
 	"rk/internal/operatorloop"
+
+	"github.com/spf13/cobra"
 )
 
 // runExecCmd drives `rk operator run-exec` with operatorloop.Exec stubbed.
@@ -19,6 +22,11 @@ func runExecCmd(t *testing.T, stub func(context.Context, operatorloop.ExecOption
 	prevTmux := operatorOriginalTMUXFn
 	operatorOriginalTMUXFn = func() string { return "" }
 	t.Cleanup(func() { operatorOriginalTMUXFn = prevTmux })
+	prevEnv := autopilotEnvFn
+	autopilotEnvFn = func(cmd *cobra.Command, by string, dry bool) (autopilot.Env, error) {
+		return autopilot.Env{StatePath: "test.yaml", By: by, DryRun: dry}, nil
+	}
+	t.Cleanup(func() { autopilotEnvFn = prevEnv })
 	return runOperatorCLI(t, "", append([]string{"run-exec"}, args...)...)
 }
 

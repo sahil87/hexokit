@@ -37,7 +37,6 @@ func TestBareTrackedPaneNeverRespawns(t *testing.T) {
 	if err != nil || len(status.Items) != 0 {
 		t.Fatalf("ordinary pane listed: %+v, %v", status, err)
 	}
-	h.setDone("bare")
 	res, err := StartMerge(context.Background(), h.env, MergeOptions{})
 	if err != nil || len(res.Actions) != 0 || h.run.called("gh pr view") != 0 {
 		t.Fatalf("ordinary pane selected for merge: %+v %v", res, err)
@@ -48,7 +47,7 @@ func TestLegacyMergeModeItemRemainsQueueWork(t *testing.T) {
 	h := newHarness(t)
 	repo := newRepo(t, "repo")
 	addLegacyPane(t, h, "legacy", nil, map[string]interface{}{"repo": repo.Dir, "merge_mode": operator.MergeModeCherryPickLadder, "task": "work"})
-	if !operator.IsQueueItem(h.state(), h.item("legacy")) {
+	if !isQueueItem(h.state(), h.item("legacy")) {
 		t.Fatal("legacy mode was ignored")
 	}
 	if res := h.step(); !hasAction(res, ActSpawned, "legacy") {
@@ -75,7 +74,7 @@ func TestLegacyDependencyChainRemainsQueueWork(t *testing.T) {
 	addLegacyPane(t, h, "child", []string{"base"}, map[string]interface{}{"repo": repo.Dir, "merge_mode": nil, "change": "bbbb"})
 	addLegacyPane(t, h, "isolated", nil, map[string]interface{}{"repo": repo.Dir, "merge_mode": nil, "change": "cccc"})
 	st := h.state()
-	if !operator.IsQueueItem(st, h.item("base")) || !operator.IsQueueItem(st, h.item("child")) || operator.IsQueueItem(st, h.item("isolated")) {
+	if !isQueueItem(st, h.item("base")) || !isQueueItem(st, h.item("child")) || isQueueItem(st, h.item("isolated")) {
 		t.Fatal("legacy dependency membership is wrong")
 	}
 	status, err := Status(context.Background(), h.env)
@@ -102,7 +101,7 @@ func TestQueueMembershipDoesNotUseUnknownOrSelfEdges(t *testing.T) {
 		addLegacyPane(t, h, id, deps, map[string]interface{}{"repo": repo.Dir})
 	}
 	for _, it := range h.state().Tracked {
-		if operator.IsQueueItem(h.state(), it) {
+		if isQueueItem(h.state(), it) {
 			t.Fatalf("non-queue edge made %s eligible", it.ID)
 		}
 	}
@@ -128,19 +127,27 @@ func TestSpawnRejectsSharedDependencyBranchesBeforeFetch(t *testing.T) {
 		t.Run(source, func(t *testing.T) {
 			h, repo := depFixture(t, "cherry-pick-ladder")
 			e := newEngine(h.env)
-			if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
-				if source == "scope" {
-					st.Tracked[0].Scope["branch"] = "bad..branch"
-				} else {
-					st.Tracked = st.Tracked[1:]
-					st.BranchMap["dep"] = operator.BranchMapEntry{Repo: repo.Dir, Branch: "--force"}
+			if source == "scope" {
+				if err := e.patch("dep", func(it *operator.TrackedItem) { it.Scope["branch"] = "bad..branch" }); err != nil {
+					t.Fatal(err)
 				}
-				return nil
-			}); err != nil {
-				t.Fatal(err)
+			} else {
+				if err := e.mutateEngine(func(st *engineState) error { st.remove("dep"); return nil }); err != nil {
+					t.Fatal(err)
+				}
+				if err := removeProjection(h.env.StatePath, "dep"); err != nil {
+					t.Fatal(err)
+				}
+				if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
+					st.BranchMap["dep"] = operator.BranchMapEntry{Repo: repo.Dir, Branch: "--force"}
+					return nil
+				}); err != nil {
+					t.Fatal(err)
+				}
 			}
 			h.run.reset()
-			if err := e.execute(context.Background(), e.facts, h.decisions(e)); err != nil {
+			ds := h.decisions(e)
+			if err := e.execute(context.Background(), e.facts, ds); err != nil {
 				t.Fatal(err)
 			}
 			assertNoBranchMutations(t, h, e.res)
@@ -151,7 +158,7 @@ func TestSpawnRejectsSharedDependencyBranchesBeforeFetch(t *testing.T) {
 func TestMarkedQueueItemWithMissingRepoIsRejectedRatherThanHidden(t *testing.T) {
 	h := newHarness(t)
 	addLegacyPane(t, h, "queued", nil, map[string]interface{}{scopeQueue: "queue-1"})
-	if !operator.IsQueueItem(h.state(), h.item("queued")) {
+	if !isQueueItem(h.state(), h.item("queued")) {
 		t.Fatal("repo validation replaced queue membership")
 	}
 	if res := h.step(); !hasEscalation(res, "repo is empty") || h.spawn.n != 0 {
@@ -165,18 +172,22 @@ func TestOwnBranchMapAndRespawnBranchesAreValidatedBeforeMutation(t *testing.T) 
 			h := newHarness(t)
 			repo := newRepo(t, "repo")
 			h.queue("", Entry{ID: "a", Repo: repo.Dir, Change: "aaaa"})
-			if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
-				if source == "branch-map" {
+			e := newEngine(h.env)
+			if source == "branch-map" {
+				if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
 					st.BranchMap["aaaa"] = operator.BranchMapEntry{Repo: repo.Dir, Branch: "--force"}
-				} else {
-					st.Tracked[0].Scope["branch"] = "bad..branch"
-					st.Tracked[0].Scope["pane"] = "%dead"
+					return nil
+				}); err != nil {
+					t.Fatal(err)
 				}
-				return nil
+			} else if err := e.patch("a", func(it *operator.TrackedItem) {
+				it.Scope["branch"] = "bad..branch"
+				it.Scope["pane"] = "%dead"
 			}); err != nil {
 				t.Fatal(err)
 			}
 			h.run.reset()
+			h.step() // repair the missing projection before the respawn row
 			res := h.step()
 			assertNoBranchMutations(t, h, res)
 			if spawningSet(h.item("a")) || scopeBool(h.item("a"), scopeRespawned) || skipped(h.item("a")) {

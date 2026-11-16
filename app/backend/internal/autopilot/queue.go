@@ -3,6 +3,7 @@ package autopilot
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -19,27 +20,25 @@ const (
 	SourceDefault = "default"
 )
 
-// Scope keys the engine reads and writes; operator owns the definitions and the
-// refusal of hand writes to them. scopeArmed, scopeDirect and scopeStallSeen
-// are retired: old values stay on disk, but the engine neither reads nor
-// writes them (a test pins that), so only their registration remains.
+// Engine-file field names. Ledger projections never carry these keys.
 const (
-	scopeTask      = operator.ScopeTask
-	scopeBare      = operator.ScopeBare
-	scopeRespawned = operator.ScopeRespawned
-	scopeSkipped   = operator.ScopeSkipped
-	scopeSpawning  = operator.ScopeSpawning
-	scopeMergeSeq  = operator.ScopeMergeSeq
-	scopeItem      = operator.ScopeItem
-	scopeArmed     = operator.ScopeArmed
-	scopeHalted    = operator.ScopeHalted
-	scopeDirect    = operator.ScopeDirect
-	scopeStallSeen = operator.ScopeStallSeen
-	scopeDeferred  = operator.ScopeDeferred
-	scopeQueue     = operator.ScopeQueue
-	scopeEscalated = operator.ScopeEscalated
-	scopeMergeMode = operator.ScopeMergeMode
-	scopeURL       = operator.ScopeURL
+	scopeTask      = "task"
+	scopeBare      = "bare"
+	scopeRespawned = "respawned"
+	scopeSkipped   = "skipped"
+	scopeSpawning  = "spawning"
+	scopeMergeSeq  = "merge_seq"
+	scopeItem      = "item"
+	scopeArmed     = "armed"
+	scopeHalted    = "halted"
+	scopeDirect    = "direct"
+	scopeStallSeen = "stall_seen"
+	scopeDeferred  = "deferred"
+	scopeQueue     = "queue"
+	scopeEscalated = "escalated"
+	scopeMergeMode = "merge_mode"
+	scopeURL       = "url"
+	scopeProjected = "projected"
 )
 
 var itemIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
@@ -132,55 +131,79 @@ func isBare(it operator.TrackedItem) bool {
 	return b
 }
 
-// Enqueue persists the entries as pending pane items in one locked write. All
-// validation happens before the write, so a rejected queue leaves the file
-// untouched.
-func Enqueue(ctx context.Context, env Env, entries []Entry, opts QueueOptions, settingValue string) (QueueReceipt, error) {
-	e := newEngine(env)
-	if opts.ModeSet && opts.Mode == "" {
-		return QueueReceipt{}, operatorInvalid("--mode must not be empty")
-	}
-	mode, source, err := ResolveMode(opts.Mode, settingValue)
-	if err != nil {
-		return QueueReceipt{}, err
-	}
-	rec := QueueReceipt{Mode: mode, Source: source, Items: []string{}, Misfits: []string{}, DryRun: env.DryRun}
+// ErrQueueBusy reports that no queue was written because another pass holds the lock.
+var ErrQueueBusy = errors.New("busy: another autopilot pass is running on this server; queue not written, retry")
 
-	st, err := e.load()
-	if err != nil {
-		return rec, err
-	}
-	items, misfits, err := e.buildQueue(ctx, st, entries, mode)
-	if err != nil {
-		return rec, err
-	}
-	if len(misfits) > 0 {
-		rec.Misfits = misfits
-	}
-	for _, it := range items {
-		rec.Items = append(rec.Items, it.ID)
-	}
-	if env.DryRun {
-		return rec, nil
-	}
-	if len(rec.Misfits) > 0 && opts.Mode == "" {
-		return rec, operatorInvalid("queue not written: %s; preview with --dry-run and confirm an explicit --mode", strings.Join(rec.Misfits, "; "))
-	}
-	err = operator.Mutate(env.StatePath, func(fresh *operator.State) error {
-		for _, it := range items {
-			if operator.IndexOf(fresh.Tracked, it.ID) >= 0 {
-				return operatorInvalid("tracked item %s already exists", it.ID)
-			}
+// Enqueue validates and writes the engine file under the pass lock, then runs
+// one pass. Dry runs resolve and validate only; they take no lock and write nothing.
+func Enqueue(ctx context.Context, env Env, entries []Entry, opts QueueOptions, settingValue string) (QueueReceipt, error) {
+	return enqueue(ctx, env, entries, opts, settingValue, true)
+}
+
+func enqueue(ctx context.Context, env Env, entries []Entry, opts QueueOptions, settingValue string, runPass bool) (QueueReceipt, error) {
+	rec := QueueReceipt{Items: []string{}, Misfits: []string{}, DryRun: env.DryRun}
+	result, err := passLocked(env, func() (*StepResult, error) {
+		e := newEngine(env)
+		if opts.ModeSet && opts.Mode == "" {
+			return nil, operatorInvalid("--mode must not be empty")
+		}
+		mode, source, err := ResolveMode(opts.Mode, settingValue)
+		if err != nil {
+			return nil, err
+		}
+		rec.Mode, rec.Source = mode, source
+		st, err := e.load()
+		if err != nil {
+			return nil, err
+		}
+		items, misfits, err := e.buildQueue(ctx, st, entries, mode)
+		if err != nil {
+			return nil, err
+		}
+		if len(misfits) > 0 {
+			rec.Misfits = misfits
 		}
 		for _, it := range items {
-			if err := operator.ValidateDeps(it, append(append([]operator.TrackedItem(nil), fresh.Tracked...), items...)); err != nil {
+			rec.Items = append(rec.Items, it.ID)
+		}
+		if env.DryRun {
+			return newResult(true), nil
+		}
+		if len(rec.Misfits) > 0 && opts.Mode == "" {
+			return nil, operatorInvalid("queue not written: %s; preview with --dry-run and confirm an explicit --mode", strings.Join(rec.Misfits, "; "))
+		}
+		if err := e.mutateEngine(func(fresh *engineState) error {
+			view, _, err := engineView(env.StatePath)
+			if err != nil {
 				return err
 			}
+			for _, it := range items {
+				if fresh.has(it.ID) || operator.IndexOf(view.Tracked, it.ID) >= 0 {
+					return operatorInvalid("tracked item %s already exists", it.ID)
+				}
+			}
+			for _, it := range items {
+				if err := operator.ValidateDeps(it, append(append([]operator.TrackedItem(nil), view.Tracked...), items...)); err != nil {
+					return err
+				}
+				fresh.upsert(engineItemFromTracked(it, false), false)
+			}
+			return nil
+		}); err != nil {
+			return nil, err
 		}
-		fresh.Tracked = append(fresh.Tracked, items...)
-		return nil
+		if !runPass {
+			return newResult(false), nil
+		}
+		return e.pass(ctx)
 	})
-	return rec, err
+	if err != nil {
+		return rec, err
+	}
+	if result.Busy {
+		return rec, ErrQueueBusy
+	}
+	return rec, nil
 }
 
 // buildQueue validates the entries against the loaded state and returns the

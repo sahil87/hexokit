@@ -559,7 +559,7 @@ func TestCheck_ItemRemovedDuringPhaseOneIsIgnoredAndItemAddedGetsNoProbeResult(t
 	done := runCheckAsync(e)
 	waitStarted(t, started)
 
-	if err := Remove(e.path, "gone", false); err != nil {
+	if err := Remove(e.path, "gone"); err != nil {
 		t.Fatal(err)
 	}
 	if err := Mutate(e.path, func(st *State) error {

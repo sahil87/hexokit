@@ -89,6 +89,9 @@ func TestRestartSurvival(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := operator.AddNote(statePath, "pr-1", operator.ByUser, "judge this change"); err != nil {
+		t.Fatal(err)
+	}
 
 	cronDir := t.TempDir()
 	if _, err := cron.Add(cronDir, server, cron.Entry{
@@ -152,9 +155,10 @@ func TestRestartSurvival(t *testing.T) {
 	if rec, err := ReadRecord(recPath); err != nil || rec.Entry == "" || len(rec.Changed) != 1 || rec.Changed[0] != "pr-1" {
 		t.Fatalf("record = %+v, err %v", rec, err)
 	}
-	if _, err := os.Stat(briefPath); err != nil {
-		t.Fatal(err)
-	}
+	waitFor(t, "the judgment brief", 10*time.Second, func() bool {
+		_, err := os.Stat(briefPath)
+		return err == nil
+	})
 	checkedAt := loadLastCheck(t, statePath)
 
 	// The run window is the only window in _rk-operator (no placeholder shell).
@@ -208,7 +212,7 @@ func TestRestartSurvival(t *testing.T) {
 			notes = it.Notes
 		}
 	}
-	if len(notes) != 1 || notes[0].By != "run" || notes[0].Text != "stub acted" {
+	if len(notes) != 2 || notes[1].By != "run" || notes[1].Text != "stub acted" {
 		t.Fatalf("notes = %+v", notes)
 	}
 }
@@ -221,3 +225,76 @@ func loadLastCheck(t *testing.T, statePath string) string {
 	}
 	return st.LastCheckAt
 }
+
+func TestIsolatedSocketMechanicalOnlyRun(t *testing.T) {
+	server := isolatedTmux(t)
+	ctx := context.Background()
+	statePath, err := statePathFn(ctx, server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := operator.Add(ctx, statePath, operator.AddSpec{
+		ID: "pr-mechanical", Kind: operator.KindShell, Argv: []string{"sh", "-c", `printf '{"n":1}'`},
+		Fields: []string{"n"}, DoneWhen: stringPtrLocal("n == 99"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cronDir := t.TempDir()
+	if _, err := cron.Add(cronDir, server, cron.Entry{
+		Name: cron.LoopSeedName, Run: cron.RunOperatorLoop, Pinned: true,
+		Schedule:  cron.Schedule{Kind: cron.ScheduleBackoff, Min: cron.Duration{Duration: 3 * time.Minute}, Max: cron.Duration{Duration: 24 * time.Minute}},
+		CreatedBy: cron.CreatedBy{At: time.Now().Add(-time.Hour).Unix()},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prevSelf, prevResolve := selfPathFn, resolveLauncherFn
+	t.Cleanup(func() { selfPathFn, resolveLauncherFn = prevSelf, prevResolve })
+	selfPathFn = func() (string, error) { return self, nil }
+	launcherMarker := filepath.Join(t.TempDir(), "launcher-called")
+	resolveLauncherFn = func(context.Context, string, string) string {
+		return "touch " + shellq.QuoteArgv([]string{launcherMarker}) + "; echo 'outcome: model called'"
+	}
+	tick := func() {
+		t.Helper()
+		if _, err := cron.Tick(ctx, cron.Deps{
+			Dir: cronDir, ListServers: func(context.Context) ([]string, error) { return []string{server}, nil },
+			LoopRunner: Run, LoopTranscribe: Transcribe, LoopLogged: MarkLogged, LoopSeed: StateFileExists,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tick()
+	wins, err := tmux.ListOperatorRunWindows(ctx, server)
+	if err != nil || len(wins) != 1 {
+		t.Fatalf("run windows = %+v, err=%v", wins, err)
+	}
+	runID := wins[0].RunID
+	dir, _ := Dir(ctx, server)
+	recPath, _ := RecordPath(dir, runID)
+	waitFor(t, "mechanical run to end", 30*time.Second, func() bool {
+		rec, err := ReadRecord(recPath)
+		return err == nil && rec.Ended()
+	})
+	rec, err := ReadRecord(recPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Outcome != "mechanical · 0 actions" || rec.Pass == nil || rec.Pass.Actions != 0 {
+		t.Fatalf("record = %+v", rec)
+	}
+	if _, err := os.Stat(launcherMarker); !os.IsNotExist(err) {
+		t.Fatalf("mechanical run called its launcher: %v", err)
+	}
+	tick()
+	logPath, _ := cron.LogPath(cronDir, server)
+	lines := cron.ReadLog(logPath)
+	if len(lines) != 1 || !regexp.MustCompile(`^ran · mechanical · 0 actions · \d+s$`).MatchString(lines[0].Outcome) {
+		t.Fatalf("mechanical log = %+v", lines)
+	}
+}
+
+func stringPtrLocal(s string) *string { return &s }

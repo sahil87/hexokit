@@ -33,12 +33,15 @@ func TestMarkerWithoutAPaneEscalatesAndNeverLaunches(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.run.reset()
-	want := "spawn interrupted: a — check for an orphaned window, then clear scope.spawning with rk operator track update --force a --scope '{\"spawning\":null}'"
+	want := "spawn interrupted: a — check for an orphaned window before resuming or removing the queue item"
 	for i := 0; i < 3; i++ {
 		res := h.step()
-		if got := hasEscalation(res, want); got != (i == 0) {
-			t.Fatalf("pass %d escalated = %v, want the interrupted spawn reported once: %+v", i, got, res.Escalations)
+		if !hasEscalation(res, want) {
+			t.Fatalf("pass %d did not report the interrupted spawn: %+v", i, res.Escalations)
 		}
+	}
+	if notes := len(h.item("a").Notes); notes != 1 {
+		t.Fatalf("interrupted spawn wrote %d notes, want one", notes)
 	}
 	if h.spawn.n != 0 || h.run.called("git fetch") != 0 {
 		t.Fatalf("an interrupted spawn was relaunched: launches=%d calls=%q", h.spawn.n, h.run.calls)

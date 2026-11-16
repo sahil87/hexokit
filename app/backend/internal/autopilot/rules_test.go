@@ -170,7 +170,7 @@ func queueRuleCases() []ruleCase {
 			x.queue("a", m).Scope[scopeSpawning] = "2026-01-01T00:00:00Z"
 			return "a"
 		}},
-		{name: "spawn-unknown already escalated waits", kind: "queue", status: "spawn-unknown", row: "", build: func(x *fx, m string) string {
+		{name: "spawn-unknown already escalated reports again without a second note or notify", kind: "queue", status: "spawn-unknown", row: "Q3", build: func(x *fx, m string) string {
 			it := x.queue("a", m)
 			it.Scope[scopeSpawning] = "2026-01-01T00:00:00Z"
 			c := &ruleCtx{it: *it}
@@ -248,6 +248,18 @@ func queueRuleCases() []ruleCase {
 				x.pr("pr-1", m)
 				x.items[1].Scope[scopeItem] = "a"
 			}
+			return "a"
+		}},
+		{name: "removed queue projection escalates once (X0)", kind: "queue", status: "spawned", row: "X0", build: func(x *fx, m string) string {
+			it := x.queue("a", m)
+			x.pane(it, true)
+			it.Scope[scopeProjected] = true
+			return "a"
+		}},
+		{name: "unwritten queue projection is repaired (X1)", kind: "queue", status: "spawned", row: "X1", build: func(x *fx, m string) string {
+			it := x.queue("a", m)
+			x.pane(it, true)
+			it.Scope[scopeProjected] = false
 			return "a"
 		}},
 	}
@@ -444,6 +456,30 @@ func prRuleCases() []ruleCase {
 			x.f.autoMerge["o/r"] = false
 			return "p"
 		}},
+		{name: "paused PR waits without ready, arm, merge, or disarm", kind: "pr", status: "paused", row: "", build: func(x *fx, m string) string {
+			it := x.pr("p", m)
+			it.Paused = true
+			x.view("p", open(), passed)
+			return "p"
+		}},
+		{name: "merged predecessor escalates stacked restack only (B0)", kind: "pr", status: "green", row: "P7", modes: map[string]string{operator.MergeModeStackedPRs: "B0"}, build: func(x *fx, m string) string {
+			p1 := x.pr("p1", m)
+			now := fxNow.Format(time.RFC3339)
+			p1.DoneAt = &now
+			x.pr("p2", m, "p1")
+			x.view("p2", open(), passed)
+			return "p2"
+		}},
+		{name: "removed PR projection escalates once (X0)", kind: "pr", status: "waiting", row: "X0", build: func(x *fx, m string) string {
+			it := x.pr("p", m)
+			it.Scope[scopeProjected] = true
+			return "p"
+		}},
+		{name: "unwritten PR projection is repaired (X1)", kind: "pr", status: "waiting", row: "X1", build: func(x *fx, m string) string {
+			it := x.pr("p", m)
+			it.Scope[scopeProjected] = false
+			return "p"
+		}},
 	}
 }
 
@@ -504,7 +540,7 @@ func TestRuleTableShape(t *testing.T) {
 	for _, r := range ruleTable {
 		ids = append(ids, r.id)
 	}
-	want := []string{"Q1", "Q2", "Q3", "Q4", "Q5", "Q6a", "Q7", "Q6b", "P1", "P2", "P3", "P4", "P5", "P5", "P6", "P7"}
+	want := []string{"X0", "X0", "X1", "X1", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6a", "Q7", "Q6b", "P1", "P2", "P3", "B0", "P4", "P5", "P5", "P6", "P7"}
 	if !reflect.DeepEqual(ids, want) {
 		t.Fatalf("rule table order = %v, want %v", ids, want)
 	}

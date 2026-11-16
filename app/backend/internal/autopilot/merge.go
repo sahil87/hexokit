@@ -19,10 +19,7 @@ type MergeOptions struct {
 	RepoSet bool
 }
 
-var errStackedMerge = errors.New("stacked-prs queues are not merged by this verb: follow the stacked-prs merge text in the run brief")
-
-// isChainMode reports whether the mode builds a merge chain. stacked-prs does
-// too, but only so StartMerge can recognise and refuse it.
+// isChainMode reports whether the mode builds a merge chain.
 func isChainMode(mode string) bool {
 	return mode == operator.MergeModeCherryPickLadder || mode == operator.MergeModeStackedPRs
 }
@@ -127,7 +124,7 @@ func startMerge(ctx context.Context, env Env, opts MergeOptions) (result *StepRe
 		}
 		matched := false
 		for _, it := range st.Tracked {
-			if operator.IsQueueItem(st, it) && cleanRepo(operator.ScopeString(it.Scope, "repo")) == repoFilter {
+			if isQueueItem(st, it) && cleanRepo(operator.ScopeString(it.Scope, "repo")) == repoFilter {
 				matched = true
 				break
 			}
@@ -139,7 +136,7 @@ func startMerge(ctx context.Context, env Env, opts MergeOptions) (result *StepRe
 	var all []operator.TrackedItem
 	started := map[string]bool{}
 	for _, it := range st.Tracked {
-		if !operator.IsQueueItem(st, it) || !isChainMode(modeOf(it)) || isBare(it) {
+		if !isQueueItem(st, it) || !isChainMode(modeOf(it)) || isBare(it) {
 			continue
 		}
 		all = append(all, it)
@@ -153,11 +150,6 @@ func startMerge(ctx context.Context, env Env, opts MergeOptions) (result *StepRe
 	// A started repo's PRs wait on the PRs of the repos it depends on, so those
 	// get their items too (registered, not started) and must be done.
 	queue := closureOf(all, started)
-	for _, it := range queue {
-		if modeOf(it) == operator.MergeModeStackedPRs {
-			return e.res, errStackedMerge
-		}
-	}
 	var pending []string
 	for _, it := range queue {
 		if !operator.ItemDone(it) {
@@ -285,12 +277,12 @@ func closureOf(all []operator.TrackedItem, started map[string]bool) []operator.T
 // so a repo registered earlier as another repo's barrier begins when its own
 // merge is started.
 func (e *engine) startChains(started map[string]bool) error {
-	return e.mutate(func(st *operator.State) error {
+	return e.mutateEngine(func(st *engineState) error {
 		changed := false
-		for i := range st.Tracked {
-			it := &st.Tracked[i]
-			if isPRItem(*it) && scopeBool(*it, scopeDeferred) && started[operator.ScopeString(it.Scope, scopeItem)] {
-				it.Scope[scopeDeferred] = false
+		for i := range st.PRs {
+			it := &st.PRs[i]
+			if it.Deferred && started[it.Item] {
+				it.Deferred = false
 				changed = true
 			}
 		}
@@ -336,25 +328,36 @@ func (e *engine) newPRItem(ctx context.Context, qi operator.TrackedItem, repo, b
 // addPRItems appends the items in one locked write, skipping ids that appeared
 // since the load.
 func (e *engine) addPRItems(items []operator.TrackedItem, check func(*operator.State) error) error {
-	return e.mutate(func(st *operator.State) error {
+	if err := e.mutateEngine(func(st *engineState) error {
 		if check != nil {
-			if err := check(st); err != nil {
+			view, _, err := engineView(e.env.StatePath)
+			if err != nil {
+				return err
+			}
+			if err := check(view); err != nil {
 				return err
 			}
 		}
 		for _, it := range items {
-			if i := operator.IndexOf(st.Tracked, it.ID); i >= 0 {
-				// The same PR registered by a concurrent writer is fine; a
-				// different item under this id would silently lose its sequence.
-				if operator.ScopeString(st.Tracked[i].Scope, scopeItem) == operator.ScopeString(it.Scope, scopeItem) {
+			if st.has(it.ID) {
+				current, _ := st.find(it.ID)
+				if current.Item == operator.ScopeString(it.Scope, scopeItem) {
 					continue
 				}
-				return fmt.Errorf("tracked item %s already exists for another item", it.ID)
+				return fmt.Errorf("engine item %s already exists for another item", it.ID)
 			}
-			st.Tracked = append(st.Tracked, it)
+			st.upsert(engineItemFromTracked(it, false), true)
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	for _, it := range items {
+		if err := e.upsertProjection(it); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // seqItems returns a sequence's github-pr items in ledger order.

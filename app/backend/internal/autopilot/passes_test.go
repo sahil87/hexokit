@@ -15,7 +15,8 @@ func TestQueueOpenTooLongEscalatesOnTheOldestItemOnce(t *testing.T) {
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"}, Entry{ID: "b", Repo: foo.Dir, Task: "b"})
-	if err := operator.Pause(h.env.StatePath, "a"); err != nil {
+	e := newEngine(h.env)
+	if err := e.patch("a", func(it *operator.TrackedItem) { it.Paused = true }); err != nil {
 		t.Fatal(err)
 	}
 	h.clock = h.clock.Add(slowQueue + time.Minute)

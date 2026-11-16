@@ -3,6 +3,7 @@ package autopilot
 import (
 	"bufio"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -111,7 +112,7 @@ func TestPassLockIsPerServer(t *testing.T) {
 	}
 }
 
-func TestDryRunAndReadsTakeNoPassLock(t *testing.T) {
+func TestDryRunAndReadsTakeNoPassLockQueueReportsBusy(t *testing.T) {
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
@@ -124,11 +125,11 @@ func TestDryRunAndReadsTakeNoPassLock(t *testing.T) {
 	if _, err := Status(context.Background(), h.env); err != nil {
 		t.Fatalf("status: %v", err)
 	}
-	if _, err := Enqueue(context.Background(), h.env, []Entry{{ID: "b", Repo: foo.Dir, Task: "b"}}, QueueOptions{}, ""); err != nil {
-		t.Fatalf("queue: %v", err)
+	if _, err := Enqueue(context.Background(), h.env, []Entry{{ID: "b", Repo: foo.Dir, Task: "b"}}, QueueOptions{}, ""); !errors.Is(err, ErrQueueBusy) {
+		t.Fatalf("queue error = %v, want busy", err)
 	}
-	if !h.has("b") {
-		t.Fatal("queue did not write while the pass lock was held")
+	if h.has("b") {
+		t.Fatal("queue wrote while the pass lock was held")
 	}
 }
 
