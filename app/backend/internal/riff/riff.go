@@ -115,12 +115,13 @@ const (
 // only when Server is empty) restores the CLI caller's $TMUX so bare tmux calls
 // reach the user's current server.
 type EffectiveSpec struct {
-	Panes       []PaneSpec
-	Layout      string   // canonical name, or "" for single-pane / explicit single-pane no-op
-	Count       int      // number of parallel worktree/window pairs (≥ 1)
-	Passthrough []string // forwarded to wt create
-	Launcher    string
-	Server      string // tmux server label; "" → target current server via OriginalTMUX
+	windowCreated func(context.Context, string, string, string) error
+	Panes         []PaneSpec
+	Layout        string   // canonical name, or "" for single-pane / explicit single-pane no-op
+	Count         int      // number of parallel worktree/window pairs (≥ 1)
+	Passthrough   []string // forwarded to wt create
+	Launcher      string
+	Server        string // tmux server label; "" → target current server via OriginalTMUX
 	// Session is the tmux session the window is created in (daemon path). When
 	// non-empty, tmux window operations are session-scoped: `new-window -t
 	// <session>`, `split-window`/`select-layout` target `<session>:<window>`, and
@@ -149,6 +150,15 @@ type EffectiveSpec struct {
 	// (HEAD of the repo wt resolves). Ignored in checkout mode. The CLI never
 	// sets this (it forwards --base through Passthrough instead).
 	WorktreeBase string
+	// WorktreeBranch, when non-empty in worktree mode, is wt's positional
+	// branch argument: the NEW branch's name (created off WorktreeBase, else
+	// HEAD). Mutually exclusive with CheckoutBranch. Ignored in checkout mode.
+	WorktreeBranch string
+	// CheckoutBranch, when non-empty in worktree mode, is forwarded as
+	// `wt create --checkout <branch>`: the worktree lands on that EXISTING
+	// branch. wt refuses it combined with a base or a positional branch, so the
+	// builder drops WorktreeBase and WorktreeBranch when it is set.
+	CheckoutBranch string
 	// WindowNameBase, when non-empty, replaces the derived `riff-<basename>`
 	// window-name base (the collision suffixing in resolveWindowName still
 	// applies). Empty = today's derivation. The CLI never sets this.
@@ -195,6 +205,11 @@ type Options struct {
 	// created worktree's new branch (`wt create --base`). Ignored in checkout
 	// mode.
 	WorktreeBase string
+	// WorktreeBranch / CheckoutBranch mirror the EffectiveSpec fields of the
+	// same name: a new branch name for wt's positional argument, or an existing
+	// branch to check out. Worktree mode only.
+	WorktreeBranch string
+	CheckoutBranch string
 	// WorktreeSubdir, when non-empty in worktree mode, roots the window at this
 	// relative path inside the created worktree — a fork keeps the source pane's
 	// position within its repo. It must be local (filepath.IsLocal); a subdir
@@ -258,6 +273,23 @@ var loadRiffPresets = settings.LoadRiffPresets
 // preset returns an ExitCodeError{Code: ExitValidation} the handler maps to 400.
 // All subprocess failures return ExitCodeError{Code: ExitSubprocess}.
 func Spawn(ctx context.Context, opts Options) (Result, error) {
+	return SpawnPrepared(ctx, opts, nil)
+}
+
+// SpawnPrepared is Spawn with a hook that runs in worktree mode after the
+// worktree exists and before any tmux window is created. A non-nil error
+// deletes the worktree again and fails the spawn, so a half-prepared checkout
+// never gets an agent. The hook runs on the caller's goroutine and receives the
+// worktree's root path; it is not an Options field because Options is compared
+// by value.
+func SpawnPrepared(ctx context.Context, opts Options, prepare func(ctx context.Context, worktreePath string) error) (Result, error) {
+	return SpawnObserved(ctx, opts, prepare, nil)
+}
+
+// SpawnObserved adds a window-created hook to SpawnPrepared. The hook runs
+// before layout and delivery; errors leave the window for reconciliation.
+// Options remains comparable for callers that use it as a value.
+func SpawnObserved(ctx context.Context, opts Options, prepare func(context.Context, string) error, opened func(context.Context, string, string, string) error) (Result, error) {
 	if opts.RepoRoot == "" {
 		return Result{}, ValidationErr("run-kit riff: repo root is empty")
 	}
@@ -326,11 +358,16 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 	if spec.Where == "" {
 		spec.Where = whereWorktree
 	}
+	spec.windowCreated = opened
 	spec.WorktreeName = opts.WorktreeName
 	spec.WorktreeBase = opts.WorktreeBase
+	spec.WorktreeBranch = opts.WorktreeBranch
+	spec.CheckoutBranch = opts.CheckoutBranch
 	if opts.isCheckout() {
 		spec.WorktreeName = ""
 		spec.WorktreeBase = ""
+		spec.WorktreeBranch = ""
+		spec.CheckoutBranch = ""
 	}
 	// WindowNameBase is consumed by spawnRiffReturningName's base derivation. The
 	// fork ref needs no spec field — it was already folded into spec.Launcher
@@ -355,6 +392,12 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 			return Result{}, err
 		}
 		windowRoot = worktreeWindowRoot(worktreePath, opts.WorktreeSubdir)
+		if prepare != nil {
+			if perr := prepare(ctx, worktreePath); perr != nil {
+				rollbackErr := rollbackWorktree(spec, worktreePath)
+				return Result{WorktreePath: worktreePath}, errors.Join(perr, rollbackErr)
+			}
+		}
 	}
 	name, windowID, paneID, err := spawnRiffReturningName(ctx, windowRoot, spec)
 	if err != nil {
@@ -364,9 +407,9 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 	// response must not block on agent boot (deliver.go).
 	deliverDaemonTask(spec, name, paneID)
 	return Result{
-		Server:     opts.Server,
-		Session:    opts.Session,
-		WindowName: name,
+		Server:       opts.Server,
+		Session:      opts.Session,
+		WindowName:   name,
 		WindowID:     windowID,
 		PaneID:       paneID,
 		WorktreePath: worktreePath,
@@ -652,11 +695,18 @@ func buildWtCreateArgs(spec EffectiveSpec, passthrough []string) []string {
 	if spec.Where != whereCheckout && spec.WorktreeName != "" {
 		argv = append(argv, "--name", spec.WorktreeName)
 	}
-	if spec.Where != whereCheckout && spec.WorktreeBase != "" {
+	existing := spec.Where != whereCheckout && spec.CheckoutBranch != ""
+	if existing {
+		argv = append(argv, "--checkout", spec.CheckoutBranch)
+	} else if spec.Where != whereCheckout && spec.WorktreeBase != "" {
 		argv = append(argv, "--base", spec.WorktreeBase)
 	}
 	argv = append(argv, "--non-interactive", "--open", "skip")
-	return append(argv, passthrough...)
+	argv = append(argv, passthrough...)
+	if !existing && spec.Where != whereCheckout && spec.WorktreeBranch != "" {
+		argv = append(argv, spec.WorktreeBranch)
+	}
+	return argv
 }
 
 // runWtCreate invokes `wt create [--name <name>] --non-interactive --open skip
@@ -732,6 +782,12 @@ func spawnRiffReturningName(ctx context.Context, worktreePath string, spec Effec
 		return resolvedName, "", "", err
 	}
 
+	if spec.windowCreated != nil {
+		windowID := resolveWindowIDFromPane(ctx, spec, paneID)
+		if err := spec.windowCreated(ctx, paneID, windowID, worktreePath); err != nil {
+			return resolvedName, windowID, paneID, err
+		}
+	}
 	rest := buildSpawnArgvs(worktreePath, resolvedName, spec)
 	if len(rest) > 0 {
 		rest = rest[1:]
@@ -1036,6 +1092,15 @@ func runWtDelete(parent context.Context, spec EffectiveSpec, name string) error 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%v\n%s", err, string(out))
+	}
+	return nil
+}
+
+// rollbackWorktree deletes a worktree Spawn created when a later step failed.
+// A fresh context permits cleanup even when the caller has been cancelled.
+func rollbackWorktree(spec EffectiveSpec, worktreePath string) error {
+	if err := runWtDelete(context.Background(), spec, filepath.Base(worktreePath)); err != nil {
+		return fmt.Errorf("worktree rollback failed for %s: %w", filepath.Base(worktreePath), err)
 	}
 	return nil
 }

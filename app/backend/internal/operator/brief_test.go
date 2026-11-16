@@ -175,6 +175,22 @@ func TestRenderBrief_AffectedBlockDetail(t *testing.T) {
 	}
 }
 
+func TestRenderBrief_MemoRendersOnItsOwnLine(t *testing.T) {
+	st := fixtureState(t)
+	idx := IndexOf(st.Tracked, "pr-1")
+	st.Tracked[idx].Scope = mergeScope(st.Tracked[idx].Scope, map[string]interface{}{ScopeMemo: map[string]interface{}{"why": "waiting on design", "owner": "sam"}})
+	out := RenderBrief(BriefInput{State: st, Server: "work", Now: briefTestNow, Changed: []ChangedItem{{ID: "pr-1"}}})
+	affected := sectionBody(t, out, "## Affected items")
+	for _, want := range []string{
+		`- scope: pr: 1, repo: "/src/app"` + "\n",
+		`- memo: owner: "sam", why: "waiting on design"` + "\n",
+	} {
+		if !strings.Contains(affected, want) {
+			t.Errorf("block missing %q in:\n%s", want, affected)
+		}
+	}
+}
+
 func TestRenderBrief_OtherItemsAreOneLiners(t *testing.T) {
 	out := renderFixture(t, ChangedItem{ID: "pr-1"})
 	others := sectionBody(t, out, "## Other tracked items")
@@ -284,7 +300,7 @@ func TestRenderBrief_NoFabOperatorTrack(t *testing.T) {
 func TestRenderBrief_InterimAutopilotSection(t *testing.T) {
 	out := renderFixture(t)
 	body := strings.TrimLeft(sectionBody(t, out, "## Interim autopilot"), "\n")
-	const marker = "Interim — replaced by the R6 autopilot engine; R7 deletes this file."
+	const marker = "Interim — the autopilot engine's `step` runs queues; `stacked-prs` merging and PR recovery stay here until their steps land, then R7 deletes this file."
 	if !strings.HasPrefix(body, marker+"\n") {
 		t.Errorf("Interim autopilot should begin with the interim line, got %q", firstLine(body))
 	}
@@ -314,13 +330,46 @@ func TestBriefRules_CoverTheRunContract(t *testing.T) {
 }
 
 func TestBriefAutopilot_UsesRkVerbsOnly(t *testing.T) {
-	for _, want := range []string{"rk operator track update", "--base \"$base_sha\"", "wt create --non-interactive", "scope.recovery"} {
+	for _, want := range []string{"rk operator track update", "scope.recovery"} {
 		if !strings.Contains(briefAutopilot, want) {
 			t.Errorf("autopilot text missing %q", want)
 		}
 	}
 	if strings.Contains(briefAutopilot, "fab operator") {
 		t.Error("autopilot text names a fab operator verb")
+	}
+}
+
+// The engine owns readiness, spawning, the ladder and merge-auto merging and
+// the non-recovery failures; the brief keeps only what no step covers yet.
+func TestRenderBrief_AutopilotSwapKeepsOnlyUncoveredSections(t *testing.T) {
+	body := sectionBody(t, renderFixture(t), "## Interim autopilot")
+	for _, gone := range []string{
+		"### Items and readiness", "### Spawning a queue item", "wt create --non-interactive",
+		"--base \"$base_sha\"", "git fetch origin || exit 1", "rk tab new -L work --cwd",
+		"gh pr merge --auto --squash <pr>", "arm next: gh pr merge", "Pane died: one respawn",
+		"Cherry-pick or `stacked-prs` rebase conflict",
+	} {
+		if strings.Contains(body, gone) {
+			t.Errorf("replaced brief text survived: %q", gone)
+		}
+	}
+	for _, want := range []string{
+		"rk operator autopilot step -L work", "act on its escalations: send `rk notify` for each",
+		"Never run the spawn/arm choreography by hand", "prints `busy`",
+		"`stacked-prs`: do not merge", "refuses a\n  `stacked-prs` queue",
+		"### PR recovery", "recovery needed: <ci-failed|conflicting> — PR #<n> (<repo>)",
+		"| `ci-failed` |", "| `conflicting` |", "git push --force-with-lease",
+		"CI failed on PR #<n> (<repo>)", "### Failures and timing", "`stacked-prs` rebase conflict: escalate, never",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("brief autopilot section missing %q", want)
+		}
+	}
+	for _, gone := range []string{"### Items and readiness", "### Spawning a queue item"} {
+		if strings.Contains(renderFixture(t), gone) {
+			t.Errorf("rendered brief still has %q", gone)
+		}
 	}
 }
 

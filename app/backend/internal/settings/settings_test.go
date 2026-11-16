@@ -524,6 +524,7 @@ func TestOptionalSettingRoundTrips(t *testing.T) {
 		"gui.geometry":         registryValueFixture(`"auto"`, "auto", `"1600x900"`, "1600x900", "1920x1080"),
 		"openai_mcp.enabled":   registryValueFixture(`true`, true, `false`, false, false),
 		"openai_mcp.tunnel_id": registryValueFixture(`"tunnel_abc123"`, ptr("tunnel_abc123"), `"tunnel_def456"`, ptr("tunnel_def456"), (*string)(nil)),
+		"operator.merge_mode":  registryValueFixture(`"merge-auto"`, ptr("merge-auto"), `"stacked-prs"`, ptr("stacked-prs"), ptr("cherry-pick-ladder")),
 		"tmux_conf":            registryValueFixture(`"/my/tmux.conf"`, ptr("/my/tmux.conf"), `"/other/tmux.conf"`, ptr("/other/tmux.conf"), (*string)(nil)),
 		"log_level":            registryValueFixture(`"debug"`, ptr("debug"), `"info"`, ptr("info"), ptr("info")),
 		"server_colors": stringValueFixture("6", "1+3", func(v *string) error {
@@ -1700,6 +1701,41 @@ func TestOpenAIMCPSettings(t *testing.T) {
 	t.Run("a malformed tunnel ID in the file is dropped", func(t *testing.T) {
 		if got := parse("openai_mcp.tunnel_id: \"not a tunnel\"\n").OpenAIMCPTunnelID; got != "" {
 			t.Errorf("parse kept malformed tunnel ID %q, want empty", got)
+		}
+	})
+}
+
+func TestOperatorMergeMode(t *testing.T) {
+	t.Run("hand-edited invalid value survives the read", func(t *testing.T) {
+		s := parse("operator.merge_mode: \"bogus\"\n")
+		if s.OperatorMergeMode != "bogus" {
+			t.Fatalf("OperatorMergeMode = %q, want the raw value so the queue verb can refuse it", s.OperatorMergeMode)
+		}
+	})
+	t.Run("absent key reads the default and serializes to nothing", func(t *testing.T) {
+		s := parse("")
+		if s.OperatorMergeMode != DefaultOperatorMergeMode {
+			t.Fatalf("default = %q, want %q", s.OperatorMergeMode, DefaultOperatorMergeMode)
+		}
+		if got := serialize(s); strings.Contains(got, "operator.merge_mode") {
+			t.Fatalf("default serialized: %q", got)
+		}
+	})
+	t.Run("non-default value round-trips", func(t *testing.T) {
+		s := Default()
+		s.OperatorMergeMode = "stacked-prs"
+		if got := parse(serialize(s)).OperatorMergeMode; got != "stacked-prs" {
+			t.Fatalf("round trip = %q", got)
+		}
+	})
+	t.Run("apply rejects an invalid value naming the set", func(t *testing.T) {
+		s := Default()
+		err := ApplyValue(&s, "operator.merge_mode", json.RawMessage(`"bogus"`))
+		if err == nil || !strings.Contains(err.Error(), "cherry-pick-ladder, stacked-prs, merge-auto") {
+			t.Fatalf("err = %v", err)
+		}
+		if s.OperatorMergeMode != DefaultOperatorMergeMode {
+			t.Fatalf("a rejected value mutated the settings: %q", s.OperatorMergeMode)
 		}
 	})
 }

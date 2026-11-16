@@ -77,8 +77,9 @@ func resumeForkLauncher(launcher, ref string, plain bool) (string, error) {
 // an optional argument tail (everything after the first space, verbatim).
 // Anything else — free prose, an already-`$`-prefixed invocation, a path like
 // `/tmp/x` (the second `/` is outside the name charset and is not a space) —
-// is free text, not an invocation.
-var skillRefRe = regexp.MustCompile(`^/[a-z0-9][a-z0-9_-]*( .*)?$`)
+// is free text, not an invocation. The argument tail may span lines (a
+// prompt with a trailing instruction is still one invocation).
+var skillRefRe = regexp.MustCompile(`(?s)^/[a-z0-9][a-z0-9_-]*( .*)?$`)
 
 // RenderSkillRef re-renders a skill invocation for the receiving provider: a
 // value matching the skill-invocation shape gets its leading "/" swapped for

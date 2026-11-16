@@ -1,0 +1,57 @@
+id: 8w1x
+name: 261114-8w1x-operator-autopilot-go
+created: 2026-11-14T11:13:27Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 30
+    acceptance_count: 48
+    acceptance_completed: 48
+confidence:
+    certain: 21
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 91.8
+        reversibility: 78.0
+        competence: 87.2
+        disambiguation: 86.2
+stage_metrics:
+    intake: {started_at: "2026-11-16T09:46:51Z", driver: fab-clarify, iterations: 2, completed_at: "2026-11-16T10:08:27Z"}
+    apply: {started_at: "2026-11-16T13:19:21Z", driver: fab-fff, iterations: 13, completed_at: "2026-11-16T13:33:16Z"}
+    review: {started_at: "2026-11-16T14:00:58Z", iterations: 14, completed_at: "2026-11-16T14:00:58Z"}
+    hydrate: {started_at: "2026-11-16T14:00:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-16T14:06:53Z"}
+    ship: {started_at: "2026-11-16T14:06:53Z", driver: fab-fff, iterations: 1}
+prs: []
+base_branch: main
+change_type_source: explicit
+true_impact:
+    added: 11169
+    deleted: 274
+    net: 10895
+    excluding:
+        added: 10327
+        deleted: 260
+        net: 10067
+    tests:
+        added: 5675
+        deleted: 17
+        net: 5658
+    computed_at: "2026-11-16T14:06:53Z"
+    computed_at_stage: hydrate
+summary: 'Hydrate the R6a autopilot core: new operator-autopilot memory (queue, readiness, spawn, pass lock, merge, escalations); scope ownership and memo in operator-state; brief swap; operator.merge_mode setting; riff spawn hooks; CLI and toolkit-standards coverage'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-16T14:06:53Z

@@ -82,31 +82,69 @@ A plain agent gets a chained `github-pr` item once its PR URL is known (`track a
 
 ## Queues
 
-Confirm upfront, naming the mode ("creates PRs — merge after review" for `cherry-pick-ladder` and `stacked-prs`; "merges PRs on completion" for `merge-auto`). The mode comes from the first source that has one: the user's instruction, then `fab config get autopilot.merge_mode` when fab is present, then `cherry-pick-ladder`. Resolve silently and say it in the confirmation; ask only when the user's words contradict it, or `merge-auto` meets same-repo dependencies.
+A queue is created, advanced and merged by `rk operator autopilot` — never by hand-writing items or running the git/gh choreography yourself. First run `queue --dry-run` with the entries and any user-specified `--mode`; then confirm the receipt’s mode and any misfits with the user:
 
-Persist the queue as N `pane` items. The first carries `--mode <mode>`, the rest `--depends-on` their nearest same-repo predecessor (else the previous entry, which is ordering-only across repos). They have no pane yet, so they sit `held`, then `pending`; runs spawn them.
+Confirmation lines: `cherry-pick-ladder` "creates PRs — merge after review"; `stacked-prs` "creates stacked PRs — merge after review"; `merge-auto` "merges PRs on completion".
 
-```sh
-rk operator track add q1 --kind pane --repo /src/app --change 260101-ab12-first --mode cherry-pick-ladder
-rk operator track add q2 --kind pane --repo /src/app --change 260101-cd34-second --depends-on q1
-rk operator track add q3 --kind pane --repo /src/web --change 260101-ef56-third --depends-on q2
+The mode comes from the first source that has one: the user's instruction (`--mode`), then the `operator.merge_mode` setting, then `cherry-pick-ladder`. The dry-run resolves it, prints `mode: <name> (flag|setting|default)`, without writing items — say it in the confirmation. Ask the mode question only on a misfit: the verb's receipt reports `misfit: …` when `merge-auto` meets same-repo dependencies, and you ask when the user's words contradict the mode (they say "merge as you go" while the mode is a held one). The question includes the glyphs, the three diagrams below and a one-line tradeoff each, then preview again with the chosen `--mode` if it changes. After confirmation, make exactly one live `queue --mode <confirmed-mode>` call with the same entries; it stamps the mode on every item. A live misfit without an explicit `--mode` refuses without writing.
+
+At a glance: `▂▄▆` cherry-pick-ladder · `░▒▓█` merge-auto · `▄▀` stacked-prs.
+
+`cherry-pick-ladder` (default) — every PR stands on main; each successive diff is taller because it carries cherry-picked copies of its predecessors (`a'`, `b'`). All PRs are held and merged base-first on "merge all".
+
+```
+                    ┌───┐
+            ┌───┐   │ C │
+    ┌───┐   │ B │   ├╌╌╌┤
+    │ A │   ├╌╌╌┤   │ b'│
+    │   │   │ a'│   │ a'│
+────┴───┴───┴───┴───┴───┴──▶ main
+     PR1     PR2     PR3
 ```
 
-Skipping an entry is `track rm <id>`; pausing the unspawned ones is `track pause`. "Stop after current" means `rm` the entries not yet spawned.
+`merge-auto` — no PRs pile up for review: each PR is armed the moment it lands and GitHub merges it into main when checks pass (▼ into ●). Each successor stays held until its predecessor's merge is verified, then starts from the advanced main — no batch review, no re-stacking.
+
+```
+    ┌───┐          ┌───┐          ┌───┐
+    │ A │          │ B │          │ C │
+────┴─▼─┴●─────────┴─▼─┴●─────────┴─▼─┴●──▶ main
+       merged         merged         merged
+```
+
+`stacked-prs` — uniform height: every diff shows only its own delta. Each PR's base is the previous PR's branch, so merging a bottom box means re-seating the ones above it (retarget + rebase, step by step on "merge all").
+
+```
+                    ┌───┐
+            ┌───┐   │ C │  PR3 · base: B
+    ┌───┐   │ B │   └───┘
+    │ A │   └───┘  PR2 · base: A
+────┴───┴──────────────────▶ main
+    PR1 · base: main
+```
+
+Pipe the entries as a JSON array; the first carries no dependency, every later one chains to its nearest same-repo predecessor (else the previous entry, ordering-only across repos) unless it names `depends_on`:
+
+```sh
+echo '[
+  {"id": "q1", "repo": "/src/app", "change": "260101-ab12-first"},
+  {"id": "q2", "repo": "/src/web", "task": "fix login after password reset"},
+  {"id": "q3", "repo": "/src/app", "change": "260101-ef56-third", "depends_on": ["q1"], "stop_stage": null}
+]' | rk operator autopilot queue --dry-run
+```
+
+Add `--mode stacked-prs` (or another mode) to the call when the user named one.
+
+An entry names an existing change (`change`), raw text (`task`), or neither (a bare agent — nothing may depend on it). Runs spawn the entries as they become ready; `rk operator autopilot step` does one pass of that work on demand and `rk operator autopilot status` shows each item's state, PR and merge position (read-only). `step` prints escalations — send `rk notify` for each one; `status` is read-only and prints none. A CI failure or a conflict on an armed PR comes back as a `recovery needed: <reason>` escalation, and `step` leaves the PR armed: recovery follows the run brief's PR recovery text. `step`, `merge` and `stop` take a per-server lock; a `busy` result means another pass is running — retry later.
+
+- **"merge all"** → `rk operator autopilot merge` (once the queue is complete and the user has said yes; it refuses while items are not done and does nothing for `merge-auto`). It starts the ordered merge; later runs advance it. It refuses a `stacked-prs` queue: "merge all" there follows the run brief's `stacked-prs` text instead, not `merge`.
+- **"stop"** → `rk operator autopilot stop`: disarms every armed PR and pauses the unspawned entries; live panes keep running.
+- Skipping an entry is `rk operator track rm <id>`.
 
 ## What a run sees
 
-`rk operator brief` prints the brief a one-shot run would be handed — the changed items with their dependency neighbours and notes, one line for every other item, the run rules and the exit contract. It only reads the ledger:
-
-```sh
-rk operator brief                                    # nothing flagged — manual render
-rk operator brief --changed pr-913=merged            # as if pr-913 had merged
-rk operator brief --state ./ledger.yaml -L work      # a specific file / server
-```
-
-Use it to check that your items, `then` prose and notes read the way you intend, and to debug why a run did what it did.
+`rk operator brief` prints the brief a one-shot run would be handed — the changed items with their dependency neighbours and notes, one line for every other item, the run rules and the exit contract. It only reads the ledger: `rk operator brief [--changed pr-913=merged] [--state ./ledger.yaml] [-L work]`. Use it to check that your items, `then` prose and notes read the way you intend, and to debug why a run did what it did.
 
 ## Gotchas
 
 - `rk operator track` has no clock verb and no `update --pause`; pause with `track pause`.
-- `track add` refuses a duplicate id: to attach a pane to an existing queue item use `track update <id> --scope '{"pane":"%N","session":"<s>"}'`.
+- `track add` refuses a duplicate id. `track add --scope` and `track update --scope` are an allow-list: they accept `memo`, the identity keys `repo`/`change`/`pr`/`task`/`bare` (only while empty), a hand-tracked item's `pane`/`session`/`branch`, `stop_stage`, `spawned_by`, `recovery`, `fix_head` and a watcher's `query`. Everything else (autopilot's own keys, keys `rk operator check` records, unknown keys) is refused with exit 2, naming the key and its owner. Keep your own facts about an item in `scope.memo` (`--scope '{"memo":{"why":"waiting on design"}}'`, merged per key, a null value deletes one): it is shown in the brief and no rk decision reads it. Autopilot attaches the panes of queue items itself. `--force` is the manual repair for a stuck item (for example `track update --force <id> --scope '{"spawning":null}'`), not a routine path. `track rm` of a `github-pr` item autopilot has armed is refused too: run `gh pr merge --disable-auto` first, or pass `--force`.

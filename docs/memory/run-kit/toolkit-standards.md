@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, HEAD-build audit rule, per-standard PASS (help-dump, skill, principles, update, version, install-composition). Covers P9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator` (incl. `operator request`/`track`/`adopt`/`brief`)/`gui`/`mcp`/`board` + `mux`/`cron` families."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, HEAD-build audit rule, per-standard PASS (help-dump, skill, principles, update, version, install). Covers P9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator` (incl. `operator request`/`track`/`adopt`/`brief`/`autopilot`)/`gui`/`mcp`/`board` + `mux`/`cron` families."
 ---
 # Toolkit Standards Conformance
 
@@ -988,6 +988,31 @@ are measured against the same checks (261111-jsg9-operator-run-brief-chat-skill)
   enumerate it; the core bundle `docs/site/skill.md` gains one topic-index
   line for it and stays ≤150 lines. The page teaches the ledger and brief
   verbs; the README does not list them.
+
+The `rk operator autopilot` family (`operator_autopilot.go` — see
+[operator-autopilot](/run-kit/operator-autopilot.md)) is measured against the
+same checks (261114-8w1x-operator-autopilot-go):
+
+- **help-dump: platform-stable registration.** `autopilot` registers
+  unconditionally on `operatorCmd` with five verbs (`queue`, `step`, `merge`,
+  `stop`, `status`); each `Long:` block carries Flags, Examples and Exit codes
+  sections, `-L/--server` is a persistent flag on the group, and the tree walk
+  dumps it with no help-dump code change. CLI tests pin that the help states
+  exactly what the implementation does (the exit codes, `busy`, `merge`'s
+  stacked-prs refusal, the `recovery needed` escalations, what `status` probes).
+- **Principle 9: bounded lists.** Every human list (actions, report lines,
+  escalations, queue items, merge positions) caps at 20 entries with the exact
+  total, a truncation notice and `--all`; `--json` is always the complete
+  envelope (`{"ok":true,"result":{…}}`) on stdout.
+- **Exit-code convention (P4)** — 0 ok, including a `busy` pass (another
+  autopilot pass holds the server's lock: nothing done, `"busy":true`); 1
+  operational (state file busy or unreadable, a gh lookup or state write
+  failed, `merge` on incomplete or `stacked-prs` queues); 2 usage or invalid
+  input (the library's `InvalidError`, bad `--mode`/`--by`, a refused queue
+  entry).
+- **CLI-only.** The verbs have no MCP policy-table row, and the `skill` and
+  README surfaces do not list them beyond the operator chat topic's queue
+  section.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host
