@@ -269,57 +269,61 @@ derived status; `step --dry-run` prints C/F rows like any row.
 
 ### Functional Completeness
 
-- [ ] A-001 R1: PR engine items round-trip `recovery` (set), `fix_head`, `recovery_at`, `fix_item`; no ledger item ever carries them
-- [ ] A-002 R2: `fixes:` list exists, fix items are excluded from queue derivation, and `OwnedIDs` includes them
-- [ ] A-003 R3: `fixing` is derived exactly as specified with the stated precedence
-- [ ] A-004 R4: Fix items derive `resolved` / `spawn-unknown` / `working` as specified
-- [ ] A-005 R5: Authoring pane lookup is pure, deterministic (lowest id), honours idle and unknown snapshot
-- [ ] A-006 R6: Rows C1–C6, F1, F2 fire with the specified guards and reasons; P5 is gone
-- [ ] A-007 R7: Every reachable (kind, mode, status) has a row or declared wait; the table test enumerates them
-- [ ] A-008 R8: `halt` uses the decision's reason; P2 text unchanged
-- [ ] A-009 R9: `fix-request` writes intent before sending, rolls back on `ErrPaneBusy`, keeps the round on other errors
-- [ ] A-010 R10: `recovery-spawn` writes intent + fix item before launch and never launches twice
-- [ ] A-011 R11: `rebase` uses a temp detached worktree, pins the lease to the observed head, spends the round just before the push, halts on conflict, never arms
-- [ ] A-012 R12: `untrack` removes the fix item and projection and leaves the window open
-- [ ] A-013 R13: `Panes.Send` exists with `ErrPaneBusy`; production send refuses busy agents
-- [ ] A-014 R14: `status` lists fix items; help mentions recovery
+- [x] A-001 R1: PR engine items round-trip `recovery` (set), `fix_head`, `recovery_at`, `fix_item`; no ledger item ever carries them
+- [x] A-002 R2: `fixes:` list exists, fix items are excluded from queue derivation, and `OwnedIDs` includes them
+- [x] A-003 R3: `fixing` is derived exactly as specified with the stated precedence
+- [x] A-004 R4: Fix items derive `resolved` / `spawn-unknown` / `working` as specified
+- [x] A-005 R5: Authoring pane lookup is pure, deterministic (lowest id), honours idle and unknown snapshot
+- [x] A-006 R6: Rows C1–C6, F1, F2 fire with the specified guards and reasons; P5 is gone
+- [x] A-007 R7: Every reachable (kind, mode, status) has a row or declared wait; the table test enumerates them
+- [x] A-008 R8: `halt` uses the decision's reason; P2 text unchanged
+- [x] A-009 R9: `fix-request` writes intent before sending, rolls back on `ErrPaneBusy`, keeps the round on other errors
+- [x] A-010 R10: `recovery-spawn` writes intent + fix item before launch and never launches twice
+- [x] A-011 R11: `rebase` uses a temp detached worktree, pins the lease to the observed head, spends the round just before the push, halts on conflict, never arms
+- [x] A-012 R12: `untrack` removes the fix item and projection and leaves the window open
+- [x] A-013 R13: `Panes.Send` exists with `ErrPaneBusy`; production send refuses busy agents
+- [x] A-014 R14: `status` lists fix items; help mentions recovery
 
 ### Behavioral Correctness
 
-- [ ] A-015 R6: A failed or conflicting non-stacked PR is recovered (not only escalated); a stacked conflicting PR waits
-- [ ] A-016 R11: Re-arm after a recovery rebase happens via P6 on the next pass
+- [x] A-015 R6: A failed or conflicting non-stacked PR is recovered (not only escalated); a stacked conflicting PR waits
+- [x] A-016 R11: Re-arm after a recovery rebase happens via P6 on the next pass
 
 ### Removal Verification
 
-- [ ] A-017 R6: `stallText`, `stallGuard`, row P5 and its wait reasons and `recovery needed` strings are removed from code and tests
+- [x] A-017 R6: `stallText`, `stallGuard`, row P5 and its wait reasons and `recovery needed` strings are removed from code and tests
 
 ### Scenario Coverage
 
-- [ ] A-018 R13: Executor tests cover every scenario listed in T013 against real temp repos / scripted runner / fake panes
+- [x] A-018 R13: Executor tests cover every scenario listed in T013 against real temp repos / scripted runner / fake panes
 
 ### Edge Cases & Error Handling
 
-- [ ] A-019 R9: Uncertain delivery and busy rollback are both tested
-- [ ] A-020 R11: Fetch failure does not spend the round; worktree cleanup failure escalates
-- [ ] A-021 R3: A hand-merged PR during a fix round records merged and F1 untracks the fix item
+- [x] A-019 R9: Uncertain delivery and busy rollback are both tested
+- [x] A-020 R11: Fetch failure does not spend the round; worktree cleanup failure escalates
+- [x] A-021 R3: A hand-merged PR during a fix round records merged and F1 untracks the fix item
 
 ### Code Quality
 
-- [ ] A-022 Pattern consistency: New code follows the rules/execute/status structure and naming of `internal/autopilot`
-- [ ] A-023 No unnecessary duplication: Existing helpers (`guarded`, `reread`, `launch`, `attach`, `worktreeForBranch`, `defaultBranch`, `checkedBranch`, `nameWithOwner`, mux send) are reused
-- [ ] A-024 Subprocesses: All git/gh calls go through `e.git`/`e.gh` (timeouts, argument slices), never shell strings
-- [ ] A-025 Comments state constraints only — no narration, no change IDs or PR numbers
-- [ ] A-026 Tests: new behaviour is covered; gates in T015 pass (known host-only failures excepted)
+- [x] A-022 Pattern consistency: New code follows the rules/execute/status structure and naming of `internal/autopilot`
+- [x] A-023 No unnecessary duplication: Existing helpers (`guarded`, `reread`, `launch`, `attach`, `worktreeForBranch`, `defaultBranch`, `checkedBranch`, `nameWithOwner`, mux send) are reused
+- [x] A-024 Subprocesses: All git/gh calls go through `e.git`/`e.gh` (timeouts, argument slices), never shell strings
+- [x] A-025 Comments state constraints only — no narration, no change IDs or PR numbers
+- [x] A-026 Tests: new behaviour is covered; gates in T015 pass (known host-only failures excepted)
 
 ### Security
 
-- [ ] A-027 R13: The fix-request text is sanitised (`inject.Sanitize`) before injection; check names/links from `gh` are never executed
+- [x] A-027 R13: The fix-request text is sanitised (`inject.Sanitize`) before injection; check names/links from `gh` are never executed
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- `app/backend/internal/autopilot/autopilot.go:272` `escalateAs` — its explicit-key form existed for P5's per-head key; `escalate` is now its only caller, so it can fold back into `escalate`
 
 ## Assumptions
 

@@ -2,20 +2,20 @@ id: m8io
 name: 261116-m8io-autopilot-pr-recovery
 created: 2026-11-16T21:03:19Z
 created_by: sahil-noon
-change_type: fix
+change_type: feat
 issues: []
 progress:
     intake: done
     apply: done
-    review: active
-    hydrate: pending
+    review: done
+    hydrate: active
     ship: pending
     review-pr: pending
 plan:
     generated: true
     task_count: 15
     acceptance_count: 27
-    acceptance_completed: 0
+    acceptance_completed: 27
 confidence:
     certain: 9
     confident: 8
@@ -31,7 +31,8 @@ confidence:
 stage_metrics:
     intake: {started_at: "2026-11-16T21:03:19Z", driver: fab-new, iterations: 1, completed_at: "2026-11-16T21:08:10Z"}
     apply: {started_at: "2026-11-16T21:08:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-16T21:37:17Z"}
-    review: {started_at: "2026-11-16T21:37:17Z", driver: fab-fff, iterations: 1}
+    review: {started_at: "2026-11-16T21:37:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-16T21:47:47Z"}
+    hydrate: {started_at: "2026-11-16T21:47:47Z", driver: fab-fff, iterations: 1}
 prs: []
 base_branch: main
 true_impact:
@@ -48,6 +49,7 @@ true_impact:
         net: 0
     computed_at: "2026-11-16T21:37:17Z"
     computed_at_stage: apply
+change_type_source: explicit
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-16T21:37:17Z
+last_updated: 2026-11-16T21:47:47Z
