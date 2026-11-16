@@ -115,12 +115,13 @@ const (
 // only when Server is empty) restores the CLI caller's $TMUX so bare tmux calls
 // reach the user's current server.
 type EffectiveSpec struct {
-	Panes       []PaneSpec
-	Layout      string   // canonical name, or "" for single-pane / explicit single-pane no-op
-	Count       int      // number of parallel worktree/window pairs (≥ 1)
-	Passthrough []string // forwarded to wt create
-	Launcher    string
-	Server      string // tmux server label; "" → target current server via OriginalTMUX
+	windowCreated func(context.Context, string, string, string) error
+	Panes         []PaneSpec
+	Layout        string   // canonical name, or "" for single-pane / explicit single-pane no-op
+	Count         int      // number of parallel worktree/window pairs (≥ 1)
+	Passthrough   []string // forwarded to wt create
+	Launcher      string
+	Server        string // tmux server label; "" → target current server via OriginalTMUX
 	// Session is the tmux session the window is created in (daemon path). When
 	// non-empty, tmux window operations are session-scoped: `new-window -t
 	// <session>`, `split-window`/`select-layout` target `<session>:<window>`, and
@@ -282,6 +283,13 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 // worktree's root path; it is not an Options field because Options is compared
 // by value.
 func SpawnPrepared(ctx context.Context, opts Options, prepare func(ctx context.Context, worktreePath string) error) (Result, error) {
+	return SpawnObserved(ctx, opts, prepare, nil)
+}
+
+// SpawnObserved adds a window-created hook to SpawnPrepared. The hook runs
+// before layout and delivery; errors leave the window for reconciliation.
+// Options remains comparable for callers that use it as a value.
+func SpawnObserved(ctx context.Context, opts Options, prepare func(context.Context, string) error, opened func(context.Context, string, string, string) error) (Result, error) {
 	if opts.RepoRoot == "" {
 		return Result{}, ValidationErr("run-kit riff: repo root is empty")
 	}
@@ -350,6 +358,7 @@ func SpawnPrepared(ctx context.Context, opts Options, prepare func(ctx context.C
 	if spec.Where == "" {
 		spec.Where = whereWorktree
 	}
+	spec.windowCreated = opened
 	spec.WorktreeName = opts.WorktreeName
 	spec.WorktreeBase = opts.WorktreeBase
 	spec.WorktreeBranch = opts.WorktreeBranch
@@ -385,8 +394,8 @@ func SpawnPrepared(ctx context.Context, opts Options, prepare func(ctx context.C
 		windowRoot = worktreeWindowRoot(worktreePath, opts.WorktreeSubdir)
 		if prepare != nil {
 			if perr := prepare(ctx, worktreePath); perr != nil {
-				rollbackWorktree(spec, worktreePath)
-				return Result{WorktreePath: worktreePath}, perr
+				rollbackErr := rollbackWorktree(spec, worktreePath)
+				return Result{WorktreePath: worktreePath}, errors.Join(perr, rollbackErr)
 			}
 		}
 	}
@@ -398,9 +407,9 @@ func SpawnPrepared(ctx context.Context, opts Options, prepare func(ctx context.C
 	// response must not block on agent boot (deliver.go).
 	deliverDaemonTask(spec, name, paneID)
 	return Result{
-		Server:     opts.Server,
-		Session:    opts.Session,
-		WindowName: name,
+		Server:       opts.Server,
+		Session:      opts.Session,
+		WindowName:   name,
 		WindowID:     windowID,
 		PaneID:       paneID,
 		WorktreePath: worktreePath,
@@ -773,6 +782,12 @@ func spawnRiffReturningName(ctx context.Context, worktreePath string, spec Effec
 		return resolvedName, "", "", err
 	}
 
+	if spec.windowCreated != nil {
+		windowID := resolveWindowIDFromPane(ctx, spec, paneID)
+		if err := spec.windowCreated(ctx, paneID, windowID, worktreePath); err != nil {
+			return resolvedName, windowID, paneID, err
+		}
+	}
 	rest := buildSpawnArgvs(worktreePath, resolvedName, spec)
 	if len(rest) > 0 {
 		rest = rest[1:]
@@ -1082,11 +1097,12 @@ func runWtDelete(parent context.Context, spec EffectiveSpec, name string) error 
 }
 
 // rollbackWorktree deletes a worktree Spawn created when a later step failed.
-// Best-effort on a fresh context: the caller's may already be cancelled.
-func rollbackWorktree(spec EffectiveSpec, worktreePath string) {
+// A fresh context permits cleanup even when the caller has been cancelled.
+func rollbackWorktree(spec EffectiveSpec, worktreePath string) error {
 	if err := runWtDelete(context.Background(), spec, filepath.Base(worktreePath)); err != nil {
-		fmt.Fprintf(os.Stderr, "run-kit riff: rollback warning: wt delete %s failed: %v\n", filepath.Base(worktreePath), err)
+		return fmt.Errorf("worktree rollback failed for %s: %w", filepath.Base(worktreePath), err)
 	}
+	return nil
 }
 
 // WorktreeOptions are the inputs of CreateWorktree. Exactly the wt-create

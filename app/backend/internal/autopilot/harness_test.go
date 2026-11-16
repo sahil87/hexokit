@@ -20,7 +20,9 @@ import (
 
 func runGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	cmd.Env = append(os.Environ(),
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t",
 		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
@@ -32,7 +34,9 @@ func runGit(t *testing.T, dir string, args ...string) string {
 }
 
 func gitOK(dir string, args ...string) bool {
-	return exec.Command("git", append([]string{"-C", dir}, args...)...).Run() == nil
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	return exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...).Run() == nil
 }
 
 func write(t *testing.T, path, content string) {
@@ -357,12 +361,13 @@ func (f *fakePanes) Send(ctx context.Context, paneID, text string) error {
 // cherry-picks run against git, and runs the engine's Prepare hook exactly the
 // way riff does: a failed hook deletes the worktree.
 type fakeSpawner struct {
-	t        *testing.T
-	root     string
-	reqs     []SpawnRequest
-	n        int
-	failWith error
-	during   func()
+	t           *testing.T
+	root        string
+	reqs        []SpawnRequest
+	n           int
+	failWith    error
+	during      func()
+	afterOpened func(SpawnResult)
 }
 
 func newFakeSpawner(t *testing.T) *fakeSpawner {
@@ -399,14 +404,23 @@ func (f *fakeSpawner) Spawn(ctx context.Context, req SpawnRequest) (SpawnResult,
 			}
 		}
 	}
-	return SpawnResult{PaneID: fmt.Sprintf("%%%d", 100+f.n), Session: req.Session, WorktreePath: path, Branch: branch}, nil
+	res := SpawnResult{PaneID: fmt.Sprintf("%%%d", 100+f.n), Session: req.Session, WorktreePath: path, Branch: branch}
+	if req.Opened != nil {
+		if err := req.Opened(res); err != nil {
+			return res, err
+		}
+	}
+	if f.afterOpened != nil {
+		f.afterOpened(res)
+	}
+	return res, nil
 }
 
-func (f *fakeSpawner) Worktree(ctx context.Context, repo, branch string) (string, func(), error) {
+func (f *fakeSpawner) Worktree(ctx context.Context, repo, branch string) (string, func() error, error) {
 	f.n++
 	path := filepath.Join(f.root, fmt.Sprintf("wt-%d", f.n))
 	runGit(f.t, repo, "worktree", "add", path, branch)
-	return path, func() { runGit(f.t, repo, "worktree", "remove", "--force", path) }, nil
+	return path, func() error { runGit(f.t, repo, "worktree", "remove", "--force", path); return nil }, nil
 }
 
 // ---- environment -----------------------------------------------------------
@@ -564,4 +578,13 @@ func (h *harness) startMerge() *StepResult {
 		h.t.Fatalf("StartMerge: %v", err)
 	}
 	return res
+}
+
+func (f *fakePanes) PID(context.Context, string) (int, error) { return 123, nil }
+func (f *fakeSpawner) RemoveWorktree(ctx context.Context, repo, path string) error {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil
+	}
+	_, err := ExecRunner{}.Run(ctx, repo, "git", "worktree", "remove", "--force", path)
+	return err
 }

@@ -80,7 +80,7 @@ func TestDefaultBranchChain(t *testing.T) {
 		runGit(t, foo.Dir, "push", "origin", "main:trunk")
 		runGit(t, foo.Dir, "fetch", "origin")
 		prep(h, foo)
-		return newEngine(h.env).defaultBranch(context.Background(), foo.Dir)
+		return newEngine(h.env).defaultBranch(context.Background(), foo.Dir, "a")
 	}
 	t.Run("origin/HEAD that verifies wins", func(t *testing.T) {
 		got := run(t, func(h *harness, foo *testRepo) { runGit(t, foo.Dir, "remote", "set-head", "origin", "trunk") })
@@ -381,7 +381,10 @@ func TestPromptTable(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := e.buildPrompt(context.Background(), item(c.repo, c.scope), c.repo, "main", c.base)
+			got, err := e.buildPrompt(context.Background(), item(c.repo, c.scope), c.repo, "main", c.base)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if !strings.HasPrefix(got, c.want) || (c.want == "" && got != "") {
 				t.Fatalf("prompt = %q, want prefix %q", got, c.want)
 			}

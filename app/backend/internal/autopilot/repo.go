@@ -3,12 +3,15 @@ package autopilot
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	"rk/internal/gitinfo"
 	"rk/internal/operator"
 )
 
@@ -64,26 +67,34 @@ func samePath(a, b string) bool {
 // defaultBranch resolves the repo's default branch: origin/HEAD when it
 // verifies, else the GitHub default, else main or master by which exists on
 // origin. It runs after a successful fetch.
-func (e *engine) defaultBranch(ctx context.Context, repo string) string {
+func (e *engine) defaultBranch(ctx context.Context, repo, id string) string {
 	if m := e.meta[repo]; m != nil && m.defaultBranch != "" {
 		return m.defaultBranch
 	}
 	branch := ""
-	if out, err := e.git(ctx, repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
+	if out, err := e.git(ctx, repo, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"); err == nil {
 		cand := strings.TrimPrefix(out, "origin/")
 		if _, verr := e.git(ctx, repo, "rev-parse", "--verify", "-q", "refs/remotes/origin/"+cand); verr == nil && cand != "" {
 			branch = cand
+		} else if verr != nil && !exitCode(verr, 1) {
+			e.escalate(id, "default branch verification failed: "+stderrOf(verr))
 		}
+	} else if !exitCode(err, 1) {
+		e.escalate(id, "origin/HEAD lookup failed: "+stderrOf(err))
 	}
 	if branch == "" {
 		if out, err := e.gh(ctx, repo, "repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"); err == nil {
 			branch = strings.TrimSpace(out)
+		} else {
+			e.escalate(id, "GitHub default branch lookup failed: "+stderrOf(err))
 		}
 	}
 	if branch == "" {
 		branch = "master"
 		if _, err := e.git(ctx, repo, "rev-parse", "--verify", "-q", "origin/main"); err == nil {
 			branch = "main"
+		} else if !exitCode(err, 1) {
+			e.escalate(id, "origin/main lookup failed: "+stderrOf(err))
 		}
 	}
 	e.metaFor(repo).defaultBranch = branch
@@ -100,23 +111,26 @@ func (e *engine) metaFor(repo string) *repoMeta {
 }
 
 // nameWithOwner resolves the repo's owner/name for a github-pr probe's --repo.
-// A failure is "" and the probe argv omits --repo.
-func (e *engine) nameWithOwner(ctx context.Context, repo string) string {
+// Failure must refuse probe creation: an ambient repo could observe another PR.
+func (e *engine) nameWithOwner(ctx context.Context, repo string) (string, error) {
 	if m := e.meta[repo]; m != nil && m.nwo != "" {
-		return m.nwo
+		return m.nwo, nil
 	}
 	out, err := e.gh(ctx, repo, "repo", "view", "--json", "nameWithOwner")
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("cannot resolve owner/name for %s: %w", repo, err)
 	}
 	var v struct {
 		NameWithOwner string `json:"nameWithOwner"`
 	}
-	if json.Unmarshal([]byte(out), &v) != nil {
-		return ""
+	if err := json.Unmarshal([]byte(out), &v); err != nil {
+		return "", fmt.Errorf("cannot resolve owner/name for %s: %w", repo, err)
+	}
+	if v.NameWithOwner == "" {
+		return "", fmt.Errorf("cannot resolve owner/name for %s: empty nameWithOwner", repo)
 	}
 	e.metaFor(repo).nwo = v.NameWithOwner
-	return v.NameWithOwner
+	return v.NameWithOwner, nil
 }
 
 // safeBranch returns name when it is a valid branch name, else "": the rules of
@@ -168,8 +182,8 @@ var changeIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 // depBranch resolves a dependency's branch: its own scope.branch, else the
 // branch_map entry keyed by its id or change.
 func depBranch(st *operator.State, dep operator.TrackedItem) string {
-	if b := operator.ScopeString(dep.Scope, "branch"); b != "" {
-		return safeBranch(b)
+	if raw := dep.Scope["branch"]; raw != nil && raw != "" {
+		return safeBranch(operator.ScopeString(dep.Scope, "branch"))
 	}
 	for _, key := range []string{operator.ScopeString(dep.Scope, "change"), dep.ID} {
 		if key == "" {
@@ -186,37 +200,83 @@ func depBranch(st *operator.State, dep operator.TrackedItem) string {
 func itemBranch(st *operator.State, it operator.TrackedItem) string { return depBranch(st, it) }
 
 // worktreeForBranch returns the path of the worktree that has branch checked
-// out ("" when none), from `git worktree list --porcelain`.
-func (e *engine) worktreeForBranch(ctx context.Context, repo, branch string) string {
-	out, err := e.git(ctx, repo, "worktree", "list", "--porcelain")
-	if err != nil {
-		return ""
+// out ("" when none). NUL delimiters preserve quotes, spaces and newlines.
+func (e *engine) worktreeForBranch(ctx context.Context, repo, branch string) (string, error) {
+	if safeBranch(branch) == "" {
+		return "", fmt.Errorf("invalid or empty worktree branch %q", branch)
 	}
-	var path string
-	for _, line := range strings.Split(out, "\n") {
-		switch {
-		case strings.HasPrefix(line, "worktree "):
-			path = strings.TrimPrefix(line, "worktree ")
-		case line == "branch refs/heads/"+branch:
-			return path
+	out, err := e.run(ctx, repo, "git", "worktree", "list", "--porcelain", "-z")
+	if err != nil {
+		return "", fmt.Errorf("git worktree list failed: %w", err)
+	}
+	for _, wt := range gitinfo.ParseWorktrees(out, "\x00").Worktrees {
+		if wt.Branch == branch {
+			return wt.Path, nil
 		}
 	}
-	return ""
+	return "", nil
 }
 
 // resolveRef returns the commit-ish for a branch: the local head, else the
 // remote-tracking one.
-func (e *engine) resolveRef(ctx context.Context, dir, branch string) (string, bool) {
+func (e *engine) resolveRef(ctx context.Context, dir, branch string) (string, error) {
+	if safeBranch(branch) == "" {
+		return "", fmt.Errorf("invalid or empty branch %q", branch)
+	}
 	for _, ref := range []string{"refs/heads/" + branch, "refs/remotes/origin/" + branch} {
 		if _, err := e.git(ctx, dir, "rev-parse", "--verify", "-q", ref); err == nil {
-			return ref, true
+			return ref, nil
+		} else if !exitCode(err, 1) {
+			return "", fmt.Errorf("git ref lookup for %s failed: %w", branch, err)
 		}
 	}
-	return "", false
+	return "", fmt.Errorf("branch %s not found in %s", branch, dir)
 }
 
 // isAncestor reports whether a is an ancestor of b (equal counts).
-func (e *engine) isAncestor(ctx context.Context, dir, a, b string) bool {
+func (e *engine) isAncestor(ctx context.Context, dir, a, b string) (bool, error) {
 	_, err := e.git(ctx, dir, "merge-base", "--is-ancestor", a, b)
-	return err == nil
+	if err != nil && !exitCode(err, 1) {
+		return false, fmt.Errorf("git ancestry lookup failed: %w", err)
+	}
+	return err == nil, nil
+}
+
+// Exit 1 is a normal negative result for quiet ref, ancestry and diff probes.
+func exitCode(err error, code int) bool {
+	var ex *exec.ExitError
+	return errors.As(err, &ex) && ex.ExitCode() == code
+}
+
+func (e *engine) checkedBranch(id, branch, role string) (string, bool) {
+	if safeBranch(branch) == "" {
+		e.escalate(id, fmt.Sprintf("invalid or empty %s branch %q", role, branch))
+		return "", false
+	}
+	return branch, true
+}
+
+// New spawns need not have an existing branch. If shared state does supply one,
+// it must be valid; dependency code always needs a resolvable branch name.
+func (e *engine) validateSpawnBranches(st *operator.State, it operator.TrackedItem) bool {
+	if it.Scope["branch"] != nil && it.Scope["branch"] != "" {
+		if _, ok := e.checkedBranch(it.ID, operator.ScopeString(it.Scope, "branch"), "item"); !ok {
+			return false
+		}
+	}
+	for _, key := range []string{it.ID, operator.ScopeString(it.Scope, "change")} {
+		if entry, ok := st.BranchMap[key]; key != "" && ok {
+			if _, ok := e.checkedBranch(it.ID, entry.Branch, "branch_map"); !ok {
+				return false
+			}
+		}
+	}
+	if modeOf(it) == operator.MergeModeCherryPickLadder || modeOf(it) == operator.MergeModeStackedPRs {
+		for _, dep := range sameRepoDeps(st, it) {
+			if _, ok := e.checkedBranch(it.ID, depBranch(st, dep), "dependency "+dep.ID); !ok {
+				return false
+			}
+		}
+	}
+	return true
 }

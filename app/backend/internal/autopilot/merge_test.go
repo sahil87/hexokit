@@ -171,7 +171,8 @@ func TestLadderCIFailedRecovery(t *testing.T) {
 		t.Fatal("halted while the round is still open on the same head")
 	}
 
-	// Green: the merge report says a fix round happened.
+	// Green on the fix push: the merge report says a fix round happened.
+	prs[0].HeadOid = "fixed-head"
 	prs[0].Checks = []checkRun{{Name: "test (2/4)", State: "SUCCESS"}}
 	prs[0].State = "MERGED"
 	res = h.step()
@@ -268,6 +269,7 @@ func TestLadderCIFixSpawnsOnceWhenThePaneIsGone(t *testing.T) {
 		t.Fatal("a second recovery spawn was made")
 	}
 
+	prs[0].HeadOid = "fixed-head"
 	prs[0].Checks = []checkRun{{Name: "ci", State: "SUCCESS"}}
 	h.step()
 	if h.has("ab12-fix") {
@@ -705,7 +707,7 @@ func TestStatusReadsANullModeAsCherryPickLadder(t *testing.T) {
 	}
 }
 
-func TestStatusListsASpawnedSingleItemLegacyQueue(t *testing.T) {
+func TestStatusExcludesAnUnmarkedSingleLegacyPane(t *testing.T) {
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
 	// A queue from before items were stamped: one spawned item, null mode, no
@@ -718,8 +720,8 @@ func TestStatusListsASpawnedSingleItemLegacyQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	res, err := Status(context.Background(), h.env)
-	if err != nil || len(res.Items) != 1 || res.Items[0].ID != "solo" || res.Items[0].Mode != "cherry-pick-ladder" || res.Items[0].Queue != "" {
-		t.Fatalf("status = %+v err %v: a real legacy queue item must not be dropped", res.Items, err)
+	if err != nil || len(res.Items) != 0 {
+		t.Fatalf("isolated unmarked pane treated as queue work: %+v, %v", res, err)
 	}
 }
 
@@ -902,7 +904,7 @@ func TestArmNeverArmsWhenTheMarkerCannotBeWritten(t *testing.T) {
 
 func TestArmClearsTheMarkerWhenGitHubRefuses(t *testing.T) {
 	h, pr, head := armFixture(t)
-	pr.AutoErr = "GraphQL: something unexpected"
+	pr.AutoErr = "GraphQL: Pull request is not in the correct state to enable auto-merge"
 	res := armOnce(t, h, head)
 	if scopeBool(h.item("pr-1"), scopeArmed) || pr.Armed {
 		t.Fatal("a refused arm left the marker set")
@@ -927,7 +929,7 @@ func TestArmUncertainOutcomeKeepsTheMarkerSoStopDisarms(t *testing.T) {
 	})
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 	res := armOnce(t, h, head)
-	if !hasEscalation(res, "marker could not be cleared") {
+	if !hasEscalation(res, "arm outcome uncertain") {
 		t.Fatalf("escalations = %+v", res.Escalations)
 	}
 	_ = os.Chmod(dir, 0o700)
@@ -939,5 +941,67 @@ func TestArmUncertainOutcomeKeepsTheMarkerSoStopDisarms(t *testing.T) {
 	}
 	if pr.Armed || pr.Disarms != 1 {
 		t.Fatalf("stop did not disarm the PR with the uncertain arm: armed=%v disarms=%d", pr.Armed, pr.Disarms)
+	}
+}
+
+func TestArmUncertainErrorsRetainMarkerAndStopDisarms(t *testing.T) {
+	for _, msg := range []string{"context deadline exceeded", "gh: HTTP 502", "connection reset by peer", "GraphQL: something unexpected"} {
+		t.Run(msg, func(t *testing.T) {
+			h, pr, head := armFixture(t)
+			h.run.on("gh pr merge --auto", func(_ string, argv []string) (string, error) {
+				pr.Armed = true
+				return "", ghErr(argv, msg)
+			})
+			res := armOnce(t, h, head)
+			if !scopeBool(h.item("pr-1"), scopeArmed) || !hasEscalation(res, "arm outcome uncertain") || hasAction(res, ActArmed, "") {
+				t.Fatalf("result = %+v", res)
+			}
+			if _, err := Stop(context.Background(), h.env); err != nil {
+				t.Fatal(err)
+			}
+			if pr.Armed || pr.Disarms != 1 {
+				t.Fatal("stop missed uncertain arm")
+			}
+		})
+	}
+}
+
+func TestDefinitiveArmRejectionList(t *testing.T) {
+	for _, msg := range []string{"auto merge is not allowed", "auto-merge is not allowed", "pull request is in clean status", "pull request is not in the correct state to enable auto-merge"} {
+		if !definitiveArmRejection("graphql: " + msg + " (enablepullrequestautomerge)") {
+			t.Errorf("not classified: %s", msg)
+		}
+	}
+	for _, msg := range []string{"http 500", "not mergeable", "unknown", "request timed out"} {
+		if definitiveArmRejection(msg) {
+			t.Errorf("uncertain error classified definitive: %s", msg)
+		}
+	}
+}
+
+func TestPRCreationRefusesUnresolvedRepository(t *testing.T) {
+	for _, mode := range []string{operator.MergeModeCherryPickLadder, operator.MergeModeMergeAuto} {
+		for _, response := range []string{"lookup failure", "invalid json", `{}`, `{"nameWithOwner":"not-qualified"}`} {
+			t.Run(mode+"/"+response, func(t *testing.T) {
+				h := newHarness(t)
+				repo := newRepo(t, "repo")
+				h.queue(mode, Entry{ID: "a", Repo: repo.Dir, Change: "aaaa"})
+				h.shipped(1, "a")
+				if response == "lookup failure" {
+					h.run.fail("gh repo view --json nameWithOwner", "network error")
+				} else {
+					h.run.reply("gh repo view --json nameWithOwner", response)
+				}
+				var res *StepResult
+				if mode == operator.MergeModeMergeAuto {
+					res = h.step()
+				} else {
+					res, _ = StartMerge(context.Background(), h.env, MergeOptions{})
+				}
+				if h.has("pr-1") || !hasEscalation(res, "owner/name") || hasAction(res, ActPRTracked, "") {
+					t.Fatalf("result = %+v", res)
+				}
+			})
+		}
 	}
 }

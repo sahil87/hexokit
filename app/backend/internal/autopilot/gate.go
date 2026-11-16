@@ -66,7 +66,7 @@ func storedHeldBy(st *operator.State, it operator.TrackedItem) string {
 // mergeAutoBarrier reports whether dep is a merge-auto queue item the
 // dependent must wait on until its PR merge is verified.
 func mergeAutoBarrier(st *operator.State, it, dep operator.TrackedItem) bool {
-	return isQueueItem(it) && isQueueItem(dep) && modeOf(it) == operator.MergeModeMergeAuto && modeOf(dep) == operator.MergeModeMergeAuto
+	return isQueueItem(st, it) && isQueueItem(st, dep) && modeOf(it) == operator.MergeModeMergeAuto && modeOf(dep) == operator.MergeModeMergeAuto
 }
 
 // prMerged reports whether the github-pr item created for queue item id is
@@ -80,37 +80,39 @@ func prMerged(st *operator.State, id string) bool {
 	return false
 }
 
-func fabPresent(repo string) bool {
+func fabPresent(repo string) (bool, error) {
 	fi, err := os.Stat(filepath.Join(repo, "fab"))
-	return err == nil && fi.IsDir()
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("cannot inspect fab directory: %w", err)
+	}
+	return fi.IsDir(), nil
 }
 
 // isPlainAgent reports whether the item is a change-less plain-agent item: a
 // task in a repo with no fab/, which has no pipeline to finish and is done when
 // its PR is ready.
-func isPlainAgent(it operator.TrackedItem) bool {
-	return isQueueItem(it) && operator.ScopeString(it.Scope, scopeTask) != "" &&
-		operator.ScopeString(it.Scope, "change") == "" && !fabPresent(operator.ScopeString(it.Scope, "repo"))
+func isPlainAgent(st *operator.State, it operator.TrackedItem) (bool, error) {
+	if !isQueueItem(st, it) || operator.ScopeString(it.Scope, scopeTask) == "" || operator.ScopeString(it.Scope, "change") != "" {
+		return false, nil
+	}
+	fab, err := fabPresent(operator.ScopeString(it.Scope, "repo"))
+	return !fab, err
 }
 
 // prView is the subset of `gh pr view` the engine reads.
 type prView struct {
-	Number            int             `json:"number"`
-	URL               string          `json:"url"`
-	State             string          `json:"state"`
-	IsDraft           bool            `json:"isDraft"`
-	MergedAt          string          `json:"mergedAt"`
-	Mergeable         string          `json:"mergeable"`
-	HeadRefOid        string          `json:"headRefOid"`
-	BaseRefName       string          `json:"baseRefName"`
-	StatusCheckRollup []checkRollup   `json:"statusCheckRollup"`
-	Reviews           []reviewSummary `json:"reviews"`
-}
-
-type checkRollup struct {
-	Conclusion string `json:"conclusion"`
-	Status     string `json:"status"`
-	State      string `json:"state"`
+	Number      int             `json:"number"`
+	URL         string          `json:"url"`
+	State       string          `json:"state"`
+	IsDraft     bool            `json:"isDraft"`
+	MergedAt    string          `json:"mergedAt"`
+	Mergeable   string          `json:"mergeable"`
+	HeadRefOid  string          `json:"headRefOid"`
+	BaseRefName string          `json:"baseRefName"`
+	Reviews     []reviewSummary `json:"reviews"`
 }
 
 type reviewSummary struct {
@@ -130,28 +132,6 @@ func (e *engine) viewPR(ctx context.Context, repo, ref, fields string) (prView, 
 	return v, nil
 }
 
-// checksPassing reports whether every rolled-up check finished green. An empty
-// rollup means nothing is required.
-func checksPassing(rollup []checkRollup) bool {
-	for _, c := range rollup {
-		switch {
-		case c.Conclusion != "":
-			switch strings.ToUpper(c.Conclusion) {
-			case "SUCCESS", "NEUTRAL", "SKIPPED":
-			default:
-				return false
-			}
-		case c.State != "":
-			if strings.ToUpper(c.State) != "SUCCESS" {
-				return false
-			}
-		default:
-			return false
-		}
-	}
-	return true
-}
-
 // observeDone is step phase (a): persist done_at for items whose completion is
 // observable now. A fab item completes when its pane's change reaches the
 // terminus (or its stop_stage); a plain-agent item when its branch has a merged
@@ -163,25 +143,34 @@ func (e *engine) observeDone(ctx context.Context) error {
 	}
 	panes, perr := e.env.Panes.Snapshot(ctx)
 	if perr != nil {
-		panes = nil
+		e.escalate("", "completion pane snapshot failed: "+perr.Error())
+		return perr
 	}
 	now := e.env.now().UTC().Format(time.RFC3339)
 	for _, it := range st.Tracked {
-		if !isQueueItem(it) || operator.ItemDone(it) || operator.ScopeString(it.Scope, "pane") == "" {
+		if !isQueueItem(st, it) || operator.ItemDone(it) || operator.ScopeString(it.Scope, "pane") == "" {
 			continue
 		}
 		done := false
 		if row, ok := panes[operator.ScopeString(it.Scope, "pane")]; ok && row.Change != "" && row.Stage != "" {
 			done = operator.BuiltInCompleted(operator.ScopeString(it.Scope, "stop_stage"), row.Stage, row.DisplayState)
 		}
-		if !done && isPlainAgent(it) {
-			done = e.plainAgentDone(ctx, st, it)
+		if !done {
+			plain, err := isPlainAgent(st, it)
+			if err != nil {
+				e.escalate(it.ID, err.Error())
+				continue
+			}
+			if plain {
+				done = e.plainAgentDone(ctx, st, it)
+			}
 		}
 		if done {
-			e.act(ActDone, it.ID, "completion observed")
 			if err := e.patch(it.ID, func(t *operator.TrackedItem) { t.DoneAt = &now }); err != nil {
+				e.escalate(it.ID, "completion marker not written: "+err.Error())
 				return err
 			}
+			e.act(ActDone, it.ID, "completion observed")
 		}
 	}
 	return nil
@@ -192,17 +181,24 @@ func (e *engine) observeDone(ctx context.Context) error {
 func (e *engine) plainAgentDone(ctx context.Context, st *operator.State, it operator.TrackedItem) bool {
 	branch := itemBranch(st, it)
 	if branch == "" {
+		e.escalate(it.ID, "cannot observe completion: no branch recorded")
 		return false
 	}
-	v, err := e.viewPR(ctx, operator.ScopeString(it.Scope, "repo"), branch, "url,state,statusCheckRollup")
+	v, err := e.viewPR(ctx, operator.ScopeString(it.Scope, "repo"), branch, "url,state")
 	if err != nil {
+		e.escalate(it.ID, "completion PR lookup failed: "+stderrOf(err))
 		return false
 	}
 	switch strings.ToUpper(v.State) {
 	case "MERGED":
 		return true
 	case "OPEN":
-		return checksPassing(v.StatusCheckRollup)
+		runs, err := e.requiredChecks(ctx, operator.ScopeString(it.Scope, "repo"), branch)
+		if err != nil {
+			e.escalate(it.ID, "completion checks lookup failed: "+stderrOf(err))
+			return false
+		}
+		return !checksPending(runs)
 	}
 	return false
 }
@@ -235,9 +231,11 @@ func (e *engine) gate(ctx context.Context, st *operator.State, it operator.Track
 		}
 		branch := depBranch(st, d)
 		if branch == "" {
+			e.escalate(it.ID, "dependency "+dep+" has no branch recorded")
 			return false, dep
 		}
 		if _, err := e.viewPR(ctx, repo, branch, "url"); err != nil {
+			e.escalate(it.ID, "dependency "+dep+" PR lookup failed: "+stderrOf(err))
 			return false, dep + " (no PR yet)"
 		}
 	}

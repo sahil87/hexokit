@@ -2,10 +2,10 @@ package autopilot
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"rk/internal/operator"
@@ -40,7 +40,9 @@ func (e *engine) spawnPending(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	e.respawnDead(ctx, st)
+	if err := e.respawnDead(ctx, st); err != nil {
+		return err
+	}
 	for _, snapshot := range st.Tracked {
 		fresh, err := e.load()
 		if err != nil {
@@ -51,11 +53,26 @@ func (e *engine) spawnPending(ctx context.Context) error {
 			continue
 		}
 		it := fresh.Tracked[i]
-		if !isQueueItem(it) || operator.ScopeString(it.Scope, "pane") != "" || operator.ItemDone(it) || it.Paused || skipped(it) {
+		if isQueueItem(fresh, it) && it.Scope[scopeClaim] != nil {
+			e.reconcileClaim(ctx, it)
+			continue
+		}
+		if !isQueueItem(fresh, it) || operator.ScopeString(it.Scope, "pane") != "" || operator.ItemDone(it) || it.Paused || skipped(it) {
 			continue
 		}
 		if ok, _ := e.gate(ctx, fresh, it); !ok {
 			continue
+		}
+		if !e.env.DryRun {
+			claimed, ok, err := e.claimSpawn(it.ID, fresh)
+			if err != nil {
+				e.escalate(it.ID, "spawn claim not written: "+err.Error())
+				continue
+			}
+			if !ok {
+				continue
+			}
+			it = claimed
 		}
 		e.spawnItem(ctx, fresh, it)
 	}
@@ -92,8 +109,13 @@ func sameRepoDeps(st *operator.State, it operator.TrackedItem) []operator.Tracke
 // escalation that leaves the item pending, to be retried by the next step.
 func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.TrackedItem) {
 	id := it.ID
+	opened := false
+	defer e.rollbackUnopened(it, &opened)
 	repo := cleanRepo(operator.ScopeString(it.Scope, "repo"))
 	mode := modeOf(it)
+	if !e.validateSpawnBranches(st, it) {
+		return
+	}
 	if err := e.validateRepo(ctx, repo); err != nil {
 		e.escalate(id, err.Error())
 		return
@@ -109,7 +131,7 @@ func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.
 		e.escalate(id, "git fetch failed, spawn stopped and the item stays pending: "+stderrOf(err))
 		return
 	}
-	def := e.defaultBranch(ctx, repo)
+	def := e.defaultBranch(ctx, repo, id)
 	baseRef := "origin/" + def
 	deps := sameRepoDeps(st, it)
 
@@ -141,7 +163,12 @@ func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.
 		return
 	}
 	newBranch := ""
-	if change != "" && fabPresent(repo) {
+	hasFab, err := fabPresent(repo)
+	if err != nil {
+		e.escalate(id, err.Error())
+		return
+	}
+	if change != "" && hasFab {
 		folder, err := e.run(ctx, repo, "fab", "resolve", "--folder", change)
 		folder = strings.TrimSpace(folder)
 		if err != nil || folder == "" {
@@ -166,29 +193,20 @@ func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.
 		return
 	}
 
+	prompt, err := e.buildPrompt(ctx, it, repo, def, stackedBranch)
+	if err != nil {
+		e.escalate(id, err.Error())
+		return
+	}
 	req := SpawnRequest{
 		Repo: repo, Session: session, WorktreeName: id, BaseSHA: sha, NewBranch: newBranch,
-		Prompt: e.buildPrompt(ctx, it, repo, def, stackedBranch),
+		Prompt: prompt,
 		Note:   id + " · spawned",
 		Prepare: func(ctx context.Context, wt string) error {
 			return e.prepareWorktree(ctx, wt, id, change, def, mode, ladder, stackedBranch)
 		},
 	}
-	res, err := e.env.Spawn.Spawn(ctx, req)
-	if err != nil {
-		var ce *conflictError
-		if errors.As(err, &ce) {
-			_ = e.note(id, "cherry-pick conflict; aborted, worktree rolled back, spawn not skipped")
-			e.escalate(id, ce.Error()+" (aborted, worktree rolled back; not skipped)")
-			return
-		}
-		e.escalate(id, "spawn failed: "+err.Error())
-		return
-	}
-	e.act(ActSpawned, id, fmt.Sprintf("%s in %s (%s)", res.PaneID, session, mode))
-	if err := e.attach(ctx, it, repo, res, session); err != nil {
-		e.escalate(id, "spawned but attaching the pane failed: "+err.Error())
-	}
+	e.launchClaimed(ctx, it, req, ActSpawned, &opened)
 }
 
 // depRef is one dependency to cherry-pick: its id and resolved ref.
@@ -206,9 +224,9 @@ func (e *engine) ladderDeps(ctx context.Context, st *operator.State, repo string
 		if b == "" {
 			return nil, fmt.Errorf("dependency %s has no branch (neither scope.branch nor a branch_map entry)", d.ID)
 		}
-		ref, ok := e.resolveRef(ctx, repo, b)
-		if !ok {
-			return nil, fmt.Errorf("dependency %s: branch %s not found in %s", d.ID, b, repo)
+		ref, err := e.resolveRef(ctx, repo, b)
+		if err != nil {
+			return nil, fmt.Errorf("dependency %s: %w", d.ID, err)
 		}
 		refs = append(refs, depRef{id: d.ID, branch: b, ref: ref})
 	}
@@ -218,7 +236,18 @@ func (e *engine) ladderDeps(ctx context.Context, st *operator.State, repo string
 			if i == j || drop[j] {
 				continue
 			}
-			if e.isAncestor(ctx, repo, refs[i].ref, refs[j].ref) && (!e.isAncestor(ctx, repo, refs[j].ref, refs[i].ref) || i > j) {
+			ancestor, err := e.isAncestor(ctx, repo, refs[i].ref, refs[j].ref)
+			if err != nil {
+				return nil, err
+			}
+			if !ancestor {
+				continue
+			}
+			reverse, err := e.isAncestor(ctx, repo, refs[j].ref, refs[i].ref)
+			if err != nil {
+				return nil, err
+			}
+			if !reverse || i > j {
 				drop[i] = true
 				break
 			}
@@ -260,14 +289,20 @@ func (e *engine) stackedBase(ctx context.Context, st *operator.State, repo strin
 func (e *engine) belowConfidenceGate(repo, folder string) string {
 	data, err := os.ReadFile(filepath.Join(repo, "fab", "changes", folder, ".status.yaml"))
 	if err != nil {
-		return ""
+		if os.IsNotExist(err) {
+			return ""
+		}
+		return "cannot read confidence gate: " + err.Error()
 	}
 	var s struct {
 		Confidence struct {
 			Score *float64 `yaml:"score"`
 		} `yaml:"confidence"`
 	}
-	if yaml.Unmarshal(data, &s) != nil || s.Confidence.Score == nil {
+	if err := yaml.Unmarshal(data, &s); err != nil {
+		return "cannot parse confidence gate: " + err.Error()
+	}
+	if s.Confidence.Score == nil {
 		return ""
 	}
 	if *s.Confidence.Score < confidenceGate {
@@ -279,13 +314,17 @@ func (e *engine) belowConfidenceGate(repo, folder string) string {
 // buildPrompt applies the two-axis table: fab/ present or not, task given or
 // not. A bare agent carries no prompt, and raw implementation text never goes
 // to a fab-project agent.
-func (e *engine) buildPrompt(ctx context.Context, it operator.TrackedItem, repo, def, stackedBase string) string {
+func (e *engine) buildPrompt(ctx context.Context, it operator.TrackedItem, repo, def, stackedBase string) (string, error) {
 	change := operator.ScopeString(it.Scope, "change")
 	task := operator.ScopeString(it.Scope, scopeTask)
-	if fabPresent(repo) {
+	hasFab, err := fabPresent(repo)
+	if err != nil {
+		return "", err
+	}
+	if hasFab {
 		switch {
 		case change != "":
-			return "/fab-fff " + change
+			return "/fab-fff " + change, nil
 		case task != "":
 			p := "/fab-new " + task
 			if stackedBase != "" {
@@ -293,18 +332,18 @@ func (e *engine) buildPrompt(ctx context.Context, it operator.TrackedItem, repo,
 				p += fmt.Sprintf("\n\nAfter %s creates the change, run `fab status set-base-branch <new-change> %s`.",
 					riff.RenderSkillRef(prefix, "/fab-new"), stackedBase)
 			}
-			return p
+			return p, nil
 		}
-		return ""
+		return "", nil
 	}
 	if task == "" {
-		return ""
+		return "", nil
 	}
 	base := def
 	if stackedBase != "" {
 		base = stackedBase
 	}
-	return task + "\n\nCommit on this branch, push, and open a draft PR against " + base + "."
+	return task + "\n\nCommit on this branch, push, and open a draft PR against " + base + ".", nil
 }
 
 // prepareWorktree runs in the new worktree before any window opens: dependency
@@ -313,14 +352,23 @@ func (e *engine) buildPrompt(ctx context.Context, it operator.TrackedItem, repo,
 func (e *engine) prepareWorktree(ctx context.Context, wt, id, change, def, mode string, ladder []depRef, stackedBase string) error {
 	if mode == operator.MergeModeCherryPickLadder {
 		for _, d := range ladder {
-			if e.isAncestor(ctx, wt, d.ref, "HEAD") {
+			ancestor, err := e.isAncestor(ctx, wt, d.ref, "HEAD")
+			if err != nil {
+				return err
+			}
+			if ancestor {
 				continue
 			}
 			if _, err := e.git(ctx, wt, "cherry-pick", "--no-commit", "origin/"+def+".."+d.ref); err != nil {
-				_, _ = e.git(ctx, wt, "cherry-pick", "--abort")
+				if _, abortErr := e.git(ctx, wt, "cherry-pick", "--abort"); !alreadyApplied(abortErr, "cherry-pick-abort") {
+					e.escalate(id, "git cherry-pick --abort failed: "+stderrOf(abortErr))
+				}
 				return &conflictError{dep: d.id, err: err}
 			}
 			if _, err := e.git(ctx, wt, "diff", "--cached", "--quiet"); err != nil {
+				if !exitCode(err, 1) {
+					return fmt.Errorf("git staged diff failed: %w", err)
+				}
 				if _, cerr := e.git(ctx, wt, "commit", "-m", "operator: cherry-pick "+d.id+" dependency"); cerr != nil {
 					return fmt.Errorf("committing the %s dependency: %w", d.id, cerr)
 				}
@@ -328,7 +376,14 @@ func (e *engine) prepareWorktree(ctx context.Context, wt, id, change, def, mode 
 			e.act(ActCherryPicked, id, d.branch)
 		}
 	}
-	if change == "" || !fabPresent(wt) {
+	if change == "" {
+		return nil
+	}
+	hasFab, err := fabPresent(wt)
+	if err != nil {
+		return err
+	}
+	if !hasFab {
 		return nil
 	}
 	if mode == operator.MergeModeStackedPRs && stackedBase != "" {
@@ -338,8 +393,10 @@ func (e *engine) prepareWorktree(ctx context.Context, wt, id, change, def, mode 
 	}
 	if _, err := e.run(ctx, wt, "fab", "resolve", "--folder", change); err == nil {
 		if _, err := e.run(ctx, wt, "fab", "change", "switch", change); err != nil {
-			fmt.Fprintf(os.Stderr, "autopilot: fab change switch %s: %s\n", change, stderrOf(err))
+			e.escalate(id, "fab change switch failed: "+stderrOf(err))
 		}
+	} else {
+		e.escalate(id, "fab change lookup failed: "+stderrOf(err))
 	}
 	return nil
 }
@@ -348,7 +405,13 @@ func (e *engine) prepareWorktree(ctx context.Context, wt, id, change, def, mode 
 // branch, and the branch_map entry. The pane-pid lookup runs before the lock.
 func (e *engine) attach(ctx context.Context, it operator.TrackedItem, repo string, res SpawnResult, session string) error {
 	fp := map[string]interface{}{"pane": res.PaneID}
-	operator.RecordPanePID(ctx, e.env.Server, fp)
+	pid, err := e.env.Panes.PID(ctx, res.PaneID)
+	if err != nil {
+		e.escalate(it.ID, "pane fingerprint lookup failed: "+err.Error())
+		fp["pane_pid"] = nil
+	} else {
+		fp["pane_pid"] = pid
+	}
 	branch := res.Branch
 	key := operator.ScopeString(it.Scope, "change")
 	if key == "" {
@@ -357,9 +420,32 @@ func (e *engine) attach(ctx context.Context, it operator.TrackedItem, repo strin
 	return e.mutate(func(st *operator.State) error {
 		i := operator.IndexOf(st.Tracked, it.ID)
 		if i < 0 {
-			return operator.ErrNoWrite
+			return fmt.Errorf("orphan pane %s: item %s is no longer tracked", res.PaneID, it.ID)
 		}
 		cur := &st.Tracked[i]
+		if token := claimToken(it); token != "" {
+			if claimToken(*cur) != token || (operator.ScopeString(cur.Scope, "pane") != operator.ScopeString(claimOf(it), "previous_pane") && operator.ScopeString(cur.Scope, "pane") != res.PaneID) {
+				return fmt.Errorf("orphan pane %s: spawn claim or pane was changed externally", res.PaneID)
+			}
+
+			if operator.ScopeString(claimOf(it), "kind") == claimFixSpawn {
+				fixID := operator.ScopeString(claimOf(it), "target")
+				if operator.IndexOf(st.Tracked, fixID) >= 0 {
+					return fmt.Errorf("recovery item %s was created externally; pane %s remains claimed", fixID, res.PaneID)
+				}
+				fix, err := operator.NewPaneItem(fixID, nil, map[string]interface{}{"repo": repo, "pane": res.PaneID, "pane_pid": fp["pane_pid"], "session": session, "branch": branch, scopeFixFor: it.ID})
+				if err != nil {
+					return err
+				}
+				cur.Scope[scopeFixItem] = fixID
+				delete(cur.Scope, scopeClaim)
+				st.Tracked = append(st.Tracked, fix)
+				return nil
+			}
+			delete(cur.Scope, scopeClaim)
+		} else if operator.ScopeString(cur.Scope, "pane") != operator.ScopeString(it.Scope, "pane") {
+			return fmt.Errorf("orphan pane %s: pane was changed externally", res.PaneID)
+		}
 		cur.Scope["pane"], cur.Scope["pane_pid"] = res.PaneID, fp["pane_pid"]
 		cur.Scope["session"] = session
 		if branch != "" {
@@ -374,34 +460,59 @@ func (e *engine) attach(ctx context.Context, it operator.TrackedItem, repo strin
 // respawnDead gives a spawned item whose pane is gone one respawn on its
 // existing branch; after that it is skipped with an escalation and its
 // dependents stay held.
-func (e *engine) respawnDead(ctx context.Context, st *operator.State) {
-	panes, err := e.env.Panes.Snapshot(ctx)
-	if err != nil {
-		return
-	}
-	for _, it := range st.Tracked {
+func (e *engine) respawnDead(ctx context.Context, st *operator.State) error {
+	for _, snapshot := range st.Tracked {
+		fresh, err := e.load(snapshot.ID)
+		if err != nil {
+			return err
+		}
+		i := operator.IndexOf(fresh.Tracked, snapshot.ID)
+		if i < 0 {
+			continue
+		}
+		it := fresh.Tracked[i]
+		panes, err := e.env.Panes.Snapshot(ctx)
+		if err != nil {
+			e.escalate(it.ID, "respawn pane snapshot failed: "+err.Error())
+			return err
+		}
 		pane := operator.ScopeString(it.Scope, "pane")
-		if !isQueueItem(it) || pane == "" || operator.ItemDone(it) || it.Paused || skipped(it) {
+		if !isQueueItem(fresh, it) || it.Scope[scopeClaim] != nil || pane == "" || operator.ItemDone(it) || it.Paused || skipped(it) {
 			continue
 		}
-		if _, alive := panes[pane]; alive || derivedState(st, it) == StateHeld {
+		if _, alive := panes[pane]; alive || derivedState(fresh, it) == StateHeld {
 			continue
 		}
-		e.respawn(ctx, st, it)
+		e.respawn(ctx, fresh, it)
 	}
+	return nil
 }
 
 func (e *engine) respawn(ctx context.Context, st *operator.State, it operator.TrackedItem) {
 	id := it.ID
 	repo := cleanRepo(operator.ScopeString(it.Scope, "repo"))
 	branch := itemBranch(st, it)
-	if again, _ := it.Scope[scopeRespawned].(bool); again || branch == "" {
+	if _, ok := e.checkedBranch(id, branch, "respawn"); !ok {
+		return
+	}
+	if again, _ := it.Scope[scopeRespawned].(bool); again {
 		why := "pane died after its one respawn: skipped, dependents stay held"
-		if branch == "" {
-			why = "pane died and no branch is recorded to respawn on: skipped, dependents stay held"
+		changed := false
+		if err := e.mutate(func(fresh *operator.State) error {
+			i := operator.IndexOf(fresh.Tracked, id)
+			if i < 0 || !reflect.DeepEqual(fresh.Tracked[i], it) {
+				return operator.ErrNoWrite
+			}
+			fresh.Tracked[i].Scope[scopeSkipped] = true
+			changed = true
+			return nil
+		}); err != nil {
+			e.escalate(id, "skipped marker not written: "+err.Error())
+			return
 		}
-		e.escalate(id, why)
-		_ = e.setScope(id, map[string]interface{}{scopeSkipped: true})
+		if changed || e.env.DryRun {
+			e.escalate(id, why)
+		}
 		return
 	}
 	if e.env.DryRun {
@@ -419,39 +530,77 @@ func (e *engine) respawn(ctx context.Context, st *operator.State, it operator.Tr
 		}
 		stackedBase = b
 	}
-	// Recorded before acting so a crash mid-respawn cannot buy a second one.
-	if err := e.setScope(id, map[string]interface{}{scopeRespawned: true}); err != nil {
-		e.escalate(id, "respawn marker not written: "+err.Error())
+	claimed, ok, err := e.claimWork(id, st, claimRespawn, "", nil)
+	if err != nil {
+		e.escalate(id, "respawn claim not written: "+err.Error())
 		return
 	}
+	if !ok {
+		return
+	}
+	it = claimed
+	opened := false
+	defer e.rollbackUnopened(it, &opened)
 	session, err := e.env.Session(ctx, repo)
 	if err != nil {
 		e.escalate(id, "no landing session: "+err.Error())
 		return
 	}
-	req := SpawnRequest{
-		Repo: repo, Session: session, WorktreeName: id, CheckoutBranch: branch,
-		ExistingWorktree: e.worktreeForBranch(ctx, repo, branch),
-		Prompt:           e.buildPrompt(ctx, it, repo, e.defaultBranch(ctx, repo), stackedBase),
-		Note:             id + " · respawned",
-	}
-	res, err := e.env.Spawn.Spawn(ctx, req)
+	wt, err := e.worktreeForBranch(ctx, repo, branch)
 	if err != nil {
-		e.escalate(id, "respawn failed: "+err.Error())
+		e.escalate(id, err.Error())
 		return
 	}
-	e.act(ActRespawned, id, res.PaneID+" on "+branch)
-	if err := e.attach(ctx, it, repo, res, session); err != nil {
-		e.escalate(id, "respawned but attaching the pane failed: "+err.Error())
+	prompt, err := e.buildPrompt(ctx, it, repo, e.defaultBranch(ctx, repo, id), stackedBase)
+	if err != nil {
+		e.escalate(id, err.Error())
+		return
 	}
+	req := SpawnRequest{
+		Repo: repo, Session: session, WorktreeName: id, CheckoutBranch: branch,
+		ExistingWorktree: wt,
+		Prompt:           prompt,
+		Note:             id + " · respawned",
+	}
+	e.launchClaimed(ctx, it, req, ActRespawned, &opened)
 }
 
 // worktreeFor returns a directory with branch checked out for git operations:
 // an existing worktree, else a fresh checkout through the spawner. cleanup
 // removes only what this call created.
-func (e *engine) worktreeFor(ctx context.Context, repo, branch string) (string, func(), error) {
-	if p := e.worktreeForBranch(ctx, repo, branch); p != "" {
-		return p, func() {}, nil
+func (e *engine) worktreeFor(ctx context.Context, it operator.TrackedItem, repo, branch string) (string, func() error, error) {
+	if safeBranch(branch) == "" {
+		return "", nil, fmt.Errorf("invalid or empty worktree branch %q", branch)
 	}
-	return e.env.Spawn.Worktree(ctx, repo, branch)
+	p, err := e.worktreeForBranch(ctx, repo, branch)
+	if err != nil {
+		return "", nil, err
+	}
+	if p != "" {
+		return p, func() error { return nil }, nil
+	}
+	path, cleanup, err := e.env.Spawn.Worktree(ctx, repo, branch)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := e.mutate(func(st *operator.State) error {
+		i := operator.IndexOf(st.Tracked, it.ID)
+		if i < 0 || claimToken(st.Tracked[i]) != claimToken(it) {
+			return fmt.Errorf("worktree claim changed externally")
+		}
+		claimOf(st.Tracked[i])["worktree"] = path
+		return nil
+	}); err != nil {
+		e.cleanupWorktree(it.ID, cleanup)
+		return "", nil, err
+	}
+	return path, cleanup, nil
+}
+
+func (e *engine) cleanupWorktree(id string, cleanup func() error) bool {
+	if err := cleanup(); err != nil {
+		e.escalate(id, "worktree cleanup failed: "+err.Error())
+		return false
+	}
+	return true
 }

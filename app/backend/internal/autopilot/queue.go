@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 
 	"rk/internal/operator"
@@ -83,7 +84,8 @@ func operatorInvalid(format string, a ...interface{}) error {
 // QueueOptions are the queue verb's inputs.
 type QueueOptions struct {
 	// Mode is the --mode flag ("" = not given).
-	Mode string
+	Mode    string
+	ModeSet bool
 }
 
 // QueueReceipt reports what Enqueue stored.
@@ -124,12 +126,26 @@ func modeOf(it operator.TrackedItem) string {
 	return operator.MergeModeCherryPickLadder
 }
 
-// isQueueItem reports whether the item belongs to a queue: a pane item with a
-// repo. A recovery spawn's tracking item (fix_for) is not one: it is a
-// change-less agent the recovery round owns, not queue work to spawn or respawn.
-func isQueueItem(it operator.TrackedItem) bool {
-	return it.Kind == operator.KindPane && operator.ScopeString(it.Scope, "repo") != "" &&
-		operator.ScopeString(it.Scope, scopeFixFor) == ""
+// Queue markers and legacy non-null modes identify even isolated queue items.
+// A dependency edge identifies both eligible pane endpoints of a legacy chain;
+// an isolated null-mode pane has no queue evidence and remains ordinary tracking.
+func isQueueItem(st *operator.State, it operator.TrackedItem) bool {
+	if !queuePane(it) {
+		return false
+	}
+	if it.Scope[scopeQueue] != nil || it.Scope["merge_mode"] != nil {
+		return true
+	}
+	for _, other := range st.Tracked {
+		if other.ID != it.ID && queuePane(other) && (slices.Contains(it.DependsOn, other.ID) || slices.Contains(other.DependsOn, it.ID)) {
+			return true
+		}
+	}
+	return false
+}
+
+func queuePane(it operator.TrackedItem) bool {
+	return it.Kind == operator.KindPane && operator.ScopeString(it.Scope, scopeFixFor) == ""
 }
 
 func isBare(it operator.TrackedItem) bool {
@@ -142,6 +158,9 @@ func isBare(it operator.TrackedItem) bool {
 // untouched.
 func Enqueue(ctx context.Context, env Env, entries []Entry, opts QueueOptions, settingValue string) (QueueReceipt, error) {
 	e := newEngine(env)
+	if opts.ModeSet && opts.Mode == "" {
+		return QueueReceipt{}, operatorInvalid("--mode must not be empty")
+	}
 	mode, source, err := ResolveMode(opts.Mode, settingValue)
 	if err != nil {
 		return QueueReceipt{}, err
@@ -164,6 +183,9 @@ func Enqueue(ctx context.Context, env Env, entries []Entry, opts QueueOptions, s
 	}
 	if env.DryRun {
 		return rec, nil
+	}
+	if len(rec.Misfits) > 0 && opts.Mode == "" {
+		return rec, operatorInvalid("queue not written: %s; preview with --dry-run and confirm an explicit --mode", strings.Join(rec.Misfits, "; "))
 	}
 	err = operator.Mutate(env.StatePath, func(fresh *operator.State) error {
 		for _, it := range items {

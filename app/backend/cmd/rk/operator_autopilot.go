@@ -22,6 +22,7 @@ import (
 // tracked items, so there is no queue store to keep in sync.
 
 const autopilotStdinCap = 1 << 20
+const autopilotListCap = 20
 
 var autopilotSettingsFn = func() string { return settings.Load().OperatorMergeMode }
 
@@ -48,6 +49,10 @@ var autopilotEnvFn = func(cmd *cobra.Command, by string, dry bool) (autopilot.En
 // autopilotPanes is the production pane view: the operator's pane snapshot
 // (with each pane's derived fab change) and the mux send injection engine.
 type autopilotPanes struct{ server string }
+
+func (p autopilotPanes) PID(ctx context.Context, pane string) (int, error) {
+	return tmux.PanePIDCtx(ctx, pane, p.server)
+}
 
 func (p autopilotPanes) Snapshot(ctx context.Context) (map[string]operator.PaneInfo, error) {
 	return operator.SnapshotPanes(ctx, p.server)
@@ -98,7 +103,7 @@ Merge modes (--mode, or the operator.merge_mode setting):
 }
 
 var operatorAutopilotQueueCmd = &cobra.Command{
-	Use:   "queue [--mode <mode>] [--by user|run|chat] [--dry-run] [--json] < entries.json",
+	Use:   "queue [--mode <mode>] [--by user|run|chat] [--dry-run] [--all] [--json] < entries.json",
 	Short: "Persist a queue of pending pane items from JSON entries on stdin",
 	Long: `Persist a queue as N pending pane items in one locked write. Entries arrive as a
 JSON array on stdin:
@@ -119,14 +124,16 @@ Every entry after the first depends on the nearest earlier entry in its repo,
 else on the previous entry (an ordering-only barrier across repos). An explicit
 depends_on replaces that. In merge-auto each entry depends on the previous one as
 a barrier only. A merge-auto queue with explicit same-repo depends_on is reported
-as a misfit: ask the user which mode they meant.
+as a misfit. Without an explicit --mode, a live call refuses it without writing.
+Preview with --dry-run, confirm the mode and misfits, then queue once with --mode.
 
 Flags:
   --mode          merge mode: cherry-pick-ladder, stacked-prs, merge-auto
   --by            note author: user, run, chat (default chat)
   --dry-run       validate and report without writing
   -L, --server    tmux server (default: the caller's own server from $TMUX)
-  --json          machine-readable envelope on stdout
+  --all           show every entry (human lists default to 20 entries each)
+  --json          complete machine-readable envelope on stdout
 
 Examples:
   echo '[{"id":"ab12","repo":"/src/app","change":"ab12"}]' | rk operator autopilot queue
@@ -134,15 +141,16 @@ Examples:
 
 Exit codes:
   0  queued
-  1  operational failure (state file busy or unreadable, id already tracked)
-  2  usage error (bad entries, invalid mode or setting, bare dependency, relative repo)`,
+  1  operational failure (state file busy or unreadable)
+  2  usage error (bad entries, id already tracked, invalid mode or setting,
+                  bare dependency, relative repo, unconfirmed misfit)`,
 	Args:         usageArgs(cobra.NoArgs),
 	SilenceUsage: true,
 	RunE:         runAutopilotQueue,
 }
 
 var operatorAutopilotStepCmd = &cobra.Command{
-	Use:   "step [--by run|chat] [--dry-run] [--json]",
+	Use:   "step [--by run|chat] [--dry-run] [--all] [--json]",
 	Short: "Advance every queue and merge sequence one idempotent pass",
 	Long: `Run one pass over the server's tracked items: persist newly observed
 completions, advance every in-progress merge sequence (verify merges, arm the
@@ -159,7 +167,8 @@ Flags:
   --by            note author: run (default) or chat
   --dry-run       report the plan without side effects
   -L, --server    tmux server (default: the caller's own server from $TMUX)
-  --json          machine-readable envelope on stdout
+  --all           show every entry (human lists default to 20 entries each)
+  --json          complete machine-readable envelope on stdout
 
 Examples:
   rk operator autopilot step
@@ -175,7 +184,7 @@ Exit codes:
 }
 
 var operatorAutopilotMergeCmd = &cobra.Command{
-	Use:   "merge [--repo <path>] [--json]",
+	Use:   "merge [--repo <path>] [--all] [--json]",
 	Short: "Start the ordered merge of a completed queue",
 	Long: `Start the ordered merge for completed cherry-pick-ladder and stacked-prs queues
 (every repo, or one with --repo): create the github-pr chain items and arm or
@@ -186,7 +195,8 @@ done, and does nothing for merge-auto items.
 Flags:
   --repo          limit to one repo (absolute path)
   -L, --server    tmux server (default: the caller's own server from $TMUX)
-  --json          machine-readable envelope on stdout
+  --all           show every entry (human lists default to 20 entries each)
+  --json          complete machine-readable envelope on stdout
 
 Examples:
   rk operator autopilot merge
@@ -202,7 +212,7 @@ Exit codes:
 }
 
 var operatorAutopilotStopCmd = &cobra.Command{
-	Use:   "stop [--json]",
+	Use:   "stop [--all] [--json]",
 	Short: "Disarm every armed PR and pause every unspawned queue item",
 	Long: `Global user stop: disarm every armed PR (gh pr merge --disable-auto), halt the
 unfinished merge sequences so a later step does not re-arm them, and pause every
@@ -211,7 +221,8 @@ rk operator track update <id> --scope '{"halted":false}'.
 
 Flags:
   -L, --server    tmux server (default: the caller's own server from $TMUX)
-  --json          machine-readable envelope on stdout
+  --all           show every entry (human lists default to 20 entries each)
+  --json          complete machine-readable envelope on stdout
 
 Examples:
   rk operator autopilot stop
@@ -226,7 +237,7 @@ Exit codes:
 }
 
 var operatorAutopilotStatusCmd = &cobra.Command{
-	Use:   "status [--json]",
+	Use:   "status [--all] [--json]",
 	Short: "Show the queue: state, mode, repo, branch, PR, position, recovery",
 	Long: `Read-only queue view: per item the derived state (done, paused, held, pending,
 spawned), mode, repo, branch, PR, merge-sequence position and recovery marker.
@@ -235,7 +246,8 @@ from stored facts only; step applies the live PR checks.
 
 Flags:
   -L, --server    tmux server (default: the caller's own server from $TMUX)
-  --json          machine-readable envelope on stdout
+  --all           show every entry (human lists default to 20 entries each)
+  --json          complete machine-readable envelope on stdout
 
 Examples:
   rk operator autopilot status
@@ -268,6 +280,10 @@ func init() {
 	operatorAutopilotMergeCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 	operatorAutopilotStopCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 	operatorAutopilotStatusCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
+
+	for _, cmd := range []*cobra.Command{operatorAutopilotQueueCmd, operatorAutopilotStepCmd, operatorAutopilotMergeCmd, operatorAutopilotStopCmd, operatorAutopilotStatusCmd} {
+		cmd.Flags().Bool("all", false, "show every list entry (default: 20 per human list; JSON is always complete)")
+	}
 
 	operatorAutopilotCmd.AddCommand(
 		operatorAutopilotQueueCmd, operatorAutopilotStepCmd, operatorAutopilotMergeCmd,
@@ -335,40 +351,53 @@ func runAutopilotQueue(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return autopilotFinish(cmd, nil, nil, err)
 	}
-	rec, err := autopilot.Enqueue(operatorTrackContext(cmd), env, entries, autopilot.QueueOptions{Mode: mode}, autopilotSettingsFn())
+	rec, err := autopilot.Enqueue(operatorTrackContext(cmd), env, entries, autopilot.QueueOptions{Mode: mode, ModeSet: cmd.Flags().Changed("mode")}, autopilotSettingsFn())
 	return autopilotFinish(cmd, rec, func(s outputSink) {
 		s.Dataf("mode: %s (%s)\n", rec.Mode, rec.Source)
 		verb := "queued"
 		if rec.DryRun {
 			verb = "would queue"
 		}
-		for _, id := range rec.Items {
+		for _, id := range rec.Items[:autopilotShown(cmd, len(rec.Items))] {
 			s.Dataf("%s %s\n", verb, id)
 		}
-		for _, m := range rec.Misfits {
+		autopilotListTotal(s, "items", len(rec.Items), autopilotShown(cmd, len(rec.Items)))
+		for _, m := range rec.Misfits[:autopilotShown(cmd, len(rec.Misfits))] {
 			s.Dataf("%s\n", m)
 		}
+		autopilotListTotal(s, "misfits", len(rec.Misfits), autopilotShown(cmd, len(rec.Misfits)))
 	}, err)
 }
 
-func renderStep(s outputSink, res *autopilot.StepResult) {
+func renderStep(cmd *cobra.Command, s outputSink, res *autopilot.StepResult) {
 	prefix := ""
 	if res.DryRun {
 		prefix = "dry-run: "
 	}
-	for _, a := range res.Actions {
+	for _, a := range res.Actions[:autopilotShown(cmd, len(res.Actions))] {
 		line := prefix + a.Kind + " " + a.Item
 		if a.Detail != "" {
 			line += " " + a.Detail
 		}
 		s.Dataf("%s\n", line)
 	}
-	for _, r := range res.Report {
+	autopilotListTotal(s, "actions", len(res.Actions), autopilotShown(cmd, len(res.Actions)))
+	reports := res.Report
+	if len(res.Unreviewed) > 0 {
+		reports = reports[:len(reports)-1]
+	}
+	for _, r := range reports[:autopilotShown(cmd, len(reports))] {
 		s.Dataf("%s\n", r)
 	}
-	for _, e := range res.Escalations {
+	autopilotListTotal(s, "reports", len(reports), autopilotShown(cmd, len(reports)))
+	if len(res.Unreviewed) > 0 {
+		s.Dataf("merged without review: %s\n", strings.Join(res.Unreviewed[:autopilotShown(cmd, len(res.Unreviewed))], ", "))
+		autopilotListTotal(s, "unreviewed merges", len(res.Unreviewed), autopilotShown(cmd, len(res.Unreviewed)))
+	}
+	for _, e := range res.Escalations[:autopilotShown(cmd, len(res.Escalations))] {
 		s.Dataf("escalate %s: %s\n", e.Item, e.Reason)
 	}
+	autopilotListTotal(s, "escalations", len(res.Escalations), autopilotShown(cmd, len(res.Escalations)))
 	if len(res.Actions)+len(res.Report)+len(res.Escalations) == 0 {
 		s.Dataf("%snothing to do\n", prefix)
 	}
@@ -385,7 +414,7 @@ func runAutopilotStep(cmd *cobra.Command, args []string) error {
 		return autopilotFinish(cmd, nil, nil, err)
 	}
 	res, err := autopilot.Step(operatorTrackContext(cmd), env)
-	return autopilotFinish(cmd, res, func(s outputSink) { renderStep(s, res) }, err)
+	return autopilotFinish(cmd, res, func(s outputSink) { renderStep(cmd, s, res) }, err)
 }
 
 func runAutopilotMerge(cmd *cobra.Command, args []string) error {
@@ -394,8 +423,8 @@ func runAutopilotMerge(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return autopilotFinish(cmd, nil, nil, err)
 	}
-	res, err := autopilot.StartMerge(operatorTrackContext(cmd), env, autopilot.MergeOptions{Repo: repo})
-	return autopilotFinish(cmd, res, func(s outputSink) { renderStep(s, res) }, err)
+	res, err := autopilot.StartMerge(operatorTrackContext(cmd), env, autopilot.MergeOptions{Repo: repo, RepoSet: cmd.Flags().Changed("repo")})
+	return autopilotFinish(cmd, res, func(s outputSink) { renderStep(cmd, s, res) }, err)
 }
 
 func runAutopilotStop(cmd *cobra.Command, args []string) error {
@@ -404,7 +433,7 @@ func runAutopilotStop(cmd *cobra.Command, args []string) error {
 		return autopilotFinish(cmd, nil, nil, err)
 	}
 	res, err := autopilot.Stop(operatorTrackContext(cmd), env)
-	return autopilotFinish(cmd, res, func(s outputSink) { renderStep(s, res) }, err)
+	return autopilotFinish(cmd, res, func(s outputSink) { renderStep(cmd, s, res) }, err)
 }
 
 func runAutopilotStatus(cmd *cobra.Command, args []string) error {
@@ -414,7 +443,7 @@ func runAutopilotStatus(cmd *cobra.Command, args []string) error {
 	}
 	res, err := autopilot.Status(operatorTrackContext(cmd), env)
 	return autopilotFinish(cmd, res, func(s outputSink) {
-		for _, it := range res.Items {
+		for _, it := range res.Items[:autopilotShown(cmd, len(res.Items))] {
 			line := fmt.Sprintf("%s · %s · %s · %s", it.ID, it.State, it.Mode, it.Repo)
 			if it.Branch != "" {
 				line += " · " + it.Branch
@@ -433,11 +462,37 @@ func runAutopilotStatus(cmd *cobra.Command, args []string) error {
 			}
 			s.Dataf("%s\n", line)
 		}
+		autopilotListTotal(s, "items", len(res.Items), autopilotShown(cmd, len(res.Items)))
 		if len(res.Items) == 0 {
 			s.Dataf("no queue\n")
 		}
 		if res.Summary != "" {
-			s.Dataf("\n%s\n", res.Summary)
+			s.Dataf("\nQueue complete. %d PRs ready for review:\n", len(res.SummaryItems))
+			for _, line := range res.SummaryItems[:autopilotShown(cmd, len(res.SummaryItems))] {
+				s.Dataf("%s\n", line)
+			}
+			autopilotListTotal(s, "review PRs", len(res.SummaryItems), autopilotShown(cmd, len(res.SummaryItems)))
+			s.Dataf("Merge per-repo: %s. Or ask me to merge all.\n", strings.Join(res.MergeOrder[:autopilotShown(cmd, len(res.MergeOrder))], ", "))
+			autopilotListTotal(s, "repos", len(res.MergeOrder), autopilotShown(cmd, len(res.MergeOrder)))
 		}
 	}, err)
+}
+
+func autopilotShown(cmd *cobra.Command, total int) int {
+	all, _ := cmd.Flags().GetBool("all")
+	if all || total <= autopilotListCap {
+		return total
+	}
+	return autopilotListCap
+}
+
+func autopilotListTotal(s outputSink, label string, total, shown int) {
+	if total == 0 {
+		return
+	}
+	if shown < total {
+		s.Dataf("%s: %d total; showing %d (cap %d), %d omitted; use --all to show all\n", label, total, shown, autopilotListCap, total-shown)
+	} else {
+		s.Dataf("%s: %d total\n", label, total)
+	}
 }

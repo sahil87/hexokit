@@ -2190,3 +2190,57 @@ func TestSpawnRejectsNonLocalWorktreeSubdir(t *testing.T) {
 		}
 	}
 }
+
+func TestSpawnObservedRecordsPaneBeforeLaterFailure(t *testing.T) {
+	for _, failHook := range []bool{false, true} {
+		t.Run(fmt.Sprint(failHook), func(t *testing.T) {
+			dir := t.TempDir()
+			root := t.TempDir()
+			log := filepath.Join(dir, "new-window.log")
+			script := strings.Replace(stubTmuxScript(log), "select-pane) exit 0", "select-pane) exit 1", 1)
+			testutil.WriteStub(t, dir, "tmux", script)
+			testutil.WriteStub(t, dir, "fab", "#!/bin/sh\necho 'claude'\n")
+			t.Setenv("PATH", dir)
+			calls := 0
+			_, err := SpawnObserved(context.Background(), Options{RepoRoot: root, Where: "checkout"}, nil, func(_ context.Context, pane, window, path string) error {
+				calls++
+				if pane != "%1" || window != "@7" || path != root {
+					t.Fatalf("opened = %q %q %q", pane, window, path)
+				}
+				if _, err := os.Stat(log); err != nil {
+					t.Fatal("callback before window creation")
+				}
+				if failHook {
+					return fmt.Errorf("record failed")
+				}
+				return nil
+			})
+			if err == nil || calls != 1 {
+				t.Fatalf("error = %v, callbacks = %d", err, calls)
+			}
+			if failHook && !strings.Contains(err.Error(), "record failed") {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestSpawn_PrepareFailureReportsRollbackFailure(t *testing.T) {
+	dir := t.TempDir()
+	worktree := filepath.Join(t.TempDir(), "swift-fox")
+	if err := os.MkdirAll(worktree, 0755); err != nil {
+		t.Fatal(err)
+	}
+	newWindowLog := filepath.Join(dir, "new-window.log")
+	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\ncase \"$1\" in\ncreate) printf 'Path: %s\\n' '"+worktree+"';;\ndelete) echo 'cannot delete worktree' >&2; exit 1;;\nesac\n")
+	testutil.WriteStub(t, dir, "tmux", stubTmuxScript(newWindowLog))
+	testutil.WriteStub(t, dir, "fab", "#!/bin/sh\necho 'claude'\n")
+	t.Setenv("PATH", dir)
+	_, err := SpawnPrepared(context.Background(), Options{RepoRoot: t.TempDir()}, func(context.Context, string) error { return fmt.Errorf("prepare failed") })
+	if err == nil || !strings.Contains(err.Error(), "prepare failed") || !strings.Contains(err.Error(), "worktree rollback failed") {
+		t.Fatalf("rollback failure hidden: %v", err)
+	}
+	if _, err := os.Stat(newWindowLog); !os.IsNotExist(err) {
+		t.Fatal("failed preparation opened a window")
+	}
+}

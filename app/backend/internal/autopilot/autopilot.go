@@ -104,6 +104,7 @@ func timeoutFor(argv []string) time.Duration {
 type Panes interface {
 	Snapshot(ctx context.Context) (map[string]operator.PaneInfo, error)
 	Send(ctx context.Context, paneID, text string) error
+	PID(ctx context.Context, paneID string) (int, error)
 }
 
 // ErrPaneBusy is returned by Panes.Send when the pane's agent is working and a
@@ -132,6 +133,8 @@ type SpawnRequest struct {
 	Prepare func(ctx context.Context, worktree string) error
 	// Note marks the window: `@rk_win_marker` auto plus this note.
 	Note string
+	// Opened must persist the pane before any further spawn work.
+	Opened func(SpawnResult) error
 }
 
 // SpawnResult identifies the opened window.
@@ -149,7 +152,8 @@ type Spawner interface {
 	Spawn(ctx context.Context, req SpawnRequest) (SpawnResult, error)
 	// Worktree returns a checkout of an existing branch and a cleanup to call
 	// when done (a no-op when the branch already had a worktree).
-	Worktree(ctx context.Context, repo, branch string) (path string, cleanup func(), err error)
+	Worktree(ctx context.Context, repo, branch string) (path string, cleanup func() error, err error)
+	RemoveWorktree(ctx context.Context, repo, path string) error
 }
 
 // Env is everything a verb needs. Run, Spawn, Panes and Session are seams;
@@ -221,6 +225,8 @@ type StepResult struct {
 	// Report carries the per-merge lines (`ab12: merged (foo 1/2)`) and the
 	// unreviewed summary.
 	Report []string `json:"report"`
+	// Human output caps this list independently of the per-merge report.
+	Unreviewed []string `json:"-"`
 }
 
 func newResult(dry bool) *StepResult {
@@ -250,10 +256,24 @@ func (e *engine) reportf(format string, a ...interface{}) {
 // item, so a retried step does not repeat itself in the ledger.
 func (e *engine) escalate(id, reason string) {
 	e.res.Escalations = append(e.res.Escalations, Escalation{Item: id, Reason: reason})
-	_ = e.note(id, "escalated: "+reason)
+	if id != "" {
+		if err := e.note(id, "escalated: "+reason); err != nil {
+			e.res.Escalations = append(e.res.Escalations, Escalation{Item: id, Reason: "escalation note not written: " + err.Error()})
+		}
+	}
 }
 
-func (e *engine) load() (*operator.State, error) { return operator.Load(e.env.StatePath) }
+func (e *engine) load(ids ...string) (*operator.State, error) {
+	st, err := operator.Load(e.env.StatePath)
+	if err != nil {
+		id := ""
+		if len(ids) > 0 {
+			id = ids[0]
+		}
+		e.escalate(id, "state load failed: "+err.Error())
+	}
+	return st, err
+}
 
 // mutate applies fn under the store's lock. The lock covers only fn, which is
 // pure in-memory work.
@@ -265,12 +285,12 @@ func (e *engine) mutate(fn func(*operator.State) error) error {
 }
 
 // patch applies fn to the item with id, re-read under the lock. An item
-// removed since the load is skipped: external writes win.
+// removed since the load is an error: no advancing action may be acknowledged.
 func (e *engine) patch(id string, fn func(*operator.TrackedItem)) error {
 	return e.mutate(func(st *operator.State) error {
 		i := operator.IndexOf(st.Tracked, id)
 		if i < 0 {
-			return operator.ErrNoWrite
+			return fmt.Errorf("item %s is no longer tracked", id)
 		}
 		fn(&st.Tracked[i])
 		st.Tracked[i].UpdatedAt = operator.NowRFC3339()
@@ -290,7 +310,7 @@ func (e *engine) setScope(id string, kv map[string]interface{}) error {
 	})
 }
 
-// note appends a note unless the item's latest note already says the same.
+// note suppresses consecutive duplicates and repeated escalation reasons.
 func (e *engine) note(id, text string) error {
 	if r := []rune(text); len(r) > operator.NoteTextCap {
 		text = string(r[:operator.NoteTextCap])
@@ -302,6 +322,13 @@ func (e *engine) note(id, text string) error {
 			return operator.ErrNoWrite
 		}
 		it := &st.Tracked[i]
+		if strings.HasPrefix(text, "escalated: ") {
+			for _, n := range it.Notes {
+				if n.Text == text {
+					return operator.ErrNoWrite
+				}
+			}
+		}
 		if n := len(it.Notes); n > 0 && it.Notes[n-1].Text == text {
 			return operator.ErrNoWrite
 		}
@@ -325,7 +352,7 @@ func (e *engine) gh(ctx context.Context, dir string, args ...string) (string, er
 // stderrOf returns the process's own message for an error ("" when none).
 func stderrOf(err error) string {
 	var ee *ExecError
-	if errors.As(err, &ee) {
+	if errors.As(err, &ee) && strings.TrimSpace(ee.Stderr) != "" {
 		return strings.TrimSpace(ee.Stderr)
 	}
 	if err != nil {

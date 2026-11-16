@@ -1,6 +1,9 @@
 package operator
 
-import "context"
+import (
+	"context"
+	"regexp"
+)
 
 // The helpers below are the ledger primitives the autopilot engine builds on:
 // it reads and writes the same tracked items through the same locked store, so
@@ -66,11 +69,16 @@ func NewPaneItem(id string, deps []string, scope map[string]interface{}) (Tracke
 	return it, nil
 }
 
+var githubRepoName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_.-]+$`)
+
 // NewGitHubPRItem builds a github-pr item probing `gh pr view <n> --repo
 // <nwo>` with the kind defaults. nwo is the repo's owner/name.
 func NewGitHubPRItem(id string, deps []string, scope map[string]interface{}, nwo string) (TrackedItem, error) {
 	if id == "" {
 		return TrackedItem{}, invalidf("tracked item id must not be empty")
+	}
+	if !githubRepoName.MatchString(nwo) {
+		return TrackedItem{}, invalidf("kind github-pr requires an explicit owner/name repository")
 	}
 	pr := scopePRNumber(scope)
 	if pr == "" {
@@ -81,10 +89,7 @@ func NewGitHubPRItem(id string, deps []string, scope map[string]interface{}, nwo
 	if deps == nil {
 		deps = []string{}
 	}
-	argv := []string{"gh", "pr", "view", pr}
-	if nwo != "" {
-		argv = append(argv, "--repo", nwo)
-	}
+	argv := []string{"gh", "pr", "view", pr, "--repo", nwo}
 	argv = append(argv, "--json", "state,mergedAt,mergeable")
 	now := nowRFC3339()
 	it := TrackedItem{

@@ -31,17 +31,17 @@ func (e *engine) stall(ctx context.Context, st *operator.State, head operator.Tr
 	n := prNum(head.Scope)
 	runs, err := e.requiredChecks(ctx, repo, n)
 	if err != nil {
-		_ = e.note(head.ID, "gh pr checks failed: "+stderrOf(err))
+		e.escalate(head.ID, "gh pr checks failed: "+stderrOf(err))
+		return
+	}
+	if !e.progressFixRound(ctx, st, head, v, runs) {
 		return
 	}
 	if f := firstFailed(runs); f != nil {
 		e.ciFailed(ctx, st, head, v, *f)
 		return
 	}
-	if operator.ScopeString(head.Scope, scopeRecovery) == recoveryCIFix {
-		e.resolveFixRound(head)
-	}
-	fresh, err := e.load()
+	fresh, err := e.load(head.ID)
 	if err != nil {
 		return
 	}
@@ -58,90 +58,130 @@ func (e *engine) stall(ctx context.Context, st *operator.State, head operator.Tr
 // ciFailed runs the bounded ci-failed recovery. The marker is persisted before
 // the request is sent, so a restarted run can tell a recovered PR from a first
 // sighting. The PR stays armed throughout.
+func recoveryFields(head string, now time.Time) map[string]interface{} {
+	return map[string]interface{}{scopeRecovery: recoveryCIFix, scopeFixHead: head, scopeRecoverAt: now.UTC().Format(time.RFC3339)}
+}
+
 func (e *engine) ciFailed(ctx context.Context, st *operator.State, head operator.TrackedItem, v prView, failed checkRun) {
+	// PR observation and earlier sequences may have changed the ledger since the
+	// caller loaded it. Read the facts to claim after constructing the request.
+	repo := cleanRepo(operator.ScopeString(head.Scope, "repo"))
+	text := e.fixRequest(ctx, head, repo, failed)
+	fresh, err := e.load(head.ID)
+	if err != nil {
+		return
+	}
+	i := operator.IndexOf(fresh.Tracked, head.ID)
+	if i < 0 {
+		return
+	}
+	st, head = fresh, fresh.Tracked[i]
+	if claimToken(head) != "" {
+		return
+	}
 	if operator.ScopeString(head.Scope, scopeRecovery) == recoveryCIFix {
-		e.fixRoundStillRed(ctx, st, head, v, failed)
+		e.progressFixRound(ctx, st, head, v, []checkRun{failed})
+		return
+	}
+	pane, err := e.authoringPane(ctx, st, head)
+	if err != nil {
+		e.escalate(head.ID, "authoring pane snapshot failed: "+err.Error())
 		return
 	}
 	if e.env.DryRun {
 		e.act(ActRecoverySent, head.ID, "would send a CI fix request for "+failed.Name)
 		return
 	}
-	now := e.env.now().UTC().Format(time.RFC3339)
-	if err := e.setScope(head.ID, map[string]interface{}{scopeRecovery: recoveryCIFix, scopeFixHead: v.HeadRefOid, scopeRecoverAt: now}); err != nil {
+	if pane == "" {
+		e.recoverySpawn(ctx, st, head, repo, operator.ScopeString(head.Scope, "change"), text, v.HeadRefOid)
+		return
+	}
+	claimed, ok, err := e.claimWork(head.ID, st, claimFixSend, "", recoveryFields(v.HeadRefOid, e.env.now()))
+	if err != nil {
 		e.escalate(head.ID, "recovery marker not written: "+err.Error())
 		return
 	}
-	repo := cleanRepo(operator.ScopeString(head.Scope, "repo"))
-	text := e.fixRequest(ctx, head, repo, failed)
-	change := operator.ScopeString(head.Scope, "change")
-	if pane := e.authoringPane(ctx, change); pane != "" {
-		err := e.env.Panes.Send(ctx, pane, text)
-		switch {
-		case errors.Is(err, ErrPaneBusy):
-			// Never interrupt a working agent: forget the marker so the next
-			// step sees a first sighting again.
-			_ = e.setScope(head.ID, map[string]interface{}{scopeRecovery: nil, scopeFixHead: nil, scopeRecoverAt: nil})
-			_ = e.note(head.ID, "CI fix request deferred: the authoring agent is busy")
-		case err != nil:
-			e.escalate(head.ID, "CI fix request not delivered: "+err.Error())
-		default:
-			e.act(ActRecoverySent, head.ID, fmt.Sprintf("check %s → pane %s", failed.Name, pane))
-		}
+	if !ok {
 		return
 	}
-	e.recoverySpawn(ctx, st, head, repo, change, text)
+	err = e.env.Panes.Send(ctx, pane, text)
+	switch {
+	case errors.Is(err, ErrPaneBusy):
+		if rollbackErr := e.rollbackClaim(claimed); rollbackErr != nil {
+			e.escalate(head.ID, "busy recovery rollback failed: "+rollbackErr.Error())
+			return
+		}
+		if err := e.note(head.ID, "CI fix request deferred: the authoring agent is busy"); err != nil {
+			e.escalate(head.ID, "busy deferral note not written: "+err.Error())
+		}
+	case err != nil:
+		// An injection error can occur after delivery. Keep pending ownership until
+		// reconciliation, instead of treating an uncertain send as a completed round.
+		e.escalate(head.ID, "CI fix request delivery uncertain; claim retained: "+err.Error())
+	default:
+		if err := e.releaseClaim(claimed); err != nil {
+			e.escalate(head.ID, "CI fix delivery completion not written: "+err.Error())
+			return
+		}
+		e.act(ActRecoverySent, head.ID, fmt.Sprintf("check %s → pane %s", failed.Name, pane))
+	}
 }
 
-// recoverySpawn is the one recovery spawn for a PR whose authoring pane is
-// gone: the same text, on the existing branch, tracked as a change-less
-// `<change>-fix` item removed when the round resolves.
-func (e *engine) recoverySpawn(ctx context.Context, st *operator.State, head operator.TrackedItem, repo, change, text string) {
-	branch := safeBranch(operator.ScopeString(head.Scope, "branch"))
+// A recovery pane is owned by its PR claim until the pane item and its parent
+// link can be committed atomically. Failed attachment is adopted by advance.
+func (e *engine) recoverySpawn(ctx context.Context, st *operator.State, head operator.TrackedItem, repo, change, text, headOID string) {
+	branch, valid := e.checkedBranch(head.ID, operator.ScopeString(head.Scope, "branch"), "recovery")
+	if !valid {
+		return
+	}
+	pane, err := e.authoringPane(ctx, st, head)
+	if err != nil {
+		e.escalate(head.ID, "authoring pane snapshot failed: "+err.Error())
+		return
+	}
+	if pane != "" {
+		return
+	}
 	name := change
 	if name == "" {
 		name = operator.ScopeString(head.Scope, scopeItem)
 	}
 	fixID := name + "-fix"
-	if branch == "" || operator.IndexOf(st.Tracked, fixID) >= 0 {
-		e.escalate(head.ID, "no authoring pane and no recovery spawn possible (no branch, or a fix item already exists)")
+	if !itemIDRe.MatchString(fixID) {
+		e.escalate(head.ID, "no authoring pane and no valid recovery branch/item")
 		return
 	}
+	claimed, ok, err := e.claimWork(head.ID, st, claimFixSpawn, fixID, recoveryFields(headOID, e.env.now()))
+	if err != nil {
+		e.escalate(head.ID, "recovery spawn claim not written: "+err.Error())
+		return
+	}
+	if !ok {
+		return
+	}
+	opened := false
+	defer e.rollbackUnopened(claimed, &opened)
 	session, err := e.env.Session(ctx, repo)
 	if err != nil {
 		e.escalate(head.ID, "no landing session: "+err.Error())
 		return
 	}
-	res, err := e.env.Spawn.Spawn(ctx, SpawnRequest{
-		Repo: repo, Session: session, WorktreeName: fixID, CheckoutBranch: branch,
-		ExistingWorktree: e.worktreeForBranch(ctx, repo, branch), Prompt: text, Note: fixID + " · CI fix",
-	})
+	wt, err := e.worktreeForBranch(ctx, repo, branch)
 	if err != nil {
-		e.escalate(head.ID, "recovery spawn failed: "+err.Error())
+		e.escalate(head.ID, err.Error())
 		return
 	}
-	fp := map[string]interface{}{"pane": res.PaneID}
-	operator.RecordPanePID(ctx, e.env.Server, fp)
-	it, err := operator.NewPaneItem(fixID, nil, map[string]interface{}{
-		"repo": repo, "pane": res.PaneID, "pane_pid": fp["pane_pid"], "session": session, "branch": branch,
-		scopeFixFor: head.ID,
-	})
-	if err == nil {
-		err = e.addPRItems([]operator.TrackedItem{it})
-	}
-	if err != nil {
-		e.escalate(head.ID, "recovery spawn is running but could not be tracked: "+err.Error())
-		return
-	}
-	_ = e.setScope(head.ID, map[string]interface{}{scopeFixItem: fixID})
-	e.act(ActRecoverySpawn, head.ID, fmt.Sprintf("%s in %s", res.PaneID, session))
+	e.launchClaimed(ctx, claimed, SpawnRequest{Repo: repo, Session: session, WorktreeName: fixID, CheckoutBranch: branch, ExistingWorktree: wt, Prompt: text, Note: fixID + " · CI fix"}, ActRecoverySpawn, &opened)
 }
 
 // fixRequest is the one sanctioned raw send into a fab-project agent, because
 // it amends a change that already finished the pipeline. It carries no skill
 // prefix.
 func (e *engine) fixRequest(ctx context.Context, head operator.TrackedItem, repo string, failed checkRun) string {
-	label := e.nameWithOwner(ctx, repo)
+	label, err := e.nameWithOwner(ctx, repo)
+	if err != nil {
+		e.escalate(head.ID, "CI fix repo lookup failed: "+stderrOf(err))
+	}
 	if label == "" {
 		label = repo
 	}
@@ -155,13 +195,20 @@ func (e *engine) fixRequest(ctx context.Context, head operator.TrackedItem, repo
 
 // authoringPane finds the pane working a change by the change its cwd derives,
 // never by a remembered pane id.
-func (e *engine) authoringPane(ctx context.Context, change string) string {
-	if change == "" {
-		return ""
-	}
+func (e *engine) authoringPane(ctx context.Context, st *operator.State, head operator.TrackedItem) (string, error) {
 	panes, err := e.env.Panes.Snapshot(ctx)
 	if err != nil {
-		return ""
+		return "", err
+	}
+	change := operator.ScopeString(head.Scope, "change")
+	if change == "" {
+		if i := operator.IndexOf(st.Tracked, operator.ScopeString(head.Scope, scopeItem)); i >= 0 {
+			pane := operator.ScopeString(st.Tracked[i].Scope, "pane")
+			if _, alive := panes[pane]; alive {
+				return pane, nil
+			}
+		}
+		return "", nil
 	}
 	best := ""
 	for id, p := range panes {
@@ -169,7 +216,7 @@ func (e *engine) authoringPane(ctx context.Context, change string) string {
 			best = id
 		}
 	}
-	return best
+	return best, nil
 }
 
 // changeMatches compares a derived change folder with an item's change, which
@@ -178,35 +225,69 @@ func changeMatches(derived, change string) bool {
 	return derived == change || strings.Contains("-"+derived+"-", "-"+change+"-")
 }
 
-// fixRoundStillRed decides an in-flight fix round: still red on a new head, or
-// on the same head after the window, halts the cone.
-func (e *engine) fixRoundStillRed(ctx context.Context, st *operator.State, head operator.TrackedItem, v prView, failed checkRun) {
+// A fix remains owned until a changed head has entirely green required checks.
+// The no-push bound also applies while checks are pending or green on the old head.
+func (e *engine) progressFixRound(ctx context.Context, st *operator.State, head operator.TrackedItem, v prView, runs []checkRun) bool {
+	if operator.ScopeString(head.Scope, scopeRecovery) != recoveryCIFix {
+		return true
+	}
 	fixHead := operator.ScopeString(head.Scope, scopeFixHead)
-	if v.HeadRefOid != "" && v.HeadRefOid != fixHead {
+	if fixHead == "" || v.HeadRefOid == "" {
+		e.escalate(head.ID, "cannot resolve CI fix round without both head SHAs")
+		return false
+	}
+	if v.HeadRefOid == fixHead {
+		at, err := time.Parse(time.RFC3339, operator.ScopeString(head.Scope, scopeRecoverAt))
+		if err != nil {
+			e.escalate(head.ID, "invalid recovery timestamp: "+err.Error())
+			return false
+		}
+		if e.env.now().Sub(at) > recoveryWindow {
+			e.haltCone(ctx, st, head, fmt.Sprintf("no new push %s after the CI fix request", recoveryWindow))
+		}
+		return false
+	}
+	if failed := firstFailed(runs); failed != nil {
 		e.haltCone(ctx, st, head, fmt.Sprintf("CI still failing on check %s after the fix round (new head %s); diagnosis is in the authoring pane", failed.Name, short(v.HeadRefOid)))
-		return
+		return false
 	}
-	if at, err := time.Parse(time.RFC3339, operator.ScopeString(head.Scope, scopeRecoverAt)); err == nil && e.env.now().Sub(at) > recoveryWindow {
-		e.haltCone(ctx, st, head, fmt.Sprintf("no new push %s after the CI fix request; check %s is still failing", recoveryWindow, failed.Name))
-	}
+	return e.resolveFixRound(head, v.HeadRefOid, runs)
 }
 
 // resolveFixRound closes a green fix round: the recovery spawn's tracking item
 // is removed. The recovery marker stays as evidence for the merge report.
-func (e *engine) resolveFixRound(head operator.TrackedItem) {
+func (e *engine) resolveFixRound(head operator.TrackedItem, currentHead string, runs []checkRun) bool {
+	if currentHead == "" || operator.ScopeString(head.Scope, scopeFixHead) == "" || currentHead == operator.ScopeString(head.Scope, scopeFixHead) || checksPending(runs) {
+		return false
+	}
 	fixID := operator.ScopeString(head.Scope, scopeFixItem)
 	if fixID == "" {
-		return
+		return true
 	}
-	_ = e.mutate(func(st *operator.State) error {
-		i := operator.IndexOf(st.Tracked, fixID)
+	resolved := false
+	err := e.mutate(func(st *operator.State) error {
+		i := operator.IndexOf(st.Tracked, head.ID)
 		if i < 0 {
 			return operator.ErrNoWrite
 		}
-		st.Tracked = append(st.Tracked[:i], st.Tracked[i+1:]...)
+		if operator.ScopeString(st.Tracked[i].Scope, scopeFixItem) != fixID || operator.ScopeString(st.Tracked[i].Scope, scopeFixHead) != operator.ScopeString(head.Scope, scopeFixHead) || claimToken(st.Tracked[i]) != "" {
+			return operator.ErrNoWrite
+		}
+		delete(st.Tracked[i].Scope, scopeFixItem)
+		if j := operator.IndexOf(st.Tracked, fixID); j >= 0 {
+			if operator.ScopeString(st.Tracked[j].Scope, scopeFixFor) != head.ID {
+				return fmt.Errorf("recovery item %s changed externally", fixID)
+			}
+			st.Tracked = append(st.Tracked[:j], st.Tracked[j+1:]...)
+		}
+		resolved = true
 		return nil
 	})
-	_ = e.setScope(head.ID, map[string]interface{}{scopeFixItem: nil})
+	if err != nil {
+		e.escalate(head.ID, "fix round cleanup not written: "+err.Error())
+		return false
+	}
+	return resolved
 }
 
 func short(oid string) string {
@@ -220,6 +301,22 @@ func short(oid string) string {
 // the change's worktree, push with a lease, and re-arm. CONFLICTING again after
 // a rebase, or a rebase that itself conflicts, disarms and halts the cone.
 func (e *engine) conflicting(ctx context.Context, st *operator.State, head operator.TrackedItem, v prView) {
+	fresh, err := e.load(head.ID)
+	if err != nil {
+		return
+	}
+	i := operator.IndexOf(fresh.Tracked, head.ID)
+	if i < 0 {
+		return
+	}
+	st, head = fresh, fresh.Tracked[i]
+	branch, valid := e.checkedBranch(head.ID, operator.ScopeString(head.Scope, "branch"), "recovery")
+	if !valid {
+		return
+	}
+	if claimToken(head) != "" {
+		return
+	}
 	n := prNum(head.Scope)
 	if operator.ScopeString(head.Scope, scopeRecovery) == recoveryRebase {
 		e.haltCone(ctx, st, head, fmt.Sprintf("PR #%s is CONFLICTING again after the rebase recovery", n))
@@ -230,27 +327,44 @@ func (e *engine) conflicting(ctx context.Context, st *operator.State, head opera
 		return
 	}
 	now := e.env.now().UTC().Format(time.RFC3339)
-	if err := e.setScope(head.ID, map[string]interface{}{scopeRecovery: recoveryRebase, scopeRecoverAt: now}); err != nil {
+	claimed, ok, err := e.claimWork(head.ID, st, claimRebase, "", map[string]interface{}{scopeRecovery: recoveryRebase, scopeRecoverAt: now})
+	if err != nil {
 		e.escalate(head.ID, "recovery marker not written: "+err.Error())
 		return
 	}
+	if !ok {
+		return
+	}
+	head = claimed
+	releaseClaim := true
+	defer func() {
+		if releaseClaim {
+			e.finishWorkClaim(head)
+		}
+	}()
 	repo := cleanRepo(operator.ScopeString(head.Scope, "repo"))
-	branch := safeBranch(operator.ScopeString(head.Scope, "branch"))
-	wt, cleanup, err := e.worktreeFor(ctx, repo, branch)
+	wt, cleanup, err := e.worktreeFor(ctx, head, repo, branch)
 	if err != nil {
 		e.escalate(head.ID, "no worktree to rebase in: "+err.Error())
 		return
 	}
-	defer cleanup()
+	releaseClaim = false
+	defer func() {
+		if e.cleanupWorktree(head.ID, cleanup) {
+			e.finishWorkClaim(head)
+		}
+	}()
 	if _, err := e.git(ctx, wt, "fetch", "origin"); err != nil {
 		e.escalate(head.ID, "git fetch failed: "+stderrOf(err))
 		return
 	}
-	def := e.defaultBranch(ctx, repo)
+	def := e.defaultBranch(ctx, repo, head.ID)
 	if _, err := e.git(ctx, wt, "rebase", "origin/"+def); err != nil {
-		files := e.conflictFiles(ctx, wt)
-		_, _ = e.git(ctx, wt, "rebase", "--abort")
-		e.haltCone(ctx, st, head, fmt.Sprintf("rebase of %s onto %s conflicted%s", branch, def, files))
+		files := e.conflictFiles(ctx, wt, head.ID)
+		if _, abortErr := e.git(ctx, wt, "rebase", "--abort"); !alreadyApplied(abortErr, "rebase-abort") {
+			e.escalate(head.ID, "git rebase --abort failed: "+stderrOf(abortErr))
+		}
+		e.haltCone(ctx, st, head, fmt.Sprintf("rebase of %s onto %s conflicted or failed%s: %s", branch, def, files, stderrOf(err)))
 		return
 	}
 	if _, err := e.git(ctx, wt, "push", "--force-with-lease", "origin", branch); err != nil {
@@ -259,7 +373,7 @@ func (e *engine) conflicting(ctx context.Context, st *operator.State, head opera
 	}
 	e.act(ActRebased, head.ID, fmt.Sprintf("%s onto %s", branch, def))
 	if _, err := e.gh(ctx, repo, "pr", "merge", "--auto", "--squash", n); err != nil {
-		if m := strings.ToLower(stderrOf(err)); !strings.Contains(m, "already enabled") && !strings.Contains(m, "already has auto") {
+		if !alreadyApplied(err, "arm") {
 			e.escalate(head.ID, fmt.Sprintf("re-arming PR #%s failed: %s", n, stderrOf(err)))
 			return
 		}

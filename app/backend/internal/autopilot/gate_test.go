@@ -201,3 +201,31 @@ func TestObserveDoneFabItemFromPaneSnapshot(t *testing.T) {
 		t.Fatal("ship done must persist done_at")
 	}
 }
+
+func TestPlainAgentCompletionIgnoresOptionalChecks(t *testing.T) {
+	for _, required := range []string{"SUCCESS", "FAILURE", "PENDING", "none", "unavailable"} {
+		t.Run(required, func(t *testing.T) {
+			h := newHarness(t)
+			repo := newRepo(t, "repo")
+			h.queue("", Entry{ID: "a", Repo: repo.Dir, Task: "work"})
+			h.attachBranch("a", "a-branch")
+			h.run.reply("gh pr view a-branch", `{"url":"https://example.test/pull/3","state":"OPEN","statusCheckRollup":[{"state":"FAILURE"},{"state":"PENDING"}]}`)
+			switch required {
+			case "none":
+				h.run.fail("gh pr checks a-branch --required", "no required checks reported")
+			case "unavailable":
+				h.run.fail("gh pr checks a-branch --required", "HTTP 502")
+			default:
+				h.run.reply("gh pr checks a-branch --required", `[{"name":"ci","state":"`+required+`"}]`)
+			}
+			e := newEngine(h.env)
+			if err := e.observeDone(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			want := required == "SUCCESS" || required == "none"
+			if operator.ItemDone(h.item("a")) != want || h.run.called("gh pr checks a-branch --required") != 1 {
+				t.Fatalf("done = %v; want %v", operator.ItemDone(h.item("a")), want)
+			}
+		})
+	}
+}

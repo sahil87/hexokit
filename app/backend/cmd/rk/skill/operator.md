@@ -82,11 +82,11 @@ A plain agent gets a chained `github-pr` item once its PR URL is known (`track a
 
 ## Queues
 
-A queue is created, advanced and merged by `rk operator autopilot` — never by hand-writing items or running the git/gh choreography yourself. Confirm upfront, naming the mode:
+A queue is created, advanced and merged by `rk operator autopilot` — never by hand-writing items or running the git/gh choreography yourself. First run `queue --dry-run` with the entries and any user-specified `--mode`; then confirm the receipt’s mode and any misfits with the user:
 
 Confirmation lines: `cherry-pick-ladder` "creates PRs — merge after review"; `stacked-prs` "creates stacked PRs — merge after review"; `merge-auto` "merges PRs on completion".
 
-The mode comes from the first source that has one: the user's instruction (`--mode`), then the `operator.merge_mode` setting, then `cherry-pick-ladder`. The verb resolves it, prints `mode: <name> (flag|setting|default)`, and stamps it on every item — say it in the confirmation. Ask the mode question only on a misfit: the verb's receipt reports `misfit: …` when `merge-auto` meets same-repo dependencies, and you ask when the user's words contradict the mode (they say "merge as you go" while the mode is a held one). The question includes the glyphs, the three diagrams below and a one-line tradeoff each, then you re-run with `--mode`.
+The mode comes from the first source that has one: the user's instruction (`--mode`), then the `operator.merge_mode` setting, then `cherry-pick-ladder`. The dry-run resolves it, prints `mode: <name> (flag|setting|default)`, without writing items — say it in the confirmation. Ask the mode question only on a misfit: the verb's receipt reports `misfit: …` when `merge-auto` meets same-repo dependencies, and you ask when the user's words contradict the mode (they say "merge as you go" while the mode is a held one). The question includes the glyphs, the three diagrams below and a one-line tradeoff each, then preview again with the chosen `--mode` if it changes. After confirmation, make exactly one live `queue --mode <confirmed-mode>` call with the same entries; it stamps the mode on every item. A live misfit without an explicit `--mode` refuses without writing.
 
 At a glance: `▂▄▆` cherry-pick-ladder · `░▒▓█` merge-auto · `▄▀` stacked-prs.
 
@@ -129,7 +129,7 @@ echo '[
   {"id": "q1", "repo": "/src/app", "change": "260101-ab12-first"},
   {"id": "q2", "repo": "/src/web", "task": "fix login after password reset"},
   {"id": "q3", "repo": "/src/app", "change": "260101-ef56-third", "depends_on": ["q1"], "stop_stage": null}
-]' | rk operator autopilot queue [--mode stacked-prs]
+]' | rk operator autopilot queue --dry-run [--mode stacked-prs]
 ```
 
 An entry names an existing change (`change`), raw text (`task`), or neither (a bare agent — nothing may depend on it). Runs spawn the entries as they become ready; `rk operator autopilot step` does one pass of that work on demand and `rk operator autopilot status` shows each item's state, PR and merge position (read-only). `step` prints escalations — send `rk notify` for each one; `status` is read-only and prints none.

@@ -2,6 +2,7 @@ package autopilot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,8 +24,13 @@ const (
 // stalls, recover), spawn every ready queue item, and flag slow ones. No call
 // waits for CI: the next step picks up where this one stopped. Under DryRun it
 // reads but never writes or acts.
-func Step(ctx context.Context, env Env) (*StepResult, error) {
+func Step(ctx context.Context, env Env) (result *StepResult, resultErr error) {
 	e := newEngine(env)
+	defer func() {
+		if resultErr != nil {
+			e.escalate("", "step failed: "+resultErr.Error())
+		}
+	}()
 	if err := e.observeDone(ctx); err != nil {
 		return e.res, err
 	}
@@ -49,7 +55,7 @@ func (e *engine) flagSlow() {
 	var oldest time.Time
 	var oldestID string
 	for _, it := range st.Tracked {
-		if !isQueueItem(it) || operator.ItemDone(it) {
+		if !isQueueItem(st, it) || operator.ItemDone(it) {
 			continue
 		}
 		if t, err := time.Parse(time.RFC3339, it.AddedAt); err == nil && (oldest.IsZero() || t.Before(oldest)) {
@@ -90,42 +96,46 @@ func (e *engine) flagOnce(it operator.TrackedItem, text string) {
 // unspawned queue item. Live panes are left untouched.
 func Stop(ctx context.Context, env Env) (*StepResult, error) {
 	e := newEngine(env)
-	st, err := e.load()
-	if err != nil {
-		return e.res, err
-	}
-	for _, it := range st.Tracked {
-		if !isPRItem(it) || operator.ItemDone(it) {
-			continue
-		}
-		if scopeBool(it, scopeArmed) {
-			e.disarm(ctx, it)
-		}
-		_ = e.setScope(it.ID, map[string]interface{}{scopeHalted: true})
-	}
-	return e.res, e.pauseUnspawned(st)
-}
-
-func (e *engine) pauseUnspawned(st *operator.State) error {
-	var ids []string
-	for _, it := range st.Tracked {
-		if isQueueItem(it) && operator.ScopeString(it.Scope, "pane") == "" && !operator.ItemDone(it) && !it.Paused {
-			ids = append(ids, it.ID)
-			e.act(ActPaused, it.ID, "")
-		}
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-	return e.mutate(func(fresh *operator.State) error {
-		for _, id := range ids {
-			if i := operator.IndexOf(fresh.Tracked, id); i >= 0 {
-				fresh.Tracked[i].Paused = true
-				fresh.Tracked[i].UpdatedAt = operator.NowRFC3339()
+	var targets []operator.TrackedItem
+	var paused []string
+	if err := e.mutate(func(st *operator.State) error {
+		for i := range st.Tracked {
+			it := &st.Tracked[i]
+			if isPRItem(*it) {
+				if !operator.ItemDone(*it) {
+					it.Scope[scopeHalted] = true
+				}
+				if scopeBool(*it, scopeArmed) {
+					targets = append(targets, *it)
+				}
+			}
+			if isQueueItem(st, *it) && operator.ScopeString(it.Scope, "pane") == "" && !operator.ItemDone(*it) && !it.Paused {
+				it.Paused = true
+				it.UpdatedAt = operator.NowRFC3339()
+				paused = append(paused, it.ID)
 			}
 		}
+		if len(paused) == 0 && len(targets) == 0 {
+			for _, it := range st.Tracked {
+				if isPRItem(it) && !operator.ItemDone(it) {
+					return nil
+				}
+			}
+			return operator.ErrNoWrite
+		}
 		return nil
-	})
+	}); err != nil {
+		e.escalate("", "stop intent not written: "+err.Error())
+		return e.res, fmt.Errorf("stop intent not written: %w", err)
+	}
+	for _, id := range paused {
+		e.act(ActPaused, id, "")
+	}
+	var err error
+	for _, it := range targets {
+		err = errors.Join(err, e.disarm(ctx, it))
+	}
+	return e.res, err
 }
 
 // StatusItem is one queue item in the status view.
@@ -149,14 +159,20 @@ type StatusItem struct {
 // StatusResult is the read-only queue view. Summary is the Queue Completion
 // Summary, present when every queue item is done.
 type StatusResult struct {
-	Items    []StatusItem `json:"items"`
-	Complete bool         `json:"complete"`
-	Summary  string       `json:"summary"`
+	Escalations []Escalation `json:"escalations,omitempty"`
+	Items       []StatusItem `json:"items"`
+	Complete    bool         `json:"complete"`
+	Summary     string       `json:"summary"`
+	// Structured human-rendering inputs share the full JSON summary source.
+	SummaryItems []string `json:"-"`
+	MergeOrder   []string `json:"-"`
 }
 
 // Status derives the queue view from stored state alone; only the completion
 // summary reads PR links through gh.
 func Status(ctx context.Context, env Env) (StatusResult, error) {
+	// Status reports failures without writing notes to the ledger.
+	env.DryRun = true
 	e := newEngine(env)
 	st, err := e.load()
 	if err != nil {
@@ -165,12 +181,7 @@ func Status(ctx context.Context, env Env) (StatusResult, error) {
 	res := StatusResult{Items: []StatusItem{}}
 	var queue []operator.TrackedItem
 	for _, it := range st.Tracked {
-		// Every repo-bearing pane item is queue work. scope.queue marks the items
-		// `autopilot queue` created; an item without it predates the marker (or
-		// came from `track add`) and is listed too: showing a user-tracked pane is
-		// harmless, silently dropping a real queue item is not, and a legacy null
-		// mode reads as cherry-pick-ladder.
-		if isQueueItem(it) {
+		if isQueueItem(st, it) {
 			queue = append(queue, it)
 		}
 	}
@@ -203,20 +214,25 @@ func Status(ctx context.Context, env Env) (StatusResult, error) {
 	}
 	res.Complete = allDone
 	if allDone {
-		res.Summary = e.completionSummary(ctx, st, queue)
+		res.SummaryItems, res.MergeOrder = e.completionSummary(ctx, st, queue)
+		res.Summary = fmt.Sprintf("Queue complete. %d PRs ready for review:\n%s\nMerge per-repo: %s. Or ask me to merge all.", len(queue), strings.Join(res.SummaryItems, "\n"), strings.Join(res.MergeOrder, ", "))
 	}
-	return res, nil
+	res.Escalations = e.res.Escalations
+	var lookupErr error
+	for _, escalation := range res.Escalations {
+		lookupErr = errors.Join(lookupErr, fmt.Errorf("%s: %s", escalation.Item, escalation.Reason))
+	}
+	return res, lookupErr
 }
 
 // completionSummary renders the Queue Completion Summary: every PR with its
 // role, and the per-repo merge order.
-func (e *engine) completionSummary(ctx context.Context, st *operator.State, queue []operator.TrackedItem) string {
+func (e *engine) completionSummary(ctx context.Context, st *operator.State, queue []operator.TrackedItem) ([]string, []string) {
 	pos := map[string]int{}
 	for i, it := range queue {
 		pos[it.ID] = i + 1
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "Queue complete. %d PRs ready for review:\n", len(queue))
+	var rows []string
 	repoOrder := []string{}
 	repoPos := map[string][]int{}
 	repoBarrier := map[string]string{}
@@ -224,12 +240,14 @@ func (e *engine) completionSummary(ctx context.Context, st *operator.State, queu
 		repo := cleanRepo(operator.ScopeString(it.Scope, "repo"))
 		url := "(no PR found)"
 		if br := itemBranch(st, it); br != "" {
-			if v, err := e.viewPR(ctx, repo, br, "url"); err == nil && v.URL != "" {
+			if v, err := e.viewPR(ctx, repo, br, "url"); err != nil {
+				e.escalate(it.ID, "completion summary PR lookup failed: "+stderrOf(err))
+			} else if v.URL != "" {
 				url = v.URL
 			}
 		}
 		role, barrier := e.roleOf(st, it, repo, pos)
-		fmt.Fprintf(&b, "%d. %s: %s (%s, %s)\n", i+1, it.ID, url, tildePath(repo), role)
+		rows = append(rows, fmt.Sprintf("%d. %s: %s (%s, %s)", i+1, it.ID, url, tildePath(repo), role))
 		if _, seen := repoPos[repo]; !seen {
 			repoOrder = append(repoOrder, repo)
 			repoBarrier[repo] = barrier
@@ -248,8 +266,7 @@ func (e *engine) completionSummary(ctx context.Context, st *operator.State, queu
 		}
 		parts = append(parts, seg)
 	}
-	fmt.Fprintf(&b, "Merge per-repo: %s. Or ask me to merge all.", strings.Join(parts, ", "))
-	return b.String()
+	return rows, parts
 }
 
 // roleOf describes how an item relates to its dependencies and, for the

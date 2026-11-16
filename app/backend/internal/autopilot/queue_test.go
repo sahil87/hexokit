@@ -338,3 +338,35 @@ func TestSafeBranchMatchesGitCheckRefFormat(t *testing.T) {
 		}
 	}
 }
+
+func TestMisfitWithoutExplicitModeWritesNothing(t *testing.T) {
+	h := newHarness(t)
+	repo := newRepo(t, "repo")
+	h.queue("", Entry{ID: "existing", Repo: repo.Dir, Task: "keep"})
+	before, err := os.ReadFile(h.env.StatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deps := []string{"a"}
+	entries := []Entry{{ID: "a", Repo: repo.Dir, Task: "a"}, {ID: "b", Repo: repo.Dir, Task: "b", DependsOn: &deps}}
+	rec, err := Enqueue(context.Background(), h.env, entries, QueueOptions{}, operator.MergeModeMergeAuto)
+	if err == nil || len(rec.Misfits) != 1 || !strings.Contains(err.Error(), "queue not written") {
+		t.Fatalf("receipt = %+v, err = %v", rec, err)
+	}
+	after, err := os.ReadFile(h.env.StatePath)
+	if err != nil || string(before) != string(after) {
+		t.Fatal("misfit wrote state")
+	}
+	dry := h.env
+	dry.DryRun = true
+	rec, err = Enqueue(context.Background(), dry, entries, QueueOptions{}, operator.MergeModeMergeAuto)
+	if err != nil || len(rec.Misfits) != 1 {
+		t.Fatalf("preview = %+v, err = %v", rec, err)
+	}
+	if _, err := Enqueue(context.Background(), h.env, entries, QueueOptions{Mode: operator.MergeModeMergeAuto}, operator.MergeModeMergeAuto); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.state().Tracked) != 3 {
+		t.Fatal("explicit confirmation did not persist all entries")
+	}
+}
