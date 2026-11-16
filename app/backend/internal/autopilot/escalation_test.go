@@ -92,9 +92,12 @@ func TestCheckQueryFailuresEscalateWithoutMerging(t *testing.T) {
 			for i := 0; i < 2; i++ {
 				e := newEngine(h.env)
 				if mode == "direct" {
-					e.directMerge(context.Background(), h.state(), head, prView{Mergeable: "MERGEABLE"})
+					e.directMerge(context.Background(), head, prView{Mergeable: "MERGEABLE"})
 				} else {
-					e.stall(context.Background(), h.state(), head, prView{})
+					if err := e.markArmed(head.ID, true); err != nil {
+						t.Fatal(err)
+					}
+					e.driveHead(context.Background(), h.item(head.ID), prView{})
 				}
 				assertEscalationNote(t, h, e.res, head.ID, "checks unavailable")
 				if pr.State == "MERGED" || len(e.res.Actions) > 0 {
@@ -132,7 +135,6 @@ func TestCompletionAndDependencyQueryFailuresEscalate(t *testing.T) {
 func TestReviewAndRepoLookupFailuresEscalate(t *testing.T) {
 	h, _, head := armFixture(t)
 	h.run.fail("gh pr view 1 --json reviews", "reviews unavailable")
-	h.run.fail("gh repo view --json nameWithOwner", "repo unavailable")
 	e := newEngine(h.env)
 	var unreviewed []string
 	if !e.markMerged(context.Background(), head, prView{State: "MERGED"}, 1, 1, &unreviewed) {
@@ -142,10 +144,6 @@ func TestReviewAndRepoLookupFailuresEscalate(t *testing.T) {
 	if len(unreviewed) != 0 {
 		t.Fatal("unknown review status treated as unreviewed")
 	}
-	for i := 0; i < 2; i++ {
-		e.fixRequest(context.Background(), head, operator.ScopeString(head.Scope, "repo"), checkRun{Name: "ci"})
-	}
-	assertEscalationNote(t, h, e.res, head.ID, "repo unavailable")
 }
 
 func TestStatusLookupFailureIsVisibleAndReadOnly(t *testing.T) {
@@ -198,18 +196,6 @@ func TestGitLookupFailuresStopSpawnAndEscalate(t *testing.T) {
 	}
 }
 
-func TestWorktreeLookupFailurePreventsRecoverySpawn(t *testing.T) {
-	h, _, head := armFixture(t)
-	h.env.Run = failingGitRunner{Runner: h.run, prefix: "git worktree list"}
-	e := newEngine(h.env)
-	repo := operator.ScopeString(head.Scope, "repo")
-	e.recoverySpawn(context.Background(), h.state(), head, repo, "f1ch", "fix", "")
-	assertEscalationNote(t, h, e.res, head.ID, "git worktree list failed")
-	if h.spawn.n != 0 {
-		t.Fatal("worktree lookup failure spawned recovery")
-	}
-}
-
 func TestDefaultBranchFallbackReportsGitHubFailure(t *testing.T) {
 	h := newHarness(t)
 	repo := newRepo(t, "repo")
@@ -221,21 +207,6 @@ func TestDefaultBranchFallbackReportsGitHubFailure(t *testing.T) {
 		t.Fatalf("fallback=%q", got)
 	}
 	assertEscalationNote(t, h, e.res, "a", "not authenticated")
-}
-
-func TestRecoveryCleanupFailuresEscalate(t *testing.T) {
-	h, _, head := armFixture(t)
-	repo := operator.ScopeString(head.Scope, "repo")
-	branch := operator.ScopeString(head.Scope, "branch")
-	runGit(t, repo, "branch", branch, "main")
-	h.env.Run = failingGitRunner{Runner: failingGitRunner{Runner: h.run, prefix: "git diff --name-only"}, prefix: "git rebase"}
-	e := newEngine(h.env)
-	e.conflicting(context.Background(), h.state(), head, prView{})
-	assertEscalationNote(t, h, e.res, head.ID, "git conflict-file lookup failed")
-	assertEscalationNote(t, h, e.res, head.ID, "git rebase --abort failed")
-	if !scopeBool(h.item(head.ID), scopeHalted) || hasAction(e.res, ActRebased, head.ID) {
-		t.Fatalf("failed rebase advanced: %+v", e.res)
-	}
 }
 
 func TestCherryPickCleanupFailureEscalates(t *testing.T) {

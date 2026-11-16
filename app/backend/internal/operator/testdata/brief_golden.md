@@ -60,8 +60,8 @@ answers questions mid-run. Decide, act within the tiers below, record what you d
   `rk operator track list -L work --json` and a pane with `rk mux capture -L work` before you act on either.
 - Agents govern their own pipeline transitions. Report an unexpected stage factually; never force it.
 - Direct actions are exactly this allowlist: `rk operator track -L work` verbs, pane sends/answers/nudges,
-  `rk notify`, and (queue items only) dependency rebase/cherry-pick, spawns, PR recovery, and the
-  `merge-auto` merge.
+  `rk notify`, `rk operator autopilot queue|step|status -L work` (queue spawns, dependency
+  cherry-picks and the `merge-auto` merge happen inside it), and (queue items only) PR recovery.
 
 ### Confirmation tiers
 
@@ -153,13 +153,15 @@ rk operator track observe -L work <id> --json '{"new":[...]}' --seen <source-id>
 rk operator track observe -L work <id> --error "<message>"    # the probe failed; the third in a row pauses the item
 ```
 
-`--seen` goes on only after a spawn or a deliberate skip. When a spawn is called for, follow the
-spawn rules in the autopilot section.
+`--seen` goes on only after a spawn or a deliberate skip. When a spawn is called for, queue it:
+pipe a one-entry JSON array to `rk operator autopilot queue -L work` and let
+`rk operator autopilot step -L work` open it; the autopilot section has the step rules.
 
 ### Allowed tools
 
 - `rk operator track add|update|rm|list|note|pause|resume|observe -L work`, and `rk operator brief -L work`
 - `rk mux capture|send|inventory -L work`, `rk notify`
+- `rk operator autopilot queue|step|status -L work`
 - `rk tab new -L work` and `rk riff -L work` (queue spawns only), `wt create --non-interactive`
 - `git fetch`, `git cherry-pick`, `git rebase` (dependency resolution and PR recovery only);
   `git commit` only to record a dependency cherry-pick; `git push --force-with-lease` only in PR
@@ -174,106 +176,40 @@ No file-editing tools. Anything outside this list is out of bounds for a run.
 
 ## Interim autopilot
 
-Interim — replaced by the R6 autopilot engine; R7 deletes this file.
+Interim — the autopilot engine's `step` runs queues; `stacked-prs` merging and PR recovery stay here until their steps land, then R7 deletes this file.
 
 Queues are plain `pane` items chained by `depends_on`. There is no queue state beyond the items:
 skipping an entry is `rk operator track rm -L work <id>`, pausing unspawned entries is
 `rk operator track pause -L work <id>`. Work a queue only when a changed item is in it or unblocks it.
 
-### Items and readiness
+### Running a queue
 
-- An item with no `scope.pane` is **unspawned**. It is `held` while any `depends_on` item is not
-  done, and `pending` once they all are. Spawn `pending` queue items; leave `held` ones.
-- **Done** means the item's `done_at` is set or its `done_when` holds. For a pane item with a fab
-  change that is `.status.yaml` showing `ship` done, or the item's `stop_stage` reached.
-- A same-repo dependency with no `stop_stage` is satisfied only when it is done **and** its PR
-  exists (`gh pr view <dep-branch> --json url` succeeds). Tracking, a `branch_map` entry, or a
-  minted branch is not satisfaction.
-- Cross-repo dependencies are ordering-only barriers: wait for the dependency to be done, then
-  spawn. No code moves across repos, so never use one for a code-level dependency.
-- Mode = the item's stored `scope.merge_mode`; null means `cherry-pick-ladder`. A run never
-  resolves config.
+Run `rk operator autopilot step -L work` and act on its escalations: send `rk notify` for each
+one. Never run the spawn/arm choreography by hand: no `git fetch`/`wt create`/cherry-pick for a
+queue item, no `gh pr merge --auto`/`--disable-auto`, no hand-written `github-pr` chain.
 
-### Spawning a queue item
-
-Target the item's `scope.repo`, never the operator's own repo. Two axes pick what rides the tab:
-does the repo have `fab/` (`test -d <repo>/fab`), and was a task given.
-
-| | task given | no task |
-|---|---|---|
-| `fab/` present | `/fab-fff <change>` for an existing change (`scope.change`); `/fab-new <text>` for raw text | bare agent |
-| no `fab/` | plain agent: the raw task, then "Commit on this branch, push, and open a draft PR against the default branch." | bare agent |
-
-Never `fab init`. Never send raw implementation instructions to a fab-project agent.
-
-1. **Fetch first, pin the base.** In the repo's main-worktree root:
-
-   ```sh
-   git fetch origin || exit 1     # a failed fetch stops the spawn; leave the item pending
-   default_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')
-   { [ -n "$default_branch" ] && git rev-parse --verify -q "refs/remotes/origin/$default_branch" >/dev/null; } \
-     || default_branch=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null)
-   [ -n "$default_branch" ] || default_branch=$(git rev-parse --verify -q origin/main >/dev/null && echo main || echo master)
-   base_sha=$(git rev-parse "origin/${default_branch}")
-   wt create --non-interactive --name <name> --base "$base_sha" [<change-folder-name>]
-   ```
-
-   Pass the **SHA**, never the ref name: a remote-tracking start-point sets upstream tracking on
-   the new branch. `--checkout <branch>` (an existing branch, or a `stacked-prs` dependent off its
-   dependency's branch) takes no `--base`. No fab change and no branch argument: wt puts the
-   worktree on a new branch of the same name.
-2. **Dependency code**, by mode, for same-repo dependencies (after the readiness rules above):
-   - `cherry-pick-ladder`: in the new worktree, for each dependency branch not already an ancestor
-     of `HEAD` (`git merge-base --is-ancestor <dep-branch> HEAD`; first drop a dependency whose
-     branch is an ancestor of another dependency's branch), run
-     `git cherry-pick --no-commit origin/<default_branch>..<dep-branch> && git commit -m "operator: cherry-pick <dep> dependency"`.
-     On conflict: `git cherry-pick --abort`, note, notify, do not spawn.
-   - `stacked-prs`: branch off the dependency's branch (`wt create --checkout <dep-branch>`), and for
-     a fab change record it with `fab status set-base-branch <change> <dep-branch>` in the
-     worktree so the PR targets the dependency's branch.
-   - `merge-auto`: no chaining. Each change is based on `origin/<default_branch>` independently.
-   A dependency branch comes from the dependency item's `scope.branch`, else `branch_map[<id>]`;
-   when neither exists, note, notify, and do not spawn.
-3. **Session command.** `fab agent default -o yaml --repo <repo>` when fab is present; read
-   `command` and `skill_prefix` from it. Use the target repo's command, never your own.
-4. **Open the tab**, session command and prompt as argv tokens after `--` (a bare agent passes no
-   prompt token):
-
-   ```sh
-   rk tab new -L work --cwd <worktree> --name <wt> --ready --json -- <session-command-argv…> ["<prompt>"]
-   ```
-
-   Read `pane_id` and `session` from the JSON result. `ready:` of `parked` or `narrow` means a wall
-   to answer on a later run; `gone` gets one bounded retry, then notify.
-5. **Track it.** An unspawned queue item already exists, so attach the pane:
-
-   ```sh
-   rk operator track update -L work <id> --scope '{"pane":"<pane-id>","session":"<session>"}'
-   ```
-
-   A brand-new spawn is `rk operator track add -L work <id> --kind pane --pane <pane-id> --session <session> --repo <repo> [--change <change> --branch <branch>] [--stop-stage <stage>] [--spawned-by <item-id>]`.
-   A plain-agent spawn is a change-less pane item whose id is the worktree name, with `--branch <wt>`;
-   once its PR URL is known, add `rk operator track add -L work <wt>-pr --kind github-pr --scope '{"repo":"<repo>","pr":<n>}' --check-every 2m`
-   and `rk operator track rm -L work <wt>`. Nothing may `--depends-on` a bare agent.
+One step is one idempotent pass and waits for nothing, so call it again on a later run. It persists
+completions, decides readiness (`held` until every dependency is done, then `pending`), spawns every
+`pending` item in its mode (`cherry-pick-ladder`, `stacked-prs`, `merge-auto`), advances the
+`cherry-pick-ladder` and `merge-auto` merge sequences, respawns a dead pane once, and flags a stage
+over 30 minutes or a queue over 2 hours. A cherry-pick conflict or a failed fetch is an escalation:
+the item stays pending and is never skipped. If it prints `busy`, another pass is running on this
+server: do nothing and retry on a later run. Escalation lines name the item and the reason.
 
 ### Merging
 
-Queue PRs are created, not merged, unless the mode says otherwise. In a run:
+Queue PRs are created, not merged, unless the mode says otherwise. `merge-auto` PRs are armed and
+merged by `step`; a completed `cherry-pick-ladder` queue is merged by `rk operator autopilot merge -L work`
+only after the user says "merge all".
 
-- `cherry-pick-ladder` and `stacked-prs`: do not merge. Note that the queue is complete, list the PR
-  links per repo with their dependency order, and notify the user.
-- `merge-auto`: arm each PR as it ships with `gh pr merge --auto --squash <pr>` (the method flag is
-  required; ready a draft first with `gh pr ready <pr>`; an "already clean" rejection means merge
-  directly with `gh pr merge --squash <pr>`; auto-merge disabled on the repo means notify and stop).
-  Arm only one PR per repo sequence, and only after the previous PR's merge is verified by its
-  `github-pr` item turning done. The sequence is a chain of `github-pr` items:
-  `rk operator track add -L work pr-<n> --kind github-pr --scope '{"repo":"<repo>","pr":<n>,"change":"<id>"}' --then "arm next: gh pr merge --auto --squash <next>" --depends-on pr-<n-1>`.
-  When a merge is verified, spawn the next change (step 1 pins the advanced tip).
-- A halted sequence (CI failure after recovery, conflict after recovery) disarms its remaining armed
-  PRs with `gh pr merge --disable-auto <pr>`, halts only that repo's sequence and the repos that
-  depend on it across repos, and notifies with the diagnosis.
+- `stacked-prs`: do not merge. Note that the queue is complete, list the PR links per repo with
+  their dependency order, and notify the user. `rk operator autopilot merge -L work` refuses a
+  `stacked-prs` queue, so a "merge all" on one is not run by the engine.
 
 ### PR recovery
+
+`step` reports a shipped PR that cannot merge as an escalation `recovery needed: <ci-failed|conflicting> — PR #<n> (<repo>)`
+and leaves the PR armed; it does nothing else. Act on it with the table below.
 
 A shipped PR that cannot merge has one reason, and each reason gets one bounded action. Write
 `scope.recovery` on the `github-pr` item **before** acting, so a later run can tell a recovered item
@@ -298,12 +234,16 @@ with no `--change`, removed with `rk operator track rm -L work <change>-fix` whe
 For a merged PR with no non-pending review (`gh pr view <n> --json reviews`), say "unreviewed" in the
 note.
 
+A halted sequence (CI failure after recovery, conflict after recovery) disarms its armed PRs with
+`gh pr merge --disable-auto <pr>` and is marked `rk operator track update -L work pr-<n> --scope '{"halted":true}'`;
+it halts only that repo's sequence and the repos that depend on it across repos, and notifies with
+the diagnosis.
+
 ### Failures and timing
 
 Review exhausted: skip the item. Ship-stage rebase conflict: notify; in `merge-auto` the queue
-continues, in the chained modes dependents stay held. Cherry-pick or `stacked-prs` rebase conflict:
-escalate, never skip. Pane died: one respawn (`wt create --checkout <branch>`), then skip. A stage
-over 30 minutes or a queue over 2 hours: flag in a note and notify.
+continues, in the chained modes dependents stay held. `stacked-prs` rebase conflict: escalate, never
+skip.
 
 ## Exit contract
 

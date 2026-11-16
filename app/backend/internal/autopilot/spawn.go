@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
+	"time"
 
 	"rk/internal/operator"
 	"rk/internal/riff"
@@ -34,12 +34,15 @@ func (c *conflictError) Error() string {
 }
 
 // spawnPending is step phase (d): respawn dead panes once, then spawn every
-// pending, unpaused queue item whose gate passes, in queue order.
+// pending, unpaused queue item whose gate passes, in queue order. An item
+// whose spawn marker is set is never launched again: the pass cannot tell
+// whether a window exists, so a person decides.
 func (e *engine) spawnPending(ctx context.Context) error {
 	st, err := e.load()
 	if err != nil {
 		return err
 	}
+	e.escalateInterrupted(st)
 	if err := e.respawnDead(ctx, st); err != nil {
 		return err
 	}
@@ -53,30 +56,30 @@ func (e *engine) spawnPending(ctx context.Context) error {
 			continue
 		}
 		it := fresh.Tracked[i]
-		if isQueueItem(fresh, it) && it.Scope[scopeClaim] != nil {
-			e.reconcileClaim(ctx, it)
-			continue
-		}
-		if !isQueueItem(fresh, it) || operator.ScopeString(it.Scope, "pane") != "" || operator.ItemDone(it) || it.Paused || skipped(it) {
+		if !isQueueItem(fresh, it) || spawningSet(it) || operator.ScopeString(it.Scope, "pane") != "" || operator.ItemDone(it) || it.Paused || skipped(it) {
 			continue
 		}
 		if ok, _ := e.gate(ctx, fresh, it); !ok {
 			continue
 		}
-		if !e.env.DryRun {
-			claimed, ok, err := e.claimSpawn(it.ID, fresh)
-			if err != nil {
-				e.escalate(it.ID, "spawn claim not written: "+err.Error())
-				continue
-			}
-			if !ok {
-				continue
-			}
-			it = claimed
-		}
 		e.spawnItem(ctx, fresh, it)
 	}
 	return nil
+}
+
+func spawningSet(it operator.TrackedItem) bool {
+	return operator.ScopeString(it.Scope, scopeSpawning) != ""
+}
+
+// escalateInterrupted reports every unfinished queue item left with a spawn
+// marker: a previous pass died, or failed to record the window, between the
+// marker and the pane.
+func (e *engine) escalateInterrupted(st *operator.State) {
+	for _, it := range st.Tracked {
+		if isQueueItem(st, it) && spawningSet(it) && !operator.ItemDone(it) {
+			e.escalate(it.ID, fmt.Sprintf("spawn interrupted: %s — check for an orphaned window, then clear scope.spawning with rk operator track update", it.ID))
+		}
+	}
 }
 
 func skipped(it operator.TrackedItem) bool {
@@ -109,8 +112,6 @@ func sameRepoDeps(st *operator.State, it operator.TrackedItem) []operator.Tracke
 // escalation that leaves the item pending, to be retried by the next step.
 func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.TrackedItem) {
 	id := it.ID
-	opened := false
-	defer e.rollbackUnopened(it, &opened)
 	repo := cleanRepo(operator.ScopeString(it.Scope, "repo"))
 	mode := modeOf(it)
 	if !e.validateSpawnBranches(st, it) {
@@ -206,7 +207,61 @@ func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.
 			return e.prepareWorktree(ctx, wt, id, change, def, mode, ladder, stackedBranch)
 		},
 	}
-	e.launchClaimed(ctx, it, req, ActSpawned, &opened)
+	e.launch(ctx, it, req, ActSpawned, false)
+}
+
+// launch is the only window-opening site. The spawning marker (with respawned
+// for the one respawn) is durable before the window can exist; the pane is
+// recorded as soon as it does, which clears the marker. A launch that fails
+// before a window opens clears the marker again so the item is retried; one
+// that opened a window it could not record leaves the marker, so no pass
+// relaunches over an orphan.
+func (e *engine) launch(ctx context.Context, it operator.TrackedItem, req SpawnRequest, action string, respawn bool) {
+	id := it.ID
+	marker := map[string]interface{}{scopeSpawning: e.env.now().UTC().Format(time.RFC3339)}
+	if respawn {
+		marker[scopeRespawned] = true
+	}
+	if err := e.setScope(id, marker); err != nil {
+		e.escalate(id, "spawn marker not written, nothing launched: "+err.Error())
+		return
+	}
+	opened, pane := false, ""
+	var attachErr error
+	req.Opened = func(res SpawnResult) error {
+		opened, pane = true, res.PaneID
+		attachErr = e.attach(ctx, it, req.Repo, res, req.Session)
+		return attachErr
+	}
+	res, err := e.env.Spawn.Spawn(ctx, req)
+	if err == nil && !opened {
+		opened, pane = true, res.PaneID
+		attachErr = e.attach(ctx, it, req.Repo, res, req.Session)
+	}
+	switch {
+	case attachErr != nil:
+		e.escalate(id, fmt.Sprintf("window %s opened but recording it failed (scope.spawning left set): %v", pane, attachErr))
+	case err != nil && !opened:
+		e.clearSpawning(id, respawn)
+		e.escalate(id, "spawn failed: "+err.Error())
+	case err != nil:
+		e.escalate(id, "spawn: "+err.Error())
+	default:
+		e.act(action, id, fmt.Sprintf("%s in %s", res.PaneID, req.Session))
+	}
+}
+
+// clearSpawning withdraws the marker of a launch that opened no window. A
+// respawn that opened none has not used its one respawn either.
+func (e *engine) clearSpawning(id string, respawn bool) {
+	if err := e.patch(id, func(it *operator.TrackedItem) {
+		delete(it.Scope, scopeSpawning)
+		if respawn {
+			delete(it.Scope, scopeRespawned)
+		}
+	}); err != nil {
+		e.escalate(id, "spawn marker not cleared: "+err.Error())
+	}
 }
 
 // depRef is one dependency to cherry-pick: its id and resolved ref.
@@ -402,17 +457,15 @@ func (e *engine) prepareWorktree(ctx context.Context, wt, id, change, def, mode 
 }
 
 // attach records the spawn on the item in one locked write: pane, session,
-// branch, and the branch_map entry. The pane-pid lookup runs before the lock.
+// branch, the branch_map entry, and the cleared spawn marker. The pane-pid
+// lookup runs before the lock.
 func (e *engine) attach(ctx context.Context, it operator.TrackedItem, repo string, res SpawnResult, session string) error {
-	fp := map[string]interface{}{"pane": res.PaneID}
-	pid, err := e.env.Panes.PID(ctx, res.PaneID)
-	if err != nil {
+	var panePID interface{}
+	if pid, err := e.env.Panes.PID(ctx, res.PaneID); err != nil {
 		e.escalate(it.ID, "pane fingerprint lookup failed: "+err.Error())
-		fp["pane_pid"] = nil
 	} else {
-		fp["pane_pid"] = pid
+		panePID = pid
 	}
-	branch := res.Branch
 	key := operator.ScopeString(it.Scope, "change")
 	if key == "" {
 		key = it.ID
@@ -420,37 +473,17 @@ func (e *engine) attach(ctx context.Context, it operator.TrackedItem, repo strin
 	return e.mutate(func(st *operator.State) error {
 		i := operator.IndexOf(st.Tracked, it.ID)
 		if i < 0 {
-			return fmt.Errorf("orphan pane %s: item %s is no longer tracked", res.PaneID, it.ID)
+			return fmt.Errorf("item %s is no longer tracked", it.ID)
 		}
 		cur := &st.Tracked[i]
-		if token := claimToken(it); token != "" {
-			if claimToken(*cur) != token || (operator.ScopeString(cur.Scope, "pane") != operator.ScopeString(claimOf(it), "previous_pane") && operator.ScopeString(cur.Scope, "pane") != res.PaneID) {
-				return fmt.Errorf("orphan pane %s: spawn claim or pane was changed externally", res.PaneID)
-			}
-
-			if operator.ScopeString(claimOf(it), "kind") == claimFixSpawn {
-				fixID := operator.ScopeString(claimOf(it), "target")
-				if operator.IndexOf(st.Tracked, fixID) >= 0 {
-					return fmt.Errorf("recovery item %s was created externally; pane %s remains claimed", fixID, res.PaneID)
-				}
-				fix, err := operator.NewPaneItem(fixID, nil, map[string]interface{}{"repo": repo, "pane": res.PaneID, "pane_pid": fp["pane_pid"], "session": session, "branch": branch, scopeFixFor: it.ID})
-				if err != nil {
-					return err
-				}
-				cur.Scope[scopeFixItem] = fixID
-				delete(cur.Scope, scopeClaim)
-				st.Tracked = append(st.Tracked, fix)
-				return nil
-			}
-			delete(cur.Scope, scopeClaim)
-		} else if operator.ScopeString(cur.Scope, "pane") != operator.ScopeString(it.Scope, "pane") {
-			return fmt.Errorf("orphan pane %s: pane was changed externally", res.PaneID)
+		if cur.Scope == nil {
+			cur.Scope = map[string]interface{}{}
 		}
-		cur.Scope["pane"], cur.Scope["pane_pid"] = res.PaneID, fp["pane_pid"]
-		cur.Scope["session"] = session
-		if branch != "" {
-			cur.Scope["branch"] = branch
-			st.BranchMap[key] = operator.BranchMapEntry{Branch: branch, Repo: repo}
+		cur.Scope["pane"], cur.Scope["pane_pid"], cur.Scope["session"] = res.PaneID, panePID, session
+		delete(cur.Scope, scopeSpawning)
+		if res.Branch != "" {
+			cur.Scope["branch"] = res.Branch
+			st.BranchMap[key] = operator.BranchMapEntry{Branch: res.Branch, Repo: repo}
 		}
 		cur.UpdatedAt = operator.NowRFC3339()
 		return nil
@@ -461,6 +494,7 @@ func (e *engine) attach(ctx context.Context, it operator.TrackedItem, repo strin
 // existing branch; after that it is skipped with an escalation and its
 // dependents stay held.
 func (e *engine) respawnDead(ctx context.Context, st *operator.State) error {
+	var panes map[string]operator.PaneInfo
 	for _, snapshot := range st.Tracked {
 		fresh, err := e.load(snapshot.ID)
 		if err != nil {
@@ -471,14 +505,15 @@ func (e *engine) respawnDead(ctx context.Context, st *operator.State) error {
 			continue
 		}
 		it := fresh.Tracked[i]
-		panes, err := e.env.Panes.Snapshot(ctx)
-		if err != nil {
-			e.escalate(it.ID, "respawn pane snapshot failed: "+err.Error())
-			return err
-		}
 		pane := operator.ScopeString(it.Scope, "pane")
-		if !isQueueItem(fresh, it) || it.Scope[scopeClaim] != nil || pane == "" || operator.ItemDone(it) || it.Paused || skipped(it) {
+		if !isQueueItem(fresh, it) || spawningSet(it) || pane == "" || operator.ItemDone(it) || it.Paused || skipped(it) {
 			continue
+		}
+		if panes == nil {
+			if panes, err = e.env.Panes.Snapshot(ctx); err != nil {
+				e.escalate(it.ID, "respawn pane snapshot failed: "+err.Error())
+				return err
+			}
 		}
 		if _, alive := panes[pane]; alive || derivedState(fresh, it) == StateHeld {
 			continue
@@ -495,24 +530,12 @@ func (e *engine) respawn(ctx context.Context, st *operator.State, it operator.Tr
 	if _, ok := e.checkedBranch(id, branch, "respawn"); !ok {
 		return
 	}
-	if again, _ := it.Scope[scopeRespawned].(bool); again {
-		why := "pane died after its one respawn: skipped, dependents stay held"
-		changed := false
-		if err := e.mutate(func(fresh *operator.State) error {
-			i := operator.IndexOf(fresh.Tracked, id)
-			if i < 0 || !reflect.DeepEqual(fresh.Tracked[i], it) {
-				return operator.ErrNoWrite
-			}
-			fresh.Tracked[i].Scope[scopeSkipped] = true
-			changed = true
-			return nil
-		}); err != nil {
+	if scopeBool(it, scopeRespawned) {
+		if err := e.setScope(id, map[string]interface{}{scopeSkipped: true}); err != nil {
 			e.escalate(id, "skipped marker not written: "+err.Error())
 			return
 		}
-		if changed || e.env.DryRun {
-			e.escalate(id, why)
-		}
+		e.escalate(id, "pane died after its one respawn: skipped, dependents stay held")
 		return
 	}
 	if e.env.DryRun {
@@ -530,17 +553,6 @@ func (e *engine) respawn(ctx context.Context, st *operator.State, it operator.Tr
 		}
 		stackedBase = b
 	}
-	claimed, ok, err := e.claimWork(id, st, claimRespawn, "", nil)
-	if err != nil {
-		e.escalate(id, "respawn claim not written: "+err.Error())
-		return
-	}
-	if !ok {
-		return
-	}
-	it = claimed
-	opened := false
-	defer e.rollbackUnopened(it, &opened)
 	session, err := e.env.Session(ctx, repo)
 	if err != nil {
 		e.escalate(id, "no landing session: "+err.Error())
@@ -562,45 +574,5 @@ func (e *engine) respawn(ctx context.Context, st *operator.State, it operator.Tr
 		Prompt:           prompt,
 		Note:             id + " · respawned",
 	}
-	e.launchClaimed(ctx, it, req, ActRespawned, &opened)
-}
-
-// worktreeFor returns a directory with branch checked out for git operations:
-// an existing worktree, else a fresh checkout through the spawner. cleanup
-// removes only what this call created.
-func (e *engine) worktreeFor(ctx context.Context, it operator.TrackedItem, repo, branch string) (string, func() error, error) {
-	if safeBranch(branch) == "" {
-		return "", nil, fmt.Errorf("invalid or empty worktree branch %q", branch)
-	}
-	p, err := e.worktreeForBranch(ctx, repo, branch)
-	if err != nil {
-		return "", nil, err
-	}
-	if p != "" {
-		return p, func() error { return nil }, nil
-	}
-	path, cleanup, err := e.env.Spawn.Worktree(ctx, repo, branch)
-	if err != nil {
-		return "", nil, err
-	}
-	if err := e.mutate(func(st *operator.State) error {
-		i := operator.IndexOf(st.Tracked, it.ID)
-		if i < 0 || claimToken(st.Tracked[i]) != claimToken(it) {
-			return fmt.Errorf("worktree claim changed externally")
-		}
-		claimOf(st.Tracked[i])["worktree"] = path
-		return nil
-	}); err != nil {
-		e.cleanupWorktree(it.ID, cleanup)
-		return "", nil, err
-	}
-	return path, cleanup, nil
-}
-
-func (e *engine) cleanupWorktree(id string, cleanup func() error) bool {
-	if err := cleanup(); err != nil {
-		e.escalate(id, "worktree cleanup failed: "+err.Error())
-		return false
-	}
-	return true
+	e.launch(ctx, it, req, ActRespawned, true)
 }

@@ -13,7 +13,7 @@ import (
 	"rk/internal/operator"
 )
 
-const prViewFields = "number,url,state,isDraft,mergedAt,mergeable,headRefOid,baseRefName"
+const prViewFields = "number,url,state,isDraft,mergedAt,mergeable,headRefOid"
 
 // MergeOptions are the merge verb's inputs.
 type MergeOptions struct {
@@ -22,6 +22,14 @@ type MergeOptions struct {
 	RepoSet bool
 }
 
+// stallUnchanged is the number of polls with no change after which an armed PR
+// with no failed check and a CONFLICTING mergeable state is read as stuck.
+const stallUnchanged = 3
+
+var errStackedMerge = errors.New("stacked-prs queues are not merged by this verb: follow the stacked-prs merge text in the run brief")
+
+// isChainMode reports whether the mode builds a merge chain. stacked-prs does
+// too, but only so StartMerge can recognise and refuse it.
 func isChainMode(mode string) bool {
 	return mode == operator.MergeModeCherryPickLadder || mode == operator.MergeModeStackedPRs
 }
@@ -43,11 +51,16 @@ func seqID(repo string) string {
 	return fmt.Sprintf("%s-%06x", filepath.Base(repo), h.Sum32()&0xffffff)
 }
 
-// StartMerge begins the ordered merge for completed cherry-pick-ladder and
-// stacked-prs queues: it creates the per-repo github-pr chains and advances
-// each once (arming or merging the first PR). Later steps advance them. It
-// refuses while queue items are not done, and does nothing for merge-auto.
-func StartMerge(ctx context.Context, env Env, opts MergeOptions) (result *StepResult, resultErr error) {
+// StartMerge begins the ordered merge for completed cherry-pick-ladder queues:
+// it creates the per-repo github-pr chains and advances each once (arming or
+// merging the first PR). Later steps advance them. It refuses while queue
+// items are not done and a stacked-prs queue outright, and does nothing for
+// merge-auto. It runs under the pass lock.
+func StartMerge(ctx context.Context, env Env, opts MergeOptions) (*StepResult, error) {
+	return passLocked(env, func() (*StepResult, error) { return startMerge(ctx, env, opts) })
+}
+
+func startMerge(ctx context.Context, env Env, opts MergeOptions) (result *StepResult, resultErr error) {
 	e := newEngine(env)
 	defer func() {
 		if resultErr != nil {
@@ -97,6 +110,11 @@ func StartMerge(ctx context.Context, env Env, opts MergeOptions) (result *StepRe
 	// A started repo's PRs wait on the PRs of the repos it depends on, so those
 	// get their items too (registered, not started) and must be done.
 	queue := closureOf(all, started)
+	for _, it := range queue {
+		if modeOf(it) == operator.MergeModeStackedPRs {
+			return e.res, errStackedMerge
+		}
+	}
 	var pending []string
 	for _, it := range queue {
 		if !operator.ItemDone(it) {
@@ -342,8 +360,9 @@ func (e *engine) createMergeAutoPRs(ctx context.Context) error {
 	return nil
 }
 
-// advance is step phase (b) and (c): for every merge sequence, verify the
-// head's merge, then arm or merge the next PR, then detect a stall.
+// advance is step phase (b) and (c): retry pending disarms, then for every
+// merge sequence verify the head's merge, arm or merge the next PR, and detect
+// a stall.
 func (e *engine) advance(ctx context.Context) error {
 	if err := e.createMergeAutoPRs(ctx); err != nil {
 		return err
@@ -352,14 +371,8 @@ func (e *engine) advance(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	e.retryDisarms(ctx, st)
 	var seqs []string
-	busy := map[string]bool{}
-	for _, it := range st.Tracked {
-		if isPRItem(it) && claimToken(it) != "" {
-			e.reconcileClaim(ctx, it)
-			busy[seqOf(it)] = true
-		}
-	}
 	seen := map[string]bool{}
 	for _, it := range st.Tracked {
 		if s := seqOf(it); isPRItem(it) && s != "" && !seen[s] {
@@ -369,9 +382,6 @@ func (e *engine) advance(ctx context.Context) error {
 	}
 	var unreviewed []string
 	for _, s := range seqs {
-		if busy[s] {
-			continue
-		}
 		e.advanceSeq(ctx, s, &unreviewed)
 	}
 	if len(unreviewed) > 0 {
@@ -379,6 +389,17 @@ func (e *engine) advance(ctx context.Context) error {
 		e.reportf("merged without review: %s", strings.Join(unreviewed, ", "))
 	}
 	return nil
+}
+
+// retryDisarms re-issues the disarm of every halted PR that still carries its
+// armed marker: the marker is cleared only by a confirmed disarm, so a failed
+// one is retried on every pass until it is durable.
+func (e *engine) retryDisarms(ctx context.Context, st *operator.State) {
+	for _, it := range st.Tracked {
+		if isPRItem(it) && scopeBool(it, scopeHalted) && scopeBool(it, scopeArmed) {
+			_ = e.disarm(ctx, it)
+		}
+	}
 }
 
 // seqItems returns a sequence's github-pr items in ledger order.
@@ -406,7 +427,11 @@ func (e *engine) advanceSeq(ctx context.Context, seq string, unreviewed *[]strin
 				break
 			}
 		}
-		if pos < 0 || scopeBool(head, scopeHalted) || scopeBool(head, scopeDeferred) || claimToken(head) != "" || e.blockedByDeps(st, head) {
+		if pos < 0 || scopeBool(head, scopeHalted) || scopeBool(head, scopeDeferred) || e.blockedByDeps(st, head) {
+			return
+		}
+		if modeOf(head) == operator.MergeModeStackedPRs {
+			e.escalate(head.ID, errStackedMerge.Error())
 			return
 		}
 		repo := cleanRepo(operator.ScopeString(head.Scope, "repo"))
@@ -421,16 +446,6 @@ func (e *engine) advanceSeq(ctx context.Context, seq string, unreviewed *[]strin
 			return
 		}
 		if strings.EqualFold(v.State, "MERGED") {
-			if operator.ScopeString(head.Scope, scopeRecovery) == recoveryCIFix {
-				runs, err := e.requiredChecks(ctx, repo, n)
-				if err != nil {
-					e.escalate(head.ID, "merged PR checks lookup failed: "+stderrOf(err))
-					return
-				}
-				if !e.progressFixRound(ctx, st, head, v, runs) {
-					return
-				}
-			}
 			if !e.markMerged(ctx, head, v, pos+1, len(items), unreviewed) {
 				return
 			}
@@ -447,7 +462,7 @@ func (e *engine) advanceSeq(ctx context.Context, seq string, unreviewed *[]strin
 			e.act(ActArmed, head.ID, "would advance PR #"+n)
 			return
 		}
-		if merged := e.driveHead(ctx, st, items, pos, head, v); merged {
+		if merged := e.driveHead(ctx, head, v); merged {
 			continue
 		}
 		return
@@ -507,9 +522,6 @@ func (e *engine) markMerged(ctx context.Context, head operator.TrackedItem, v pr
 		line += " · unreviewed"
 		*unreviewed = append(*unreviewed, fmt.Sprintf("#%s (%s)", prNum(head.Scope), label))
 	}
-	if operator.ScopeString(head.Scope, scopeRecovery) == "ci-fix" {
-		line += " · after CI fix round"
-	}
 	e.reportf("%s", line)
 	e.act(ActMerged, label, fmt.Sprintf("PR #%s", prNum(head.Scope)))
 	return true
@@ -524,33 +536,28 @@ func hasReview(rs []reviewSummary) bool {
 	return false
 }
 
-// driveHead acts on the sequence's head PR by mode and reports whether it
-// merged during this call (so the caller verifies and moves to the next).
-func (e *engine) driveHead(ctx context.Context, st *operator.State, items []operator.TrackedItem, pos int, head operator.TrackedItem, v prView) bool {
-	mode := modeOf(head)
-	if mode == operator.MergeModeStackedPRs {
-		if pos > 0 && !scopeBool(head, scopeHalted) && !scopeBool(head, scopePrepared) {
-			// The retarget, rebase and force-push change the PR's base and head:
-			// the checks and mergeability in v describe the old ones. Merge on
-			// a later step, from fresh state.
-			e.prepareStacked(ctx, st, items[pos-1], head, v)
-			return false
-		}
-		return e.stackedStep(ctx, st, head, v)
-	}
+// driveHead acts on the sequence's head PR and reports whether it merged
+// during this call (so the caller verifies and moves to the next).
+func (e *engine) driveHead(ctx context.Context, head operator.TrackedItem, v prView) bool {
 	if scopeBool(head, scopeDirect) {
-		return e.directMerge(ctx, st, head, v)
+		return e.directMerge(ctx, head, v)
 	}
 	if !scopeBool(head, scopeArmed) {
-		return e.arm(ctx, st, head, v)
+		return e.arm(ctx, head, v)
 	}
-	e.stall(ctx, st, head, v)
+	repo := cleanRepo(operator.ScopeString(head.Scope, "repo"))
+	runs, err := e.requiredChecks(ctx, repo, prNum(head.Scope))
+	if err != nil {
+		e.escalate(head.ID, "gh pr checks failed: "+stderrOf(err))
+		return false
+	}
+	e.stall(head, v, runs)
 	return false
 }
 
 // arm enables auto-merge on the head PR. The method flag is always explicit; a
 // draft is readied first; the two repo-level rejections have their own shapes.
-func (e *engine) arm(ctx context.Context, st *operator.State, head operator.TrackedItem, v prView) bool {
+func (e *engine) arm(ctx context.Context, head operator.TrackedItem, v prView) bool {
 	repo := cleanRepo(operator.ScopeString(head.Scope, "repo"))
 	n := prNum(head.Scope)
 	if !e.readyDraft(ctx, head, &v) {
@@ -587,7 +594,7 @@ func (e *engine) arm(ctx context.Context, st *operator.State, head operator.Trac
 			return false
 		}
 		e.escalate(head.ID, "auto-merge is disabled on this repo: merging step by step")
-		return e.directMerge(ctx, st, head, v)
+		return e.directMerge(ctx, head, v)
 	}
 	e.escalate(head.ID, fmt.Sprintf("arming PR #%s failed: %s", n, stderrOf(err)))
 	return false
@@ -650,9 +657,8 @@ func (e *engine) mergeNow(ctx context.Context, head operator.TrackedItem, n, rep
 }
 
 // directMerge merges the head PR when its required checks are green and it is
-// mergeable: the step-driven path for stacked-prs and for repos without
-// auto-merge.
-func (e *engine) directMerge(ctx context.Context, st *operator.State, head operator.TrackedItem, v prView) bool {
+// mergeable: the step-driven path for repos without auto-merge.
+func (e *engine) directMerge(ctx context.Context, head operator.TrackedItem, v prView) bool {
 	repo := cleanRepo(operator.ScopeString(head.Scope, "repo"))
 	n := prNum(head.Scope)
 	runs, err := e.requiredChecks(ctx, repo, n)
@@ -660,14 +666,8 @@ func (e *engine) directMerge(ctx context.Context, st *operator.State, head opera
 		e.escalate(head.ID, "gh pr checks failed: "+stderrOf(err))
 		return false
 	}
-	if !e.progressFixRound(ctx, st, head, v, runs) {
-		return false
-	}
-	if f := firstFailed(runs); f != nil {
-		e.ciFailed(ctx, st, head, v, *f)
-		return false
-	}
-	if checksPending(runs) || !strings.EqualFold(v.Mergeable, "MERGEABLE") {
+	if firstFailed(runs) != nil || checksPending(runs) || !strings.EqualFold(v.Mergeable, "MERGEABLE") {
+		e.stall(head, v, runs)
 		return false
 	}
 	if !e.readyDraft(ctx, head, &v) {
@@ -676,111 +676,39 @@ func (e *engine) directMerge(ctx context.Context, st *operator.State, head opera
 	return e.mergeNow(ctx, head, n, repo)
 }
 
-// stackedStep never arms: an armed stacked PR can merge into its dependency's
-// branch, or fire on stale-green checks after a retarget.
-func (e *engine) stackedStep(ctx context.Context, st *operator.State, head operator.TrackedItem, v prView) bool {
-	return e.directMerge(ctx, st, head, v)
-}
-
-// prepareStacked retargets the next PR onto the default branch (GitHub does it
-// itself when the merged base branch was deleted) and rebases its branch onto
-// the new default tip, replaying only its own commits. A conflict halts and
-// escalates; it never skips. The caller never merges in the same pass.
-func (e *engine) prepareStacked(ctx context.Context, st *operator.State, prev, head operator.TrackedItem, v prView) {
-	fresh, err := e.load(head.ID)
-	if err != nil {
-		return
-	}
-	i := operator.IndexOf(fresh.Tracked, head.ID)
-	p := operator.IndexOf(fresh.Tracked, prev.ID)
-	if i < 0 || p < 0 {
-		return
-	}
-	head, prev = fresh.Tracked[i], fresh.Tracked[p]
-	branch, ok := e.checkedBranch(head.ID, operator.ScopeString(head.Scope, "branch"), "current")
-	if !ok {
-		return
-	}
-	prevBranch, ok := e.checkedBranch(head.ID, operator.ScopeString(prev.Scope, "branch"), "predecessor")
-	if !ok {
-		return
-	}
-	claimed, ok, err := e.claimWork(head.ID, fresh, claimStacked, "", nil)
-	if err != nil {
-		e.escalate(head.ID, "stacked rebase claim failed: "+err.Error())
-		return
-	}
-	if !ok {
-		return
-	}
-	head = claimed
-	st = fresh
-	releaseClaim := true
-	defer func() {
-		if releaseClaim {
-			e.finishWorkClaim(head)
-		}
-	}()
-	repo := cleanRepo(operator.ScopeString(head.Scope, "repo"))
-	n := prNum(head.Scope)
-	if _, err := e.git(ctx, repo, "fetch", "origin"); err != nil {
-		e.escalate(head.ID, "git fetch failed: "+stderrOf(err))
-		return
-	}
-	def := e.defaultBranch(ctx, repo, head.ID)
-	if v.BaseRefName != def {
-		if err := e.retarget(ctx, repo, n, def); err != nil {
-			e.escalate(head.ID, fmt.Sprintf("retargeting PR #%s onto %s failed: %s", n, def, stderrOf(err)))
+// stall is the stall rule on a head PR: a failed required check, or no failed
+// check after stallUnchanged quiet polls with the PR CONFLICTING, is reported
+// once per head SHA and reason as a `recovery needed` escalation. The engine
+// takes no action: the PR stays as it is, armed or not.
+func (e *engine) stall(head operator.TrackedItem, v prView, runs []checkRun) {
+	reason := ""
+	if firstFailed(runs) != nil {
+		reason = "ci-failed"
+	} else if strings.EqualFold(v.Mergeable, "CONFLICTING") {
+		fresh, err := e.load(head.ID)
+		if err != nil {
 			return
 		}
-		e.act(ActRetargeted, head.ID, fmt.Sprintf("PR #%s → %s", n, def))
-	}
-	wt, cleanup, err := e.worktreeFor(ctx, head, repo, branch)
-	if err != nil {
-		e.escalate(head.ID, "no worktree to rebase in: "+err.Error())
-		return
-	}
-	releaseClaim = false
-	defer func() {
-		if e.cleanupWorktree(head.ID, cleanup) {
-			e.finishWorkClaim(head)
+		i := operator.IndexOf(fresh.Tracked, head.ID)
+		if i < 0 {
+			return // removed by an external writer: it wins
 		}
-	}()
-	upstream, err := e.resolveRef(ctx, repo, prevBranch)
-	if err != nil {
-		e.escalate(head.ID, err.Error())
-		return
-	}
-	if _, err := e.git(ctx, wt, "rebase", "--onto", "origin/"+def, upstream, branch); err != nil {
-		files := e.conflictFiles(ctx, wt, head.ID)
-		if _, abortErr := e.git(ctx, wt, "rebase", "--abort"); !alreadyApplied(abortErr, "rebase-abort") {
-			e.escalate(head.ID, "git rebase --abort failed: "+stderrOf(abortErr))
+		if fresh.Tracked[i].Unchanged >= stallUnchanged {
+			reason = "conflicting"
 		}
-		e.haltCone(ctx, st, head, fmt.Sprintf("rebase of %s onto %s failed%s (cleanup attempted, not skipped): %s", branch, def, files, stderrOf(err)))
+	}
+	if reason == "" {
 		return
 	}
-	if _, err := e.git(ctx, wt, "push", "--force-with-lease", "origin", branch); err != nil {
-		e.escalate(head.ID, "push after rebase failed: "+stderrOf(err))
+	seen := reason + "@" + v.HeadRefOid
+	if operator.ScopeString(head.Scope, scopeStallSeen) == seen {
 		return
 	}
-	if err := e.setScope(head.ID, map[string]interface{}{scopePrepared: true}); err != nil {
-		e.escalate(head.ID, "force-push completed but prepared marker not written: "+err.Error())
-		return
+	if err := e.setScope(head.ID, map[string]interface{}{scopeStallSeen: seen}); err != nil {
+		e.escalate(head.ID, "stall marker not written: "+err.Error())
 	}
-	e.act(ActRebased, head.ID, fmt.Sprintf("%s onto %s", branch, def))
-}
-
-// conflictFiles names the unmerged paths of a stopped rebase or cherry-pick.
-func (e *engine) conflictFiles(ctx context.Context, dir, id string) string {
-	out, err := e.git(ctx, dir, "diff", "--name-only", "--diff-filter=U")
-	if err != nil {
-		e.escalate(id, "git conflict-file lookup failed: "+stderrOf(err))
-		return ""
-	}
-	if out == "" {
-		return ""
-	}
-	return ": " + strings.Join(strings.Fields(out), ", ")
+	repo := cleanRepo(operator.ScopeString(head.Scope, "repo"))
+	e.escalate(head.ID, fmt.Sprintf("recovery needed: %s — PR #%s (%s)", reason, prNum(head.Scope), filepath.Base(repo)))
 }
 
 type checkRun struct {
@@ -828,7 +756,8 @@ func checksPending(runs []checkRun) bool {
 // haltCone stops the failing sequence and everything downstream of it, and
 // disarms only those PRs: the failing repo's sub-sequence plus every repo whose
 // PR items transitively carry a cross-repo depends_on into it. Independent
-// sub-sequences keep going.
+// sub-sequences keep going. A disarm that fails leaves the armed marker for
+// retryDisarms.
 func (e *engine) haltCone(ctx context.Context, st *operator.State, failing operator.TrackedItem, reason string) {
 	cone := map[string]bool{seqOf(failing): true}
 	for grew := true; grew; {
@@ -860,49 +789,20 @@ func (e *engine) haltCone(ctx context.Context, st *operator.State, failing opera
 				targets = append(targets, *it)
 			}
 		}
-		remove := map[string]bool{}
-		for i := range fresh.Tracked {
-			it := &fresh.Tracked[i]
-			if !isPRItem(*it) || !cone[seqOf(*it)] || claimToken(*it) != "" {
-				continue
-			}
-			fix := operator.ScopeString(it.Scope, scopeFixItem)
-			if fix == "" {
-				continue
-			}
-			if j := operator.IndexOf(fresh.Tracked, fix); j >= 0 {
-				if operator.ScopeString(fresh.Tracked[j].Scope, scopeFixFor) != it.ID {
-					return fmt.Errorf("recovery item %s changed externally", fix)
-				}
-				remove[fix] = true
-			}
-			delete(it.Scope, scopeFixItem)
-		}
-		kept := fresh.Tracked[:0]
-		for _, it := range fresh.Tracked {
-			if !remove[it.ID] {
-				kept = append(kept, it)
-			}
-		}
-		fresh.Tracked = kept
-
 		return nil
 	}); err != nil {
 		e.escalate(failing.ID, "halt marker not written: "+err.Error()+"; "+reason)
 		return
 	}
-	failed := false
+	e.escalate(failing.ID, "halted: "+reason)
 	for _, it := range targets {
-		if err := e.disarm(ctx, it); err != nil {
-			failed = true
-		}
-	}
-	if !failed {
-		e.escalate(failing.ID, "halted: "+reason)
+		_ = e.disarm(ctx, it)
 	}
 }
 
-// disarm turns auto-merge off on one PR.
+// disarm turns auto-merge off on one PR and clears its armed marker. A PR that
+// already merged or closed cannot auto-merge any more, so that counts as
+// disarmed. Any other failure keeps the marker: the PR may still merge.
 func (e *engine) disarm(ctx context.Context, it operator.TrackedItem) error {
 	repo := cleanRepo(operator.ScopeString(it.Scope, "repo"))
 	n := prNum(it.Scope)
@@ -910,7 +810,7 @@ func (e *engine) disarm(ctx context.Context, it operator.TrackedItem) error {
 		e.act(ActDisarmed, it.ID, "would disarm PR #"+n)
 		return nil
 	}
-	if _, err := e.gh(ctx, repo, "pr", "merge", "--disable-auto", n); !alreadyApplied(err, "disarm") {
+	if _, err := e.gh(ctx, repo, "pr", "merge", "--disable-auto", n); !alreadyApplied(err, "disarm") && !e.prFinished(ctx, repo, n) {
 		e.escalate(it.ID, fmt.Sprintf("disarming PR #%s failed — it may still merge: %s", n, stderrOf(err)))
 		return err
 	}
@@ -920,4 +820,10 @@ func (e *engine) disarm(ctx context.Context, it operator.TrackedItem) error {
 	}
 	e.act(ActDisarmed, it.ID, "PR #"+n)
 	return nil
+}
+
+// prFinished reports whether the PR is merged or closed.
+func (e *engine) prFinished(ctx context.Context, repo, n string) bool {
+	v, err := e.viewPR(ctx, repo, n, "state")
+	return err == nil && (strings.EqualFold(v.State, "MERGED") || strings.EqualFold(v.State, "CLOSED"))
 }

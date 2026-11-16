@@ -26,17 +26,13 @@ const (
 	scopeBare      = "bare"
 	scopeRespawned = "respawned"
 	scopeSkipped   = "skipped"
-	scopeRecovery  = "recovery"
-	scopeFixHead   = "fix_head"
-	scopeRecoverAt = "recovery_at"
+	scopeSpawning  = "spawning"
 	scopeMergeSeq  = "merge_seq"
 	scopeItem      = "item"
 	scopeArmed     = "armed"
 	scopeHalted    = "halted"
 	scopeDirect    = "direct"
-	scopePrepared  = "prepared"
-	scopeFixItem   = "fix_item"
-	scopeFixFor    = "fix_for"
+	scopeStallSeen = "stall_seen"
 	scopeDeferred  = "deferred"
 	scopeQueue     = "queue"
 )
@@ -144,9 +140,7 @@ func isQueueItem(st *operator.State, it operator.TrackedItem) bool {
 	return false
 }
 
-func queuePane(it operator.TrackedItem) bool {
-	return it.Kind == operator.KindPane && operator.ScopeString(it.Scope, scopeFixFor) == ""
-}
+func queuePane(it operator.TrackedItem) bool { return it.Kind == operator.KindPane }
 
 func isBare(it operator.TrackedItem) bool {
 	b, _ := it.Scope[scopeBare].(bool)

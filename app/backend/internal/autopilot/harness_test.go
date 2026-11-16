@@ -182,7 +182,6 @@ type simPR struct {
 	IsDraft    bool
 	Mergeable  string
 	HeadOid    string
-	Base       string
 	Reviews    []reviewSummary
 	Checks     []checkRun
 	AutoErr    string
@@ -196,9 +195,6 @@ type ghSim struct {
 	prs  map[int]*simPR
 	run  *scriptRunner
 	repo string
-	// onMerge runs after a direct (non-armed) squash merge, so a test can land
-	// the squash commit on origin the way GitHub would.
-	onMerge func(*simPR)
 }
 
 func newGHSim(t *testing.T, run *scriptRunner) *ghSim {
@@ -209,7 +205,7 @@ func newGHSim(t *testing.T, run *scriptRunner) *ghSim {
 
 func (g *ghSim) add(number int, branch string) *simPR {
 	pr := &simPR{Number: number, Branch: branch, URL: fmt.Sprintf("https://example.test/pull/%d", number),
-		State: "OPEN", Mergeable: "MERGEABLE", HeadOid: fmt.Sprintf("%040d", number), Base: "main"}
+		State: "OPEN", Mergeable: "MERGEABLE", HeadOid: fmt.Sprintf("%040d", number)}
 	g.prs[number] = pr
 	return pr
 }
@@ -242,7 +238,7 @@ func (g *ghSim) handle(dir string, argv []string) (string, error) {
 		}
 		b, _ := json.Marshal(map[string]interface{}{
 			"number": p.Number, "url": p.URL, "state": p.State, "isDraft": p.IsDraft, "mergedAt": mergedAt(p),
-			"mergeable": p.Mergeable, "headRefOid": p.HeadOid, "baseRefName": p.Base,
+			"mergeable": p.Mergeable, "headRefOid": p.HeadOid,
 			"reviews": p.Reviews, "statusCheckRollup": rollup(p.Checks),
 		})
 		return string(b), nil
@@ -263,9 +259,6 @@ func (g *ghSim) handle(dir string, argv []string) (string, error) {
 		return string(b), nil
 	case len(args) >= 3 && args[0] == "pr" && args[1] == "ready":
 		g.find(args[2]).IsDraft = false
-		return "", nil
-	case len(args) >= 3 && args[0] == "pr" && args[1] == "edit":
-		g.find(args[2]).Base = args[4]
 		return "", nil
 	case len(args) >= 3 && args[0] == "pr" && args[1] == "merge":
 		return g.merge(argv, args[2:])
@@ -302,9 +295,6 @@ func (g *ghSim) merge(argv, rest []string) (string, error) {
 		}
 		p.State = "MERGED"
 		p.MergeCalls++
-		if g.onMerge != nil {
-			g.onMerge(p)
-		}
 	}
 	return "", nil
 }
@@ -327,11 +317,8 @@ func rollup(cs []checkRun) []map[string]string {
 // ---- fakes --------------------------------------------------------------------
 
 type fakePanes struct {
-	mu     sync.Mutex
-	panes  map[string]operator.PaneInfo
-	sent   []string
-	busy   bool
-	onSend func(paneID, text string)
+	mu    sync.Mutex
+	panes map[string]operator.PaneInfo
 }
 
 func (f *fakePanes) Snapshot(ctx context.Context) (map[string]operator.PaneInfo, error) {
@@ -344,30 +331,16 @@ func (f *fakePanes) Snapshot(ctx context.Context) (map[string]operator.PaneInfo,
 	return out, nil
 }
 
-func (f *fakePanes) Send(ctx context.Context, paneID, text string) error {
-	if f.busy {
-		return ErrPaneBusy
-	}
-	if f.onSend != nil {
-		f.onSend(paneID, text)
-	}
-	f.mu.Lock()
-	f.sent = append(f.sent, paneID+"|"+text)
-	f.mu.Unlock()
-	return nil
-}
-
 // fakeSpawner builds real git worktrees so SHA pinning, upstream tracking and
 // cherry-picks run against git, and runs the engine's Prepare hook exactly the
 // way riff does: a failed hook deletes the worktree.
 type fakeSpawner struct {
-	t           *testing.T
-	root        string
-	reqs        []SpawnRequest
-	n           int
-	failWith    error
-	during      func()
-	afterOpened func(SpawnResult)
+	t        *testing.T
+	root     string
+	reqs     []SpawnRequest
+	n        int
+	failWith error
+	during   func()
 }
 
 func newFakeSpawner(t *testing.T) *fakeSpawner {
@@ -410,17 +383,7 @@ func (f *fakeSpawner) Spawn(ctx context.Context, req SpawnRequest) (SpawnResult,
 			return res, err
 		}
 	}
-	if f.afterOpened != nil {
-		f.afterOpened(res)
-	}
 	return res, nil
-}
-
-func (f *fakeSpawner) Worktree(ctx context.Context, repo, branch string) (string, func() error, error) {
-	f.n++
-	path := filepath.Join(f.root, fmt.Sprintf("wt-%d", f.n))
-	runGit(f.t, repo, "worktree", "add", path, branch)
-	return path, func() error { runGit(f.t, repo, "worktree", "remove", "--force", path); return nil }, nil
 }
 
 // ---- environment -----------------------------------------------------------
@@ -581,10 +544,3 @@ func (h *harness) startMerge() *StepResult {
 }
 
 func (f *fakePanes) PID(context.Context, string) (int, error) { return 123, nil }
-func (f *fakeSpawner) RemoveWorktree(ctx context.Context, repo, path string) error {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil
-	}
-	_, err := ExecRunner{}.Run(ctx, repo, "git", "worktree", "remove", "--force", path)
-	return err
-}

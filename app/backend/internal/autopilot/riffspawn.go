@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"rk/internal/riff"
@@ -79,7 +77,7 @@ func (s RiffSpawner) Spawn(ctx context.Context, req SpawnRequest) (SpawnResult, 
 	return out, nil
 }
 
-// Marker failures retain the recorded pane for reconciliation by the caller.
+// Marker failures leave the recorded pane in place; the caller reports them.
 func (s RiffSpawner) mark(ctx context.Context, windowID, note string) error {
 	if windowID == "" {
 		return nil
@@ -93,23 +91,6 @@ func (s RiffSpawner) mark(ctx context.Context, windowID, note string) error {
 	return tmux.SetWindowOptions(ctx, windowID, s.Server, ops)
 }
 
-// Worktree checks the branch out in a new worktree for git work.
-func (s RiffSpawner) Worktree(ctx context.Context, repo, branch string) (string, func() error, error) {
-	name := "ap-" + strings.NewReplacer("/", "-", " ", "-").Replace(branch)
-	path, err := riff.CreateWorktree(ctx, repo, riff.WorktreeOptions{Name: name, CheckoutBranch: branch})
-	if err != nil {
-		return "", nil, err
-	}
-	return path, func() error { return s.RemoveWorktree(context.Background(), repo, path) }, nil
-}
-
-func (s RiffSpawner) RemoveWorktree(ctx context.Context, repo, path string) error {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil
-	}
-	return riff.DeleteWorktree(ctx, repo, filepath.Base(path))
-}
-
 // A pane whose ownership cannot be persisted must be closed before the
 // launcher proceeds. If that compensation also fails, report its exact ID.
 func persistOpened(req SpawnRequest, res SpawnResult, closePane func() error) error {
@@ -117,7 +98,7 @@ func persistOpened(req SpawnRequest, res SpawnResult, closePane func() error) er
 		if closeErr := closePane(); closeErr != nil {
 			return errors.Join(fmt.Errorf("orphan pane %s: %w", res.PaneID, err), fmt.Errorf("window rollback failed: %w", closeErr))
 		}
-		return fmt.Errorf("pane %s closed because its claim could not be recorded: %w", res.PaneID, err)
+		return fmt.Errorf("pane %s closed because it could not be recorded: %w", res.PaneID, err)
 	}
 	return nil
 }

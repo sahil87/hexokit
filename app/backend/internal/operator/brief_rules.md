@@ -12,8 +12,8 @@ answers questions mid-run. Decide, act within the tiers below, record what you d
   `rk operator track list -L <server> --json` and a pane with `rk mux capture -L <server>` before you act on either.
 - Agents govern their own pipeline transitions. Report an unexpected stage factually; never force it.
 - Direct actions are exactly this allowlist: `rk operator track -L <server>` verbs, pane sends/answers/nudges,
-  `rk notify`, and (queue items only) dependency rebase/cherry-pick, spawns, PR recovery, and the
-  `merge-auto` merge.
+  `rk notify`, `rk operator autopilot queue|step|status -L <server>` (queue spawns, dependency
+  cherry-picks and the `merge-auto` merge happen inside it), and (queue items only) PR recovery.
 
 ### Confirmation tiers
 
@@ -105,13 +105,15 @@ rk operator track observe -L <server> <id> --json '{"new":[...]}' --seen <source
 rk operator track observe -L <server> <id> --error "<message>"    # the probe failed; the third in a row pauses the item
 ```
 
-`--seen` goes on only after a spawn or a deliberate skip. When a spawn is called for, follow the
-spawn rules in the autopilot section.
+`--seen` goes on only after a spawn or a deliberate skip. When a spawn is called for, queue it:
+pipe a one-entry JSON array to `rk operator autopilot queue -L <server>` and let
+`rk operator autopilot step -L <server>` open it; the autopilot section has the step rules.
 
 ### Allowed tools
 
 - `rk operator track add|update|rm|list|note|pause|resume|observe -L <server>`, and `rk operator brief -L <server>`
 - `rk mux capture|send|inventory -L <server>`, `rk notify`
+- `rk operator autopilot queue|step|status -L <server>`
 - `rk tab new -L <server>` and `rk riff -L <server>` (queue spawns only), `wt create --non-interactive`
 - `git fetch`, `git cherry-pick`, `git rebase` (dependency resolution and PR recovery only);
   `git commit` only to record a dependency cherry-pick; `git push --force-with-lease` only in PR

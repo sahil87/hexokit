@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"rk/internal/autopilot"
-	"rk/internal/inject"
 	"rk/internal/operator"
 	"rk/internal/settings"
 	"rk/internal/tmux"
@@ -47,7 +46,7 @@ var autopilotEnvFn = func(cmd *cobra.Command, by string, dry bool) (autopilot.En
 }
 
 // autopilotPanes is the production pane view: the operator's pane snapshot
-// (with each pane's derived fab change) and the mux send injection engine.
+// (with each pane's derived fab change) and a pane's process id.
 type autopilotPanes struct{ server string }
 
 func (p autopilotPanes) PID(ctx context.Context, pane string) (int, error) {
@@ -58,25 +57,9 @@ func (p autopilotPanes) Snapshot(ctx context.Context) (map[string]operator.PaneI
 	return operator.SnapshotPanes(ctx, p.server)
 }
 
-// Send delivers one Enter-terminated message the way `rk mux send` does. A
-// working agent (active, or waiting on a question this is not the answer to) is
-// never interrupted: the caller defers.
-func (p autopilotPanes) Send(ctx context.Context, paneID, text string) error {
-	facts, err := muxSendFactsFn(ctx, paneID, p.server)
-	if err != nil {
-		return fmt.Errorf("read pane facts: %w", err)
-	}
-	switch facts.AgentState {
-	case tmux.AgentStateActive, tmux.AgentStateWaiting:
-		return autopilot.ErrPaneBusy
-	}
-	engine := inject.NewEngine(muxBufferNameFn())
-	return muxSendEngineSendFn(ctx, engine, cliInjectTmux{}, p.server, paneID, inject.Sanitize(text), true)
-}
-
 var operatorAutopilotCmd = &cobra.Command{
 	Use:   "autopilot",
-	Short: "Run operator queues: spawn, chain, merge in order, recover PRs",
+	Short: "Run operator queues: spawn, chain, and merge in order",
 	Long: `Run operator queues deterministically. A queue is N pane items chained by
 depends_on; a merge sequence is a chain of github-pr items. Every verb re-reads
 the operator state file, acts, and writes back under a lock, so nothing is held
@@ -87,11 +70,16 @@ never notifies: failures and halts come back as escalations, and the caller (a
 run or the chat) turns them into rk notify. All verbs take -L/--server (default:
 the caller's own server from $TMUX).
 
+step, merge and stop are single-writer: each takes a per-server pass lock for
+the whole pass. A second one that finds the lock held does nothing, reports
+"busy" and exits 0; retry it later. queue and status do not take the lock.
+
 Merge modes (--mode, or the operator.merge_mode setting):
   cherry-pick-ladder  chained PRs; each change gets its dependencies cherry-picked
                       in; merge after review
-  stacked-prs         chained PRs; each is cut from its dependency's branch; merge
-                      after review
+  stacked-prs         chained PRs; each is cut from its dependency's branch;
+                      merge it by the run brief's stacked-prs text (the merge
+                      verb refuses it)
   merge-auto          each PR is armed to merge as it ships; the next change waits
                       for the verified merge`,
 	Example: `  echo '[{"id":"ab12","repo":"/src/app","change":"ab12"}]' | rk operator autopilot queue
@@ -154,14 +142,21 @@ var operatorAutopilotStepCmd = &cobra.Command{
 	Short: "Advance every queue and merge sequence one idempotent pass",
 	Long: `Run one pass over the server's tracked items: persist newly observed
 completions, advance every in-progress merge sequence (verify merges, arm the
-next PR, merge and retarget stacked PRs, arm merge-auto PRs), detect stalls and
-run the one bounded recovery per reason, spawn every pending queue item whose
+next PR, arm merge-auto PRs, retry any disarm that failed), report stalls as
+"recovery needed" escalations, spawn every pending queue item whose
 dependencies are satisfied, and flag slow ones. No call waits for CI; call step
 again later.
 
+A stalled PR (a failed required check, or CONFLICTING with no progress) is only
+escalated as "recovery needed: <ci-failed|conflicting> — PR #<n> (<repo>)", once
+per head commit. The PR stays armed and the engine does nothing to it.
+
+step takes the per-server pass lock (a --dry-run does not). If another pass
+holds it, step does nothing, prints "busy" and exits 0.
+
 The output lists actions taken (spawned, cherry-picked, armed, merged,
-retargeted, rebased, disarmed, recovery-sent), per-merge report lines, and
-escalations for the caller to notify on. --dry-run reads but changes nothing.
+disarmed), per-merge report lines, and escalations for the caller to notify on.
+--dry-run reads but changes nothing.
 
 Flags:
   --by            note author: run (default) or chat
@@ -175,7 +170,7 @@ Examples:
   rk operator autopilot step --dry-run --json
 
 Exit codes:
-  0  stepped (with or without actions or escalations)
+  0  stepped (with or without actions or escalations), or busy
   1  operational failure (state file busy or unreadable)
   2  usage error`,
 	Args:         usageArgs(cobra.NoArgs),
@@ -186,11 +181,15 @@ Exit codes:
 var operatorAutopilotMergeCmd = &cobra.Command{
 	Use:   "merge [--repo <path>] [--all] [--json]",
 	Short: "Start the ordered merge of a completed queue",
-	Long: `Start the ordered merge for completed cherry-pick-ladder and stacked-prs queues
-(every repo, or one with --repo): create the github-pr chain items and arm or
-merge the first PR of each repo's sequence. Later steps advance it. Run this only
-on the user's confirmation to merge all. It refuses while queue items are not
-done, and does nothing for merge-auto items.
+	Long: `Start the ordered merge for completed cherry-pick-ladder queues (every repo, or
+one with --repo): create the github-pr chain items and arm or merge the first PR
+of each repo's sequence. Later steps advance it. Run this only on the user's
+confirmation to merge all. It refuses while queue items are not done, does
+nothing for merge-auto items, and refuses a stacked-prs queue (merge those by the
+run brief's stacked-prs text).
+
+merge takes the per-server pass lock. If another pass holds it, merge does
+nothing, prints "busy" and exits 0.
 
 Flags:
   --repo          limit to one repo (absolute path)
@@ -203,9 +202,10 @@ Examples:
   rk operator autopilot merge --repo /src/app --json
 
 Exit codes:
-  0  started (or nothing to merge)
-  1  operational failure (queue items not done, no PR for a branch, state busy)
-  2  usage error`,
+  0  started (or nothing to merge), or busy
+  1  operational failure (queue items not done, stacked-prs queue, no PR for a
+     branch, state busy)
+  2  usage error (--repo empty, relative or not a queued repository)`,
 	Args:         usageArgs(cobra.NoArgs),
 	SilenceUsage: true,
 	RunE:         runAutopilotMerge,
@@ -216,8 +216,12 @@ var operatorAutopilotStopCmd = &cobra.Command{
 	Short: "Disarm every armed PR and pause every unspawned queue item",
 	Long: `Global user stop: disarm every armed PR (gh pr merge --disable-auto), halt the
 unfinished merge sequences so a later step does not re-arm them, and pause every
-unspawned queue item. Live panes are left untouched. To resume a halted PR item:
-rk operator track update <id> --scope '{"halted":false}'.
+unspawned queue item. Live panes are left untouched. A disarm that fails keeps
+the PR's armed marker and is retried by the next stop or step. To resume a
+halted PR item: rk operator track update <id> --scope '{"halted":false}'.
+
+stop takes the per-server pass lock. If another pass holds it, stop does
+nothing, prints "busy" and exits 0.
 
 Flags:
   -L, --server    tmux server (default: the caller's own server from $TMUX)
@@ -228,8 +232,8 @@ Examples:
   rk operator autopilot stop
 
 Exit codes:
-  0  stopped
-  1  operational failure (state file busy or unreadable)
+  0  stopped, or busy
+  1  operational failure (state file busy or unreadable, a disarm failed)
   2  usage error`,
 	Args:         usageArgs(cobra.NoArgs),
 	SilenceUsage: true,
@@ -238,9 +242,9 @@ Exit codes:
 
 var operatorAutopilotStatusCmd = &cobra.Command{
 	Use:   "status [--all] [--json]",
-	Short: "Show the queue: state, mode, repo, branch, PR, position, recovery",
+	Short: "Show the queue: state, mode, repo, branch, PR, position",
 	Long: `Read-only queue view: per item the derived state (done, paused, held, pending,
-spawned), mode, repo, branch, PR, merge-sequence position and recovery marker.
+spawned), mode, repo, branch, PR, merge-sequence position and halted marker.
 When every item is done it ends with the Queue Completion Summary. States derive
 from stored facts only; step applies the live PR checks.
 
@@ -370,6 +374,10 @@ func runAutopilotQueue(cmd *cobra.Command, args []string) error {
 }
 
 func renderStep(cmd *cobra.Command, s outputSink, res *autopilot.StepResult) {
+	if res.Busy {
+		s.Dataf("busy: another autopilot pass is running on this server; retry later\n")
+		return
+	}
 	prefix := ""
 	if res.DryRun {
 		prefix = "dry-run: "
@@ -453,9 +461,6 @@ func runAutopilotStatus(cmd *cobra.Command, args []string) error {
 			}
 			if it.Sequence != "" {
 				line += " · " + it.Sequence
-			}
-			if it.Recovery != "" {
-				line += " · recovery: " + it.Recovery
 			}
 			if it.Halted {
 				line += " · halted"

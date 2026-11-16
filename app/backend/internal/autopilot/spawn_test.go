@@ -68,8 +68,8 @@ func TestSpawnFetchFailureStopsTheSpawn(t *testing.T) {
 	if n := h.run.called("git rev-parse origin/"); n != 0 {
 		t.Fatalf("rev-parse origin/<default> consulted %d times after a failed fetch: it would return the stale tip", n)
 	}
-	if got := derivedState(h.state(), h.item("a")); got != StatePending {
-		t.Fatalf("state = %s, want the item to stay pending", got)
+	if got := derivedState(h.state(), h.item("a")); got != StatePending || spawningSet(h.item("a")) {
+		t.Fatalf("state = %s spawning=%v, want a pending item with no spawn marker", got, spawningSet(h.item("a")))
 	}
 }
 
@@ -218,8 +218,8 @@ func TestLadderConflictAbortsRollsBackAndEscalates(t *testing.T) {
 		t.Fatalf("escalations = %+v", res.Escalations)
 	}
 	child := h.item("child")
-	if operator.ScopeString(child.Scope, "pane") != "" {
-		t.Fatal("a tab was attached despite the conflict")
+	if operator.ScopeString(child.Scope, "pane") != "" || spawningSet(child) {
+		t.Fatalf("a tab was attached or the spawn marker kept despite the conflict: %+v", child.Scope)
 	}
 	if derivedState(h.state(), child) != StatePending {
 		t.Fatalf("state = %s: a conflict must never skip the item", derivedState(h.state(), child))
@@ -405,7 +405,7 @@ func TestConfidenceGate(t *testing.T) {
 	t.Run("below the gate", func(t *testing.T) {
 		h, _ := setup(t, "confidence:\n  score: 2.4\n")
 		res := h.step()
-		if len(h.spawn.reqs) != 0 || !hasEscalation(res, "below confidence gate") {
+		if len(h.spawn.reqs) != 0 || !hasEscalation(res, "below confidence gate") || spawningSet(h.item("ab12")) {
 			t.Fatalf("reqs=%d escalations=%+v", len(h.spawn.reqs), res.Escalations)
 		}
 	})

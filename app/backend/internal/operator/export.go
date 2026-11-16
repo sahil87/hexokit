@@ -159,10 +159,3 @@ func SnapshotPanes(ctx context.Context, server string) (map[string]PaneInfo, err
 	}
 	return out, nil
 }
-
-// RecordPanePID maintains the scope.pane_pid fingerprint beside scope.pane
-// (null on an empty pane or a failed lookup), the same rule `track update`
-// applies when a pane is attached.
-func RecordPanePID(ctx context.Context, server string, scope map[string]interface{}) {
-	recordPanePID(ctx, server, scope)
-}

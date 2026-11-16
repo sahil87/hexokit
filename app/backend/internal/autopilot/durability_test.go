@@ -2,7 +2,6 @@ package autopilot
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"rk/internal/operator"
@@ -21,38 +20,6 @@ func TestMergedWriteFailureDoesNotReportCompletion(t *testing.T) {
 	}
 	if operator.ItemDone(h.item(head.ID)) {
 		t.Fatal("failed write changed completion")
-	}
-}
-
-func TestStackedPushWriteFailureDoesNotReportRebased(t *testing.T) {
-	h := newHarness(t)
-	repo := newRepo(t, "repo")
-	repo.branch("a-branch", "main", "a.txt", "a")
-	repo.branch("b-branch", "a-branch", "b.txt", "b")
-	repo.pushBranch("a-branch")
-	repo.pushBranch("b-branch")
-	h.queue(operator.MergeModeStackedPRs, Entry{ID: "a", Repo: repo.Dir, Change: "aaaa"}, Entry{ID: "b", Repo: repo.Dir, Change: "bbbb"})
-	h.shipped(1, "a", "b")
-	e := newEngine(h.env)
-	st := h.state()
-	items, err := e.buildPRChains(context.Background(), st, st.Tracked, map[string]bool{"a": true, "b": true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := e.addPRItems(items); err != nil {
-		t.Fatal(err)
-	}
-	h.run.onRun = func(argv []string) {
-		if strings.HasPrefix(strings.Join(argv, " "), "git push --force-with-lease") {
-			readOnlyState(t, h)
-		}
-	}
-	e.prepareStacked(context.Background(), h.state(), items[0], items[1], prView{BaseRefName: "main"})
-	if h.run.called("git push --force-with-lease") != 1 || hasAction(e.res, ActRebased, "") || !hasEscalation(e.res, "prepared marker not written") {
-		t.Fatalf("result = %+v", e.res)
-	}
-	if scopeBool(h.item("pr-2"), scopePrepared) {
-		t.Fatal("failed write marked prepared")
 	}
 }
 

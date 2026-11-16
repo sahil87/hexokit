@@ -6,6 +6,10 @@
 // lock. The lock is never held across a subprocess, and every write merges by
 // item id, so an external writer's change between a load and a write survives.
 //
+// step, merge and stop are single-writer: each takes the server's pass lock
+// for the whole pass and returns busy when another pass holds it, so no
+// engine state needs a claim or a compare-and-set.
+//
 // The engine never notifies: a failure or halt is an Escalation in the result
 // plus a note on the item, and the caller turns it into a notification.
 package autopilot
@@ -100,16 +104,11 @@ func timeoutFor(argv []string) time.Duration {
 }
 
 // Panes is the engine's view of the tmux server: the pane snapshot with each
-// pane's derived fab change, and typed delivery into a pane.
+// pane's derived fab change, and a pane's process id.
 type Panes interface {
 	Snapshot(ctx context.Context) (map[string]operator.PaneInfo, error)
-	Send(ctx context.Context, paneID, text string) error
 	PID(ctx context.Context, paneID string) (int, error)
 }
-
-// ErrPaneBusy is returned by Panes.Send when the pane's agent is working and a
-// send would interrupt it; the caller defers to the next step.
-var ErrPaneBusy = errors.New("pane agent is busy")
 
 // SpawnRequest is one agent window: a worktree of Repo, prepared, then a tab.
 type SpawnRequest struct {
@@ -121,9 +120,9 @@ type SpawnRequest struct {
 	// when it differs from the worktree name.
 	BaseSHA   string
 	NewBranch string
-	// CheckoutBranch puts the worktree on an existing branch (respawn,
-	// recovery). ExistingWorktree opens the window in a worktree that already
-	// holds the branch instead, since git refuses a second checkout.
+	// CheckoutBranch puts the worktree on an existing branch (respawn).
+	// ExistingWorktree opens the window in a worktree that already holds the
+	// branch instead, since git refuses a second checkout.
 	CheckoutBranch   string
 	ExistingWorktree string
 	// Prompt is the canonical `/skill args` form or plain text; "" is a bare
@@ -133,7 +132,7 @@ type SpawnRequest struct {
 	Prepare func(ctx context.Context, worktree string) error
 	// Note marks the window: `@rk_win_marker` auto plus this note.
 	Note string
-	// Opened must persist the pane before any further spawn work.
+	// Opened persists the pane before any further spawn work.
 	Opened func(SpawnResult) error
 }
 
@@ -146,14 +145,10 @@ type SpawnResult struct {
 	Branch       string
 }
 
-// Spawner opens agent windows and bare worktrees. The production
-// implementation is RiffSpawner over internal/riff.
+// Spawner opens agent windows. The production implementation is RiffSpawner
+// over internal/riff.
 type Spawner interface {
 	Spawn(ctx context.Context, req SpawnRequest) (SpawnResult, error)
-	// Worktree returns a checkout of an existing branch and a cleanup to call
-	// when done (a no-op when the branch already had a worktree).
-	Worktree(ctx context.Context, repo, branch string) (path string, cleanup func() error, err error)
-	RemoveWorktree(ctx context.Context, repo, path string) error
 }
 
 // Env is everything a verb needs. Run, Spawn, Panes and Session are seams;
@@ -189,19 +184,15 @@ func (e Env) by() string {
 
 // Action kinds reported by the verbs.
 const (
-	ActSpawned       = "spawned"
-	ActRespawned     = "respawned"
-	ActCherryPicked  = "cherry-picked"
-	ActArmed         = "armed"
-	ActMerged        = "merged"
-	ActRetargeted    = "retargeted"
-	ActRebased       = "rebased"
-	ActDisarmed      = "disarmed"
-	ActRecoverySent  = "recovery-sent"
-	ActRecoverySpawn = "recovery-spawned"
-	ActPaused        = "paused"
-	ActDone          = "done"
-	ActPRTracked     = "pr-tracked"
+	ActSpawned      = "spawned"
+	ActRespawned    = "respawned"
+	ActCherryPicked = "cherry-picked"
+	ActArmed        = "armed"
+	ActMerged       = "merged"
+	ActDisarmed     = "disarmed"
+	ActPaused       = "paused"
+	ActDone         = "done"
+	ActPRTracked    = "pr-tracked"
 )
 
 // Action is one thing a verb did (or, under --dry-run, would do).
@@ -219,7 +210,10 @@ type Escalation struct {
 
 // StepResult is what one verb pass did.
 type StepResult struct {
-	DryRun      bool         `json:"dry_run,omitempty"`
+	DryRun bool `json:"dry_run,omitempty"`
+	// Busy: another pass holds the server's pass lock, so this call did
+	// nothing.
+	Busy        bool         `json:"busy,omitempty"`
 	Actions     []Action     `json:"actions"`
 	Escalations []Escalation `json:"escalations"`
 	// Report carries the per-merge lines (`ab12: merged (foo 1/2)`) and the

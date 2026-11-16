@@ -21,10 +21,14 @@ const (
 
 // Step runs one idempotent pass over the server's ledger: persist observed
 // completions, advance every merge sequence (verify, arm, merge, detect
-// stalls, recover), spawn every ready queue item, and flag slow ones. No call
-// waits for CI: the next step picks up where this one stopped. Under DryRun it
-// reads but never writes or acts.
-func Step(ctx context.Context, env Env) (result *StepResult, resultErr error) {
+// stalls), spawn every ready queue item, and flag slow ones. No call waits for
+// CI: the next step picks up where this one stopped. It runs under the pass
+// lock; under DryRun it reads but never writes or acts, and takes no lock.
+func Step(ctx context.Context, env Env) (*StepResult, error) {
+	return passLocked(env, func() (*StepResult, error) { return step(ctx, env) })
+}
+
+func step(ctx context.Context, env Env) (result *StepResult, resultErr error) {
 	e := newEngine(env)
 	defer func() {
 		if resultErr != nil {
@@ -93,8 +97,14 @@ func (e *engine) flagOnce(it operator.TrackedItem, text string) {
 
 // Stop is the global user stop: disarm every armed PR, halt the unfinished
 // merge sequences so a later step does not re-arm them, and pause every
-// unspawned queue item. Live panes are left untouched.
+// unspawned queue item. Live panes are left untouched. A disarm that fails
+// keeps its armed marker and is retried by the next stop or step. It runs
+// under the pass lock.
 func Stop(ctx context.Context, env Env) (*StepResult, error) {
+	return passLocked(env, func() (*StepResult, error) { return stop(ctx, env) })
+}
+
+func stop(ctx context.Context, env Env) (*StepResult, error) {
 	e := newEngine(env)
 	var targets []operator.TrackedItem
 	var paused []string
@@ -151,9 +161,8 @@ type StatusItem struct {
 	// exists.
 	Sequence string `json:"sequence"`
 	// Queue is the id stamped by `autopilot queue` ("" for a legacy item).
-	Queue    string `json:"queue"`
-	Recovery string `json:"recovery"`
-	Halted   bool   `json:"halted"`
+	Queue  string `json:"queue"`
+	Halted bool   `json:"halted"`
 }
 
 // StatusResult is the read-only queue view. Summary is the Queue Completion
@@ -201,7 +210,6 @@ func Status(ctx context.Context, env Env) (StatusResult, error) {
 				continue
 			}
 			row.PR = prNum(p.Scope)
-			row.Recovery = operator.ScopeString(p.Scope, scopeRecovery)
 			row.Halted = scopeBool(p, scopeHalted)
 			seq := seqItems(st, seqOf(p))
 			for i, s := range seq {

@@ -5,17 +5,17 @@ created_by: sahil-noon
 change_type: feat
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
+    intake: done
+    apply: done
+    review: active
     hydrate: pending
     ship: pending
     review-pr: pending
 plan:
     generated: true
-    task_count: 32
-    acceptance_count: 37
-    acceptance_completed: 35
+    task_count: 19
+    acceptance_count: 41
+    acceptance_completed: 0
 confidence:
     certain: 17
     confident: 3
@@ -29,26 +29,26 @@ confidence:
         competence: 88.0
         disambiguation: 87.0
 stage_metrics:
-    intake: {started_at: "2026-11-16T09:46:51Z", driver: fab-clarify, iterations: 2}
-    apply: {iterations: 8}
-    review: {iterations: 8}
+    intake: {started_at: "2026-11-16T09:46:51Z", driver: fab-clarify, iterations: 2, completed_at: "2026-11-16T10:08:27Z"}
+    apply: {started_at: "2026-11-16T10:08:27Z", driver: fab-fff, iterations: 9, completed_at: "2026-11-16T10:36:20Z"}
+    review: {started_at: "2026-11-16T10:36:20Z", driver: fab-fff, iterations: 9}
 prs: []
 base_branch: main
 change_type_source: explicit
 true_impact:
-    added: 7439
-    deleted: 38
-    net: 7401
+    added: 10157
+    deleted: 47
+    net: 10110
     excluding:
-        added: 6816
-        deleted: 25
-        net: 6791
+        added: 9801
+        deleted: 34
+        net: 9767
     tests:
-        added: 3068
+        added: 5041
         deleted: 3
-        net: 3065
-    computed_at: "2026-11-14T20:50:08Z"
+        net: 5038
+    computed_at: "2026-11-16T10:36:20Z"
     computed_at_stage: apply
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-16T10:05:38Z
+last_updated: 2026-11-16T10:36:20Z

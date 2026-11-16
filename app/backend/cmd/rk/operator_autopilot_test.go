@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"rk/internal/autopilot"
@@ -33,8 +35,7 @@ type cliPanes struct{}
 func (cliPanes) Snapshot(context.Context) (map[string]operator.PaneInfo, error) {
 	return map[string]operator.PaneInfo{}, nil
 }
-func (cliPanes) PID(context.Context, string) (int, error)   { return 123, nil }
-func (cliPanes) Send(context.Context, string, string) error { return nil }
+func (cliPanes) PID(context.Context, string) (int, error) { return 123, nil }
 
 // autopilotSandbox stubs the engine environment and the setting, leaving the
 // real state file under a temp state home.
@@ -495,4 +496,140 @@ func TestAutopilotQueueRejectsExplicitEmptyMode(t *testing.T) {
 	autopilotSandbox(t, "")
 	_, err := autopilotCLI(t, queueJSON(t.TempDir()), "queue", "--mode", "")
 	wantExit(t, err, 2, "--mode")
+}
+
+// holdAutopilotPassLock takes the pass lock the way another running pass does:
+// an exclusive flock on <state file stem>.autopilot.lock.
+func holdAutopilotPassLock(t *testing.T, statePath string) (release func()) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(strings.TrimSuffix(statePath, ".yaml")+".autopilot.lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	return func() { _ = f.Close() }
+}
+
+func TestAutopilotBusyPassExitsZeroAndDoesNothing(t *testing.T) {
+	path, runner := autopilotSandbox(t, "")
+	if _, err := autopilotCLI(t, queueJSON(t.TempDir()), "queue"); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(path)
+	holdAutopilotPassLock(t, path)
+	runner.calls = nil
+	for _, verb := range []string{"step", "merge", "stop"} {
+		out, err := autopilotCLI(t, "", verb)
+		if err != nil || !strings.Contains(out, "busy: another autopilot pass is running on this server; retry later") {
+			t.Fatalf("%s human out = %q err %v", verb, out, err)
+		}
+		out, err = autopilotCLI(t, "", verb, "--json")
+		var env struct {
+			OK     bool `json:"ok"`
+			Result struct {
+				Busy    bool  `json:"busy"`
+				Actions []any `json:"actions"`
+			} `json:"result"`
+		}
+		if err != nil || json.Unmarshal([]byte(out), &env) != nil || !env.OK || !env.Result.Busy || len(env.Result.Actions) != 0 {
+			t.Fatalf("%s json out = %q err %v", verb, out, err)
+		}
+	}
+	after, _ := os.ReadFile(path)
+	if !bytes.Equal(before, after) || len(runner.calls) != 0 {
+		t.Fatalf("a busy pass changed state or ran subprocesses: %q", runner.calls)
+	}
+	// queue, status and a dry-run step do not take the pass lock.
+	if out, err := autopilotCLI(t, "", "status"); err != nil || strings.Contains(out, "busy") {
+		t.Fatalf("status out = %q err %v", out, err)
+	}
+	if out, err := autopilotCLI(t, "", "step", "--dry-run"); err != nil || strings.Contains(out, "busy") {
+		t.Fatalf("dry-run out = %q err %v", out, err)
+	}
+	if _, err := autopilotCLI(t, `[{"id":"later","repo":"`+t.TempDir()+`","task":"x"}]`, "queue"); err != nil {
+		t.Fatalf("queue while locked: %v", err)
+	}
+}
+
+func TestAutopilotNotBusyOnceThePassLockIsFree(t *testing.T) {
+	path, _ := autopilotSandbox(t, "")
+	release := holdAutopilotPassLock(t, path)
+	if out, _ := autopilotCLI(t, "", "step"); !strings.Contains(out, "busy") {
+		t.Fatalf("out = %q", out)
+	}
+	release()
+	if out, err := autopilotCLI(t, "", "step"); err != nil || strings.TrimSpace(out) != "nothing to do" {
+		t.Fatalf("out = %q err %v", out, err)
+	}
+}
+
+func TestAutopilotMergeRefusesAStackedQueueWithExitOne(t *testing.T) {
+	path, runner := autopilotSandbox(t, "")
+	if _, err := autopilotCLI(t, queueJSON(t.TempDir(), t.TempDir()), "queue", "--mode", "stacked-prs"); err != nil {
+		t.Fatal(err)
+	}
+	if err := operator.Mutate(path, func(st *operator.State) error {
+		for i := range st.Tracked {
+			now := operator.NowRFC3339()
+			st.Tracked[i].DoneAt = &now
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(path)
+	runner.calls = nil
+	_, err := autopilotCLI(t, "", "merge")
+	wantExit(t, err, 1, "stacked-prs queues are not merged by this verb: follow the stacked-prs merge text in the run brief")
+	out, jerr := autopilotCLI(t, "", "merge", "--json")
+	if jerr == nil || !strings.Contains(out, `"ok": false`) {
+		t.Fatalf("out = %q err %v", out, jerr)
+	}
+	after, _ := os.ReadFile(path)
+	if !bytes.Equal(before, after) {
+		t.Fatal("the refused merge changed state")
+	}
+	for _, call := range runner.calls {
+		if strings.HasPrefix(call, "gh ") {
+			t.Fatalf("the refused merge reached GitHub: %s", call)
+		}
+	}
+}
+
+func TestAutopilotHelpStatesBusyExitCodesAndMergeRefusal(t *testing.T) {
+	for verb, wants := range map[string][]string{
+		"step": {
+			"0  stepped (with or without actions or escalations), or busy",
+			`If another pass`, `holds it, step does nothing, prints "busy" and exits 0`,
+			"recovery needed: <ci-failed|conflicting> — PR #<n> (<repo>)", "The PR stays armed",
+		},
+		"merge": {
+			"0  started (or nothing to merge), or busy",
+			"refuses a stacked-prs queue", "1  operational failure (queue items not done, stacked-prs queue",
+		},
+		"stop": {
+			"0  stopped, or busy", "a disarm that fails keeps", "retried by the next stop or step",
+		},
+	} {
+		help, err := autopilotCLI(t, "", verb, "--help")
+		if err != nil {
+			t.Fatal(err)
+		}
+		flat := strings.Join(strings.Fields(strings.ToLower(help)), " ")
+		for _, want := range wants {
+			if !strings.Contains(flat, strings.Join(strings.Fields(strings.ToLower(want)), " ")) {
+				t.Errorf("%s help lacks %q:\n%s", verb, want, help)
+			}
+		}
+	}
+	help, err := autopilotCLI(t, "", "status", "--help")
+	if err != nil || strings.Contains(help, "recovery") {
+		t.Fatalf("status help = %s err %v", help, err)
+	}
 }

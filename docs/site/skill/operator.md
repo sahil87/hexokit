@@ -132,9 +132,9 @@ echo '[
 ]' | rk operator autopilot queue --dry-run [--mode stacked-prs]
 ```
 
-An entry names an existing change (`change`), raw text (`task`), or neither (a bare agent — nothing may depend on it). Runs spawn the entries as they become ready; `rk operator autopilot step` does one pass of that work on demand and `rk operator autopilot status` shows each item's state, PR and merge position (read-only). `step` prints escalations — send `rk notify` for each one; `status` is read-only and prints none.
+An entry names an existing change (`change`), raw text (`task`), or neither (a bare agent — nothing may depend on it). Runs spawn the entries as they become ready; `rk operator autopilot step` does one pass of that work on demand and `rk operator autopilot status` shows each item's state, PR and merge position (read-only). `step` prints escalations — send `rk notify` for each one; `status` is read-only and prints none. A CI failure or a conflict on an armed PR comes back as a `recovery needed: <reason>` escalation, and `step` leaves the PR armed: recovery follows the run brief's PR recovery text. `step`, `merge` and `stop` take a per-server lock; a `busy` result means another pass is running — retry later.
 
-- **"merge all"** → `rk operator autopilot merge` (once the queue is complete and the user has said yes; it refuses while items are not done and does nothing for `merge-auto`). It starts the ordered merge; later runs advance it.
+- **"merge all"** → `rk operator autopilot merge` (once the queue is complete and the user has said yes; it refuses while items are not done and does nothing for `merge-auto`). It starts the ordered merge; later runs advance it. It refuses a `stacked-prs` queue: "merge all" there follows the run brief's `stacked-prs` text instead, not `merge`.
 - **"stop"** → `rk operator autopilot stop`: disarms every armed PR and pauses the unspawned entries; live panes keep running.
 - Skipping an entry is `rk operator track rm <id>`.
 
