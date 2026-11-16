@@ -582,9 +582,9 @@ func dropString(list []string, s string) []string {
 
 // Remove deletes an item and its notes. A done item is also dropped from every
 // dependent's depends_on so the chain advances after the ack; a not-done
-// removal keeps the edges. branch_map is untouched. A github-pr item autopilot
-// armed for auto-merge is refused unless force: nothing would be left to
-// disarm it.
+// removal keeps the edges. branch_map is untouched. An unfinished github-pr item
+// of an autopilot merge sequence is refused unless force: it may be armed for
+// auto-merge, and nothing would be left to disarm it.
 func Remove(path, id string, force bool) error {
 	return Mutate(path, func(st *State) error {
 		idx := indexOf(st.Tracked, id)
@@ -592,8 +592,8 @@ func Remove(path, id string, force bool) error {
 			return fmt.Errorf("no tracked item %s", id)
 		}
 		removed := st.Tracked[idx]
-		if !force && armedPRItem(removed) {
-			return invalidf("%s is armed for auto-merge; removing it would leave the PR armed with no item to disarm it (disarm with gh pr merge --disable-auto, or use --force)", id)
+		if !force && sequencePRItem(removed) {
+			return invalidf("%s is an autopilot merge-sequence PR that may be armed for auto-merge; removing it would leave the PR armed with no item to disarm it (disarm with gh pr merge --disable-auto, or use --force)", id)
 		}
 		st.Tracked = append(st.Tracked[:idx], st.Tracked[idx+1:]...)
 		if itemDone(removed) {

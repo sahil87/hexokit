@@ -211,7 +211,7 @@ func TestAutopilotStepDryRunPlansASpawn(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err := autopilotCLI(t, "", "step", "--dry-run")
-	if err != nil || !strings.Contains(out, "dry-run: spawned q1 would spawn in "+repo) {
+	if err != nil || !strings.Contains(out, "dry-run: spawn q1 (Q2)") {
 		t.Fatalf("out = %q err %v", out, err)
 	}
 }
@@ -252,6 +252,33 @@ func TestAutopilotStatus(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(out), &env); err != nil || len(env.Result.Items) != 2 || env.Result.Complete {
 		t.Fatalf("status envelope = %s (%v)", out, err)
+	}
+}
+
+func TestAutopilotStatusShowsTheDerivedPRStatus(t *testing.T) {
+	path, _ := autopilotSandbox(t, "")
+	repo := t.TempDir()
+	if _, err := autopilotCLI(t, queueJSON(repo), "queue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := operator.Mutate(path, func(st *operator.State) error {
+		now := operator.NowRFC3339()
+		st.Tracked[0].DoneAt = &now
+		pr, err := operator.NewGitHubPRItem("pr-7", nil, map[string]interface{}{
+			"repo": repo, "pr": 7, "merge_seq": "seq", "item": "q1", "deferred": true,
+		}, "o/r")
+		st.Tracked = append(st.Tracked, pr)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := autopilotCLI(t, "", "status")
+	if err != nil || !strings.HasPrefix(out, "q1 · done · cherry-pick-ladder · "+repo) || !strings.Contains(out, " · PR #7 · deferred · 1/1\n") {
+		t.Fatalf("status = %q err %v", out, err)
+	}
+	out, err = autopilotCLI(t, "", "status", "--json")
+	if err != nil || !strings.Contains(out, `"pr_status": "deferred"`) || !strings.Contains(out, `"state": "done"`) {
+		t.Fatalf("status envelope = %s err %v", out, err)
 	}
 }
 
@@ -607,14 +634,15 @@ func TestAutopilotHelpStatesBusyExitCodesAndMergeRefusal(t *testing.T) {
 		"step": {
 			"0  stepped (with or without actions or escalations), or busy",
 			`If another pass`, `holds it, step does nothing, prints "busy" and exits 0`,
-			"recovery needed: <ci-failed|conflicting> — PR #<n> (<repo>)", "The PR stays armed",
+			"recovery needed: <ci-failed|conflicting> — PR #<n> (<repo>)", "does not arm such a PR",
+			`"dry-run: <action> <item> (<row>)"`, "advances one PR per pass",
 		},
 		"merge": {
 			"0  started (or nothing to merge), or busy",
 			"refuses a stacked-prs queue", "1  operational failure (queue items not done, stacked-prs queue",
 		},
 		"stop": {
-			"0  stopped, or busy", "a disarm that fails keeps", "retried by the next stop or step",
+			"0  stopped, or busy", "whoever armed it", "retried by the next stop or step until github reports it disarmed",
 		},
 	} {
 		help, err := autopilotCLI(t, "", verb, "--help")

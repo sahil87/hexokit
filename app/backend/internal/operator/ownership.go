@@ -266,12 +266,10 @@ func emptyScopeValue(v interface{}) bool {
 	return ok && s == ""
 }
 
-// armedPRItem reports whether it is a github-pr item autopilot armed for
-// auto-merge, which track rm must not drop (nothing would be left to disarm).
-func armedPRItem(it TrackedItem) bool {
-	if it.Kind != KindGitHubPR {
-		return false
-	}
-	armed, _ := it.Scope[ScopeArmed].(bool)
-	return armed
+// sequencePRItem reports whether it is an unfinished github-pr item of an
+// autopilot merge sequence (scope.merge_seq set). Armed is read from GitHub,
+// not stored, so any such item may have auto-merge enabled, and track rm must
+// not drop it: nothing would be left to disarm it.
+func sequencePRItem(it TrackedItem) bool {
+	return it.Kind == KindGitHubPR && !itemDone(it) && scopeString(it.Scope, ScopeMergeSeq) != ""
 }

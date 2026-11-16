@@ -498,16 +498,16 @@ func TestOperatorTrackAddRefusesEngineKeysWithExit2(t *testing.T) {
 	mustTrack(t, "add", "x", "--kind", "pane", "--force", "--scope", `{"armed":true}`)
 }
 
-func TestOperatorTrackRmRefusesAnArmedPRWithExit2(t *testing.T) {
+func TestOperatorTrackRmRefusesASequencePRWithExit2(t *testing.T) {
 	operatorSandbox(t)
 	mustTrack(t, "add", "pr-7", "--kind", "task", "--scope", `{"repo":"/r","pr":7}`)
-	mustTrack(t, "update", "pr-7", "--force", "--scope", `{"armed":true}`)
+	mustTrack(t, "update", "pr-7", "--force", "--scope", `{"merge_seq":"s-1"}`)
 	if _, err := track(t, "rm", "pr-7"); err != nil {
 		t.Fatalf("only github-pr items are protected: %v", err)
 	}
 
 	mustTrack(t, "add", "pr-8", "--kind", "github-pr", "--scope", `{"pr":8}`, "--argv", "gh", "--fields", "state")
-	mustTrack(t, "update", "pr-8", "--force", "--scope", `{"armed":true}`)
+	mustTrack(t, "update", "pr-8", "--force", "--scope", `{"merge_seq":"s-1"}`)
 	_, err := track(t, "rm", "pr-8")
 	wantExit(t, err, 2, "armed for auto-merge")
 	if got := listJSON(t); len(got) != 1 {
@@ -530,7 +530,7 @@ func TestOperatorTrackAddHelpDocumentsTheAllowList(t *testing.T) {
 		}
 	}
 	out, _, err = runOperatorCLI(t, "", "track", "rm", "--help")
-	if err != nil || !strings.Contains(out, "--force") || !strings.Contains(out, "armed") {
-		t.Errorf("track rm --help must document --force for an armed PR: %v\n%s", err, out)
+	if err != nil || !strings.Contains(out, "--force") || !strings.Contains(out, "merge_seq") || !strings.Contains(out, "armed") {
+		t.Errorf("track rm --help must document --force for a merge-sequence PR: %v\n%s", err, out)
 	}
 }

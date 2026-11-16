@@ -7,42 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"rk/internal/operator"
 )
-
-// Derived queue-item states, in precedence order.
-const (
-	StateDone    = "done"
-	StatePaused  = "paused"
-	StateHeld    = "held"
-	StatePending = "pending"
-	StateSpawned = "spawned"
-)
-
-// stateOf is the one readiness function: done › paused › held › pending ›
-// spawned. Held is the live gate's verdict (every dependency done, plus an
-// existing PR for a same-repo dependency with no stop_stage), so an unmet
-// dependency holds an item that already has a pane. Spawn, respawn and status
-// all decide through it.
-func (e *engine) stateOf(ctx context.Context, st *operator.State, it operator.TrackedItem) string {
-	switch {
-	case operator.ItemDone(it):
-		return StateDone
-	case it.Paused:
-		return StatePaused
-	}
-	if len(it.DependsOn) > 0 {
-		if ok, _ := e.gate(ctx, st, it); !ok {
-			return StateHeld
-		}
-	}
-	if operator.ScopeString(it.Scope, "pane") == "" {
-		return StatePending
-	}
-	return StateSpawned
-}
 
 // mergeAutoBarrier reports whether dep is a merge-auto queue item the
 // dependent must wait on until its PR merge is verified.
@@ -85,15 +52,16 @@ func isPlainAgent(st *operator.State, it operator.TrackedItem) (bool, error) {
 
 // prView is the subset of `gh pr view` the engine reads.
 type prView struct {
-	Number      int             `json:"number"`
-	URL         string          `json:"url"`
-	State       string          `json:"state"`
-	IsDraft     bool            `json:"isDraft"`
-	MergedAt    string          `json:"mergedAt"`
-	Mergeable   string          `json:"mergeable"`
-	HeadRefOid  string          `json:"headRefOid"`
-	BaseRefName string          `json:"baseRefName"`
-	Reviews     []reviewSummary `json:"reviews"`
+	Number     int    `json:"number"`
+	URL        string `json:"url"`
+	State      string `json:"state"`
+	IsDraft    bool   `json:"isDraft"`
+	MergedAt   string `json:"mergedAt"`
+	Mergeable  string `json:"mergeable"`
+	HeadRefOid string `json:"headRefOid"`
+	// AutoMergeRequest is non-nil exactly when auto-merge is armed.
+	AutoMergeRequest *struct{}       `json:"autoMergeRequest"`
+	Reviews          []reviewSummary `json:"reviews"`
 }
 
 type reviewSummary struct {
@@ -114,52 +82,8 @@ func (e *engine) viewPR(ctx context.Context, repo, nwo, ref, fields string) (prV
 	return v, nil
 }
 
-// observeDone is step phase (a): persist done_at for items whose completion is
-// observable now. A fab item completes when its pane's change reaches the
-// terminus (or its stop_stage); a plain-agent item when its branch has a merged
-// PR or an open one with passing checks.
-func (e *engine) observeDone(ctx context.Context) error {
-	st, err := e.load()
-	if err != nil {
-		return err
-	}
-	panes, perr := e.env.Panes.Snapshot(ctx)
-	if perr != nil {
-		e.escalate("", "completion pane snapshot failed: "+perr.Error())
-		return perr
-	}
-	now := e.env.now().UTC().Format(time.RFC3339)
-	for _, it := range st.Tracked {
-		if !operator.IsQueueItem(st, it) || operator.ItemDone(it) || operator.ScopeString(it.Scope, "pane") == "" {
-			continue
-		}
-		done := false
-		if row, ok := panes[operator.ScopeString(it.Scope, "pane")]; ok && row.Change != "" && row.Stage != "" {
-			done = operator.BuiltInCompleted(operator.ScopeString(it.Scope, "stop_stage"), row.Stage, row.DisplayState)
-		}
-		if !done {
-			plain, err := isPlainAgent(st, it)
-			if err != nil {
-				e.escalate(it.ID, err.Error())
-				continue
-			}
-			if plain {
-				done = e.plainAgentDone(ctx, st, it)
-			}
-		}
-		if done {
-			if err := e.patch(it.ID, func(t *operator.TrackedItem) { t.DoneAt = &now }); err != nil {
-				e.escalate(it.ID, "completion marker not written: "+err.Error())
-				return err
-			}
-			e.act(ActDone, it.ID, "completion observed")
-		}
-	}
-	return nil
-}
-
-// plainAgentDone reads the agent's branch PR: merged, or open with green
-// checks.
+// plainAgentDone reads the agent's branch PR: merged, or open with required
+// checks not pending.
 func (e *engine) plainAgentDone(ctx context.Context, st *operator.State, it operator.TrackedItem) bool {
 	branch := itemBranch(st, it)
 	if branch == "" {
@@ -168,7 +92,9 @@ func (e *engine) plainAgentDone(ctx context.Context, st *operator.State, it oper
 	}
 	v, err := e.viewPR(ctx, operator.ScopeString(it.Scope, "repo"), "", branch, "url,state")
 	if err != nil {
-		e.escalate(it.ID, "completion PR lookup failed: "+stderrOf(err))
+		if !e.readOnly || !noPRFound(err) {
+			e.escalate(it.ID, "completion PR lookup failed: "+stderrOf(err))
+		}
 		return false
 	}
 	switch strings.ToUpper(v.State) {
@@ -185,44 +111,24 @@ func (e *engine) plainAgentDone(ctx context.Context, st *operator.State, it oper
 	return false
 }
 
-// gate evaluates the live readiness of an item: every dependency done,
-// plus an existing PR for a same-repo dependency with no stop_stage. why names
-// the first unmet dependency.
-func (e *engine) gate(ctx context.Context, st *operator.State, it operator.TrackedItem) (ok bool, why string) {
-	repo := cleanRepo(operator.ScopeString(it.Scope, "repo"))
-	for _, dep := range it.DependsOn {
-		di := operator.IndexOf(st.Tracked, dep)
-		if di < 0 {
-			if _, ok := st.BranchMap[dep]; ok {
-				continue
-			}
-			return false, dep
-		}
-		d := st.Tracked[di]
-		if !operator.ItemDone(d) {
-			return false, dep
-		}
-		if mergeAutoBarrier(st, it, d) {
-			if !prMerged(st, d.ID) {
-				return false, dep
-			}
-			continue
-		}
-		if cleanRepo(depRepo(st, d)) != repo || operator.ScopeString(d.Scope, "stop_stage") != "" {
-			continue
-		}
-		branch := depBranch(st, d)
-		if branch == "" {
-			e.escalate(it.ID, "dependency "+dep+" has no branch recorded")
-			return false, dep
-		}
-		if _, err := e.viewPR(ctx, repo, "", branch, "url"); err != nil {
-			// A branch with no PR is a normal held item in the read-only view.
-			if !e.readOnly || !strings.Contains(strings.ToLower(stderrOf(err)), "no pull requests found") {
-				e.escalate(it.ID, "dependency "+dep+" PR lookup failed: "+stderrOf(err))
-			}
-			return false, dep + " (no PR yet)"
-		}
+// depPRExists reports whether a same-repo dependency's branch has a PR. A
+// branch with no PR is a normal held item; any other failure is escalated.
+func (e *engine) depPRExists(ctx context.Context, it, dep operator.TrackedItem, repo, branch string) bool {
+	if branch == "" {
+		e.escalate(it.ID, "dependency "+dep.ID+" has no branch recorded")
+		return false
 	}
-	return true, ""
+	if _, err := e.viewPR(ctx, repo, "", branch, "url"); err != nil {
+		if !e.readOnly || !noPRFound(err) {
+			e.escalate(it.ID, "dependency "+dep.ID+" PR lookup failed: "+stderrOf(err))
+		}
+		return false
+	}
+	return true
+}
+
+// noPRFound reports gh's answer for a branch that has no PR yet: a normal
+// state of an unfinished item, not a failure, in the read-only status view.
+func noPRFound(err error) bool {
+	return strings.Contains(strings.ToLower(stderrOf(err)), "no pull requests found")
 }

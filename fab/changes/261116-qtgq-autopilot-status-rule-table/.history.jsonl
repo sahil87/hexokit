@@ -1,0 +1,6 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-16T14:19:36Z"}
+{"args":"Implement step R6r-i (Status and rule table) of fab/plans/sahil/26-11-16-operator-autopilot-restructure.md: restructure the merged R6a autopilot engine into observe -\u003e derive -\u003e decide (pure rule table) -\u003e execute","cmd":"fab-new","event":"command","ts":"2026-11-16T14:19:36Z"}
+{"delta":"+3.4","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-11-16T14:21:34Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-16T14:23:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-16T14:23:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-16T15:05:53Z"}

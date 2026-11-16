@@ -87,7 +87,7 @@ func TestEnqueueImplicitChaining(t *testing.T) {
 			t.Errorf("%s kind/probe = %s/%s", id, it.Kind, it.Probe.Mode)
 		}
 	}
-	if h.stateOf(h.item("ab12")) != StatePending || h.stateOf(h.item("cd34")) != StateHeld {
+	if h.stateOf(h.item("ab12")) != QueuePending || h.stateOf(h.item("cd34")) != QueueHeld {
 		t.Errorf("derived states = %s, %s", h.stateOf(h.item("ab12")), h.stateOf(h.item("cd34")))
 	}
 }
@@ -273,7 +273,7 @@ func TestEscalationNoteTruncationIsRuneSafe(t *testing.T) {
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
 	e := newEngine(h.env)
 	long := strings.Repeat("é", operator.NoteTextCap+50)
-	if err := e.recordEscalation("a", long); err != nil {
+	if err := e.recordEscalation("a", escalationKey(long), long); err != nil {
 		t.Fatalf("recordEscalation: %v", err)
 	}
 	notes := h.item("a").Notes

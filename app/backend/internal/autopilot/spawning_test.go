@@ -33,10 +33,11 @@ func TestMarkerWithoutAPaneEscalatesAndNeverLaunches(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.run.reset()
-	for i := 0; i < 2; i++ {
+	want := "spawn interrupted: a — check for an orphaned window, then clear scope.spawning with rk operator track update --force a --scope '{\"spawning\":null}'"
+	for i := 0; i < 3; i++ {
 		res := h.step()
-		if !hasEscalation(res, "spawn interrupted: a — check for an orphaned window, then clear scope.spawning with rk operator track update --force a --scope '{\"spawning\":null}'") {
-			t.Fatalf("pass %d escalations = %+v", i, res.Escalations)
+		if got := hasEscalation(res, want); got != (i == 0) {
+			t.Fatalf("pass %d escalated = %v, want the interrupted spawn reported once: %+v", i, got, res.Escalations)
 		}
 	}
 	if h.spawn.n != 0 || h.run.called("git fetch") != 0 {
@@ -53,7 +54,7 @@ func TestSpawnFailureBeforeAWindowClearsTheMarkerAndRetries(t *testing.T) {
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
 	h.spawn.failWith = errors.New("wt create failed")
 	res := h.step()
-	if !hasEscalation(res, "spawn failed: wt create failed") || spawningSet(h.item("a")) || h.stateOf(h.item("a")) != StatePending {
+	if !hasEscalation(res, "spawn failed: wt create failed") || spawningSet(h.item("a")) || h.stateOf(h.item("a")) != QueuePending {
 		t.Fatalf("res=%+v scope=%+v", res, h.item("a").Scope)
 	}
 	h.spawn.failWith = nil

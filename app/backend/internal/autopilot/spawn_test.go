@@ -68,7 +68,7 @@ func TestSpawnFetchFailureStopsTheSpawn(t *testing.T) {
 	if n := h.run.called("git rev-parse origin/"); n != 0 {
 		t.Fatalf("rev-parse origin/<default> consulted %d times after a failed fetch: it would return the stale tip", n)
 	}
-	if got := h.stateOf(h.item("a")); got != StatePending || spawningSet(h.item("a")) {
+	if got := h.stateOf(h.item("a")); got != QueuePending || spawningSet(h.item("a")) {
 		t.Fatalf("state = %s spawning=%v, want a pending item with no spawn marker", got, spawningSet(h.item("a")))
 	}
 }
@@ -221,7 +221,7 @@ func TestLadderConflictAbortsRollsBackAndEscalates(t *testing.T) {
 	if operator.ScopeString(child.Scope, "pane") != "" || spawningSet(child) {
 		t.Fatalf("a tab was attached or the spawn marker kept despite the conflict: %+v", child.Scope)
 	}
-	if h.stateOf(child) != StatePending {
+	if h.stateOf(child) != QueuePending {
 		t.Fatalf("state = %s: a conflict must never skip the item", h.stateOf(child))
 	}
 	wt := filepath.Join(h.spawn.root, "child-1")
@@ -490,7 +490,7 @@ func TestDryRunStepChangesNothing(t *testing.T) {
 	}
 	h.env.DryRun = true
 	res := h.step()
-	if !res.DryRun || !hasAction(res, ActSpawned, "a") {
+	if !res.DryRun || !hasAction(res, string(ActionSpawn), "a") || res.Actions[0].Detail != "(Q2)" {
 		t.Fatalf("result = %+v", res)
 	}
 	if len(h.spawn.reqs) != 0 || h.run.called("git fetch") != 0 {
@@ -633,7 +633,7 @@ func TestRespawnNeverReplacesAHeldItem(t *testing.T) {
 	if h.spawn.n != 0 || hasAction(res, ActRespawned, "") || scopeBool(h.item("b"), scopeRespawned) || spawningSet(h.item("b")) {
 		t.Fatalf("a held item was respawned: launches=%d %+v", h.spawn.n, res)
 	}
-	if got := h.stateOf(h.item("b")); got != StateHeld {
+	if got := h.stateOf(h.item("b")); got != QueueHeld {
 		t.Fatalf("b = %s, want held", got)
 	}
 	h.gh.add(1, "a-branch")
@@ -651,7 +651,7 @@ func TestSpawnRespawnAndStatusAgreeOnReadiness(t *testing.T) {
 	h.setDone("a")
 	h.attachBranch("a", "a-branch")
 	res, err := Status(context.Background(), h.env)
-	if err != nil || res.Items[1].State != StateHeld {
+	if err != nil || res.Items[1].State != QueueHeld {
 		t.Fatalf("status b = %+v err %v", res.Items[1], err)
 	}
 	if got := h.step(); hasAction(got, ActSpawned, "b") || h.spawn.n != 0 {

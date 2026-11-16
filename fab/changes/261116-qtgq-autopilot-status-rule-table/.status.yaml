@@ -1,0 +1,54 @@
+id: qtgq
+name: 261116-qtgq-autopilot-status-rule-table
+created: 2026-11-16T14:19:36Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: active
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 16
+    acceptance_count: 31
+    acceptance_completed: 0
+confidence:
+    certain: 7
+    confident: 8
+    tentative: 1
+    unresolved: 0
+    score: 3.4
+    fuzzy: true
+    dimensions:
+        signal: 75.3
+        reversibility: 78.8
+        competence: 79.4
+        disambiguation: 74.1
+stage_metrics:
+    intake: {started_at: "2026-11-16T14:19:36Z", driver: fab-new, iterations: 1, completed_at: "2026-11-16T14:23:52Z"}
+    apply: {started_at: "2026-11-16T14:23:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-16T15:05:53Z"}
+    review: {started_at: "2026-11-16T15:05:53Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-11-16T15:05:53Z"
+    computed_at_stage: apply
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-16T15:05:53Z
