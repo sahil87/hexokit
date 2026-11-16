@@ -59,7 +59,7 @@ func (e *engine) flagSlow() {
 	var oldest time.Time
 	var oldestID string
 	for _, it := range st.Tracked {
-		if !isQueueItem(st, it) || operator.ItemDone(it) {
+		if !operator.IsQueueItem(st, it) || operator.ItemDone(it) {
 			continue
 		}
 		if t, err := time.Parse(time.RFC3339, it.AddedAt); err == nil && (oldest.IsZero() || t.Before(oldest)) {
@@ -87,10 +87,8 @@ func stageLabel(it operator.TrackedItem) string {
 }
 
 func (e *engine) flagOnce(it operator.TrackedItem, text string) {
-	for _, n := range it.Notes {
-		if n.Text == "escalated: "+text {
-			return
-		}
+	if escalatedSeen(it, text) {
+		return
 	}
 	e.escalate(it.ID, text)
 }
@@ -119,7 +117,7 @@ func stop(ctx context.Context, env Env) (*StepResult, error) {
 					targets = append(targets, *it)
 				}
 			}
-			if isQueueItem(st, *it) && operator.ScopeString(it.Scope, "pane") == "" && !operator.ItemDone(*it) && !it.Paused {
+			if operator.IsQueueItem(st, *it) && operator.ScopeString(it.Scope, "pane") == "" && !operator.ItemDone(*it) && !it.Paused {
 				it.Paused = true
 				it.UpdatedAt = operator.NowRFC3339()
 				paused = append(paused, it.ID)
@@ -168,21 +166,24 @@ type StatusItem struct {
 // StatusResult is the read-only queue view. Summary is the Queue Completion
 // Summary, present when every queue item is done.
 type StatusResult struct {
-	Escalations []Escalation `json:"escalations,omitempty"`
-	Items       []StatusItem `json:"items"`
-	Complete    bool         `json:"complete"`
-	Summary     string       `json:"summary"`
+	Items    []StatusItem `json:"items"`
+	Complete bool         `json:"complete"`
+	Summary  string       `json:"summary"`
 	// Structured human-rendering inputs share the full JSON summary source.
 	SummaryItems []string `json:"-"`
 	MergeOrder   []string `json:"-"`
 }
 
-// Status derives the queue view from stored state alone; only the completion
-// summary reads PR links through gh.
+// Status derives the queue view from stored state, applying the same readiness
+// rule as step (a read-only gh probe decides whether a same-repo dependency's
+// PR exists); the completion summary also reads PR links through gh. It takes
+// no pass lock, writes nothing and reports no escalations: a failed lookup is
+// returned as plain error text.
 func Status(ctx context.Context, env Env) (StatusResult, error) {
 	// Status reports failures without writing notes to the ledger.
 	env.DryRun = true
 	e := newEngine(env)
+	e.readOnly = true
 	st, err := e.load()
 	if err != nil {
 		return StatusResult{Items: []StatusItem{}}, err
@@ -190,13 +191,13 @@ func Status(ctx context.Context, env Env) (StatusResult, error) {
 	res := StatusResult{Items: []StatusItem{}}
 	var queue []operator.TrackedItem
 	for _, it := range st.Tracked {
-		if isQueueItem(st, it) {
+		if operator.IsQueueItem(st, it) {
 			queue = append(queue, it)
 		}
 	}
 	allDone := len(queue) > 0
 	for _, it := range queue {
-		state := derivedState(st, it)
+		state := e.stateOf(ctx, st, it)
 		if state != StateDone {
 			allDone = false
 		}
@@ -225,10 +226,9 @@ func Status(ctx context.Context, env Env) (StatusResult, error) {
 		res.SummaryItems, res.MergeOrder = e.completionSummary(ctx, st, queue)
 		res.Summary = fmt.Sprintf("Queue complete. %d PRs ready for review:\n%s\nMerge per-repo: %s. Or ask me to merge all.", len(queue), strings.Join(res.SummaryItems, "\n"), strings.Join(res.MergeOrder, ", "))
 	}
-	res.Escalations = e.res.Escalations
 	var lookupErr error
-	for _, escalation := range res.Escalations {
-		lookupErr = errors.Join(lookupErr, fmt.Errorf("%s: %s", escalation.Item, escalation.Reason))
+	for _, w := range e.warnings {
+		lookupErr = errors.Join(lookupErr, errors.New(w))
 	}
 	return res, lookupErr
 }
@@ -248,7 +248,7 @@ func (e *engine) completionSummary(ctx context.Context, st *operator.State, queu
 		repo := cleanRepo(operator.ScopeString(it.Scope, "repo"))
 		url := "(no PR found)"
 		if br := itemBranch(st, it); br != "" {
-			if v, err := e.viewPR(ctx, repo, br, "url"); err != nil {
+			if v, err := e.viewPR(ctx, repo, "", br, "url"); err != nil {
 				e.escalate(it.ID, "completion summary PR lookup failed: "+stderrOf(err))
 			} else if v.URL != "" {
 				url = v.URL

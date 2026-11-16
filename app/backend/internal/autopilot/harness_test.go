@@ -267,7 +267,13 @@ func (g *ghSim) handle(dir string, argv []string) (string, error) {
 }
 
 func (g *ghSim) merge(argv, rest []string) (string, error) {
-	n := rest[len(rest)-1]
+	n := ""
+	for _, r := range rest {
+		if r != "" && r[0] >= '0' && r[0] <= '9' {
+			n = r
+			break
+		}
+	}
 	p := g.find(n)
 	if p == nil {
 		return "", ghErr(argv, "no pull request "+n)
@@ -376,6 +382,12 @@ func (f *fakeSpawner) Spawn(ctx context.Context, req SpawnRequest) (SpawnResult,
 				return SpawnResult{}, err
 			}
 		}
+	}
+	// Like the production adapter, name the branch from the worktree when the
+	// request fixed none (a raw-task or bare spawn).
+	branch, err := openedBranch(ctx, ExecRunner{}, req, path)
+	if err != nil {
+		f.t.Fatalf("branch of %s: %v", path, err)
 	}
 	res := SpawnResult{PaneID: fmt.Sprintf("%%%d", 100+f.n), Session: req.Session, WorktreePath: path, Branch: branch}
 	if req.Opened != nil {
@@ -544,3 +556,10 @@ func (h *harness) startMerge() *StepResult {
 }
 
 func (f *fakePanes) PID(context.Context, string) (int, error) { return 123, nil }
+
+// stateOf is the engine's readiness verdict for the item, read-only.
+func (h *harness) stateOf(it operator.TrackedItem) string {
+	e := newEngine(h.env)
+	e.readOnly = true
+	return e.stateOf(context.Background(), h.state(), it)
+}

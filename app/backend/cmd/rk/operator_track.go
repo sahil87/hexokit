@@ -71,6 +71,14 @@ pane flags, and records the pane's shell pid. A note item takes --text (and
 
 --mode (pane items only) sets scope.merge_mode; when omitted it stays null.
 
+--scope accepts only keys the caller may choose: memo, repo, change, pr, task,
+bare, pane, session, branch, stop_stage, spawned_by, recovery, fix_head, query.
+Engine keys (autopilot's queue, spawning, armed, ...), keys rk records itself
+(stage, agent, pane_pid), merge_mode (use --mode) and unknown keys are refused
+(exit 2, naming the key and its owner). Keep your own facts about an item in
+scope.memo: a free-form object nothing in rk decides from, shown in the brief.
+--force writes a refused key anyway (manual repair only).
+
 Flags:
   --kind          item kind (required)
   --probe         probe mode (each kind allows only its default)
@@ -81,7 +89,8 @@ Flags:
   --done-when     done predicate: path ==|!= json-scalar clauses joined by ' and '
   --then          prose the run executes when done or changed fires
   --depends-on    comma-separated item ids this item depends on
-  --scope         scope metadata as a JSON object
+  --scope         scope metadata as a JSON object (allow-listed keys; see above)
+  --force         write scope keys the allow-list refuses (manual repair only)
   --text, --by    note kind only: the first note's text and author (user, run, chat)
   --mode          merge mode for a pane item: cherry-pick-ladder, stacked-prs, merge-auto
   pane flags      --pane --repo --session --branch --stage --agent --stop-stage --spawned-by --change
@@ -92,11 +101,12 @@ Examples:
   rk operator track add n1 --kind note --text "remember X"
   rk operator track add pr-1234 --kind github-pr --scope '{"pr":1234}' --argv gh --argv pr --argv view --argv 1234 --fields state,mergedAt
   rk operator track add w1 --kind pane --pane %5 --change 260101-ab12-x --repo /src/app --branch feat
+  rk operator track add w2 --kind pane --pane %6 --scope '{"memo":{"why":"waiting on design"}}'
 
 Exit codes:
   0  added
   1  operational failure (duplicate id, state file busy or unreadable)
-  2  usage error (unknown kind or flag, invalid value)`,
+  2  usage error (unknown kind or flag, invalid value, a scope key the caller may not set)`,
 	Args:         usageArgs(cobra.ExactArgs(1)),
 	SilenceUsage: true,
 	RunE:         runOperatorTrackAdd,
@@ -109,23 +119,42 @@ var operatorTrackUpdateCmd = &cobra.Command{
 changed scope.pane re-records the pane's shell pid. Notes are append-only: use
 rk operator track note. Use pause and resume to flip paused.
 
+--scope is an allow-list: only these keys are written, everything else is
+refused (exit 2, naming the key and its owner):
+  memo          free-form object for your own facts about the item (runs, chat,
+                people); merged per key, a null member deletes it, shown in the
+                brief, never read by any rk decision
+  identity      scope.repo, change, pr, task, bare — only while empty; a queue
+                item's task and bare are never writable
+  binding       scope.pane, session, branch on a hand-tracked item (a queue
+                item's binding is autopilot's)
+  free          scope.stop_stage, spawned_by, recovery, fix_head, query
+Engine keys (autopilot's queue, merge_mode, spawning, armed, halted, ...), keys
+rk records itself (stage, agent, pane_pid) and unknown keys are refused; put
+anything else you want to remember in scope.memo. --force bypasses the refusals
+for manual repair, for example clearing a stuck scope.spawning after checking
+for an orphaned window.
+
 Flags:
   --check-every   probe cadence (floor 1m; null for pane/none items)
   --done-when     done predicate (empty string clears it)
   --then          prose to run when done or changed fires (empty string clears it)
   --depends-on    comma-separated item ids (replaces the list)
-  --scope         scope as a JSON object (merged per key)
+  --scope         scope as a JSON object (merged per key; allow-listed keys only, see above)
+  --force         bypass the scope allow-list (manual repair only)
   -L, --server    tmux server (default: the caller's own server from $TMUX)
   --json          machine-readable envelope on stdout
 
 Examples:
   rk operator track update pr-1234 --check-every 10m
   rk operator track update w1 --scope '{"pane":"%9"}'
+  rk operator track update w1 --scope '{"memo":{"why":"waiting on design"}}'
+  rk operator track update q1 --force --scope '{"spawning":null}'
 
 Exit codes:
   0  updated
   1  operational failure (no such item, state file busy or unreadable)
-  2  usage error (no flag given, invalid value)`,
+  2  usage error (no flag given, invalid value, a scope key outside the allow-list)`,
 	Args:         usageArgs(cobra.ExactArgs(1)),
 	SilenceUsage: true,
 	RunE:         runOperatorTrackUpdate,
@@ -166,7 +195,12 @@ var operatorTrackRmCmd = &cobra.Command{
 from every dependent's depends_on so the chain advances; a not-done removal
 keeps the edges. The branch_map is untouched.
 
+A github-pr item autopilot has armed for auto-merge is refused: removing it
+would leave the PR armed with nothing to disarm it. Disarm it first
+(gh pr merge --disable-auto) or pass --force.
+
 Flags:
+  --force         remove an armed github-pr item anyway
   -L, --server    tmux server (default: the caller's own server from $TMUX)
   --json          machine-readable envelope on stdout
 
@@ -176,7 +210,7 @@ Examples:
 Exit codes:
   0  removed
   1  operational failure (no such item, state file busy or unreadable)
-  2  usage error`,
+  2  usage error (an armed github-pr item without --force)`,
 	Args:         usageArgs(cobra.ExactArgs(1)),
 	SilenceUsage: true,
 	RunE:         runOperatorTrackRm,
@@ -290,7 +324,8 @@ func init() {
 	f.String("done-when", "", "done predicate: path ==|!= json-scalar clauses joined by ' and '")
 	f.String("then", "", "prose the run executes when done or changed fires")
 	f.StringSlice("depends-on", nil, "comma-separated item ids this item depends on")
-	f.String("scope", "", "scope metadata as a JSON object")
+	f.String("scope", "", "scope metadata as a JSON object (allow-listed keys; see help)")
+	f.Bool("force", false, "write scope keys the allow-list refuses (manual repair only)")
 	f.String("text", "", "note kind only: the first note's text")
 	f.String("by", "", "note kind only: the first note's author (user, run, chat; default user)")
 	f.String("mode", "", "merge mode for a pane item: "+strings.Join(operator.MergeModes, ", ")+" (default: unset)")
@@ -304,7 +339,8 @@ func init() {
 	f.String("done-when", "", "done predicate (empty string clears it)")
 	f.String("then", "", "prose to run when done or changed fires (empty string clears it)")
 	f.StringSlice("depends-on", nil, "comma-separated item ids (replaces the list)")
-	f.String("scope", "", "scope as a JSON object (merged per key)")
+	f.String("scope", "", "scope as a JSON object (merged per key; allow-listed keys only)")
+	f.Bool("force", false, "bypass the scope allow-list (manual repair only)")
 	f.Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 
 	f = operatorTrackObserveCmd.Flags()
@@ -312,6 +348,7 @@ func init() {
 	f.String("error", "", "probe failure message (counts a failure; the third consecutive one pauses the item)")
 	f.StringArray("seen", nil, "handled item id to append to seen (repeatable; capped at 200, oldest pruned)")
 
+	operatorTrackRmCmd.Flags().Bool("force", false, "remove an armed github-pr item anyway")
 	operatorTrackRmCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 	operatorTrackPauseCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 	operatorTrackResumeCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
@@ -455,6 +492,7 @@ func runOperatorTrackAdd(cmd *cobra.Command, args []string) error {
 	spec.Text, _ = f.GetString("text")
 	spec.TextSet = f.Changed("text")
 	spec.By, _ = f.GetString("by")
+	spec.Force, _ = f.GetBool("force")
 	for _, name := range operator.PaneSugarFlags() {
 		if f.Changed(name) {
 			if spec.PaneSugar == nil {
@@ -490,6 +528,7 @@ func runOperatorTrackUpdate(cmd *cobra.Command, args []string) error {
 		Then:       optionalString(cmd, "then"),
 		Scope:      scope,
 	}
+	spec.Force, _ = f.GetBool("force")
 	if f.Changed("depends-on") {
 		deps, _ := f.GetStringSlice("depends-on")
 		spec.DependsOn = &deps
@@ -535,7 +574,8 @@ func runOperatorTrackRm(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return operatorTrackDone(cmd, receipt, err)
 	}
-	return operatorTrackDone(cmd, receipt, operator.Remove(path, args[0]))
+	force, _ := cmd.Flags().GetBool("force")
+	return operatorTrackDone(cmd, receipt, operator.Remove(path, args[0], force))
 }
 
 func runOperatorTrackPause(cmd *cobra.Command, id string, pause bool) error {

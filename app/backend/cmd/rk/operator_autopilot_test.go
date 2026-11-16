@@ -629,7 +629,55 @@ func TestAutopilotHelpStatesBusyExitCodesAndMergeRefusal(t *testing.T) {
 		}
 	}
 	help, err := autopilotCLI(t, "", "status", "--help")
-	if err != nil || strings.Contains(help, "recovery") {
+	flat := strings.Join(strings.Fields(help), " ")
+	if err != nil || strings.Contains(help, "recovery") || strings.Contains(flat, "stored facts only") {
 		t.Fatalf("status help = %s err %v", help, err)
+	}
+	for _, want := range []string{
+		"makes read-only GitHub calls", "gh pr view", "Queue Completion Summary", "exits 1",
+		"1 operational failure (state file unreadable, a gh lookup failed)",
+		"takes no pass lock and reports no escalations",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("status help lacks %q:\n%s", want, help)
+		}
+	}
+}
+
+func TestAutopilotStatusGitHubFailureMatchesTheHelp(t *testing.T) {
+	path, _ := autopilotSandbox(t, "")
+	repo := t.TempDir()
+	if _, err := autopilotCLI(t, queueJSON(repo, repo), "queue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := operator.Mutate(path, func(st *operator.State) error {
+		now := operator.NowRFC3339()
+		st.Tracked[0].DoneAt = &now
+		st.Tracked[0].Scope["branch"] = "q1-branch"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := autopilotCLI(t, "", "status")
+	wantExit(t, err, 1, "q2: dependency q1 PR lookup failed")
+	if strings.Contains(out, "q1 ·") {
+		t.Fatalf("human view listed items after a failed lookup: %q", out)
+	}
+	out, err = autopilotCLI(t, "", "status", "--json")
+	wantExit(t, err, 1, "PR lookup failed")
+	var env struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			Items []struct{ ID, State string } `json:"items"`
+		} `json:"result"`
+	}
+	if json.Unmarshal([]byte(out), &env) != nil || env.OK || len(env.Result.Items) != 2 || env.Result.Items[1].State != "held" {
+		t.Fatalf("envelope = %s", out)
+	}
+	st, _ := operator.Load(path)
+	for _, it := range st.Tracked {
+		if len(it.Notes) != 0 {
+			t.Fatal("status wrote a note")
+		}
 	}
 }

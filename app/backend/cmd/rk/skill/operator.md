@@ -129,8 +129,10 @@ echo '[
   {"id": "q1", "repo": "/src/app", "change": "260101-ab12-first"},
   {"id": "q2", "repo": "/src/web", "task": "fix login after password reset"},
   {"id": "q3", "repo": "/src/app", "change": "260101-ef56-third", "depends_on": ["q1"], "stop_stage": null}
-]' | rk operator autopilot queue --dry-run [--mode stacked-prs]
+]' | rk operator autopilot queue --dry-run
 ```
+
+Add `--mode stacked-prs` (or another mode) to the call when the user named one.
 
 An entry names an existing change (`change`), raw text (`task`), or neither (a bare agent — nothing may depend on it). Runs spawn the entries as they become ready; `rk operator autopilot step` does one pass of that work on demand and `rk operator autopilot status` shows each item's state, PR and merge position (read-only). `step` prints escalations — send `rk notify` for each one; `status` is read-only and prints none. A CI failure or a conflict on an armed PR comes back as a `recovery needed: <reason>` escalation, and `step` leaves the PR armed: recovery follows the run brief's PR recovery text. `step`, `merge` and `stop` take a per-server lock; a `busy` result means another pass is running — retry later.
 
@@ -145,4 +147,4 @@ An entry names an existing change (`change`), raw text (`task`), or neither (a b
 ## Gotchas
 
 - `rk operator track` has no clock verb and no `update --pause`; pause with `track pause`.
-- `track add` refuses a duplicate id: to attach a pane to an existing queue item use `track update <id> --scope '{"pane":"%N","session":"<s>"}'`.
+- `track add` refuses a duplicate id. `track add --scope` and `track update --scope` are an allow-list: they accept `memo`, the identity keys `repo`/`change`/`pr`/`task`/`bare` (only while empty), a hand-tracked item's `pane`/`session`/`branch`, `stop_stage`, `spawned_by`, `recovery`, `fix_head` and a watcher's `query`. Everything else (autopilot's own keys, keys `rk operator check` records, unknown keys) is refused with exit 2, naming the key and its owner. Keep your own facts about an item in `scope.memo` (`--scope '{"memo":{"why":"waiting on design"}}'`, merged per key, a null value deletes one): it is shown in the brief and no rk decision reads it. Autopilot attaches the panes of queue items itself. `--force` is the manual repair for a stuck item (for example `track update --force <id> --scope '{"spawning":null}'`), not a routine path. `track rm` of a `github-pr` item autopilot has armed is refused too: run `gh pr merge --disable-auto` first, or pass `--force`.

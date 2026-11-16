@@ -201,7 +201,20 @@ func writeItemBlock(b *strings.Builder, items []TrackedItem, it TrackedItem, now
 	fmt.Fprintf(b, "- done_when: %s\n", briefOptional(it.DoneWhen))
 	fmt.Fprintf(b, "- then: %s\n", briefOptional(it.Then))
 	fmt.Fprintf(b, "- depends_on: %s\n", briefList(it.DependsOn))
-	fmt.Fprintf(b, "- scope: %s\n", briefMap(it.Scope, true))
+	scope := it.Scope
+	memo, _ := scope[ScopeMemo].(map[string]interface{})
+	if memo != nil {
+		scope = make(map[string]interface{}, len(it.Scope))
+		for k, v := range it.Scope {
+			if k != ScopeMemo {
+				scope[k] = v
+			}
+		}
+	}
+	fmt.Fprintf(b, "- scope: %s\n", briefMap(scope, true))
+	if len(memo) > 0 {
+		fmt.Fprintf(b, "- memo: %s\n", briefMap(memo, true))
+	}
 	fmt.Fprintf(b, "- last: %s\n", briefMap(it.Last, false))
 	fmt.Fprintf(b, "- unchanged: %d\n", it.Unchanged)
 	writeNotes(b, it.Notes, notesShown)

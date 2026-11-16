@@ -7,48 +7,49 @@ issues: []
 progress:
     intake: done
     apply: done
-    review: active
-    hydrate: pending
+    review: done
+    hydrate: active
     ship: pending
     review-pr: pending
 plan:
     generated: true
-    task_count: 19
-    acceptance_count: 41
-    acceptance_completed: 0
+    task_count: 30
+    acceptance_count: 48
+    acceptance_completed: 48
 confidence:
-    certain: 17
-    confident: 3
+    certain: 21
+    confident: 4
     tentative: 0
     unresolved: 0
-    score: 5.0
+    score: 4.9
     fuzzy: true
     dimensions:
-        signal: 92.0
-        reversibility: 77.5
-        competence: 88.0
-        disambiguation: 87.0
+        signal: 91.8
+        reversibility: 78.0
+        competence: 87.2
+        disambiguation: 86.2
 stage_metrics:
     intake: {started_at: "2026-11-16T09:46:51Z", driver: fab-clarify, iterations: 2, completed_at: "2026-11-16T10:08:27Z"}
-    apply: {started_at: "2026-11-16T10:08:27Z", driver: fab-fff, iterations: 9, completed_at: "2026-11-16T10:36:20Z"}
-    review: {started_at: "2026-11-16T10:36:20Z", driver: fab-fff, iterations: 9}
+    apply: {started_at: "2026-11-16T13:19:21Z", driver: fab-fff, iterations: 13, completed_at: "2026-11-16T13:33:16Z"}
+    review: {started_at: "2026-11-16T14:00:58Z", iterations: 14, completed_at: "2026-11-16T14:00:58Z"}
+    hydrate: {started_at: "2026-11-16T14:00:58Z", driver: fab-fff, iterations: 1}
 prs: []
 base_branch: main
 change_type_source: explicit
 true_impact:
-    added: 10157
-    deleted: 47
-    net: 10110
+    added: 9308
+    deleted: 243
+    net: 9065
     excluding:
-        added: 9801
-        deleted: 34
-        net: 9767
+        added: 8611
+        deleted: 230
+        net: 8381
     tests:
-        added: 5041
-        deleted: 3
-        net: 5038
-    computed_at: "2026-11-16T10:36:20Z"
+        added: 4514
+        deleted: 5
+        net: 4509
+    computed_at: "2026-11-16T13:33:16Z"
     computed_at_stage: apply
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-16T10:36:20Z
+last_updated: 2026-11-16T14:00:58Z

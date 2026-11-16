@@ -1104,29 +1104,3 @@ func rollbackWorktree(spec EffectiveSpec, worktreePath string) error {
 	}
 	return nil
 }
-
-// WorktreeOptions are the inputs of CreateWorktree. Exactly the wt-create
-// subset Spawn forwards; CheckoutBranch excludes Base and Branch.
-type WorktreeOptions struct {
-	Name           string
-	Base           string
-	Branch         string
-	CheckoutBranch string
-}
-
-// CreateWorktree creates a worktree in repoRoot without opening a window and
-// returns its path. It is the same `wt create` call Spawn makes, for callers
-// that only need a checkout to run git in.
-func CreateWorktree(ctx context.Context, repoRoot string, opts WorktreeOptions) (string, error) {
-	spec := EffectiveSpec{
-		RepoRoot: repoRoot, WorktreeName: opts.Name, WorktreeBase: opts.Base,
-		WorktreeBranch: opts.Branch, CheckoutBranch: opts.CheckoutBranch,
-	}
-	return runWtCreate(ctx, spec, nil)
-}
-
-// DeleteWorktree removes the named worktree of repoRoot (`wt delete
-// --non-interactive <name>`).
-func DeleteWorktree(ctx context.Context, repoRoot, name string) error {
-	return runWtDelete(ctx, EffectiveSpec{RepoRoot: repoRoot}, name)
-}

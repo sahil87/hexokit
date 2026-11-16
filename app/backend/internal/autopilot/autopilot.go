@@ -232,6 +232,10 @@ type engine struct {
 	env  Env
 	res  *StepResult
 	meta map[string]*repoMeta
+	// readOnly is the status view: failures are collected in warnings, never
+	// reported as escalations and never written as notes.
+	readOnly bool
+	warnings []string
 }
 
 func newEngine(env Env) *engine {
@@ -246,12 +250,16 @@ func (e *engine) reportf(format string, a ...interface{}) {
 	e.res.Report = append(e.res.Report, fmt.Sprintf(format, a...))
 }
 
-// escalate records an escalation and, once per distinct text, a note on the
+// escalate records an escalation and, once per distinct reason, a note on the
 // item, so a retried step does not repeat itself in the ledger.
 func (e *engine) escalate(id, reason string) {
+	if e.readOnly {
+		e.warnings = append(e.warnings, id+": "+reason)
+		return
+	}
 	e.res.Escalations = append(e.res.Escalations, Escalation{Item: id, Reason: reason})
 	if id != "" {
-		if err := e.note(id, "escalated: "+reason); err != nil {
+		if err := e.recordEscalation(id, reason); err != nil {
 			e.res.Escalations = append(e.res.Escalations, Escalation{Item: id, Reason: "escalation note not written: " + err.Error()})
 		}
 	}
@@ -304,11 +312,27 @@ func (e *engine) setScope(id string, kv map[string]interface{}) error {
 	})
 }
 
-// note suppresses consecutive duplicates and repeated escalation reasons.
-func (e *engine) note(id, text string) error {
-	if r := []rune(text); len(r) > operator.NoteTextCap {
-		text = string(r[:operator.NoteTextCap])
+// escalatedSeen reports whether the item's structured escalation record already
+// holds reason. Decisions read this map, never note text.
+func escalatedSeen(it operator.TrackedItem, reason string) bool {
+	seen, _ := it.Scope[scopeEscalated].(map[string]interface{})
+	_, ok := seen[escalationKey(reason)]
+	return ok
+}
+
+// escalationKey bounds a reason to the note cap so the record and the note
+// carry the same text.
+func escalationKey(reason string) string {
+	if r := []rune(reason); len(r) > operator.NoteTextCap {
+		return string(r[:operator.NoteTextCap])
 	}
+	return reason
+}
+
+// recordEscalation stores the reason's first-seen time in scope.escalated and,
+// on that first sighting only, appends a human note.
+func (e *engine) recordEscalation(id, reason string) error {
+	key := escalationKey(reason)
 	by := e.env.by()
 	return e.mutate(func(st *operator.State) error {
 		i := operator.IndexOf(st.Tracked, id)
@@ -316,17 +340,21 @@ func (e *engine) note(id, text string) error {
 			return operator.ErrNoWrite
 		}
 		it := &st.Tracked[i]
-		if strings.HasPrefix(text, "escalated: ") {
-			for _, n := range it.Notes {
-				if n.Text == text {
-					return operator.ErrNoWrite
-				}
-			}
-		}
-		if n := len(it.Notes); n > 0 && it.Notes[n-1].Text == text {
+		if escalatedSeen(*it, reason) {
 			return operator.ErrNoWrite
 		}
-		return operator.AppendNote(it, by, text)
+		seen := map[string]interface{}{}
+		if cur, ok := it.Scope[scopeEscalated].(map[string]interface{}); ok {
+			for k, v := range cur {
+				seen[k] = v
+			}
+		}
+		seen[key] = operator.NowRFC3339()
+		if it.Scope == nil {
+			it.Scope = map[string]interface{}{}
+		}
+		it.Scope[scopeEscalated] = seen
+		return operator.AppendNote(it, by, escalationKey("escalated: "+reason))
 	})
 }
 

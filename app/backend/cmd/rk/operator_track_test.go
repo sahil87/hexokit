@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -234,11 +235,11 @@ func TestOperatorTrackAddShellObservePauseResumeRm(t *testing.T) {
 	mustTrack(t, "add", "s1", "--kind", "shell", "--argv", "myprobe", "--argv", "--flag", "--fields", "status",
 		"--done-when", `status == "green"`, "--check-every", "2m")
 	mustTrack(t, "observe", "s1", "--json", `{"status":"red","noise":1}`)
-	mustTrack(t, "update", "s1", "--check-every", "10m", "--then", "ship it", "--scope", `{"env":"prod"}`)
+	mustTrack(t, "update", "s1", "--check-every", "10m", "--then", "ship it", "--scope", `{"memo":{"env":"prod"}}`)
 	mustTrack(t, "pause", "s1")
 
 	it := listJSON(t)[0]
-	if it.Scope["env"] != "prod" {
+	if memo, _ := it.Scope["memo"].(map[string]interface{}); memo["env"] != "prod" {
 		t.Errorf("scope = %v", it.Scope)
 	}
 	if out := mustTrack(t, "list"); !strings.HasPrefix(out, "s1 · shell · paused · ") || !strings.HasSuffix(out, " · ship it\n") {
@@ -430,4 +431,106 @@ func TestOperatorTrackUnknownSocket(t *testing.T) {
 			t.Errorf("default.yaml missing: %v", err)
 		}
 	})
+}
+
+func TestOperatorTrackUpdateHelpDocumentsOwnership(t *testing.T) {
+	out, _, err := runOperatorCLI(t, "", "track", "update", "--help")
+	if err != nil {
+		t.Fatalf("--help: %v", err)
+	}
+	for _, want := range []string{"allow-list", "--force", "scope.memo", "identity", "binding", "scope.spawning", "Engine keys", "2  usage error"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("track update --help lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestOperatorTrackUpdateRefusesOwnedFieldsWithExit2(t *testing.T) {
+	operatorSandbox(t)
+	mustTrack(t, "add", "q1", "--kind", "pane", "--force", "--scope", `{"queue":"q"}`, "--mode", "cherry-pick-ladder")
+	mustTrack(t, "add", "hand", "--kind", "pane")
+	mustTrack(t, "add", "pr-12", "--kind", "task", "--scope", `{"repo":"/r","pr":12}`)
+
+	for _, tc := range []struct {
+		id, scope, want string
+	}{
+		{"pr-12", `{"pr":13}`, "scope.pr is identity"},
+		{"q1", `{"pane":"%9"}`, "scope.pane on a queue item is owned by autopilot"},
+		{"q1", `{"spawning":null}`, "scope.spawning is owned by autopilot"},
+		{"q1", `{"deferred":false}`, "scope.deferred is owned by autopilot"},
+		{"hand", `{"foo":1}`, "keep your own facts in scope.memo"},
+		{"hand", `{"memo":"text"}`, "scope.memo must be a JSON object"},
+	} {
+		_, err := track(t, "update", tc.id, "--scope", tc.scope)
+		wantExit(t, err, 2, tc.want)
+	}
+	if got := listJSON(t); len(got) != 3 || got[0].ID != "q1" || got[0].Scope["pane"] != nil || fmt.Sprint(got[2].Scope["pr"]) != "12" {
+		t.Fatalf("a refused update wrote: %+v", got)
+	}
+
+	if _, err := track(t, "update", "q1", "--force", "--scope", `{"spawning":null}`); err != nil {
+		t.Fatalf("--force: %v", err)
+	}
+	if _, err := track(t, "update", "hand", "--scope", `{"session":"s"}`); err != nil {
+		t.Fatalf("hand-tracked binding must stay allowed: %v", err)
+	}
+	if _, err := track(t, "update", "q1", "--scope", `{"memo":{"why":"design"}}`); err != nil {
+		t.Fatalf("memo must be writable on a queue item: %v", err)
+	}
+}
+
+func TestOperatorTrackAddRefusesEngineKeysWithExit2(t *testing.T) {
+	operatorSandbox(t)
+	for _, tc := range []struct{ scope, want string }{
+		{`{"armed":true}`, "scope.armed is owned by autopilot"},
+		{`{"merge_mode":"merge-auto"}`, "set through --mode"},
+		{`{"foo":1}`, "keep your own facts in scope.memo"},
+	} {
+		_, err := track(t, "add", "x", "--kind", "pane", "--scope", tc.scope)
+		wantExit(t, err, 2, tc.want)
+	}
+	if got := listJSON(t); len(got) != 0 {
+		t.Fatalf("a refused add wrote: %+v", got)
+	}
+	// The sugar flags and --mode stay creation-time writes.
+	mustTrack(t, "add", "w1", "--kind", "pane", "--pane", "%5", "--repo", "/r", "--session", "s", "--branch", "b",
+		"--stage", "apply", "--agent", "claude", "--stop-stage", "review", "--spawned-by", "chat", "--change", "c1", "--mode", "merge-auto")
+	mustTrack(t, "add", "x", "--kind", "pane", "--force", "--scope", `{"armed":true}`)
+}
+
+func TestOperatorTrackRmRefusesAnArmedPRWithExit2(t *testing.T) {
+	operatorSandbox(t)
+	mustTrack(t, "add", "pr-7", "--kind", "task", "--scope", `{"repo":"/r","pr":7}`)
+	mustTrack(t, "update", "pr-7", "--force", "--scope", `{"armed":true}`)
+	if _, err := track(t, "rm", "pr-7"); err != nil {
+		t.Fatalf("only github-pr items are protected: %v", err)
+	}
+
+	mustTrack(t, "add", "pr-8", "--kind", "github-pr", "--scope", `{"pr":8}`, "--argv", "gh", "--fields", "state")
+	mustTrack(t, "update", "pr-8", "--force", "--scope", `{"armed":true}`)
+	_, err := track(t, "rm", "pr-8")
+	wantExit(t, err, 2, "armed for auto-merge")
+	if got := listJSON(t); len(got) != 1 {
+		t.Fatalf("a refused rm removed the item: %+v", got)
+	}
+	mustTrack(t, "rm", "pr-8", "--force")
+	if got := listJSON(t); len(got) != 0 {
+		t.Fatalf("--force left the item: %+v", got)
+	}
+}
+
+func TestOperatorTrackAddHelpDocumentsTheAllowList(t *testing.T) {
+	out, _, err := runOperatorCLI(t, "", "track", "add", "--help")
+	if err != nil {
+		t.Fatalf("--help: %v", err)
+	}
+	for _, want := range []string{"--scope accepts only", "scope.memo", "--force", "Engine keys"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("track add --help lacks %q:\n%s", want, out)
+		}
+	}
+	out, _, err = runOperatorCLI(t, "", "track", "rm", "--help")
+	if err != nil || !strings.Contains(out, "--force") || !strings.Contains(out, "armed") {
+		t.Errorf("track rm --help must document --force for an armed PR: %v\n%s", err, out)
+	}
 }

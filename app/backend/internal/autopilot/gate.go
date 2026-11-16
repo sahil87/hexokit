@@ -21,19 +21,22 @@ const (
 	StateSpawned = "spawned"
 )
 
-// derivedState is the item's state from stored facts alone, consistent with
-// `rk operator track list`: done › paused › held › pending › spawned. The
-// precedence is strict: an unsatisfied dependency holds an item that already has
-// a pane.
-func derivedState(st *operator.State, it operator.TrackedItem) string {
+// stateOf is the one readiness function: done › paused › held › pending ›
+// spawned. Held is the live gate's verdict (every dependency done, plus an
+// existing PR for a same-repo dependency with no stop_stage), so an unmet
+// dependency holds an item that already has a pane. Spawn, respawn and status
+// all decide through it.
+func (e *engine) stateOf(ctx context.Context, st *operator.State, it operator.TrackedItem) string {
 	switch {
 	case operator.ItemDone(it):
 		return StateDone
 	case it.Paused:
 		return StatePaused
 	}
-	if storedHeldBy(st, it) != "" {
-		return StateHeld
+	if len(it.DependsOn) > 0 {
+		if ok, _ := e.gate(ctx, st, it); !ok {
+			return StateHeld
+		}
 	}
 	if operator.ScopeString(it.Scope, "pane") == "" {
 		return StatePending
@@ -41,32 +44,10 @@ func derivedState(st *operator.State, it operator.TrackedItem) string {
 	return StateSpawned
 }
 
-// storedHeldBy returns the first dependency the stored state does not satisfy
-// ("" when none). It reads no PR: the live gate in step adds those checks.
-func storedHeldBy(st *operator.State, it operator.TrackedItem) string {
-	for _, dep := range it.DependsOn {
-		di := operator.IndexOf(st.Tracked, dep)
-		if di < 0 {
-			if _, ok := st.BranchMap[dep]; ok {
-				continue
-			}
-			return dep
-		}
-		d := st.Tracked[di]
-		if !operator.ItemDone(d) {
-			return dep
-		}
-		if mergeAutoBarrier(st, it, d) && !prMerged(st, d.ID) {
-			return dep
-		}
-	}
-	return ""
-}
-
 // mergeAutoBarrier reports whether dep is a merge-auto queue item the
 // dependent must wait on until its PR merge is verified.
 func mergeAutoBarrier(st *operator.State, it, dep operator.TrackedItem) bool {
-	return isQueueItem(st, it) && isQueueItem(st, dep) && modeOf(it) == operator.MergeModeMergeAuto && modeOf(dep) == operator.MergeModeMergeAuto
+	return operator.IsQueueItem(st, it) && operator.IsQueueItem(st, dep) && modeOf(it) == operator.MergeModeMergeAuto && modeOf(dep) == operator.MergeModeMergeAuto
 }
 
 // prMerged reports whether the github-pr item created for queue item id is
@@ -95,7 +76,7 @@ func fabPresent(repo string) (bool, error) {
 // task in a repo with no fab/, which has no pipeline to finish and is done when
 // its PR is ready.
 func isPlainAgent(st *operator.State, it operator.TrackedItem) (bool, error) {
-	if !isQueueItem(st, it) || operator.ScopeString(it.Scope, scopeTask) == "" || operator.ScopeString(it.Scope, "change") != "" {
+	if !operator.IsQueueItem(st, it) || operator.ScopeString(it.Scope, scopeTask) == "" || operator.ScopeString(it.Scope, "change") != "" {
 		return false, nil
 	}
 	fab, err := fabPresent(operator.ScopeString(it.Scope, "repo"))
@@ -119,9 +100,10 @@ type reviewSummary struct {
 	State string `json:"state"`
 }
 
-// viewPR runs `gh pr view <ref> --json <fields>` in the repo.
-func (e *engine) viewPR(ctx context.Context, repo, ref, fields string) (prView, error) {
-	out, err := e.gh(ctx, repo, "pr", "view", ref, "--json", fields)
+// viewPR runs `gh pr view <ref> --json <fields>` in the repo. A non-empty nwo
+// pins the PR's repository (`--repo`) instead of leaving it to the checkout.
+func (e *engine) viewPR(ctx context.Context, repo, nwo, ref, fields string) (prView, error) {
+	out, err := e.gh(ctx, repo, withRepo(nwo, "pr", "view", ref, "--json", fields)...)
 	if err != nil {
 		return prView{}, err
 	}
@@ -148,7 +130,7 @@ func (e *engine) observeDone(ctx context.Context) error {
 	}
 	now := e.env.now().UTC().Format(time.RFC3339)
 	for _, it := range st.Tracked {
-		if !isQueueItem(st, it) || operator.ItemDone(it) || operator.ScopeString(it.Scope, "pane") == "" {
+		if !operator.IsQueueItem(st, it) || operator.ItemDone(it) || operator.ScopeString(it.Scope, "pane") == "" {
 			continue
 		}
 		done := false
@@ -184,7 +166,7 @@ func (e *engine) plainAgentDone(ctx context.Context, st *operator.State, it oper
 		e.escalate(it.ID, "cannot observe completion: no branch recorded")
 		return false
 	}
-	v, err := e.viewPR(ctx, operator.ScopeString(it.Scope, "repo"), branch, "url,state")
+	v, err := e.viewPR(ctx, operator.ScopeString(it.Scope, "repo"), "", branch, "url,state")
 	if err != nil {
 		e.escalate(it.ID, "completion PR lookup failed: "+stderrOf(err))
 		return false
@@ -193,7 +175,7 @@ func (e *engine) plainAgentDone(ctx context.Context, st *operator.State, it oper
 	case "MERGED":
 		return true
 	case "OPEN":
-		runs, err := e.requiredChecks(ctx, operator.ScopeString(it.Scope, "repo"), branch)
+		runs, err := e.requiredChecks(ctx, operator.ScopeString(it.Scope, "repo"), "", branch)
 		if err != nil {
 			e.escalate(it.ID, "completion checks lookup failed: "+stderrOf(err))
 			return false
@@ -203,7 +185,7 @@ func (e *engine) plainAgentDone(ctx context.Context, st *operator.State, it oper
 	return false
 }
 
-// gate evaluates the live readiness of a pending item: every dependency done,
+// gate evaluates the live readiness of an item: every dependency done,
 // plus an existing PR for a same-repo dependency with no stop_stage. why names
 // the first unmet dependency.
 func (e *engine) gate(ctx context.Context, st *operator.State, it operator.TrackedItem) (ok bool, why string) {
@@ -234,8 +216,11 @@ func (e *engine) gate(ctx context.Context, st *operator.State, it operator.Track
 			e.escalate(it.ID, "dependency "+dep+" has no branch recorded")
 			return false, dep
 		}
-		if _, err := e.viewPR(ctx, repo, branch, "url"); err != nil {
-			e.escalate(it.ID, "dependency "+dep+" PR lookup failed: "+stderrOf(err))
+		if _, err := e.viewPR(ctx, repo, "", branch, "url"); err != nil {
+			// A branch with no PR is a normal held item in the read-only view.
+			if !e.readOnly || !strings.Contains(strings.ToLower(stderrOf(err)), "no pull requests found") {
+				e.escalate(it.ID, "dependency "+dep+" PR lookup failed: "+stderrOf(err))
+			}
 			return false, dep + " (no PR yet)"
 		}
 	}

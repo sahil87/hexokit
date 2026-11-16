@@ -87,8 +87,8 @@ func TestEnqueueImplicitChaining(t *testing.T) {
 			t.Errorf("%s kind/probe = %s/%s", id, it.Kind, it.Probe.Mode)
 		}
 	}
-	if st := h.state(); derivedState(st, h.item("ab12")) != StatePending || derivedState(st, h.item("cd34")) != StateHeld {
-		t.Errorf("derived states = %s, %s", derivedState(st, h.item("ab12")), derivedState(st, h.item("cd34")))
+	if h.stateOf(h.item("ab12")) != StatePending || h.stateOf(h.item("cd34")) != StateHeld {
+		t.Errorf("derived states = %s, %s", h.stateOf(h.item("ab12")), h.stateOf(h.item("cd34")))
 	}
 }
 
@@ -267,14 +267,14 @@ func TestParseEntriesRejectsTrailingInput(t *testing.T) {
 	}
 }
 
-func TestNoteTruncationIsRuneSafe(t *testing.T) {
+func TestEscalationNoteTruncationIsRuneSafe(t *testing.T) {
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
 	e := newEngine(h.env)
 	long := strings.Repeat("é", operator.NoteTextCap+50)
-	if err := e.note("a", long); err != nil {
-		t.Fatalf("note: %v", err)
+	if err := e.recordEscalation("a", long); err != nil {
+		t.Fatalf("recordEscalation: %v", err)
 	}
 	notes := h.item("a").Notes
 	if len(notes) != 1 || utf8.RuneCountInString(notes[0].Text) != operator.NoteTextCap || !utf8.ValidString(notes[0].Text) {

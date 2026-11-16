@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -51,6 +52,106 @@ func seqID(repo string) string {
 	return fmt.Sprintf("%s-%06x", filepath.Base(repo), h.Sum32()&0xffffff)
 }
 
+var (
+	errNoPinnedRepo = errors.New("github-pr item has no valid pinned owner/name (probe --repo): refusing to act on a PR chosen by a checkout")
+	pinnedRepoRe    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_.-]+$`)
+)
+
+// pinnedRepo is the owner/name a github-pr item was created for: the --repo of
+// its probe. scope.repo is a mutable checkout path and never names the PR's
+// repository.
+func pinnedRepo(it operator.TrackedItem) string {
+	argv := it.Probe.Argv
+	for i := 0; i+1 < len(argv); i++ {
+		if argv[i] == "--repo" && pinnedRepoRe.MatchString(argv[i+1]) {
+			return argv[i+1]
+		}
+	}
+	return ""
+}
+
+// pin returns the item's pinned owner/name, escalating (and refusing the
+// caller's gh call) when it has none.
+func (e *engine) pin(it operator.TrackedItem) (string, bool) {
+	nwo := pinnedRepo(it)
+	if nwo == "" {
+		e.escalate(it.ID, errNoPinnedRepo.Error())
+		return "", false
+	}
+	return nwo, true
+}
+
+// prIdentity is what names the PR a github-pr item stands for: its number, its
+// pinned owner/name and the checkout the pass runs gh from. An external writer
+// can change any of them between a pass's snapshot and its writes.
+type prIdentity struct{ pr, nwo, repo string }
+
+func identityOf(it operator.TrackedItem) prIdentity {
+	return prIdentity{pr: prNum(it.Scope), nwo: pinnedRepo(it), repo: cleanRepo(operator.ScopeString(it.Scope, "repo"))}
+}
+
+var errPRChanged = errors.New("PR item changed externally")
+
+// patchPR is the only writer of markers on a github-pr item. Inside the lock it
+// checks the item still names the PR the pass acted on (snap) and writes
+// nothing otherwise, so a marker can never land on an item that now stands for
+// another PR.
+func (e *engine) patchPR(snap operator.TrackedItem, fn func(*operator.TrackedItem)) error {
+	want := identityOf(snap)
+	return e.mutate(func(st *operator.State) error {
+		i := operator.IndexOf(st.Tracked, snap.ID)
+		if i < 0 {
+			return fmt.Errorf("item %s is no longer tracked", snap.ID)
+		}
+		cur := &st.Tracked[i]
+		if identityOf(*cur) != want {
+			return errPRChanged
+		}
+		if cur.Scope == nil {
+			cur.Scope = map[string]interface{}{}
+		}
+		fn(cur)
+		cur.UpdatedAt = operator.NowRFC3339()
+		return nil
+	})
+}
+
+// prWriteFailed reports a failed PR-item marker write: a changed item is
+// skipped, anything else carries the write's own message.
+func (e *engine) prWriteFailed(id, what string, err error) {
+	if errors.Is(err, errPRChanged) {
+		e.escalate(id, fmt.Sprintf("PR item %s changed externally; skipped", id))
+		return
+	}
+	e.escalate(id, what+": "+err.Error())
+}
+
+// stillNamesSamePR re-reads the item before a gh mutation that has no marker
+// of its own and reports whether it still names the snapshot's PR.
+func (e *engine) stillNamesSamePR(head operator.TrackedItem) bool {
+	if e.env.DryRun {
+		return true
+	}
+	st, err := e.load(head.ID)
+	if err != nil {
+		return false
+	}
+	i := operator.IndexOf(st.Tracked, head.ID)
+	if i < 0 || identityOf(st.Tracked[i]) != identityOf(head) {
+		e.escalate(head.ID, fmt.Sprintf("PR item %s changed externally; skipped", head.ID))
+		return false
+	}
+	return true
+}
+
+// withRepo appends `--repo <nwo>` to a gh argv (nothing when nwo is empty).
+func withRepo(nwo string, args ...string) []string {
+	if nwo == "" {
+		return args
+	}
+	return append(args, "--repo", nwo)
+}
+
 // StartMerge begins the ordered merge for completed cherry-pick-ladder queues:
 // it creates the per-repo github-pr chains and advances each once (arming or
 // merging the first PR). Later steps advance them. It refuses while queue
@@ -84,7 +185,7 @@ func startMerge(ctx context.Context, env Env, opts MergeOptions) (result *StepRe
 		}
 		matched := false
 		for _, it := range st.Tracked {
-			if isQueueItem(st, it) && cleanRepo(operator.ScopeString(it.Scope, "repo")) == repoFilter {
+			if operator.IsQueueItem(st, it) && cleanRepo(operator.ScopeString(it.Scope, "repo")) == repoFilter {
 				matched = true
 				break
 			}
@@ -96,7 +197,7 @@ func startMerge(ctx context.Context, env Env, opts MergeOptions) (result *StepRe
 	var all []operator.TrackedItem
 	started := map[string]bool{}
 	for _, it := range st.Tracked {
-		if !isQueueItem(st, it) || !isChainMode(modeOf(it)) || isBare(it) {
+		if !operator.IsQueueItem(st, it) || !isChainMode(modeOf(it)) || isBare(it) {
 			continue
 		}
 		all = append(all, it)
@@ -175,7 +276,7 @@ func (e *engine) buildPRChains(ctx context.Context, st *operator.State, queue []
 			e.escalate(qi.ID, err.Error())
 			return nil, err
 		}
-		v, err := e.viewPR(ctx, repo, branch, prViewFields)
+		v, err := e.viewPR(ctx, repo, "", branch, prViewFields)
 		if err != nil {
 			err = fmt.Errorf("%s: no PR for branch %s: %s", qi.ID, branch, stderrOf(err))
 			e.escalate(qi.ID, err.Error())
@@ -272,7 +373,7 @@ func (e *engine) newPRItem(ctx context.Context, qi operator.TrackedItem, repo, b
 	}
 	scope := map[string]interface{}{
 		"repo": repo, "pr": v.Number, "change": operator.ScopeString(qi.Scope, "change"),
-		"branch": branch, scopeMergeSeq: seq, scopeItem: qi.ID, "merge_mode": mode, "url": v.URL,
+		"branch": branch, scopeMergeSeq: seq, scopeItem: qi.ID, scopeMergeMode: mode, scopeURL: v.URL,
 	}
 	nwo, err := e.nameWithOwner(ctx, repo)
 	if err != nil {
@@ -325,7 +426,7 @@ func (e *engine) createMergeAutoPRs(ctx context.Context) error {
 	}
 	var out []operator.TrackedItem
 	for _, qi := range st.Tracked {
-		if !isQueueItem(st, qi) || modeOf(qi) != operator.MergeModeMergeAuto || isBare(qi) || !operator.ItemDone(qi) || hasPR[qi.ID] {
+		if !operator.IsQueueItem(st, qi) || modeOf(qi) != operator.MergeModeMergeAuto || isBare(qi) || !operator.ItemDone(qi) || hasPR[qi.ID] {
 			continue
 		}
 		repo := cleanRepo(operator.ScopeString(qi.Scope, "repo"))
@@ -334,7 +435,7 @@ func (e *engine) createMergeAutoPRs(ctx context.Context) error {
 			e.escalate(qi.ID, "cannot discover PR: no branch recorded")
 			continue
 		}
-		v, err := e.viewPR(ctx, repo, branch, prViewFields)
+		v, err := e.viewPR(ctx, repo, "", branch, prViewFields)
 		if err != nil {
 			e.escalate(qi.ID, "cannot discover PR for branch "+branch+": "+stderrOf(err))
 			continue
@@ -440,7 +541,11 @@ func (e *engine) advanceSeq(ctx context.Context, seq string, unreviewed *[]strin
 			e.escalate(head.ID, "scope.pr is not a PR number")
 			return
 		}
-		v, err := e.viewPR(ctx, repo, n, prViewFields)
+		nwo, ok := e.pin(head)
+		if !ok {
+			return
+		}
+		v, err := e.viewPR(ctx, repo, nwo, n, prViewFields)
 		if err != nil {
 			e.escalate(head.ID, "gh pr view failed: "+stderrOf(err))
 			return
@@ -451,7 +556,7 @@ func (e *engine) advanceSeq(ctx context.Context, seq string, unreviewed *[]strin
 			}
 			continue
 		}
-		if err := e.observePR(head.ID, v); err != nil {
+		if err := e.observePR(head, v); err != nil {
 			return
 		}
 		if strings.EqualFold(v.State, "CLOSED") {
@@ -483,7 +588,7 @@ func (e *engine) blockedByDeps(st *operator.State, it operator.TrackedItem) bool
 
 // observePR stores the polled PR facts on the github-pr item, so `unchanged`
 // counts polls with no change (the stall rule's clock).
-func (e *engine) observePR(id string, v prView) error {
+func (e *engine) observePR(head operator.TrackedItem, v prView) error {
 	if e.env.DryRun {
 		return nil
 	}
@@ -491,11 +596,18 @@ func (e *engine) observePR(id string, v prView) error {
 	if v.MergedAt != "" {
 		merged = v.MergedAt
 	}
+	want := identityOf(head)
 	err := operator.Observe(e.env.StatePath, operator.ObserveSpec{
-		ID: id, Fields: map[string]interface{}{"state": v.State, "mergedAt": merged, "mergeable": v.Mergeable},
+		ID: head.ID, Fields: map[string]interface{}{"state": v.State, "mergedAt": merged, "mergeable": v.Mergeable},
+		Guard: func(cur operator.TrackedItem) error {
+			if identityOf(cur) != want {
+				return errPRChanged
+			}
+			return nil
+		},
 	})
 	if err != nil {
-		e.escalate(id, "PR observation not written: "+err.Error())
+		e.prWriteFailed(head.ID, "PR observation not written", err)
 	}
 	return err
 }
@@ -503,11 +615,11 @@ func (e *engine) observePR(id string, v prView) error {
 // markMerged records a verified merge and reports it.
 func (e *engine) markMerged(ctx context.Context, head operator.TrackedItem, v prView, pos, total int, unreviewed *[]string) bool {
 	now := e.env.now().UTC().Format(time.RFC3339)
-	if err := e.patch(head.ID, func(t *operator.TrackedItem) {
+	if err := e.patchPR(head, func(t *operator.TrackedItem) {
 		t.DoneAt = &now
 		t.Scope[scopeArmed] = false
 	}); err != nil {
-		e.escalate(head.ID, "merged completion not written: "+err.Error())
+		e.prWriteFailed(head.ID, "merged completion not written", err)
 		return false
 	}
 	repo := cleanRepo(operator.ScopeString(head.Scope, "repo"))
@@ -516,7 +628,11 @@ func (e *engine) markMerged(ctx context.Context, head operator.TrackedItem, v pr
 		label = head.ID
 	}
 	line := fmt.Sprintf("%s: merged (%s %d/%d)", label, filepath.Base(repo), pos, total)
-	if reviews, err := e.viewPR(ctx, repo, prNum(head.Scope), "reviews"); err != nil {
+	reviews, err := prView{}, errNoPinnedRepo
+	if nwo := pinnedRepo(head); nwo != "" {
+		reviews, err = e.viewPR(ctx, repo, nwo, prNum(head.Scope), "reviews")
+	}
+	if err != nil {
 		e.escalate(head.ID, "merged PR review lookup failed: "+stderrOf(err))
 	} else if !hasReview(reviews.Reviews) {
 		line += " · unreviewed"
@@ -546,7 +662,11 @@ func (e *engine) driveHead(ctx context.Context, head operator.TrackedItem, v prV
 		return e.arm(ctx, head, v)
 	}
 	repo := cleanRepo(operator.ScopeString(head.Scope, "repo"))
-	runs, err := e.requiredChecks(ctx, repo, prNum(head.Scope))
+	nwo, ok := e.pin(head)
+	if !ok {
+		return false
+	}
+	runs, err := e.requiredChecks(ctx, repo, nwo, prNum(head.Scope))
 	if err != nil {
 		e.escalate(head.ID, "gh pr checks failed: "+stderrOf(err))
 		return false
@@ -560,16 +680,24 @@ func (e *engine) driveHead(ctx context.Context, head operator.TrackedItem, v prV
 func (e *engine) arm(ctx context.Context, head operator.TrackedItem, v prView) bool {
 	repo := cleanRepo(operator.ScopeString(head.Scope, "repo"))
 	n := prNum(head.Scope)
+	nwo, ok := e.pin(head)
+	if !ok {
+		return false
+	}
 	if !e.readyDraft(ctx, head, &v) {
 		return false
 	}
 	// The marker is durable before GitHub is asked to arm: `stop` disarms only
 	// the PRs that carry it, so an armed PR without one could merge unattended.
-	if err := e.markArmed(head.ID, true); err != nil {
-		e.escalate(head.ID, fmt.Sprintf("PR #%s was not armed: the armed marker could not be written: %s", n, err))
+	if err := e.markArmed(head, true); err != nil {
+		if errors.Is(err, errPRChanged) {
+			e.prWriteFailed(head.ID, "", err)
+		} else {
+			e.escalate(head.ID, fmt.Sprintf("PR #%s was not armed: the armed marker could not be written: %s", n, err))
+		}
 		return false
 	}
-	_, err := e.gh(ctx, repo, "pr", "merge", "--auto", "--squash", n)
+	_, err := e.gh(ctx, repo, withRepo(nwo, "pr", "merge", "--auto", "--squash", n)...)
 	if alreadyApplied(err, "arm") {
 		e.act(ActArmed, head.ID, "PR #"+n)
 		return false
@@ -579,7 +707,7 @@ func (e *engine) arm(ctx context.Context, head operator.TrackedItem, v prView) b
 		e.escalate(head.ID, fmt.Sprintf("arm outcome uncertain for PR #%s: %s; marker retained so stop will disarm it", n, stderrOf(err)))
 		return false
 	}
-	if cerr := e.markArmed(head.ID, false); cerr != nil {
+	if cerr := e.markArmed(head, false); cerr != nil {
 		// Retain the durable marker until its clearing write succeeds.
 		e.escalate(head.ID, fmt.Sprintf("arming PR #%s failed (%s) and the armed marker could not be cleared (%s): the marker stays so stop will disarm it", n, stderrOf(err), cerr))
 		return false
@@ -589,8 +717,8 @@ func (e *engine) arm(ctx context.Context, head operator.TrackedItem, v prView) b
 		// No required checks: auto-merge has nothing to wait for, so merge now.
 		return e.mergeNow(ctx, head, n, repo)
 	case strings.Contains(msg, "auto merge is not allowed"), strings.Contains(msg, "auto-merge is not allowed"):
-		if err := e.setScope(head.ID, map[string]interface{}{scopeDirect: true}); err != nil {
-			e.escalate(head.ID, "direct merge marker not written: "+err.Error())
+		if err := e.patchPR(head, func(t *operator.TrackedItem) { t.Scope[scopeDirect] = true }); err != nil {
+			e.prWriteFailed(head.ID, "direct merge marker not written", err)
 			return false
 		}
 		e.escalate(head.ID, "auto-merge is disabled on this repo: merging step by step")
@@ -616,20 +744,10 @@ func definitiveArmRejection(msg string) bool {
 	return false
 }
 
-// markArmed requires a tracked item so stop can always find the marker.
-func (e *engine) markArmed(id string, armed bool) error {
-	if e.env.DryRun {
-		return nil
-	}
-	return operator.Mutate(e.env.StatePath, func(st *operator.State) error {
-		i := operator.IndexOf(st.Tracked, id)
-		if i < 0 {
-			return fmt.Errorf("item %s is no longer tracked", id)
-		}
-		st.Tracked[i].Scope[scopeArmed] = armed
-		st.Tracked[i].UpdatedAt = operator.NowRFC3339()
-		return nil
-	})
+// markArmed writes the armed marker under patchPR's identity check, so stop
+// can always find it on the item that names the PR being armed.
+func (e *engine) markArmed(head operator.TrackedItem, armed bool) error {
+	return e.patchPR(head, func(t *operator.TrackedItem) { t.Scope[scopeArmed] = armed })
 }
 
 // readyDraft marks a draft PR ready and reports whether the PR may proceed. A
@@ -640,7 +758,14 @@ func (e *engine) readyDraft(ctx context.Context, head operator.TrackedItem, v *p
 	}
 	repo := cleanRepo(operator.ScopeString(head.Scope, "repo"))
 	n := prNum(head.Scope)
-	if _, err := e.gh(ctx, repo, "pr", "ready", n); !alreadyApplied(err, "ready") {
+	nwo, ok := e.pin(head)
+	if !ok {
+		return false
+	}
+	if !e.stillNamesSamePR(head) {
+		return false
+	}
+	if _, err := e.gh(ctx, repo, withRepo(nwo, "pr", "ready", n)...); !alreadyApplied(err, "ready") {
 		e.escalate(head.ID, fmt.Sprintf("cannot ready draft PR #%s: %s", n, stderrOf(err)))
 		return false
 	}
@@ -649,7 +774,14 @@ func (e *engine) readyDraft(ctx context.Context, head operator.TrackedItem, v *p
 }
 
 func (e *engine) mergeNow(ctx context.Context, head operator.TrackedItem, n, repo string) bool {
-	if _, err := e.gh(ctx, repo, "pr", "merge", "--squash", n); !alreadyApplied(err, "merge") {
+	nwo, ok := e.pin(head)
+	if !ok {
+		return false
+	}
+	if !e.stillNamesSamePR(head) {
+		return false
+	}
+	if _, err := e.gh(ctx, repo, withRepo(nwo, "pr", "merge", "--squash", n)...); !alreadyApplied(err, "merge") {
 		e.escalate(head.ID, fmt.Sprintf("merging PR #%s failed: %s", n, stderrOf(err)))
 		return false
 	}
@@ -661,7 +793,11 @@ func (e *engine) mergeNow(ctx context.Context, head operator.TrackedItem, n, rep
 func (e *engine) directMerge(ctx context.Context, head operator.TrackedItem, v prView) bool {
 	repo := cleanRepo(operator.ScopeString(head.Scope, "repo"))
 	n := prNum(head.Scope)
-	runs, err := e.requiredChecks(ctx, repo, n)
+	nwo, ok := e.pin(head)
+	if !ok {
+		return false
+	}
+	runs, err := e.requiredChecks(ctx, repo, nwo, n)
 	if err != nil {
 		e.escalate(head.ID, "gh pr checks failed: "+stderrOf(err))
 		return false
@@ -704,8 +840,11 @@ func (e *engine) stall(head operator.TrackedItem, v prView, runs []checkRun) {
 	if operator.ScopeString(head.Scope, scopeStallSeen) == seen {
 		return
 	}
-	if err := e.setScope(head.ID, map[string]interface{}{scopeStallSeen: seen}); err != nil {
-		e.escalate(head.ID, "stall marker not written: "+err.Error())
+	if err := e.patchPR(head, func(t *operator.TrackedItem) { t.Scope[scopeStallSeen] = seen }); err != nil {
+		e.prWriteFailed(head.ID, "stall marker not written", err)
+		if errors.Is(err, errPRChanged) {
+			return
+		}
 	}
 	repo := cleanRepo(operator.ScopeString(head.Scope, "repo"))
 	e.escalate(head.ID, fmt.Sprintf("recovery needed: %s — PR #%s (%s)", reason, prNum(head.Scope), filepath.Base(repo)))
@@ -720,8 +859,8 @@ type checkRun struct {
 // requiredChecks lists the PR's required checks. `gh pr checks` signals failing
 // or pending checks through its exit status while still printing the JSON, and
 // prints no JSON at all when nothing is required.
-func (e *engine) requiredChecks(ctx context.Context, repo, n string) ([]checkRun, error) {
-	out, err := e.gh(ctx, repo, "pr", "checks", n, "--required", "--json", "name,state,link")
+func (e *engine) requiredChecks(ctx context.Context, repo, nwo, n string) ([]checkRun, error) {
+	out, err := e.gh(ctx, repo, withRepo(nwo, "pr", "checks", n, "--required", "--json", "name,state,link")...)
 	var runs []checkRun
 	if jerr := json.Unmarshal([]byte(out), &runs); jerr == nil {
 		return runs, nil
@@ -806,16 +945,20 @@ func (e *engine) haltCone(ctx context.Context, st *operator.State, failing opera
 func (e *engine) disarm(ctx context.Context, it operator.TrackedItem) error {
 	repo := cleanRepo(operator.ScopeString(it.Scope, "repo"))
 	n := prNum(it.Scope)
+	nwo, ok := e.pin(it)
+	if !ok {
+		return errNoPinnedRepo
+	}
 	if e.env.DryRun {
 		e.act(ActDisarmed, it.ID, "would disarm PR #"+n)
 		return nil
 	}
-	if _, err := e.gh(ctx, repo, "pr", "merge", "--disable-auto", n); !alreadyApplied(err, "disarm") && !e.prFinished(ctx, repo, n) {
+	if _, err := e.gh(ctx, repo, withRepo(nwo, "pr", "merge", "--disable-auto", n)...); !alreadyApplied(err, "disarm") && !e.prFinished(ctx, repo, nwo, n) {
 		e.escalate(it.ID, fmt.Sprintf("disarming PR #%s failed — it may still merge: %s", n, stderrOf(err)))
 		return err
 	}
-	if err := e.setScope(it.ID, map[string]interface{}{scopeArmed: false}); err != nil {
-		e.escalate(it.ID, "disarmed marker not written: "+err.Error())
+	if err := e.patchPR(it, func(t *operator.TrackedItem) { t.Scope[scopeArmed] = false }); err != nil {
+		e.prWriteFailed(it.ID, "disarmed marker not written", err)
 		return err
 	}
 	e.act(ActDisarmed, it.ID, "PR #"+n)
@@ -823,7 +966,7 @@ func (e *engine) disarm(ctx context.Context, it operator.TrackedItem) error {
 }
 
 // prFinished reports whether the PR is merged or closed.
-func (e *engine) prFinished(ctx context.Context, repo, n string) bool {
-	v, err := e.viewPR(ctx, repo, n, "state")
+func (e *engine) prFinished(ctx context.Context, repo, nwo, n string) bool {
+	v, err := e.viewPR(ctx, repo, nwo, n, "state")
 	return err == nil && (strings.EqualFold(v.State, "MERGED") || strings.EqualFold(v.State, "CLOSED"))
 }

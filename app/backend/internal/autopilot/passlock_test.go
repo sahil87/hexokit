@@ -8,9 +8,15 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
-const lockHelperEnv = "AUTOPILOT_PASS_LOCK_HELPER"
+const (
+	lockHelperEnv = "AUTOPILOT_PASS_LOCK_HELPER"
+	// lockHelperTimeout bounds the child: the context kills it, which also
+	// ends the read of its stdout if it never announces the lock.
+	lockHelperTimeout = 30 * time.Second
+)
 
 // TestPassLockHolderProcess is the child of TestPassLockIsReleasedOnProcessDeath:
 // it takes the lock, announces it, and waits to be killed.
@@ -128,7 +134,9 @@ func TestDryRunAndReadsTakeNoPassLock(t *testing.T) {
 
 func TestPassLockIsReleasedOnProcessDeath(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "operator", "state.yaml")
-	cmd := exec.Command(os.Args[0], "-test.run=^TestPassLockHolderProcess$")
+	ctx, cancel := context.WithTimeout(context.Background(), lockHelperTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestPassLockHolderProcess$")
 	cmd.Env = append(os.Environ(), lockHelperEnv+"="+statePath)
 	out, err := cmd.StdoutPipe()
 	if err != nil {

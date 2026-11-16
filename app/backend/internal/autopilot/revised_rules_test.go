@@ -48,7 +48,7 @@ func TestLegacyMergeModeItemRemainsQueueWork(t *testing.T) {
 	h := newHarness(t)
 	repo := newRepo(t, "repo")
 	addLegacyPane(t, h, "legacy", nil, map[string]interface{}{"repo": repo.Dir, "merge_mode": operator.MergeModeCherryPickLadder, "task": "work"})
-	if !isQueueItem(h.state(), h.item("legacy")) {
+	if !operator.IsQueueItem(h.state(), h.item("legacy")) {
 		t.Fatal("legacy mode was ignored")
 	}
 	if res := h.step(); !hasAction(res, ActSpawned, "legacy") {
@@ -75,7 +75,7 @@ func TestLegacyDependencyChainRemainsQueueWork(t *testing.T) {
 	addLegacyPane(t, h, "child", []string{"base"}, map[string]interface{}{"repo": repo.Dir, "merge_mode": nil, "change": "bbbb"})
 	addLegacyPane(t, h, "isolated", nil, map[string]interface{}{"repo": repo.Dir, "merge_mode": nil, "change": "cccc"})
 	st := h.state()
-	if !isQueueItem(st, h.item("base")) || !isQueueItem(st, h.item("child")) || isQueueItem(st, h.item("isolated")) {
+	if !operator.IsQueueItem(st, h.item("base")) || !operator.IsQueueItem(st, h.item("child")) || operator.IsQueueItem(st, h.item("isolated")) {
 		t.Fatal("legacy dependency membership is wrong")
 	}
 	status, err := Status(context.Background(), h.env)
@@ -102,7 +102,7 @@ func TestQueueMembershipDoesNotUseUnknownOrSelfEdges(t *testing.T) {
 		addLegacyPane(t, h, id, deps, map[string]interface{}{"repo": repo.Dir})
 	}
 	for _, it := range h.state().Tracked {
-		if isQueueItem(h.state(), it) {
+		if operator.IsQueueItem(h.state(), it) {
 			t.Fatalf("non-queue edge made %s eligible", it.ID)
 		}
 	}
@@ -151,7 +151,7 @@ func TestSpawnRejectsSharedDependencyBranchesBeforeFetch(t *testing.T) {
 func TestMarkedQueueItemWithMissingRepoIsRejectedRatherThanHidden(t *testing.T) {
 	h := newHarness(t)
 	addLegacyPane(t, h, "queued", nil, map[string]interface{}{scopeQueue: "queue-1"})
-	if !isQueueItem(h.state(), h.item("queued")) {
+	if !operator.IsQueueItem(h.state(), h.item("queued")) {
 		t.Fatal("repo validation replaced queue membership")
 	}
 	if res := h.step(); !hasEscalation(res, "repo is empty") || h.spawn.n != 0 {

@@ -129,9 +129,10 @@ Examples:
 
 Exit codes:
   0  queued
-  1  operational failure (state file busy or unreadable)
+  1  operational failure (state file busy or unreadable, a state write failed)
   2  usage error (bad entries, id already tracked, invalid mode or setting,
-                  bare dependency, relative repo, unconfirmed misfit)`,
+                  bare dependency, forward or cyclic dependency, relative or
+                  non-git repo, invalid --by, unconfirmed misfit)`,
 	Args:         usageArgs(cobra.NoArgs),
 	SilenceUsage: true,
 	RunE:         runAutopilotQueue,
@@ -171,8 +172,9 @@ Examples:
 
 Exit codes:
   0  stepped (with or without actions or escalations), or busy
-  1  operational failure (state file busy or unreadable)
-  2  usage error`,
+  1  operational failure (state file busy or unreadable, tmux pane snapshot
+     failed, a state write failed)
+  2  usage error (invalid --by)`,
 	Args:         usageArgs(cobra.NoArgs),
 	SilenceUsage: true,
 	RunE:         runAutopilotStep,
@@ -204,7 +206,7 @@ Examples:
 Exit codes:
   0  started (or nothing to merge), or busy
   1  operational failure (queue items not done, stacked-prs queue, no PR for a
-     branch, state busy)
+     branch, state file busy or unreadable, a gh lookup failed)
   2  usage error (--repo empty, relative or not a queued repository)`,
 	Args:         usageArgs(cobra.NoArgs),
 	SilenceUsage: true,
@@ -218,7 +220,8 @@ var operatorAutopilotStopCmd = &cobra.Command{
 unfinished merge sequences so a later step does not re-arm them, and pause every
 unspawned queue item. Live panes are left untouched. A disarm that fails keeps
 the PR's armed marker and is retried by the next stop or step. To resume a
-halted PR item: rk operator track update <id> --scope '{"halted":false}'.
+halted PR item (halted is autopilot's field, so the write needs --force):
+rk operator track update --force <id> --scope '{"halted":false}'.
 
 stop takes the per-server pass lock. If another pass holds it, stop does
 nothing, prints "busy" and exits 0.
@@ -233,7 +236,8 @@ Examples:
 
 Exit codes:
   0  stopped, or busy
-  1  operational failure (state file busy or unreadable, a disarm failed)
+  1  operational failure (state file busy or unreadable, a state write failed,
+     a disarm failed)
   2  usage error`,
 	Args:         usageArgs(cobra.NoArgs),
 	SilenceUsage: true,
@@ -243,10 +247,17 @@ Exit codes:
 var operatorAutopilotStatusCmd = &cobra.Command{
 	Use:   "status [--all] [--json]",
 	Short: "Show the queue: state, mode, repo, branch, PR, position",
-	Long: `Read-only queue view: per item the derived state (done, paused, held, pending,
-spawned), mode, repo, branch, PR, merge-sequence position and halted marker.
-When every item is done it ends with the Queue Completion Summary. States derive
-from stored facts only; step applies the live PR checks.
+	Long: `Queue view: per item the derived state (done, paused, held, pending, spawned),
+mode, repo, branch, PR, merge-sequence position and halted marker. It writes
+nothing, takes no pass lock and reports no escalations.
+
+States follow the same readiness rule as step, so status makes read-only GitHub
+calls: gh pr view decides whether a same-repo dependency's PR exists (a
+dependency with no PR yet is simply held), and the Queue Completion Summary
+(shown when every item is done) reads each PR link. If a gh lookup fails, the
+failures are printed as plain text, nothing else is listed in the human view,
+and the command exits 1; with --json the envelope reports ok:false with that
+error and still carries the items it derived.
 
 Flags:
   -L, --server    tmux server (default: the caller's own server from $TMUX)
@@ -259,7 +270,7 @@ Examples:
 
 Exit codes:
   0  listed (an absent state file lists nothing)
-  1  operational failure (state file unreadable)
+  1  operational failure (state file unreadable, a gh lookup failed)
   2  usage error`,
 	Args:         usageArgs(cobra.NoArgs),
 	SilenceUsage: true,

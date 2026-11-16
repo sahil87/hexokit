@@ -57,7 +57,7 @@ For a merged PR with no non-pending review (`gh pr view <n> --json reviews`), sa
 note.
 
 A halted sequence (CI failure after recovery, conflict after recovery) disarms its armed PRs with
-`gh pr merge --disable-auto <pr>` and is marked `rk operator track update -L <server> pr-<n> --scope '{"halted":true}'`;
+`gh pr merge --disable-auto <pr>` and is marked `rk operator track update -L <server> --force pr-<n> --scope '{"halted":true}'` (`halted` is autopilot's field, so a hand write needs `--force`);
 it halts only that repo's sequence and the repos that depend on it across repos, and notifies with
 the diagnosis.
 

@@ -424,7 +424,7 @@ func TestStallSurvivesTheItemBeingRemovedByAnExternalWriter(t *testing.T) {
 	h.startMerge()
 	h.run.onRun = func(argv []string) {
 		if len(argv) > 3 && argv[1] == "pr" && argv[2] == "checks" {
-			_ = operator.Remove(h.env.StatePath, "pr-1")
+			_ = operator.Remove(h.env.StatePath, "pr-1", true)
 		}
 	}
 	h.step() // must not panic indexing the removed item
@@ -823,5 +823,213 @@ func TestDisarmOfAMergedOrClosedPRClearsTheMarker(t *testing.T) {
 				t.Fatal("a finished PR kept its armed marker")
 			}
 		})
+	}
+}
+
+// A github-pr item is pinned to the owner/name its probe was created with.
+// scope.repo is only a mutable checkout path, so no gh call may follow it.
+func TestGitHubPRCallsTargetThePinnedRepoNotTheCheckoutInScope(t *testing.T) {
+	for _, scenario := range []string{"stall-then-stop", "verified-merge"} {
+		t.Run(scenario, func(t *testing.T) {
+			h := newHarness(t)
+			foo, bar := newRepo(t, "foo"), newRepo(t, "bar")
+			h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
+			prs := h.shipped(1, "a")
+			h.startMerge()
+			if !prs[0].Armed {
+				t.Fatal("fixture: PR 1 should be armed")
+			}
+			if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
+				st.Tracked[operator.IndexOf(st.Tracked, "pr-1")].Scope["repo"] = bar.Dir
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			h.run.reset()
+			if scenario == "stall-then-stop" {
+				prs[0].Checks = []checkRun{{Name: "ci", State: "FAILURE"}}
+				h.step() // view, checks
+				if _, err := Stop(context.Background(), h.env); err != nil {
+					t.Fatal(err) // disarm
+				}
+				if prs[0].Disarms != 1 {
+					t.Fatalf("disarms = %d", prs[0].Disarms)
+				}
+			} else {
+				prs[0].State = "MERGED"
+				h.step() // view, reviews
+				if !operator.ItemDone(h.item("pr-1")) {
+					t.Fatal("merge not verified")
+				}
+			}
+			seen := 0
+			for _, c := range h.run.calls {
+				if !strings.HasPrefix(c, "gh pr ") {
+					continue
+				}
+				seen++
+				if !strings.Contains(c, "--repo o/foo") || strings.Contains(c, "o/bar") {
+					t.Fatalf("gh call not pinned to o/foo: %q", c)
+				}
+			}
+			if seen < 2 {
+				t.Fatalf("too few pr calls: %q", h.run.calls)
+			}
+		})
+	}
+}
+
+func TestArmReadyAndMergeAreAllPinned(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
+	prs := h.shipped(1, "a")
+	prs[0].IsDraft = true
+	prs[0].AutoErr = "GraphQL: Pull request is in clean status (enablePullRequestAutoMerge)"
+	if _, err := StartMerge(context.Background(), h.env, MergeOptions{Repo: foo.Dir}); err != nil {
+		t.Fatal(err)
+	}
+	if prs[0].State != "MERGED" {
+		t.Fatalf("fixture: clean PR should merge directly (state %s)", prs[0].State)
+	}
+	for _, c := range h.run.calls {
+		if (strings.HasPrefix(c, "gh pr ready") || strings.HasPrefix(c, "gh pr merge")) && !strings.Contains(c, "--repo o/foo") {
+			t.Fatalf("mutation not pinned: %q", c)
+		}
+	}
+	if h.run.called("gh pr ready 1 --repo o/foo") != 1 || h.run.called("gh pr merge --auto --squash 1 --repo o/foo") != 1 || h.run.called("gh pr merge --squash 1 --repo o/foo") != 1 {
+		t.Fatalf("calls = %q", h.run.calls)
+	}
+}
+
+func TestAPRItemWithoutAPinnedRepoIsNeverActedOn(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
+	prs := h.shipped(1, "a")
+	h.startMerge()
+	if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
+		it := &st.Tracked[operator.IndexOf(st.Tracked, "pr-1")]
+		it.Probe.Argv = []string{"gh", "pr", "view", "1"}
+		it.Scope["armed"] = true
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h.run.reset()
+	res := h.step()
+	if !hasEscalation(res, "no valid pinned owner/name") {
+		t.Fatalf("escalations = %+v", res.Escalations)
+	}
+	if _, err := Stop(context.Background(), h.env); err == nil {
+		t.Fatal("stop must fail rather than disarm a PR it cannot place")
+	}
+	if h.run.called("gh pr") != 0 || prs[0].Disarms != 0 {
+		t.Fatalf("an unpinned PR item reached gh: %q", h.run.calls)
+	}
+	if !scopeBool(h.item("pr-1"), scopeArmed) {
+		t.Fatal("the armed marker must survive a refused disarm")
+	}
+}
+
+// A hand-edited state file (track update refuses these fields) can re-point a
+// github-pr item between a pass's snapshot and its writes. Every identity
+// change must stop the marker write, and with it the gh mutation.
+var prIdentityChanges = map[string]func(it *operator.TrackedItem, other string){
+	"scope.pr":   func(it *operator.TrackedItem, _ string) { it.Scope["pr"] = 2 },
+	"scope.repo": func(it *operator.TrackedItem, other string) { it.Scope["repo"] = other },
+	"pinned owner/name": func(it *operator.TrackedItem, _ string) {
+		for i, a := range it.Probe.Argv {
+			if a == "--repo" {
+				it.Probe.Argv[i+1] = "o/elsewhere"
+			}
+		}
+	},
+}
+
+func changePRItem(t *testing.T, h *harness, id, other string, change func(*operator.TrackedItem, string)) {
+	t.Helper()
+	if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
+		change(&st.Tracked[operator.IndexOf(st.Tracked, id)], other)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestArmNeitherMarksNorArmsAPRItemThatChangedAfterTheSnapshot(t *testing.T) {
+	for name, change := range prIdentityChanges {
+		t.Run(name, func(t *testing.T) {
+			h, pr, head := armFixture(t)
+			changePRItem(t, h, head.ID, t.TempDir(), change)
+			h.run.reset()
+			res := armOnce(t, h, head)
+			if h.run.called("gh pr merge") != 0 || pr.Armed || scopeBool(h.item(head.ID), scopeArmed) {
+				t.Fatalf("armed or marked a changed item: calls=%q", h.run.calls)
+			}
+			if !hasEscalation(res, "PR item pr-1 changed externally; skipped") || hasAction(res, ActArmed, "") {
+				t.Fatalf("res = %+v", res)
+			}
+		})
+	}
+}
+
+func TestMarkMergedRefusesAChangedPRItem(t *testing.T) {
+	h, _, head := armFixture(t)
+	changePRItem(t, h, head.ID, "", prIdentityChanges["scope.pr"])
+	e := newEngine(h.env)
+	var unreviewed []string
+	if e.markMerged(context.Background(), head, prView{State: "MERGED"}, 1, 1, &unreviewed) {
+		t.Fatal("acknowledged a merge for a PR the item no longer names")
+	}
+	if operator.ItemDone(h.item(head.ID)) || hasAction(e.res, ActMerged, "") || !hasEscalation(e.res, "changed externally; skipped") {
+		t.Fatalf("res = %+v", e.res)
+	}
+}
+
+func TestObservationOfAChangedPRItemWritesNothing(t *testing.T) {
+	h, _, head := armFixture(t)
+	changePRItem(t, h, head.ID, "", prIdentityChanges["scope.pr"])
+	before := h.item(head.ID)
+	e := newEngine(h.env)
+	if err := e.observePR(head, prView{State: "OPEN", Mergeable: "CONFLICTING"}); err == nil {
+		t.Fatal("observation of another PR was written")
+	}
+	after := h.item(head.ID)
+	if after.Unchanged != before.Unchanged || fmt.Sprint(after.Last) != fmt.Sprint(before.Last) || !hasEscalation(e.res, "changed externally; skipped") {
+		t.Fatalf("before %+v after %+v res %+v", before, after, e.res)
+	}
+}
+
+func TestReadyAndDirectMergeSkipAChangedPRItem(t *testing.T) {
+	for name, change := range prIdentityChanges {
+		t.Run(name, func(t *testing.T) {
+			h, pr, head := armFixture(t)
+			pr.IsDraft = true
+			changePRItem(t, h, head.ID, t.TempDir(), change)
+			h.run.reset()
+			e := newEngine(h.env)
+			view := prView{IsDraft: true, Mergeable: "MERGEABLE"}
+			if e.readyDraft(context.Background(), head, &view) || e.mergeNow(context.Background(), head, "1", operator.ScopeString(head.Scope, "repo")) {
+				t.Fatal("acted on a changed item")
+			}
+			if h.run.called("gh pr ready") != 0 || h.run.called("gh pr merge") != 0 || !pr.IsDraft {
+				t.Fatalf("gh mutated: %q", h.run.calls)
+			}
+		})
+	}
+}
+
+func TestDisarmKeepsTheMarkerWhenTheItemChangedUnderIt(t *testing.T) {
+	h, _, head := armFixture(t)
+	armOnce(t, h, head)
+	snap := h.item(head.ID)
+	changePRItem(t, h, head.ID, "", prIdentityChanges["scope.pr"])
+	e := newEngine(h.env)
+	if err := e.disarm(context.Background(), snap); err == nil {
+		t.Fatal("cleared the marker of an item that names another PR")
+	}
+	if !scopeBool(h.item(head.ID), scopeArmed) || !hasEscalation(e.res, "changed externally; skipped") {
+		t.Fatalf("res = %+v", e.res)
 	}
 }

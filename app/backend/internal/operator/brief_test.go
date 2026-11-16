@@ -175,6 +175,22 @@ func TestRenderBrief_AffectedBlockDetail(t *testing.T) {
 	}
 }
 
+func TestRenderBrief_MemoRendersOnItsOwnLine(t *testing.T) {
+	st := fixtureState(t)
+	idx := IndexOf(st.Tracked, "pr-1")
+	st.Tracked[idx].Scope = mergeScope(st.Tracked[idx].Scope, map[string]interface{}{ScopeMemo: map[string]interface{}{"why": "waiting on design", "owner": "sam"}})
+	out := RenderBrief(BriefInput{State: st, Server: "work", Now: briefTestNow, Changed: []ChangedItem{{ID: "pr-1"}}})
+	affected := sectionBody(t, out, "## Affected items")
+	for _, want := range []string{
+		`- scope: pr: 1, repo: "/src/app"` + "\n",
+		`- memo: owner: "sam", why: "waiting on design"` + "\n",
+	} {
+		if !strings.Contains(affected, want) {
+			t.Errorf("block missing %q in:\n%s", want, affected)
+		}
+	}
+}
+
 func TestRenderBrief_OtherItemsAreOneLiners(t *testing.T) {
 	out := renderFixture(t, ChangedItem{ID: "pr-1"})
 	others := sectionBody(t, out, "## Other tracked items")

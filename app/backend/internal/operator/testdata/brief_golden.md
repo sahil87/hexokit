@@ -142,6 +142,17 @@ from the user; follow them. Notes marked `by: run` are what earlier runs did and
 repeat an action a run note says was done, and finish what it says was left open if its condition
 now holds.
 
+An item's `memo` line holds free-form facts that earlier runs or the user kept about it; read it
+with the notes. Keep your own extra facts there, merged per key (a null value deletes one):
+
+```sh
+rk operator track update -L work <id> --scope '{"memo":{"<name>":"<value>"}}'
+```
+
+`track update --scope` and `track add --scope` accept only the keys rk defines; anything else
+you want to remember goes in `memo`. Autopilot's own fields (`armed`, `halted`, `spawning`, `queue`
+and the rest) are not yours to write.
+
 ### Agent probes
 
 A `linear` or `slack` item that is changed or stale is due. Run its `probe.instruction` (the MCP
@@ -235,7 +246,7 @@ For a merged PR with no non-pending review (`gh pr view <n> --json reviews`), sa
 note.
 
 A halted sequence (CI failure after recovery, conflict after recovery) disarms its armed PRs with
-`gh pr merge --disable-auto <pr>` and is marked `rk operator track update -L work pr-<n> --scope '{"halted":true}'`;
+`gh pr merge --disable-auto <pr>` and is marked `rk operator track update -L work --force pr-<n> --scope '{"halted":true}'` (`halted` is autopilot's field, so a hand write needs `--force`);
 it halts only that repo's sequence and the repos that depend on it across repos, and notifies with
 the diagnosis.
 

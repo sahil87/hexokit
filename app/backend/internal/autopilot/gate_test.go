@@ -2,6 +2,8 @@ package autopilot
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -15,29 +17,30 @@ func TestDerivedStatePrecedence(t *testing.T) {
 		Entry{ID: "a", Repo: foo.Dir, Task: "a"},
 		Entry{ID: "b", Repo: foo.Dir, Task: "b"},
 	)
-	st := h.state()
-	if got := derivedState(st, h.item("a")); got != StatePending {
+	if got := h.stateOf(h.item("a")); got != StatePending {
 		t.Errorf("a = %s, want pending", got)
 	}
-	if got := derivedState(st, h.item("b")); got != StateHeld {
+	if got := h.stateOf(h.item("b")); got != StateHeld {
 		t.Errorf("b = %s, want held", got)
 	}
 	if err := operator.Pause(h.env.StatePath, "a"); err != nil {
 		t.Fatal(err)
 	}
-	if got := derivedState(h.state(), h.item("a")); got != StatePaused {
+	if got := h.stateOf(h.item("a")); got != StatePaused {
 		t.Errorf("a = %s, want paused", got)
 	}
 	// A pane does not lift the hold: a dependency still unsatisfied wins.
 	h.attachBranch("b", "bb")
-	if got := derivedState(h.state(), h.item("b")); got != StateHeld {
+	if got := h.stateOf(h.item("b")); got != StateHeld {
 		t.Errorf("b = %s, want held (a spawned item with an unsatisfied dependency)", got)
 	}
+	h.attachBranch("a", "a-branch")
+	h.gh.add(1, "a-branch")
 	h.setDone("a")
-	if got := derivedState(h.state(), h.item("a")); got != StateDone {
+	if got := h.stateOf(h.item("a")); got != StateDone {
 		t.Errorf("a = %s, want done (above paused)", got)
 	}
-	if got := derivedState(h.state(), h.item("b")); got != StateSpawned {
+	if got := h.stateOf(h.item("b")); got != StateSpawned {
 		t.Errorf("b = %s, want spawned once its dependency is done", got)
 	}
 }
@@ -227,5 +230,65 @@ func TestPlainAgentCompletionIgnoresOptionalChecks(t *testing.T) {
 				t.Fatalf("done = %v; want %v", operator.ItemDone(h.item("a")), want)
 			}
 		})
+	}
+}
+
+// Status applies the live gate's rule, so it never calls pending an item that
+// step would hold.
+func TestStatusHoldsAnItemWhoseSameRepoDependencyHasNoPR(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"}, Entry{ID: "b", Repo: foo.Dir, Task: "b"})
+	h.setDone("a")
+	h.attachBranch("a", "a-branch")
+	before, err := os.ReadFile(h.env.StatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := Status(context.Background(), h.env)
+	if err != nil {
+		t.Fatalf("a missing PR is a held item, not a failure: %v", err)
+	}
+	if got := res.Items[1]; got.ID != "b" || got.State != StateHeld {
+		t.Fatalf("b = %+v, want held while a has no PR", got)
+	}
+
+	h.gh.add(1, "a-branch")
+	res, err = Status(context.Background(), h.env)
+	if err != nil || res.Items[1].State != StatePending {
+		t.Fatalf("with a's PR, b = %+v err %v", res.Items[1], err)
+	}
+	after, _ := os.ReadFile(h.env.StatePath)
+	if string(before) != string(after) {
+		t.Fatal("status wrote the state file")
+	}
+	if ok, _ := gateOf(t, h, "b"); !ok {
+		t.Fatal("live gate and status disagree")
+	}
+}
+
+func TestStatusReportsNoEscalationsAndWritesNoNotes(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"}, Entry{ID: "b", Repo: foo.Dir, Task: "b"})
+	h.setDone("a")
+	h.attachBranch("a", "a-branch")
+	h.run.fail("gh pr view", "gh unavailable")
+	res, err := Status(context.Background(), h.env)
+	if err == nil || !strings.Contains(err.Error(), "gh unavailable") {
+		t.Fatalf("a failed lookup must be returned as error text: %v", err)
+	}
+	if res.Items[1].State != StateHeld {
+		t.Fatalf("b = %+v", res.Items[1])
+	}
+	raw, _ := json.Marshal(res)
+	if strings.Contains(string(raw), "escalation") {
+		t.Fatalf("status result carries escalations: %s", raw)
+	}
+	for _, id := range []string{"a", "b"} {
+		if n := len(h.item(id).Notes); n != 0 {
+			t.Fatalf("status wrote %d notes on %s", n, id)
+		}
 	}
 }

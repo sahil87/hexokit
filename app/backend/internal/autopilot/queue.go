@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"regexp"
-	"slices"
 	"strings"
 
 	"rk/internal/operator"
@@ -20,21 +19,25 @@ const (
 	SourceDefault = "default"
 )
 
-// Queue-only scope keys, beside the pinned pane scope keys.
+// Scope keys the engine writes; operator owns the definitions and the refusal
+// of hand writes to them.
 const (
-	scopeTask      = "task"
-	scopeBare      = "bare"
-	scopeRespawned = "respawned"
-	scopeSkipped   = "skipped"
-	scopeSpawning  = "spawning"
-	scopeMergeSeq  = "merge_seq"
-	scopeItem      = "item"
-	scopeArmed     = "armed"
-	scopeHalted    = "halted"
-	scopeDirect    = "direct"
-	scopeStallSeen = "stall_seen"
-	scopeDeferred  = "deferred"
-	scopeQueue     = "queue"
+	scopeTask      = operator.ScopeTask
+	scopeBare      = operator.ScopeBare
+	scopeRespawned = operator.ScopeRespawned
+	scopeSkipped   = operator.ScopeSkipped
+	scopeSpawning  = operator.ScopeSpawning
+	scopeMergeSeq  = operator.ScopeMergeSeq
+	scopeItem      = operator.ScopeItem
+	scopeArmed     = operator.ScopeArmed
+	scopeHalted    = operator.ScopeHalted
+	scopeDirect    = operator.ScopeDirect
+	scopeStallSeen = operator.ScopeStallSeen
+	scopeDeferred  = operator.ScopeDeferred
+	scopeQueue     = operator.ScopeQueue
+	scopeEscalated = operator.ScopeEscalated
+	scopeMergeMode = operator.ScopeMergeMode
+	scopeURL       = operator.ScopeURL
 )
 
 var itemIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
@@ -116,31 +119,11 @@ func ResolveMode(flag, setting string) (mode, source string, err error) {
 // modeOf reads an item's stored mode; null reads as cherry-pick-ladder for
 // items created before queues stamped one.
 func modeOf(it operator.TrackedItem) string {
-	if m := operator.ScopeString(it.Scope, "merge_mode"); m != "" {
+	if m := operator.ScopeString(it.Scope, scopeMergeMode); m != "" {
 		return m
 	}
 	return operator.MergeModeCherryPickLadder
 }
-
-// Queue markers and legacy non-null modes identify even isolated queue items.
-// A dependency edge identifies both eligible pane endpoints of a legacy chain;
-// an isolated null-mode pane has no queue evidence and remains ordinary tracking.
-func isQueueItem(st *operator.State, it operator.TrackedItem) bool {
-	if !queuePane(it) {
-		return false
-	}
-	if it.Scope[scopeQueue] != nil || it.Scope["merge_mode"] != nil {
-		return true
-	}
-	for _, other := range st.Tracked {
-		if other.ID != it.ID && queuePane(other) && (slices.Contains(it.DependsOn, other.ID) || slices.Contains(other.DependsOn, it.ID)) {
-			return true
-		}
-	}
-	return false
-}
-
-func queuePane(it operator.TrackedItem) bool { return it.Kind == operator.KindPane }
 
 func isBare(it operator.TrackedItem) bool {
 	b, _ := it.Scope[scopeBare].(bool)
@@ -251,7 +234,7 @@ func (e *engine) buildQueue(ctx context.Context, st *operator.State, entries []E
 			}
 		}
 		scope := map[string]interface{}{
-			"repo": en.Repo, "merge_mode": mode, scopeBare: en.Change == "" && en.Task == "", scopeQueue: queueID,
+			"repo": en.Repo, scopeMergeMode: mode, scopeBare: en.Change == "" && en.Task == "", scopeQueue: queueID,
 		}
 		if en.Change != "" {
 			scope["change"] = en.Change

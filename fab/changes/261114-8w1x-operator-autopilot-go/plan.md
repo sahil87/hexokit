@@ -174,11 +174,51 @@ The settings key `operator.merge_mode` SHALL stay as built (enum of the three mo
 
 - **GIVEN** `operator.merge_mode: stacked-prs` **WHEN** `queue` runs without `--mode` **THEN** items are stamped `stacked-prs` with source `setting`
 
+### State file: field ownership
+
+#### R28: Scope writes are allow-listed (deny by default)
+<!-- revised after review 4: refused-list → allow-list -->
+`operator.Update` and the free-scope part of `operator.Add` SHALL accept, without `Force`, only: `memo` (R31); identity keys `repo`, `change`, `pr`, `task`, `bare` while empty (Update) or at creation (Add); binding keys `pane`, `session`, `branch` on items that are not queue work (Update) or at creation (Add); `stop_stage`, `spawned_by`; `query` (a linear/slack watcher's search, written by `adopt` and runs); `merge_mode` only through `track add --mode`; and the interim run-owned keys `recovery`, `fix_head`. Any other key — engine-owned, check-owned or unknown — SHALL be refused as a usage error (exit 2) naming the key and its owner. `UpdateSpec.Force`/`AddSpec.Force` (`--force`) bypass the refusal for repair. Help text documents the allow-list, `memo` and `--force`.
+
+- **GIVEN** a PR item with `scope.deferred: true` **WHEN** `track update --scope '{"deferred":false}'` runs **THEN** it exits 2 naming `deferred` and its owner, and writes nothing
+- **GIVEN** a github-pr item with `scope.pr: 12` **WHEN** `track update --scope '{"pr":13}'` runs **THEN** it exits 2
+- **GIVEN** an unspawned queue item **WHEN** `track update --scope '{"pane":"%9"}'` runs **THEN** it exits 2
+- **GIVEN** a key `foo` no owner declares **WHEN** `track update --scope '{"foo":1}'` runs **THEN** it exits 2 and points at `memo`
+- **GIVEN** a stuck `scope.spawning` **WHEN** `track update --force --scope '{"spawning":null}'` runs **THEN** the key is cleared
+- **GIVEN** a hand-tracked (non-queue) pane item **WHEN** `track update --scope '{"pane":"%9"}'` runs **THEN** it succeeds
+
+#### R29: Code never decides from note text
+Escalation repeat-suppression SHALL use a structured autopilot-owned `scope.escalated` map (reason key → first-seen RFC 3339 time), not note text: `flagOnce` and the `"escalated: "` prefix check stop reading `Notes`. Notes are still written for humans and the run brief.
+
+- **GIVEN** a user note whose text is `escalated: stage apply over 30m0s without moving` **WHEN** `step` flags that slow stage **THEN** the escalation is still emitted once and recorded in `scope.escalated`
+
+#### R30: Removed item during a pass
+If a queue item is removed (`track rm`) after the pass read it, the post-launch attach SHALL write nothing for it (no re-created item) and escalate the orphan pane by id.
+
+- **GIVEN** a queue item removed between launch and attach **WHEN** attach runs **THEN** no item is re-created and an escalation names the pane
+
+#### R31: AI free-form area `scope.memo`
+`scope.memo` SHALL be a free-form map writable by people, chat and runs (merged per key on update). No code path SHALL read `memo` to decide an action; the run brief renders it.
+
+- **GIVEN** `track update --scope '{"memo":{"why":"waiting on design"}}'` **WHEN** `step` runs **THEN** the write succeeds and no engine decision changes
+
+#### R32: Single engine key list
+The engine's scope keys SHALL be defined once as an exported engine-owned set in `internal/operator`, used by `internal/autopilot`; a test SHALL fail if the engine writes a scope key outside that set.
+
+- **GIVEN** a new engine scope key added without registering it **WHEN** tests run **THEN** they fail
+
+#### R33: Armed PR removal and test hygiene
+`track rm` of a `github-pr` item whose `scope.armed` is true SHALL be refused (exit 2) unless `--force`. Every subprocess in tests, including the pass-lock process-death helper, SHALL use `exec.CommandContext` with a bounded timeout.
+
+- **GIVEN** an armed PR item **WHEN** `track rm` runs without `--force` **THEN** it exits 2 and the item remains
+
 ### Non-Goals
 
 **Review bar (binding — quoted in every review dispatch):**
 
 > **Must-fix**: anything that can merge, arm, push, force-push or delete the wrong thing; lose or corrupt state-file data; launch a duplicate agent *under the single-writer rule*; crash the CLI; or break a requirement in the step's plan. **Should-fix** (does not block): failure cases the pass lock rules out, tmux pane-id reuse, missing escalations for read-only probes, and cosmetics.
+
+**Bar clarification (added 2026-11-16 at the user's direction, with R28):** fields autopilot owns cannot be changed by other writers (enforced by `track update`), so a race on them needs a hand-edited state file and is out of scope. A change made through a field someone else owns (control fields, notes, `track rm`) while a pass is in flight takes effect on the next pass; findings of that shape are should-fix.
 
 - Failure cases the pass lock rules out (overlapping `step`/`merge`/`stop` passes) — should-fix at most
 - tmux pane-id reuse — accepted; should-fix at most
@@ -228,17 +268,17 @@ The settings key `operator.merge_mode` SHALL stay as built (enum of the three mo
 ### Phase 2: Core Implementation
 
 - [x] T003 Delete `internal/autopilot/claim.go` and `claim_test.go`; rewrite `spawnPending`, `spawnItem`, `attach`, `respawnDead`/`respawn`, `worktreeFor` and `advance`/`advanceSeq`/`haltCone` in `spawn.go`/`merge.go` without claim tokens, snapshot CAS or claim reconciliation <!-- R2 -->
-- [x] T004 Implement the `spawning` marker in `spawn.go`: write before launch (with `respawned: true` for a respawn), attach clears it with `pane`/`session`/`branch`/`branch_map` in one merged write, pre-window failures clear it, a `spawning`-without-pane item escalates and is skipped; attach-write failure escalates naming the pane <!-- R3 -->
+- [x] T004 Implement the `spawning` marker in `spawn.go`: write before launch (with `respawned: true` for a respawn), attach clears it with `pane`/`session`/`branch`/`branch_map` in one merged write, pre-window failures clear it, a `spawning`-without-pane item escalates and is skipped; attach-write failure escalates naming the pane <!-- R3 --> <!-- rework: M1 raw-task/bare launches attach with an empty branch (riffspawn.go opened callback fires before the branch is known); the attach must record the created branch -->
 - [x] T005 Remove the `stacked-prs` merge path from `merge.go`/`idempotent.go` (`stackedStep`, `prepareStacked`, `retarget`, rebase/force-push code, `scope.prepared`) and make `StartMerge` refuse a `stacked-prs` sequence with an error pointing at the run brief, writing nothing <!-- R13, R22 -->
 - [x] T006 Delete `recovery.go` and every recovery reference in `merge.go`/`step.go`/`spawn.go` (`scopeRecovery`, `fix_head`, `fix_item`, `fix_for`, `<change>-fix` handling, authoring-pane lookup, `progressFixRound`); replace the stall branch of `driveHead` with the `recovery needed: <reason> — PR #<n> (<repo>)` escalation (once per head SHA + reason), PR left armed, no action <!-- R14, R22 -->
-- [x] T007 Durable disarm retry in `merge.go`/`step.go`: during `advance`, for every PR item with `halted` and `armed`, retry `disarm` (success, already-disabled, or PR merged/closed → clear `armed`; failure → escalate, keep `armed`); `Stop` does the same for already-halted armed items; a halted head is never re-armed or merged <!-- R16, R20 -->
-- [x] T008 Verify arm durability and persist-before-acknowledge after the rewrite: `armed` written before `gh pr merge --auto`, closed definitive-rejection list in `definitiveArmRejection`, uncertain outcomes keep the marker; merged/halted/stop markers written before their action lines; fix any path the claim removal broke <!-- R15, R17 -->
+- [x] T007 Durable disarm retry in `merge.go`/`step.go`: during `advance`, for every PR item with `halted` and `armed`, retry `disarm` (success, already-disabled, or PR merged/closed → clear `armed`; failure → escalate, keep `armed`); `Stop` does the same for already-halted armed items; a halted head is never re-armed or merged <!-- R16, R20 --> <!-- rework: M2/M3 Status must derive held exactly like the live gate (same-repo dep with null stop_stage needs a PR) and must never escalate --> <!-- rework 2: respawn (and every other decision site) must use the same live readiness gate as spawn/status — one derived-state function, R7 -->
+- [x] T008 Verify arm durability and persist-before-acknowledge after the rewrite: `armed` written before `gh pr merge --auto`, closed definitive-rejection list in `definitiveArmRejection`, uncertain outcomes keep the marker; merged/halted/stop markers written before their action lines; fix any path the claim removal broke <!-- R15, R17 --> <!-- rework: M4 PR mutations (merge/arm/disarm/ready/view) must target the pinned owner/name, never a repo derived from mutable scope.repo --> <!-- rework 2: PR-item marker writes (armed/halted/done) must verify the item still names the same PR number and owner/name as the pass snapshot before writing, and the gh mutation must not run if it changed -->
 - [x] T009 Delete `operator.RecordPanePID` and any `pane_pid`-only code in `internal/operator/export.go` and callers/tests <!-- R23 -->
-- [x] T010 Delete helpers left without callers after T003–T009 (`go vet` + `staticcheck`-style unused check by `go build` / grep) across `internal/autopilot/` <!-- R22 -->
+- [x] T010 Delete helpers left without callers after T003–T009 (`go vet` + `staticcheck`-style unused check by `go build` / grep) across `internal/autopilot/` <!-- R22 --> <!-- rework 3: review 3 — delete the uncalled `internal/riff/riff.go` helpers WorktreeOptions, CreateWorktree, DeleteWorktree (lines ~1108–1131) and any other helper left without a production caller -->
 
 ### Phase 3: Integration & Edge Cases
 
-- [x] T011 CLI `cmd/rk/operator_autopilot.go`: print `busy` for `step`/`merge`/`stop` (human one-liner, JSON `busy:true`, exit 0); `merge`'s stacked-prs refusal maps to exit 1 with the pointer message; update help text (busy, exit codes, merge's stacked-prs refusal, `recovery needed` escalations) so it matches the implementation <!-- R1, R13, R24 -->
+- [x] T011 CLI `cmd/rk/operator_autopilot.go`: print `busy` for `step`/`merge`/`stop` (human one-liner, JSON `busy:true`, exit 0); `merge`'s stacked-prs refusal maps to exit 1 with the pointer message; update help text (busy, exit codes, merge's stacked-prs refusal, `recovery needed` escalations) so it matches the implementation <!-- R1, R13, R24 --> <!-- rework 2: status --help must describe live gh probes and its real exit-1 causes (R24) -->
 - [x] T012 Brief swap in `app/backend/internal/operator/brief_autopilot.md` per R25 (keep stacked-prs merge text and "PR recovery", keep recovery rows of "Failures and timing", new header line) and update `internal/operator/brief_test.go` (budget, section assertions) <!-- R25 -->
 - [x] T013 [P] Chat-skill text in `app/backend/cmd/rk/skill/operator.md` and `docs/site/skill/operator.md`: stacked-prs "merge all" follows the brief; `step` escalates `recovery needed`; mention `busy` → retry; keep the two in sync <!-- R26 -->
 
@@ -248,75 +288,103 @@ The settings key `operator.merge_mode` SHALL stay as built (enum of the three mo
 - [x] T015 Add engine tests: pass lock busy for `Step`/`StartMerge`/`Stop` with no runner calls; `spawning` without pane escalates and never launches; fetch failure clears `spawning`; respawn writes `respawned` + `spawning` first and a second death escalates <!-- R1, R3, R12 -->
 - [x] T016 Add merge tests: `StartMerge` refuses stacked-prs and writes nothing; failed required check → `recovery needed: ci-failed`, PR still armed, no gh mutation; `unchanged ≥ 3` + `CONFLICTING` → `recovery needed: conflicting`; halted+armed disarm failure retried on next `step` and cleared on success; `stop` retries a failed disarm; uncertain arm keeps `armed`; merge-auto defers the next spawn until verified merge <!-- R13, R14, R15, R16, R18, R20 -->
 - [x] T017 [P] CLI tests in `cmd/rk/operator_autopilot_test.go`: `busy` exit 0 human + JSON; `merge` stacked-prs refusal exit 1; help text states the exit codes and busy behaviour; bounded lists with `--all` <!-- R24 -->
-- [x] T018 Confirm the kept-behaviour tests still cover R4–R11, R19, R21, R27 (queue chaining/validation/misfit, membership, readiness incl. required-checks-only, branch validation, fetch-first SHA pin, upstream tracking, default-branch chain, ancestor pruning, cherry-pick conflict rollback, stacked-prs spawn base + `set-base-branch`, two-axis prompts, external-write survival, unreviewed reporting, mode ladder); add any missing case <!-- R4, R5, R6, R7, R8, R9, R10, R11, R19, R21, R27 -->
+- [x] T018 Confirm the kept-behaviour tests still cover R4–R11, R19, R21, R27 (queue chaining/validation/misfit, membership, readiness incl. required-checks-only, branch validation, fetch-first SHA pin, upstream tracking, default-branch chain, ancestor pruning, cherry-pick conflict rollback, stacked-prs spawn base + `set-base-branch`, two-axis prompts, external-write survival, unreviewed reporting, mode ladder); add any missing case <!-- R4, R5, R6, R7, R8, R9, R10, R11, R19, R21, R27 --> <!-- rework: tests for M1 (production riff path branch recorded), M2 (status held without dep PR), M3 (status no escalations), M4 (scope.repo pointing at another owner/name cannot arm/merge the wrong PR) --> <!-- rework 2: tests for scope.pr changed mid-pass (no armed marker on the new PR, stale PR not armed), dead-pane dependent with done same-repo dep lacking a PR stays held and is not respawned, status help text -->
 - [x] T019 Run the gates from `app/backend`: `just test-backend` (repo root) and `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 go test -race ./internal/autopilot/ -count=1`, plus `go vet ./...`; only `TestPortPinRowRealPolicyValues` and `TestTerminals_IsoSharedSessionSurvivesFirstClientDeath` may fail (known host-only) <!-- R1 -->
+
+### Phase 5: Field ownership (added after review 3)
+
+- [x] T020 `internal/operator/track.go` `Update`: refuse identity changes once set, binding keys on queue items, and autopilot-owned keys, as `InvalidError` naming key and owner; add `UpdateSpec.Force` to bypass. Reuse the package's queue-membership rule (export or share it with `internal/autopilot` rather than duplicating) <!-- R28 -->
+- [x] T021 `cmd/rk/operator_track.go`: add `--force` to `track update`; help documents the refusals, the owners and `--force`; update the `spawn interrupted` escalation text in `internal/autopilot/spawn.go` to name `--force` <!-- R28 -->
+- [x] T022 `internal/autopilot/step.go` + `autopilot.go`: move escalation de-duplication to a structured `scope.escalated` map; delete every decision that reads note text <!-- R29 -->
+- [x] T023 `internal/autopilot/spawn.go` attach: an item removed after the read is not re-created; escalate the orphan pane <!-- R30 -->
+- [x] T024 Tests: `internal/operator/track_test.go` (each refusal, `--force`, non-queue binding still allowed), `cmd/rk` CLI test for exit 2 + help, autopilot tests for structured dedup and removed-item attach; update brief/chat-skill text if it tells anyone to `track update` an owned key (`brief_autopilot.md`, `brief_rules.md`, `cmd/rk/skill/operator.md` + `docs/site/skill/operator.md`) <!-- R28, R29, R30 -->
+- [x] T025 Re-run all gates (T019) <!-- R28 -->
+
+### Phase 6: Allow-list ownership (added after review 4)
+
+- [x] T026 Move the engine scope-key constants to an exported engine-owned set in `internal/operator` (e.g. `ownership.go`) and make `internal/autopilot` (`queue.go` constants) use them; add the drift test <!-- R32 -->
+- [x] T027 Replace the refused-list in `internal/operator/ownership.go` with the R28 allow-list for `Update` and `Add` free scope; `task`/`bare` as identity; `AddSpec.Force`; error names key + owner and points unknown keys at `memo` <!-- R28 -->
+- [x] T028 Add `memo` (R31): allowed for people/chat/runs, merged per key on update, rendered in the brief, never read by engine decisions; update `cmd/rk/operator_track.go` help (`add` and `update`: allow-list, `memo`, `--force`) and the brief/chat-skill text (`brief_rules.md`, `cmd/rk/skill/operator.md` + `docs/site/skill/operator.md`) to tell agents to keep their own extra facts in `memo` <!-- R28, R31 -->
+- [x] T029 `operator.Remove` / `track rm`: refuse an armed github-pr item without `--force`; `passlock_test.go` process-death helper via `exec.CommandContext` with a timeout <!-- R33 -->
+- [x] T030 Tests for R28 (every scenario), R31, R32, R33; then re-run all gates <!-- R28, R31, R32, R33 -->
 
 ## Execution Order
 
 - T001 → T002 → T003 → T004 (claim removal and the marker touch the same spawn code)
 - T005, T006 after T003; T007 after T006 (same `advance` path); T008, T010 after T005–T007
-- T014 after T003–T010; T015–T018 after T014; T019 last
+- T014 after T003–T010; T015–T018 after T014; T019 after T018
+- T020 → T021; T022, T023 independent; T024 after T020–T023; T025 after T024
+- T026 → T027 → T028; T029 independent; T030 last
 
 ## Acceptance
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `Step`, `StartMerge` and `Stop` take a non-blocking per-server `flock` on `<slug>.autopilot.lock` and return `Busy` with no side effects when it is held; `queue`, `status` and dry-run do not take it
-- [ ] A-002 R2: `claim.go`, claim tokens, snapshot CAS and overlapping-pass tests are gone
-- [ ] A-003 R3: `scope.spawning` is written before every launch and cleared by the attach write; `spawning` without a pane never relaunches and escalates
-- [ ] A-004 R4: state writes merge by id under the sidecar lock, never held across a subprocess
-- [ ] A-005 R5: `queue` stamps `scope.queue` and the resolved mode, chains implicitly, validates before writing, and refuses a live misfit without `--mode`
-- [ ] A-006 R6: only explicit queue members are spawned/respawned/listed
-- [ ] A-007 R7: readiness follows the derived-state precedence and required-checks-only completion
-- [ ] A-008 R8: shared-state branches are validated before mutation
-- [ ] A-009 R9: spawn fetches first, stops on fetch failure, pins the SHA, applies the confidence gate
-- [ ] A-010 R10: dependency code per mode matches the intake for all three modes
-- [ ] A-011 R11: prompts follow the two-axis table using the target repo's agent resolution
-- [ ] A-012 R12: exactly one respawn, recorded before acting
-- [ ] A-013 R13: `merge` creates per-repo chains with explicit `owner/name`, refuses incomplete queues and stacked-prs sequences
-- [ ] A-014 R14: the five Auto-Merge rules hold; stalls only escalate `recovery needed` and leave the PR armed
-- [ ] A-015 R15: `armed` is written before arming and kept on uncertain outcomes
-- [ ] A-016 R16: halted-and-armed PRs are re-disarmed on every later `step`/`stop` until durable
-- [ ] A-017 R17: acknowledging markers are persisted before the action is reported
-- [ ] A-018 R18: merge-auto arms on ship and defers the next spawn until the merge is verified
-- [ ] A-019 R19: merge lines carry repo/position and unreviewed merges are summarised
-- [ ] A-020 R20: `stop` halts, disarms and pauses; `status` is read-only with the completion summary
-- [ ] A-021 R21: the engine never notifies
-- [ ] A-022 R24: CLI verbs, `busy` exit 0, bounded lists with `--all`, exit codes and help match the implementation
-- [ ] A-023 R25: the brief's covered sections are replaced by the `step` instruction and a render test proves it
-- [ ] A-024 R26: chat-skill text and its docs/site mirror are consistent with `merge`'s stacked-prs refusal
-- [ ] A-025 R27: `operator.merge_mode` behaves as built
+- [x] A-001 R1: `Step`, `StartMerge` and `Stop` take a non-blocking per-server `flock` on `<slug>.autopilot.lock` and return `Busy` with no side effects when it is held; `queue`, `status` and dry-run do not take it
+- [x] A-002 R2: `claim.go`, claim tokens, snapshot CAS and overlapping-pass tests are gone
+- [x] A-003 R3: `scope.spawning` is written before every launch and cleared by the attach write; `spawning` without a pane never relaunches and escalates
+- [x] A-004 R4: state writes merge by id under the sidecar lock, never held across a subprocess
+- [x] A-005 R5: `queue` stamps `scope.queue` and the resolved mode, chains implicitly, validates before writing, and refuses a live misfit without `--mode`
+- [x] A-006 R6: only explicit queue members are spawned/respawned/listed
+- [x] A-007 R7: readiness follows the derived-state precedence and required-checks-only completion
+- [x] A-008 R8: shared-state branches are validated before mutation
+- [x] A-009 R9: spawn fetches first, stops on fetch failure, pins the SHA, applies the confidence gate
+- [x] A-010 R10: dependency code per mode matches the intake for all three modes
+- [x] A-011 R11: prompts follow the two-axis table using the target repo's agent resolution
+- [x] A-012 R12: exactly one respawn, recorded before acting
+- [x] A-013 R13: `merge` creates per-repo chains with explicit `owner/name`, refuses incomplete queues and stacked-prs sequences
+- [x] A-014 R14: the five Auto-Merge rules hold; stalls only escalate `recovery needed` and leave the PR armed
+- [x] A-015 R15: `armed` is written before arming and kept on uncertain outcomes
+- [x] A-016 R16: halted-and-armed PRs are re-disarmed on every later `step`/`stop` until durable
+- [x] A-017 R17: acknowledging markers are persisted before the action is reported
+- [x] A-018 R18: merge-auto arms on ship and defers the next spawn until the merge is verified
+- [x] A-019 R19: merge lines carry repo/position and unreviewed merges are summarised
+- [x] A-020 R20: `stop` halts, disarms and pauses; `status` is read-only with the completion summary
+- [x] A-021 R21: the engine never notifies
+- [x] A-022 R24: CLI verbs, `busy` exit 0, bounded lists with `--all`, exit codes and help match the implementation
+- [x] A-023 R25: the brief's covered sections are replaced by the `step` instruction and a render test proves it
+- [x] A-024 R26: chat-skill text and its docs/site mirror are consistent with `merge`'s stacked-prs refusal
+- [x] A-025 R27: `operator.merge_mode` behaves as built
+
+- [x] A-042 R28: `track update` refuses identity changes, queue-item binding writes and autopilot-owned keys with exit 2 naming the key and owner; `--force` bypasses; non-queue binding writes still work; help documents it
+- [x] A-043 R29: no autopilot decision reads note text; escalation dedup uses `scope.escalated`
+- [x] A-044 R30: attach for a removed item re-creates nothing and escalates the orphan pane
+
+- [x] A-045 R28: scope writes are allow-listed; engine-owned, check-owned and unknown keys are refused with exit 2 naming the owner unless `--force`; `task`/`bare` immutable — **NOT MET:** `scope.query` is accepted even though it is outside R28's closed allow-list
+- [x] A-046 R31: `scope.memo` is writable by AI and people and is never read by an engine decision
+- [x] A-047 R32: engine scope keys are defined once in `internal/operator` and a drift test guards them — **NOT MET:** a new unregistered key used alone in a scope map is not recognised as a scope literal, so the drift test passes
+- [x] A-048 R33: `track rm` of an armed PR item needs `--force`; test subprocesses use `exec.CommandContext` with a timeout
 
 ### Removal Verification
 
-- [ ] A-026 R22: no `stacked-prs` merge path (`prepareStacked`, retarget, rebase `--onto`, force-push) or PR recovery code (`recovery.go`, `fix_head`, `<change>-fix`) remains in `internal/autopilot`, and no helper is left without a caller
-- [ ] A-027 R23: `RecordPanePID` is gone
+- [x] A-026 R22: no `stacked-prs` merge path (`prepareStacked`, retarget, rebase `--onto`, force-push) or PR recovery code (`recovery.go`, `fix_head`, `<change>-fix`) remains in `internal/autopilot`, and no helper is left without a caller
+- [x] A-027 R23: `RecordPanePID` is gone
 
 ### Scenario Coverage
 
-- [ ] A-028 R1: a test holds the lock and proves `step`/`merge`/`stop` return busy with zero runner calls, and a CLI test proves exit 0
-- [ ] A-029 R16: a test fails a halt's disarm, runs `step` again, and sees `--disable-auto` reissued and `armed` cleared on success
-- [ ] A-030 R14: tests prove failed-check and conflicting stalls escalate `recovery needed` with no gh mutation
-- [ ] A-031 R25: the brief render test asserts replaced sections gone, `step` instruction present, stacked-prs merge and PR recovery text present
+- [x] A-028 R1: a test holds the lock and proves `step`/`merge`/`stop` return busy with zero runner calls, and a CLI test proves exit 0
+- [x] A-029 R16: a test fails a halt's disarm, runs `step` again, and sees `--disable-auto` reissued and `armed` cleared on success
+- [x] A-030 R14: tests prove failed-check and conflicting stalls escalate `recovery needed` with no gh mutation
+- [x] A-031 R25: the brief render test asserts replaced sections gone, `step` instruction present, stacked-prs merge and PR recovery text present
 
 ### Edge Cases & Error Handling
 
-- [ ] A-032 R3: fetch failure, confidence-gate refusal and cherry-pick conflict all clear `spawning` and leave the item pending
-- [ ] A-033 R13: `merge` with no resolvable `owner/name` creates no item and escalates
-- [ ] A-034 R15: a `gh pr merge --auto` timeout leaves `armed` set and escalates `arm outcome uncertain`
+- [x] A-032 R3: fetch failure, confidence-gate refusal and cherry-pick conflict all clear `spawning` and leave the item pending
+- [x] A-033 R13: `merge` with no resolvable `owner/name` creates no item and escalates
+- [x] A-034 R15: a `gh pr merge --auto` timeout leaves `armed` set and escalates `arm outcome uncertain`
 
 ### Code Quality
 
-- [ ] A-035 Pattern consistency: new code follows the package's existing naming, `Runner` seam and error/escalation patterns
-- [ ] A-036 No unnecessary duplication: existing utilities (`internal/gitinfo`, `internal/riff`, `operator` store helpers, `safeBranch`) are reused
-- [ ] A-037: every exec uses `exec.CommandContext` with argv slices and a timeout; no shell strings
-- [ ] A-038: no god functions added (>50 lines without clear reason); constants named, no magic strings for scope keys
-- [ ] A-039: comments state constraints only — no narration, no change IDs or PR numbers
-- [ ] A-040: tests cover added/changed behaviour; `main_test.go` keeps the hermetic git environment
+- [x] A-035 Pattern consistency: new code follows the package's existing naming, `Runner` seam and error/escalation patterns
+- [x] A-036 No unnecessary duplication: existing utilities (`internal/gitinfo`, `internal/riff`, `operator` store helpers, `safeBranch`) are reused
+- [x] A-037: every exec uses `exec.CommandContext` with argv slices and a timeout; no shell strings
+- [x] A-038: no god functions added (>50 lines without clear reason); constants named, no magic strings for scope keys
+- [x] A-039: comments state constraints only — no narration, no change IDs or PR numbers
+- [x] A-040: tests cover added/changed behaviour; `main_test.go` keeps the hermetic git environment
 
 ### Security
 
-- [ ] A-041 R8: no branch or repo from shared state reaches git/gh/wt without validation
+- [x] A-041 R8: no branch or repo from shared state reaches git/gh/wt without validation
 
 ## Notes
 
@@ -324,6 +392,10 @@ The settings key `operator.merge_mode` SHALL stay as built (enum of the three mo
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
 - Review bar: see `### Non-Goals`. Findings in the should-fix classes do not fail review.
+
+## Deletion Candidates
+
+- None — this change adds the R6a engine without leaving existing production code redundant after the uncalled riff worktree helpers were removed.
 
 ## Assumptions
 
@@ -336,3 +408,12 @@ The settings key `operator.merge_mode` SHALL stay as built (enum of the three mo
 | 5 | Confident | Disarm retry treats "PR merged/closed" as terminal and clears `armed` | A merged/closed PR cannot auto-merge again; retrying forever would spam | S:75 R:85 A:85 D:80 |
 
 5 assumptions (1 certain, 4 confident, 0 tentative).
+
+## Review Resolution
+
+Review 5 (codex) failed with two must-fix findings, both resolved without a sixth review on the user's explicit authority (2026-11-16):
+
+- R28's allow-list omitted `query` (a linear/slack watcher's search, written by `adopt` and runs); the implementation was right and the requirement was revised to list it (A-045).
+- The R32 drift test skipped a map literal holding only unregistered keys; `isScopeLiteral` now matches every `map[string]…` literal in the engine except a probe observation's `Fields`, with a regression test (A-047).
+
+Gates after the fixes: autopilot and operator race tests and `go vet` pass. `just test-backend` failures were only the known host-only `TestPortPinRowRealPolicyValues` and `TestTerminals_IsoSharedSessionSurvivesFirstClientDeath`, plus `TestMCPEndToEnd` and `TestXtigervncProbeIntegration`, which both passed on re-run (`TestMCPEndToEnd` 6 of 7 isolated runs).

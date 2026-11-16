@@ -1,7 +1,9 @@
 package autopilot
 
 import (
+	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"rk/internal/operator"
@@ -33,7 +35,7 @@ func TestMarkerWithoutAPaneEscalatesAndNeverLaunches(t *testing.T) {
 	h.run.reset()
 	for i := 0; i < 2; i++ {
 		res := h.step()
-		if !hasEscalation(res, "spawn interrupted: a — check for an orphaned window, then clear scope.spawning with rk operator track update") {
+		if !hasEscalation(res, "spawn interrupted: a — check for an orphaned window, then clear scope.spawning with rk operator track update --force a --scope '{\"spawning\":null}'") {
 			t.Fatalf("pass %d escalations = %+v", i, res.Escalations)
 		}
 	}
@@ -51,7 +53,7 @@ func TestSpawnFailureBeforeAWindowClearsTheMarkerAndRetries(t *testing.T) {
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
 	h.spawn.failWith = errors.New("wt create failed")
 	res := h.step()
-	if !hasEscalation(res, "spawn failed: wt create failed") || spawningSet(h.item("a")) || derivedState(h.state(), h.item("a")) != StatePending {
+	if !hasEscalation(res, "spawn failed: wt create failed") || spawningSet(h.item("a")) || h.stateOf(h.item("a")) != StatePending {
 		t.Fatalf("res=%+v scope=%+v", res, h.item("a").Scope)
 	}
 	h.spawn.failWith = nil
@@ -122,4 +124,42 @@ func TestRespawnFailureBeforeAWindowDoesNotSpendTheRespawn(t *testing.T) {
 
 func (h *harness) envPatch(id string, kv map[string]interface{}) error {
 	return newEngine(h.env).setScope(id, kv)
+}
+
+// A raw-task or bare spawn fixes no branch: wt names it after the worktree, and
+// only the worktree knows. The window-opened record must still carry it.
+func TestOpenedBranchReadsTheWorktreeWhenTheRequestFixedNone(t *testing.T) {
+	foo := newRepo(t, "foo")
+	wt := filepath.Join(t.TempDir(), "fix-login")
+	runGit(t, foo.Dir, "worktree", "add", "-b", "fix-login", wt, "main")
+
+	got, err := openedBranch(context.Background(), ExecRunner{}, SpawnRequest{Repo: foo.Dir, WorktreeName: "fix-login"}, wt)
+	if err != nil || got != "fix-login" {
+		t.Fatalf("branch = %q err %v", got, err)
+	}
+	if got, _ := openedBranch(context.Background(), ExecRunner{}, SpawnRequest{NewBranch: "260101-ab12-folder"}, wt); got != "260101-ab12-folder" {
+		t.Fatalf("a fixed branch must win: %q", got)
+	}
+	runGit(t, wt, "checkout", "--detach")
+	if _, err := openedBranch(context.Background(), ExecRunner{}, SpawnRequest{}, wt); err == nil {
+		t.Fatal("a detached worktree has no branch to record")
+	}
+	if _, err := openedBranch(context.Background(), nil, SpawnRequest{}, wt); err == nil {
+		t.Fatal("no runner, no branch")
+	}
+}
+
+// Both the raw-task and the bare spawn must leave the created branch on the
+// item and in branch_map.
+func TestRawTaskAndBareSpawnsRecordTheCreatedBranch(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "raw", Repo: foo.Dir, Task: "do it"}, Entry{ID: "bare", Repo: foo.Dir, DependsOn: &[]string{}})
+	h.step()
+	for _, id := range []string{"raw", "bare"} {
+		it := h.item(id)
+		if operator.ScopeString(it.Scope, "branch") != id || h.state().BranchMap[id].Branch != id {
+			t.Fatalf("%s: scope=%+v branch_map=%+v", id, it.Scope, h.state().BranchMap[id])
+		}
+	}
 }

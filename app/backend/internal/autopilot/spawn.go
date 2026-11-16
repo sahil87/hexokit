@@ -2,6 +2,7 @@ package autopilot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -56,10 +57,7 @@ func (e *engine) spawnPending(ctx context.Context) error {
 			continue
 		}
 		it := fresh.Tracked[i]
-		if !isQueueItem(fresh, it) || spawningSet(it) || operator.ScopeString(it.Scope, "pane") != "" || operator.ItemDone(it) || it.Paused || skipped(it) {
-			continue
-		}
-		if ok, _ := e.gate(ctx, fresh, it); !ok {
+		if !operator.IsQueueItem(fresh, it) || spawningSet(it) || skipped(it) || e.stateOf(ctx, fresh, it) != StatePending {
 			continue
 		}
 		e.spawnItem(ctx, fresh, it)
@@ -76,8 +74,8 @@ func spawningSet(it operator.TrackedItem) bool {
 // marker and the pane.
 func (e *engine) escalateInterrupted(st *operator.State) {
 	for _, it := range st.Tracked {
-		if isQueueItem(st, it) && spawningSet(it) && !operator.ItemDone(it) {
-			e.escalate(it.ID, fmt.Sprintf("spawn interrupted: %s — check for an orphaned window, then clear scope.spawning with rk operator track update", it.ID))
+		if operator.IsQueueItem(st, it) && spawningSet(it) && !operator.ItemDone(it) {
+			e.escalate(it.ID, fmt.Sprintf("spawn interrupted: %s — check for an orphaned window, then clear scope.spawning with rk operator track update --force %s --scope '{\"spawning\":null}'", it.ID, it.ID))
 		}
 	}
 }
@@ -239,6 +237,8 @@ func (e *engine) launch(ctx context.Context, it operator.TrackedItem, req SpawnR
 		attachErr = e.attach(ctx, it, req.Repo, res, req.Session)
 	}
 	switch {
+	case errors.Is(attachErr, errItemRemoved):
+		e.escalate(id, fmt.Sprintf("window %s opened but %s was removed from tracking meanwhile — nothing was recorded; close the orphaned window", pane, id))
 	case attachErr != nil:
 		e.escalate(id, fmt.Sprintf("window %s opened but recording it failed (scope.spawning left set): %v", pane, attachErr))
 	case err != nil && !opened:
@@ -456,6 +456,10 @@ func (e *engine) prepareWorktree(ctx context.Context, wt, id, change, def, mode 
 	return nil
 }
 
+// errItemRemoved marks an attach whose item was removed (track rm) after the
+// pass read it; nothing is written for it.
+var errItemRemoved = errors.New("item removed from tracking")
+
 // attach records the spawn on the item in one locked write: pane, session,
 // branch, the branch_map entry, and the cleared spawn marker. The pane-pid
 // lookup runs before the lock.
@@ -473,7 +477,7 @@ func (e *engine) attach(ctx context.Context, it operator.TrackedItem, repo strin
 	return e.mutate(func(st *operator.State) error {
 		i := operator.IndexOf(st.Tracked, it.ID)
 		if i < 0 {
-			return fmt.Errorf("item %s is no longer tracked", it.ID)
+			return errItemRemoved
 		}
 		cur := &st.Tracked[i]
 		if cur.Scope == nil {
@@ -506,7 +510,7 @@ func (e *engine) respawnDead(ctx context.Context, st *operator.State) error {
 		}
 		it := fresh.Tracked[i]
 		pane := operator.ScopeString(it.Scope, "pane")
-		if !isQueueItem(fresh, it) || spawningSet(it) || pane == "" || operator.ItemDone(it) || it.Paused || skipped(it) {
+		if !operator.IsQueueItem(fresh, it) || spawningSet(it) || pane == "" || operator.ItemDone(it) || it.Paused || skipped(it) {
 			continue
 		}
 		if panes == nil {
@@ -515,7 +519,7 @@ func (e *engine) respawnDead(ctx context.Context, st *operator.State) error {
 				return err
 			}
 		}
-		if _, alive := panes[pane]; alive || derivedState(fresh, it) == StateHeld {
+		if _, alive := panes[pane]; alive || e.stateOf(ctx, fresh, it) == StateHeld {
 			continue
 		}
 		e.respawn(ctx, fresh, it)

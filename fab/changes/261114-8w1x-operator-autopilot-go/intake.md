@@ -145,11 +145,44 @@ Git behaviour against real temp repos (bare origin + clones); `gh`/`fab` through
 
 Gates: `just test-backend` plus `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 go test -race ./internal/autopilot/ -count=1` (from `app/backend`). Known host-only failures that do not block: `cmd/rk` `TestPortPinRowRealPolicyValues` (fails on clean HEAD on loom2, passes in CI) and `rk/api` `TestTerminals_IsoSharedSessionSurvivesFirstClientDeath` (load-timing flake).
 
+### 12. Field ownership in the state file (new, added 2026-11-16 after review 3)
+
+Review 3's two race findings (a pane attached to a queue item mid-pass → duplicate agent; `scope.pr`/`repo` changed mid-pass → wrong PR armed) need some other writer to change a field autopilot depends on. Today `rk operator track update --scope` can write any scope key. Fix it structurally: each field has one owner, and `track update` refuses fields it does not own. The file layout on disk does not change (a physical regroup into `spec`/`bind`/`observed`/`autopilot`/`control` is a later, separate schema change).
+
+| Field class | Keys (in `scope` unless noted) | Owner (sole writer after creation) | `track update` |
+|---|---|---|---|
+| Identity | `repo`, `change`, `pr` | the creator (`track add`, `autopilot queue`, `autopilot merge`) | refused once the key is non-empty |
+| Binding of a queue item | `pane`, `session`, `branch` on an item that is queue work (`scope.queue` set, or legacy membership) | autopilot (spawn/respawn) | refused |
+| Binding of a hand-tracked item | `pane`, `session`, `branch` on a non-queue item | whoever tracks it | allowed (unchanged) |
+| Autopilot state | `queue`, `merge_mode`, `spawning`, `respawned`, `armed`, `halted`, `merge_seq`, `escalated` | autopilot | refused |
+| Observations | `stage`, `agent`, `last`, `unchanged`, … | `rk operator check` / daemon | unchanged in R6a |
+| Control | `paused` (`track pause/resume`), `depends_on`, `done_when`, `then`, `check_every`, `track rm` | people, chat, runs | allowed; a change made while a pass is in flight takes effect on the next pass |
+| Notes | `notes` | anyone, append-only | allowed; **code never decides anything from note text** |
+| Completion | `done_at` | set once, never cleared; any writer may set it | — |
+
+- A refused key is a usage error (exit 2) naming the key and its owner. `track update --force` bypasses the refusal for manual repair (for example clearing a stuck `scope.spawning`); the `spawn interrupted` escalation text names `--force`. The help text documents both.
+- **Escalation de-duplication moves out of note text.** `flagOnce` (`step.go`) and the `"escalated: "` prefix check (`autopilot.go`) stop reading notes; repeat-suppression uses a structured, autopilot-owned `scope.escalated` map (reason key → first-seen time). Notes are still written for humans and the run brief.
+- With these rules the only writer of the fields autopilot acts on is autopilot itself, which the pass lock already serialises. The engine's identity-checked writes from rework 2 stay as defence in depth; no further compare-and-set machinery is added.
+- A queue item removed with `track rm` while a pass is spawning it: the attach write finds no item, writes nothing, and escalates the orphan pane (external writes win).
+- Delete the `internal/riff` helpers left without callers after the recovery path moved out (`WorktreeOptions`, `CreateWorktree`, `DeleteWorktree`, review 3).
+
+**Revision after review 4 (2026-11-16, user-approved): deny by default, plus an AI free-form area.** Review 4 found engine keys (`deferred`, `direct`, `item`, `skipped`, `stall_seen`) missing from the refused list — two hand-kept key lists had drifted. Autopilot is code (the Go engine); the AI is the operator runs and chat. So:
+
+- `track update --scope` (and `track add --scope`) become **allow-list** writes. Allowed without `--force`: `memo` (below); identity keys `repo`, `change`, `pr`, `task`, `bare` only while empty/at creation; binding keys `pane`, `session`, `branch` on non-queue items (and at creation); `stop_stage`, `spawned_by`; `merge_mode` only via `track add --mode`; and the interim run-owned PR-recovery keys `recovery`, `fix_head` (the brief's kept PR-recovery text writes them; R6c moves them to the engine). Every other key — every engine key, every check-owned key, any unknown key — is refused (exit 2, naming key and owner) unless `--force`. A new engine key is therefore protected automatically.
+- **`scope.memo`**: a free-form map owned by AI and people (runs, chat, user). Anything an agent wants to remember about an item goes there (`--scope '{"memo":{"why":"…"}}'`, merged per key). Code never reads `memo` for a decision; the brief renders it. Notes stay the append-only log.
+- **One key list.** The engine's scope-key constants are defined once in `internal/operator` (engine-owned set) and `internal/autopilot` uses them; a test fails if the engine writes a scope key that is not in the engine-owned set.
+- `task` and `bare` (stamped at queue time) are identity: immutable once set.
+- `track rm` of a `github-pr` item whose `armed` is set is refused unless `--force` (the armed PR would have no item left to disarm).
+- `passlock_test.go`'s process-death helper runs through `exec.CommandContext` with a bounded timeout.
+
+
 ## Non-Goals
 
 **Review bar (binding — copied verbatim from the restructure plan; every review dispatch quotes it):**
 
 > **Must-fix**: anything that can merge, arm, push, force-push or delete the wrong thing; lose or corrupt state-file data; launch a duplicate agent *under the single-writer rule*; crash the CLI; or break a requirement in the step's plan. **Should-fix** (does not block): failure cases the pass lock rules out, tmux pane-id reuse, missing escalations for read-only probes, and cosmetics.
+
+**Bar clarification (added 2026-11-16 at the user's direction, with §12):** fields autopilot owns cannot be changed by other writers (enforced by `track update`), so a race on them needs a hand-edited state file and is out of scope. A change made through a field someone else owns (control fields, notes, `track rm`) while a pass is in flight takes effect on the next pass; findings of that shape are should-fix.
 
 Explicitly out of scope for R6a (not findings against it):
 
@@ -166,7 +199,7 @@ Explicitly out of scope for R6a (not findings against it):
 ## Affected Memory
 
 - `run-kit/operator-autopilot`: (new) the Go autopilot core: queue model over tracked items and explicit membership, readiness gate, spawn sequence (fetch-first SHA pin, two-axis prompt table, three-mode dependency code, `spawning` marker, one respawn), `cherry-pick-ladder` merge-all + Auto-Merge rules, `merge-auto`, `recovery needed` escalations, single-writer pass lock and `busy`, `rk operator autopilot` verbs, the merge-mode ladder, and what R6b/R6c still own.
-- `run-kit/operator-state`: (modify) scope keys `queue`, `merge_mode` (queue-stamped), `spawning`, `respawned`, `armed`, `halted`, `merge_seq`; `done_at` persistence for change-less items; the per-server `<slug>.autopilot.lock` pass lock beside the state file; removal of `RecordPanePID`.
+- `run-kit/operator-state`: (modify) scope keys `queue`, `merge_mode` (queue-stamped), `spawning`, `respawned`, `armed`, `halted`, `merge_seq`; `done_at` persistence for change-less items; the per-server `<slug>.autopilot.lock` pass lock beside the state file; removal of `RecordPanePID`; the field-ownership table (§12) and `track update`'s refusals and `--force`.
 - `run-kit/operator-brief`: (modify) the interim autopilot section now delegates readiness, spawning, ladder/merge-auto merging and non-recovery failures to `rk operator autopilot step`; stacked-prs merge and PR recovery text remain until R6b/R6c; chat-skill topic routes queues through the verbs.
 - `run-kit/configuration`: (modify) the `operator.merge_mode` settings-registry key; rk never reads fab's `autopilot.merge_mode`.
 - `run-kit/rk-riff`: (modify) the additive spawn-engine extensions the engine uses.
@@ -176,6 +209,7 @@ Explicitly out of scope for R6a (not findings against it):
 ## Impact
 
 - **Modified (already on the branch, shrunk/finished here)**: `app/backend/internal/autopilot/` (delete `claim.go`, `recovery.go` and the stacked merge path; add the pass lock and `spawning` marker; disarm retry), `cmd/rk/operator_autopilot.go` (+ tests: `busy`, `merge` stacked refusal, exit codes), `internal/operator/export.go` (delete `RecordPanePID`), `internal/operator/brief_autopilot.md` + `brief_test.go` (brief swap), `cmd/rk/skill/operator.md` + `docs/site/skill/operator.md` (chat text consistency).
+- **Field ownership (§12)**: `internal/operator/track.go` (`Update` refusals, `--force`), `cmd/rk/operator_track.go` (flag + help), `internal/autopilot/step.go`/`autopilot.go` (structured `scope.escalated`), `internal/riff/riff.go` (delete uncalled worktree helpers).
 - **Kept as built**: `internal/settings` `operator.merge_mode`, `internal/riff` additions, the rest of `internal/operator/export.go`.
 - **Untouched**: `internal/operatorloop` (daemon), MCP policy table, `operator.RenderBrief`'s section structure (R7).
 - **External tools**: `git`, `gh`, `wt`, `fab` (`fab agent -o yaml`, `fab status set-base-branch`, `fab resolve`, `fab change switch`, `.status.yaml` reads). Every exec is an argv slice through `exec.CommandContext` with a timeout.
@@ -210,5 +244,10 @@ Explicitly out of scope for R6a (not findings against it):
 | 18 | Confident | `queue` and `status` do not take the pass lock; `step --dry-run` does not either | `queue` is one state-locked write and `status`/dry-run have no side effects; the binding decision names only `step`, `merge`, `stop` | S:75 R:85 A:80 D:70 |
 | 19 | Confident | Helpers left without callers after moving out stacked/recovery code are deleted, not kept for R6b/R6c | Restructure rule 4: R6b/R6c port from the reference branch, never rely on leftovers | S:80 R:85 A:80 D:75 |
 | 20 | Confident | Chat-skill text is adjusted only for consistency (stacked-prs "merge all" follows the brief); otherwise kept as built | R6 already routed queue/merge/stop through the verbs; R6a only changes merge's stacked behaviour | S:80 R:85 A:80 D:75 |
+| 21 | Certain | Field ownership enforced in `track update` (identity immutable once set, queue-item binding and autopilot keys refused, `--force` for repair); no on-disk regroup in R6a | User direction 2026-11-16 after review 3; closes the external-writer race class structurally | S:95 R:75 A:85 D:85 |
+| 22 | Certain | Escalation de-duplication uses a structured `scope.escalated` map; code never decides from note text | User direction 2026-11-16 (AI free text stays separate from programmatic fields) | S:90 R:85 A:85 D:85 |
+| 23 | Confident | Review bar clarification: races through fields another writer owns take effect next pass and are should-fix | User agreed 2026-11-16; keeps the original bar text verbatim and adds the ownership consequence | S:80 R:80 A:75 D:70 |
+| 24 | Certain | `track update`/`track add` scope writes are allow-listed (deny by default, `--force` to repair); AI free-form data lives in `scope.memo`, never read by code | User approved 2026-11-16 after review 4; closes the key-list-drift class | S:95 R:75 A:85 D:85 |
+| 25 | Certain | Engine scope keys defined once in `internal/operator`; `task`/`bare` are identity; `track rm` of an armed PR item needs `--force`; pass-lock test uses `exec.CommandContext` | User approved items 1–4, 2026-11-16 | S:95 R:85 A:90 D:90 |
 
-20 assumptions (16 certain, 4 confident, 0 tentative, 0 unresolved).
+25 assumptions (20 certain, 5 confident, 0 tentative, 0 unresolved).

@@ -94,7 +94,7 @@ func TestCheckQueryFailuresEscalateWithoutMerging(t *testing.T) {
 				if mode == "direct" {
 					e.directMerge(context.Background(), head, prView{Mergeable: "MERGEABLE"})
 				} else {
-					if err := e.markArmed(head.ID, true); err != nil {
+					if err := e.markArmed(head, true); err != nil {
 						t.Fatal(err)
 					}
 					e.driveHead(context.Background(), h.item(head.ID), prView{})
@@ -157,7 +157,7 @@ func TestStatusLookupFailureIsVisibleAndReadOnly(t *testing.T) {
 	}
 	h.run.fail("gh pr view", "summary unavailable")
 	res, err := Status(context.Background(), h.env)
-	if err == nil || !strings.Contains(err.Error(), "summary unavailable") || len(res.Escalations) != 1 || res.Escalations[0].Item != "a" {
+	if err == nil || !strings.Contains(err.Error(), "a: completion summary PR lookup failed") || !strings.Contains(err.Error(), "summary unavailable") {
 		t.Fatalf("result=%+v error=%v", res, err)
 	}
 	after, err := os.ReadFile(h.env.StatePath)
