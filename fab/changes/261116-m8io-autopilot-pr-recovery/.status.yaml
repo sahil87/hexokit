@@ -9,7 +9,7 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
+    ship: done
     review-pr: pending
 plan:
     generated: true
@@ -33,13 +33,14 @@ stage_metrics:
     apply: {started_at: "2026-11-16T21:08:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-16T21:37:17Z"}
     review: {started_at: "2026-11-16T21:37:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-16T21:47:47Z"}
     hydrate: {started_at: "2026-11-16T21:47:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-16T21:50:20Z"}
-    ship: {started_at: "2026-11-16T21:50:20Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-11-16T21:50:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-16T21:51:51Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1142
 base_branch: main
 true_impact:
-    added: 2428
-    deleted: 242
-    net: 2186
+    added: 2444
+    deleted: 243
+    net: 2201
     excluding:
         added: 1622
         deleted: 216
@@ -48,10 +49,10 @@ true_impact:
         added: 875
         deleted: 57
         net: 818
-    computed_at: "2026-11-16T21:50:20Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-11-16T21:51:51Z"
+    computed_at_stage: ship
 change_type_source: explicit
 summary: 'Autopilot PR recovery: fixing status, rows C1–C6/F1/F2 replacing P5, fix-request/recovery-spawn/rebase/untrack executors, fixes: list, Panes.Send'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-16T21:50:20Z
+last_updated: 2026-11-16T21:51:51Z
