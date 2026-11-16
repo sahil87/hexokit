@@ -43,17 +43,19 @@ func fixtureState(t *testing.T) SeedState {
 			State:     "MERGED",
 			HeadRepo:  "sahil87/run-kit",
 			HeadRef:   "260807-2ept-pr-status-cold-start",
+			HeadOid:   "fixture-head",
 			UpdatedAt: updated,
 		}},
 		BranchPRs: []SeedBranchPR{{
 			RepoDir: "/home/sahil/code/sahil87/run-kit",
 			Branch:  "260807-2ept-pr-status-cold-start",
 			PR: BranchPR{
-				Number:    542,
-				URL:       "https://github.com/sahil87/run-kit/pull/542",
-				State:     "MERGED",
-				UpdatedAt: updated,
-				IsDraft:   false,
+				Number:     542,
+				URL:        "https://github.com/sahil87/run-kit/pull/542",
+				State:      "MERGED",
+				UpdatedAt:  updated,
+				IsDraft:    false,
+				HeadRefOid: "fixture-head",
 			},
 		}},
 	}
@@ -655,4 +657,28 @@ func TestSeedCacheNilAndMissingFileAreNoOps(t *testing.T) {
 	NewSeedCache(nil, c, r).Seed()               // nil store
 	NewSeedCache(newTempStore(t), nil, r).Seed() // nil collector
 	NewSeedCache(newTempStore(t), c, nil).Seed() // nil refresher
+}
+
+func TestStoreRoundTripWithoutHeadRefOid(t *testing.T) {
+	s := newTempStore(t)
+	want := fixtureState(t)
+	want.ViewerPRs[0].HeadOid = ""
+	want.BranchPRs[0].PR.HeadRefOid = ""
+	if _, err := s.Save(want); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	raw, err := os.ReadFile(s.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"headRefOid"`) {
+		t.Fatalf("empty headRefOid must be omitted: %s", raw)
+	}
+	got, ok := NewStore(s.Path()).Load()
+	if !ok {
+		t.Fatal("Load reported no usable cache")
+	}
+	if got.ViewerPRs[0].HeadOid != "" || got.BranchPRs[0].PR.HeadRefOid != "" {
+		t.Fatalf("absent headRefOid must load as empty: %+v", got)
+	}
 }

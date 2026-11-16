@@ -803,6 +803,34 @@ func NewRouter(ctx context.Context, logger *slog.Logger, cfg config.Config) chi.
 	return router
 }
 
+// prDetectorSource merges branch- and fab-derived candidates by canonical URL,
+// keeping only OPEN PRs. Collector state overrides the refresher's fallback state.
+func prDetectorSource(branchEntries []prstatus.SeedBranchPR, urlEntries []prstatus.BranchPR, snapshot map[string]prstatus.PRStatus) []string {
+	candidates := make([]prstatus.BranchPR, 0, len(branchEntries)+len(urlEntries))
+	for _, entry := range branchEntries {
+		candidates = append(candidates, entry.PR)
+	}
+	candidates = append(candidates, urlEntries...)
+
+	seen := make(map[string]bool, len(candidates))
+	urls := make([]string, 0, len(candidates))
+	for _, pr := range candidates {
+		if pr.URL == "" || seen[pr.URL] {
+			continue
+		}
+		state := pr.State
+		if st, ok := snapshot[pr.URL]; ok {
+			state = st.State
+		}
+		if !strings.EqualFold(state, "open") {
+			continue
+		}
+		seen[pr.URL] = true
+		urls = append(urls, pr.URL)
+	}
+	return urls
+}
+
 // NewRouterAndServer is the variant of NewRouter that also returns the
 // underlying *Server, so callers (`rk serve`) can wire in additional hooks
 // such as the tmuxctl WindowChangeSubscriber once their Supervisor is up.
@@ -899,27 +927,11 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger, cfg config.Con
 	// NewTestRouter leaves this unwired — unit tests never touch the network.
 	det := prstatus.NewDetector(prChangeDetectInterval)
 	det.SetSource(func() []string {
-		entries := prstatus.DefaultBranchRefresher.ObservedEntries()
-		snap := pc.Snapshot()
-		urls := make([]string, 0, len(entries))
-		for _, entry := range entries {
-			if entry.PR.URL == "" {
-				continue
-			}
-			// OPEN-only: the branch channel's state, overridden by the
-			// collector snapshot on a URL hit (the collector is the fresher
-			// authority for PRs it covers). A merged/closed PR drops out of
-			// the set here, so the detector stops polling it.
-			state := entry.PR.State
-			if st, ok := snap[entry.PR.URL]; ok {
-				state = st.State
-			}
-			if !strings.EqualFold(state, "open") {
-				continue
-			}
-			urls = append(urls, entry.PR.URL)
-		}
-		return urls
+		return prDetectorSource(
+			prstatus.DefaultBranchRefresher.ObservedEntries(),
+			prstatus.DefaultBranchRefresher.ObservedURLEntries(),
+			pc.Snapshot(),
+		)
 	})
 	det.SetOnChange(func(ctx context.Context, changed []prstatus.DetectedChange) {
 		urls := make([]string, 0, len(changed))

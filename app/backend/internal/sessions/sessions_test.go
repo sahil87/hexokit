@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"rk/internal/cron"
+	"rk/internal/prstatus"
 	"rk/internal/tmux"
 )
 
@@ -1275,4 +1276,142 @@ func TestDeriveWebPath(t *testing.T) {
 			t.Errorf("deriveWebPaths with misaligned roots = %v, want nil", got)
 		}
 	})
+}
+
+func stubWindowPRStatus(t *testing.T) {
+	t.Helper()
+	oldRegisterBranch, oldSnapshotBranch := registerBranchPRFn, snapshotBranchPRFn
+	oldRegisterURL, oldSnapshotURL := registerURLPRFn, snapshotURLPRFn
+	t.Cleanup(func() {
+		registerBranchPRFn, snapshotBranchPRFn = oldRegisterBranch, oldSnapshotBranch
+		registerURLPRFn, snapshotURLPRFn = oldRegisterURL, oldSnapshotURL
+	})
+	registerBranchPRFn = func(string, string) {}
+	snapshotBranchPRFn = func(string, string) (*prstatus.BranchPR, bool) { return nil, false }
+	registerURLPRFn = func(string) {}
+	snapshotURLPRFn = func(string) (*prstatus.BranchPR, bool) { return nil, false }
+}
+
+func TestEnrichWindowPRFabFirst(t *testing.T) {
+	stubWindowPRStatus(t)
+	const fabURL = "https://github.com/o/r/pull/1073"
+	branchCalls := 0
+	registerBranchPRFn = func(string, string) { branchCalls++ }
+	var registeredURL string
+	registerURLPRFn = func(rawURL string) { registeredURL = rawURL }
+	w := tmux.WindowInfo{Panes: []tmux.PaneInfo{{Cwd: t.TempDir(), GitBranch: "feat", IsActive: true}}}
+	enrichWindowPR(&w, fabURL)
+	if registeredURL != fabURL {
+		t.Errorf("registered URL = %q, want %q", registeredURL, fabURL)
+	}
+	if branchCalls != 0 {
+		t.Fatalf("fab-first window registered branch pair %d times", branchCalls)
+	}
+	if w.PrNumber == nil || *w.PrNumber != 1073 || w.PrURL == nil || *w.PrURL != fabURL {
+		t.Fatalf("fab PR identity = number %v URL %v", w.PrNumber, w.PrURL)
+	}
+	if w.PrState != "" || w.PrIsDraft {
+		t.Fatalf("unresolved fab PR state = %q draft=%v, want unknown", w.PrState, w.PrIsDraft)
+	}
+}
+
+func TestEnrichWindowPRFabSnapshotOverlay(t *testing.T) {
+	stubWindowPRStatus(t)
+	const recordedURL = "https://github.com/sahil87/run-kit/pull/811"
+	const canonicalURL = "https://github.com/sahil87/hexokit/pull/811"
+	snapshotURLPRFn = func(string) (*prstatus.BranchPR, bool) {
+		return &prstatus.BranchPR{Number: 811, URL: canonicalURL, State: "MERGED", IsDraft: true}, true
+	}
+	w := tmux.WindowInfo{}
+	enrichWindowPR(&w, recordedURL)
+	if w.PrURL == nil || *w.PrURL != canonicalURL {
+		t.Fatalf("PrURL = %v, want canonical %q", w.PrURL, canonicalURL)
+	}
+	if w.PrState != "merged" || !w.PrIsDraft {
+		t.Fatalf("state/draft = %q/%v, want merged/true", w.PrState, w.PrIsDraft)
+	}
+}
+
+func TestEnrichWindowPRBranchFallback(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		fabPRURL string
+	}{
+		{name: "no fab change"},
+		{name: "empty fab prs"},
+		{name: "unparsable fab URL", fabPRURL: "not-a-url"},
+		{name: "wrong path shape", fabPRURL: "https://github.com/o/r/issues/9"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stubWindowPRStatus(t)
+			var repoDir, branch string
+			registerBranchPRFn = func(repo, br string) { repoDir, branch = repo, br }
+			snapshotBranchPRFn = func(string, string) (*prstatus.BranchPR, bool) {
+				return &prstatus.BranchPR{Number: 900, URL: "https://github.com/o/r/pull/900", State: "OPEN"}, true
+			}
+			w := tmux.WindowInfo{Panes: []tmux.PaneInfo{{Cwd: t.TempDir(), GitBranch: "feat", IsActive: true}}}
+			enrichWindowPR(&w, tc.fabPRURL)
+			if branch != "feat" || repoDir == "" {
+				t.Fatalf("branch registration = %q/%q", repoDir, branch)
+			}
+			if w.PrNumber == nil || *w.PrNumber != 900 || w.PrState != "open" {
+				t.Fatalf("branch fallback = number %v state %q", w.PrNumber, w.PrState)
+			}
+		})
+	}
+}
+
+func TestFetchSessionsFabPRsLastEntry(t *testing.T) {
+	stubWindowPRStatus(t)
+	branchCalls := 0
+	registerBranchPRFn = func(string, string) { branchCalls++ }
+
+	root := t.TempDir()
+	changeDir := filepath.Join(root, "fab", "changes", "c")
+	if err := os.MkdirAll(changeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	status := "progress:\n    apply: active\nprs:\n    - https://github.com/o/r/pull/1\n    - https://github.com/o/r/pull/2\n"
+	if err := os.WriteFile(filepath.Join(changeDir, ".status.yaml"), []byte(status), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("fab", "changes", "c", ".status.yaml"), filepath.Join(root, ".fab-status.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git", "HEAD"), []byte("ref: refs/heads/feat\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldSessions, oldClients, oldWindows, oldSocket := listSessionsFn, listClientsFn, listWindowsFn, socketPathFn
+	t.Cleanup(func() {
+		listSessionsFn, listClientsFn, listWindowsFn, socketPathFn = oldSessions, oldClients, oldWindows, oldSocket
+	})
+	listSessionsFn = func(context.Context, string) ([]tmux.SessionInfo, error) {
+		return []tmux.SessionInfo{{Name: "main", Windows: 1}}, nil
+	}
+	listClientsFn = func(context.Context, string) ([]tmux.ClientInfo, error) { return nil, nil }
+	listWindowsFn = func(context.Context, string, string) ([]tmux.WindowInfo, error) {
+		return []tmux.WindowInfo{{WindowID: "@1", Name: "main", Panes: []tmux.PaneInfo{{Cwd: root, IsActive: true}}}}, nil
+	}
+	socketPathFn = func(context.Context, string) (string, error) {
+		return filepath.Join(t.TempDir(), "missing"), nil
+	}
+
+	sessions, err := FetchSessions(context.Background(), "test", nil, nil)
+	if err != nil {
+		t.Fatalf("FetchSessions: %v", err)
+	}
+	if len(sessions) != 1 || len(sessions[0].Windows) != 1 {
+		t.Fatalf("FetchSessions = %+v", sessions)
+	}
+	w := sessions[0].Windows[0]
+	if w.PrNumber == nil || *w.PrNumber != 2 || w.PrURL == nil || *w.PrURL != "https://github.com/o/r/pull/2" {
+		t.Fatalf("fab PR identity = number %v URL %v, want last prs entry", w.PrNumber, w.PrURL)
+	}
+	if branchCalls != 0 {
+		t.Fatalf("fab-bound window registered branch pair %d times", branchCalls)
+	}
 }

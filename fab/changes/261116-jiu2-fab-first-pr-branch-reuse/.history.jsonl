@@ -1,0 +1,19 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-16T17:28:34Z"}
+{"args":"Fix wrong PR linkage on git branch-name reuse: fab-first PR source from .status.yaml prs:, plus ownership check (ahead-of-default or HEAD==headRefOid) for merged/closed branch-derived PRs","cmd":"fab-new","event":"command","ts":"2026-11-16T17:28:34Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-11-16T17:31:00Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-11-16T17:31:39Z"}
+{"delta":"+1.8","event":"confidence","score":1.8,"trigger":"calc-score","ts":"2026-11-16T17:42:43Z"}
+{"delta":"+2.4","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-11-16T17:47:01Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-16T17:47:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-16T17:50:14Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-11-16T17:51:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-16T19:03:05Z"}
+{"event":"review","result":"failed","ts":"2026-11-16T19:10:47Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-16T19:10:47Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-16T19:44:11Z"}
+{"event":"review","result":"failed","ts":"2026-11-16T19:47:35Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-16T19:47:35Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-16T20:04:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-11-16T20:11:34Z"}
+{"event":"review","result":"passed","ts":"2026-11-16T20:11:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-11-16T20:15:18Z"}

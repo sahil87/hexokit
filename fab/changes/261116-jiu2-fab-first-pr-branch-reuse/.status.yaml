@@ -1,0 +1,58 @@
+id: jiu2
+name: 261116-jiu2-fab-first-pr-branch-reuse
+created: 2026-11-16T17:28:34Z
+created_by: Sahil Ahuja
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 18
+    acceptance_count: 23
+    acceptance_completed: 23
+confidence:
+    certain: 15
+    confident: 7
+    tentative: 0
+    unresolved: 0
+    score: 4.2
+    fuzzy: true
+    dimensions:
+        signal: 81.4
+        reversibility: 82.3
+        competence: 81.1
+        disambiguation: 80.5
+stage_metrics:
+    intake: {started_at: "2026-11-16T17:28:34Z", driver: fab-new, iterations: 1, completed_at: "2026-11-16T17:50:14Z"}
+    apply: {started_at: "2026-11-16T19:47:35Z", driver: fab-fff, iterations: 3, completed_at: "2026-11-16T20:04:45Z"}
+    review: {started_at: "2026-11-16T20:04:45Z", driver: fab-fff, iterations: 3, completed_at: "2026-11-16T20:11:34Z"}
+    hydrate: {started_at: "2026-11-16T20:11:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-16T20:15:18Z"}
+    ship: {started_at: "2026-11-16T20:15:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-16T20:17:48Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1140
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 2254
+    deleted: 210
+    net: 2044
+    excluding:
+        added: 1442
+        deleted: 179
+        net: 1263
+    tests:
+        added: 724
+        deleted: 6
+        net: 718
+    computed_at: "2026-11-16T20:17:48Z"
+    computed_at_stage: ship
+summary: 'PR identity: fab prs: first (by-URL resolved, canonical URL, backoff, detector-tracked); merged/closed branch candidates need headRefOid ancestry ownership'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-16T20:17:48Z

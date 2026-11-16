@@ -145,12 +145,13 @@ type diskPRStatus struct {
 }
 
 type diskViewerPR struct {
-	Number    int       `json:"number"`
-	URL       string    `json:"url"`
-	State     string    `json:"state"`
-	HeadRepo  string    `json:"headRepo"`
-	HeadRef   string    `json:"headRef"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	Number     int       `json:"number"`
+	URL        string    `json:"url"`
+	State      string    `json:"state"`
+	HeadRepo   string    `json:"headRepo"`
+	HeadRef    string    `json:"headRef"`
+	HeadRefOid string    `json:"headRefOid,omitempty"`
+	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
 type diskBranchEntry struct {
@@ -160,11 +161,12 @@ type diskBranchEntry struct {
 }
 
 type diskBranchPR struct {
-	Number    int       `json:"number"`
-	URL       string    `json:"url"`
-	State     string    `json:"state"`
-	UpdatedAt time.Time `json:"updatedAt"`
-	IsDraft   bool      `json:"isDraft"`
+	Number     int       `json:"number"`
+	URL        string    `json:"url"`
+	State      string    `json:"state"`
+	UpdatedAt  time.Time `json:"updatedAt"`
+	IsDraft    bool      `json:"isDraft"`
+	HeadRefOid string    `json:"headRefOid,omitempty"`
 }
 
 // diskStateFrom projects a SeedState onto the persistence DTOs, leaving SavedAt
@@ -192,12 +194,13 @@ func diskStateFrom(st SeedState) diskState {
 
 	for _, v := range st.ViewerPRs {
 		doc.ViewerPRs = append(doc.ViewerPRs, diskViewerPR{
-			Number:    v.Number,
-			URL:       v.URL,
-			State:     v.State,
-			HeadRepo:  v.HeadRepo,
-			HeadRef:   v.HeadRef,
-			UpdatedAt: v.UpdatedAt,
+			Number:     v.Number,
+			URL:        v.URL,
+			State:      v.State,
+			HeadRepo:   v.HeadRepo,
+			HeadRef:    v.HeadRef,
+			HeadRefOid: v.HeadOid,
+			UpdatedAt:  v.UpdatedAt,
 		})
 	}
 
@@ -206,11 +209,12 @@ func diskStateFrom(st SeedState) diskState {
 			RepoDir: b.RepoDir,
 			Branch:  b.Branch,
 			PR: diskBranchPR{
-				Number:    b.PR.Number,
-				URL:       b.PR.URL,
-				State:     b.PR.State,
-				UpdatedAt: b.PR.UpdatedAt,
-				IsDraft:   b.PR.IsDraft,
+				Number:     b.PR.Number,
+				URL:        b.PR.URL,
+				State:      b.PR.State,
+				UpdatedAt:  b.PR.UpdatedAt,
+				IsDraft:    b.PR.IsDraft,
+				HeadRefOid: b.PR.HeadRefOid,
 			},
 		})
 	}
@@ -252,6 +256,7 @@ func (d diskState) seedState() SeedState {
 			State:     v.State,
 			HeadRepo:  v.HeadRepo,
 			HeadRef:   v.HeadRef,
+			HeadOid:   v.HeadRefOid,
 			UpdatedAt: v.UpdatedAt,
 		})
 	}
@@ -263,11 +268,12 @@ func (d diskState) seedState() SeedState {
 			RepoDir: b.RepoDir,
 			Branch:  b.Branch,
 			PR: BranchPR{
-				Number:    b.PR.Number,
-				URL:       b.PR.URL,
-				State:     b.PR.State,
-				UpdatedAt: b.PR.UpdatedAt,
-				IsDraft:   b.PR.IsDraft,
+				Number:     b.PR.Number,
+				URL:        b.PR.URL,
+				State:      b.PR.State,
+				UpdatedAt:  b.PR.UpdatedAt,
+				IsDraft:    b.PR.IsDraft,
+				HeadRefOid: b.PR.HeadRefOid,
 			},
 		})
 	}
