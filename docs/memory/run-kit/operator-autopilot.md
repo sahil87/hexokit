@@ -244,10 +244,22 @@ For each `pending`, unpaused queue item in queue order the engine:
 **Rejected**: Returning escalations for the caller to notify — a mechanical pass has no caller to act on them.
 *Introduced by*: 261116-rxic-autopilot-own-state-mechanical-runs
 
-### Independent recovery budgets and detached rebases
-**Decision**: Each PR has at most one `ci-fix` and one `rebase` round, stored as a set with the fix head, timer and optional fix-item link. Conflict recovery uses a temporary detached worktree and a lease pinned to the observed head.
-**Why**: Independent budgets prevent one failure kind from resetting the other; durable intent prevents duplicate agents or sends; a detached worktree leaves the author untouched; the pinned lease never overwrites a concurrent push.
-**Rejected**: Escalation-only recovery, a single overwritten recovery value, rebasing the authoring worktree, and an unpinned force-push.
+### Recovery rounds are a set of spent kinds
+**Decision**: `recovery` stores the spent kinds (`ci-fix`, `rebase`) as a set on the PR engine item, next to `fix_head`, `recovery_at` and the optional `fix_item` link; each kind has one round, and `resume` never refunds one.
+**Why**: Each kind has its own one-round budget, so a later failure of the other kind must not reset it; the intent is written before the send or launch, so a crash never repeats a request or opens a second agent.
+**Rejected**: A single overwritten recovery value (a rebase would reset a spent `ci-fix` round); escalation-only recovery, which only reported what the engine can now do.
+*Introduced by*: 261116-m8io-autopilot-pr-recovery
+
+### Conflict rebase in a temporary detached worktree with a pinned lease
+**Decision**: C5 rebases a temporary detached worktree at `origin/<branch>` and pushes `HEAD:refs/heads/<branch>` with `--force-with-lease` pinned to the observed head; the round is spent just before the push, and a fetch or worktree failure before the rebase spends nothing.
+**Why**: It never touches the authoring agent's worktree, a crash repeats cleanly, a concurrent push is never overwritten, and a transient fetch error does not burn the budget.
+**Rejected**: Reusing the authoring worktree (a dirty agent tree would halt the PR), spending the round before the fetch, and an unpinned force-push.
+*Introduced by*: 261116-m8io-autopilot-pr-recovery
+
+### Fix items in their own engine-file list
+**Decision**: Recovery-spawn agents live in the engine file's `fixes:` list, linked from the parent PR's `fix_item`; they carry identity and binding only and derive their own `resolved`/`spawn-unknown`/`working` status.
+**Why**: Queue derivation, readiness, dependencies and merge sequences stay untouched, and no back-link key is added (the parent is a reverse lookup on `fix_item`).
+**Rejected**: Queue items with a `fix_for` marker — every queue path would need an exclusion.
 *Introduced by*: 261116-m8io-autopilot-pr-recovery
 
 ### Armed is derived, never stored
