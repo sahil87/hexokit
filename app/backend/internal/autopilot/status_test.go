@@ -372,3 +372,51 @@ func TestStatusShowsDerivedStatusNames(t *testing.T) {
 		t.Fatalf("status rows = %s", got)
 	}
 }
+
+// A predecessor removed from the ledger never merged: its successor stays
+// blocked instead of acting.
+func TestAMissingPredecessorBlocksItsSuccessor(t *testing.T) {
+	x := newFx(t)
+	x.pr("pr-2", operator.MergeModeCherryPickLadder, "pr-1")
+	x.view("pr-2", open(), checkRun{State: "PENDING"})
+	if got := derivedPR(x, "pr-2"); got != PRBlocked {
+		t.Fatalf("status = %s, want blocked", got)
+	}
+}
+
+// A halted PR merged by hand does not halt what was behind it: the observed
+// MERGED fact ends the cone, whether or not done_at is recorded yet.
+func TestAnObservedMergeEndsTheHaltedCone(t *testing.T) {
+	x := newFx(t)
+	x.pr("pr-1", operator.MergeModeCherryPickLadder).Scope[scopeHalted] = true
+	x.view("pr-1", prView{State: "MERGED"})
+	now := fxNow.Format(time.RFC3339)
+	x.pr("pr-2", operator.MergeModeCherryPickLadder, "pr-1")
+	x.view("pr-2", open(), checkRun{State: "PENDING"})
+	if got := derivedPR(x, "pr-1"); got != PRMerged {
+		t.Fatalf("pr-1 = %s", got)
+	}
+	if got := derivedPR(x, "pr-2"); got == PRHalted {
+		t.Fatal("a stale halted marker on a merged PR halted its successor")
+	}
+	x.items[0].DoneAt = &now
+	if got := derivedPR(x, "pr-2"); got == PRHalted {
+		t.Fatal("a recorded merge must not halt its successor either")
+	}
+}
+
+func TestHandMergedHaltedPRDoesNotDisarmItsArmedSuccessorInThePass(t *testing.T) {
+	h, prs := ladderPair(t)
+	prs[1].Armed = true
+	if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
+		st.Tracked[operator.IndexOf(st.Tracked, "pr-1")].Scope[scopeHalted] = true
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	prs[0].State = "MERGED"
+	h.step()
+	if prs[1].Disarms != 0 || !prs[1].Armed {
+		t.Fatalf("pr-2 disarmed through a merged halted predecessor: disarms=%d armed=%v", prs[1].Disarms, prs[1].Armed)
+	}
+}

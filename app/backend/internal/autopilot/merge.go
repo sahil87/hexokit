@@ -175,7 +175,7 @@ func startMerge(ctx context.Context, env Env, opts MergeOptions) (result *StepRe
 		return e.res, fmt.Errorf("starting the registered sequences: %w", err)
 	}
 	if len(items) > 0 {
-		if err := e.addPRItems(items); err != nil {
+		if err := e.addPRItems(items, nil); err != nil {
 			return e.res, err
 		}
 		for _, it := range items {
@@ -335,8 +335,13 @@ func (e *engine) newPRItem(ctx context.Context, qi operator.TrackedItem, repo, b
 
 // addPRItems appends the items in one locked write, skipping ids that appeared
 // since the load.
-func (e *engine) addPRItems(items []operator.TrackedItem) error {
+func (e *engine) addPRItems(items []operator.TrackedItem, check func(*operator.State) error) error {
 	return e.mutate(func(st *operator.State) error {
+		if check != nil {
+			if err := check(st); err != nil {
+				return err
+			}
+		}
 		for _, it := range items {
 			if i := operator.IndexOf(st.Tracked, it.ID); i >= 0 {
 				// The same PR registered by a concurrent writer is fine; a

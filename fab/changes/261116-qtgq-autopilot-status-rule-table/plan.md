@@ -166,13 +166,13 @@ Out of scope for R6r-i:
 
 ### Phase 1: Status, facts and rule table
 
-- [x] T001 Add `app/backend/internal/autopilot/status.go`: `QueueStatus`/`PRStatus` types and constants with `allQueueStatuses`/`allPRStatuses`, the `facts` types, and the pure `deriveQueue`/`derivePR` (plus the shared pre-check used by observe to know when checks are needed, and the derived halted cone) <!-- R4, R5 -->
+- [x] T001 Add `app/backend/internal/autopilot/status.go`: `QueueStatus`/`PRStatus` types and constants with `allQueueStatuses`/`allPRStatuses`, the `facts` types, and the pure `deriveQueue`/`derivePR` (plus the shared pre-check used by observe to know when checks are needed, and the derived halted cone) <!-- R4, R5 --> <!-- rework: missing PR dependency must block; halted cone must not propagate through an observed-merged upstream -->
 - [x] T002 Add `app/backend/internal/autopilot/observe.go`: `observe` (ledger load, pane snapshot, completion/readiness/PR/repo facts, the head `operator.Observe` write, escalations on failed reads), `prView` gains `autoMergeRequest`, `viewPR`/`requiredChecks`/repo-fact readers move here <!-- R6, R10, R11 -->
 - [x] T003 Add `app/backend/internal/autopilot/rules.go`: `ActionKind`, `Decision`, the rule table Q1–Q7 (Q6 split) and P1–P7, the explicit wait table, and pure `decide` <!-- R2, R7, R8, R9, R12 -->
 
 ### Phase 2: Executors and verbs
 
-- [x] T004 Add `app/backend/internal/autopilot/execute.go`: `execute` (ledger order, fingerprint recheck, guarded writes) and the executors `record-done`, `escalate`, `skip`, `halt`, `disarm`, `ready`, `arm`, `merge`, `record-merged`, `track-pr` <!-- R3, R7, R8, R10, R13 -->
+- [x] T004 Add `app/backend/internal/autopilot/execute.go`: `execute` (ledger order, fingerprint recheck, guarded writes) and the executors `record-done`, `escalate`, `skip`, `halt`, `disarm`, `ready`, `arm`, `merge`, `record-merged`, `track-pr` <!-- R3, R7, R8, R10, R13 --> <!-- rework: track-pr and escalate writes fingerprint-guarded under the lock; P7 refuses an unpinned merge; PR changed-externally message text -->
 - [x] T005 Rework `app/backend/internal/autopilot/spawn.go`: remove `spawnPending`/`respawnDead`/`escalateInterrupted` loops and dry-run branches; `spawnItem`/`respawn` become the `spawn`/`respawn` executors (decisions moved out), `launch`/`attach` keep their marker mechanics <!-- R3, R7 -->
 - [x] T006 Dissolve `app/backend/internal/autopilot/merge.go`: keep `StartMerge` (intent then one pass), PR-chain builders, pin/identity helpers, `viewPR`-adjacent helpers; delete `advanceSeq`, `driveHead`, `arm` fallbacks, `directMerge`, `retryDisarms`, `haltCone`, `stall`, `markArmed`, `definitiveArmRejection`, `patchPR`, `stillNamesSamePR` <!-- R11, R14 -->
 - [x] T007 Rework `app/backend/internal/autopilot/step.go`: `step` = observe → decide → execute (dry-run renders decisions), `stop` = intent then one pass, `Status` = observe + derive with `StatusItem.PRStatus`; shrink `app/backend/internal/autopilot/gate.go` to the readiness fact helpers; update `autopilot.go` action kinds (`readied`) and `queue.go` scope constants (`armed`/`direct`/`stall_seen` aliases kept only as tolerated-on-disk) <!-- R1, R14, R15, R16 -->
@@ -201,61 +201,65 @@ Out of scope for R6r-i:
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `step` is observe → derive → decide → execute and `decide` takes no `ctx` and performs no I/O
-- [ ] A-002 R2: the rule table is a package-level slice of rows; `decide` returns one decision per item
-- [ ] A-003 R3: executors skip a changed or vanished item with a `changed externally; skipped` escalation and make no `gh` call
-- [ ] A-004 R4: queue statuses derive in the table order, including `skipped`, `spawn-unknown` and `dead`
-- [ ] A-005 R5: PR statuses derive in the table order with the cone derived through `depends_on`
-- [ ] A-006 R6: facts are read once per actionable item; a failed read escalates and takes no action
-- [ ] A-007 R7: rows Q1–Q7 (Q6 split) fire per the table, Q1 before Q7
-- [ ] A-008 R8: rows P1–P7 fire per the table; `stacked-prs` items get P1–P3 and waits only
-- [ ] A-009 R9: escalate-once rows read and write `scope.escalated`; P5's key includes the head SHA
-- [ ] A-010 R10: armed is read from `autoMergeRequest`; stop/halt disarm every armed PR in the cone
-- [ ] A-011 R11: repo auto-merge is read from `autoMergeAllowed`; no `direct`, no arm-rejection fallback
-- [ ] A-012 R14: `merge` and `stop` write intent and run one pass
-- [ ] A-013 R15: `status` shows queue and PR status names; `--json` adds `pr_status`
-- [ ] A-014 R16: `--dry-run` renders each decision with its row id and writes nothing
-- [ ] A-015 R17: `track rm` refuses a not-done sequence PR item without `--force`
+- [x] A-001 R1: `step` is observe → derive → decide → execute and `decide` takes no `ctx` and performs no I/O
+- [x] A-002 R2: the rule table is a package-level slice of rows; `decide` returns one decision per item
+- [x] A-003 R3: executors skip a changed or vanished item with a `changed externally; skipped` escalation and make no `gh` call
+- [x] A-004 R4: queue statuses derive in the table order, including `skipped`, `spawn-unknown` and `dead`
+- [x] A-005 R5: PR statuses derive in the table order with the cone derived through `depends_on`
+- [x] A-006 R6: facts are read once per actionable item; a failed read escalates and takes no action
+- [x] A-007 R7: rows Q1–Q7 (Q6 split) fire per the table, Q1 before Q7
+- [x] A-008 R8: rows P1–P7 fire per the table; `stacked-prs` items get P1–P3 and waits only
+- [x] A-009 R9: escalate-once rows read and write `scope.escalated`; P5's key includes the head SHA
+- [x] A-010 R10: armed is read from `autoMergeRequest`; stop/halt disarm every armed PR in the cone
+- [x] A-011 R11: repo auto-merge is read from `autoMergeAllowed`; no `direct`, no arm-rejection fallback
+- [x] A-012 R14: `merge` and `stop` write intent and run one pass
+- [x] A-013 R15: `status` shows queue and PR status names; `--json` adds `pr_status`
+- [x] A-014 R16: `--dry-run` renders each decision with its row id and writes nothing
+- [x] A-015 R17: `track rm` refuses a not-done sequence PR item without `--force`
 
 ### Behavioral Correctness
 
-- [ ] A-016 R12: a failed or conflicting PR is escalated by P5 and never armed
-- [ ] A-017 R13: a sequence advances one PR per pass
-- [ ] A-018 R10: a halt writes `halted` on one item; clearing it resumes the cone
+- [x] A-016 R12: a failed or conflicting PR is escalated by P5 and never armed
+- [x] A-017 R13: a sequence advances one PR per pass
+- [x] A-018 R10: a halt writes `halted` on one item; clearing it resumes the cone
 
 ### Removal Verification
 
-- [ ] A-019 R11: `advanceSeq`'s loop, `driveHead`, `retryDisarms`, `directMerge`, `haltCone`'s cone write, `stall`, `markArmed`, `definitiveArmRejection` and the phase loops are gone, and no `armed`/`direct`/`stall_seen` read or write remains in the engine
+- [x] A-019 R11: `advanceSeq`'s loop, `driveHead`, `retryDisarms`, `directMerge`, `haltCone`'s cone write, `stall`, `markArmed`, `definitiveArmRejection` and the phase loops are gone, and no `armed`/`direct`/`stall_seen` read or write remains in the engine
 
 ### Scenario Coverage
 
-- [ ] A-020 R2: the `decide` table test covers every reachable (kind, mode, status) and each guard's true and false side
-- [ ] A-021 R10: a person-armed PR in a halted cone is disarmed by `stop` and by P3
-- [ ] A-022 R13: R6a's lifecycle, merge, escalation, spawn and queue tests stay green except where they assert a delta
+- [x] A-020 R2: the `decide` table test covers every reachable (kind, mode, status) and each guard's true and false side
+- [x] A-021 R10: a person-armed PR in a halted cone is disarmed by `stop` and by P3
+- [x] A-022 R13: R6a's lifecycle, merge, escalation, spawn and queue tests stay green except where they assert a delta
 
 ### Edge Cases & Error Handling
 
-- [ ] A-023 R10: a failed disarm escalates `disarming PR #n failed — it may still merge` and is retried next pass; an already-disabled or finished PR counts as done
-- [ ] A-024 R8: an arm failure escalates `arming PR #n failed: …` and the next pass re-observes `autoMergeRequest`; `alreadyApplied(arm)` is success
-- [ ] A-025 R3: a PR item without a pinned owner/name is never acted on
+- [x] A-023 R10: a failed disarm escalates `disarming PR #n failed — it may still merge` and is retried next pass; an already-disabled or finished PR counts as done
+- [x] A-024 R8: an arm failure escalates `arming PR #n failed: …` and the next pass re-observes `autoMergeRequest`; `alreadyApplied(arm)` is success
+- [x] A-025 R3: a PR item without a pinned owner/name is never acted on
 
 ### Code Quality
 
-- [ ] A-026 Pattern consistency: New code follows naming and structural patterns of surrounding code
-- [ ] A-027 No unnecessary duplication: Existing utilities (`operator.Mutate`, `escalate`, `alreadyApplied`, `pin`) are reused
-- [ ] A-028 No god functions: no function over 50 lines without clear reason; the decision lives in the table, not in executors
-- [ ] A-029 No magic strings: action kinds, statuses and scope keys are named constants; comments state constraints, never narrate or cite change IDs
-- [ ] A-030 New behaviour ships with tests, and subprocess calls stay `exec.CommandContext` argv slices via the `Runner`
+- [x] A-026 Pattern consistency: New code follows naming and structural patterns of surrounding code
+- [x] A-027 No unnecessary duplication: Existing utilities (`operator.Mutate`, `escalate`, `alreadyApplied`, `pin`) are reused
+- [x] A-028 No god functions: no function over 50 lines without clear reason; the decision lives in the table, not in executors
+- [x] A-029 No magic strings: action kinds, statuses and scope keys are named constants; comments state constraints, never narrate or cite change IDs
+- [x] A-030 New behaviour ships with tests, and subprocess calls stay `exec.CommandContext` argv slices via the `Runner`
 
 ### Security
 
-- [ ] A-031 R3: every `gh` mutation targets the pinned `owner/name` and a digits-only PR number from the re-read item
+- [x] A-031 R3: every `gh` mutation targets the pinned `owner/name` and a digits-only PR number from the re-read item
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- `app/backend/internal/autopilot/autopilot.go:278` `escalateAs` — its only caller is now `escalate` (escalateRow writes through `recordEscalation` directly); fold it back into `escalate`, or give it the fingerprint parameter and let `escalateRow` call it instead of repeating its result/“note not written” logic.
 
 ## Assumptions
 

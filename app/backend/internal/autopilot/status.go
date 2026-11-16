@@ -193,12 +193,15 @@ func deriveQueue(st *operator.State, f *facts, it operator.TrackedItem) QueueSta
 // haltedCone reports whether the item is halted: stored `halted` on it or on
 // any not-done item it transitively depends_on. The cone is derived, so
 // clearing `halted` on the one item that carries it resumes everything
-// downstream. A done upstream holds nothing back.
-func haltedCone(st *operator.State, it operator.TrackedItem) bool {
+// downstream. An upstream that is merged (stored done_at, or MERGED observed
+// this pass) holds nothing back, so a stale `halted` on a hand-merged PR does
+// not propagate. f may be nil: observe asks for the superset of items that may
+// need reading before any fact exists.
+func haltedCone(st *operator.State, f *facts, it operator.TrackedItem) bool {
 	seen := map[string]bool{}
 	var visit func(x operator.TrackedItem) bool
 	visit = func(x operator.TrackedItem) bool {
-		if seen[x.ID] || operator.ItemDone(x) {
+		if seen[x.ID] || operator.ItemDone(x) || observedMerged(f, x.ID) {
 			return false
 		}
 		seen[x.ID] = true
@@ -215,12 +218,22 @@ func haltedCone(st *operator.State, it operator.TrackedItem) bool {
 	return visit(it)
 }
 
+func observedMerged(f *facts, id string) bool {
+	if f == nil {
+		return false
+	}
+	pf := f.pr[id]
+	return pf != nil && pf.read && strings.EqualFold(pf.view.State, "MERGED")
+}
+
 // blockedByDeps reports whether a PR item still waits on another item (the
 // previous PR of its repo, or a cross-repo barrier). Only a recorded merge
-// unblocks it, so a successor acts one pass after its predecessor's P1.
+// unblocks it, so a successor acts one pass after its predecessor's P1. A
+// dependency that names no ledger item blocks too: its predecessor never
+// merged, so the successor must not act.
 func blockedByDeps(st *operator.State, it operator.TrackedItem) bool {
 	for _, d := range it.DependsOn {
-		if i := operator.IndexOf(st.Tracked, d); i >= 0 && !operator.ItemDone(st.Tracked[i]) {
+		if i := operator.IndexOf(st.Tracked, d); i < 0 || !operator.ItemDone(st.Tracked[i]) {
 			return true
 		}
 	}
@@ -239,7 +252,7 @@ func prPrecheck(st *operator.State, f *facts, it operator.TrackedItem) (status P
 	switch {
 	case state == "MERGED" || operator.ItemDone(it):
 		return PRMerged, true
-	case haltedCone(st, it):
+	case haltedCone(st, f, it):
 		return PRHalted, true
 	case state == "CLOSED":
 		return PRClosed, true

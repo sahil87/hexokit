@@ -189,7 +189,7 @@ func (e *engine) launch(ctx context.Context, it operator.TrackedItem, fp string,
 		}
 	}); err != nil {
 		if errors.Is(err, errItemChanged) {
-			e.writeFailed(id, "", err)
+			e.writeFailed(id, false, "", err)
 		} else {
 			e.escalate(id, "spawn marker not written, nothing launched: "+err.Error())
 		}

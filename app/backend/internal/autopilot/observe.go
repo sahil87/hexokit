@@ -114,7 +114,7 @@ func (e *engine) observePRs(ctx context.Context, st *operator.State, f *facts) (
 		if !isSeqPR(it) || operator.ItemDone(it) {
 			continue
 		}
-		cone := haltedCone(st, it)
+		cone := haltedCone(st, nil, it)
 		head := heads[seqOf(it)] == it.ID
 		if !cone && !(head && !scopeBool(it, scopeDeferred) && !blockedByDeps(st, it)) {
 			continue
@@ -204,7 +204,7 @@ func (e *engine) observePRWrite(it operator.TrackedItem, v prView) error {
 		},
 	})
 	if err != nil {
-		e.writeFailed(it.ID, "PR observation not written", err)
+		e.writeFailed(it.ID, true, "PR observation not written", err)
 	}
 	return err
 }

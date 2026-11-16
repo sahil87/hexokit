@@ -282,7 +282,7 @@ func (e *engine) escalateAs(id, key, reason string) {
 	}
 	e.res.Escalations = append(e.res.Escalations, Escalation{Item: id, Reason: reason})
 	if id != "" {
-		if err := e.recordEscalation(id, key, reason); err != nil {
+		if err := e.recordEscalation(id, key, reason, ""); err != nil {
 			e.res.Escalations = append(e.res.Escalations, Escalation{Item: id, Reason: "escalation note not written: " + err.Error()})
 		}
 	}
@@ -342,7 +342,7 @@ func escalationKey(reason string) string {
 
 // recordEscalation stores the key's first-seen time in scope.escalated and, on
 // that first sighting only, appends a human note.
-func (e *engine) recordEscalation(id, key, reason string) error {
+func (e *engine) recordEscalation(id, key, reason, fp string) error {
 	by := e.env.by()
 	return e.mutate(func(st *operator.State) error {
 		i := operator.IndexOf(st.Tracked, id)
@@ -350,6 +350,9 @@ func (e *engine) recordEscalation(id, key, reason string) error {
 			return operator.ErrNoWrite
 		}
 		it := &st.Tracked[i]
+		if fp != "" && fingerprint(*it) != fp {
+			return errItemChanged
+		}
 		if escalatedSeen(*it, key) {
 			return operator.ErrNoWrite
 		}

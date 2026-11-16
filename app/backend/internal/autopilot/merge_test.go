@@ -1017,7 +1017,7 @@ func TestExecutorsSkipAPRItemThatChangedAfterObservation(t *testing.T) {
 				if h.run.called(ghCall) != 0 || len(e.res.Actions) != 0 {
 					t.Fatalf("acted on a changed item: calls=%q actions=%+v", h.run.calls, e.res.Actions)
 				}
-				if !hasEscalation(e.res, "item pr-1 changed externally; skipped") {
+				if !hasEscalation(e.res, "PR item pr-1 changed externally; skipped") {
 					t.Fatalf("res = %+v", e.res)
 				}
 			})
@@ -1051,5 +1051,62 @@ func TestObservationOfAChangedPRItemWritesNothing(t *testing.T) {
 	after := h.item(head.ID)
 	if after.Unchanged != before.Unchanged || fmt.Sprint(after.Last) != fmt.Sprint(before.Last) || !hasEscalation(e.res, "changed externally; skipped") {
 		t.Fatalf("before %+v after %+v res %+v", before, after, e.res)
+	}
+}
+
+// Q7 finds the PR by branch with reads that take time. If its queue item is
+// removed meanwhile, nothing is persisted: no orphan sequence a later pass
+// could arm or merge.
+func TestTrackPRWritesNothingWhenItsQueueItemChangedDuringTheReads(t *testing.T) {
+	for _, scenario := range []string{"removed", "changed"} {
+		t.Run(scenario, func(t *testing.T) {
+			h := newHarness(t)
+			foo := newRepo(t, "foo")
+			h.queue("merge-auto", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
+			h.setDone("a")
+			h.attachBranch("a", "a-branch")
+			pending(h.gh.add(1, "a-branch"))
+			e, d := h.decideFor("a")
+			if d.Action != ActionTrackPR {
+				t.Fatalf("decision = %+v", d)
+			}
+			h.run.onRun = func(argv []string) {
+				if len(argv) > 3 && argv[1] == "pr" && argv[2] == "view" && argv[3] == "a-branch" {
+					h.run.onRun = nil
+					if scenario == "removed" {
+						_ = operator.Remove(h.env.StatePath, "a", true)
+					} else {
+						_ = operator.Mutate(h.env.StatePath, func(st *operator.State) error {
+							st.Tracked[operator.IndexOf(st.Tracked, "a")].Scope["task"] = "edited"
+							return nil
+						})
+					}
+				}
+			}
+			execOne(t, e, d)
+			if h.has("pr-1") || hasAction(e.res, ActPRTracked, "") || !hasEscalation(e.res, "item a changed externally; skipped") {
+				t.Fatalf("an orphan PR item was persisted or the skip not reported: %+v", e.res)
+			}
+		})
+	}
+}
+
+// An escalate-once row writes its note and dedupe key under the item's
+// fingerprint: an item whose edges changed since observe gets neither.
+func TestEscalateRowWritesNothingToAnItemThatChanged(t *testing.T) {
+	h, pr, head := armableFixture(t)
+	pr.Checks = []checkRun{{Name: "ci", State: "FAILURE"}}
+	e, d := h.decideFor(head.ID)
+	if d.Row != "P5" {
+		t.Fatalf("decision = %+v", d)
+	}
+	changePRItem(t, h, head.ID, "", func(it *operator.TrackedItem, _ string) { it.DependsOn = []string{"other"} })
+	execOne(t, e, d)
+	it := h.item(head.ID)
+	if _, ok := it.Scope[scopeEscalated]; ok || len(it.Notes) != 0 {
+		t.Fatalf("an escalation landed on a changed item: %+v notes=%v", it.Scope, it.Notes)
+	}
+	if hasEscalation(e.res, "recovery needed") || !hasEscalation(e.res, "PR item pr-1 changed externally; skipped") {
+		t.Fatalf("res = %+v", e.res)
 	}
 }

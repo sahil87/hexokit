@@ -369,6 +369,18 @@ func prRuleCases() []ruleCase {
 			x.view("p", open())
 			return "p"
 		}},
+		{name: "green with an unobserved head commit is never merged", kind: "pr", status: "green", row: "", build: func(x *fx, m string) string {
+			x.pr("p", m)
+			v := open()
+			v.HeadRefOid = ""
+			x.view("p", v)
+			return "p"
+		}},
+		{name: "a dependency naming no ledger item blocks", kind: "pr", status: "blocked", row: "", build: func(x *fx, m string) string {
+			x.pr("p2", m, "removed-pr-1")
+			x.view("p2", open(), checkRun{State: "PENDING"})
+			return "p2"
+		}},
 		{name: "green and armed waits for GitHub", kind: "pr", status: "green", row: "", build: func(x *fx, m string) string {
 			x.pr("p", m)
 			v := open()

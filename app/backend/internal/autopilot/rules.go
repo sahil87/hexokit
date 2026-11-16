@@ -56,6 +56,8 @@ type Decision struct {
 	// fp fingerprints the item's decision inputs at observe time; an executor
 	// skips the item when it no longer matches.
 	fp string
+	// pr marks a PR item decision (its skip text names it).
+	pr bool
 }
 
 type itemKind int
@@ -169,6 +171,13 @@ func trackPRGuard(c *ruleCtx) bool {
 	return c.mode == operator.MergeModeMergeAuto && !isBare(c.it) && operator.ItemDone(c.it) && !hasPRItem(c.st, c.it.ID)
 }
 
+// mergeGuard is P7's: a green, unarmed, non-stacked PR whose observed head is
+// known, because the merge is pinned to that commit.
+func mergeGuard(c *ruleCtx) bool {
+	pf := prFactsOf(c)
+	return !stacked(c) && !armedFact(c) && pf != nil && pf.view.HeadRefOid != ""
+}
+
 // stallText is P5's reason and dedupe key: once per reason and head commit.
 func stallText(reason string) func(c *ruleCtx) (string, string) {
 	return func(c *ruleCtx) (string, string) {
@@ -212,7 +221,7 @@ var ruleTable = []rule{
 	{id: "P5", kind: kindPR, pr: PRFailed, guard: stallGuard("ci-failed"), action: ActionEscalate, text: stallText("ci-failed")},
 	{id: "P5", kind: kindPR, pr: PRConflicting, guard: stallGuard("conflicting"), action: ActionEscalate, text: stallText("conflicting")},
 	{id: "P6", kind: kindPR, pr: PRWaiting, guard: func(c *ruleCtx) bool { return !stacked(c) && !armedFact(c) && repoAllowsAutoMerge(c) }, action: ActionArm},
-	{id: "P7", kind: kindPR, pr: PRGreen, guard: func(c *ruleCtx) bool { return !stacked(c) && !armedFact(c) }, action: ActionMerge},
+	{id: "P7", kind: kindPR, pr: PRGreen, guard: mergeGuard, action: ActionMerge},
 }
 
 // wait is an explicit non-action: the (item kind, status) the table leaves to
@@ -241,7 +250,7 @@ var waitTable = []wait{
 	{kind: kindPR, pr: PRDraft, reason: "stacked-prs: merged by R6b"},
 	{kind: kindPR, pr: PRFailed, reason: "already escalated for this head"},
 	{kind: kindPR, pr: PRConflicting, reason: "already escalated for this head"},
-	{kind: kindPR, pr: PRGreen, reason: "armed: GitHub merges it"},
+	{kind: kindPR, pr: PRGreen, reason: "armed (GitHub merges it), or its head commit is unknown"},
 	{kind: kindPR, pr: PRWaiting, reason: "checks pending, armed, or the repo has no auto-merge"},
 }
 
@@ -277,7 +286,7 @@ func decideItem(c *ruleCtx, kind itemKind, queue QueueStatus, pr PRStatus) Decis
 	if kind == kindPR {
 		status = string(pr)
 	}
-	d := Decision{Item: c.it.ID, Status: status, fp: fingerprint(c.it)}
+	d := Decision{Item: c.it.ID, Status: status, fp: fingerprint(c.it), pr: kind == kindPR}
 	for _, r := range ruleTable {
 		if !r.matches(c, kind, queue, pr) {
 			continue

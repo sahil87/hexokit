@@ -273,7 +273,7 @@ func TestEscalationNoteTruncationIsRuneSafe(t *testing.T) {
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
 	e := newEngine(h.env)
 	long := strings.Repeat("é", operator.NoteTextCap+50)
-	if err := e.recordEscalation("a", escalationKey(long), long); err != nil {
+	if err := e.recordEscalation("a", escalationKey(long), long, ""); err != nil {
 		t.Fatalf("recordEscalation: %v", err)
 	}
 	notes := h.item("a").Notes

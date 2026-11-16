@@ -83,7 +83,7 @@ func (e *engine) reread(d Decision) (*operator.State, operator.TrackedItem, bool
 	}
 	i := operator.IndexOf(st.Tracked, d.Item)
 	if i < 0 || fingerprint(st.Tracked[i]) != d.fp {
-		e.escalate(d.Item, fmt.Sprintf("item %s changed externally; skipped", d.Item))
+		e.escalate(d.Item, changedText(d.Item, d.pr))
 		return nil, operator.TrackedItem{}, false
 	}
 	return st, st.Tracked[i], true
@@ -111,11 +111,20 @@ func (e *engine) guarded(id, fp string, fn func(*operator.TrackedItem)) error {
 	})
 }
 
+// changedText is the escalation for an item that changed or vanished since
+// observe: PR items name themselves as such.
+func changedText(id string, pr bool) string {
+	if pr {
+		return fmt.Sprintf("PR item %s changed externally; skipped", id)
+	}
+	return fmt.Sprintf("item %s changed externally; skipped", id)
+}
+
 // writeFailed reports a failed item write: a changed item is skipped, anything
 // else carries the write's own message.
-func (e *engine) writeFailed(id, what string, err error) {
+func (e *engine) writeFailed(id string, pr bool, what string, err error) {
 	if errors.Is(err, errItemChanged) {
-		e.escalate(id, fmt.Sprintf("item %s changed externally; skipped", id))
+		e.escalate(id, changedText(id, pr))
 		return
 	}
 	e.escalate(id, what+": "+err.Error())
@@ -124,7 +133,7 @@ func (e *engine) writeFailed(id, what string, err error) {
 func (e *engine) recordDone(d Decision) error {
 	now := e.env.now().UTC().Format(time.RFC3339)
 	if err := e.guarded(d.Item, d.fp, func(t *operator.TrackedItem) { t.DoneAt = &now }); err != nil {
-		e.writeFailed(d.Item, "completion marker not written", err)
+		e.writeFailed(d.Item, d.pr, "completion marker not written", err)
 		if errors.Is(err, errItemChanged) {
 			return nil
 		}
@@ -134,9 +143,19 @@ func (e *engine) recordDone(d Decision) error {
 	return nil
 }
 
+// escalateRow reports an escalate-once row. The dedupe record is written under
+// the item's fingerprint, so a note and key never land on an item that changed
+// since observe.
 func (e *engine) escalateRow(d Decision) error {
-	if _, _, ok := e.reread(d); ok {
-		e.escalateAs(d.Item, d.Key, d.Reason)
+	err := e.recordEscalation(d.Item, d.Key, d.Reason, d.fp)
+	switch {
+	case errors.Is(err, errItemChanged):
+		e.res.Escalations = append(e.res.Escalations, Escalation{Item: d.Item, Reason: changedText(d.Item, d.pr)})
+	case err != nil:
+		e.res.Escalations = append(e.res.Escalations, Escalation{Item: d.Item, Reason: d.Reason},
+			Escalation{Item: d.Item, Reason: "escalation note not written: " + err.Error()})
+	default:
+		e.res.Escalations = append(e.res.Escalations, Escalation{Item: d.Item, Reason: d.Reason})
 	}
 	return nil
 }
@@ -145,7 +164,7 @@ func (e *engine) escalateRow(d Decision) error {
 // failed write never reports a skip that did not happen.
 func (e *engine) skip(d Decision) error {
 	if err := e.guarded(d.Item, d.fp, func(t *operator.TrackedItem) { t.Scope[scopeSkipped] = true }); err != nil {
-		e.writeFailed(d.Item, "skipped marker not written", err)
+		e.writeFailed(d.Item, d.pr, "skipped marker not written", err)
 		return nil
 	}
 	e.escalate(d.Item, "pane died after its one respawn: skipped, dependents stay held")
@@ -179,7 +198,19 @@ func (e *engine) trackPR(ctx context.Context, d Decision) error {
 		e.escalate(qi.ID, err.Error())
 		return nil
 	}
-	if err := e.addPRItems([]operator.TrackedItem{it}); err != nil {
+	// The PR was found by reads that took time: the item is appended only if
+	// its source queue item is still the one decided on, in the same write.
+	err = e.addPRItems([]operator.TrackedItem{it}, func(st *operator.State) error {
+		if i := operator.IndexOf(st.Tracked, qi.ID); i < 0 || fingerprint(st.Tracked[i]) != d.fp {
+			return errItemChanged
+		}
+		return nil
+	})
+	if errors.Is(err, errItemChanged) {
+		e.escalate(qi.ID, changedText(qi.ID, false))
+		return nil
+	}
+	if err != nil {
 		e.escalate("", "PR items not written: "+err.Error())
 		return err
 	}
@@ -204,7 +235,7 @@ func (e *engine) recordMerged(ctx context.Context, d Decision, unreviewed *[]str
 	}
 	now := e.env.now().UTC().Format(time.RFC3339)
 	if err := e.guarded(d.Item, d.fp, func(t *operator.TrackedItem) { t.DoneAt = &now }); err != nil {
-		e.writeFailed(d.Item, "merged completion not written", err)
+		e.writeFailed(d.Item, d.pr, "merged completion not written", err)
 		return nil
 	}
 	repo := cleanRepo(operator.ScopeString(it.Scope, "repo"))
@@ -251,7 +282,7 @@ func (e *engine) halt(ctx context.Context, d Decision) error {
 	reason := fmt.Sprintf("PR #%s was closed without merging", prNum(it.Scope))
 	if err := e.guarded(d.Item, d.fp, func(t *operator.TrackedItem) { t.Scope[scopeHalted] = true }); err != nil {
 		if errors.Is(err, errItemChanged) {
-			e.writeFailed(d.Item, "", err)
+			e.writeFailed(d.Item, d.pr, "", err)
 		} else {
 			e.escalate(d.Item, "halt marker not written: "+err.Error()+"; "+reason)
 		}
@@ -360,10 +391,12 @@ func (e *engine) merge(ctx context.Context, d Decision) error {
 	if !ok {
 		return nil
 	}
-	args := withRepo(t.nwo, "pr", "merge", "--squash", t.n)
-	if pf := e.facts.pr[d.Item]; pf != nil && pf.view.HeadRefOid != "" {
-		args = append(args, "--match-head-commit", pf.view.HeadRefOid)
+	pf := e.facts.pr[d.Item]
+	if pf == nil || pf.view.HeadRefOid == "" {
+		e.escalate(it.ID, fmt.Sprintf("merging PR #%s refused: its head commit was not observed", t.n))
+		return nil
 	}
+	args := append(withRepo(t.nwo, "pr", "merge", "--squash", t.n), "--match-head-commit", pf.view.HeadRefOid)
 	if _, err := e.gh(ctx, t.repo, args...); !alreadyApplied(err, "merge") {
 		e.escalate(it.ID, fmt.Sprintf("merging PR #%s failed: %s", t.n, stderrOf(err)))
 		return nil
