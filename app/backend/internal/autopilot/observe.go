@@ -12,7 +12,7 @@ import (
 
 // prViewFields is the one `gh pr view` field list: the status inputs plus
 // autoMergeRequest, which is how armed is derived.
-const prViewFields = "number,url,state,isDraft,mergedAt,mergeable,headRefOid,autoMergeRequest"
+const prViewFields = "number,url,state,isDraft,mergedAt,mergeable,headRefOid,autoMergeRequest,baseRefName"
 
 // stallUnchanged is the number of polls with no change after which a PR with
 // no failed check and a CONFLICTING mergeable state is read as stuck.
@@ -133,11 +133,12 @@ func (e *engine) observePRs(ctx context.Context, st *operator.State, f *facts) (
 	return wrote
 }
 
-// observePR reads one PR item's facts. A head outside a halted cone also has
-// its polled state stored (the `unchanged` clock the conflicting status
-// needs). It reports whether it wrote that observation. A halted item whose
-// armed state cannot be read is kept in coneErr: stop reports that it cannot
-// promise the disarm.
+// observePR reads one PR item's facts. A stacked head also reads its default
+// base and predecessor merge ancestry before checks. A head outside a halted
+// cone has its polled state stored (the `unchanged` clock the conflicting
+// status needs). It reports whether it wrote that observation. A halted item
+// whose armed state cannot be read is kept in coneErr: stop reports that it
+// cannot promise the disarm.
 func (e *engine) observePR(ctx context.Context, st *operator.State, f *facts, it operator.TrackedItem, poll, cone bool) (wrote bool) {
 	unreadable := func() {
 		if cone {
@@ -156,7 +157,7 @@ func (e *engine) observePR(ctx context.Context, st *operator.State, f *facts, it
 		return false
 	}
 	repo := cleanRepo(operator.ScopeString(it.Scope, "repo"))
-	pf := &prFacts{}
+	pf := &prFacts{stacked: modeOf(it) == operator.MergeModeStackedPRs}
 	f.pr[it.ID] = pf
 	v, err := e.viewPR(ctx, repo, nwo, n, prViewFields)
 	if err != nil {
@@ -175,8 +176,14 @@ func (e *engine) observePR(ctx context.Context, st *operator.State, f *facts, it
 		}
 		wrote = !e.env.DryRun
 	}
-	if _, settled := prPrecheck(st, f, it); settled {
+	if status, settled := prPrecheck(st, f, it); settled && (status != PRWaiting || !pf.stacked) {
 		return wrote
+	}
+	if pf.stacked {
+		e.observeStaleBase(ctx, st, f, it, repo, nwo)
+		if _, settled := prPrecheck(st, f, it); settled {
+			return wrote
+		}
 	}
 	runs, err := e.requiredChecks(ctx, repo, nwo, n)
 	if err != nil {
@@ -184,10 +191,71 @@ func (e *engine) observePR(ctx context.Context, st *operator.State, f *facts, it
 		return wrote
 	}
 	pf.checks, pf.checksRead = runs, true
-	if derivePR(st, f, it) == PRWaiting && !pf.armed() && modeOf(it) != operator.MergeModeStackedPRs {
+	if derivePR(st, f, it) == PRWaiting && !pf.armed() && !pf.stacked {
 		e.observeAutoMerge(ctx, f, it, repo, nwo)
 	}
 	return wrote
+}
+
+// observeStaleBase reads every fact needed to prove a stacked PR is on the
+// default base and contains its predecessor's squash merge. Any missing fact
+// leaves staleRead false, which derives waiting and never green.
+func (e *engine) observeStaleBase(ctx context.Context, st *operator.State, f *facts, it operator.TrackedItem, repo, nwo string) {
+	pf := f.pr[it.ID]
+	pf.base = pf.view.BaseRefName
+	pf.defaultBranch = e.defaultBranch(ctx, repo, it.ID)
+	if pf.base == "" {
+		e.escalate(it.ID, "stacked PR baseRefName is empty")
+	}
+	if !e.metaFor(repo).defaultBranchKnown {
+		e.escalate(it.ID, "stacked PR default branch is unproven")
+	}
+	if pf.base == "" || !e.metaFor(repo).defaultBranchKnown {
+		return
+	}
+	pred, hasPred := inSeqPredecessor(st, it)
+	pf.hasPred = hasPred
+	if !hasPred {
+		pf.staleRead = true
+		return
+	}
+	predN := prNum(pred.Scope)
+	if predN == "" {
+		e.escalate(it.ID, "predecessor merge commit lookup failed: scope.pr is not a PR number")
+		return
+	}
+	v, err := e.viewPR(ctx, repo, nwo, predN, "mergeCommit")
+	if err != nil || v.MergeCommit.OID == "" {
+		if err == nil {
+			err = fmt.Errorf("empty merge commit")
+		}
+		e.escalate(it.ID, "predecessor merge commit lookup failed: "+stderrOf(err))
+		return
+	}
+	pf.predMerge = v.MergeCommit.OID
+	if pf.base != pf.defaultBranch {
+		pf.staleRead = true
+		return
+	}
+	if pf.view.HeadRefOid == "" {
+		e.escalate(it.ID, "ancestry lookup failed: empty head commit")
+		return
+	}
+	out, err := e.gh(ctx, repo, "api", "repos/"+nwo+"/compare/"+pf.predMerge+"..."+pf.view.HeadRefOid, "--jq", ".status")
+	status := strings.TrimSpace(out)
+	if err == nil {
+		switch status {
+		case "ahead", "identical":
+			pf.ancestor, pf.staleRead = true, true
+		case "behind", "diverged":
+			pf.staleRead = true
+		default:
+			err = fmt.Errorf("unreadable compare status %q", status)
+		}
+	}
+	if err != nil {
+		e.escalate(it.ID, "ancestry lookup failed: "+stderrOf(err))
+	}
 }
 
 // observePRWrite stores the polled PR facts on the github-pr item, so

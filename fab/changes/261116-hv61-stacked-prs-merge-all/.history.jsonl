@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-16T21:01:56Z"}
+{"args":"Implement step R6b (stacked-prs merge-all) of fab/plans/sahil/26-11-16-operator-autopilot-restructure.md","cmd":"fab-new","event":"command","ts":"2026-11-16T21:01:56Z"}
+{"delta":"+0.0","event":"confidence","score":3.1,"trigger":"calc-score","ts":"2026-11-16T21:03:33Z"}
+{"delta":"+0.0","event":"confidence","score":3.1,"trigger":"calc-score","ts":"2026-11-16T21:03:47Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-16T21:05:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-16T21:06:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-16T21:32:37Z"}
+{"event":"review","result":"failed","ts":"2026-11-16T21:42:45Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-16T21:42:45Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-16T21:52:22Z"}
+{"event":"review","result":"failed","ts":"2026-11-16T21:57:16Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-16T21:57:16Z"}

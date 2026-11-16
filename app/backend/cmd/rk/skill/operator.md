@@ -127,9 +127,9 @@ echo '[
 
 Add `--mode stacked-prs` (or another mode) to the call when the user named one.
 
-An entry names an existing change (`change`), raw text (`task`), or neither (a bare agent — nothing may depend on it). `queue` writes the engine file and runs a pass; `step` forces another pass and `status` is the read-only queue view. Escalations arrive as `by: run` notes plus a notification from the engine: report an `escalated: restack needed` or `recovery needed` note, never perform that mechanical work from chat. Every writing verb takes the per-server pass lock; `busy` means retry later.
+An entry names an existing change (`change`), raw text (`task`), or neither (a bare agent — nothing may depend on it). `queue` writes the engine file and runs a pass; `step` forces another pass and `status` is the read-only queue view. Escalations arrive as `by: run` notes plus a notification from the engine: report an `escalated: recovery needed` note, never perform that mechanical work from chat. Every writing verb takes the per-server pass lock; `busy` means retry later.
 
-- **"merge all"** → `rk operator autopilot merge` after the queue completes and the user confirms. It registers every mode, including `stacked-prs`; a stacked predecessor merge produces a restack escalation for the successor until restacking is handled outside this step.
+- **"merge all"** → `rk operator autopilot merge` after the queue completes and the user confirms. It registers every mode, including `stacked-prs`; later passes ready stacked drafts, restack successors after their predecessors merge, and merge green restacked heads directly without arming. Rebase conflicts halt and escalate.
 - **"stop"** → `rk operator autopilot stop`: disarms every armed PR and pauses unspawned entries; live panes keep running.
 - **Remove/resume** → `rk operator autopilot rm <id>` drops an unspawned entry or a halted sequence; `rk operator autopilot resume <id>` clears halted, skipped, or paused intent.
 

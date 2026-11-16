@@ -666,7 +666,7 @@ func TestAutopilotMergeAcceptsAStackedQueue(t *testing.T) {
 	}
 }
 
-func TestAutopilotHelpStatesBusyExitCodesAndRecovery(t *testing.T) {
+func TestAutopilotHelpStatesBusyExitCodesRecoveryAndStackedMerging(t *testing.T) {
 	for verb, wants := range map[string][]string{
 		"step": {
 			"0  stepped (with or without actions or escalations), or busy",
@@ -676,7 +676,7 @@ func TestAutopilotHelpStatesBusyExitCodesAndRecovery(t *testing.T) {
 		},
 		"merge": {
 			"0  started (or nothing to merge), or busy",
-			"Stacked-prs sequences escalate restacks", "1  operational failure (queue items not done, no PR for a branch",
+			"Stacked-prs sequences ready, restack and merge", "1  operational failure (queue items not done, no PR for a branch",
 		},
 		"stop": {
 			"0  stopped, or busy", "whoever armed it", "retried by the next stop or step until github reports it disarmed",

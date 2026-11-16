@@ -195,6 +195,7 @@ const (
 	ActReadied       = "readied"
 	ActRecoverySent  = "recovery-sent"
 	ActRecoverySpawn = "recovery-spawned"
+	ActRetargeted    = "retargeted"
 	ActRebased       = "rebased"
 	ActUntracked     = "untracked"
 )

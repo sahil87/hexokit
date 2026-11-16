@@ -84,6 +84,9 @@ func (x *fx) pane(it *operator.TrackedItem, alive bool) {
 // view records a successfully read PR with the given state and checks.
 func (x *fx) view(id string, v prView, checks ...checkRun) *prFacts {
 	pf := &prFacts{read: true, view: v, checks: checks, checksRead: true}
+	if i := operator.IndexOf(x.state().Tracked, id); i >= 0 && modeOf(x.items[i]) == operator.MergeModeStackedPRs {
+		pf.stacked, pf.staleRead, pf.base, pf.defaultBranch, pf.ancestor = true, true, "main", "main", true
+	}
 	x.f.pr[id] = pf
 	x.f.autoMerge["o/r"] = true
 	return pf
@@ -114,8 +117,9 @@ type ruleCase struct {
 	row    string // "" is an explicit wait
 	action ActionKind
 	build  func(x *fx, mode string) string // returns the item id under test
-	// modes restricts the cases that differ by mode; nil runs every mode.
-	modes map[string]string // mode -> row that fires there instead
+	// modes and statuses hold per-mode overrides; nil runs every mode.
+	modes    map[string]string // mode -> row that fires there instead
+	statuses map[string]string // mode -> derived status
 }
 
 // rowFor is the row a case expects in a mode: the case's own, or its per-mode
@@ -125,6 +129,13 @@ func rowFor(c ruleCase, mode string) string {
 		return r
 	}
 	return c.row
+}
+
+func statusFor(c ruleCase, mode string) string {
+	if s, ok := c.statuses[mode]; ok {
+		return s
+	}
+	return c.status
 }
 
 func actionFor(row string) ActionKind {
@@ -349,7 +360,7 @@ func prRuleCases() []ruleCase {
 			x.pr("p2", m, "p1")
 			return "p2"
 		}},
-		{name: "draft is readied (P4), a stacked-prs PR waits", kind: "pr", status: "draft", row: "P4", modes: stackedWaits, build: func(x *fx, m string) string {
+		{name: "draft is readied (P4), including stacked-prs", kind: "pr", status: "draft", row: "P4", build: func(x *fx, m string) string {
 			x.pr("p", m)
 			v := open()
 			v.IsDraft = true
@@ -404,7 +415,7 @@ func prRuleCases() []ruleCase {
 			x.view("p", open(), failed)
 			return "p"
 		}},
-		{name: "conflicting with an unspent rebase round rebases (C5), stacked waits", kind: "pr", status: "conflicting", row: "C5", modes: stackedWaits, build: func(x *fx, m string) string {
+		{name: "conflicting with an unspent rebase round rebases (C5) in every mode, stacked-prs past stale-base included", kind: "pr", status: "conflicting", row: "C5", build: func(x *fx, m string) string {
 			it := x.pr("p", m)
 			it.Unchanged = stallUnchanged
 			v := open()
@@ -412,7 +423,7 @@ func prRuleCases() []ruleCase {
 			x.view("p", v, pend)
 			return "p"
 		}},
-		{name: "conflicting after the rebase round halts (C6), stacked waits", kind: "pr", status: "conflicting", row: "C6", modes: stackedWaits, build: func(x *fx, m string) string {
+		{name: "conflicting after the rebase round halts (C6) in every mode", kind: "pr", status: "conflicting", row: "C6", build: func(x *fx, m string) string {
 			it := x.pr("p", m)
 			it.Scope[scopeRecovery] = []string{recoveryRebase}
 			it.Unchanged = stallUnchanged
@@ -421,12 +432,12 @@ func prRuleCases() []ruleCase {
 			x.view("p", v, pend)
 			return "p"
 		}},
-		{name: "green and unarmed is merged (P7), a stacked-prs PR waits", kind: "pr", status: "green", row: "P7", modes: stackedWaits, build: func(x *fx, m string) string {
+		{name: "green and unarmed is merged (P7), including stacked-prs", kind: "pr", status: "green", row: "P7", build: func(x *fx, m string) string {
 			x.pr("p", m)
 			x.view("p", open(), passed)
 			return "p"
 		}},
-		{name: "green with no required checks is merged (P7)", kind: "pr", status: "green", row: "P7", modes: stackedWaits, build: func(x *fx, m string) string {
+		{name: "green with no required checks is merged (P7)", kind: "pr", status: "green", row: "P7", build: func(x *fx, m string) string {
 			x.pr("p", m)
 			x.view("p", open())
 			return "p"
@@ -450,7 +461,7 @@ func prRuleCases() []ruleCase {
 			x.view("p", v, passed)
 			return "p"
 		}},
-		{name: "green in a repo without auto-merge is still merged (P7)", kind: "pr", status: "green", row: "P7", modes: stackedWaits, build: func(x *fx, m string) string {
+		{name: "green in a repo without auto-merge is still merged (P7)", kind: "pr", status: "green", row: "P7", build: func(x *fx, m string) string {
 			x.pr("p", m)
 			x.view("p", open(), passed)
 			x.f.autoMerge["o/r"] = false
@@ -512,14 +523,39 @@ func prRuleCases() []ruleCase {
 			x.view("p", open(), passed)
 			return "p"
 		}},
-		{name: "merged predecessor escalates stacked restack only (B0)", kind: "pr", status: "green", row: "P7", modes: map[string]string{operator.MergeModeStackedPRs: "B0"}, build: func(x *fx, m string) string {
-			p1 := x.pr("p1", m)
-			now := fxNow.Format(time.RFC3339)
-			p1.DoneAt = &now
-			x.pr("p2", m, "p1")
-			x.view("p2", open(), passed)
-			return "p2"
-		}},
+		{name: "merged predecessor restacks a stale stacked base (B1)", kind: "pr", status: "green", row: "P7",
+			modes: map[string]string{operator.MergeModeStackedPRs: "B1"}, statuses: map[string]string{operator.MergeModeStackedPRs: "stale-base"}, build: func(x *fx, m string) string {
+				p1 := x.pr("p1", m)
+				now := fxNow.Format(time.RFC3339)
+				p1.DoneAt = &now
+				x.pr("p2", m, "p1")
+				pf := x.view("p2", open(), passed)
+				pf.hasPred, pf.ancestor = true, false
+				return "p2"
+			}},
+		{name: "stale base without a predecessor escalates once (B2)", kind: "pr", status: "green", row: "P7",
+			modes: map[string]string{operator.MergeModeStackedPRs: "B2"}, statuses: map[string]string{operator.MergeModeStackedPRs: "stale-base"}, build: func(x *fx, m string) string {
+				x.pr("p", m)
+				pf := x.view("p", open(), passed)
+				pf.base = "feature-x"
+				return "p"
+			}},
+		{name: "stale base without a predecessor waits after escalating", kind: "pr", status: "green", row: "P7",
+			modes: map[string]string{operator.MergeModeStackedPRs: ""}, statuses: map[string]string{operator.MergeModeStackedPRs: "stale-base"}, build: func(x *fx, m string) string {
+				it := x.pr("p", m)
+				pf := x.view("p", open(), passed)
+				pf.base = "feature-x"
+				key, _ := staleBaseText(&ruleCtx{it: *it, f: x.f})
+				it.Scope[scopeEscalated] = map[string]interface{}{key: "x"}
+				return "p"
+			}},
+		{name: "unreadable stacked stale-base facts wait and never merge", kind: "pr", status: "green", row: "P7",
+			modes: map[string]string{operator.MergeModeStackedPRs: ""}, statuses: map[string]string{operator.MergeModeStackedPRs: "waiting"}, build: func(x *fx, m string) string {
+				x.pr("p", m)
+				pf := x.view("p", open(), passed)
+				pf.staleRead = false
+				return "p"
+			}},
 		{name: "removed PR projection escalates once (X0)", kind: "pr", status: "waiting", row: "X0", build: func(x *fx, m string) string {
 			it := x.pr("p", m)
 			it.Scope[scopeProjected] = true
@@ -606,8 +642,8 @@ func TestDecideTable(t *testing.T) {
 				if d.Row != want {
 					t.Fatalf("row = %q (%s), want %q", d.Row, d.Action, want)
 				}
-				if d.Status != c.status {
-					t.Fatalf("status = %q, want %q", d.Status, c.status)
+				if wantStatus := statusFor(c, mode); d.Status != wantStatus {
+					t.Fatalf("status = %q, want %q", d.Status, wantStatus)
 				}
 				if d.Row == rowUnmatched {
 					t.Fatalf("a reachable combination has no row and no declared wait: %+v", d)
@@ -636,8 +672,15 @@ func TestDecideTable(t *testing.T) {
 			}
 		}
 		for _, s := range allPRStatuses {
-			if !seen["pr/"+mode+"/"+string(s)] {
-				t.Errorf("pr/%s/%s is not covered", mode, s)
+			key := "pr/" + mode + "/" + string(s)
+			if s == PRStaleBase && mode != operator.MergeModeStackedPRs {
+				if seen[key] {
+					t.Errorf("non-stacked mode %s derived stale-base", mode)
+				}
+				continue
+			}
+			if !seen[key] {
+				t.Errorf("%s is not covered", key)
 			}
 		}
 		for _, s := range allFixStatuses {
@@ -653,7 +696,7 @@ func TestRuleTableShape(t *testing.T) {
 	for _, r := range ruleTable {
 		ids = append(ids, r.id)
 	}
-	want := []string{"X0", "X0", "X1", "X1", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6a", "Q7", "Q6b", "P1", "P2", "P3", "B0", "P4", "C1", "C2", "C3", "C4", "C5", "C6", "P6", "P7", "F1", "F2"}
+	want := []string{"X0", "X0", "X1", "X1", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6a", "Q7", "Q6b", "P1", "P2", "P3", "B1", "B2", "P4", "C1", "C2", "C3", "C4", "C5", "C6", "P6", "P7", "F1", "F2"}
 	if !reflect.DeepEqual(ids, want) {
 		t.Fatalf("rule table order = %v, want %v", ids, want)
 	}
