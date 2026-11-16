@@ -8,8 +8,8 @@ progress:
     intake: done
     apply: done
     review: done
-    hydrate: active
-    ship: pending
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
@@ -32,24 +32,26 @@ stage_metrics:
     intake: {started_at: "2026-11-16T17:28:34Z", driver: fab-new, iterations: 1, completed_at: "2026-11-16T17:50:14Z"}
     apply: {started_at: "2026-11-16T19:47:35Z", driver: fab-fff, iterations: 3, completed_at: "2026-11-16T20:04:45Z"}
     review: {started_at: "2026-11-16T20:04:45Z", driver: fab-fff, iterations: 3, completed_at: "2026-11-16T20:11:34Z"}
-    hydrate: {started_at: "2026-11-16T20:11:34Z", driver: fab-fff, iterations: 1}
+    hydrate: {started_at: "2026-11-16T20:11:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-16T20:15:18Z"}
+    ship: {started_at: "2026-11-16T20:15:18Z", driver: fab-fff, iterations: 1}
 prs: []
 change_type_source: explicit
 base_branch: main
 true_impact:
-    added: 1954
-    deleted: 118
-    net: 1836
+    added: 2201
+    deleted: 181
+    net: 2020
     excluding:
-        added: 1241
-        deleted: 116
-        net: 1125
+        added: 1442
+        deleted: 179
+        net: 1263
     tests:
-        added: 623
+        added: 724
         deleted: 6
-        net: 617
-    computed_at: "2026-11-16T20:04:45Z"
-    computed_at_stage: apply
+        net: 718
+    computed_at: "2026-11-16T20:15:18Z"
+    computed_at_stage: hydrate
+summary: 'PR identity: fab prs: first (by-URL resolved, canonical URL, backoff, detector-tracked); merged/closed branch candidates need headRefOid ancestry ownership'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-16T20:11:34Z
+last_updated: 2026-11-16T20:15:18Z
