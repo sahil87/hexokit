@@ -9,7 +9,7 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
+    ship: done
     review-pr: pending
 plan:
     generated: true
@@ -33,14 +33,15 @@ stage_metrics:
     apply: {started_at: "2026-11-16T17:47:51Z", driver: fab-fff, iterations: 3, completed_at: "2026-11-16T18:06:59Z"}
     review: {started_at: "2026-11-16T18:06:59Z", driver: fab-fff, iterations: 3, completed_at: "2026-11-16T18:09:40Z"}
     hydrate: {started_at: "2026-11-16T18:09:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-16T18:16:25Z"}
-    ship: {started_at: "2026-11-16T18:16:25Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-11-16T18:16:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-16T18:17:41Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1139
 base_branch: main
 change_type_source: explicit
 true_impact:
-    added: 4307
-    deleted: 1909
-    net: 2398
+    added: 4544
+    deleted: 2055
+    net: 2489
     excluding:
         added: 3266
         deleted: 1893
@@ -49,8 +50,8 @@ true_impact:
         added: 1598
         deleted: 977
         net: 621
-    computed_at: "2026-11-16T18:16:25Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-11-16T18:17:41Z"
+    computed_at_stage: ship
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-16T18:16:25Z
+last_updated: 2026-11-16T18:17:41Z
