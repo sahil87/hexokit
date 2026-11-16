@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,12 +41,41 @@ func (r *cliRunner) Run(_ context.Context, dir string, argv ...string) (string, 
 	return "", &autopilot.ExecError{Argv: argv, Stderr: "unscripted in the CLI test", Err: fmt.Errorf("exit status 1")}
 }
 
-type cliPanes struct{}
+type cliPanes struct {
+	sendErr error
+	sent    []string
+}
 
-func (cliPanes) Snapshot(context.Context) (map[string]operator.PaneInfo, error) {
+func (*cliPanes) Snapshot(context.Context) (map[string]operator.PaneInfo, error) {
 	return map[string]operator.PaneInfo{}, nil
 }
-func (cliPanes) PID(context.Context, string) (int, error) { return 123, nil }
+func (*cliPanes) PID(context.Context, string) (int, error) { return 123, nil }
+func (p *cliPanes) Send(_ context.Context, pane, text string) error {
+	if p.sendErr != nil {
+		return p.sendErr
+	}
+	p.sent = append(p.sent, pane+"|"+text)
+	return nil
+}
+
+func TestAutopilotPanesSendRefusesBusyAndSanitizesIdleDelivery(t *testing.T) {
+	for _, state := range []string{"active", "waiting"} {
+		f := &muxFake{states: map[string]string{"%5": state}}
+		installMuxFakes(t, f)
+		err := (autopilotPanes{server: "default"}).Send(context.Background(), "%5", "fix")
+		if !errors.Is(err, autopilot.ErrPaneBusy) || len(f.engineCalls) != 0 {
+			t.Fatalf("state %s: err = %v calls = %+v", state, err, f.engineCalls)
+		}
+	}
+	f := &muxFake{states: map[string]string{"%5": "idle"}}
+	installMuxFakes(t, f)
+	if err := (autopilotPanes{server: "default"}).Send(context.Background(), "%5", "fix\x00request"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.engineCalls) != 1 || f.engineCalls[0].text != "fixrequest" || !f.engineCalls[0].submit {
+		t.Fatalf("engine calls = %+v", f.engineCalls)
+	}
+}
 
 // autopilotSandbox stubs the engine environment and the setting, leaving the
 // real state file under a temp state home.
@@ -53,6 +83,7 @@ func autopilotSandbox(t *testing.T, setting string) (statePath string, runner *c
 	t.Helper()
 	statePath = operatorSandbox(t)
 	runner = &cliRunner{}
+	panes := &cliPanes{}
 	prevEnv, prevSetting := autopilotEnvFn, autopilotSettingsFn
 	autopilotEnvFn = func(cmd *cobra.Command, by string, dry bool) (autopilot.Env, error) {
 		_, path, err := operatorStateTarget(cmd)
@@ -60,7 +91,7 @@ func autopilotSandbox(t *testing.T, setting string) (statePath string, runner *c
 			return autopilot.Env{}, err
 		}
 		return autopilot.Env{
-			Server: "autopilot-test-none", StatePath: path, Run: runner, Panes: cliPanes{},
+			Server: "autopilot-test-none", StatePath: path, Run: runner, Panes: panes,
 			Session: func(context.Context, string) (string, error) { return "work", nil },
 			DryRun:  dry,
 		}, nil
@@ -278,6 +309,32 @@ func TestAutopilotStatusShowsTheDerivedPRStatus(t *testing.T) {
 	}
 	out, err = autopilotCLI(t, "", "status", "--json")
 	if err != nil || !strings.Contains(out, `"pr_status": "deferred"`) || !strings.Contains(out, `"state": "done"`) {
+		t.Fatalf("status envelope = %s err %v", out, err)
+	}
+}
+
+func TestAutopilotStatusListsFixItems(t *testing.T) {
+	path, _ := autopilotSandbox(t, "")
+	enginePath := cliEnginePath(path)
+	if err := os.MkdirAll(filepath.Dir(enginePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte("version: 1\nqueue: []\nprs: []\nfixes:\n  - id: ab12-fix\n    repo: /r\n    branch: a-branch\n")
+	if err := os.WriteFile(enginePath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := autopilotCLI(t, "", "status")
+	if err != nil || !strings.Contains(out, "fix ab12-fix · resolved · /r · a-branch") || strings.Contains(out, "no queue") {
+		t.Fatalf("status = %q err %v", out, err)
+	}
+	out, err = autopilotCLI(t, "", "status", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		Result autopilot.StatusResult `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(out), &envelope); err != nil || len(envelope.Result.Fixes) != 1 || envelope.Result.Fixes[0].State != "resolved" {
 		t.Fatalf("status envelope = %s err %v", out, err)
 	}
 }
@@ -609,12 +666,12 @@ func TestAutopilotMergeAcceptsAStackedQueue(t *testing.T) {
 	}
 }
 
-func TestAutopilotHelpStatesBusyExitCodesAndStackedEscalations(t *testing.T) {
+func TestAutopilotHelpStatesBusyExitCodesAndRecovery(t *testing.T) {
 	for verb, wants := range map[string][]string{
 		"step": {
 			"0  stepped (with or without actions or escalations), or busy",
 			`If another pass`, `holds it, step does nothing, prints "busy" and exits 0`,
-			"recovery needed: <ci-failed|conflicting> — PR #<n> (<repo>)", "does not arm such a PR",
+			"one CI fix round", "detached-worktree rebase", "30 minutes without a push",
 			`"dry-run: <action> <item> (<row>)"`, "advances one PR per pass",
 		},
 		"merge": {
@@ -639,11 +696,12 @@ func TestAutopilotHelpStatesBusyExitCodesAndStackedEscalations(t *testing.T) {
 	}
 	help, err := autopilotCLI(t, "", "status", "--help")
 	flat := strings.Join(strings.Fields(help), " ")
-	if err != nil || strings.Contains(help, "recovery") || strings.Contains(flat, "stored facts only") {
+	if err != nil || strings.Contains(flat, "stored facts only") {
 		t.Fatalf("status help = %s err %v", help, err)
 	}
 	for _, want := range []string{
 		"makes read-only GitHub calls", "gh pr view", "Queue Completion Summary", "exits 1",
+		"Recovery-spawn fix items", "fixing",
 		"1 operational failure (state file unreadable, a gh lookup failed)",
 		"takes no pass lock and reports no escalations",
 	} {

@@ -133,8 +133,8 @@ func TestDeltaAFailedPRIsNeverArmed(t *testing.T) {
 	prs := h.shipped(1, "a")
 	prs[0].Checks = []checkRun{{Name: "ci", State: "FAILURE"}}
 	res := h.startMerge()
-	if !hasEscalation(res, "recovery needed: ci-failed — PR #1 (foo)") {
-		t.Fatalf("no recovery escalation: %+v", res)
+	if !hasAction(res, ActRecoverySent, "pr-1") {
+		t.Fatalf("no fix request action: %+v", res)
 	}
 	if prs[0].Armed || h.run.called("gh pr merge") != 0 {
 		t.Fatalf("a failed PR was armed or merged: %q", h.run.calls)
@@ -142,27 +142,31 @@ func TestDeltaAFailedPRIsNeverArmed(t *testing.T) {
 	noRetiredMarkers(t, h)
 }
 
-// A conflicting PR is `waiting` until it has been conflicting for three quiet
-// polls, so it may be armed while the conflict is new; once the status is
-// conflicting it is escalated and nothing acts on it again.
-func TestDeltaAConflictingPRIsEscalatedAndLeftAlone(t *testing.T) {
+// A conflicting PR is waiting until the third quiet poll, then gets one rebase.
+func TestDeltaAConflictingPRIsRebasedOnce(t *testing.T) {
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
+	foo.branch("a-branch", "main", "a.txt", "a\n")
+	foo.pushBranch("a-branch")
+	foo.advanceOrigin("other.txt", "o\n")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
 	prs := h.shipped(1, "a")
+	prs[0].HeadOid = runGit(t, foo.Dir, "rev-parse", "origin/a-branch")
 	pending(prs...)
 	prs[0].Mergeable = "CONFLICTING"
 	res := h.startMerge()
-	for i := 0; i < 4 && !hasEscalation(res, "recovery needed: conflicting — PR #1 (foo)"); i++ {
+	for i := 0; i < 4 && !hasAction(res, ActRebased, "pr-1"); i++ {
 		res = h.step()
 	}
-	if !hasEscalation(res, "recovery needed: conflicting — PR #1 (foo)") {
-		t.Fatalf("no recovery escalation: %+v", res)
+	if !hasAction(res, ActRebased, "pr-1") {
+		t.Fatalf("no rebase action: %+v", res)
 	}
-	merges := h.run.called("gh pr merge")
-	h.step()
-	if h.run.called("gh pr merge") != merges || prs[0].MergeCalls != 0 {
-		t.Fatalf("a conflicting PR was acted on: %q", h.run.calls)
+	if !roundSpent(h.item("pr-1"), recoveryRebase) || prs[0].MergeCalls != 0 {
+		t.Fatalf("rebase round or merge calls are wrong: %+v", h.item("pr-1"))
+	}
+	res = h.step()
+	if !hasEscalation(res, "CONFLICTING again") || !scopeBool(h.item("pr-1"), scopeHalted) {
+		t.Fatalf("recurring conflict did not halt: %+v", res)
 	}
 	noRetiredMarkers(t, h)
 }

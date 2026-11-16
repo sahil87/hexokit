@@ -273,6 +273,9 @@ func (failingPanes) Snapshot(context.Context) (map[string]operator.PaneInfo, err
 	return nil, errors.New("snapshot unavailable")
 }
 func (failingPanes) PID(context.Context, string) (int, error) { return 123, nil }
+func (failingPanes) Send(context.Context, string, string) error {
+	return errors.New("send unavailable")
+}
 
 func TestQueuePassErrorReceiptReportsSuccessAndEscalation(t *testing.T) {
 	h := newHarness(t)

@@ -40,6 +40,12 @@ const (
 	scopeURL       = "url"
 	scopeProjected = "projected"
 	scopePRDropped = "pr_dropped"
+	scopeRecovery  = "recovery"
+	scopeFixHead   = "fix_head"
+	scopeRecoverAt = "recovery_at"
+	scopeFixItem   = "fix_item"
+	recoveryCIFix  = "ci-fix"
+	recoveryRebase = "rebase"
 	// scopeEngineDone distinguishes the engine file's own done_at from an
 	// overlaid projection timestamp in the decision snapshot.
 	scopeEngineDone = "engine_done_at"

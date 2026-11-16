@@ -337,8 +337,11 @@ func rollup(cs []checkRun) []map[string]string {
 // ---- fakes --------------------------------------------------------------------
 
 type fakePanes struct {
-	mu    sync.Mutex
-	panes map[string]operator.PaneInfo
+	mu      sync.Mutex
+	panes   map[string]operator.PaneInfo
+	sendErr error
+	sent    []string
+	onSend  func(pane, text string)
 }
 
 func (f *fakePanes) Snapshot(ctx context.Context) (map[string]operator.PaneInfo, error) {
@@ -349,6 +352,20 @@ func (f *fakePanes) Snapshot(ctx context.Context) (map[string]operator.PaneInfo,
 		out[k] = v
 	}
 	return out, nil
+}
+
+func (f *fakePanes) Send(_ context.Context, pane, text string) error {
+	f.mu.Lock()
+	err := f.sendErr
+	onSend := f.onSend
+	if err == nil {
+		f.sent = append(f.sent, pane+"|"+text)
+	}
+	f.mu.Unlock()
+	if onSend != nil {
+		onSend(pane, text)
+	}
+	return err
 }
 
 // fakeSpawner builds real git worktrees so SHA pinning, upstream tracking and

@@ -50,6 +50,14 @@ func (e *engine) execute(ctx context.Context, f *facts, ds []Decision) error {
 			err = e.arm(ctx, d)
 		case ActionMerge:
 			err = e.merge(ctx, d)
+		case ActionFixRequest:
+			err = e.requestFix(ctx, d)
+		case ActionRecoverySpawn:
+			err = e.recoverySpawn(ctx, d)
+		case ActionRebase:
+			err = e.rebaseRecovery(ctx, d)
+		case ActionUntrack:
+			err = e.untrackFix(d)
 		}
 		errs = errors.Join(errs, err)
 	}
@@ -302,7 +310,10 @@ func (e *engine) halt(ctx context.Context, d Decision) error {
 	if !ok {
 		return nil
 	}
-	reason := fmt.Sprintf("PR #%s was closed without merging", prNum(it.Scope))
+	reason := d.Reason
+	if reason == "" {
+		reason = fmt.Sprintf("PR #%s was closed without merging", prNum(it.Scope))
+	}
 	if err := e.guarded(d.Item, d.fp, func(t *operator.TrackedItem) { t.Scope[scopeHalted] = true }); err != nil {
 		if errors.Is(err, errItemChanged) {
 			e.writeFailed(d.Item, d.pr, "", err)

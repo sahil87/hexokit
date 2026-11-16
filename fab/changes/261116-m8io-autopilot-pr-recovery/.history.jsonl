@@ -1,0 +1,7 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-16T21:03:19Z"}
+{"args":"Implement step R6c (PR recovery) of fab/plans/sahil/26-11-16-operator-autopilot-restructure.md","cmd":"fab-new","event":"command","ts":"2026-11-16T21:03:19Z"}
+{"delta":"+2.4","event":"confidence","score":2.4,"trigger":"calc-score","ts":"2026-11-16T21:05:15Z"}
+{"delta":"+1.6","event":"confidence","score":4,"trigger":"calc-score","ts":"2026-11-16T21:06:35Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-16T21:08:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-16T21:08:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-16T21:37:17Z"}

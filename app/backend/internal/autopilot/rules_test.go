@@ -57,6 +57,23 @@ func (x *fx) pr(id, mode string, deps ...string) *operator.TrackedItem {
 	return &x.items[len(x.items)-1]
 }
 
+func (x *fx) fix(id string) *operator.TrackedItem {
+	it, err := operator.NewPaneItem(id, nil, map[string]interface{}{"repo": "/r", "change": "ab12", "branch": "a-branch"})
+	if err != nil {
+		x.t.Fatal(err)
+	}
+	it.Kind = "fix"
+	x.items = append(x.items, it)
+	return &x.items[len(x.items)-1]
+}
+
+func (x *fx) fixParentFor(id, mode string) *operator.TrackedItem {
+	parent := x.pr("p", mode)
+	parent.Scope[scopeFixItem] = id
+	parent.Scope[scopeFixHead] = "old000"
+	return parent
+}
+
 func (x *fx) pane(it *operator.TrackedItem, alive bool) {
 	it.Scope["pane"] = "%1"
 	if alive {
@@ -339,28 +356,55 @@ func prRuleCases() []ruleCase {
 			x.view("p", v)
 			return "p"
 		}},
-		{name: "failed escalates once per head (P5), a stacked-prs PR waits", kind: "pr", status: "failed", row: "P5", modes: stackedWaits, build: func(x *fx, m string) string {
+		{name: "fixing inside the no-push window waits", kind: "pr", status: "fixing", row: "", build: func(x *fx, m string) string {
+			it := x.pr("p", m)
+			it.Scope[scopeRecovery] = []string{recoveryCIFix}
+			it.Scope[scopeFixHead] = "abc123"
+			it.Scope[scopeRecoverAt] = fxNow.Add(-recoveryWindow + time.Minute).Format(time.RFC3339)
+			x.view("p", open(), failed)
+			return "p"
+		}},
+		{name: "fixing past the no-push window halts (C1)", kind: "pr", status: "fixing", row: "C1", build: func(x *fx, m string) string {
+			it := x.pr("p", m)
+			it.Scope[scopeRecovery] = []string{recoveryCIFix}
+			it.Scope[scopeFixHead] = "abc123"
+			it.Scope[scopeRecoverAt] = fxNow.Add(-recoveryWindow - time.Minute).Format(time.RFC3339)
+			x.view("p", open(), failed)
+			return "p"
+		}},
+		{name: "failed with an idle authoring pane sends a fix request (C2)", kind: "pr", status: "failed", row: "C2", build: func(x *fx, m string) string {
+			it := x.pr("p", m)
+			it.Scope["change"] = "ab12"
+			x.f.panes["%3"] = operator.PaneInfo{PaneID: "%3", Change: "261116-ab12-x"}
+			x.view("p", open(), failed)
+			return "p"
+		}},
+		{name: "failed with a busy authoring pane waits", kind: "pr", status: "failed", row: "", build: func(x *fx, m string) string {
+			it := x.pr("p", m)
+			it.Scope["change"] = "ab12"
+			x.f.panes["%3"] = operator.PaneInfo{PaneID: "%3", Change: "261116-ab12-x", AgentState: "active"}
+			x.view("p", open(), failed)
+			return "p"
+		}},
+		{name: "failed without an authoring pane spawns recovery (C3)", kind: "pr", status: "failed", row: "C3", build: func(x *fx, m string) string {
 			x.pr("p", m)
 			x.view("p", open(), failed)
 			return "p"
 		}},
-		{name: "failed on a head already escalated waits", kind: "pr", status: "failed", row: "", build: func(x *fx, m string) string {
-			it := x.pr("p", m)
+		{name: "failed with an unknown pane snapshot waits", kind: "pr", status: "failed", row: "", build: func(x *fx, m string) string {
+			x.pr("p", m)
+			x.f.panesKnown = false
 			x.view("p", open(), failed)
-			key, _ := stallText("ci-failed")(&ruleCtx{it: *it, f: x.f})
-			it.Scope[scopeEscalated] = map[string]interface{}{key: "x"}
 			return "p"
 		}},
-		{name: "failed on a new head escalates again", kind: "pr", status: "failed", row: "P5", modes: stackedWaits, build: func(x *fx, m string) string {
+		{name: "failed on a new head after the fix round halts (C4)", kind: "pr", status: "failed", row: "C4", build: func(x *fx, m string) string {
 			it := x.pr("p", m)
+			it.Scope[scopeRecovery] = []string{recoveryCIFix}
+			it.Scope[scopeFixHead] = "old000"
 			x.view("p", open(), failed)
-			old := open()
-			old.HeadRefOid = "old000"
-			key, _ := stallText("ci-failed")(&ruleCtx{it: *it, f: &facts{pr: map[string]*prFacts{"p": {read: true, view: old}}}})
-			it.Scope[scopeEscalated] = map[string]interface{}{key: "x"}
 			return "p"
 		}},
-		{name: "conflicting after three quiet polls escalates once per head (P5)", kind: "pr", status: "conflicting", row: "P5", modes: stackedWaits, build: func(x *fx, m string) string {
+		{name: "conflicting with an unspent rebase round rebases (C5), stacked waits", kind: "pr", status: "conflicting", row: "C5", modes: stackedWaits, build: func(x *fx, m string) string {
 			it := x.pr("p", m)
 			it.Unchanged = stallUnchanged
 			v := open()
@@ -368,14 +412,13 @@ func prRuleCases() []ruleCase {
 			x.view("p", v, pend)
 			return "p"
 		}},
-		{name: "conflicting already escalated waits", kind: "pr", status: "conflicting", row: "", build: func(x *fx, m string) string {
+		{name: "conflicting after the rebase round halts (C6), stacked waits", kind: "pr", status: "conflicting", row: "C6", modes: stackedWaits, build: func(x *fx, m string) string {
 			it := x.pr("p", m)
+			it.Scope[scopeRecovery] = []string{recoveryRebase}
 			it.Unchanged = stallUnchanged
 			v := open()
 			v.Mergeable = "CONFLICTING"
 			x.view("p", v, pend)
-			key, _ := stallText("conflicting")(&ruleCtx{it: *it, f: x.f})
-			it.Scope[scopeEscalated] = map[string]interface{}{key: "x"}
 			return "p"
 		}},
 		{name: "green and unarmed is merged (P7), a stacked-prs PR waits", kind: "pr", status: "green", row: "P7", modes: stackedWaits, build: func(x *fx, m string) string {
@@ -497,8 +540,59 @@ func prRuleCases() []ruleCase {
 	}
 }
 
+func fixRuleCases() []ruleCase {
+	passed := checkRun{Name: "ci", State: "SUCCESS"}
+	pending := checkRun{Name: "ci", State: "PENDING"}
+	return []ruleCase{
+		{name: "fix with a missing parent is untracked (F1)", kind: "fix", status: "resolved", row: "F1", build: func(x *fx, m string) string {
+			x.fix("ab12-fix")
+			return "ab12-fix"
+		}},
+		{name: "fix with a merged parent is untracked (F1)", kind: "fix", status: "resolved", row: "F1", build: func(x *fx, m string) string {
+			x.fix("ab12-fix")
+			x.fixParentFor("ab12-fix", m)
+			x.view("p", prView{State: "MERGED"})
+			return "ab12-fix"
+		}},
+		{name: "fix with a halted parent is untracked (F1)", kind: "fix", status: "resolved", row: "F1", build: func(x *fx, m string) string {
+			x.fix("ab12-fix")
+			x.fixParentFor("ab12-fix", m).Scope[scopeHalted] = true
+			return "ab12-fix"
+		}},
+		{name: "fix with a green new parent head is untracked (F1)", kind: "fix", status: "resolved", row: "F1", build: func(x *fx, m string) string {
+			x.fix("ab12-fix")
+			x.fixParentFor("ab12-fix", m)
+			x.view("p", open(), passed)
+			return "ab12-fix"
+		}},
+		{name: "fix spawn without its pane escalates (F2)", kind: "fix", status: "spawn-unknown", row: "F2", build: func(x *fx, m string) string {
+			fix := x.fix("ab12-fix")
+			fix.Scope[scopeSpawning] = "2026-01-01T00:00:00Z"
+			x.fixParentFor("ab12-fix", m)
+			x.view("p", open(), pending)
+			return "ab12-fix"
+		}},
+		{name: "fix spawn already escalated waits", kind: "fix", status: "spawn-unknown", row: "", build: func(x *fx, m string) string {
+			fix := x.fix("ab12-fix")
+			fix.Scope[scopeSpawning] = "2026-01-01T00:00:00Z"
+			key, _ := fixSpawnInterruptedText(&ruleCtx{it: *fix})
+			fix.Scope[scopeEscalated] = map[string]interface{}{key: "x"}
+			x.fixParentFor("ab12-fix", m)
+			x.view("p", open(), pending)
+			return "ab12-fix"
+		}},
+		{name: "working fix waits even with a dead pane", kind: "fix", status: "working", row: "", build: func(x *fx, m string) string {
+			fix := x.fix("ab12-fix")
+			x.pane(fix, false)
+			x.fixParentFor("ab12-fix", m)
+			x.view("p", open(), pending)
+			return "ab12-fix"
+		}},
+	}
+}
+
 func TestDecideTable(t *testing.T) {
-	cases := append(queueRuleCases(), prRuleCases()...)
+	cases := append(append(queueRuleCases(), prRuleCases()...), fixRuleCases()...)
 	fired := map[string]bool{}
 	seen := map[string]bool{} // kind/mode/status
 	for _, c := range cases {
@@ -546,6 +640,11 @@ func TestDecideTable(t *testing.T) {
 				t.Errorf("pr/%s/%s is not covered", mode, s)
 			}
 		}
+		for _, s := range allFixStatuses {
+			if !seen["fix/"+mode+"/"+string(s)] {
+				t.Errorf("fix/%s/%s is not covered", mode, s)
+			}
+		}
 	}
 }
 
@@ -554,7 +653,7 @@ func TestRuleTableShape(t *testing.T) {
 	for _, r := range ruleTable {
 		ids = append(ids, r.id)
 	}
-	want := []string{"X0", "X0", "X1", "X1", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6a", "Q7", "Q6b", "P1", "P2", "P3", "B0", "P4", "P5", "P5", "P6", "P7"}
+	want := []string{"X0", "X0", "X1", "X1", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6a", "Q7", "Q6b", "P1", "P2", "P3", "B0", "P4", "C1", "C2", "C3", "C4", "C5", "C6", "P6", "P7", "F1", "F2"}
 	if !reflect.DeepEqual(ids, want) {
 		t.Fatalf("rule table order = %v, want %v", ids, want)
 	}
@@ -591,6 +690,17 @@ func TestEveryStatusHasARowOrADeclaredWait(t *testing.T) {
 		}
 		if !has {
 			t.Errorf("PR status %s has neither a row nor a declared wait", s)
+		}
+	}
+	for _, s := range allFixStatuses {
+		has := waitDeclared(kindFix, "", "", s)
+		for _, r := range ruleTable {
+			if r.kind == kindFix && r.fix == s {
+				has = true
+			}
+		}
+		if !has {
+			t.Errorf("fix status %s has neither a row nor a declared wait", s)
 		}
 	}
 	// A status with a row whose guard can fail must also declare its wait, so

@@ -420,3 +420,161 @@ func TestHandMergedHaltedPRDoesNotDisarmItsArmedSuccessorInThePass(t *testing.T)
 		t.Fatalf("pr-2 disarmed through a merged halted predecessor: disarms=%d armed=%v", prs[1].Disarms, prs[1].Armed)
 	}
 }
+
+func TestDerivePRFixingPrecedence(t *testing.T) {
+	failed := checkRun{Name: "ci", State: "FAILURE"}
+	passed := checkRun{Name: "ci", State: "SUCCESS"}
+	cases := []struct {
+		name string
+		view prView
+		runs []checkRun
+		read bool
+		want PRStatus
+	}{
+		{name: "same head stays fixing even when green", view: open(), runs: []checkRun{passed}, read: true, want: PRFixing},
+		{name: "fixing needs no check read", view: open(), want: PRFixing},
+		{name: "new red head falls through to failed", view: open(), runs: []checkRun{failed}, read: true, want: PRFailed},
+		{name: "new green head falls through to green", view: open(), runs: []checkRun{passed}, read: true, want: PRGreen},
+		{name: "merged wins over fixing", view: prView{State: "MERGED"}, want: PRMerged},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			x := newFx(t)
+			it := x.pr("p", operator.MergeModeCherryPickLadder)
+			it.Scope[scopeRecovery] = []string{recoveryCIFix}
+			it.Scope[scopeFixHead] = "abc123"
+			if c.name == "new red head falls through to failed" || c.name == "new green head falls through to green" {
+				c.view.HeadRefOid = "new456"
+			} else {
+				c.view.HeadRefOid = "abc123"
+			}
+			x.f.pr["p"] = &prFacts{read: true, view: c.view, checks: c.runs, checksRead: c.read}
+			if got := derivedPR(x, "p"); got != c.want {
+				t.Fatalf("status = %s, want %s", got, c.want)
+			}
+		})
+	}
+}
+
+func TestDeriveFixStatuses(t *testing.T) {
+	passed := checkRun{Name: "ci", State: "SUCCESS"}
+	pending := checkRun{Name: "ci", State: "PENDING"}
+	cases := []struct {
+		name  string
+		build func(x *fx)
+		want  FixStatus
+	}{
+		{name: "missing parent resolves", build: func(x *fx) { x.fix("ab12-fix") }, want: FixResolved},
+		{name: "merged parent resolves", build: func(x *fx) {
+			x.fix("ab12-fix")
+			x.fixParentFor("ab12-fix", operator.MergeModeCherryPickLadder)
+			x.view("p", prView{State: "MERGED"})
+		}, want: FixResolved},
+		{name: "halted parent resolves", build: func(x *fx) {
+			x.fix("ab12-fix")
+			x.fixParentFor("ab12-fix", operator.MergeModeCherryPickLadder).Scope[scopeHalted] = true
+		}, want: FixResolved},
+		{name: "green new head resolves", build: func(x *fx) {
+			x.fix("ab12-fix")
+			x.fixParentFor("ab12-fix", operator.MergeModeCherryPickLadder)
+			x.view("p", open(), passed)
+		}, want: FixResolved},
+		{name: "same head green remains working", build: func(x *fx) {
+			x.fix("ab12-fix")
+			parent := x.fixParentFor("ab12-fix", operator.MergeModeCherryPickLadder)
+			parent.Scope[scopeRecovery] = []string{recoveryCIFix}
+			parent.Scope[scopeFixHead] = "abc123"
+			x.view("p", open(), passed)
+		}, want: FixWorking},
+		{name: "spawning without a live pane is unknown", build: func(x *fx) {
+			x.fix("ab12-fix").Scope[scopeSpawning] = "t"
+			x.fixParentFor("ab12-fix", operator.MergeModeCherryPickLadder)
+			x.view("p", open(), pending)
+		}, want: FixSpawnUnknown},
+		{name: "dead fix pane remains working", build: func(x *fx) {
+			fix := x.fix("ab12-fix")
+			x.pane(fix, false)
+			x.fixParentFor("ab12-fix", operator.MergeModeCherryPickLadder)
+			x.view("p", open(), pending)
+		}, want: FixWorking},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			x := newFx(t)
+			c.build(x)
+			st := x.state()
+			fix := st.Tracked[operator.IndexOf(st.Tracked, "ab12-fix")]
+			if got := deriveFix(st, x.f, fix); got != c.want {
+				t.Fatalf("status = %s, want %s", got, c.want)
+			}
+		})
+	}
+}
+
+func TestAuthoringPaneLookup(t *testing.T) {
+	t.Run("lowest matching pane wins and is idle", func(t *testing.T) {
+		x := newFx(t)
+		it := x.pr("p", operator.MergeModeCherryPickLadder)
+		it.Scope["change"] = "ab12"
+		x.f.panes["%7"] = operator.PaneInfo{PaneID: "%7", Change: "261116-ab12-x"}
+		x.f.panes["%3"] = operator.PaneInfo{PaneID: "%3", Change: "261116-ab12-y"}
+		x.f.panes["%1"] = operator.PaneInfo{PaneID: "%1", Change: "other"}
+		pane, idle, known := authoringPane(x.state(), x.f, *it)
+		if pane != "%3" || !idle || !known {
+			t.Fatalf("pane = %s, idle = %v, known = %v", pane, idle, known)
+		}
+	})
+	for _, state := range []string{"active", "waiting"} {
+		t.Run(state+" agent is busy", func(t *testing.T) {
+			x := newFx(t)
+			it := x.pr("p", operator.MergeModeCherryPickLadder)
+			it.Scope["change"] = "ab12"
+			x.f.panes["%3"] = operator.PaneInfo{PaneID: "%3", Change: "ab12", AgentState: state}
+			pane, idle, known := authoringPane(x.state(), x.f, *it)
+			if pane != "%3" || idle || !known {
+				t.Fatalf("pane = %s, idle = %v, known = %v", pane, idle, known)
+			}
+		})
+	}
+	t.Run("queue item pane is the change-less fallback", func(t *testing.T) {
+		x := newFx(t)
+		queue := x.queue("q", operator.MergeModeCherryPickLadder)
+		x.pane(queue, true)
+		it := x.pr("p", operator.MergeModeCherryPickLadder)
+		it.Scope[scopeItem] = "q"
+		pane, idle, known := authoringPane(x.state(), x.f, *it)
+		if pane != "%1" || !idle || !known {
+			t.Fatalf("pane = %s, idle = %v, known = %v", pane, idle, known)
+		}
+	})
+	t.Run("unknown snapshot has no authoring pane", func(t *testing.T) {
+		x := newFx(t)
+		it := x.pr("p", operator.MergeModeCherryPickLadder)
+		it.Scope["change"] = "ab12"
+		x.f.panesKnown = false
+		pane, idle, known := authoringPane(x.state(), x.f, *it)
+		if pane != "" || idle || known {
+			t.Fatalf("pane = %s, idle = %v, known = %v", pane, idle, known)
+		}
+	})
+}
+
+func TestStatusListsFixItems(t *testing.T) {
+	h := newHarness(t)
+	if err := newEngine(h.env).mutateEngine(func(st *engineState) error {
+		st.upsertFix(engineItem{ID: "ab12-fix", Repo: "/r", Branch: "a-branch"})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Status(context.Background(), h.env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Fixes) != 1 || res.Fixes[0].ID != "ab12-fix" || res.Fixes[0].State != FixResolved {
+		t.Fatalf("fixes = %+v", res.Fixes)
+	}
+	if len(res.Items) != 0 || res.Complete {
+		t.Fatalf("fix item affected queue completion: %+v", res)
+	}
+}
