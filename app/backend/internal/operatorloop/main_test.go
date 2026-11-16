@@ -57,7 +57,7 @@ func helperRunExec(args []string) int {
 		fmt.Fprintln(os.Stderr, "run-exec:", err)
 		return 1
 	}
-	env := autopilot.Env{Server: opts.Server, StatePath: statePath, Run: autopilot.ExecRunner{}, By: operator.ByRun, Panes: helperPanes{server: opts.Server}}
+	env := autopilot.Env{Server: opts.Server, StatePath: statePath, Run: autopilot.ExecRunner{}, Panes: helperPanes{server: opts.Server}}
 	opts.Pass = func(ctx context.Context) (*PassRecord, error) {
 		step, stepErr := autopilot.Step(ctx, env)
 		pass := &PassRecord{Escalations: []string{}}

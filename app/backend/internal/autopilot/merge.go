@@ -91,11 +91,10 @@ func withRepo(nwo string, args ...string) []string {
 	return append(args, "--repo", nwo)
 }
 
-// StartMerge begins the ordered merge for completed cherry-pick-ladder queues:
-// it writes its intent (the per-repo github-pr chains, the lifted deferred
-// marks) and then runs one pass, which readies, arms or merges each head. It
-// refuses while queue items are not done and a stacked-prs queue outright, and
-// does nothing for merge-auto. It runs under the pass lock.
+// StartMerge writes per-repository PR chains and lifted deferred marks, then
+// runs one pass. It accepts stacked-prs, reconstructs explicitly dropped
+// sequences (including merge-auto) by clearing pr_dropped, and refuses while
+// queue items are not done. Ordinary merge-auto tracking remains Q7's job.
 func StartMerge(ctx context.Context, env Env, opts MergeOptions) (*StepResult, error) {
 	return passLocked(env, func() (*StepResult, error) { return startMerge(ctx, env, opts) })
 }
@@ -124,7 +123,7 @@ func startMerge(ctx context.Context, env Env, opts MergeOptions) (result *StepRe
 		}
 		matched := false
 		for _, it := range st.Tracked {
-			if isQueueItem(st, it) && cleanRepo(operator.ScopeString(it.Scope, "repo")) == repoFilter {
+			if legacyQueueItem(st, it) && cleanRepo(operator.ScopeString(it.Scope, "repo")) == repoFilter {
 				matched = true
 				break
 			}
@@ -136,7 +135,7 @@ func startMerge(ctx context.Context, env Env, opts MergeOptions) (result *StepRe
 	var all []operator.TrackedItem
 	started := map[string]bool{}
 	for _, it := range st.Tracked {
-		if !isQueueItem(st, it) || !isChainMode(modeOf(it)) || isBare(it) {
+		if !legacyQueueItem(st, it) || (!isChainMode(modeOf(it)) && !scopeBool(it, scopePRDropped)) || isBare(it) {
 			continue
 		}
 		all = append(all, it)
@@ -165,6 +164,9 @@ func startMerge(ctx context.Context, env Env, opts MergeOptions) (result *StepRe
 	}
 	if err := e.startChains(started); err != nil {
 		return e.res, fmt.Errorf("starting the registered sequences: %w", err)
+	}
+	if err := e.clearPRDropped(queue); err != nil {
+		return e.res, err
 	}
 	if len(items) > 0 {
 		if err := e.addPRItems(items, nil); err != nil {
@@ -283,6 +285,26 @@ func (e *engine) startChains(started map[string]bool) error {
 			it := &st.PRs[i]
 			if it.Deferred && started[it.Item] {
 				it.Deferred = false
+				changed = true
+			}
+		}
+		if !changed {
+			return operator.ErrNoWrite
+		}
+		return nil
+	})
+}
+
+func (e *engine) clearPRDropped(queue []operator.TrackedItem) error {
+	ids := map[string]bool{}
+	for _, item := range queue {
+		ids[item.ID] = true
+	}
+	return e.mutateEngine(func(st *engineState) error {
+		changed := false
+		for i := range st.Queue {
+			if ids[st.Queue[i].ID] && st.Queue[i].PRDropped {
+				st.Queue[i].PRDropped = false
 				changed = true
 			}
 		}

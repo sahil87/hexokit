@@ -89,13 +89,11 @@ func item(t *testing.T, path, id string) TrackedItem {
 	return st.Tracked[i]
 }
 
-func mustAdd(t *testing.T, path string, spec AddSpec) AddResult {
+func mustAdd(t *testing.T, path string, spec AddSpec) {
 	t.Helper()
-	res, err := Add(context.Background(), path, spec)
-	if err != nil {
+	if err := Add(context.Background(), path, spec); err != nil {
 		t.Fatalf("Add(%s): %v", spec.ID, err)
 	}
-	return res
 }
 
 func wantErr(t *testing.T, err error, sub string) {
@@ -197,7 +195,7 @@ func TestAdd_GitHubPRDerivationFailureIsAnAddTimeError(t *testing.T) {
 	stubSeams(t)
 	stubGH(t, "", errors.New("gh: not logged in"))
 
-	_, err := Add(context.Background(), path, AddSpec{ID: "pr-913", Kind: KindGitHubPR, Scope: map[string]interface{}{"repo": "/x/hexokit", "pr": float64(913)}})
+	err := Add(context.Background(), path, AddSpec{ID: "pr-913", Kind: KindGitHubPR, Scope: map[string]interface{}{"repo": "/x/hexokit", "pr": float64(913)}})
 	if err == nil {
 		t.Fatal("Add succeeded, want an add-time error on derivation failure")
 	}
@@ -380,7 +378,7 @@ func TestAdd_ValidationErrors(t *testing.T) {
 			if tc.seed != "" {
 				before, _ = os.ReadFile(path)
 			}
-			_, err := Add(context.Background(), path, tc.spec)
+			err := Add(context.Background(), path, tc.spec)
 			wantErr(t, err, tc.wantErr)
 			if isInvalid(err) != tc.invalid {
 				t.Errorf("InvalidError = %v, want %v (%v)", isInvalid(err), tc.invalid, err)

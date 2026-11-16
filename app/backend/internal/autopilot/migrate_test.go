@@ -113,3 +113,43 @@ func writeOperatorItems(t *testing.T, path string, items ...operator.TrackedItem
 		t.Fatal(err)
 	}
 }
+
+func TestMigrationRunsOnlyOnceAndLaterScopeKeysAreIgnored(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "default.yaml")
+	original := operator.TrackedItem{ID: "first", Kind: operator.KindPane, Scope: map[string]interface{}{
+		"queue": "q1", "merge_mode": operator.MergeModeMergeAuto, "repo": "/repo",
+	}, Last: map[string]interface{}{}}
+	writeOperatorItems(t, path, original)
+	if err := migrateEngineState(path); err != nil {
+		t.Fatal(err)
+	}
+	engine, err := loadEngineFile(path)
+	if err != nil || !engine.Migrated || len(engine.Queue) != 1 {
+		t.Fatalf("initial migration = %+v, %v", engine, err)
+	}
+	later := operator.TrackedItem{ID: "later", Kind: operator.KindGitHubPR, Scope: map[string]interface{}{
+		"queue": "later", "merge_mode": operator.MergeModeMergeAuto, "merge_seq": "later-seq", "pr": 99,
+	}, Last: map[string]interface{}{}}
+	writeOperatorItems(t, path, later)
+	if err := migrateEngineState(path); err != nil {
+		t.Fatal(err)
+	}
+	engine, err = loadEngineFile(path)
+	if err != nil || len(engine.Queue) != 1 || len(engine.PRs) != 0 {
+		t.Fatalf("later write was migrated: %+v, %v", engine, err)
+	}
+	view, _, err := engineView(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacyQueueItem(view, view.Tracked[operator.IndexOf(view.Tracked, "later")]) {
+		t.Fatal("post-migration scope keys created queue work")
+	}
+	ledger, err := operator.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ledger.Tracked[operator.IndexOf(ledger.Tracked, "later")].Scope["queue"]; got != "later" {
+		t.Fatalf("one-time migration rewrote a later ledger item: %v", got)
+	}
+}

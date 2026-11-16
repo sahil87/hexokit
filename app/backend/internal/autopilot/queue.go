@@ -39,6 +39,10 @@ const (
 	scopeMergeMode = "merge_mode"
 	scopeURL       = "url"
 	scopeProjected = "projected"
+	scopePRDropped = "pr_dropped"
+	// scopeEngineDone distinguishes the engine file's own done_at from an
+	// overlaid projection timestamp in the decision snapshot.
+	scopeEngineDone = "engine_done_at"
 )
 
 var itemIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
@@ -90,11 +94,13 @@ type QueueOptions struct {
 
 // QueueReceipt reports what Enqueue stored.
 type QueueReceipt struct {
-	Mode    string   `json:"mode"`
-	Source  string   `json:"source"`
-	Items   []string `json:"items"`
-	Misfits []string `json:"misfits"`
-	DryRun  bool     `json:"dry_run,omitempty"`
+	Mode        string       `json:"mode"`
+	Source      string       `json:"source"`
+	Items       []string     `json:"items"`
+	Misfits     []string     `json:"misfits"`
+	Actions     []Action     `json:"actions"`
+	Escalations []Escalation `json:"escalations"`
+	DryRun      bool         `json:"dry_run,omitempty"`
 }
 
 // ResolveMode applies the ladder --mode flag > operator.merge_mode setting >
@@ -141,7 +147,7 @@ func Enqueue(ctx context.Context, env Env, entries []Entry, opts QueueOptions, s
 }
 
 func enqueue(ctx context.Context, env Env, entries []Entry, opts QueueOptions, settingValue string, runPass bool) (QueueReceipt, error) {
-	rec := QueueReceipt{Items: []string{}, Misfits: []string{}, DryRun: env.DryRun}
+	rec := QueueReceipt{Items: []string{}, Misfits: []string{}, Actions: []Action{}, Escalations: []Escalation{}, DryRun: env.DryRun}
 	result, err := passLocked(env, func() (*StepResult, error) {
 		e := newEngine(env)
 		if opts.ModeSet && opts.Mode == "" {
@@ -195,7 +201,12 @@ func enqueue(ctx context.Context, env Env, entries []Entry, opts QueueOptions, s
 		if !runPass {
 			return newResult(false), nil
 		}
-		return e.pass(ctx)
+		stepResult, passErr := e.pass(ctx)
+		rec.Actions, rec.Escalations = stepResult.Actions, stepResult.Escalations
+		if passErr != nil {
+			rec.Escalations = append(rec.Escalations, Escalation{Reason: "pass failed: " + passErr.Error()})
+		}
+		return stepResult, nil
 	})
 	if err != nil {
 		return rec, err

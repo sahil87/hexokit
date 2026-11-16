@@ -162,10 +162,8 @@ type Env struct {
 	// Session resolves the tmux session a repo's windows land in (the
 	// role-aware default `rk tab new` uses).
 	Session func(ctx context.Context, repo string) (string, error)
-	// By is the caller identity; escalation notes are always written by run.
-	By     string
-	DryRun bool
-	Now    func() time.Time
+	DryRun  bool
+	Now     func() time.Time
 	// Notify delivers an escalation best-effort. Nil disables push delivery.
 	Notify func(ctx context.Context, title, body string)
 }
@@ -175,13 +173,6 @@ func (e Env) now() time.Time {
 		return e.Now()
 	}
 	return time.Now()
-}
-
-func (e Env) by() string {
-	if e.By == "" {
-		return operator.ByRun
-	}
-	return e.By
 }
 
 // Action kinds reported by the verbs.
@@ -194,6 +185,8 @@ const (
 	ActDisarmed     = "disarmed"
 	ActPaused       = "paused"
 	ActDone         = "done"
+	ActRemoved      = "removed"
+	ActResumed      = "resumed"
 	ActPRTracked    = "pr-tracked"
 	ActReadied      = "readied"
 )
@@ -278,15 +271,6 @@ func (e *engine) escalateAs(id, key, reason string) {
 	if err := e.recordEscalation(id, key, reason, ""); err != nil {
 		e.res.Escalations = append(e.res.Escalations, Escalation{Item: id, Reason: "escalation note not written: " + err.Error()})
 	}
-}
-
-// mutate applies fn under the store's lock. The lock covers only fn, which is
-// pure in-memory work.
-func (e *engine) mutate(fn func(*operator.State) error) error {
-	if e.env.DryRun {
-		return nil
-	}
-	return operator.Mutate(e.env.StatePath, fn)
 }
 
 // patch applies fn to the item with id, re-read under the lock. An item

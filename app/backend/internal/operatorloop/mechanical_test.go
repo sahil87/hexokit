@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"rk/internal/operator"
 )
 
 func TestExecMechanicalOnlySkipsLauncherAndRecordsOutcome(t *testing.T) {
@@ -76,4 +78,52 @@ func execRigPathOnly(t *testing.T, r *rig) string {
 	recPath := r.writeRun(Record{ID: runA, Server: testServer, Entry: "lp01", FiredAt: "2026-11-12T10:15:00Z",
 		Changed: []string{"gone"}, Changes: []ChangeRecord{{ID: "gone", Reasons: []string{"stage_advance apply→review"}}}, Window: "run-aaaa"})
 	return recPath
+}
+
+func TestExecSetupAndMechanicalFailuresRecordEndAndFailureNote(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		setupError error
+		loadError  error
+	}{
+		{name: "environment setup", setupError: errors.New("environment failed")},
+		{name: "mechanical ledger load", loadError: errors.New("ledger failed")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRig(t)
+			recPath, _ := execRig(t, r, "pr-41")
+			previousLoad := loadStateFn
+			if tc.loadError != nil {
+				loadStateFn = func(string) (*operator.State, error) { return nil, tc.loadError }
+			}
+			t.Cleanup(func() { loadStateFn = previousLoad })
+			var stdout, stderr bytes.Buffer
+			var notifications []string
+			res, err := Exec(context.Background(), ExecOptions{
+				Server: testServer, RunID: runA, Argv: []string{"true"}, Stdout: &stdout, Stderr: &stderr,
+				SetupError: tc.setupError,
+				Pass: func(context.Context) (*PassRecord, error) {
+					return &PassRecord{Actions: 0, Escalations: []string{}}, nil
+				},
+				Notify: func(_ context.Context, title, body string) { notifications = append(notifications, title+"|"+body) },
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.ExitCode != exitStartFailed || res.Outcome != "" || !res.Failed {
+				t.Fatalf("result = %+v", res)
+			}
+			rec, readErr := ReadRecord(recPath)
+			if readErr != nil || rec.StartedAt == "" || !rec.Ended() || rec.ExitCode == nil || *rec.ExitCode != exitStartFailed {
+				t.Fatalf("record = %+v, err=%v", rec, readErr)
+			}
+			notes := itemNotes(t, r, "pr-41")
+			if len(notes) != 2 || !strings.HasPrefix(notes[1].Text, "run failed: exit 127") {
+				t.Fatalf("failure notes = %+v", notes)
+			}
+			if len(notifications) != 1 {
+				t.Fatalf("notifications = %v", notifications)
+			}
+		})
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"rk/internal/operator"
@@ -34,14 +35,16 @@ func TestMarkerWithoutAPaneEscalatesAndNeverLaunches(t *testing.T) {
 	}
 	h.run.reset()
 	want := "spawn interrupted: a — check for an orphaned window before resuming or removing the queue item"
+	notified := 0
+	h.env.Notify = func(context.Context, string, string) { notified++ }
 	for i := 0; i < 3; i++ {
 		res := h.step()
-		if !hasEscalation(res, want) {
-			t.Fatalf("pass %d did not report the interrupted spawn: %+v", i, res.Escalations)
+		if got := hasEscalation(res, want); got != (i == 0) {
+			t.Fatalf("pass %d escalation = %v, want first sighting only: %+v", i, got, res.Escalations)
 		}
 	}
-	if notes := len(h.item("a").Notes); notes != 1 {
-		t.Fatalf("interrupted spawn wrote %d notes, want one", notes)
+	if notes := len(h.item("a").Notes); notes != 1 || notified != 1 {
+		t.Fatalf("interrupted spawn wrote %d notes and %d notifications, want one each", notes, notified)
 	}
 	if h.spawn.n != 0 || h.run.called("git fetch") != 0 {
 		t.Fatalf("an interrupted spawn was relaunched: launches=%d calls=%q", h.spawn.n, h.run.calls)
@@ -72,7 +75,7 @@ func TestAttachWriteFailureEscalatesNamingThePaneAndNeverRelaunches(t *testing.T
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
 	h.spawn.during = func() { readOnlyState(t, h) }
 	res := h.step()
-	if !hasEscalation(res, "window %101 opened but recording it failed") || hasAction(res, ActSpawned, "") {
+	if !hasEscalation(res, "window %101 opened but recording its engine binding failed") || hasAction(res, ActSpawned, "") {
 		t.Fatalf("res=%+v", res)
 	}
 	restoreStateWrites(t, h)
@@ -165,5 +168,15 @@ func TestRawTaskAndBareSpawnsRecordTheCreatedBranch(t *testing.T) {
 		if operator.ScopeString(it.Scope, "branch") != id || h.state().BranchMap[id].Branch != id {
 			t.Fatalf("%s: scope=%+v branch_map=%+v", id, it.Scope, h.state().BranchMap[id])
 		}
+	}
+}
+
+func TestProjectionAttachErrorDoesNotClaimSpawningWasLeftSet(t *testing.T) {
+	got := attachEscalation("%12", &projectionWriteError{err: errors.New("ledger unavailable")})
+	if strings.Contains(got, "spawning left set") || !strings.Contains(got, "engine binding was recorded") || !strings.Contains(got, "projection update failed") {
+		t.Fatalf("projection error = %q", got)
+	}
+	if got := attachEscalation("%12", errors.New("engine write failed")); !strings.Contains(got, "spawning left set") {
+		t.Fatalf("engine-binding error = %q", got)
 	}
 }

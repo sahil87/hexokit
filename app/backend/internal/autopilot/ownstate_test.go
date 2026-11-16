@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"rk/internal/operator"
 )
@@ -61,7 +62,6 @@ func TestPreSpawnEscalationProjectionLaterBindsPaneAndAlwaysUsesRunNotes(t *test
 	if err := e.setScope("a", map[string]interface{}{"repo": ""}); err != nil {
 		t.Fatal(err)
 	}
-	h.env.By = operator.ByChat
 	var notified int
 	h.env.Notify = func(context.Context, string, string) { notified++ }
 	res := h.step()
@@ -164,4 +164,214 @@ func TestRemoveUnspawnedQueueItemAndHaltedSequence(t *testing.T) {
 			t.Fatal("sequence projection removal did not match the engine change")
 		}
 	})
+}
+
+func TestStopWithIdentityProjectionDoesNotSpawnAfterCauseIsFixed(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "work"})
+	e := newEngine(h.env)
+	if err := e.setScope("a", map[string]interface{}{"repo": ""}); err != nil {
+		t.Fatal(err)
+	}
+	h.step() // pre-spawn escalation creates the identity-only projection
+	if _, err := Stop(context.Background(), h.env); err != nil {
+		t.Fatal(err)
+	}
+	if !h.item("a").Paused || h.stateOf(h.item("a")) != QueuePaused {
+		t.Fatalf("stop pause was lost in the view: %+v", h.item("a"))
+	}
+	if err := e.setScope("a", map[string]interface{}{"repo": foo.Dir}); err != nil {
+		t.Fatal(err)
+	}
+	res := h.step()
+	if h.spawn.n != 0 || hasAction(res, ActSpawned, "a") || h.stateOf(h.item("a")) != QueuePaused {
+		t.Fatalf("stop was circumvented: spawns=%d result=%+v", h.spawn.n, res)
+	}
+	engine, err := loadEngineFile(h.env.StatePath)
+	if err != nil || !engine.Queue[0].Paused {
+		t.Fatalf("engine pause was overwritten: %+v, %v", engine.Queue, err)
+	}
+}
+
+func TestGuardedPatchDoesNotStoreProjectionPause(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "work"})
+	h.attachBranch("a", "a-branch")
+	if err := operator.Pause(h.env.StatePath, "a"); err != nil {
+		t.Fatal(err)
+	}
+	e := newEngine(h.env)
+	if err := e.patch("a", func(it *operator.TrackedItem) { it.Scope["branch"] = "new-branch" }); err != nil {
+		t.Fatal(err)
+	}
+	engine, err := loadEngineFile(h.env.StatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if engine.Queue[0].Paused {
+		t.Fatal("projection pause was persisted as engine intent")
+	}
+}
+
+func TestRemoveHaltedSequenceRefusesArmedOrUnreadablePR(t *testing.T) {
+	for _, scenario := range []string{"armed", "unreadable"} {
+		t.Run(scenario, func(t *testing.T) {
+			h, pr, head := armableFixture(t)
+			if _, err := Stop(context.Background(), h.env); err != nil {
+				t.Fatal(err)
+			}
+			if scenario == "armed" {
+				pr.Armed = true
+			} else {
+				h.run.fail("gh pr view 1", "API unavailable")
+			}
+			_, err := Remove(context.Background(), h.env, head.ID)
+			var invalid *InvalidError
+			if err == nil || errors.As(err, &invalid) || !strings.Contains(err.Error(), "PR #1") {
+				t.Fatalf("rm error = %v", err)
+			}
+			if !h.has(head.ID) {
+				t.Fatal("refusal dropped the halted sequence")
+			}
+			engine, loadErr := loadEngineFile(h.env.StatePath)
+			if loadErr != nil || len(engine.PRs) != 2 {
+				t.Fatalf("refusal changed PR items: %+v, %v", engine.PRs, loadErr)
+			}
+		})
+	}
+}
+
+func TestRespawnDoesNotRecreateRemovedProjection(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "work"})
+	h.step()
+	if err := operator.Remove(h.env.StatePath, "a"); err != nil {
+		t.Fatal(err)
+	}
+	delete(h.panes.panes, "%101")
+	h.step()        // removed-projection escalation
+	res := h.step() // respawn from engine state only
+	if !hasAction(res, ActRespawned, "a") || h.spawn.n != 2 {
+		t.Fatalf("respawn = %+v, launches=%d", res, h.spawn.n)
+	}
+	engine, err := loadEngineFile(h.env.StatePath)
+	if err != nil || len(engine.Queue) != 1 || engine.Queue[0].Pane != "%102" {
+		t.Fatalf("respawn binding = %+v, %v", engine.Queue, err)
+	}
+	ledger, err := operator.Load(h.env.StatePath)
+	if err != nil || operator.IndexOf(ledger.Tracked, "a") >= 0 {
+		t.Fatalf("respawn recreated the projection: %+v, %v", ledger.Tracked, err)
+	}
+}
+
+type failingPanes struct{}
+
+func (failingPanes) Snapshot(context.Context) (map[string]operator.PaneInfo, error) {
+	return nil, errors.New("snapshot unavailable")
+}
+func (failingPanes) PID(context.Context, string) (int, error) { return 123, nil }
+
+func TestQueuePassErrorReceiptReportsSuccessAndEscalation(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.env.Panes = failingPanes{}
+	rec, err := Enqueue(context.Background(), h.env, []Entry{{ID: "a", Repo: foo.Dir, Task: "work"}}, QueueOptions{}, "")
+	if err != nil {
+		t.Fatalf("queue failed after its engine write: %v", err)
+	}
+	if len(rec.Items) != 1 || len(rec.Escalations) == 0 {
+		t.Fatalf("receipt = %+v", rec)
+	}
+	found := false
+	for _, escalation := range rec.Escalations {
+		if strings.Contains(escalation.Reason, "snapshot unavailable") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("pass error missing from receipt: %+v", rec.Escalations)
+	}
+	engine, err := loadEngineFile(h.env.StatePath)
+	if err != nil || len(engine.Queue) != 1 {
+		t.Fatalf("engine write missing: %+v, %v", engine.Queue, err)
+	}
+}
+
+func TestRemoveHaltedMergeAutoSequenceNeverRetracksOrRearms(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("merge-auto", Entry{ID: "a", Repo: foo.Dir, Task: "work"})
+	pr := pendingPR(h.shipped(1, "a")[0])
+	h.step() // track PR
+	h.step() // arm it
+	if !pr.Armed {
+		t.Fatal("fixture did not arm the merge-auto PR")
+	}
+	if _, err := Stop(context.Background(), h.env); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Remove(context.Background(), h.env, "pr-1"); err != nil {
+		t.Fatal(err)
+	}
+	engine, err := loadEngineFile(h.env.StatePath)
+	if err != nil || len(engine.Queue) != 1 || !engine.Queue[0].PRDropped || len(engine.PRs) != 0 {
+		t.Fatalf("drop state = %+v, %v", engine, err)
+	}
+	for i := 0; i < 3; i++ {
+		res := h.step()
+		if hasAction(res, ActPRTracked, "") || hasAction(res, ActArmed, "") || h.has("pr-1") {
+			t.Fatalf("pass %d retracked the dropped PR: %+v", i, res)
+		}
+	}
+	if pr.Armed || pr.MergeCalls != 0 {
+		t.Fatalf("drop was re-armed or merged: %+v", pr)
+	}
+
+	h.startMerge()
+	engine, err = loadEngineFile(h.env.StatePath)
+	if err != nil || engine.Queue[0].PRDropped || len(engine.PRs) != 1 {
+		t.Fatalf("explicit merge did not re-chain: %+v, %v", engine, err)
+	}
+}
+
+func TestCheckWrittenDoneAtIsCachedBeforeProjectionRemoval(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "work"})
+	h.attachBranch("a", "a-branch")
+	now := time.Now().UTC().Format(time.RFC3339)
+	if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
+		st.Tracked[operator.IndexOf(st.Tracked, "a")].DoneAt = &now
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if res := h.step(); !hasAction(res, ActDone, "a") {
+		t.Fatalf("completion was not recorded: %+v", res)
+	}
+	engine, err := loadEngineFile(h.env.StatePath)
+	if err != nil || engine.Queue[0].DoneAt == nil {
+		t.Fatalf("engine completion was not cached: %+v, %v", engine.Queue, err)
+	}
+	if err := operator.Remove(h.env.StatePath, "a"); err != nil {
+		t.Fatal(err)
+	}
+	h.panes.panes = map[string]operator.PaneInfo{}
+	for i := 0; i < 3; i++ {
+		res := h.step()
+		if hasAction(res, ActRespawned, "a") || len(res.Escalations) != 0 {
+			t.Fatalf("finished item respawned or escalated after projection cleanup: %+v", res)
+		}
+	}
+	if got := h.stateOf(h.item("a")); got != QueueDone {
+		t.Fatalf("finished item became %s", got)
+	}
+}
+
+func pendingPR(pr *simPR) *simPR {
+	pending(pr)
+	return pr
 }

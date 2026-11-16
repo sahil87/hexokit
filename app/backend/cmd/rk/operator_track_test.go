@@ -482,3 +482,17 @@ func TestOperatorTrackAddHelpDocumentsFreeScopeAndRemovedMode(t *testing.T) {
 		t.Errorf("track add --help retains removed ownership text:\n%s", out)
 	}
 }
+
+func TestOperatorTrackAddRefusesEngineItemID(t *testing.T) {
+	autopilotSandbox(t, "")
+	if _, err := autopilotCLI(t, queueJSON(t.TempDir()), "queue"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := track(t, "add", "q1", "--kind", "note", "--text", "unrelated")
+	wantExit(t, err, 2, "already exists in the autopilot engine state")
+	for _, item := range listJSON(t) {
+		if item.Kind == "note" {
+			t.Fatalf("engine id was overlaid with a note item: %+v", item)
+		}
+	}
+}

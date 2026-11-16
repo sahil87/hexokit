@@ -116,7 +116,21 @@ func (r rule) matches(c *ruleCtx, kind itemKind, queue QueueStatus, pr PRStatus)
 	return r.guard == nil || r.guard(c)
 }
 
-func doneAtUnset(c *ruleCtx) bool { return !operator.ItemDone(c.it) }
+func doneAtUnset(c *ruleCtx) bool {
+	marker, present := c.it.Scope[scopeEngineDone]
+	if !present {
+		return !operator.ItemDone(c.it)
+	}
+	switch value := marker.(type) {
+	case nil:
+		return true
+	case string:
+		return value == ""
+	case *string:
+		return value == nil || *value == ""
+	}
+	return false
+}
 
 func escalatedAlready(c *ruleCtx, key string) bool { return escalatedSeen(c.it, key) }
 
@@ -145,7 +159,9 @@ func projectionRemovedText(c *ruleCtx) (string, string) {
 
 func removedProjectionGuard(c *ruleCtx) bool {
 	key, _ := projectionRemovedText(c)
-	return projectionRemoved(c) && !escalatedAlready(c, key)
+	done := (c.it.Kind == operator.KindPane && deriveQueue(c.st, c.f, c.it) == QueueDone) ||
+		(c.it.Kind == operator.KindGitHubPR && derivePR(c.st, c.f, c.it) == PRMerged)
+	return !done && projectionRemoved(c) && !escalatedAlready(c, key)
 }
 
 func upstreamMerged(c *ruleCtx) bool {
@@ -217,7 +233,7 @@ func hasPRItem(st *operator.State, id string) bool {
 }
 
 func trackPRGuard(c *ruleCtx) bool {
-	return c.mode == operator.MergeModeMergeAuto && !isBare(c.it) && operator.ItemDone(c.it) && !hasPRItem(c.st, c.it.ID)
+	return c.mode == operator.MergeModeMergeAuto && !isBare(c.it) && operator.ItemDone(c.it) && !scopeBool(c.it, scopePRDropped) && !hasPRItem(c.st, c.it.ID)
 }
 
 // mergeGuard is P7's: a green, unarmed, non-stacked PR whose observed head is
@@ -259,7 +275,8 @@ var ruleTable = []rule{
 	{id: "X1", kind: kindPR, all: true, guard: needsProjection, action: ActionReProject},
 	{id: "Q1", kind: kindQueue, queue: QueueDone, guard: doneAtUnset, action: ActionRecordDone},
 	{id: "Q2", kind: kindQueue, queue: QueuePending, action: ActionSpawn},
-	{id: "Q3", kind: kindQueue, queue: QueueSpawnUnknown, action: ActionEscalate, text: spawnInterruptedText},
+	{id: "Q3", kind: kindQueue, queue: QueueSpawnUnknown, action: ActionEscalate, text: spawnInterruptedText,
+		guard: func(c *ruleCtx) bool { key, _ := spawnInterruptedText(c); return !escalatedAlready(c, key) }},
 	{id: "Q4", kind: kindQueue, queue: QueueDead, guard: func(c *ruleCtx) bool { return !scopeBool(c.it, scopeRespawned) }, action: ActionRespawn},
 	{id: "Q5", kind: kindQueue, queue: QueueDead, guard: func(c *ruleCtx) bool { return scopeBool(c.it, scopeRespawned) }, action: ActionSkip},
 	{id: "Q6a", kind: kindQueue, queue: QueueSpawned, guard: slowStageGuard, action: ActionEscalate, text: slowStageText},
@@ -326,7 +343,7 @@ func decide(st *operator.State, f *facts, now time.Time) []Decision {
 	for _, it := range st.Tracked {
 		c.it, c.mode = it, modeOf(it)
 		switch {
-		case isQueueItem(st, it):
+		case legacyQueueItem(st, it):
 			out = append(out, decideItem(c, kindQueue, deriveQueue(st, f, it), ""))
 		case isSeqPR(it):
 			out = append(out, decideItem(c, kindPR, "", derivePR(st, f, it)))
@@ -363,7 +380,7 @@ func oldestUnfinished(st *operator.State, f *facts) string {
 	var oldest time.Time
 	id := ""
 	for _, it := range st.Tracked {
-		if !isQueueItem(st, it) || deriveQueue(st, f, it) == QueueDone {
+		if !legacyQueueItem(st, it) || deriveQueue(st, f, it) == QueueDone {
 			continue
 		}
 		if t, err := time.Parse(time.RFC3339, it.AddedAt); err == nil && (oldest.IsZero() || t.Before(oldest)) {

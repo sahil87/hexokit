@@ -118,7 +118,7 @@ func itemDone(st *operator.State, f *facts, it operator.TrackedItem) bool {
 	if operator.ItemDone(it) {
 		return true
 	}
-	if q := f.queue[it.ID]; q != nil && q.completed && isQueueItem(st, it) {
+	if q := f.queue[it.ID]; q != nil && q.completed && legacyQueueItem(st, it) {
 		return true
 	}
 	return false

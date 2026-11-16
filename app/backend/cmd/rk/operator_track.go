@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 
+	"rk/internal/autopilot"
 	"rk/internal/operator"
 	"rk/internal/validate"
 
@@ -460,6 +461,14 @@ func runOperatorTrackAdd(cmd *cobra.Command, args []string) error {
 		return operatorTrackDone(cmd, operatorTrackReceipt{}, err)
 	}
 
+	owned, err := autopilot.OwnedIDs(path)
+	if err != nil {
+		return operatorTrackDone(cmd, operatorTrackReceipt{}, err)
+	}
+	if owned[args[0]] {
+		return operatorTrackDone(cmd, operatorTrackReceipt{}, usageError(fmt.Errorf("%s already exists in the autopilot engine state", args[0])))
+	}
+
 	spec := operator.AddSpec{ID: args[0], Kind: kind, Server: server, Scope: scope}
 	spec.Probe, _ = f.GetString("probe")
 	spec.Argv, _ = f.GetStringArray("argv")
@@ -481,8 +490,8 @@ func runOperatorTrackAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	res, err := operator.Add(operatorTrackContext(cmd), path, spec)
-	return operatorTrackDone(cmd, operatorTrackReceipt{ID: args[0], Action: "added", Mode: res.MergeMode}, err)
+	err = operator.Add(operatorTrackContext(cmd), path, spec)
+	return operatorTrackDone(cmd, operatorTrackReceipt{ID: args[0], Action: "added"}, err)
 }
 
 func runOperatorTrackUpdate(cmd *cobra.Command, args []string) error {

@@ -24,7 +24,10 @@ func TestDerivedStatePrecedence(t *testing.T) {
 		t.Errorf("b = %s, want held", got)
 	}
 	e := newEngine(h.env)
-	if err := e.patch("a", func(it *operator.TrackedItem) { it.Paused = true }); err != nil {
+	if err := e.mutateEngine(func(st *engineState) error {
+		st.Queue[0].Paused = true
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if got := h.stateOf(h.item("a")); got != QueuePaused {

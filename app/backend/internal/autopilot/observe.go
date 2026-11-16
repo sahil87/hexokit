@@ -65,7 +65,7 @@ func (e *engine) observe(ctx context.Context) (*operator.State, *facts, error) {
 func (e *engine) observeCompletion(ctx context.Context, st *operator.State, f *facts) {
 	for _, it := range st.Tracked {
 		pane := operator.ScopeString(it.Scope, "pane")
-		if !isQueueItem(st, it) || operator.ItemDone(it) || pane == "" {
+		if !legacyQueueItem(st, it) || operator.ItemDone(it) || pane == "" {
 			continue
 		}
 		q := f.queueFor(it.ID)
@@ -90,7 +90,7 @@ func (e *engine) observeCompletion(ctx context.Context, st *operator.State, f *f
 // readiness gate needs, for every unfinished, unpaused queue item.
 func (e *engine) observeReadiness(ctx context.Context, st *operator.State, f *facts) {
 	for _, it := range st.Tracked {
-		if !isQueueItem(st, it) || len(it.DependsOn) == 0 || itemDone(st, f, it) || it.Paused || skipped(it) {
+		if !legacyQueueItem(st, it) || len(it.DependsOn) == 0 || itemDone(st, f, it) || it.Paused || skipped(it) {
 			continue
 		}
 		q := f.queueFor(it.ID)

@@ -44,6 +44,7 @@ type engineItem struct {
 	Projected bool                   `yaml:"projected,omitempty" json:"projected,omitempty"`
 	Deferred  bool                   `yaml:"deferred,omitempty" json:"deferred,omitempty"`
 	Halted    bool                   `yaml:"halted,omitempty" json:"halted,omitempty"`
+	PRDropped bool                   `yaml:"pr_dropped,omitempty" json:"pr_dropped,omitempty"`
 	DoneAt    *string                `yaml:"done_at" json:"done_at"`
 	Escalated map[string]interface{} `yaml:"escalated" json:"escalated"`
 	AddedAt   string                 `yaml:"added_at,omitempty" json:"added_at,omitempty"`
@@ -54,9 +55,10 @@ type engineItem struct {
 // engineState is the complete single-writer engine file. Queue and PR order
 // are execution order and survive reads and writes unchanged.
 type engineState struct {
-	Version int          `yaml:"version" json:"version"`
-	Queue   []engineItem `yaml:"queue" json:"queue"`
-	PRs     []engineItem `yaml:"prs" json:"prs"`
+	Version  int          `yaml:"version" json:"version"`
+	Migrated bool         `yaml:"migrated,omitempty" json:"migrated,omitempty"`
+	Queue    []engineItem `yaml:"queue" json:"queue"`
+	PRs      []engineItem `yaml:"prs" json:"prs"`
 }
 
 func newEngineState() *engineState {
@@ -183,7 +185,7 @@ func engineItemFromTracked(it operator.TrackedItem, projected bool) engineItem {
 		Branch: operator.ScopeString(it.Scope, "branch"), MergeSeq: seqOf(it), MergeMode: modeOf(it), StopStage: operator.ScopeString(it.Scope, "stop_stage"),
 		DependsOn: append([]string{}, it.DependsOn...), Paused: it.Paused, Spawning: operator.ScopeString(it.Scope, scopeSpawning),
 		Respawned: scopeBool(it, scopeRespawned), Skipped: skipped(it), Pane: operator.ScopeString(it.Scope, "pane"),
-		Session: operator.ScopeString(it.Scope, "session"), Projected: projected, Deferred: scopeBool(it, scopeDeferred), Halted: scopeBool(it, scopeHalted),
+		Session: operator.ScopeString(it.Scope, "session"), Projected: projected, Deferred: scopeBool(it, scopeDeferred), Halted: scopeBool(it, scopeHalted), PRDropped: scopeBool(it, scopePRDropped),
 		DoneAt: it.DoneAt, AddedAt: it.AddedAt, UpdatedAt: it.UpdatedAt, SpawnedBy: operator.ScopeString(it.Scope, "spawned_by"),
 		Escalated: map[string]interface{}{},
 	}
@@ -202,6 +204,7 @@ func (it engineItem) tracked() operator.TrackedItem {
 		scopeQueue: it.Queue, scopeMergeMode: it.MergeMode, scopeBare: it.Bare,
 		scopeSpawning: it.Spawning, scopeRespawned: it.Respawned, scopeSkipped: it.Skipped,
 		scopeEscalated: it.Escalated, "projected": it.Projected,
+		scopePRDropped: it.PRDropped, scopeEngineDone: it.DoneAt,
 	}
 	if it.Task != "" {
 		scope[scopeTask] = it.Task
@@ -232,6 +235,7 @@ func (it engineItem) tracked() operator.TrackedItem {
 func applyEngineItem(dst *engineItem, src operator.TrackedItem, projected bool) {
 	updated := engineItemFromTracked(src, projected)
 	updated.Worktree = dst.Worktree
+	updated.Paused = dst.Paused
 	*dst = updated
 }
 
@@ -257,7 +261,7 @@ func engineView(statePath string) (*operator.State, map[string]operator.TrackedI
 		for _, engine := range items {
 			it := engine.tracked()
 			if p, ok := projections[it.ID]; ok {
-				it.Paused = p.Paused
+				it.Paused = it.Paused || p.Paused
 				it.Unchanged = p.Unchanged
 				it.Last = p.Last
 				it.Notes = p.Notes
@@ -275,9 +279,13 @@ func engineView(statePath string) (*operator.State, map[string]operator.TrackedI
 	appendEngine(es.Queue)
 	appendEngine(es.PRs)
 	for _, legacy := range ledger.Tracked {
-		if !es.has(legacy.ID) {
-			st.Tracked = append(st.Tracked, legacy)
+		if es.has(legacy.ID) {
+			continue
 		}
+		if es.Migrated {
+			legacy.Scope = projectionScope(legacy)
+		}
+		st.Tracked = append(st.Tracked, legacy)
 	}
 	return st, projections, nil
 }

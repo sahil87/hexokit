@@ -41,7 +41,7 @@ var autopilotEnvFn = func(cmd *cobra.Command, by string, dry bool) (autopilot.En
 			session, _, _, err := resolveLandingSession(ctx, "", server, repo)
 			return strings.TrimPrefix(session, "="), err
 		},
-		By: by, DryRun: dry,
+		DryRun: dry,
 		Notify: func(ctx context.Context, title, body string) { sendNotify(ctx, title, body) },
 	}, nil
 }
@@ -96,7 +96,7 @@ Merge modes (--mode, or the operator.merge_mode setting):
 }
 
 var operatorAutopilotQueueCmd = &cobra.Command{
-	Use:   "queue [--mode <mode>] [--by user|run|chat] [--dry-run] [--all] [--json] < entries.json",
+	Use:   "queue [--mode <mode>] [--dry-run] [--all] [--json] < entries.json",
 	Short: "Persist a queue of pending pane items from JSON entries on stdin",
 	Long: `Persist a queue as N pending items in one engine-file write under the pass
 lock, then run one pass. If another pass holds the lock, nothing is written:
@@ -125,7 +125,6 @@ Preview with --dry-run, confirm the mode and misfits, then queue once with --mod
 
 Flags:
   --mode          merge mode: cherry-pick-ladder, stacked-prs, merge-auto
-  --by            note author: user, run, chat (default chat)
   --dry-run       validate and report without writing
   -L, --server    tmux server (default: the caller's own server from $TMUX)
   --all           show every entry (human lists default to 20 entries each)
@@ -141,14 +140,14 @@ Exit codes:
      state file busy or unreadable, a state write failed)
   2  usage error (bad entries, id already tracked, invalid mode or setting,
                   bare dependency, forward or cyclic dependency, relative or
-                  non-git repo, invalid --by, unconfirmed misfit)`,
+                  non-git repo, unconfirmed misfit)`,
 	Args:         usageArgs(cobra.NoArgs),
 	SilenceUsage: true,
 	RunE:         runAutopilotQueue,
 }
 
 var operatorAutopilotStepCmd = &cobra.Command{
-	Use:   "step [--by run|chat] [--dry-run] [--all] [--json]",
+	Use:   "step [--dry-run] [--all] [--json]",
 	Short: "Advance every queue and merge sequence one idempotent pass",
 	Long: `Run one pass over the server's tracked items: observe, derive each item's
 status, pick at most one rule row per item, and execute the chosen actions. A
@@ -174,7 +173,6 @@ each escalation as a by: run note and sends rk notify once per dedupe key.
 "dry-run: <action> <item> (<row>)", for example "dry-run: spawn ab12 (Q2)".
 
 Flags:
-  --by            note author: run (default) or chat
   --dry-run       report the plan without side effects
   -L, --server    tmux server (default: the caller's own server from $TMUX)
   --all           show every entry (human lists default to 20 entries each)
@@ -188,7 +186,7 @@ Exit codes:
   0  stepped (with or without actions or escalations), or busy
   1  operational failure (state file busy or unreadable, tmux pane snapshot
      failed, a state write failed)
-  2  usage error (invalid --by)`,
+  2  usage error`,
 	Args:         usageArgs(cobra.NoArgs),
 	SilenceUsage: true,
 	RunE:         runAutopilotStep,
@@ -303,12 +301,10 @@ func init() {
 
 	f := operatorAutopilotQueueCmd.Flags()
 	f.String("mode", "", "merge mode: "+strings.Join(operator.MergeModes, ", ")+" (default: the operator.merge_mode setting, else cherry-pick-ladder)")
-	f.String("by", operator.ByChat, "note author: user, run, chat")
 	f.Bool("dry-run", false, "validate and report without writing")
 	f.Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 
 	f = operatorAutopilotStepCmd.Flags()
-	f.String("by", operator.ByRun, "note author: run or chat")
 	f.Bool("dry-run", false, "report the plan without side effects")
 	f.Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 
@@ -340,17 +336,6 @@ func autopilotError(err error) error {
 	return operatorTrackError(err)
 }
 
-// autopilotAuthor validates --by against the verb's allowed authors.
-func autopilotAuthor(cmd *cobra.Command, allowed ...string) (string, error) {
-	by, _ := cmd.Flags().GetString("by")
-	for _, a := range allowed {
-		if by == a {
-			return by, nil
-		}
-	}
-	return "", usageError(fmt.Errorf("invalid --by %q (valid: %s)", by, strings.Join(allowed, ", ")))
-}
-
 // autopilotFinish writes a verb's outcome: the envelope under --json, else the
 // human rendering.
 func autopilotFinish(cmd *cobra.Command, result any, render func(outputSink), err error) error {
@@ -368,10 +353,6 @@ func autopilotFinish(cmd *cobra.Command, result any, render func(outputSink), er
 }
 
 func runAutopilotQueue(cmd *cobra.Command, args []string) error {
-	by, err := autopilotAuthor(cmd, operator.ByUser, operator.ByRun, operator.ByChat)
-	if err != nil {
-		return autopilotFinish(cmd, nil, nil, err)
-	}
 	dry, _ := cmd.Flags().GetBool("dry-run")
 	mode, _ := cmd.Flags().GetString("mode")
 	raw, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), autopilotStdinCap+1))
@@ -385,7 +366,7 @@ func runAutopilotQueue(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return autopilotFinish(cmd, nil, nil, err)
 	}
-	env, err := autopilotEnvFn(cmd, by, dry)
+	env, err := autopilotEnvFn(cmd, operator.ByRun, dry)
 	if err != nil {
 		return autopilotFinish(cmd, nil, nil, err)
 	}
@@ -404,6 +385,9 @@ func runAutopilotQueue(cmd *cobra.Command, args []string) error {
 			s.Dataf("%s\n", m)
 		}
 		autopilotListTotal(s, "misfits", len(rec.Misfits), autopilotShown(cmd, len(rec.Misfits)))
+		if len(rec.Actions)+len(rec.Escalations) > 0 {
+			renderStep(cmd, s, &autopilot.StepResult{Actions: rec.Actions, Escalations: rec.Escalations, Report: []string{}})
+		}
 	}, err)
 }
 
@@ -446,12 +430,8 @@ func renderStep(cmd *cobra.Command, s outputSink, res *autopilot.StepResult) {
 }
 
 func runAutopilotStep(cmd *cobra.Command, args []string) error {
-	by, err := autopilotAuthor(cmd, operator.ByRun, operator.ByChat)
-	if err != nil {
-		return autopilotFinish(cmd, nil, nil, err)
-	}
 	dry, _ := cmd.Flags().GetBool("dry-run")
-	env, err := autopilotEnvFn(cmd, by, dry)
+	env, err := autopilotEnvFn(cmd, operator.ByRun, dry)
 	if err != nil {
 		return autopilotFinish(cmd, nil, nil, err)
 	}

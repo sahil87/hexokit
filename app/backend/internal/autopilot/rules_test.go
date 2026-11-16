@@ -149,6 +149,13 @@ func queueRuleCases() []ruleCase {
 			it.DoneAt = &now
 			return "a"
 		}},
+		{name: "done, merge-auto, dropped PR is not retracked", kind: "queue", status: "done", row: "", build: func(x *fx, m string) string {
+			it := x.queue("a", m)
+			it.Scope[scopePRDropped] = true
+			now := fxNow.Format(time.RFC3339)
+			it.DoneAt = &now
+			return "a"
+		}},
 		{name: "paused waits", kind: "queue", status: "paused", row: "", build: func(x *fx, m string) string {
 			x.queue("a", m).Paused = true
 			return "a"
@@ -170,7 +177,7 @@ func queueRuleCases() []ruleCase {
 			x.queue("a", m).Scope[scopeSpawning] = "2026-01-01T00:00:00Z"
 			return "a"
 		}},
-		{name: "spawn-unknown already escalated reports again without a second note or notify", kind: "queue", status: "spawn-unknown", row: "Q3", build: func(x *fx, m string) string {
+		{name: "spawn-unknown already escalated waits without another note or notify", kind: "queue", status: "spawn-unknown", row: "", build: func(x *fx, m string) string {
 			it := x.queue("a", m)
 			it.Scope[scopeSpawning] = "2026-01-01T00:00:00Z"
 			c := &ruleCtx{it: *it}
@@ -472,6 +479,13 @@ func prRuleCases() []ruleCase {
 		}},
 		{name: "removed PR projection escalates once (X0)", kind: "pr", status: "waiting", row: "X0", build: func(x *fx, m string) string {
 			it := x.pr("p", m)
+			it.Scope[scopeProjected] = true
+			return "p"
+		}},
+		{name: "removed projection of a merged PR is routine cleanup", kind: "pr", status: "merged", row: "", build: func(x *fx, m string) string {
+			it := x.pr("p", m)
+			now := fxNow.Format(time.RFC3339)
+			it.DoneAt = &now
 			it.Scope[scopeProjected] = true
 			return "p"
 		}},

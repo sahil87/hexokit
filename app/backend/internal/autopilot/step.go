@@ -136,7 +136,7 @@ func Status(ctx context.Context, env Env) (StatusResult, error) {
 	res := StatusResult{Items: []StatusItem{}}
 	var queue []operator.TrackedItem
 	for _, it := range st.Tracked {
-		if isQueueItem(st, it) {
+		if legacyQueueItem(st, it) {
 			queue = append(queue, it)
 		}
 	}

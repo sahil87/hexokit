@@ -203,14 +203,8 @@ func TestStopDisarmsEverythingAndPausesUnspawnedItems(t *testing.T) {
 	if !fp[0].Armed || !bp[0].Armed {
 		t.Fatal("fixture: both repos' first PRs should be armed")
 	}
-	// A pending item that has not spawned yet.
-	if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
-		it, _ := operator.NewPaneItem("queued", nil, map[string]interface{}{"repo": foo.Dir, "merge_mode": "cherry-pick-ladder", scopeTask: "q"})
-		st.Tracked = append(st.Tracked, it)
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
+	// A pending item in the engine file that has not spawned yet.
+	h.queue("", Entry{ID: "queued", Repo: foo.Dir, Task: "q"})
 
 	res, err := Stop(context.Background(), h.env)
 	if err != nil {

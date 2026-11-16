@@ -24,6 +24,7 @@ func TestBareTrackedPaneNeverRespawns(t *testing.T) {
 	repo := newRepo(t, "repo")
 	addLegacyPane(t, h, "bare", nil, map[string]interface{}{"repo": repo.Dir, "pane": "%5", "branch": "ordinary"})
 	before := h.item("bare")
+	before.Scope = projectionScope(before)
 	for i := 0; i < 3; i++ {
 		res := h.step()
 		if len(res.Actions) != 0 {
@@ -47,7 +48,7 @@ func TestLegacyMergeModeItemRemainsQueueWork(t *testing.T) {
 	h := newHarness(t)
 	repo := newRepo(t, "repo")
 	addLegacyPane(t, h, "legacy", nil, map[string]interface{}{"repo": repo.Dir, "merge_mode": operator.MergeModeCherryPickLadder, "task": "work"})
-	if !isQueueItem(h.state(), h.item("legacy")) {
+	if !legacyQueueItem(h.state(), h.item("legacy")) {
 		t.Fatal("legacy mode was ignored")
 	}
 	if res := h.step(); !hasAction(res, ActSpawned, "legacy") {
@@ -67,26 +68,28 @@ func TestLegacyMergeModeItemRemainsQueueWork(t *testing.T) {
 	}
 }
 
-func TestLegacyDependencyChainRemainsQueueWork(t *testing.T) {
+func TestEdgeOnlyDependencyChainIsNotQueueWork(t *testing.T) {
 	h := newHarness(t)
 	repo := newRepo(t, "repo")
 	addLegacyPane(t, h, "base", nil, map[string]interface{}{"repo": repo.Dir, "merge_mode": nil, "change": "aaaa"})
 	addLegacyPane(t, h, "child", []string{"base"}, map[string]interface{}{"repo": repo.Dir, "merge_mode": nil, "change": "bbbb"})
 	addLegacyPane(t, h, "isolated", nil, map[string]interface{}{"repo": repo.Dir, "merge_mode": nil, "change": "cccc"})
 	st := h.state()
-	if !isQueueItem(st, h.item("base")) || !isQueueItem(st, h.item("child")) || isQueueItem(st, h.item("isolated")) {
-		t.Fatal("legacy dependency membership is wrong")
+	for _, it := range st.Tracked {
+		if legacyQueueItem(st, it) {
+			t.Fatalf("edge-only pane %s was absorbed as queue work", it.ID)
+		}
 	}
 	status, err := Status(context.Background(), h.env)
-	if err != nil || len(status.Items) != 2 {
-		t.Fatalf("legacy chain status=%+v %v", status, err)
+	if err != nil || len(status.Items) != 0 {
+		t.Fatalf("ordinary chain status=%+v %v", status, err)
 	}
-	if res := h.step(); !hasAction(res, ActSpawned, "base") || hasAction(res, ActSpawned, "isolated") {
-		t.Fatalf("legacy chain spawn=%+v", res)
+	if res := h.step(); len(res.Actions) != 0 {
+		t.Fatalf("ordinary chain received queue actions: %+v", res.Actions)
 	}
-	h.shipped(1, "base", "child")
-	if res := h.startMerge(); !hasAction(res, ActPRTracked, "base") || !hasAction(res, ActPRTracked, "child") {
-		t.Fatalf("legacy chain merge=%+v", res)
+	engine, err := loadEngineFile(h.env.StatePath)
+	if err != nil || len(engine.Queue) != 0 {
+		t.Fatalf("migration absorbed ordinary panes: %+v, %v", engine, err)
 	}
 }
 
@@ -101,7 +104,7 @@ func TestQueueMembershipDoesNotUseUnknownOrSelfEdges(t *testing.T) {
 		addLegacyPane(t, h, id, deps, map[string]interface{}{"repo": repo.Dir})
 	}
 	for _, it := range h.state().Tracked {
-		if isQueueItem(h.state(), it) {
+		if legacyQueueItem(h.state(), it) {
 			t.Fatalf("non-queue edge made %s eligible", it.ID)
 		}
 	}
@@ -158,7 +161,7 @@ func TestSpawnRejectsSharedDependencyBranchesBeforeFetch(t *testing.T) {
 func TestMarkedQueueItemWithMissingRepoIsRejectedRatherThanHidden(t *testing.T) {
 	h := newHarness(t)
 	addLegacyPane(t, h, "queued", nil, map[string]interface{}{scopeQueue: "queue-1"})
-	if !isQueueItem(h.state(), h.item("queued")) {
+	if !legacyQueueItem(h.state(), h.item("queued")) {
 		t.Fatal("repo validation replaced queue membership")
 	}
 	if res := h.step(); !hasEscalation(res, "repo is empty") || h.spawn.n != 0 {

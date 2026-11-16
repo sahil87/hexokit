@@ -75,26 +75,20 @@ type AddSpec struct {
 	By          string // first note's author, default user
 }
 
-// AddResult reports what Add stored beyond the item itself.
-type AddResult struct {
-	MergeMode string // non-empty when --mode set scope.merge_mode
-}
-
 // Add appends a validated item (and, for a pane item carrying branch and
 // repo, a branch_map entry). External lookups run before the lock is taken.
-func Add(ctx context.Context, path string, spec AddSpec) (AddResult, error) {
-	var res AddResult
+func Add(ctx context.Context, path string, spec AddSpec) error {
 	kd, ok := kinds[spec.Kind]
 	if !ok {
-		return res, invalidf("unknown --kind %q (valid: %s)", spec.Kind, KindNames)
+		return invalidf("unknown --kind %q (valid: %s)", spec.Kind, KindNames)
 	}
 	mode, err := probeMode(spec.Kind, kd, spec.Probe)
 	if err != nil {
-		return res, err
+		return err
 	}
 
 	if err := validateMemo(spec.Scope); err != nil {
-		return res, err
+		return err
 	}
 	scope := spec.Scope
 	if _, hasMemo := scope[ScopeMemo]; hasMemo {
@@ -107,13 +101,13 @@ func Add(ctx context.Context, path string, spec AddSpec) (AddResult, error) {
 		}
 		scope = base
 		if err := applyPaneSugar(spec.PaneSugar, scope); err != nil {
-			return res, err
+			return err
 		}
 		recordPanePID(ctx, spec.Server, scope)
 	} else if len(spec.PaneSugar) > 0 {
 		for _, name := range paneSugarFlags {
 			if _, set := spec.PaneSugar[name]; set {
-				return res, invalidf("--%s applies only to kind pane", name)
+				return invalidf("--%s applies only to kind pane", name)
 			}
 		}
 	}
@@ -129,7 +123,7 @@ func Add(ctx context.Context, path string, spec AddSpec) (AddResult, error) {
 			if len(probe.Argv) == 0 {
 				probe.Argv, err = defaultGitHubPRArgv(ctx, scope)
 				if err != nil {
-					return res, err
+					return err
 				}
 			}
 			if len(probe.Fields) == 0 {
@@ -142,14 +136,14 @@ func Add(ctx context.Context, path string, spec AddSpec) (AddResult, error) {
 
 	checkEvery, err := normalizeCheckEvery(mode, spec.CheckEvery)
 	if err != nil {
-		return res, err
+		return err
 	}
 	doneWhen := doneWhenOrDefault(spec.DoneWhen, kd.doneWhen)
 	if spec.Kind == KindShell && doneWhen == nil {
-		return res, invalidf("kind shell requires --done-when")
+		return invalidf("kind shell requires --done-when")
 	}
 	if spec.TextSet && spec.Kind != KindNote {
-		return res, invalidf("--text applies only to kind note")
+		return invalidf("--text applies only to kind note")
 	}
 	var then *string
 	if spec.Then != nil && *spec.Then != "" {
@@ -180,18 +174,18 @@ func Add(ctx context.Context, path string, spec AddSpec) (AddResult, error) {
 		}
 		text, err := validateNote(by, spec.Text)
 		if err != nil {
-			return res, invalidf("kind note requires --text: %v", err)
+			return invalidf("kind note requires --text: %v", err)
 		}
 		item.Notes = []Note{{At: now, By: by, Text: text}}
 	}
 	if err := validateItem(item); err != nil {
-		return res, err
+		return err
 	}
 	if spec.ID == "" {
-		return res, invalidf("tracked item id must not be empty")
+		return invalidf("tracked item id must not be empty")
 	}
 
-	return res, Mutate(path, func(st *State) error {
+	return Mutate(path, func(st *State) error {
 		if indexOf(st.Tracked, item.ID) >= 0 {
 			return fmt.Errorf("tracked item %s already exists", item.ID)
 		}

@@ -58,7 +58,7 @@ const riffDefaultForTest = "claude -p --dangerously-skip-permissions"
 // addNoteItem seeds the ledger with a note-kind item.
 func (r *rig) addNoteItem(id string) {
 	r.t.Helper()
-	if _, err := operator.Add(context.Background(), r.statePath, operator.AddSpec{ID: id, Kind: operator.KindNote, Text: "hello", TextSet: true}); err != nil {
+	if err := operator.Add(context.Background(), r.statePath, operator.AddSpec{ID: id, Kind: operator.KindNote, Text: "hello", TextSet: true}); err != nil {
 		r.t.Fatal(err)
 	}
 }

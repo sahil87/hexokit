@@ -24,7 +24,7 @@ func runExecCmd(t *testing.T, stub func(context.Context, operatorloop.ExecOption
 	t.Cleanup(func() { operatorOriginalTMUXFn = prevTmux })
 	prevEnv := autopilotEnvFn
 	autopilotEnvFn = func(cmd *cobra.Command, by string, dry bool) (autopilot.Env, error) {
-		return autopilot.Env{StatePath: "test.yaml", By: by, DryRun: dry}, nil
+		return autopilot.Env{StatePath: "test.yaml", DryRun: dry}, nil
 	}
 	t.Cleanup(func() { autopilotEnvFn = prevEnv })
 	return runOperatorCLI(t, "", append([]string{"run-exec"}, args...)...)
@@ -98,5 +98,27 @@ func TestOperatorRunExecOperationalError(t *testing.T) {
 	_, _, err := runExecCmd(t, stub, "--server", "dev", "--run", execTestRun, "--", "true")
 	if exitCode(err) != 1 {
 		t.Fatalf("exit code = %d (err %v), want 1", exitCode(err), err)
+	}
+}
+
+func TestOperatorRunExecEnvironmentErrorReachesWrapper(t *testing.T) {
+	previous := autopilotEnvFn
+	autopilotEnvFn = func(*cobra.Command, string, bool) (autopilot.Env, error) {
+		return autopilot.Env{}, errors.New("environment failed")
+	}
+	t.Cleanup(func() { autopilotEnvFn = previous })
+	var got operatorloop.ExecOptions
+	previousExec := operatorRunExecFn
+	operatorRunExecFn = func(_ context.Context, opts operatorloop.ExecOptions) (operatorloop.ExecResult, error) {
+		got = opts
+		return operatorloop.ExecResult{}, nil
+	}
+	t.Cleanup(func() { operatorRunExecFn = previousExec })
+	_, _, err := runOperatorCLI(t, "", "run-exec", "--server", "dev", "--run", execTestRun, "--", "true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SetupError == nil || got.SetupError.Error() != "environment failed" || got.Pass != nil || got.OwnedIDs != nil {
+		t.Fatalf("options = %+v", got)
 	}
 }

@@ -72,6 +72,9 @@ type ExecOptions struct {
 	Pass func(ctx context.Context) (*PassRecord, error)
 	// OwnedIDs identifies ledger ids whose pane conditions the engine handles.
 	OwnedIDs func(ctx context.Context) (map[string]bool, error)
+	// SetupError is an environment-construction failure discovered before the
+	// wrapper could build its mechanical pass. Exec still records start and end.
+	SetupError error
 }
 
 // ExecResult is what the wrapper recorded.
@@ -107,13 +110,14 @@ func Exec(ctx context.Context, opts ExecOptions) (ExecResult, error) {
 
 	exit, outcome := 0, ""
 	launch := true
-	if opts.Pass != nil {
+	if opts.SetupError != nil {
+		exit, launch = exitStartFailed, false
+	} else if opts.Pass != nil {
 		var actions int
 		launch, actions, err = mechanicalPhase(ctx, opts, recPath, briefPath)
 		if err != nil {
-			return ExecResult{}, err
-		}
-		if !launch {
+			exit, launch = exitStartFailed, false
+		} else if !launch {
 			outcome = fmt.Sprintf("mechanical · %d actions", actions)
 		}
 	}

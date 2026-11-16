@@ -37,9 +37,13 @@ MUST NOT be stored.
 - **THEN** it happens inside that lock (no engine-file write path exists outside a lock-holding verb; `--dry-run` writes nothing)
 
 #### R2: One-time move of engine keys out of the ledger
-Every lock-holding verb SHALL first run an idempotent migration: ledger items that are queue work
-(the R6a `IsQueueItem` predicate — `scope.queue`, or a non-null legacy `scope.merge_mode`, or a
-pane↔pane `depends_on` edge) or sequence PR items (`kind: github-pr` with `scope.merge_seq`) have
+Every lock-holding verb SHALL first run the migration **until it has completed once**: the engine
+file records `migrated: true` after the first successful move (the ledger strip included), and from
+then on no verb absorbs ledger items — a scope key written later with `track add/update --scope`
+(`queue`, `merge_mode`, `merge_seq`) never creates engine work. The migration: ledger items that are queue work
+(`kind: pane` with `scope.queue` or a non-null legacy `scope.merge_mode` — the edge-only pane↔pane
+`depends_on` fallback of R6a's `IsQueueItem` SHALL NOT be used, so an ordinary user pane item with a
+`depends_on` is never absorbed) or sequence PR items (`kind: github-pr` with `scope.merge_seq`) have
 their engine keys and `depends_on` copied into the engine file, where an id already present in the
 engine file keeps the engine file's values. The engine file MUST be written first; THEN, in one
 locked ledger write, the engine keys are stripped from those ledger items and their `depends_on`
@@ -64,8 +68,10 @@ collision rule) added by `track-pr` or when `merge` starts a sequence, carrying 
 `change`. Projection items MUST carry no engine key and `depends_on: []`. After a successful
 projection write the engine SHALL record `projected: true` on the engine item; a spawned/tracked
 engine item with `projected` unset and no ledger item SHALL be re-projected (idempotent) on the
-next pass. `check`'s fields (`reported`, `last`, `checked_at`, `done_at`, conditions) are read by
-the engine as facts and never written by it. The engine MUST NOT read a ledger item's `scope` for
+next pass. `check`'s fields (`reported`, `done_at`, conditions) are read by the engine as facts and never
+written by it; the one exception is the PR poll bookkeeping (`last`, `checked_at`, `unchanged`,
+`failures`) that the engine's PR observation updates through `operator.Observe`, unchanged from
+R6r-i, because the `conflicting` stall clock (`unchanged ≥ 3`) reads it. The engine MUST NOT read a ledger item's `scope` for
 a decision beyond the projection keys (rule 7).
 
 - **GIVEN** a pending queue item `a1`
@@ -77,18 +83,35 @@ a decision beyond the projection keys (rule 7).
 The engine SHALL observe projection items as external facts:
 - a **removed** projection (engine item has `projected: true`, ledger has no item of that id) SHALL
   escalate once (notify + result line, no ledger note); the engine keeps managing the item from
-  its own state and SHALL NOT re-add the projection;
-- a **paused** queue projection SHALL derive queue status `paused` (same as engine-file `paused`);
+  its own state and SHALL NOT re-add the projection — including on `respawn`, which then records
+  the new binding in the engine file only;
+- a **paused** queue projection SHALL derive queue status `paused`; queue `paused` SHALL be engine
+  `paused` OR projection `paused` — a projection never clears the engine's `paused` (so `stop`'s
+  pause holds for an item that already has an identity-only projection), and view-only overlay
+  values read from a projection MUST NOT be written back into the engine item by any executor
+  write (`guarded`/`patch`);
 - a **paused** PR projection SHALL derive a new PR status `paused`, ordered after `merged` and
   before `halted`, whose only outcome is an explicit `wait` (no ready/arm/merge; no disarm);
 - an escalation on a queue item with no projection yet SHALL first add an identity-only `pane`
   projection (no `pane` key) to hold the note; a later spawn binds the pane onto that same item.
 Pane liveness for queue statuses (`spawned`, `dead`, `spawn-unknown`) SHALL read the engine file's
-own binding; completion SHALL read rk's pane map and the projection's `done_at`.
+own binding; completion SHALL read rk's pane map and the projection's `done_at`. An observed
+completion (from either source) SHALL be cached as `done_at` in the engine file: Q1's guard keys on
+the **engine file's own** `done_at`, never on the overlaid view, so removing a projection after its
+pane closed can never turn a finished item into `dead` (and Q4 never respawns it). A removed
+projection on a done item SHALL NOT escalate (routine cleanup).
 
 - **GIVEN** a merged-auto PR item `pr-41` whose projection the user paused (`track pause pr-41`)
 - **WHEN** a pass runs and the PR is green and not armed
 - **THEN** its status is `paused` and no `merge`/`arm`/`ready` action is decided for it
+
+- **GIVEN** an unspawned queue item `a` with an identity-only projection (from a pre-spawn escalation)
+- **WHEN** `stop` runs and a later pass finds the escalation's cause fixed
+- **THEN** `a` derives `paused` and is not spawned
+
+- **GIVEN** a queue item whose completion `check` wrote only to its projection's `done_at`
+- **WHEN** a pass runs, then the user removes the projection and the pane closes, then more passes run
+- **THEN** the first pass records `done_at` in the engine file, and no later pass derives `dead` or respawns it
 
 - **GIVEN** a spawned queue item whose projection the user removed with `track rm`
 - **WHEN** a pass runs twice
@@ -107,6 +130,10 @@ of a not-done sequence PR item. `track add --scope` and `track update --scope` S
 merge (null deletes a member, null clears the map) SHALL be kept. `track add --mode` SHALL be
 removed: passing it is a usage error (exit 2) naming `rk operator autopilot queue`. The `Scope*`
 engine-key constants SHALL no longer be exported from `internal/operator`.
+
+`rk operator track add` SHALL refuse (usage error, exit 2) an id that names an engine item
+(queue or PR item in the engine file), so an unrelated ledger item can never be overlaid onto an
+engine item. `operator.AddResult`, if left empty by the `--mode` removal, SHALL be deleted.
 
 - **GIVEN** a tracked item `x`
 - **WHEN** `rk operator track update x --scope '{"foo":1,"spawning":"t"}'` runs
@@ -133,7 +160,9 @@ in this plan SHALL be unchanged.
 `rk operator autopilot queue` SHALL take the pass lock, run the migration, write the new items to
 the engine file (not the ledger), and then run one pass. When another pass holds the lock the queue
 MUST NOT be written: it prints `busy: another autopilot pass is running on this server; queue not written, retry`
-and exits 1. `--dry-run` takes no lock and writes nothing, as today. Validation (ids, repos,
+and exits 1. `--dry-run` takes no lock and writes nothing, as today. Once the engine write succeeded, an error
+in the follow-up pass SHALL NOT fail the queue: the receipt reports the queued items plus the
+pass's actions and escalations (the pass error as an escalation) and the command exits 0. Validation (ids, repos,
 dependency order, misfits, mode resolution) is unchanged, but id uniqueness SHALL be checked
 against both the engine file and the ledger.
 
@@ -147,8 +176,18 @@ not spawned (no `pane`, no `spawning`) — removing it and its identity-only pro
 refuse a queue item that another not-done queue item depends on (usage error naming the
 dependents), since dropping the edge would let the dependent spawn without its dependency; or
 (b) a halted sequence, named by any of its PR item ids or its `merge_seq` — removing every PR item
-of the sequence from the engine file and their projections. Anything else SHALL be a usage error
+of the sequence from the engine file and their projections, but only when every not-done PR of the
+sequence is observed (a fresh GitHub read in this verb) as not armed; an armed PR or a failed read
+SHALL refuse with exit 1 (operational) naming the PR, so the P3 disarm retry is never dropped.
+Dropping a sequence SHALL also record `pr_dropped: true` on each owning queue item (the PR items'
+`item`) in the engine file, and Q7's guard SHALL require it unset, so the removed PR is never
+re-tracked, re-armed or merged (`resume` does not clear it; a dropped PR comes back only through
+`merge`, which clears it for the queue items it re-chains). Anything else SHALL be a usage error
 (exit 2) naming why (spawned, spawning, not halted, unknown id). It then runs one pass.
+
+- **GIVEN** a done merge-auto queue item `a` whose PR `pr-1` was halted by `stop`
+- **WHEN** `rm pr-1` runs and later passes run
+- **THEN** `pr-1` is gone, `a` carries `pr_dropped: true`, Q7 never re-tracks it and nothing arms or merges PR #1
 
 - **GIVEN** pending `a2` with no dependents
 - **WHEN** `rm a2` runs
@@ -186,14 +225,18 @@ An `escalate` SHALL, on the first sighting of its dedupe key only, append a note
 `escalated: <reason>` (capped at `operator.NoteTextCap`) to the item's ledger entry and send a
 fail-silent notification through a new `Env.Notify func(ctx context.Context, title, body string)`
 seam (title = item id, or `autopilot` for an item-less escalation; body = reason). Notes SHALL be
-`by: run` regardless of `Env.By`. The dedupe map (`escalated`) SHALL live on the engine item.
+`by: run`; `Env.By` and the `--by` flag on `autopilot queue`/`step` SHALL be removed (nothing reads
+them). The dedupe map (`escalated`) SHALL live on the engine item.
 An escalation with no ledger entry able to hold it (item `""`, or a removed projection) SHALL be
 notify + `StepResult.Escalations` only. `StepResult.Escalations` SHALL remain for CLI output.
 `cmd/rk` SHALL wire `Notify` to `sendNotify` for every verb; tests MAY pass nil.
 
 - **GIVEN** a `spawn-unknown` item escalated on pass 1
 - **WHEN** pass 2 sees the same condition
-- **THEN** exactly one note and exactly one notification exist, and both passes list the escalation in their results
+- **THEN** exactly one note and exactly one notification exist, and pass 2 decides an explicit `wait` (Q3's "not yet escalated" guard) and lists no escalation, so a persisting condition does not put the item in every wrapper's judgment set
+
+Every escalate-once row (Q3, Q6, P5, B0, removed projection) SHALL keep its "not yet escalated"
+guard, so `StepResult.Escalations` lists only first sightings for those rows.
 
 - **GIVEN** chat runs `step` (`By: chat`)
 - **WHEN** it escalates
@@ -231,7 +274,11 @@ stay unchanged.
 in the run record. `cmd/rk/operator_run_exec.go` SHALL wire `Pass` to `autopilot.Step` with the
 production Env (same Runner/Spawner/Panes/Session/Notify wiring as `operator_autopilot.go`,
 `By: operator.ByRun`). A `busy` pass SHALL be recorded and the wrapper SHALL continue (no wait);
-a pass error SHALL be recorded and the wrapper SHALL continue.
+a pass error SHALL be recorded and the wrapper SHALL continue. Any other failure of the mechanical
+phase (record read, ledger load, brief write, record update, Env construction) SHALL record the run
+end (exit code, outcome empty) and take the existing failure path (`run failed` note on the changed
+items + notify), exactly as a failed launcher does; the start SHALL be recorded before any such
+failure can occur.
 
 - **GIVEN** chat holds the pass lock when a run starts
 - **WHEN** the wrapper runs
@@ -359,25 +406,25 @@ Binding, copied verbatim from the plan (every review quotes them):
 ### Phase 1: Engine file foundation
 
 - [x] T001 Add the engine-file store in `app/backend/internal/autopilot/enginefile.go` (+ `enginefile_test.go`): path derivation beside the pass lock, YAML schema (`version: 1`, ordered `queue`/`prs` lists with the R1 fields), tolerant read (missing = empty), fsatomic `0600` write, lookup/upsert/remove helpers; tests for missing file, unknown fields, mode, round-trip order <!-- R1 -->
-- [x] T002 Implement the one-time move in `app/backend/internal/autopilot/migrate.go` (+ `migrate_test.go`): R6a queue-work predicate moved here from `operator.IsQueueItem`, copy keys + `depends_on` (engine file wins), write engine file, then strip ledger keys / set `depends_on: []` / drop note-less unspawned queue items in one `operator.Mutate`; no-op when nothing to move; tests for R6r-i ledger, crash-between-writes repeat, notes kept, adopt-shaped legacy items <!-- R2 -->
+- [x] T002 Implement the one-time move in `app/backend/internal/autopilot/migrate.go` (+ `migrate_test.go`): R6a queue-work predicate moved here from `operator.IsQueueItem`, copy keys + `depends_on` (engine file wins), write engine file, then strip ledger keys / set `depends_on: []` / drop note-less unspawned queue items in one `operator.Mutate`; no-op when nothing to move; tests for R6r-i ledger, crash-between-writes repeat, notes kept, adopt-shaped legacy items <!-- R2 --> <!-- rework: R2 predicate — absorb only scope.queue / non-null merge_mode pane items (and merge_seq PR items); drop the edge-only depends_on fallback --> <!-- rework c2: R2 — migration runs only until it has completed once (`migrated: true` in the engine file); later ledger scope keys never create engine work -->
 - [x] T003 Call the migration at the start of every lock-holding verb (`passLocked` path in `app/backend/internal/autopilot/passlock.go` / `step.go`, `merge.go`, `queue.go`) and never under `--dry-run` <!-- R2 -->
 
 ### Phase 2: Engine on its own state
 
 - [x] T004 Move engine-key constants from `app/backend/internal/operator/ownership.go` into `app/backend/internal/autopilot` (engine-file field names); relocate `validateMemo`/`mergeScope` into `app/backend/internal/operator/track.go` (or `scope.go`); delete `ownership.go`, `ownership_test.go`, `internal/autopilot/ownership_test.go`, `internal/autopilot/scopekeys_test.go`, keeping memo tests in `track_test.go` <!-- R5 -->
-- [x] T005 Rework observe/derive to load the engine file plus the ledger read-only (`app/backend/internal/autopilot/observe.go`, `status.go`): queue/PR membership and stored keys from the engine file; pane liveness from the engine binding; `done_at`, `paused`, removed and notes from projections; new PR status `paused`; removed-projection detection via `projected` <!-- R4, R6 -->
-- [x] T006 Extend the rule table in `app/backend/internal/autopilot/rules.go`: `paused` PR status → explicit wait; interim row B0 for `stacked-prs` (`restack needed: PR #<n>`, dedupe per PR); `stacked-prs` PR items get only P1/P2/P3/B0 with every other status an explicit wait; a removed-projection escalate-once row; a re-project row for `projected` unset <!-- R4, R12 -->
-- [x] T007 Rewrite executors to write the engine file (`app/backend/internal/autopilot/execute.go`, `spawn.go`, `riffspawn.go` Opened callback, `merge.go` PR-chain creation, `step.go` stop): intent-first to the engine file, re-read engine item + projection before acting, projection add/update via `operator.Mutate` with only projection keys, `projected: true` after a successful projection write, identity-only projection before a pre-spawn escalation <!-- R3, R4, R6 -->
+- [x] T005 Rework observe/derive to load the engine file plus the ledger read-only (`app/backend/internal/autopilot/observe.go`, `status.go`): queue/PR membership and stored keys from the engine file; pane liveness from the engine binding; `done_at`, `paused`, removed and notes from projections; new PR status `paused`; removed-projection detection via `projected` <!-- R4, R6 --> <!-- rework: R4 — queue paused = engine paused OR projection paused (enginefile.go engineView overwrites it today); overlay values must never be written back to the engine item --> <!-- rework c2: R4 — observed completion (pane map or projection done_at) must reach the engine file: Q1 guard on the engine file's own done_at, not the overlay (enginefile.go ~270, rules.go ~119/260); X0 skips done items -->
+- [x] T006 Extend the rule table in `app/backend/internal/autopilot/rules.go`: `paused` PR status → explicit wait; interim row B0 for `stacked-prs` (`restack needed: PR #<n>`, dedupe per PR); `stacked-prs` PR items get only P1/P2/P3/B0 with every other status an explicit wait; a removed-projection escalate-once row; a re-project row for `projected` unset <!-- R4, R12 --> <!-- rework: R11 — restore Q3's 'not yet escalated' guard (and keep it on every escalate-once row) so a persisting spawn-unknown waits instead of re-escalating every pass --> <!-- rework c2: R8/R4 — Q7 guard requires `pr_dropped` unset; Q1 guard on engine done_at; X0 not for done items -->
+- [x] T007 Rewrite executors to write the engine file (`app/backend/internal/autopilot/execute.go`, `spawn.go`, `riffspawn.go` Opened callback, `merge.go` PR-chain creation, `step.go` stop): intent-first to the engine file, re-read engine item + projection before acting, projection add/update via `operator.Mutate` with only projection keys, `projected: true` after a successful projection write, identity-only projection before a pre-spawn escalation <!-- R3, R4, R6 --> <!-- rework: R4 — guarded/patch (execute.go ~97) must not copy view-only overlay fields (paused) back into the engine item; respawn must not re-add a user-removed projection (spawn.go attach/upsertProjection); fix the 'scope.spawning left set' escalation text when only the projection write failed -->
 - [x] T008 Escalations as notes in `app/backend/internal/autopilot/autopilot.go`: `Env.Notify` seam; dedupe map on the engine item; note `by: run` + `escalated: ` prefix only on first sighting; notify once per key (title item id or `autopilot`); item-less / removed-projection escalations notify + result only <!-- R11 -->
-- [x] T009 Verbs in `app/backend/internal/autopilot/queue.go`, `merge.go`, `step.go` (+ new `rm.go`): `Enqueue` under the pass lock writing the engine file then one pass, busy ⇒ not written (error mapped to exit 1), id uniqueness across both files; `merge` accepts `stacked-prs`; `Stop` on the engine file; new `Remove` (R8 rules incl. dependents refusal) and `Resume` (halted/skipped/paused) each running one pass; `Status` read-only from the engine file <!-- R7, R8, R9, R10 -->
-- [x] T010 CLI in `app/backend/cmd/rk/operator_autopilot.go` (+ tests): `rm <id>` and `resume <id>` subcommands with help, exit codes and `--json` envelopes matching the siblings; `queue` busy message + exit 1; `Notify` wired to `sendNotify` in the shared Env builder; help texts drop `--force` recipes and the stacked-prs refusal <!-- R7, R8, R9, R10, R11 -->
-- [x] T011 Ledger CLI in `app/backend/internal/operator/track.go` and `app/backend/cmd/rk/operator_track.go` (+ tests): remove `Force` from `AddSpec`/`UpdateSpec` and the `--force` flags/help/examples on add/update/rm; remove the `sequencePRItem` rm refusal; `--scope` merges any key; remove `--mode` from `track add` (usage error naming `rk operator autopilot queue`) <!-- R5 -->
+- [x] T009 Verbs in `app/backend/internal/autopilot/queue.go`, `merge.go`, `step.go` (+ new `rm.go`): `Enqueue` under the pass lock writing the engine file then one pass, busy ⇒ not written (error mapped to exit 1), id uniqueness across both files; `merge` accepts `stacked-prs`; `Stop` on the engine file; new `Remove` (R8 rules incl. dependents refusal) and `Resume` (halted/skipped/paused) each running one pass; `Status` read-only from the engine file <!-- R7, R8, R9, R10 --> <!-- rework: R8 — rm of a halted sequence refuses (exit 1) unless every not-done PR is freshly observed not armed; R7 — a pass error after the engine write does not fail queue (receipt carries pass actions/escalations, exit 0) --> <!-- rework c2: R8 — rm of a sequence sets `pr_dropped: true` on owning queue items; merge clears it for re-chained items -->
+- [x] T010 CLI in `app/backend/cmd/rk/operator_autopilot.go` (+ tests): `rm <id>` and `resume <id>` subcommands with help, exit codes and `--json` envelopes matching the siblings; `queue` busy message + exit 1; `Notify` wired to `sendNotify` in the shared Env builder; help texts drop `--force` recipes and the stacked-prs refusal <!-- R7, R8, R9, R10, R11 --> <!-- rework c2: R11 — remove `--by` from autopilot queue/step (and Env.By); R5 — wire track add's engine-id refusal (autopilot.OwnedIDs) in cmd/rk -->
+- [x] T011 Ledger CLI in `app/backend/internal/operator/track.go` and `app/backend/cmd/rk/operator_track.go` (+ tests): remove `Force` from `AddSpec`/`UpdateSpec` and the `--force` flags/help/examples on add/update/rm; remove the `sequencePRItem` rm refusal; `--scope` merges any key; remove `--mode` from `track add` (usage error naming `rk operator autopilot queue`) <!-- R5 --> <!-- rework c2: R5 — track add refuses engine-item ids; delete operator.AddResult if empty -->
 
 ### Phase 3: Loop integration
 
 - [x] T012 Run record + daemon in `app/backend/internal/operatorloop/record.go` and `runner.go` (+ tests): structured `changes` with reasons and a `pass` block on `Record`; `persistRun` stops rendering the brief <!-- R13 -->
 - [x] T013 Judgment set in `app/backend/internal/operatorloop/judgment.go` (+ `judgment_test.go`): pure function over (changes, pass result, ledger, engine-owned ids) per R15, table-tested over every reason kind <!-- R15 -->
-- [x] T014 Wrapper in `app/backend/internal/operatorloop/exec.go` (+ `exec_test.go`): `ExecOptions.Pass` seam; record `pass`; busy/error continue; empty judgment ⇒ `outcome: mechanical · <n> actions`, exit 0, no launcher; else render brief from a fresh ledger load with the judgment set and launch; wire `Pass` in `app/backend/cmd/rk/operator_run_exec.go` to `autopilot.Step` with the production Env (`By: run`) <!-- R14, R16 -->
+- [x] T014 Wrapper in `app/backend/internal/operatorloop/exec.go` (+ `exec_test.go`): `ExecOptions.Pass` seam; record `pass`; busy/error continue; empty judgment ⇒ `outcome: mechanical · <n> actions`, exit 0, no launcher; else render brief from a fresh ledger load with the judgment set and launch; wire `Pass` in `app/backend/cmd/rk/operator_run_exec.go` to `autopilot.Step` with the production Env (`By: run`) <!-- R14, R16 --> <!-- rework: R14 — mechanicalPhase errors (exec.go ~112) and autopilotEnvFn failure (operator_run_exec.go ~73) must record the start first, then record the run end and take the reportFailure path -->
 - [x] T015 Transcription in `app/backend/internal/operatorloop/transcribe.go` (+ test) produces `ran · mechanical · <n> actions · <dur>`; retention test counts mechanical runs <!-- R17 -->
 - [x] T016 Extend the isolated-socket integration test in `app/backend/internal/operatorloop/loop_test.go` with one mechanical-only run <!-- R18 -->
 - [x] T017 [P] Drawer: verify `app/frontend/src/components/cron-log.tsx` / `cron-entry-detail-sheet.tsx` / `watched-tasks.tsx` render the mechanical line and an `escalated: …` note; add/adjust unit tests (`cron-log.test.tsx`), change components only if needed <!-- R17 -->
@@ -386,8 +433,8 @@ Binding, copied verbatim from the plan (every review quotes them):
 
 - [x] T018 Delete `app/backend/internal/operator/brief_autopilot.md`, its embed/var and the Interim autopilot section in `brief.go`; edit `brief_rules.md` per R19; update `testdata/brief_golden.md` and `brief_test.go`; add the rule-5 test (no autopilot section, no git/gh write in allowed tools) <!-- R19 -->
 - [x] T019 Update `docs/site/skill/operator.md` per R20 and run `scripts/sync-skill.sh` to refresh `app/backend/cmd/rk/skill/operator.md` <!-- R20 -->
-- [x] T020 Extend the `decide` table test (`app/backend/internal/autopilot/rules_test.go`) to enumerate every reachable (kind, mode, status) incl. `stacked-prs` PR items, `paused`, B0, removed-projection and re-project rows; port R6r-i behaviour tests (`merge_test.go`, `spawn_test.go`, `deltas_test.go`, `escalation_test.go`, `lifecycle_test.go`, `harness_test.go`, …) to assert on the engine file + projections <!-- R12, R6 -->
-- [x] T021 Run gates from `app/backend`: `go test ./...` (or `just test-backend`) and `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 go test -race ./internal/autopilot/ -count=1`; frontend `npx tsc --noEmit` and the touched unit tests; fix failures (known host-only failures `TestPortPinRowRealPolicyValues`, `TestTerminals_IsoSharedSessionSurvivesFirstClientDeath` do not block) <!-- R1 -->
+- [x] T020 Extend the `decide` table test (`app/backend/internal/autopilot/rules_test.go`) to enumerate every reachable (kind, mode, status) incl. `stacked-prs` PR items, `paused`, B0, removed-projection and re-project rows; port R6r-i behaviour tests (`merge_test.go`, `spawn_test.go`, `deltas_test.go`, `escalation_test.go`, `lifecycle_test.go`, `harness_test.go`, …) to assert on the engine file + projections <!-- R12, R6 --> <!-- rework: tests for every cycle-1 fix — stop-after-identity-projection never spawns; Q3 waits on pass 2; rm refuses armed/unreadable sequence; respawn keeps a removed projection removed; queue pass error exits 0; mechanical-phase failure records end + failure note; non-queue pane with depends_on is not absorbed. Also add ActRemoved/ActResumed constants (rm.go) and remove the deletion candidates review recorded (Env.by, engine.mutate, unreachable spawn-unknown wait row if still unreachable, AddResult.MergeMode, isQueueItem alias) where truly dead --> <!-- rework c2: tests — stop→rm merge-auto sequence never re-tracks/re-arms; check-written done_at → projection removed → pane gone → no respawn; migration not re-run after `migrated: true` (scope keys written later are ignored); track add of an engine id refused; removed projection on done item does not escalate -->
+- [x] T021 Run gates from `app/backend`: `go test ./...` (or `just test-backend`) and `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 go test -race ./internal/autopilot/ -count=1`; frontend `npx tsc --noEmit` and the touched unit tests; fix failures (known host-only failures `TestPortPinRowRealPolicyValues`, `TestTerminals_IsoSharedSessionSurvivesFirstClientDeath` do not block) <!-- R1 --> <!-- rework: re-run all gates after the cycle-1 fixes --> <!-- rework c2: re-run all gates -->
 
 ## Execution Order
 
@@ -401,64 +448,69 @@ Binding, copied verbatim from the plan (every review quotes them):
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `<slug>.autopilot.yaml` exists beside the ledger, `0600`, written via fsatomic only inside lock-holding verbs; missing file reads as empty; no `armed`/`direct`/non-monotone fact is stored
-- [ ] A-002 R2: The move copies engine keys + `depends_on` into the engine file (engine file wins), then strips the ledger in one locked write; repeated runs are no-ops; a crash between the writes is repaired
-- [ ] A-003 R3: Spawn/respawn and track-pr/merge add projection items with only projection keys and `depends_on: []`, and record `projected: true`; an unprojected spawned item is re-projected
-- [ ] A-004 R4: Removed projection escalates once and is not re-added; paused queue/PR projections derive `paused`; a pre-spawn escalation creates an identity-only projection later bound by spawn
-- [ ] A-005 R5: `ownership.go`, its tests, `scopekeys_test.go`, `--force` on all track verbs, the sequence-PR rm refusal and `track add --mode` are gone; `--scope` merges any key; memo semantics unchanged
-- [ ] A-006 R6: Executors read/write the engine file, re-read before acting, write intent first for spawn/respawn
-- [ ] A-007 R7: `queue` takes the lock, writes the engine file, runs one pass; busy ⇒ exit 1, nothing written
-- [ ] A-008 R8: `rm` drops an unspawned queue item (refusing one with not-done dependents) or a halted sequence, else exit 2
-- [ ] A-009 R9: `resume` clears halted/skipped/paused on one item, else exit 2
-- [ ] A-010 R10: `merge` accepts stacked-prs; `stop` writes the engine file; `status` is read-only; help texts carry no `--force` recipe
-- [ ] A-011 R11: Escalations write one `by: run` `escalated: ` note and one notify per dedupe key; item-less escalations notify only
-- [ ] A-012 R12: B0 escalates `restack needed: PR #<n>` once; stacked PR items never get ready/arm/merge; P5 stays
-- [ ] A-013 R13: The run record carries changes with reasons and a `pass` block; the daemon renders no brief
-- [ ] A-014 R14: The wrapper runs the pass via the `Pass` seam wired to `autopilot.Step` (By run) before any launcher; busy/error are recorded and the wrapper continues
-- [ ] A-015 R15: The judgment set matches the R15 rule exactly and is table-tested
-- [ ] A-016 R16: Empty judgment ⇒ `mechanical · <n> actions`, exit 0, launcher never invoked; non-empty ⇒ post-pass brief from the judgment set, then launch
-- [ ] A-017 R17: Transcription yields `ran · mechanical · <n> actions · <dur>`; retention unchanged; drawer renders the line and escalation notes
-- [ ] A-018 R18: The isolated-socket integration test includes a mechanical-only run
-- [ ] A-019 R19: Brief has no autopilot section and its allowed tools name no git/gh write or queue-spawn tool; rule-5 test exists
-- [ ] A-020 R20: Chat skill points at autopilot verbs, has no `--force`, and both copies are identical
+- [x] A-001 R1: `<slug>.autopilot.yaml` exists beside the ledger, `0600`, written via fsatomic only inside lock-holding verbs; missing file reads as empty; no `armed`/`direct`/non-monotone fact is stored
+- [x] A-002 R2: The move copies engine keys + `depends_on` into the engine file (engine file wins), then strips the ledger in one locked write; repeated runs are no-ops; a crash between the writes is repaired
+- [x] A-003 R3: Spawn/respawn and track-pr/merge add projection items with only projection keys and `depends_on: []`, and record `projected: true`; an unprojected spawned item is re-projected
+- [x] A-004 R4: Removed projection escalates once and is not re-added; paused queue/PR projections derive `paused`; a pre-spawn escalation creates an identity-only projection later bound by spawn
+- [x] A-005 R5: `ownership.go`, its tests, `scopekeys_test.go`, `--force` on all track verbs, the sequence-PR rm refusal and `track add --mode` are gone; `--scope` merges any key; memo semantics unchanged
+- [x] A-006 R6: Executors read/write the engine file, re-read before acting, write intent first for spawn/respawn
+- [x] A-007 R7: `queue` takes the lock, writes the engine file, runs one pass; busy ⇒ exit 1, nothing written
+- [x] A-008 R8: `rm` drops an unspawned queue item (refusing one with not-done dependents) or a halted sequence, else exit 2
+- [x] A-009 R9: `resume` clears halted/skipped/paused on one item, else exit 2
+- [x] A-010 R10: `merge` accepts stacked-prs; `stop` writes the engine file; `status` is read-only; help texts carry no `--force` recipe
+- [x] A-011 R11: Escalations write one `by: run` `escalated: ` note and one notify per dedupe key; item-less escalations notify only
+- [x] A-012 R12: B0 escalates `restack needed: PR #<n>` once; stacked PR items never get ready/arm/merge; P5 stays
+- [x] A-013 R13: The run record carries changes with reasons and a `pass` block; the daemon renders no brief
+- [x] A-014 R14: The wrapper runs the pass via the `Pass` seam wired to `autopilot.Step` (By run) before any launcher; busy/error are recorded and the wrapper continues
+- [x] A-015 R15: The judgment set matches the R15 rule exactly and is table-tested
+- [x] A-016 R16: Empty judgment ⇒ `mechanical · <n> actions`, exit 0, launcher never invoked; non-empty ⇒ post-pass brief from the judgment set, then launch
+- [x] A-017 R17: Transcription yields `ran · mechanical · <n> actions · <dur>`; retention unchanged; drawer renders the line and escalation notes
+- [x] A-018 R18: The isolated-socket integration test includes a mechanical-only run
+- [x] A-019 R19: Brief has no autopilot section and its allowed tools name no git/gh write or queue-spawn tool; rule-5 test exists
+- [x] A-020 R20: Chat skill points at autopilot verbs, has no `--force`, and both copies are identical
 
 ### Behavioral Correctness
 
-- [ ] A-021 R10: `merge` on a stacked-prs queue creates PR items (previously refused)
-- [ ] A-022 R11: Escalation notes are `by: run` even when `Env.By` is chat
+- [x] A-021 R10: `merge` on a stacked-prs queue creates PR items (previously refused)
+- [x] A-022 R11: Escalation notes are `by: run` even when `Env.By` is chat
 
 ### Removal Verification
 
-- [ ] A-023 R5: No reference to `checkScopeUpdate`, `checkScopeAdd`, `EngineScopeKeys`, `EngineMayWrite`, `ScopeKeyKnown`, `sequencePRItem` or `Force` remains in `internal/operator` / `cmd/rk/operator_track.go`
-- [ ] A-024 R19: `brief_autopilot.md` and `briefAutopilot` are gone; no code embeds them
+- [x] A-023 R5: No reference to `checkScopeUpdate`, `checkScopeAdd`, `EngineScopeKeys`, `EngineMayWrite`, `ScopeKeyKnown`, `sequencePRItem` or `Force` remains in `internal/operator` / `cmd/rk/operator_track.go`
+- [x] A-024 R19: `brief_autopilot.md` and `briefAutopilot` are gone; no code embeds them
 
 ### Scenario Coverage
 
-- [ ] A-025 R2: Migration tests cover the R6r-i ledger, crash-repeat and notes-kept scenarios
-- [ ] A-026 R4: Tests cover removed, paused (queue and PR) and pre-spawn-escalation projections
-- [ ] A-027 R12: The `decide` table test enumerates every reachable (kind, mode, status) including stacked-prs and `paused`, asserting a row or explicit wait
+- [x] A-025 R2: Migration tests cover the R6r-i ledger, crash-repeat and notes-kept scenarios
+- [x] A-026 R4: Tests cover removed, paused (queue and PR) and pre-spawn-escalation projections
+- [x] A-027 R12: The `decide` table test enumerates every reachable (kind, mode, status) including stacked-prs and `paused`, asserting a row or explicit wait
 
 ### Edge Cases & Error Handling
 
-- [ ] A-028 R7: Concurrent `queue` during a held lock writes nothing to either file
-- [ ] A-029 R8: `rm` on spawned, spawning, unhalted, unknown, or depended-on ids exits 2 with a reason
-- [ ] A-030 R14: A pass error or busy pass never prevents the judgment run when the judgment set is non-empty
+- [x] A-028 R7: Concurrent `queue` during a held lock writes nothing to either file
+- [x] A-029 R8: `rm` on spawned, spawning, unhalted, unknown, or depended-on ids exits 2 with a reason
+- [x] A-030 R14: A pass error or busy pass never prevents the judgment run when the judgment set is non-empty
 
 ### Code Quality
 
-- [ ] A-031 Pattern consistency: New code follows the naming, error-class and seam patterns of `internal/autopilot`, `internal/operatorloop` and `cmd/rk`
-- [ ] A-032 No unnecessary duplication: Env wiring for `step` and the wrapper share one builder; fsatomic and `operator.Mutate` are reused
-- [ ] A-033: All subprocess calls keep `exec.CommandContext` with argv slices and per-class timeouts
-- [ ] A-034: Disposable daemon — the wrapper (not the daemon) runs the pass; every engine write is durable before the verb returns
-- [ ] A-035: New behaviour has Go tests; frontend tests cover any drawer change
-- [ ] A-036: No god functions (>50 lines without clear reason) added; no magic strings for reason kinds or statuses (named constants)
-- [ ] A-037: Comments state constraints, not narration or change IDs
+- [x] A-031 Pattern consistency: New code follows the naming, error-class and seam patterns of `internal/autopilot`, `internal/operatorloop` and `cmd/rk`
+- [x] A-032 No unnecessary duplication: Env wiring for `step` and the wrapper share one builder; fsatomic and `operator.Mutate` are reused
+- [x] A-033: All subprocess calls keep `exec.CommandContext` with argv slices and per-class timeouts
+- [x] A-034: Disposable daemon — the wrapper (not the daemon) runs the pass; every engine write is durable before the verb returns
+- [x] A-035: New behaviour has Go tests; frontend tests cover any drawer change
+- [x] A-036: No god functions (>50 lines without clear reason) added; no magic strings for reason kinds or statuses (named constants)
+- [x] A-037: Comments state constraints, not narration or change IDs
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- `app/backend/internal/operator/track.go:79` `AddResult` — an always-empty struct that `Add` still returns; `cmd/rk/operator_track.go` discards it now that `--mode` is gone
+- `app/backend/internal/autopilot/autopilot.go` `Env.By` and the `--by` flags on `autopilot queue`/`step` (`cmd/rk/operator_autopilot.go:306,311`) — no production code reads `Env.By` now that escalation notes are always `by: run`; the flag is validated and then ignored
 
 ## Assumptions
 

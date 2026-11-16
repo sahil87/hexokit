@@ -2,7 +2,6 @@ package autopilot
 
 import (
 	"fmt"
-	"slices"
 
 	"rk/internal/operator"
 )
@@ -17,34 +16,19 @@ var engineScopeKeys = []string{
 // legacyQueueItem is only the migration predicate. Runtime queue membership
 // comes from the engine file, so ordinary pane dependencies regain their normal
 // tracked-item meaning after migration.
-func legacyQueueItem(st *operator.State, it operator.TrackedItem) bool {
-	if it.Kind != operator.KindPane {
-		return false
-	}
-	if it.Scope[scopeQueue] != nil || it.Scope[scopeMergeMode] != nil {
-		return true
-	}
-	for _, other := range st.Tracked {
-		if other.ID != it.ID && other.Kind == operator.KindPane && (slices.Contains(it.DependsOn, other.ID) || slices.Contains(other.DependsOn, it.ID)) {
-			return true
-		}
-	}
-	return false
-}
-
-// isQueueItem reports runtime membership in the engine snapshot. Before the
-// first lock-holding verb, the legacy edge-chain shape is still readable;
-// migrated projections have neither engine keys nor edges.
-func isQueueItem(st *operator.State, it operator.TrackedItem) bool {
-	return legacyQueueItem(st, it)
+func legacyQueueItem(_ *operator.State, it operator.TrackedItem) bool {
+	return it.Kind == operator.KindPane && (it.Scope[scopeQueue] != nil || it.Scope[scopeMergeMode] != nil)
 }
 
 func migrateEngineState(statePath string) error {
-	ledger, err := operator.Load(statePath)
+	engine, err := loadEngineFile(statePath)
 	if err != nil {
 		return err
 	}
-	engine, err := loadEngineFile(statePath)
+	if engine.Migrated {
+		return nil
+	}
+	ledger, err := operator.Load(statePath)
 	if err != nil {
 		return err
 	}
@@ -64,14 +48,15 @@ func migrateEngineState(statePath string) error {
 		}
 	}
 	if len(moving) == 0 {
-		return nil
+		engine.Migrated = true
+		return writeEngineFile(statePath, engine)
 	}
 	if changed {
 		if err := writeEngineFile(statePath, engine); err != nil {
 			return err
 		}
 	}
-	return operator.Mutate(statePath, func(st *operator.State) error {
+	if err := operator.Mutate(statePath, func(st *operator.State) error {
 		kept := st.Tracked[:0]
 		for _, item := range st.Tracked {
 			if !moving[item.ID] {
@@ -88,7 +73,11 @@ func migrateEngineState(statePath string) error {
 		}
 		st.Tracked = kept
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	engine.Migrated = true
+	return writeEngineFile(statePath, engine)
 }
 
 func projectionScope(it operator.TrackedItem) map[string]interface{} {

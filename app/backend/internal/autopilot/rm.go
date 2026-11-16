@@ -2,6 +2,7 @@ package autopilot
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"rk/internal/operator"
@@ -58,11 +59,33 @@ func Remove(ctx context.Context, env Env, id string) (*StepResult, error) {
 			if !found {
 				return operatorInvalid("unknown merge sequence %s", seq)
 			}
-			for _, item := range append([]engineItem(nil), st.PRs...) {
-				if item.MergeSeq == seq {
-					st.remove(item.ID)
-					removed = append(removed, item.ID)
+			for _, item := range seqItems(view, seq) {
+				if operator.ItemDone(item) {
+					continue
 				}
+				target, ok := e.target(item)
+				if !ok {
+					return fmt.Errorf("cannot remove halted sequence %s: PR item %s has no valid target", seq, item.ID)
+				}
+				fresh, err := e.viewPR(ctx, target.repo, target.nwo, target.n, "autoMergeRequest")
+				if err != nil {
+					return fmt.Errorf("cannot remove halted sequence %s: reading PR #%s armed state failed: %w", seq, target.n, err)
+				}
+				if fresh.AutoMergeRequest != nil {
+					return fmt.Errorf("cannot remove halted sequence %s: PR #%s is still armed; disarm it first", seq, target.n)
+				}
+			}
+			for _, item := range append([]engineItem(nil), st.PRs...) {
+				if item.MergeSeq != seq {
+					continue
+				}
+				for i := range st.Queue {
+					if st.Queue[i].ID == item.Item {
+						st.Queue[i].PRDropped = true
+					}
+				}
+				st.remove(item.ID)
+				removed = append(removed, item.ID)
 			}
 			return nil
 		}); err != nil {
@@ -72,7 +95,7 @@ func Remove(ctx context.Context, env Env, id string) (*StepResult, error) {
 			if err := removeProjection(env.StatePath, itemID); err != nil {
 				return e.res, err
 			}
-			e.act("removed", itemID, "")
+			e.act(ActRemoved, itemID, "")
 		}
 		_, err := e.pass(ctx)
 		return e.res, err
@@ -121,7 +144,7 @@ func Resume(ctx context.Context, env Env, id string) (*StepResult, error) {
 		if !changed {
 			return e.res, operatorInvalid("%s is not halted, skipped, or paused", id)
 		}
-		e.act("resumed", id, "")
+		e.act(ActResumed, id, "")
 		_, err = e.pass(ctx)
 		return e.res, err
 	})

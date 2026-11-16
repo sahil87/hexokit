@@ -447,7 +447,6 @@ func newHarness(t *testing.T) *harness {
 		StatePath: filepath.Join(t.TempDir(), "operator", "state.yaml"),
 		Run:       run, Spawn: h.spawn, Panes: h.panes,
 		Session: func(context.Context, string) (string, error) { return "work", nil },
-		By:      operator.ByRun,
 		Now:     func() time.Time { return h.clock },
 	}
 	return h
