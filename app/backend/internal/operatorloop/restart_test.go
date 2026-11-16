@@ -7,10 +7,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
 	"rk/internal/cron"
+	"rk/internal/fsatomic"
 	"rk/internal/operator"
 	"rk/internal/shellq"
 	"rk/internal/tmux"
@@ -83,10 +85,13 @@ func TestRestartSurvival(t *testing.T) {
 		t.Fatal(err)
 	}
 	doneWhen := "n == 99"
-	if _, err := operator.Add(ctx, statePath, operator.AddSpec{
+	if err := operator.Add(ctx, statePath, operator.AddSpec{
 		ID: "pr-1", Kind: operator.KindShell, Argv: []string{"sh", "-c", `printf '{"n":1}'`},
 		Fields: []string{"n"}, DoneWhen: &doneWhen,
 	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := operator.AddNote(statePath, "pr-1", operator.ByUser, "judge this change"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -152,9 +157,10 @@ func TestRestartSurvival(t *testing.T) {
 	if rec, err := ReadRecord(recPath); err != nil || rec.Entry == "" || len(rec.Changed) != 1 || rec.Changed[0] != "pr-1" {
 		t.Fatalf("record = %+v, err %v", rec, err)
 	}
-	if _, err := os.Stat(briefPath); err != nil {
-		t.Fatal(err)
-	}
+	waitFor(t, "the judgment brief", 10*time.Second, func() bool {
+		_, err := os.Stat(briefPath)
+		return err == nil
+	})
 	checkedAt := loadLastCheck(t, statePath)
 
 	// The run window is the only window in _rk-operator (no placeholder shell).
@@ -208,7 +214,7 @@ func TestRestartSurvival(t *testing.T) {
 			notes = it.Notes
 		}
 	}
-	if len(notes) != 1 || notes[0].By != "run" || notes[0].Text != "stub acted" {
+	if len(notes) != 2 || notes[1].By != "run" || notes[1].Text != "stub acted" {
 		t.Fatalf("notes = %+v", notes)
 	}
 }
@@ -220,4 +226,193 @@ func loadLastCheck(t *testing.T, statePath string) string {
 		t.Fatal(err)
 	}
 	return st.LastCheckAt
+}
+
+func TestIsolatedSocketMechanicalOnlyRun(t *testing.T) {
+	installIsolatedGH(t)
+	server := isolatedTmux(t)
+	ctx := context.Background()
+	statePath, err := statePathFn(ctx, server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a1Pane, a1Repo := newIsolatedFabPane(t, server, "a1", "ship", "done")
+	a2Pane, a2Repo := newIsolatedFabPane(t, server, "a2", "review", "done")
+	seedIsolatedMechanicalEngine(t, statePath, a1Pane, a1Repo, a2Pane, a2Repo)
+	cronDir := t.TempDir()
+	if _, err := cron.Add(cronDir, server, cron.Entry{
+		Name: cron.LoopSeedName, Run: cron.RunOperatorLoop, Pinned: true,
+		Schedule:  cron.Schedule{Kind: cron.ScheduleBackoff, Min: cron.Duration{Duration: 3 * time.Minute}, Max: cron.Duration{Duration: 24 * time.Minute}},
+		CreatedBy: cron.CreatedBy{At: time.Now().Add(-time.Hour).Unix()},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prevSelf, prevResolve := selfPathFn, resolveLauncherFn
+	t.Cleanup(func() { selfPathFn, resolveLauncherFn = prevSelf, prevResolve })
+	selfPathFn = func() (string, error) { return self, nil }
+	launcherMarker := filepath.Join(t.TempDir(), "launcher-called")
+	resolveLauncherFn = func(context.Context, string, string) string {
+		return "touch " + shellq.QuoteArgv([]string{launcherMarker}) + "; echo 'outcome: model called'"
+	}
+	tick := func() {
+		t.Helper()
+		if _, err := cron.Tick(ctx, cron.Deps{
+			Dir: cronDir, ListServers: func(context.Context) ([]string, error) { return []string{server}, nil },
+			LoopRunner: Run, LoopTranscribe: Transcribe, LoopLogged: MarkLogged, LoopSeed: StateFileExists,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tick()
+	wins, err := tmux.ListOperatorRunWindows(ctx, server)
+	if err != nil || len(wins) != 1 {
+		t.Fatalf("run windows = %+v, err=%v", wins, err)
+	}
+	runID := wins[0].RunID
+	dir, _ := Dir(ctx, server)
+	recPath, _ := RecordPath(dir, runID)
+	waitFor(t, "mechanical run to end", 30*time.Second, func() bool {
+		rec, err := ReadRecord(recPath)
+		return err == nil && rec.Ended()
+	})
+	rec, err := ReadRecord(recPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Outcome != "mechanical · 1 actions" || rec.Pass == nil || rec.Pass.Actions != 1 {
+		ledger, _ := operator.Load(statePath)
+		t.Fatalf("record = %+v, pass = %+v, ledger = %+v", rec, rec.Pass, ledger.Tracked)
+	}
+	foundStageAdvance := false
+	for _, change := range rec.Changes {
+		for _, reason := range change.Reasons {
+			if strings.HasPrefix(reason, "stage_advance") {
+				foundStageAdvance = true
+			}
+		}
+	}
+	if !foundStageAdvance {
+		t.Fatalf("changes = %+v", rec.Changes)
+	}
+	if _, err := os.Stat(launcherMarker); !os.IsNotExist(err) {
+		t.Fatalf("mechanical run called its launcher: %v", err)
+	}
+	tick()
+	logPath, _ := cron.LogPath(cronDir, server)
+	lines := cron.ReadLog(logPath)
+	if len(lines) != 1 || !regexp.MustCompile(`^ran · mechanical · 1 actions · \d+s$`).MatchString(lines[0].Outcome) {
+		t.Fatalf("mechanical log = %+v", lines)
+	}
+}
+
+func newIsolatedFabPane(t *testing.T, server, change, stage, display string) (string, string) {
+	t.Helper()
+	repo := t.TempDir()
+	changeDir := filepath.Join(repo, "fab", "changes", change)
+	if err := os.MkdirAll(changeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	status := "progress:\n  " + stage + ": " + display + "\n"
+	if err := os.WriteFile(filepath.Join(changeDir, ".status.yaml"), []byte(status), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("fab", "changes", change, ".status.yaml"), filepath.Join(repo, ".fab-status.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "tmux", "-L", server, "new-window", "-d", "-P", "-F", "#{pane_id}", "-c", repo, "sleep 60").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(out)), repo
+}
+
+func seedIsolatedMechanicalEngine(t *testing.T, statePath, a1Pane, a1Repo, a2Pane, a2Repo string) {
+	t.Helper()
+	enginePath := strings.TrimSuffix(statePath, filepath.Ext(statePath)) + ".autopilot.yaml"
+	if err := os.MkdirAll(filepath.Dir(enginePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	contents := fmt.Sprintf(`version: 1
+queue:
+  - id: a1
+    queue: q1
+    repo: %q
+    change: a1
+    branch: a1-branch
+    merge_mode: merge-auto
+    depends_on: []
+    pane: %q
+    session: work
+    projected: true
+    done_at: null
+    escalated: {}
+    added_at: %q
+    updated_at: %q
+  - id: a2
+    queue: q1
+    repo: %q
+    change: a2
+    merge_mode: cherry-pick-ladder
+    depends_on: [a1]
+    paused: true
+    pane: %q
+    session: work
+    projected: true
+    done_at: null
+    escalated: {}
+    added_at: %q
+    updated_at: %q
+prs: []
+`, a1Repo, a1Pane, now, now, a2Repo, a2Pane, now, now)
+	if err := fsatomic.WriteFile(enginePath, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range []struct {
+		id, pane, repo string
+		paused         bool
+	}{{"a1", a1Pane, a1Repo, false}, {"a2", a2Pane, a2Repo, true}} {
+		if err := operator.Add(context.Background(), statePath, operator.AddSpec{
+			ID: item.id, Kind: operator.KindPane,
+			Scope: map[string]interface{}{"pane": item.pane, "session": "work", "repo": item.repo,
+				"change": item.id, "stage": "apply", "stop_stage": nil, "spawned_by": "run"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if item.paused {
+			if err := operator.Pause(statePath, item.id); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
+func installIsolatedGH(t *testing.T) {
+	t.Helper()
+	bin := t.TempDir()
+	script := `#!/bin/sh
+case "$*" in
+  *"pr view a1-branch"*)
+    printf '%s\n' '{"number":41,"url":"https://example.test/pull/41","state":"OPEN","isDraft":false,"mergedAt":null,"mergeable":"MERGEABLE","headRefOid":"abc","autoMergeRequest":null}'
+    ;;
+  *"repo view"*)
+    printf '%s\n' '{"nameWithOwner":"o/a1"}'
+    ;;
+  *)
+    printf 'unexpected gh call: %s\n' "$*" >&2
+    exit 1
+    ;;
+esac
+`
+	path := filepath.Join(bin, "gh")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }

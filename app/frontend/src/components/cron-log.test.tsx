@@ -212,3 +212,37 @@ describe("CronLog operator-loop runs", () => {
     expect(screen.queryByTestId("cron-entry-run")).toBeNull();
   });
 });
+
+
+describe("CronLog mechanical runs", () => {
+  it("renders the mechanical outcome verbatim in the row and detail sheet", async () => {
+    const loop: CronEntry = {
+      id: "lp01",
+      name: "operator loop",
+      run: "operator-loop",
+      schedule: { kind: "backoff", min: "3m", max: "24m" },
+      target: { kind: "" },
+      payload: "",
+      lastFired: NOW_SEC - 60,
+    };
+    installFetch({
+      entries: [loop],
+      deliveries: [{
+        ts: NOW_SEC - 60,
+        entry: "lp01",
+        name: "operator loop",
+        target: "",
+        reason: "schedule",
+        outcome: "ran · mechanical · 2 actions · 20s",
+        run: "20261112T101500-ab12",
+      }],
+    });
+    renderLog(SERVER);
+    const row = await screen.findByTestId("cron-delivery-row-lp01");
+    expect(row).toHaveTextContent("ran · mechanical · 2 actions · 20s");
+    fireEvent.click(row);
+    expect(await screen.findByTestId("cron-entry-run-outcome")).toHaveTextContent(
+      "ran · mechanical · 2 actions · 20s",
+    );
+  });
+});

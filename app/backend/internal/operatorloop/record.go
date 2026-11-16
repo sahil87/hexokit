@@ -67,24 +67,40 @@ func ShortID(id string) string {
 	return short
 }
 
+// ChangeRecord preserves the check's item ids and their structured reasons.
+type ChangeRecord struct {
+	ID      string   `json:"id"`
+	Reasons []string `json:"reasons"`
+}
+
+// PassRecord is the mechanical phase's outcome in the run record.
+type PassRecord struct {
+	Actions     int      `json:"actions"`
+	Escalations []string `json:"escalations"`
+	Busy        bool     `json:"busy,omitempty"`
+	Error       string   `json:"error,omitempty"`
+}
+
 // Record is one run's durable record. Timestamps are RFC3339 UTC with zero
 // values omitted; ExitCode is a pointer because 0 is a real exit status. Lost
 // carries the reason a run never produced an exit status (the launch failed,
 // or its window vanished) — transcribed as `run-lost: <reason>`.
 type Record struct {
-	ID         string   `json:"id"`
-	Server     string   `json:"server"`
-	Entry      string   `json:"entry"`
-	FiredAt    string   `json:"fired_at,omitempty"`
-	Changed    []string `json:"changed,omitempty"`
-	Window     string   `json:"window,omitempty"`
-	StartedAt  string   `json:"started_at,omitempty"`
-	EndedAt    string   `json:"ended_at,omitempty"`
-	ExitCode   *int     `json:"exit_code,omitempty"`
-	Outcome    string   `json:"outcome,omitempty"`
-	Lost       string   `json:"lost,omitempty"`
-	Transcript string   `json:"transcript,omitempty"`
-	Logged     bool     `json:"logged,omitempty"`
+	ID         string         `json:"id"`
+	Server     string         `json:"server"`
+	Entry      string         `json:"entry"`
+	FiredAt    string         `json:"fired_at,omitempty"`
+	Changed    []string       `json:"changed,omitempty"`
+	Changes    []ChangeRecord `json:"changes,omitempty"`
+	Pass       *PassRecord    `json:"pass,omitempty"`
+	Window     string         `json:"window,omitempty"`
+	StartedAt  string         `json:"started_at,omitempty"`
+	EndedAt    string         `json:"ended_at,omitempty"`
+	ExitCode   *int           `json:"exit_code,omitempty"`
+	Outcome    string         `json:"outcome,omitempty"`
+	Lost       string         `json:"lost,omitempty"`
+	Transcript string         `json:"transcript,omitempty"`
+	Logged     bool           `json:"logged,omitempty"`
 }
 
 // Ended reports whether the run has recorded an end.

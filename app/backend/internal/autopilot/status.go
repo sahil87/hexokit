@@ -32,6 +32,7 @@ type PRStatus string
 // PR statuses in precedence order (first match wins).
 const (
 	PRMerged      PRStatus = "merged"
+	PRPaused      PRStatus = "paused"
 	PRHalted      PRStatus = "halted"
 	PRClosed      PRStatus = "closed"
 	PRDeferred    PRStatus = "deferred"
@@ -44,7 +45,7 @@ const (
 )
 
 var allPRStatuses = []PRStatus{
-	PRMerged, PRHalted, PRClosed, PRDeferred, PRBlocked, PRDraft, PRFailed, PRConflicting, PRGreen, PRWaiting,
+	PRMerged, PRPaused, PRHalted, PRClosed, PRDeferred, PRBlocked, PRDraft, PRFailed, PRConflicting, PRGreen, PRWaiting,
 }
 
 // facts is everything observe read from outside the ledger. A zero value is a
@@ -57,6 +58,7 @@ type facts struct {
 	panesKnown bool
 	queue      map[string]*queueFacts
 	pr         map[string]*prFacts
+	projection map[string]bool
 	// autoMerge is the repos' autoMergeAllowed, keyed by owner/name; a repo
 	// that could not be read is absent.
 	autoMerge map[string]bool
@@ -65,7 +67,7 @@ type facts struct {
 func newFacts() *facts {
 	return &facts{
 		panes: map[string]operator.PaneInfo{}, panesKnown: true,
-		queue: map[string]*queueFacts{}, pr: map[string]*prFacts{}, autoMerge: map[string]bool{},
+		queue: map[string]*queueFacts{}, pr: map[string]*prFacts{}, autoMerge: map[string]bool{}, projection: map[string]bool{},
 	}
 }
 
@@ -116,7 +118,7 @@ func itemDone(st *operator.State, f *facts, it operator.TrackedItem) bool {
 	if operator.ItemDone(it) {
 		return true
 	}
-	if q := f.queue[it.ID]; q != nil && q.completed && operator.IsQueueItem(st, it) {
+	if q := f.queue[it.ID]; q != nil && q.completed && legacyQueueItem(st, it) {
 		return true
 	}
 	return false
@@ -252,6 +254,8 @@ func prPrecheck(st *operator.State, f *facts, it operator.TrackedItem) (status P
 	switch {
 	case state == "MERGED" || operator.ItemDone(it):
 		return PRMerged, true
+	case it.Paused:
+		return PRPaused, true
 	case haltedCone(st, f, it):
 		return PRHalted, true
 	case state == "CLOSED":

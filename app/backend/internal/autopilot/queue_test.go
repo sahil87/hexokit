@@ -343,7 +343,7 @@ func TestMisfitWithoutExplicitModeWritesNothing(t *testing.T) {
 	h := newHarness(t)
 	repo := newRepo(t, "repo")
 	h.queue("", Entry{ID: "existing", Repo: repo.Dir, Task: "keep"})
-	before, err := os.ReadFile(h.env.StatePath)
+	before, err := os.ReadFile(engineFilePath(h.env.StatePath))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +353,7 @@ func TestMisfitWithoutExplicitModeWritesNothing(t *testing.T) {
 	if err == nil || len(rec.Misfits) != 1 || !strings.Contains(err.Error(), "queue not written") {
 		t.Fatalf("receipt = %+v, err = %v", rec, err)
 	}
-	after, err := os.ReadFile(h.env.StatePath)
+	after, err := os.ReadFile(engineFilePath(h.env.StatePath))
 	if err != nil || string(before) != string(after) {
 		t.Fatal("misfit wrote state")
 	}

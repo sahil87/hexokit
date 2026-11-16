@@ -2,7 +2,6 @@ package autopilot
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -204,14 +203,8 @@ func TestStopDisarmsEverythingAndPausesUnspawnedItems(t *testing.T) {
 	if !fp[0].Armed || !bp[0].Armed {
 		t.Fatal("fixture: both repos' first PRs should be armed")
 	}
-	// A pending item that has not spawned yet.
-	if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
-		it, _ := operator.NewPaneItem("queued", nil, map[string]interface{}{"repo": foo.Dir, "merge_mode": "cherry-pick-ladder", scopeTask: "q"})
-		st.Tracked = append(st.Tracked, it)
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
+	// A pending item in the engine file that has not spawned yet.
+	h.queue("", Entry{ID: "queued", Repo: foo.Dir, Task: "q"})
 
 	res, err := Stop(context.Background(), h.env)
 	if err != nil {
@@ -461,12 +454,16 @@ func TestStallSurvivesTheItemBeingRemovedByAnExternalWriter(t *testing.T) {
 	h.startMerge()
 	h.run.onRun = func(argv []string) {
 		if len(argv) > 3 && argv[1] == "pr" && argv[2] == "checks" {
-			_ = operator.Remove(h.env.StatePath, "pr-1", true)
+			_ = operator.Remove(h.env.StatePath, "pr-1")
 		}
 	}
-	h.step() // must not panic indexing the removed item
-	if h.has("pr-1") {
-		t.Fatal("fixture: the external removal did not happen")
+	h.step() // the engine keeps its own item after the projection is removed
+	ledger, loadErr := operator.Load(h.env.StatePath)
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if operator.IndexOf(ledger.Tracked, "pr-1") >= 0 || !h.has("pr-1") {
+		t.Fatal("projection removal did not leave the engine item intact")
 	}
 }
 
@@ -557,10 +554,8 @@ func armFixture(t *testing.T) (*harness, *simPR, operator.TrackedItem) {
 func armableFixture(t *testing.T) (*harness, *simPR, operator.TrackedItem) {
 	h, pr, _ := armFixture(t)
 	pending(pr)
-	if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
-		st.Tracked[operator.IndexOf(st.Tracked, "pr-1")].Scope[scopeDeferred] = false
-		return nil
-	}); err != nil {
+	e := newEngine(h.env)
+	if err := e.setScope("pr-1", map[string]interface{}{scopeDeferred: false}); err != nil {
 		t.Fatal(err)
 	}
 	return h, pr, h.item("pr-1")
@@ -672,21 +667,24 @@ func TestPRCreationRefusesUnresolvedRepository(t *testing.T) {
 	}
 }
 
-func TestStartMergeRefusesAStackedQueueAndWritesNothing(t *testing.T) {
+func TestStartMergeAcceptsAStackedQueueAndCreatesChains(t *testing.T) {
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
 	h.queue("stacked-prs", Entry{ID: "a", Repo: foo.Dir, Task: "a"}, Entry{ID: "b", Repo: foo.Dir, Task: "b"})
 	h.shipped(1, "a", "b")
-	before := h.state()
 	_, err := StartMerge(context.Background(), h.env, MergeOptions{})
-	if !errors.Is(err, errStackedMerge) || !strings.Contains(err.Error(), "run brief") {
-		t.Fatalf("err = %v", err)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(h.state().Tracked) != len(before.Tracked) || h.has("pr-1") {
-		t.Fatal("a refused merge wrote PR items")
+	engine, loadErr := loadEngineFile(h.env.StatePath)
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if len(engine.PRs) != 2 || engine.PRs[0].MergeMode != "stacked-prs" || engine.PRs[1].DependsOn[0] != engine.PRs[0].ID {
+		t.Fatalf("stacked engine items = %#v", engine.PRs)
 	}
 	if h.run.called("gh pr merge") != 0 || h.run.called("gh pr ready") != 0 {
-		t.Fatalf("a refused merge acted on GitHub: %q", h.run.calls)
+		t.Fatalf("a stacked merge acted on GitHub: %q", h.run.calls)
 	}
 }
 
@@ -933,10 +931,9 @@ func TestAPRItemWithoutAPinnedRepoIsNeverActedOn(t *testing.T) {
 	prs := h.shipped(1, "a")
 	pending(prs...)
 	h.startMerge()
-	if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
-		it := &st.Tracked[operator.IndexOf(st.Tracked, "pr-1")]
+	e := newEngine(h.env)
+	if err := e.patch("pr-1", func(it *operator.TrackedItem) {
 		it.Probe.Argv = []string{"gh", "pr", "view", "1"}
-		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -970,9 +967,9 @@ var prIdentityChanges = map[string]func(it *operator.TrackedItem, other string){
 
 func changePRItem(t *testing.T, h *harness, id, other string, change func(*operator.TrackedItem, string)) {
 	t.Helper()
-	if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
-		change(&st.Tracked[operator.IndexOf(st.Tracked, id)], other)
-		return nil
+	e := newEngine(h.env)
+	if err := e.patch(id, func(it *operator.TrackedItem) {
+		change(it, other)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1074,12 +1071,9 @@ func TestTrackPRWritesNothingWhenItsQueueItemChangedDuringTheReads(t *testing.T)
 				if len(argv) > 3 && argv[1] == "pr" && argv[2] == "view" && argv[3] == "a-branch" {
 					h.run.onRun = nil
 					if scenario == "removed" {
-						_ = operator.Remove(h.env.StatePath, "a", true)
+						_ = e.mutateEngine(func(st *engineState) error { st.remove("a"); return nil })
 					} else {
-						_ = operator.Mutate(h.env.StatePath, func(st *operator.State) error {
-							st.Tracked[operator.IndexOf(st.Tracked, "a")].Scope["task"] = "edited"
-							return nil
-						})
+						_ = e.patch("a", func(it *operator.TrackedItem) { it.Scope["task"] = "edited" })
 					}
 				}
 			}
@@ -1103,7 +1097,8 @@ func TestEscalateRowWritesNothingToAnItemThatChanged(t *testing.T) {
 	changePRItem(t, h, head.ID, "", func(it *operator.TrackedItem, _ string) { it.DependsOn = []string{"other"} })
 	execOne(t, e, d)
 	it := h.item(head.ID)
-	if _, ok := it.Scope[scopeEscalated]; ok || len(it.Notes) != 0 {
+	seen, _ := it.Scope[scopeEscalated].(map[string]interface{})
+	if len(seen) != 0 || len(it.Notes) != 0 {
 		t.Fatalf("an escalation landed on a changed item: %+v notes=%v", it.Scope, it.Notes)
 	}
 	if hasEscalation(e.res, "recovery needed") || !hasEscalation(e.res, "PR item pr-1 changed externally; skipped") {

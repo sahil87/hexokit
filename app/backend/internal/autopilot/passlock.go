@@ -61,5 +61,8 @@ func passLocked(env Env, fn func() (*StepResult, error)) (*StepResult, error) {
 		return res, nil
 	}
 	defer release()
+	if err := migrateEngineState(env.StatePath); err != nil {
+		return newResult(false), err
+	}
 	return fn()
 }

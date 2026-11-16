@@ -41,7 +41,8 @@ var autopilotEnvFn = func(cmd *cobra.Command, by string, dry bool) (autopilot.En
 			session, _, _, err := resolveLandingSession(ctx, "", server, repo)
 			return strings.TrimPrefix(session, "="), err
 		},
-		By: by, DryRun: dry,
+		DryRun: dry,
+		Notify: func(ctx context.Context, title, body string) { sendNotify(ctx, title, body) },
 	}, nil
 }
 
@@ -69,21 +70,21 @@ Each pass observes the facts of the items that can act, derives a status per
 item, picks at most one rule row per item, and executes the chosen actions in
 ledger order. step --dry-run prints the chosen rows and runs nothing.
 
-Verbs: queue, step, merge, stop, status. Only status is a pure read. The engine
-never notifies: failures and halts come back as escalations, and the caller (a
-run or the chat) turns them into rk notify. All verbs take -L/--server (default:
-the caller's own server from $TMUX).
+Verbs: queue, step, merge, stop, rm, resume, status. Engine intent lives in a
+per-server YAML file beside the ledger; ledger items are projections only.
+Escalations become by: run notes and rk notify calls. Only status is a pure read.
+All verbs take -L/--server (default: the caller's own server from $TMUX).
 
-step, merge and stop are single-writer: each takes a per-server pass lock for
-the whole pass. A second one that finds the lock held does nothing, reports
-"busy" and exits 0; retry it later. queue and status do not take the lock.
+Every writing verb is single-writer: it takes a per-server pass lock for the
+whole intent write and following pass. A second one that finds the lock held
+writes nothing and reports busy. Step, merge, stop, rm and resume exit 0 on busy;
+queue exits 1 without queueing and asks for a retry. status takes no lock.
 
 Merge modes (--mode, or the operator.merge_mode setting):
   cherry-pick-ladder  chained PRs; each change gets its dependencies cherry-picked
                       in; merge after review
   stacked-prs         chained PRs; each is cut from its dependency's branch;
-                      merge it by the run brief's stacked-prs text (the merge
-                      verb refuses it)
+                      register chains with merge; restacks escalate until supported
   merge-auto          each PR is armed to merge as it ships; the next change waits
                       for the verified merge`,
 	Example: `  echo '[{"id":"ab12","repo":"/src/app","change":"ab12"}]' | rk operator autopilot queue
@@ -95,10 +96,13 @@ Merge modes (--mode, or the operator.merge_mode setting):
 }
 
 var operatorAutopilotQueueCmd = &cobra.Command{
-	Use:   "queue [--mode <mode>] [--by user|run|chat] [--dry-run] [--all] [--json] < entries.json",
+	Use:   "queue [--mode <mode>] [--dry-run] [--all] [--json] < entries.json",
 	Short: "Persist a queue of pending pane items from JSON entries on stdin",
-	Long: `Persist a queue as N pending pane items in one locked write. Entries arrive as a
-JSON array on stdin:
+	Long: `Persist a queue as N pending items in one engine-file write under the pass
+lock, then run one pass. If another pass holds the lock, nothing is written:
+print "busy: another autopilot pass is running on this server; queue not
+written, retry" and exit 1. A --dry-run takes no lock and writes nothing.
+Entries arrive as a JSON array on stdin:
 
   [
     {"id": "ab12", "repo": "/src/app", "change": "ab12"},
@@ -121,7 +125,6 @@ Preview with --dry-run, confirm the mode and misfits, then queue once with --mod
 
 Flags:
   --mode          merge mode: cherry-pick-ladder, stacked-prs, merge-auto
-  --by            note author: user, run, chat (default chat)
   --dry-run       validate and report without writing
   -L, --server    tmux server (default: the caller's own server from $TMUX)
   --all           show every entry (human lists default to 20 entries each)
@@ -133,17 +136,18 @@ Examples:
 
 Exit codes:
   0  queued
-  1  operational failure (state file busy or unreadable, a state write failed)
+  1  operational failure (another pass holds the lock; queue not written,
+     state file busy or unreadable, a state write failed)
   2  usage error (bad entries, id already tracked, invalid mode or setting,
                   bare dependency, forward or cyclic dependency, relative or
-                  non-git repo, invalid --by, unconfirmed misfit)`,
+                  non-git repo, unconfirmed misfit)`,
 	Args:         usageArgs(cobra.NoArgs),
 	SilenceUsage: true,
 	RunE:         runAutopilotQueue,
 }
 
 var operatorAutopilotStepCmd = &cobra.Command{
-	Use:   "step [--by run|chat] [--dry-run] [--all] [--json]",
+	Use:   "step [--dry-run] [--all] [--json]",
 	Short: "Advance every queue and merge sequence one idempotent pass",
 	Long: `Run one pass over the server's tracked items: observe, derive each item's
 status, pick at most one rule row per item, and execute the chosen actions. A
@@ -163,12 +167,12 @@ step takes the per-server pass lock (a --dry-run does not). If another pass
 holds it, step does nothing, prints "busy" and exits 0.
 
 The output lists actions taken (spawned, cherry-picked, armed, merged,
-disarmed, readied), per-merge report lines, and escalations for the caller to
-notify on. --dry-run reads but changes nothing: it lists each chosen row as
+disarmed, readied), per-merge report lines, and escalations. The engine writes
+each escalation as a by: run note and sends rk notify once per dedupe key.
+--dry-run reads but changes nothing: it lists each chosen row as
 "dry-run: <action> <item> (<row>)", for example "dry-run: spawn ab12 (Q2)".
 
 Flags:
-  --by            note author: run (default) or chat
   --dry-run       report the plan without side effects
   -L, --server    tmux server (default: the caller's own server from $TMUX)
   --all           show every entry (human lists default to 20 entries each)
@@ -182,7 +186,7 @@ Exit codes:
   0  stepped (with or without actions or escalations), or busy
   1  operational failure (state file busy or unreadable, tmux pane snapshot
      failed, a state write failed)
-  2  usage error (invalid --by)`,
+  2  usage error`,
 	Args:         usageArgs(cobra.NoArgs),
 	SilenceUsage: true,
 	RunE:         runAutopilotStep,
@@ -191,13 +195,13 @@ Exit codes:
 var operatorAutopilotMergeCmd = &cobra.Command{
 	Use:   "merge [--repo <path>] [--all] [--json]",
 	Short: "Start the ordered merge of a completed queue",
-	Long: `Start the ordered merge for completed cherry-pick-ladder queues (every repo, or
-one with --repo): create the github-pr chain items, then run one pass, which
-readies, arms or merges the first PR of each repo's sequence. Later steps
-advance it, one PR per pass. Run this only on the user's
-confirmation to merge all. It refuses while queue items are not done, does
-nothing for merge-auto items, and refuses a stacked-prs queue (merge those by the
-run brief's stacked-prs text).
+	Long: `Start the ordered merge for completed cherry-pick-ladder and stacked-prs
+queues (every repo, or one with --repo): create the github-pr chain items in the
+engine file and their ledger projections, then run one pass. Cherry-pick-ladder
+sequences ready, arm or merge each head in later steps. Stacked-prs sequences
+escalate restacks; they are never armed or merged in this step. Run this only on
+the user's confirmation to merge all. It refuses while queue items are not done
+and does nothing for merge-auto items.
 
 merge takes the per-server pass lock. If another pass holds it, merge does
 nothing, prints "busy" and exits 0.
@@ -214,8 +218,8 @@ Examples:
 
 Exit codes:
   0  started (or nothing to merge), or busy
-  1  operational failure (queue items not done, stacked-prs queue, no PR for a
-     branch, state file busy or unreadable, a gh lookup failed)
+  1  operational failure (queue items not done, no PR for a branch, state file
+     busy or unreadable, a gh lookup failed)
   2  usage error (--repo empty, relative or not a queued repository)`,
 	Args:         usageArgs(cobra.NoArgs),
 	SilenceUsage: true,
@@ -229,10 +233,9 @@ var operatorAutopilotStopCmd = &cobra.Command{
 not re-arm them, pause every unspawned queue item, and disarm every armed PR in
 the halted sequences (gh pr merge --disable-auto), whoever armed it. Live panes
 are left untouched. Armed is read from GitHub, so a disarm that fails is retried
-by the next stop or step until GitHub reports it disarmed. To resume a halted
-PR item (halted is autopilot's field, so the write needs --force):
-rk operator track update --force <id> --scope '{"halted":false}'; clearing it on
-the one item that carries it resumes the PRs behind it.
+by the next stop or step until GitHub reports it disarmed. Use
+rk operator autopilot resume <id> on the one item that carries halted to resume
+its derived downstream cone.
 
 stop takes the per-server pass lock. If another pass holds it, stop does
 nothing, prints "busy" and exits 0.
@@ -298,12 +301,10 @@ func init() {
 
 	f := operatorAutopilotQueueCmd.Flags()
 	f.String("mode", "", "merge mode: "+strings.Join(operator.MergeModes, ", ")+" (default: the operator.merge_mode setting, else cherry-pick-ladder)")
-	f.String("by", operator.ByChat, "note author: user, run, chat")
 	f.Bool("dry-run", false, "validate and report without writing")
 	f.Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 
 	f = operatorAutopilotStepCmd.Flags()
-	f.String("by", operator.ByRun, "note author: run or chat")
 	f.Bool("dry-run", false, "report the plan without side effects")
 	f.Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 
@@ -311,14 +312,16 @@ func init() {
 	operatorAutopilotMergeCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 	operatorAutopilotStopCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 	operatorAutopilotStatusCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
+	operatorAutopilotRemoveCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
+	operatorAutopilotResumeCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 
-	for _, cmd := range []*cobra.Command{operatorAutopilotQueueCmd, operatorAutopilotStepCmd, operatorAutopilotMergeCmd, operatorAutopilotStopCmd, operatorAutopilotStatusCmd} {
+	for _, cmd := range []*cobra.Command{operatorAutopilotQueueCmd, operatorAutopilotStepCmd, operatorAutopilotMergeCmd, operatorAutopilotStopCmd, operatorAutopilotStatusCmd, operatorAutopilotRemoveCmd, operatorAutopilotResumeCmd} {
 		cmd.Flags().Bool("all", false, "show every list entry (default: 20 per human list; JSON is always complete)")
 	}
 
 	operatorAutopilotCmd.AddCommand(
 		operatorAutopilotQueueCmd, operatorAutopilotStepCmd, operatorAutopilotMergeCmd,
-		operatorAutopilotStopCmd, operatorAutopilotStatusCmd,
+		operatorAutopilotStopCmd, operatorAutopilotRemoveCmd, operatorAutopilotResumeCmd, operatorAutopilotStatusCmd,
 	)
 	operatorCmd.AddCommand(operatorAutopilotCmd)
 }
@@ -331,17 +334,6 @@ func autopilotError(err error) error {
 		return usageError(err)
 	}
 	return operatorTrackError(err)
-}
-
-// autopilotAuthor validates --by against the verb's allowed authors.
-func autopilotAuthor(cmd *cobra.Command, allowed ...string) (string, error) {
-	by, _ := cmd.Flags().GetString("by")
-	for _, a := range allowed {
-		if by == a {
-			return by, nil
-		}
-	}
-	return "", usageError(fmt.Errorf("invalid --by %q (valid: %s)", by, strings.Join(allowed, ", ")))
 }
 
 // autopilotFinish writes a verb's outcome: the envelope under --json, else the
@@ -361,10 +353,6 @@ func autopilotFinish(cmd *cobra.Command, result any, render func(outputSink), er
 }
 
 func runAutopilotQueue(cmd *cobra.Command, args []string) error {
-	by, err := autopilotAuthor(cmd, operator.ByUser, operator.ByRun, operator.ByChat)
-	if err != nil {
-		return autopilotFinish(cmd, nil, nil, err)
-	}
 	dry, _ := cmd.Flags().GetBool("dry-run")
 	mode, _ := cmd.Flags().GetString("mode")
 	raw, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), autopilotStdinCap+1))
@@ -378,7 +366,7 @@ func runAutopilotQueue(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return autopilotFinish(cmd, nil, nil, err)
 	}
-	env, err := autopilotEnvFn(cmd, by, dry)
+	env, err := autopilotEnvFn(cmd, operator.ByRun, dry)
 	if err != nil {
 		return autopilotFinish(cmd, nil, nil, err)
 	}
@@ -397,6 +385,9 @@ func runAutopilotQueue(cmd *cobra.Command, args []string) error {
 			s.Dataf("%s\n", m)
 		}
 		autopilotListTotal(s, "misfits", len(rec.Misfits), autopilotShown(cmd, len(rec.Misfits)))
+		if len(rec.Actions)+len(rec.Escalations) > 0 {
+			renderStep(cmd, s, &autopilot.StepResult{Actions: rec.Actions, Escalations: rec.Escalations, Report: []string{}})
+		}
 	}, err)
 }
 
@@ -439,12 +430,8 @@ func renderStep(cmd *cobra.Command, s outputSink, res *autopilot.StepResult) {
 }
 
 func runAutopilotStep(cmd *cobra.Command, args []string) error {
-	by, err := autopilotAuthor(cmd, operator.ByRun, operator.ByChat)
-	if err != nil {
-		return autopilotFinish(cmd, nil, nil, err)
-	}
 	dry, _ := cmd.Flags().GetBool("dry-run")
-	env, err := autopilotEnvFn(cmd, by, dry)
+	env, err := autopilotEnvFn(cmd, operator.ByRun, dry)
 	if err != nil {
 		return autopilotFinish(cmd, nil, nil, err)
 	}

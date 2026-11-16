@@ -484,7 +484,7 @@ func TestDryRunStepChangesNothing(t *testing.T) {
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
-	before, err := os.ReadFile(h.env.StatePath)
+	before, err := os.ReadFile(engineFilePath(h.env.StatePath))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -496,7 +496,7 @@ func TestDryRunStepChangesNothing(t *testing.T) {
 	if len(h.spawn.reqs) != 0 || h.run.called("git fetch") != 0 {
 		t.Fatal("dry-run acted")
 	}
-	after, _ := os.ReadFile(h.env.StatePath)
+	after, _ := os.ReadFile(engineFilePath(h.env.StatePath))
 	if string(before) != string(after) {
 		t.Fatal("dry-run changed the state file")
 	}
@@ -506,6 +506,7 @@ func TestExternalWriteDuringSpawnSurvives(t *testing.T) {
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"}, Entry{ID: "other", Repo: foo.Dir, Task: "o", DependsOn: &[]string{}})
+	h.attachBranch("other", "other-branch")
 	once := false
 	h.spawn.during = func() {
 		if once {
@@ -525,8 +526,14 @@ func TestExternalWriteDuringSpawnSurvives(t *testing.T) {
 	}
 	h.panes.panes["%1"] = operator.PaneInfo{PaneID: "%1"}
 	h.step()
-	if n := len(h.item("other").Notes); n != 1 {
-		t.Fatalf("the external note was lost: %d notes", n)
+	found := false
+	for _, note := range h.item("other").Notes {
+		if note.Text == "written between load and write" && note.By == operator.ByUser {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the external note was lost: %+v", h.item("other").Notes)
 	}
 	if !h.has("ext") {
 		t.Fatal("the externally added item was lost")

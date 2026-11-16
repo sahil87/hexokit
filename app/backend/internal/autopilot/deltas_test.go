@@ -2,7 +2,6 @@ package autopilot
 
 import (
 	"context"
-	"go/ast"
 	"testing"
 
 	"rk/internal/operator"
@@ -114,10 +113,8 @@ func TestDeltaAHaltWritesOneItemAndClearingItResumesTheCone(t *testing.T) {
 	}
 	// The PR is reopened and the one marker cleared: the cone resumes.
 	prs[0].State = "OPEN"
-	if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
-		st.Tracked[operator.IndexOf(st.Tracked, "pr-1")].Scope[scopeHalted] = false
-		return nil
-	}); err != nil {
+	e := newEngine(h.env)
+	if err := e.setScope("pr-1", map[string]interface{}{scopeHalted: false}); err != nil {
 		t.Fatal(err)
 	}
 	if h.prStatusOf("pr-2") == PRHalted {
@@ -198,8 +195,7 @@ func TestDeltaASequenceAdvancesOnePRPerPass(t *testing.T) {
 	}
 }
 
-// Old values of the retired markers are tolerated on disk: never read for a
-// decision, never rewritten.
+// Old projection values are tolerated but never become engine-file facts.
 func TestRetiredMarkersOnDiskAreIgnoredAndLeftAlone(t *testing.T) {
 	h, prs := ladderPair(t)
 	if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
@@ -209,53 +205,32 @@ func TestRetiredMarkersOnDiskAreIgnoredAndLeftAlone(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// The PR is armed on GitHub though armed says false, and direct says true
-	// though the repo allows auto-merge: only GitHub's answers count.
 	prs[0].Checks = []checkRun{{Name: "ci", State: "FAILURE"}}
 	h.step()
-	sc := h.item("pr-1").Scope
+	for _, key := range retiredMarkers {
+		if _, ok := h.item("pr-1").Scope[key]; ok {
+			t.Fatalf("retired marker %s entered engine state", key)
+		}
+	}
+	projection, err := operator.Load(h.env.StatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := projection.Tracked[operator.IndexOf(projection.Tracked, "pr-1")].Scope
 	if sc["armed"] != false || sc["direct"] != true || sc["stall_seen"] != "ci-failed@old" {
-		t.Fatalf("the engine rewrote a retired marker: %+v", sc)
+		t.Fatalf("projection markers were rewritten: %+v", sc)
 	}
 	if prs[0].MergeCalls != 0 || h.run.called("gh pr merge --squash") != 0 {
 		t.Fatal("a stored direct marker made the engine merge")
 	}
 }
 
-func TestEngineSourceNeverTouchesTheRetiredMarkers(t *testing.T) {
-	names := map[string]bool{"scopeArmed": true, "scopeDirect": true, "scopeStallSeen": true}
-	retired := func(e ast.Expr) bool {
-		v, ok := stringLit(e)
-		for _, k := range retiredMarkers {
-			if ok && v == k {
-				return true
-			}
+func TestEngineItemDropsRetiredMarkers(t *testing.T) {
+	it := engineItemFromTracked(operator.TrackedItem{ID: "pr-1", Kind: operator.KindGitHubPR,
+		Scope: map[string]interface{}{"armed": true, "direct": true, "stall_seen": "old", "pr": 1}}, true).tracked()
+	for _, key := range retiredMarkers {
+		if _, ok := it.Scope[key]; ok {
+			t.Errorf("retired marker %s stored in the engine view", key)
 		}
-		return false
-	}
-	for _, f := range parsePackageSources(t) {
-		ast.Inspect(f, func(n ast.Node) bool {
-			switch x := n.(type) {
-			case *ast.ValueSpec:
-				for _, id := range x.Names {
-					if names[id.Name] {
-						return false // the tolerated-on-disk definition itself
-					}
-				}
-			case *ast.Ident:
-				if names[x.Name] {
-					t.Errorf("the engine uses %s", x.Name)
-				}
-			case *ast.IndexExpr:
-				if isScopeMap(x.X) && retired(x.Index) {
-					t.Errorf("the engine indexes scope with a retired marker")
-				}
-			case *ast.KeyValueExpr:
-				if retired(x.Key) {
-					t.Errorf("the engine names a retired marker as a key")
-				}
-			}
-			return true
-		})
 	}
 }

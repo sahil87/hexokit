@@ -36,9 +36,6 @@ const (
 //go:embed brief_rules.md
 var briefRules string
 
-//go:embed brief_autopilot.md
-var briefAutopilot string
-
 const briefExitContract = `Before exiting, append at least one note per item you acted on, or one note on the
 most relevant item when nothing needed doing:
 
@@ -74,8 +71,8 @@ type briefLayout struct {
 // RenderBrief renders the run brief as Markdown. For identical input the
 // output is byte-identical. Past BriefSizeCap it drops the other-items lines,
 // then shows fewer notes per affected item, and ends with
-// BriefTruncationMarker; the header, What changed, Rules, Interim autopilot
-// and Exit contract are never dropped.
+// BriefTruncationMarker; the header, What changed, Rules and Exit contract are
+// never dropped.
 func RenderBrief(in BriefInput) string {
 	layout := briefLayout{showOthers: true, notesShown: briefNotesShown}
 	out := renderBriefLayout(in, layout)
@@ -104,7 +101,6 @@ func renderBriefLayout(in BriefInput, layout briefLayout) string {
 	writeOthers(&b, items, affected, now, layout.showOthers)
 	flag := "-L " + ServerLabel(in.Server)
 	writeSection(&b, "Rules", withServerFlag(briefRules, flag))
-	writeSection(&b, "Interim autopilot", withServerFlag(briefAutopilot, flag))
 	writeSection(&b, "Exit contract", withServerFlag(briefExitContract, flag))
 	return b.String()
 }

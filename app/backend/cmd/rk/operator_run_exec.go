@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"rk/internal/autopilot"
+	"rk/internal/operator"
 	"rk/internal/operatorloop"
 
 	"github.com/spf13/cobra"
@@ -68,14 +70,28 @@ func runOperatorRunExec(cmd *cobra.Command, args []string) error {
 	if !operatorloop.ValidRunID(runID) {
 		return usageError(fmt.Errorf("invalid --run %q", runID))
 	}
-	res, err := operatorRunExecFn(operatorTrackContext(cmd), operatorloop.ExecOptions{
-		Server: server,
-		RunID:  runID,
-		Argv:   args,
-		Stdout: cmd.OutOrStdout(),
-		Stderr: cmd.ErrOrStderr(),
+	env, setupErr := autopilotEnvFn(cmd, operator.ByRun, false)
+	opts := operatorloop.ExecOptions{
+		Server: server, RunID: runID, Argv: args,
+		Stdout: cmd.OutOrStdout(), Stderr: cmd.ErrOrStderr(), SetupError: setupErr,
 		Notify: func(ctx context.Context, title, body string) { sendNotify(ctx, title, body) },
-	})
+	}
+	if setupErr == nil {
+		opts.Pass = func(ctx context.Context) (*operatorloop.PassRecord, error) {
+			step, stepErr := autopilot.Step(ctx, env)
+			pass := &operatorloop.PassRecord{Escalations: []string{}}
+			if step != nil {
+				pass.Busy = step.Busy
+				pass.Actions = len(step.Actions)
+				for _, escalation := range step.Escalations {
+					pass.Escalations = append(pass.Escalations, escalation.Item)
+				}
+			}
+			return pass, stepErr
+		}
+		opts.OwnedIDs = func(context.Context) (map[string]bool, error) { return autopilot.OwnedIDs(env.StatePath) }
+	}
+	res, err := operatorRunExecFn(operatorTrackContext(cmd), opts)
 	if err != nil {
 		return err
 	}

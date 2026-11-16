@@ -31,6 +31,13 @@ func (e *engine) observe(ctx context.Context) (*operator.State, *facts, error) {
 		return nil, nil, err
 	}
 	f := newFacts()
+	ledger, err := operator.Load(e.env.StatePath)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, it := range ledger.Tracked {
+		f.projection[it.ID] = true
+	}
 	panes, perr := e.env.Panes.Snapshot(ctx)
 	switch {
 	case perr == nil:
@@ -58,7 +65,7 @@ func (e *engine) observe(ctx context.Context) (*operator.State, *facts, error) {
 func (e *engine) observeCompletion(ctx context.Context, st *operator.State, f *facts) {
 	for _, it := range st.Tracked {
 		pane := operator.ScopeString(it.Scope, "pane")
-		if !operator.IsQueueItem(st, it) || operator.ItemDone(it) || pane == "" {
+		if !legacyQueueItem(st, it) || operator.ItemDone(it) || pane == "" {
 			continue
 		}
 		q := f.queueFor(it.ID)
@@ -83,7 +90,7 @@ func (e *engine) observeCompletion(ctx context.Context, st *operator.State, f *f
 // readiness gate needs, for every unfinished, unpaused queue item.
 func (e *engine) observeReadiness(ctx context.Context, st *operator.State, f *facts) {
 	for _, it := range st.Tracked {
-		if !operator.IsQueueItem(st, it) || len(it.DependsOn) == 0 || itemDone(st, f, it) || it.Paused || skipped(it) {
+		if !legacyQueueItem(st, it) || len(it.DependsOn) == 0 || itemDone(st, f, it) || it.Paused || skipped(it) {
 			continue
 		}
 		q := f.queueFor(it.ID)
@@ -194,7 +201,22 @@ func (e *engine) observePRWrite(it operator.TrackedItem, v prView) error {
 		merged = v.MergedAt
 	}
 	want := identityOf(it)
-	err := operator.Observe(e.env.StatePath, operator.ObserveSpec{
+	engine, err := loadEngineFile(e.env.StatePath)
+	if err != nil {
+		return err
+	}
+	current, ok := engine.find(it.ID)
+	if !ok || identityOf(current.tracked()) != want {
+		err = errItemChanged
+		e.writeFailed(it.ID, true, "PR observation not written", err)
+		return err
+	}
+	if _, present, projectionErr := e.projection(it.ID); projectionErr != nil {
+		return projectionErr
+	} else if !present {
+		return nil
+	}
+	err = operator.Observe(e.env.StatePath, operator.ObserveSpec{
 		ID: it.ID, Fields: map[string]interface{}{"state": v.State, "mergedAt": merged, "mergeable": v.Mergeable},
 		Guard: func(cur operator.TrackedItem) error {
 			if identityOf(cur) != want {

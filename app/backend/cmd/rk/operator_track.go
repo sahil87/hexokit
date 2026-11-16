@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 
+	"rk/internal/autopilot"
 	"rk/internal/operator"
 	"rk/internal/validate"
 
@@ -69,15 +69,13 @@ named by scope.repo). A pane item seeds the pinned scope keys, accepts the
 pane flags, and records the pane's shell pid. A note item takes --text (and
 --by) and starts with that one note.
 
---mode (pane items only) sets scope.merge_mode; when omitted it stays null.
+--mode is removed. Queue merge modes belong to rk operator autopilot queue;
+passing --mode here is a usage error pointing at that verb.
 
---scope accepts only keys the caller may choose: memo, repo, change, pr, task,
-bare, pane, session, branch, stop_stage, spawned_by, recovery, fix_head, query.
-Engine keys (autopilot's queue, spawning, armed, ...), keys rk records itself
-(stage, agent, pane_pid), merge_mode (use --mode) and unknown keys are refused
-(exit 2, naming the key and its owner). Keep your own facts about an item in
-scope.memo: a free-form object nothing in rk decides from, shown in the brief.
---force writes a refused key anyway (manual repair only).
+--scope accepts any JSON object and merges its keys. scope.memo remains a
+free-form object for your own facts, merged per member when supplied on update;
+a null member deletes it and null clears the map. Nothing in rk reads memo for a
+decision. Autopilot engine intent is not stored in ledger scope.
 
 Flags:
   --kind          item kind (required)
@@ -89,10 +87,9 @@ Flags:
   --done-when     done predicate: path ==|!= json-scalar clauses joined by ' and '
   --then          prose the run executes when done or changed fires
   --depends-on    comma-separated item ids this item depends on
-  --scope         scope metadata as a JSON object (allow-listed keys; see above)
-  --force         write scope keys the allow-list refuses (manual repair only)
+  --scope         scope metadata as a JSON object (merged on update)
   --text, --by    note kind only: the first note's text and author (user, run, chat)
-  --mode          merge mode for a pane item: cherry-pick-ladder, stacked-prs, merge-auto
+  --mode          removed; use rk operator autopilot queue
   pane flags      --pane --repo --session --branch --stage --agent --stop-stage --spawned-by --change
   -L, --server    tmux server (default: the caller's own server from $TMUX)
   --json          machine-readable envelope on stdout
@@ -119,29 +116,17 @@ var operatorTrackUpdateCmd = &cobra.Command{
 changed scope.pane re-records the pane's shell pid. Notes are append-only: use
 rk operator track note. Use pause and resume to flip paused.
 
---scope is an allow-list: only these keys are written, everything else is
-refused (exit 2, naming the key and its owner):
-  memo          free-form object for your own facts about the item (runs, chat,
-                people); merged per key, a null member deletes it, shown in the
-                brief, never read by any rk decision
-  identity      scope.repo, change, pr, task, bare — only while empty; a queue
-                item's task and bare are never writable
-  binding       scope.pane, session, branch on a hand-tracked item (a queue
-                item's binding is autopilot's)
-  free          scope.stop_stage, spawned_by, recovery, fix_head, query
-Engine keys (autopilot's queue, merge_mode, spawning, armed, halted, ...), keys
-rk records itself (stage, agent, pane_pid) and unknown keys are refused; put
-anything else you want to remember in scope.memo. --force bypasses the refusals
-for manual repair, for example clearing a stuck scope.spawning after checking
-for an orphaned window.
+--scope accepts any JSON object. Keys merge into the item's scope; a null value
+stores null. scope.memo must be a JSON object (or null to clear it), merges per
+member, and deletes a member set to null. Autopilot does not read ledger memo
+values for decisions.
 
 Flags:
   --check-every   probe cadence (floor 1m; null for pane/none items)
   --done-when     done predicate (empty string clears it)
   --then          prose to run when done or changed fires (empty string clears it)
   --depends-on    comma-separated item ids (replaces the list)
-  --scope         scope as a JSON object (merged per key; allow-listed keys only, see above)
-  --force         bypass the scope allow-list (manual repair only)
+  --scope         scope as a JSON object (merged per key)
   -L, --server    tmux server (default: the caller's own server from $TMUX)
   --json          machine-readable envelope on stdout
 
@@ -149,12 +134,11 @@ Examples:
   rk operator track update pr-1234 --check-every 10m
   rk operator track update w1 --scope '{"pane":"%9"}'
   rk operator track update w1 --scope '{"memo":{"why":"waiting on design"}}'
-  rk operator track update q1 --force --scope '{"spawning":null}'
 
 Exit codes:
   0  updated
   1  operational failure (no such item, state file busy or unreadable)
-  2  usage error (no flag given, invalid value, a scope key outside the allow-list)`,
+  2  usage error (no flag given or invalid value)`,
 	Args:         usageArgs(cobra.ExactArgs(1)),
 	SilenceUsage: true,
 	RunE:         runOperatorTrackUpdate,
@@ -195,13 +179,10 @@ var operatorTrackRmCmd = &cobra.Command{
 from every dependent's depends_on so the chain advances; a not-done removal
 keeps the edges. The branch_map is untouched.
 
-An unfinished github-pr item of an autopilot merge sequence (scope.merge_seq
-set) is refused: it may be armed for auto-merge, and removing it would leave the
-PR armed with nothing to disarm it. Disarm it first (gh pr merge --disable-auto)
-or pass --force.
+Removing a projection never changes autopilot engine intent; use rk operator
+autopilot rm for an unspawned queue item or a halted merge sequence.
 
 Flags:
-  --force         remove an unfinished merge-sequence github-pr item anyway
   -L, --server    tmux server (default: the caller's own server from $TMUX)
   --json          machine-readable envelope on stdout
 
@@ -211,7 +192,7 @@ Examples:
 Exit codes:
   0  removed
   1  operational failure (no such item, state file busy or unreadable)
-  2  usage error (an unfinished merge-sequence github-pr item without --force)`,
+  2  usage error`,
 	Args:         usageArgs(cobra.ExactArgs(1)),
 	SilenceUsage: true,
 	RunE:         runOperatorTrackRm,
@@ -325,11 +306,10 @@ func init() {
 	f.String("done-when", "", "done predicate: path ==|!= json-scalar clauses joined by ' and '")
 	f.String("then", "", "prose the run executes when done or changed fires")
 	f.StringSlice("depends-on", nil, "comma-separated item ids this item depends on")
-	f.String("scope", "", "scope metadata as a JSON object (allow-listed keys; see help)")
-	f.Bool("force", false, "write scope keys the allow-list refuses (manual repair only)")
+	f.String("scope", "", "scope metadata as a JSON object")
 	f.String("text", "", "note kind only: the first note's text")
 	f.String("by", "", "note kind only: the first note's author (user, run, chat; default user)")
-	f.String("mode", "", "merge mode for a pane item: "+strings.Join(operator.MergeModes, ", ")+" (default: unset)")
+	f.String("mode", "", "removed; use rk operator autopilot queue")
 	for _, name := range operator.PaneSugarFlags() {
 		f.String(name, "", "pane scope shortcut")
 	}
@@ -340,8 +320,7 @@ func init() {
 	f.String("done-when", "", "done predicate (empty string clears it)")
 	f.String("then", "", "prose to run when done or changed fires (empty string clears it)")
 	f.StringSlice("depends-on", nil, "comma-separated item ids (replaces the list)")
-	f.String("scope", "", "scope as a JSON object (merged per key; allow-listed keys only)")
-	f.Bool("force", false, "bypass the scope allow-list (manual repair only)")
+	f.String("scope", "", "scope as a JSON object (merged per key)")
 	f.Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 
 	f = operatorTrackObserveCmd.Flags()
@@ -349,7 +328,6 @@ func init() {
 	f.String("error", "", "probe failure message (counts a failure; the third consecutive one pauses the item)")
 	f.StringArray("seen", nil, "handled item id to append to seen (repeatable; capped at 200, oldest pruned)")
 
-	operatorTrackRmCmd.Flags().Bool("force", false, "remove an unfinished merge-sequence github-pr item anyway")
 	operatorTrackRmCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 	operatorTrackPauseCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 	operatorTrackResumeCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
@@ -464,6 +442,9 @@ func scopeFlag(cmd *cobra.Command) (map[string]interface{}, error) {
 
 func runOperatorTrackAdd(cmd *cobra.Command, args []string) error {
 	f := cmd.Flags()
+	if f.Changed("mode") {
+		return operatorTrackDone(cmd, operatorTrackReceipt{}, usageError(errors.New("--mode was removed from track add; use rk operator autopilot queue")))
+	}
 	kind, _ := f.GetString("kind")
 	if kind == "" {
 		return operatorTrackDone(cmd, operatorTrackReceipt{}, usageError(fmt.Errorf("--kind is required (valid: %s)", operator.KindNames)))
@@ -480,6 +461,14 @@ func runOperatorTrackAdd(cmd *cobra.Command, args []string) error {
 		return operatorTrackDone(cmd, operatorTrackReceipt{}, err)
 	}
 
+	owned, err := autopilot.OwnedIDs(path)
+	if err != nil {
+		return operatorTrackDone(cmd, operatorTrackReceipt{}, err)
+	}
+	if owned[args[0]] {
+		return operatorTrackDone(cmd, operatorTrackReceipt{}, usageError(fmt.Errorf("%s already exists in the autopilot engine state", args[0])))
+	}
+
 	spec := operator.AddSpec{ID: args[0], Kind: kind, Server: server, Scope: scope}
 	spec.Probe, _ = f.GetString("probe")
 	spec.Argv, _ = f.GetStringArray("argv")
@@ -489,11 +478,9 @@ func runOperatorTrackAdd(cmd *cobra.Command, args []string) error {
 	spec.DoneWhen = optionalString(cmd, "done-when")
 	spec.Then = optionalString(cmd, "then")
 	spec.DependsOn, _ = f.GetStringSlice("depends-on")
-	spec.Mode, _ = f.GetString("mode")
 	spec.Text, _ = f.GetString("text")
 	spec.TextSet = f.Changed("text")
 	spec.By, _ = f.GetString("by")
-	spec.Force, _ = f.GetBool("force")
 	for _, name := range operator.PaneSugarFlags() {
 		if f.Changed(name) {
 			if spec.PaneSugar == nil {
@@ -503,8 +490,8 @@ func runOperatorTrackAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	res, err := operator.Add(operatorTrackContext(cmd), path, spec)
-	return operatorTrackDone(cmd, operatorTrackReceipt{ID: args[0], Action: "added", Mode: res.MergeMode}, err)
+	err = operator.Add(operatorTrackContext(cmd), path, spec)
+	return operatorTrackDone(cmd, operatorTrackReceipt{ID: args[0], Action: "added"}, err)
 }
 
 func runOperatorTrackUpdate(cmd *cobra.Command, args []string) error {
@@ -529,7 +516,6 @@ func runOperatorTrackUpdate(cmd *cobra.Command, args []string) error {
 		Then:       optionalString(cmd, "then"),
 		Scope:      scope,
 	}
-	spec.Force, _ = f.GetBool("force")
 	if f.Changed("depends-on") {
 		deps, _ := f.GetStringSlice("depends-on")
 		spec.DependsOn = &deps
@@ -575,8 +561,7 @@ func runOperatorTrackRm(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return operatorTrackDone(cmd, receipt, err)
 	}
-	force, _ := cmd.Flags().GetBool("force")
-	return operatorTrackDone(cmd, receipt, operator.Remove(path, args[0], force))
+	return operatorTrackDone(cmd, receipt, operator.Remove(path, args[0]))
 }
 
 func runOperatorTrackPause(cmd *cobra.Command, id string, pause bool) error {

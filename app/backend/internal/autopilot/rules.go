@@ -35,6 +35,7 @@ const (
 	ActionReady        ActionKind = "ready"
 	ActionArm          ActionKind = "arm"
 	ActionMerge        ActionKind = "merge"
+	ActionReProject    ActionKind = "re-project"
 )
 
 // rowUnmatched marks a reachable combination that has neither a row nor an
@@ -86,6 +87,7 @@ type rule struct {
 	kind   itemKind
 	queue  QueueStatus
 	pr     PRStatus
+	all    bool
 	guard  func(c *ruleCtx) bool
 	action ActionKind
 	text   func(c *ruleCtx) (key, reason string)
@@ -94,6 +96,9 @@ type rule struct {
 func (r rule) matches(c *ruleCtx, kind itemKind, queue QueueStatus, pr PRStatus) bool {
 	if r.kind != kind {
 		return false
+	}
+	if r.all {
+		return r.guard == nil || r.guard(c)
 	}
 	switch kind {
 	case kindQueue:
@@ -111,7 +116,21 @@ func (r rule) matches(c *ruleCtx, kind itemKind, queue QueueStatus, pr PRStatus)
 	return r.guard == nil || r.guard(c)
 }
 
-func doneAtUnset(c *ruleCtx) bool { return !operator.ItemDone(c.it) }
+func doneAtUnset(c *ruleCtx) bool {
+	marker, present := c.it.Scope[scopeEngineDone]
+	if !present {
+		return !operator.ItemDone(c.it)
+	}
+	switch value := marker.(type) {
+	case nil:
+		return true
+	case string:
+		return value == ""
+	case *string:
+		return value == nil || *value == ""
+	}
+	return false
+}
 
 func escalatedAlready(c *ruleCtx, key string) bool { return escalatedSeen(c.it, key) }
 
@@ -121,6 +140,52 @@ func prFactsOf(c *ruleCtx) *prFacts { return c.f.pr[c.it.ID] }
 
 func armedFact(c *ruleCtx) bool { return prFactsOf(c).armed() }
 
+func projectionRemoved(c *ruleCtx) bool {
+	return scopeBool(c.it, scopeProjected) && !c.f.projection[c.it.ID]
+}
+
+func needsProjection(c *ruleCtx) bool {
+	projected, recorded := c.it.Scope[scopeProjected]
+	if !recorded || scopeBool(c.it, scopeProjected) || projected == nil || c.f.projection[c.it.ID] {
+		return false
+	}
+	return c.it.Kind == operator.KindGitHubPR || operator.ScopeString(c.it.Scope, "pane") != ""
+}
+
+func projectionRemovedText(c *ruleCtx) (string, string) {
+	reason := "projection removed: " + c.it.ID
+	return escalationKey(reason), reason
+}
+
+func removedProjectionGuard(c *ruleCtx) bool {
+	key, _ := projectionRemovedText(c)
+	done := (c.it.Kind == operator.KindPane && deriveQueue(c.st, c.f, c.it) == QueueDone) ||
+		(c.it.Kind == operator.KindGitHubPR && derivePR(c.st, c.f, c.it) == PRMerged)
+	return !done && projectionRemoved(c) && !escalatedAlready(c, key)
+}
+
+func upstreamMerged(c *ruleCtx) bool {
+	for _, id := range c.it.DependsOn {
+		i := operator.IndexOf(c.st.Tracked, id)
+		if i >= 0 && (operator.ItemDone(c.st.Tracked[i]) || observedMerged(c.f, id)) {
+			return true
+		}
+	}
+	return false
+}
+
+func restackGuard(c *ruleCtx) bool {
+	key, _ := restackText(c)
+	status := derivePR(c.st, c.f, c.it)
+	active := status != PRMerged && status != PRClosed && status != PRHalted && status != PRPaused
+	return active && stacked(c) && upstreamMerged(c) && !escalatedAlready(c, key)
+}
+
+func restackText(c *ruleCtx) (string, string) {
+	reason := fmt.Sprintf("restack needed: PR #%s", prNum(c.it.Scope))
+	return escalationKey(reason), reason
+}
+
 // repoAllowsAutoMerge is P6's fact guard: the repo's setting was read and the
 // PR's required checks were too, so an arm never rests on an unread check.
 func repoAllowsAutoMerge(c *ruleCtx) bool {
@@ -129,7 +194,7 @@ func repoAllowsAutoMerge(c *ruleCtx) bool {
 }
 
 func spawnInterruptedText(c *ruleCtx) (string, string) {
-	reason := fmt.Sprintf("spawn interrupted: %s — check for an orphaned window, then clear scope.spawning with rk operator track update --force %s --scope '{\"spawning\":null}'", c.it.ID, c.it.ID)
+	reason := fmt.Sprintf("spawn interrupted: %s — check for an orphaned window before resuming or removing the queue item", c.it.ID)
 	return escalationKey(reason), reason
 }
 
@@ -168,7 +233,7 @@ func hasPRItem(st *operator.State, id string) bool {
 }
 
 func trackPRGuard(c *ruleCtx) bool {
-	return c.mode == operator.MergeModeMergeAuto && !isBare(c.it) && operator.ItemDone(c.it) && !hasPRItem(c.st, c.it.ID)
+	return c.mode == operator.MergeModeMergeAuto && !isBare(c.it) && operator.ItemDone(c.it) && !scopeBool(c.it, scopePRDropped) && !hasPRItem(c.st, c.it.ID)
 }
 
 // mergeGuard is P7's: a green, unarmed, non-stacked PR whose observed head is
@@ -204,6 +269,10 @@ func stallGuard(reason string) func(c *ruleCtx) bool {
 // they name; every other (item, status) is a wait (waitTable). Q5's escalation
 // is part of its skip executor.
 var ruleTable = []rule{
+	{id: "X0", kind: kindQueue, all: true, guard: removedProjectionGuard, action: ActionEscalate, text: projectionRemovedText},
+	{id: "X0", kind: kindPR, all: true, guard: removedProjectionGuard, action: ActionEscalate, text: projectionRemovedText},
+	{id: "X1", kind: kindQueue, all: true, guard: needsProjection, action: ActionReProject},
+	{id: "X1", kind: kindPR, all: true, guard: needsProjection, action: ActionReProject},
 	{id: "Q1", kind: kindQueue, queue: QueueDone, guard: doneAtUnset, action: ActionRecordDone},
 	{id: "Q2", kind: kindQueue, queue: QueuePending, action: ActionSpawn},
 	{id: "Q3", kind: kindQueue, queue: QueueSpawnUnknown, action: ActionEscalate, text: spawnInterruptedText,
@@ -217,6 +286,7 @@ var ruleTable = []rule{
 	{id: "P1", kind: kindPR, pr: PRMerged, guard: doneAtUnset, action: ActionRecordMerged},
 	{id: "P2", kind: kindPR, pr: PRClosed, action: ActionHalt},
 	{id: "P3", kind: kindPR, pr: PRHalted, guard: armedFact, action: ActionDisarm},
+	{id: "B0", kind: kindPR, all: true, guard: restackGuard, action: ActionEscalate, text: restackText},
 	{id: "P4", kind: kindPR, pr: PRDraft, guard: func(c *ruleCtx) bool { return !stacked(c) }, action: ActionReady},
 	{id: "P5", kind: kindPR, pr: PRFailed, guard: stallGuard("ci-failed"), action: ActionEscalate, text: stallText("ci-failed")},
 	{id: "P5", kind: kindPR, pr: PRConflicting, guard: stallGuard("conflicting"), action: ActionEscalate, text: stallText("conflicting")},
@@ -244,6 +314,7 @@ var waitTable = []wait{
 	{kind: kindQueue, queue: QueueSpawnUnknown, reason: "spawn interrupted, already escalated"},
 	{kind: kindQueue, queue: QueueSpawned, reason: "the agent is working"},
 	{kind: kindPR, pr: PRMerged, reason: "recorded"},
+	{kind: kindPR, pr: PRPaused, reason: "paused by the user"},
 	{kind: kindPR, pr: PRHalted, reason: "halted and not armed"},
 	{kind: kindPR, pr: PRDeferred, reason: "its repo's merge has not started"},
 	{kind: kindPR, pr: PRBlocked, reason: "an upstream PR has not merged"},
@@ -272,7 +343,7 @@ func decide(st *operator.State, f *facts, now time.Time) []Decision {
 	for _, it := range st.Tracked {
 		c.it, c.mode = it, modeOf(it)
 		switch {
-		case operator.IsQueueItem(st, it):
+		case legacyQueueItem(st, it):
 			out = append(out, decideItem(c, kindQueue, deriveQueue(st, f, it), ""))
 		case isSeqPR(it):
 			out = append(out, decideItem(c, kindPR, "", derivePR(st, f, it)))
@@ -309,7 +380,7 @@ func oldestUnfinished(st *operator.State, f *facts) string {
 	var oldest time.Time
 	id := ""
 	for _, it := range st.Tracked {
-		if !operator.IsQueueItem(st, it) || deriveQueue(st, f, it) == QueueDone {
+		if !legacyQueueItem(st, it) || deriveQueue(st, f, it) == QueueDone {
 			continue
 		}
 		if t, err := time.Parse(time.RFC3339, it.AddedAt); err == nil && (oldest.IsZero() || t.Before(oldest)) {

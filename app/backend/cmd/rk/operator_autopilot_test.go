@@ -15,17 +15,27 @@ import (
 	"rk/internal/operator"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 // cliRunner answers the engine's subprocesses without a real git or gh: the
 // repo validation sees the requested directory as a git root, and nothing else
 // is reachable.
-type cliRunner struct{ calls []string }
+type cliRunner struct {
+	calls     []string
+	acceptPRs bool
+}
 
 func (r *cliRunner) Run(_ context.Context, dir string, argv ...string) (string, error) {
 	r.calls = append(r.calls, strings.Join(argv, " "))
 	if len(argv) >= 3 && argv[0] == "git" && argv[1] == "rev-parse" && argv[2] == "--show-toplevel" {
 		return dir + "\n", nil
+	}
+	if r.acceptPRs && len(argv) >= 3 && argv[0] == "gh" && argv[1] == "pr" && argv[2] == "view" {
+		return `{"number":1,"url":"https://example.test/pull/1","state":"OPEN","mergeable":"MERGEABLE","headRefOid":"abc"}`, nil
+	}
+	if r.acceptPRs && len(argv) >= 3 && argv[0] == "gh" && argv[1] == "repo" && argv[2] == "view" {
+		return `{"nameWithOwner":"o/repo"}`, nil
 	}
 	return "", &autopilot.ExecError{Argv: argv, Stderr: "unscripted in the CLI test", Err: fmt.Errorf("exit status 1")}
 }
@@ -52,7 +62,7 @@ func autopilotSandbox(t *testing.T, setting string) (statePath string, runner *c
 		return autopilot.Env{
 			Server: "autopilot-test-none", StatePath: path, Run: runner, Panes: cliPanes{},
 			Session: func(context.Context, string) (string, error) { return "work", nil },
-			By:      by, DryRun: dry,
+			DryRun:  dry,
 		}, nil
 	}
 	autopilotSettingsFn = func() string { return setting }
@@ -95,9 +105,9 @@ func TestAutopilotQueueHumanOutputAndModeSource(t *testing.T) {
 			if !strings.Contains(out, c.want) || !strings.Contains(out, "queued q1") {
 				t.Fatalf("output = %q", out)
 			}
-			st, lerr := operator.Load(path)
-			if lerr != nil || len(st.Tracked) != 1 {
-				t.Fatalf("state = %+v err %v", st, lerr)
+			engine := readCLIEngine(t, path)
+			if len(engine.Queue) != 1 {
+				t.Fatalf("engine = %+v", engine)
 			}
 		})
 	}
@@ -149,7 +159,7 @@ func TestAutopilotQueueUsageErrors(t *testing.T) {
 		{"not json", "", "not json", nil, "invalid queue entries"},
 		{"empty queue", "", "[]", nil, "queue is empty"},
 		{"relative repo", "", `[{"id":"a","repo":"rel","task":"a"}]`, nil, "absolute"},
-		{"bad author", "", queueJSON(repo), []string{"--by", "robot"}, "invalid --by"},
+		{"removed author flag", "", queueJSON(repo), []string{"--by", "robot"}, "unknown flag: --by"},
 		{"trailing input after the array", "", queueJSON(repo) + ` {"id":"x"}`, nil, "unexpected input after the JSON array"},
 		{"input over the cap", "", queueJSON(repo) + strings.Repeat(" ", autopilotStdinCap), nil, "exceed the"},
 	}
@@ -198,9 +208,9 @@ func TestAutopilotStepAndStopOnAnEmptyLedger(t *testing.T) {
 		t.Fatalf("stop envelope = %s (%v)", out, err)
 	}
 	if _, err := autopilotCLI(t, "", "step", "--by", "user"); err == nil {
-		t.Fatal("step accepts only run or chat as author")
+		t.Fatal("removed --by flag accepted")
 	} else {
-		wantExit(t, err, 2, "invalid --by")
+		wantExit(t, err, 2, "unknown flag: --by")
 	}
 }
 
@@ -261,17 +271,7 @@ func TestAutopilotStatusShowsTheDerivedPRStatus(t *testing.T) {
 	if _, err := autopilotCLI(t, queueJSON(repo), "queue"); err != nil {
 		t.Fatal(err)
 	}
-	if err := operator.Mutate(path, func(st *operator.State) error {
-		now := operator.NowRFC3339()
-		st.Tracked[0].DoneAt = &now
-		pr, err := operator.NewGitHubPRItem("pr-7", nil, map[string]interface{}{
-			"repo": repo, "pr": 7, "merge_seq": "seq", "item": "q1", "deferred": true,
-		}, "o/r")
-		st.Tracked = append(st.Tracked, pr)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
+	writeCLIEngineDoneAndDeferredPR(t, path, repo)
 	out, err := autopilotCLI(t, "", "status")
 	if err != nil || !strings.HasPrefix(out, "q1 · done · cherry-pick-ladder · "+repo) || !strings.Contains(out, " · PR #7 · deferred · 1/1\n") {
 		t.Fatalf("status = %q err %v", out, err)
@@ -344,14 +344,14 @@ func TestAutopilotHumanListsAreBoundedAndJSONComplete(t *testing.T) {
 					t.Fatalf("invalid JSON: %s", out)
 				}
 				if verb == "queue" || verb == "stop" {
-					st, err := operator.Load(path)
-					if err != nil || len(st.Tracked) != len(entries) {
-						t.Fatalf("display cap changed mutation: %+v %v", st, err)
+					engine := readCLIEngine(t, path)
+					if len(engine.Queue) != len(entries) {
+						t.Fatalf("display cap changed mutation: %+v", engine)
 					}
 					if verb == "stop" {
-						for _, it := range st.Tracked {
+						for _, it := range engine.Queue {
 							if !it.Paused {
-								t.Fatal("stop missed hidden item")
+								t.Fatalf("stop missed %s", it.ID)
 							}
 						}
 					}
@@ -412,15 +412,7 @@ func TestAutopilotCompletionSummaryIsBounded(t *testing.T) {
 	if _, err := autopilotCLI(t, queueJSON(repos...), "queue"); err != nil {
 		t.Fatal(err)
 	}
-	if err := operator.Mutate(path, func(st *operator.State) error {
-		for i := range st.Tracked {
-			now := operator.NowRFC3339()
-			st.Tracked[i].DoneAt = &now
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
+	writeCLIEngineDone(t, path)
 	out, err := autopilotCLI(t, "", "status")
 	if err != nil || strings.Contains(out, "q23:") || !strings.Contains(out, "review PRs: 23 total; showing 20") || !strings.Contains(out, "repos: 23 total; showing 20") {
 		t.Fatalf("output = %s; err = %v", out, err)
@@ -447,12 +439,12 @@ func TestAutopilotMisfitDryRunThenOneLiveCall(t *testing.T) {
 	if _, err := autopilotCLI(t, in, "queue", "--mode", "stacked-prs"); err != nil {
 		t.Fatal(err)
 	}
-	st, err := operator.Load(path)
-	if err != nil || len(st.Tracked) != 2 {
-		t.Fatalf("state = %+v, err = %v", st, err)
+	engine := readCLIEngine(t, path)
+	if len(engine.Queue) != 2 {
+		t.Fatalf("engine = %+v", engine)
 	}
-	for _, it := range st.Tracked {
-		if operator.ScopeString(it.Scope, "merge_mode") != "stacked-prs" {
+	for _, it := range engine.Queue {
+		if it.MergeMode != "stacked-prs" {
 			t.Fatal("unconfirmed mode persisted")
 		}
 	}
@@ -464,10 +456,10 @@ func TestAutopilotAlreadyTrackedIDMatchesHelpExitCode(t *testing.T) {
 	if _, err := autopilotCLI(t, in, "queue"); err != nil {
 		t.Fatal(err)
 	}
-	before, _ := os.ReadFile(path)
+	before, _ := os.ReadFile(cliEnginePath(path))
 	_, err := autopilotCLI(t, in, "queue")
 	wantExit(t, err, 2, "already exists")
-	after, _ := os.ReadFile(path)
+	after, _ := os.ReadFile(cliEnginePath(path))
 	if string(after) != string(before) {
 		t.Fatal("duplicate id changed state")
 	}
@@ -484,7 +476,7 @@ func TestAutopilotMergeRejectsInvalidRepoFilter(t *testing.T) {
 			if _, err := autopilotCLI(t, queueJSON(t.TempDir()), "queue"); err != nil {
 				t.Fatal(err)
 			}
-			before, err := os.ReadFile(path)
+			before, err := os.ReadFile(cliEnginePath(path))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -503,7 +495,7 @@ func TestAutopilotMergeRejectsInvalidRepoFilter(t *testing.T) {
 			if json.Unmarshal([]byte(out), &envelope) != nil {
 				t.Fatalf("not a JSON envelope: %s", out)
 			}
-			after, err := os.ReadFile(path)
+			after, err := os.ReadFile(cliEnginePath(path))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -548,7 +540,7 @@ func TestAutopilotBusyPassExitsZeroAndDoesNothing(t *testing.T) {
 	if _, err := autopilotCLI(t, queueJSON(t.TempDir()), "queue"); err != nil {
 		t.Fatal(err)
 	}
-	before, _ := os.ReadFile(path)
+	before, _ := os.ReadFile(cliEnginePath(path))
 	holdAutopilotPassLock(t, path)
 	runner.calls = nil
 	for _, verb := range []string{"step", "merge", "stop"} {
@@ -568,7 +560,7 @@ func TestAutopilotBusyPassExitsZeroAndDoesNothing(t *testing.T) {
 			t.Fatalf("%s json out = %q err %v", verb, out, err)
 		}
 	}
-	after, _ := os.ReadFile(path)
+	after, _ := os.ReadFile(cliEnginePath(path))
 	if !bytes.Equal(before, after) || len(runner.calls) != 0 {
 		t.Fatalf("a busy pass changed state or ran subprocesses: %q", runner.calls)
 	}
@@ -579,9 +571,8 @@ func TestAutopilotBusyPassExitsZeroAndDoesNothing(t *testing.T) {
 	if out, err := autopilotCLI(t, "", "step", "--dry-run"); err != nil || strings.Contains(out, "busy") {
 		t.Fatalf("dry-run out = %q err %v", out, err)
 	}
-	if _, err := autopilotCLI(t, `[{"id":"later","repo":"`+t.TempDir()+`","task":"x"}]`, "queue"); err != nil {
-		t.Fatalf("queue while locked: %v", err)
-	}
+	_, err := autopilotCLI(t, `[{"id":"later","repo":"`+t.TempDir()+`","task":"x"}]`, "queue")
+	wantExit(t, err, 1, "queue not written, retry")
 }
 
 func TestAutopilotNotBusyOnceThePassLockIsFree(t *testing.T) {
@@ -596,40 +587,29 @@ func TestAutopilotNotBusyOnceThePassLockIsFree(t *testing.T) {
 	}
 }
 
-func TestAutopilotMergeRefusesAStackedQueueWithExitOne(t *testing.T) {
+func TestAutopilotMergeAcceptsAStackedQueue(t *testing.T) {
 	path, runner := autopilotSandbox(t, "")
 	if _, err := autopilotCLI(t, queueJSON(t.TempDir(), t.TempDir()), "queue", "--mode", "stacked-prs"); err != nil {
 		t.Fatal(err)
 	}
-	if err := operator.Mutate(path, func(st *operator.State) error {
-		for i := range st.Tracked {
-			now := operator.NowRFC3339()
-			st.Tracked[i].DoneAt = &now
-		}
-		return nil
-	}); err != nil {
+	writeCLIEngineDone(t, path, true)
+	runner.acceptPRs = true
+	runner.calls = nil
+	if _, err := autopilotCLI(t, "", "merge"); err != nil {
 		t.Fatal(err)
 	}
-	before, _ := os.ReadFile(path)
-	runner.calls = nil
-	_, err := autopilotCLI(t, "", "merge")
-	wantExit(t, err, 1, "stacked-prs queues are not merged by this verb: follow the stacked-prs merge text in the run brief")
-	out, jerr := autopilotCLI(t, "", "merge", "--json")
-	if jerr == nil || !strings.Contains(out, `"ok": false`) {
-		t.Fatalf("out = %q err %v", out, jerr)
-	}
-	after, _ := os.ReadFile(path)
-	if !bytes.Equal(before, after) {
-		t.Fatal("the refused merge changed state")
+	engine := readCLIEngine(t, path)
+	if len(engine.PRs) != 2 || engine.PRs[0].MergeSeq == "" || engine.PRs[0].MergeMode != "stacked-prs" || len(engine.PRs[1].DependsOn) != 1 || engine.PRs[1].DependsOn[0] != engine.PRs[0].ID {
+		t.Fatalf("stacked PRs = %+v", engine.PRs)
 	}
 	for _, call := range runner.calls {
-		if strings.HasPrefix(call, "gh ") {
-			t.Fatalf("the refused merge reached GitHub: %s", call)
+		if strings.HasPrefix(call, "gh pr merge") || strings.HasPrefix(call, "gh pr ready") {
+			t.Fatalf("stacked merge armed or merged a PR: %s", call)
 		}
 	}
 }
 
-func TestAutopilotHelpStatesBusyExitCodesAndMergeRefusal(t *testing.T) {
+func TestAutopilotHelpStatesBusyExitCodesAndStackedEscalations(t *testing.T) {
 	for verb, wants := range map[string][]string{
 		"step": {
 			"0  stepped (with or without actions or escalations), or busy",
@@ -639,10 +619,11 @@ func TestAutopilotHelpStatesBusyExitCodesAndMergeRefusal(t *testing.T) {
 		},
 		"merge": {
 			"0  started (or nothing to merge), or busy",
-			"refuses a stacked-prs queue", "1  operational failure (queue items not done, stacked-prs queue",
+			"Stacked-prs sequences escalate restacks", "1  operational failure (queue items not done, no PR for a branch",
 		},
 		"stop": {
 			"0  stopped, or busy", "whoever armed it", "retried by the next stop or step until github reports it disarmed",
+			"rk operator autopilot resume <id>",
 		},
 	} {
 		help, err := autopilotCLI(t, "", verb, "--help")
@@ -678,10 +659,11 @@ func TestAutopilotStatusGitHubFailureMatchesTheHelp(t *testing.T) {
 	if _, err := autopilotCLI(t, queueJSON(repo, repo), "queue"); err != nil {
 		t.Fatal(err)
 	}
+	writeCLIEngineFirstDoneBranch(t, path)
 	if err := operator.Mutate(path, func(st *operator.State) error {
-		now := operator.NowRFC3339()
-		st.Tracked[0].DoneAt = &now
-		st.Tracked[0].Scope["branch"] = "q1-branch"
+		for i := range st.Tracked {
+			st.Tracked[i].Notes = nil
+		}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -707,5 +689,121 @@ func TestAutopilotStatusGitHubFailureMatchesTheHelp(t *testing.T) {
 		if len(it.Notes) != 0 {
 			t.Fatal("status wrote a note")
 		}
+	}
+}
+
+type cliEngineItem struct {
+	ID        string   `yaml:"id"`
+	MergeMode string   `yaml:"merge_mode"`
+	MergeSeq  string   `yaml:"merge_seq"`
+	Paused    bool     `yaml:"paused"`
+	DoneAt    *string  `yaml:"done_at"`
+	Pane      string   `yaml:"pane"`
+	Spawning  string   `yaml:"spawning"`
+	DependsOn []string `yaml:"depends_on"`
+}
+
+type cliEngineState struct {
+	Queue []cliEngineItem `yaml:"queue"`
+	PRs   []cliEngineItem `yaml:"prs"`
+}
+
+func cliEnginePath(statePath string) string {
+	return strings.TrimSuffix(statePath, filepath.Ext(statePath)) + ".autopilot.yaml"
+}
+
+func readCLIEngine(t *testing.T, statePath string) cliEngineState {
+	t.Helper()
+	data, err := os.ReadFile(cliEnginePath(statePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var engine cliEngineState
+	if err := yaml.Unmarshal(data, &engine); err != nil {
+		t.Fatal(err)
+	}
+	return engine
+}
+
+func writeCLIEngineDone(t *testing.T, statePath string, branches ...bool) {
+	t.Helper()
+	path := cliEnginePath(statePath)
+	var raw map[string]interface{}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	now := operator.NowRFC3339()
+	for _, key := range []string{"queue", "prs"} {
+		items, _ := raw[key].([]interface{})
+		for _, item := range items {
+			fields := item.(map[string]interface{})
+			fields["done_at"] = now
+			if key == "queue" && len(branches) > 0 && branches[0] {
+				fields["branch"] = fields["id"].(string) + "-branch"
+			}
+		}
+	}
+	data, err = yaml.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeCLIEngineFirstDoneBranch(t *testing.T, statePath string) {
+	t.Helper()
+	path := cliEnginePath(statePath)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	items := raw["queue"].([]interface{})
+	first := items[0].(map[string]interface{})
+	now := operator.NowRFC3339()
+	first["done_at"] = now
+	first["branch"] = "q1-branch"
+	data, err = yaml.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeCLIEngineDoneAndDeferredPR(t *testing.T, statePath, repo string) {
+	t.Helper()
+	path := cliEnginePath(statePath)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	now := operator.NowRFC3339()
+	raw["queue"].([]interface{})[0].(map[string]interface{})["done_at"] = now
+	raw["prs"] = []interface{}{map[string]interface{}{
+		"id": "pr-7", "item": "q1", "repo": repo, "nwo": "o/r", "pr": 7,
+		"merge_seq": "seq", "merge_mode": "cherry-pick-ladder", "deferred": true,
+		"depends_on": []string{}, "done_at": nil, "escalated": map[string]interface{}{},
+	}}
+	data, err = yaml.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -132,8 +132,8 @@ func TestRunChangedPersistsThenLaunches(t *testing.T) {
 		t.Fatalf("launches = %d", len(*calls))
 	}
 	c := (*calls)[0]
-	if !c.recordExisted || !c.briefExisted {
-		t.Errorf("record/brief must be durable before the window is created: %+v", c)
+	if !c.recordExisted || c.briefExisted {
+		t.Errorf("only the record must be durable before the window is created: %+v", c)
 	}
 	if c.server != testServer || c.name != "run-aaaa" || c.runID != runA || c.cwd != "/home/tester" {
 		t.Errorf("launch = %+v", c)
@@ -148,13 +148,12 @@ func TestRunChangedPersistsThenLaunches(t *testing.T) {
 		t.Fatal(err)
 	}
 	if rec.Entry != "lp01" || rec.Server != testServer || rec.Window != "run-aaaa" || rec.FiredAt != "2026-11-12T10:15:00Z" ||
-		len(rec.Changed) != 1 || rec.Changed[0] != "pr-41" || rec.Ended() {
+		len(rec.Changed) != 1 || rec.Changed[0] != "pr-41" || len(rec.Changes) != 1 || rec.Changes[0].Reasons[0] != "done" || rec.Ended() {
 		t.Errorf("record = %+v", rec)
 	}
 	briefPath, _ := BriefPath(r.runsDir(), runA)
-	brief, _ := readFile(briefPath)
-	if !strings.Contains(brief, "pr-41") || !strings.Contains(brief, "Exit contract") {
-		t.Errorf("brief = %.200s", brief)
+	if exists(t, briefPath) {
+		t.Error("daemon rendered a brief before the wrapper's mechanical pass")
 	}
 }
 

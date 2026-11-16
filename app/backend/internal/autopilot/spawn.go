@@ -211,7 +211,7 @@ func (e *engine) launch(ctx context.Context, it operator.TrackedItem, fp string,
 	case errors.Is(attachErr, errItemRemoved):
 		e.escalate(id, fmt.Sprintf("window %s opened but %s was removed from tracking meanwhile — nothing was recorded; close the orphaned window", pane, id))
 	case attachErr != nil:
-		e.escalate(id, fmt.Sprintf("window %s opened but recording it failed (scope.spawning left set): %v", pane, attachErr))
+		e.escalate(id, attachEscalation(pane, attachErr))
 	case err != nil && !opened:
 		e.clearSpawning(id, respawn)
 		e.escalate(id, "spawn failed: "+err.Error())
@@ -431,6 +431,19 @@ func (e *engine) prepareWorktree(ctx context.Context, wt, id, change, def, mode 
 // pass read it; nothing is written for it.
 var errItemRemoved = errors.New("item removed from tracking")
 
+type projectionWriteError struct{ err error }
+
+func (e *projectionWriteError) Error() string { return e.err.Error() }
+func (e *projectionWriteError) Unwrap() error { return e.err }
+
+func attachEscalation(pane string, err error) string {
+	var projectionErr *projectionWriteError
+	if errors.As(err, &projectionErr) {
+		return fmt.Sprintf("window %s opened and its engine binding was recorded, but its projection update failed: %v", pane, err)
+	}
+	return fmt.Sprintf("window %s opened but recording its engine binding failed (scope.spawning left set): %v", pane, err)
+}
+
 // attach records the spawn on the item in one locked write: pane, session,
 // branch, the branch_map entry, and the cleared spawn marker. The pane-pid
 // lookup runs before the lock.
@@ -441,28 +454,38 @@ func (e *engine) attach(ctx context.Context, it operator.TrackedItem, repo strin
 	} else {
 		panePID = pid
 	}
-	key := operator.ScopeString(it.Scope, "change")
-	if key == "" {
-		key = it.ID
+	if res.Branch != "" && safeBranch(res.Branch) == "" {
+		return fmt.Errorf("spawn returned invalid branch %q", res.Branch)
 	}
-	return e.mutate(func(st *operator.State) error {
-		i := operator.IndexOf(st.Tracked, it.ID)
-		if i < 0 {
+	var bound operator.TrackedItem
+	if err := e.mutateEngine(func(st *engineState) error {
+		item, ok := st.find(it.ID)
+		if !ok {
 			return errItemRemoved
 		}
-		cur := &st.Tracked[i]
-		if cur.Scope == nil {
-			cur.Scope = map[string]interface{}{}
-		}
-		cur.Scope["pane"], cur.Scope["pane_pid"], cur.Scope["session"] = res.PaneID, panePID, session
-		delete(cur.Scope, scopeSpawning)
+		item.Pane, item.Session, item.Worktree, item.Spawning = res.PaneID, session, res.WorktreePath, ""
 		if res.Branch != "" {
-			cur.Scope["branch"] = res.Branch
-			st.BranchMap[key] = operator.BranchMapEntry{Branch: res.Branch, Repo: repo}
+			item.Branch = res.Branch
 		}
-		cur.UpdatedAt = operator.NowRFC3339()
+		item.UpdatedAt = operator.NowRFC3339()
+		bound = item.tracked()
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	bound.Scope["repo"] = repo
+	bound.Scope["pane_pid"] = panePID
+	_, present, err := e.projection(it.ID)
+	if err != nil {
+		return err
+	}
+	if !present && scopeBool(bound, scopeProjected) {
+		return nil
+	}
+	if err := e.upsertProjection(bound); err != nil {
+		return &projectionWriteError{err: err}
+	}
+	return nil
 }
 
 // respawnItem is the executor of row Q4: a spawned item whose pane is gone

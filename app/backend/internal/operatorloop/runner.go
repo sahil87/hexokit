@@ -128,16 +128,10 @@ func launch(ctx context.Context, fire cron.Fire, res operator.CheckResult) (reco
 	return true, nil
 }
 
-// persistRun renders the brief from the loaded ledger and writes the run
-// record and brief atomically, before any window exists.
+// persistRun writes the run record before any window exists. The wrapper
+// renders a brief only if its post-pass judgment set is non-empty.
 func persistRun(ctx context.Context, fire cron.Fire, statePath string, changed []operator.ChangedItem) (dir string, rec Record, err error) {
-	state, err := loadStateFn(statePath)
-	if err != nil {
-		return "", Record{}, err
-	}
 	now := nowTime()
-	brief := operator.RenderBrief(operator.BriefInput{State: state, Server: fire.Server, Now: now, Changed: changed})
-
 	id, err := newRunIDFn()
 	if err != nil {
 		return "", Record{}, err
@@ -150,17 +144,10 @@ func persistRun(ctx context.Context, fire cron.Fire, statePath string, changed [
 	}
 	rec = Record{
 		ID: id, Server: fire.Server, Entry: fire.Entry.ID,
-		FiredAt: FormatTime(now), Changed: changedIDs(changed), Window: RunWindowPrefix + ShortID(id),
-	}
-	briefPath, err := BriefPath(dir, id)
-	if err != nil {
-		return "", Record{}, err
+		FiredAt: FormatTime(now), Changed: changedIDs(changed), Changes: changeRecords(changed), Window: RunWindowPrefix + ShortID(id),
 	}
 	recPath, err := RecordPath(dir, id)
 	if err != nil {
-		return "", Record{}, err
-	}
-	if err := writeFile(briefPath, []byte(brief)); err != nil {
 		return "", Record{}, err
 	}
 	if err := WriteRecord(recPath, rec); err != nil {
@@ -226,6 +213,14 @@ func changedIDs(items []operator.ChangedItem) []string {
 		ids[i] = it.ID
 	}
 	return ids
+}
+
+func changeRecords(items []operator.ChangedItem) []ChangeRecord {
+	out := make([]ChangeRecord, len(items))
+	for i, item := range items {
+		out[i] = ChangeRecord{ID: item.ID, Reasons: append([]string{}, item.Reasons...)}
+	}
+	return out
 }
 
 // reasonFor renders a delta as `<kind>[ <detail>]`, the detail only where the
