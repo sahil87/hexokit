@@ -5,9 +5,9 @@ created_by: sahil-noon
 change_type: feat
 issues: []
 progress:
-    intake: done
-    apply: done
-    review: failed
+    intake: active
+    apply: pending
+    review: pending
     hydrate: pending
     ship: pending
     review-pr: pending
@@ -29,9 +29,9 @@ confidence:
         competence: 77.6
         disambiguation: 73.2
 stage_metrics:
-    intake: {started_at: "2026-11-14T11:13:28Z", driver: fab-new, iterations: 1, completed_at: "2026-11-14T14:11:06Z"}
-    apply: {started_at: "2026-11-14T20:37:44Z", driver: fab-fff, iterations: 8, completed_at: "2026-11-14T20:50:08Z"}
-    review: {started_at: "2026-11-14T20:50:08Z", driver: fab-fff, iterations: 8}
+    intake: {started_at: "2026-11-16T09:46:51Z", driver: fab-clarify, iterations: 2}
+    apply: {iterations: 8}
+    review: {iterations: 8}
 prs: []
 base_branch: main
 change_type_source: explicit
@@ -51,4 +51,4 @@ true_impact:
     computed_at_stage: apply
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-14T20:59:28Z
+last_updated: 2026-11-16T09:46:51Z

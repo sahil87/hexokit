@@ -35,3 +35,4 @@
 {"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-14T20:37:44Z"}
 {"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-14T20:50:08Z"}
 {"event":"review","result":"failed","ts":"2026-11-14T20:59:28Z"}
+{"action":"re-entry","driver":"fab-clarify","event":"stage-transition","stage":"intake","ts":"2026-11-16T09:46:51Z"}
