@@ -1,0 +1,58 @@
+id: m8io
+name: 261116-m8io-autopilot-pr-recovery
+created: 2026-11-16T21:03:19Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 15
+    acceptance_count: 27
+    acceptance_completed: 27
+confidence:
+    certain: 9
+    confident: 8
+    tentative: 0
+    unresolved: 0
+    score: 4.0
+    fuzzy: true
+    dimensions:
+        signal: 80.0
+        reversibility: 76.8
+        competence: 82.1
+        disambiguation: 81.8
+stage_metrics:
+    intake: {started_at: "2026-11-16T21:03:19Z", driver: fab-new, iterations: 1, completed_at: "2026-11-16T21:08:10Z"}
+    apply: {started_at: "2026-11-16T21:08:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-16T21:37:17Z"}
+    review: {started_at: "2026-11-16T21:37:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-16T21:47:47Z"}
+    hydrate: {started_at: "2026-11-16T21:47:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-16T21:50:20Z"}
+    ship: {started_at: "2026-11-16T21:50:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-16T21:51:51Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1142
+base_branch: main
+true_impact:
+    added: 2444
+    deleted: 243
+    net: 2201
+    excluding:
+        added: 1622
+        deleted: 216
+        net: 1406
+    tests:
+        added: 875
+        deleted: 57
+        net: 818
+    computed_at: "2026-11-16T21:51:51Z"
+    computed_at_stage: ship
+change_type_source: explicit
+summary: 'Autopilot PR recovery: fixing status, rows C1–C6/F1/F2 replacing P5, fix-request/recovery-spawn/rebase/untrack executors, fixes: list, Panes.Send'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-16T21:51:51Z

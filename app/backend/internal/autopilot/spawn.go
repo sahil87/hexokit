@@ -173,13 +173,15 @@ func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.
 	e.launch(ctx, it, fp, req, ActSpawned, false)
 }
 
-// launch is the only window-opening site. The spawning marker (with respawned
-// for the one respawn) is durable before the window can exist; the pane is
-// recorded as soon as it does, which clears the marker. A launch that fails
-// before a window opens clears the marker again so the item is retried; one
-// that opened a window it could not record leaves the marker, so no pass
-// relaunches over an orphan.
+// launch is the ordinary window-opening path. A launch that fails before a
+// window opens clears its marker so the item can be retried.
 func (e *engine) launch(ctx context.Context, it operator.TrackedItem, fp string, req SpawnRequest, action string, respawn bool) {
+	e.launchWithPolicy(ctx, it, fp, req, action, respawn, true)
+}
+
+// launchWithPolicy records spawning before opening and binds the pane immediately.
+// Recovery launches keep an unopened marker for F2 instead of retrying.
+func (e *engine) launchWithPolicy(ctx context.Context, it operator.TrackedItem, fp string, req SpawnRequest, action string, respawn, clearUnopened bool) {
 	id := it.ID
 	stamp := e.env.now().UTC().Format(time.RFC3339)
 	if err := e.guarded(id, fp, func(t *operator.TrackedItem) {
@@ -213,7 +215,9 @@ func (e *engine) launch(ctx context.Context, it operator.TrackedItem, fp string,
 	case attachErr != nil:
 		e.escalate(id, attachEscalation(pane, attachErr))
 	case err != nil && !opened:
-		e.clearSpawning(id, respawn)
+		if clearUnopened {
+			e.clearSpawning(id, respawn)
+		}
 		e.escalate(id, "spawn failed: "+err.Error())
 	case err != nil:
 		e.escalate(id, "spawn: "+err.Error())

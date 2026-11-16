@@ -712,7 +712,7 @@ func TestStepDoesNotDriveAStackedPRItem(t *testing.T) {
 	}
 }
 
-func TestLadderFailedRequiredCheckEscalatesRecoveryNeededAndLeavesAnArmedPRArmed(t *testing.T) {
+func TestLadderFailedRequiredCheckRequestsOneFixAndHaltsOnNewRedHead(t *testing.T) {
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Change: "ab12"})
@@ -724,54 +724,68 @@ func TestLadderFailedRequiredCheckEscalatesRecoveryNeededAndLeavesAnArmedPRArmed
 	h.run.reset()
 
 	res := h.step()
-	if !hasEscalation(res, "recovery needed: ci-failed — PR #1 (foo)") {
-		t.Fatalf("escalations = %+v", res.Escalations)
+	if !hasAction(res, ActRecoverySent, "pr-1") || len(h.panes.sent) != 1 {
+		t.Fatalf("fix request = %+v, sent = %q", res, h.panes.sent)
+	}
+	want := "%7|CI failed on PR #1 (o/foo): check `test (2/4)` — run https://ci/run/9, shard 2/4.\nDiagnose and fix on this branch, push, and report the root cause in one line."
+	if h.panes.sent[0] != want {
+		t.Fatalf("sent %q\nwant %q", h.panes.sent[0], want)
 	}
 	if !prs[0].Armed || prs[0].Disarms != 0 || scopeBool(h.item("pr-1"), scopeHalted) {
-		t.Fatalf("a stall must leave the PR armed and unhalted: armed=%v disarms=%d", prs[0].Armed, prs[0].Disarms)
+		t.Fatalf("the fix round must leave the PR armed and unhalted: armed=%v disarms=%d", prs[0].Armed, prs[0].Disarms)
 	}
 	for _, mutation := range []string{"gh pr merge", "gh pr ready", "gh pr edit", "git push", "git rebase"} {
 		if h.run.called(mutation) != 0 {
-			t.Fatalf("a stall took action: %s in %q", mutation, h.run.calls)
+			t.Fatalf("a fix request took another action: %s in %q", mutation, h.run.calls)
 		}
 	}
 	if len(h.spawn.reqs) != 0 {
-		t.Fatalf("a stall spawned a recovery window: %+v", h.spawn.reqs)
+		t.Fatalf("an authoring pane exists but recovery spawned: %+v", h.spawn.reqs)
 	}
 
-	if res := h.step(); hasEscalation(res, "recovery needed") {
-		t.Fatalf("the same head and reason escalated twice: %+v", res.Escalations)
+	h.step()
+	if len(h.panes.sent) != 1 {
+		t.Fatal("the same head sent another fix request")
 	}
 	prs[0].HeadOid = "ffff0000ffff0000ffff0000ffff0000ffff0000"
-	if res := h.step(); !hasEscalation(res, "recovery needed: ci-failed") {
-		t.Fatalf("a new head failing again must escalate again: %+v", res.Escalations)
+	res = h.step()
+	if !hasEscalation(res, "halted: CI still failing") || prs[0].Disarms != 1 || !scopeBool(h.item("pr-1"), scopeHalted) {
+		t.Fatalf("a new red head did not halt and disarm: %+v", res)
 	}
 	if _, ok := h.item("pr-1").Scope["stall_seen"]; ok {
 		t.Fatal("the engine wrote scope.stall_seen")
 	}
 }
 
-func TestLadderConflictingStallEscalatesAfterQuietPollsAndLeavesAnArmedPRArmed(t *testing.T) {
+func TestLadderConflictingStallRebasesOnceThenHaltsOnRecurrence(t *testing.T) {
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
+	foo.branch("a-branch", "main", "a.txt", "a\n")
+	foo.pushBranch("a-branch")
+	foo.advanceOrigin("other.txt", "o\n")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Change: "ab12"})
 	prs := h.shipped(1, "a")
+	prs[0].HeadOid = runGit(t, foo.Dir, "rev-parse", "origin/a-branch")
 	pending(prs...)
 	h.startMerge()
 	prs[0].Mergeable = "CONFLICTING"
 	h.run.reset()
 
 	for i := 0; i < 3; i++ {
-		if res := h.step(); hasEscalation(res, "recovery needed") {
-			t.Fatalf("escalated after only %d quiet polls: the stall rule needs 3", i)
+		if res := h.step(); hasAction(res, ActRebased, "pr-1") {
+			t.Fatalf("rebased after only %d quiet polls: the stall rule needs 3", i)
 		}
 	}
 	res := h.step()
-	if !hasEscalation(res, "recovery needed: conflicting — PR #1 (foo)") {
-		t.Fatalf("escalations = %+v", res.Escalations)
+	if !hasAction(res, ActRebased, "pr-1") || !roundSpent(h.item("pr-1"), recoveryRebase) {
+		t.Fatalf("rebase recovery = %+v", res)
 	}
-	if !prs[0].Armed || prs[0].Disarms != 0 || h.run.called("git push") != 0 || h.run.called("gh pr merge") != 0 {
-		t.Fatalf("a conflicting stall took action: %q", h.run.calls)
+	if !prs[0].Armed || prs[0].Disarms != 0 || h.run.called("git push") != 1 || h.run.called("gh pr merge") != 0 {
+		t.Fatalf("rebase must push once without arming or disarming in the same pass: %q", h.run.calls)
+	}
+	res = h.step()
+	if !hasEscalation(res, "CONFLICTING again") || prs[0].Disarms != 1 {
+		t.Fatalf("recurring conflict did not halt: %+v", res)
 	}
 }
 
@@ -1091,9 +1105,10 @@ func TestEscalateRowWritesNothingToAnItemThatChanged(t *testing.T) {
 	h, pr, head := armableFixture(t)
 	pr.Checks = []checkRun{{Name: "ci", State: "FAILURE"}}
 	e, d := h.decideFor(head.ID)
-	if d.Row != "P5" {
+	if d.Row != "C3" {
 		t.Fatalf("decision = %+v", d)
 	}
+	d.Row, d.Action, d.Key, d.Reason = "test", ActionEscalate, "test", "test escalation"
 	changePRItem(t, h, head.ID, "", func(it *operator.TrackedItem, _ string) { it.DependsOn = []string{"other"} })
 	execOne(t, e, d)
 	it := h.item(head.ID)
@@ -1101,7 +1116,7 @@ func TestEscalateRowWritesNothingToAnItemThatChanged(t *testing.T) {
 	if len(seen) != 0 || len(it.Notes) != 0 {
 		t.Fatalf("an escalation landed on a changed item: %+v notes=%v", it.Scope, it.Notes)
 	}
-	if hasEscalation(e.res, "recovery needed") || !hasEscalation(e.res, "PR item pr-1 changed externally; skipped") {
+	if hasEscalation(e.res, "test escalation") || !hasEscalation(e.res, "PR item pr-1 changed externally; skipped") {
 		t.Fatalf("res = %+v", e.res)
 	}
 }

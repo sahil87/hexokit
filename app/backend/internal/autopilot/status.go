@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"rk/internal/operator"
+	"rk/internal/tmux"
 )
 
 // QueueStatus is a queue item's derived status, never stored: every pass
@@ -38,6 +39,7 @@ const (
 	PRDeferred    PRStatus = "deferred"
 	PRBlocked     PRStatus = "blocked"
 	PRDraft       PRStatus = "draft"
+	PRFixing      PRStatus = "fixing"
 	PRFailed      PRStatus = "failed"
 	PRConflicting PRStatus = "conflicting"
 	PRGreen       PRStatus = "green"
@@ -45,8 +47,19 @@ const (
 )
 
 var allPRStatuses = []PRStatus{
-	PRMerged, PRPaused, PRHalted, PRClosed, PRDeferred, PRBlocked, PRDraft, PRFailed, PRConflicting, PRGreen, PRWaiting,
+	PRMerged, PRPaused, PRHalted, PRClosed, PRDeferred, PRBlocked, PRDraft, PRFixing, PRFailed, PRConflicting, PRGreen, PRWaiting,
 }
+
+// FixStatus is a recovery-spawn item's derived status.
+type FixStatus string
+
+const (
+	FixResolved     FixStatus = "resolved"
+	FixSpawnUnknown FixStatus = "spawn-unknown"
+	FixWorking      FixStatus = "working"
+)
+
+var allFixStatuses = []FixStatus{FixResolved, FixSpawnUnknown, FixWorking}
 
 // facts is everything observe read from outside the ledger. A zero value is a
 // valid "nothing known" snapshot, which derive reads as waiting/unknown.
@@ -243,8 +256,8 @@ func blockedByDeps(st *operator.State, it operator.TrackedItem) bool {
 }
 
 // prPrecheck derives the statuses that need no check facts: merged › halted ›
-// closed › deferred › blocked › (unread →) waiting › draft. ok is false when
-// the item reaches the check-based statuses, which tells observe to read them.
+// closed › deferred › blocked › (unread →) waiting › draft › fixing. ok is false
+// when the item reaches the check-based statuses, which tells observe to read them.
 func prPrecheck(st *operator.State, f *facts, it operator.TrackedItem) (status PRStatus, ok bool) {
 	pf := f.pr[it.ID]
 	state := ""
@@ -268,12 +281,14 @@ func prPrecheck(st *operator.State, f *facts, it operator.TrackedItem) (status P
 		return PRWaiting, true
 	case pf.view.IsDraft:
 		return PRDraft, true
+	case roundSpent(it, recoveryCIFix) && pf.view.HeadRefOid != "" && pf.view.HeadRefOid == operator.ScopeString(it.Scope, scopeFixHead):
+		return PRFixing, true
 	}
 	return "", false
 }
 
 // derivePR is the PR status table: merged › halted › closed › deferred ›
-// blocked › draft › failed › conflicting › green › waiting.
+// blocked › draft › fixing › failed › conflicting › green › waiting.
 func derivePR(st *operator.State, f *facts, it operator.TrackedItem) PRStatus {
 	if s, ok := prPrecheck(st, f, it); ok {
 		return s
@@ -291,4 +306,64 @@ func derivePR(st *operator.State, f *facts, it operator.TrackedItem) PRStatus {
 		return PRGreen
 	}
 	return PRWaiting
+}
+
+// deriveFix resolves recovery agents from their parent PR, never queue membership.
+func deriveFix(st *operator.State, f *facts, it operator.TrackedItem) FixStatus {
+	parent, ok := fixParent(st, it.ID)
+	if !ok {
+		return FixResolved
+	}
+	parentStatus := derivePR(st, f, *parent)
+	if parentStatus == PRMerged || parentStatus == PRHalted {
+		return FixResolved
+	}
+	if parentStatus == PRGreen {
+		pf := f.pr[parent.ID]
+		if pf != nil && pf.read && pf.view.HeadRefOid != operator.ScopeString(parent.Scope, scopeFixHead) {
+			return FixResolved
+		}
+	}
+	pane := operator.ScopeString(it.Scope, "pane")
+	if spawningSet(it) && !f.paneAlive(pane) {
+		return FixSpawnUnknown
+	}
+	return FixWorking
+}
+
+// authoringPane finds the lowest matching live pane and whether its agent is idle.
+// known is false only when the whole snapshot is unavailable.
+func authoringPane(st *operator.State, f *facts, it operator.TrackedItem) (pane string, idle, known bool) {
+	if !f.panesKnown {
+		return "", false, false
+	}
+	change := operator.ScopeString(it.Scope, "change")
+	if change == "" {
+		if i := operator.IndexOf(st.Tracked, operator.ScopeString(it.Scope, scopeItem)); i >= 0 {
+			pane = operator.ScopeString(st.Tracked[i].Scope, "pane")
+			info, alive := f.panes[pane]
+			if alive {
+				return pane, paneIdle(info), true
+			}
+		}
+		return "", false, true
+	}
+	for id, info := range f.panes {
+		if info.Change != "" && changeMatches(info.Change, change) && (pane == "" || id < pane) {
+			pane = id
+		}
+	}
+	if pane == "" {
+		return "", false, true
+	}
+	return pane, paneIdle(f.panes[pane]), true
+}
+
+func paneIdle(info operator.PaneInfo) bool {
+	return info.AgentState != tmux.AgentStateActive && info.AgentState != tmux.AgentStateWaiting
+}
+
+// changeMatches compares a derived change folder with a full folder or its id segment.
+func changeMatches(derived, change string) bool {
+	return derived == change || strings.Contains("-"+derived+"-", "-"+change+"-")
 }

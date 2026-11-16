@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"rk/internal/operator"
 )
 
 func TestEngineFileMissingAndTolerantRead(t *testing.T) {
@@ -64,5 +66,53 @@ func TestEngineStateLookupUpsertRemove(t *testing.T) {
 	}
 	if !st.remove("a1") || st.has("a1") || st.remove("a1") {
 		t.Fatal("remove queue item failed")
+	}
+}
+
+func TestEngineFileRecoveryFieldsAndFixItems(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "operator.yaml")
+	st := newEngineState()
+	st.PRs = append(st.PRs, engineItem{
+		ID: "pr-1", Item: "a", MergeSeq: "s", NWO: "o/r", PR: 1,
+		Recovery: []string{"ci-fix", "rebase"}, FixHead: "abc", RecoveryAt: "2026-11-16T12:00:00Z", FixItem: "ab12-fix",
+	})
+	st.Fixes = append(st.Fixes, engineItem{ID: "ab12-fix", Repo: "/r", Branch: "a-branch", Change: "ab12"})
+	if err := writeEngineFile(statePath, st); err != nil {
+		t.Fatal(err)
+	}
+	got, err := loadEngineFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pr := got.PRs[0].tracked()
+	if !roundSpent(pr, "ci-fix") || !roundSpent(pr, "rebase") || roundSpent(pr, "other") {
+		t.Fatalf("recovery rounds = %#v", pr.Scope[scopeRecovery])
+	}
+	if operator.ScopeString(pr.Scope, scopeFixHead) != "abc" || operator.ScopeString(pr.Scope, scopeRecoverAt) == "" || operator.ScopeString(pr.Scope, scopeFixItem) != "ab12-fix" {
+		t.Fatalf("recovery fields not round-tripped: %#v", pr.Scope)
+	}
+	for _, key := range []string{scopeRecovery, scopeFixHead, scopeRecoverAt, scopeFixItem} {
+		if _, present := projectionScope(pr)[key]; present {
+			t.Fatalf("engine key %s leaked into the ledger projection", key)
+		}
+	}
+	view, _, err := engineView(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fix := view.Tracked[operator.IndexOf(view.Tracked, "ab12-fix")]
+	if legacyQueueItem(view, fix) {
+		t.Fatal("fix item became queue work")
+	}
+	parent, ok := fixParent(view, fix.ID)
+	if !ok || parent.ID != "pr-1" {
+		t.Fatalf("fix parent = %#v, %v", parent, ok)
+	}
+	owned, err := OwnedIDs(statePath)
+	if err != nil || !owned["ab12-fix"] {
+		t.Fatalf("owned ids = %#v, %v", owned, err)
+	}
+	if got.upsertFix(engineItem{ID: "ab12-fix"}) || !got.remove("ab12-fix") || got.has("ab12-fix") {
+		t.Fatal("fix upsert/remove did not use the fixes list")
 	}
 }

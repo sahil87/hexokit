@@ -10,7 +10,7 @@ var engineScopeKeys = []string{
 	scopeQueue, scopeMergeMode, scopeMergeSeq, scopeItem, scopeURL, scopeSpawning,
 	scopeRespawned, scopeSkipped, scopeHalted, scopeDeferred, scopeEscalated,
 	scopeArmed, scopeDirect, scopeStallSeen, scopeTask, scopeBare, scopeProjected,
-	"worktree", "nwo",
+	scopeRecovery, scopeFixHead, scopeRecoverAt, scopeFixItem, "worktree", "nwo",
 }
 
 // legacyQueueItem is only the migration predicate. Runtime queue membership

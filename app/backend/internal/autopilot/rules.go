@@ -3,7 +3,6 @@ package autopilot
 import (
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -13,8 +12,9 @@ import (
 const (
 	// slowStage and slowQueue flag a stage or a whole queue that has run long;
 	// they only escalate, never act.
-	slowStage = 30 * time.Minute
-	slowQueue = 2 * time.Hour
+	slowStage      = 30 * time.Minute
+	slowQueue      = 2 * time.Hour
+	recoveryWindow = 30 * time.Minute
 )
 
 // ActionKind is one typed action of the fixed vocabulary. The empty kind is a
@@ -22,20 +22,24 @@ const (
 type ActionKind string
 
 const (
-	ActionWait         ActionKind = ""
-	ActionRecordDone   ActionKind = "record-done"
-	ActionSpawn        ActionKind = "spawn"
-	ActionRespawn      ActionKind = "respawn"
-	ActionSkip         ActionKind = "skip"
-	ActionEscalate     ActionKind = "escalate"
-	ActionTrackPR      ActionKind = "track-pr"
-	ActionRecordMerged ActionKind = "record-merged"
-	ActionHalt         ActionKind = "halt"
-	ActionDisarm       ActionKind = "disarm"
-	ActionReady        ActionKind = "ready"
-	ActionArm          ActionKind = "arm"
-	ActionMerge        ActionKind = "merge"
-	ActionReProject    ActionKind = "re-project"
+	ActionWait          ActionKind = ""
+	ActionRecordDone    ActionKind = "record-done"
+	ActionSpawn         ActionKind = "spawn"
+	ActionRespawn       ActionKind = "respawn"
+	ActionSkip          ActionKind = "skip"
+	ActionEscalate      ActionKind = "escalate"
+	ActionTrackPR       ActionKind = "track-pr"
+	ActionRecordMerged  ActionKind = "record-merged"
+	ActionHalt          ActionKind = "halt"
+	ActionDisarm        ActionKind = "disarm"
+	ActionReady         ActionKind = "ready"
+	ActionArm           ActionKind = "arm"
+	ActionMerge         ActionKind = "merge"
+	ActionReProject     ActionKind = "re-project"
+	ActionFixRequest    ActionKind = "fix-request"
+	ActionRecoverySpawn ActionKind = "recovery-spawn"
+	ActionRebase        ActionKind = "rebase"
+	ActionUntrack       ActionKind = "untrack"
 )
 
 // rowUnmatched marks a reachable combination that has neither a row nor an
@@ -48,9 +52,9 @@ type Decision struct {
 	Item   string
 	Row    string
 	Action ActionKind
-	// Status is the item's derived queue or PR status.
+	// Status is the item's derived queue, PR, or fix status.
 	Status string
-	// Reason is the escalation text of an escalating row.
+	// Reason is the escalation or halt text of the row.
 	Reason string
 	// Key is the scope.escalated dedupe key of an escalate-once row.
 	Key string
@@ -66,6 +70,7 @@ type itemKind int
 const (
 	kindQueue itemKind = iota + 1
 	kindPR
+	kindFix
 )
 
 // ruleCtx is one item's view for the guards: the snapshot, the facts, the
@@ -87,13 +92,14 @@ type rule struct {
 	kind   itemKind
 	queue  QueueStatus
 	pr     PRStatus
+	fix    FixStatus
 	all    bool
 	guard  func(c *ruleCtx) bool
 	action ActionKind
 	text   func(c *ruleCtx) (key, reason string)
 }
 
-func (r rule) matches(c *ruleCtx, kind itemKind, queue QueueStatus, pr PRStatus) bool {
+func (r rule) matches(c *ruleCtx, kind itemKind, queue QueueStatus, pr PRStatus, fix FixStatus) bool {
 	if r.kind != kind {
 		return false
 	}
@@ -110,6 +116,10 @@ func (r rule) matches(c *ruleCtx, kind itemKind, queue QueueStatus, pr PRStatus)
 		}
 	case kindPR:
 		if r.pr != pr {
+			return false
+		}
+	case kindFix:
+		if r.fix != fix {
 			return false
 		}
 	}
@@ -243,25 +253,59 @@ func mergeGuard(c *ruleCtx) bool {
 	return !stacked(c) && !armedFact(c) && pf != nil && pf.view.HeadRefOid != ""
 }
 
-// stallText is P5's reason and dedupe key: once per reason and head commit.
-func stallText(reason string) func(c *ruleCtx) (string, string) {
-	return func(c *ruleCtx) (string, string) {
-		pf := prFactsOf(c)
-		sha := ""
-		if pf != nil {
-			sha = pf.view.HeadRefOid
+func closedHaltText(c *ruleCtx) (string, string) {
+	return "", fmt.Sprintf("PR #%s was closed without merging", prNum(c.it.Scope))
+}
+
+func noPushHaltGuard(c *ruleCtx) bool {
+	return ageOver(operator.ScopeString(c.it.Scope, scopeRecoverAt), c.now, recoveryWindow)
+}
+
+func noPushHaltText(c *ruleCtx) (string, string) {
+	return "", fmt.Sprintf("no new push %s after the CI fix request — PR #%s", recoveryWindow, prNum(c.it.Scope))
+}
+
+func authoringRecoveryGuard(spawn bool) func(c *ruleCtx) bool {
+	return func(c *ruleCtx) bool {
+		if roundSpent(c.it, recoveryCIFix) {
+			return false
 		}
-		text := fmt.Sprintf("recovery needed: %s — PR #%s (%s)", reason, prNum(c.it.Scope), filepath.Base(cleanRepo(operator.ScopeString(c.it.Scope, "repo"))))
-		return escalationKey(fmt.Sprintf("recovery needed: %s @%s", reason, sha)), text
+		pane, idle, known := authoringPane(c.st, c.f, c.it)
+		if !known {
+			return false
+		}
+		if spawn {
+			return pane == ""
+		}
+		return pane != "" && idle
 	}
 }
 
-func stallGuard(reason string) func(c *ruleCtx) bool {
-	text := stallText(reason)
-	return func(c *ruleCtx) bool {
-		key, _ := text(c)
-		return !stacked(c) && prFactsOf(c) != nil && !escalatedAlready(c, key)
+func failedAfterFixText(c *ruleCtx) (string, string) {
+	name, head := "(unknown)", ""
+	if pf := prFactsOf(c); pf != nil {
+		head = short(pf.view.HeadRefOid)
+		if failed := firstFailed(pf.checks); failed != nil {
+			name = failed.Name
+		}
 	}
+	return "", fmt.Sprintf("CI still failing on check %s after the fix round (new head %s) — PR #%s", name, head, prNum(c.it.Scope))
+}
+
+func conflictingAgainText(c *ruleCtx) (string, string) {
+	return "", fmt.Sprintf("PR #%s is CONFLICTING again after the rebase recovery", prNum(c.it.Scope))
+}
+
+func fixSpawnInterruptedText(c *ruleCtx) (string, string) {
+	reason := fmt.Sprintf("spawn interrupted: %s — check for an orphaned recovery window before untracking the fix item", c.it.ID)
+	return escalationKey(reason), reason
+}
+
+func short(oid string) string {
+	if len(oid) > 7 {
+		return oid[:7]
+	}
+	return oid
 }
 
 // ruleTable is the whole of autopilot behaviour. Rows are tried in order and
@@ -284,14 +328,21 @@ var ruleTable = []rule{
 	{id: "Q6b", kind: kindQueue, guard: slowQueueGuard, action: ActionEscalate, text: slowQueueText},
 
 	{id: "P1", kind: kindPR, pr: PRMerged, guard: doneAtUnset, action: ActionRecordMerged},
-	{id: "P2", kind: kindPR, pr: PRClosed, action: ActionHalt},
+	{id: "P2", kind: kindPR, pr: PRClosed, action: ActionHalt, text: closedHaltText},
 	{id: "P3", kind: kindPR, pr: PRHalted, guard: armedFact, action: ActionDisarm},
 	{id: "B0", kind: kindPR, all: true, guard: restackGuard, action: ActionEscalate, text: restackText},
 	{id: "P4", kind: kindPR, pr: PRDraft, guard: func(c *ruleCtx) bool { return !stacked(c) }, action: ActionReady},
-	{id: "P5", kind: kindPR, pr: PRFailed, guard: stallGuard("ci-failed"), action: ActionEscalate, text: stallText("ci-failed")},
-	{id: "P5", kind: kindPR, pr: PRConflicting, guard: stallGuard("conflicting"), action: ActionEscalate, text: stallText("conflicting")},
+	{id: "C1", kind: kindPR, pr: PRFixing, guard: noPushHaltGuard, action: ActionHalt, text: noPushHaltText},
+	{id: "C2", kind: kindPR, pr: PRFailed, guard: authoringRecoveryGuard(false), action: ActionFixRequest},
+	{id: "C3", kind: kindPR, pr: PRFailed, guard: authoringRecoveryGuard(true), action: ActionRecoverySpawn},
+	{id: "C4", kind: kindPR, pr: PRFailed, guard: func(c *ruleCtx) bool { return roundSpent(c.it, recoveryCIFix) }, action: ActionHalt, text: failedAfterFixText},
+	{id: "C5", kind: kindPR, pr: PRConflicting, guard: func(c *ruleCtx) bool { return !stacked(c) && !roundSpent(c.it, recoveryRebase) }, action: ActionRebase},
+	{id: "C6", kind: kindPR, pr: PRConflicting, guard: func(c *ruleCtx) bool { return !stacked(c) && roundSpent(c.it, recoveryRebase) }, action: ActionHalt, text: conflictingAgainText},
 	{id: "P6", kind: kindPR, pr: PRWaiting, guard: func(c *ruleCtx) bool { return !stacked(c) && !armedFact(c) && repoAllowsAutoMerge(c) }, action: ActionArm},
 	{id: "P7", kind: kindPR, pr: PRGreen, guard: mergeGuard, action: ActionMerge},
+	{id: "F1", kind: kindFix, fix: FixResolved, action: ActionUntrack},
+	{id: "F2", kind: kindFix, fix: FixSpawnUnknown, action: ActionEscalate, text: fixSpawnInterruptedText,
+		guard: func(c *ruleCtx) bool { key, _ := fixSpawnInterruptedText(c); return !escalatedAlready(c, key) }},
 }
 
 // wait is an explicit non-action: the (item kind, status) the table leaves to
@@ -300,6 +351,7 @@ type wait struct {
 	kind   itemKind
 	queue  QueueStatus
 	pr     PRStatus
+	fix    FixStatus
 	reason string
 }
 
@@ -319,15 +371,22 @@ var waitTable = []wait{
 	{kind: kindPR, pr: PRDeferred, reason: "its repo's merge has not started"},
 	{kind: kindPR, pr: PRBlocked, reason: "an upstream PR has not merged"},
 	{kind: kindPR, pr: PRDraft, reason: "stacked-prs: merged by R6b"},
-	{kind: kindPR, pr: PRFailed, reason: "already escalated for this head"},
-	{kind: kindPR, pr: PRConflicting, reason: "already escalated for this head"},
+	{kind: kindPR, pr: PRFixing, reason: "CI fix round in progress"},
+	{kind: kindPR, pr: PRFailed, reason: "authoring agent busy, or pane snapshot unknown"},
+	{kind: kindPR, pr: PRConflicting, reason: "stacked-prs: rebase is R6b's restack"},
 	{kind: kindPR, pr: PRGreen, reason: "armed (GitHub merges it), or its head commit is unknown"},
 	{kind: kindPR, pr: PRWaiting, reason: "checks pending, armed, or the repo has no auto-merge"},
+	{kind: kindFix, fix: FixSpawnUnknown, reason: "spawn interrupted, already escalated"},
+	{kind: kindFix, fix: FixWorking, reason: "the recovery agent is working"},
 }
 
-func waitDeclared(kind itemKind, queue QueueStatus, pr PRStatus) bool {
+func waitDeclared(kind itemKind, queue QueueStatus, pr PRStatus, fixes ...FixStatus) bool {
+	var fix FixStatus
+	if len(fixes) > 0 {
+		fix = fixes[0]
+	}
 	for _, w := range waitTable {
-		if w.kind == kind && w.queue == queue && w.pr == pr {
+		if w.kind == kind && w.queue == queue && w.pr == pr && w.fix == fix {
 			return true
 		}
 	}
@@ -335,8 +394,7 @@ func waitDeclared(kind itemKind, queue QueueStatus, pr PRStatus) bool {
 }
 
 // decide is the rule table applied to one snapshot: at most one decision per
-// engine item, in ledger order. It is a pure function of (ledger, facts, now):
-// no I/O, no context.
+// engine item, in engine order. It is a pure function of (state, facts, now).
 func decide(st *operator.State, f *facts, now time.Time) []Decision {
 	c := &ruleCtx{st: st, f: f, now: now, oldest: oldestUnfinished(st, f)}
 	var out []Decision
@@ -344,22 +402,26 @@ func decide(st *operator.State, f *facts, now time.Time) []Decision {
 		c.it, c.mode = it, modeOf(it)
 		switch {
 		case legacyQueueItem(st, it):
-			out = append(out, decideItem(c, kindQueue, deriveQueue(st, f, it), ""))
+			out = append(out, decideItem(c, kindQueue, deriveQueue(st, f, it), "", ""))
 		case isSeqPR(it):
-			out = append(out, decideItem(c, kindPR, "", derivePR(st, f, it)))
+			out = append(out, decideItem(c, kindPR, "", derivePR(st, f, it), ""))
+		case it.Kind == "fix":
+			out = append(out, decideItem(c, kindFix, "", "", deriveFix(st, f, it)))
 		}
 	}
 	return out
 }
 
-func decideItem(c *ruleCtx, kind itemKind, queue QueueStatus, pr PRStatus) Decision {
+func decideItem(c *ruleCtx, kind itemKind, queue QueueStatus, pr PRStatus, fix FixStatus) Decision {
 	status := string(queue)
 	if kind == kindPR {
 		status = string(pr)
+	} else if kind == kindFix {
+		status = string(fix)
 	}
 	d := Decision{Item: c.it.ID, Status: status, fp: fingerprint(c.it), pr: kind == kindPR}
 	for _, r := range ruleTable {
-		if !r.matches(c, kind, queue, pr) {
+		if !r.matches(c, kind, queue, pr, fix) {
 			continue
 		}
 		d.Row, d.Action = r.id, r.action
@@ -368,7 +430,7 @@ func decideItem(c *ruleCtx, kind itemKind, queue QueueStatus, pr PRStatus) Decis
 		}
 		return d
 	}
-	if !waitDeclared(kind, queue, pr) {
+	if !waitDeclared(kind, queue, pr, fix) {
 		d.Row = rowUnmatched
 	}
 	return d

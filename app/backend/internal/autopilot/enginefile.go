@@ -16,53 +16,56 @@ import (
 
 const engineFileSuffix = ".autopilot.yaml"
 
-// engineItem is one queue or merge-sequence PR's durable intent. Fields used
-// only by the other item kind stay empty.
+// engineItem is one queue, merge-sequence PR, or recovery fix item's durable intent.
 type engineItem struct {
-	ID        string                 `yaml:"id" json:"id"`
-	Queue     string                 `yaml:"queue,omitempty" json:"queue,omitempty"`
-	Item      string                 `yaml:"item,omitempty" json:"item,omitempty"`
-	Repo      string                 `yaml:"repo,omitempty" json:"repo,omitempty"`
-	NWO       string                 `yaml:"nwo,omitempty" json:"nwo,omitempty"`
-	PR        interface{}            `yaml:"pr,omitempty" json:"pr,omitempty"`
-	URL       string                 `yaml:"url,omitempty" json:"url,omitempty"`
-	Change    string                 `yaml:"change,omitempty" json:"change,omitempty"`
-	Task      string                 `yaml:"task,omitempty" json:"task,omitempty"`
-	Bare      bool                   `yaml:"bare,omitempty" json:"bare,omitempty"`
-	Branch    string                 `yaml:"branch,omitempty" json:"branch,omitempty"`
-	Worktree  string                 `yaml:"worktree,omitempty" json:"worktree,omitempty"`
-	MergeSeq  string                 `yaml:"merge_seq,omitempty" json:"merge_seq,omitempty"`
-	MergeMode string                 `yaml:"merge_mode,omitempty" json:"merge_mode,omitempty"`
-	StopStage string                 `yaml:"stop_stage,omitempty" json:"stop_stage,omitempty"`
-	DependsOn []string               `yaml:"depends_on" json:"depends_on"`
-	Paused    bool                   `yaml:"paused,omitempty" json:"paused,omitempty"`
-	Spawning  string                 `yaml:"spawning,omitempty" json:"spawning,omitempty"`
-	Respawned bool                   `yaml:"respawned,omitempty" json:"respawned,omitempty"`
-	Skipped   bool                   `yaml:"skipped,omitempty" json:"skipped,omitempty"`
-	Pane      string                 `yaml:"pane,omitempty" json:"pane,omitempty"`
-	Session   string                 `yaml:"session,omitempty" json:"session,omitempty"`
-	Projected bool                   `yaml:"projected,omitempty" json:"projected,omitempty"`
-	Deferred  bool                   `yaml:"deferred,omitempty" json:"deferred,omitempty"`
-	Halted    bool                   `yaml:"halted,omitempty" json:"halted,omitempty"`
-	PRDropped bool                   `yaml:"pr_dropped,omitempty" json:"pr_dropped,omitempty"`
-	DoneAt    *string                `yaml:"done_at" json:"done_at"`
-	Escalated map[string]interface{} `yaml:"escalated" json:"escalated"`
-	AddedAt   string                 `yaml:"added_at,omitempty" json:"added_at,omitempty"`
-	UpdatedAt string                 `yaml:"updated_at,omitempty" json:"updated_at,omitempty"`
-	SpawnedBy string                 `yaml:"spawned_by,omitempty" json:"spawned_by,omitempty"`
+	ID         string                 `yaml:"id" json:"id"`
+	Queue      string                 `yaml:"queue,omitempty" json:"queue,omitempty"`
+	Item       string                 `yaml:"item,omitempty" json:"item,omitempty"`
+	Repo       string                 `yaml:"repo,omitempty" json:"repo,omitempty"`
+	NWO        string                 `yaml:"nwo,omitempty" json:"nwo,omitempty"`
+	PR         interface{}            `yaml:"pr,omitempty" json:"pr,omitempty"`
+	URL        string                 `yaml:"url,omitempty" json:"url,omitempty"`
+	Change     string                 `yaml:"change,omitempty" json:"change,omitempty"`
+	Task       string                 `yaml:"task,omitempty" json:"task,omitempty"`
+	Bare       bool                   `yaml:"bare,omitempty" json:"bare,omitempty"`
+	Branch     string                 `yaml:"branch,omitempty" json:"branch,omitempty"`
+	Worktree   string                 `yaml:"worktree,omitempty" json:"worktree,omitempty"`
+	MergeSeq   string                 `yaml:"merge_seq,omitempty" json:"merge_seq,omitempty"`
+	MergeMode  string                 `yaml:"merge_mode,omitempty" json:"merge_mode,omitempty"`
+	StopStage  string                 `yaml:"stop_stage,omitempty" json:"stop_stage,omitempty"`
+	DependsOn  []string               `yaml:"depends_on" json:"depends_on"`
+	Paused     bool                   `yaml:"paused,omitempty" json:"paused,omitempty"`
+	Spawning   string                 `yaml:"spawning,omitempty" json:"spawning,omitempty"`
+	Respawned  bool                   `yaml:"respawned,omitempty" json:"respawned,omitempty"`
+	Skipped    bool                   `yaml:"skipped,omitempty" json:"skipped,omitempty"`
+	Pane       string                 `yaml:"pane,omitempty" json:"pane,omitempty"`
+	Session    string                 `yaml:"session,omitempty" json:"session,omitempty"`
+	Projected  bool                   `yaml:"projected,omitempty" json:"projected,omitempty"`
+	Deferred   bool                   `yaml:"deferred,omitempty" json:"deferred,omitempty"`
+	Halted     bool                   `yaml:"halted,omitempty" json:"halted,omitempty"`
+	PRDropped  bool                   `yaml:"pr_dropped,omitempty" json:"pr_dropped,omitempty"`
+	Recovery   []string               `yaml:"recovery,omitempty" json:"recovery,omitempty"`
+	FixHead    string                 `yaml:"fix_head,omitempty" json:"fix_head,omitempty"`
+	RecoveryAt string                 `yaml:"recovery_at,omitempty" json:"recovery_at,omitempty"`
+	FixItem    string                 `yaml:"fix_item,omitempty" json:"fix_item,omitempty"`
+	DoneAt     *string                `yaml:"done_at" json:"done_at"`
+	Escalated  map[string]interface{} `yaml:"escalated" json:"escalated"`
+	AddedAt    string                 `yaml:"added_at,omitempty" json:"added_at,omitempty"`
+	UpdatedAt  string                 `yaml:"updated_at,omitempty" json:"updated_at,omitempty"`
+	SpawnedBy  string                 `yaml:"spawned_by,omitempty" json:"spawned_by,omitempty"`
 }
 
-// engineState is the complete single-writer engine file. Queue and PR order
-// are execution order and survive reads and writes unchanged.
+// engineState is the complete single-writer engine file. Item order is execution order.
 type engineState struct {
 	Version  int          `yaml:"version" json:"version"`
 	Migrated bool         `yaml:"migrated,omitempty" json:"migrated,omitempty"`
 	Queue    []engineItem `yaml:"queue" json:"queue"`
 	PRs      []engineItem `yaml:"prs" json:"prs"`
+	Fixes    []engineItem `yaml:"fixes" json:"fixes"`
 }
 
 func newEngineState() *engineState {
-	return &engineState{Version: 1, Queue: []engineItem{}, PRs: []engineItem{}}
+	return &engineState{Version: 1, Queue: []engineItem{}, PRs: []engineItem{}, Fixes: []engineItem{}}
 }
 
 func engineFilePath(statePath string) string {
@@ -93,11 +96,13 @@ func loadEngineFile(statePath string) (*engineState, error) {
 	if st.PRs == nil {
 		st.PRs = []engineItem{}
 	}
-	for i := range st.Queue {
-		normalizeEngineItem(&st.Queue[i])
+	if st.Fixes == nil {
+		st.Fixes = []engineItem{}
 	}
-	for i := range st.PRs {
-		normalizeEngineItem(&st.PRs[i])
+	for _, items := range [][]engineItem{st.Queue, st.PRs, st.Fixes} {
+		for i := range items {
+			normalizeEngineItem(&items[i])
+		}
 	}
 	return st, nil
 }
@@ -128,14 +133,11 @@ func writeEngineFile(statePath string, st *engineState) error {
 }
 
 func (s *engineState) find(id string) (*engineItem, bool) {
-	for i := range s.Queue {
-		if s.Queue[i].ID == id {
-			return &s.Queue[i], true
-		}
-	}
-	for i := range s.PRs {
-		if s.PRs[i].ID == id {
-			return &s.PRs[i], true
+	for _, items := range [][]engineItem{s.Queue, s.PRs, s.Fixes} {
+		for i := range items {
+			if items[i].ID == id {
+				return &items[i], true
+			}
 		}
 	}
 	return nil, false
@@ -151,6 +153,14 @@ func (s *engineState) upsert(it engineItem, pr bool) bool {
 	if pr {
 		items = &s.PRs
 	}
+	return upsertEngineItem(items, it)
+}
+
+func (s *engineState) upsertFix(it engineItem) bool {
+	return upsertEngineItem(&s.Fixes, it)
+}
+
+func upsertEngineItem(items *[]engineItem, it engineItem) bool {
 	for i := range *items {
 		if (*items)[i].ID == it.ID {
 			return false
@@ -162,16 +172,12 @@ func (s *engineState) upsert(it engineItem, pr bool) bool {
 }
 
 func (s *engineState) remove(id string) bool {
-	for i := range s.Queue {
-		if s.Queue[i].ID == id {
-			s.Queue = append(s.Queue[:i], s.Queue[i+1:]...)
-			return true
-		}
-	}
-	for i := range s.PRs {
-		if s.PRs[i].ID == id {
-			s.PRs = append(s.PRs[:i], s.PRs[i+1:]...)
-			return true
+	for _, items := range []*[]engineItem{&s.Queue, &s.PRs, &s.Fixes} {
+		for i := range *items {
+			if (*items)[i].ID == id {
+				*items = append((*items)[:i], (*items)[i+1:]...)
+				return true
+			}
 		}
 	}
 	return false
@@ -182,10 +188,12 @@ func engineItemFromTracked(it operator.TrackedItem, projected bool) engineItem {
 		ID: it.ID, Queue: operator.ScopeString(it.Scope, scopeQueue), Item: operator.ScopeString(it.Scope, scopeItem),
 		Repo: operator.ScopeString(it.Scope, "repo"), NWO: pinnedRepo(it), PR: it.Scope["pr"], URL: operator.ScopeString(it.Scope, scopeURL),
 		Change: operator.ScopeString(it.Scope, "change"), Task: operator.ScopeString(it.Scope, scopeTask), Bare: isBare(it),
-		Branch: operator.ScopeString(it.Scope, "branch"), MergeSeq: seqOf(it), MergeMode: modeOf(it), StopStage: operator.ScopeString(it.Scope, "stop_stage"),
+		Branch: operator.ScopeString(it.Scope, "branch"), MergeSeq: seqOf(it), MergeMode: operator.ScopeString(it.Scope, scopeMergeMode), StopStage: operator.ScopeString(it.Scope, "stop_stage"),
 		DependsOn: append([]string{}, it.DependsOn...), Paused: it.Paused, Spawning: operator.ScopeString(it.Scope, scopeSpawning),
 		Respawned: scopeBool(it, scopeRespawned), Skipped: skipped(it), Pane: operator.ScopeString(it.Scope, "pane"),
 		Session: operator.ScopeString(it.Scope, "session"), Projected: projected, Deferred: scopeBool(it, scopeDeferred), Halted: scopeBool(it, scopeHalted), PRDropped: scopeBool(it, scopePRDropped),
+		Recovery: recoveryValues(it.Scope[scopeRecovery]), FixHead: operator.ScopeString(it.Scope, scopeFixHead),
+		RecoveryAt: operator.ScopeString(it.Scope, scopeRecoverAt), FixItem: operator.ScopeString(it.Scope, scopeFixItem),
 		DoneAt: it.DoneAt, AddedAt: it.AddedAt, UpdatedAt: it.UpdatedAt, SpawnedBy: operator.ScopeString(it.Scope, "spawned_by"),
 		Escalated: map[string]interface{}{},
 	}
@@ -197,14 +205,48 @@ func engineItemFromTracked(it operator.TrackedItem, projected bool) engineItem {
 	return out
 }
 
+func recoveryValues(value interface{}) []string {
+	switch values := value.(type) {
+	case []string:
+		return append([]string{}, values...)
+	case []interface{}:
+		out := make([]string, 0, len(values))
+		for _, value := range values {
+			if text, ok := value.(string); ok {
+				out = append(out, text)
+			}
+		}
+		return out
+	case string:
+		if values != "" {
+			return []string{values}
+		}
+	}
+	return nil
+}
+
+func roundSpent(it operator.TrackedItem, kind string) bool {
+	for _, spent := range recoveryValues(it.Scope[scopeRecovery]) {
+		if spent == kind {
+			return true
+		}
+	}
+	return false
+}
+
 func (it engineItem) tracked() operator.TrackedItem {
 	scope := map[string]interface{}{
 		"repo": it.Repo, "change": it.Change, "branch": it.Branch, "stop_stage": nil,
 		"pane": it.Pane, "session": it.Session, "spawned_by": it.SpawnedBy,
-		scopeQueue: it.Queue, scopeMergeMode: it.MergeMode, scopeBare: it.Bare,
-		scopeSpawning: it.Spawning, scopeRespawned: it.Respawned, scopeSkipped: it.Skipped,
+		scopeBare: it.Bare, scopeSpawning: it.Spawning, scopeRespawned: it.Respawned, scopeSkipped: it.Skipped,
 		scopeEscalated: it.Escalated, "projected": it.Projected,
 		scopePRDropped: it.PRDropped, scopeEngineDone: it.DoneAt,
+	}
+	if it.Queue != "" {
+		scope[scopeQueue] = it.Queue
+	}
+	if it.MergeMode != "" {
+		scope[scopeMergeMode] = it.MergeMode
 	}
 	if it.Task != "" {
 		scope[scopeTask] = it.Task
@@ -223,6 +265,8 @@ func (it engineItem) tracked() operator.TrackedItem {
 	out.Kind = operator.KindGitHubPR
 	scope["pr"], scope[scopeMergeSeq], scope[scopeItem], scope[scopeURL] = it.PR, it.MergeSeq, it.Item, it.URL
 	scope[scopeDeferred], scope[scopeHalted] = it.Deferred, it.Halted
+	scope[scopeRecovery], scope[scopeFixHead] = recoveryValues(it.Recovery), it.FixHead
+	scope[scopeRecoverAt], scope[scopeFixItem] = it.RecoveryAt, it.FixItem
 	prItem, err := operator.NewGitHubPRItem(it.ID, out.DependsOn, scope, it.NWO)
 	if err == nil {
 		prItem.Paused, prItem.DoneAt, prItem.AddedAt, prItem.UpdatedAt = it.Paused, it.DoneAt, it.AddedAt, it.UpdatedAt
@@ -257,9 +301,12 @@ func engineView(statePath string) (*operator.State, map[string]operator.TrackedI
 		ledgerByID[it.ID] = it
 	}
 	st := &operator.State{BranchMap: ledger.BranchMap, LastCheckAt: ledger.LastCheckAt, Tracked: []operator.TrackedItem{}}
-	appendEngine := func(items []engineItem) {
+	appendEngine := func(items []engineItem, kind ...string) {
 		for _, engine := range items {
 			it := engine.tracked()
+			if len(kind) > 0 {
+				it.Kind = kind[0]
+			}
 			if p, ok := projections[it.ID]; ok {
 				it.Paused = it.Paused || p.Paused
 				it.Unchanged = p.Unchanged
@@ -278,6 +325,7 @@ func engineView(statePath string) (*operator.State, map[string]operator.TrackedI
 	}
 	appendEngine(es.Queue)
 	appendEngine(es.PRs)
+	appendEngine(es.Fixes, "fix")
 	for _, legacy := range ledger.Tracked {
 		if es.has(legacy.ID) {
 			continue
@@ -290,6 +338,15 @@ func engineView(statePath string) (*operator.State, map[string]operator.TrackedI
 	return st, projections, nil
 }
 
+func fixParent(st *operator.State, fixID string) (*operator.TrackedItem, bool) {
+	for i := range st.Tracked {
+		if isPRItem(st.Tracked[i]) && operator.ScopeString(st.Tracked[i].Scope, scopeFixItem) == fixID {
+			return &st.Tracked[i], true
+		}
+	}
+	return nil, false
+}
+
 // OwnedIDs reports ids whose decisions belong to the engine file.
 func OwnedIDs(statePath string) (map[string]bool, error) {
 	st, err := loadEngineFile(statePath)
@@ -297,11 +354,10 @@ func OwnedIDs(statePath string) (map[string]bool, error) {
 		return nil, err
 	}
 	out := map[string]bool{}
-	for _, it := range st.Queue {
-		out[it.ID] = true
-	}
-	for _, it := range st.PRs {
-		out[it.ID] = true
+	for _, items := range [][]engineItem{st.Queue, st.PRs, st.Fixes} {
+		for _, it := range items {
+			out[it.ID] = true
+		}
 	}
 	return out, nil
 }

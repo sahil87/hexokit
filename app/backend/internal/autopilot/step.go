@@ -109,12 +109,21 @@ type StatusItem struct {
 	Halted   bool   `json:"halted"`
 }
 
-// StatusResult is the read-only queue view. Summary is the Queue Completion
-// Summary, present when every queue item is done.
+// FixStatusItem is one recovery-spawn agent in the status view.
+type FixStatusItem struct {
+	ID     string    `json:"id"`
+	State  FixStatus `json:"state"`
+	Repo   string    `json:"repo"`
+	Branch string    `json:"branch"`
+}
+
+// StatusResult is the read-only queue and recovery view. Summary is the Queue
+// Completion Summary, present when every queue item is done.
 type StatusResult struct {
-	Items    []StatusItem `json:"items"`
-	Complete bool         `json:"complete"`
-	Summary  string       `json:"summary"`
+	Items    []StatusItem    `json:"items"`
+	Fixes    []FixStatusItem `json:"fixes"`
+	Complete bool            `json:"complete"`
+	Summary  string          `json:"summary"`
 	// Structured human-rendering inputs share the full JSON summary source.
 	SummaryItems []string `json:"-"`
 	MergeOrder   []string `json:"-"`
@@ -131,9 +140,16 @@ func Status(ctx context.Context, env Env) (StatusResult, error) {
 	e.readOnly = true
 	st, f, err := e.observe(ctx)
 	if err != nil {
-		return StatusResult{Items: []StatusItem{}}, err
+		return StatusResult{Items: []StatusItem{}, Fixes: []FixStatusItem{}}, err
 	}
-	res := StatusResult{Items: []StatusItem{}}
+	res := StatusResult{Items: []StatusItem{}, Fixes: []FixStatusItem{}}
+	for _, it := range st.Tracked {
+		if it.Kind == "fix" {
+			res.Fixes = append(res.Fixes, FixStatusItem{
+				ID: it.ID, State: deriveFix(st, f, it), Repo: operator.ScopeString(it.Scope, "repo"), Branch: operator.ScopeString(it.Scope, "branch"),
+			})
+		}
+	}
 	var queue []operator.TrackedItem
 	for _, it := range st.Tracked {
 		if legacyQueueItem(st, it) {

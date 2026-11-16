@@ -104,11 +104,15 @@ func timeoutFor(argv []string) time.Duration {
 }
 
 // Panes is the engine's view of the tmux server: the pane snapshot with each
-// pane's derived fab change, and a pane's process id.
+// pane's derived fab change, typed delivery, and a pane's process id.
 type Panes interface {
 	Snapshot(ctx context.Context) (map[string]operator.PaneInfo, error)
+	Send(ctx context.Context, paneID, text string) error
 	PID(ctx context.Context, paneID string) (int, error)
 }
+
+// ErrPaneBusy reports that a send would interrupt an active or waiting agent.
+var ErrPaneBusy = errors.New("pane agent is busy")
 
 // SpawnRequest is one agent window: a worktree of Repo, prepared, then a tab.
 type SpawnRequest struct {
@@ -177,18 +181,22 @@ func (e Env) now() time.Time {
 
 // Action kinds reported by the verbs.
 const (
-	ActSpawned      = "spawned"
-	ActRespawned    = "respawned"
-	ActCherryPicked = "cherry-picked"
-	ActArmed        = "armed"
-	ActMerged       = "merged"
-	ActDisarmed     = "disarmed"
-	ActPaused       = "paused"
-	ActDone         = "done"
-	ActRemoved      = "removed"
-	ActResumed      = "resumed"
-	ActPRTracked    = "pr-tracked"
-	ActReadied      = "readied"
+	ActSpawned       = "spawned"
+	ActRespawned     = "respawned"
+	ActCherryPicked  = "cherry-picked"
+	ActArmed         = "armed"
+	ActMerged        = "merged"
+	ActDisarmed      = "disarmed"
+	ActPaused        = "paused"
+	ActDone          = "done"
+	ActRemoved       = "removed"
+	ActResumed       = "resumed"
+	ActPRTracked     = "pr-tracked"
+	ActReadied       = "readied"
+	ActRecoverySent  = "recovery-sent"
+	ActRecoverySpawn = "recovery-spawned"
+	ActRebased       = "rebased"
+	ActUntracked     = "untracked"
 )
 
 // Action is one thing a verb did (or, under --dry-run, would do).
@@ -260,8 +268,7 @@ func (e *engine) reportf(format string, a ...interface{}) {
 // item, so a retried step does not repeat itself in the ledger.
 func (e *engine) escalate(id, reason string) { e.escalateAs(id, escalationKey(reason), reason) }
 
-// escalateAs is escalate with an explicit dedupe key: an escalate-once row keys
-// its reason by more than the text (P5 adds the head commit).
+// escalateAs is escalate with an explicit dedupe key supplied by the row.
 func (e *engine) escalateAs(id, key, reason string) {
 	if e.readOnly {
 		e.warnings = append(e.warnings, id+": "+reason)

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"rk/internal/autopilot"
+	"rk/internal/inject"
 	"rk/internal/operator"
 	"rk/internal/settings"
 	"rk/internal/tmux"
@@ -58,9 +59,24 @@ func (p autopilotPanes) Snapshot(ctx context.Context) (map[string]operator.PaneI
 	return operator.SnapshotPanes(ctx, p.server)
 }
 
+// Send refuses to interrupt an active or waiting agent; other sends use the
+// same sanitized, Enter-terminated injection path as mux send.
+func (p autopilotPanes) Send(ctx context.Context, paneID, text string) error {
+	facts, err := muxSendFactsFn(ctx, paneID, p.server)
+	if err != nil {
+		return fmt.Errorf("read pane facts: %w", err)
+	}
+	switch facts.AgentState {
+	case tmux.AgentStateActive, tmux.AgentStateWaiting:
+		return autopilot.ErrPaneBusy
+	}
+	engine := inject.NewEngine(muxBufferNameFn())
+	return muxSendEngineSendFn(ctx, engine, cliInjectTmux{}, p.server, paneID, inject.Sanitize(text), true)
+}
+
 var operatorAutopilotCmd = &cobra.Command{
 	Use:   "autopilot",
-	Short: "Run operator queues: spawn, chain, and merge in order",
+	Short: "Run operator queues: spawn, chain, merge, and recover PRs",
 	Long: `Run operator queues deterministically. A queue is N pane items chained by
 depends_on; a merge sequence is a chain of github-pr items. Every verb re-reads
 the operator state file, acts, and writes back under a lock, so nothing is held
@@ -159,9 +175,11 @@ merged on green); a PR merged on GitHub is recorded and its successor acts on
 the next pass. Every armed PR of a halted sequence is disarmed, whoever armed
 it. No call waits for CI; call step again later.
 
-A failed required check, or CONFLICTING with no progress, is only escalated as
-"recovery needed: <ci-failed|conflicting> — PR #<n> (<repo>)", once per head
-commit. The engine does not arm such a PR and does nothing else to it.
+A failed required check starts one CI fix round: the engine sends a fix request
+to an idle authoring pane or spawns one recovery agent when that pane is gone.
+A new red head or 30 minutes without a push halts and disarms the PR. A stalled
+CONFLICTING PR gets one detached-worktree rebase and lease-pinned force-push;
+auto-merge is re-armed by the next pass, and a recurring conflict halts.
 
 step takes the per-server pass lock (a --dry-run does not). If another pass
 holds it, step does nothing, prints "busy" and exits 0.
@@ -260,13 +278,14 @@ Exit codes:
 
 var operatorAutopilotStatusCmd = &cobra.Command{
 	Use:   "status [--all] [--json]",
-	Short: "Show the queue: state, mode, repo, branch, PR, position",
+	Short: "Show queue and recovery items with their derived status",
 	Long: `Queue view: per item the derived status (done, paused, skipped, held,
 pending, spawn-unknown, spawned, dead), mode, repo, branch and, for an item with
 a PR item, the PR number, the PR item's derived status (merged, halted, closed,
-deferred, blocked, draft, failed, conflicting, green, waiting) and its
-merge-sequence position, e.g. "PR #12 · green · 1/3". It writes nothing, takes
-no pass lock and reports no escalations.
+deferred, blocked, draft, fixing, failed, conflicting, green, waiting) and its
+merge-sequence position, e.g. "PR #12 · green · 1/3". Recovery-spawn fix items
+are listed with resolved, spawn-unknown or working status. Status writes nothing,
+takes no pass lock and reports no escalations.
 
 Statuses are derived by the same observe and derive stages as step, so status
 makes read-only GitHub calls: gh pr view and gh pr checks for the PRs that can
@@ -482,7 +501,15 @@ func runAutopilotStatus(cmd *cobra.Command, args []string) error {
 			s.Dataf("%s\n", line)
 		}
 		autopilotListTotal(s, "items", len(res.Items), autopilotShown(cmd, len(res.Items)))
-		if len(res.Items) == 0 {
+		for _, it := range res.Fixes[:autopilotShown(cmd, len(res.Fixes))] {
+			line := fmt.Sprintf("fix %s · %s · %s", it.ID, it.State, it.Repo)
+			if it.Branch != "" {
+				line += " · " + it.Branch
+			}
+			s.Dataf("%s\n", line)
+		}
+		autopilotListTotal(s, "fix items", len(res.Fixes), autopilotShown(cmd, len(res.Fixes)))
+		if len(res.Items)+len(res.Fixes) == 0 {
 			s.Dataf("no queue\n")
 		}
 		if res.Summary != "" {
