@@ -150,6 +150,28 @@ real `gh` (Constitution § PR Evidence).
 - **WHEN** it completes
 - **THEN** before/after desktop+mobile videos exist under `.demo/` with the stale glyph present only in `before`
 
+### PR Status: Change-Detector Coverage
+
+#### R11: Fab-sourced PRs stay in the 15 s change detector's tracked set
+The conditional-REST change detector's source set (`api/router.go`, `det.SetSource`) SHALL include
+observed URL entries (observedAt within `branchPRObservedTTL`, non-empty resolved `pr.URL`) alongside
+`ObservedEntries()`, with the same OPEN filter and collector override, keyed by the canonical
+`pr.URL` so `RefreshURLs` matches it. A fab-bound window's OPEN PR MUST be polled at the detector
+cadence exactly as its branch-registered PR was before this change.
+
+- **GIVEN** a fab-bound window whose `prs:` PR resolved OPEN
+- **WHEN** the detector builds its source set
+- **THEN** that PR's canonical URL is in the set and a detector flip re-resolves its URL entry
+
+#### R12: URL resolution backs off on persistent failure
+A `gh pr view` failure for a URL entry (error or unparsable output) SHALL stamp a failure time on the
+entry; the pass SHALL skip `gh` for that URL until a TTL (same order as `branchPRNegativeTTL`)
+elapses, mirroring the branch path's negative TTL. Last-good is still kept.
+
+- **GIVEN** a `prs:` entry for a non-existent PR
+- **WHEN** consecutive passes run inside the TTL
+- **THEN** `gh pr view` runs once, not once per pass
+
 ### Non-Goals
 
 - Persisting URL entries to the disk seed cache — cold start resolves them on the first wake pass (~2.5 s); identity renders meanwhile.
@@ -183,7 +205,7 @@ real `gh` (Constitution § PR Evidence).
 - [x] T004 Wire the filter into `refreshWhere` in `prstatus_branch.go`: index path — `viewerIndexPR` filters before `pickBranchCandidate`; all filtered → miss (fall through); unknown → keep last-good and `continue`. gh path — split `pickBranchPR` into a parse step (`parseBranchPRs`) + filter + `pickBranchCandidate`; all filtered → authoritative negative with `negativeAt = now`; unknown → keep last-good and `continue`. Prune `ancestry` entries for repos not in `liveRepos` on the full tick <!-- R1, R2, R3 -->
 - [x] T005 Extend `app/backend/internal/fabstatus/fabstatus.go`: `State.PRURL`; replace `parseProgressStates` usage with one `yaml.Node` walk returning both the ordered progress pairs and the last non-empty scalar entry of a top-level `prs:` sequence (malformed → ""); `parseFabStatusLink` sets `PRURL` only on an otherwise-valid derivation <!-- R6 -->
 - [x] T006 Add the URL-keyed resolution to `app/backend/internal/prstatus/prstatus_branch.go`: `urlEntries` map (pr, observedAt, seeded=false) guarded by `r.mu`; `(*BranchRefresher).RegisterURL` (signals wake on first sight) / `SnapshotURL`; package façade `RegisterURL` / `SnapshotURLPR` on `DefaultBranchRefresher`; package var seam `branchPRViewExec` (`gh pr view <url> --json number,url,state,isDraft,updatedAt,headRefOid`, `ghTimeout`, argv); a viewer URL map (built in `storeViewerIndex`, keyed by URL) used before gh; resolve in `refreshWhere` after the pair loop (full tick: age-out with the branch TTLs; targeted pass: only URLs in `onlyURLs`); skip re-query when last-good state is MERGED; transient/parse error keeps last-good; gh gated on the shared lazy `ghAvailableNow` <!-- R8 -->
-- [x] T007 Change `enrichWindowPR(w *tmux.WindowInfo, fabPRURL string)` in `app/backend/internal/sessions/sessions.go`: parse the PR number from the `/pull/<n>` segment (pure string parse, helper with test); on success `prstatus.RegisterURL`, set identity, overlay `SnapshotURLPR` (state via `MapBranchState`, draft, canonical URL) and return without touching the branch path; otherwise the existing branch path. Pass `fab.PRURL` from the per-window loop (the `fab := fabMemo.WindowState(...)` value, hoisted if needed). Update the function's doc comment to the new two-source rule <!-- R7, R8 -->
+- [x] T007 Change `enrichWindowPR(w *tmux.WindowInfo, fabPRURL string)` in `app/backend/internal/sessions/sessions.go`: parse the PR number from the `/pull/<n>` segment (pure string parse, helper with test); on success `prstatus.RegisterURL`, set identity, overlay `SnapshotURLPR` (state via `MapBranchState`, draft, canonical URL) and return without touching the branch path; otherwise the existing branch path. Pass `fab.PRURL` from the per-window loop (the `fab := fabMemo.WindowState(...)` value, hoisted if needed). Update the function's doc comment to the new two-source rule <!-- R7, R8 --> <!-- rework: reuse prstatus.parsePRURL via an exported PRNumberFromURL wrapper; delete parsePRNumber; restore the call-site tier comment -->
 
 ### Phase 3: Integration & Edge Cases
 
@@ -198,6 +220,13 @@ real `gh` (Constitution § PR Evidence).
 - [x] T013 Update `docs/specs/status-pyramid.md`: L3 row source column (line ~28), invariant 6 branch-reuse note, and the D2 decision row cross-reference <!-- R9 -->
 - [x] T014 Add `app/frontend/tests/demo/pr-branch-reuse.demo.ts` (file-header + per-test Proves/Steps JSDoc per the Constitution): beforeAll picks a historical MERGED hexokit PR via `gh pr list --state merged --json number,headRefName,headRefOid` (one whose head ref is not `main`), creates temp worktrees of this repo — (a) `-b <that headRefName>` at `origin/main` (reused-name case), (b) a control worktree on a second merged PR's own `headRefName`, created at that PR's head commit (`git fetch origin pull/<n>/head`, then `git worktree add -b <headRefName> <path> FETCH_HEAD`; skip/choose another PR if that branch name already exists locally) — opens rig tmux windows in each, then shows the sidebar rows and PANE register; afterAll removes the worktrees/branches. Record with `just demo pr-branch-reuse --before` and keep the printed PR-body block and `gh pr edit --attach` line for ship <!-- R10 -->
 
+### Phase 5: Rework (review cycle 1)
+
+- [x] T015 Add an observed-URL-entries accessor on `BranchRefresher` in `app/backend/internal/prstatus/prstatus_branch.go` (URL entries observed within `branchPRObservedTTL` with a non-empty resolved `pr.URL`, shaped like `ObservedEntries()`), merge it into the detector source in `app/backend/api/router.go` (~lines 901–922) with the same OPEN filter and collector override; tests for the accessor and the merged source set <!-- R11 -->
+- [x] T016 Add a failure stamp + TTL backoff to URL entries in `refreshURL` (`prstatus_branch.go`), skipping `gh pr view` while fresh; test that a failing URL runs gh once across passes inside the TTL <!-- R12 --> <!-- rework: refreshURL also consults viewerURLs under the resolved canonical entry.pr.URL -->
+- [x] T017 Restore and complete doc comments (A-016): `enrichWindowPR` (restore the CRITICAL zero-subprocess rule and the PrState/PrIsDraft fallback rationale, add the fab-first rule); `fabstatus` `parseFabStatus` (return values + malformed behaviour); every new seam/type/field/func in `prstatus_branch.go` (`branchPRViewExec`, `branchHeadExec`, `branchAncestorExec` incl. why exit 128 = not owned and other errors = unknown, `ancestryVerdict`, `ancestryKey`, `urlEntry`, `BranchPR.HeadRefOid`, `urlEntries`/`viewerURLs`, `RegisterURL`/`SnapshotURL`, `refreshURL`, `ownedCandidates`, the `RegisterURL`/`SnapshotURLPR` façades) in sibling style; fix stale `RefreshURLs` and `refreshWhere` docs (URL entries; ownership filter; unknown → keep last-good); a one-line note on the sessions test seams (`registerBranchPRFn` etc.) <!-- R1, R7, R8 --> <!-- rework: document branchHeadResult (and ancestryEntry, or collapse it to map[ancestryKey]bool) -->
+- [x] T018 Cleanup: remove the stray blank lines after `if !ghAvailableNow() {` / `if err != nil {`; drop the unread `ancestryEntry.at` (store the verdict only); remove `pickBranchPR` if only tests use it (repoint tests at `parseBranchPRs` + `pickBranchCandidate`); drop the redundant nil-guards on `r.viewExec`/`r.headExec`/`r.ancestorExec`/`r.ancestry`; drop the redundant `w.PrState = ""`/`w.PrIsDraft = false` resets in `sessions.go`. Re-run `just test-backend` and `just build` <!-- R1, R8 -->
+
 ## Execution Order
 
 - T001 blocks T002–T004 and T006 (struct fields).
@@ -208,42 +237,48 @@ real `gh` (Constitution § PR Evidence).
 
 ### Functional Completeness
 
-- [ ] A-001 R1: MERGED/CLOSED candidates are attributed only on a `--is-ancestor` exit-0 verdict; exit 1, exit 128, and empty oid are not owned
-- [ ] A-002 R2: All-filtered index candidates fall through to gh; all-filtered gh results write an authoritative negative with `negativeAt`
-- [ ] A-003 R3: A transient ownership/HEAD failure leaves the pair's entry byte-for-byte unchanged for that pass
-- [ ] A-004 R4: `headRefOid` flows from gh `--json`, GraphQL, `ViewerPR`, index candidates, `BranchPR`, and the disk seed (optional field)
-- [ ] A-005 R5: Ownership subprocesses use `exec.CommandContext` + timeout + argv, run outside `r.mu`, only for merged/closed adjudication, with HEAD resolved once per repo per pass and definite verdicts cached by `(repo, oid, head)` and pruned
-- [ ] A-006 R6: `fabstatus.State.PRURL` is the last non-empty `prs:` entry; malformed input yields "" without affecting stage derivation
-- [ ] A-007 R7: Fab-bound windows with a parseable `prs:` URL take identity from it and never register the branch pair; others use the branch path
-- [ ] A-008 R8: Fab PR URLs are resolved off the hot path (viewer data first, then `gh pr view`), canonical URL replaces the recorded one, MERGED is terminal, and unknown state renders as ""
-- [ ] A-009 R9: status-pyramid.md L3 row and invariant 6 describe both sources and the ancestry rule
-- [ ] A-010 R10: `just demo pr-branch-reuse --before` produced before/after desktop+mobile videos showing the stale glyph only in `before` and the control PR in both
+- [x] A-001 R1: MERGED/CLOSED candidates are attributed only on a `--is-ancestor` exit-0 verdict; exit 1, exit 128, and empty oid are not owned
+- [x] A-002 R2: All-filtered index candidates fall through to gh; all-filtered gh results write an authoritative negative with `negativeAt`
+- [x] A-003 R3: A transient ownership/HEAD failure leaves the pair's entry byte-for-byte unchanged for that pass
+- [x] A-004 R4: `headRefOid` flows from gh `--json`, GraphQL, `ViewerPR`, index candidates, `BranchPR`, and the disk seed (optional field)
+- [x] A-005 R5: Ownership subprocesses use `exec.CommandContext` + timeout + argv, run outside `r.mu`, only for merged/closed adjudication, with HEAD resolved once per repo per pass and definite verdicts cached by `(repo, oid, head)` and pruned
+- [x] A-006 R6: `fabstatus.State.PRURL` is the last non-empty `prs:` entry; malformed input yields "" without affecting stage derivation
+- [x] A-007 R7: Fab-bound windows with a parseable `prs:` URL take identity from it and never register the branch pair; others use the branch path
+- [x] A-008 R8: Fab PR URLs are resolved off the hot path (viewer data first, then `gh pr view`), canonical URL replaces the recorded one, MERGED is terminal, and unknown state renders as ""
+- [x] A-009 R9: status-pyramid.md L3 row and invariant 6 describe both sources and the ancestry rule
+- [x] A-010 R10: `just demo pr-branch-reuse --before` produced before/after desktop+mobile videos showing the stale glyph only in `before` and the control PR in both
 
 ### Scenario Coverage
 
-- [ ] A-011 R1: Unit tests cover the reused-name fresh-worktree case (not owned → no PR) and the genuine merged branch case (owned → purple)
-- [ ] A-012 R7: Unit tests cover fab-first precedence over a branch-resolvable PR and the `prs: []` fallback
-- [ ] A-013 R8: Unit tests cover the run-kit → hexokit canonicalization and the no-re-query-after-MERGED rule
+- [x] A-011 R1: Unit tests cover the reused-name fresh-worktree case (not owned → no PR) and the genuine merged branch case (owned → purple)
+- [x] A-012 R7: Unit tests cover fab-first precedence over a branch-resolvable PR and the `prs: []` fallback
+- [x] A-013 R8: Unit tests cover the run-kit → hexokit canonicalization and the no-re-query-after-MERGED rule
 
 ### Edge Cases & Error Handling
 
-- [ ] A-014 R1: An OPEN candidate short-circuits ownership checks entirely (no git subprocess)
-- [ ] A-015 R8: gh unavailable or erroring keeps last-good URL entries; URL entries age out like branch entries
+- [x] A-014 R1: An OPEN candidate short-circuits ownership checks entirely (no git subprocess)
+- [x] A-015 R8: gh unavailable or erroring keeps last-good URL entries; URL entries age out like branch entries
 
 ### Code Quality
 
-- [ ] A-016 Pattern consistency: New seams, caches, and façades mirror `branchDefaultExec`/`branchOriginExec`/`Register`/`SnapshotBranchPR` naming, locking, and comment style
-- [ ] A-017 No unnecessary duplication: precedence still goes through `pickBranchCandidate`; gh parsing shared between list/view where shapes match
-- [ ] A-018 Go subprocesses: every new git/gh call uses `exec.CommandContext` with a timeout and an argv slice — no shell strings (Constitution I)
-- [ ] A-019 Disposable daemon: no new authoritative in-memory state; caches are bounded and derivable; the SSE hot path stays zero-subprocess (Constitution II/X)
-- [ ] A-020 Comments state constraints, not narration or change IDs (code-quality anti-pattern)
-- [ ] A-021 Tests added for every changed behavior and run via `just test-backend`; `just build` passes
+- [x] A-022 R11: The detector source set includes observed, resolved URL entries (OPEN filter, collector override, canonical URL); a test proves a fab-bound OPEN PR is tracked
+- [x] A-023 R12: A persistently failing URL resolution runs `gh pr view` at most once per backoff TTL; a test proves it
+- [x] A-016 Pattern consistency: New seams, caches, and façades mirror `branchDefaultExec`/`branchOriginExec`/`Register`/`SnapshotBranchPR` naming, locking, and comment style <!-- review: re-verified after rework cycle 2 — branchHeadResult documented, ancestryEntry collapsed to map[ancestryKey]bool, parsePRNumber removed; enrichWindowPR keeps the CRITICAL hot-path rule -->
+- [x] A-017 No unnecessary duplication: precedence still goes through `pickBranchCandidate`; gh parsing shared between list/view where shapes match <!-- review: sessions now calls prstatus.PRNumberFromURL (thin wrapper over parsePRURL); the local parsePRNumber copy is gone -->
+- [x] A-018 Go subprocesses: every new git/gh call uses `exec.CommandContext` with a timeout and an argv slice — no shell strings (Constitution I)
+- [x] A-019 Disposable daemon: no new authoritative in-memory state; caches are bounded and derivable; the SSE hot path stays zero-subprocess (Constitution II/X)
+- [x] A-020 Comments state constraints, not narration or change IDs (code-quality anti-pattern)
+- [x] A-021 Tests added for every changed behavior and run via `just test-backend`; `just build` passes <!-- review: touched packages green; only cmd/rk TestPortPinRowRealPolicyValues fails (runDoctorChecks reads the real host environment; unrelated to this diff) -->
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+None — this change adds new functionality without making existing code redundant (`pickBranchPR` was already folded into `parseBranchPRs` + `pickBranchCandidate`; the duplicate `parsePRNumber` and the single-field `ancestryEntry` were removed in rework).
 
 ## Assumptions
 
@@ -256,4 +291,6 @@ real `gh` (Constitution § PR Evidence).
 | 5 | Confident | The fab path skips `prstatus.Register` for the branch pair entirely | No identity use for it; avoids needless gh work | S:75 R:90 A:80 D:80 |
 | 6 | Confident | Demo control case uses a second merged PR's head fetched via `pull/<n>/head` in its own worktree, with real `gh` | Constitution § PR Evidence requires exercising the gh integration; ancestry needs the head commit locally | S:55 R:85 A:60 D:60 |
 
-6 assumptions (0 certain, 6 confident, 0 tentative).
+| 7 | Confident | Rework cycle 1 path: "Revise plan" (R11/R12 + T015–T018) — the detector regression is missing functionality, the comment gaps ride the same cycle as added tasks | Review findings: must-fix detector coverage (missing functionality) + A-016 comment gaps | S:80 R:85 A:85 D:80 |
+
+7 assumptions (0 certain, 7 confident, 0 tentative).

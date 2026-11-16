@@ -885,3 +885,26 @@ func TestDetectorTokenFailureNegativelyCached(t *testing.T) {
 		t.Fatalf("host with a working token was not polled after the TTL")
 	}
 }
+
+func TestPRNumberFromURL(t *testing.T) {
+	tests := []struct {
+		rawURL string
+		want   int
+		ok     bool
+	}{
+		{rawURL: "https://github.com/o/r/pull/1073", want: 1073, ok: true},
+		{rawURL: "http://ghe.corp/o/r/pull/8/", want: 8, ok: true},
+		{rawURL: "https://github.com/o/r/issues/9"},
+		{rawURL: "https://github.com/o/r/pull/0"},
+		{rawURL: "https://github.com/o/r/pull/nope"},
+		{rawURL: "not-a-url"},
+		{rawURL: "https://github.com/pull/9"},
+		{rawURL: "ftp://github.com/o/r/pull/9"},
+	}
+	for _, tc := range tests {
+		got, ok := PRNumberFromURL(tc.rawURL)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("PRNumberFromURL(%q) = (%d, %v), want (%d, %v)", tc.rawURL, got, ok, tc.want, tc.ok)
+		}
+	}
+}

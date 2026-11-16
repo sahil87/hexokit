@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"rk/internal/config"
+	"rk/internal/prstatus"
 	"rk/internal/settings"
 	"rk/internal/tmux"
 )
@@ -149,5 +150,29 @@ func TestNewRouterAndServer_UsesInjectedConfigSnapshot(t *testing.T) {
 	}
 	if s.codeServerPort != 6125 {
 		t.Errorf("codeServerPort = %d, want 6125 (snapshot port + 2)", s.codeServerPort)
+	}
+}
+
+func TestPRDetectorSourceMergesObservedURLEntries(t *testing.T) {
+	const a = "https://github.com/o/r/pull/1"
+	const b = "https://github.com/o/r/pull/2"
+	const c = "https://github.com/o/r/pull/3"
+	const closed = "https://github.com/o/r/pull/4"
+	branchEntries := []prstatus.SeedBranchPR{
+		{PR: prstatus.BranchPR{URL: a, State: "MERGED"}},
+		{PR: prstatus.BranchPR{URL: b, State: "OPEN"}},
+	}
+	urlEntries := []prstatus.BranchPR{
+		{URL: a, State: "OPEN"},
+		{URL: c, State: "OPEN"},
+		{URL: closed, State: "CLOSED"},
+	}
+	snapshot := map[string]prstatus.PRStatus{
+		a: {URL: a, State: "open"},
+		c: {URL: c, State: "merged"},
+	}
+	got := prDetectorSource(branchEntries, urlEntries, snapshot)
+	if len(got) != 2 || got[0] != a || got[1] != b {
+		t.Fatalf("prDetectorSource = %v, want [%s %s]", got, a, b)
 	}
 }

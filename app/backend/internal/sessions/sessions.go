@@ -5,11 +5,8 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -714,19 +711,8 @@ func windowPRKey(w *tmux.WindowInfo) (repoDir, branch string) {
 	return repoDir, branch
 }
 
-func parsePRNumber(rawURL string) (int, bool) {
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
-		return 0, false
-	}
-	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(parts) != 4 || parts[2] != "pull" {
-		return 0, false
-	}
-	number, err := strconv.Atoi(parts[3])
-	return number, err == nil && number > 0
-}
-
+// PR-status function seams let tests prove registration and snapshot behavior
+// without replacing the process-wide refresher or spawning subprocesses.
 var (
 	registerBranchPRFn = prstatus.Register
 	snapshotBranchPRFn = prstatus.SnapshotBranchPR
@@ -735,19 +721,26 @@ var (
 )
 
 // enrichWindowPR prefers the fab change's recorded PR, then falls back to the
-// branch-derived PR. Both paths only register observations and join in-memory
-// snapshots; all GitHub resolution runs on the background refresher.
+// branch-derived PR. A parseable fab PR URL bypasses branch registration even
+// on the default branch; an absent or malformed URL uses the branch path.
 //
-// PrState and PrIsDraft are fallbacks for the collector join in attachPRStatus.
-// An unresolved fab PR deliberately keeps an unknown state rather than defaulting
-// to open.
+// CRITICAL: this runs on the SSE hot path, so both sources only register an
+// observation and join an in-memory snapshot. All gh/git resolution runs on the
+// background refresher — never inline in FetchSessions.
+//
+// PrState is a fallback for attachPRStatus's collector join. A CLOSED PR outside
+// the collector's recency window would otherwise have prNumber with empty state,
+// making prOwnsDot paint a done-square; MapBranchState maps unknown to "" so no
+// uncertain state is presented as open.
+//
+// PrIsDraft is seeded because the collector only sees the viewer's own PRs. The
+// branch/URL channel is author-agnostic and covers teammate drafts; the collector
+// still overrides it on a hit.
 func enrichWindowPR(w *tmux.WindowInfo, fabPRURL string) {
-	if number, ok := parsePRNumber(fabPRURL); ok {
+	if number, ok := prstatus.PRNumberFromURL(fabPRURL); ok {
 		registerURLPRFn(fabPRURL)
 		w.PrURL = &fabPRURL
 		w.PrNumber = &number
-		w.PrState = ""
-		w.PrIsDraft = false
 		if pr, resolved := snapshotURLPRFn(fabPRURL); resolved {
 			w.PrState = prstatus.MapBranchState(pr.State)
 			w.PrIsDraft = pr.IsDraft
@@ -948,6 +941,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 			// Repo-relative display prefix per web slot (needs GitRoot for the
 			// cross-repo label); the raw absolute roots stay server-side.
 			sd.windows[j].WebPaths = deriveWebPaths(&sd.windows[j])
+			// PR tier: fab prs: first, else branch; snapshot-only on the hot path.
 			enrichWindowPR(&sd.windows[j], fab.PRURL)
 		}
 

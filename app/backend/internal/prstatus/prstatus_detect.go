@@ -347,6 +347,13 @@ func parsePRURL(rawURL string) (prIdentity, bool) {
 	return prIdentity{host: host, owner: parts[0], repo: parts[1], number: n}, true
 }
 
+// PRNumberFromURL returns the PR number from a canonical PR URL and rejects
+// non-PR paths, missing repositories, and non-positive numbers.
+func PRNumberFromURL(rawURL string) (int, bool) {
+	id, ok := parsePRURL(rawURL)
+	return id.number, ok
+}
+
 // The four conditional endpoints, built from one identity. The CI endpoints
 // embed the head SHA, so a push re-baselines them without eviction logic
 // (the old SHA's entries are dropped explicitly when the SHA changes).

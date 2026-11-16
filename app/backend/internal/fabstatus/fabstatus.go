@@ -137,6 +137,9 @@ type stageState struct {
 	state string
 }
 
+// parseFabStatus reads ordered progress entries and the last non-empty scalar
+// prs URL in one yaml.Node walk. A missing or malformed prs value only clears
+// prURL; it never changes the derived stage states.
 func parseFabStatus(data []byte) (states []stageState, prURL string) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {

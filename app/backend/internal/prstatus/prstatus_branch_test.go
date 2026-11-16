@@ -113,6 +113,14 @@ func branchListJSON(nodes ...string) []byte {
 	return []byte(out)
 }
 
+func pickBranchPR(out []byte) (*BranchPR, error) {
+	prs, err := parseBranchPRs(out)
+	if err != nil {
+		return nil, err
+	}
+	return pickBranchCandidate(prs), nil
+}
+
 // branchNode renders an OPEN PR node (the common case for the non-precedence
 // tests). Precedence tests use branchNodeState to set a specific state.
 func branchNode(number int, url, updatedAt string) string {
@@ -2850,5 +2858,73 @@ func TestBranchRefresherHeadResolvedOncePerRepoPerPass(t *testing.T) {
 	r.refresh(context.Background())
 	if headCalls != 1 {
 		t.Fatalf("HEAD resolved %d times for two branches in one repo, want 1", headCalls)
+	}
+}
+
+func TestBranchRefresherObservedURLEntriesLiveAndResolvedOnly(t *testing.T) {
+	const rawURL = "https://github.com/o/r/pull/4"
+	now := time.Unix(1_000_000, 0)
+	r := newTestRefresher(true, nil)
+	r.now = func() time.Time { return now }
+	r.viewExec = func(context.Context, string) ([]byte, error) {
+		return []byte(branchNodeState(4, rawURL, "OPEN", "2026-07-01T00:00:00Z")), nil
+	}
+	r.RegisterURL(rawURL)
+	r.refresh(context.Background())
+	r.RegisterURL("https://github.com/o/r/pull/5")
+
+	got := r.ObservedURLEntries()
+	if len(got) != 1 || got[0].URL != rawURL {
+		t.Fatalf("ObservedURLEntries = %+v, want only the resolved live URL", got)
+	}
+	now = now.Add(branchPRObservedTTL + time.Second)
+	if got := r.ObservedURLEntries(); len(got) != 0 {
+		t.Fatalf("ObservedURLEntries past observed TTL = %+v, want empty", got)
+	}
+}
+
+func TestBranchRefresherURLFailureBackoff(t *testing.T) {
+	const rawURL = "https://github.com/o/r/pull/404"
+	now := time.Unix(1_000_000, 0)
+	calls := 0
+	r := newTestRefresher(true, nil)
+	r.now = func() time.Time { return now }
+	r.viewExec = func(context.Context, string) ([]byte, error) {
+		calls++
+		return nil, errors.New("not found")
+	}
+	r.RegisterURL(rawURL)
+	r.refresh(context.Background())
+	r.refresh(context.Background())
+	if calls != 1 {
+		t.Fatalf("failing URL queried %d times within backoff TTL, want 1", calls)
+	}
+	now = now.Add(branchPRNegativeTTL + time.Second)
+	r.RegisterURL(rawURL)
+	r.refresh(context.Background())
+	if calls != 2 {
+		t.Fatalf("failing URL queried %d times after backoff TTL, want 2", calls)
+	}
+}
+
+func TestBranchRefresherURLViewerHitUsesCanonicalEntryURL(t *testing.T) {
+	const recordedURL = "https://github.com/sahil87/run-kit/pull/811"
+	const canonicalURL = "https://github.com/sahil87/hexokit/pull/811"
+	r := newTestRefresher(true, nil)
+	r.urlEntries[recordedURL] = urlEntry{
+		pr:         &BranchPR{Number: 811, URL: canonicalURL, State: "OPEN"},
+		observedAt: r.now(),
+	}
+	r.viewerURLs = map[string]BranchPR{
+		canonicalURL: {Number: 811, URL: canonicalURL, State: "OPEN"},
+	}
+	r.viewExec = func(context.Context, string) ([]byte, error) {
+		t.Fatal("canonical viewer hit must not invoke gh")
+		return nil, nil
+	}
+	r.refreshURL(context.Background(), recordedURL, func() bool { return true })
+	pr, ok := r.SnapshotURL(recordedURL)
+	if !ok || pr.URL != canonicalURL || pr.State != "OPEN" {
+		t.Fatalf("canonical viewer resolution = ok=%v pr=%v", ok, pr)
 	}
 }
