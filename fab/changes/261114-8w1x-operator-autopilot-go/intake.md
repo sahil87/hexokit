@@ -1,296 +1,214 @@
-# Intake: Operator Autopilot in Go
+# Intake: Operator Autopilot Core (R6a)
 
 **Change**: 261114-8w1x-operator-autopilot-go
-**Created**: 2026-11-14
+**Created**: 2026-11-14 (re-scoped to R6a 2026-11-16)
 
 ## Origin
 
-> R6 from fab/plans/sahil/26-11-10-operator-to-hexokit.md: autopilot in Go (queue, readiness gate, spawn, dependency code, ordered merge, three merge modes cherry-pick-ladder/stacked-prs/merge-auto). Depends on C1, which is complete. Resolve the open decision on where merge_mode lives (rk settings vs reading fab config via the fab CLI) at intake.
+> Execute step R6a of fab/plans/sahil/26-11-16-operator-autopilot-restructure.md: rewrite intake.md for the R6a scope (carry the listed decisions, put the review bar in the non-goals), git rm the old plan.md, score and advance intake, then run /fab-fff. Quote the review bar in every review dispatch. If a third review fails, stop and report the findings grouped by class; do not start a fourth run. Do not start R6b, R6c or R7.
 
-Started with `/fab-new` and run interactively. The source plan is `fab/plans/sahil/26-11-10-operator-to-hexokit.md` (step **R6**). Its "Decisions already taken" table is binding and is not reopened here. The behaviour being ported is specified in fab-kit's legacy operator skill (`$(fab kit-path)/skills/_operator-legacy.md` §6: The pane Kind and Spawn Rules, Spawning an Agent, Dependency Resolution, Working a Change, Queues, Ordered Merge, Auto-Merge Choreography, PR Recovery). In this repo it exists only as condensed interim text: `app/backend/internal/operator/brief_autopilot.md`.
+This change started as **R6** of `fab/plans/sahil/26-11-10-operator-to-hexokit.md` (the parent plan): a Go port of fab's whole §6 autopilot (queue, readiness, spawn, dependency code, ordered merge in all three modes, PR recovery). It ran two `/fab-fff` runs (8 reviews, 6 rework cycles) without passing review. The restructure plan `fab/plans/sahil/26-11-16-operator-autopilot-restructure.md` re-scopes this change to **R6a (autopilot core)** and moves the `stacked-prs` merge-all to R6b and PR recovery to R6c (both new changes, later). Its "Decisions (binding for R6a–R7)" table is binding here and is not reopened. The parent plan's "Decisions already taken" table still binds except where the restructure plan replaces it.
 
-Two decisions were put to the user at intake, and both answers are binding:
+The branch already carries the full-scope engine (commit `e99ca698`, also preserved on `261114-8w1x-r6-full-reference`). R6a **keeps, simplifies and finishes** that code in place; it does not start over. The previous full-scope `plan.md` (R1–R28, T001–T032) is deleted so apply regenerates the plan from this intake.
 
-1. **Where `merge_mode` lives** (the plan's open R6 decision): **an rk settings key**. It is a new `operator.merge_mode` entry in the `internal/settings` registry (`~/.config/hexokit/config.yaml`). rk never reads fab's `autopilot.merge_mode`, with no fallback and no dual-read, so F2 can retire that fab key. Rejected: "rk setting + one-release fab fallback via `fab config show --json`" (extra code plus a temporary fab dependency), and "keep reading fab's key via the fab CLI" (fab would keep a key for a feature it no longer owns, and the setting would do nothing without fab).
-2. **PR Recovery scope**: **port it in R6**. The `ci-failed` fix round and the `conflicting` rebase + re-arm become Go actions, so R7 can delete the whole interim autopilot text. This makes R6 larger, accepted knowingly.
+Decisions confirmed by the user at the original R6 intake/clarify that carry into R6a (binding):
+
+| Decision | Source |
+|---|---|
+| `merge_mode` lives in rk settings as `operator.merge_mode`; fab's `autopilot.merge_mode` is never read (no fallback, no dual-read) | User, R6 intake |
+| Mode resolution `--mode` > setting > `cherry-pick-ladder`, resolved once at `queue` and stamped on every item; an invalid value is an error | Parent plan + R6 intake |
+| Verbs `rk operator autopilot` `queue` / `step` / `merge` / `stop` / `status`; `queue` takes a JSON array on stdin; `step` is one idempotent pass and no verb waits for CI | User, R6 clarify |
+| `stacked-prs` spawns cut the dependent's branch from the SHA of `origin/<dep-branch>`, never `wt create --checkout` | User, R6 clarify |
+| Engine is called by runs and chat; the daemon does not call it (R8 candidate) | R6 intake |
+| Spawn reuses `internal/riff` in-process; the engine never notifies (returns escalations); no MCP tools | R6 intake |
+| Git tested against real temp repos; `gh`/`fab` through a scripted runner fake; `main_test.go` pins a hermetic git identity | R6 intake + CI fix |
+
+The R6 decision "port PR Recovery in R6" is **superseded** by the restructure plan's split: recovery is R6c.
 
 ## Why
 
-**Problem.** After C1 the operator runs as fresh, short headless runs (R5's loop) driven by a run brief (R4). Autopilot (queues, dependency chaining, spawning, ordered merge, PR recovery) still exists only as ~180 lines of interim prose in `brief_autopilot.md`, and every run that touches a queue re-interprets it. That prose is the riskiest text an LLM run executes:
+**Problem.** After C1 the operator runs as short headless runs (R5's loop) driven by a run brief (R4). Autopilot still exists only as interim prose in `app/backend/internal/operator/brief_autopilot.md`, which every run that touches a queue re-interprets. That prose drives destructive git/gh operations (cherry-picks, `gh pr merge --auto --squash`, `gh pr merge --disable-auto`) whose correctness depends on sharp edges a model can get wrong: pass the base as a SHA, never a ref; a failed `git fetch` must stop the spawn; prune ancestor deps before cherry-picking; arm at most one PR per repo sequence; disarm only the halted cone. It also inflates every run's brief.
 
-- It drives **destructive-tier** git/gh operations: cherry-picks, `git push --force-with-lease`, `gh pr merge --auto --squash`, `gh pr edit --base`, `gh pr merge --disable-auto`.
-- Its correctness depends on **sharp edges** a model can get subtly wrong. Examples: pass the base as a **SHA, never a ref** (a remote-tracking start point sets upstream tracking); a failed `git fetch` must **stop** the spawn (falling through to `rev-parse` silently returns the stale `origin/<default>`); prune same-repo deps whose branch is an ancestor of another dep's branch before cherry-picking; arm at most one PR per repo sequence; disarm only the halted dependency cone.
-- It also inflates every run's brief, against the plan's cold-cache budget of ≈ 10–15K tokens.
+**Why R6 did not converge.** Three causes (restructure plan): (1) too many failure modes at once — about 3,900 lines of engine plus 4,400 of tests surviving crashes mid-action, two overlapping passes, external state writers, unknown-outcome GitHub timeouts and tmux pane-id reuse in every combination; (2) each fix (claims, markers, rollbacks, retries) added new code with new failure cases — five of the last eight findings were about two `step` passes overlapping; (3) scope bigger than needed (PR recovery, `stacked-prs` merge-all).
 
-**If we don't.** R7 (trim the brief) and F2 (delete fab's operator) stay blocked. Every queue keeps paying model tokens to re-derive deterministic git/gh choreography, and a misread of the prose can merge the wrong PR, cut a stale base, or leave an orphaned armed PR that merges unattended.
+**Why this approach.** A **single-writer pass lock** removes the whole "two passes overlap" class, so the claim/CAS machinery can be deleted rather than hardened. Splitting off `stacked-prs` merge-all (R6b) and PR recovery (R6c) leaves a core that can land and be reviewed on its own. A **written review bar** (in Non-Goals below) bounds review so it converges. Each part replaces the brief section it covers in the same PR, so there is never a window where brief and engine both claim the same job.
 
-**Why this approach.** The plan's Ownership decision puts autopilot in HexoKit: it is git/gh/wt orchestration whose only fab touchpoints are `.status.yaml` reads, `fab status set-base-branch`, and fab skills used as spawn prompts. Run-kit Principle III forbids reimplementing *change management*, not orchestrating branches and PRs. Putting it in Go gives deterministic, unit-tested behaviour for every sharp edge. Runs and chat then call a few verbs instead of executing prose. The queue state stays **the tracked items themselves** (no new queue store), so a fresh daemon or run re-orients from the state file alone (Constitution II).
+**If we don't.** R7 and F2 stay blocked, every queue keeps paying model tokens to re-derive deterministic choreography, and a misread of the prose can merge the wrong PR or leave an orphaned armed PR.
 
 ## What Changes
 
-### 1. New package `app/backend/internal/autopilot`
+The engine is `app/backend/internal/autopilot/` with the CLI in `app/backend/cmd/rk/operator_autopilot.go`, both already on the branch. The state model is unchanged: queue state is the tracked items themselves (`internal/operator` `TrackedItem`, `State`, `BranchMap`), all new keys live in the items' opaque `scope`, reads are tolerant, nothing is migrated on disk.
 
-A deterministic engine over the existing operator state (`internal/operator`: `TrackedItem`, `State`, `BranchMap`, the store's sidecar lock + atomic write). It has no in-memory queue state. Every verb loads the state file, derives what to do, acts, and writes back under the store's lock using the existing tolerant-read/typed-write contract (external writes win). The lock is **never held across a subprocess**, the same discipline `operator.Check` uses (load → release → act → re-lock → merge by item id → write).
+### 1. Single-writer pass lock (new) and removal of claim machinery
 
-Subprocess seams follow `internal/fabsysconfig`: a `Runner` interface (`git`, `gh`, `wt`, `fab`). Every exec is an argv slice through `exec.CommandContext` with a timeout (Constitution I and Process Execution). Suggested bounds: `git fetch` 60 s, other git 30 s, `gh` 30 s, `wt create` 30 s (build-class), `fab` 10 s (matches `fabsysconfig.FabTimeout`). Tests inject a scripted fake runner for gh/fab. Git behaviour is tested against **real temporary git repos** (bare origin + clones) so SHA pinning, upstream tracking, ancestry and cherry-pick conflicts are exercised for real.
+- `rk operator autopilot step`, `merge` and `stop` take an **exclusive, non-blocking, per-server pass lock** for the whole pass: `flock` (`LOCK_EX|LOCK_NB`) on `<state dir>/<slug>.autopilot.lock`, where `<state dir>/<slug>` is the same directory and `cron.FabOperatorSlug` slug the operator state file `<slug>.yaml` uses (`operator.StatePath*`). The OS releases a `flock` when the process dies, so a crash never leaves the lock held (Constitution II).
+- A second caller that finds the lock held **does nothing and exits 0** with result `busy` (`{"ok":true,"result":{"busy":true,…}}` in `--json`; a one-line human message saying another autopilot pass is running on this server and to retry). `queue` and `status` do not take the pass lock (`queue` is a single locked state write; `status` is read-only).
+- The **state-file lock is unchanged**: the store's sidecar lock is still never held across a subprocess, and writes still merge by item id with external writes winning. `rk operator track`, `rk operator check` and the daemon keep writing concurrently; the pass lock serialises autopilot passes only.
+- **Delete** the concurrency machinery the pass lock replaces: `internal/autopilot/claim.go` (`claimSpawn`, `claimWork`, claim tokens, `rollbackClaim`, `releaseClaim`, `reconcileClaim`, claim leases), the snapshot compare-and-set, `claim_test.go`, and every overlapping-pass test (e.g. `TestOverlappingStepsClaimOnlyOneRespawn`, `TestStaleRecoverySnapshotCannotClaim`). Launch logic that used the claim becomes straight-line code.
+- **Keep crash safety through the `spawning` intent marker** (`scope.spawning`, a timestamp): written (one locked write) **before** the launch; the launched pane (`scope.pane`, `session`, `branch` + `branch_map`) is written **right after** the launch, clearing `spawning`. A later pass that finds `spawning` set **without** a pane does **not** relaunch: it escalates (`spawn interrupted: <id> — check for an orphaned window, then clear with rk operator track update`) and leaves the item alone. The same marker guards the one respawn.
+- **Delete** `operator.RecordPanePID` (`internal/operator/export.go`) — it has no callers — together with any `scope.pane_pid` fingerprint code that exists only for it.
 
-#### 1a. Queue model (no new state)
+### 2. Queue (keep)
 
-A queue is N `pane` tracked items chained by `depends_on`, as today:
+`rk operator autopilot queue [--mode <m>] [--by user|run|chat] [--dry-run] [--json] < entries.json` persists N pending `pane` items in one locked write, as built:
 
-- An item with no `scope.pane` is **unspawned**.
-- `scope.merge_mode` is stamped on **every** item of the queue at enqueue time. `null` is read as `cherry-pick-ladder` for backward compatibility with items created before this change by `rk operator track add --mode`.
-- Per-item derived state, consistent with `listState` in `internal/operator/track.go`: `done` › `paused` › `held` (any `depends_on` unsatisfied) › `pending` (unspawned, deps satisfied) › `spawned`.
+- Entries are a JSON array on stdin (`id`, `repo`, `change` | `task` | neither = bare, optional `depends_on`, `stop_stage`).
+- Every item gets `scope.queue` (the queue id — explicit queue membership) and `scope.merge_mode`, resolved by `--mode` > `operator.merge_mode` > `cherry-pick-ladder`; the receipt prints `mode: <name> (flag|setting|default)`. An invalid setting value is an error naming the valid set.
+- Implicit chaining: each entry after the first depends on the nearest earlier same-repo entry, else the previous entry (cross-repo = ordering-only). Explicit `depends_on` replaces it. In `merge-auto`, each entry depends on the previous entry as an ordering barrier only.
+- Rejected before any write: forward and cyclic dependencies, deps on bare entries, duplicate or already-tracked ids, repos that are not absolute git roots, invalid branches.
+- **Misfit-safe live call**: a live `queue` whose receipt has a misfit (`merge-auto` with explicit same-repo `depends_on`) and no explicit `--mode` writes nothing and errors naming the misfit. The chat flow is dry-run first: `queue --dry-run`, confirm mode and misfits with the user, then exactly one live call.
+- **Explicit queue membership**: an item is queue work iff it carries `scope.queue`, or (legacy) a non-null `scope.merge_mode`, or it has a `depends_on` edge with another queue-eligible item. A bare pane tracked with `rk operator track add` is never queue work and is never respawned.
 
-**Implicit chaining** (queue ordering "user-provided"): every entry after the first gets `depends_on: [<nearest earlier entry in the same repo>]`. When no earlier entry shares its repo, it depends on the immediately previous entry, which is cross-repo and therefore ordering-only. Explicit `depends_on` given on an entry replaces the implicit one. In `merge-auto` implicit chaining is **disabled**: each entry depends on the previous entry as an ordering barrier only, its code is based on `origin/<default>` independently, and the next spawn waits for the previous PR's **verified merge** (see §1e).
+### 3. Readiness gate (keep)
 
-Worked example: the chain `ab12 (repo foo) → cd34 (repo bar) → ef56 (repo foo)` yields `cd34.depends_on=[ab12]` (cross-repo barrier, no code moves) and `ef56.depends_on=[ab12]` (same-repo, cherry-picked). Queue order still runs `ef56` after `cd34`.
+- Derived state per item, strict precedence: `done` › `paused` › `held` (any `depends_on` unsatisfied) › `pending` (unspawned, deps satisfied) › `spawned`. Stored null mode reads as `cherry-pick-ladder`.
+- A dependency is satisfied when done: fab item → `done_at` / `.status.yaml` `ship` done/skipped or `stop_stage` reached; change-less item → its branch has an open PR whose **required** checks pass (`gh pr checks <n> --required`; "no required checks" passes; optional checks never block) or a merged PR, persisted as `done_at`.
+- Same-repo dep with null `stop_stage`: its PR must also exist. Tracking, a `branch_map` entry or a minted branch are not satisfaction. A dep surviving only in `branch_map` passes; an unknown dep id is unsatisfied.
+- Every branch read from shared state (item scope, `branch_map`) is validated (`safeBranch`) before any fetch, worktree, push or gh call on that path; invalid → escalation, no mutation.
 
-#### 1b. Readiness gate ("dependency satisfied")
+### 4. Spawn — all three modes (keep)
 
-A `depends_on` entry is satisfied when the dependency item is **done**:
+For each `pending`, unpaused queue item, in queue order:
 
-- **fab change pane item**: `.status.yaml` shows `ship` done/skipped, or the item's `scope.stop_stage` is reached (the existing built-in completion, persisted as `done_at`).
-- **Change-less (plain-agent) pane item**: its branch has an **open PR whose required checks pass**, or a merged PR (`gh pr view <branch> --json url,state,statusCheckRollup`). The engine persists `done_at` when it observes this, as durable evidence.
+1. Target repo = `scope.repo`. `git fetch origin` first; **a failed fetch stops** the spawn (item stays `pending`, escalation; `rev-parse` never consulted). Default branch: verified `origin/HEAD` → `gh repo view` → `main`/`master` probe. Base = **SHA** of `origin/<default>` (no upstream tracking).
+2. Confidence gate: an existing fab change whose `.status.yaml` score is below 3.0 is not spawned (escalation). Raw-text entries skip the gate.
+3. Write `scope.spawning`, then open the worktree + tab through `internal/riff` in-process (`WorktreeName` = item id, `WorktreeBase` = the SHA; role-aware landing session; window marked `auto` with note `"<id> · <stage>"`).
+4. Dependency code for the same-repo subset (cross-repo = gate only):
+   - **`cherry-pick-ladder`**: dep branch from `scope.branch`, else `branch_map`; missing → escalate, no spawn. Prune deps whose branch is an ancestor of another dep's branch; skip deps already ancestors of `HEAD`; `git cherry-pick --no-commit origin/<default>..<dep-branch>` + `git commit -m "operator: cherry-pick <dep> dependency"`. On conflict: `git cherry-pick --abort`, roll the worktree back, escalate, open no tab.
+   - **`stacked-prs`**: cut the new branch from the SHA of `origin/<dep-branch>` (never `--checkout`). Record the base: existing fab change → `fab status set-base-branch <change> <dep-branch>` in the new worktree; raw-text fab entry → trailing prompt instruction to run it after `/fab-new`; non-fab plain agent → the PR instruction names the dep branch as base.
+   - **`merge-auto`**: no chaining; base on `origin/<default>` independently.
+5. Pointer activation (existing fab change, fail-soft): `fab change switch <change>` in the new worktree.
+6. Prompt by the two-axis table (fab present × task given): existing change → `<prefix>fab-fff <change>`; raw text → `<prefix>fab-new <text>`; no `fab/` + task → task + "Commit on this branch, push, and open a draft PR against <base>."; bare → no prompt token. Agent command/prefix from the **target** repo's `fab agent default`. Never `fab init`; never raw implementation text to a fab-project agent.
+7. Attach: `scope.pane`, `session`, `branch` and `branch_map[<change-or-id>]` in one locked write merged by id; clears `spawning`.
 
-**Plus**, for a **same-repo** dependency with a null `stop_stage`, its PR must exist (`gh pr view <dep-branch> --json url` succeeds). Tracking, a `branch_map` entry, or a minted branch are **not** satisfaction.
+**Respawn**: a spawned queue item whose pane is gone and that is not done gets **one** existing-branch respawn, `scope.respawned: true` written before acting; afterwards it is skipped with an escalation and dependents stay held. Pane liveness keyed by tmux pane id is accepted (see review bar).
 
-A dep that has left the tracked list and survives only in `branch_map` (removed on its own `done`) passes the gate. A dep id found in neither place is unsatisfied, matching today's `heldDep`. A **bare** item (no task) can never satisfy a dependent, so the queue verb rejects any `depends_on` that names a bare entry.
+### 5. Merge — `cherry-pick-ladder` merge-all and `merge-auto` (keep, with one fix)
 
-**Repo classification**: a dep is same-repo when its `scope.repo` (or its `branch_map[<id>].repo`) equals the dependent's `scope.repo` after path cleaning. Otherwise it is cross-repo: an ordering-only barrier in every mode, and no code moves across repos.
+`rk operator autopilot merge [--repo <path>] [--json]` starts the ordered merge on the user's "merge all" (one in-chat confirm for the sequence). It refuses while queue items are not done, is a no-op for `merge-auto` items, and **refuses a `stacked-prs` sequence** with a message pointing at the brief's stacked-prs merge text (R6b ports that path). Sequences are chains of `github-pr` items (`scope {repo, pr, change, merge_seq}`, `depends_on` the previous PR), per repo, base-first; a `github-pr` item always carries an explicit `owner/name` repo (unresolvable → no item, escalation). Later `step` passes advance them.
 
-#### 1c. Spawn sequence (one pending item)
+The five Auto-Merge rules for `cherry-pick-ladder`:
 
-1. **Target repo** = the item's `scope.repo` (an absolute main-worktree root), never the operator's own repo.
-2. **Fetch first, pin the base.** In the repo root run `git fetch origin`. **A failed fetch is a hard stop**: no `wt create`, the item stays `pending`, and the result carries an escalation line (retried on the next invocation). Resolve the default branch by the chain `git symbolic-ref --short refs/remotes/origin/HEAD` (accepted only if `refs/remotes/origin/<it>` verifies) → `gh repo view --json defaultBranchRef -q .defaultBranchRef.name` → `main` if `origin/main` exists, else `master`. Then `base_sha=$(git rev-parse origin/<default>)`.
-3. **Confidence gate** (existing fab change only): when the change's `.status.yaml` carries a confidence score below fab's flat 3.0 intake gate, do not spawn. The item stays `pending` and the result escalates ("below confidence gate"). Raw-text entries have no score yet and skip the gate.
-4. **Worktree.** Reuse `internal/riff` (`riff.Spawn` / `riff.Options`), the existing wt + tmux window + launcher engine, rather than shelling out to `rk tab new`. `WorktreeName` is the item id and `WorktreeBase` is the **SHA**, never the ref name, so the new branch has no upstream tracking. For a fab change the change folder name rides as wt's positional branch argument. riff gains whatever small extensions the engine needs (for example an existing-branch `--checkout` route for respawn and conflict recovery when the worktree is gone, and the spawn-prompt composition below). Those are additions; current riff callers stay byte-identical.
-5. **Dependency code**, by mode, for the same-repo subset (the cross-repo subset is gate-only):
-   - **`cherry-pick-ladder`**: resolve each dep's branch from the dep item's `scope.branch`, else `branch_map[<dep>].branch`. If any branch is missing, escalate and do not spawn. **Prune** a dep whose branch is an ancestor of another dep's branch (`git merge-base --is-ancestor A B`). For each remaining dep not already an ancestor of `HEAD`, run in the new worktree `git cherry-pick --no-commit origin/<default>..<dep-branch>` followed by `git commit -m "operator: cherry-pick <dep> dependency"`. **On conflict**: `git cherry-pick --abort`, write a note, escalate, and do not open the tab. The created worktree is rolled back (riff already has a rollback delete). Bounded retry is 0.
-   - **`stacked-prs`**: no cherry-pick. The new branch is cut from the **SHA of `origin/<dep-branch>`** after the fetch (nearest same-repo predecessor). The dep's branch is not checked out, because the dep's worktree usually still holds that branch and git refuses a second checkout. <!-- clarified: user confirmed — stacked-prs uses --base <SHA of origin/dep-branch> instead of the legacy `wt create --checkout <dep-branch>` route — the dep's worktree normally still has that branch checked out, so --checkout would fail, and a SHA pin keeps the no-upstream-tracking rule --> The base branch is recorded for `/git-pr`. For an **existing** fab change, run `fab status set-base-branch <change> <dep-branch>` in the new worktree right after the worktree step. For a **raw-text** fab entry, append a trailing instruction to the rendered `fab-new` prompt: "after `/fab-new` creates the change, run `fab status set-base-branch <new-change> <dep-branch>`". For a **non-fab** plain agent, the PR instruction names the dep branch as the PR base.
-   - **`merge-auto`**: no chaining. Base on `origin/<default>` independently.
-6. **Pointer activation** (fab, existing change only, fail-soft): in the new worktree, when `fab resolve --folder <change>` succeeds, run `fab change switch <change>`. A failure logs one line and the spawn continues.
-7. **Session command and prompt**: `fab agent default -o yaml --repo <repo>` (via riff's existing `ResolveAgent`) gives `command` and `skill_prefix`. **Always use the target repo's resolution.** Prompt by the two-axis table:
+1. **Sequential arming**: at most one armed PR per repo sequence; PR_n armed only after PR_{n-1}'s merge is verified (its item done, `state == MERGED`).
+2. **Arming shapes**: ready a draft first (`gh pr ready`); always pass `--squash`; "already clean" (no required checks) → `gh pr merge --squash` directly; auto-merge disabled on the repo → step-driven direct merge for that sequence (merge when required checks are green and `MERGEABLE`).
+3. **Stall rule → escalation, not action**: a failed required check, or `unchanged ≥ 3` with no failed check and `mergeable == CONFLICTING`, produces the escalation `recovery needed: <ci-failed|conflicting> — <pr> (<repo>)` and leaves the PR **armed**. No fix request, rebase, re-arm or recovery spawn (R6c).
+4. **The items are the sequence**: a restarted run resumes from the state file alone.
+5. **Disarm on halt** (`gh pr merge --disable-auto`) over the halted cone only (failing repo's sub-sequence plus repos with a transitive cross-repo `depends_on` into it); independent sequences continue. `stop` is global.
 
-   | | task given | no task (bare) |
-   |---|---|---|
-   | `fab/` present (`test -d <repo>/fab`) | existing change → `<prefix>fab-fff <change>`; raw text → `<prefix>fab-new <text>` | no prompt token |
-   | no `fab/` | `<task>` + `"\n\nCommit on this branch, push, and open a draft PR against <base>."` (`<base>` = the default branch, or the dep branch in `stacked-prs`) | no prompt token |
+Arming durability:
 
-   Never `fab init`. Never send raw implementation text to a fab-project agent.
-8. **Open the tab** via riff in the target tmux server and session. The landing session follows the same role-aware default `rk tab new` uses; reuse that resolver, never the ambient session or a persisted `scope.session`. Mark the window (`@rk_win_*` mark `auto` + note `"<id> · <stage>"`) through the existing tab-mark/note code paths.
-9. **Attach**: update the existing pending item's scope (`pane`, `session`, `branch`), and add the `branch_map[<change-or-id>] = {branch, repo}` entry. This is one locked write, merged by item id.
+- `scope.armed` is written **before** `gh pr merge --auto`. Only a definitive rejection from a closed, tested list (auto-merge not allowed, PR not armable, "clean status" → direct merge) clears it; timeouts, network/5xx and unrecognised errors **keep** the marker and escalate `arm outcome uncertain`.
+- **Fix from the last R6 review (must fix)**: a transient disarm failure must not leave a PR `halted` and `armed` with later passes skipping it. The halt path and `stop` **retry the disarm until it is durable**: a PR item with `halted` (or a global stop) and `armed` still set is retried on every later `step`/`stop` pass until `--disable-auto` succeeds (or reports already-disabled / PR merged or closed), and only then is `armed` cleared. Each failed attempt escalates.
+- Markers that acknowledge an action (`halted`, merged completion, stop) are persisted before the action is reported done; a failed write is an escalation, never a success line.
+- Merges with no non-`PENDING` review are reported `· unreviewed` plus one summary line `merged without review: #n (<change>), …`. Report lines carry repo + position, e.g. `ab12: merged (foo 1/2)`.
 
-**Respawn**: a spawned item whose pane died (the Check condition `pane_death` / `agent_exited` with the item not done) gets **one** respawn via the existing-branch route, recorded as `scope.respawned: true` before acting. After that it is skipped: note, escalate, and leave dependents held.
+**`merge-auto`** (arm-on-ship): when a queue item ships, the next `step` creates its one-PR `github-pr` sequence and arms it per rule 2. The next queue item stays `held` until that merge is **verified**, then spawns on the advanced `origin/<default>` tip via the normal fetch + SHA pin. A halt disarms that one PR and escalates; the next spawn stays deferred.
 
-#### 1d. Ordered merge (`cherry-pick-ladder` and `stacked-prs`, on explicit user request)
+### 6. Stop and status (keep)
 
-Merging always happens on the user's "merge all" confirmation (the destructive-tier confirm is given once, in chat, for the whole sequence). The verb **starts** a sequence. Later `step` invocations **advance** it, so no CLI call ever foreground-waits for CI. The sequence state is a chain of `github-pr` tracked items, as today:
+- `stop`: global user stop — disarm every armed PR (retried until durable, above) and pause every unspawned queue item (`paused: true`); live panes untouched.
+- `status`: read-only per-item view (derived state, mode, repo, branch, PR, merge position) plus the Queue Completion Summary when all items are done. No pass lock, no escalations.
 
-```
-pr-<n>   kind github-pr, scope {repo, pr: n, change: <id>, merge_seq: <repo-seq-id>}, depends_on [pr-<n-1>]
-```
+### 7. Move out to R6b / R6c
 
-These are per-repo sequences. Within a repo the order is base-first in dependency order. Across repos a dependent's PR merges only after its barrier dep's PR is merged.
+Remove from the branch, with their tests:
 
-- **`cherry-pick-ladder`** uses the **Auto-Merge Choreography**, all five rules:
-  1. **Sequential arming**: at most one armed PR per repo sequence. PR_n is armed only after PR_{n-1}'s merge is **verified**, meaning its `github-pr` item is done (`state == "MERGED"`).
-  2. **Arming-failure shapes**: a draft is readied first (`gh pr ready <n>`). An "already clean" rejection (no required checks) means merge directly with `gh pr merge --squash <n>`. Auto-merge disabled on the repo means fall back to the step-driven direct merge (below) for that sequence. `--squash` is always passed explicitly.
-  3. **Stall rule**: a failed required check (`gh pr checks <n> --required --json name,state,link`, any `FAILURE`) means PR Recovery `ci-failed`. `unchanged ≥ 3` with no failed check and `gh pr view <n> --json mergeable` == `CONFLICTING` means PR Recovery `conflicting`.
-  4. **The items are the sequence**. A restarted daemon or run resumes from `rk operator track list` alone.
-  5. **Disarm on halt** (`gh pr merge --disable-auto <n>`) over the **halted cone only**: the failing repo's sub-sequence plus every repo whose items transitively carry a cross-repo `depends_on` into it. Independent sub-sequences keep going. A user **stop** is global and disarms everything.
-- **`stacked-prs`** never arms. An armed stacked PR can merge into its dependency's *branch*, or fire on stale-green checks after a base retarget. A **step-driven direct merge** is used instead. On each `step`, when the next PR's required checks are green and `mergeable` is `MERGEABLE`, run `gh pr merge --squash <n>`. Then, before the next PR in that chain is mergeable:
-  1. **Verify the base retarget**. GitHub auto-retargets when the merged base branch was deleted. Otherwise run `gh pr edit <next> --base <default>` (a plain branch name, never a remote ref).
-  2. **Rebase after the squash merge**: `git fetch origin && git rebase --onto origin/<default> <merged-dep-branch> <next-branch> && git push --force-with-lease`, in the next change's worktree (the live pane's, else an existing-branch worktree created through `internal/riff`/wt). **A conflict halts and escalates, never skips** (`git rebase --abort`).
-- **Unreviewed merges**: for every PR merged during a step with no non-`PENDING` review (`gh pr view <n> --json reviews`), the step's report marks it `· unreviewed` and adds one summary line `merged without review: #n (<change>), …`. This is never silent and never a prompt.
-- **Report lines** per merge include the repo and position, e.g. `ab12: merged (foo 1/2)`.
+- **`stacked-prs` merge path** → R6b: `stackedStep`, `prepareStacked`, the base-retarget (`retarget` in `idempotent.go`) and `rebase --onto` + `--force-with-lease` code, `scope.prepared`, and stacked merge tests (`merge_test.go` stacked cases, `TestStackedPushWriteFailureDoesNotReportRebased`, `TestStackedRejectsMalformedCurrentAndPredecessorBranches`, the retarget part of `TestAlreadyAppliedReadyArmAndRetarget`).
+- **PR recovery** → R6c: all of `recovery.go` (`ci-failed` fix round, `conflicting` rebase + re-arm, recovery spawn, authoring-pane lookup, `scope.recovery`/`fix_head`/`fix_item`, `<change>-fix` items) and its tests (recovery cases in `lifecycle_test.go`, `merge_test.go`, `escalation_test.go`, `revised_rules_test.go`, e.g. `TestFixRound*`, `TestConflictingRejectsMalformedSharedBranch`, `TestRecoveryCleanupFailuresEscalate`, `TestWorktreeLookupFailurePreventsRecoverySpawn`).
 
-#### 1e. `merge-auto` (merge as you go)
+Tests that cover R6a behaviour in those files stay (adapted to the single-writer model). Helpers left with no caller after the removal are deleted, not kept for R6b/R6c (they port from the reference branch).
 
-When a queued item ships, the next `step` creates its `github-pr` item and arms it. The arming follows rule 2's shapes; `merge-auto` is a one-PR sequence per item. The next queue item (whose ordering barrier is this item) stays `held` until that PR's merge is **verified**. Only then is it spawned, and its spawn's fetch + SHA pin puts it on the advanced `origin/<default>` tip. There is no separate pre-spawn rebase. A halt in `merge-auto` disarms this one PR and escalates. The next spawn stays deferred until the user acts.
+### 8. CLI (keep, finish)
 
-#### 1f. PR Recovery (ported per the user's decision)
+`rk operator autopilot queue|step|merge|stop|status`, each with `-L/--server` (default: caller's server from `$TMUX`) and `--json` (`{"ok":true,"result":{…}}`). `step [--dry-run]` reports the plan with no side effects (and takes no pass lock in dry-run). Human output caps each list per the shll toolkit P9 list-cap standard with an exact total, a truncation notice and an `--all` flag; `--json` stays complete. Exit codes: 0 ok (including `busy`), 1 operational, 2 usage/invalid — and the help text states exactly what the implementation does (pinned by CLI tests). Help conforms to the shll toolkit standards.
 
-There is one bounded action per reason, and the marker is persisted **before** acting (`scope.recovery` on the `github-pr` item, merged per key). That way a restarted run can tell an already-recovered item from a first sighting.
+`step` order: (a) persist newly observed `done_at` for change-less items; (b) advance merge sequences (verify merges, arm next, `merge-auto` create + arm, retry pending disarms); (c) stall detection → `recovery needed` escalations; (d) spawn/respawn eligible queue items in queue order; (e) emit escalations (`spawned`, `cherry-picked`, `armed`, `merged`, `disarmed` actions + escalation lines). The engine never notifies; the caller turns escalations into `rk notify`.
 
-| Reason | Detected by | One action | Then |
-|---|---|---|---|
-| `ci-failed` | rule 3's failed required check (or the stacked-prs step's red checks) | Write `scope.recovery="ci-fix"` and `scope.fix_head=<headRefOid>`. Then send the **authoring pane** the fix request below through the existing injection engine (the same path `rk mux send` uses). The PR **stays armed**. Pane gone: **one** recovery spawn via the existing-branch route with the same text, tracked as change-less `<change>-fix` (removed when the round resolves) | Green means continue, and the merge report appends `· after CI fix round`. Red on a head ≠ `fix_head`, or 30 min with no new push: halt the cone, disarm (rule 5), escalate with the agent's one-line diagnosis |
-| `conflicting` | rule 3's `unchanged ≥ 3`, no failed check, `CONFLICTING` | Write `scope.recovery="rebase"`. In the change's worktree (the live pane's, else an existing-branch worktree): `git fetch origin && git rebase origin/<default> && git push --force-with-lease`, then re-arm `gh pr merge --auto --squash <n>` (an "already enabled" rejection is fine). Recoverable tier: announce, no confirm | `CONFLICTING` again with `recovery == "rebase"`, or the rebase itself conflicts (`git rebase --abort`): disarm, halt the cone, escalate naming the files |
+### 9. Brief swap (new in R6a)
 
-The fix-request text is sent verbatim in one Enter-terminated send with no skill prefix:
+In `app/backend/internal/operator/brief_autopilot.md`, replace these sections with the `step` instruction ("run `rk operator autopilot step -L <server>` and act on its escalations: send `rk notify` for each; never run the spawn/arm choreography by hand"):
 
-```
-CI failed on PR #<n> (<repo>): check `<check name>` — run <run link>[, shard S/N].
-Diagnose and fix on this branch, push, and report the root cause in one line.
-```
+- "Items and readiness"
+- "Spawning a queue item"
+- the `cherry-pick-ladder` and `merge-auto` parts of "Merging" (the `stacked-prs` merge-all text stays until R6b, and the run is told `rk operator autopilot merge` refuses it)
+- the non-recovery rows of "Failures and timing" (the recovery rows — CI fix round, conflicting rebase — stay until R6c)
 
-The **authoring pane** is found by change, never by memory: the pane whose derived fab change equals the `github-pr` item's `scope.change`. rk already derives a change per pane from cwd + `.status.yaml` (`internal/sessions/fabstate.go`); reuse that and do not call `fab pane map`.
+"PR recovery" stays in full until R6c, and the brief notes that `step` reports these cases as `recovery needed: <reason>` escalations. The file's header line is updated (no longer "replaced by the R6 autopilot engine" as a whole). A test renders the brief (`operator.RenderBrief`) and asserts the replaced sections are gone, the `rk operator autopilot step` instruction is present, and the stacked-prs merge and PR recovery text remain. The chat-skill topic (`cmd/rk/skill/operator.md` and its `docs/site/skill/operator.md` mirror) is kept consistent: "merge all" on a `stacked-prs` queue follows the brief text, not `merge`.
 
-#### 1g. Failures and timing
+### 10. Settings: `operator.merge_mode` (keep as built)
 
-| Event | Action |
-|---|---|
-| Review exhausted (fab change parked at review fail) | Escalate; dependents stay held. The user decides (skip = `track rm`) |
-| Ship-stage rebase conflict (worker STOPped) | Escalate; in `merge-auto` the queue continues with the next independent item, in chained modes dependents stay held |
-| Cherry-pick conflict / `stacked-prs` rebase conflict | Escalate, **never skip** |
-| Pane died | One respawn, then skip (escalate) |
-| Stage over 30 min / queue over 2 h | Note + escalate (flag only) |
+Registry enum key `operator.merge_mode` (`cherry-pick-ladder | stacked-prs | merge-auto`, default absent → `cherry-pick-ladder` source `default`), read only at `queue`. It renders on the settings surface, so the PR needs desktop + mobile screenshot evidence of that row (Constitution § PR Evidence); everything else is `No recording: internal CLI/engine behavior`.
 
-An **escalation** is a structured line in the verb's result (and a note on the item) that the caller (run or chat) turns into `rk notify` per the run rules. The engine itself never notifies.
+### 11. Tests
 
-### 2. CLI: `rk operator autopilot` family (`app/backend/cmd/rk/operator_autopilot.go`)
+Git behaviour against real temp repos (bare origin + clones); `gh`/`fab` through the scripted runner fake; `internal/autopilot/main_test.go` keeps the hermetic git environment. Coverage: pass lock (a second `step`/`merge`/`stop` while the lock is held returns `busy`, does nothing, exit 0; the lock is released on return and on process death), `spawning` without a pane escalates and never relaunches, stale base / fetch failure / upstream tracking / default-branch chain, ancestor pruning and cherry-pick conflict rollback, readiness rules, mode ladder and misfit, stacked-prs spawn base + `set-base-branch`, the five Auto-Merge rules, `recovery needed` escalation leaving the PR armed, uncertain arm outcome keeps `armed`, halted-and-armed disarm retried until durable, `merge` refusing `stacked-prs`, merge-auto deferral, bounded human lists, exit codes, and the brief-swap render test.
 
-<!-- clarified: user confirmed — verb family name and shapes — `rk operator autopilot queue|step|merge|stop|status`, JSON-stdin queue entries; plan names the capability, not the CLI -->
+Gates: `just test-backend` plus `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 go test -race ./internal/autopilot/ -count=1` (from `app/backend`). Known host-only failures that do not block: `cmd/rk` `TestPortPinRowRealPolicyValues` (fails on clean HEAD on loom2, passes in CI) and `rk/api` `TestTerminals_IsoSharedSessionSurvivesFirstClientDeath` (load-timing flake).
 
-All verbs take `-L/--server` (default: the caller's own server from `$TMUX`, as other `rk operator` verbs do) and `--json` (the standard `{"ok":true,"result":{…}}` envelope). Exit codes follow the `rk operator track` classes: 0 ok, 1 operational, 2 usage/invalid. Help text conforms to the shll toolkit standards (help-dump, examples, exit codes).
+## Non-Goals
 
-- **`rk operator autopilot queue [--mode <m>] [--by user|run|chat] [--dry-run] [--json] < entries.json`**
-  Persists a queue as N pending `pane` items in one locked write. Entries arrive as a JSON array on stdin; agents are the callers, and the user confirms in chat first:
-  ```json
-  [
-    {"id": "ab12", "repo": "/home/u/code/foo", "change": "ab12"},
-    {"id": "fix-login", "repo": "/home/u/code/bar", "task": "fix login after password reset"},
-    {"id": "ef56", "repo": "/home/u/code/foo", "change": "ef56", "depends_on": ["ab12"], "stop_stage": null}
-  ]
-  ```
-  It resolves the mode by the ladder **`--mode` flag > `operator.merge_mode` setting > `cherry-pick-ladder`**, stamps it on every item, and prints `mode: <name> (flag|setting|default)`. An **invalid** setting value is an error naming the valid set (destructive tier, no silent fallback). It applies implicit chaining (§1a), validates repos are absolute git roots (Constitution I: validate before exec), rejects deps on bare entries, and rejects duplicate ids. It **reports** (in the receipt, `misfit: …`) the two mode misfits so the caller asks the user: (1) `merge-auto` with explicit same-repo `depends_on` entries; (2) left to the caller, since it is about the user's words.
-- **`rk operator autopilot step [--by run|chat] [--dry-run] [--json]`**
-  Runs one idempotent pass over the server's tracked items in this order:
-  - (a) persist newly observed `done_at` for change-less items
-  - (b) advance every in-progress merge sequence (verify merges, arm next, stacked-prs merge/retarget/rebase, `merge-auto` create + arm)
-  - (c) detect stalls and run recovery actions
-  - (d) spawn every `pending`, unpaused queue item whose gate passes, in queue order
-  - (e) emit escalations
-  The output lists actions taken (`spawned`, `cherry-picked`, `armed`, `merged`, `retargeted`, `rebased`, `disarmed`, `recovery-sent`) and escalations. `--dry-run` reports the plan with no side effects.
-- **`rk operator autopilot merge [--repo <path>] [--json]`**
-  Starts the ordered merge for completed `cherry-pick-ladder` / `stacked-prs` queues (all repos, or one repo). It creates the `github-pr` chain items and arms or merges the first PR per sequence. It refuses when queue items are not yet done, and it is a no-op for `merge-auto` items.
-- **`rk operator autopilot stop [--json]`**
-  Global user stop: disarm every armed PR (`gh pr merge --disable-auto`) and pause every unspawned queue item (`paused: true`). Live panes are left untouched.
-- **`rk operator autopilot status [--json]`**
-  Read-only queue view: per item the derived state, mode, repo, branch, PR, merge-sequence position and recovery marker, plus the Queue Completion Summary when all items are done:
-  ```
-  Queue complete. 3 PRs ready for review:
-  1. ab12: <PR-URL-1> (~/code/foo, base)
-  2. cd34: <PR-URL-2> (~/code/bar, ordering-only after ab12)
-  3. ef56: <PR-URL-3> (~/code/foo, depends on ab12)
-  Merge per-repo: foo 1→3, bar 2 (after foo:1 reaches main). Or ask me to merge all.
-  ```
+**Review bar (binding — copied verbatim from the restructure plan; every review dispatch quotes it):**
 
-`rk operator track add --mode` keeps working unchanged (it stores `scope.merge_mode` on one item). The queue verb is the supported way to create queues.
+> **Must-fix**: anything that can merge, arm, push, force-push or delete the wrong thing; lose or corrupt state-file data; launch a duplicate agent *under the single-writer rule*; crash the CLI; or break a requirement in the step's plan. **Should-fix** (does not block): failure cases the pass lock rules out, tmux pane-id reuse, missing escalations for read-only probes, and cosmetics.
 
-### 3. Settings: `operator.merge_mode`
+Explicitly out of scope for R6a (not findings against it):
 
-A new registry entry in `app/backend/internal/settings/settings.go`, next to `gui.*` / `openai_mcp.*`:
-
-```yaml
-# ~/.config/hexokit/config.yaml
-operator:
-  merge_mode: cherry-pick-ladder   # cherry-pick-ladder | stacked-prs | merge-auto
-```
-
-- Kind: enum string. Valid values are `operator.MergeModes`. Default unset (absent), which resolves to `cherry-pick-ladder` with source `default`. Registry validation rejects an invalid value on write. A hand-edited invalid value surfaces as the queue verb's error.
-- It is read **only at enqueue time** (`queue`). Runs and `step` never resolve config; they read the stamped `scope.merge_mode`. This matches the interim brief rule "a run never resolves config".
-- Because the settings surface is registry-driven, the key appears in the existing single settings surface (Constitution IV carve-out, no new page). It is also reachable through the palette's existing settings path if the registry exposes entries there. This is the only UI-visible part of the change.
-- `merge-auto` is never a default the engine picks on its own. It is only ever the result of the user's flag, the user's setting, or the user's message (Merge authority decision in the plan).
-
-### 4. Chat skill text (`rk skill operator` topic)
-
-Update the static chat-skill topic so chat creates queues through `rk operator autopilot queue` (confirm upfront, with the mode stated in the confirmation line: "creates PRs — merge after review" / "merges PRs on completion" / "creates stacked PRs — merge after review"). "merge all" maps to `rk operator autopilot merge`, and "stop" to `rk operator autopilot stop`. The mode question (glyphs `▂▄▆` / `░▒▓█` / `▄▀`, the three box diagrams, one-line tradeoffs) is asked only on the two misfits. **The run brief's `brief_autopilot.md` is NOT edited in R6.** R7 replaces it with "call `rk operator autopilot step`".
-
-### 5. Tests (`internal/autopilot/*_test.go`, `cmd/rk/operator_autopilot_test.go`)
-
-Every sharp edge from fab-operator.md §6 is covered. Git tests use real temp repos (bare origin + clone + `wt`-equivalent worktree setup via the runner seam); gh and fab use scripted fakes, so no test reaches a real binary for those.
-
-- **Stale base**: the main checkout's local HEAD lags `origin/<default>`, yet the spawned branch starts at the fetched tip SHA.
-- **Fetch failure**: no `wt create` is issued, the item stays `pending`, an escalation is emitted, and `rev-parse` is never consulted.
-- **Upstream tracking**: the spawned branch has no `branch.<b>.remote`/`merge` config, proving a SHA was passed, not a ref.
-- **Default-branch chain**: dangling `origin/HEAD` → `gh` fallback → `main`/`master` probe; a non-`main` default (e.g. `trunk`).
-- **Dep drift / ancestry**: a redundant dep is pruned; a dep already an ancestor of `HEAD` skips its cherry-pick; a transitive chain cherry-picks only the leaf.
-- **Cherry-pick conflict**: abort, no tab, worktree rolled back, escalation.
-- **Readiness**: a same-repo dep that is done but has no PR stays held; a dep only in `branch_map` passes; a cross-repo dep never cherry-picks; a missing dep branch escalates; a bare dep is rejected at enqueue.
-- **Mode ladder**: flag > setting > default with the source printed; an invalid setting errors; `null` stored mode reads as `cherry-pick-ladder`; merge-auto with same-repo deps reports the misfit.
-- **stacked-prs**: the branch is cut from the dep's tip SHA; `set-base-branch` is called for an existing change; the raw-text prompt carries the trailing instruction; merge-all retargets when the base branch survives; `rebase --onto` runs after the squash; a rebase conflict halts.
-- **Auto-merge rules**: one armed PR per repo sequence; draft→ready; "already clean"→direct merge; auto-merge disabled→direct-merge fallback; disarm only the halted cone with an independent repo continuing; global stop disarms all.
-- **merge-auto**: the next spawn is deferred until the merge is verified, then spawns on the advanced tip.
-- **PR Recovery**: the marker is persisted before acting; one round per reason; red on a new head → halt; `CONFLICTING` again → halt; pane gone → one recovery spawn.
-- **Concurrency**: an external write to the state file between load and write survives (merge by id); the lock is never held across a subprocess.
-- **Unreviewed merge** reporting.
+- **Failure cases the pass lock rules out** — two overlapping `step`/`merge`/`stop` passes, claim races, snapshot CAS. Accepted under the single-writer rule; should-fix at most.
+- **tmux pane-id reuse** — pane liveness keyed only by tmux pane id (recycled ids). Accepted; should-fix at most.
+- **Missing escalations for read-only probes** and **cosmetics** — should-fix, never blocking.
+- **`stacked-prs` merge-all** (direct merge, base retarget, `rebase --onto` + force-push) — R6b. `merge` refuses it.
+- **PR recovery** (`ci-failed` fix round, `conflicting` rebase + re-arm, recovery spawn) — R6c. `step` only escalates `recovery needed`.
+- **Deleting `brief_autopilot.md`** and its embed/section — R7. Deleting the reference branch — R7.
+- **Daemon-driven `step`** — candidate R8, decided after M1.
+- **MCP tools** for the verbs.
+- Reading fab's `autopilot.merge_mode` (retired in F2).
 
 ## Affected Memory
 
-- `run-kit/operator-autopilot`: (new) the Go autopilot engine: queue model over tracked items, readiness gate, spawn sequence (fetch-first SHA pin, two-axis prompt table), dependency code per mode, ordered merge + Auto-Merge Choreography, merge-auto, PR Recovery, failure table, `rk operator autopilot` verbs, and the merge-mode ladder.
-- `run-kit/operator-state`: (modify) the queue-stamped `scope.merge_mode` semantics, the `scope.recovery`/`fix_head`/`respawned`/`merge_seq` scope keys, `done_at` persistence for change-less items, and the pointer to the autopilot engine.
-- `run-kit/operator-brief`: (modify) record that the interim autopilot section is now superseded by the engine (it stays in the brief until R7), and that the chat-skill topic routes queues through `rk operator autopilot`.
-- `run-kit/configuration`: (modify) the `operator.merge_mode` settings-registry key and the decision that rk does not read fab's `autopilot.merge_mode`.
-- `run-kit/rk-riff`: (modify) any spawn-engine extensions the engine needs (the existing-branch checkout route, prompt composition for autopilot spawns).
-- `run-kit/toolkit-standards`: (modify) the help-dump/P9 new-surface check now covers `rk operator autopilot`.
-- `run-kit/architecture/cli`: (modify) the new `rk operator autopilot` subcommand family.
+- `run-kit/operator-autopilot`: (new) the Go autopilot core: queue model over tracked items and explicit membership, readiness gate, spawn sequence (fetch-first SHA pin, two-axis prompt table, three-mode dependency code, `spawning` marker, one respawn), `cherry-pick-ladder` merge-all + Auto-Merge rules, `merge-auto`, `recovery needed` escalations, single-writer pass lock and `busy`, `rk operator autopilot` verbs, the merge-mode ladder, and what R6b/R6c still own.
+- `run-kit/operator-state`: (modify) scope keys `queue`, `merge_mode` (queue-stamped), `spawning`, `respawned`, `armed`, `halted`, `merge_seq`; `done_at` persistence for change-less items; the per-server `<slug>.autopilot.lock` pass lock beside the state file; removal of `RecordPanePID`.
+- `run-kit/operator-brief`: (modify) the interim autopilot section now delegates readiness, spawning, ladder/merge-auto merging and non-recovery failures to `rk operator autopilot step`; stacked-prs merge and PR recovery text remain until R6b/R6c; chat-skill topic routes queues through the verbs.
+- `run-kit/configuration`: (modify) the `operator.merge_mode` settings-registry key; rk never reads fab's `autopilot.merge_mode`.
+- `run-kit/rk-riff`: (modify) the additive spawn-engine extensions the engine uses.
+- `run-kit/toolkit-standards`: (modify) the help-dump / P9 list-cap coverage of `rk operator autopilot`.
+- `run-kit/architecture/cli`: (modify) the `rk operator autopilot` subcommand family.
 
 ## Impact
 
-- **New**: `app/backend/internal/autopilot/` (engine, runner seam, tests); `app/backend/cmd/rk/operator_autopilot.go` (+ test). This is the bulk of the change, a large Go port of ≈ 250 lines of operator prose.
-- **Modified**:
-  - `internal/settings/settings.go` (registry entry + tests).
-  - `internal/riff/riff.go` (additive options: an existing-branch checkout route, possibly prompt composition hooks).
-  - `internal/operator` (exported helpers the engine needs, such as `heldDep`/`itemDone`/`scopeString` equivalents, scope keys, `done_at` write path).
-  - `cmd/rk/operator.go` (register the subcommand).
-  - The `rk skill operator` chat topic.
-  - `docs/specs` / README CLI docs per the toolkit standards.
-- **Untouched**: `internal/operator/brief_autopilot.md` and the run brief (R7), the daemon loop (`internal/operatorloop`, since the daemon does not call the engine autonomously in R6), and the MCP policy table (no new tools; unseeded verbs are allowed, and merge/stop are destructive).
-- **External tools**: `git`, `gh`, `wt`, `fab` (only `fab agent -o yaml`, `fab status set-base-branch`, `fab resolve`, `fab change switch`, and `.status.yaml` reads). No fab config reads.
-- **Evidence**: the backend/CLI is otherwise invisible in the UI, but the new settings key renders on the settings surface. Per Constitution § PR Evidence that row needs a screenshot (desktop + mobile) of the settings surface through `just demo` or the `just pw` rig. Everything else is `No recording: internal CLI/engine behavior`.
-- **Risk**: destructive git/gh actions. Mitigated by the confirm-in-chat contract, explicit `--squash`, `--force-with-lease` only, cone-scoped disarm, and tests against real git.
+- **Modified (already on the branch, shrunk/finished here)**: `app/backend/internal/autopilot/` (delete `claim.go`, `recovery.go` and the stacked merge path; add the pass lock and `spawning` marker; disarm retry), `cmd/rk/operator_autopilot.go` (+ tests: `busy`, `merge` stacked refusal, exit codes), `internal/operator/export.go` (delete `RecordPanePID`), `internal/operator/brief_autopilot.md` + `brief_test.go` (brief swap), `cmd/rk/skill/operator.md` + `docs/site/skill/operator.md` (chat text consistency).
+- **Kept as built**: `internal/settings` `operator.merge_mode`, `internal/riff` additions, the rest of `internal/operator/export.go`.
+- **Untouched**: `internal/operatorloop` (daemon), MCP policy table, `operator.RenderBrief`'s section structure (R7).
+- **External tools**: `git`, `gh`, `wt`, `fab` (`fab agent -o yaml`, `fab status set-base-branch`, `fab resolve`, `fab change switch`, `.status.yaml` reads). Every exec is an argv slice through `exec.CommandContext` with a timeout.
+- **PR #1135**: retitle and rewrite the body for the R6a scope once this intake is in.
+- **Risk**: destructive git/gh actions. Mitigated by the single-writer lock, confirm-in-chat, explicit `--squash`, cone-scoped disarm with durable retry, `armed` written before arming, and real-git tests.
 
 ## Open Questions
 
-- Should the daemon loop call `step` deterministically before deciding to launch a model run? Spawning a `pending` item or arming the next PR needs no model, which would cut runs further. Deferred: R6 ships verbs only, and R7/M1 decide whether the loop drives them.
-- Exact landing-session resolution reuse: whether `rk tab new`'s role-aware default resolver is already a shared function or needs extracting from `cmd/rk`. Decide at apply.
-- Whether the settings surface auto-renders new registry keys or needs a curated row. Determines the evidence scope; decide at apply by reading the settings UI.
-
-## Clarifications
-
-### Session 2026-11-14
-
-| # | Question | Answer |
-|---|----------|--------|
-| 7 | CLI shape: `rk operator autopilot queue`/`step`/`merge`/`stop`/`status`, queue entries as JSON on stdin, `step` as the single idempotent advance? | Confirmed as proposed |
-| 9 | `stacked-prs` base: cut the dependent's branch from the SHA of `origin/<dep-branch>` instead of `wt create --checkout <dep-branch>`? | Confirmed as proposed |
-
-### Session 2026-11-14 (bulk confirm)
-
-| # | Action | Detail |
-|---|--------|--------|
-| 6 | Confirmed | — |
-| 8 | Confirmed | — |
-| 10 | Confirmed | — |
-| 11 | Confirmed | — |
-| 12 | Confirmed | — |
-| 13 | Confirmed | — |
-| 14 | Confirmed | — |
-| 15 | Confirmed | — |
-| 16 | Confirmed | — |
+- None blocking. The restructure plan lists the `busy` exit code as open with "0 with `busy` in the result" proposed, and its binding decision table already states it; this intake takes that answer (Assumption 6).
 
 ## Assumptions
 
 | # | Grade | Decision | Rationale | Scores |
 |---|-------|----------|-----------|--------|
-| 1 | Certain | `merge_mode` lives in a new rk settings-registry key `operator.merge_mode`; fab's `autopilot.merge_mode` is never read (no fallback) | Asked — user chose "rk setting" over rk+fab-fallback and keeping fab's key | S:95 R:70 A:90 D:95 |
-| 2 | Certain | PR Recovery (`ci-failed` fix round, `conflicting` rebase+re-arm) is ported to Go in R6 | Asked — user chose "Port it in R6" so R7 can delete all interim text | S:95 R:70 A:90 D:95 |
-| 3 | Certain | Mode ladder `--mode` > setting > `cherry-pick-ladder`; invalid value errors; resolved once at enqueue and stamped on every item; runs never resolve config | Plan R6 brief + Merge-authority decision + interim brief rule "a run never resolves config" | S:90 R:75 A:90 D:90 |
-| 4 | Certain | Queue state is the tracked items (pane items + `depends_on` + `github-pr` chain); no new queue store | Legacy §6 + interim text + Constitution II plain files; R1 schema already carries it | S:90 R:70 A:95 D:90 |
-| 5 | Certain | Spawn fetches first, pins `--base <SHA>`, and a failed fetch stops the spawn leaving the item pending | Plan R6 brief verbatim + legacy §6 sharp edge | S:95 R:80 A:95 D:95 |
-| 6 | Confident | Engine is a new `internal/autopilot` package exposed as `rk operator autopilot` verbs that runs and chat call; the daemon loop does not call it in R6 | Clarified — user confirmed | S:95 R:65 A:70 D:60 |
-| 7 | Confident | Verb set `queue`, `step`, `merge`, `stop`, `status`; queue entries as JSON on stdin, `step` as the single idempotent advance (no foreground CI waits in any CLI call) | Clarified — user confirmed | S:95 R:55 A:50 D:35 |
-| 8 | Confident | Spawn reuses `internal/riff` (wt + tmux window + launcher) in-process, extended additively, instead of shelling out to `rk tab new` | Clarified — user confirmed | S:95 R:70 A:75 D:65 |
-| 9 | Confident | `stacked-prs` cuts the dependent's branch from the SHA of `origin/<dep-branch>` rather than the legacy `wt create --checkout <dep-branch>` route | Clarified — user confirmed | S:95 R:55 A:50 D:40 |
-| 10 | Confident | Change-less (plain-agent) item is done when its branch has an open PR with green required checks, or is merged; engine persists `done_at` | Clarified — user confirmed | S:95 R:70 A:65 D:60 |
-| 11 | Confident | Stacked-prs merge is step-driven direct merge (never armed); cherry-pick-ladder merge-all uses all five Auto-Merge rules | Clarified — user confirmed | S:95 R:60 A:85 D:75 |
-| 12 | Confident | Engine never notifies; it returns structured escalations + writes notes, and the caller (run/chat) sends `rk notify` | Clarified — user confirmed | S:95 R:75 A:70 D:65 |
-| 13 | Confident | Authoring pane is located via rk's own per-pane fab change derivation (`internal/sessions/fabstate.go`), not `fab pane map` | Clarified — user confirmed | S:95 R:80 A:70 D:70 |
-| 14 | Confident | Chat skill topic is updated to route queues/merge/stop through the new verbs; `brief_autopilot.md` and the run brief stay untouched until R7 | Clarified — user confirmed | S:95 R:80 A:75 D:70 |
-| 15 | Confident | No MCP tools added; the operator autopilot verbs stay CLI-only in R6 | Clarified — user confirmed | S:95 R:85 A:70 D:70 |
-| 16 | Certain | Git behaviour tested against real temp repos; gh/fab through a scripted Runner fake | Clarified — user confirmed | S:95 R:85 A:80 D:75 |
-| 17 | Certain | Every exec is argv-slice `exec.CommandContext` with a timeout; repo paths validated before use | Constitution I + Process Execution | S:90 R:90 A:100 D:95 |
+| 1 | Certain | `merge_mode` lives in rk settings `operator.merge_mode`; fab's `autopilot.merge_mode` is never read | Asked at R6 intake — user chose rk setting; restructure plan keeps it | S:95 R:70 A:90 D:95 |
+| 2 | Certain | R6 is re-scoped to R6a; `stacked-prs` merge-all moves to R6b and PR recovery to R6c; this change keeps and shrinks the existing branch code | Restructure plan binding Split + Prior-work decisions | S:95 R:75 A:95 D:95 |
+| 3 | Certain | Single-writer pass lock: non-blocking `flock` on `<state dir>/<slug>.autopilot.lock` for `step`/`merge`/`stop`; claim machinery and overlap tests deleted; state-file lock unchanged | Restructure plan binding Concurrency + State-file-lock decisions | S:95 R:75 A:90 D:90 |
+| 4 | Certain | Review bar copied verbatim into Non-Goals and quoted in every review dispatch | Restructure plan binding Review-bar decision + rule 2 | S:100 R:90 A:100 D:100 |
+| 5 | Certain | Brief swap in this PR for readiness, spawning, ladder/merge-auto merging and non-recovery failures, proven by a render test | Restructure plan Brief-migration decision, rule 5 and migration table | S:95 R:80 A:90 D:90 |
+| 6 | Confident | A `busy` pass exits 0 with `busy: true` in the result | Binding decision table says "exits 0 with result busy"; plan's open-decisions row proposes the same | S:85 R:85 A:80 D:75 |
+| 7 | Certain | Mode ladder `--mode` > setting > `cherry-pick-ladder`, resolved once at `queue`, stamped on every item; invalid value errors | Parent plan + R6 intake, carried | S:90 R:75 A:90 D:90 |
+| 8 | Certain | Verbs `queue`/`step`/`merge`/`stop`/`status`; JSON-array stdin for `queue`; `step` is one idempotent pass; no verb waits for CI | Clarified at R6 — user confirmed; carried | S:95 R:60 A:85 D:85 |
+| 9 | Certain | `stacked-prs` spawns cut from the SHA of `origin/<dep-branch>`, never `--checkout`; spawn for all three modes stays in R6a | Clarified at R6 — user confirmed; restructure R6a brief keeps all three spawn modes | S:95 R:60 A:85 D:85 |
+| 10 | Certain | Spawn reuses `internal/riff` in-process; engine never notifies (escalations only); no MCP tools; daemon does not call `step` | R6 intake decisions carried + restructure non-goal | S:95 R:75 A:85 D:85 |
+| 11 | Certain | Crash safety via `scope.spawning` written before launch and the pane right after; `spawning` without a pane escalates and never relaunches | Restructure R6a brief + State-file keys table | S:95 R:70 A:90 D:90 |
+| 12 | Certain | Halt path and `stop` retry `--disable-auto` on every later pass until durable; `armed` cleared only after a confirmed disarm | Restructure plan: last R6 review finding 2, marked must-fix | S:95 R:70 A:85 D:85 |
+| 13 | Certain | `armed` written before `gh pr merge --auto`; unknown outcomes keep the marker; only a closed list of definitive rejections clears it | Restructure R6a Merge brief | S:95 R:70 A:90 D:90 |
+| 14 | Certain | A failed required check or `CONFLICTING` stall is the escalation `recovery needed: <reason>`, PR stays armed, no action | Restructure R6a Merge brief + Brief-migration interim behaviour | S:95 R:80 A:90 D:90 |
+| 15 | Certain | `merge` refuses a `stacked-prs` sequence with a pointer to the brief text | Restructure R6a Move-out brief + migration table | S:95 R:85 A:90 D:90 |
+| 16 | Certain | Delete `operator.RecordPanePID` (no callers) | Restructure plan: last R6 review finding 3 | S:95 R:90 A:95 D:95 |
+| 17 | Certain | Git tested against real temp repos; gh/fab via scripted fake; `main_test.go` hermetic git env kept | R6 intake + CI fix, carried; restructure Current-state note | S:95 R:85 A:90 D:90 |
+| 18 | Confident | `queue` and `status` do not take the pass lock; `step --dry-run` does not either | `queue` is one state-locked write and `status`/dry-run have no side effects; the binding decision names only `step`, `merge`, `stop` | S:75 R:85 A:80 D:70 |
+| 19 | Confident | Helpers left without callers after moving out stacked/recovery code are deleted, not kept for R6b/R6c | Restructure rule 4: R6b/R6c port from the reference branch, never rely on leftovers | S:80 R:85 A:80 D:75 |
+| 20 | Confident | Chat-skill text is adjusted only for consistency (stacked-prs "merge all" follows the brief); otherwise kept as built | R6 already routed queue/merge/stop through the verbs; R6a only changes merge's stacked behaviour | S:80 R:85 A:80 D:75 |
 
-17 assumptions (7 certain, 10 confident, 0 tentative, 0 unresolved).
+20 assumptions (16 certain, 4 confident, 0 tentative, 0 unresolved).

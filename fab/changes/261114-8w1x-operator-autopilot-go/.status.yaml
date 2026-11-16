@@ -5,7 +5,7 @@ created_by: sahil-noon
 change_type: feat
 issues: []
 progress:
-    intake: active
+    intake: ready
     apply: pending
     review: pending
     hydrate: pending
@@ -17,17 +17,17 @@ plan:
     acceptance_count: 37
     acceptance_completed: 35
 confidence:
-    certain: 7
-    confident: 10
+    certain: 17
+    confident: 3
     tentative: 0
     unresolved: 0
-    score: 3.7
+    score: 5.0
     fuzzy: true
     dimensions:
-        signal: 94.1
-        reversibility: 72.6
-        competence: 77.6
-        disambiguation: 73.2
+        signal: 92.0
+        reversibility: 77.5
+        competence: 88.0
+        disambiguation: 87.0
 stage_metrics:
     intake: {started_at: "2026-11-16T09:46:51Z", driver: fab-clarify, iterations: 2}
     apply: {iterations: 8}
@@ -51,4 +51,4 @@ true_impact:
     computed_at_stage: apply
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-16T09:46:51Z
+last_updated: 2026-11-16T10:05:38Z
