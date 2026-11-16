@@ -316,7 +316,7 @@ reference branch. No conversation context is needed.
 |---|---|
 | R6a | Change `261114-8w1x-operator-autopilot-go`, PR #1135; see "Current state". If it is not yet on `main`, finish its pipeline first (`fab status` in `hexokit.worktrees/r6-autopilot-go` on loom2) |
 | Next step | **R6r-i**, a new change (`/fab-new`, brief below, this file's path). Start it from `main` with R6a merged |
-| Code R6r-i starts from | `app/backend/internal/autopilot/` as shipped by R6a (about 3,300 lines plus 4,300 of tests; `merge.go` ≈ 970 lines is the imperative driver R6r-i dissolves), `cmd/rk/operator_autopilot.go`, `internal/operator/ownership.go` + `scopekeys_test.go` (the allow-list R6r-ii deletes), `docs/memory/run-kit/operator-autopilot.md` |
+| Code R6r-i starts from | `app/backend/internal/autopilot/` as shipped by R6a (about 3,300 lines plus 4,300 of tests; `merge.go` ≈ 970 lines is the imperative driver R6r-i dissolves), `cmd/rk/operator_autopilot.go`, `internal/operator/ownership.go` + `ownership_test.go` and `internal/autopilot/ownership_test.go` + `scopekeys_test.go` (the allow-list R6r-ii deletes), `docs/memory/run-kit/operator-autopilot.md` |
 
 ### Decisions from R6 intake that carry into R6a
 
@@ -416,14 +416,14 @@ R6r-i* stay tolerated on disk, and their facts are derived instead.
 |---|---|---|---|
 | `queue` | R6a | Queue id stamped by `autopilot queue`; queue membership | Stored (structure) |
 | `merge_mode` | R1 (existing) | Mode stamped on every queue item; null reads as `cherry-pick-ladder` | Stored (structure) |
-| `merge_seq`, `item` | R6a | Repo sequence id on `github-pr` items; the queue item a PR item belongs to | Stored (structure) |
+| `merge_seq`, `item`, `url` | R6a | Repo sequence id on `github-pr` items; the queue item a PR item belongs to; the PR URL recorded at `track-pr` | Stored (structure) |
 | `deferred` | R6a | The repo's `merge` has not been started | Stored (user intent) |
 | `spawning` | R6a | Intent marker written before a launch; a pass that finds it without a pane escalates and never relaunches on its own | Stored (in flight) |
 | `respawned`, `skipped` | R6a | The one respawn has been spent; the item died again after it | Stored (budget) |
 | `halted` | R6a | Sequence halted | Stored on the failing item only (or every unmerged PR item on `stop`); the cone is derived through `depends_on` |
 | `armed` | R6a | Auto-merge armed (written before `gh pr merge --auto`) | *Not read from R6r-i*, and no longer written: derived from `autoMergeRequest` |
 | `direct` | R6a | Repo has auto-merge disabled; merge step by step | *Not read from R6r-i*: derived from the repo's `autoMergeAllowed` |
-| `stall_seen` | R6a | `recovery needed` already escalated for this reason and head | Generalised to the dedupe key of every escalate-once row |
+| `escalated`, `stall_seen` | R6a | Structured escalation dedupe map (reason key → first-seen time; R6a's R29) and the `recovery needed` head marker | `escalated` becomes the dedupe key of every escalate-once row; `stall_seen` folds into it |
 | `recovery`, `fix_head`, `recovery_at`, `fix_item` | R6c | Recovery rounds spent (`ci-fix`, `rebase`), head and time of the fix request, the recovery spawn's item | Stored (budget, timer, link) |
 
 R6b adds no key: the reference engine's `prepared` marker is replaced by B1's derived guard.
@@ -501,9 +501,11 @@ Make the mechanical half free and the model's job small. Four parts, one change:
 
 - **Engine state file** per § Engine state file: the store, the one-time move of engine keys
   out of the ledger under the pass lock, projection items, the `rm` and `resume` verbs. Delete
-  `internal/operator/ownership.go`, `scopekeys_test.go`, the `--force` flag on `track update`
-  / `track add` / `track rm` and the armed-PR `track rm` refusal (R6a's R28–R33): the ledger
-  has no engine field left to protect. `track update --scope` goes back to merging any key.
+  `internal/operator/ownership.go` (+ `ownership_test.go`), `internal/autopilot/ownership_test.go`
+  and `scopekeys_test.go`, the `--force` flag on `track update` / `track add` / `track rm`, the
+  armed-PR `track rm` refusal, and the "Scope ownership" requirement in `operator-autopilot.md`
+  (R6a's R28–R33): the ledger has no engine field left to protect. `track update --scope` goes
+  back to merging any key.
 - **Escalations are notes** per § Escalations are notes: `escalate` appends the note and calls
   `rk notify`; the `StepResult.Escalations` return stays for the CLI's output only. Interim
   escalations for the parts R6b/R6c own: `restack needed: PR #<n>` (a `stacked-prs` sequence
