@@ -10,3 +10,6 @@
 {"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-16T21:52:22Z"}
 {"event":"review","result":"failed","ts":"2026-11-16T21:57:16Z"}
 {"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-16T21:57:16Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-16T22:11:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-11-16T22:23:32Z"}
+{"event":"review","result":"passed","ts":"2026-11-16T22:23:32Z"}

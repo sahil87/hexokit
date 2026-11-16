@@ -364,7 +364,7 @@ wording (lines ≈130–132) while keeping "never perform mechanical work from c
 - [x] A-003 R4: Row B1 (`stale-base`, predecessor merged ⇒ `restack`) exists after P3; B0 and `restack needed` are gone from code
 - [x] A-004 R5: Row B2 escalates once for a stacked `stale-base` with no merged predecessor and the PR is never merged or retargeted
 - [x] A-005 R6: P4 readies stacked drafts, P7 merges stacked green PRs with `--match-head-commit`, P6 never arms a stacked PR
-- [ ] A-006 R8: `restack.go` verifies the observed head, resolves the upstream per R12 and only then retargets (verify-or-perform), rebases in a detached temporary worktree at the observed head SHA with `--onto origin/<default> <upstream>`, gates the push on the predecessor merge commit being an ancestor, pushes with `--force-with-lease=refs/heads/<branch>:<observed head>`, and removes the worktree
+- [x] A-006 R8: `restack.go` verifies the observed head, resolves the upstream per R12 and only then retargets (verify-or-perform), rebases in a detached temporary worktree at the observed head SHA with `--onto origin/<default> <upstream>`, gates the push on the predecessor merge commit being an ancestor, pushes with `--force-with-lease=refs/heads/<branch>:<observed head>`, and removes the worktree
 - [x] A-007 R11: Help text, chat skill and its mirror no longer describe a restack escalation
 
 ### Behavioral Correctness
@@ -397,12 +397,12 @@ wording (lines ≈130–132) while keeping "never perform mechanical work from c
 
 ### Rework (review 2)
 
-- [ ] A-027 R12: A successor that cherry-picked a predecessor fix after its own commit keeps its own commit through the restack (2-PR and 3-PR tests); the upstream is chosen only when `merge-tree` proves the drop is a no-op on the default branch
-- [ ] A-028 R10: A cancelled or timed-out pass during the rebase escalates and does not write `halted`
+- [x] A-027 R12: A successor that cherry-picked a predecessor fix after its own commit keeps its own commit through the restack (2-PR and 3-PR tests); the upstream is chosen only when `merge-tree` proves the drop is a no-op on the default branch
+- [x] A-028 R10: A cancelled or timed-out pass during the rebase escalates and does not write `halted`
 
 ### Rebase onto R6c
 
-- [ ] A-029 R14: C5/C6 fire for a stacked `conflicting` PR, the stacked conflicting wait is gone, the merged precedence and row order match R14, and only one `conflictFiles` exists
+- [x] A-029 R14: C5/C6 fire for a stacked `conflicting` PR, the stacked conflicting wait is gone, the merged precedence and row order match R14, and only one `conflictFiles` exists
 
 ### Code Quality
 
