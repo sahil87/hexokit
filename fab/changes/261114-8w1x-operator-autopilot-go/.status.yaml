@@ -8,8 +8,8 @@ progress:
     intake: done
     apply: done
     review: done
-    hydrate: active
-    ship: pending
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
@@ -32,24 +32,26 @@ stage_metrics:
     intake: {started_at: "2026-11-16T09:46:51Z", driver: fab-clarify, iterations: 2, completed_at: "2026-11-16T10:08:27Z"}
     apply: {started_at: "2026-11-16T13:19:21Z", driver: fab-fff, iterations: 13, completed_at: "2026-11-16T13:33:16Z"}
     review: {started_at: "2026-11-16T14:00:58Z", iterations: 14, completed_at: "2026-11-16T14:00:58Z"}
-    hydrate: {started_at: "2026-11-16T14:00:58Z", driver: fab-fff, iterations: 1}
+    hydrate: {started_at: "2026-11-16T14:00:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-16T14:06:53Z"}
+    ship: {started_at: "2026-11-16T14:06:53Z", driver: fab-fff, iterations: 1}
 prs: []
 base_branch: main
 change_type_source: explicit
 true_impact:
-    added: 9308
-    deleted: 243
-    net: 9065
+    added: 11169
+    deleted: 274
+    net: 10895
     excluding:
-        added: 8611
-        deleted: 230
-        net: 8381
+        added: 10327
+        deleted: 260
+        net: 10067
     tests:
-        added: 4514
-        deleted: 5
-        net: 4509
-    computed_at: "2026-11-16T13:33:16Z"
-    computed_at_stage: apply
+        added: 5675
+        deleted: 17
+        net: 5658
+    computed_at: "2026-11-16T14:06:53Z"
+    computed_at_stage: hydrate
+summary: 'Hydrate the R6a autopilot core: new operator-autopilot memory (queue, readiness, spawn, pass lock, merge, escalations); scope ownership and memo in operator-state; brief swap; operator.merge_mode setting; riff spawn hooks; CLI and toolkit-standards coverage'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-16T14:00:58Z
+last_updated: 2026-11-16T14:06:53Z

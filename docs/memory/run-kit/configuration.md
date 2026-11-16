@@ -68,7 +68,7 @@ The path segment, worktree badge, and git branch are **read from daemon-stamped 
 
 Serialization stays hand-rolled (line-scanner parse + string-builder serialize — no yaml.v3) and byte-stable: tolerant reads per key (quote-strip, `validate.NormalizeColorValue`, flair-set membership, `strconv.ParseBool`, malformed-entry skip), omit-when-default/empty (the `port` pin excepted — it serializes whenever set, including at the default; § Design Decisions → Serialize-when-set for the port pin), nested sections with sorted map keys and quoted values. An untouched settings file round-trips byte-identically.
 
-The 20-key inventory:
+The 22-key inventory:
 
 | key | type | default | category | ui | live | notes |
 |---|---|---|---|---|---|---|
@@ -91,6 +91,7 @@ The 20-key inventory:
 | `gui.geometry` | string | `1920x1080` | behavior | yes | yes | the GUI desktop's pixel size — a fixed `WxH` (each side 320–7680) keeps windows where they are, `auto` follows the focused desktop viewer's tile; validated by `gui.ValidateGeometry` (an invalid value is a 400 carrying the range message; `null`/trimmed-empty restores the default); the serialized line is omitted at the default; a settings POST carrying a fixed value applies it live via xrandr, best-effort (see [gui](/run-kit/gui.md)) (zuci) |
 | `openai_mcp.enabled` | bool | `false` | connectivity | yes | yes | the ChatGPT connector switch: its description states that every MCP tool becomes reachable; a settings POST ensures/kills the `rk-openai-mcp` session. The runtime API key is deliberately NOT a setting (0600 file in the state home) (see [openai-mcp](/run-kit/openai-mcp.md)) |
 | `openai_mcp.tunnel_id` | string | `""` | connectivity | yes | yes | the OpenAI tunnel the ChatGPT connector polls; `^tunnel_[A-Za-z0-9]+$` (`openaimcp.ValidateTunnelID`): malformed values are dropped on parse and a 400 on apply; a change while on restarts `rk-openai-mcp` (see [openai-mcp](/run-kit/openai-mcp.md)) |
+| `operator.merge_mode` | enum (`cherry-pick-ladder`/`stacked-prs`/`merge-auto`) | `cherry-pick-ladder` | behavior | yes | yes | how a new operator queue merges; read only by `rk operator autopilot queue`, below its `--mode` flag and above the built-in default; stored verbatim on read so a hand-edited out-of-set value is refused by name at `queue` instead of silently falling back, while a write through the registry is validated; omitted from the file when it equals the default; rk never reads fab's `autopilot.merge_mode` ([operator-autopilot](/run-kit/operator-autopilot.md)) |
 | `tmux_conf` | path string | `""` | advanced | yes | no | user owns the file; rk performs no ensure/refresh/doctor on it |
 | `log_level` | enum (`info`/`debug`) | `info` | advanced | yes | no | read at serve startup |
 
@@ -411,3 +412,9 @@ See [backend-packages](/run-kit/architecture/backend-packages.md) § `internal/s
 **Why**: direct YAML editing would destroy fab's comment-preserving reference fence and reimplement fab's cascade (Constitution III); fab does not validate provider×model pairs and an out-of-enum `dispatch.mode` can crash `fab agent`, so HexoKit refuses bad values itself (Constitution I); the typed JSON contract avoids scraping padded `show --origin` text.
 **Rejected**: parsing and rewriting the YAML in Go; parsing `show --origin` text; per-role `fab agent <role> -o yaml` calls for inherited values (six extra execs per GET — the `derived_from` rows carry the same facts); caching the document (external writers win).
 *Introduced by*: 261030-wf1x-fab-system-config-agents-tab
+
+### `operator.merge_mode` is a registry enum read at queue time only
+**Decision**: The queue merge mode is the registry enum `operator.merge_mode` (options mirrored from `operator.MergeModes`, pinned together by a test because `settings` cannot import `operator`), read only when `rk operator autopilot queue` creates a queue and then stamped on every item.
+**Why**: Later passes must not change a queue's mode when the setting flips, and an enum rides the registry's options and live-apply machinery with no new surface. Reading it verbatim lets the destructive tier refuse a corrupt value by name rather than guess.
+**Rejected**: Reading fab's `autopilot.merge_mode` or falling back to it (dual-read); normalising an invalid value to the default on read.
+*Introduced by*: 261114-8w1x-operator-autopilot-go
