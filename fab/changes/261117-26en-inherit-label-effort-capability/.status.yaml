@@ -8,8 +8,8 @@ progress:
     intake: done
     apply: done
     review: done
-    hydrate: active
-    ship: pending
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
@@ -32,23 +32,25 @@ stage_metrics:
     intake: {started_at: "2026-11-17T19:13:20Z", driver: fab-new, iterations: 1, completed_at: "2026-11-17T19:15:38Z"}
     apply: {started_at: "2026-11-17T19:15:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-17T19:20:56Z"}
     review: {started_at: "2026-11-17T19:20:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-17T19:26:58Z"}
-    hydrate: {started_at: "2026-11-17T19:26:58Z", driver: fab-fff, iterations: 1}
+    hydrate: {started_at: "2026-11-17T19:26:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-17T19:28:50Z"}
+    ship: {started_at: "2026-11-17T19:28:50Z", driver: fab-fff, iterations: 1}
 prs: []
 base_branch: main
 true_impact:
-    added: 1060
-    deleted: 76
-    net: 984
+    added: 1686
+    deleted: 86
+    net: 1600
     excluding:
-        added: 638
-        deleted: 73
-        net: 565
+        added: 882
+        deleted: 83
+        net: 799
     tests:
-        added: 34
-        deleted: 0
-        net: 34
-    computed_at: "2026-11-17T19:20:56Z"
-    computed_at_stage: apply
+        added: 154
+        deleted: 2
+        net: 152
+    computed_at: "2026-11-17T19:28:50Z"
+    computed_at_stage: hydrate
+summary: Agents tab inherit label follows fab's fill order (role fill, then the tool's default profile); effort select disabled for tools whose commands lack {effort}
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-17T19:26:58Z
+last_updated: 2026-11-17T19:28:50Z
