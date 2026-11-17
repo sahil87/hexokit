@@ -1694,4 +1694,4 @@ ownership is the native shape).
 **Decision**: `TestSkillTopicsWithinLineBudget` skips topics in `skillTopicsOverBudget` — only `operator`. Every other page keeps the budget and the drift guards.
 **Why**: The operator topic is a chat's full operating manual, loaded once per operator session and never aggregated into other agents' context — the standard's cost argument ("every line taxes every conversation that pulls it") does not hold for it, and the budget had cut the plan-execution and status behaviours out of the chat. The `skill` standard in the shll repo needs a matching one-line exemption.
 **Rejected**: raising the budget for every topic (the cost argument holds for the others); a second topic to hold the overflow (the chat's core job would need two pulls).
-*Introduced by*: operator-skill-plans (direct change, no fab intake)
+*Introduced by*: PR #1148 (direct change, no fab intake)
