@@ -63,6 +63,10 @@ const (
 	profileLeafModel     = "model"
 	profileLeafEffort    = "effort"
 	providerProfileInfix = ".profiles."
+	defaultProfile       = "default"
+	interactiveCmdLeaf   = ".interactive_command"
+	headlessCmdLeaf      = ".headless_command"
+	effortToken          = "{effort}"
 )
 
 // ScalarKeys are the v1 non-profile keys, in display order.
@@ -186,7 +190,8 @@ type Cell struct {
 	Origin       string  `json:"origin"`
 	OriginDetail string  `json:"originDetail,omitempty"`
 	// Inherited is what the leaf resolves to with no override: the depth knob
-	// for provider, the resolved provider's profile fill for model/effort.
+	// for provider; for model/effort the resolved provider's fill for this
+	// role, else its default-profile fill (fab's own fallback order).
 	Inherited string `json:"inherited"`
 	// SystemValue is the system-tier value shadowed by an env winner.
 	SystemValue *string `json:"systemValue,omitempty"`
@@ -210,7 +215,10 @@ type Document struct {
 	Roles             []Role              `json:"roles,omitempty"`
 	ModelSuggestions  map[string][]string `json:"modelSuggestions,omitempty"`
 	EffortSuggestions []string            `json:"effortSuggestions,omitempty"`
-	Warnings          []string            `json:"warnings,omitempty"`
+	// EffortCapable says per provider whether its interactive or headless
+	// command carries {effort}; without it an effort is never substituted.
+	EffortCapable map[string]bool `json:"effortCapable,omitempty"`
+	Warnings      []string        `json:"warnings,omitempty"`
 }
 
 type derivedFrom struct {
@@ -315,9 +323,11 @@ func (c *Client) Read(ctx context.Context) (*Document, error) {
 		Fields:            map[string]Field{},
 		ModelSuggestions:  map[string][]string{},
 		EffortSuggestions: EffortSuggestions,
+		EffortCapable:     map[string]bool{},
 	}
 	for _, p := range doc.Providers {
 		doc.ModelSuggestions[p] = modelSuggestions(rows, p)
+		doc.EffortCapable[p] = effortCapable(byKey, p)
 	}
 
 	descriptions := c.descriptions(ctx)
@@ -426,6 +436,17 @@ func modelSuggestions(rows []showRow, provider string) []string {
 	return out
 }
 
+// effortCapable reports whether either of the provider's commands takes an
+// effort; a provider with neither command takes none.
+func effortCapable(byKey map[string]showRow, provider string) bool {
+	for _, leaf := range []string{interactiveCmdLeaf, headlessCmdLeaf} {
+		if strings.Contains(valueString(byKey[providersKeyPrefix+provider+leaf].Value), effortToken) {
+			return true
+		}
+	}
+	return false
+}
+
 // depthKey is the knob a role's provider inherits from.
 func depthKey(depth string) string {
 	if depth == depthSession {
@@ -440,8 +461,7 @@ func buildRole(rd roleDef, byKey map[string]showRow) Role {
 	provider.Inherited = valueString(byKey[depthKey(rd.Depth)].Value)
 	role.Provider = provider
 	for _, leaf := range []string{profileLeafModel, profileLeafEffort} {
-		// An unset leaf inherits the resolved provider's profile for this role.
-		fallback := providersKeyPrefix + provider.Effective + providerProfileInfix + rd.Name + "." + leaf
+		fallback := fillKey(byKey, provider.Effective, rd.Name, leaf)
 		cell := cellFor(byKey, profileKeyPrefix+rd.Name+"."+leaf, fallback)
 		cell.Inherited = valueString(byKey[fallback].Value)
 		if leaf == profileLeafModel {
@@ -453,9 +473,22 @@ func buildRole(rd roleDef, byKey map[string]showRow) Role {
 	return role
 }
 
+// fillKey is the provider-table key an unset role leaf inherits: the
+// provider's fill for this role, else its default-profile fill, else "" (the
+// tool's own default applies).
+func fillKey(byKey map[string]showRow, provider, role, leaf string) string {
+	for _, profile := range []string{role, defaultProfile} {
+		key := providersKeyPrefix + provider + providerProfileInfix + profile + "." + leaf
+		if _, ok := byKey[key]; ok {
+			return key
+		}
+	}
+	return ""
+}
+
 // cellFor reads one role leaf. A present row wins; otherwise fallbackKey (the
 // provider table's value) supplies the inherited display, and a missing
-// fallback leaves Effective empty ("provider default" in the UI).
+// fallback leaves Effective empty ("tool default" in the UI).
 func cellFor(byKey map[string]showRow, key, fallbackKey string) Cell {
 	row, ok := byKey[key]
 	if !ok {

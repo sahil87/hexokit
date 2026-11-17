@@ -41,7 +41,8 @@ const KEY_MIN_ROWS = "dispatch.min_rows";
 const KEY_REAP_DONE = "dispatch.reap_done";
 const DISPATCH_MODES = ["pane", "native", "headless"];
 const SYSTEM_CONFIG_FALLBACK_PATH = "~/.fab-kit/config.yaml";
-const INHERIT_FALLBACK = "provider default";
+const INHERIT_FALLBACK = "tool default";
+const NO_EFFORT_TITLE = "this tool takes no effort setting";
 
 const NOT_INSTALLED_MESSAGE =
   "fab isn't installed on this host. Install fab-kit to manage agent defaults here.";
@@ -418,12 +419,14 @@ function RoleSelect({
   cell,
   options,
   disabled,
+  title,
   onChange,
 }: {
   label: string;
   cell: FabRoleCell;
   options: string[];
   disabled: boolean;
+  title?: string;
   onChange: (value: string | null) => void;
 }) {
   const withOverride = cell.override !== null && !options.includes(cell.override) ? [...options, cell.override] : options;
@@ -432,6 +435,7 @@ function RoleSelect({
       aria-label={label}
       value={cell.override ?? ""}
       disabled={disabled}
+      title={title}
       onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}
       className={`${roleSelectClass} ${cell.override === null ? "text-text-secondary" : ""}`}
     >
@@ -630,6 +634,12 @@ function StaleModelNote({
   );
 }
 
+/** Whether a tool's command carries {effort}. A tool the daemon didn't
+ *  classify counts as capable, so missing data never locks the select. */
+function takesEffort(effortCapable: Record<string, boolean> | undefined, tool: string): boolean {
+  return effortCapable?.[tool] !== false;
+}
+
 /** One POST for a tool change: a model or effort override the new tool doesn't
  *  offer is unset with it, so no cross-tool pair (`claude --model gpt-…`) is
  *  ever left behind. A write that keeps the same effective tool touches only
@@ -640,6 +650,7 @@ function toolChangePatch(
   depthTool: string,
   modelSuggestions: Record<string, string[]>,
   efforts: string[],
+  effortCapable: Record<string, boolean> | undefined,
 ): Patch {
   const patch: Patch = { [profileKey(role.role, "provider")]: next };
   const nextTool = next ?? depthTool;
@@ -649,7 +660,7 @@ function toolChangePatch(
     patch[profileKey(role.role, "model")] = null;
   }
   const effort = role.effort.override;
-  if (effort === null || !efforts.includes(effort)) {
+  if (effort === null || !efforts.includes(effort) || !takesEffort(effortCapable, nextTool)) {
     patch[profileKey(role.role, "effort")] = null;
   }
   return patch;
@@ -661,6 +672,7 @@ function RoleRow({
   depthTool,
   modelSuggestions,
   efforts,
+  effortCapable,
   write,
 }: {
   role: FabRole;
@@ -669,10 +681,12 @@ function RoleRow({
   depthTool: string;
   modelSuggestions: Record<string, string[]>;
   efforts: string[];
+  effortCapable: Record<string, boolean> | undefined;
   write: Write;
 }) {
   const { busy, error, run } = useRowWrite(write);
   const suggestions = modelSuggestions[role.provider.effective] ?? [];
+  const effortOK = takesEffort(effortCapable, role.provider.effective);
   const inheritModel = () => void run({ [profileKey(role.role, "model")]: null });
   // A saved value shadowed by an env var still counts: reset is the only way
   // to clear it from here.
@@ -691,7 +705,7 @@ function RoleRow({
               cell={role.provider}
               options={providers}
               disabled={busy}
-              onChange={(v) => void run(toolChangePatch(role, v, depthTool, modelSuggestions, efforts))}
+              onChange={(v) => void run(toolChangePatch(role, v, depthTool, modelSuggestions, efforts, effortCapable))}
             />
             {role.provider.origin === "env" && (
               <span
@@ -720,7 +734,8 @@ function RoleRow({
             label={`${role.role} effort`}
             cell={role.effort}
             options={efforts}
-            disabled={busy}
+            disabled={busy || !effortOK}
+            title={effortOK ? undefined : NO_EFFORT_TITLE}
             onChange={(v) => void run({ [profileKey(role.role, "effort")]: v })}
           />
         </td>
@@ -796,6 +811,7 @@ function RoleTable({ doc, write }: { doc: Document; write: Write }) {
                 depthTool={role.provider.inherited || stringValue(doc.fields[`agent.${role.depth}`])}
                 modelSuggestions={doc.modelSuggestions}
                 efforts={doc.effortSuggestions}
+                effortCapable={doc.effortCapable}
                 write={write}
               />
             ))}

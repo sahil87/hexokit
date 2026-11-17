@@ -208,7 +208,82 @@ func TestRead_roleCells(t *testing.T) {
 
 	fast := roleByName(t, doc, "fast")
 	if fast.Model.Effective != "" || fast.Model.Source != "" || fast.Model.Override != nil {
-		t.Errorf("fast.model = %+v, want empty (provider default)", fast.Model)
+		t.Errorf("fast.model = %+v, want empty (tool default)", fast.Model)
+	}
+}
+
+func TestRead_inheritFallsBackToDefaultProfile(t *testing.T) {
+	agyRows := func(extra ...string) []string {
+		rows := append(baseRows(),
+			row("agent.profiles.doing.provider", `"agy"`, "system", systemPath),
+			row("agent.profiles.fast.provider", `"agy"`, "system", systemPath),
+			row("agent.profiles.review.provider", `"kimi"`, "system", systemPath),
+			row("providers.agy.profiles.fast.model", `"gemini-3.6-flash-low"`, "default", ""),
+		)
+		return append(rows, extra...)
+	}
+
+	t.Run("override set: inherited names the default fill", func(t *testing.T) {
+		doc, _ := New(newFake(t, agyRows()...).run).Read(context.Background())
+		doing := roleByName(t, doc, "doing")
+		if doing.Model.Override == nil || doing.Model.Inherited != "gemini-3.1-pro-high" {
+			t.Errorf("doing.model = %+v, want override with inherited gemini-3.1-pro-high", doing.Model)
+		}
+	})
+
+	t.Run("no row: effective comes from the default fill", func(t *testing.T) {
+		var rows []string
+		for _, r := range agyRows() {
+			if !strings.Contains(r, `"agent.profiles.doing.model"`) {
+				rows = append(rows, r)
+			}
+		}
+		doc, _ := New(newFake(t, rows...).run).Read(context.Background())
+		doing := roleByName(t, doc, "doing")
+		if doing.Model.Override != nil || doing.Model.Effective != "gemini-3.1-pro-high" ||
+			doing.Model.Source != "providers.agy.profiles.default.model" || doing.Model.Inherited != "gemini-3.1-pro-high" {
+			t.Errorf("doing.model = %+v, want inherited from providers.agy.profiles.default.model", doing.Model)
+		}
+	})
+
+	t.Run("role fill wins over default", func(t *testing.T) {
+		doc, _ := New(newFake(t, agyRows()...).run).Read(context.Background())
+		fast := roleByName(t, doc, "fast")
+		if fast.Model.Inherited != "gemini-3.6-flash-low" || fast.Model.Source != "providers.agy.profiles.fast.model" {
+			t.Errorf("fast.model = %+v, want the fast fill", fast.Model)
+		}
+	})
+
+	t.Run("no fills: tool default", func(t *testing.T) {
+		doc, _ := New(newFake(t, agyRows()...).run).Read(context.Background())
+		review := roleByName(t, doc, "review")
+		for _, c := range []Cell{review.Model, review.Effort} {
+			if c.Inherited != "" || c.Effective != "" || c.Source != "" {
+				t.Errorf("review cell = %+v, want empty", c)
+			}
+		}
+	})
+}
+
+func TestRead_effortCapable(t *testing.T) {
+	rows := append(baseRows(),
+		row("providers.claude.interactive_command", `"claude --model {model} --effort {effort}"`, "default", ""),
+		row("providers.codex.headless_command", `"codex exec -m {model} -c model_reasoning_effort={effort}"`, "default", ""),
+		row("providers.codex.interactive_command", `"codex -m {model}"`, "default", ""),
+	)
+	doc, err := New(newFake(t, rows...).run).Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// agy and kimi carry commands without {effort}; codex only in headless.
+	want := map[string]bool{"agy": false, "claude": true, "codex": true, "kimi": false}
+	if !reflect.DeepEqual(doc.EffortCapable, want) {
+		t.Errorf("effortCapable = %v, want %v", doc.EffortCapable, want)
+	}
+
+	doc, _ = New(newFake(t).run).Read(context.Background())
+	if capable, ok := doc.EffortCapable["codex"]; !ok || capable {
+		t.Errorf("codex with no command rows = (%v, present %v), want explicit false", capable, ok)
 	}
 }
 

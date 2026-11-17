@@ -1,0 +1,53 @@
+id: 26en
+name: 261117-26en-inherit-label-effort-capability
+created: 2026-11-17T19:13:20Z
+created_by: Sahil Ahuja
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: active
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 21
+    acceptance_completed: 0
+confidence:
+    certain: 6
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 79.0
+        reversibility: 87.0
+        competence: 85.0
+        disambiguation: 83.5
+stage_metrics:
+    intake: {started_at: "2026-11-17T19:13:20Z", driver: fab-new, iterations: 1, completed_at: "2026-11-17T19:15:38Z"}
+    apply: {started_at: "2026-11-17T19:15:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-17T19:20:56Z"}
+    review: {started_at: "2026-11-17T19:20:56Z", driver: fab-fff, iterations: 1}
+prs: []
+base_branch: main
+true_impact:
+    added: 1060
+    deleted: 76
+    net: 984
+    excluding:
+        added: 638
+        deleted: 73
+        net: 565
+    tests:
+        added: 34
+        deleted: 0
+        net: 34
+    computed_at: "2026-11-17T19:20:56Z"
+    computed_at_stage: apply
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-17T19:20:56Z
