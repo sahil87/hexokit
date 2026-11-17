@@ -283,6 +283,33 @@ func applyEngineItem(dst *engineItem, src operator.TrackedItem, projected bool) 
 	*dst = updated
 }
 
+// overlayPaneFacts copies onto a queue item the facts the check derives from
+// its pane and the engine never learns on its own: the change a raw-task spawn
+// acquired from /fab-new, the pipeline stage, and the branch that change has
+// checked out. The branch matters most: /fab-new renames the spawn-time branch
+// to the change name, so the engine's own `branch` goes stale while the check
+// records the real one under the change id in branch_map. Resolving it here
+// means every reader of the view (respawn, cherry-pick sources, status, the
+// projection write-back) sees the branch git has, and the engine file keeps
+// only what it decided at spawn.
+func overlayPaneFacts(it *operator.TrackedItem, p operator.TrackedItem, branchMap map[string]operator.BranchMapEntry) {
+	change := operator.ScopeString(it.Scope, "change")
+	if change == "" {
+		change = operator.ScopeString(p.Scope, "change")
+		if change != "" {
+			it.Scope["change"] = change
+		}
+	}
+	if stage := operator.ScopeString(p.Scope, "stage"); stage != "" {
+		it.Scope["stage"] = stage
+	}
+	if change != "" {
+		if be, ok := branchMap[change]; ok && be.Branch != "" {
+			it.Scope["branch"] = be.Branch
+		}
+	}
+}
+
 // engineView exposes the engine file through the existing derive/rule model,
 // while overlaying only projection-owned facts from the ledger.
 func engineView(statePath string) (*operator.State, map[string]operator.TrackedItem, error) {
@@ -301,7 +328,10 @@ func engineView(statePath string) (*operator.State, map[string]operator.TrackedI
 		ledgerByID[it.ID] = it
 	}
 	st := &operator.State{BranchMap: ledger.BranchMap, LastCheckAt: ledger.LastCheckAt, Tracked: []operator.TrackedItem{}}
-	appendEngine := func(items []engineItem, kind ...string) {
+	// queue marks the queue items: only their pane facts are overlaid (a PR
+	// item's branch is the recovery branch, read verbatim so a malformed one
+	// is refused rather than masked; a fix item's is its own fix head).
+	appendEngine := func(items []engineItem, queue bool, kind ...string) {
 		for _, engine := range items {
 			it := engine.tracked()
 			if len(kind) > 0 {
@@ -319,13 +349,16 @@ func engineView(statePath string) (*operator.State, map[string]operator.TrackedI
 				if it.DoneAt == nil {
 					it.DoneAt = p.DoneAt
 				}
+				if queue {
+					overlayPaneFacts(&it, p, st.BranchMap)
+				}
 			}
 			st.Tracked = append(st.Tracked, it)
 		}
 	}
-	appendEngine(es.Queue)
-	appendEngine(es.PRs)
-	appendEngine(es.Fixes, "fix")
+	appendEngine(es.Queue, true)
+	appendEngine(es.PRs, false)
+	appendEngine(es.Fixes, false, "fix")
 	for _, legacy := range ledger.Tracked {
 		if es.has(legacy.ID) {
 			continue
