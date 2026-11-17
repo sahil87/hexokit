@@ -158,4 +158,4 @@ The chat topic is the static page `docs/site/skill/operator.md` (exempt from the
 **Decision**: The brief marks each queue item with a `queue:` line from the engine file, the rules define a queue item as exactly an item with that line, and a run note's reasoning yields to the brief when they conflict.
 **Why**: Runs told to call `rk operator autopilot status --json` skipped it and judged queue membership from the ledger projection, whose `stop_stage` is null for raw-text entries; one run's "not a queue item" note then misled the next.
 **Rejected**: a queue marker in the ledger projection's scope (projections are engine-written copies, and the engine already owns the fact); stronger wording telling the run to call status (still optional to a model).
-*Introduced by*: operator-brief-queue-facts (direct change, no fab intake)
+*Introduced by*: PR #1146 (direct change, no fab intake)
