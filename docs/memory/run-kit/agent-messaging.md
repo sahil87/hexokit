@@ -529,7 +529,7 @@ so exit stays 0. It scans exactly the captured `--lines` window (fab passes
 — raw output is byte-identical by contract. Human output gains exactly one
 header line after the context line (or directly after `--- pane %N ---` when
 that line is omitted): `question: {indicator} — {snippet}` or `question: none
-({reason})`. Under `--json` the `result` document gains a `questions` object as the trailing key — present
+({reason})`. Under `--json` the `result` document gains a `questions` object, followed by `composer` (`{text, ghost}` from an attribute-preserving capture, or null when no composer line was found) as the trailing key — present
 **only** under `--classify`, so the six-key shape is otherwise byte-identical —
 with fixed keys `indicator` (class name or `none`), `snippet` (`""` when none),
 `reason` (`null` when matched, else the reason).

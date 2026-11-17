@@ -1,94 +1,167 @@
 package promptscan
 
 import (
+	"encoding/json"
 	"strings"
 	"unicode"
 )
 
 // Composer is what an agent harness's input line holds, read from an
 // attribute-preserving capture (`capture-pane -e`). Text is the content after
-// the prompt glyph; Ghost reports that the text is rendered dim (SGR 2) — the
-// harness's own suggestion, such as Claude Code's next-command hint, which a
-// plain capture cannot tell from typed input. Found is false when no composer
-// line was seen.
+// the prompt glyph; Ghost reports that every character of it is rendered dim
+// (SGR 2) — text the harness drew itself, a suggestion or a placeholder, which
+// a plain capture cannot tell from typed input. Found is false when no
+// composer line was seen; such a Composer marshals as JSON null, so a reader
+// can never mistake "unknown" for "empty".
 type Composer struct {
 	Text  string `json:"text"`
 	Ghost bool   `json:"ghost"`
 	Found bool   `json:"-"`
 }
 
+// MarshalJSON renders an unfound composer as null.
+func (c Composer) MarshalJSON() ([]byte, error) {
+	if !c.Found {
+		return []byte("null"), nil
+	}
+	type plain Composer
+	return json.Marshal(plain(c))
+}
+
 // composerGlyphs are the prompt glyphs harness composers start with: Claude
-// Code's ❯, Codex's ›, and a bare >.
+// Code's ❯, Codex's ›, and the bare > of Gemini CLI, Copilot and others.
 const composerGlyphs = "❯›>"
 
 // ScanComposer finds the composer in an escape-preserving capture: the last
-// line whose visible text starts with a prompt glyph. The composer always sits
-// below the transcript, so scanning upward from the bottom cannot pick a quoted
-// `>` line out of the output above it. Pure.
+// line whose visible text, after any box-drawing border and whitespace, starts
+// with a prompt glyph. The composer always sits below the transcript, so
+// scanning upward from the bottom cannot pick a quoted `>` line out of the
+// output above it. Pure.
 func ScanComposer(escaped string) Composer {
 	lines := strings.Split(escaped, "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
-		plain, dim := stripSGR(lines[i])
+		plain, attrs := stripEscapes(lines[i])
 		start := 0
-		for start < len(plain) && unicode.IsSpace(plain[start]) {
+		for start < len(plain) && composerPadding(plain[start]) {
 			start++
 		}
 		if start >= len(plain) || !strings.ContainsRune(composerGlyphs, plain[start]) {
 			continue
 		}
-		// Claude Code pads the glyph with a no-break space; IsSpace covers it.
 		textStart := start + 1
 		for textStart < len(plain) && unicode.IsSpace(plain[textStart]) {
 			textStart++
 		}
-		text := strings.TrimRightFunc(string(plain[textStart:]), unicode.IsSpace)
-		c := Composer{Text: text, Found: true}
-		if text != "" {
-			c.Ghost = dim[textStart]
+		textEnd := len(plain)
+		for textEnd > textStart && composerPadding(plain[textEnd-1]) {
+			textEnd--
+		}
+		c := Composer{Text: string(plain[textStart:textEnd]), Found: true}
+		if c.Text != "" {
+			c.Ghost = allDim(attrs[textStart:textEnd], plain[textStart:textEnd])
 		}
 		return c
 	}
 	return Composer{}
 }
 
-// stripSGR removes escape sequences from one line, returning its visible runes
-// and, per rune, whether the dim attribute was active. Only SGR (`ESC [ … m`)
-// changes state: 0 resets, 2 sets dim, 22 clears it; 38/48 colour selectors
-// consume their sub-parameters (5;n or 2;r;g;b) so a colour index never reads
-// as the dim attribute. Other CSI sequences are dropped.
-func stripSGR(line string) (plain []rune, dim []bool) {
-	runes := []rune(line)
-	active := false
-	for i := 0; i < len(runes); i++ {
-		if runes[i] != 0x1b || i+1 >= len(runes) || runes[i+1] != '[' {
-			plain = append(plain, runes[i])
-			dim = append(dim, active)
-			continue
-		}
-		j := i + 2
-		for j < len(runes) && (runes[j] == ';' || (runes[j] >= '0' && runes[j] <= '9')) {
-			j++
-		}
-		if j < len(runes) && runes[j] == 'm' {
-			active = applySGR(string(runes[i+2:j]), active)
-		}
-		i = j
-	}
-	return plain, dim
+// composerPadding is whitespace or a box-drawing border rune (the boxed
+// composers of Gemini CLI, Copilot and OpenCode), which the composer's text
+// never starts or ends with.
+func composerPadding(r rune) bool {
+	return unicode.IsSpace(r) || (r >= 0x2500 && r <= 0x257F)
 }
 
-// applySGR folds one SGR parameter list into the dim state.
-func applySGR(params string, active bool) bool {
+// allDim reports that every non-space rune is dim, allowing one non-dim rune
+// that carries the inverse attribute — the harness's drawn cursor, which
+// tmux renders as an inverse cell over the first suggestion character.
+func allDim(attrs []cellAttr, text []rune) bool {
+	cursorSeen := false
+	for i, r := range text {
+		if unicode.IsSpace(r) || attrs[i].dim {
+			continue
+		}
+		if attrs[i].inverse && !cursorSeen {
+			cursorSeen = true
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// cellAttr is the attribute state under one visible rune.
+type cellAttr struct{ dim, inverse bool }
+
+// stripEscapes removes escape sequences from one line, returning its visible
+// runes and the attribute state under each. A CSI sequence (`ESC [`,
+// parameter bytes 0x30–0x3F, intermediate bytes 0x20–0x2F, one final byte
+// 0x40–0x7E) is consumed whole and applied only when its final byte is `m`;
+// an OSC (`ESC ]` … BEL or `ESC \`) is consumed whole; any other ESC pair is
+// dropped. SGR parameters: 0 resets, 2 sets dim, 22 clears it, 7 sets
+// inverse, 27 clears it; a 38/48/58 colour selector consumes its
+// sub-parameters (5;n or 2;r;g;b, or the colon form inside one parameter) so a
+// colour index never reads as an attribute.
+func stripEscapes(line string) (plain []rune, attrs []cellAttr) {
+	runes := []rune(line)
+	var state cellAttr
+	for i := 0; i < len(runes); i++ {
+		if runes[i] != 0x1b || i+1 >= len(runes) {
+			plain = append(plain, runes[i])
+			attrs = append(attrs, state)
+			continue
+		}
+		switch runes[i+1] {
+		case '[':
+			j := i + 2
+			for j < len(runes) && runes[j] >= 0x30 && runes[j] <= 0x3F {
+				j++
+			}
+			params := string(runes[i+2 : j])
+			for j < len(runes) && runes[j] >= 0x20 && runes[j] <= 0x2F {
+				j++
+			}
+			if j < len(runes) && runes[j] == 'm' {
+				state = applySGR(params, state)
+			}
+			i = j
+		case ']':
+			j := i + 2
+			for j < len(runes) && runes[j] != 0x07 && !(runes[j] == 0x1b && j+1 < len(runes) && runes[j+1] == '\\') {
+				j++
+			}
+			if j < len(runes) && runes[j] == 0x1b {
+				j++
+			}
+			i = j
+		default:
+			i++
+		}
+	}
+	return plain, attrs
+}
+
+// applySGR folds one SGR parameter list into the attribute state.
+func applySGR(params string, state cellAttr) cellAttr {
 	parts := strings.Split(params, ";")
 	for k := 0; k < len(parts); k++ {
-		switch parts[k] {
+		head, sub, colon := strings.Cut(parts[k], ":")
+		switch head {
 		case "", "0":
-			active = false
+			state = cellAttr{}
 		case "2":
-			active = true
+			state.dim = true
 		case "22":
-			active = false
+			state.dim = false
+		case "7":
+			state.inverse = true
+		case "27":
+			state.inverse = false
 		case "38", "48", "58":
+			if colon {
+				_ = sub // colon form carries its sub-parameters in this token
+				continue
+			}
 			if k+1 < len(parts) {
 				switch parts[k+1] {
 				case "5":
@@ -99,5 +172,5 @@ func applySGR(params string, active bool) bool {
 			}
 		}
 	}
-	return active
+	return state
 }

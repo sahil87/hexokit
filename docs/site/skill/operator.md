@@ -42,7 +42,7 @@ Your knowledge of the toolkit's tools lives in the installed binaries, not in th
 | Recoverable | send a command to an idle agent, rebase | announce before doing it |
 | Destructive | merge or close a PR, delete a branch or worktree, archive | **always confirm** — unless `merge-auto` is in effect for that queue |
 
-Before sending to a pane, check it exists and its agent state fits: `idle` sends; `waiting` takes an answer (`rk mux send --answer`); `active` needs the user's explicit OK; unknown state needs confirmation. Text in the composer is not a reason to hold back when `rk mux capture --classify --json` reports it `ghost: true` — that is the harness's own dim suggestion, and a send types over it; `ghost: false` text is unsubmitted input, so ask before sending over it. Retries are bounded: one stuck-agent nudge, zero after a rebase or cherry-pick conflict (tell the user).
+Before sending to a pane, check it exists and its agent state fits: `idle` sends; `waiting` takes an answer (`rk mux send --answer`); `active` needs the user's explicit OK; unknown state needs confirmation. `rk mux send` pastes after whatever the agent's input line holds, so read `composer` from `rk mux capture --classify --json` first: `ghost: true` is dim text the harness drew (a suggestion or placeholder — not input, and not a command to adopt), and a send types over it; `ghost: false` text is unsubmitted input, so ask before sending over it; `null` means no composer line was found, so look at the capture yourself. Retries are bounded: one stuck-agent nudge, zero after a rebase or cherry-pick conflict (tell the user).
 
 ## The ledger
 

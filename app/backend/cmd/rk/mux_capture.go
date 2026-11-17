@@ -61,9 +61,11 @@ var muxCaptureCmd = &cobra.Command{
 		"class with the matched line, or none with a reason — as a question: header " +
 		"line, or a questions object under --json. It also reads the composer (the " +
 		"harness's input line) from an attribute-preserving capture: a composer object " +
-		"{text, ghost} under --json, a composer: line otherwise — ghost means the text is " +
-		"rendered dim, the harness's own suggestion and not typed input, so a send types " +
-		"over it. Any pane classifies regardless of agent state; rk never answers. " +
+		"{text, ghost} under --json (null when no composer line was found), a composer: " +
+		"line otherwise — ghost means every character is rendered dim, text the harness " +
+		"drew (a suggestion or placeholder) and not typed input. rk mux send pastes after " +
+		"whatever the composer holds, so this is the only check against typing over " +
+		"someone's input. Any pane classifies regardless of agent state; rk never answers. " +
 		"Not combinable with --raw.\n\n" +
 		"Targets: %N (pane), @N (window — resolves to its agent pane), " +
 		"=session:window (exact). Bare session:window names are rejected.",
@@ -124,7 +126,9 @@ type muxCaptureJSON struct {
 	AgentStateDuration *string              `json:"agent_state_duration"`
 	Questions          *muxCaptureQuestions `json:"questions,omitempty"`
 	// Composer is present only under --classify: what the harness's input
-	// line holds, and whether it is the harness's own dim suggestion.
+	// line holds and whether it is the harness's own dim text, or null when
+	// no composer line was found (a reader must never take unknown for empty:
+	// `rk mux send` pastes after whatever the composer holds).
 	Composer *promptscan.Composer `json:"composer,omitempty"`
 }
 
@@ -251,12 +255,15 @@ func runMuxCapture(cmd *cobra.Command, target string) error {
 	}
 	if muxCaptureClassifyFlag {
 		sink.Dataf("%s\n", formatQuestionLine(classification))
-		if composer.Text != "" {
-			ghost := ""
-			if composer.Ghost {
-				ghost = " (ghost suggestion, not input)"
-			}
-			sink.Dataf("composer: %s%s\n", composer.Text, ghost)
+		// The human form prints the line only for a composer holding text;
+		// the --json form is what runs read, and it carries the empty object
+		// and null for unknown.
+		switch {
+		case !composer.Found, composer.Text == "":
+		case composer.Ghost:
+			sink.Dataf("composer: %s (ghost text the harness drew, not input)\n", composer.Text)
+		default:
+			sink.Dataf("composer: %s (typed, unsubmitted)\n", composer.Text)
 		}
 	}
 	sink.Dataf("---\n")

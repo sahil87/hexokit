@@ -211,10 +211,7 @@ func TestMuxCaptureClassifyJSON(t *testing.T) {
 				"      \"snippet\": \"Overwrite file [y/N]\",\n" +
 				"      \"reason\": null\n" +
 				"    },\n" +
-				"    \"composer\": {\n" +
-				"      \"text\": \"\",\n" +
-				"      \"ghost\": false\n" +
-				"    }\n",
+				"    \"composer\": null\n",
 		},
 		{
 			"none with reason", "   \n", []string{"--json", "--classify"},
@@ -223,10 +220,7 @@ func TestMuxCaptureClassifyJSON(t *testing.T) {
 				"      \"snippet\": \"\",\n" +
 				"      \"reason\": \"blank_capture\"\n" +
 				"    },\n" +
-				"    \"composer\": {\n" +
-				"      \"text\": \"\",\n" +
-				"      \"ghost\": false\n" +
-				"    }\n",
+				"    \"composer\": null\n",
 		},
 		{"absent without flag", "Overwrite file [y/N]\n", []string{"--json"}, ""},
 	}
@@ -330,8 +324,10 @@ func TestMuxCaptureClassifyComposer(t *testing.T) {
 		name, escaped, wantJSON, wantHuman string
 	}{
 		{"ghost", "9 assumptions. Run /fab-ff to continue.\n\x1b[39m❯ \x1b[2m/fab-ff\x1b[0m\n  status\n",
-			"    \"composer\": {\n      \"text\": \"/fab-ff\",\n      \"ghost\": true\n    }\n", "composer: /fab-ff (ghost suggestion, not input)\n"},
-		{"typed", plain, "    \"composer\": {\n      \"text\": \"/fab-ff\",\n      \"ghost\": false\n    }\n", "composer: /fab-ff\n"},
+			"    \"composer\": {\n      \"text\": \"/fab-ff\",\n      \"ghost\": true\n    }\n", "composer: /fab-ff (ghost text the harness drew, not input)\n"},
+		{"typed", plain, "    \"composer\": {\n      \"text\": \"/fab-ff\",\n      \"ghost\": false\n    }\n", "composer: /fab-ff (typed, unsubmitted)\n"},
+		{"empty composer", "output\n❯ \n", "    \"composer\": {\n      \"text\": \"\",\n      \"ghost\": false\n    }\n", ""},
+		{"no composer line", "just output\n", "    \"composer\": null\n", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -342,7 +338,11 @@ func TestMuxCaptureClassifyComposer(t *testing.T) {
 				t.Errorf("json stdout = %q err %v, want %q", stdout, err, tc.wantJSON)
 			}
 			stdout, _, err = runMuxCmd(t, "capture", "%5", "--classify")
-			if err != nil || !strings.Contains(stdout, tc.wantHuman) {
+			if tc.wantHuman == "" {
+				if err != nil || strings.Contains(stdout, "composer:") {
+					t.Errorf("human stdout = %q err %v, want no composer line", stdout, err)
+				}
+			} else if err != nil || !strings.Contains(stdout, tc.wantHuman) {
 				t.Errorf("human stdout = %q err %v, want %q", stdout, err, tc.wantHuman)
 			}
 			stdout, _, _ = runMuxCmd(t, "capture", "%5", "--json")
@@ -350,5 +350,17 @@ func TestMuxCaptureClassifyComposer(t *testing.T) {
 				t.Errorf("composer must be absent without --classify: %q", stdout)
 			}
 		})
+	}
+}
+
+// A failed attribute-preserving capture reports the composer as unknown
+// (null), never as empty: `rk mux send` pastes after whatever the composer
+// holds, so "unknown" must not read as "nothing typed".
+func TestMuxCaptureClassifyComposerCaptureFailure(t *testing.T) {
+	f := &muxFake{states: map[string]string{"%5": "idle"}, captureContent: map[string]string{"%5": "❯ typed\n"}, captureEscapedErr: errors.New("capture-pane: pane gone")}
+	installMuxFakes(t, f)
+	stdout, _, err := runMuxCmd(t, "capture", "%5", "--json", "--classify")
+	if err != nil || !strings.Contains(stdout, "    \"composer\": null\n") {
+		t.Errorf("stdout = %q err %v, want composer null", stdout, err)
 	}
 }
