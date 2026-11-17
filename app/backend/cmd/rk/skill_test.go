@@ -22,7 +22,9 @@ const skillLineBudget = 150
 // topic is the operator chat's whole operating manual: one session per tmux
 // server loads it once, it is never pulled into other agents' conversations,
 // and cutting it to the budget removed the plan and status behaviours the
-// chat needs. The shll `skill` standard records the exemption.
+// chat needs. The matching amendment to the shll `skill` standard is
+// sahil87/shll#106 (a one-line exemption for a session's operating-manual
+// topic).
 var skillTopicsOverBudget = map[string]bool{"operator": true}
 
 const tutorialPublicPath = "tutorial/"
@@ -512,5 +514,16 @@ func TestSkillRestoreTopicMCPToolsResolve(t *testing.T) {
 func TestSkillCoreNamesTopicTool(t *testing.T) {
 	if !bytes.Contains(skillBundle, []byte("`skill_topic`")) {
 		t.Error("core bundle never names the `skill_topic` MCP tool")
+	}
+}
+
+// The operator topic loads its tool knowledge from the installed bundles,
+// deterministically, the way the legacy skill's helper partials did.
+func TestOperatorTopicLoadsToolBundles(t *testing.T) {
+	topic := string(skillTopics["operator"])
+	for _, want := range []string{"## Tools", "`shll skill`", "`xk skill`", "`shll skill fab-kit`", "`shll skill <tool>`"} {
+		if !strings.Contains(topic, want) {
+			t.Errorf("operator topic missing %q", want)
+		}
 	}
 }

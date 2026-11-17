@@ -725,3 +725,42 @@ func TestRespawnFollowsTheBranchFabNewRenamed(t *testing.T) {
 		t.Fatalf("branch_map[%s] = %+v, the respawn's write-back must not restore the stale branch", change, be)
 	}
 }
+
+// A paused entry is held past its dependencies until resume; `Pause` holds
+// an unspawned entry mid-flight and refuses a spawned one.
+func TestPausedEntryHoldsUntilResume(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	none, afterGate := []string{}, []string{"gate"}
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"},
+		Entry{ID: "gate", Repo: foo.Dir, Task: "gate", Paused: true, DependsOn: &none},
+		Entry{ID: "c", Repo: foo.Dir, Task: "c", DependsOn: &afterGate})
+	res := h.step()
+	if !hasAction(res, ActSpawned, "a") || hasAction(res, ActSpawned, "gate") {
+		t.Fatalf("actions = %+v, want a spawned and gate held", res.Actions)
+	}
+	h.panes.panes["%101"] = operator.PaneInfo{PaneID: "%101"}
+	if st, _ := Status(context.Background(), h.env); st.Items[1].State != QueuePaused {
+		t.Fatalf("gate status = %+v, want paused", st.Items[1])
+	}
+	if _, err := Pause(context.Background(), h.env, "c"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Pause(context.Background(), h.env, "c"); err != nil {
+		t.Fatalf("a second pause must be a no-op, got %v", err)
+	}
+	if _, err := Pause(context.Background(), h.env, "a"); err == nil {
+		t.Fatal("pausing a spawned item must be a usage error")
+	}
+	if res := h.step(); hasAction(res, ActSpawned, "") {
+		t.Fatalf("paused entries spawned: %+v", res.Actions)
+	}
+	// Resume runs a pass itself, so the spawn happens inside it.
+	res, err := Resume(context.Background(), h.env, "gate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasAction(res, ActSpawned, "gate") || len(h.spawn.reqs) != 2 || h.spawn.reqs[len(h.spawn.reqs)-1].WorktreeName != "gate" {
+		t.Fatalf("resumed gate not spawned: %+v reqs %d", res.Actions, len(h.spawn.reqs))
+	}
+}

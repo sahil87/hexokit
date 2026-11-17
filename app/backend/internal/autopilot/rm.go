@@ -158,3 +158,40 @@ func containsID(ids []string, id string) bool {
 	}
 	return false
 }
+
+// Pause holds an unspawned queue item: the spawn gate skips a paused item
+// until Resume clears it — the user gate of a plan step. A spawned, spawning,
+// done, or non-queue id is a usage error: a live pane is not held by a flag.
+// An already-paused item is a no-op.
+func Pause(ctx context.Context, env Env, id string) (*StepResult, error) {
+	return passLocked(env, func() (*StepResult, error) {
+		e := newEngine(env)
+		changed := false
+		if err := e.mutateEngine(func(st *engineState) error {
+			var item *engineItem
+			for i := range st.Queue {
+				if st.Queue[i].ID == id {
+					item = &st.Queue[i]
+				}
+			}
+			if item == nil {
+				return operatorInvalid("unknown queue item %s", id)
+			}
+			if item.Pane != "" || item.Spawning != "" || item.DoneAt != nil {
+				return operatorInvalid("%s has spawned or is done; pause holds only unspawned queue entries", id)
+			}
+			if item.Paused {
+				return operator.ErrNoWrite
+			}
+			item.Paused = true
+			changed = true
+			return nil
+		}); err != nil {
+			return e.res, err
+		}
+		if changed {
+			e.act(ActPaused, id, "")
+		}
+		return e.res, nil
+	})
+}
