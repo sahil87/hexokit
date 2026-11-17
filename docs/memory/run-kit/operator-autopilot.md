@@ -374,4 +374,4 @@ The `restack` executor (`restack.go`) runs in this order and writes no engine ke
 **Decision**: A queue entry may start `"paused": true`, and `rk operator autopilot pause <id>` holds any unspawned entry later; `resume` releases either. The chat queues a plan's user-gate steps paused.
 **Why**: A queued entry has no ledger record until it spawns, so `rk operator track pause` cannot hold it, and `stop` pauses every unspawned entry; without a per-entry pause the engine spawned a gated step the moment its dependencies finished, and the run's intake rule then advanced it past the gate.
 **Rejected**: queuing gated steps in a later `queue` call only (works, but the gate is then invisible in `status` until the user remembers); a `gate` field with its own semantics (paused already derives the status and `resume` already clears it).
-*Introduced by*: PR #1148 (direct change, no fab intake)
+*Introduced by*: PR #1150 (direct change, no fab intake)
