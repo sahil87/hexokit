@@ -52,13 +52,17 @@ func isPlainAgent(st *operator.State, it operator.TrackedItem) (bool, error) {
 
 // prView is the subset of `gh pr view` the engine reads.
 type prView struct {
-	Number     int    `json:"number"`
-	URL        string `json:"url"`
-	State      string `json:"state"`
-	IsDraft    bool   `json:"isDraft"`
-	MergedAt   string `json:"mergedAt"`
-	Mergeable  string `json:"mergeable"`
-	HeadRefOid string `json:"headRefOid"`
+	Number      int    `json:"number"`
+	URL         string `json:"url"`
+	State       string `json:"state"`
+	IsDraft     bool   `json:"isDraft"`
+	MergedAt    string `json:"mergedAt"`
+	Mergeable   string `json:"mergeable"`
+	HeadRefOid  string `json:"headRefOid"`
+	BaseRefName string `json:"baseRefName"`
+	MergeCommit struct {
+		OID string `json:"oid"`
+	} `json:"mergeCommit"`
 	// AutoMergeRequest is non-nil exactly when auto-merge is armed.
 	AutoMergeRequest *struct{}       `json:"autoMergeRequest"`
 	Reviews          []reviewSummary `json:"reviews"`

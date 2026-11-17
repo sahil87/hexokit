@@ -683,32 +683,32 @@ func TestStartMergeAcceptsAStackedQueueAndCreatesChains(t *testing.T) {
 	if len(engine.PRs) != 2 || engine.PRs[0].MergeMode != "stacked-prs" || engine.PRs[1].DependsOn[0] != engine.PRs[0].ID {
 		t.Fatalf("stacked engine items = %#v", engine.PRs)
 	}
-	if h.run.called("gh pr merge") != 0 || h.run.called("gh pr ready") != 0 {
-		t.Fatalf("a stacked merge acted on GitHub: %q", h.run.calls)
+	if h.run.called("gh pr merge --squash 1 --repo o/foo") != 1 || h.run.called("gh pr merge --auto") != 0 || h.run.called("gh pr ready") != 0 {
+		t.Fatalf("the first stacked head did not merge directly: %q", h.run.calls)
 	}
 }
 
-func TestStepDoesNotDriveAStackedPRItem(t *testing.T) {
+func TestStepMergesButNeverArmsAStackedPRItem(t *testing.T) {
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
 	prs := h.shipped(1, "a")
 	h.run.reset()
-	if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
-		it, err := operator.NewGitHubPRItem("pr-1", nil, map[string]interface{}{
-			"repo": foo.Dir, "pr": 1, "branch": "a-branch", scopeMergeSeq: "seq", scopeItem: "a", "merge_mode": "stacked-prs",
-		}, "o/foo")
-		st.Tracked = append(st.Tracked, it)
-		return err
-	}); err != nil {
+	it, err := operator.NewGitHubPRItem("pr-1", nil, map[string]interface{}{
+		"repo": foo.Dir, "pr": 1, "branch": "a-branch", scopeMergeSeq: "seq", scopeItem: "a", "merge_mode": "stacked-prs",
+	}, "o/foo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := newEngine(h.env).addPRItems([]operator.TrackedItem{it}, nil); err != nil {
 		t.Fatal(err)
 	}
 	res := h.step()
-	if prs[0].Armed || prs[0].MergeCalls != 0 || h.run.called("gh pr merge") != 0 || h.run.called("gh pr ready") != 0 {
-		t.Fatalf("a stacked PR item was driven: %+v", res)
+	if prs[0].Armed || prs[0].MergeCalls != 1 || h.run.called("gh pr merge --auto") != 0 || h.run.called("gh pr ready") != 0 {
+		t.Fatalf("a stacked green PR was not merged directly: %+v", res)
 	}
-	if row := h.decisionRows()["pr-1"]; row != "" {
-		t.Fatalf("a stacked PR item matched row %q, want an explicit wait", row)
+	if row := h.decisionRows()["pr-1"]; row != "P1" {
+		t.Fatalf("the freshly merged stacked PR matched row %q, want P1", row)
 	}
 }
 

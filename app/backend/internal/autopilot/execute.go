@@ -58,6 +58,8 @@ func (e *engine) execute(ctx context.Context, f *facts, ds []Decision) error {
 			err = e.rebaseRecovery(ctx, d)
 		case ActionUntrack:
 			err = e.untrackFix(d)
+		case ActionRestack:
+			err = e.restack(ctx, d)
 		}
 		errs = errors.Join(errs, err)
 	}

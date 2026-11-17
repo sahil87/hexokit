@@ -17,8 +17,9 @@ import (
 
 // repoMeta is what the engine learns once per repo per verb.
 type repoMeta struct {
-	defaultBranch string
-	nwo           string
+	defaultBranch      string
+	defaultBranchKnown bool
+	nwo                string
 }
 
 // cleanRepo normalizes a repo path for comparison.
@@ -72,10 +73,11 @@ func (e *engine) defaultBranch(ctx context.Context, repo, id string) string {
 		return m.defaultBranch
 	}
 	branch := ""
+	known := false
 	if out, err := e.git(ctx, repo, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"); err == nil {
 		cand := strings.TrimPrefix(out, "origin/")
 		if _, verr := e.git(ctx, repo, "rev-parse", "--verify", "-q", "refs/remotes/origin/"+cand); verr == nil && cand != "" {
-			branch = cand
+			branch, known = cand, true
 		} else if verr != nil && !exitCode(verr, 1) {
 			e.escalate(id, "default branch verification failed: "+stderrOf(verr))
 		}
@@ -85,6 +87,7 @@ func (e *engine) defaultBranch(ctx context.Context, repo, id string) string {
 	if branch == "" {
 		if out, err := e.gh(ctx, repo, "repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"); err == nil {
 			branch = strings.TrimSpace(out)
+			known = branch != ""
 		} else {
 			e.escalate(id, "GitHub default branch lookup failed: "+stderrOf(err))
 		}
@@ -95,9 +98,12 @@ func (e *engine) defaultBranch(ctx context.Context, repo, id string) string {
 			branch = "main"
 		} else if !exitCode(err, 1) {
 			e.escalate(id, "origin/main lookup failed: "+stderrOf(err))
+		} else if _, masterErr := e.git(ctx, repo, "rev-parse", "--verify", "-q", "origin/master"); masterErr != nil && !exitCode(masterErr, 1) {
+			e.escalate(id, "origin/master lookup failed: "+stderrOf(masterErr))
 		}
 	}
 	e.metaFor(repo).defaultBranch = branch
+	e.metaFor(repo).defaultBranchKnown = known
 	return branch
 }
 

@@ -17,6 +17,8 @@ func alreadyApplied(err error, operation string) bool {
 		phrases = []string{"auto-merge is already disabled", "auto merge is already disabled", "auto-merge is not enabled", "auto merge is not enabled", "auto-merge is not currently enabled", "auto merge is not currently enabled"}
 	case "ready":
 		phrases = []string{"already marked as ready", "already ready for review", "pull request is not a draft"}
+	case "rebase-abort":
+		phrases = []string{"no rebase in progress"}
 	case "cherry-pick-abort":
 		phrases = []string{"no cherry-pick or revert in progress", "no cherry-pick in progress"}
 	case "merge":

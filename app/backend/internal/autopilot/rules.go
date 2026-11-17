@@ -35,6 +35,7 @@ const (
 	ActionReady         ActionKind = "ready"
 	ActionArm           ActionKind = "arm"
 	ActionMerge         ActionKind = "merge"
+	ActionRestack       ActionKind = "restack"
 	ActionReProject     ActionKind = "re-project"
 	ActionFixRequest    ActionKind = "fix-request"
 	ActionRecoverySpawn ActionKind = "recovery-spawn"
@@ -174,26 +175,21 @@ func removedProjectionGuard(c *ruleCtx) bool {
 	return !done && projectionRemoved(c) && !escalatedAlready(c, key)
 }
 
-func upstreamMerged(c *ruleCtx) bool {
-	for _, id := range c.it.DependsOn {
-		i := operator.IndexOf(c.st.Tracked, id)
-		if i >= 0 && (operator.ItemDone(c.st.Tracked[i]) || observedMerged(c.f, id)) {
-			return true
-		}
-	}
-	return false
+func predecessorMerged(c *ruleCtx) bool {
+	pred, ok := inSeqPredecessor(c.st, c.it)
+	return ok && (operator.ItemDone(pred) || observedMerged(c.f, pred.ID))
 }
 
-func restackGuard(c *ruleCtx) bool {
-	key, _ := restackText(c)
-	status := derivePR(c.st, c.f, c.it)
-	active := status != PRMerged && status != PRClosed && status != PRHalted && status != PRPaused
-	return active && stacked(c) && upstreamMerged(c) && !escalatedAlready(c, key)
-}
-
-func restackText(c *ruleCtx) (string, string) {
-	reason := fmt.Sprintf("restack needed: PR #%s", prNum(c.it.Scope))
+func staleBaseText(c *ruleCtx) (string, string) {
+	pf := prFactsOf(c)
+	reason := fmt.Sprintf("stacked PR #%s is based on %s, not %s, with no merged predecessor to restack from",
+		prNum(c.it.Scope), pf.base, pf.defaultBranch)
 	return escalationKey(reason), reason
+}
+
+func staleBaseGuard(c *ruleCtx) bool {
+	key, _ := staleBaseText(c)
+	return !predecessorMerged(c) && !escalatedAlready(c, key)
 }
 
 // repoAllowsAutoMerge is P6's fact guard: the repo's setting was read and the
@@ -246,11 +242,11 @@ func trackPRGuard(c *ruleCtx) bool {
 	return c.mode == operator.MergeModeMergeAuto && !isBare(c.it) && operator.ItemDone(c.it) && !scopeBool(c.it, scopePRDropped) && !hasPRItem(c.st, c.it.ID)
 }
 
-// mergeGuard is P7's: a green, unarmed, non-stacked PR whose observed head is
-// known, because the merge is pinned to that commit.
+// mergeGuard is P7's: a green, unarmed PR whose observed head is known,
+// because the merge is pinned to that commit.
 func mergeGuard(c *ruleCtx) bool {
 	pf := prFactsOf(c)
-	return !stacked(c) && !armedFact(c) && pf != nil && pf.view.HeadRefOid != ""
+	return !armedFact(c) && pf != nil && pf.view.HeadRefOid != ""
 }
 
 func closedHaltText(c *ruleCtx) (string, string) {
@@ -330,14 +326,15 @@ var ruleTable = []rule{
 	{id: "P1", kind: kindPR, pr: PRMerged, guard: doneAtUnset, action: ActionRecordMerged},
 	{id: "P2", kind: kindPR, pr: PRClosed, action: ActionHalt, text: closedHaltText},
 	{id: "P3", kind: kindPR, pr: PRHalted, guard: armedFact, action: ActionDisarm},
-	{id: "B0", kind: kindPR, all: true, guard: restackGuard, action: ActionEscalate, text: restackText},
-	{id: "P4", kind: kindPR, pr: PRDraft, guard: func(c *ruleCtx) bool { return !stacked(c) }, action: ActionReady},
+	{id: "B1", kind: kindPR, pr: PRStaleBase, guard: predecessorMerged, action: ActionRestack},
+	{id: "B2", kind: kindPR, pr: PRStaleBase, guard: staleBaseGuard, action: ActionEscalate, text: staleBaseText},
+	{id: "P4", kind: kindPR, pr: PRDraft, action: ActionReady},
 	{id: "C1", kind: kindPR, pr: PRFixing, guard: noPushHaltGuard, action: ActionHalt, text: noPushHaltText},
 	{id: "C2", kind: kindPR, pr: PRFailed, guard: authoringRecoveryGuard(false), action: ActionFixRequest},
 	{id: "C3", kind: kindPR, pr: PRFailed, guard: authoringRecoveryGuard(true), action: ActionRecoverySpawn},
 	{id: "C4", kind: kindPR, pr: PRFailed, guard: func(c *ruleCtx) bool { return roundSpent(c.it, recoveryCIFix) }, action: ActionHalt, text: failedAfterFixText},
-	{id: "C5", kind: kindPR, pr: PRConflicting, guard: func(c *ruleCtx) bool { return !stacked(c) && !roundSpent(c.it, recoveryRebase) }, action: ActionRebase},
-	{id: "C6", kind: kindPR, pr: PRConflicting, guard: func(c *ruleCtx) bool { return !stacked(c) && roundSpent(c.it, recoveryRebase) }, action: ActionHalt, text: conflictingAgainText},
+	{id: "C5", kind: kindPR, pr: PRConflicting, guard: func(c *ruleCtx) bool { return !roundSpent(c.it, recoveryRebase) }, action: ActionRebase},
+	{id: "C6", kind: kindPR, pr: PRConflicting, guard: func(c *ruleCtx) bool { return roundSpent(c.it, recoveryRebase) }, action: ActionHalt, text: conflictingAgainText},
 	{id: "P6", kind: kindPR, pr: PRWaiting, guard: func(c *ruleCtx) bool { return !stacked(c) && !armedFact(c) && repoAllowsAutoMerge(c) }, action: ActionArm},
 	{id: "P7", kind: kindPR, pr: PRGreen, guard: mergeGuard, action: ActionMerge},
 	{id: "F1", kind: kindFix, fix: FixResolved, action: ActionUntrack},
@@ -370,12 +367,11 @@ var waitTable = []wait{
 	{kind: kindPR, pr: PRHalted, reason: "halted and not armed"},
 	{kind: kindPR, pr: PRDeferred, reason: "its repo's merge has not started"},
 	{kind: kindPR, pr: PRBlocked, reason: "an upstream PR has not merged"},
-	{kind: kindPR, pr: PRDraft, reason: "stacked-prs: merged by R6b"},
+	{kind: kindPR, pr: PRStaleBase, reason: "already escalated: no predecessor to restack from"},
 	{kind: kindPR, pr: PRFixing, reason: "CI fix round in progress"},
 	{kind: kindPR, pr: PRFailed, reason: "authoring agent busy, or pane snapshot unknown"},
-	{kind: kindPR, pr: PRConflicting, reason: "stacked-prs: rebase is R6b's restack"},
 	{kind: kindPR, pr: PRGreen, reason: "armed (GitHub merges it), or its head commit is unknown"},
-	{kind: kindPR, pr: PRWaiting, reason: "checks pending, armed, or the repo has no auto-merge"},
+	{kind: kindPR, pr: PRWaiting, reason: "checks pending, armed, the repo has no auto-merge, or stacked-prs is never armed"},
 	{kind: kindFix, fix: FixSpawnUnknown, reason: "spawn interrupted, already escalated"},
 	{kind: kindFix, fix: FixWorking, reason: "the recovery agent is working"},
 }

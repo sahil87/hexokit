@@ -38,6 +38,7 @@ const (
 	PRClosed      PRStatus = "closed"
 	PRDeferred    PRStatus = "deferred"
 	PRBlocked     PRStatus = "blocked"
+	PRStaleBase   PRStatus = "stale-base"
 	PRDraft       PRStatus = "draft"
 	PRFixing      PRStatus = "fixing"
 	PRFailed      PRStatus = "failed"
@@ -47,7 +48,7 @@ const (
 )
 
 var allPRStatuses = []PRStatus{
-	PRMerged, PRPaused, PRHalted, PRClosed, PRDeferred, PRBlocked, PRDraft, PRFixing, PRFailed, PRConflicting, PRGreen, PRWaiting,
+	PRMerged, PRPaused, PRHalted, PRClosed, PRDeferred, PRBlocked, PRStaleBase, PRDraft, PRFixing, PRFailed, PRConflicting, PRGreen, PRWaiting,
 }
 
 // FixStatus is a recovery-spawn item's derived status.
@@ -100,6 +101,15 @@ type prFacts struct {
 	view       prView
 	checks     []checkRun
 	checksRead bool
+	// staleRead is true only when every stale-base fact needed by a stacked PR
+	// was read this pass.
+	stacked       bool
+	staleRead     bool
+	base          string
+	defaultBranch string
+	hasPred       bool
+	predMerge     string
+	ancestor      bool
 }
 
 func (f *facts) queueFor(id string) *queueFacts {
@@ -255,9 +265,22 @@ func blockedByDeps(st *operator.State, it operator.TrackedItem) bool {
 	return false
 }
 
-// prPrecheck derives the statuses that need no check facts: merged › halted ›
-// closed › deferred › blocked › (unread →) waiting › draft › fixing. ok is false
-// when the item reaches the check-based statuses, which tells observe to read them.
+// inSeqPredecessor returns the dependency PR of the same merge sequence;
+// cross-repo barriers are not restack predecessors.
+func inSeqPredecessor(st *operator.State, it operator.TrackedItem) (operator.TrackedItem, bool) {
+	for _, id := range it.DependsOn {
+		i := operator.IndexOf(st.Tracked, id)
+		if i >= 0 && isPRItem(st.Tracked[i]) && seqOf(st.Tracked[i]) == seqOf(it) {
+			return st.Tracked[i], true
+		}
+	}
+	return operator.TrackedItem{}, false
+}
+
+// prPrecheck derives the statuses that need no check facts: merged › paused ›
+// halted › closed › deferred › blocked › (unread or unsettled stale-base facts
+// →) waiting › stale-base › draft › fixing. ok is false when the item reaches
+// the check-based statuses, which tells observe to read them.
 func prPrecheck(st *operator.State, f *facts, it operator.TrackedItem) (status PRStatus, ok bool) {
 	pf := f.pr[it.ID]
 	state := ""
@@ -279,6 +302,10 @@ func prPrecheck(st *operator.State, f *facts, it operator.TrackedItem) (status P
 		return PRBlocked, true
 	case pf == nil || !pf.read:
 		return PRWaiting, true
+	case pf.stacked && !pf.staleRead:
+		return PRWaiting, true
+	case pf.stacked && (pf.base != pf.defaultBranch || (pf.hasPred && !pf.ancestor)):
+		return PRStaleBase, true
 	case pf.view.IsDraft:
 		return PRDraft, true
 	case roundSpent(it, recoveryCIFix) && pf.view.HeadRefOid != "" && pf.view.HeadRefOid == operator.ScopeString(it.Scope, scopeFixHead):
@@ -287,8 +314,8 @@ func prPrecheck(st *operator.State, f *facts, it operator.TrackedItem) (status P
 	return "", false
 }
 
-// derivePR is the PR status table: merged › halted › closed › deferred ›
-// blocked › draft › fixing › failed › conflicting › green › waiting.
+// derivePR is the PR status table: merged › paused › halted › closed › deferred
+// › blocked › stale-base › draft › fixing › failed › conflicting › green › waiting.
 func derivePR(st *operator.State, f *facts, it operator.TrackedItem) PRStatus {
 	if s, ok := prPrecheck(st, f, it); ok {
 		return s

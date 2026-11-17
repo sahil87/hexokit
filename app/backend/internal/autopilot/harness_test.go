@@ -175,26 +175,30 @@ func (s *scriptRunner) reset() {
 // ---- gh simulator -------------------------------------------------------------
 
 type simPR struct {
-	Number     int
-	Branch     string
-	URL        string
-	State      string
-	IsDraft    bool
-	Mergeable  string
-	HeadOid    string
-	Reviews    []reviewSummary
-	Checks     []checkRun
-	AutoErr    string
-	Armed      bool
-	Disarms    int
-	MergeCalls int
+	Number      int
+	Branch      string
+	URL         string
+	State       string
+	IsDraft     bool
+	Mergeable   string
+	HeadOid     string
+	Base        string
+	MergeCommit string
+	Origin      *testRepo
+	Reviews     []reviewSummary
+	Checks      []checkRun
+	AutoErr     string
+	Armed       bool
+	Disarms     int
+	MergeCalls  int
 }
 
 type ghSim struct {
-	t    *testing.T
-	prs  map[int]*simPR
-	run  *scriptRunner
-	repo string
+	t       *testing.T
+	prs     map[int]*simPR
+	run     *scriptRunner
+	repo    string
+	onMerge func(*simPR)
 	// noAutoMerge lists the repos (by owner/name) whose autoMergeAllowed is false.
 	noAutoMerge map[string]bool
 }
@@ -207,7 +211,7 @@ func newGHSim(t *testing.T, run *scriptRunner) *ghSim {
 
 func (g *ghSim) add(number int, branch string) *simPR {
 	pr := &simPR{Number: number, Branch: branch, URL: fmt.Sprintf("https://example.test/pull/%d", number),
-		State: "OPEN", Mergeable: "MERGEABLE", HeadOid: fmt.Sprintf("%040d", number)}
+		State: "OPEN", Mergeable: "MERGEABLE", HeadOid: fmt.Sprintf("%040d", number), Base: "main"}
 	g.prs[number] = pr
 	return pr
 }
@@ -216,6 +220,22 @@ func (g *ghSim) find(ref string) *simPR {
 	for _, p := range g.prs {
 		if fmt.Sprint(p.Number) == ref || p.Branch == ref {
 			return p
+		}
+	}
+	return nil
+}
+
+func (g *ghSim) headOid(p *simPR) string {
+	if p.Origin != nil && gitOK(p.Origin.Origin, "rev-parse", "--verify", "-q", "refs/heads/"+p.Branch) {
+		return runGit(g.t, p.Origin.Origin, "rev-parse", "refs/heads/"+p.Branch)
+	}
+	return p.HeadOid
+}
+
+func (g *ghSim) compareOrigin() *testRepo {
+	for _, p := range g.prs {
+		if p.Origin != nil {
+			return p.Origin
 		}
 	}
 	return nil
@@ -250,10 +270,14 @@ func (g *ghSim) handle(dir string, argv []string) (string, error) {
 		if p.Armed {
 			armed = map[string]string{"mergeMethod": "SQUASH"}
 		}
+		var mergeCommit interface{}
+		if p.MergeCommit != "" {
+			mergeCommit = map[string]string{"oid": p.MergeCommit}
+		}
 		b, _ := json.Marshal(map[string]interface{}{
 			"number": p.Number, "url": p.URL, "state": p.State, "isDraft": p.IsDraft, "mergedAt": mergedAt(p),
-			"mergeable": p.Mergeable, "headRefOid": p.HeadOid, "autoMergeRequest": armed,
-			"reviews": p.Reviews, "statusCheckRollup": rollup(p.Checks),
+			"mergeable": p.Mergeable, "headRefOid": g.headOid(p), "autoMergeRequest": armed, "baseRefName": p.Base,
+			"mergeCommit": mergeCommit, "reviews": p.Reviews, "statusCheckRollup": rollup(p.Checks),
 		})
 		return string(b), nil
 	case len(args) >= 3 && args[0] == "pr" && args[1] == "checks":
@@ -271,11 +295,33 @@ func (g *ghSim) handle(dir string, argv []string) (string, error) {
 			}
 		}
 		return string(b), nil
+	case len(args) >= 3 && args[0] == "pr" && args[1] == "edit":
+		p := g.find(args[2])
+		if p == nil {
+			return "", ghErr(argv, "no pull request "+args[2])
+		}
+		for i := 3; i+1 < len(args); i++ {
+			if args[i] == "--base" {
+				p.Base = args[i+1]
+				return "", nil
+			}
+		}
+		return "", ghErr(argv, "base required")
 	case len(args) >= 3 && args[0] == "pr" && args[1] == "ready":
 		g.find(args[2]).IsDraft = false
 		return "", nil
 	case len(args) >= 3 && args[0] == "pr" && args[1] == "merge":
 		return g.merge(argv, args[2:])
+	case len(args) >= 2 && args[0] == "api" && strings.Contains(args[1], "/compare/"):
+		parts := strings.SplitN(strings.SplitN(args[1], "/compare/", 2)[1], "...", 2)
+		origin := g.compareOrigin()
+		if len(parts) != 2 || origin == nil {
+			return "", ghErr(argv, "comparison unavailable")
+		}
+		if gitOK(origin.Origin, "merge-base", "--is-ancestor", parts[0], parts[1]) {
+			return "ahead\n", nil
+		}
+		return "behind\n", nil
 	}
 	return "", ghErr(argv, "unscripted gh call")
 }
@@ -315,6 +361,10 @@ func (g *ghSim) merge(argv, rest []string) (string, error) {
 		}
 		p.State = "MERGED"
 		p.MergeCalls++
+		p.MergeCommit = g.headOid(p)
+		if g.onMerge != nil {
+			g.onMerge(p)
+		}
 	}
 	return "", nil
 }

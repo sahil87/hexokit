@@ -100,7 +100,8 @@ Merge modes (--mode, or the operator.merge_mode setting):
   cherry-pick-ladder  chained PRs; each change gets its dependencies cherry-picked
                       in; merge after review
   stacked-prs         chained PRs; each is cut from its dependency's branch;
-                      register chains with merge; restacks escalate until supported
+                      merge readies, restacks, then merges green heads directly;
+                      never arms; rebase conflicts halt and escalate
   merge-auto          each PR is armed to merge as it ships; the next change waits
                       for the verified merge`,
 	Example: `  echo '[{"id":"ab12","repo":"/src/app","change":"ab12"}]' | rk operator autopilot queue
@@ -217,9 +218,11 @@ var operatorAutopilotMergeCmd = &cobra.Command{
 queues (every repo, or one with --repo): create the github-pr chain items in the
 engine file and their ledger projections, then run one pass. Cherry-pick-ladder
 sequences ready, arm or merge each head in later steps. Stacked-prs sequences
-escalate restacks; they are never armed or merged in this step. Run this only on
-the user's confirmation to merge all. It refuses while queue items are not done
-and does nothing for merge-auto items.
+ready, restack and merge: after a predecessor merges, the successor is retargeted,
+rebased with rebase --onto and force-pushed with --force-with-lease; its green
+restacked head merges directly in a later pass, never armed. A rebase conflict
+halts and escalates. Run this only on the user's confirmation to merge all. It
+refuses while queue items are not done and does nothing for merge-auto items.
 
 merge takes the per-server pass lock. If another pass holds it, merge does
 nothing, prints "busy" and exits 0.
@@ -281,11 +284,11 @@ var operatorAutopilotStatusCmd = &cobra.Command{
 	Short: "Show queue and recovery items with their derived status",
 	Long: `Queue view: per item the derived status (done, paused, skipped, held,
 pending, spawn-unknown, spawned, dead), mode, repo, branch and, for an item with
-a PR item, the PR number, the PR item's derived status (merged, halted, closed,
-deferred, blocked, draft, fixing, failed, conflicting, green, waiting) and its
-merge-sequence position, e.g. "PR #12 · green · 1/3". Recovery-spawn fix items
-are listed with resolved, spawn-unknown or working status. Status writes nothing,
-takes no pass lock and reports no escalations.
+a PR item, the PR number, the PR item's derived status (merged, paused, halted,
+closed, deferred, blocked, stale-base, draft, fixing, failed, conflicting, green,
+waiting) and its merge-sequence position, e.g. "PR #12 · green · 1/3".
+Recovery-spawn fix items are listed with resolved, spawn-unknown or working
+status. Status writes nothing, takes no pass lock and reports no escalations.
 
 Statuses are derived by the same observe and derive stages as step, so status
 makes read-only GitHub calls: gh pr view and gh pr checks for the PRs that can

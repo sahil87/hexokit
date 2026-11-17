@@ -578,3 +578,91 @@ func TestStatusListsFixItems(t *testing.T) {
 		t.Fatalf("fix item affected queue completion: %+v", res)
 	}
 }
+
+func TestDerivePRStaleBase(t *testing.T) {
+	t.Run("non-default base is stale", func(t *testing.T) {
+		x := newFx(t)
+		x.pr("p", operator.MergeModeStackedPRs)
+		pf := x.view("p", open(), checkRun{State: "SUCCESS"})
+		pf.base = "feature-x"
+		if got := derivedPR(x, "p"); got != PRStaleBase {
+			t.Fatalf("status = %s, want stale-base", got)
+		}
+	})
+	t.Run("missing predecessor merge ancestry is stale", func(t *testing.T) {
+		x := newFx(t)
+		pred := x.pr("pred", operator.MergeModeStackedPRs)
+		now := fxNow.Format(time.RFC3339)
+		pred.DoneAt = &now
+		x.pr("p", operator.MergeModeStackedPRs, "pred")
+		pf := x.view("p", open(), checkRun{State: "SUCCESS"})
+		pf.hasPred, pf.ancestor = true, false
+		if got := derivedPR(x, "p"); got != PRStaleBase {
+			t.Fatalf("status = %s, want stale-base", got)
+		}
+	})
+	t.Run("default base and ancestor falls through to green", func(t *testing.T) {
+		x := newFx(t)
+		pred := x.pr("pred", operator.MergeModeStackedPRs)
+		now := fxNow.Format(time.RFC3339)
+		pred.DoneAt = &now
+		x.pr("p", operator.MergeModeStackedPRs, "pred")
+		pf := x.view("p", open(), checkRun{State: "SUCCESS"})
+		pf.hasPred = true
+		if got := derivedPR(x, "p"); got != PRGreen {
+			t.Fatalf("status = %s, want green", got)
+		}
+	})
+	t.Run("unreadable facts wait", func(t *testing.T) {
+		x := newFx(t)
+		x.pr("p", operator.MergeModeStackedPRs)
+		pf := x.view("p", open(), checkRun{State: "SUCCESS"})
+		pf.staleRead = false
+		if got := derivedPR(x, "p"); got != PRWaiting {
+			t.Fatalf("status = %s, want waiting", got)
+		}
+	})
+	t.Run("non-stacked never derives stale-base", func(t *testing.T) {
+		x := newFx(t)
+		x.pr("p", operator.MergeModeCherryPickLadder)
+		pf := x.view("p", open(), checkRun{State: "SUCCESS"})
+		pf.base, pf.defaultBranch, pf.ancestor = "feature-x", "main", false
+		if got := derivedPR(x, "p"); got != PRGreen {
+			t.Fatalf("status = %s, want green", got)
+		}
+	})
+	t.Run("stale-base beats draft", func(t *testing.T) {
+		x := newFx(t)
+		x.pr("p", operator.MergeModeStackedPRs)
+		v := open()
+		v.IsDraft = true
+		pf := x.view("p", v, checkRun{State: "SUCCESS"})
+		pf.base = "feature-x"
+		if got := derivedPR(x, "p"); got != PRStaleBase {
+			t.Fatalf("status = %s, want stale-base", got)
+		}
+	})
+	for _, status := range []PRStatus{PRHalted, PRBlocked, PRDeferred} {
+		t.Run(string(status)+" beats stale-base", func(t *testing.T) {
+			x := newFx(t)
+			var it *operator.TrackedItem
+			switch status {
+			case PRHalted:
+				it = x.pr("p", operator.MergeModeStackedPRs)
+				it.Scope[scopeHalted] = true
+			case PRBlocked:
+				x.pr("pred", operator.MergeModeStackedPRs)
+				it = x.pr("p", operator.MergeModeStackedPRs, "pred")
+			case PRDeferred:
+				it = x.pr("p", operator.MergeModeStackedPRs)
+				it.Scope[scopeDeferred] = true
+			}
+			_ = it
+			pf := x.view("p", open(), checkRun{State: "SUCCESS"})
+			pf.base = "feature-x"
+			if got := derivedPR(x, "p"); got != status {
+				t.Fatalf("status = %s, want %s", got, status)
+			}
+		})
+	}
+}
