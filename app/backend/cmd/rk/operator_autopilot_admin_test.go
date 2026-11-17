@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/spf13/cobra"
 	"strings"
 	"testing"
 )
@@ -42,4 +43,29 @@ func TestAutopilotRemoveAndResumeCommands(t *testing.T) {
 		_, err := autopilotCLI(t, "", "resume", "missing")
 		wantExit(t, err, 2, "unknown autopilot item")
 	})
+}
+
+// pause is registered beside the other admin verbs, takes one id, carries
+// --json, and its help names what it holds and what releases it.
+func TestAutopilotPauseCommandRegistered(t *testing.T) {
+	var pause *cobra.Command
+	for _, c := range operatorAutopilotCmd.Commands() {
+		if c.Name() == "pause" {
+			pause = c
+		}
+	}
+	if pause == nil {
+		t.Fatal("pause is not registered under rk operator autopilot")
+	}
+	for _, want := range []string{"unspawned", "resume", "paused\": true", "usage error"} {
+		if !strings.Contains(pause.Long, want) {
+			t.Errorf("pause help missing %q", want)
+		}
+	}
+	if pause.Flags().Lookup("json") == nil {
+		t.Error("pause lacks --json")
+	}
+	if err := pause.Args(pause, []string{}); err == nil {
+		t.Error("pause must require exactly one id")
+	}
 }

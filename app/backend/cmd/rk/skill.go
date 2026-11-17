@@ -32,7 +32,7 @@ var skillChangeTopic []byte
 // skillCronTopic holds the `cron` topic page, canonical at
 // docs/site/skill/cron.md and synced into skill/cron.md alongside the core
 // bundle. Same embed + drift-guard mechanism as the display topic, same
-// static-only rules, independently bounded at ≤150 lines; the operator topic is exempt, see skill_test.go.
+// static-only rules, independently bounded at ≤150 lines.
 //
 //go:embed skill/cron.md
 var skillCronTopic []byte
@@ -94,7 +94,7 @@ var skillRestoreTopic []byte
 // skillOperatorTopic holds the `operator` topic page, canonical at
 // docs/site/skill/operator.md and synced into skill/operator.md alongside the
 // core bundle. Same embed + drift-guard mechanism as the display topic, same
-// static-only rules, independently bounded at ≤150 lines. It is the operator
+// static-only rules, exempt from the ≤150-line budget (skillTopicsOverBudget in skill_test.go). It is the operator
 // chat's skill: the ledger verbs, spawn rules and queue recipe.
 //
 //go:embed skill/operator.md
