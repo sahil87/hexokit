@@ -733,7 +733,7 @@ Inside a tmux pane, `add` SHALL store `created_by: {pane: $TMUX_PANE, at: now}`,
 **Decision**: when the server's cron file holds a `run: operator-loop` entry, `internal/sessions.operatorLoopLiveness` supplies the watchdog: `OperatorLastTickAt` is the entry's newest delivery (`DeriveEntry`'s `LastFired`) and `OperatorStale` is true only when its next due fire (`DeriveEntry`'s `NextFire`, the `LoopLadder` math) is overdue by more than `DefaultWatchlistStaleThreshold`; an effectively-muted entry is never stale. Without a loop entry the state file's `last_tick_at` rule stands.
 **Why**: rk's operator state file never carries `last_tick_at`, so after adopt the old rule read 0 and the banner could never show; and the loop's ladder idles up to 24m, so "last fire older than 15m" would flag a healthy idle loop.
 **Rejected**: writing `last_tick_at` into rk's state file on every fire (a write per tick for a fact the delivery log already holds); a fixed age threshold above the ladder max (couples the watchdog to one seed's max).
-*Introduced by*: rk-operator-skill (no fab change)
+*Introduced by*: PR #1143 (direct change, no fab intake)
 
 ### Plain resume, not fork, for session respawn
 **Decision**: session respawn composes `--resume <uuid>` without `--fork-session` (the riff seam's `ResumePlain` mode).

@@ -145,7 +145,7 @@ stdout: <last 2 KiB>
 **Decision**: fab is optional — launcher resolution degrades to the default launcher like tutorial's. The kickoff is the `/operator` pointer skill `rk agent setup` places, checked per harness (the claude copy for a claude launcher, the `~/.agents` copy otherwise) and owned by marker; when that copy is absent or foreign, the kickoff is the pointer's own instruction to load `rk skill operator`.
 **Why**: the operator chat skill is rk's (`rk skill operator`), so fab no longer decides whether an operator is meaningful, and fab's `/fab-operator` is being deleted. The placed file is a pointer only, so it cannot drift from the binary; typing its instruction when it is missing keeps a machine that never ran setup working.
 **Rejected**: keeping the hard fab refusal (the operator would break the day fab's operator skill is deleted); `rk operator` installing the skill itself (an unconsented write to user-global config); typing only the instruction and placing nothing (the user asked for a `/operator` command).
-*Introduced by*: rk-operator-skill (no fab change)
+*Introduced by*: PR #1143 (direct change, no fab intake)
 
 ### Same-origin present targets use site-relative slot URLs
 **Decision**: `present` and web-add targets whose scheme and host equal the

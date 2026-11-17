@@ -103,7 +103,7 @@ The chat topic is the static page `docs/site/skill/operator.md` (≤150 lines), 
 **Decision**: `rk agent setup` places a `/operator` SKILL.md whose body only says to run `rk skill operator` and follow it; `rk operator` types `/operator` when the harness's copy is rk-owned ([agent-state](/run-kit/agent-state.md), [cli](/run-kit/architecture/cli.md)).
 **Why**: The chat needs an invocation that does not depend on fab's `/fab-operator`, which is being deleted; a pointer adds a slash command without copying content that could go stale.
 **Rejected**: Placing the full skill content (the stale-copy problem the topic delivery avoids).
-*Introduced by*: rk-operator-skill (no fab change)
+*Introduced by*: PR #1143 (direct change, no fab intake)
 
 ### Each engine part replaces the brief prose it covers in the same change
 **Decision**: When the engine takes over a job, the brief's prose for that job is removed in the same PR, and a render test proves the removed text and tools are gone.
