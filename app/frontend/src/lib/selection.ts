@@ -12,6 +12,12 @@
  * (`@N`) are unique per server only, so the server prefix is required.
  */
 
+export function parseDragSelectionKeys(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length < 2) return null;
+  const keys = value.filter((key): key is string => typeof key === "string");
+  return keys.length === value.length ? keys : null;
+}
+
 /** Compose the composite selection key. Mirrors `entryKey()` in store/window-store.ts. */
 export function selectionKey(server: string, windowId: string): string {
   return `${server}:${windowId}`;

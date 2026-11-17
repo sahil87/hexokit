@@ -1069,6 +1069,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/sessions/{session}/sort-windows", s.handleSessionSortWindows)
 	r.Post("/api/sessions/{session}/windows", s.handleWindowCreate)
 	r.Post("/api/windows/{windowId}/kill", s.handleWindowKill)
+	r.Post("/api/windows/move-block", s.handleWindowMoveBlock)
 	r.Post("/api/windows/{windowId}/move", s.handleWindowMove)
 	r.Post("/api/windows/{windowId}/move-to-session", s.handleWindowMoveToSession)
 	r.Post("/api/windows/{windowId}/rename", s.handleWindowRename)

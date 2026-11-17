@@ -3,12 +3,12 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
 import { NewSplitButton } from "@/components/new-split-button";
 import { useTopBarMode } from "@/hooks/use-top-bar-mode";
-import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, getAllServerColors, setServerColor as setServerColorApi, getAllServerFlairs, setServerFlair as setServerFlairApi, setSessionOrder, setServerProtected, isExternalServer, DAEMON_SERVER, type ForkWhere, type ServerInfo } from "@/api/client";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowsBefore, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, getAllServerColors, setServerColor as setServerColorApi, getAllServerFlairs, setServerFlair as setServerFlairApi, setSessionOrder, setServerProtected, isExternalServer, DAEMON_SERVER, type ForkWhere, type ServerInfo } from "@/api/client";
 import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useFocusedPane } from "@/contexts/focused-pane-context";
 import { thinWindowFromFocusedPane } from "@/lib/focused-pane-window";
 import { finalizeSafeName } from "@/lib/names";
-import { pinDragImage } from "@/lib/drag-image";
+import { pinDragImage, pinTabsDragImage } from "@/lib/drag-image";
 import type { TabPopoutSeam } from "@/lib/popout";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { pushRecentlyClosed } from "@/hooks/use-recently-closed";
@@ -34,7 +34,8 @@ import { useSelectionStore } from "@/store/selection-store";
 // Aliased: `selectionKey` is already taken in this file by the autoscroll
 // effect's URL-selection identity (`${currentServer}:${currentWindowId}`) — a
 // different concept from the multi-select's composite row key.
-import { openTabSeed, rangeBetween, selectionKey as windowSelectionKey } from "@/lib/selection";
+import { openTabSeed, parseDragSelectionKeys, rangeBetween, selectionKey as windowSelectionKey, singleSelectedServer, splitSelectionKey } from "@/lib/selection";
+import { batchToast, executeSelectionBatch } from "@/lib/palette/selection";
 import { useWindowRename } from "@/hooks/use-window-rename";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { useSessionsScope } from "@/hooks/use-sessions-scope";
@@ -464,9 +465,11 @@ export function Sidebar({
 
   // Drag-and-drop state for window reordering. `dragSource.server` is the
   // source's server, used to reject cross-server drops with a toast.
-  const [dragSource, setDragSource] = useState<{ server: string; session: string; index: number } | null>(null);
+  const [dragSource, setDragSource] = useState<{ server: string; session: string; index: number; keys: string[] | null } | null>(null);
   const [dropTarget, setDropTarget] = useState<{ server: string; session: string; index: number } | null>(null);
   const [sessionDropTarget, setSessionDropTarget] = useState<{ server: string; session: string } | null>(null);
+  const sessionsByServerRef = useRef(sessionsByServer);
+  sessionsByServerRef.current = sessionsByServer;
 
   // Session reorder per server. The persisted order arrives via SSE
   // (`sessionOrderByServer`). The displayed order is DERIVED at render time:
@@ -815,11 +818,29 @@ export function Sidebar({
   }, [handleRenameCommit]);
 
   const handleDragStart = useCallback((e: React.DragEvent, server: string, sessionName: string, windowIndex: number, windowId: string, windowName: string) => {
-    pinDragImage(e);
-    setDragSource({ server, session: sessionName, index: windowIndex });
+    const selected = useSelectionStore.getState().selected;
+    const grabbedKey = windowSelectionKey(server, windowId);
+    let keys: string[] | null = null;
+    if (selected.size >= 2 && selected.has(grabbedKey)) {
+      keys = getVisibleWindowKeys().filter((key) => selected.has(key));
+      for (const key of selected) {
+        if (!keys.includes(key)) keys.push(key);
+      }
+    }
+
+    if (keys === null) pinDragImage(e);
+    else pinTabsDragImage(e, keys.length);
+    setDragSource({ server, session: sessionName, index: windowIndex, keys });
     e.dataTransfer.setData(
       "application/json",
-      JSON.stringify({ server, session: sessionName, index: windowIndex, windowId, name: windowName }),
+      JSON.stringify({
+        server,
+        session: sessionName,
+        index: windowIndex,
+        windowId,
+        name: windowName,
+        ...(keys === null ? {} : { keys }),
+      }),
     );
     // Marker for foreign drop targets (sidebar board rows — drag-to-pin):
     // dragover can only inspect types (payload is sealed until drop) and
@@ -833,9 +854,19 @@ export function Sidebar({
 
   const handleDragOver = useCallback((e: React.DragEvent, server: string, sessionName: string, windowIndex: number) => {
     if (!dragSource) return;
-    // Allow dragover only within the same server + same session (existing
-    // within-session reorder semantics). Cross-server is rejected at drop.
-    if (dragSource.server !== server || dragSource.session !== sessionName) return;
+    if (dragSource.keys !== null) {
+      if (singleSelectedServer(dragSource.keys) !== server) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "none";
+        return;
+      }
+      const target = sessionsByServerRef.current.get(server)
+        ?.find((session) => session.name === sessionName)
+        ?.windows.find((win) => win.index === windowIndex);
+      if (!target) return;
+    } else if (dragSource.server !== server || dragSource.session !== sessionName) {
+      return;
+    }
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     setDropTarget((prev) => {
@@ -849,10 +880,32 @@ export function Sidebar({
     setDropTarget(null);
     setDragSource(null);
 
-    let data: { server?: string; session: string; index: number; windowId: string; name: string };
+    let data: { server?: string; session: string; index: number; windowId: string; name: string; keys?: unknown };
     try {
       data = JSON.parse(e.dataTransfer.getData("application/json"));
     } catch {
+      return;
+    }
+
+    const keys = parseDragSelectionKeys(data.keys);
+    if (keys !== null) {
+      if (singleSelectedServer(keys) !== server) {
+        addToast("Moving tabs across workspaces isn't supported yet");
+        return;
+      }
+      const beforeWindowId = sessionsByServerRef.current.get(server)
+        ?.find((session) => session.name === sessionName)
+        ?.windows.find((win) => win.index === windowIndex)?.windowId;
+      if (!beforeWindowId || keys.includes(windowSelectionKey(server, beforeWindowId))) return;
+      const windowIds: string[] = [];
+      for (const key of keys) {
+        const target = splitSelectionKey(key);
+        if (!target) return;
+        windowIds.push(target.windowId);
+      }
+      void moveWindowsBefore(server, windowIds, beforeWindowId).catch((err: unknown) => {
+        addToast(err instanceof Error && err.message ? err.message : "Failed to move tabs");
+      });
       return;
     }
 
@@ -875,9 +928,22 @@ export function Sidebar({
 
   const handleSessionDragOver = useCallback((e: React.DragEvent, server: string, sessionName: string) => {
     if (!dragSource) return;
-    // Allow within-server cross-session drag-over preview.
-    if (dragSource.server !== server) return;
-    if (dragSource.session === sessionName) return;
+    if (dragSource.keys !== null) {
+      if (singleSelectedServer(dragSource.keys) !== server) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "none";
+        return;
+      }
+      const targetKeys = new Set(
+        sessionsByServerRef.current.get(server)
+          ?.find((session) => session.name === sessionName)
+          ?.windows.map((win) => windowSelectionKey(server, win.windowId)) ?? [],
+      );
+      if (dragSource.keys.every((key) => targetKeys.has(key))) return;
+    } else {
+      if (dragSource.server !== server) return;
+      if (dragSource.session === sessionName) return;
+    }
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     setSessionDropTarget({ server, session: sessionName });
@@ -895,10 +961,36 @@ export function Sidebar({
     setDropTarget(null);
     setDragSource(null);
 
-    let data: { server?: string; session: string; index: number; windowId: string; name: string };
+    let data: { server?: string; session: string; index: number; windowId: string; name: string; keys?: unknown };
     try {
       data = JSON.parse(e.dataTransfer.getData("application/json"));
     } catch {
+      return;
+    }
+
+    const keys = parseDragSelectionKeys(data.keys);
+    if (keys !== null) {
+      if (singleSelectedServer(keys) !== server) {
+        addToast("Moving tabs across workspaces isn't supported yet");
+        return;
+      }
+      const targetKeys = new Set(
+        sessionsByServerRef.current.get(server)
+          ?.find((session) => session.name === sessionName)
+          ?.windows.map((win) => windowSelectionKey(server, win.windowId)) ?? [],
+      );
+      const moveKeys = keys.filter((key) => !targetKeys.has(key));
+      if (moveKeys.length === 0) return;
+      void executeSelectionBatch(moveKeys, ({ windowId }) =>
+        moveWindowToSession(server, windowId, sessionName),
+      ).then((result) => {
+        const { message, failed } = batchToast(
+          { success: "Moved", failure: "Moved", noun: "tab", qualifier: ` to ${sessionName}` },
+          moveKeys.length,
+          result,
+        );
+        addToast(message, failed ? "error" : undefined);
+      });
       return;
     }
 
@@ -2304,7 +2396,7 @@ type ServerGroupProps = {
   editingSessionName: string;
   sessionInputRef: React.RefObject<HTMLInputElement | null>;
   sessionDragSource: string | null;
-  dragSource: { server: string; session: string; index: number } | null;
+  dragSource: { server: string; session: string; index: number; keys: string[] | null } | null;
   dropTarget: { server: string; session: string; index: number } | null;
   sessionDropTarget: string | null;
 
@@ -2965,6 +3057,8 @@ function ServerGroupInner(props: ServerGroupProps) {
                   : operatorEntry.win.isActiveWindow)
               }
               isDragOver={false}
+              isDragSource={dragSource?.keys?.includes(`${server}:${operatorEntry.win.windowId}`) ?? false}
+              isDragSetMember={dragSource?.keys?.includes(`${server}:${operatorEntry.win.windowId}`) ?? false}
               color={operatorEntry.win.color}
               marker={operatorEntry.win.marker}
               rowTints={rowTints}
@@ -3162,7 +3256,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                           dropTarget?.server === server &&
                           dropTarget?.session === session.name &&
                           dropTarget?.index === win.index &&
-                          dragSource?.index !== win.index;
+                          (dragSource?.keys != null || dragSource?.index !== win.index);
 
                         return (
                           <WindowRow
@@ -3174,10 +3268,12 @@ function ServerGroupInner(props: ServerGroupProps) {
                             isSelected={isSelected}
                             isDragOver={isDragOver}
                             isDragSource={
-                              dragSource?.server === server &&
-                              dragSource?.session === session.name &&
-                              dragSource?.index === win.index
+                              (dragSource?.keys?.includes(winRowKey) ?? false) ||
+                              (dragSource?.server === server &&
+                                dragSource?.session === session.name &&
+                                dragSource?.index === win.index)
                             }
+                            isDragSetMember={dragSource?.keys?.includes(winRowKey) ?? false}
                             color={win.color}
                             marker={win.marker}
                             rowTints={rowTints}

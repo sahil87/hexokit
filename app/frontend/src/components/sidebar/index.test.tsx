@@ -13,7 +13,7 @@ import { SettingsDialogProvider } from "@/contexts/settings-dialog-context";
 import { ToastProvider } from "@/components/toast";
 import { useWindowStore } from "@/store/window-store";
 import { useSelectionStore } from "@/store/selection-store";
-import { getAllServerColors, setServerColor, getAllServerFlairs, setServerFlair, setServerProtected, DAEMON_SERVER } from "@/api/client";
+import { getAllServerColors, setServerColor, getAllServerFlairs, setServerFlair, setServerProtected, moveWindowToSession, moveWindowsBefore, DAEMON_SERVER } from "@/api/client";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import { resetFlyoutWarmState } from "./row-flyout-card";
 import { focusSidebarCurrentRow, registerWindowFocusRestorer } from "@/lib/sidebar-events";
@@ -77,8 +77,13 @@ vi.mock("@/api/client", async (importOriginal) => {
     getAllServerFlairs: vi.fn().mockResolvedValue({}),
     setServerFlair: vi.fn().mockResolvedValue({ ok: true }),
     setServerProtected: vi.fn().mockResolvedValue({ ok: true }),
+    moveWindowToSession: vi.fn().mockResolvedValue({ ok: true }),
+    moveWindowsBefore: vi.fn().mockResolvedValue({ ok: true }),
   };
 });
+
+const moveWindowToSessionMock = vi.mocked(moveWindowToSession);
+const moveWindowsBeforeMock = vi.mocked(moveWindowsBefore);
 
 // Footer version click-to-copy (260724-6j1v) — deterministic clipboard seam
 // (jsdom has no navigator.clipboard).
@@ -1401,6 +1406,207 @@ describe("Sidebar — window drag-to-pin marker MIME (g0t1)", () => {
     });
     expect(notPrevented!).toBe(false); // preventDefault() was called → accepted
     expect(dataTransfer.dropEffect).toBe("move");
+  });
+});
+
+describe("Sidebar — multi-selected window drag", () => {
+  function dragWindow(index: number, windowId: string): ProjectSession["windows"][number] {
+    return {
+      index,
+      windowId,
+      name: `tab-${windowId}`,
+      worktreePath: "~/code/run-kit",
+      activity: "idle",
+      isActiveWindow: windowId === "@1",
+      paneCommand: "zsh",
+      activityTimestamp: 0,
+    };
+  }
+
+  const dragSessions = new Map<string, ProjectSession[]>([
+    ["primary", [
+      { name: "main", windows: [dragWindow(0, "@1"), dragWindow(1, "@2")] },
+      { name: "other", windows: [dragWindow(0, "@3")] },
+      { name: "hidden", windows: [dragWindow(0, "@4")] },
+      { name: "archive", windows: [dragWindow(0, "@5")] },
+    ]],
+    ["alpha", [{ name: "foreign", windows: [dragWindow(0, "@6")] }]],
+  ]);
+
+  function makeDataTransfer() {
+    const store = new Map<string, string>();
+    const types: string[] = [];
+    return {
+      setData: (type: string, data: string) => {
+        store.set(type, data);
+        if (!types.includes(type)) types.push(type);
+      },
+      getData: (type: string) => store.get(type) ?? "",
+      get types() {
+        return types;
+      },
+      dropEffect: "none",
+      effectAllowed: "none",
+    };
+  }
+
+  function renderDragSidebar() {
+    const { selected, anchor } = useSelectionStore.getState();
+    localStorage.setItem(SESSION_COLLAPSED_STORAGE_KEY, JSON.stringify({ "primary:hidden": true }));
+    renderSidebar({
+      currentServer: "primary",
+      currentSession: "main",
+      currentWindowId: "@1",
+      sessionsByServer: dragSessions,
+    });
+    act(() => useSelectionStore.setState({ selected, anchor }));
+  }
+
+  function windowRow(windowId: string): HTMLElement {
+    const row = document.querySelector(`[role="tree"] [data-row-key="primary:${windowId}"]`);
+    expect(row).not.toBeNull();
+    return row as HTMLElement;
+  }
+
+  function sessionRow(session: string): HTMLElement {
+    const row = document.querySelector(`[data-session-row="primary:${session}"]`);
+    expect(row).not.toBeNull();
+    return row as HTMLElement;
+  }
+
+  function startDrag(windowId: string) {
+    const dataTransfer = makeDataTransfer();
+    act(() => {
+      fireEvent.dragStart(windowRow(windowId), { dataTransfer });
+    });
+    return dataTransfer;
+  }
+
+  beforeEach(() => {
+    useSelectionStore.setState({ selected: new Set(), anchor: null });
+    moveWindowToSessionMock.mockReset().mockResolvedValue({ ok: true });
+    moveWindowsBeforeMock.mockReset().mockResolvedValue({ ok: true });
+  });
+
+  afterEach(() => {
+    useSelectionStore.setState({ selected: new Set(), anchor: null });
+  });
+
+  it("carries selected keys in visible-row order, appends collapsed members, and dims the set", () => {
+    useSelectionStore.setState({
+      selected: new Set(["primary:@4", "primary:@2", "primary:@3"]),
+      anchor: "primary:@2",
+    });
+    renderDragSidebar();
+    expect([...useSelectionStore.getState().selected]).toEqual(["primary:@4", "primary:@2", "primary:@3"]);
+
+    const dataTransfer = startDrag("@2");
+    const payload = JSON.parse(dataTransfer.getData("application/json"));
+    expect(payload).toEqual({
+      server: "primary",
+      session: "main",
+      index: 1,
+      windowId: "@2",
+      name: "tab-@2",
+      keys: ["primary:@2", "primary:@3", "primary:@4"],
+    });
+    expect(windowRow("@2")).toHaveClass("opacity-50");
+    expect(windowRow("@3")).toHaveClass("opacity-50");
+    expect(windowRow("@1")).not.toHaveClass("opacity-50");
+  });
+
+  it("keeps a non-member drag single and leaves the selection untouched", () => {
+    useSelectionStore.setState({
+      selected: new Set(["primary:@2", "primary:@4"]),
+      anchor: "primary:@2",
+    });
+    renderDragSidebar();
+
+    const dataTransfer = startDrag("@3");
+    const payload = JSON.parse(dataTransfer.getData("application/json"));
+    expect(payload).not.toHaveProperty("keys");
+    expect(payload.windowId).toBe("@3");
+    expect([...useSelectionStore.getState().selected]).toEqual(["primary:@2", "primary:@4"]);
+  });
+
+  it("moves non-resident members to a group sequentially with one toast and keeps selection", async () => {
+    useSelectionStore.setState({
+      selected: new Set(["primary:@2", "primary:@4"]),
+      anchor: "primary:@2",
+    });
+    renderDragSidebar();
+    const resolvers: Array<(value: { ok: boolean }) => void> = [];
+    moveWindowToSessionMock.mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)));
+
+    const dataTransfer = startDrag("@2");
+    act(() => {
+      fireEvent.drop(sessionRow("archive"), { dataTransfer });
+    });
+
+    await waitFor(() => expect(moveWindowToSessionMock).toHaveBeenCalledTimes(1));
+    expect(moveWindowToSessionMock).toHaveBeenLastCalledWith("primary", "@2", "archive");
+    act(() => resolvers[0]({ ok: true }));
+    await waitFor(() => expect(moveWindowToSessionMock).toHaveBeenCalledTimes(2));
+    expect(moveWindowToSessionMock).toHaveBeenLastCalledWith("primary", "@4", "archive");
+    act(() => resolvers[1]({ ok: true }));
+
+    expect(await screen.findByText("Moved 2 tabs to archive")).toBeInTheDocument();
+    expect(screen.getAllByText("Moved 2 tabs to archive")).toHaveLength(1);
+    expect([...useSelectionStore.getState().selected]).toEqual(["primary:@2", "primary:@4"]);
+  });
+
+  it("refuses a cross-server group drop without moving anything", async () => {
+    useSelectionStore.setState({
+      selected: new Set(["primary:@2", "alpha:@6"]),
+      anchor: "primary:@2",
+    });
+    renderDragSidebar();
+
+    const dataTransfer = startDrag("@2");
+    act(() => {
+      fireEvent.drop(sessionRow("archive"), { dataTransfer });
+    });
+
+    expect(await screen.findByText("Moving tabs across workspaces isn't supported yet")).toBeInTheDocument();
+    expect(moveWindowToSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("sends one block request for a row drop and no-ops on a member target", async () => {
+    useSelectionStore.setState({
+      selected: new Set(["primary:@2", "primary:@4"]),
+      anchor: "primary:@2",
+    });
+    renderDragSidebar();
+
+    const dataTransfer = startDrag("@2");
+    act(() => {
+      fireEvent.drop(windowRow("@1"), { dataTransfer });
+    });
+    await waitFor(() =>
+      expect(moveWindowsBeforeMock).toHaveBeenCalledExactlyOnceWith("primary", ["@2", "@4"], "@1"),
+    );
+
+    const memberDrop = startDrag("@2");
+    act(() => {
+      fireEvent.drop(windowRow("@2"), { dataTransfer: memberDrop });
+    });
+    expect(moveWindowsBeforeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a cross-server row drop without sending a block request", async () => {
+    useSelectionStore.setState({
+      selected: new Set(["primary:@2", "alpha:@6"]),
+      anchor: "primary:@2",
+    });
+    renderDragSidebar();
+
+    const dataTransfer = startDrag("@2");
+    act(() => {
+      fireEvent.drop(windowRow("@1"), { dataTransfer });
+    });
+
+    expect(await screen.findByText("Moving tabs across workspaces isn't supported yet")).toBeInTheDocument();
+    expect(moveWindowsBeforeMock).not.toHaveBeenCalled();
   });
 });
 

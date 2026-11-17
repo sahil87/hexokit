@@ -1,0 +1,7 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-17T16:36:21Z"}
+{"args":"Drag a multi-selected set of sidebar tabs together: onto group rows, board rows, and as a block between rows (backend block move)","cmd":"fab-new","event":"command","ts":"2026-11-17T16:36:21Z"}
+{"delta":"+4.2","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-11-17T16:37:42Z"}
+{"delta":"+0.0","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-11-17T16:38:24Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-17T16:38:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-17T16:38:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-17T17:03:28Z"}
