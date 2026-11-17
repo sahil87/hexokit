@@ -63,6 +63,9 @@ type Entry struct {
 	Task      string    `json:"task,omitempty"`
 	DependsOn *[]string `json:"depends_on,omitempty"`
 	StopStage *string   `json:"stop_stage,omitempty"`
+	// Paused queues the entry held: the spawn gate skips it until
+	// `autopilot resume` — a plan step behind a user gate.
+	Paused bool `json:"paused,omitempty"`
 }
 
 // ParseEntries decodes the stdin document: a JSON array of entries, strictly.
@@ -71,7 +74,7 @@ func ParseEntries(data []byte) ([]Entry, error) {
 	dec.DisallowUnknownFields()
 	var entries []Entry
 	if err := dec.Decode(&entries); err != nil {
-		return nil, operatorInvalid("invalid queue entries (want a JSON array of {id, repo, change|task, depends_on?, stop_stage?}): %v", err)
+		return nil, operatorInvalid("invalid queue entries (want a JSON array of {id, repo, change|task, depends_on?, stop_stage?, paused?}): %v", err)
 	}
 	if _, err := dec.Token(); err != io.EOF {
 		return nil, operatorInvalid("invalid queue entries: unexpected input after the JSON array")
@@ -291,6 +294,7 @@ func (e *engine) buildQueue(ctx context.Context, st *operator.State, entries []E
 		if err != nil {
 			return nil, nil, err
 		}
+		it.Paused = en.Paused
 		items = append(items, it)
 	}
 	return items, misfits, nil

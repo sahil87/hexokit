@@ -336,14 +336,15 @@ func init() {
 	operatorAutopilotStatusCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 	operatorAutopilotRemoveCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 	operatorAutopilotResumeCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
+	operatorAutopilotPauseCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 
-	for _, cmd := range []*cobra.Command{operatorAutopilotQueueCmd, operatorAutopilotStepCmd, operatorAutopilotMergeCmd, operatorAutopilotStopCmd, operatorAutopilotStatusCmd, operatorAutopilotRemoveCmd, operatorAutopilotResumeCmd} {
+	for _, cmd := range []*cobra.Command{operatorAutopilotQueueCmd, operatorAutopilotStepCmd, operatorAutopilotMergeCmd, operatorAutopilotStopCmd, operatorAutopilotStatusCmd, operatorAutopilotRemoveCmd, operatorAutopilotResumeCmd, operatorAutopilotPauseCmd} {
 		cmd.Flags().Bool("all", false, "show every list entry (default: 20 per human list; JSON is always complete)")
 	}
 
 	operatorAutopilotCmd.AddCommand(
 		operatorAutopilotQueueCmd, operatorAutopilotStepCmd, operatorAutopilotMergeCmd,
-		operatorAutopilotStopCmd, operatorAutopilotRemoveCmd, operatorAutopilotResumeCmd, operatorAutopilotStatusCmd,
+		operatorAutopilotStopCmd, operatorAutopilotRemoveCmd, operatorAutopilotResumeCmd, operatorAutopilotPauseCmd, operatorAutopilotStatusCmd,
 	)
 	operatorCmd.AddCommand(operatorAutopilotCmd)
 }

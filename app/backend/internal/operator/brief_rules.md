@@ -82,7 +82,8 @@ lists it):
 3. Read `fab/changes/<change>/intake.md` and check its gate with
    `fab score --check-gate --stage intake <change>` (read-only; non-zero means below the gate).
 4. Compare the intake with the item's `task` and notes: the same scope, nothing the task excluded,
-   nothing it asked for missing.
+   nothing it asked for missing. A task of the form `Execute step <ID> … of the plan at <path>` is a
+   pointer: read that step's Brief and the plan's Decisions in the file and compare against those.
 5. Decide:
    - It matches, the gate passes, and no assumption is unresolved: send `/fab-fff <change>`, or
      `/fab-ff <change>` when `stop_stage` is `hydrate` (any other stop: `/fab-fff`, as the engine
@@ -152,7 +153,7 @@ pipe a one-entry JSON array to `rk operator autopilot queue -L <server>`; queue 
 - `rk operator autopilot queue|step|status -L <server>`
 - git reads: `git rev-parse`, `git symbolic-ref`, `git merge-base`, `git log`; `test -d`
 - `gh pr view`, `gh pr checks`, `gh repo view`
-- when fab is present: `fab pane map --all-sessions`, reading `.status.yaml` and a change's `intake.md`,
+- when fab is present: `fab pane map --all-sessions`, reading `.status.yaml`, a change's `intake.md` and the plan file a task names,
   `fab agent ... -o yaml`, `fab status display-stage|confidence <change>`,
   `fab score --check-gate --stage intake <change>`
 

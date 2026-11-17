@@ -32,7 +32,7 @@ var skillChangeTopic []byte
 // skillCronTopic holds the `cron` topic page, canonical at
 // docs/site/skill/cron.md and synced into skill/cron.md alongside the core
 // bundle. Same embed + drift-guard mechanism as the display topic, same
-// static-only rules, independently bounded at ≤150 lines.
+// static-only rules, independently bounded at ≤150 lines; the operator topic is exempt, see skill_test.go.
 //
 //go:embed skill/cron.md
 var skillCronTopic []byte
