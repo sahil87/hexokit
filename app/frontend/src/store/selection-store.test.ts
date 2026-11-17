@@ -34,6 +34,22 @@ describe("selection-store", () => {
     });
   });
 
+  describe("seed", () => {
+    it("starts an empty selection from the key and anchors on it", () => {
+      state().seed("s:@1");
+      expect(selectedKeys()).toEqual(["s:@1"]);
+      expect(state().anchor).toBe("s:@1");
+    });
+
+    it("leaves a live selection (and its anchor) untouched", () => {
+      state().toggle("s:@2");
+      const before = state().selected;
+      state().seed("s:@1");
+      expect(state().selected).toBe(before);
+      expect(state().anchor).toBe("s:@2");
+    });
+  });
+
   describe("select", () => {
     it("adds keys without touching the anchor", () => {
       state().toggle("s:@1");

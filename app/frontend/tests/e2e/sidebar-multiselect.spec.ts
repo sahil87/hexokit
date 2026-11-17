@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { gotoServerReady, openPalette, resolveWindow } from "./_ready";
+import { gotoServerReady, gotoWindow, openPalette, resolveWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
 /**
@@ -188,6 +188,61 @@ test.describe("Sidebar window-row multi-select", () => {
       );
     }
     await expect(page.getByTestId("selection-indicator")).toContainText("3 selected");
+  });
+
+  /**
+   * Proves: single select is a selection of one. While viewing a window, the
+   * first Cmd-click on another row selects BOTH, both rows paint the same
+   * selected treatment as a lone open row (tint + weight, no ring), bulk
+   * actions count the open window, and Cmd-clicking the open window out of
+   * the set un-paints it while it stays the open page.
+   *
+   * Steps:
+   * 1. Navigate to `alpha`'s terminal route; wait for its row.
+   * 2. Cmd-click `beta`; assert selection == [alpha, beta], indicator
+   *    `2 selected`, both row buttons carry font-medium, no treeitem has an
+   *    inset box-shadow.
+   * 3. Open the palette; assert `Selection: Close 2 tabs` is offered; Escape.
+   * 4. Cmd-click `alpha`; assert selection == [beta], alpha's button lacks
+   *    font-medium but keeps aria-current="page".
+   * 5. Escape clears; alpha's button carries font-medium again.
+   */
+  test("the open window seeds the selection and shares its look", async ({ page }) => {
+    await openTree(page);
+    const { alpha, beta } = await windowIds(page);
+    await gotoWindow(page, TMUX_SERVER, alpha);
+    const alphaRow = page.locator(`[data-row-key="${rowKey(alpha)}"]`);
+    const betaRow = page.locator(`[data-row-key="${rowKey(beta)}"]`);
+    const alphaButton = alphaRow.locator("button").first();
+    const betaButton = betaRow.locator("button").first();
+    await expect(alphaButton).toHaveAttribute("aria-current", "page");
+
+    await betaButton.click({ modifiers: ["ControlOrMeta"] });
+    await expect(page.getByTestId("selection-indicator")).toContainText("2 selected");
+    expect((await selectedKeys(page)).sort()).toEqual([rowKey(alpha), rowKey(beta)].sort());
+    await expect(alphaButton).toHaveClass(/font-medium/);
+    await expect(betaButton).toHaveClass(/font-medium/);
+    const ringed = await page.evaluate(() =>
+      Array.from(
+        document.querySelectorAll<HTMLElement>('[role="tree"] [role="treeitem"]'),
+      ).filter((el) => el.style.boxShadow.includes("inset")).length,
+    );
+    expect(ringed).toBe(0);
+
+    const paletteInput = await openPalette(page);
+    await paletteInput.fill("Selection: Close 2 tabs");
+    await expect(page.getByRole("option", { name: /Selection: Close 2 tabs/ })).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    await alphaButton.click({ modifiers: ["ControlOrMeta"] });
+    expect(await selectedKeys(page)).toEqual([rowKey(beta)]);
+    await expect(alphaButton).not.toHaveClass(/font-medium/);
+    await expect(alphaButton).toHaveAttribute("aria-current", "page");
+
+    await betaRow.focus();
+    await betaRow.press("Escape");
+    await expect(page.getByTestId("selection-indicator")).toHaveCount(0);
+    await expect(alphaButton).toHaveClass(/font-medium/);
   });
 
   /**

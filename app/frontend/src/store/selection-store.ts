@@ -36,6 +36,12 @@ type SelectionStoreActions = {
   /** Add keys to the selection (anchor untouched). */
   select: (keys: Iterable<string>) => void;
   /**
+   * Start a selection from `key` — the open tab — making it the anchor. Only
+   * an EMPTY selection is seeded; a live one is left untouched, so a seed can
+   * never clobber a set the user already built.
+   */
+  seed: (key: string) => void;
+  /**
    * Replace the whole selection with `keys`; the anchor becomes the last key.
    * `Selection: Select all merged` is the production caller.
    *
@@ -112,6 +118,12 @@ export const useSelectionStore = create<SelectionStoreState & SelectionStoreActi
       }
       return added ? { selected: next } : state;
     });
+  },
+
+  seed: (key) => {
+    set((state) =>
+      state.selected.size > 0 ? state : { selected: new Set([key]), anchor: key },
+    );
   },
 
   selectOnly: (keys) => {

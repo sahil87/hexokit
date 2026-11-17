@@ -107,3 +107,30 @@ export function pruneSelection(
   }
   return next;
 }
+
+/**
+ * How a selection gesture (Cmd/Ctrl-click, Shift-click, `x`) on `targetKey`
+ * treats the open tab, so single select behaves as a selection of one:
+ *
+ * - `"seed"` — the store is empty and the open tab is a live window other than
+ *   the target: add the open tab first (it becomes the anchor), then apply the
+ *   gesture on top.
+ * - `"noop"` — the store is empty and the target IS the open tab: it is
+ *   already the implicit selection of one, so the gesture is consumed and
+ *   changes nothing.
+ * - `"none"` — no open tab to seed (no open window, or one the tree does not
+ *   know), or a selection is already live: apply the gesture as-is.
+ *
+ * `liveKeys` is the same DATA-derived live-key set `pruneSelection` takes, so
+ * a ghost or not-yet-rendered open tab is never seeded.
+ */
+export function openTabSeed(
+  selectedSize: number,
+  openKey: string | null,
+  targetKey: string,
+  liveKeys: ReadonlySet<string>,
+): "seed" | "noop" | "none" {
+  if (selectedSize > 0 || openKey === null) return "none";
+  if (openKey === targetKey) return "noop";
+  return liveKeys.has(openKey) ? "seed" : "none";
+}

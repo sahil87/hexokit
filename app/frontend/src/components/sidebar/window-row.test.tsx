@@ -900,6 +900,37 @@ describe("WindowRow", () => {
       expect(button.className).toContain("text-text-primary");
     });
 
+    it("a bulk-selected row paints exactly like the open row while a selection is live", () => {
+      const win = makeWindow({ windowId: "@1", index: 1, name: "member", color: "orange" });
+      const onRowClick = () => false;
+      const open = renderAxis(win, { isSelected: true, onRowClick });
+      const openButton = open.container.querySelector("button[aria-current]") as HTMLElement;
+      const openTreatment = { bg: openButton.style.backgroundColor, cls: openButton.className };
+      open.unmount();
+
+      const { container } = renderAxis(win, { isBulkSelected: true, selectionActive: true, onRowClick });
+      const item = container.querySelector('[role="treeitem"]') as HTMLElement;
+      const button = item.querySelector("button") as HTMLElement;
+      expect(item).toHaveAttribute("aria-selected", "true");
+      expect(button.style.backgroundColor).toBe(openTreatment.bg);
+      expect(button.className).toBe(openTreatment.cls);
+      expect(item.style.boxShadow).toBe("");
+      // Not the open page — only the visual is shared.
+      expect(button).not.toHaveAttribute("aria-current");
+    });
+
+    it("the open row drops its treatment while a selection it is not part of is live", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, name: "open", color: "orange" });
+      const { container } = renderAxis(win, {
+        isSelected: true,
+        isBulkSelected: false,
+        selectionActive: true,
+        onRowClick: () => false,
+      });
+      const button = container.querySelector('button[aria-current="page"]') as HTMLElement;
+      expect(button.className).not.toContain("font-medium");
+    });
+
     it("an unselected colored row shows no left border either", () => {
       const win = makeWindow({ windowId: "@0", index: 0, color: "blue" });
       const { container } = renderAxis(win);

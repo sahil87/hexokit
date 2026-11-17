@@ -34,7 +34,7 @@ import { useSelectionStore } from "@/store/selection-store";
 // Aliased: `selectionKey` is already taken in this file by the autoscroll
 // effect's URL-selection identity (`${currentServer}:${currentWindowId}`) — a
 // different concept from the multi-select's composite row key.
-import { rangeBetween, selectionKey as windowSelectionKey } from "@/lib/selection";
+import { openTabSeed, rangeBetween, selectionKey as windowSelectionKey } from "@/lib/selection";
 import { useWindowRename } from "@/hooks/use-window-rename";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { useSessionsScope } from "@/hooks/use-sessions-scope";
@@ -1321,11 +1321,25 @@ export function Sidebar({
   // this subtree, so a shared store (not local state) is the seam. Keys are the
   // composite `${server}:${windowId}` — the same handle as `data-row-key`.
   const selectedWindows = useSelectionStore((s) => s.selected);
-  const selectionAnchor = useSelectionStore((s) => s.anchor);
   const toggleSelection = useSelectionStore((s) => s.toggle);
   const selectSelection = useSelectionStore((s) => s.select);
+  const seedSelection = useSelectionStore((s) => s.seed);
   const clearSelection = useSelectionStore((s) => s.clear);
   const pruneSelectionStore = useSelectionStore((s) => s.prune);
+
+  /** Every window key the SSE snapshot knows for the currently-rendered server
+   *  groups, expanded or collapsed. This — NOT the visible-row walk — is the
+   *  selection's liveness source: a DOM walk equates "not rendered" with "gone",
+   *  so collapsing a session would silently destroy the selection of its still-
+   *  live windows, and `Select all merged` (which deliberately selects windows
+   *  inside collapsed sessions) would lose them on the next signature change. */
+  const getLiveWindowKeys = useCallback((): Set<string> => {
+    const live = new Set<string>();
+    for (const keys of groupDataKeysRef.current.values()) {
+      for (const key of keys) live.add(key);
+    }
+    return live;
+  }, []);
 
   /** The visible WINDOW rows' selection keys, in DOM (visible-row) order — the
    *  same enumeration the roving navigation walks. Read at gesture time so the
@@ -1355,9 +1369,12 @@ export function Sidebar({
 
   /** Extend the selection from the anchor to `key` in visible-row order. With no
    *  (or a stale, no-longer-visible) anchor there is no range to extend, so this
-   *  degrades to a plain toggle — the standard list-multiselect fallback. */
+   *  degrades to a plain toggle — the standard list-multiselect fallback. The
+   *  anchor is read from the store at call time: a seed written earlier in the
+   *  same gesture is not yet visible through a render-time subscription. */
   const extendSelectionTo = useCallback(
     (key: string) => {
+      const selectionAnchor = useSelectionStore.getState().anchor;
       if (selectionAnchor === null) {
         toggleSelection(key);
         return;
@@ -1372,7 +1389,32 @@ export function Sidebar({
       // touching the anchor, so there is nothing to restore here.
       selectSelection(range);
     },
-    [selectionAnchor, getVisibleWindowKeys, toggleSelection, selectSelection],
+    [getVisibleWindowKeys, toggleSelection, selectSelection],
+  );
+
+  // The open tab's key, read at gesture time through a ref so the row-click
+  // handler keeps a stable identity across navigation (the memo contract).
+  const openTabKeyRef = useRef(selectionKey);
+  openTabKeyRef.current = selectionKey;
+
+  /** Single select is a selection of one: before a selection gesture on `key`
+   *  lands on an empty store, seed the store with the open tab. Returns `true`
+   *  when the gesture targets the open tab itself with nothing selected — it is
+   *  already the implicit selection, so the caller consumes the gesture as a
+   *  no-op. */
+  const seedFromOpenTab = useCallback(
+    (key: string): boolean => {
+      const openKey = openTabKeyRef.current;
+      const seed = openTabSeed(
+        useSelectionStore.getState().selected.size,
+        openKey,
+        key,
+        getLiveWindowKeys(),
+      );
+      if (seed === "seed" && openKey !== null) seedSelection(openKey);
+      return seed === "noop";
+    },
+    [getLiveWindowKeys, seedSelection],
   );
 
   /** Modifier-aware row click, passed to every WindowRow as a single stable
@@ -1389,34 +1431,18 @@ export function Sidebar({
     ): boolean => {
       if (windowId === "") return false; // ghost row — never selectable
       const key = windowSelectionKey(server, windowId);
-      if (mods.shift) {
-        extendSelectionTo(key);
-        return true;
-      }
-      if (mods.meta || mods.ctrl) {
-        toggleSelection(key);
+      if (mods.shift || mods.meta || mods.ctrl) {
+        if (seedFromOpenTab(key)) return true;
+        if (mods.shift) extendSelectionTo(key);
+        else toggleSelection(key);
         return true;
       }
       // Plain click: navigate (not consumed) and drop any live selection.
       clearSelection();
       return false;
     },
-    [extendSelectionTo, toggleSelection, clearSelection],
+    [seedFromOpenTab, extendSelectionTo, toggleSelection, clearSelection],
   );
-
-  /** Every window key the SSE snapshot knows for the currently-rendered server
-   *  groups, expanded or collapsed. This — NOT the visible-row walk — is the
-   *  selection's liveness source: a DOM walk equates "not rendered" with "gone",
-   *  so collapsing a session would silently destroy the selection of its still-
-   *  live windows, and `Select all merged` (which deliberately selects windows
-   *  inside collapsed sessions) would lose them on the next signature change. */
-  const getLiveWindowKeys = useCallback((): Set<string> => {
-    const live = new Set<string>();
-    for (const keys of groupDataKeysRef.current.values()) {
-      for (const key of keys) live.add(key);
-    }
-    return live;
-  }, []);
 
   // Prune selected keys whose windows have genuinely left the SSE data (killed,
   // or their whole server group unmounted). Gated on `dataKeysVersion` — bumped
@@ -1563,13 +1589,14 @@ export function Sidebar({
         // Session rows and ghost/optimistic rows are not selectable (SF-3).
         if (!isSelectableWindow(identity) || identity?.kind !== "window") break;
         e.preventDefault();
+        if (seedFromOpenTab(windowSelectionKey(identity.server, identity.windowId))) break;
         toggleWindowSelection(identity.server, identity.windowId);
         break;
       }
       default:
         break;
     }
-  }, [getVisibleRows, rowKeyOf, rovingKey, moveRovingTo, toggleSession, identityForKey, onSelectWindow, onOperatorPlaceholder, isSelectableWindow, toggleWindowSelection]);
+  }, [getVisibleRows, rowKeyOf, rovingKey, moveRovingTo, toggleSession, identityForKey, onSelectWindow, onOperatorPlaceholder, isSelectableWindow, seedFromOpenTab, toggleWindowSelection]);
 
   /**
    * Escape-to-clear (260807-nf9f) — a CAPTURE-phase handler, deliberately
@@ -2957,6 +2984,7 @@ function ServerGroupInner(props: ServerGroupProps) {
               rowKey={`${server}:${operatorEntry.win.windowId}`}
               ariaLevel={2}
               isBulkSelected={selectedWindows.has(`${server}:${operatorEntry.win.windowId}`)}
+              selectionActive={selectedWindows.size > 0}
               onRowClick={onWindowRowClick}
               onSelectWindow={onSelectWindow}
               onStartEditing={onWindowStartEditing}
@@ -3176,6 +3204,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                             // sidebar owns the whole gesture policy. Ghost rows
                             // are never selectable (no real windowId).
                             isBulkSelected={!ghost && selectedWindows.has(winRowKey)}
+                            selectionActive={selectedWindows.size > 0}
                             onRowClick={ghost ? undefined : onWindowRowClick}
                             onSelectWindow={onSelectWindow}
                             onStartEditing={onWindowStartEditing}
