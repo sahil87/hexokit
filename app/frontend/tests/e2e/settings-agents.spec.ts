@@ -110,6 +110,40 @@ test.describe("Settings dialog — Agents tab", () => {
   });
 
   /**
+   * Proves: a saved model never narrows the role's model list — coming back to
+   * the tab still offers inherit, every suggestion for the tool, and free
+   * entry, with the saved model selected.
+   *
+   * Steps:
+   * 1. Open the Agents tab; pick `claude-sonnet-5-5` in `doing`'s model list.
+   * 2. Assert the POST body and the selected value.
+   * 3. Switch to the General tab and back, so the panel re-mounts and re-reads
+   *    the stub's document.
+   * 4. Assert `claude-sonnet-5-5` is still selected and the list reads inherit,
+   *    both claude suggestions, then `Custom…`.
+   */
+  test("a saved model still lists every suggestion when the tab is reopened", async ({ page }) => {
+    const posts = await stubFabConfig(page);
+    await openAgentsTab(page);
+
+    const model = page.getByLabel("doing model", { exact: true });
+    await model.selectOption("claude-sonnet-5-5");
+    await expect(model).toHaveValue("claude-sonnet-5-5");
+    expect(posts).toEqual([{ "agent.profiles.doing.model": "claude-sonnet-5-5" }]);
+
+    await page.getByRole("tab", { name: "General" }).click();
+    await page.getByRole("tab", { name: "Agents" }).click();
+
+    await expect(model).toHaveValue("claude-sonnet-5-5");
+    await expect(model.locator("option")).toHaveText([
+      "↳ inherit (provider default)",
+      "claude-opus-5-5",
+      "claude-sonnet-5-5",
+      "Custom…",
+    ]);
+  });
+
+  /**
    * Proves: with fab absent the tab shows the graceful empty state and nothing
    * else — no controls, no error alert.
    *

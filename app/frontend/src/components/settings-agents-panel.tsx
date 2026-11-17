@@ -241,7 +241,7 @@ function ChipRow({
       <ChipGroup
         label={label}
         options={options}
-        value={typeof field?.value === "string" ? field.value : ""}
+        value={stringValue(field)}
         disabled={busy}
         onPick={(v) => void run({ [fieldKey]: v })}
       />
@@ -285,6 +285,10 @@ function NumberInput({
       <TextSettingError error={error} />
     </span>
   );
+}
+
+function stringValue(field: FabField | undefined): string {
+  return typeof field?.value === "string" ? field.value : "";
 }
 
 function numberValue(field: FabField | undefined): number | null {
@@ -394,13 +398,18 @@ function ReapDoneRow({ field, write }: { field: FabField | undefined; write: Wri
   );
 }
 
-const roleSelectClass = `bg-transparent text-text-primary p-1 border border-border rounded text-xs max-w-[9rem] ${INPUT_FOCUS}`;
+const roleSelectBase = `bg-transparent text-text-primary p-1 border border-border rounded text-xs ${INPUT_FOCUS}`;
+const roleSelectClass = `${roleSelectBase} max-w-[9rem]`;
+const modelSelectClass = `${roleSelectBase} max-w-[12rem]`;
 
-/** Cell text for the inherit option: `↳ <value>` — what is in effect now, or
- *  while an override is set, what clearing it would restore. */
+/** What a leaf's inherit option stands for — what is in effect now, or while
+ *  an override is set, what clearing it would restore. */
+function inheritedValue(cell: FabRoleCell): string {
+  return (cell.override === null ? cell.effective : cell.inherited) || INHERIT_FALLBACK;
+}
+
 function inheritedLabel(cell: FabRoleCell): string {
-  const value = cell.override === null ? cell.effective : cell.inherited;
-  return `↳ ${value || INHERIT_FALLBACK}`;
+  return `↳ ${inheritedValue(cell)}`;
 }
 
 /** A closed-set select whose first option is "inherit" (→ null). */
@@ -436,73 +445,235 @@ function RoleSelect({
   );
 }
 
-function RoleModelInput({
+// The model list's sentinel values. Inherit is "" (an empty model is never a
+// pin — the daemon treats it as unset); custom carries a NUL, which no model
+// id can, so neither collides with a real model.
+const MODEL_INHERIT = "";
+const MODEL_CUSTOM = "\u0000custom";
+const CUSTOM_LABEL = "Custom…";
+// Claude Code accepts any full model id, so an unlisted claude pin is stale
+// (it stops tracking newer models), not invalid.
+const CLAUDE_TOOL = "claude";
+
+/** The model list in its fixed order — inherit, the tool's suggestions, the
+ *  saved override when the tool doesn't suggest it, then free text. Renderers
+ *  map over this, so the order and what each kind commits stay put when the
+ *  control changes shape. */
+type ModelOption =
+  | { kind: "inherit"; value: typeof MODEL_INHERIT; label: string }
+  | { kind: "suggestion"; value: string; label: string }
+  | { kind: "stale"; value: string; label: string }
+  | { kind: "custom"; value: typeof MODEL_CUSTOM; label: string };
+
+function modelOptions(cell: FabRoleCell, suggestions: string[]): ModelOption[] {
+  const options: ModelOption[] = [
+    { kind: "inherit", value: MODEL_INHERIT, label: `↳ inherit (${inheritedValue(cell)})` },
+    ...suggestions.map((s): ModelOption => ({ kind: "suggestion", value: s, label: s })),
+  ];
+  if (cell.override !== null && !suggestions.includes(cell.override)) {
+    // An empty list says nothing about what the tool offers.
+    const label = suggestions.length > 0 ? `${cell.override} (not offered)` : cell.override;
+    options.push({ kind: "stale", value: cell.override, label });
+  }
+  options.push({ kind: "custom", value: MODEL_CUSTOM, label: CUSTOM_LABEL });
+  return options;
+}
+
+function isStalePin(cell: FabRoleCell, suggestions: string[]): boolean {
+  return cell.override !== null && suggestions.length > 0 && !suggestions.includes(cell.override);
+}
+
+/** Free-text model entry: Enter/blur commit (blank unsets), and the cell goes
+ *  back to the list on a successful commit, an unchanged draft, or Escape. A
+ *  failed commit keeps the draft and shows fab's message. */
+function CustomModelInput({
   role,
   cell,
-  suggestions,
   commit,
+  onDone,
 }: {
   role: string;
   cell: FabRoleCell;
-  suggestions: string[];
   commit: (value: string | null) => Promise<void>;
+  onDone: () => void;
 }) {
-  const { draft, error, handleCommit, onChange, onKeyDown } = useTextSettingDraft(
-    cell.override ?? "",
-    (trimmed) => commit(trimmed === "" ? null : trimmed),
-  );
-  const listId = `fab-models-${role}`;
-  const mismatch =
-    cell.override !== null && suggestions.length > 0 && !suggestions.includes(cell.override);
+  const value = cell.override ?? "";
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Unmounting a focused input can fire blur; once leaving, that blur must not
+  // commit the discarded draft.
+  const leaving = useRef(false);
+  const leave = () => {
+    leaving.current = true;
+    onDone();
+  };
+  const { draft, error, handleCommit, onChange } = useTextSettingDraft(value, async (trimmed) => {
+    await commit(trimmed === "" ? null : trimmed);
+    leave();
+  });
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+  const finish = () => {
+    if (leaving.current) return;
+    if (draft.trim() === value.trim()) leave();
+    else handleCommit();
+  };
   return (
     <span className="inline-flex flex-col">
-      <span className="inline-flex items-center gap-1">
-        <input
-          type="text"
-          list={listId}
-          aria-label={`${role} model`}
-          value={draft}
-          placeholder={inheritedLabel(cell)}
-          onChange={onChange}
-          onBlur={handleCommit}
-          onKeyDown={onKeyDown}
-          className={`${textSettingInputClass} max-w-[12rem] p-1 text-xs`}
-        />
-        {mismatch && (
-          <span
-            role="img"
-            aria-label="model not in the provider's suggestions"
-            title="This model isn't in the resolved provider's suggestion list — fab doesn't validate provider × model pairs"
-            className="text-signal-yellow"
-          >
-            ⚠
-          </span>
-        )}
-      </span>
-      <datalist id={listId}>
-        {suggestions.map((m) => (
-          <option key={m} value={m} />
-        ))}
-      </datalist>
+      <input
+        ref={inputRef}
+        type="text"
+        aria-label={`${role} model`}
+        value={draft}
+        placeholder={inheritedLabel(cell)}
+        onChange={onChange}
+        onBlur={finish}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            finish();
+          } else if (e.key === "Escape") {
+            // Back to the list, not out of the dialog.
+            e.stopPropagation();
+            leave();
+          }
+        }}
+        className={`${textSettingInputClass} max-w-[12rem] p-1 text-xs`}
+      />
       <TextSettingError error={error} />
     </span>
   );
 }
 
+function RoleModelCell({
+  role,
+  cell,
+  suggestions,
+  busy,
+  pick,
+  commit,
+}: {
+  role: string;
+  cell: FabRoleCell;
+  suggestions: string[];
+  busy: boolean;
+  /** List pick — goes through the row's write state. */
+  pick: (value: string | null) => void;
+  /** Free-text commit — rejects so the input keeps the draft and the error. */
+  commit: (value: string | null) => Promise<void>;
+}) {
+  const [custom, setCustom] = useState(false);
+  if (custom) {
+    return <CustomModelInput role={role} cell={cell} commit={commit} onDone={() => setCustom(false)} />;
+  }
+  // A native select lists every option whatever is selected — unlike a
+  // datalist, which filters by the input's saved text.
+  return (
+    <select
+      aria-label={`${role} model`}
+      value={cell.override ?? MODEL_INHERIT}
+      disabled={busy}
+      onChange={(e) => {
+        const v = e.target.value;
+        if (v === MODEL_CUSTOM) setCustom(true);
+        else pick(v === MODEL_INHERIT ? null : v);
+      }}
+      className={`${modelSelectClass} ${cell.override === null ? "text-text-secondary" : ""}`}
+    >
+      {modelOptions(cell, suggestions).map((o) => (
+        <option key={`${o.kind}:${o.value}`} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** A pin the role's tool doesn't suggest, with a one-click way back to
+ *  inheriting. */
+function StaleModelNote({
+  role,
+  tool,
+  cell,
+  busy,
+  onInherit,
+}: {
+  role: string;
+  tool: string;
+  cell: FabRoleCell;
+  busy: boolean;
+  onInherit: () => void;
+}) {
+  const inherited = inheritedValue(cell);
+  const action = (
+    <button
+      type="button"
+      aria-label={`Inherit ${inherited} for ${role} model`}
+      disabled={busy}
+      onClick={onInherit}
+      className="text-accent hover:underline disabled:opacity-40"
+    >
+      inherit <code>{inherited}</code>
+    </button>
+  );
+  return (
+    <p data-testid={`stale-model-${role}`} className="text-[10px] text-signal-yellow leading-relaxed">
+      pinned to <code>{cell.override}</code>
+      {tool === CLAUDE_TOOL ? (
+        <>, not in the list — {action} to track the latest</>
+      ) : (
+        <>
+          , which <code>{tool}</code> doesn&apos;t offer — {action} instead?
+        </>
+      )}
+    </p>
+  );
+}
+
+/** One POST for a tool change: a model or effort override the new tool doesn't
+ *  offer is unset with it, so no cross-tool pair (`claude --model gpt-…`) is
+ *  ever left behind. A write that keeps the same effective tool touches only
+ *  the tool key — the overrides were already chosen for that tool. */
+function toolChangePatch(
+  role: FabRole,
+  next: string | null,
+  depthTool: string,
+  modelSuggestions: Record<string, string[]>,
+  efforts: string[],
+): Patch {
+  const patch: Patch = { [profileKey(role.role, "provider")]: next };
+  const nextTool = next ?? depthTool;
+  if (nextTool === role.provider.effective) return patch;
+  const model = role.model.override;
+  if (model === null || !(modelSuggestions[nextTool] ?? []).includes(model)) {
+    patch[profileKey(role.role, "model")] = null;
+  }
+  const effort = role.effort.override;
+  if (effort === null || !efforts.includes(effort)) {
+    patch[profileKey(role.role, "effort")] = null;
+  }
+  return patch;
+}
+
 function RoleRow({
   role,
   providers,
-  suggestions,
+  depthTool,
+  modelSuggestions,
   efforts,
   write,
 }: {
   role: FabRole;
   providers: string[];
-  suggestions: string[];
+  /** The depth knob's tool — what the row resolves to with no tool override. */
+  depthTool: string;
+  modelSuggestions: Record<string, string[]>;
   efforts: string[];
   write: Write;
 }) {
   const { busy, error, run } = useRowWrite(write);
+  const suggestions = modelSuggestions[role.provider.effective] ?? [];
+  const inheritModel = () => void run({ [profileKey(role.role, "model")]: null });
   // A saved value shadowed by an env var still counts: reset is the only way
   // to clear it from here.
   const overridden = [role.provider, role.model, role.effort].some(
@@ -520,7 +691,7 @@ function RoleRow({
               cell={role.provider}
               options={providers}
               disabled={busy}
-              onChange={(v) => void run({ [profileKey(role.role, "provider")]: v })}
+              onChange={(v) => void run(toolChangePatch(role, v, depthTool, modelSuggestions, efforts))}
             />
             {role.provider.origin === "env" && (
               <span
@@ -535,10 +706,12 @@ function RoleRow({
           </span>
         </td>
         <td className="py-1.5 pr-2">
-          <RoleModelInput
+          <RoleModelCell
             role={role.role}
             cell={role.model}
             suggestions={suggestions}
+            busy={busy}
+            pick={(v) => void run({ [profileKey(role.role, "model")]: v })}
             commit={(v) => write({ [profileKey(role.role, "model")]: v })}
           />
         </td>
@@ -567,6 +740,19 @@ function RoleRow({
           )}
         </td>
       </tr>
+      {isStalePin(role.model, suggestions) && (
+        <tr>
+          <td colSpan={6} className="pb-1.5">
+            <StaleModelNote
+              role={role.role}
+              tool={role.provider.effective}
+              cell={role.model}
+              busy={busy}
+              onInherit={inheritModel}
+            />
+          </td>
+        </tr>
+      )}
       {error && (
         <tr>
           <td colSpan={6}>
@@ -607,7 +793,8 @@ function RoleTable({ doc, write }: { doc: Document; write: Write }) {
                 key={role.role}
                 role={role}
                 providers={doc.providers}
-                suggestions={doc.modelSuggestions[role.provider.effective] ?? []}
+                depthTool={role.provider.inherited || stringValue(doc.fields[`agent.${role.depth}`])}
+                modelSuggestions={doc.modelSuggestions}
                 efforts={doc.effortSuggestions}
                 write={write}
               />

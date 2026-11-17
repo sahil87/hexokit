@@ -96,6 +96,16 @@ async function renderPanel(doc: FabConfigDocument) {
 
 const row = (key: string) => screen.getByTestId(`fab-row-${key}`);
 
+const optionTexts = (el: HTMLElement) =>
+  el instanceof HTMLSelectElement ? Array.from(el.options).map((o) => o.textContent) : [];
+
+/** Picks the model list's `Custom…` entry by its label, not its sentinel value. */
+function pickCustom(roleName: string) {
+  const select = screen.getByLabelText(`${roleName} model`);
+  const custom = within(select).getByRole("option", { name: "Custom…" });
+  fireEvent.change(select, { target: { value: custom.getAttribute("value") } });
+}
+
 beforeEach(() => {
   vi.mocked(getFabConfig).mockReset();
   vi.mocked(postFabConfig).mockReset();
@@ -273,7 +283,10 @@ describe("SettingsAgentsPanel", () => {
       expect(provider.value).toBe("");
       expect(provider.options[0].textContent).toBe("↳ kimi");
       expect(provider.className).toContain("text-text-secondary");
-      expect(screen.getByLabelText("doing model")).toHaveAttribute("placeholder", "↳ provider default");
+      const model = screen.getByLabelText("doing model") as HTMLSelectElement;
+      expect(model.value).toBe("");
+      expect(model.options[0].textContent).toBe("↳ inherit (provider default)");
+      expect(model.className).toContain("text-text-secondary");
     });
 
     it("labels inherit on an overridden leaf with the value clearing it restores", async () => {
@@ -285,7 +298,9 @@ describe("SettingsAgentsPanel", () => {
       const provider = screen.getByLabelText("review provider") as HTMLSelectElement;
       expect(provider.value).toBe("codex");
       expect(provider.options[0].textContent).toBe("↳ claude");
-      expect(screen.getByLabelText("review model")).toHaveAttribute("placeholder", "↳ claude-opus-5-5");
+      const model = screen.getByLabelText("review model") as HTMLSelectElement;
+      expect(model.value).toBe("gpt-5.6-sol");
+      expect(model.options[0].textContent).toBe("↳ inherit (claude-opus-5-5)");
     });
 
     it("choosing inherit on an overridden leaf POSTs null for that key", async () => {
@@ -293,54 +308,230 @@ describe("SettingsAgentsPanel", () => {
       const doc = withRole(makeDoc(), "review", { provider: overridden("codex", "agent.profiles.review.provider") });
       await renderPanel(doc);
       fireEvent.change(screen.getByLabelText("review provider"), { target: { value: "" } });
-      await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.review.provider": null }));
+      await waitFor(() =>
+        expect(postFabConfig).toHaveBeenCalledWith({
+          "agent.profiles.review.provider": null,
+          "agent.profiles.review.model": null,
+          "agent.profiles.review.effort": null,
+        }),
+      );
     });
 
-    it("a provider pick POSTs that role's provider key", async () => {
+    it("a provider pick POSTs that role's provider key, unsetting model and effort in the same request", async () => {
       vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
       await renderPanel(makeDoc());
       fireEvent.change(screen.getByLabelText("operator provider"), { target: { value: "codex" } });
-      await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.operator.provider": "codex" }));
+      await waitFor(() =>
+        expect(postFabConfig).toHaveBeenCalledWith({
+          "agent.profiles.operator.provider": "codex",
+          "agent.profiles.operator.model": null,
+          "agent.profiles.operator.effort": null,
+        }),
+      );
+      expect(postFabConfig).toHaveBeenCalledTimes(1);
     });
 
-    it("model commits on blur, and clearing it unsets", async () => {
-      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
-      const doc = withRole(makeDoc(), "fast", { model: overridden("claude-opus-5-5", "agent.profiles.fast.model") });
+    it("the model list offers inherit, every suggestion and Custom…, whatever model is saved", async () => {
+      const doc = withRole(makeDoc(), "doing", { model: overridden("claude-sonnet-5-5", "agent.profiles.doing.model") });
       await renderPanel(doc);
-      const model = screen.getByLabelText("fast model");
-      expect(model).toHaveValue("claude-opus-5-5");
-      fireEvent.change(model, { target: { value: "" } });
-      fireEvent.blur(model);
-      await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.fast.model": null }));
-    });
-
-    it("offers the resolved provider's models as datalist suggestions", async () => {
-      await renderPanel(makeDoc());
-      const input = screen.getByLabelText("doing model");
-      const list = document.getElementById(input.getAttribute("list") ?? "");
-      expect(Array.from(list?.querySelectorAll("option") ?? []).map((o) => o.getAttribute("value"))).toEqual([
+      const model = screen.getByLabelText("doing model") as HTMLSelectElement;
+      expect(model.value).toBe("claude-sonnet-5-5");
+      expect(optionTexts(model)).toEqual([
+        "↳ inherit (provider default)",
         "claude-opus-5-5",
         "claude-sonnet-5-5",
+        "Custom…",
       ]);
     });
 
-    it("flags a model override outside the resolved provider's suggestions without blocking", async () => {
+    it("lists a pin the tool doesn't suggest as not offered, after the suggestions", async () => {
       const doc = withRole(makeDoc(), "review", {
         provider: inherited("codex", "agent.workers"),
-        model: overridden("claude-opus-5-5", "agent.profiles.review.model"),
+        model: overridden("claude-opus-5-5", "agent.profiles.review.model", "gpt-5.6-sol"),
       });
       await renderPanel(doc);
-      expect(screen.getByRole("img", { name: /model not in the provider/ })).toBeInTheDocument();
-      expect(screen.getByLabelText("review model")).not.toBeDisabled();
+      const model = screen.getByLabelText("review model") as HTMLSelectElement;
+      expect(model.value).toBe("claude-opus-5-5");
+      expect(optionTexts(model)).toEqual([
+        "↳ inherit (gpt-5.6-sol)",
+        "gpt-5.6-sol",
+        "claude-opus-5-5 (not offered)",
+        "Custom…",
+      ]);
     });
 
-    it("does not flag a model when the provider has no suggestions", async () => {
+    it("with no suggestions the pin is listed plainly and gets no stale note", async () => {
       const doc = withRole(makeDoc(), "review", {
         provider: inherited("kimi", "agent.workers"),
         model: overridden("kimi-k3", "agent.profiles.review.model"),
       });
       await renderPanel(doc);
-      expect(screen.queryByRole("img", { name: /model not in the provider/ })).not.toBeInTheDocument();
+      expect(optionTexts(screen.getByLabelText("review model"))).toEqual(["↳ inherit (provider default)", "kimi-k3", "Custom…"]);
+      expect(screen.queryByTestId("stale-model-review")).not.toBeInTheDocument();
+    });
+
+    it("picking a suggestion POSTs it and picking inherit unsets", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      const doc = withRole(makeDoc(), "fast", { model: overridden("claude-opus-5-5", "agent.profiles.fast.model") });
+      await renderPanel(doc);
+      fireEvent.change(screen.getByLabelText("fast model"), { target: { value: "claude-sonnet-5-5" } });
+      await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.fast.model": "claude-sonnet-5-5" }));
+      fireEvent.change(screen.getByLabelText("fast model"), { target: { value: "" } });
+      await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.fast.model": null }));
+    });
+
+    it("Custom… swaps to a focused text input that commits on Enter and returns to the list", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      await renderPanel(makeDoc());
+      pickCustom("doing");
+      const input = screen.getByRole("textbox", { name: "doing model" });
+      expect(input).toHaveFocus();
+      expect(postFabConfig).not.toHaveBeenCalled();
+
+      fireEvent.change(input, { target: { value: " glm-latest[1m] " } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.doing.model": "glm-latest[1m]" }));
+      await waitFor(() => expect(screen.getByLabelText("doing model").tagName).toBe("SELECT"));
+      expect(postFabConfig).toHaveBeenCalledTimes(1);
+    });
+
+    it("a blank custom commit on blur unsets the model", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      const doc = withRole(makeDoc(), "fast", { model: overridden("claude-opus-5-5", "agent.profiles.fast.model") });
+      await renderPanel(doc);
+      pickCustom("fast");
+      const input = screen.getByRole("textbox", { name: "fast model" });
+      expect(input).toHaveValue("claude-opus-5-5");
+      fireEvent.change(input, { target: { value: "" } });
+      fireEvent.blur(input);
+      await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.fast.model": null }));
+    });
+
+    it("Escape in the custom input returns to the list without writing or closing the dialog", async () => {
+      await renderPanel(makeDoc());
+      const onDocumentKey = vi.fn();
+      document.addEventListener("keydown", onDocumentKey);
+      try {
+        pickCustom("doing");
+        const input = screen.getByRole("textbox", { name: "doing model" });
+        fireEvent.change(input, { target: { value: "half-typed" } });
+        fireEvent.keyDown(input, { key: "Escape" });
+        expect(screen.getByLabelText("doing model").tagName).toBe("SELECT");
+        expect(onDocumentKey).not.toHaveBeenCalled();
+        expect(postFabConfig).not.toHaveBeenCalled();
+      } finally {
+        document.removeEventListener("keydown", onDocumentKey);
+      }
+    });
+
+    it("a rejected custom commit keeps the draft and shows fab's message", async () => {
+      vi.mocked(postFabConfig).mockRejectedValue(new Error("fab: refusing to set model"));
+      await renderPanel(makeDoc());
+      pickCustom("doing");
+      const input = screen.getByRole("textbox", { name: "doing model" });
+      fireEvent.change(input, { target: { value: "bad-model" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(await screen.findByRole("alert")).toHaveTextContent("refusing to set model");
+      expect(screen.getByRole("textbox", { name: "doing model" })).toHaveValue("bad-model");
+    });
+
+    it("flags a pin the tool doesn't offer with a note whose action unsets it", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      const doc = withRole(makeDoc(), "review", {
+        provider: inherited("codex", "agent.workers"),
+        model: overridden("claude-opus-5-5", "agent.profiles.review.model", "gpt-5.6-sol"),
+      });
+      await renderPanel(doc);
+      expect(screen.getByTestId("stale-model-review")).toHaveTextContent(
+        "pinned to claude-opus-5-5, which codex doesn't offer — inherit gpt-5.6-sol instead?",
+      );
+      expect(screen.getByLabelText("review model")).not.toBeDisabled();
+      fireEvent.click(screen.getByRole("button", { name: "Inherit gpt-5.6-sol for review model" }));
+      await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.review.model": null }));
+    });
+
+    it("words a stale claude pin as tracking the latest, not as unsupported", async () => {
+      const doc = withRole(makeDoc(), "review", {
+        model: overridden("claude-opus-4-1", "agent.profiles.review.model", "claude-opus-5-5"),
+      });
+      await renderPanel(doc);
+      expect(screen.getByTestId("stale-model-review")).toHaveTextContent(
+        "pinned to claude-opus-4-1, not in the list — inherit claude-opus-5-5 to track the latest",
+      );
+    });
+
+    it("shows no stale note for a pin the tool offers", async () => {
+      const doc = withRole(makeDoc(), "review", { model: overridden("claude-opus-5-5", "agent.profiles.review.model") });
+      await renderPanel(doc);
+      expect(screen.queryByTestId("stale-model-review")).not.toBeInTheDocument();
+    });
+
+    it("a tool change keeps model and effort overrides the new tool offers", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      const doc = withRole(makeDoc(), "review", {
+        model: overridden("gpt-5.6-sol", "agent.profiles.review.model"),
+        effort: overridden("high", "agent.profiles.review.effort"),
+      });
+      await renderPanel(doc);
+      fireEvent.change(screen.getByLabelText("review provider"), { target: { value: "codex" } });
+      await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.review.provider": "codex" }));
+    });
+
+    it("a tool change unsets a model the new tool doesn't offer and keeps a suggested effort", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      const doc = withRole(makeDoc(), "review", {
+        model: overridden("claude-opus-5-5", "agent.profiles.review.model"),
+        effort: overridden("high", "agent.profiles.review.effort"),
+      });
+      await renderPanel(doc);
+      fireEvent.change(screen.getByLabelText("review provider"), { target: { value: "codex" } });
+      await waitFor(() =>
+        expect(postFabConfig).toHaveBeenCalledWith({
+          "agent.profiles.review.provider": "codex",
+          "agent.profiles.review.model": null,
+        }),
+      );
+    });
+
+    it("a tool change unsets an effort outside the effort suggestions", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      const doc = withRole(makeDoc(), "review", {
+        model: overridden("gpt-5.6-sol", "agent.profiles.review.model"),
+        effort: overridden("ultra", "agent.profiles.review.effort"),
+      });
+      await renderPanel(doc);
+      fireEvent.change(screen.getByLabelText("review provider"), { target: { value: "codex" } });
+      await waitFor(() =>
+        expect(postFabConfig).toHaveBeenCalledWith({
+          "agent.profiles.review.provider": "codex",
+          "agent.profiles.review.effort": null,
+        }),
+      );
+    });
+
+    it("picking inherit for the tool weighs the overrides against the depth knob's tool", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      const doc = withRole(withField(makeDoc(), "agent.workers", field("codex", "system")), "review", {
+        provider: overridden("claude", "agent.profiles.review.provider", "codex"),
+        model: overridden("claude-opus-5-5", "agent.profiles.review.model"),
+        effort: overridden("high", "agent.profiles.review.effort"),
+      });
+      await renderPanel(doc);
+      fireEvent.change(screen.getByLabelText("review provider"), { target: { value: "" } });
+      await waitFor(() =>
+        expect(postFabConfig).toHaveBeenCalledWith({
+          "agent.profiles.review.provider": null,
+          "agent.profiles.review.model": null,
+        }),
+      );
+    });
+
+    it("re-picking the tool the row already resolves to writes only the tool key", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      const doc = withRole(makeDoc(), "doing", { model: overridden("glm-latest[1m]", "agent.profiles.doing.model") });
+      await renderPanel(doc);
+      fireEvent.change(screen.getByLabelText("doing provider"), { target: { value: "claude" } });
+      await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.doing.provider": "claude" }));
     });
 
     it("effort is a select over the suggestions plus inherit", async () => {
