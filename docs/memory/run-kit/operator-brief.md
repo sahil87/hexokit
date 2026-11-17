@@ -115,4 +115,4 @@ The chat topic is the static page `docs/site/skill/operator.md` (≤150 lines), 
 **Decision**: The rules let a run advance a raw-text queue item past its intake (`/fab-fff`, after comparing the intake with the task and checking the gate) and pick a strategic prompt's defensible recommendation with a notify; only prompts with no defensible default stay open.
 **Why**: fab's continuous operator made both calls; the one-shot port left them out, so raw-text queue items stalled at intake ready and every strategic menu waited on the user. The decisions need judgment (does the intake match the task), so they live in the rules, not in the engine's mechanical pass.
 **Rejected**: an engine rule that always sends `/fab-fff` at intake ready (no review of the intake against the task); keeping "strategic prompts are never auto-picked" (blocks queues on choices the task already settles).
-*Introduced by*: operator-intake-judgment (direct change, no fab intake)
+*Introduced by*: PR #1144 (direct change, no fab intake)

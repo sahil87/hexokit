@@ -229,4 +229,4 @@ A done item yields only `done` plus any `unknown_dep:*`; a user-paused item belo
 **Decision**: A waiting or idle state held 30 minutes adds `agent:<state>:aged`, reported once as `agent_aged` and then open; the key drops out when the state changes, so each stretch can age again.
 **Why**: Conditions are edge-triggered, so a prompt a run left open, or an idle agent nobody moved, never started another run; the brief rules' 30-minute auto-default and the stuck nudge need a run at that point.
 **Rejected**: re-reporting open conditions on every check (a model run per check while anything waits); a timer outside the check (a second clock beside the cron entry).
-*Introduced by*: operator-intake-judgment (direct change, no fab intake)
+*Introduced by*: PR #1144 (direct change, no fab intake)
