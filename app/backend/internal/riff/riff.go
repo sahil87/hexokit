@@ -309,7 +309,7 @@ func SpawnObserved(ctx context.Context, opts Options, prepare func(context.Conte
 		default:
 			return Result{}, ValidationErr("run-kit riff: unsupported fork provider %q", opts.ForkProvider)
 		}
-		if launcherCommandName(agent.Launcher) != opts.ForkProvider {
+		if LauncherCommandName(agent.Launcher) != opts.ForkProvider {
 			agent = ResolvedAgent{Launcher: opts.ForkProvider, SkillPrefix: "/"}
 			if opts.ForkProvider == "codex" {
 				agent.SkillPrefix = "$"
@@ -317,7 +317,7 @@ func SpawnObserved(ctx context.Context, opts Options, prepare func(context.Conte
 		}
 	}
 	// Older resume consumers carry Claude IDs without an explicit provider.
-	if opts.ForkProvider == "" && sessionUUIDRe.MatchString(opts.ResumeSessionRef) && launcherCommandName(agent.Launcher) != "claude" {
+	if opts.ForkProvider == "" && sessionUUIDRe.MatchString(opts.ResumeSessionRef) && LauncherCommandName(agent.Launcher) != "claude" {
 		return Result{}, ValidationErr("run-kit riff: cannot resume a Claude conversation with launcher %q", agent.Launcher)
 	}
 	launcher, err := resumeForkLauncher(agent.Launcher, opts.ResumeSessionRef, opts.ResumePlain)

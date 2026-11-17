@@ -379,8 +379,8 @@ function ClockChip({
   const text = stale ? `◷ stale${state.age ? ` ${state.age}` : ""}` : state.text;
   const tip = stale
     ? state.age
-      ? `Operator loop stale — last tick ${state.age} ago`
-      : "Operator loop stale — no recent tick"
+      ? `Operator loop stale — last check ${state.age} ago`
+      : "Operator loop stale — no recent check"
     : state.tip;
   const node = (
     <button

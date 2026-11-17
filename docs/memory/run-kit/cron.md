@@ -729,6 +729,12 @@ Inside a tmux pane, `add` SHALL store `created_by: {pane: $TMUX_PANE, at: now}`,
 **Rejected**: a short-fuse (120s-class) loop-liveness threshold — that answers a different, much-shorter-fuse question ("is the in-session loop still ticking") and would false-trip watchlist staleness constantly.
 *Introduced by*: 260907-1jm6-cron-api-derivations
 
+### The loop entry, not last_tick_at, is the watchdog once it exists
+**Decision**: when the server's cron file holds a `run: operator-loop` entry, `internal/sessions.operatorLoopLiveness` supplies the watchdog: `OperatorLastTickAt` is the entry's newest delivery (`DeriveEntry`'s `LastFired`) and `OperatorStale` is true only when its next due fire (`DeriveEntry`'s `NextFire`, the `LoopLadder` math) is overdue by more than `DefaultWatchlistStaleThreshold`; an effectively-muted entry is never stale. Without a loop entry the state file's `last_tick_at` rule stands.
+**Why**: rk's operator state file never carries `last_tick_at`, so after adopt the old rule read 0 and the banner could never show; and the loop's ladder idles up to 24m, so "last fire older than 15m" would flag a healthy idle loop.
+**Rejected**: writing `last_tick_at` into rk's state file on every fire (a write per tick for a fact the delivery log already holds); a fixed age threshold above the ladder max (couples the watchdog to one seed's max).
+*Introduced by*: rk-operator-skill (no fab change)
+
 ### Plain resume, not fork, for session respawn
 **Decision**: session respawn composes `--resume <uuid>` without `--fork-session` (the riff seam's `ResumePlain` mode).
 **Why**: the entry targets this session id; the SessionStart hook re-stamps the resumed pane with the same id, so the entry resolves again on the next fire — a fork mints a fresh id and the entry stays orphaned forever.

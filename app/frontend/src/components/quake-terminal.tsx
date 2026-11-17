@@ -569,7 +569,7 @@ export function QuakeTerminal() {
   }, []);
 
   // The daemon broadcasts a tagged notify when a Start-operator launch could
-  // not get its /fab-operator kickoff delivered — a degraded result the user
+  // not get its operator kickoff delivered — a degraded result the user
   // must see, so it toasts on every form factor (the subscription lives above
   // the render gate: the mobile mount renders nothing). Other tags and
   // untagged payloads are the shell-notification path's own concern.
@@ -1056,7 +1056,7 @@ export function QuakeTerminal() {
           )}
           {tickSession && tickAge !== null && (
             <Tip
-              label={tickStale ? `Operator last ticked ${tickAge} ago` : undefined}
+              label={tickStale ? `Operator loop last checked ${tickAge} ago` : undefined}
               placement="bottom"
             >
               <span

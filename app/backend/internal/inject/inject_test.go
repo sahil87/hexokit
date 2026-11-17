@@ -1446,14 +1446,14 @@ func TestSendGeminiRepeatedChipEcho(t *testing.T) {
 // trigger only when its count rose vs the floor, and matching is
 // whitespace-insensitive through the shared stripForProbe normalization.
 func TestPopupNewlyOpen(t *testing.T) {
-	popup := "› $fab-operator\nPress enter to insert or esc to close"
+	popup := "› $operator\nPress enter to insert or esc to close"
 	for _, tc := range []struct {
 		name         string
 		frame, floor string
 		want         bool
 	}{
 		{"popup newly visible", popup, "❯ ", true},
-		{"no marker anywhere", "› $fab-operator", "❯ ", false},
+		{"no marker anywhere", "› $operator", "❯ ", false},
 		{"stale marker in floor", popup, "Press enter to insert or esc to close\n❯ ", false},
 		{"wrapped marker still matches", "Press enter\nto insert", "❯ ", true},
 	} {
@@ -1474,13 +1474,13 @@ func TestSendPopupGuardConsumesPopup(t *testing.T) {
 	fastSubmit(t)
 	ft := &fakeTmux{captureResults: []string{
 		"❯ ",
-		"❯ $fab-operator\nPress enter to insert or esc to close",
-		"❯ $fab-operator",
-		"› $fab-operator\n• Working",
+		"❯ $operator\nPress enter to insert or esc to close",
+		"❯ $operator",
+		"› $operator\n• Working",
 	}}
 	e := NewEngine("rk-popup-1")
 
-	if err := e.Send(context.Background(), ft, "default", "%5", "$fab-operator", true); err != nil {
+	if err := e.Send(context.Background(), ft, "default", "%5", "$operator", true); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	want := []string{
@@ -1506,12 +1506,12 @@ func TestSendPopupStaleMarkerDoesNotFire(t *testing.T) {
 	stale := "Press enter to insert or esc to close\n❯ "
 	ft := &fakeTmux{captureResults: []string{
 		stale,
-		"Press enter to insert or esc to close\n❯ $fab-operator",
-		"› $fab-operator\n• Working",
+		"Press enter to insert or esc to close\n❯ $operator",
+		"› $operator\n• Working",
 	}}
 	e := NewEngine("rk-popup-2")
 
-	if err := e.Send(context.Background(), ft, "default", "%5", "$fab-operator", true); err != nil {
+	if err := e.Send(context.Background(), ft, "default", "%5", "$operator", true); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	want := []string{"clear-pane-mode", "capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys", "capture-pane"}
@@ -1526,11 +1526,11 @@ func TestSendInsertLeavesPopupUntouched(t *testing.T) {
 	fastProbe(t)
 	ft := &fakeTmux{captureResults: []string{
 		"❯ ",
-		"❯ $fab-operator\nPress enter to insert or esc to close",
+		"❯ $operator\nPress enter to insert or esc to close",
 	}}
 	e := NewEngine("rk-popup-3")
 
-	if err := e.Send(context.Background(), ft, "default", "%5", "$fab-operator", false); err != nil {
+	if err := e.Send(context.Background(), ft, "default", "%5", "$operator", false); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	if ft.enterCalled {
@@ -1547,13 +1547,13 @@ func TestSendPopupGuardEnterFailureIsStaged(t *testing.T) {
 	ft := &fakeTmux{
 		captureResults: []string{
 			"❯ ",
-			"❯ $fab-operator\nPress enter to insert or esc to close",
+			"❯ $operator\nPress enter to insert or esc to close",
 		},
 		enterErrs: []error{errors.New("tmux exploded")},
 	}
 	e := NewEngine("rk-popup-4")
 
-	err := e.Send(context.Background(), ft, "default", "%5", "$fab-operator", true)
+	err := e.Send(context.Background(), ft, "default", "%5", "$operator", true)
 	var staged StagedSendFailure
 	if !errors.As(err, &staged) {
 		t.Fatalf("err = %v, want StagedSendFailure", err)
@@ -1571,18 +1571,18 @@ func TestSendRetryPopupReopenedConsumed(t *testing.T) {
 	fastSubmit(t)
 	ft := &fakeTmux{captureResults: []string{
 		"❯ ",              // baseline
-		"❯ $fab-operator", // echo probe, no popup on the first pass
+		"❯ $operator", // echo probe, no popup on the first pass
 		// five unchanged observation frames with the needle still present →
 		// non-submission verdict → recovery
-		"❯ $fab-operator", "❯ $fab-operator", "❯ $fab-operator", "❯ $fab-operator", "❯ $fab-operator",
+		"❯ $operator", "❯ $operator", "❯ $operator", "❯ $operator", "❯ $operator",
 		"❯ ", // C-u clear back to baseline
-		"❯ $fab-operator\nPress enter to insert or esc to close", // retry probe: popup reopened
-		"❯ $fab-operator",            // fresh preFrame after popup Enter
-		"› $fab-operator\n• Working", // retry observation: changed → no claim
+		"❯ $operator\nPress enter to insert or esc to close", // retry probe: popup reopened
+		"❯ $operator",            // fresh preFrame after popup Enter
+		"› $operator\n• Working", // retry observation: changed → no claim
 	}}
 	e := NewEngine("rk-popup-5")
 
-	if err := e.Send(context.Background(), ft, "default", "%5", "$fab-operator", true); err != nil {
+	if err := e.Send(context.Background(), ft, "default", "%5", "$operator", true); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	if got := countCalls(ft.callStream(), "send-keys"); got != 3 {

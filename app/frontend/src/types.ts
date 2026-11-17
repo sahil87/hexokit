@@ -289,11 +289,12 @@ export type WindowInfo = {
    *  normal screen); optional here only for partial test fixtures — consumers
    *  treat absent as false. */
   altScreen?: boolean;
-  /** Operator-watchlist tier: FetchSessions joins the fab operator state
-   *  file's monitored map onto each window by pane ID. `monitored` is true
-   *  when any pane matches a watchlist entry; the remaining fields are that
-   *  entry's identity facets (change key, stage, repo, branch, agent). All
-   *  absent on unwatched windows and on payloads from an older backend. */
+  /** Operator-watchlist tier: FetchSessions joins the operator state file's
+   *  tracked list (rk's, fab's while no rk file exists) onto each window by
+   *  pane ID. `monitored` is true when any pane matches a watchlist entry;
+   *  the remaining fields are that entry's identity facets (change key,
+   *  stage, repo, branch, agent). All absent on unwatched windows and on
+   *  payloads from an older backend. */
   monitored?: boolean;
   monitoredChange?: string;
   monitoredStage?: string;

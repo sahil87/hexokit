@@ -48,11 +48,13 @@ import (
 // go through Go; the hook command is a fixed literal per state with nothing
 // user-provided interpolated (Constitution §I).
 //
-// rk agent setup manages three artifact families: the per-agent hooks merge above,
+// rk agent setup manages four artifact families: the per-agent hooks merge above,
 // the user-global tmux guard shim (shim file + PATH block — see applyTmuxShim
-// below and tmux_guard.go for the guard itself), and the user-global gui display
+// below and tmux_guard.go for the guard itself), the user-global gui display
 // block (a marker-owned shell-startup block that evals `rk gui env` inside tmux
-// panes — see applyGuiDisplayBlocks below). It used to write
+// panes — see applyGuiDisplayBlocks below), and the /operator pointer skill
+// (agent_setup_operator_skill.go — a pointer to `rk skill operator`, never the
+// skill's content, so nothing placed can go stale). It used to write
 // a third managed artifact — a user-global "rk-display" SKILL.md that put
 // run-kit's visual-display capability into an agent's context — but that context-injection
 // responsibility has moved to the `rk skill` bundle (served by the skill
@@ -298,10 +300,10 @@ type agentConfig struct {
 	kind     installerKind
 	hooks    []agentHook
 	// skillsDir locates the LEGACY rk-display skill for one-release cleanup
-	// only (as {skillsDir}/rk-display/SKILL.md — see removeLegacySkill). rk
-	// agent setup no longer installs any skill; an EMPTY skillsDir means "no
-	// legacy skill to clean". Scheduled for removal one release after this
-	// change.
+	// only (as {skillsDir}/rk-display/SKILL.md — see removeLegacySkill); the
+	// /operator pointer skill is placed by applyOperatorSkill, not per agent.
+	// An EMPTY skillsDir means "no legacy skill to clean". Scheduled for
+	// removal one release after this change.
 	skillsDir string
 
 	// kindJSONHooksMerge: the user-global settings file to merge into.
@@ -622,7 +624,10 @@ const agentSetupLong = "Install (or --uninstall) the hooks that write the " + tm
 	"trusted — after installing, run `codex` and review them via /hooks. Also " +
 	"installs the tmux guard shim (~/.local/share/rk/shims/tmux plus a marker-owned " +
 	"PATH block in the shell startup files) so `tmux kill-server` without an " +
-	"explicit -L/-S socket is blocked via `rk mux guard`. Use --yes to write " +
+	"explicit -L/-S socket is blocked via `rk mux guard`, and the /operator " +
+	"skill (~/.agents/skills/operator/SKILL.md, plus ~/.claude/skills/operator/SKILL.md " +
+	"when claude is on PATH) — a pointer to `rk skill operator` that `rk operator` " +
+	"types into the operator agent. Use --yes to write " +
 	"without prompting (non-interactive), or --dry-run to preview the diff and " +
 	"write nothing."
 
@@ -728,7 +733,12 @@ func runAgentSetup(sink outputSink, in io.Reader, uninstall bool, cons consent) 
 	// The gui display block is likewise user-global and runs after the shim.
 	// It does NOT depend on the shim being in place: it reaches rk through the
 	// launcher pointer written above and gates on that step's verdict instead.
-	return applyGuiDisplayBlocks(sink, reader, home, os.Getenv("ZDOTDIR"), pointerState, uninstall, cons)
+	if err := applyGuiDisplayBlocks(sink, reader, home, os.Getenv("ZDOTDIR"), pointerState, uninstall, cons); err != nil {
+		return err
+	}
+	// The operator pointer skill is user-global too and depends on nothing
+	// above: it only tells the agent to run `rk skill operator`.
+	return applyOperatorSkill(sink, reader, home, uninstall, cons)
 }
 
 // applyAgentConfig applies the agent's installer kind and, on BOTH the install

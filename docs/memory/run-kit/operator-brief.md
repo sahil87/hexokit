@@ -96,8 +96,14 @@ The chat topic is the static page `docs/site/skill/operator.md` (≤150 lines), 
 ### Chat skill as an rk skill topic
 **Decision**: The operator chat skill ships as the static topic `rk skill operator` (≤150 lines).
 **Why**: Same delivery as the existing topics — versioned with the binary, drift-guarded; it lets `/fab-operator` become a pointer to it later.
-**Rejected**: A deployed per-provider `/operator` SKILL.md (a new install-and-update job); keeping `/fab-operator` as an alias (name collision with fab's skill).
+**Rejected**: A deployed per-provider `/operator` SKILL.md carrying the content (a new install-and-update job); keeping `/fab-operator` as an alias (name collision with fab's skill).
 *Introduced by*: 261111-jsg9-operator-run-brief-chat-skill
+
+### `/operator` is a placed pointer to the topic
+**Decision**: `rk agent setup` places a `/operator` SKILL.md whose body only says to run `rk skill operator` and follow it; `rk operator` types `/operator` when the harness's copy is rk-owned ([agent-state](/run-kit/agent-state.md), [cli](/run-kit/architecture/cli.md)).
+**Why**: The chat needs an invocation that does not depend on fab's `/fab-operator`, which is being deleted; a pointer adds a slash command without copying content that could go stale.
+**Rejected**: Placing the full skill content (the stale-copy problem the topic delivery avoids).
+*Introduced by*: rk-operator-skill (no fab change)
 
 ### Each engine part replaces the brief prose it covers in the same change
 **Decision**: When the engine takes over a job, the brief's prose for that job is removed in the same PR, and a render test proves the removed text and tools are gone.

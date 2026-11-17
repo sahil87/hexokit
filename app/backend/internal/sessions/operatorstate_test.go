@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"rk/internal/cron"
 	"rk/internal/operator"
@@ -245,12 +246,118 @@ func TestFetchSessionsOperatorSource(t *testing.T) {
 		}
 	})
 
+	t.Run("an operator-loop entry replaces last_tick_at as the watchdog source", func(t *testing.T) {
+		rk, _ := stateFiles(t)
+		writeOperatorFile(t, rk, "last_tick_at: 1700000000\ntracked: []\n")
+		lastFired := time.Now().Add(-2 * time.Minute).Unix()
+		seedLoop(t, "runKit", time.Now().Add(-time.Hour), lastFired)
+		s := fetch(t)
+		if s.OperatorLastTickAt != lastFired || s.OperatorStale {
+			t.Errorf("tick facts = (%d, %v), want the loop's last fire %d and not stale", s.OperatorLastTickAt, s.OperatorStale, lastFired)
+		}
+	})
+
 	t.Run("no rk file: fab's file is read as before", func(t *testing.T) {
 		_, fab := stateFiles(t)
 		writeOperatorFile(t, fab, fmt.Sprintf("tracked:\n  - {id: from-fab, kind: fab-change, scope: {pane: %q}}\n", paneID))
 		s := fetch(t)
 		if w := s.Windows[0]; !w.Monitored || w.MonitoredChange != "from-fab" {
 			t.Errorf("window = %+v, want monitored via fab's item", w)
+		}
+	})
+}
+
+// seedLoop seeds server's operator-loop cron entry (created at created) under
+// the current XDG_STATE_HOME and, when fires is non-empty, appends one
+// `no change` delivery line per unix timestamp. Returns the entry id.
+func seedLoop(t *testing.T, server string, created time.Time, fires ...int64) string {
+	t.Helper()
+	dir, err := cron.DefaultDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cron.EnsureDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cron.SeedOperatorLoop(dir, server, created); err != nil {
+		t.Fatal(err)
+	}
+	entriesPath, err := cron.EntriesPath(dir, server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := cron.LoadEntries(entriesPath)
+	if len(entries) != 1 {
+		t.Fatalf("seeded entries = %+v, want one loop entry", entries)
+	}
+	logPath, err := cron.LogPath(dir, server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ts := range fires {
+		if err := cron.AppendLog(logPath, cron.LogLine{TS: ts, Entry: entries[0].ID, Outcome: cron.OutcomeNoChange}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return entries[0].ID
+}
+
+// TestOperatorLoopLiveness pins the loop watchdog: staleness is measured from
+// the loop's next due fire (so an idle top-rung backoff is healthy), a mute
+// silences it, and a server with no loop entry reports ok=false.
+func TestOperatorLoopLiveness(t *testing.T) {
+	const server = "runKit"
+	now := time.Now()
+
+	t.Run("no loop entry", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		if _, _, ok := operatorLoopLiveness(server, now); ok {
+			t.Error("ok = true with no cron file, want false")
+		}
+	})
+
+	t.Run("recent fire is healthy", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		fired := now.Add(-2 * time.Minute).Unix()
+		seedLoop(t, server, now.Add(-time.Hour), fired)
+		last, stale, ok := operatorLoopLiveness(server, now)
+		if !ok || stale || last != fired {
+			t.Errorf("= (%d, %v, %v), want (%d, false, true)", last, stale, ok, fired)
+		}
+	})
+
+	t.Run("idle at the top rung longer than the threshold is healthy", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		// Five consecutive no-change fires put the ladder at its 24m max; the
+		// last fire is 20m old — past the 15m threshold, not yet due.
+		base := now.Add(-2 * time.Hour)
+		fires := []int64{base.Unix(), base.Add(time.Minute).Unix(), base.Add(2 * time.Minute).Unix(), base.Add(3 * time.Minute).Unix(), now.Add(-20 * time.Minute).Unix()}
+		seedLoop(t, server, base.Add(-time.Minute), fires...)
+		if _, stale, ok := operatorLoopLiveness(server, now); !ok || stale {
+			t.Errorf("stale = %v ok = %v, want a healthy idle loop", stale, ok)
+		}
+	})
+
+	t.Run("an overdue fire is stale", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		seedLoop(t, server, now.Add(-3*time.Hour), now.Add(-2*time.Hour).Unix())
+		if _, stale, ok := operatorLoopLiveness(server, now); !ok || !stale {
+			t.Errorf("stale = %v ok = %v, want stale", stale, ok)
+		}
+	})
+
+	t.Run("a muted loop is never stale", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		id := seedLoop(t, server, now.Add(-3*time.Hour), now.Add(-2*time.Hour).Unix())
+		dir, err := cron.DefaultDir()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := cron.SetMuted(dir, server, id, true); err != nil {
+			t.Fatal(err)
+		}
+		if _, stale, ok := operatorLoopLiveness(server, now); !ok || stale {
+			t.Errorf("stale = %v ok = %v, want a muted loop reported but not stale", stale, ok)
 		}
 	})
 }

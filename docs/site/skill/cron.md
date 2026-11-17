@@ -12,7 +12,7 @@ command -v rk >/dev/null 2>&1 || exit 0
 
 An entry is **a prompt plus a schedule**, stored in the resolved server's intent file (`$XDG_STATE_HOME/hexokit/cron/<server>.yaml`). This is not a system cron: **nothing is ever executed**. At fire time rk types the prompt into the target agent's chat through the injection engine and presses Enter, exactly as if a person had typed it — to run a command, ask the agent to run it in the prompt text. A daemon ticker evaluates the entries; an occurrence the daemon was down for is logged `missed`, never fired late — except a `--cron` entry with `--catch-up once`, which fires once late after a gap.
 
-Reach for it for **periodic checks** ("check on PR #123 every 30 minutes"), **idle nudges** ("if the build session has been quiet for 5m, ask it for a status"), **wall-clock reminders** ("remind me at 9am"), and wake-on-state work — the operator tick (the typed operator entry fab seeds on a tmux server; on a server with rk's operator state file, rk's own `operator loop` entry replaces it and the typed one is muted) fires on a backoff, so the operator reviews when agents finish instead of polling. The `operator loop` entry has no target or prompt — it runs a check and, only on a change, a one-shot run — and appears in `rk cron list` with target `operator loop`; tune it with `rk cron edit`/`mute`, but `rk cron add` cannot create it.
+Reach for it for **periodic checks** ("check on PR #123 every 30 minutes"), **idle nudges** ("if the build session has been quiet for 5m, ask it for a status"), **wall-clock reminders** ("remind me at 9am"), and wake-on-state work — a backoff ladder plus `--wake-on agent-state-change` reviews when agents finish instead of polling. The operator's clock is the daemon-seeded `operator loop` entry (on a server with rk's operator state file; it mutes any older typed `operator tick` entry). It has no target or prompt — it runs a check and, only on a change, a one-shot run — and appears in `rk cron list` with target `operator loop`; tune it with `rk cron edit`/`mute`, but `rk cron add` cannot create it.
 
 ## `rk cron add` — one prompt, one schedule
 
@@ -21,7 +21,7 @@ rk cron add "check PRs" --every 1h
 rk cron add "wake up" --idle-every 3m
 rk cron add "tick" --backoff --min 2m --max 30m
 rk cron add "standup" --cron "0 9 * * *" --catch-up once
-rk cron add "operator tick" --backoff --min 3m --max 24m --wake-on agent-state-change --deliver skip-if-busy --role operator --if-absent respawn --respawn rk --respawn operator --respawn -L --respawn '{server}' --pinned
+rk cron add "anything waiting on me? one line" --backoff --min 3m --max 24m --wake-on agent-state-change --deliver skip-if-busy --session 4fe2abc-1c3b-4f7e-9a2d-8b5c4e1f0a37 --if-absent respawn
 ```
 
 Exactly one schedule flag per entry:
@@ -82,8 +82,8 @@ rk cron add "post a status line on where you are" --idle-every 5m --session 4fe2
 # A 9am wall-clock reminder, catching up once if the daemon was down:
 rk cron add "morning standup soon — summarize what I have open" --cron "0 9 * * *" --catch-up once --role operator
 
-# Mute the operator tick for 2h (the lease lapses on its own):
-rk cron mute "$(rk cron list --json | jq -r '.result[] | select(.name == "operator tick") | .id')" --for 2h
+# Mute the operator loop for 2h (the lease lapses on its own):
+rk cron mute "$(rk cron list --json | jq -r '.result[] | select(.name == "operator loop") | .id')" --for 2h
 
 # Move an entry to a new cadence:
 rk cron edit a3f9 --every 2h

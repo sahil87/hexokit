@@ -749,9 +749,9 @@ is the nineteenth surface measured against the same checks
 - **help-dump: platform-stable registration.** `operatorCmd` is registered
   unconditionally on `rootCmd` (`root.go`'s `init()`) and carries a `Long:`
   block (with `Examples`, a `Prerequisites` list, and an `Exit codes` list), so
-  the cobra tree walk picks it up with no help-dump code change; the two hard
-  preconditions (inside tmux, fab on PATH) are operational exit 1s at run time,
-  not registration conditions.
+  the cobra tree walk picks it up with no help-dump code change; the hard
+  precondition (inside tmux, unless `-L`) is an operational exit 1 at run
+  time, not a registration condition.
 - **Principle 9: the outcome line is data; there is no chatter.** Success
   prints exactly one stdout line via `cmd.OutOrStdout()` — `Switched to
   existing operator tab.` or `Opened operator tab (window "operator").` —

@@ -21,9 +21,9 @@ import (
 // tmux.ClearWindowRoleExcept helper — the same enforcement the window-options
 // POST handler applies; never trusted to clients).
 //
-// The primary consumer is an agent marking itself (the fab-kit /fab-operator
-// skill's fail-silent `rk role operator` self-mark, fab-kit backlog [swun]) —
-// the fail-silent contract belongs to the CALLER, so this command hard-errors
+// The primary consumer is an agent marking itself (an operator chat skill's
+// fail-silent `rk role operator` self-mark) — the fail-silent contract
+// belongs to the CALLER, so this command hard-errors
 // outside tmux — and equally when $TMUX yields no socket to target: an
 // explicitly typed command that no-ops silently, or writes to a guessed server,
 // would be confusing (unlike `rk agent hook`, which harness hooks invoke

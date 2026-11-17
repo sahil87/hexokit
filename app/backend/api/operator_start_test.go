@@ -408,7 +408,7 @@ func TestRunOperatorStartExec(t *testing.T) {
 
 	t.Run("onExit fires after the exit with the receipt and full stderr", func(t *testing.T) {
 		dir := t.TempDir()
-		testutil.WriteStub(t, dir, "rk", "#!/bin/sh\nprintf '%s\n' '{' '  \"ok\": true,' '  \"result\": { \"window\": \"@7\", \"server\": \"default\", \"created\": true, \"dir\": \"/home/u/proj\", \"dir_rung\": \"stored\" }' '}'\necho 'kickoff: undelivered reason=parked prompt=\"/fab-operator\" dir=\"/home/u/proj\"' >&2\nexit 0\n")
+		testutil.WriteStub(t, dir, "rk", "#!/bin/sh\nprintf '%s\n' '{' '  \"ok\": true,' '  \"result\": { \"window\": \"@7\", \"server\": \"default\", \"created\": true, \"dir\": \"/home/u/proj\", \"dir_rung\": \"stored\" }' '}'\necho 'kickoff: undelivered reason=parked prompt=\"/operator\" dir=\"/home/u/proj\"' >&2\nexit 0\n")
 		type exitCall struct {
 			receipt operatorStartReceipt
 			stderr  string
@@ -443,10 +443,10 @@ func TestRunOperatorStartExec(t *testing.T) {
 
 func TestParseKickoffNote(t *testing.T) {
 	for _, reason := range []string{"parked", "narrow", "gone", "timeout", "send-error"} {
-		line := "kickoff: undelivered reason=" + reason + " prompt=\"/fab-operator\" dir=\"/home/u/proj\"\n"
+		line := "kickoff: undelivered reason=" + reason + " prompt=\"/operator\" dir=\"/home/u/proj\"\n"
 		t.Run("reason "+reason, func(t *testing.T) {
 			gotReason, gotPrompt, gotDir, ok := parseKickoffNote(line)
-			if !ok || gotReason != reason || gotPrompt != "/fab-operator" || gotDir != "/home/u/proj" {
+			if !ok || gotReason != reason || gotPrompt != "/operator" || gotDir != "/home/u/proj" {
 				t.Errorf("parseKickoffNote(%q) = %q, %q, %q, %v", line, gotReason, gotPrompt, gotDir, ok)
 			}
 		})
@@ -462,17 +462,17 @@ func TestParseKickoffNote(t *testing.T) {
 	}{
 		{
 			name:       "extra fields after dir are tolerated",
-			stderr:     "kickoff: undelivered reason=parked prompt=\"/fab-operator\" dir=\"/home/u/proj\" extra=1\n",
+			stderr:     "kickoff: undelivered reason=parked prompt=\"/operator\" dir=\"/home/u/proj\" extra=1\n",
 			wantReason: "parked",
-			wantPrompt: "/fab-operator",
+			wantPrompt: "/operator",
 			wantDir:    "/home/u/proj",
 			wantOK:     true,
 		},
 		{
 			name:       "a prompt with spaces keeps dir intact",
-			stderr:     "kickoff: undelivered reason=narrow prompt=\"run /fab-operator now\" dir=\"/home/u/proj\"\n",
+			stderr:     "kickoff: undelivered reason=narrow prompt=\"run /operator now\" dir=\"/home/u/proj\"\n",
 			wantReason: "narrow",
-			wantPrompt: "run /fab-operator now",
+			wantPrompt: "run /operator now",
 			wantDir:    "/home/u/proj",
 			wantOK:     true,
 		},
@@ -481,36 +481,36 @@ func TestParseKickoffNote(t *testing.T) {
 			// inside the path safe — the two cases a space-delimited cut got
 			// wrong.
 			name:       "a dir with spaces and an embedded dir= survives whole",
-			stderr:     "kickoff: undelivered reason=parked prompt=\"/fab-operator\" dir=\"/home/u/my project dir=x/repo\"\n",
+			stderr:     "kickoff: undelivered reason=parked prompt=\"/operator\" dir=\"/home/u/my project dir=x/repo\"\n",
 			wantReason: "parked",
-			wantPrompt: "/fab-operator",
+			wantPrompt: "/operator",
 			wantDir:    "/home/u/my project dir=x/repo",
 			wantOK:     true,
 		},
 		{
 			name:       "a provider-rendered prompt is carried verbatim",
-			stderr:     "kickoff: undelivered reason=timeout prompt=\"$fab-operator\" dir=\"/home/u/proj\"\n",
+			stderr:     "kickoff: undelivered reason=timeout prompt=\"$operator\" dir=\"/home/u/proj\"\n",
 			wantReason: "timeout",
-			wantPrompt: "$fab-operator",
+			wantPrompt: "$operator",
 			wantDir:    "/home/u/proj",
 			wantOK:     true,
 		},
 		{
 			name:       "the note buried in multi-line stderr",
-			stderr:     "spawning agent\nkickoff: undelivered reason=gone prompt=\"/fab-operator\" dir=\"/home/u/proj\"\nall done\n",
+			stderr:     "spawning agent\nkickoff: undelivered reason=gone prompt=\"/operator\" dir=\"/home/u/proj\"\nall done\n",
 			wantReason: "gone",
-			wantPrompt: "/fab-operator",
+			wantPrompt: "/operator",
 			wantDir:    "/home/u/proj",
 			wantOK:     true,
 		},
 		{name: "no note", stderr: "agent up\nexit clean\n", wantOK: false},
 		{name: "empty stderr", stderr: "", wantOK: false},
 		{name: "missing prompt field", stderr: "kickoff: undelivered reason=parked dir=\"/home/u/proj\"\n", wantOK: false},
-		{name: "missing dir field", stderr: "kickoff: undelivered reason=parked prompt=\"/fab-operator\"\n", wantOK: false},
-		{name: "empty dir", stderr: "kickoff: undelivered reason=parked prompt=\"/fab-operator\" dir=\"\"\n", wantOK: false},
-		{name: "unquoted legacy fields", stderr: "kickoff: undelivered reason=parked prompt=/fab-operator dir=/home/u/proj\n", wantOK: false},
-		{name: "unterminated quote", stderr: "kickoff: undelivered reason=parked prompt=\"/fab-operator dir=\"/home/u/proj\"\n", wantOK: false},
-		{name: "empty reason", stderr: "kickoff: undelivered reason= prompt=\"/fab-operator\" dir=\"/home/u/proj\"\n", wantOK: false},
+		{name: "missing dir field", stderr: "kickoff: undelivered reason=parked prompt=\"/operator\"\n", wantOK: false},
+		{name: "empty dir", stderr: "kickoff: undelivered reason=parked prompt=\"/operator\" dir=\"\"\n", wantOK: false},
+		{name: "unquoted legacy fields", stderr: "kickoff: undelivered reason=parked prompt=/operator dir=/home/u/proj\n", wantOK: false},
+		{name: "unterminated quote", stderr: "kickoff: undelivered reason=parked prompt=\"/operator dir=\"/home/u/proj\"\n", wantOK: false},
+		{name: "empty reason", stderr: "kickoff: undelivered reason= prompt=\"/operator\" dir=\"/home/u/proj\"\n", wantOK: false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -621,7 +621,7 @@ func TestOperatorKickoffExit(t *testing.T) {
 
 		s.operatorKickoffExit("default")(
 			operatorStartReceipt{Window: "@7", Server: "default", Created: true, Dir: "/home/u/proj"},
-			"agent up\nkickoff: undelivered reason=parked prompt=\"$fab-operator\" dir=\"/home/u/proj\"\n",
+			"agent up\nkickoff: undelivered reason=parked prompt=\"$operator\" dir=\"/home/u/proj\"\n",
 			nil,
 		)
 
@@ -649,13 +649,13 @@ func TestOperatorKickoffExit(t *testing.T) {
 			t.Errorf("title = %q", got[0].Title)
 		}
 		// The body names the provider-rendered prompt from the note (a codex
-		// operator's `$fab-operator`), never a hardcoded slash form.
-		for _, want := range []string{"default", "/home/u/proj", "parked", "$fab-operator"} {
+		// operator's `$operator`), never a hardcoded slash form.
+		for _, want := range []string{"default", "/home/u/proj", "parked", "$operator"} {
 			if !strings.Contains(got[0].Body, want) {
 				t.Errorf("body = %q, want it to carry %q", got[0].Body, want)
 			}
 		}
-		if strings.Contains(got[0].Body, "/fab-operator") {
+		if strings.Contains(got[0].Body, "/operator") {
 			t.Errorf("body = %q, must not hardcode the slash-form kickoff", got[0].Body)
 		}
 		if got[0].URL != "/default/7" {

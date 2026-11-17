@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -22,29 +21,30 @@ import (
 
 // rk operator — open (or switch to) the server's operator: a per-tmux-server
 // singleton window named 'operator' running the operator-tier launcher BARE,
-// with the /fab-operator kickoff TYPED into the booted agent. The launcher and
-// the provider's skill-invocation prefix are resolved by fab (`fab agent
-// operator -o yaml`) — rk never parses fab config (constitution §III) — and the
-// kickoff (rendered through riff.RenderSkillRef with the resolved prefix, so a
-// codex operator gets `$fab-operator`) is typed, never a positional argument,
+// with the operator kickoff TYPED into the booted agent. The launcher and the
+// provider's skill-invocation prefix are resolved by fab when it is installed
+// (`fab agent operator -o yaml`) — rk never parses fab config (constitution
+// §III) — and degrade to the default launcher when it is not. The kickoff is
+// the rk-placed /operator skill (rendered through riff.RenderSkillRef with the
+// resolved prefix, so a codex operator gets `$operator`) when the copy the
+// agent's harness reads is rk-owned, else the plain instruction to load `rk
+// skill operator` (operatorKickoff). It is typed, never a positional argument,
 // because the launcher string is provider-opaque: only claude's CLI accepts a
 // positional prompt (the tutorial.go rationale). Creation is atomic with the
 // role mark: the new window is immediately stamped @rk_win_role=operator via
 // the full rk role write-path (stampOperatorRole), so no window can exist
 // unmarked.
 //
-// Both preconditions are HARD (exit 1): fab on PATH always; inside tmux unless
-// -L/--server names the server explicitly (the daemon-invocable form: no $TMUX,
-// every tmux call addressed with -L <name>, and a singleton hit reported
-// without any switch-client — there is no client to switch). The window's
+// The one precondition is HARD (exit 1): inside tmux unless -L/--server names
+// the server explicitly (the daemon-invocable form: no $TMUX, every tmux call
+// addressed with -L <name>, and a singleton hit reported without any
+// switch-client — there is no client to switch). The window's
 // directory is deterministic: an explicit --dir wins in both modes; server
 // mode without --dir reuses the server's last operator launch directory
 // (@rk_srv_operator_root, stamped on every successful create) and falls back
 // to $HOME when none is recorded or the recorded directory is gone; the
-// interactive path keeps the git-root-of-cwd rule. Unlike tutorial's fail-open
-// posture there is no default-launcher degrade for a missing fab — an operator
-// without fab-kit is meaningless (the /fab-operator skill would not exist). No
-// tmux subprocess runs before both pass.
+// interactive path keeps the git-root-of-cwd rule. No tmux subprocess runs
+// before the precondition passes.
 //
 // The singleton probe is server-WIDE (unlike tutorial's session scope):
 // `list-windows -a` on the current server, matching @rk_win_role=operator first
@@ -58,10 +58,14 @@ import (
 // buffer; the typed text never passes through a shell.
 
 const (
-	// operatorKickoffPrompt is the canonical kickoff typed into the operator
-	// agent after it boots — slash form; riff.RenderSkillRef translates it for
-	// the resolved provider before delivery.
-	operatorKickoffPrompt = "/fab-operator"
+	// operatorKickoffPrompt is the kickoff typed into the operator agent after
+	// it boots when the rk-placed /operator skill is there — slash form;
+	// riff.RenderSkillRef translates it for the resolved provider before
+	// delivery.
+	operatorKickoffPrompt = "/" + operatorSkillName
+	// operatorKickoffFallback is typed instead when that skill is absent or
+	// not rk-owned: the instruction the placed skill itself carries.
+	operatorKickoffFallback = "Run `rk skill operator` and follow its output as your operator skill for this session."
 	// operatorWindowName is the created window's name and the exact-name
 	// singleton fallback — no prefix/substring.
 	operatorWindowName = "operator"
@@ -131,20 +135,22 @@ var operatorCmd = &cobra.Command{
 	Use:   "operator [--workers <provider>] [-L <server>] [--dir <path>]",
 	Short: "Open the operator — the server-wide orchestrator agent tab (singleton)",
 	Long: `Open (or switch to) the run-kit operator: a per-tmux-server singleton
-window named 'operator' running the fab operator-tier agent, role-marked so
-the dashboard pins it as the server's orchestrator.
+window named 'operator' running the operator-tier agent, role-marked so the
+dashboard pins it as the server's orchestrator.
 
 The operator is SERVER-wide: re-running from any session on the same tmux
 server switches to the existing operator window instead of opening a
 duplicate. A window carrying the @rk_win_role=operator marker wins over one
 merely named 'operator'.
 
-The agent launcher is resolved via 'fab agent operator -o yaml'; when
-resolution fails, the plain default launcher is used. Once the agent has
-booted, the kickoff (/fab-operator, re-prefixed for the resolved provider) is
-typed into it and submitted — never passed as a positional argument, so any
-provider's CLI works. If that delivery cannot be verified, the command says
-exactly what to paste instead. A newly
+The agent launcher is resolved via 'fab agent operator -o yaml' when fab is
+installed; without fab, or when resolution fails, the plain default launcher is
+used. Once the agent has booted, the kickoff is typed into it and submitted —
+never passed as a positional argument, so any provider's CLI works. The kickoff
+is /operator (re-prefixed for the resolved provider) when 'rk agent setup' has
+placed the operator skill the agent's harness reads, else an instruction to
+run 'rk skill operator' and follow it. If that delivery cannot be verified, the
+command says exactly what to paste instead. A newly
 created window is marked @rk_win_role=operator and promoted into the server's
 operator session atomically — the same end state 'rk role operator' produces.
 The pane drops to an interactive shell when the agent exits.
@@ -172,11 +178,8 @@ To hand the operator a templated work item (fix-tab-name, brief-me,
 spawn-task, …) from the shell, use 'rk operator request' — see
 'rk operator request --help'.
 
-Prerequisites (both hard — the command refuses without either):
+Prerequisite (hard — the command refuses without it):
   - You must be inside a tmux session ($TMUX set), unless -L/--server is given.
-  - fab must be on PATH. The operator is meaningless without fab-kit — the
-    companion toolkit that provides the /fab-operator skill and the agent
-    profiles — so there is no degraded fallback when it is missing.
 
 Examples:
   run-kit operator                  # open (or return to) the server operator
@@ -185,7 +188,7 @@ Examples:
 
 Exit codes:
   0  success (including a window opened with an undeliverable kickoff)
-  1  precondition failure ($TMUX unset without -L, fab not on PATH)
+  1  precondition failure ($TMUX unset without -L)
   2  usage error (invalid --workers or --dir value)
   3  subprocess failure (tmux non-zero exit, timeout)`,
 	Args: cobra.NoArgs,
@@ -221,7 +224,6 @@ type operatorRunOutputFunc func(ctx context.Context, args, env []string) ([]byte
 
 var (
 	operatorOriginalTMUXFn = func() string { return tmux.OriginalTMUX }
-	operatorLookPathFn     = func(file string) (string, error) { return exec.LookPath(file) }
 	operatorRunFn          = operatorRunFunc(func(ctx context.Context, args, env []string) error {
 		return tmux.Run(ctx, args, tmux.RunOpts{Env: env})
 	})
@@ -273,10 +275,10 @@ func runOperatorWithExitCode(cmd *cobra.Command, _ []string) error {
 	return err
 }
 
-// runOperator is the testable core: --workers validation → hard preconditions
-// (fab on PATH always; $TMUX unless -L/--server names the server) →
+// runOperator is the testable core: --workers validation → hard precondition
+// ($TMUX unless -L/--server names the server) →
 // server-wide singleton probe → create-and-mark → typed kickoff delivery. No
-// subprocess runs before the preconditions pass.
+// subprocess runs before the precondition passes.
 func runOperator(cmd *cobra.Command) error {
 	// The charset gate is pure validation — it runs before ANY subprocess, so a
 	// rejected value never reaches a shell string (constitution §I). An empty
@@ -301,9 +303,6 @@ func runOperator(cmd *cobra.Command) error {
 	originalTMUX := operatorOriginalTMUXFn()
 	if !serverMode && originalTMUX == "" {
 		return &riff.ExitCodeError{Code: riff.ExitPrecondition, Msg: "run-kit operator: not inside a tmux session ($TMUX unset) — open the run-kit dashboard, create a session/window for this directory, then run `rk operator` inside it (or pass -L <server> to address a server by name)"}
-	}
-	if _, err := operatorLookPathFn("fab"); err != nil {
-		return &riff.ExitCodeError{Code: riff.ExitPrecondition, Msg: "run-kit operator: fab not found on PATH — the operator requires fab-kit (the companion toolkit that provides the /fab-operator skill and agent profiles); install it first"}
 	}
 
 	// The server label keys the kickoff delivery's tmux addressing and the
@@ -409,9 +408,9 @@ func runOperator(cmd *cobra.Command) error {
 		}
 	}
 
-	// Agent resolution never errors — any failure (non-zero, timeout,
-	// malformed output) degrades silently to the default launcher with the
-	// claude-syntax prefix.
+	// Agent resolution never errors — any failure (fab absent, non-zero,
+	// timeout, malformed output) degrades silently to the default launcher
+	// with the claude-syntax prefix.
 	agent := operatorResolveAgentFn(ctx, root, operatorTier)
 	// Bare launcher (empty prompt): the kickoff is typed after boot, below.
 	shellCmd := operatorShellCommand(agent.Launcher, operatorWorkersFlag)
@@ -467,9 +466,7 @@ func runOperator(cmd *cobra.Command) error {
 		fmt.Fprintf(cmd.OutOrStdout(), "Opened operator tab (window %q).\n", operatorWindowName)
 	}
 
-	// The kickoff rides the provider's invocation syntax — a codex operator
-	// gets `$fab-operator`, claude gets the canonical `/fab-operator`.
-	kickoff := riff.RenderSkillRef(agent.SkillPrefix, operatorKickoffPrompt)
+	kickoff := operatorKickoff(agent)
 
 	// Typed-kickoff delivery is best-effort: the window and its agent exist
 	// either way, so a delivery miss degrades to telling the user exactly what
@@ -494,6 +491,24 @@ func runOperator(cmd *cobra.Command) error {
 		fmt.Fprintf(cmd.ErrOrStderr(), "kickoff: undelivered reason=%s prompt=%q dir=%q\n", kickoffReason(deliverErr), kickoff, windowDir)
 	}
 	return nil
+}
+
+// operatorKickoff picks the text typed into the booted operator agent. When
+// the operator skill copy the agent's harness reads is rk-owned (the claude
+// copy for a claude launcher, the harness-neutral ~/.agents copy otherwise),
+// it is the /operator invocation in the provider's syntax — a codex operator
+// gets `$operator`. Otherwise (never set up, a user's own `operator` skill at
+// that path, or no home directory) it is operatorKickoffFallback, which loads
+// the same chat skill without the placed file.
+func operatorKickoff(agent riff.ResolvedAgent) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return operatorKickoffFallback
+	}
+	if !operatorSkillOwned(operatorSkillPath(home, riff.LauncherCommandName(agent.Launcher) == "claude")) {
+		return operatorKickoffFallback
+	}
+	return riff.RenderSkillRef(agent.SkillPrefix, operatorKickoffPrompt)
 }
 
 // operatorServerPrefix addresses tmux calls at a named server: bare for

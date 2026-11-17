@@ -64,7 +64,7 @@ func TestRespawnDetail(t *testing.T) {
 // yields the bare "respawned". The outcome keeps the "respawned" prefix that
 // resolvedOutcome (orphan GC) and countsTowardRate classify respawns on.
 func TestRespawnSuccessOutcome(t *testing.T) {
-	withKickoff := []byte("spawning agent\nkickoff: undelivered reason=parked prompt=\"/fab-operator\" dir=\"/home/u\"\ndone\n")
+	withKickoff := []byte("spawning agent\nkickoff: undelivered reason=parked prompt=\"/operator\" dir=\"/home/u\"\ndone\n")
 	got := respawnSuccessOutcome(withKickoff)
 	if want := "respawned (kickoff undelivered: parked)"; got != want {
 		t.Errorf("kickoff line: got %q, want %q", got, want)
@@ -96,7 +96,7 @@ func TestTickRespawnKickoffUndelivered(t *testing.T) {
 	dir := t.TempDir()
 	T := backoffBase
 	fk := absentRoleRespawnRig(t, dir, T)
-	rr := &fakeRunRespawn{output: []byte("agent up\nkickoff: undelivered reason=parked prompt=\"/fab-operator\" dir=\"/home/u\"\n")}
+	rr := &fakeRunRespawn{output: []byte("agent up\nkickoff: undelivered reason=parked prompt=\"/operator\" dir=\"/home/u\"\n")}
 
 	tickOnceR(t, dir, T, fk, (&fakeNotifier{}).notify, rr.run)
 	if len(rr.argvs) != 1 {

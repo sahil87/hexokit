@@ -17,7 +17,7 @@ export type TrackedRow =
   | { kind: "item"; item: OperatorTrackedItem; done: boolean };
 
 /** One watched row per non-ghost window with `monitored === true` (the pane
- *  join of the fab operator state file's tracked list, done items excluded),
+ *  join of the operator state file's tracked list, done items excluded),
  *  ordered by session order then window index. The Server page WATCHED zone's
  *  workers view renders through it; the quake terminal's Operator Tasks segment
  *  renders through `collectTrackedRows` and reaches for this only as its

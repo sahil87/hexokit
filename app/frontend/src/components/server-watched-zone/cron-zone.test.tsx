@@ -115,7 +115,7 @@ describe("CronZone", () => {
   it("mounts the staleness banner above the list when a session reports operatorStale", () => {
     renderZone([makeSession({ operatorStale: true, operatorLastTickAt: NOW - 1200 })]);
     const banner = screen.getByTestId("cron-activity-banner");
-    expect(banner).toHaveTextContent("operator tick — last seen 20m ago");
+    expect(banner).toHaveTextContent("operator loop — last check 20m ago");
     const list = screen.getByTestId("cron-list");
     expect(banner.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
