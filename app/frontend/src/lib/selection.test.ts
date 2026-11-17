@@ -5,6 +5,7 @@ import {
   rangeBetween,
   singleSelectedServer,
   pruneSelection,
+  openTabSeed,
 } from "./selection";
 
 // The pure logic behind the sidebar window-row multi-select. Covering the range
@@ -97,5 +98,29 @@ describe("pruneSelection", () => {
   it("drops everything when no rows are live", () => {
     const next = pruneSelection(new Set(["s:@1", "s:@2"]), new Set());
     expect(next.size).toBe(0);
+  });
+});
+
+describe("openTabSeed", () => {
+  const live = new Set(["s:@1", "s:@2"]);
+
+  it("seeds the open tab when the selection is empty and the target is another row", () => {
+    expect(openTabSeed(0, "s:@1", "s:@2", live)).toBe("seed");
+  });
+
+  it("is a no-op when the target is the open tab itself", () => {
+    expect(openTabSeed(0, "s:@1", "s:@1", live)).toBe("noop");
+  });
+
+  it("does not seed once a selection is live", () => {
+    expect(openTabSeed(2, "s:@1", "s:@2", live)).toBe("none");
+  });
+
+  it("does not seed without an open tab", () => {
+    expect(openTabSeed(0, null, "s:@2", live)).toBe("none");
+  });
+
+  it("does not seed an open tab the tree does not know (ghost / unrendered)", () => {
+    expect(openTabSeed(0, "s:@9", "s:@2", live)).toBe("none");
   });
 });

@@ -105,11 +105,16 @@ type WindowRowProps = {
     windowId: string,
     mods: { meta: boolean; ctrl: boolean; shift: boolean },
   ) => boolean;
-  /** True when this row is in the sidebar's bulk selection (260807-nf9f) —
-   *  drives `aria-selected` on the treeitem plus the visible selected treatment.
-   *  Independent of `isSelected`, which is the URL-derived single-window
-   *  navigation selection (`aria-current="page"`). */
+  /** True when this row is in the sidebar's bulk selection — drives
+   *  `aria-selected` on the treeitem, and the selected treatment while
+   *  `selectionActive`. Independent of `isSelected`, which is the URL-derived
+   *  single-window navigation selection (`aria-current="page"`). */
   isBulkSelected?: boolean;
+  /** True while the bulk selection is non-empty. The selected treatment then
+   *  follows set membership instead of the URL selection, so single and multi
+   *  select paint identically. A boolean (never the set) so rows re-render only
+   *  when the selection becomes empty or non-empty. */
+  selectionActive?: boolean;
   onStartEditing: (server: string, session: string, windowId: string, currentName: string) => void;
   onWindowNameChange: (value: string) => void;
   onRenameKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
@@ -239,6 +244,7 @@ function WindowRowInner({
   onSelectWindow,
   onRowClick,
   isBulkSelected = false,
+  selectionActive = false,
   onStartEditing,
   onWindowNameChange,
   onRenameKeyDown,
@@ -470,6 +476,8 @@ function WindowRowInner({
     };
   }, [server, win.windowId, markerWired, padOpen]);
 
+  const highlighted = selectionActive ? isBulkSelected : isSelected;
+
   const tint = useMemo(() => {
     if (color == null || !rowTints) return null;
     return rowTints.get(color) ?? null;
@@ -477,9 +485,9 @@ function WindowRowInner({
 
   // Uncolored rows borrow the gray tint only in the selected state.
   const uncoloredSelectedTint = useMemo(() => {
-    if (color != null || !rowTints || !isSelected) return null;
+    if (color != null || !rowTints || !highlighted) return null;
     return rowTints.get(UNCOLORED_SELECTED_KEY) ?? null;
-  }, [color, rowTints, isSelected]);
+  }, [color, rowTints, highlighted]);
 
   const parsedMarker = useMemo(() => parseMarker(marker), [marker]);
   const displayMarker = markerPreview !== undefined ? markerPreview : parsedMarker;
@@ -661,12 +669,12 @@ function WindowRowInner({
   const buttonStyle = useMemo(() => {
     const style: React.CSSProperties = {};
     if (tint) {
-      style.backgroundColor = isSelected ? tint.selected : flyout.open ? tint.hover : tint.base;
+      style.backgroundColor = highlighted ? tint.selected : flyout.open ? tint.hover : tint.base;
     } else if (uncoloredSelectedTint) {
       style.backgroundColor = uncoloredSelectedTint.selected;
     }
     return Object.keys(style).length > 0 ? style : undefined;
-  }, [tint, uncoloredSelectedTint, isSelected, flyout.open]);
+  }, [tint, uncoloredSelectedTint, highlighted, flyout.open]);
 
   // The row box starts at the physical sidebar edge. Each pointer class keeps
   // an 8px gap between its marker well and the status dot.
@@ -685,7 +693,7 @@ function WindowRowInner({
     // MARKER_WELL_WIDTH_COARSE + 8; Tailwind scans literal classes only. The
     // 8px gap holds the status dot's waiting halo clear of the marker track.
     const base = `w-full text-left flex items-center justify-between gap-2 py-px pl-[30px] coarse:pl-[44px] ${rightPad}${coarsePad} text-xs transition-colors min-h-[24px] coarse:min-h-[36px]`;
-    if (isSelected) {
+    if (highlighted) {
       // Selection = deeper tint (tint.selected / gray sentinel via buttonStyle)
       // + bold + brightened text. No border (removed in the axis split).
       return `${base} text-text-primary font-medium`;
@@ -698,7 +706,7 @@ function WindowRowInner({
     return `${base} text-text-secondary hover:text-text-primary${
       flyout.open ? " text-text-primary bg-bg-chrome-raised" : ""
     }`;
-  }, [tint, isSelected, showPinIcon, poppedOut, coarse, ghost, flyout.open]);
+  }, [tint, highlighted, showPinIcon, poppedOut, coarse, ghost, flyout.open]);
 
   // Rail background: the bg-inset band by default (a class); a SELECTED row
   // deepens it by mixing the row's own selected tint (tint.selected, or the
@@ -712,14 +720,14 @@ function WindowRowInner({
     if (flyout.open) {
       return {
         backgroundColor: railHeldBand(
-          isSelected && selected ? selected : (tint?.hover ?? "var(--color-bg-card)"),
+          highlighted && selected ? selected : (tint?.hover ?? "var(--color-bg-card)"),
         ),
         borderColor: RAIL_HELD_SEAM,
       };
     }
-    if (isSelected && selected) return { backgroundColor: railRestBand(selected) };
+    if (highlighted && selected) return { backgroundColor: railRestBand(selected) };
     return undefined;
-  }, [coarse, ghost, isSelected, tint, uncoloredSelectedTint, flyout.open]);
+  }, [coarse, ghost, highlighted, tint, uncoloredSelectedTint, flyout.open]);
 
   const isBlocked = displayMarker?.mode === "blocked";
 
@@ -795,18 +803,7 @@ function WindowRowInner({
         ...(isBlocked
           ? ({ "--rk-marker-color": MARKER_INK } as React.CSSProperties)
           : {}),
-        // Bulk-selection treatment (260807-nf9f): a 2px inset accent ring, the
-        // same `box-shadow` idiom the session-row drop target uses — it reads as
-        // "member of a set" without competing with the URL selection's
-        // tint-depth + bold treatment, and costs no layout (no border box
-        // change, so rows never shift when a selection is made).
-        // The transient drag-over indicator WINS while a drag is in flight: it
-        // marks where the drop lands, which is the more urgent signal.
-        ...(isDragOver
-          ? { boxShadow: "0 -2px 0 0 var(--color-accent)" }
-          : isBulkSelected
-            ? { boxShadow: "inset 0 0 0 2px var(--color-accent)" }
-            : {}),
+        ...(isDragOver ? { boxShadow: "0 -2px 0 0 var(--color-accent)" } : {}),
       }}
     >
       {/* Hazard-wedge overlay for blocked-marker rows (in-progress / "work
@@ -953,7 +950,7 @@ function WindowRowInner({
           {win.role === "operator" && (
             <span
               className={`shrink-0 transition-colors ${
-                isSelected
+                highlighted
                   ? "text-text-primary"
                   : "text-text-secondary group-hover:text-text-primary"
               }`}

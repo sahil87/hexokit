@@ -1,0 +1,57 @@
+id: z1ea
+name: 261117-z1ea-unify-sidebar-multiselect-look
+created: 2026-11-17T16:10:06Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 19
+    acceptance_completed: 19
+confidence:
+    certain: 7
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 72.3
+        reversibility: 86.4
+        competence: 83.6
+        disambiguation: 82.3
+stage_metrics:
+    intake: {started_at: "2026-11-17T16:10:06Z", driver: fab-new, iterations: 1, completed_at: "2026-11-17T16:12:01Z"}
+    apply: {started_at: "2026-11-17T16:12:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-17T16:25:11Z"}
+    review: {started_at: "2026-11-17T16:25:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-17T16:32:10Z"}
+    hydrate: {started_at: "2026-11-17T16:32:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-17T16:33:36Z"}
+    ship: {started_at: "2026-11-17T16:33:36Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-17T16:34:30Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1149
+base_branch: main
+true_impact:
+    added: 771
+    deleted: 58
+    net: 713
+    excluding:
+        added: 428
+        deleted: 56
+        net: 372
+    tests:
+        added: 97
+        deleted: 1
+        net: 96
+    computed_at: "2026-11-17T16:34:30Z"
+    computed_at_stage: ship
+summary: Sidebar multi-select shares the single-select treatment (ring removed) and the open tab seeds the selection on the first gesture
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-17T16:34:30Z

@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-17T16:10:06Z"}
+{"args":"Sidebar multi-select: unify bulk-selection look with single select; seed selection from open tab","cmd":"fab-new","event":"command","ts":"2026-11-17T16:10:06Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-11-17T16:11:23Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-17T16:11:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-17T16:12:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-17T16:25:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-11-17T16:32:10Z"}
+{"event":"review","result":"passed","ts":"2026-11-17T16:32:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-11-17T16:33:36Z"}

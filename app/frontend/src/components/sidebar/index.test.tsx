@@ -452,7 +452,7 @@ describe("Sidebar — selection pruning on ServerGroup unmount (260807-nf9f)", (
   });
 
   it("prunes a departed group's keys when the sessions-scope narrows ALL→CURRENT", async () => {
-    renderSidebar({ currentServer: "primary", sessionsByServer: MULTI_SESSIONS });
+    renderSidebar({ currentServer: "primary", sessionsByServer: MULTI_SESSIONS, currentWindowId: null });
 
     // Open alpha's group so its window row paints (non-current groups start
     // collapsed), then Cmd-click that row into the selection.
@@ -474,7 +474,7 @@ describe("Sidebar — selection pruning on ServerGroup unmount (260807-nf9f)", (
   });
 
   it("keeps a surviving group's keys selected across the same unmount", async () => {
-    renderSidebar({ currentServer: "primary", sessionsByServer: MULTI_SESSIONS });
+    renderSidebar({ currentServer: "primary", sessionsByServer: MULTI_SESSIONS, currentWindowId: null });
 
     // Select one row on alpha (departs) and one on primary (survives).
     fireEvent.click(screen.getByRole("button", { name: /Expand alpha groups/ }));
@@ -501,7 +501,7 @@ describe("Sidebar — selection pruning on ServerGroup unmount (260807-nf9f)", (
   });
 
   it("drops the anchor with the departed group so a later shift-click cannot use it", async () => {
-    renderSidebar({ currentServer: "primary", sessionsByServer: MULTI_SESSIONS });
+    renderSidebar({ currentServer: "primary", sessionsByServer: MULTI_SESSIONS, currentWindowId: null });
 
     fireEvent.click(screen.getByRole("button", { name: /Expand alpha groups/ }));
     fireEvent.click(await screen.findByText("feature"), { metaKey: true });
@@ -3696,5 +3696,125 @@ describe("Sidebar — keyboard activation of controls inside tree rows", () => {
     const row = document.querySelector('[data-session-row="primary:main"]') as HTMLElement;
     fireEvent.keyDown(row, { key: "Enter" });
     expect(onSelectWindow).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Sidebar — the open tab seeds the selection", () => {
+  // Single select is a selection of one: the first selection gesture while the
+  // store is empty starts from the open tab (primary:@0 here).
+  const THREE_WINDOWS: ProjectSession[] = [
+    {
+      name: "main",
+      windows: [
+        { index: 0, windowId: "@0", name: "shell", worktreePath: "~/a", activity: "idle", isActiveWindow: true, activityTimestamp: 0 },
+        { index: 1, windowId: "@1", name: "second", worktreePath: "~/a", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
+        { index: 2, windowId: "@2", name: "third", worktreePath: "~/a", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
+      ],
+    },
+  ];
+  const SESSIONS = new Map<string, ProjectSession[]>([
+    ["primary", THREE_WINDOWS],
+    ["alpha", []],
+    ["beta", []],
+  ]);
+
+  function rowButton(windowId: string): HTMLElement {
+    const el = document.querySelector<HTMLElement>(
+      `[role="tree"] [data-row-key="primary:${windowId}"] button`,
+    );
+    expect(el).not.toBeNull();
+    return el!;
+  }
+
+  function selected(): string[] {
+    return [...useSelectionStore.getState().selected].sort();
+  }
+
+  beforeEach(() => {
+    useSelectionStore.setState({ selected: new Set(), anchor: null });
+  });
+
+  afterEach(() => {
+    useSelectionStore.setState({ selected: new Set(), anchor: null });
+  });
+
+  it("Cmd-click on another row selects the open tab too", () => {
+    renderSidebar({ sessionsByServer: SESSIONS });
+
+    fireEvent.click(rowButton("@1"), { metaKey: true });
+
+    expect(selected()).toEqual(["primary:@0", "primary:@1"]);
+    expect(useSelectionStore.getState().anchor).toBe("primary:@1");
+    expect(screen.getByTestId("selection-indicator")).toHaveTextContent("2 selected");
+  });
+
+  it("Shift-click ranges from the open tab and keeps the anchor on it", () => {
+    renderSidebar({ sessionsByServer: SESSIONS });
+
+    fireEvent.click(rowButton("@2"), { shiftKey: true });
+
+    expect(selected()).toEqual(["primary:@0", "primary:@1", "primary:@2"]);
+    expect(useSelectionStore.getState().anchor).toBe("primary:@0");
+  });
+
+  it("Cmd-click on the open tab itself is a consumed no-op", () => {
+    const onSelectWindow = vi.fn();
+    renderSidebar({ sessionsByServer: SESSIONS, onSelectWindow });
+
+    fireEvent.click(rowButton("@0"), { metaKey: true });
+
+    expect(selected()).toEqual([]);
+    expect(onSelectWindow).not.toHaveBeenCalled();
+  });
+
+  it("x on another focused row seeds the open tab", () => {
+    renderSidebar({ sessionsByServer: SESSIONS });
+
+    const tree = screen.getByRole("tree");
+    act(() => { fireEvent.keyDown(tree, { key: "ArrowDown" }); });
+    act(() => { fireEvent.keyDown(tree, { key: "ArrowDown" }); });
+    expect(
+      document.querySelector('[role="tree"] [data-row-key="primary:@1"]'),
+    ).toHaveAttribute("tabindex", "0");
+    act(() => { fireEvent.keyDown(tree, { key: "x" }); });
+
+    expect(selected()).toEqual(["primary:@0", "primary:@1"]);
+  });
+
+  it("does not seed without an open tab", () => {
+    renderSidebar({ sessionsByServer: SESSIONS, currentSession: null, currentWindowId: null });
+
+    fireEvent.click(rowButton("@1"), { metaKey: true });
+
+    expect(selected()).toEqual(["primary:@1"]);
+  });
+
+  it("does not re-seed once a selection is live: Cmd-click removes the open tab", () => {
+    renderSidebar({ sessionsByServer: SESSIONS });
+
+    fireEvent.click(rowButton("@1"), { metaKey: true });
+    fireEvent.click(rowButton("@0"), { metaKey: true });
+
+    expect(selected()).toEqual(["primary:@1"]);
+  });
+
+  it("paints set members, not the open tab, while a selection is live — and no ring", () => {
+    renderSidebar({ sessionsByServer: SESSIONS });
+    const weight = (id: string) => rowButton(id).className.includes("font-medium");
+
+    // At rest only the open tab carries the selected weight.
+    expect(weight("@0")).toBe(true);
+    expect(weight("@1")).toBe(false);
+
+    fireEvent.click(rowButton("@1"), { metaKey: true });
+    fireEvent.click(rowButton("@0"), { metaKey: true });
+
+    expect(weight("@0")).toBe(false);
+    expect(weight("@1")).toBe(true);
+    // The open tab is still the open page.
+    expect(rowButton("@0")).toHaveAttribute("aria-current", "page");
+    for (const item of document.querySelectorAll<HTMLElement>('[role="tree"] [data-window-id]')) {
+      expect(item.style.boxShadow).not.toContain("inset");
+    }
   });
 });
