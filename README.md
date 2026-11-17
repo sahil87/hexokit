@@ -146,7 +146,7 @@ The per-harness capability matrix (verified versions, event mappings, transcript
 
 ## The operator — one agent to run the server
 
-`rk operator` opens the **operator** — a per-tmux-server singleton window running the fab-kit operator-tier agent, role-marked so the dashboard pins it. Where `rk riff` spawns workers, the operator is the coordinator you talk to: it watches the fleet, dispatches and unblocks changes, and escalates to your phone when something needs you. Requires fab-kit on `PATH`; re-running switches to the existing tab. Hand it a templated work item from the shell with `rk operator request <template>` (`--list` prints the registry; a busy operator queues the request and it drains when idle).
+`rk operator` opens the **operator** — a per-tmux-server singleton window running the operator-tier agent (resolved through fab-kit when it is installed, else the default launcher), role-marked so the dashboard pins it, with the `/operator` skill typed in (the chat skill served by `rk skill operator`; `rk agent setup` places the `/operator` pointer). Where `rk riff` spawns workers, the operator is the coordinator you talk to: it watches the fleet, dispatches and unblocks changes, and escalates to your phone when something needs you. Re-running switches to the existing tab. Hand it a templated work item from the shell with `rk operator request <template>` (`--list` prints the registry; a busy operator queues the request and it drains when idle).
 
 ## Boards — watch many panes at once
 

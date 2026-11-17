@@ -28,7 +28,7 @@ import type { ProjectSession } from "@/types";
  * Anatomy top→bottom: (1) a pinned staleness banner rendered exactly when the
  * server's sessions report `operatorStale` (the server's own 15-minute
  * verdict — the frontend never re-derives the threshold), carrying the tick
- * age or `no recent tick` when no session carries a tick; (2) the summary
+ * age or `no recent check` when no session carries one; (2) the summary
  * line and the scroll body holding the shared `WatchedTable` when rows exist;
  * (3) otherwise a centered hint line — `no server resolved` / `No operator on
  * this server` / `No tracked items` (an absent state file reads as an empty
@@ -72,8 +72,8 @@ export function WatchedTasks({
           data-testid="watched-tasks-banner"
         >
           {tickAgeSeconds !== null
-            ? `operator tick — last seen ${formatDuration(tickAgeSeconds)} ago`
-            : "operator tick — no recent tick"}
+            ? `operator loop — last check ${formatDuration(tickAgeSeconds)} ago`
+            : "operator loop — no recent check"}
         </div>
       )}
       {hint !== null ? (

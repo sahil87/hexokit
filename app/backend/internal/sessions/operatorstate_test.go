@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"rk/internal/cron"
 	"rk/internal/operator"
@@ -190,6 +191,7 @@ func TestFetchSessionsOperatorSource(t *testing.T) {
 		return []tmux.WindowInfo{{Index: 0, WindowID: "@1", Name: session, Panes: []tmux.PaneInfo{{PaneID: paneID, IsActive: true}}}}, nil
 	}
 	socketPathFn = func(context.Context, string) (string, error) { return testSock, nil }
+	stubRunInFlight(t, func(context.Context, string) (bool, error) { return false, nil })
 
 	fetch := func(t *testing.T) ProjectSession {
 		t.Helper()
@@ -245,6 +247,17 @@ func TestFetchSessionsOperatorSource(t *testing.T) {
 		}
 	})
 
+	t.Run("an operator-loop entry replaces last_tick_at as the watchdog source", func(t *testing.T) {
+		rk, _ := stateFiles(t)
+		writeOperatorFile(t, rk, "last_tick_at: 1700000000\ntracked: []\n")
+		lastFired := time.Now().Add(-2 * time.Minute).Unix()
+		seedLoop(t, "runKit", time.Now().Add(-time.Hour), lastFired)
+		s := fetch(t)
+		if s.OperatorLastTickAt != lastFired || s.OperatorStale {
+			t.Errorf("tick facts = (%d, %v), want the loop's last fire %d and not stale", s.OperatorLastTickAt, s.OperatorStale, lastFired)
+		}
+	})
+
 	t.Run("no rk file: fab's file is read as before", func(t *testing.T) {
 		_, fab := stateFiles(t)
 		writeOperatorFile(t, fab, fmt.Sprintf("tracked:\n  - {id: from-fab, kind: fab-change, scope: {pane: %q}}\n", paneID))
@@ -253,4 +266,153 @@ func TestFetchSessionsOperatorSource(t *testing.T) {
 			t.Errorf("window = %+v, want monitored via fab's item", w)
 		}
 	})
+}
+
+// seedLoop seeds server's operator-loop cron entry (created at created) under
+// the current XDG_STATE_HOME and, when fires is non-empty, appends one
+// `no change` delivery line per unix timestamp. Returns the entry id.
+func seedLoop(t *testing.T, server string, created time.Time, fires ...int64) string {
+	t.Helper()
+	dir, err := cron.DefaultDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cron.EnsureDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cron.SeedOperatorLoop(dir, server, created); err != nil {
+		t.Fatal(err)
+	}
+	entriesPath, err := cron.EntriesPath(dir, server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := cron.LoadEntries(entriesPath)
+	if len(entries) != 1 {
+		t.Fatalf("seeded entries = %+v, want one loop entry", entries)
+	}
+	logPath, err := cron.LogPath(dir, server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ts := range fires {
+		if err := cron.AppendLog(logPath, cron.LogLine{TS: ts, Entry: entries[0].ID, Outcome: cron.OutcomeNoChange}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return entries[0].ID
+}
+
+// TestOperatorLoopLiveness pins the loop watchdog: staleness is measured from
+// the loop's next due fire (so an idle top-rung backoff is healthy), a mute
+// silences it, and a server with no loop entry reports ok=false.
+func TestOperatorLoopLiveness(t *testing.T) {
+	const server = "runKit"
+	now := time.Now()
+	inFlight, probeErr := false, error(nil)
+	stubRunInFlight(t, func(context.Context, string) (bool, error) { return inFlight, probeErr })
+
+	t.Run("no loop entry", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		if _, _, ok := operatorLoopLiveness(context.Background(), server, now); ok {
+			t.Error("ok = true with no cron file, want false")
+		}
+	})
+
+	t.Run("recent fire is healthy", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		fired := now.Add(-2 * time.Minute).Unix()
+		seedLoop(t, server, now.Add(-time.Hour), fired)
+		last, stale, ok := operatorLoopLiveness(context.Background(), server, now)
+		if !ok || stale || last != fired {
+			t.Errorf("= (%d, %v, %v), want (%d, false, true)", last, stale, ok, fired)
+		}
+	})
+
+	t.Run("idle at the top rung longer than the threshold is healthy", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		// Five consecutive no-change fires put the ladder at its 24m max; the
+		// last fire is 20m old — past the 15m threshold, not yet due.
+		base := now.Add(-2 * time.Hour)
+		fires := []int64{base.Unix(), base.Add(time.Minute).Unix(), base.Add(2 * time.Minute).Unix(), base.Add(3 * time.Minute).Unix(), now.Add(-20 * time.Minute).Unix()}
+		seedLoop(t, server, base.Add(-time.Minute), fires...)
+		if _, stale, ok := operatorLoopLiveness(context.Background(), server, now); !ok || stale {
+			t.Errorf("stale = %v ok = %v, want a healthy idle loop", stale, ok)
+		}
+	})
+
+	t.Run("an overdue fire is stale", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		seedLoop(t, server, now.Add(-3*time.Hour), now.Add(-2*time.Hour).Unix())
+		if _, stale, ok := operatorLoopLiveness(context.Background(), server, now); !ok || !stale {
+			t.Errorf("stale = %v ok = %v, want stale", stale, ok)
+		}
+	})
+
+	t.Run("a run in flight is never stale", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		seedLoop(t, server, now.Add(-3*time.Hour), now.Add(-2*time.Hour).Unix())
+		inFlight = true
+		t.Cleanup(func() { inFlight = false })
+		if _, stale, ok := operatorLoopLiveness(context.Background(), server, now); !ok || stale {
+			t.Errorf("stale = %v ok = %v, want a long run reported healthy", stale, ok)
+		}
+	})
+
+	t.Run("a failed run-window probe keeps the stale verdict", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		seedLoop(t, server, now.Add(-3*time.Hour), now.Add(-2*time.Hour).Unix())
+		inFlight, probeErr = true, fmt.Errorf("no server running")
+		t.Cleanup(func() { inFlight, probeErr = false, nil })
+		if _, stale, ok := operatorLoopLiveness(context.Background(), server, now); !ok || !stale {
+			t.Errorf("stale = %v ok = %v, want stale", stale, ok)
+		}
+	})
+
+	t.Run("a new delivery is read after the cache was filled", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		id := seedLoop(t, server, now.Add(-3*time.Hour), now.Add(-2*time.Hour).Unix())
+		if _, stale, _ := operatorLoopLiveness(context.Background(), server, now); !stale {
+			t.Fatal("want stale before the new fire")
+		}
+		dir, err := cron.DefaultDir()
+		if err != nil {
+			t.Fatal(err)
+		}
+		logPath, err := cron.LogPath(dir, server)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fired := now.Add(-time.Minute).Unix()
+		if err := cron.AppendLog(logPath, cron.LogLine{TS: fired, Entry: id, Outcome: cron.OutcomeNoChange}); err != nil {
+			t.Fatal(err)
+		}
+		last, stale, _ := operatorLoopLiveness(context.Background(), server, now)
+		if stale || last != fired {
+			t.Errorf("= (%d, %v), want the new fire %d and not stale", last, stale, fired)
+		}
+	})
+
+	t.Run("a muted loop is never stale", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		id := seedLoop(t, server, now.Add(-3*time.Hour), now.Add(-2*time.Hour).Unix())
+		dir, err := cron.DefaultDir()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := cron.SetMuted(dir, server, id, true); err != nil {
+			t.Fatal(err)
+		}
+		if _, stale, ok := operatorLoopLiveness(context.Background(), server, now); !ok || stale {
+			t.Errorf("stale = %v ok = %v, want a muted loop reported but not stale", stale, ok)
+		}
+	})
+}
+
+// stubRunInFlight replaces the run-window probe so no test reaches tmux.
+func stubRunInFlight(t *testing.T, fn func(context.Context, string) (bool, error)) {
+	t.Helper()
+	orig := runInFlightFn
+	runInFlightFn = fn
+	t.Cleanup(func() { runInFlightFn = orig })
 }

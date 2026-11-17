@@ -92,11 +92,12 @@ type ProjectSession struct {
 	// rebuild).
 	Viewers []Viewer `json:"viewers,omitempty"`
 	// OperatorLastTickAt / OperatorStale are the per-server operator-watchdog
-	// staleness facts — the chosen operator state file's last_tick_at against
-	// cron.DefaultWatchlistStaleThreshold — populated identically on every
-	// session of one FetchSessions call (all sessions on a server share the
-	// one operator-state file). 0/false when the file is absent or carries no
-	// last_tick_at (nothing to be stale about).
+	// staleness facts, populated identically on every session of one
+	// FetchSessions call. With an operator-loop cron entry they are the loop's
+	// last fire and whether its next fire is overdue (operatorLoopLiveness);
+	// without one, the chosen operator state file's last_tick_at against
+	// cron.DefaultWatchlistStaleThreshold. 0/false when the state file is
+	// absent or there is no fire or tick yet (nothing to be stale about).
 	OperatorLastTickAt int64 `json:"operatorLastTickAt,omitempty"`
 	OperatorStale      bool  `json:"operatorStale,omitempty"`
 	// OperatorTracked is the sessions-payload projection of the chosen operator
@@ -869,16 +870,24 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 	// yielding two projections: the pane-bearing not-done subset joined onto
 	// windows by pane ID via joinWatchlist, and the whole tracked list stamped
 	// onto every session as OperatorTracked (display only — the Operator Tasks
-	// segment's data). The read's last_tick_at doubles as the per-server
-	// staleness timestamp populated identically on every ProjectSession below.
-	// Which file is read (rk's, else fab's) is operatorstate.go's rule; a failed
-	// socket-path query degrades to the "default" slug for both candidates and
-	// is never surfaced.
+	// segment's data). The per-server watchdog facts populated identically on
+	// every ProjectSession below come from the server's operator-loop cron
+	// entry when one exists (operatorLoopLiveness), else from the file's
+	// last_tick_at (fab's typed tick). Which file is read (rk's, else fab's) is
+	// operatorstate.go's rule; a failed socket-path query degrades to the
+	// "default" slug for both candidates and is never surfaced.
+	now := time.Now()
 	var watchlistByPane map[string]cron.WatchlistEntry
 	var operatorLastTickAt int64
+	var operatorStale bool
 	var operatorTracked *[]OperatorTrackedItem
 	if state, present := ReadOperatorStateForServer(ctx, server); present {
-		operatorLastTickAt = state.LastTickAt
+		if lastFired, stale, ok := operatorLoopLivenessFn(ctx, server, now); ok {
+			operatorLastTickAt, operatorStale = lastFired, stale
+		} else {
+			operatorLastTickAt = state.LastTickAt
+			operatorStale = operatorStaleness(operatorLastTickAt, now.Unix())
+		}
 		entries := state.WatchlistEntries()
 		watchlistByPane = make(map[string]cron.WatchlistEntry, len(entries))
 		for _, we := range entries {
@@ -889,8 +898,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 	}
 
 	// Build result with per-window fab enrichment and git branches.
-	nowUnix := time.Now().Unix()
-	operatorStale := operatorStaleness(operatorLastTickAt, nowUnix)
+	nowUnix := now.Unix()
 	result := make([]ProjectSession, len(data))
 	for i, sd := range data {
 		// Watchlist tier: the operator-watchlist join by pane ID, over all of the

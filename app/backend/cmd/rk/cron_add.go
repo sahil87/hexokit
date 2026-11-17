@@ -104,7 +104,7 @@ var cronAddCmd = &cobra.Command{
   rk cron add "tick" --backoff --min 2m --max 30m
   rk cron add "nightly" --cron "0 3 * * *" --role operator
   rk cron add "morning digest" --cron "0 9 * * *" --deliver skip-if-busy
-  rk cron add "operator tick" --backoff --min 3m --max 24m --wake-on agent-state-change --deliver skip-if-busy --role operator --if-absent respawn --respawn rk --respawn operator --respawn -L --respawn '{server}' --pinned
+  rk cron add "anything waiting on me? one line" --backoff --min 3m --max 24m --wake-on agent-state-change --deliver skip-if-busy --session 4fe2abc-1c3b-4f7e-9a2d-8b5c4e1f0a37 --if-absent respawn
   rk cron add "follow up" --every 2h --session 4fe2abc-1c3b-4f7e-9a2d-8b5c4e1f0a37`,
 	Args: usageArgs(cobra.ExactArgs(1)),
 	RunE: func(cmd *cobra.Command, args []string) error {

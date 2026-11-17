@@ -279,11 +279,11 @@ describe("buildOperatorStartAction", () => {
   });
 
   it("routes any other failure to onError with the server's message", async () => {
-    mockStartOperator.mockRejectedValue(new ApiError("fab not found on PATH", 502));
+    mockStartOperator.mockRejectedValue(new ApiError("tmux list-windows failed: exit status 1", 502));
     const onStarted = vi.fn();
     const onError = vi.fn();
     buildOperatorStartAction("srv1", undefined, onStarted, onError).onSelect();
-    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith("fab not found on PATH"));
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith("tmux list-windows failed: exit status 1"));
     expect(onStarted).not.toHaveBeenCalled();
   });
 });

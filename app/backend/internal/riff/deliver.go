@@ -32,14 +32,14 @@ const (
 )
 
 // taskDeliveryMode decides the delivery mode for a (launcher, task) pair at the
-// composition seam. The gate is launcherCommandName — deliberately naive about
+// composition seam. The gate is LauncherCommandName — deliberately naive about
 // shell grammar (a launcher it cannot positively identify as claude gets typed
 // delivery, the provider-agnostic path).
 func taskDeliveryMode(launcher, task string) deliveryMode {
 	if task == "" {
 		return deliveryNone
 	}
-	if launcherCommandName(launcher) == forkLauncherCommand {
+	if LauncherCommandName(launcher) == forkLauncherCommand {
 		return deliveryPositional
 	}
 	return deliveryTyped

@@ -711,6 +711,10 @@ func TestCronAddRespawnMatrix(t *testing.T) {
 		{"session target may omit the respawn command",
 			[]string{"add", "x", "--every", "1h", "--session", "4fe2abc", "--if-absent", "respawn"},
 			""},
+		{"the help's session wake example",
+			[]string{"add", "anything waiting on me? one line", "--backoff", "--min", "3m", "--max", "24m", "--wake-on", "agent-state-change",
+				"--deliver", "skip-if-busy", "--session", "4fe2abc-1c3b-4f7e-9a2d-8b5c4e1f0a37", "--if-absent", "respawn"},
+			""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -897,7 +901,7 @@ func TestCronAddHelpText(t *testing.T) {
 	for _, want := range []string{
 		`rk cron add "wake up" --idle-every 3m`,
 		`rk cron add "morning digest" --cron "0 9 * * *" --deliver skip-if-busy`,
-		`rk cron add "operator tick" --backoff --min 3m --max 24m --wake-on agent-state-change --deliver skip-if-busy --role operator --if-absent respawn --respawn rk --respawn operator --respawn -L --respawn '{server}' --pinned`,
+		`rk cron add "anything waiting on me? one line" --backoff --min 3m --max 24m --wake-on agent-state-change --deliver skip-if-busy --session 4fe2abc-1c3b-4f7e-9a2d-8b5c4e1f0a37 --if-absent respawn`,
 	} {
 		if !strings.Contains(cronAddCmd.Example, want) {
 			t.Errorf("add Example missing %q", want)

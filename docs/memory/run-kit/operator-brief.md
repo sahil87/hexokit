@@ -8,7 +8,7 @@ description: "The operator run brief — `rk operator brief` and `operator.Rende
 
 ## Overview
 
-A scheduled operator run is a headless, one-shot agent that wakes for a few changed ledger items. It needs one self-contained prompt: what changed, the ledger around it, the rules for acting unattended, and how to report. `operator.RenderBrief` (`app/backend/internal/operator/brief.go`) renders that prompt as Markdown from a loaded [operator state](/run-kit/operator-state.md); `rk operator brief` (`cmd/rk/operator_brief.go`) is its CLI door. The interactive counterpart is the static `rk skill operator` chat topic. The renderer's caller is the operator loop's run wrapper ([operator-loop](/run-kit/operator-loop.md)): after the mechanical autopilot pass it calls `RenderBrief` in-process with the judgment set as the changed list, persists the result as the run's brief file, and delivers it on the headless launcher's stdin; a run with an empty judgment set renders no brief. This file owns only the rendering. A run's tools are not restricted at launch — the launcher is provider-opaque, so the brief's allowed-tool list stays declarative. The `rk operator` kickoff still launches `/fab-operator`.
+A scheduled operator run is a headless, one-shot agent that wakes for a few changed ledger items. It needs one self-contained prompt: what changed, the ledger around it, the rules for acting unattended, and how to report. `operator.RenderBrief` (`app/backend/internal/operator/brief.go`) renders that prompt as Markdown from a loaded [operator state](/run-kit/operator-state.md); `rk operator brief` (`cmd/rk/operator_brief.go`) is its CLI door. The interactive counterpart is the static `rk skill operator` chat topic. The renderer's caller is the operator loop's run wrapper ([operator-loop](/run-kit/operator-loop.md)): after the mechanical autopilot pass it calls `RenderBrief` in-process with the judgment set as the changed list, persists the result as the run's brief file, and delivers it on the headless launcher's stdin; a run with an empty judgment set renders no brief. This file owns only the rendering. A run's tools are not restricted at launch — the launcher is provider-opaque, so the brief's allowed-tool list stays declarative. `rk operator` types `/operator`, the pointer skill `rk agent setup` places, or the pointer's instruction to load `rk skill operator` when that skill is absent ([cli](/run-kit/architecture/cli.md)).
 
 ## Requirements
 
@@ -96,8 +96,14 @@ The chat topic is the static page `docs/site/skill/operator.md` (≤150 lines), 
 ### Chat skill as an rk skill topic
 **Decision**: The operator chat skill ships as the static topic `rk skill operator` (≤150 lines).
 **Why**: Same delivery as the existing topics — versioned with the binary, drift-guarded; it lets `/fab-operator` become a pointer to it later.
-**Rejected**: A deployed per-provider `/operator` SKILL.md (a new install-and-update job); keeping `/fab-operator` as an alias (name collision with fab's skill).
+**Rejected**: A deployed per-provider `/operator` SKILL.md carrying the content (a new install-and-update job); keeping `/fab-operator` as an alias (name collision with fab's skill).
 *Introduced by*: 261111-jsg9-operator-run-brief-chat-skill
+
+### `/operator` is a placed pointer to the topic
+**Decision**: `rk agent setup` places a `/operator` SKILL.md whose body only says to run `rk skill operator` and follow it; `rk operator` types `/operator` when the harness's copy is rk-owned ([agent-state](/run-kit/agent-state.md), [cli](/run-kit/architecture/cli.md)).
+**Why**: The chat needs an invocation that does not depend on fab's `/fab-operator`, which is being deleted; a pointer adds a slash command without copying content that could go stale.
+**Rejected**: Placing the full skill content (the stale-copy problem the topic delivery avoids).
+*Introduced by*: PR #1143 (direct change, no fab intake)
 
 ### Each engine part replaces the brief prose it covers in the same change
 **Decision**: When the engine takes over a job, the brief's prose for that job is removed in the same PR, and a render test proves the removed text and tools are gone.

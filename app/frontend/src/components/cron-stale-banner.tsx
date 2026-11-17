@@ -24,8 +24,8 @@ export function CronStaleBanner({ server }: { server: string }) {
       role="status"
     >
       {staleSession.operatorLastTickAt
-        ? `operator tick — last seen ${formatDuration(Math.max(0, Math.floor(Date.now() / 1000 - staleSession.operatorLastTickAt)))} ago`
-        : "operator tick — no recent tick"}
+        ? `operator loop — last check ${formatDuration(Math.max(0, Math.floor(Date.now() / 1000 - staleSession.operatorLastTickAt)))} ago`
+        : "operator loop — no recent check"}
     </div>
   );
 }

@@ -392,7 +392,7 @@ terminal, which would make the refusal silently not fire. A non-`*os.File` reade
 non-interactive path unless they set `stdinIsTTY` explicitly. Pinned by
 `TestIsTerminalRejectsNonTTYFiles`.
 
-**It installs FOUR artifact families**: the **rk-owned launcher pointer** — the
+**It installs FIVE artifact families**: the **rk-owned launcher pointer** — the
 per-machine symlink `~/.local/share/rk/bin/run-kit` whose target is the resolved
 Cellar binary, written FIRST (ahead of the per-agent hooks that exec it), with
 `launcher:`-prefixed messages — then the **per-agent hook/plugin install**
@@ -403,7 +403,8 @@ PATH-resolved `tmux` invocation, so `tmux kill-server` without an explicit
 host-independent marker-owned shell-startup block that evals
 `rk gui env` through that launcher pointer inside tmux panes, so `DISPLAY`/`RK_GUI_SOCKET`
 reach new shells once the user turns the GUI on (full semantics in
-[gui](/run-kit/gui.md) § Agent verbs). (bbv1) (r7v8)
+[gui](/run-kit/gui.md) § Agent verbs) — and the **`/operator` pointer skill**
+(`agent_setup_operator_skill.go`, below). (bbv1) (r7v8)
 The shim script is in its **second generation** —
 `rk agent setup` writes `exec "<abs-rk>" mux guard "$@"`; first-generation
 installs exec'ing the literal `tmux-guard` keep working
@@ -416,11 +417,24 @@ summary-on-consent / full-diff-on-`--dry-run` rendering split, and its
 (260805-blyf-tmux-guard-path-shim)
 
 The command surface is `rk agent setup` / `rk agent setup --uninstall`, and
-`--uninstall` reverses all three families. The
+`--uninstall` reverses every family. The
 visual-display context-injection role belongs to the **`rk skill` bundle** (served
 by the `skill` subcommand, aggregated by the coming `shll agent-setup`), described
-in [cli](/run-kit/architecture/cli.md) § CLI Subcommands; the only skill trace
-in `rk agent setup` is a **one-release legacy cleanup** that removes a stale
+in [cli](/run-kit/architecture/cli.md) § CLI Subcommands. `rk agent setup` places
+exactly one skill, and it carries no content: the **`/operator` pointer skill**,
+whose body tells the agent to run `rk skill operator` and follow it, so nothing
+placed can go stale against the binary. It is written to
+`~/.agents/skills/operator/SKILL.md` always and `~/.claude/skills/operator/SKILL.md`
+only when `claude` is on PATH (the toolkit's two-tier placement rule); the claude
+copy adds `disable-model-invocation: true`, the other keeps to the portable
+`name`/`description`/`metadata` fields. Ownership is the
+`metadata: managed-by: rk agent setup` marker: a marker-less file at either path
+(zero-byte included) is never written or removed. Install shows a one-line
+summary (the full body under `--dry-run`) and asks; uninstall is ungated, removes
+only `SKILL.md`, and prunes the directory only when empty. `rk operator` types
+`/operator` only when the harness's copy is rk-owned
+([cli](/run-kit/architecture/cli.md) § `rk operator` runs without fab). The
+other skill trace is a **one-release legacy cleanup** that removes a stale
 `rk-display` copy left by an older run-kit (see § Legacy `rk-display` Cleanup).
 (260717-agst)
 

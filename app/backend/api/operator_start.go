@@ -386,7 +386,7 @@ func cutQuotedField(s, label string) (value, rest string, ok bool) {
 // operatorKickoffExit builds the onExit callback for one operator start: when
 // the process's stderr carries the kickoff note, warn and notify so a
 // connected client can paste the note's provider-rendered kickoff prompt
-// (`/fab-operator`, or `$fab-operator` for a codex operator) into the operator
+// (`/operator`, or `$operator` for a codex operator) into the operator
 // terminal by hand. A clean exit with no note logs nothing and broadcasts
 // nothing.
 func (s *Server) operatorKickoffExit(server string) operatorStartExitFn {
@@ -399,7 +399,7 @@ func (s *Server) operatorKickoffExit(server string) operatorStartExitFn {
 			"server", server, "window", receipt.Window, "reason", reason, "dir", dir, "prompt", prompt)
 		s.initSSEHub()
 		// The prompt is the launcher's provider-rendered kickoff (a codex
-		// operator gets `$fab-operator`), so the instruction names the exact
+		// operator gets `$operator`), so the instruction names the exact
 		// text to paste rather than the canonical slash form.
 		s.sseHub.broadcastNotifyTagged(
 			"Operator kickoff not delivered",

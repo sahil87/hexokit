@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -24,9 +25,10 @@ import (
 // operatorRunFn/operatorRunOutputFn seams (plus the role.go write-path seams
 // for the stamp), which the tests stub; the $TMUX seam
 // (operatorOriginalTMUXFn) is stubbed likewise because the real
-// tmux.OriginalTMUX is fixed at package-init time. The fab precondition routes
-// through operatorLookPathFn and the kickoff delivery through
-// operatorDeliverFn, both stubbed. The suite must also pass under `env -u TMUX
+// tmux.OriginalTMUX is fixed at package-init time. The kickoff delivery
+// routes through operatorDeliverFn, stubbed, and $HOME points at a temp dir
+// holding an rk-owned operator skill, so the kickoff is /operator unless a
+// test removes it. The suite must also pass under `env -u TMUX
 // -u TMUX_PANE go test ./cmd/rk/` (ambient-env false-green guard) — no test
 // may read the ambient tmux env.
 
@@ -53,9 +55,8 @@ type operatorCall struct {
 // role-stamp sequence, the recorded kickoff delivery, and the stored-root
 // read/stamp state.
 type operatorStub struct {
-	calls       []operatorCall
-	listOutput  string
-	lookPathErr error
+	calls      []operatorCall
+	listOutput string
 
 	repoRoot string
 	tier     string
@@ -95,20 +96,18 @@ type operatorDelivery struct {
 }
 
 // stubOperatorSeams installs recording stubs for the precondition, tmux,
-// launcher, role-stamp, and delivery seams.
+// launcher, role-stamp, and delivery seams, and points $HOME at a temp dir
+// holding the rk-owned claude copy of the operator skill.
 func stubOperatorSeams(t *testing.T, listOutput string) *operatorStub {
 	t.Helper()
 	s := &operatorStub{listOutput: listOutput}
 
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	placeOperatorSkill(t, operatorSkillPath(home, true), operatorSkillContent(true))
+
 	origTMUX := operatorOriginalTMUXFn
 	operatorOriginalTMUXFn = func() string { return operatorTestSocket }
-	origLookPath := operatorLookPathFn
-	operatorLookPathFn = func(file string) (string, error) {
-		if s.lookPathErr != nil {
-			return "", s.lookPathErr
-		}
-		return "/usr/local/bin/" + file, nil
-	}
 	origRun, origOut := operatorRunFn, operatorRunOutputFn
 	operatorRunFn = func(_ context.Context, args, env []string) error {
 		s.calls = append(s.calls, operatorCall{args: args, env: env})
@@ -179,7 +178,6 @@ func stubOperatorSeams(t *testing.T, listOutput string) *operatorStub {
 
 	t.Cleanup(func() {
 		operatorOriginalTMUXFn = origTMUX
-		operatorLookPathFn = origLookPath
 		operatorRunFn, operatorRunOutputFn = origRun, origOut
 		operatorResolveAgentFn = origResolve
 		operatorDeliverFn = origDeliver
@@ -261,27 +259,75 @@ func TestOperatorOutsideTmuxErrors(t *testing.T) {
 	}
 }
 
-// A missing fab is a HARD refusal (exit 1) naming fab-kit — no default-launcher
-// degrade — and zero tmux subprocesses run.
-func TestOperatorFabMissingErrors(t *testing.T) {
+// placeOperatorSkill writes content at path, creating parent directories.
+func placeOperatorSkill(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The kickoff is /operator (in the provider's syntax) only when the skill copy
+// the launcher's harness reads is rk-owned; anything else types the pointer
+// instruction, which reaches the same chat skill.
+func TestOperatorKickoff(t *testing.T) {
+	claude := riff.ResolvedAgent{Launcher: "claude --dangerously-skip-permissions", SkillPrefix: "/"}
+	codex := riff.ResolvedAgent{Launcher: "codex --yolo", SkillPrefix: "$"}
+	cases := []struct {
+		name  string
+		place func(home string)
+		agent riff.ResolvedAgent
+		want  string
+	}{
+		{"claude copy placed", func(h string) {
+			placeOperatorSkill(t, operatorSkillPath(h, true), operatorSkillContent(true))
+		}, claude, "/operator"},
+		{"codex reads the ~/.agents copy", func(h string) {
+			placeOperatorSkill(t, operatorSkillPath(h, false), operatorSkillContent(false))
+		}, codex, "$operator"},
+		{"nothing placed", func(string) {}, claude, operatorKickoffFallback},
+		{"claude launcher ignores the ~/.agents copy", func(h string) {
+			placeOperatorSkill(t, operatorSkillPath(h, false), operatorSkillContent(false))
+		}, claude, operatorKickoffFallback},
+		{"a user's own operator skill is not ours", func(h string) {
+			placeOperatorSkill(t, operatorSkillPath(h, true), "---\nname: operator\n---\nmine\n")
+		}, claude, operatorKickoffFallback},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			tc.place(home)
+			if got := operatorKickoff(tc.agent); got != tc.want {
+				t.Errorf("operatorKickoff() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// Without the placed skill the launch still succeeds and types the pointer
+// instruction; the provider prefix never touches it.
+func TestOperatorDeliversFallbackKickoffWithoutSkill(t *testing.T) {
 	resetOperatorWorkers(t)
 	s := stubOperatorSeams(t, "")
-	s.lookPathErr = errors.New("executable file not found in $PATH")
+	s.skillPrefix = "$"
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(operatorSkillPath(home, true)); err != nil {
+		t.Fatal(err)
+	}
 
 	cmd, _, _ := operatorTestCmd()
-	err := runOperator(cmd)
-	var ece *riff.ExitCodeError
-	if !errors.As(err, &ece) {
-		t.Fatalf("runOperator() error = %T %v, want *riff.ExitCodeError", err, err)
+	if err := runOperator(cmd); err != nil {
+		t.Fatalf("runOperator() = %v", err)
 	}
-	if ece.Code != riff.ExitPrecondition {
-		t.Errorf("exit code = %d, want %d (hard refusal, no degrade)", ece.Code, riff.ExitPrecondition)
-	}
-	if !strings.Contains(ece.Msg, "fab-kit") {
-		t.Errorf("message = %q, want it naming fab-kit as the required companion tool", ece.Msg)
-	}
-	if len(s.calls) != 0 {
-		t.Errorf("tmux calls = %v, want none before the preconditions pass", s.calls)
+	if len(s.deliverCalls) != 1 || s.deliverCalls[0].text != operatorKickoffFallback {
+		t.Errorf("deliveries = %+v, want one carrying %q", s.deliverCalls, operatorKickoffFallback)
 	}
 }
 
@@ -556,7 +602,7 @@ func TestOperatorShellCommand(t *testing.T) {
 	if got != want {
 		t.Errorf("operatorShellCommand(kimi) =\n  %q\nwant\n  %q", got, want)
 	}
-	if strings.Contains(bare, "FAB_AGENT_WORKERS") || strings.Contains(bare, "fab-operator") {
+	if strings.Contains(bare, "FAB_AGENT_WORKERS") || strings.Contains(bare, operatorKickoffPrompt) {
 		t.Errorf("bare composition %q must not embed the workers prefix or the kickoff prompt", bare)
 	}
 }
@@ -583,7 +629,7 @@ func TestOperatorDeliveryDegradesToPasteNote(t *testing.T) {
 
 // A codex-resolved operator tier (skill_prefix `$`) gets the kickoff rendered
 // for its provider: the typed delivery and the paste-it-yourself degrade note
-// both carry `$fab-operator`. The claude (slash) case is byte-identical to
+// both carry `$operator`. The claude (slash) case is byte-identical to
 // pre-change behavior — covered by TestOperatorCreatesStampsAndDelivers.
 func TestOperatorCodexPrefixRendersKickoff(t *testing.T) {
 	resetOperatorWorkers(t)
@@ -597,7 +643,7 @@ func TestOperatorCodexPrefixRendersKickoff(t *testing.T) {
 	if len(s.deliverCalls) != 1 {
 		t.Fatalf("deliveries = %v, want exactly one", s.deliverCalls)
 	}
-	if want := "$fab-operator"; s.deliverCalls[0].text != want {
+	if want := "$operator"; s.deliverCalls[0].text != want {
 		t.Errorf("delivered kickoff = %q, want the prefix-rendered %q", s.deliverCalls[0].text, want)
 	}
 }
@@ -614,10 +660,10 @@ func TestOperatorCodexPrefixDegradeNoteRendered(t *testing.T) {
 	if err := runOperator(cmd); err != nil {
 		t.Fatalf("runOperator() = %v, want nil (delivery miss degrades, never errors)", err)
 	}
-	if !strings.Contains(errBuf.String(), "$fab-operator") {
-		t.Errorf("stderr = %q, want the paste-it-yourself note carrying the rendered kickoff $fab-operator", errBuf.String())
+	if !strings.Contains(errBuf.String(), "$operator") {
+		t.Errorf("stderr = %q, want the paste-it-yourself note carrying the rendered kickoff $operator", errBuf.String())
 	}
-	if strings.Contains(errBuf.String(), "/fab-operator") {
+	if strings.Contains(errBuf.String(), "/operator") {
 		t.Errorf("stderr = %q, must not carry the canonical slash form for a codex operator", errBuf.String())
 	}
 }

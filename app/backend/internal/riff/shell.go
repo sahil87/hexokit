@@ -61,10 +61,10 @@ func resumeForkLauncher(launcher, ref string, plain bool) (string, error) {
 	if ref == "" || !sessionUUIDRe.MatchString(ref) {
 		return launcher, nil
 	}
-	if launcherCommandName(launcher) == "codex" && !plain {
+	if LauncherCommandName(launcher) == "codex" && !plain {
 		return fmt.Sprintf("%s fork %s", launcher, ref), nil
 	}
-	if cmd := launcherCommandName(launcher); cmd != forkLauncherCommand {
+	if cmd := LauncherCommandName(launcher); cmd != forkLauncherCommand {
 		return "", ValidationErr("run-kit riff: cannot resume a conversation with launcher %q — --resume modes (plain and --fork-session) require %s", launcher, forkLauncherCommand)
 	}
 	if plain {
@@ -98,14 +98,14 @@ func RenderSkillRef(prefix, value string) string {
 	return prefix + value[1:]
 }
 
-// launcherCommandName returns the basename of a launcher string's first
+// LauncherCommandName returns the basename of a launcher string's first
 // whitespace-separated word — `claude` for both `claude --foo` and
 // `/opt/homebrew/bin/claude --foo`. An empty launcher yields "". Pure.
 //
 // A word-level split is deliberately naive about shell grammar (a launcher
 // prefixed with `env FOO=1` reads as `env`): it is a gate, not a parser, so it
 // errs toward rejecting a launcher it cannot positively identify as claude.
-func launcherCommandName(launcher string) string {
+func LauncherCommandName(launcher string) string {
 	fields := strings.Fields(launcher)
 	if len(fields) == 0 {
 		return ""

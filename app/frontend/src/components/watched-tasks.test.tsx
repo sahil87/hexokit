@@ -83,20 +83,20 @@ describe("WatchedTasks", () => {
     });
 
     const banner = screen.getByTestId("watched-tasks-banner");
-    expect(banner).toHaveTextContent("operator tick — last seen 20m ago");
+    expect(banner).toHaveTextContent("operator loop — last check 20m ago");
     expect(banner).toHaveAttribute("role", "status");
     expect(banner.className).toContain("text-signal-yellow");
     // The stale verdict passes through to the table's dimming.
     expect(screen.getByTestId("watched-table").className).toContain("opacity-50");
   });
 
-  it("reads `no recent tick` when stale but no session carries a tick", () => {
+  it("reads `no recent check` when stale but no session carries one", () => {
     renderTasks({
       server: "srv1",
       sessions: [makeSession({ operatorStale: true, windows: [MONITORED] })],
     });
     expect(screen.getByTestId("watched-tasks-banner")).toHaveTextContent(
-      "operator tick — no recent tick",
+      "operator loop — no recent check",
     );
   });
 
