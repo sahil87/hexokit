@@ -238,9 +238,7 @@ func joinPane(it *TrackedItem, row paneRow, st *State, obs observation, now time
 			v.events = append(v.events, d)
 		}
 	}
-	if c, ok := trackAgent(it, row, now); ok {
-		v.conds = append(v.conds, c)
-	}
+	v.conds = append(v.conds, trackAgent(it, row, now)...)
 	return v
 }
 
@@ -342,31 +340,42 @@ func trackStage(it *TrackedItem, row paneRow, nowStr string) (CheckDelta, bool) 
 
 // trackAgent records the observed agent state in scope.agent (null when
 // unknown) and reports waiting or idle as a standing condition; active and
-// unknown only move the baseline.
-func trackAgent(it *TrackedItem, row paneRow, now time.Time) (condDelta, bool) {
+// unknown only move the baseline. A waiting or idle state held for
+// agentAgedAfter adds a second condition, agent_aged, so the state is a change
+// once more. Its key drops out when the state changes, so each new waiting or
+// idle stretch can age again.
+func trackAgent(it *TrackedItem, row paneRow, now time.Time) []condDelta {
 	prev := scopeString(it.Scope, "agent")
 	it.Scope["agent"] = nil
 	if row.AgentState != "" {
 		it.Scope["agent"] = row.AgentState
 	}
-	var key string
+	var key, agedKey string
 	switch row.AgentState {
 	case tmux.AgentStateWaiting:
-		key = condAgentWaiting
+		key, agedKey = condAgentWaiting, condAgentWaitingAged
 	case tmux.AgentStateIdle:
-		key = condAgentIdle
+		key, agedKey = condAgentIdle, condAgentIdleAged
 	default:
-		return condDelta{}, false
+		return nil
 	}
 	var duration string
+	held := time.Duration(0)
 	if row.AgentEpoch > 0 {
+		held = now.Sub(time.Unix(row.AgentEpoch, 0))
 		duration = tmux.FormatAgentDuration(now.Unix() - row.AgentEpoch)
 	}
 	to := row.AgentState
-	return condDelta{key, CheckDelta{
+	conds := []condDelta{{key, CheckDelta{
 		Kind: DeltaAgentState, ID: it.ID, Pane: row.PaneID,
 		From: nullable(prev), To: &to, Duration: nullable(duration),
-	}}, true
+	}}}
+	if held >= agentAgedAfter {
+		conds = append(conds, condDelta{agedKey, CheckDelta{
+			Kind: DeltaAgentAged, ID: it.ID, Pane: row.PaneID, To: &to, Duration: nullable(duration),
+		}})
+	}
+	return conds
 }
 
 // scopeInt reads an integer scope value (JSON decodes numbers as float64,

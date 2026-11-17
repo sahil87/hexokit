@@ -62,7 +62,7 @@ func reasonNeedsJudgment(reason string, item operator.TrackedItem, owned bool) b
 	switch kind {
 	case operator.DeltaAgentState:
 		return strings.HasSuffix(reason, "→waiting") || strings.HasSuffix(reason, "→idle")
-	case operator.DeltaDue, operator.DeltaStale, operator.DeltaPaused, operator.DeltaUnknownDep:
+	case operator.DeltaAgentAged, operator.DeltaDue, operator.DeltaStale, operator.DeltaPaused, operator.DeltaUnknownDep:
 		return true
 	case operator.DeltaDone:
 		return item.Then != nil && strings.TrimSpace(*item.Then) != ""

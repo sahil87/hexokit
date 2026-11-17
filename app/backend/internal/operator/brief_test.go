@@ -323,7 +323,9 @@ func TestBriefRules_CoverTheRunContract(t *testing.T) {
 	for _, want := range []string{
 		"Coordinate, don't execute", "never", "--force", "@rk_pane_agent_state",
 		"rk mux capture -L <server> <pane> --lines 40 --classify --json", "--answer", "--key",
-		"Strategic prompts are never auto-picked", "30 minutes", "at most one nudge",
+		"A defensible recommendation", "No defensible default", "never guess", "30 minutes", "at most one nudge",
+		"agent_aged", "### Queue items that finish their intake", "fab score --check-gate --stage intake",
+		"Advance an item once",
 		"command -v rk", "by: user", "by: chat", "probe.instruction",
 		"rk operator track observe", "### Allowed tools", "No file-editing tools",
 	} {

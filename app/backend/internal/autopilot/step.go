@@ -107,6 +107,11 @@ type StatusItem struct {
 	// exists).
 	PRStatus string `json:"pr_status"`
 	Halted   bool   `json:"halted"`
+	// Task, Change and StopStage are the item's entry, so a judgment run can
+	// compare an intake with what was asked; each is omitted when unset.
+	Task      string `json:"task,omitempty"`
+	Change    string `json:"change,omitempty"`
+	StopStage string `json:"stop_stage,omitempty"`
 }
 
 // FixStatusItem is one recovery-spawn agent in the status view.
@@ -166,6 +171,8 @@ func Status(ctx context.Context, env Env) (StatusResult, error) {
 			ID: it.ID, State: state, Mode: modeOf(it), Repo: operator.ScopeString(it.Scope, "repo"),
 			Branch: itemBranch(st, it), DependsOn: append([]string{}, it.DependsOn...),
 			Queue: operator.ScopeString(it.Scope, scopeQueue),
+			Task:  operator.ScopeString(it.Scope, scopeTask), Change: operator.ScopeString(it.Scope, "change"),
+			StopStage: operator.ScopeString(it.Scope, "stop_stage"),
 		}
 		for _, p := range st.Tracked {
 			if !isPRItem(p) || operator.ScopeString(p.Scope, scopeItem) != it.ID {

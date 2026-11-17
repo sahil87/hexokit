@@ -13,11 +13,20 @@ const (
 	condAgentExited      = "agent_exited"
 	condAgentWaiting     = "agent:waiting"
 	condAgentIdle        = "agent:idle"
+	condAgentWaitingAged = "agent:waiting:aged"
+	condAgentIdleAged    = "agent:idle:aged"
 	condPaused           = "paused"
 	condStale            = "stale"
 	condDuePrefix        = "due@"
 	condUnknownDepPrefix = "unknown_dep:"
 )
+
+// agentAgedAfter is how long an agent may stay waiting or idle before the
+// check reports it again as agent_aged: a standing condition is a change only
+// once, so without this a prompt a run left open, or an agent nobody moved,
+// would never start another run. It matches the brief rules' 30-minute idle
+// auto-default.
+const agentAgedAfter = 30 * time.Minute
 
 // condDelta is one standing condition with the delta that reports it.
 type condDelta struct {
@@ -30,7 +39,8 @@ func paneConditionKeys(keys []string) []string {
 	var out []string
 	for _, k := range keys {
 		switch k {
-		case condPaneDeath, condPaneMismatch, condAgentExited, condAgentWaiting, condAgentIdle:
+		case condPaneDeath, condPaneMismatch, condAgentExited, condAgentWaiting, condAgentIdle,
+			condAgentWaitingAged, condAgentIdleAged:
 			out = append(out, k)
 		}
 	}
