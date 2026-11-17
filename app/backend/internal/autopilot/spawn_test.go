@@ -665,3 +665,63 @@ func TestSpawnRespawnAndStatusAgreeOnReadiness(t *testing.T) {
 		t.Fatalf("step spawned a held item: %+v", got)
 	}
 }
+
+// A raw-task spawn's branch is renamed by /fab-new to the change name. The
+// engine's view takes the change, stage and real branch from the ledger (what
+// the check recorded), so the respawn checks out the renamed branch, resumes
+// with /fab-fff <change>, and the stall escalation names the stage.
+func TestRespawnFollowsTheBranchFabNewRenamed(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	if err := os.Mkdir(filepath.Join(foo.Dir, "fab"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "implement the F1 brief"})
+	h.step()
+	h.panes.panes["%101"] = operator.PaneInfo{PaneID: "%101"}
+	if res := h.step(); hasAction(res, ActRespawned, "") {
+		t.Fatalf("a live pane was respawned: %+v", res.Actions)
+	}
+
+	const change = "261117-ab12-fills"
+	wt := filepath.Join(h.spawn.root, "a-1")
+	runGit(t, wt, "branch", "-m", change)
+	if err := operator.Mutate(h.env.StatePath, func(st *operator.State) error {
+		i := operator.IndexOf(st.Tracked, "a")
+		st.Tracked[i].Scope["change"] = change
+		st.Tracked[i].Scope["stage"] = "intake"
+		st.BranchMap[change] = operator.BranchMapEntry{Branch: change, Repo: foo.Dir}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	view, _, err := engineView(h.env.StatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	it := view.Tracked[operator.IndexOf(view.Tracked, "a")]
+	if operator.ScopeString(it.Scope, "change") != change || operator.ScopeString(it.Scope, "stage") != "intake" || operator.ScopeString(it.Scope, "branch") != change {
+		t.Fatalf("engine view scope = %v, want the ledger's change, stage and branch", it.Scope)
+	}
+	if _, reason := slowStageText(&ruleCtx{it: it}); !strings.HasPrefix(reason, "stage intake over") {
+		t.Errorf("slow-stage reason = %q, want it naming the stage", reason)
+	}
+
+	delete(h.panes.panes, "%101")
+	res := h.step()
+	if !hasAction(res, ActRespawned, "a") {
+		t.Fatalf("actions = %+v escalations = %+v", res.Actions, res.Escalations)
+	}
+	req := h.spawn.reqs[len(h.spawn.reqs)-1]
+	if req.CheckoutBranch != change || req.ExistingWorktree != wt || !strings.HasPrefix(req.Prompt, "/fab-fff "+change) {
+		t.Fatalf("respawn request = %+v, want the renamed branch, its worktree and /fab-fff", req)
+	}
+	st, err := Status(context.Background(), h.env)
+	if err != nil || len(st.Items) != 1 || st.Items[0].Branch != change || st.Items[0].Change != change {
+		t.Fatalf("status = %+v err %v, want the renamed branch and change", st, err)
+	}
+	if be := h.state().BranchMap[change]; be.Branch != change {
+		t.Fatalf("branch_map[%s] = %+v, the respawn's write-back must not restore the stale branch", change, be)
+	}
+}
