@@ -18,3 +18,24 @@ export function pinDragImage(e: React.DragEvent): void {
   const rect = e.currentTarget.getBoundingClientRect();
   e.dataTransfer.setDragImage(e.currentTarget, e.clientX - rect.left, e.clientY - rect.top);
 }
+
+export function pinTabsDragImage(e: React.DragEvent, count: number): void {
+  if (typeof e.dataTransfer?.setDragImage !== "function") return;
+  const badge = document.createElement("div");
+  badge.textContent = `${count} tabs`;
+  badge.setAttribute("aria-hidden", "true");
+  Object.assign(badge.style, {
+    position: "fixed",
+    left: "-1000px",
+    top: "-1000px",
+    padding: "4px 8px",
+    border: "1px solid var(--color-border)",
+    borderRadius: "4px",
+    background: "var(--color-bg-card)",
+    color: "var(--color-text-primary)",
+    font: "12px monospace",
+  });
+  document.body.appendChild(badge);
+  e.dataTransfer.setDragImage(badge, 0, 0);
+  setTimeout(() => badge.remove(), 0);
+}

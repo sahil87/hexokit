@@ -277,6 +277,29 @@ Send keystrokes to a window.
 { "ok": true }
 ```
 
+#### `POST /api/windows/move-block?server=<server>`
+
+Move a set of windows into the target window's session as one contiguous block immediately before that target. Members retain request order; all other windows retain their relative order.
+
+**Request:**
+```json
+{
+  "windowIds": ["@3", "@7", "@9"],
+  "beforeWindowId": "@5"
+}
+```
+
+| Field | Type | Required | Validation |
+|-------|------|----------|------------|
+| `windowIds` | `string[]` | yes | Non-empty, unique tmux window IDs; must not contain `beforeWindowId` |
+| `beforeWindowId` | `string` | yes | A tmux window ID on the same server |
+
+**Responses:**
+- `200` `{ "ok": true }` — the block is in place, including when no tmux reorder was necessary
+- `400` — invalid JSON or IDs, empty or duplicate `windowIds`, `beforeWindowId` included in `windowIds`, or an unknown member ID
+- `404` — unknown `beforeWindowId`, or the target session is absent when re-fetched after cross-session member moves
+- `500` — session fetch or tmux mutation failure
+
 #### `POST /api/windows/:windowId/send`
 
 Send a message into a window's resolved pane — the compose strip's single delivery door. The client names an **intent** (`mode`), never a mechanism: the handler picks the tmux strategy (bracketed paste lands multi-line text as one literal block; raw relay bytes carrying embedded newlines collapse in Claude Code's input). By default no agent session is required on the window.
@@ -832,6 +855,7 @@ omit `Origin`.
 | `POST` | `/api/updates/check` | `update.go` | On-demand update check (inline checker pass, synchronous verdict) |
 | `WS` | `/ws/terminals` | `terminals_ws.go` | Terminals mux (all pane relays, one socket/tab) |
 | `WS` | `/ws/tunnel` | `tunnel_ws.go` | Byte tunnel to `host:port` for the desktop web tile (§ Tunnel) |
+| `POST` | `/api/windows/move-block` | `moveblock.go` | Move windows as a contiguous block before a target (`{windowIds, beforeWindowId}`) |
 | `POST` | `/api/windows/:windowId/send` | `send.go` | Compose-strip send into a window's pane (the injection engine's HTTP door) |
 | `POST` | `/api/layout/borrow` | `layout_borrow.go` | Move a surface leaf into a tab (`{to, leaf, tree}`); the current holder's tree-minus-leaf and the target's tree write in one chained tmux invocation |
 | `POST` | `/api/layout/return` | `layout_borrow.go` | Send a held surface leaf home (`{from, leaf}`); the server recomputes both trees from live tmux state and re-adds a dismissed home slot |

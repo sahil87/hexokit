@@ -213,6 +213,34 @@ describe("BoardsSection — window drag-to-pin (g0t1)", () => {
     expect(row.getAttribute("style") ?? "").not.toContain("box-shadow");
   });
 
+  it("drops a selected set against each key's own server with one aggregate toast", async () => {
+    mockBoards = TWO_BOARDS;
+    render(<BoardsSection />);
+    const row = boardRow("review");
+
+    const dataTransfer = makeDataTransfer([WINDOW_DRAG_MIME]);
+    dataTransfer.setData(
+      "application/json",
+      JSON.stringify({
+        server: "primary",
+        session: "main",
+        index: 0,
+        windowId: "@5",
+        name: "editor",
+        keys: ["primary:@5", "alpha:@6"],
+      }),
+    );
+    fireEvent.drop(row, { dataTransfer });
+
+    await waitFor(() => expect(pinWindowMock).toHaveBeenCalledTimes(2));
+    expect(pinWindowMock.mock.calls).toEqual([
+      ["primary", "@5", "review"],
+      ["alpha", "@6", "review"],
+    ]);
+    expect(addToastMock).toHaveBeenCalledExactlyOnceWith("Pinned 2 tabs to review", undefined);
+    expect(setBoardOrderMock).not.toHaveBeenCalled();
+  });
+
   it("ignores a drop whose JSON payload is malformed (no pin, no throw)", () => {
     mockBoards = TWO_BOARDS;
     render(<BoardsSection />);

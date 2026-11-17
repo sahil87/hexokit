@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { pinDragImage } from "./drag-image";
+import { pinDragImage, pinTabsDragImage } from "./drag-image";
 
 /** Minimal synthetic dragstart event — mirrors the mock-dataTransfer-bag
  *  pattern of use-server-reorder.test.ts, plus the geometry pinDragImage
@@ -48,5 +48,28 @@ describe("pinDragImage", () => {
 
   it("no-ops when setDragImage is unavailable (jsdom / mock dataTransfer bags)", () => {
     expect(() => pinDragImage(makeDragStartEvent({}))).not.toThrow();
+  });
+});
+
+describe("pinTabsDragImage", () => {
+  it("uses an N tabs badge and removes it after the browser captures the image", () => {
+    vi.useFakeTimers();
+    try {
+      const setDragImage = vi.fn();
+      pinTabsDragImage(makeDragStartEvent({ setDragImage }), 3);
+
+      const badge = setDragImage.mock.calls[0][0] as HTMLElement;
+      expect(badge.textContent).toBe("3 tabs");
+      expect(document.body.contains(badge)).toBe(true);
+      expect(setDragImage).toHaveBeenCalledExactlyOnceWith(badge, 0, 0);
+      vi.runAllTimers();
+      expect(document.body.contains(badge)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("no-ops when setDragImage is unavailable", () => {
+    expect(() => pinTabsDragImage(makeDragStartEvent({}), 2)).not.toThrow();
   });
 });

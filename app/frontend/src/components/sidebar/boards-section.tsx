@@ -3,6 +3,10 @@ import { useNavigate } from "@tanstack/react-router";
 import { useBoards } from "@/hooks/use-boards";
 import { useBoardListReorder } from "@/hooks/use-board-list-reorder";
 import { usePinActions } from "@/hooks/use-pin-actions";
+import { pinWindow } from "@/api/boards";
+import { writeLastPinnedBoard } from "@/lib/last-pinned-board";
+import { parseDragSelectionKeys } from "@/lib/selection";
+import { batchToast, executeSelectionBatch } from "@/lib/palette/selection";
 import { useActiveBoardName } from "@/hooks/use-active-board";
 import { useToast } from "@/components/toast";
 import { PinIcon } from "@/components/pin-icon";
@@ -24,10 +28,11 @@ export const WINDOW_DRAG_MIME = "application/x-window-drag";
  *
  * Click a row → navigate to /board/<name>. Rows are also drag-to-pin drop
  * targets: a window-row drag (WINDOW_DRAG_MIME) hovered over a row gets a copy
- * cursor + drop-target ring, and dropping pins the window to that board via
- * the shared usePinActions.pin (toast + last-used persistence + SSE reconcile
- * inherited unchanged). The two drag species dispatch by MIME, so the
- * board-list reorder handlers are untouched fall-through paths.
+ * cursor + drop-target ring. Single-window drops use usePinActions.pin; set
+ * drops pin each key sequentially with one aggregate toast. Both preserve
+ * last-used-board persistence and SSE reconciliation. The two drag species
+ * dispatch by MIME, so the board-list reorder handlers are untouched
+ * fall-through paths.
  *
  * Self-contained via hooks — no props needed; safe to render inside
  * SessionProvider since useBoards() fetches /api/boards directly (cross-server,
@@ -138,6 +143,21 @@ export function BoardsSection() {
                       "windowId" in parsed &&
                       typeof parsed.windowId === "string"
                     ) {
+                      const keys = parseDragSelectionKeys("keys" in parsed ? parsed.keys : undefined);
+                      if (keys !== null) {
+                        void executeSelectionBatch(keys, ({ server, windowId }) =>
+                          pinWindow(server, windowId, b.name),
+                        ).then((result) => {
+                          if (result.failedKeys.length < keys.length) writeLastPinnedBoard(b.name);
+                          const { message, failed } = batchToast(
+                            { success: "Pinned", failure: "Pinned", noun: "tab", qualifier: ` to ${b.name}` },
+                            keys.length,
+                            result,
+                          );
+                          addToast(message, failed ? "error" : undefined);
+                        });
+                        return;
+                      }
                       pin(parsed.server, parsed.windowId, b.name);
                     }
                   }}

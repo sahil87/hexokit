@@ -127,6 +127,7 @@ type WindowRowProps = {
    *  drag's duration (cube/warp animate transforms on child spans, which would
    *  corrupt the drag ghost; the guard is uniform across flairs). */
   isDragSource?: boolean;
+  isDragSetMember?: boolean;
   onDragStart?: (e: React.DragEvent, server: string, session: string, index: number, windowId: string, name: string) => void;
   onDragOver?: (e: React.DragEvent, server: string, session: string, index: number) => void;
   onDrop?: (e: React.DragEvent, server: string, session: string, index: number) => void;
@@ -252,6 +253,7 @@ function WindowRowInner({
   onKillClick,
   draggable = false,
   isDragSource = false,
+  isDragSetMember = false,
   onDragStart,
   onDragOver,
   onDrop,
@@ -769,7 +771,7 @@ function WindowRowInner({
       // (must-fix 4). The `--rk-marker-color` custom property is set here (the
       // overlay's pseudos read it via inheritance). See globals.css § scanlines
       // and docs/specs/themes.md.
-      className={`relative group${ghost ? " opacity-50 animate-pulse" : ""}`}
+      className={`relative group${ghost ? " opacity-50 animate-pulse" : ""}${isDragSetMember ? " opacity-50" : ""}`}
       // The row root is the flyout card's floating REFERENCE (93dy): the card
       // anchors to the whole ROW (placement "right" → the sidebar's right
       // edge), and the reference props wire hover (mouseOnly + safePolygon),

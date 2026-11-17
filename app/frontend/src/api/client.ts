@@ -398,6 +398,20 @@ export async function moveWindow(
   return res.json();
 }
 
+export async function moveWindowsBefore(
+  server: string,
+  windowIds: string[],
+  beforeWindowId: string,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(withServer("/api/windows/move-block", server), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ windowIds, beforeWindowId }),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 export async function moveWindowToSession(
   server: string,
   windowId: string,
