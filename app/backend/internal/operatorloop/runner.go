@@ -238,6 +238,11 @@ func reasonFor(d operator.CheckDelta) string {
 		}
 		sort.Strings(names)
 		detail = strings.Join(names, ",")
+	case operator.DeltaAgentAged:
+		detail = nullable(d.To)
+		if d.Duration != nil {
+			detail += " " + *d.Duration
+		}
 	case operator.DeltaStale, operator.DeltaDue:
 		detail = d.Age
 	case operator.DeltaPaused:

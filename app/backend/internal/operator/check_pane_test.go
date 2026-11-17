@@ -317,6 +317,47 @@ func TestCheck_AgentStateFiresOnlyIntoWaitingOrIdle(t *testing.T) {
 	}
 }
 
+// A waiting or idle state held for 30 minutes is a change once more
+// (agent_aged), then open; a new stretch of the same state can age again.
+func TestCheck_AgentAgedFiresOnceAfterThirtyMinutes(t *testing.T) {
+	e := newCheckEnv(t)
+	e.now = time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	e.seed(paneItem("p", map[string]interface{}{"pane": "%1", "agent": "active"}))
+	row := func(state string, epoch int64) paneRow {
+		return paneRow{PaneID: "%1", Command: "claude", PanePID: 5, AgentState: state, AgentEpoch: epoch}
+	}
+	epoch := e.now.Unix() - 60
+	e.panes["%1"] = row("idle", epoch)
+	wantKinds(t, "into idle", e.run().Changes, "p:agent_state")
+
+	e.now = e.now.Add(28 * time.Minute)
+	wantKinds(t, "idle 29m", e.run().Changes)
+
+	e.now = e.now.Add(2 * time.Minute)
+	res := e.run()
+	wantKinds(t, "idle 31m", res.Changes, "p:agent_aged")
+	if d := res.Changes[0]; d.Pane != "%1" || d.To == nil || *d.To != "idle" || d.Duration == nil || *d.Duration != "31m" {
+		t.Errorf("agent_aged = %+v", d)
+	}
+	again := e.run()
+	wantKinds(t, "still aged changes", again.Changes)
+	wantKinds(t, "still aged open", again.Open, "p:agent_state", "p:agent_aged")
+
+	// A nudge makes it active; the next idle stretch ages again from zero.
+	e.panes["%1"] = row("active", 0)
+	wantKinds(t, "to active", e.run().Changes)
+	e.panes["%1"] = row("idle", e.now.Unix())
+	wantKinds(t, "idle again", e.run().Changes, "p:agent_state")
+	e.now = e.now.Add(30 * time.Minute)
+	wantKinds(t, "idle again 30m", e.run().Changes, "p:agent_aged")
+
+	// Waiting ages the same way; an unknown epoch never ages.
+	e.panes["%1"] = row("waiting", e.now.Unix()-45*60)
+	wantKinds(t, "waiting 45m", e.run().Changes, "p:agent_state", "p:agent_aged")
+	e.panes["%1"] = row("idle", 0)
+	wantKinds(t, "idle with no epoch", e.run().Changes, "p:agent_state")
+}
+
 func TestCheck_UserPausedPaneItemStillConsumesBaselinesButReportsNoCondition(t *testing.T) {
 	e := newCheckEnv(t)
 	it := paneItem("p", map[string]interface{}{"pane": "%404"})

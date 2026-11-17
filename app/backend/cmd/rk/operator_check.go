@@ -147,6 +147,12 @@ func checkDetail(d operator.CheckDelta) string {
 			line += " (" + *d.Duration + ")"
 		}
 		return line
+	case operator.DeltaAgentAged:
+		line := fmt.Sprintf("%s %s", d.Pane, checkNullable(d.To))
+		if d.Duration != nil {
+			line += " for " + *d.Duration
+		}
+		return line
 	case operator.DeltaPaused:
 		return d.Error
 	case operator.DeltaStale:

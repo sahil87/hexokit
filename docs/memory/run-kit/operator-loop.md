@@ -86,7 +86,7 @@ Per run, under `<state home>/operator/runs/<slug>/` (dir 0700, files 0600; `<slu
 
 **Judgment set.** `judgmentSet` is a pure, table-tested function over the changes, the pass result, the ledger and the set of engine-owned ids. An item is judgment when:
 
-- one of its changed reasons is an `agent_state` move to `waiting` or `idle`, `due`, `stale`, `paused`, `unknown_dep`, a `done` whose item has a non-empty `then`, or a pane condition (`pane_death`, `pane_mismatch`, `agent_exited`) on an item whose id is not in the engine file; or
+- one of its changed reasons is an `agent_state` move to `waiting` or `idle`, an `agent_aged` (rendered `agent_aged <state> <duration>`), `due`, `stale`, `paused`, `unknown_dep`, a `done` whose item has a non-empty `then`, or a pane condition (`pane_death`, `pane_mismatch`, `agent_exited`) on an item whose id is not in the engine file; or
 - the pass escalated it; or
 - the ledger item carries a `by: user` or `by: chat` note newer than its last `by: run` note.
 

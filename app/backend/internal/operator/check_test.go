@@ -287,6 +287,7 @@ func TestCheckDelta_MarshalPinsKeysPerKind(t *testing.T) {
 		{CheckDelta{Kind: DeltaPaneDeath, ID: "a", Pane: "%1"}, `{"kind":"pane_death","id":"a","pane":"%1"}`},
 		{CheckDelta{Kind: DeltaStageAdvance, ID: "a", Pane: "%1", From: str("apply"), To: str("review")}, `{"kind":"stage_advance","id":"a","pane":"%1","from":"apply","to":"review"}`},
 		{CheckDelta{Kind: DeltaAgentState, ID: "a", Pane: "%1", To: str("waiting")}, `{"kind":"agent_state","id":"a","pane":"%1","from":null,"to":"waiting","duration":null}`},
+		{CheckDelta{Kind: DeltaAgentAged, ID: "a", Pane: "%1", To: str("idle"), Duration: str("31m")}, `{"kind":"agent_aged","id":"a","pane":"%1","to":"idle","duration":"31m"}`},
 		{CheckDelta{Kind: DeltaStale, ID: "a", Age: "11m"}, `{"kind":"stale","id":"a","age":"11m"}`},
 		{CheckDelta{Kind: DeltaDue, ID: "a", Age: "6m", Instruction: "look"}, `{"kind":"due","id":"a","age":"6m","instruction":"look"}`},
 		{CheckDelta{Kind: DeltaPaused, ID: "a", Error: "boom", Failures: 3, Paused: true}, `{"kind":"paused","id":"a","error":"boom","failures":3,"paused":true}`},

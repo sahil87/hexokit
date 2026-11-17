@@ -11,6 +11,7 @@ answers questions mid-run. Decide, act within the tiers below, record what you d
 - Re-derive state before acting: the brief is a snapshot. Re-read an item with
   `rk operator track list -L <server> --json` and a pane with `rk mux capture -L <server>` before you act on either.
 - Agents govern their own pipeline transitions. Report an unexpected stage factually; never force it.
+  The one transition you make is the post-intake decision for queue items (below).
 - Direct actions are exactly this allowlist: `rk operator track -L <server>` verbs, pane sends/answers/nudges,
   `rk notify`, and `rk operator autopilot queue|step|status -L <server>`.
 - Escalation notes (`escalated: …`) are the engine's: report them, never perform the restack or recovery they name.
@@ -53,20 +54,51 @@ For a `waiting` pane (and an idle pane you suspect is stuck on a prompt):
    `rk mux send -L <server> <pane> --key <name>`. If the send reports `unverified`, capture and decide; never
    blind-resend.
 
-**Strategic prompts are never auto-picked in a run.** A choice with real trade-offs, an open
-question you cannot answer from visible context, or a menu you are unsure about: leave it open,
-send `rk notify`, and write a note naming the pane and the question. If you cannot determine the
-keystrokes, treat it the same way.
+**Strategic prompts** are choices with real trade-offs, open questions, or menus you are unsure
+about. Each one is out-of-band: decide, act, and move on to the next item.
+
+| Strategic prompt | Action | Notify |
+|------------------|--------|--------|
+| A defensible recommendation: one option the item's task, its notes, or the visible context clearly favors (often marked recommended) | Pick it after the re-capture guard; PR review is where the user reverses it | yes, naming the pick and why |
+| No defensible default | Leave it open; write a note naming the pane and the question | yes |
+| You cannot determine the keystrokes | Leave it open for the user; never guess, never auto-default it later | yes |
 
 **Idle auto-default.** A prompt left open and notified by an earlier run (its note says so) gets
-the visibly stated default (`(default: 2)`, `[2]`), else `1`, once the pane's agent-state duration
-shows 30 minutes or more. Never auto-default a prompt you did not leave open, or one you could not
-parse.
+the visibly stated default (`(default: 2)`, `[2]`), else `1`, once the pane has been waiting 30
+minutes or more; the check reports that as `agent_aged waiting <duration>`. Never auto-default a
+prompt you did not leave open, or one you could not parse.
+
+### Queue items that finish their intake
+
+A queue item entered as raw task text starts with `/fab-new` and stops once its intake is ready.
+Nobody advances it but you. When a changed item is a queue item whose agent is `idle` and whose
+change (the item's `scope.change`) is at intake ready, decide what happens next.
+`rk operator autopilot status -L <server> --json` lists queue items with their `task` and
+`stop_stage`. Run the fab reads in the pane's working directory (`fab pane map --all-sessions`
+lists it):
+
+1. `fab status display-stage <change>` prints `intake:ready`; otherwise this rule does not apply.
+2. Read `fab/changes/<change>/intake.md` and check its gate with
+   `fab score --check-gate --stage intake <change>` (read-only; non-zero means below the gate).
+3. Compare the intake with the item's `task` and notes: the same scope, nothing the task excluded,
+   nothing it asked for missing.
+4. Decide:
+   - It matches, the gate passes, and no assumption is unresolved: send `/fab-fff <change>`, or
+     `/fab-ff <change>` when `stop_stage` is `hydrate`. Render the skill with the pane's provider
+     prefix (`fab agent default -o yaml` in that directory prints `skill_prefix`).
+   - `stop_stage` is `intake`: the item is done there; send nothing.
+   - Below the gate, an unresolved or doubtful assumption, or scope drift from the task: leave it at
+     intake, send `rk notify`, and write a note naming what is wrong. A later `by: user` or
+     `by: chat` note on the item tells a run what to do.
+5. Write a note either way, naming the decision and why. Advance an item once: if a run note says
+   it was advanced, do not send again.
 
 ### Stuck agents
 
-An agent that is idle with no prompt and no progress gets at most one nudge, and the nudge is
-recorded in a note. If the notes already show a nudge for that agent, escalate with `rk notify`
+An `agent_aged idle <duration>` reason means the agent has been idle for 30 minutes or more. An
+agent that is idle with no prompt and no progress, and has not finished its work (no finished
+stage, no PR, no final report on screen), gets at most one nudge, and the nudge is recorded in a
+note. If the notes already show a nudge for that agent, escalate with `rk notify`
 instead: "{item} appears stuck at {stage}. Manual investigation recommended."
 
 ### Bounded retries
@@ -74,6 +106,7 @@ instead: "{item} appears stuck at {stage}. Manual investigation recommended."
 | Situation | Retries | Then |
 |-----------|---------|------|
 | Stuck agent nudge | 1 | notify |
+| Post-intake advance | 1 | note and notify |
 | Send to an `active` agent | 0 | skip |
 
 ### Notifications
@@ -116,6 +149,8 @@ pipe a one-entry JSON array to `rk operator autopilot queue -L <server>`; queue 
 - `rk operator autopilot queue|step|status -L <server>`
 - git reads: `git rev-parse`, `git symbolic-ref`, `git merge-base`, `git log`; `test -d`
 - `gh pr view`, `gh pr checks`, `gh repo view`
-- when fab is present: `fab pane map --all-sessions`, reading `.status.yaml`, `fab agent ... -o yaml`
+- when fab is present: `fab pane map --all-sessions`, reading `.status.yaml` and a change's `intake.md`,
+  `fab agent ... -o yaml`, `fab status display-stage|confidence <change>`,
+  `fab score --check-gate --stage intake <change>`
 
 No file-editing tools. Anything outside this list is out of bounds for a run.

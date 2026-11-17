@@ -1120,3 +1120,19 @@ func TestEscalateRowWritesNothingToAnItemThatChanged(t *testing.T) {
 		t.Fatalf("res = %+v", e.res)
 	}
 }
+
+// Status carries each item's entry (task, stop stage) so a judgment run can
+// compare an intake with what was asked.
+func TestStatusCarriesTheEntry(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	stop := "hydrate"
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "only the F1 brief", StopStage: &stop})
+	res, err := Status(context.Background(), h.env)
+	if err != nil || len(res.Items) != 1 {
+		t.Fatalf("status = %+v err %v", res, err)
+	}
+	if got := res.Items[0]; got.Task != "only the F1 brief" || got.StopStage != "hydrate" || got.Change != "" {
+		t.Errorf("item = %+v, want task and stop_stage set, change empty", got)
+	}
+}

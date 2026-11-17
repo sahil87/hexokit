@@ -17,6 +17,8 @@ func TestJudgmentSetReasonKinds(t *testing.T) {
 		{"agent waiting", "agent_state active→waiting", "item", false, true},
 		{"agent idle", "agent_state active→idle", "item", false, true},
 		{"agent active", "agent_state waiting→active", "item", false, false},
+		{"agent aged idle", "agent_aged idle 31m", "item", false, true},
+		{"agent aged waiting on engine work", "agent_aged waiting 45m", "item", true, true},
 		{"due", "due 5m", "item", false, true},
 		{"stale", "stale 2h", "item", false, true},
 		{"paused", "paused exit 1", "item", false, true},
@@ -75,5 +77,23 @@ func TestJudgmentSetEmptyForMechanicalChanges(t *testing.T) {
 	}, nil, &operator.State{}, map[string]bool{"a1": true, "pr-41": true})
 	if len(got) != 0 {
 		t.Fatalf("mechanical changes entered judgment set: %+v", got)
+	}
+}
+
+// reasonFor renders the agent_aged delta as `agent_aged <state> <duration>`,
+// the form the brief rules and the judgment set both read.
+func TestReasonForAgentAged(t *testing.T) {
+	idle, dur := "idle", "31m"
+	cases := []struct {
+		d    operator.CheckDelta
+		want string
+	}{
+		{operator.CheckDelta{Kind: operator.DeltaAgentAged, To: &idle, Duration: &dur}, "agent_aged idle 31m"},
+		{operator.CheckDelta{Kind: operator.DeltaAgentAged, To: &idle}, "agent_aged idle"},
+	}
+	for _, tc := range cases {
+		if got := reasonFor(tc.d); got != tc.want {
+			t.Errorf("reasonFor(%+v) = %q, want %q", tc.d, got, tc.want)
+		}
 	}
 }

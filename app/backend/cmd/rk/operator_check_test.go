@@ -159,6 +159,7 @@ func TestOperatorCheckDetailPerKind(t *testing.T) {
 		{operator.CheckDelta{Kind: operator.DeltaReviewFail, Pane: "%3", From: strp("review"), To: strp("apply")}, "%3 review → apply"},
 		{operator.CheckDelta{Kind: operator.DeltaAgentState, Pane: "%4", From: strp("active"), To: strp("waiting"), Duration: strp("3m")}, "%4 active → waiting (3m)"},
 		{operator.CheckDelta{Kind: operator.DeltaAgentState, Pane: "%4", To: strp("idle")}, "%4 null → idle"},
+		{operator.CheckDelta{Kind: operator.DeltaAgentAged, Pane: "%4", To: strp("waiting"), Duration: strp("31m")}, "%4 waiting for 31m"},
 		{operator.CheckDelta{Kind: operator.DeltaPaused, Error: "paused after 3 consecutive probe failures"}, "paused after 3 consecutive probe failures"},
 		{operator.CheckDelta{Kind: operator.DeltaStale, Age: "20m"}, "20m"},
 		{operator.CheckDelta{Kind: operator.DeltaDue, Age: "6m"}, "6m"},

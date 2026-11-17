@@ -67,6 +67,7 @@ const (
 	DeltaStageAdvance   = "stage_advance"
 	DeltaReviewFail     = "review_fail"
 	DeltaAgentState     = "agent_state"
+	DeltaAgentAged      = "agent_aged"
 	DeltaPaused         = "paused"
 	DeltaStale          = "stale"
 	DeltaDue            = "due"
@@ -169,6 +170,10 @@ func (d CheckDelta) MarshalJSON() ([]byte, error) {
 	case DeltaAgentState:
 		add("pane", d.Pane)
 		add("from", d.From)
+		add("to", d.To)
+		add("duration", d.Duration)
+	case DeltaAgentAged:
+		add("pane", d.Pane)
 		add("to", d.To)
 		add("duration", d.Duration)
 	case DeltaUnknownDep:
