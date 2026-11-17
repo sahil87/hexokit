@@ -59,14 +59,14 @@ about. Each one is out-of-band: decide, act, and move on to the next item.
 
 | Strategic prompt | Action | Notify |
 |------------------|--------|--------|
-| A defensible recommendation: one option the item's task, its notes, or the visible context clearly favors (often marked recommended) | Pick it after the re-capture guard; PR review is where the user reverses it | yes, naming the pick and why |
-| No defensible default | Leave it open; write a note naming the pane and the question | yes |
-| You cannot determine the keystrokes | Leave it open for the user; never guess, never auto-default it later | yes |
+| A defensible recommendation: one option the item's task, its notes, or the visible context clearly favors (often marked recommended), and whose effect lands in the change's PR | Pick it after the re-capture guard; PR review is where the user reverses it | yes, naming the pick and why |
+| No defensible default, or a pick whose effect lands outside a PR | Leave it open; write a note naming the pane and the question | yes, saying it takes the stated default (else `1`) after 30 minutes unless answered |
+| You cannot determine the keystrokes | Leave it open for the user; never guess. Write a note naming the pane and saying `do not auto-default` | yes |
 
 **Idle auto-default.** A prompt left open and notified by an earlier run (its note says so) gets
 the visibly stated default (`(default: 2)`, `[2]`), else `1`, once the pane has been waiting 30
 minutes or more; the check reports that as `agent_aged waiting <duration>`. Never auto-default a
-prompt you did not leave open, or one you could not parse.
+prompt you did not leave open, one a note marks `do not auto-default`, or one you could not parse.
 
 ### Queue items that finish their intake
 
@@ -77,27 +77,30 @@ change (the item's `scope.change`) is at intake ready, decide what happens next.
 `stop_stage`. Run the fab reads in the pane's working directory (`fab pane map --all-sessions`
 lists it):
 
-1. `fab status display-stage <change>` prints `intake:ready`; otherwise this rule does not apply.
-2. Read `fab/changes/<change>/intake.md` and check its gate with
+1. `stop_stage` is `intake`: the item is done there; send nothing and stop.
+2. `fab status display-stage <change>` prints `intake:ready`; otherwise this rule does not apply.
+3. Read `fab/changes/<change>/intake.md` and check its gate with
    `fab score --check-gate --stage intake <change>` (read-only; non-zero means below the gate).
-3. Compare the intake with the item's `task` and notes: the same scope, nothing the task excluded,
+4. Compare the intake with the item's `task` and notes: the same scope, nothing the task excluded,
    nothing it asked for missing.
-4. Decide:
+5. Decide:
    - It matches, the gate passes, and no assumption is unresolved: send `/fab-fff <change>`, or
-     `/fab-ff <change>` when `stop_stage` is `hydrate`. Render the skill with the pane's provider
-     prefix (`fab agent default -o yaml` in that directory prints `skill_prefix`).
-   - `stop_stage` is `intake`: the item is done there; send nothing.
+     `/fab-ff <change>` when `stop_stage` is `hydrate` (any other stop: `/fab-fff`, as the engine
+     sends for a `change` entry). Render the skill with the pane's provider prefix
+     (`fab agent default -o yaml` in that directory prints `skill_prefix`).
    - Below the gate, an unresolved or doubtful assumption, or scope drift from the task: leave it at
      intake, send `rk notify`, and write a note naming what is wrong. A later `by: user` or
      `by: chat` note on the item tells a run what to do.
-5. Write a note either way, naming the decision and why. Advance an item once: if a run note says
-   it was advanced, do not send again.
+6. Write a note either way, naming the decision and why. Advance an item once: if a run note says
+   it was advanced, do not send again. An item a run note says was left at intake stays there
+   until a newer `by: user` or `by: chat` note says what to do; it is not stuck.
 
 ### Stuck agents
 
 An `agent_aged idle <duration>` reason means the agent has been idle for 30 minutes or more. An
 agent that is idle with no prompt and no progress, and has not finished its work (no finished
-stage, no PR, no final report on screen), gets at most one nudge, and the nudge is recorded in a
+stage, no PR, no final report on screen) or been parked on purpose (its `stop_stage`, or a run note
+leaving it at intake), gets at most one nudge, and the nudge is recorded in a
 note. If the notes already show a nudge for that agent, escalate with `rk notify`
 instead: "{item} appears stuck at {stage}. Manual investigation recommended."
 

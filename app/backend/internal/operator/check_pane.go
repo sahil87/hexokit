@@ -21,6 +21,10 @@ const terminusStage = "ship"
 const (
 	stageReview = "review"
 	stageApply  = "apply"
+	stageIntake = "intake"
+	// displayReady is the display state of a stage whose work is finished
+	// and awaits an explicit advance.
+	displayReady = "ready"
 )
 
 // paneRow is one pane of the server snapshot: tmux's own facts, rk's
@@ -295,10 +299,15 @@ func stageFinished(displayState string) bool {
 // stage string; only the display state flips). stop_stage null: at the
 // terminus and finished. stop_stage set: past the stop in stage order, or at
 // it and finished — a finished stop stage auto-activates the next, so equality
-// alone would race the transition.
+// alone would race the transition. An intake stop also completes at intake
+// ready: /fab-new parks there and nothing moves it to done without an explicit
+// pipeline command, so ready cannot race a transition.
 func builtInCompleted(stopStage, stage, displayState string) bool {
 	if stopStage == "" {
 		return stage == terminusStage && stageFinished(displayState)
+	}
+	if stopStage == stageIntake && stage == stageIntake && displayState == displayReady {
+		return true
 	}
 	oi, oStop := stageIndex(stage), stageIndex(stopStage)
 	if oi < 0 || oStop < 0 {
