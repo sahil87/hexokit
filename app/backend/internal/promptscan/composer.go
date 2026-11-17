@@ -72,13 +72,19 @@ func composerPadding(r rune) bool {
 	return unicode.IsSpace(r) || (r >= 0x2500 && r <= 0x257F)
 }
 
-// allDim reports that every non-space rune is dim, allowing one non-dim rune
-// that carries the inverse attribute — the harness's drawn cursor, which
-// tmux renders as an inverse cell over the first suggestion character.
+// allDim reports that at least one rune is dim and every non-space rune is,
+// allowing one non-dim rune that carries the inverse attribute — the
+// harness's drawn cursor, which tmux renders as an inverse cell over the
+// first suggestion character. A lone typed character under that cursor has
+// no dim rune at all and is not ghost.
 func allDim(attrs []cellAttr, text []rune) bool {
-	cursorSeen := false
+	cursorSeen, dimSeen := false, false
 	for i, r := range text {
-		if unicode.IsSpace(r) || attrs[i].dim {
+		if unicode.IsSpace(r) {
+			continue
+		}
+		if attrs[i].dim {
+			dimSeen = true
 			continue
 		}
 		if attrs[i].inverse && !cursorSeen {
@@ -87,7 +93,7 @@ func allDim(attrs []cellAttr, text []rune) bool {
 		}
 		return false
 	}
-	return true
+	return dimSeen
 }
 
 // cellAttr is the attribute state under one visible rune.
@@ -97,21 +103,38 @@ type cellAttr struct{ dim, inverse bool }
 // runes and the attribute state under each. A CSI sequence (`ESC [`,
 // parameter bytes 0x30–0x3F, intermediate bytes 0x20–0x2F, one final byte
 // 0x40–0x7E) is consumed whole and applied only when its final byte is `m`;
-// an OSC (`ESC ]` … BEL or `ESC \`) is consumed whole; any other ESC pair is
-// dropped. SGR parameters: 0 resets, 2 sets dim, 22 clears it, 7 sets
+// an OSC (`ESC ]` … BEL or `ESC \`) is consumed whole; a charset designation
+// (`ESC ( x`, `ESC ) x`) is consumed and `ESC ( 0` / SO select the
+// line-drawing set, under which visible runes are dropped until `ESC ( B` /
+// SI (tmux emits box borders as `SO lqk SI`); other control characters are
+// dropped; any other ESC pair is dropped. SGR parameters: 0 resets, 2 sets dim, 22 clears it, 7 sets
 // inverse, 27 clears it; a 38/48/58 colour selector consumes its
 // sub-parameters (5;n or 2;r;g;b, or the colon form inside one parameter) so a
 // colour index never reads as an attribute.
 func stripEscapes(line string) (plain []rune, attrs []cellAttr) {
 	runes := []rune(line)
 	var state cellAttr
+	lineDrawing := false
 	for i := 0; i < len(runes); i++ {
 		if runes[i] != 0x1b || i+1 >= len(runes) {
-			plain = append(plain, runes[i])
-			attrs = append(attrs, state)
+			switch {
+			case runes[i] == 0x0e:
+				lineDrawing = true
+			case runes[i] == 0x0f:
+				lineDrawing = false
+			case runes[i] < 0x20 || runes[i] == 0x7f || lineDrawing:
+			default:
+				plain = append(plain, runes[i])
+				attrs = append(attrs, state)
+			}
 			continue
 		}
 		switch runes[i+1] {
+		case '(', ')':
+			if i+2 < len(runes) {
+				lineDrawing = runes[i+2] == '0'
+			}
+			i += 2
 		case '[':
 			j := i + 2
 			for j < len(runes) && runes[j] >= 0x30 && runes[j] <= 0x3F {

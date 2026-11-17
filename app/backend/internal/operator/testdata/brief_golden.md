@@ -94,8 +94,8 @@ Before sending keys to any pane:
    - `{text, ghost: false}` with non-empty text: unsubmitted input. Do not send over it; note the
      text and notify.
    - `{text: ""}`: empty; send.
-   - `null`: no composer line was found (a boxed composer, or the capture failed). Read the last
-     lines of the plain capture yourself and send only when the input line is visibly empty.
+   - `null`: no composer line was found, or the capture failed. Read the last lines of the plain
+     capture yourself and send only when the input line is visibly empty.
 
 ### Answering prompts (routine only)
 
