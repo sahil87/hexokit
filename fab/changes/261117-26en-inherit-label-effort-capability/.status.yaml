@@ -9,7 +9,7 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
+    ship: done
     review-pr: pending
 plan:
     generated: true
@@ -33,24 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-11-17T19:15:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-17T19:20:56Z"}
     review: {started_at: "2026-11-17T19:20:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-17T19:26:58Z"}
     hydrate: {started_at: "2026-11-17T19:26:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-17T19:28:50Z"}
-    ship: {started_at: "2026-11-17T19:28:50Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-11-17T19:28:50Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-17T19:34:44Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1154
 base_branch: main
 true_impact:
-    added: 1686
-    deleted: 86
-    net: 1600
+    added: 1804
+    deleted: 88
+    net: 1716
     excluding:
-        added: 882
+        added: 987
         deleted: 83
-        net: 799
+        net: 904
     tests:
         added: 154
         deleted: 2
         net: 152
-    computed_at: "2026-11-17T19:28:50Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-11-17T19:34:44Z"
+    computed_at_stage: ship
 summary: Agents tab inherit label follows fab's fill order (role fill, then the tool's default profile); effort select disabled for tools whose commands lack {effort}
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-17T19:28:50Z
+last_updated: 2026-11-17T19:34:44Z
