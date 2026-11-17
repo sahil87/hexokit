@@ -9,7 +9,7 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
+    ship: done
     review-pr: pending
 plan:
     generated: true
@@ -33,13 +33,14 @@ stage_metrics:
     apply: {started_at: "2026-11-17T18:53:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-17T19:02:13Z"}
     review: {started_at: "2026-11-17T19:02:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-17T19:06:55Z"}
     hydrate: {started_at: "2026-11-17T19:06:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-17T19:07:58Z"}
-    ship: {started_at: "2026-11-17T19:07:58Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-11-17T19:07:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-17T19:10:16Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1153
 base_branch: main
 true_impact:
-    added: 1038
-    deleted: 73
-    net: 965
+    added: 1059
+    deleted: 76
+    net: 983
     excluding:
         added: 638
         deleted: 73
@@ -48,9 +49,9 @@ true_impact:
         added: 34
         deleted: 0
         net: 34
-    computed_at: "2026-11-17T19:07:58Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-11-17T19:10:16Z"
+    computed_at_stage: ship
 summary: 'Agents tab role model cell: inherit-first select listing every model, Custom… free text, stale-pin note with one-click inherit, and tool changes clear model/effort overrides the new tool doesn''t offer'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-17T19:07:58Z
+last_updated: 2026-11-17T19:10:16Z
