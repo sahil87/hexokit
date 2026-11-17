@@ -1689,3 +1689,9 @@ emitted; marker blocks preserve user content byte-exactly) and JSON-merging into
 a foreign copilot file (its hooks dir is one-file-per-source — whole-file
 ownership is the native shape).
 *Introduced by*: `260908-nnqu-fix-agent-neutral-detection`
+
+### `rk skill operator` is exempt from the ≤150-line topic budget
+**Decision**: `TestSkillTopicsWithinLineBudget` skips topics in `skillTopicsOverBudget` — only `operator`. Every other page keeps the budget and the drift guards.
+**Why**: The operator topic is a chat's full operating manual, loaded once per operator session and never aggregated into other agents' context — the standard's cost argument ("every line taxes every conversation that pulls it") does not hold for it, and the budget had cut the plan-execution and status behaviours out of the chat. The `skill` standard in the shll repo needs a matching one-line exemption.
+**Rejected**: raising the budget for every topic (the cost argument holds for the others); a second topic to hold the overflow (the chat's core job would need two pulls).
+*Introduced by*: PR #1148 (direct change, no fab intake)
