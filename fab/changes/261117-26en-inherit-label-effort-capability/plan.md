@@ -101,45 +101,49 @@ The label shown when a leaf inherits an empty value SHALL be `tool default` (was
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `buildRole` falls back to `providers.<p>.profiles.default.<leaf>` for both `Inherited` and the no-row `Effective`/`Source`
-- [ ] A-002 R2: `Document.EffortCapable` exists with one entry per provider, derived from command rows containing `{effort}`
-- [ ] A-003 R3: The effort select is disabled with title "this tool takes no effort setting" for non-capable effective tools; a missing entry counts as capable
-- [ ] A-004 R4: `toolChangePatch` clears effort when the new tool is non-capable
-- [ ] A-005 R5: `INHERIT_FALLBACK` is `"tool default"`
-- [ ] A-006 R6: `FabConfigDocument` declares `effortCapable: Record<string, boolean>`
+- [x] A-001 R1: `buildRole` falls back to `providers.<p>.profiles.default.<leaf>` for both `Inherited` and the no-row `Effective`/`Source`
+- [x] A-002 R2: `Document.EffortCapable` exists with one entry per provider, derived from command rows containing `{effort}`
+- [x] A-003 R3: The effort select is disabled with title "this tool takes no effort setting" for non-capable effective tools; a missing entry counts as capable
+- [x] A-004 R4: `toolChangePatch` clears effort when the new tool is non-capable
+- [x] A-005 R5: `INHERIT_FALLBACK` is `"tool default"`
+- [x] A-006 R6: `FabConfigDocument` declares `effortCapable: Record<string, boolean>` (declared optional per Assumption 4 — Go's `omitempty` drops an empty map)
 
 ### Behavioral Correctness
 
-- [ ] A-007 R1: agy `doing` with a model override reports `inherited: gemini-3.1-pro-high` (previously `""`)
-- [ ] A-008 R3: Reset remains available for a stale effort override on a disabled row and posts the three nulls
+- [x] A-007 R1: agy `doing` with a model override reports `inherited: gemini-3.1-pro-high` (previously `""`)
+- [x] A-008 R3: Reset remains available for a stale effort override on a disabled row and posts the three nulls
 
 ### Scenario Coverage
 
-- [ ] A-009 R1: Go tests cover agy `doing` (override and no-row), agy `fast`, and kimi empty
-- [ ] A-010 R2: Go tests cover the kit-default map and a provider with no command rows
-- [ ] A-011 R3: Unit tests cover disabled, enabled, missing-entry and Reset-on-stale cases; an e2e case covers the disabled select
-- [ ] A-012 R4: Unit tests cover the non-capable (cleared) and capable (kept) patch shapes
+- [x] A-009 R1: Go tests cover agy `doing` (override and no-row), agy `fast`, and kimi empty
+- [x] A-010 R2: Go tests cover the kit-default map and a provider with no command rows
+- [x] A-011 R3: Unit tests cover disabled, enabled, missing-entry and Reset-on-stale cases; an e2e case covers the disabled select
+- [x] A-012 R4: Unit tests cover the non-capable (cleared) and capable (kept) patch shapes (kept shape via the existing claude→codex tool-change tests, which now run with `effortCapable` populated)
 
 ### Edge Cases & Error Handling
 
-- [ ] A-013 R1: For the `default` role the two candidate keys coincide without error
-- [ ] A-014 R2: A provider with neither command reads `false`, not absent
+- [x] A-013 R1: For the `default` role the two candidate keys coincide without error (loop re-checks the same key; harmless)
+- [x] A-014 R2: A provider with neither command reads `false`, not absent
 
 ### Code Quality
 
-- [ ] A-015 Pattern consistency: New code follows naming and structural patterns of surrounding code (constants for key fragments, kind-tagged helpers)
-- [ ] A-016 No unnecessary duplication: Existing utilities reused where applicable (`cellFor`, `valueString`, `contains`, `toolChangePatch`)
-- [ ] A-017 Readability: functions stay short; no god functions added to `Read`/`buildRole`
-- [ ] A-018 No magic strings: `{effort}` and the command leaf names are named constants
-- [ ] A-019 No comment narration: comments state constraints, not history or change IDs
-- [ ] A-020 Tests: every new/changed Playwright `test()` carries a Proves/Steps JSDoc block
-- [ ] A-021 Type narrowing over `as` casts in new frontend code
+- [x] A-015 Pattern consistency: New code follows naming and structural patterns of surrounding code (constants for key fragments, kind-tagged helpers)
+- [x] A-016 No unnecessary duplication: Existing utilities reused where applicable (`cellFor`, `valueString`, `contains`, `toolChangePatch`)
+- [x] A-017 Readability: functions stay short; no god functions added to `Read`/`buildRole`
+- [x] A-018 No magic strings: `{effort}` and the command leaf names are named constants
+- [x] A-019 No comment narration: comments state constraints, not history or change IDs
+- [x] A-020 Tests: every new/changed Playwright `test()` carries a Proves/Steps JSDoc block
+- [x] A-021 Type narrowing over `as` casts in new frontend code
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- None — this change adds new functionality without making existing code redundant
 
 ## Assumptions
 

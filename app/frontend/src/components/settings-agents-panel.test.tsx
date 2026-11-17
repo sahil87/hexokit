@@ -544,6 +544,22 @@ describe("SettingsAgentsPanel", () => {
       await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.doing.effort": "xhigh" }));
     });
 
+    it("a tool change to a tool with {effort} keeps a suggested effort", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      const doc = withRole(makeDoc(), "review", {
+        provider: overridden("codex", "agent.profiles.review.provider"),
+        effort: overridden("high", "agent.profiles.review.effort"),
+      });
+      await renderPanel(doc);
+      fireEvent.change(screen.getByLabelText("review provider"), { target: { value: "claude" } });
+      await waitFor(() =>
+        expect(postFabConfig).toHaveBeenCalledWith({
+          "agent.profiles.review.provider": "claude",
+          "agent.profiles.review.model": null,
+        }),
+      );
+    });
+
     it("a tool change to a tool without {effort} unsets a suggested effort", async () => {
       vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
       const doc = withRole(makeDoc(), "review", {

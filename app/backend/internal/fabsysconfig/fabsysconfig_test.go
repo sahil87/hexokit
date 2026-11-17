@@ -254,6 +254,14 @@ func TestRead_inheritFallsBackToDefaultProfile(t *testing.T) {
 		}
 	})
 
+	t.Run("an empty role fill falls through to default", func(t *testing.T) {
+		doc, _ := New(newFake(t, agyRows(row("providers.agy.profiles.doing.model", `""`, "system", systemPath))...).run).Read(context.Background())
+		doing := roleByName(t, doc, "doing")
+		if doing.Model.Inherited != "gemini-3.1-pro-high" {
+			t.Errorf("doing.model = %+v, want the default fill past an empty role fill", doing.Model)
+		}
+	})
+
 	t.Run("no fills: tool default", func(t *testing.T) {
 		doc, _ := New(newFake(t, agyRows()...).run).Read(context.Background())
 		review := roleByName(t, doc, "review")

@@ -474,12 +474,12 @@ func buildRole(rd roleDef, byKey map[string]showRow) Role {
 }
 
 // fillKey is the provider-table key an unset role leaf inherits: the
-// provider's fill for this role, else its default-profile fill, else "" (the
-// tool's own default applies).
+// provider's non-empty fill for this role, else its non-empty default-profile
+// fill, else "" (the tool's own default applies) — fab skips empty fills too.
 func fillKey(byKey map[string]showRow, provider, role, leaf string) string {
 	for _, profile := range []string{role, defaultProfile} {
 		key := providersKeyPrefix + provider + providerProfileInfix + profile + "." + leaf
-		if _, ok := byKey[key]; ok {
+		if r, ok := byKey[key]; ok && valueString(r.Value) != "" {
 			return key
 		}
 	}
