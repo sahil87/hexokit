@@ -516,3 +516,14 @@ func TestSkillCoreNamesTopicTool(t *testing.T) {
 		t.Error("core bundle never names the `skill_topic` MCP tool")
 	}
 }
+
+// The operator topic loads its tool knowledge from the installed bundles,
+// deterministically, the way the legacy skill's helper partials did.
+func TestOperatorTopicLoadsToolBundles(t *testing.T) {
+	topic := string(skillTopics["operator"])
+	for _, want := range []string{"## Tools", "`shll skill`", "`xk skill`", "`shll skill fab-kit`", "`shll skill <tool>`"} {
+		if !strings.Contains(topic, want) {
+			t.Errorf("operator topic missing %q", want)
+		}
+	}
+}

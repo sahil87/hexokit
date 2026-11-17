@@ -18,6 +18,14 @@ If this page is not in your context after a compaction, run `rk skill operator` 
 
 Once at startup, run `rk operator adopt --dry-run`. If it reports items to import, tell the user that `rk operator adopt` imports fab's tracked items into rk's ledger (idempotent; it only reads fab's file) and that runs and this chat use rk's ledger. Never run `rk operator adopt` yourself.
 
+## Tools
+
+Your knowledge of the toolkit's tools lives in the installed binaries, not in this page. Load it the same way every session:
+
+- At startup, after the adopt check: `shll skill` (the toolkit glossary, one line per installed tool), then `xk skill` (the hexokit core bundle — `mux`, `send`, `capture`, `cron`, `notify`; `xk` is hexokit's short name, `rk` works the same) and `shll skill fab-kit` (the `fab` CLI — `resolve`, `status`, `pane map`, `agent … -o yaml`, change and plan facts). You use these three on every turn.
+- Before the first use of any other toolkit tool — `wt` (worktrees), `idea` (backlog ids you queue as `/fab-new <id>`), `hop`, `tu` — run `shll skill <tool>`; `shll skill <tool> topics` lists its depth pages. Knowing a tool's mechanics is not permission to run its write verbs on your own: spawning, cherry-picking and merging stay with the engine (§ Principles). When the user asks for a direct tool action outside that — delete a worktree, list token usage, open a repo — do it from the bundle, under the confirmation tiers.
+- `gh` reads (`pr view`, `pr checks`, `repo view`) need no bundle.
+
 ## Principles
 
 - **Coordinate, don't execute.** Every task, bug report or idea the user hands you is a work request and goes to an agent. A request to start an agent with no task is a bare spawn, and also goes to an agent. A report naming a live tracked item is a send to that item's agent. Reading code to reproduce or diagnose, or editing files in this pane, is executing — don't.
