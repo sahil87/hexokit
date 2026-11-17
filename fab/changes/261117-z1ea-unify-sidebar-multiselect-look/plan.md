@@ -96,43 +96,47 @@ When there is no open tab (`currentWindowId` null, or its key not in the live da
 
 ### Functional Completeness
 
-- [ ] A-001 R1: Bulk-selected rows render `tint.selected` / gray-sentinel selected tint, `font-medium`, `text-text-primary`, and the coarse rail selected band; no selection box-shadow ring exists in `window-row.tsx`
-- [ ] A-002 R2: `aria-current` follows the URL selection and `aria-selected` follows set membership, emitted only when `onRowClick` is wired
-- [ ] A-003 R3: Cmd/Ctrl-click, Shift-click, and `x` with an empty store and a live open tab seed the open tab before applying the gesture
-- [ ] A-004 R4: Cmd-click or `x` on the open tab with an empty store is consumed and leaves the store empty
-- [ ] A-005 R5: Without an open tab, or with a non-empty store, gestures behave as before; plain click navigates and clears
+- [x] A-001 R1: Bulk-selected rows render `tint.selected` / gray-sentinel selected tint, `font-medium`, `text-text-primary`, and the coarse rail selected band; no selection box-shadow ring exists in `window-row.tsx`
+- [x] A-002 R2: `aria-current` follows the URL selection and `aria-selected` follows set membership, emitted only when `onRowClick` is wired
+- [x] A-003 R3: Cmd/Ctrl-click, Shift-click, and `x` with an empty store and a live open tab seed the open tab before applying the gesture
+- [x] A-004 R4: Cmd-click or `x` on the open tab with an empty store is consumed and leaves the store empty
+- [x] A-005 R5: Without an open tab, or with a non-empty store, gestures behave as before; plain click navigates and clears
 
 ### Behavioral Correctness
 
-- [ ] A-006 R1: With a non-empty store, the open tab is highlighted only if it is in the set
-- [ ] A-007 R3: Shift-click from an empty store ranges from the open tab and keeps the anchor on it
+- [x] A-006 R1: With a non-empty store, the open tab is highlighted only if it is in the set
+- [x] A-007 R3: Shift-click from an empty store ranges from the open tab and keeps the anchor on it
 
 ### Scenario Coverage
 
-- [ ] A-008 R3: Unit tests cover seeding on Cmd-click, Shift-click, and `x`; e2e covers Cmd-click-while-viewing → `2 selected`
-- [ ] A-009 R1: Unit/e2e tests assert the ring is absent and the selected treatment is applied to set members
-- [ ] A-010 R4: A test covers the open-tab no-op
+- [x] A-008 R3: Unit tests cover seeding on Cmd-click, Shift-click, and `x`; e2e covers Cmd-click-while-viewing → `2 selected`
+- [x] A-009 R1: Unit/e2e tests assert the ring is absent and the selected treatment is applied to set members
+- [x] A-010 R4: A test covers the open-tab no-op
 
 ### Edge Cases & Error Handling
 
-- [ ] A-011 R3: A ghost/absent open tab (key not in live data keys) is never seeded
-- [ ] A-012 R5: Cross-server: an open tab on server X plus a Cmd-click on server Y yields a two-key cross-server set
+- [x] A-011 R3: A ghost/absent open tab (key not in live data keys) is never seeded
+- [x] A-012 R5: Cross-server: an open tab on server X plus a Cmd-click on server Y yields a two-key cross-server set
 
 ### Code Quality
 
-- [ ] A-013 Pattern consistency: New code follows naming and structural patterns of surrounding code (identity-arg stable callbacks, pure logic in `lib/selection.ts`)
-- [ ] A-014 No unnecessary duplication: Existing selection utilities (`rangeBetween`, `selectionKey`, store actions) reused
-- [ ] A-015 Render performance: `WindowRow` receives only a boolean `selectionActive`, never the selection Set; memo contract intact
-- [ ] A-016 Type narrowing over `as` casts in new frontend code
-- [ ] A-017 No comment narration or change-id citations in new comments; the obsolete ring comment is removed
-- [ ] A-018 PR evidence: a `just demo` recording exists for the UI change
-- [ ] A-019 Tests cover the changed behavior; `npx tsc --noEmit` and the touched unit/e2e suites pass
+- [x] A-013 Pattern consistency: New code follows naming and structural patterns of surrounding code (identity-arg stable callbacks, pure logic in `lib/selection.ts`)
+- [x] A-014 No unnecessary duplication: Existing selection utilities (`rangeBetween`, `selectionKey`, store actions) reused
+- [x] A-015 Render performance: `WindowRow` receives only a boolean `selectionActive`, never the selection Set; memo contract intact
+- [x] A-016 Type narrowing over `as` casts in new frontend code
+- [x] A-017 No comment narration or change-id citations in new comments; the obsolete ring comment is removed
+- [x] A-018 PR evidence: a `just demo` recording exists for the UI change
+- [x] A-019 Tests cover the changed behavior; `npx tsc --noEmit` and the touched unit/e2e suites pass
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+None — this change adds new functionality without making existing code redundant (the one obsolete piece, the render-time `selectionAnchor` subscription in `sidebar/index.tsx`, was already removed in the diff).
 
 ## Assumptions
 
