@@ -18,6 +18,13 @@ import (
 // contract, not a suggestion.
 const skillLineBudget = 150
 
+// skillTopicsOverBudget are topics exempt from skillLineBudget. The operator
+// topic is the operator chat's whole operating manual: one session per tmux
+// server loads it once, it is never pulled into other agents' conversations,
+// and cutting it to the budget removed the plan and status behaviours the
+// chat needs. The shll `skill` standard records the exemption.
+var skillTopicsOverBudget = map[string]bool{"operator": true}
+
 const tutorialPublicPath = "tutorial/"
 
 // Core and topic invocations print their embedded content byte-for-byte.
@@ -131,7 +138,7 @@ func TestSkillTopicsWithinLineBudget(t *testing.T) {
 		{name: tutorialTopicName, content: skillTutorialTopic},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if lines := countLines(tc.content); lines > skillLineBudget {
+			if lines := countLines(tc.content); lines > skillLineBudget && !skillTopicsOverBudget[tc.name] {
 				t.Errorf("%s skill content is %d lines, over the %d-line budget", tc.name, lines, skillLineBudget)
 			}
 		})

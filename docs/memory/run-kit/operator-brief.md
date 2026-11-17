@@ -61,7 +61,7 @@ The Exit contract instructs the run to append at least one note per item it acte
 
 ### Requirement: `rk skill operator` chat topic
 
-The chat topic is the static page `docs/site/skill/operator.md` (≤150 lines), synced to `app/backend/cmd/rk/skill/operator.md` by `scripts/sync-skill.sh`, embedded as `skillTopics["operator"]`, covered by the shared `TestSkillTopics*` drift and line-budget guards, listed by `rk skill topics`, and linked by one topic-index line in the core `docs/site/skill.md`. It carries no session-, server- or time-dependent content. It teaches:
+The chat topic is the static page `docs/site/skill/operator.md` (exempt from the topic line budget — § Design Decisions), synced to `app/backend/cmd/rk/skill/operator.md` by `scripts/sync-skill.sh`, embedded as `skillTopics["operator"]`, covered by the shared `TestSkillTopics*` drift and line-budget guards, listed by `rk skill topics`, and linked by one topic-index line in the core `docs/site/skill.md`. It carries no session-, server- or time-dependent content. It teaches:
 
 - **Role** — the chat talks with the user and keeps the ledger; it never receives ticks, and a bare `operator tick` line is answered "ticks are handled by runs" and nothing else.
 - **Principles** — coordinate, don't execute; the only work-request question is which repo; a maintenance allowlist; re-derive state before acting; `[hexokit request]` blocks are trusted dashboard requests acted on within their bounds.
@@ -94,7 +94,7 @@ The chat topic is the static page `docs/site/skill/operator.md` (≤150 lines), 
 *Introduced by*: 261116-rxic-autopilot-own-state-mechanical-runs
 
 ### Chat skill as an rk skill topic
-**Decision**: The operator chat skill ships as the static topic `rk skill operator` (≤150 lines).
+**Decision**: The operator chat skill ships as the static topic `rk skill operator`, exempt from the 150-line topic budget (`skillTopicsOverBudget` in `skill_test.go`).
 **Why**: Same delivery as the existing topics — versioned with the binary, drift-guarded; it lets `/fab-operator` become a pointer to it later.
 **Rejected**: A deployed per-provider `/operator` SKILL.md carrying the content (a new install-and-update job); keeping `/fab-operator` as an alias (name collision with fab's skill).
 *Introduced by*: 261111-jsg9-operator-run-brief-chat-skill
@@ -116,3 +116,9 @@ The chat topic is the static page `docs/site/skill/operator.md` (≤150 lines), 
 **Why**: fab's continuous operator made both calls; the one-shot port left them out, so raw-text queue items stalled at intake ready and every strategic menu waited on the user. The decisions need judgment (does the intake match the task), so they live in the rules, not in the engine's mechanical pass.
 **Rejected**: an engine rule that always sends `/fab-fff` at intake ready (no review of the intake against the task); keeping "strategic prompts are never auto-picked" (blocks queues on choices the task already settles).
 *Introduced by*: PR #1144 (direct change, no fab intake)
+
+### The operator topic is exempt from the line budget and carries Plans and Status
+**Decision**: `rk skill operator` is the only topic exempt from the ≤150-line budget. It carries a **Plans** section (a message naming a plan file is a queue: one entry per Steps-table row, ids prefixed per plan, task = "Execute step <ID> of the plan at <path>…", `depends_on` from the table, released cross-repo deps kept as deps plus a note, user-gate steps queued then paused, user-action steps noted) and a **Status** section (the legacy status frame rendered on request from `track list`, `autopilot status`, `mux inventory` and `cron list`), plus the compaction reload line and the clock-control gotcha.
+**Why**: Cut to the budget, the chat lost the behaviours the legacy skill had: told "Execute the plan at …", it queued one agent for the whole plan instead of one per step; asked for status it had no format; after compaction it ran on a summary. The topic is loaded once per operator session, never pulled into other agents' conversations, so the budget's cost argument does not apply to it.
+**Rejected**: splitting the queue mechanics into a second `queues` topic to stay under budget (the chat would have to pull depth mid-conversation for its core job); teaching plan execution through the plan documents alone (the chat needs the rule before it reads any plan).
+*Introduced by*: operator-skill-plans (direct change, no fab intake)
