@@ -295,7 +295,7 @@ func TestOperatorStart_ExecFailureCarriesStderrLine(t *testing.T) {
 	fetcher := &mockSessionFetcher{result: []sessions.ProjectSession{{Name: "s1"}}}
 	router := NewTestRouter(slog.New(slog.NewTextHandler(io.Discard, nil)), fetcher, &mockTmuxOps{}, "test-host")
 	stubOperatorStartRun(t, func(ctx context.Context, argv []string, onExit operatorStartExitFn) (operatorStartReceipt, string, error) {
-		return operatorStartReceipt{}, "\nrun-kit operator: fab not found on PATH — install fab\nsecond line\n", errors.New("exit status 1")
+		return operatorStartReceipt{}, "\nrun-kit operator: tmux list-windows failed: exit status 1\nsecond line\n", errors.New("exit status 1")
 	})
 
 	rec, req := operatorStartRequest("default")
@@ -304,7 +304,7 @@ func TestOperatorStart_ExecFailureCarriesStderrLine(t *testing.T) {
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, want 502; body=%s", rec.Code, rec.Body.String())
 	}
-	if body := decodeOperatorStartBody(t, rec); body["error"] != "run-kit operator: fab not found on PATH — install fab" {
+	if body := decodeOperatorStartBody(t, rec); body["error"] != "run-kit operator: tmux list-windows failed: exit status 1" {
 		t.Errorf("error = %q, want the first non-empty stderr line", body["error"])
 	}
 }
@@ -365,7 +365,7 @@ func TestRunOperatorStartExec(t *testing.T) {
 
 	t.Run("a non-zero exit without a receipt surfaces stderr", func(t *testing.T) {
 		dir := t.TempDir()
-		testutil.WriteStub(t, dir, "rk", "#!/bin/sh\necho 'run-kit operator: fab not found on PATH' >&2\nexit 1\n")
+		testutil.WriteStub(t, dir, "rk", "#!/bin/sh\necho 'run-kit operator: tmux list-windows failed: exit status 1' >&2\nexit 1\n")
 		_, stderr, err := runOperatorStartExec(context.Background(), []string{filepath.Join(dir, "rk")}, nil)
 		if err == nil {
 			t.Fatal("err = nil, want the non-zero exit")
@@ -373,7 +373,7 @@ func TestRunOperatorStartExec(t *testing.T) {
 		if errors.Is(err, errOperatorStartTimeout) {
 			t.Errorf("err = %v, must not be the timeout sentinel", err)
 		}
-		if !strings.Contains(stderr, "fab not found on PATH") {
+		if !strings.Contains(stderr, "tmux list-windows failed: exit status 1") {
 			t.Errorf("stderr = %q, want the script's error line", stderr)
 		}
 	})

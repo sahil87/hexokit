@@ -688,8 +688,9 @@ func runAgentSetup(sink outputSink, in io.Reader, uninstall bool, cons consent) 
 	// location is deliberately not trusted (a dev-worktree `bin/rk agent setup`
 	// must still point the launcher at the installed Homebrew binary). A declined
 	// or foreign pointer never blocks the hooks — the wrapper's second path
-	// (rkPath) covers a missing launcher. On uninstall the pointer comes off LAST,
-	// after the hooks and the gui block that reference it.
+	// (rkPath) covers a missing launcher. On uninstall the pointer comes off
+	// after the hooks and the gui block that reference it (only the operator
+	// skill, which does not, follows).
 	pointerState := guiPointerDeclined
 	if !uninstall {
 		target := rkPath

@@ -642,11 +642,11 @@ describe("startOperator", () => {
   it("rejects a 502 with the server's message", async () => {
     mswServer.use(
       http.post("/api/operator/start", () =>
-        HttpResponse.json({ error: "run-kit operator: fab not found on PATH" }, { status: 502 }),
+        HttpResponse.json({ error: "run-kit operator: tmux list-windows failed: exit status 1" }, { status: 502 }),
       ),
     );
     await expect(startOperator("default")).rejects.toThrow(
-      "run-kit operator: fab not found on PATH",
+      "run-kit operator: tmux list-windows failed: exit status 1",
     );
   });
 });

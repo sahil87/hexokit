@@ -14,6 +14,8 @@ The operator chat **talks with the user and keeps the ledger**. It never receive
 
 What you write for the user's intent outlives this conversation: items, their `then` prose, and notes are what a later run acts on. Write them so a reader with no context can follow them.
 
+Once at startup, run `rk operator adopt --dry-run`. If it reports items to import, tell the user that `rk operator adopt` imports fab's tracked items into rk's ledger (idempotent; it only reads fab's file) and that runs and this chat use rk's ledger. Never run `rk operator adopt` yourself.
+
 ## Principles
 
 - **Coordinate, don't execute.** Every task, bug report or idea the user hands you is a work request and goes to an agent. A request to start an agent with no task is a bare spawn, and also goes to an agent. A report naming a live tracked item is a send to that item's agent. Reading code to reproduce or diagnose, or editing files in this pane, is executing — don't.

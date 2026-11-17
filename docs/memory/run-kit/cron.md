@@ -546,7 +546,7 @@ Inside a tmux pane, `add` SHALL store `created_by: {pane: $TMUX_PANE, at: now}`,
 
 ### No delivery on the respawn tick
 **Decision**: a successful respawn appends `respawned` and delivers nothing that tick; the entry's payload lands on the next resolved fire via the ordinary `Fires` branch.
-**Why**: `if_absent: respawn` runs only when target resolution already failed, so every respawn is first contact with a fresh session that has no tick convention in context; the respawn command's own kickoff (for the operator, the `/fab-operator` prompt `rk operator` types) is the first contact, and the kickoff-vs-payload distinction falls out of the branch split for free — no has-kicked-off bookkeeping exists.
+**Why**: `if_absent: respawn` runs only when target resolution already failed, so every respawn is first contact with a fresh session that has no tick convention in context; the respawn command's own kickoff (for the operator, the `/operator` kickoff `rk operator` types) is the first contact, and the kickoff-vs-payload distinction falls out of the branch split for free — no has-kicked-off bookkeeping exists.
 **Rejected**: a persisted kicked-off flag on the entry or in a sidecar (an intent file is the wrong place for a runtime fact, and the branch split already encodes it).
 *Introduced by*: 260909-upt2-cron-decoupling-mute-lease
 
@@ -730,7 +730,7 @@ Inside a tmux pane, `add` SHALL store `created_by: {pane: $TMUX_PANE, at: now}`,
 *Introduced by*: 260907-1jm6-cron-api-derivations
 
 ### The loop entry, not last_tick_at, is the watchdog once it exists
-**Decision**: when the server's cron file holds a `run: operator-loop` entry, `internal/sessions.operatorLoopLiveness` supplies the watchdog: `OperatorLastTickAt` is the entry's newest delivery (`DeriveEntry`'s `LastFired`) and `OperatorStale` is true only when its next due fire (`DeriveEntry`'s `NextFire`, the `LoopLadder` math) is overdue by more than `DefaultWatchlistStaleThreshold`; an effectively-muted entry is never stale. Without a loop entry the state file's `last_tick_at` rule stands.
+**Decision**: when the server's cron file holds a `run: operator-loop` entry, `internal/sessions.operatorLoopLiveness` supplies the watchdog: `OperatorLastTickAt` is the entry's newest delivery (`DeriveEntry`'s `LastFired`) and `OperatorStale` is true only when its next due fire (`DeriveEntry`'s `NextFire`, the `LoopLadder` math) is overdue by more than `DefaultWatchlistStaleThreshold`. Two states are never stale: an effectively-muted entry, and a run in flight (a launch writes no line and the evaluator skips the entry while the run window lives, so a run longer than the threshold would otherwise look overdue) — the run-window probe (`tmux.ListOperatorRunWindows`) runs only when the entry would read stale, and a failed probe keeps the stale verdict. The parsed entries file and log are cached per server on (mtime, size), so a fetch re-parses only after a write. Without a loop entry the state file's `last_tick_at` rule stands.
 **Why**: rk's operator state file never carries `last_tick_at`, so after adopt the old rule read 0 and the banner could never show; and the loop's ladder idles up to 24m, so "last fire older than 15m" would flag a healthy idle loop.
 **Rejected**: writing `last_tick_at` into rk's state file on every fire (a write per tick for a fact the delivery log already holds); a fixed age threshold above the ladder max (couples the watchdog to one seed's max).
 *Introduced by*: PR #1143 (direct change, no fab intake)

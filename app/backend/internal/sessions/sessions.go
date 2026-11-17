@@ -882,7 +882,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 	var operatorStale bool
 	var operatorTracked *[]OperatorTrackedItem
 	if state, present := ReadOperatorStateForServer(ctx, server); present {
-		if lastFired, stale, ok := operatorLoopLivenessFn(server, now); ok {
+		if lastFired, stale, ok := operatorLoopLivenessFn(ctx, server, now); ok {
 			operatorLastTickAt, operatorStale = lastFired, stale
 		} else {
 			operatorLastTickAt = state.LastTickAt

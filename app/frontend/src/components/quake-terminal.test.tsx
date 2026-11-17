@@ -455,7 +455,7 @@ describe("QuakeTerminal", () => {
 
   it("surfaces a start failure inline and re-arms the button", async () => {
     mockStartOperator.mockRejectedValue(
-      new ApiError("run-kit operator: fab not found on PATH", 502),
+      new ApiError("run-kit operator: tmux list-windows failed: exit status 1", 502),
     );
     renderQuake({
       sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({ windowId: "@1" })] }]]]),
@@ -466,7 +466,7 @@ describe("QuakeTerminal", () => {
 
     const errorLine = await screen.findByTestId("quake-terminal-start-error");
     expect(errorLine).toHaveAttribute("role", "alert");
-    expect(errorLine).toHaveTextContent("run-kit operator: fab not found on PATH");
+    expect(errorLine).toHaveTextContent("run-kit operator: tmux list-windows failed: exit status 1");
     expect(screen.getByTestId("quake-terminal-start-operator")).toBeEnabled();
     expect(screen.getByTestId("quake-terminal-start-operator")).toHaveTextContent("Start operator");
   });
@@ -617,14 +617,14 @@ describe("QuakeTerminal", () => {
     fireEvent.change(picker, { target: { value: "b" } });
 
     await act(async () => {
-      rejectStart(new ApiError("run-kit operator: fab not found on PATH", 502));
+      rejectStart(new ApiError("run-kit operator: tmux list-windows failed: exit status 1", 502));
     });
     expect(screen.queryByTestId("quake-terminal-start-error")).toBeNull();
     expect(screen.getByTestId("quake-terminal-start-operator")).toBeEnabled();
 
     fireEvent.change(picker, { target: { value: "a" } });
     expect(screen.getByTestId("quake-terminal-start-error")).toHaveTextContent(
-      "run-kit operator: fab not found on PATH",
+      "run-kit operator: tmux list-windows failed: exit status 1",
     );
     const onA = screen.getByTestId("quake-terminal-start-operator");
     expect(onA).toBeEnabled();
@@ -685,7 +685,7 @@ describe("QuakeTerminal", () => {
       expect(screen.queryByTestId("quake-terminal-start-error")).toBeNull();
 
       await act(async () => {
-        rejectFirst(new ApiError("run-kit operator: fab not found on PATH", 502));
+        rejectFirst(new ApiError("run-kit operator: tmux list-windows failed: exit status 1", 502));
       });
       expect(screen.getByTestId("quake-terminal-start-operator")).toBeDisabled();
       expect(screen.getByTestId("quake-terminal-start-operator")).toHaveTextContent("starting…");
