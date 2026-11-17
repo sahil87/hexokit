@@ -95,43 +95,47 @@ Changing a role's provider SHALL send one patch. The new effective tool is `v ??
 
 ### Functional Completeness
 
-- [ ] A-001 R1: The model cell is a `<select>` with options inherit → suggestions → non-suggested override → `Custom…`, and inherit/suggestion picks POST `null`/the id
-- [ ] A-002 R2: `Custom…` swaps to a text input that commits on Enter/blur (empty → null) and returns to the list on success or Escape
-- [ ] A-003 R3: A stale pin renders the inline note with the per-tool wording and a button that POSTs `null`
-- [ ] A-004 R4: Provider changes send one patch that keeps model/effort only when the new tool offers them, and only the provider key when the effective tool doesn't change
+- [x] A-001 R1: The model cell is a `<select>` with options inherit → suggestions → non-suggested override → `Custom…`, and inherit/suggestion picks POST `null`/the id
+- [x] A-002 R2: `Custom…` swaps to a text input that commits on Enter/blur (empty → null) and returns to the list on success or Escape
+- [x] A-003 R3: A stale pin renders the inline note with the per-tool wording and a button that POSTs `null`
+- [x] A-004 R4: Provider changes send one patch that keeps model/effort only when the new tool offers them, and only the provider key when the effective tool doesn't change
 
 ### Behavioral Correctness
 
-- [ ] A-005 R1: With a saved override, every suggestion is still listed (the datalist filter bug is gone)
+- [x] A-005 R1: With a saved override, every suggestion is still listed (the datalist filter bug is gone)
 
 ### Removal Verification
 
-- [ ] A-006 R3: The ⚠ `model not in the provider's suggestions` marker and the `<datalist>` are gone, with no dead code
+- [x] A-006 R3: The ⚠ `model not in the provider's suggestions` marker and the `<datalist>` are gone, with no dead code
 
 ### Scenario Coverage
 
-- [ ] A-007 R1: Unit tests cover each option kind, and the e2e spec covers set → re-mount → full list
-- [ ] A-008 R4: Unit tests cover cleared, kept, inherit-vs-depth-knob and same-tool patch shapes
+- [x] A-007 R1: Unit tests cover each option kind, and the e2e spec covers set → re-mount → full list
+- [x] A-008 R4: Unit tests cover cleared, kept, inherit-vs-depth-knob and same-tool patch shapes
 
 ### Edge Cases & Error Handling
 
-- [ ] A-009 R3: No note when suggestions are empty or no override exists; the `(not offered)` suffix is omitted for an empty list
-- [ ] A-010 R2: A failed custom commit keeps the input and draft and shows the error; Escape does not close the dialog
+- [x] A-009 R3: No note when suggestions are empty or no override exists; the `(not offered)` suffix is omitted for an empty list
+- [x] A-010 R2: A failed custom commit keeps the input and draft and shows the error; Escape does not close the dialog
 
 ### Code Quality
 
-- [ ] A-011 Pattern consistency: New code follows the panel's existing patterns (`useRowWrite`, `useTextSettingDraft`, `RoleSelect` styling, `profileKey`)
-- [ ] A-012 No unnecessary duplication: The inherit-value rule is shared between the select label and the stale note
-- [ ] A-013: Frontend uses type narrowing over `as` casts in new code
-- [ ] A-014: No magic strings — sentinel option values are named constants
-- [ ] A-015: Comments state constraints only; no narration or change IDs
-- [ ] A-016: The new e2e test carries a Proves/Steps JSDoc block
+- [x] A-011 Pattern consistency: New code follows the panel's existing patterns (`useRowWrite`, `useTextSettingDraft`, `RoleSelect` styling, `profileKey`)
+- [x] A-012 No unnecessary duplication: The inherit-value rule is shared between the select label and the stale note
+- [x] A-013: Frontend uses type narrowing over `as` casts in new code
+- [x] A-014: No magic strings — sentinel option values are named constants
+- [x] A-015: Comments state constraints only; no narration or change IDs
+- [x] A-016: The new e2e test carries a Proves/Steps JSDoc block
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- None — this change adds new functionality without making existing code redundant (the replaced `RoleModelInput`, its `<datalist>` and the ⚠ `mismatch` marker were already removed in the diff; `inheritedLabel`, `roleSelectClass` and `useTextSettingDraft`'s `onKeyDown` all keep live callers)
 
 ## Assumptions
 
