@@ -9,7 +9,7 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
+    ship: done
     review-pr: pending
 plan:
     generated: true
@@ -33,13 +33,14 @@ stage_metrics:
     apply: {started_at: "2026-11-17T17:16:35Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-17T17:24:16Z"}
     review: {started_at: "2026-11-17T17:24:16Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-17T17:29:39Z"}
     hydrate: {started_at: "2026-11-17T17:29:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-17T17:31:41Z"}
-    ship: {started_at: "2026-11-17T17:31:41Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-11-17T17:31:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-17T17:33:42Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1151
 base_branch: 261117-z1ea-unify-sidebar-multiselect-look
 true_impact:
-    added: 1630
-    deleted: 43
-    net: 1587
+    added: 1654
+    deleted: 48
+    net: 1606
     excluding:
         added: 1226
         deleted: 43
@@ -48,9 +49,9 @@ true_impact:
         added: 536
         deleted: 1
         net: 535
-    computed_at: "2026-11-17T17:31:41Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-11-17T17:33:42Z"
+    computed_at_stage: ship
 summary: 'Drag a multi-selected sidebar tab set together: set payload/drag image, group/between-rows/board drop semantics, cross-server refusal toast, POST /api/windows/move-block, move-to-session SSE wake, shared executeSelectionMove'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-17T17:31:41Z
+last_updated: 2026-11-17T17:33:42Z
