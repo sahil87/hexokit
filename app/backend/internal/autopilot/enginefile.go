@@ -290,8 +290,12 @@ func applyEngineItem(dst *engineItem, src operator.TrackedItem, projected bool) 
 // to the change name, so the engine's own `branch` goes stale while the check
 // records the real one under the change id in branch_map. Resolving it here
 // means every reader of the view (respawn, cherry-pick sources, status, the
-// projection write-back) sees the branch git has, and the engine file keeps
-// only what it decided at spawn.
+// projection write-back) sees the branch git has. The engine file is not
+// written by the overlay itself, but the item's next guarded write copies the
+// view's change and branch into it (engineItemFromTracked); the stored change
+// then fixes the item's change for good, while branch keeps re-deriving from
+// branch_map on every view. stage is never stored. Ending that side effect is
+// the agent-event-log plan's step E4.
 func overlayPaneFacts(it *operator.TrackedItem, p operator.TrackedItem, branchMap map[string]operator.BranchMapEntry) {
 	change := operator.ScopeString(it.Scope, "change")
 	if change == "" {
