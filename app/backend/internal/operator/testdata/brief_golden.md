@@ -85,6 +85,10 @@ Before sending keys to any pane:
    - `waiting`: only an answer (`rk mux send -L work --answer`).
    - `active`: do not send. Never use `--force`. Check again on a later run.
    - unknown (`—`, uninstrumented): do not send unattended; note it and notify.
+3. The composer. `rk mux capture -L work <pane> --lines 40 --classify --json` reports `composer`
+   `{text, ghost}`. `ghost: true` is the harness's own dim suggestion (its `Next:` hint), not
+   input: send normally — the send types over it. `ghost: false` text with the agent idle is
+   something unsubmitted: do not send over it; note the text and notify.
 
 ### Answering prompts (routine only)
 

@@ -59,8 +59,12 @@ var muxCaptureCmd = &cobra.Command{
 		"--classify scans the captured text for a pending prompt (yes/no, numbered " +
 		"menu, colon prompt, open question, press-key) and reports the indicator " +
 		"class with the matched line, or none with a reason — as a question: header " +
-		"line, or a questions object under --json. Any pane classifies regardless of " +
-		"agent state; rk never answers. Not combinable with --raw.\n\n" +
+		"line, or a questions object under --json. It also reads the composer (the " +
+		"harness's input line) from an attribute-preserving capture: a composer object " +
+		"{text, ghost} under --json, a composer: line otherwise — ghost means the text is " +
+		"rendered dim, the harness's own suggestion and not typed input, so a send types " +
+		"over it. Any pane classifies regardless of agent state; rk never answers. " +
+		"Not combinable with --raw.\n\n" +
 		"Targets: %N (pane), @N (window — resolves to its agent pane), " +
 		"=session:window (exact). Bare session:window names are rejected.",
 	Example: `  rk mux capture %5
@@ -95,6 +99,12 @@ var (
 	muxCapturePaneFn = func(ctx context.Context, paneID string, lines int, server string) (string, error) {
 		return tmux.CapturePanePlainCtx(ctx, paneID, lines, server)
 	}
+	// muxCaptureEscapedFn is the attribute-preserving capture --classify reads
+	// the composer from; a plain capture cannot tell a dim suggestion from
+	// typed text.
+	muxCaptureEscapedFn = func(ctx context.Context, paneID string, lines int, server string) (string, error) {
+		return tmux.CapturePaneCtx(ctx, paneID, lines, server)
+	}
 	muxCaptureFactsFn = func(ctx context.Context, paneID, server string) (tmux.PaneFacts, error) {
 		return tmux.PaneFactsCtx(ctx, paneID, server)
 	}
@@ -113,6 +123,9 @@ type muxCaptureJSON struct {
 	AgentState         *string              `json:"agent_state"`
 	AgentStateDuration *string              `json:"agent_state_duration"`
 	Questions          *muxCaptureQuestions `json:"questions,omitempty"`
+	// Composer is present only under --classify: what the harness's input
+	// line holds, and whether it is the harness's own dim suggestion.
+	Composer *promptscan.Composer `json:"composer,omitempty"`
 }
 
 // muxCaptureQuestions is the fixed-shape classification contract fab-kit's
@@ -191,8 +204,14 @@ func runMuxCapture(cmd *cobra.Command, target string) error {
 	}
 
 	var classification promptscan.Result
+	var composer promptscan.Composer
 	if muxCaptureClassifyFlag {
 		classification = promptscan.Scan(content)
+		// A failed escaped capture leaves the composer unknown rather than
+		// failing a classification the plain capture already answered.
+		if escaped, err := muxCaptureEscapedFn(ctx, paneID, muxCaptureLinesFlag, server); err == nil {
+			composer = promptscan.ScanComposer(escaped)
+		}
 	}
 
 	if muxCaptureJSONFlag {
@@ -210,6 +229,7 @@ func runMuxCapture(cmd *cobra.Command, target string) error {
 		}
 		if muxCaptureClassifyFlag {
 			out.Questions = newMuxCaptureQuestions(classification)
+			out.Composer = &composer
 		}
 		return sink.Envelope(out, nil)
 	}
@@ -231,6 +251,13 @@ func runMuxCapture(cmd *cobra.Command, target string) error {
 	}
 	if muxCaptureClassifyFlag {
 		sink.Dataf("%s\n", formatQuestionLine(classification))
+		if composer.Text != "" {
+			ghost := ""
+			if composer.Ghost {
+				ghost = " (ghost suggestion, not input)"
+			}
+			sink.Dataf("composer: %s%s\n", composer.Text, ghost)
+		}
 	}
 	sink.Dataf("---\n")
 	sink.Dataf("%s", content)

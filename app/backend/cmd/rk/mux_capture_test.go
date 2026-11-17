@@ -210,6 +210,10 @@ func TestMuxCaptureClassifyJSON(t *testing.T) {
 				"      \"indicator\": \"yes_no\",\n" +
 				"      \"snippet\": \"Overwrite file [y/N]\",\n" +
 				"      \"reason\": null\n" +
+				"    },\n" +
+				"    \"composer\": {\n" +
+				"      \"text\": \"\",\n" +
+				"      \"ghost\": false\n" +
 				"    }\n",
 		},
 		{
@@ -218,6 +222,10 @@ func TestMuxCaptureClassifyJSON(t *testing.T) {
 				"      \"indicator\": \"none\",\n" +
 				"      \"snippet\": \"\",\n" +
 				"      \"reason\": \"blank_capture\"\n" +
+				"    },\n" +
+				"    \"composer\": {\n" +
+				"      \"text\": \"\",\n" +
+				"      \"ghost\": false\n" +
 				"    }\n",
 		},
 		{"absent without flag", "Overwrite file [y/N]\n", []string{"--json"}, ""},
@@ -311,5 +319,36 @@ func TestMuxCaptureClassifyRawExclusive(t *testing.T) {
 	}
 	if stdout != "" || len(f.captureCalls) != 0 {
 		t.Errorf("stdout = %q, captures = %v; want nothing on a usage error", stdout, f.captureCalls)
+	}
+}
+
+// --classify reads the composer from the attribute-preserving capture: a dim
+// suggestion reports ghost, typed text does not, and the human line names it.
+func TestMuxCaptureClassifyComposer(t *testing.T) {
+	plain := "9 assumptions. Run /fab-ff to continue.\n❯ /fab-ff\n  status\n"
+	cases := []struct {
+		name, escaped, wantJSON, wantHuman string
+	}{
+		{"ghost", "9 assumptions. Run /fab-ff to continue.\n\x1b[39m❯ \x1b[2m/fab-ff\x1b[0m\n  status\n",
+			"    \"composer\": {\n      \"text\": \"/fab-ff\",\n      \"ghost\": true\n    }\n", "composer: /fab-ff (ghost suggestion, not input)\n"},
+		{"typed", plain, "    \"composer\": {\n      \"text\": \"/fab-ff\",\n      \"ghost\": false\n    }\n", "composer: /fab-ff\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &muxFake{states: map[string]string{"%5": "idle"}, captureContent: map[string]string{"%5": plain}, captureEscaped: map[string]string{"%5": tc.escaped}}
+			installMuxFakes(t, f)
+			stdout, _, err := runMuxCmd(t, "capture", "%5", "--json", "--classify")
+			if err != nil || !strings.Contains(stdout, tc.wantJSON) {
+				t.Errorf("json stdout = %q err %v, want %q", stdout, err, tc.wantJSON)
+			}
+			stdout, _, err = runMuxCmd(t, "capture", "%5", "--classify")
+			if err != nil || !strings.Contains(stdout, tc.wantHuman) {
+				t.Errorf("human stdout = %q err %v, want %q", stdout, err, tc.wantHuman)
+			}
+			stdout, _, _ = runMuxCmd(t, "capture", "%5", "--json")
+			if strings.Contains(stdout, "composer") {
+				t.Errorf("composer must be absent without --classify: %q", stdout)
+			}
+		})
 	}
 }

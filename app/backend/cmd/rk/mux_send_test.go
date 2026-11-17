@@ -27,6 +27,7 @@ type muxFake struct {
 	engineErr       error
 	engineRecovered bool
 	keysSent        [][]string
+	captureEscaped  map[string]string // pane → attribute-preserving capture for --classify (defaults to captureContent)
 	clearModeCalls  []string
 	clearModeErr    error
 	awaitRuns       []awaitParams
@@ -86,6 +87,13 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 	origAwait, origAwaitDeps := muxAwaitObserveFn, muxAwaitDepsFn
 	origStdin, origBuf := muxStdinFn, muxBufferNameFn
 	origCapPane, origCapFacts, origCapNow := muxCapturePaneFn, muxCaptureFactsFn, muxCaptureNowFn
+	origCapEscaped := muxCaptureEscapedFn
+	muxCaptureEscapedFn = func(_ context.Context, paneID string, _ int, _ string) (string, error) {
+		if c, ok := f.captureEscaped[paneID]; ok {
+			return c, nil
+		}
+		return f.captureContent[paneID], nil
+	}
 	origKillState, origKillExists, origKillPane := muxKillAgentStateFn, muxKillPaneExistsFn, muxKillPaneFn
 	origKillGuarded := muxKillGuardedServerFn
 	origProcPID, origProcFacts, origProcDiscover := muxProcessPanePIDFn, muxProcessFactsFn, muxProcessDiscoverFn
@@ -100,6 +108,7 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 		muxAwaitObserveFn, muxAwaitDepsFn = origAwait, origAwaitDeps
 		muxStdinFn, muxBufferNameFn = origStdin, origBuf
 		muxCapturePaneFn, muxCaptureFactsFn, muxCaptureNowFn = origCapPane, origCapFacts, origCapNow
+		muxCaptureEscapedFn = origCapEscaped
 		muxKillAgentStateFn, muxKillPaneExistsFn, muxKillPaneFn = origKillState, origKillExists, origKillPane
 		muxKillGuardedServerFn = origKillGuarded
 		muxProcessPanePIDFn, muxProcessFactsFn, muxProcessDiscoverFn = origProcPID, origProcFacts, origProcDiscover
