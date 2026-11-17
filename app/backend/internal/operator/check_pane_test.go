@@ -367,3 +367,28 @@ func TestCheck_UserPausedPaneItemStillConsumesBaselinesButReportsNoCondition(t *
 	wantKinds(t, "changes", res.Changes)
 	wantKinds(t, "open", res.Open)
 }
+
+// The completion predicate, including the intake stop that completes at intake
+// ready (where /fab-new parks).
+func TestBuiltInCompleted(t *testing.T) {
+	cases := []struct {
+		stop, stage, display string
+		want                 bool
+	}{
+		{"", "ship", "done", true},
+		{"", "ship", "active", false},
+		{"", "intake", "ready", false},
+		{"intake", "intake", "ready", true},
+		{"intake", "intake", "active", false},
+		{"intake", "apply", "active", true},
+		{"hydrate", "hydrate", "ready", false},
+		{"hydrate", "hydrate", "done", true},
+		{"hydrate", "ship", "active", true},
+		{"apply", "intake", "ready", false},
+	}
+	for _, tc := range cases {
+		if got := builtInCompleted(tc.stop, tc.stage, tc.display); got != tc.want {
+			t.Errorf("builtInCompleted(%q, %q, %q) = %v, want %v", tc.stop, tc.stage, tc.display, got, tc.want)
+		}
+	}
+}
