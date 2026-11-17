@@ -8,8 +8,8 @@ progress:
     intake: done
     apply: done
     review: done
-    hydrate: active
-    ship: pending
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
@@ -32,23 +32,25 @@ stage_metrics:
     intake: {started_at: "2026-11-17T16:10:06Z", driver: fab-new, iterations: 1, completed_at: "2026-11-17T16:12:01Z"}
     apply: {started_at: "2026-11-17T16:12:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-17T16:25:11Z"}
     review: {started_at: "2026-11-17T16:25:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-17T16:32:10Z"}
-    hydrate: {started_at: "2026-11-17T16:32:10Z", driver: fab-fff, iterations: 1}
+    hydrate: {started_at: "2026-11-17T16:32:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-17T16:33:36Z"}
+    ship: {started_at: "2026-11-17T16:33:36Z", driver: fab-fff, iterations: 1}
 prs: []
 base_branch: main
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 759
+    deleted: 56
+    net: 703
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 428
+        deleted: 56
+        net: 372
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-11-17T16:25:11Z"
-    computed_at_stage: apply
+        added: 97
+        deleted: 1
+        net: 96
+    computed_at: "2026-11-17T16:33:36Z"
+    computed_at_stage: hydrate
+summary: Sidebar multi-select shares the single-select treatment (ring removed) and the open tab seeds the selection on the first gesture
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-17T16:32:10Z
+last_updated: 2026-11-17T16:33:36Z
