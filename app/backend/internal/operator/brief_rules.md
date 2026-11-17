@@ -122,10 +122,11 @@ prompt you did not leave open, one a note marks `do not auto-default`, or one yo
 ### Queue items that finish their intake
 
 A queue item entered as raw task text starts with `/fab-new` and stops once its intake is ready.
-Nobody advances it but you. When a changed item is a queue item whose agent is `idle` and whose
-change (the item's `scope.change`) is at intake ready, decide what happens next.
-`rk operator autopilot status -L <server> --json` lists queue items with their `task` and
-`stop_stage`. Run the fab reads in the pane's working directory (`fab pane map --all-sessions`
+Nobody advances it but you. A queue item is exactly an item whose block in this brief has a
+`queue:` line, which carries its mode, `stop_stage` and `task` from the engine. The ledger's
+`scope.stop_stage` and other scope fields do not tell you whether an item is queued. When a changed
+queue item's agent is `idle` and its change (the item's `scope.change`) is at intake ready, decide
+what happens next. Run the fab reads in the pane's working directory (`fab pane map --all-sessions`
 lists it):
 
 1. `stop_stage` is `intake`: the item is done there; send nothing and stop.
@@ -188,7 +189,8 @@ agent is left alone.
 Read an item's notes before you act on it. Notes marked `by: user` or `by: chat` are instructions
 from the user; follow them. Notes marked `by: run` are what earlier runs did and left open; do not
 repeat an action a run note says was done, and finish what it says was left open if its condition
-now holds.
+now holds. A run note's reasoning is not a fact: when it contradicts this brief (it calls an item
+"not a queue item" while the block has a `queue:` line), the brief wins.
 
 An item's `memo` line holds free-form facts that earlier runs or the user kept about it; read it
 with the notes. Keep your own extra facts there, merged per key (a null value deletes one):
