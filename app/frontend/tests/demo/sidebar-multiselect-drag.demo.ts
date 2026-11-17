@@ -6,7 +6,7 @@
  * destination on the isolated demo tmux server; afterAll removes both. The flow
  * selects bravo and delta, drags bravo before alpha to form a contiguous block,
  * verifies tmux order, then drags the still-selected set onto the destination
- * group and waits for the aggregate move toast.
+ * group and waits for the aggregate move toast and both rows to repaint there.
  */
 import { test, expect, beat, desktopOnly } from "./_demo";
 import { gotoServerReady, resolveWindow, READY_TIMEOUT } from "../e2e/_ready";
@@ -63,6 +63,11 @@ test.describe("sidebar-multiselect-drag demo", () => {
       page.locator(`[data-session-row="${TMUX_SERVER}:${DESTINATION_SESSION}"]`),
     );
     await expect(page.getByText(`Moved 2 tabs to ${DESTINATION_SESSION}`)).toBeVisible();
+    for (const id of [ids.bravo, ids.delta]) {
+      await expect(page.locator(
+        `[data-session-group="${DESTINATION_SESSION}"] [data-row-key="${rowKey(id)}"]`,
+      )).toBeVisible({ timeout: 15_000 });
+    }
     await beat(page, 2_000);
   });
 });

@@ -118,6 +118,7 @@ import {
   buildSelectionSendPromptAction,
   batchToast,
   executeSelectionBatch,
+  executeSelectionMove,
 } from "@/lib/palette/selection";
 import { singleSelectedServer } from "@/lib/selection";
 import { useSelectionStore } from "@/store/selection-store";
@@ -4273,20 +4274,7 @@ function AppShell() {
       // Move stays SINGLE-SERVER gated (`singleSelectedServer` omits the
       // entries otherwise), so it deliberately ignores the per-key server and
       // moves every window on `srv` — only the control flow is shared.
-      const result = await executeSelectionBatch(keys, ({ windowId }) =>
-        moveWindowToSession(srv, windowId, targetSession),
-      );
-      const { message, failed } = batchToast(
-        {
-          success: "Moved",
-          failure: "Moved",
-          noun: "tab",
-          qualifier: ` to ${targetSession}`,
-        },
-        keys.length,
-        result,
-      );
-      addToast(message, failed ? "error" : undefined);
+      const result = await executeSelectionMove(srv, keys, targetSession, addToast);
       settleBatchSelection(keys, result.failedKeys);
     },
     [addToast, settleBatchSelection],

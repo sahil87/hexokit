@@ -16,6 +16,7 @@
  * picker dialog and no create-if-missing entry (Constitution IV).
  */
 import type { PaletteAction } from "@/components/command-palette";
+import { moveWindowToSession } from "@/api/client";
 import {
   selectionKey,
   singleSelectedServer,
@@ -179,12 +180,30 @@ export function batchToast(
   };
 }
 
+export async function executeSelectionMove(
+  server: string,
+  keys: readonly string[],
+  targetSession: string,
+  addToast: (message: string, variant?: "error" | "info") => void,
+): Promise<SelectionBatchResult> {
+  const result = await executeSelectionBatch(keys, ({ windowId }) =>
+    moveWindowToSession(server, windowId, targetSession),
+  );
+  const { message, failed } = batchToast(
+    { success: "Moved", failure: "Moved", noun: "tab", qualifier: ` to ${targetSession}` },
+    keys.length,
+    result,
+  );
+  addToast(message, failed ? "error" : undefined);
+  return result;
+}
+
 /**
  * The composite selection keys of every merged-PR window on `server`.
  *
  * Merged state comes from the PR knowledge the frontend already has: a window's
  * `prState === "merged"` (the same field `prGlyphColor` reads for its merged
- * branch). Reading the field directly keeps this module dependency-free.
+ * branch).
  */
 export function mergedWindowKeys(
   server: string,

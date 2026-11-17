@@ -386,11 +386,14 @@ func (s *Server) handleWindowMoveToSession(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := s.tmux.MoveWindowToSession(windowID, body.TargetSession, serverFromRequest(r)); err != nil {
+	server := serverFromRequest(r)
+	if err := s.tmux.MoveWindowToSession(windowID, body.TargetSession, server); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
+	s.initSSEHub()
+	s.sseHub.wake(server)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

@@ -35,7 +35,7 @@ import { useSelectionStore } from "@/store/selection-store";
 // effect's URL-selection identity (`${currentServer}:${currentWindowId}`) — a
 // different concept from the multi-select's composite row key.
 import { openTabSeed, parseDragSelectionKeys, rangeBetween, selectionKey as windowSelectionKey, singleSelectedServer, splitSelectionKey } from "@/lib/selection";
-import { batchToast, executeSelectionBatch } from "@/lib/palette/selection";
+import { executeSelectionMove } from "@/lib/palette/selection";
 import { useWindowRename } from "@/hooks/use-window-rename";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { useSessionsScope } from "@/hooks/use-sessions-scope";
@@ -857,7 +857,7 @@ export function Sidebar({
     if (dragSource.keys !== null) {
       if (singleSelectedServer(dragSource.keys) !== server) {
         e.preventDefault();
-        e.dataTransfer.dropEffect = "none";
+        e.dataTransfer.dropEffect = "move";
         return;
       }
       const target = sessionsByServerRef.current.get(server)
@@ -931,7 +931,7 @@ export function Sidebar({
     if (dragSource.keys !== null) {
       if (singleSelectedServer(dragSource.keys) !== server) {
         e.preventDefault();
-        e.dataTransfer.dropEffect = "none";
+        e.dataTransfer.dropEffect = "move";
         return;
       }
       const targetKeys = new Set(
@@ -981,16 +981,7 @@ export function Sidebar({
       );
       const moveKeys = keys.filter((key) => !targetKeys.has(key));
       if (moveKeys.length === 0) return;
-      void executeSelectionBatch(moveKeys, ({ windowId }) =>
-        moveWindowToSession(server, windowId, sessionName),
-      ).then((result) => {
-        const { message, failed } = batchToast(
-          { success: "Moved", failure: "Moved", noun: "tab", qualifier: ` to ${sessionName}` },
-          moveKeys.length,
-          result,
-        );
-        addToast(message, failed ? "error" : undefined);
-      });
+      void executeSelectionMove(server, moveKeys, sessionName, addToast);
       return;
     }
 
@@ -3256,7 +3247,9 @@ function ServerGroupInner(props: ServerGroupProps) {
                           dropTarget?.server === server &&
                           dropTarget?.session === session.name &&
                           dropTarget?.index === win.index &&
-                          (dragSource?.keys != null || dragSource?.index !== win.index);
+                          (dragSource?.keys != null
+                            ? !dragSource.keys.includes(winRowKey)
+                            : dragSource?.index !== win.index);
 
                         return (
                           <WindowRow

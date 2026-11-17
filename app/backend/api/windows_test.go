@@ -1437,6 +1437,20 @@ func TestWindowMoveToSessionSuccess(t *testing.T) {
 	}
 }
 
+func TestWindowMoveToSessionWakesHub(t *testing.T) {
+	server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+	before := tracker.count.Load()
+	router := server.buildRouter()
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@1/move-to-session?server=default", strings.NewReader(`{"targetSession":"bravo"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	expectWake(t, tracker, before, "move to session")
+}
+
 func TestWindowMoveToSessionMissingTarget(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 

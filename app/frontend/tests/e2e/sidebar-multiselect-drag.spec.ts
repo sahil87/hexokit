@@ -75,6 +75,7 @@ test.describe("Sidebar multi-selected tab drag", () => {
    * 3. Assert one aggregate move toast and a surviving two-tab selection.
    * 4. Poll tmux until both ids belong to the destination and neither remains
    *    in the source session.
+   * 5. Assert both rows render under the destination group in the sidebar.
    */
   test("set drop on a group row moves every selected tab", async ({ page }) => {
     test.setTimeout(45_000);
@@ -95,6 +96,11 @@ test.describe("Sidebar multi-selected tab drag", () => {
     const source = listWindows(sourceSession).map((win) => win.windowId);
     expect(source).not.toContain(ids.alpha);
     expect(source).not.toContain(ids.bravo);
+    for (const id of [ids.alpha, ids.bravo]) {
+      await expect(page.locator(
+        `[data-session-group="${destinationSession}"] [data-row-key="${rowKey(id)}"]`,
+      )).toBeVisible({ timeout: 15_000 });
+    }
   });
 
   /**
@@ -106,6 +112,7 @@ test.describe("Sidebar multi-selected tab drag", () => {
    * 1. Open the tree, resolve all five ids, and select bravo and delta.
    * 2. Drag bravo before alpha.
    * 3. Poll tmux until the exact order is bravo, delta, alpha, charlie, echo.
+   * 4. Assert the source group's visible sidebar rows show the same order.
    */
   test("set drop between rows moves the selection as a contiguous block", async ({ page }) => {
     test.setTimeout(45_000);
@@ -118,6 +125,11 @@ test.describe("Sidebar multi-selected tab drag", () => {
     );
 
     await expect.poll(() => listWindows(sourceSession).map((win) => win.windowId), {
+      timeout: 15_000,
+    }).toEqual([ids.bravo, ids.delta, ids.alpha, ids.charlie, ids.echo]);
+    await expect.poll(() => page.locator(
+      `[data-session-group="${sourceSession}"] [role="treeitem"][data-window-id]`,
+    ).evaluateAll((rows) => rows.map((row) => row.getAttribute("data-window-id"))), {
       timeout: 15_000,
     }).toEqual([ids.bravo, ids.delta, ids.alpha, ids.charlie, ids.echo]);
   });

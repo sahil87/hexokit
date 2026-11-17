@@ -7,6 +7,7 @@ import {
   buildSelectionMoveActions,
   buildSelectionSendPromptAction,
   executeSelectionBatch,
+  executeSelectionMove,
   SELECT_ALL_MERGED_ACTION_ID,
   SELECTION_CLOSE_ACTION_ID,
   SELECTION_MOVE_ACTION_PREFIX,
@@ -14,6 +15,10 @@ import {
   SELECTION_GESTURE_HINT,
   type SelectableSession,
 } from "./selection";
+import { moveWindowToSession } from "@/api/client";
+
+vi.mock("@/api/client", () => ({ moveWindowToSession: vi.fn() }));
+const moveWindowToSessionMock = vi.mocked(moveWindowToSession);
 
 // The builders back the command-palette selection entries wired in app.tsx.
 // Covering the merged derivation, hidden-when-ineligible cases, per-session
@@ -327,6 +332,22 @@ describe("executeSelectionBatch", () => {
     );
     expect(result.firstError).toBe("malformed tab key");
     expect(result.failedKeys).toEqual(["bad", "srv:@1"]);
+  });
+});
+
+describe("executeSelectionMove", () => {
+  it("moves keys in order, emits one aggregate toast, and returns the batch result", async () => {
+    moveWindowToSessionMock.mockReset().mockResolvedValue({ ok: true });
+    const addToast = vi.fn();
+
+    const result = await executeSelectionMove("srv", ["srv:@1", "srv:@2"], "archive", addToast);
+
+    expect(moveWindowToSessionMock.mock.calls).toEqual([
+      ["srv", "@1", "archive"],
+      ["srv", "@2", "archive"],
+    ]);
+    expect(addToast).toHaveBeenCalledExactlyOnceWith("Moved 2 tabs to archive", undefined);
+    expect(result).toEqual({ failedKeys: [], firstError: "" });
   });
 });
 

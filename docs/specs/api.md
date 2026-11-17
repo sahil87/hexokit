@@ -297,7 +297,7 @@ Move a set of windows into the target window's session as one contiguous block i
 **Responses:**
 - `200` `{ "ok": true }` — the block is in place, including when no tmux reorder was necessary
 - `400` — invalid JSON or IDs, empty or duplicate `windowIds`, `beforeWindowId` included in `windowIds`, or an unknown member ID
-- `404` — unknown `beforeWindowId`
+- `404` — unknown `beforeWindowId`, or the target session is absent when re-fetched after cross-session member moves
 - `500` — session fetch or tmux mutation failure
 
 #### `POST /api/windows/:windowId/send`

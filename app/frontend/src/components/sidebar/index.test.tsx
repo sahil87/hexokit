@@ -1563,8 +1563,16 @@ describe("Sidebar — multi-selected window drag", () => {
     renderDragSidebar();
 
     const dataTransfer = startDrag("@2");
+    const target = sessionRow("archive");
+    let cancelled = false;
     act(() => {
-      fireEvent.drop(sessionRow("archive"), { dataTransfer });
+      cancelled = fireEvent.dragOver(target, { dataTransfer }) === false;
+    });
+    expect(cancelled).toBe(true);
+    expect(dataTransfer.dropEffect).toBe("move");
+    expect(target.style.boxShadow).toBe("");
+    act(() => {
+      fireEvent.drop(target, { dataTransfer });
     });
 
     expect(await screen.findByText("Moving tabs across workspaces isn't supported yet")).toBeInTheDocument();
@@ -1588,6 +1596,10 @@ describe("Sidebar — multi-selected window drag", () => {
 
     const memberDrop = startDrag("@2");
     act(() => {
+      fireEvent.dragOver(windowRow("@2"), { dataTransfer: memberDrop });
+    });
+    expect(windowRow("@2").style.boxShadow).toBe("");
+    act(() => {
       fireEvent.drop(windowRow("@2"), { dataTransfer: memberDrop });
     });
     expect(moveWindowsBeforeMock).toHaveBeenCalledTimes(1);
@@ -1601,8 +1613,16 @@ describe("Sidebar — multi-selected window drag", () => {
     renderDragSidebar();
 
     const dataTransfer = startDrag("@2");
+    const target = windowRow("@1");
+    let cancelled = false;
     act(() => {
-      fireEvent.drop(windowRow("@1"), { dataTransfer });
+      cancelled = fireEvent.dragOver(target, { dataTransfer }) === false;
+    });
+    expect(cancelled).toBe(true);
+    expect(dataTransfer.dropEffect).toBe("move");
+    expect(target.style.boxShadow).toBe("");
+    act(() => {
+      fireEvent.drop(target, { dataTransfer });
     });
 
     expect(await screen.findByText("Moving tabs across workspaces isn't supported yet")).toBeInTheDocument();

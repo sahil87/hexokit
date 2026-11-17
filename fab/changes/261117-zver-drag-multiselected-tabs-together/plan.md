@@ -89,20 +89,22 @@ The endpoint SHALL accept `{windowIds: string[], beforeWindowId: string}` (query
 
 - [x] T001 Add pure `blockTargetOrder(windows []tmux.WindowInfo, members []string, before string) []tmux.WindowInfo` beside `planSortMoves` in `app/backend/api/sortwindows.go` (or a sibling `app/backend/api/moveblock.go`) with table tests (forward, backward, scattered members, already-in-place → no planned moves) <!-- R6 -->
 - [x] T002 Add `handleWindowMoveBlock` (`app/backend/api/moveblock.go` or `windows.go`) + route `r.Post("/api/windows/move-block", ...)` in `app/backend/api/router.go`; validation, FetchSessions resolution, cross-session `MoveWindowToSession`, `planSortMoves` + `MoveWindow`, SSE wake; handler tests with `mockTmuxOps` covering 400/404/500, cross-session pre-move, recorded move order <!-- R6 -->
-- [x] T003 [P] Document `POST /api/windows/move-block` in `docs/specs/api.md` <!-- R7 -->
+- [x] T003 [P] Document `POST /api/windows/move-block` in `docs/specs/api.md` <!-- R7 --> <!-- rework: document the 404 "Target session not found" after the cross-session refetch, or fold it into 500 -->
 
 ### Phase 2: Frontend
 
 - [x] T004 Add `moveWindowsBefore(server, windowIds, beforeWindowId)` to `app/frontend/src/api/client.ts` (mirrors `moveWindow`) <!-- R5 -->
 - [x] T005 Set drag source in `app/frontend/src/components/sidebar/index.tsx` `handleDragStart`: detect a 2+ set containing the grabbed key, add ordered `keys` to the payload and `dragSource`, set an "N tabs" badge drag image (helper in `app/frontend/src/lib/drag-image.ts`, guarded like `pinDragImage`), clear on dragend; dim set members via `isDragSource` in `window-row.tsx` <!-- R1 -->
-- [x] T006 Set drops in `app/frontend/src/components/sidebar/index.tsx`: `handleSessionDragOver/Drop` (R2, R3 — `executeSelectionBatch` + `batchToast`, selection kept) and `handleDragOver/Drop` (R5, R3 — `moveWindowsBefore`, member-target no-op) <!-- R2 R3 R5 -->
+- [x] T006 Set drops in `app/frontend/src/components/sidebar/index.tsx`: `handleSessionDragOver/Drop` (R2, R3 — `executeSelectionBatch` + `batchToast`, selection kept) and `handleDragOver/Drop` (R5, R3 — `moveWindowsBefore`, member-target no-op) <!-- R2 R3 R5 --> <!-- rework: cross-server set dragover must keep preventDefault with dropEffect "move" (not "none") and no indicator, so drop fires and the R3 toast runs; suppress the insert-before indicator when hovering a set member -->
 - [x] T007 Board set drop in `app/frontend/src/components/sidebar/boards-section.tsx`: pin each key with one aggregate toast (quiet/batched pin path in `app/frontend/src/hooks/use-pin-actions.ts` if `pin` always toasts) <!-- R4 -->
 
 ### Phase 3: Tests & Evidence
 
-- [x] T008 Frontend unit tests: `sidebar/index.test.tsx` (payload/keys only for 2+ member drag, non-member drag unchanged, group drop sequencing + one toast + selection kept, cross-server refusal, row drop single request + member no-op), `boards-section.test.tsx` (set pin, one toast), `drag-image` helper <!-- R1 R2 R3 R4 R5 -->
-- [x] T009 E2E `app/frontend/tests/e2e/sidebar-multiselect-drag.spec.ts`: set → group row (tmux sessions verified), set → between rows (tmux order verified), set → board (both pinned); isolated e2e tmux server <!-- R2 R4 R5 -->
-- [x] T010 Demo `app/frontend/tests/demo/sidebar-multiselect-drag.demo.ts` (desktop only) and record `just demo sidebar-multiselect-drag --desktop-only` <!-- R1 R5 -->
+- [x] T008 Frontend unit tests: `sidebar/index.test.tsx` (payload/keys only for 2+ member drag, non-member drag unchanged, group drop sequencing + one toast + selection kept, cross-server refusal, row drop single request + member no-op), `boards-section.test.tsx` (set pin, one toast), `drag-image` helper <!-- R1 R2 R3 R4 R5 --> <!-- rework: add tests that fire dragOver before drop for both cross-server branches, asserting the dragover was cancelled with a non-"none" effect and the toast appears -->
+- [x] T009 E2E `app/frontend/tests/e2e/sidebar-multiselect-drag.spec.ts`: set → group row (tmux sessions verified), set → between rows (tmux order verified), set → board (both pinned); isolated e2e tmux server <!-- R2 R4 R5 --> <!-- rework: group-drop test must also assert the sidebar renders both members under the destination group (expect timeout of 5s or more); optionally the same for the between-rows test -->
+- [x] T010 Demo `app/frontend/tests/demo/sidebar-multiselect-drag.demo.ts` (desktop only) and record `just demo sidebar-multiselect-drag --desktop-only` <!-- R1 R5 --> <!-- rework: wait (5s or more) for both members to render under the destination group before the final beat, then re-record just demo sidebar-multiselect-drag --desktop-only -->
+- [x] T011 Wake the SSE hub after a successful move in `handleWindowMoveToSession` (`app/backend/api/windows.go`), using `s.initSSEHub(); s.sseHub.wake(server)` as move-block/sort-windows do, plus a handler test asserting the wake <!-- R2 --> <!-- rework: set group-drop has no optimistic ghost; uncovered servers wait for the 2.5s poll -->
+- [x] T012 Extract the shared "move keys to session + aggregate toast" glue used by `app/frontend/src/app.tsx` `executeBulkMove` and the sidebar set group-drop into one helper in `app/frontend/src/lib/palette/selection.ts`; both call sites use it (the palette keeps its settleBatch) <!-- R2 --> <!-- rework: duplicated glue -->
 
 ## Execution Order
 
@@ -114,46 +116,50 @@ The endpoint SHALL accept `{windowIds: string[], beforeWindowId: string}` (query
 
 ### Functional Completeness
 
-- [ ] A-001 R1: A drag from a member of a 2+ set writes ordered `keys` into the payload and `dragSource`, uses an "N tabs" drag image, and dims members; other drags are unchanged
-- [ ] A-002 R2: A set dropped on a same-server group row moves every non-resident member via sequential `moveWindowToSession` with one aggregate toast and keeps the selection
-- [ ] A-003 R3: Cross-server set drops (group row or between rows) only toast `Moving tabs across workspaces isn't supported yet`
-- [ ] A-004 R4: A set dropped on a board row pins each member against its own server with exactly one toast
-- [ ] A-005 R5: A set dropped between rows sends exactly one `POST /api/windows/move-block`; dropping on a member is a no-op
-- [ ] A-006 R6: The endpoint validates before any tmux call, resolves via FetchSessions, pre-moves cross-session members, realizes `blockTargetOrder` through `planSortMoves` + `MoveWindow`, wakes SSE, and returns the documented status codes
-- [ ] A-007 R7: `docs/specs/api.md` documents the endpoint
+- [x] A-001 R1: A drag from a member of a 2+ set writes ordered `keys` into the payload and `dragSource`, uses an "N tabs" drag image, and dims members; other drags are unchanged
+- [x] A-002 R2: A set dropped on a same-server group row moves every non-resident member via sequential `moveWindowToSession` with one aggregate toast and keeps the selection
+- [x] A-003 R3: Cross-server set drops (group row or between rows) only toast `Moving tabs across workspaces isn't supported yet` (set dragover now cancels with `dropEffect = "move"` and no indicator, so `drop` fires; unit tests dispatch dragOver before drop)
+- [x] A-004 R4: A set dropped on a board row pins each member against its own server with exactly one toast
+- [x] A-005 R5: A set dropped between rows sends exactly one `POST /api/windows/move-block`; dropping on a member is a no-op
+- [x] A-006 R6: The endpoint validates before any tmux call, resolves via FetchSessions, pre-moves cross-session members, realizes `blockTargetOrder` through `planSortMoves` + `MoveWindow`, wakes SSE, and returns the documented status codes
+- [x] A-007 R7: `docs/specs/api.md` documents the endpoint
 
 ### Behavioral Correctness
 
-- [ ] A-008 R1: A non-member drag never mutates the selection
-- [ ] A-009 R6: An already-in-place block issues no `MoveWindow` call
+- [x] A-008 R1: A non-member drag never mutates the selection
+- [x] A-009 R6: An already-in-place block issues no `MoveWindow` call
 
 ### Scenario Coverage
 
-- [ ] A-010 R6: Go tests cover the R6 scenarios (forward, backward, scattered, in-place) and the 400/404/500 paths
-- [ ] A-011 R2: E2E verifies a set dropped on a group row lands in that tmux session
-- [ ] A-012 R5: E2E verifies tmux window order after a between-rows set drop
-- [ ] A-013 R4: E2E or unit verifies a board set drop pins every member
+- [x] A-010 R6: Go tests cover the R6 scenarios (forward, backward, scattered, in-place) and the 400/404/500 paths
+- [x] A-011 R2: E2E verifies a set dropped on a group row lands in that tmux session
+- [x] A-012 R5: E2E verifies tmux window order after a between-rows set drop
+- [x] A-013 R4: E2E or unit verifies a board set drop pins every member
 
 ### Edge Cases & Error Handling
 
-- [ ] A-014 R2: A group row where every member already lives does not accept the set drop
-- [ ] A-015 R6: Duplicate ids, empty list, invalid ids, and `beforeWindowId` inside `windowIds` are 400 with no tmux call
+- [x] A-014 R2: A group row where every member already lives does not accept the set drop
+- [x] A-015 R6: Duplicate ids, empty list, invalid ids, and `beforeWindowId` inside `windowIds` are 400 with no tmux call
 
 ### Code Quality
 
-- [ ] A-016 Pattern consistency: New code follows naming and structural patterns of surrounding code (stable identity-arg callbacks in the sidebar, sort-windows handler shape in Go)
-- [ ] A-017 No unnecessary duplication: `planSortMoves`, `executeSelectionBatch`, `batchToast`, `splitSelectionKey`, and the window-id validator are reused
-- [ ] A-018 Security: All tmux access goes through `s.tmux` / `internal/tmux` with validated ids — no shell strings
-- [ ] A-019 Type narrowing over `as` casts when parsing the drag payload
-- [ ] A-020 No comment narration or change-id citations in new comments
-- [ ] A-021 PR evidence: a desktop `just demo` recording exists, with the desktop-only rationale stated in the PR body
-- [ ] A-022 Tests cover the changed behavior; `go test ./...`, `npx tsc --noEmit`, and touched unit/e2e suites pass
+- [x] A-016 Pattern consistency: New code follows naming and structural patterns of surrounding code (stable identity-arg callbacks in the sidebar, sort-windows handler shape in Go)
+- [x] A-017 No unnecessary duplication: `planSortMoves`, `executeSelectionBatch`, `batchToast`, `splitSelectionKey`, and the window-id validator are reused; move-batch + toast glue shared via `executeSelectionMove`
+- [x] A-018 Security: All tmux access goes through `s.tmux` / `internal/tmux` with validated ids — no shell strings
+- [x] A-019 Type narrowing over `as` casts when parsing the drag payload
+- [x] A-020 No comment narration or change-id citations in new comments
+- [x] A-021 PR evidence: a desktop `just demo` recording exists, with the desktop-only rationale stated in the PR body (demo waits for both members under the destination group; `.demo/sidebar-multiselect-drag-desktop.webm` re-recorded and its final frame shows them there)
+- [x] A-022 Tests cover the changed behavior; `go test ./...`, `npx tsc --noEmit`, and touched unit/e2e suites pass (api pkg + race ok, tsc ok, 694 sidebar/lib vitest ok, e2e 3/3; only failure is the env-dependent `cmd/rk` TestPortPinRowRealPolicyValues, untouched by this diff)
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- None — this change adds new functionality without making existing code redundant
 
 ## Assumptions
 
