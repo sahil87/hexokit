@@ -72,3 +72,25 @@ func TestScanGuards(t *testing.T) {
 		})
 	}
 }
+
+// A harness's arrow-key menu is recognised by its footer and reports the
+// option under the cursor; it wins over the option rows' own classes.
+func TestScanSelectMenu(t *testing.T) {
+	menu := "How should I handle the spec?\n\n❯ 1. Repoint the locators (Recommended)\n     Edit only the bullets.\n  2. Drop the dead bullets only\n  3. Leave the spec, I'll handle it\n  4. Type something.\n──────\n  5. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n"
+	got := Scan(menu)
+	want := Result{Indicator: IndicatorSelectMenu, Input: InputKeys, Highlighted: 1, Snippet: "❯ 1. Repoint the locators (Recommended)"}
+	if got != want {
+		t.Errorf("Scan(menu) = %+v, want %+v", got, want)
+	}
+	moved := strings.Replace(menu, "❯ 1.", "  1.", 1)
+	moved = strings.Replace(moved, "  3. Leave", "❯ 3. Leave", 1)
+	if got := Scan(moved); got.Highlighted != 3 || got.Input != InputKeys {
+		t.Errorf("Scan(moved) = %+v, want highlighted 3", got)
+	}
+	if got := Scan("Do you want to proceed?\n❯ 1. Yes\n  2. No\nEsc to cancel · Enter to select\n"); got.Indicator != IndicatorSelectMenu || got.Highlighted != 1 {
+		t.Errorf("permission dialog = %+v, want select_menu highlighted 1", got)
+	}
+	if got := Scan("1) yes  2) no\n"); got.Indicator != IndicatorEnumeratedOptions || got.Input != "" {
+		t.Errorf("a plain numbered prompt must stay enumerated_options with no input hint: %+v", got)
+	}
+}

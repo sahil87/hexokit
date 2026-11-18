@@ -24,8 +24,13 @@ const (
 	IndicatorImperativeQuestion = "imperative_question"
 	IndicatorColonPrompt        = "colon_prompt"
 	IndicatorEnumeratedOptions  = "enumerated_options"
-	IndicatorPressKey           = "press_key"
-	IndicatorNone               = "none"
+	// IndicatorSelectMenu is a harness's arrow-key menu (Claude Code's
+	// AskUserQuestion and permission dialogs): answered with keys, never text.
+	IndicatorSelectMenu = "select_menu"
+	// InputKeys is Result.Input for a select menu.
+	InputKeys         = "keys"
+	IndicatorPressKey = "press_key"
+	IndicatorNone     = "none"
 )
 
 // Reasons a capture classifies as IndicatorNone.
@@ -41,6 +46,12 @@ type Result struct {
 	Indicator string
 	Snippet   string
 	Reason    string
+	// Input is InputKeys for a select menu (typed text is not accepted; the
+	// harness reads ↑/↓ and Enter), else empty.
+	Input string
+	// Highlighted is the 1-based index of the option the menu's cursor is on
+	// (0 when unknown); Enter picks it.
+	Highlighted int
 }
 
 // questionMarkMaxLen bounds class 1: a line at or beyond this length ending
@@ -58,7 +69,16 @@ var (
 	imperativeQuestionPattern = regexp.MustCompile(`(?i)(Do you want to|Should I|Would you like)`)
 	enumeratedOptionsPattern  = regexp.MustCompile(`[1-9]\)`)
 	pressKeyPattern           = regexp.MustCompile(`(?i)(Press.*key|press.*enter|hit.*enter)`)
+	// selectMenuFooterPattern is the key hint a harness prints under an
+	// arrow-key menu.
+	selectMenuFooterPattern = regexp.MustCompile(`(?i)(enter to select|↑/↓ to navigate|arrow keys to navigate|use arrow keys)`)
+	// selectMenuCursorPattern is the highlighted option row: a cursor glyph
+	// before a numbered option.
+	selectMenuCursorPattern = regexp.MustCompile(`^\s*[❯›>]\s*(\d{1,2})[.)]\s`)
 )
+
+// selectMenuWindow bounds how far above the footer the cursor row is sought.
+const selectMenuWindow = 24
 
 // questionMarkExcludedPrefixes are line openers that make a trailing "?"
 // commentary or quotation rather than a prompt.
@@ -73,6 +93,9 @@ func Scan(content string) Result {
 		return Result{Indicator: IndicatorNone, Reason: ReasonBlankCapture}
 	}
 	lines := splitLines(content)
+	if r, ok := scanSelectMenu(lines); ok {
+		return r
+	}
 	if hasTurnBoundary(lines) {
 		return Result{Indicator: IndicatorNone, Reason: ReasonTurnBoundary}
 	}
@@ -153,4 +176,34 @@ func matchOtherClasses(line string) (string, bool) {
 		return IndicatorPressKey, true
 	}
 	return "", false
+}
+
+// scanSelectMenu recognises an arrow-key menu by its footer hint and reports
+// the option under the cursor. It runs before every other class: the footer
+// is the strongest signal on the screen, and a menu's option rows would
+// otherwise classify as enumerated options that a typed digit cannot answer.
+func scanSelectMenu(lines []string) (Result, bool) {
+	footer := -1
+	for i := len(lines) - 1; i >= 0 && i >= len(lines)-selectMenuWindow; i-- {
+		if selectMenuFooterPattern.MatchString(lines[i]) {
+			footer = i
+			break
+		}
+	}
+	if footer < 0 {
+		return Result{}, false
+	}
+	r := Result{Indicator: IndicatorSelectMenu, Input: InputKeys, Snippet: strings.TrimSpace(lines[footer])}
+	for i := footer - 1; i >= 0 && i >= footer-selectMenuWindow; i-- {
+		if m := selectMenuCursorPattern.FindStringSubmatch(lines[i]); m != nil {
+			n := 0
+			for _, c := range m[1] {
+				n = n*10 + int(c-'0')
+			}
+			r.Highlighted = n
+			r.Snippet = strings.TrimSpace(lines[i])
+			break
+		}
+	}
+	return r, true
 }

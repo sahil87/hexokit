@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -318,8 +319,9 @@ func TestCheck_AgentStateFiresOnlyIntoWaitingOrIdle(t *testing.T) {
 }
 
 // A waiting or idle state held for 30 minutes is a change once more
-// (agent_aged), then open; a new stretch of the same state can age again.
-func TestCheck_AgentAgedFiresOnceAfterThirtyMinutes(t *testing.T) {
+// (agent_aged), then open until the next half hour; a new stretch of the same
+// state starts over.
+func TestCheck_AgentAgedFiresEveryThirtyMinutes(t *testing.T) {
 	e := newCheckEnv(t)
 	e.now = time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
 	e.seed(paneItem("p", map[string]interface{}{"pane": "%1", "agent": "active"}))
@@ -342,6 +344,17 @@ func TestCheck_AgentAgedFiresOnceAfterThirtyMinutes(t *testing.T) {
 	again := e.run()
 	wantKinds(t, "still aged changes", again.Changes)
 	wantKinds(t, "still aged open", again.Open, "p:agent_state", "p:agent_aged")
+
+	// Every further half hour the state stays put is a change again, so a run
+	// that could not resolve it keeps getting the chance to escalate.
+	e.now = e.now.Add(29 * time.Minute)
+	wantKinds(t, "idle 60m", e.run().Changes, "p:agent_aged")
+	e.now = e.now.Add(30 * time.Minute)
+	res = e.run()
+	wantKinds(t, "idle 90m", res.Changes, "p:agent_aged")
+	if d := res.Changes[0]; d.Duration == nil || !strings.HasPrefix(*d.Duration, "1h") {
+		t.Errorf("agent_aged duration = %v, want an hour-plus age", d.Duration)
+	}
 
 	// A nudge makes it active; the next idle stretch ages again from zero.
 	e.panes["%1"] = row("active", 0)
