@@ -9,7 +9,7 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
+    ship: done
     review-pr: pending
 plan:
     generated: true
@@ -33,25 +33,26 @@ stage_metrics:
     apply: {started_at: "2026-11-18T12:14:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-18T12:35:06Z"}
     review: {started_at: "2026-11-18T12:35:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-18T12:41:21Z"}
     hydrate: {started_at: "2026-11-18T12:41:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-18T12:42:48Z"}
-    ship: {started_at: "2026-11-18T12:42:48Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-11-18T12:42:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-18T12:47:34Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1157
 change_type_source: explicit
 base_branch: main
 true_impact:
-    added: 2756
-    deleted: 243
-    net: 2513
+    added: 2777
+    deleted: 255
+    net: 2522
     excluding:
-        added: 1449
-        deleted: 238
-        net: 1211
+        added: 1454
+        deleted: 244
+        net: 1210
     tests:
         added: 331
         deleted: 25
         net: 306
-    computed_at: "2026-11-18T12:42:49Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-11-18T12:47:34Z"
+    computed_at_stage: ship
 summary: Agents tab reads both fab CLI spellings (clis/.cli and providers/.provider), writes the installed fab's, and labels the tool controls CLI
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-18T12:42:49Z
+last_updated: 2026-11-18T12:47:34Z
