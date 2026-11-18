@@ -1799,7 +1799,7 @@ export type FabRoleCell = {
 export type FabRole = {
   role: string;
   depth: "session" | "workers";
-  /** The role's CLI tool; fab spells the key `cli` (formerly `provider`). */
+  /** The role's CLI tool; the backend maps the key to fab's spelling (`cli` or `provider`). */
   tool: FabRoleCell;
   model: FabRoleCell;
   effort: FabRoleCell;

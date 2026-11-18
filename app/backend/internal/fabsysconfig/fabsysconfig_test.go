@@ -192,7 +192,7 @@ func TestRead_roleCells(t *testing.T) {
 
 	doing := roleByName(t, doc, "doing")
 	if doing.Tool.Override != nil || doing.Tool.Effective != "claude" || doing.Tool.Source != "agent.workers" {
-		t.Errorf("doing.provider = %+v, want inherited from agent.workers", doing.Tool)
+		t.Errorf("doing.tool = %+v, want inherited from agent.workers", doing.Tool)
 	}
 	if doing.Model.Override == nil || *doing.Model.Override != "claude-sonnet-5-5" || doing.Model.Source != "agent.profiles.doing.model" {
 		t.Errorf("doing.model = %+v, want system override", doing.Model)
@@ -325,7 +325,7 @@ func TestRead_overriddenCellCarriesInherited(t *testing.T) {
 	}
 	review := roleByName(t, doc, "review")
 	if review.Tool.Effective != "codex" || review.Tool.Inherited != "claude" {
-		t.Errorf("review.provider = %+v, want effective codex, inherited claude (agent.workers)", review.Tool)
+		t.Errorf("review.tool = %+v, want effective codex, inherited claude (agent.workers)", review.Tool)
 	}
 	if review.Model.Inherited != "gpt-5.6-sol" {
 		t.Errorf("review.model.inherited = %q, want codex's review fill", review.Model.Inherited)
@@ -335,7 +335,7 @@ func TestRead_overriddenCellCarriesInherited(t *testing.T) {
 		t.Errorf("doing.model = %+v, want inherited from the provider table", doing.Model)
 	}
 	if defaultRole := roleByName(t, doc, "default"); defaultRole.Tool.Inherited != "claude" {
-		t.Errorf("default.provider.inherited = %q, want agent.session", defaultRole.Tool.Inherited)
+		t.Errorf("default.tool.inherited = %q, want agent.session", defaultRole.Tool.Inherited)
 	}
 }
 
@@ -353,10 +353,10 @@ func TestRead_envShadowedRoleLeafCarriesSystemValue(t *testing.T) {
 	}
 	p := roleByName(t, doc, "review").Tool
 	if p.Override != nil || p.SystemValue == nil || *p.SystemValue != "codex" {
-		t.Errorf("review.provider = %+v, want no override and systemValue codex", p)
+		t.Errorf("review.tool = %+v, want no override and systemValue codex", p)
 	}
 	if roleByName(t, doc, "doing").Tool.SystemValue != nil {
-		t.Error("doing.provider.systemValue set without an env winner")
+		t.Error("doing.tool.systemValue set without an env winner")
 	}
 }
 

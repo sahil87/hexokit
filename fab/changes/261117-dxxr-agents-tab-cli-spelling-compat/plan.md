@@ -119,42 +119,46 @@ environment variable" / "… sets this CLI …", and the footer SHALL name the t
 
 ### Functional Completeness
 
-- [ ] A-001 R1: Tool names are the sorted union of `providers.<n>.*` and `clis.<n>.*` row names
-- [ ] A-002 R2: A role's tool cell reads `.cli` first, `.provider` second; suggestions, effort capability and inherited fills resolve under either table prefix with `clis.` winning
-- [ ] A-003 R3: An env-shadowed tool cell's system-value read queries the spelling that produced the row
-- [ ] A-004 R4: The write spelling is probed from already-fetched `show`/`explain` output, defaults to `provider`, and adds no fab subprocess call
-- [ ] A-005 R5: `tool`, `cli` and `provider` leaves are accepted and written under the probed spelling; duplicate tool leaves for one role are a ValidationError before exec
-- [ ] A-006 R6: The document exposes `tools` and `roles[].tool`; every SPA tool write sends `agent.profiles.<role>.tool`
-- [ ] A-007 R7: The tab shows "CLI" column, "<role> CLI" selects, "Session CLI"/"Worker CLI" knobs, "Agent CLIs" region, CLI env-warning wording and a footer naming `providers:` / `clis:`
+- [x] A-001 R1: Tool names are the sorted union of `providers.<n>.*` and `clis.<n>.*` row names
+- [x] A-002 R2: A role's tool cell reads `.cli` first, `.provider` second; suggestions, effort capability and inherited fills resolve under either table prefix with `clis.` winning
+- [x] A-003 R3: An env-shadowed tool cell's system-value read queries the spelling that produced the row
+- [x] A-004 R4: The write spelling is probed from already-fetched `show`/`explain` output, defaults to `provider`, and adds no fab subprocess call
+- [x] A-005 R5: `tool`, `cli` and `provider` leaves are accepted and written under the probed spelling; duplicate tool leaves for one role are a ValidationError before exec
+- [x] A-006 R6: The document exposes `tools` and `roles[].tool`; every SPA tool write sends `agent.profiles.<role>.tool`
+- [x] A-007 R7: The tab shows "CLI" column, "<role> CLI" selects, "Session CLI"/"Worker CLI" knobs, "Agent CLIs" region, CLI env-warning wording and a footer naming `providers:` / `clis:`
 
 ### Scenario Coverage
 
-- [ ] A-008 R4: Go tests exercise reads and writes against an old-spelling fixture, a new-spelling fixture and a mixed fixture
-- [ ] A-009 R7: Frontend unit and e2e tests assert the new labels and the `.tool` POST bodies
+- [x] A-008 R4: Go tests exercise reads and writes against an old-spelling fixture, a new-spelling fixture and a mixed fixture
+- [x] A-009 R7: Frontend unit and e2e tests assert the new labels and the `.tool` POST bodies
 
 ### Edge Cases & Error Handling
 
-- [ ] A-010 R5: An unknown tool value fails with `unknown CLI` and runs no fab call
-- [ ] A-011 R4: The explain-only signal (no `clis.` show row) selects the new spelling
+- [x] A-010 R5: An unknown tool value fails with `unknown CLI` and runs no fab call
+- [x] A-011 R4: The explain-only signal (no `clis.` show row) selects the new spelling
 
 ### Code Quality
 
-- [ ] A-012 Pattern consistency: New code follows the package's naming and structural patterns (constants for key fragments, argv-slice execs)
-- [ ] A-013 No unnecessary duplication: one helper resolves "new spelling then old" for both role leaves and table lookups
-- [ ] A-014 Subprocess safety: no new exec path; existing execs stay `exec.CommandContext` with `FabTimeout`
-- [ ] A-015 Tests: changed behavior is covered by Go, Vitest and Playwright tests; e2e `test()` JSDoc Proves/Steps blocks match the updated bodies
-- [ ] A-016 No magic strings: spelling fragments (`clis.`, `cli`, `tool`) are named constants
-- [ ] A-017 No comment narration: comments state constraints, not history or change IDs
+- [x] A-012 Pattern consistency: New code follows the package's naming and structural patterns (constants for key fragments, argv-slice execs)
+- [x] A-013 No unnecessary duplication: one helper resolves "new spelling then old" for both role leaves and table lookups
+- [x] A-014 Subprocess safety: no new exec path; existing execs stay `exec.CommandContext` with `FabTimeout`
+- [x] A-015 Tests: changed behavior is covered by Go, Vitest and Playwright tests; e2e `test()` JSDoc Proves/Steps blocks match the updated bodies
+- [x] A-016 No magic strings: spelling fragments (`clis.`, `cli`, `tool`) are named constants
+- [x] A-017 No comment narration: comments state constraints, not history or change IDs
 
 ### Security
 
-- [ ] A-018 R5: Mapped keys are built only from the allowlisted role names and the fixed leaf set; values still pass the tool-name allowlist before reaching argv
+- [x] A-018 R5: Mapped keys are built only from the allowlisted role names and the fixed leaf set; values still pass the tool-name allowlist before reaching argv
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+None — this change adds new functionality without making existing code redundant (the old-spelling paths stay live for today's fab).
 
 ## Assumptions
 
