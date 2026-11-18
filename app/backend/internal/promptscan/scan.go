@@ -25,7 +25,7 @@ const (
 	IndicatorColonPrompt        = "colon_prompt"
 	IndicatorEnumeratedOptions  = "enumerated_options"
 	// IndicatorSelectMenu is a harness's arrow-key menu (Claude Code's
-	// AskUserQuestion and permission dialogs): answered with keys, never text.
+	// AskUserQuestion menus): answered with keys, never text.
 	IndicatorSelectMenu = "select_menu"
 	// InputKeys is Result.Input for a select menu.
 	InputKeys         = "keys"
@@ -76,9 +76,10 @@ var (
 	// before a numbered option.
 	selectMenuCursorPattern = regexp.MustCompile(`^\s*[❯›>]\s*(\d{1,2})[.)]\s`)
 	// composerLinePattern is a composer or turn-boundary line: a prompt glyph
-	// alone or followed by text. A menu never has one below its footer; a
-	// transcript that merely mentions a menu's hint does.
-	composerLinePattern = regexp.MustCompile(`^\s*[❯›>](\s|$)`)
+	// (after an optional box border) alone or followed by text, or a bare
+	// shell prompt. A menu never has one below its footer; a transcript that
+	// merely mentions a menu's hint does.
+	composerLinePattern = regexp.MustCompile(`^\s*[│┃]?\s*[❯›>](\s|$)|^\s*\$\s*$`)
 )
 
 // SelectMenuWindow bounds how far above the footer the cursor row is sought

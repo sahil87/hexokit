@@ -374,8 +374,8 @@ func runMuxSend(cmd *cobra.Command, args []string) error {
 		case tmux.AgentStateActive:
 			return fail(fmt.Errorf("refusing to send to pane %s: agent is active (never interrupt a working agent)", paneID))
 		}
-		// A select menu (Claude Code's AskUserQuestion, permission dialogs)
-		// reads ↑/↓ and Enter only: pasted text is swallowed, the probe sees
+		// A select menu (Claude Code's AskUserQuestion menus) reads ↑/↓ and
+		// Enter only: pasted text is swallowed, the probe sees
 		// no echo and withholds Enter, and the caller is left guessing. Refuse
 		// typed text up front and name the keys. --force skips this with the
 		// rest of the gate.

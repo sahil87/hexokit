@@ -109,6 +109,8 @@ func TestScanSelectMenuFalsePositives(t *testing.T) {
 		{"answered menu with a new composer below", menu + strings.Repeat("output\n", 6) + "> \n", IndicatorNone},
 		{"footer far above the bottom", menu + strings.Repeat("later output\n", 10), IndicatorNone},
 		{"composer line starting with a number is not a cursor row", "❯ 1. first thing to do\n", IndicatorNone},
+		{"boxed composer below an old menu", menu + "╭────╮\n│ >  │\n╰────╯\n", IndicatorNone},
+		{"shell prompt below printed menu text", "$ cat ui.txt\n> 1. Yes\n  2. No\nEnter to select\n$ \n", IndicatorNone},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
