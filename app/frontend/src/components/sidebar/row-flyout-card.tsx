@@ -523,8 +523,8 @@ export function CardActionRow({
  *
  * Feedback: the clicked row swaps its fork glyph for the LogoSpinner and its
  * hint for a progress phrase (the split button's icon swap + the update row's
- * "updating…" idiom). The sidebar's placeholder row (app.tsx handleForkWindow)
- * is what stays visible once the card closes.
+ * "updating…" idiom). The sidebar's placeholder row (useForkWindow) is what
+ * stays visible once the card closes.
  */
 function ForkActionRows({
   onFork,
@@ -607,17 +607,23 @@ function ForkActionRow({
       type="button"
       // stopPropagation so forking never also selects the underlying row (the
       // PR/docs links' idiom). The click is a no-op while a fork is in flight —
-      // `disabled` already blocks it, the parent's guard is the belt to that braces.
+      // this guard covers the busy row, `disabled` the other; the parent's
+      // guard is the belt to those braces.
       onClick={(e) => {
         e.stopPropagation();
         if (disabled) return;
         onClick();
       }}
-      disabled={disabled}
+      // The busy row is aria-disabled, NOT natively disabled: it was just
+      // clicked, so it holds focus and sits under the pointer, and disabling
+      // it would drop focus to <body> — which the card's focus manager can
+      // read as focus leaving the card and close it, taking the spinner along.
+      disabled={disabled && !busy}
+      aria-disabled={busy || undefined}
       aria-busy={busy || undefined}
       // The busy row keeps full opacity so its spinner reads; only the OTHER
       // fork row dims while it is blocked.
-      className={`${ACTION_ROW_CLASS} hover:text-text-primary hover:border-l-accent-green disabled:hover:border-l-transparent disabled:cursor-not-allowed disabled:hover:text-text-secondary ${busy ? "" : "disabled:opacity-40"}`}
+      className={`${ACTION_ROW_CLASS} ${busy ? "cursor-progress" : "hover:text-text-primary hover:border-l-accent-green disabled:hover:border-l-transparent disabled:cursor-not-allowed disabled:hover:text-text-secondary disabled:opacity-40"}`}
       aria-label={tooltip}
       title={tooltip}
       data-testid={testid}

@@ -528,7 +528,10 @@ describe("Fork action row (260806-s4av)", () => {
       fireEvent.click(fork);
     });
     expect(onFork).toHaveBeenCalledTimes(1);
-    expect(fork).toBeDisabled();
+    // aria-disabled, not natively disabled: the clicked row keeps focus, so the
+    // card's focus manager never sees focus leave and close the card.
+    expect(fork).toHaveAttribute("aria-disabled", "true");
+    expect(fork).not.toBeDisabled();
     // In flight: the LogoSpinner replaces the fork glyph and the hint reads the
     // progress phrase; the row keeps full opacity so the spinner reads.
     expect(within(fork).getByTestId("row-flyout-fork-spinner")).toBeInTheDocument();
@@ -609,7 +612,7 @@ describe("Fork action row (260806-s4av)", () => {
     expect(onForkWorktree).toHaveBeenCalledTimes(1);
     expect(onFork).not.toHaveBeenCalled();
     expect(onRowClick).not.toHaveBeenCalled();
-    expect(forkWt).toBeDisabled();
+    expect(forkWt).toHaveAttribute("aria-disabled", "true");
     expect(within(forkWt).getByTestId("row-flyout-fork-spinner")).toBeInTheDocument();
     expect(forkWt).toHaveTextContent("creating worktree…");
     // The guard is shared: the same-directory fork is blocked (dimmed, no
@@ -629,6 +632,7 @@ describe("Fork action row (260806-s4av)", () => {
     expect(screen.getByTestId("row-flyout-fork-worktree-action")).toBeEnabled();
     expect(screen.getByTestId("row-flyout-fork-worktree-action")).toHaveTextContent("new branch");
     expect(screen.getByTestId("row-flyout-fork-action")).toBeEnabled();
+    expect(screen.getByTestId("row-flyout-fork-worktree-action")).not.toHaveAttribute("aria-disabled");
   });
 
   it("canForkWindow supports Claude and Codex", () => {

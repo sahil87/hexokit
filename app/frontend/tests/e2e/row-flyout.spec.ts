@@ -500,8 +500,8 @@ test.describe("Row flyout card (fine pointer)", () => {
    * 1. Route the window-fork API glob to a 200 returning windowId "@9", held
    *    until the test releases it.
    * 2. Hover @1 (feature-work) and click "Fork to new worktree".
-   * 3. Assert the row's spinner + progress hint, the fork row disabled, and a
-   *    ghost row named feature-work-fork.
+   * 3. Assert the row's spinner + progress hint, that it keeps focus, the
+   *    fork row disabled, and a ghost row named feature-work-fork.
    * 4. Move the pointer off the row; assert the card closes and the ghost row
    *    is still visible.
    * 5. Release the response; assert the URL becomes /default/9.
@@ -524,6 +524,10 @@ test.describe("Row flyout card (fine pointer)", () => {
 
     await expect(forkWtRow.getByTestId("row-flyout-fork-spinner")).toBeVisible();
     await expect(forkWtRow).toContainText("creating worktree…");
+    // The busy row keeps focus (aria-disabled, not natively disabled): a native
+    // disable would drop focus to <body>, and the card can close on that.
+    await expect(forkWtRow).toBeFocused();
+    await expect(forkWtRow).toHaveAttribute("aria-disabled", "true");
     await expect(card(page).getByTestId("row-flyout-fork-action")).toBeDisabled();
     const ghost = tree(page).locator("[role='treeitem'][data-window-id^='ghost-']");
     await expect(ghost).toHaveCount(1);
