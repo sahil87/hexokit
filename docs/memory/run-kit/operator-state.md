@@ -131,7 +131,7 @@ Each check derives every item's current condition-key set and compares it with t
 | `done` | `done_at` set, built-in completion fired this check, or `done_when` holds against `last` |
 | `pane_death`, `pane_mismatch`, `agent_exited` | the pane cases above |
 | `agent:waiting`, `agent:idle` | clean join with that observed agent state (`agent_state` delta) |
-| `agent:waiting:aged:<n>`, `agent:idle:aged:<n>` | the same state held for n × `agentAgedAfter` (30m) by the pane's agent-state epoch — a new key, so a change, every half hour the state stays put (`agent_aged` delta: `pane`, `to`, `duration`); no epoch ⇒ never aged |
+| `agent:waiting:aged:<n>`, `agent:idle:aged` | the state held for `agentAgedAfter` (30m) by the pane's agent-state epoch (`agent_aged` delta: `pane`, `to`, `duration`); waiting carries its 30-minute bucket, so an unanswered prompt is a change again every half hour, idle fires once per stretch; no epoch ⇒ never aged |
 | `paused` | `paused` with `failures ≥ 3` (the probe-failure pause) |
 | `stale` | agent item with `now − (checked_at ?? added_at) > 2 × check_every` |
 | `due@<checked_at ?? added_at>` | agent item, not paused/done, past `check_every` — keyed by the base timestamp, so it fires once per due period |
@@ -226,7 +226,7 @@ A done item yields only `done` plus any `unknown_dep:*`; a user-paused item belo
 *Introduced by*: 261114-8w1x-operator-autopilot-go
 
 ### Aged agent states are a second, one-time condition
-**Decision**: A waiting or idle state held 30 minutes adds `agent:<state>:aged:<n>` for its 30-minute bucket, reported as `agent_aged` once per bucket and open in between; the keys drop out when the state changes, so each stretch starts over.
+**Decision**: A waiting state held 30 minutes adds `agent:waiting:aged:<n>` for its 30-minute bucket, reported as `agent_aged` once per bucket and open in between; an idle state adds `agent:idle:aged` once per stretch. The keys drop out when the state changes, so each stretch starts over.
 **Why**: Conditions are edge-triggered, so a prompt a run left open, or an idle agent nobody moved, never started another run; the brief rules' 30-minute auto-default and the stuck nudge need a run at that point.
-**Rejected**: re-reporting open conditions on every check (a model run per check while anything waits); a timer outside the check (a second clock beside the cron entry); a single aged report per stretch (a run that could not resolve the prompt went quiet for hours — on `loom`, five hours after two notifies — while the operator's job is to keep escalating until the agent moves).
+**Rejected**: re-reporting open conditions on every check (a model run per check while anything waits); a timer outside the check (a second clock beside the cron entry); a single aged report per stretch for waiting (a run that could not resolve the prompt went quiet for hours — on `loom`, five hours after two notifies — while the operator's job is to keep escalating until the agent moves); repeating buckets for idle too (the check cannot tell finished work from stuck work, so every finished ad-hoc agent would cost a no-op run every half hour until untracked).
 *Introduced by*: PR #1144 (direct change, no fab intake)

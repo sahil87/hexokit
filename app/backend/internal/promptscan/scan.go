@@ -75,10 +75,21 @@ var (
 	// selectMenuCursorPattern is the highlighted option row: a cursor glyph
 	// before a numbered option.
 	selectMenuCursorPattern = regexp.MustCompile(`^\s*[❯›>]\s*(\d{1,2})[.)]\s`)
+	// composerLinePattern is a composer or turn-boundary line: a prompt glyph
+	// alone or followed by text. A menu never has one below its footer; a
+	// transcript that merely mentions a menu's hint does.
+	composerLinePattern = regexp.MustCompile(`^\s*[❯›>](\s|$)`)
 )
 
-// selectMenuWindow bounds how far above the footer the cursor row is sought.
-const selectMenuWindow = 24
+// SelectMenuWindow bounds how far above the footer the cursor row is sought
+// and how far up the footer itself may sit; a caller that captures a pane
+// for the menu check needs at least this many lines.
+const SelectMenuWindow = 24
+
+// selectMenuFooterReach is how many non-blank lines from the bottom the
+// footer may sit: a live menu ends with its hint, then at most the harness's
+// status lines.
+const selectMenuFooterReach = 8
 
 // questionMarkExcludedPrefixes are line openers that make a trailing "?"
 // commentary or quotation rather than a prompt.
@@ -93,11 +104,11 @@ func Scan(content string) Result {
 		return Result{Indicator: IndicatorNone, Reason: ReasonBlankCapture}
 	}
 	lines := splitLines(content)
-	if r, ok := scanSelectMenu(lines); ok {
-		return r
-	}
 	if hasTurnBoundary(lines) {
 		return Result{Indicator: IndicatorNone, Reason: ReasonTurnBoundary}
+	}
+	if r, ok := scanSelectMenu(lines); ok {
+		return r
 	}
 
 	var nonEmpty []string
@@ -178,13 +189,24 @@ func matchOtherClasses(line string) (string, bool) {
 	return "", false
 }
 
-// scanSelectMenu recognises an arrow-key menu by its footer hint and reports
-// the option under the cursor. It runs before every other class: the footer
-// is the strongest signal on the screen, and a menu's option rows would
-// otherwise classify as enumerated options that a typed digit cannot answer.
+// scanSelectMenu recognises a live arrow-key menu and reports the option
+// under its cursor. All three must hold, so a transcript that merely quotes
+// a menu's hint, or an answered menu above a fresh composer, never matches:
+// the footer hint sits within the last selectMenuFooterReach non-blank lines;
+// no composer or turn-boundary line lies below it; and a cursor row (`❯ N.`)
+// sits within SelectMenuWindow lines above it. It runs after the guards and
+// before every other class, since a menu's option rows would otherwise
+// classify as enumerated options that a typed digit cannot answer.
 func scanSelectMenu(lines []string) (Result, bool) {
-	footer := -1
-	for i := len(lines) - 1; i >= 0 && i >= len(lines)-selectMenuWindow; i-- {
+	footer, seen := -1, 0
+	for i := len(lines) - 1; i >= 0 && seen < selectMenuFooterReach; i-- {
+		if strings.TrimSpace(lines[i]) == "" {
+			continue
+		}
+		seen++
+		if composerLinePattern.MatchString(lines[i]) {
+			return Result{}, false
+		}
 		if selectMenuFooterPattern.MatchString(lines[i]) {
 			footer = i
 			break
@@ -193,17 +215,14 @@ func scanSelectMenu(lines []string) (Result, bool) {
 	if footer < 0 {
 		return Result{}, false
 	}
-	r := Result{Indicator: IndicatorSelectMenu, Input: InputKeys, Snippet: strings.TrimSpace(lines[footer])}
-	for i := footer - 1; i >= 0 && i >= footer-selectMenuWindow; i-- {
+	for i := footer - 1; i >= 0 && i >= footer-SelectMenuWindow; i-- {
 		if m := selectMenuCursorPattern.FindStringSubmatch(lines[i]); m != nil {
 			n := 0
 			for _, c := range m[1] {
 				n = n*10 + int(c-'0')
 			}
-			r.Highlighted = n
-			r.Snippet = strings.TrimSpace(lines[i])
-			break
+			return Result{Indicator: IndicatorSelectMenu, Input: InputKeys, Highlighted: n, Snippet: strings.TrimSpace(lines[i])}, true
 		}
 	}
-	return r, true
+	return Result{}, false
 }

@@ -14,8 +14,9 @@ const (
 	condAgentExited  = "agent_exited"
 	condAgentWaiting = "agent:waiting"
 	condAgentIdle    = "agent:idle"
-	// The aged keys carry a 30-minute bucket index (`agent:idle:aged:2` at
-	// an hour), so a state that stays put is a change again every bucket.
+	// The waiting key carries a 30-minute bucket index (`agent:waiting:aged:2`
+	// at an hour), so an unanswered prompt is a change again every bucket;
+	// the idle key has none and fires once per stretch.
 	condAgentWaitingAged = "agent:waiting:aged"
 	condAgentIdleAged    = "agent:idle:aged"
 	condPaused           = "paused"

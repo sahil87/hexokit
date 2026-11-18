@@ -319,9 +319,9 @@ func TestCheck_AgentStateFiresOnlyIntoWaitingOrIdle(t *testing.T) {
 }
 
 // A waiting or idle state held for 30 minutes is a change once more
-// (agent_aged), then open until the next half hour; a new stretch of the same
-// state starts over.
-func TestCheck_AgentAgedFiresEveryThirtyMinutes(t *testing.T) {
+// (agent_aged): idle once per stretch, waiting again every half hour; a new
+// stretch of the same state starts over.
+func TestCheck_AgentAged(t *testing.T) {
 	e := newCheckEnv(t)
 	e.now = time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
 	e.seed(paneItem("p", map[string]interface{}{"pane": "%1", "agent": "active"}))
@@ -345,16 +345,10 @@ func TestCheck_AgentAgedFiresEveryThirtyMinutes(t *testing.T) {
 	wantKinds(t, "still aged changes", again.Changes)
 	wantKinds(t, "still aged open", again.Open, "p:agent_state", "p:agent_aged")
 
-	// Every further half hour the state stays put is a change again, so a run
-	// that could not resolve it keeps getting the chance to escalate.
+	// Idle fires once per stretch: the check cannot tell finished work from
+	// stuck work, and a finished agent must not cost a run every half hour.
 	e.now = e.now.Add(29 * time.Minute)
-	wantKinds(t, "idle 60m", e.run().Changes, "p:agent_aged")
-	e.now = e.now.Add(30 * time.Minute)
-	res = e.run()
-	wantKinds(t, "idle 90m", res.Changes, "p:agent_aged")
-	if d := res.Changes[0]; d.Duration == nil || !strings.HasPrefix(*d.Duration, "1h") {
-		t.Errorf("agent_aged duration = %v, want an hour-plus age", d.Duration)
-	}
+	wantKinds(t, "idle 60m", e.run().Changes)
 
 	// A nudge makes it active; the next idle stretch ages again from zero.
 	e.panes["%1"] = row("active", 0)
@@ -364,9 +358,19 @@ func TestCheck_AgentAgedFiresEveryThirtyMinutes(t *testing.T) {
 	e.now = e.now.Add(30 * time.Minute)
 	wantKinds(t, "idle again 30m", e.run().Changes, "p:agent_aged")
 
-	// Waiting ages the same way; an unknown epoch never ages.
+	// Waiting ages every half hour it stays unanswered, so a run that could
+	// not resolve the prompt keeps getting the chance to escalate.
 	e.panes["%1"] = row("waiting", e.now.Unix()-45*60)
 	wantKinds(t, "waiting 45m", e.run().Changes, "p:agent_state", "p:agent_aged")
+	wantKinds(t, "waiting 45m again", e.run().Changes)
+	e.now = e.now.Add(16 * time.Minute)
+	res = e.run()
+	wantKinds(t, "waiting 61m", res.Changes, "p:agent_aged")
+	if d := res.Changes[0]; d.Duration == nil || !strings.HasPrefix(*d.Duration, "1h") {
+		t.Errorf("agent_aged duration = %v, want an hour-plus age", d.Duration)
+	}
+	e.now = e.now.Add(30 * time.Minute)
+	wantKinds(t, "waiting 91m", e.run().Changes, "p:agent_aged")
 	e.panes["%1"] = row("idle", 0)
 	wantKinds(t, "idle with no epoch", e.run().Changes, "p:agent_state")
 }

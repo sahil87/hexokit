@@ -325,6 +325,7 @@ func TestBriefRules_CoverTheRunContract(t *testing.T) {
 		"rk mux capture -L <server> <pane> --lines 40 --classify --json", "--answer", "--key",
 		"A defensible recommendation", "No defensible default", "never guess", "30 minutes", "at most one nudge",
 		"agent_aged", "### Queue items that finish their intake", "fab score --check-gate --stage intake",
+		"select_menu", "--key Enter", "not echoed", "Key retry after a `not echoed` send",
 		"Advance an item once",
 		"command -v rk", "by: user", "by: chat", "probe.instruction",
 		"rk operator track observe", "### Allowed tools", "No file-editing tools",

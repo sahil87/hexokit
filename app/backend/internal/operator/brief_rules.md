@@ -66,8 +66,9 @@ For a `waiting` pane (and an idle pane you suspect is stuck on a prompt):
 4. Send: `rk mux send -L <server> <pane> "<text>" --answer`; key names (Enter, arrows) go through
    `rk mux send -L <server> <pane> --key <name>`. Read the result: `unverified` means Enter was sent and the
    pane did not change — capture and decide; never blind-resend. `input not ready` / `not echoed`
-   means nothing was submitted: re-capture, and if the pane is unchanged the keystrokes never
-   landed, so a retry — with keys for a menu — is not a blind resend.
+   means Enter was withheld: re-capture and compare with the capture you took before the send.
+   Identical means the keystrokes never landed and one retry — with keys for a menu — is allowed,
+   recorded in a note; any difference, the staged text appearing included, means do not resend.
 
 **Strategic prompts** are choices with real trade-offs, open questions, or menus you are unsure
 about. Each one is out-of-band: decide, act, and move on to the next item.
@@ -125,6 +126,7 @@ instead: "{item} appears stuck at {stage}. Manual investigation recommended."
 | Situation | Retries | Then |
 |-----------|---------|------|
 | Stuck agent nudge | 1 | notify |
+| Key retry after a `not echoed` send | 1 | notify |
 | Post-intake advance | 1 | note and notify |
 | Send to an `active` agent | 0 | skip |
 
@@ -137,10 +139,11 @@ Escalating is the job when you cannot resolve something yourself. A prompt you l
 answer that did not land, or an agent you may not nudge again goes to the user in a notify that
 carries the pane, the question's first line and its options (the capture's text, up to 300
 characters), what you tried, and the one action you need from them. The check reports
-`agent_aged <state> <duration>` again every 30 minutes while the agent stays waiting, or idle
-with unfinished work: on each repeat re-check the pane, retry what is safe (keys into a menu, the
-auto-default once it applies), and otherwise re-notify with the age — never go quiet while an
-agent is stuck.
+`agent_aged waiting <duration>` again every 30 minutes while a prompt stays unanswered: on each
+repeat re-check the pane, apply the auto-default once it applies, spend a retry only within the
+Bounded retries table, and otherwise re-notify with the age — never go quiet while a prompt waits
+on the user. An idle agent ages once: the stuck rule above decides it, and a finished or parked
+agent is left alone.
 
 ### Notes are the memory
 

@@ -87,10 +87,34 @@ func TestScanSelectMenu(t *testing.T) {
 	if got := Scan(moved); got.Highlighted != 3 || got.Input != InputKeys {
 		t.Errorf("Scan(moved) = %+v, want highlighted 3", got)
 	}
-	if got := Scan("Do you want to proceed?\n❯ 1. Yes\n  2. No\nEsc to cancel · Enter to select\n"); got.Indicator != IndicatorSelectMenu || got.Highlighted != 1 {
-		t.Errorf("permission dialog = %+v, want select_menu highlighted 1", got)
+	// Status lines under the footer, as a real capture carries them.
+	withStatus := menu + "───────── scr-s1 ─\n  ━━━━ · $1.58\n  ⏵⏵ bypass permissions on\n"
+	if got := Scan(withStatus); got.Indicator != IndicatorSelectMenu || got.Highlighted != 1 {
+		t.Errorf("menu with status lines = %+v, want select_menu highlighted 1", got)
 	}
 	if got := Scan("1) yes  2) no\n"); got.Indicator != IndicatorEnumeratedOptions || got.Input != "" {
 		t.Errorf("a plain numbered prompt must stay enumerated_options with no input hint: %+v", got)
+	}
+}
+
+// Text that only mentions a menu's hint is not a menu: a transcript quoting
+// the UI above a composer, a README line, a shell message, or an answered
+// menu with a fresh composer below it. Each of these used to refuse a send.
+func TestScanSelectMenuFalsePositives(t *testing.T) {
+	menu := "❯ 1. Yes\n  2. No\nEnter to select · ↑/↓ to navigate\n"
+	cases := []struct{ name, content, want string }{
+		{"quoted hint above an empty composer", "⏺ The menu shows `Enter to select · ↑/↓ to navigate`\n\n> \n", IndicatorNone},
+		{"README line above a composer with text", "Use arrow keys to navigate, Enter to select.\n❯ typed\n", IndicatorNone},
+		{"shell message, no cursor row", "Press Enter to select the default.\n$ \n", IndicatorPressKey},
+		{"answered menu with a new composer below", menu + strings.Repeat("output\n", 6) + "> \n", IndicatorNone},
+		{"footer far above the bottom", menu + strings.Repeat("later output\n", 10), IndicatorNone},
+		{"composer line starting with a number is not a cursor row", "❯ 1. first thing to do\n", IndicatorNone},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Scan(tc.content); got.Indicator != tc.want || got.Input != "" {
+				t.Errorf("Scan() = %+v, want indicator %q", got, tc.want)
+			}
+		})
 	}
 }

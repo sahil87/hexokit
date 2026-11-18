@@ -80,8 +80,9 @@ const (
 	sendHintStagedSend       = "press Enter in the pane to submit"
 	sendHintSubmitUnverified = "capture the pane before resending"
 	sendHintSelectMenu       = "a select menu takes keys: --key Enter picks the highlighted option, --key Down/--key Up move first"
-	// muxSendMenuLines is how much of the screen the select-menu check reads.
-	muxSendMenuLines       = 40
+	// muxSendMenuLines is how much of the screen the select-menu check reads:
+	// the classifier's window plus room for the harness's status lines.
+	muxSendMenuLines       = promptscan.SelectMenuWindow + 8
 	sendHintWaitingRefusal = "use --answer if this send is the reply the agent waits for"
 	sendHintAwaitGone      = "the message was delivered before the pane died"
 	sendHintAwaitNoStart   = "delivered; the wait could not start"
