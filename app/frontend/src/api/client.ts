@@ -1790,7 +1790,7 @@ export type FabRoleCell = {
   source: string;
   origin: FabOrigin | "";
   originDetail?: string;
-  /** What the leaf resolves to with no override ("" when the provider has no fill). */
+  /** What the leaf resolves to with no override ("" when the tool has no fill). */
   inherited: string;
   /** The system-tier value hidden behind an env winner. */
   systemValue?: string;
@@ -1799,7 +1799,8 @@ export type FabRoleCell = {
 export type FabRole = {
   role: string;
   depth: "session" | "workers";
-  provider: FabRoleCell;
+  /** The role's CLI tool; fab spells the key `cli` (formerly `provider`). */
+  tool: FabRoleCell;
   model: FabRoleCell;
   effort: FabRoleCell;
 };
@@ -1809,7 +1810,7 @@ export type FabConfigDocument =
   | {
       installed: true;
       systemPath: string;
-      providers: string[];
+      tools: string[];
       fields: Record<string, FabField>;
       roles: FabRole[];
       modelSuggestions: Record<string, string[]>;

@@ -74,7 +74,7 @@ export async function stubFabConfig(
       return {
         role,
         depth,
-        provider: cell("provider", String(fields[tierKey].value), tierKey),
+        tool: cell("tool", String(fields[tierKey].value), tierKey),
         model: cell("model", "", ""),
         effort: cell("effort", "", ""),
       };
@@ -82,7 +82,7 @@ export async function stubFabConfig(
     return {
       installed: true,
       systemPath,
-      providers: ["agy", "claude", "codex", "kimi"],
+      tools: ["agy", "claude", "codex", "kimi"],
       fields,
       roles,
       modelSuggestions: { claude: ["claude-opus-5-5", "claude-sonnet-5-5"], codex: ["gpt-5.6-sol"], agy: [], kimi: [] },

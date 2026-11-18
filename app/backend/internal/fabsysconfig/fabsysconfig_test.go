@@ -71,7 +71,7 @@ func derivedRow(key, valueJSON, from string) string {
 func showJSON(rows ...string) string { return "[" + strings.Join(rows, ",") + "]" }
 
 // baseRows is a machine with claude as both depths, a system model override
-// for `doing`, and a four-provider table.
+// for `doing`, and a four-tool table in fab's old `providers` spelling.
 func baseRows() []string {
 	return []string{
 		row("agent.session", `"claude"`, "system", systemPath),
@@ -156,8 +156,8 @@ func TestRead_buildsDocument(t *testing.T) {
 	if !doc.Installed || doc.SystemPath != systemPath {
 		t.Errorf("installed/systemPath = %v/%q", doc.Installed, doc.SystemPath)
 	}
-	if want := []string{"agy", "claude", "codex", "kimi"}; !reflect.DeepEqual(doc.Providers, want) {
-		t.Errorf("providers = %v, want %v (derived from providers.<name>.* keys)", doc.Providers, want)
+	if want := []string{"agy", "claude", "codex", "kimi"}; !reflect.DeepEqual(doc.Tools, want) {
+		t.Errorf("tools = %v, want %v (derived from providers.<name>.* keys)", doc.Tools, want)
 	}
 	w := doc.Fields["agent.workers"]
 	if w.Value != "claude" || w.Origin != "system" || w.OriginDetail != systemPath || w.Description != "Provider for worker stages" {
@@ -191,8 +191,8 @@ func TestRead_roleCells(t *testing.T) {
 	doc, _ := New(f.run).Read(context.Background())
 
 	doing := roleByName(t, doc, "doing")
-	if doing.Provider.Override != nil || doing.Provider.Effective != "claude" || doing.Provider.Source != "agent.workers" {
-		t.Errorf("doing.provider = %+v, want inherited from agent.workers", doing.Provider)
+	if doing.Tool.Override != nil || doing.Tool.Effective != "claude" || doing.Tool.Source != "agent.workers" {
+		t.Errorf("doing.provider = %+v, want inherited from agent.workers", doing.Tool)
 	}
 	if doing.Model.Override == nil || *doing.Model.Override != "claude-sonnet-5-5" || doing.Model.Source != "agent.profiles.doing.model" {
 		t.Errorf("doing.model = %+v, want system override", doing.Model)
@@ -324,8 +324,8 @@ func TestRead_overriddenCellCarriesInherited(t *testing.T) {
 		t.Fatal(err)
 	}
 	review := roleByName(t, doc, "review")
-	if review.Provider.Effective != "codex" || review.Provider.Inherited != "claude" {
-		t.Errorf("review.provider = %+v, want effective codex, inherited claude (agent.workers)", review.Provider)
+	if review.Tool.Effective != "codex" || review.Tool.Inherited != "claude" {
+		t.Errorf("review.provider = %+v, want effective codex, inherited claude (agent.workers)", review.Tool)
 	}
 	if review.Model.Inherited != "gpt-5.6-sol" {
 		t.Errorf("review.model.inherited = %q, want codex's review fill", review.Model.Inherited)
@@ -334,8 +334,8 @@ func TestRead_overriddenCellCarriesInherited(t *testing.T) {
 	if *doing.Model.Override != "claude-sonnet-5-5" || doing.Model.Inherited != "claude-sonnet-5-5" {
 		t.Errorf("doing.model = %+v, want inherited from the provider table", doing.Model)
 	}
-	if defaultRole := roleByName(t, doc, "default"); defaultRole.Provider.Inherited != "claude" {
-		t.Errorf("default.provider.inherited = %q, want agent.session", defaultRole.Provider.Inherited)
+	if defaultRole := roleByName(t, doc, "default"); defaultRole.Tool.Inherited != "claude" {
+		t.Errorf("default.provider.inherited = %q, want agent.session", defaultRole.Tool.Inherited)
 	}
 }
 
@@ -351,11 +351,11 @@ func TestRead_envShadowedRoleLeafCarriesSystemValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := roleByName(t, doc, "review").Provider
+	p := roleByName(t, doc, "review").Tool
 	if p.Override != nil || p.SystemValue == nil || *p.SystemValue != "codex" {
 		t.Errorf("review.provider = %+v, want no override and systemValue codex", p)
 	}
-	if roleByName(t, doc, "doing").Provider.SystemValue != nil {
+	if roleByName(t, doc, "doing").Tool.SystemValue != nil {
 		t.Error("doing.provider.systemValue set without an env winner")
 	}
 }
@@ -428,9 +428,11 @@ func TestApply_validationRejectsBeforeExec(t *testing.T) {
 		"extra segment":       `{"agent.profiles.doing.model.x":"m"}`,
 		"bad mode":            `{"dispatch.mode":"weird"}`,
 		"mode type":           `{"dispatch.mode":1}`,
-		"unknown provider":    `{"agent.workers":"bogus"}`,
+		"unknown tool":        `{"agent.workers":"bogus"}`,
 		"empty session":       `{"agent.session":""}`,
 		"profile provider":    `{"agent.profiles.doing.provider":"bogus"}`,
+		"profile tool":        `{"agent.profiles.doing.tool":"bogus"}`,
+		"tool leaf twice":     `{"agent.profiles.doing.tool":"codex","agent.profiles.doing.provider":"kimi"}`,
 		"width zero":          `{"dispatch.column_width":0}`,
 		"width 100":           `{"dispatch.column_width":100}`,
 		"width fraction":      `{"dispatch.column_width":4.5}`,
@@ -559,5 +561,151 @@ func TestApply_notInstalled(t *testing.T) {
 	}).WithLookPath(func(string) (string, error) { return "", errors.New("nope") })
 	if _, err := c.Apply(context.Background(), patchOf(t, `{"agent.workers":"codex"}`)); !errors.Is(err, ErrNotInstalled) {
 		t.Errorf("err = %v, want ErrNotInstalled", err)
+	}
+}
+
+// newSpelling rewrites fixture rows into fab's renamed spelling: the clis
+// table and the agent.profiles.<role>.cli leaf.
+func newSpelling(rows []string) []string {
+	out := make([]string, len(rows))
+	for i, r := range rows {
+		r = strings.Replace(r, `"key":"providers.`, `"key":"clis.`, 1)
+		out[i] = strings.Replace(r, `.provider","value"`, `.cli","value"`, 1)
+	}
+	return out
+}
+
+// spellings runs a case against fab's old and renamed spellings; a renamed
+// fab must read identically and write the new leaf.
+var spellings = []struct {
+	name, table, leaf string
+	rows              func([]string) []string
+}{
+	{"providers", "providers.", "provider", func(r []string) []string { return r }},
+	{"clis", "clis.", "cli", newSpelling},
+}
+
+func TestRead_bothSpellingsReadAlike(t *testing.T) {
+	for _, sp := range spellings {
+		t.Run(sp.name, func(t *testing.T) {
+			rows := sp.rows(append(baseRows(),
+				row("agent.profiles.review."+sp.leaf, `"codex"`, "system", systemPath),
+				row("agent.profiles.fast."+sp.leaf, `"agy"`, "system", systemPath),
+				row("providers.codex.headless_command", `"codex exec -c model_reasoning_effort={effort}"`, "default", ""),
+			))
+			doc, err := New(newFake(t, rows...).run).Read(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := []string{"agy", "claude", "codex", "kimi"}; !reflect.DeepEqual(doc.Tools, want) {
+				t.Errorf("tools = %v, want %v", doc.Tools, want)
+			}
+			review := roleByName(t, doc, "review")
+			if review.Tool.Override == nil || *review.Tool.Override != "codex" || review.Tool.Source != "agent.profiles.review."+sp.leaf {
+				t.Errorf("review.tool = %+v, want override codex from the %s leaf", review.Tool, sp.leaf)
+			}
+			if review.Model.Effective != "gpt-5.6-sol" || review.Model.Source != sp.table+"codex.profiles.review.model" {
+				t.Errorf("review.model = %+v, want codex's fill from the %s table", review.Model, sp.table)
+			}
+			if fast := roleByName(t, doc, "fast"); fast.Model.Inherited != "gemini-3.1-pro-high" || fast.Model.Source != sp.table+"agy.profiles.default.model" {
+				t.Errorf("fast.model = %+v, want agy's default-profile fill", fast.Model)
+			}
+			if got := doc.ModelSuggestions["codex"]; !reflect.DeepEqual(got, []string{"gpt-5.6-sol"}) {
+				t.Errorf("codex suggestions = %v", got)
+			}
+			if !doc.EffortCapable["codex"] || doc.EffortCapable["kimi"] {
+				t.Errorf("effortCapable = %v", doc.EffortCapable)
+			}
+		})
+	}
+}
+
+func TestRead_newSpellingWinsWhenBothShown(t *testing.T) {
+	rows := append(baseRows(),
+		row("agent.profiles.review.provider", `"kimi"`, "system", systemPath),
+		row("agent.profiles.review.cli", `"codex"`, "system", systemPath),
+		row("clis.codex.profiles.review.model", `"gpt-6.1-sol"`, "default", ""),
+		row("clis.zed.interactive_command", `"zed"`, "default", ""),
+	)
+	doc, err := New(newFake(t, rows...).run).Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"agy", "claude", "codex", "kimi", "zed"}; !reflect.DeepEqual(doc.Tools, want) {
+		t.Errorf("tools = %v, want the de-duplicated union %v", doc.Tools, want)
+	}
+	review := roleByName(t, doc, "review")
+	if review.Tool.Effective != "codex" || review.Tool.Source != "agent.profiles.review.cli" {
+		t.Errorf("review.tool = %+v, want the .cli row over .provider", review.Tool)
+	}
+	if review.Model.Effective != "gpt-6.1-sol" || review.Model.Source != "clis.codex.profiles.review.model" {
+		t.Errorf("review.model = %+v, want the clis fill over providers", review.Model)
+	}
+	if got, want := doc.ModelSuggestions["codex"], []string{"gpt-5.6-sol", "gpt-6.1-sol"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("codex suggestions = %v, want the union %v", got, want)
+	}
+}
+
+func TestRead_envShadowedToolQueriesItsSpelling(t *testing.T) {
+	const key = "agent.profiles.review.cli"
+	rows := append(newSpelling(baseRows()), row(key, `"kimi"`, "env", "FAB_AGENT_PROFILES"))
+	f := newFake(t, rows...)
+	f.stacks[key] = showJSON(
+		row(key, `"kimi"`, "env", "FAB_AGENT_PROFILES"),
+		`{"key":"`+key+`","value":"codex","origin":"system","origin_detail":"`+systemPath+`","status":"shadowed"}`,
+	)
+	doc, err := New(f.run).Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := roleByName(t, doc, "review").Tool.SystemValue; v == nil || *v != "codex" {
+		t.Errorf("review.tool.systemValue = %v, want codex read from %s", v, key)
+	}
+}
+
+func TestProbeToolLeaf(t *testing.T) {
+	old := []showRow{{Key: "providers.claude.native"}, {Key: "agent.profiles.review.provider"}}
+	cases := []struct {
+		name      string
+		rows      []showRow
+		explained map[string]string
+		want      string
+	}{
+		{"old fab", old, map[string]string{"providers": "", "agent.profiles": ""}, profileLeafProvider},
+		{"clis row", append(old, showRow{Key: "clis.claude.native"}), nil, profileLeafCLI},
+		{"cli role row", []showRow{{Key: "agent.profiles.doing.cli"}}, nil, profileLeafCLI},
+		{"explain only", old, map[string]string{"clis": ""}, profileLeafCLI},
+		{"nothing", nil, nil, profileLeafProvider},
+	}
+	for _, tc := range cases {
+		if got := probeToolLeaf(tc.rows, tc.explained); got != tc.want {
+			t.Errorf("%s: probe = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestApply_toolLeafWritesInstalledSpelling(t *testing.T) {
+	for _, sp := range spellings {
+		for _, sent := range []string{"tool", "cli", "provider"} {
+			t.Run(sp.name+"/"+sent, func(t *testing.T) {
+				f := newFake(t, sp.rows(baseRows())...)
+				_, err := New(f.run).Apply(context.Background(), patchOf(t,
+					`{"agent.profiles.review.`+sent+`":"codex","agent.profiles.doing.`+sent+`":null,"agent.profiles.review.model":null}`))
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := []string{
+					"config unset agent.profiles.doing." + sp.leaf + " --system",
+					"config unset agent.profiles.review.model --system",
+					"config set agent.profiles.review." + sp.leaf + " codex --system",
+				}
+				if sp.leaf == profileLeafCLI {
+					want = []string{want[0], want[2], want[1]}
+				}
+				if got := f.mutations(); !reflect.DeepEqual(got, want) {
+					t.Errorf("mutations = %v, want %v (sorted by written key)", got, want)
+				}
+			})
+		}
 	}
 }

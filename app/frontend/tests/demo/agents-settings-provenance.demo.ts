@@ -1,7 +1,7 @@
 /**
  * Demo: Agents-tab provenance follow-ups. The split floor shows each leaf's
  * own provenance chip (a saved `min_rows` no longer reads as "default"), and a
- * role whose saved provider is shadowed by an env var keeps its reset link so
+ * role whose saved CLI is shadowed by an env var keeps its reset link so
  * the saved value can still be cleared.
  *
  * Runs only under `just demo agents-settings-provenance` (optionally
@@ -11,7 +11,7 @@
  *
  * Shared setup: `/api/fab-config` is stubbed in the browser (the stateful
  * `_fab-config-stub` helper) seeded with a system `dispatch.min_rows: 30` and
- * a system `review` provider `codex` that an env var overrides with `kimi`.
+ * a system `review` CLI `codex` that an env var overrides with `kimi`.
  */
 import { test, expect, beat } from "./_demo";
 import { openPalette } from "../e2e/_ready";
@@ -31,8 +31,8 @@ test.describe("agents-settings-provenance demo", () => {
   test("split floor and env-shadowed role provenance", async ({ page }) => {
     const posts = await stubFabConfig(page, {
       systemPath: "/home/demo/.fab-kit/config.yaml",
-      system: { "dispatch.min_rows": 30, "agent.profiles.review.provider": "codex" },
-      env: { "agent.profiles.review.provider": "kimi" },
+      system: { "dispatch.min_rows": 30, "agent.profiles.review.tool": "codex" },
+      env: { "agent.profiles.review.tool": "kimi" },
     });
 
     await page.goto("/");
