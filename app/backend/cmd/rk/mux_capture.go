@@ -59,8 +59,14 @@ var muxCaptureCmd = &cobra.Command{
 		"--classify scans the captured text for a pending prompt (yes/no, numbered " +
 		"menu, colon prompt, open question, press-key) and reports the indicator " +
 		"class with the matched line, or none with a reason — as a question: header " +
-		"line, or a questions object under --json. Any pane classifies regardless of " +
-		"agent state; rk never answers. Not combinable with --raw.\n\n" +
+		"line, or a questions object under --json. It also reads the composer (the " +
+		"harness's input line) from an attribute-preserving capture: a composer object " +
+		"{text, ghost} under --json (null when no composer line was found), a composer: " +
+		"line otherwise — ghost means every character is rendered dim, text the harness " +
+		"drew (a suggestion or placeholder) and not typed input. rk mux send pastes after " +
+		"whatever the composer holds, so this is the only check against typing over " +
+		"someone's input. Any pane classifies regardless of agent state; rk never answers. " +
+		"Not combinable with --raw.\n\n" +
 		"Targets: %N (pane), @N (window — resolves to its agent pane), " +
 		"=session:window (exact). Bare session:window names are rejected.",
 	Example: `  rk mux capture %5
@@ -95,6 +101,12 @@ var (
 	muxCapturePaneFn = func(ctx context.Context, paneID string, lines int, server string) (string, error) {
 		return tmux.CapturePanePlainCtx(ctx, paneID, lines, server)
 	}
+	// muxCaptureEscapedFn is the attribute-preserving capture --classify reads
+	// the composer from; a plain capture cannot tell a dim suggestion from
+	// typed text.
+	muxCaptureEscapedFn = func(ctx context.Context, paneID string, lines int, server string) (string, error) {
+		return tmux.CapturePaneCtx(ctx, paneID, lines, server)
+	}
 	muxCaptureFactsFn = func(ctx context.Context, paneID, server string) (tmux.PaneFacts, error) {
 		return tmux.PaneFactsCtx(ctx, paneID, server)
 	}
@@ -113,6 +125,11 @@ type muxCaptureJSON struct {
 	AgentState         *string              `json:"agent_state"`
 	AgentStateDuration *string              `json:"agent_state_duration"`
 	Questions          *muxCaptureQuestions `json:"questions,omitempty"`
+	// Composer is present only under --classify: what the harness's input
+	// line holds and whether it is the harness's own dim text, or null when
+	// no composer line was found (a reader must never take unknown for empty:
+	// `rk mux send` pastes after whatever the composer holds).
+	Composer *promptscan.Composer `json:"composer,omitempty"`
 }
 
 // muxCaptureQuestions is the fixed-shape classification contract fab-kit's
@@ -191,8 +208,14 @@ func runMuxCapture(cmd *cobra.Command, target string) error {
 	}
 
 	var classification promptscan.Result
+	var composer promptscan.Composer
 	if muxCaptureClassifyFlag {
 		classification = promptscan.Scan(content)
+		// A failed escaped capture leaves the composer unknown rather than
+		// failing a classification the plain capture already answered.
+		if escaped, err := muxCaptureEscapedFn(ctx, paneID, muxCaptureLinesFlag, server); err == nil {
+			composer = promptscan.ScanComposer(escaped)
+		}
 	}
 
 	if muxCaptureJSONFlag {
@@ -210,6 +233,7 @@ func runMuxCapture(cmd *cobra.Command, target string) error {
 		}
 		if muxCaptureClassifyFlag {
 			out.Questions = newMuxCaptureQuestions(classification)
+			out.Composer = &composer
 		}
 		return sink.Envelope(out, nil)
 	}
@@ -231,6 +255,16 @@ func runMuxCapture(cmd *cobra.Command, target string) error {
 	}
 	if muxCaptureClassifyFlag {
 		sink.Dataf("%s\n", formatQuestionLine(classification))
+		// The human form prints the line only for a composer holding text;
+		// the --json form is what runs read, and it carries the empty object
+		// and null for unknown.
+		switch {
+		case !composer.Found, composer.Text == "":
+		case composer.Ghost:
+			sink.Dataf("composer: %s (ghost text the harness drew, not input)\n", composer.Text)
+		default:
+			sink.Dataf("composer: %s (typed, unsubmitted)\n", composer.Text)
+		}
 	}
 	sink.Dataf("---\n")
 	sink.Dataf("%s", content)
