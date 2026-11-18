@@ -8,8 +8,8 @@ progress:
     intake: done
     apply: done
     review: done
-    hydrate: active
-    ship: pending
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
@@ -32,24 +32,26 @@ stage_metrics:
     intake: {started_at: "2026-11-17T19:36:52Z", driver: fab-new, iterations: 1, completed_at: "2026-11-18T12:14:45Z"}
     apply: {started_at: "2026-11-18T12:14:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-18T12:35:06Z"}
     review: {started_at: "2026-11-18T12:35:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-18T12:41:21Z"}
-    hydrate: {started_at: "2026-11-18T12:41:21Z", driver: fab-fff, iterations: 1}
+    hydrate: {started_at: "2026-11-18T12:41:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-18T12:42:48Z"}
+    ship: {started_at: "2026-11-18T12:42:48Z", driver: fab-fff, iterations: 1}
 prs: []
 change_type_source: explicit
 base_branch: main
 true_impact:
-    added: 1805
-    deleted: 88
-    net: 1717
+    added: 2756
+    deleted: 243
+    net: 2513
     excluding:
-        added: 987
-        deleted: 83
-        net: 904
+        added: 1449
+        deleted: 238
+        net: 1211
     tests:
-        added: 154
-        deleted: 2
-        net: 152
-    computed_at: "2026-11-18T12:35:07Z"
-    computed_at_stage: apply
+        added: 331
+        deleted: 25
+        net: 306
+    computed_at: "2026-11-18T12:42:49Z"
+    computed_at_stage: hydrate
+summary: Agents tab reads both fab CLI spellings (clis/.cli and providers/.provider), writes the installed fab's, and labels the tool controls CLI
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-18T12:41:21Z
+last_updated: 2026-11-18T12:42:49Z
