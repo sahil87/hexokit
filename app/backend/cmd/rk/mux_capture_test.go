@@ -364,3 +364,15 @@ func TestMuxCaptureClassifyComposerCaptureFailure(t *testing.T) {
 		t.Errorf("stdout = %q err %v, want composer null", stdout, err)
 	}
 }
+
+// A select menu classifies with its input mode and highlighted option.
+func TestMuxCaptureClassifySelectMenuJSON(t *testing.T) {
+	menu := "Pick one\n❯ 1. Yes (Recommended)\n  2. No\nEnter to select · ↑/↓ to navigate\n"
+	f := &muxFake{states: map[string]string{"%5": "waiting"}, captureContent: map[string]string{"%5": menu}}
+	installMuxFakes(t, f)
+	stdout, _, err := runMuxCmd(t, "capture", "%5", "--json", "--classify")
+	want := "    \"questions\": {\n      \"indicator\": \"select_menu\",\n      \"snippet\": \"❯ 1. Yes (Recommended)\",\n      \"reason\": null,\n      \"input\": \"keys\",\n      \"highlighted\": 1\n    },\n"
+	if err != nil || !strings.Contains(stdout, want) {
+		t.Errorf("stdout = %q err %v, want %q", stdout, err, want)
+	}
+}

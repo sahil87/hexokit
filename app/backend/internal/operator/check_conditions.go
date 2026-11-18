@@ -1,18 +1,22 @@
 package operator
 
 import (
+	"strings"
 	"time"
 )
 
 // Condition keys: the strings stored in TrackedItem.Reported. due@ and
 // unknown_dep: are prefixes completed with the base timestamp / dependency id.
 const (
-	condDone             = "done"
-	condPaneDeath        = "pane_death"
-	condPaneMismatch     = "pane_mismatch"
-	condAgentExited      = "agent_exited"
-	condAgentWaiting     = "agent:waiting"
-	condAgentIdle        = "agent:idle"
+	condDone         = "done"
+	condPaneDeath    = "pane_death"
+	condPaneMismatch = "pane_mismatch"
+	condAgentExited  = "agent_exited"
+	condAgentWaiting = "agent:waiting"
+	condAgentIdle    = "agent:idle"
+	// The waiting key carries a 30-minute bucket index (`agent:waiting:aged:2`
+	// at an hour), so an unanswered prompt is a change again every bucket;
+	// the idle key has none and fires once per stretch.
 	condAgentWaitingAged = "agent:waiting:aged"
 	condAgentIdleAged    = "agent:idle:aged"
 	condPaused           = "paused"
@@ -22,9 +26,11 @@ const (
 )
 
 // agentAgedAfter is how long an agent may stay waiting or idle before the
-// check reports it again as agent_aged: a standing condition is a change only
-// once, so without this a prompt a run left open, or an agent nobody moved,
-// would never start another run. It matches the brief rules' 30-minute idle
+// check reports it again as agent_aged, and the period at which it keeps
+// doing so: a standing condition is a change only once, so without this a
+// prompt a run left open, or an agent nobody moved, would never start
+// another run — and a run that could not resolve it must get another chance
+// to escalate until it moves. It matches the brief rules' 30-minute idle
 // auto-default.
 const agentAgedAfter = 30 * time.Minute
 
@@ -39,9 +45,12 @@ func paneConditionKeys(keys []string) []string {
 	var out []string
 	for _, k := range keys {
 		switch k {
-		case condPaneDeath, condPaneMismatch, condAgentExited, condAgentWaiting, condAgentIdle,
-			condAgentWaitingAged, condAgentIdleAged:
+		case condPaneDeath, condPaneMismatch, condAgentExited, condAgentWaiting, condAgentIdle:
 			out = append(out, k)
+		default:
+			if strings.HasPrefix(k, condAgentWaitingAged) || strings.HasPrefix(k, condAgentIdleAged) {
+				out = append(out, k)
+			}
 		}
 	}
 	return out

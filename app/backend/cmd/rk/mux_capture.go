@@ -139,10 +139,15 @@ type muxCaptureQuestions struct {
 	Indicator string  `json:"indicator"`
 	Snippet   string  `json:"snippet"`
 	Reason    *string `json:"reason"`
+	// Input is "keys" for a select menu (answer with --key Enter/Up/Down,
+	// never typed text); Highlighted is the option under its cursor. Both
+	// are absent for every other class, keeping the fixed shape.
+	Input       string `json:"input,omitempty"`
+	Highlighted int    `json:"highlighted,omitempty"`
 }
 
 func newMuxCaptureQuestions(r promptscan.Result) *muxCaptureQuestions {
-	q := &muxCaptureQuestions{Indicator: r.Indicator, Snippet: r.Snippet}
+	q := &muxCaptureQuestions{Indicator: r.Indicator, Snippet: r.Snippet, Input: r.Input, Highlighted: r.Highlighted}
 	if r.Reason != "" {
 		q.Reason = &r.Reason
 	}

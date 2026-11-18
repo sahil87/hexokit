@@ -1185,3 +1185,25 @@ func TestMuxSendJSONAwaitRunningNestsCallAgain(t *testing.T) {
 		t.Errorf("target must be omitted for running: %v", nested)
 	}
 }
+
+// Typed text into a select menu is refused with the keys to use; --key sends
+// and --force are unaffected.
+func TestMuxSendRefusesTextIntoSelectMenu(t *testing.T) {
+	menu := "How should I handle the spec?\n❯ 1. Repoint (Recommended)\n  2. Drop\nEnter to select · ↑/↓ to navigate · Esc to cancel\n"
+	f := &muxFake{states: map[string]string{"%5": "waiting"}, paneExists: map[string]bool{"%5": true}, captureContent: map[string]string{"%5": menu}}
+	installMuxFakes(t, f)
+
+	_, stderr, err := runMuxCmd(t, "send", "%5", "1", "--answer")
+	if err == nil || !strings.Contains(stderr, "select menu") || !strings.Contains(stderr, "option 1 (highlighted)") || !strings.Contains(stderr, "--key Enter") {
+		t.Fatalf("err = %v stderr = %q, want a select-menu refusal naming option 1 and --key Enter", err, stderr)
+	}
+	if len(f.engineCalls) != 0 {
+		t.Fatalf("engine was called despite the refusal: %+v", f.engineCalls)
+	}
+	if _, _, err := runMuxCmd(t, "send", "%5", "--key", "Enter", "--answer"); err != nil || len(f.keysSent) != 1 {
+		t.Fatalf("--key Enter must pass: err %v keys %v", err, f.keysSent)
+	}
+	if _, _, err := runMuxCmd(t, "send", "%5", "1", "--force"); err != nil || len(f.engineCalls) != 1 {
+		t.Fatalf("--force must bypass the menu check: err %v calls %d", err, len(f.engineCalls))
+	}
+}

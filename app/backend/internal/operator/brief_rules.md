@@ -54,7 +54,9 @@ Before sending keys to any pane:
 For a `waiting` pane (and an idle pane you suspect is stuck on a prompt):
 
 1. Classify: `rk mux capture -L <server> <pane> --lines 40 --classify --json`. Class `none` means no prompt:
-   apply the stuck rule below.
+   apply the stuck rule below. Class `select_menu` (`questions.input: keys`, `highlighted: N`) is an
+   arrow-key menu: it is answered only with keys — `rk mux send -L <server> <pane> --key Enter` picks
+   the highlighted option, `--key Down`/`--key Up` move first; typed text is refused there.
 2. Answer **routine** prompts:
    - yes/no or confirmation, `[Y/n]`, `[y/N]`, a permission or tool-approval prompt → `y`
    - a numbered menu whose options are synonymous, permission-type, or binary-framed → the
@@ -62,8 +64,11 @@ For a `waiting` pane (and an idle pane you suspect is stuck on a prompt):
 3. Before sending, re-capture the pane. If its output changed since you classified it, abort: the
    agent is no longer waiting.
 4. Send: `rk mux send -L <server> <pane> "<text>" --answer`; key names (Enter, arrows) go through
-   `rk mux send -L <server> <pane> --key <name>`. If the send reports `unverified`, capture and decide; never
-   blind-resend.
+   `rk mux send -L <server> <pane> --key <name>`. Read the result: `unverified` means Enter was sent and the
+   pane did not change — capture and decide; never blind-resend. `input not ready` / `not echoed`
+   means Enter was withheld: re-capture and compare with the capture you took before the send.
+   Identical means the keystrokes never landed and one retry — with keys for a menu — is allowed,
+   recorded in a note; any difference, the staged text appearing included, means do not resend.
 
 **Strategic prompts** are choices with real trade-offs, open questions, or menus you are unsure
 about. Each one is out-of-band: decide, act, and move on to the next item.
@@ -121,13 +126,24 @@ instead: "{item} appears stuck at {stage}. Manual investigation recommended."
 | Situation | Retries | Then |
 |-----------|---------|------|
 | Stuck agent nudge | 1 | notify |
+| Key retry after a `not echoed` send | 1 | notify |
 | Post-intake advance | 1 | note and notify |
 | Send to an `active` agent | 0 | skip |
 
-### Notifications
+### Notifications and escalation
 
 `rk notify "<message>" --title "<item id>"`, always behind `command -v rk >/dev/null 2>&1`. It is
 fail-silent: a failed or skipped notify is mentioned in a note and never stops the run.
+
+Escalating is the job when you cannot resolve something yourself. A prompt you leave open, an
+answer that did not land, or an agent you may not nudge again goes to the user in a notify that
+carries the pane, the question's first line and its options (the capture's text, up to 300
+characters), what you tried, and the one action you need from them. The check reports
+`agent_aged waiting <duration>` again every 30 minutes while a prompt stays unanswered: on each
+repeat re-check the pane, apply the auto-default once it applies, spend a retry only within the
+Bounded retries table, and otherwise re-notify with the age — never go quiet while a prompt waits
+on the user. An idle agent ages once: the stuck rule above decides it, and a finished or parked
+agent is left alone.
 
 ### Notes are the memory
 

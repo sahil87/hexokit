@@ -72,3 +72,51 @@ func TestScanGuards(t *testing.T) {
 		})
 	}
 }
+
+// A harness's arrow-key menu is recognised by its footer and reports the
+// option under the cursor; it wins over the option rows' own classes.
+func TestScanSelectMenu(t *testing.T) {
+	menu := "How should I handle the spec?\n\n❯ 1. Repoint the locators (Recommended)\n     Edit only the bullets.\n  2. Drop the dead bullets only\n  3. Leave the spec, I'll handle it\n  4. Type something.\n──────\n  5. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n"
+	got := Scan(menu)
+	want := Result{Indicator: IndicatorSelectMenu, Input: InputKeys, Highlighted: 1, Snippet: "❯ 1. Repoint the locators (Recommended)"}
+	if got != want {
+		t.Errorf("Scan(menu) = %+v, want %+v", got, want)
+	}
+	moved := strings.Replace(menu, "❯ 1.", "  1.", 1)
+	moved = strings.Replace(moved, "  3. Leave", "❯ 3. Leave", 1)
+	if got := Scan(moved); got.Highlighted != 3 || got.Input != InputKeys {
+		t.Errorf("Scan(moved) = %+v, want highlighted 3", got)
+	}
+	// Status lines under the footer, as a real capture carries them.
+	withStatus := menu + "───────── scr-s1 ─\n  ━━━━ · $1.58\n  ⏵⏵ bypass permissions on\n"
+	if got := Scan(withStatus); got.Indicator != IndicatorSelectMenu || got.Highlighted != 1 {
+		t.Errorf("menu with status lines = %+v, want select_menu highlighted 1", got)
+	}
+	if got := Scan("1) yes  2) no\n"); got.Indicator != IndicatorEnumeratedOptions || got.Input != "" {
+		t.Errorf("a plain numbered prompt must stay enumerated_options with no input hint: %+v", got)
+	}
+}
+
+// Text that only mentions a menu's hint is not a menu: a transcript quoting
+// the UI above a composer, a README line, a shell message, or an answered
+// menu with a fresh composer below it. Each of these used to refuse a send.
+func TestScanSelectMenuFalsePositives(t *testing.T) {
+	menu := "❯ 1. Yes\n  2. No\nEnter to select · ↑/↓ to navigate\n"
+	cases := []struct{ name, content, want string }{
+		{"quoted hint above an empty composer", "⏺ The menu shows `Enter to select · ↑/↓ to navigate`\n\n> \n", IndicatorNone},
+		{"README line above a composer with text", "Use arrow keys to navigate, Enter to select.\n❯ typed\n", IndicatorNone},
+		{"shell message, no cursor row", "Press Enter to select the default.\n$ \n", IndicatorPressKey},
+		{"answered menu with a new composer below", menu + strings.Repeat("output\n", 6) + "> \n", IndicatorNone},
+		{"footer far above the bottom", menu + strings.Repeat("later output\n", 10), IndicatorNone},
+		{"composer line starting with a number is not a cursor row", "❯ 1. first thing to do\n", IndicatorNone},
+		{"boxed composer below an old menu", menu + "╭────╮\n│ >  │\n╰────╯\n", IndicatorNone},
+		{"shell prompt below printed menu text", "$ cat ui.txt\n> 1. Yes\n  2. No\nEnter to select\n$ \n", IndicatorNone},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Scan(tc.content); got.Indicator != tc.want || got.Input != "" {
+				t.Errorf("Scan() = %+v, want indicator %q", got, tc.want)
+			}
+		})
+	}
+}

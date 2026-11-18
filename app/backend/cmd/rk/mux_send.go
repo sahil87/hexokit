@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"rk/internal/inject"
+	"rk/internal/promptscan"
 	"rk/internal/tmux"
 
 	"github.com/spf13/cobra"
@@ -78,9 +79,13 @@ const (
 	sendHintProbeFailure     = "check the pane before resending; a resend would duplicate the staged text"
 	sendHintStagedSend       = "press Enter in the pane to submit"
 	sendHintSubmitUnverified = "capture the pane before resending"
-	sendHintWaitingRefusal   = "use --answer if this send is the reply the agent waits for"
-	sendHintAwaitGone        = "the message was delivered before the pane died"
-	sendHintAwaitNoStart     = "delivered; the wait could not start"
+	sendHintSelectMenu       = "a select menu takes keys: --key Enter picks the highlighted option, --key Down/--key Up move first"
+	// muxSendMenuLines is how much of the screen the select-menu check reads:
+	// the classifier's window plus room for the harness's status lines.
+	muxSendMenuLines       = promptscan.SelectMenuWindow + 8
+	sendHintWaitingRefusal = "use --answer if this send is the reply the agent waits for"
+	sendHintAwaitGone      = "the message was delivered before the pane died"
+	sendHintAwaitNoStart   = "delivered; the wait could not start"
 )
 
 // sendReceipt is the `mux send --json` success document (docs/specs/mcp.md
@@ -368,6 +373,22 @@ func runMuxSend(cmd *cobra.Command, args []string) error {
 			}
 		case tmux.AgentStateActive:
 			return fail(fmt.Errorf("refusing to send to pane %s: agent is active (never interrupt a working agent)", paneID))
+		}
+		// A select menu (Claude Code's AskUserQuestion menus) reads ↑/↓ and
+		// Enter only: pasted text is swallowed, the probe sees
+		// no echo and withholds Enter, and the caller is left guessing. Refuse
+		// typed text up front and name the keys. --force skips this with the
+		// rest of the gate.
+		if !hasKeys {
+			if content, err := muxCapturePaneFn(ctx, paneID, muxSendMenuLines, server); err == nil {
+				if r := promptscan.Scan(content); r.Indicator == promptscan.IndicatorSelectMenu {
+					highlighted := "the highlighted option"
+					if r.Highlighted > 0 {
+						highlighted = fmt.Sprintf("option %d (highlighted)", r.Highlighted)
+					}
+					return failHint(fmt.Errorf("refusing to type into pane %s: it shows a select menu — typed text is not accepted there; send --key Enter to pick %s, or --key Down/--key Up to move first", paneID, highlighted), sendHintSelectMenu)
+				}
+			}
 		}
 	}
 

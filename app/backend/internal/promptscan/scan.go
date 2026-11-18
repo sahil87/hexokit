@@ -24,8 +24,13 @@ const (
 	IndicatorImperativeQuestion = "imperative_question"
 	IndicatorColonPrompt        = "colon_prompt"
 	IndicatorEnumeratedOptions  = "enumerated_options"
-	IndicatorPressKey           = "press_key"
-	IndicatorNone               = "none"
+	// IndicatorSelectMenu is a harness's arrow-key menu (Claude Code's
+	// AskUserQuestion menus): answered with keys, never text.
+	IndicatorSelectMenu = "select_menu"
+	// InputKeys is Result.Input for a select menu.
+	InputKeys         = "keys"
+	IndicatorPressKey = "press_key"
+	IndicatorNone     = "none"
 )
 
 // Reasons a capture classifies as IndicatorNone.
@@ -41,6 +46,12 @@ type Result struct {
 	Indicator string
 	Snippet   string
 	Reason    string
+	// Input is InputKeys for a select menu (typed text is not accepted; the
+	// harness reads ↑/↓ and Enter), else empty.
+	Input string
+	// Highlighted is the 1-based index of the option the menu's cursor is on
+	// (0 when unknown); Enter picks it.
+	Highlighted int
 }
 
 // questionMarkMaxLen bounds class 1: a line at or beyond this length ending
@@ -58,7 +69,28 @@ var (
 	imperativeQuestionPattern = regexp.MustCompile(`(?i)(Do you want to|Should I|Would you like)`)
 	enumeratedOptionsPattern  = regexp.MustCompile(`[1-9]\)`)
 	pressKeyPattern           = regexp.MustCompile(`(?i)(Press.*key|press.*enter|hit.*enter)`)
+	// selectMenuFooterPattern is the key hint a harness prints under an
+	// arrow-key menu.
+	selectMenuFooterPattern = regexp.MustCompile(`(?i)(enter to select|↑/↓ to navigate|arrow keys to navigate|use arrow keys)`)
+	// selectMenuCursorPattern is the highlighted option row: a cursor glyph
+	// before a numbered option.
+	selectMenuCursorPattern = regexp.MustCompile(`^\s*[❯›>]\s*(\d{1,2})[.)]\s`)
+	// composerLinePattern is a composer or turn-boundary line: a prompt glyph
+	// (after an optional box border) alone or followed by text, or a bare
+	// shell prompt. A menu never has one below its footer; a transcript that
+	// merely mentions a menu's hint does.
+	composerLinePattern = regexp.MustCompile(`^\s*[│┃]?\s*[❯›>](\s|$)|^\s*\$\s*$`)
 )
+
+// SelectMenuWindow bounds how far above the footer the cursor row is sought
+// and how far up the footer itself may sit; a caller that captures a pane
+// for the menu check needs at least this many lines.
+const SelectMenuWindow = 24
+
+// selectMenuFooterReach is how many non-blank lines from the bottom the
+// footer may sit: a live menu ends with its hint, then at most the harness's
+// status lines.
+const selectMenuFooterReach = 8
 
 // questionMarkExcludedPrefixes are line openers that make a trailing "?"
 // commentary or quotation rather than a prompt.
@@ -75,6 +107,9 @@ func Scan(content string) Result {
 	lines := splitLines(content)
 	if hasTurnBoundary(lines) {
 		return Result{Indicator: IndicatorNone, Reason: ReasonTurnBoundary}
+	}
+	if r, ok := scanSelectMenu(lines); ok {
+		return r
 	}
 
 	var nonEmpty []string
@@ -153,4 +188,42 @@ func matchOtherClasses(line string) (string, bool) {
 		return IndicatorPressKey, true
 	}
 	return "", false
+}
+
+// scanSelectMenu recognises a live arrow-key menu and reports the option
+// under its cursor. All three must hold, so a transcript that merely quotes
+// a menu's hint, or an answered menu above a fresh composer, never matches:
+// the footer hint sits within the last selectMenuFooterReach non-blank lines;
+// no composer or turn-boundary line lies below it; and a cursor row (`❯ N.`)
+// sits within SelectMenuWindow lines above it. It runs after the guards and
+// before every other class, since a menu's option rows would otherwise
+// classify as enumerated options that a typed digit cannot answer.
+func scanSelectMenu(lines []string) (Result, bool) {
+	footer, seen := -1, 0
+	for i := len(lines) - 1; i >= 0 && seen < selectMenuFooterReach; i-- {
+		if strings.TrimSpace(lines[i]) == "" {
+			continue
+		}
+		seen++
+		if composerLinePattern.MatchString(lines[i]) {
+			return Result{}, false
+		}
+		if selectMenuFooterPattern.MatchString(lines[i]) {
+			footer = i
+			break
+		}
+	}
+	if footer < 0 {
+		return Result{}, false
+	}
+	for i := footer - 1; i >= 0 && i >= footer-SelectMenuWindow; i-- {
+		if m := selectMenuCursorPattern.FindStringSubmatch(lines[i]); m != nil {
+			n := 0
+			for _, c := range m[1] {
+				n = n*10 + int(c-'0')
+			}
+			return Result{Indicator: IndicatorSelectMenu, Input: InputKeys, Highlighted: n, Snippet: strings.TrimSpace(lines[i])}, true
+		}
+	}
+	return Result{}, false
 }

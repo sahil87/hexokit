@@ -350,9 +350,12 @@ func trackStage(it *TrackedItem, row paneRow, nowStr string) (CheckDelta, bool) 
 // trackAgent records the observed agent state in scope.agent (null when
 // unknown) and reports waiting or idle as a standing condition; active and
 // unknown only move the baseline. A waiting or idle state held for
-// agentAgedAfter adds a second condition, agent_aged, so the state is a change
-// once more. Its key drops out when the state changes, so each new waiting or
-// idle stretch can age again.
+// agentAgedAfter adds a second condition, agent_aged. For waiting it is keyed
+// by the 30-minute bucket, so an unanswered prompt is a change again every
+// half hour until it moves; for idle it fires once per stretch — the check
+// cannot tell finished work from stuck work, and a finished agent must not
+// cost a run every half hour. The keys drop out when the state changes, so
+// each new stretch starts over.
 func trackAgent(it *TrackedItem, row paneRow, now time.Time) []condDelta {
 	prev := scopeString(it.Scope, "agent")
 	it.Scope["agent"] = nil
@@ -380,6 +383,9 @@ func trackAgent(it *TrackedItem, row paneRow, now time.Time) []condDelta {
 		From: nullable(prev), To: &to, Duration: nullable(duration),
 	}}}
 	if held >= agentAgedAfter {
+		if row.AgentState == tmux.AgentStateWaiting {
+			agedKey = fmt.Sprintf("%s:%d", agedKey, int(held/agentAgedAfter))
+		}
 		conds = append(conds, condDelta{agedKey, CheckDelta{
 			Kind: DeltaAgentAged, ID: it.ID, Pane: row.PaneID, To: &to, Duration: nullable(duration),
 		}})

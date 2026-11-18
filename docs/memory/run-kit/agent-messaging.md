@@ -512,7 +512,12 @@ tmux failure is operational (exit 1) carrying tmux's stderr diagnostic.
 **`--classify`** adds a pending-prompt classification of the captured text via
 `promptscan.Scan` (`internal/promptscan` — pure text, no tmux/exec): guards
 first (blank content → `blank_capture`; a bare `^\s*>\s*$` Claude turn-boundary
-prompt in the last two lines → `turn_boundary`), then a bottom-most-first walk
+prompt in the last two lines → `turn_boundary`), then `select_menu` — a live
+arrow-key menu: its footer hint (`Enter to select`, `↑/↓ to navigate`, …) within the
+last 8 non-blank lines, no composer or turn-boundary line below it, and a `❯ N.`
+cursor row within 24 lines above it, reported with `Input: keys` and `Highlighted: N`
+(a transcript that only quotes a hint, or an answered menu above a fresh composer, is
+not a menu) — then a bottom-most-first walk
 of the non-empty lines testing class `question_mark` (last line only: ends in
 `?`, `< 120` chars, no `#`/`//`/`*`/`>` opener, no leading timestamp) and, on
 every line in order, `yes_no` (`[y/n]`/`(y/n)`/`(yes/no)`, case-insensitive),
