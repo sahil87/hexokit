@@ -126,7 +126,10 @@ import { zoomedHostSize } from "@/lib/gui-posture";
  *   bubbling KeyboardEvent on the parent document so rk's window-level
  *   dispatcher handles the chord (the code-surface grammar — the dispatcher
  *   listens in the bubble phase, so a plain stopPropagation would eat the
- *   chord). Every other key reaches the guest. No steal guard: noVNC grabs
+ *   chord). Every other key reaches the guest — except that on a Mac with
+ *   the capture latch set, Cmd (and a Shift pressed after it) is held in the
+ *   guest by rk as Control_L/Shift, released on focusout, unlatch, and
+ *   teardown. No steal guard: noVNC grabs
  *   focus only on click (`focusOnClick`), never programmatically.
  * - **Stats overlay**: the per-viewer `statsVisible` posture
  *   (`rk-gui-stats-visible`) mounts `GuiStatsOverlay` (gui-stats-overlay.tsx)
