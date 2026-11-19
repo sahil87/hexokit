@@ -23,6 +23,17 @@ While the `rk-gui-capture` latch is set AND `detectPlatform()` reports `mac`, th
 - **WHEN** the user presses ⌘⇧G
 - **THEN** the G keydown is still reclaimed and re-dispatched to rk (capture releases)
 
+#### R4: A Shift pressed after Cmd is held in the guest, not tapped
+noVNC's macOS meta-held branch taps (press+release) every non-Meta key pressed while `metaKey` is set — Shift included — which would drop Shift from ⌘⇧ chords. While a captured Cmd's Control_L is held, a `ShiftLeft`/`ShiftRight` keydown SHALL be stopped before noVNC and sent as `KEYSYM_SHIFT_L` down with its own code via `rfb.sendKey`, and its keyup as the matching up. A Shift pressed BEFORE Cmd MUST stay noVNC's ordinary held key. Held Shift keys are released by every R2 trigger.
+
+- **GIVEN** a Mac viewer, capture latched, canvas focused
+- **WHEN** the user presses ⌘, then Shift, then C, then releases Shift and ⌘
+- **THEN** the guest receives Control_L down, Shift down, C press+release, Shift up, Control_L up — i.e. Ctrl+Shift+C (Linux terminal copy)
+
+- **GIVEN** capture latched on a Mac
+- **WHEN** Shift is pressed before ⌘
+- **THEN** the Shift keydown reaches noVNC unchanged
+
 #### R2: An injected Control_L is never left held in the guest
 When rk has sent Control_L down for a Meta press, it SHALL send the matching Control_L up when ANY of these happens before the Meta keyup reaches the wrapper: focus leaves the canvas wrapper (window blur via ⌘Tab, tab switch, click elsewhere — the focused element's `focusout`), the capture latch turns off, or the RFB is torn down (unmount / wanted-connection drop / re-dial). An RFB `disconnect` event clears the held flag without sending.
 
@@ -76,45 +87,56 @@ The gui header's pinned capture verb (`data-testid="gui-capture-toggle"`) SHALL 
 
 ### Phase 3: Integration & Edge Cases
 
+- [x] T006 In `app/frontend/src/components/gui-surface.tsx`, generalize the held flag to a held-keys map (guest code → keysym) and hold a Shift pressed after a captured Cmd via `rfb.sendKey(KEYSYM_SHIFT_L, code, …)`; add unit tests (⌘→Shift→C sequence, Shift-before-⌘ passthrough, focusout releases every held key) <!-- R4 R2 -->
+<!-- rework: review found noVNC taps a Shift pressed while meta is held, so ⌘⇧C reached the guest as Ctrl+C -->
 - [x] T005 Tests: extend `app/frontend/src/components/gui-surface.test.tsx` (mac+capture Meta down/up → sendKey Control_L and noVNC subtree never sees Meta; repeat ignored; ⌘+C keydown still reaches the subtree; focusout and capture-off release; teardown release; uncaptured and non-mac pass Meta through; reclaim still wins) and `app/frontend/src/components/gui-toolbar.test.tsx` (capture verb mousedown is defaultPrevented); run via `just` recipes <!-- R1 R2 R3 -->
 
 ## Acceptance
 
 ### Functional Completeness
 
-- [ ] A-001 R1: On mac + capture, Meta keydown/keyup on the canvas wrapper are stopped before the noVNC subtree and produce `sendKey(KEYSYM_CONTROL_L, "ControlLeft", true|false)`
-- [ ] A-002 R2: A held Control_L is released on wrapper focusout, on capture-off, and on RFB teardown; the flag clears on RFB disconnect
-- [ ] A-003 R3: The pinned capture verb prevents mousedown default and still toggles on click
+- [x] A-001 R1: On mac + capture, Meta keydown/keyup on the canvas wrapper are stopped before the noVNC subtree and produce `sendKey(KEYSYM_CONTROL_L, "ControlLeft", true|false)`
+- [x] A-002 R2: A held Control_L is released on wrapper focusout, on capture-off, and on RFB teardown; the flag clears on RFB disconnect
+- [x] A-003 R3: The pinned capture verb prevents mousedown default and still toggles on click
+
+- [x] A-016 R4: On mac + capture with Control_L held, a Shift keydown/keyup is stopped before noVNC and sent as `KEYSYM_SHIFT_L` down/up with its own code; a Shift pressed before ⌘ reaches noVNC; held Shift keys release on every R2 trigger, covered by unit tests
 
 ### Behavioral Correctness
 
-- [ ] A-004 R1: With capture off or a non-mac platform, Meta keydown reaches the noVNC subtree unchanged
-- [ ] A-005 R1: The reclaim check still runs first — a reclaimed chord under capture is re-dispatched and never remapped
+- [x] A-004 R1: With capture off or a non-mac platform, Meta keydown reaches the noVNC subtree unchanged
+- [x] A-005 R1: The reclaim check still runs first — a reclaimed chord under capture is re-dispatched and never remapped
 
 ### Scenario Coverage
 
-- [ ] A-006 R1: Unit tests cover the ⌘ press / letter passthrough / ⌘ release sequence and the uncaptured + non-mac passthrough
-- [ ] A-007 R2: Unit tests cover focusout, capture-off and teardown releases, and no double release after a later Meta keyup
-- [ ] A-008 R3: A gui-toolbar unit test asserts the capture verb's mousedown is defaultPrevented
+- [x] A-006 R1: Unit tests cover the ⌘ press / letter passthrough / ⌘ release sequence and the uncaptured + non-mac passthrough
+- [x] A-007 R2: Unit tests cover focusout, capture-off and teardown releases, and no double release after a later Meta keyup
+- [x] A-008 R3: A gui-toolbar unit test asserts the capture verb's mousedown is defaultPrevented
 
 ### Edge Cases & Error Handling
 
-- [ ] A-009 R1: Auto-repeat Meta keydowns send no further Control_L presses
-- [ ] A-010 R2: A Meta keyup arriving after a release (or with nothing held) sends nothing and is not remapped
+- [x] A-009 R1: Auto-repeat Meta keydowns send no further Control_L presses
+- [x] A-010 R2: A Meta keyup arriving after a release (or with nothing held) sends nothing and is not remapped
 
 ### Code Quality
 
-- [ ] A-011 Pattern consistency: new code follows the surrounding gui-surface ref/effect patterns (latest-value refs, effect cleanups) and the existing `onMouseDown` preventDefault precedent
-- [ ] A-012 No unnecessary duplication: reuses `detectPlatform` and `KEYSYM_CONTROL_L`; no new keysym or platform probe
-- [ ] A-013 Type narrowing over assertions: no new `as` casts in production code
-- [ ] A-014 Comment discipline: comments state only non-obvious constraints, with no change IDs or narration
-- [ ] A-015 Tests: the changed behaviour is covered by unit tests; PR evidence follows Constitution § PR Evidence (the on-wire Mac behaviour is not recordable by `just demo` on this Linux rig — stated in the PR)
+- [x] A-011 Pattern consistency: new code follows the surrounding gui-surface ref/effect patterns (latest-value refs, effect cleanups) and the existing `onMouseDown` preventDefault precedent
+- [x] A-012 No unnecessary duplication: reuses `detectPlatform` and `KEYSYM_CONTROL_L`; no new keysym or platform probe
+- [x] A-013 Type narrowing over assertions: no new `as` casts in production code
+- [x] A-014 Comment discipline: comments state only non-obvious constraints, with no change IDs or narration
+- [x] A-015 Tests: the changed behaviour is covered by unit tests; PR evidence follows Constitution § PR Evidence (the on-wire Mac behaviour is not recordable by `just demo` on this Linux rig — stated in the PR)
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+- Known gap (out of scope, from review): latching capture from the palette leaves focus on `body` — `CommandPalette` restores no focus and app.tsx `restoreFocus` never targets gui (the "noVNC grabs focus only on click" invariant) — so keys reach the guest only after a click on the canvas. Follow-up candidate.
+- Known limitation: the guest letter in a held-Shift chord is still noVNC's tap; correct Ctrl+Shift+key relies on the server taking keycode-based (QEMU extended) key events — not verified on a Mac.
+
+## Deletion Candidates
+
+None — this change adds new functionality without making existing code redundant
 
 ## Assumptions
 
@@ -125,4 +147,6 @@ The gui header's pinned capture verb (`data-testid="gui-capture-toggle"`) SHALL 
 | 3 | Confident | `capture` is an optional prop defaulting to false | Mirrors the surface-layout `guiCapture = false` default; keeps existing test fixtures valid | S:70 R:90 A:85 D:80 |
 | 4 | Confident | Release the held Control_L in the RFB effect cleanup before `disconnect()`, and only clear the flag on a `disconnect` event | sendKey on a disconnected RFB is a no-op; cleanup runs while the RFB is still live | S:60 R:85 A:80 D:75 |
 
-4 assumptions (1 certain, 3 confident, 0 tentative).
+| 5 | Confident | Hold Shift (only) for keys pressed after a captured Cmd; Option/Alt and Ctrl after Cmd stay noVNC's taps | Ctrl+Shift chords are the Linux terminal copy/paste the user reported; the other modifiers weren't asked for | S:65 R:85 A:75 D:70 |
+
+5 assumptions (1 certain, 4 confident, 0 tentative).

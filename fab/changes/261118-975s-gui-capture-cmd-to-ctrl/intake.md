@@ -40,7 +40,7 @@ Behaviour while the condition holds:
 - **Order in keydown:** the chord-gate reclaim check runs FIRST and is unchanged. A reclaimed chord (only ⌘⇧G under capture) is still re-dispatched to rk and never reaches noVNC.
 - **keydown, `e.code` = `MetaLeft`/`MetaRight`:** `preventDefault()` + `stopPropagation()` (noVNC never sees the meta press). Send `rfb.sendKey(XK_Control_L /* 0xffe3 */, "ControlLeft", true)`. Track that Ctrl is held. Ignore auto-repeat (`e.repeat`).
 - **keyup, `e.code` = `MetaLeft`/`MetaRight`:** stop the event. If Ctrl is tracked as held, send `rfb.sendKey(0xffe3, "ControlLeft", false)` and clear the tracking.
-- **Every other key:** untouched. It flows to noVNC, whose macOS meta-held branch (`e.metaKey && code !== Meta*`) sends an immediate press+release of that key. With Control_L already down in the guest, that is Ctrl+key. Examples: ⌘C → Ctrl+C, ⌘V → Ctrl+V, ⌘⇧T → Ctrl+Shift+T (Shift's own keydown reached noVNC normally).
+- **Every other key:** untouched. It flows to noVNC, whose macOS meta-held branch (`e.metaKey && code !== Meta*`) sends an immediate press+release of that key. With Control_L already down in the guest, that is Ctrl+key. Examples: ⌘C → Ctrl+C, ⌘V → Ctrl+V, ⌘⇧T → Ctrl+Shift+T only if Shift is held in the guest — noVNC taps a Shift pressed after ⌘, so the plan's R4 holds it explicitly.
 - **Stuck-Ctrl guard:** if Ctrl is tracked as held, release it (send Control_L up) on any of:
   - window `blur` (⌘Tab: macOS never delivers the Meta keyup to the page);
   - `document.visibilitychange` → hidden;

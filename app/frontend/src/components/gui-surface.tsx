@@ -3,7 +3,7 @@ import RFB from "@novnc/novnc";
 import { fetchGuiStatus, pingGui } from "@/api/client";
 import type { GuiSignal } from "@/contexts/session-context";
 import { copyToClipboard } from "@/lib/clipboard";
-import { KEYSYM_CONTROL_L } from "@/lib/gui-keysyms";
+import { KEYSYM_CONTROL_L, KEYSYM_SHIFT_L } from "@/lib/gui-keysyms";
 import { detectPlatform } from "@/lib/keybindings";
 import { STATS_PING_MS, STATS_SAMPLE_MS, sampleRates } from "@/lib/gui-stats";
 import { createWheelAccumulator } from "@/lib/zoom-gesture";
@@ -257,14 +257,20 @@ interface GuiSurfaceProps {
   commandsRef?: { current: GuiSurfaceCommands | null };
 }
 
-function remapsCmd(code: string, captured: boolean): boolean {
-  return captured && (code === "MetaLeft" || code === "MetaRight") && detectPlatform() === "mac";
+// Keys rk itself holds down in the guest during a captured Cmd, keysym by
+// guest code: Cmd as Control_L, plus a Shift pressed after Cmd (noVNC taps
+// any key pressed while meta is held, which would drop Shift from the chord).
+type HeldKeys = Map<string, number>;
+
+function guestHold(code: string): [code: string, keysym: number] | null {
+  if (code === "MetaLeft" || code === "MetaRight") return ["ControlLeft", KEYSYM_CONTROL_L];
+  if (code === "ShiftLeft" || code === "ShiftRight") return [code, KEYSYM_SHIFT_L];
+  return null;
 }
 
-function releaseHeldCtrl(rfb: RFB | null, held: { current: boolean }) {
-  if (!held.current) return;
-  held.current = false;
-  rfb?.sendKey(KEYSYM_CONTROL_L, "ControlLeft", false);
+function releaseHeld(rfb: RFB | null, held: HeldKeys) {
+  for (const [code, keysym] of held) rfb?.sendKey(keysym, code, false);
+  held.clear();
 }
 
 export default function GuiSurface({
@@ -370,11 +376,10 @@ export default function GuiSurface({
   reclaimRef.current = shouldReclaimChord;
   const captureRef = useRef(capture);
   captureRef.current = capture;
-  // Control_L sent down for a captured Cmd press and not yet released.
-  const ctrlHeldRef = useRef(false);
+  const heldRef = useRef<HeldKeys>(new Map());
 
   useEffect(() => {
-    if (!capture) releaseHeldCtrl(rfbRef.current, ctrlHeldRef);
+    if (!capture) releaseHeld(rfbRef.current, heldRef.current);
   }, [capture]);
 
   // D7: only the focused fine-pointer viewer on an unlocked host (neither the
@@ -485,7 +490,7 @@ export default function GuiSurface({
       onConnectionChangeRef.current(true);
     };
     const onDisconnect = () => {
-      ctrlHeldRef.current = false;
+      heldRef.current.clear();
       setConnected(false);
       onConnectionChangeRef.current(false);
       if (!wantConnectionRef.current) return;
@@ -523,7 +528,7 @@ export default function GuiSurface({
       rfb.removeEventListener("clipboard", onClipboard);
       rfb.removeEventListener("credentialsrequired", onCredentials);
       rfb.removeEventListener("securityfailure", onSecurityFailure);
-      releaseHeldCtrl(rfb, ctrlHeldRef);
+      releaseHeld(rfb, heldRef.current);
       rfb.disconnect();
       rfbRef.current = null;
       hostEl.replaceChildren();
@@ -982,16 +987,21 @@ export default function GuiSurface({
       onKeyDownCapture={(e) => {
         onInteractRef.current?.();
         if (!reclaimRef.current?.(e.nativeEvent)) {
-          if (!remapsCmd(e.code, captureRef.current)) return;
           // noVNC maps Cmd to Alt_L on macOS; while captured the guest gets
           // Control_L instead, and noVNC's meta-held press+release of the
           // next key then lands as Ctrl+key.
+          const hold = captureRef.current && detectPlatform() === "mac" ? guestHold(e.code) : null;
+          if (!hold) return;
+          const [code, keysym] = hold;
+          const held = heldRef.current;
+          // A Shift pressed before Cmd is an ordinary held key — noVNC's.
+          if (code !== "ControlLeft" && !held.has("ControlLeft")) return;
           e.preventDefault();
           e.stopPropagation();
           const rfb = rfbRef.current;
-          if (e.repeat || ctrlHeldRef.current || !rfb) return;
-          rfb.sendKey(KEYSYM_CONTROL_L, "ControlLeft", true);
-          ctrlHeldRef.current = true;
+          if (e.repeat || held.has(code) || !rfb) return;
+          rfb.sendKey(keysym, code, true);
+          held.set(code, keysym);
           return;
         }
         // noVNC's Keyboard listens on the canvas (a descendant) — stop the
@@ -1013,16 +1023,18 @@ export default function GuiSurface({
         );
       }}
       onKeyUpCapture={(e) => {
-        if (!ctrlHeldRef.current || (e.code !== "MetaLeft" && e.code !== "MetaRight")) return;
+        const hold = guestHold(e.code);
+        if (!hold || !heldRef.current.has(hold[0])) return;
         e.preventDefault();
         e.stopPropagation();
-        releaseHeldCtrl(rfbRef.current, ctrlHeldRef);
+        heldRef.current.delete(hold[0]);
+        rfbRef.current?.sendKey(hold[1], hold[0], false);
       }}
       onBlur={(e) => {
         // macOS never delivers the Cmd keyup once focus leaves (⌘Tab, a click
         // elsewhere), so a held Control_L would stay down in the guest.
         if (e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return;
-        releaseHeldCtrl(rfbRef.current, ctrlHeldRef);
+        releaseHeld(rfbRef.current, heldRef.current);
       }}
     >
       {bare && !wmStripDismissed ? (

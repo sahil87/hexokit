@@ -1366,6 +1366,46 @@ describe("GuiSurface — captured Cmd is Control_L on a Mac", () => {
     expect(up).not.toHaveBeenCalled();
   });
 
+  it("a Shift pressed after ⌘ is held in the guest (⌘⇧C is Ctrl+Shift+C), not tapped by noVNC", () => {
+    renderGui({ capture: true });
+    const down = spyInner("keydown");
+    const up = spyInner("keyup");
+    const inner = canvasChild();
+    fireEvent.keyDown(inner, { key: "Meta", code: "MetaLeft", metaKey: true });
+    fireEvent.keyDown(inner, { key: "Shift", code: "ShiftLeft", metaKey: true, shiftKey: true });
+    fireEvent.keyDown(inner, { key: "c", code: "KeyC", metaKey: true, shiftKey: true });
+    fireEvent.keyUp(inner, { key: "Shift", code: "ShiftLeft", metaKey: true });
+    fireEvent.keyUp(inner, { key: "Meta", code: "MetaLeft" });
+    expect(latestRfb().sendKey.mock.calls).toEqual([
+      [0xffe3, "ControlLeft", true],
+      [0xffe1, "ShiftLeft", true],
+      [0xffe1, "ShiftLeft", false],
+      [0xffe3, "ControlLeft", false],
+    ]);
+    expect(down.mock.calls.map(([e]) => e.code)).toEqual(["KeyC"]);
+    expect(up).not.toHaveBeenCalled();
+  });
+
+  it("a Shift pressed before ⌘ stays noVNC's own key", () => {
+    renderGui({ capture: true });
+    const down = spyInner("keydown");
+    fireEvent.keyDown(canvasChild(), { key: "Shift", code: "ShiftLeft", shiftKey: true });
+    expect(down).toHaveBeenCalledOnce();
+    expect(latestRfb().sendKey).not.toHaveBeenCalled();
+  });
+
+  it("focus leaving the canvas releases every held key", () => {
+    renderGui({ capture: true });
+    const inner = canvasChild();
+    fireEvent.keyDown(inner, { key: "Meta", code: "MetaLeft", metaKey: true });
+    fireEvent.keyDown(inner, { key: "Shift", code: "ShiftRight", metaKey: true, shiftKey: true });
+    fireEvent.focusOut(inner, { relatedTarget: null });
+    expect(latestRfb().sendKey.mock.calls.slice(2)).toEqual([
+      [0xffe3, "ControlLeft", false],
+      [0xffe1, "ShiftRight", false],
+    ]);
+  });
+
   it("auto-repeat of ⌘ sends no further Control_L presses", () => {
     renderGui({ capture: true });
     const inner = canvasChild();
