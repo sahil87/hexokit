@@ -3,7 +3,7 @@ import RFB from "@novnc/novnc";
 import { fetchGuiStatus, pingGui } from "@/api/client";
 import type { GuiSignal } from "@/contexts/session-context";
 import { copyToClipboard } from "@/lib/clipboard";
-import { KEYSYM_CONTROL_L, KEYSYM_SHIFT_L } from "@/lib/gui-keysyms";
+import { KEYSYM_CONTROL_L, KEYSYM_SHIFT_L, keysymForChar } from "@/lib/gui-keysyms";
 import { detectPlatform } from "@/lib/keybindings";
 import { STATS_PING_MS, STATS_SAMPLE_MS, sampleRates } from "@/lib/gui-stats";
 import { createWheelAccumulator } from "@/lib/zoom-gesture";
@@ -129,7 +129,8 @@ import { zoomedHostSize } from "@/lib/gui-posture";
  *   chord). Every other key reaches the guest — except that on a Mac with
  *   the capture latch set, Cmd (and a Shift pressed after it) is held in the
  *   guest by rk as Control_L/Shift, released on focusout, unlatch, and
- *   teardown. No steal guard: noVNC grabs
+ *   teardown; and ⌘V hands the host clipboard text to the guest before its
+ *   V, so it pastes what was copied on the Mac. No steal guard: noVNC grabs
  *   focus only on click (`focusOnClick`), never programmatically.
  * - **Stats overlay**: the per-viewer `statsVisible` posture
  *   (`rk-gui-stats-visible`) mounts `GuiStatsOverlay` (gui-stats-overlay.tsx)
@@ -994,6 +995,29 @@ export default function GuiSurface({
           // Control_L instead, and noVNC's meta-held press+release of the
           // next key then lands as Ctrl+key.
           const hold = captureRef.current && detectPlatform() === "mac" ? guestHold(e.code) : null;
+          const rfbNow = rfbRef.current;
+          if (e.code === "KeyV" && heldRef.current.has("ControlLeft") && rfbNow && navigator.clipboard?.readText) {
+            // ⌘V pastes the HOST clipboard: the guest only knows it once rk
+            // hands it over, so V waits for the text, then follows it down
+            // the same socket. An unreadable clipboard still sends the V.
+            e.preventDefault();
+            e.stopPropagation();
+            void navigator.clipboard
+              .readText()
+              .then((text) => {
+                if (text) rfbNow.clipboardPasteFrom(text);
+              })
+              .catch(() => {})
+              .then(() => {
+                // ⌘ may be up already (a quick tap, or a permission prompt).
+                // ponytail: a Shift released by then is dropped (⌘⇧V lands as Ctrl+V).
+                const ctrlHeld = heldRef.current.has("ControlLeft");
+                if (!ctrlHeld) rfbNow.sendKey(KEYSYM_CONTROL_L, "ControlLeft", true);
+                rfbNow.sendKey(keysymForChar("v"), "KeyV");
+                if (!ctrlHeld) rfbNow.sendKey(KEYSYM_CONTROL_L, "ControlLeft", false);
+              });
+            return;
+          }
           if (!hold) return;
           const [code, keysym] = hold;
           const held = heldRef.current;

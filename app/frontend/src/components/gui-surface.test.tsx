@@ -1366,6 +1366,27 @@ describe("GuiSurface — captured Cmd is Control_L on a Mac", () => {
     expect(up).not.toHaveBeenCalled();
   });
 
+  it("⌘V hands the host clipboard to the guest before the V, which never reaches noVNC", async () => {
+    const readText = vi.fn().mockResolvedValue("from the mac");
+    Object.defineProperty(navigator, "clipboard", { value: { readText }, configurable: true });
+    try {
+      renderGui({ capture: true });
+      const down = spyInner("keydown");
+      const inner = canvasChild();
+      fireEvent.keyDown(inner, { key: "Meta", code: "MetaLeft", metaKey: true });
+      fireEvent.keyDown(inner, { key: "v", code: "KeyV", metaKey: true });
+      const rfb = latestRfb();
+      await vi.waitFor(() => expect(rfb.sendKey).toHaveBeenCalledWith(0x76, "KeyV"));
+      expect(rfb.clipboardPasteFrom).toHaveBeenCalledWith("from the mac");
+      expect(rfb.clipboardPasteFrom.mock.invocationCallOrder[0]).toBeLessThan(
+        rfb.sendKey.mock.invocationCallOrder[1],
+      );
+      expect(down).not.toHaveBeenCalled();
+    } finally {
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
   it("a Shift pressed after ⌘ is held in the guest (⌘⇧C is Ctrl+Shift+C), not tapped by noVNC", () => {
     renderGui({ capture: true });
     const down = spyInner("keydown");
