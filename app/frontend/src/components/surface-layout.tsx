@@ -3001,6 +3001,7 @@ export function SurfaceLayout({
               onOpenLogs={onGuiOpenLogs}
               commandsRef={guiCommandsRef}
               shouldReclaimChord={shouldReclaimChord?.("gui")}
+              capture={guiCapture}
               onInteract={
                 tile.visible
                   ? () => {

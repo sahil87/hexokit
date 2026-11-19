@@ -1328,3 +1328,115 @@ describe("GuiSurface — sendKey command seam", () => {
     expect(commandsRef.current).toBeNull();
   });
 });
+
+describe("GuiSurface — captured Cmd is Control_L on a Mac", () => {
+  let platform: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    platform = vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
+  });
+  afterEach(() => {
+    platform.mockRestore();
+  });
+
+  function canvasChild(): HTMLElement {
+    const host = screen.getByTestId("gui-surface-canvas").firstElementChild;
+    if (!(host instanceof HTMLElement)) throw new Error("no canvas host");
+    return host;
+  }
+
+  function spyInner(type: "keydown" | "keyup") {
+    const spy = vi.fn();
+    canvasChild().addEventListener(type, spy);
+    return spy;
+  }
+
+  it("⌘ down/up become Control_L down/up and never reach noVNC; the letter in between still does", () => {
+    renderGui({ capture: true, shouldReclaimChord: () => false });
+    const down = spyInner("keydown");
+    const up = spyInner("keyup");
+    const inner = canvasChild();
+    fireEvent.keyDown(inner, { key: "Meta", code: "MetaLeft", metaKey: true });
+    fireEvent.keyDown(inner, { key: "c", code: "KeyC", metaKey: true });
+    fireEvent.keyUp(inner, { key: "Meta", code: "MetaLeft" });
+    expect(latestRfb().sendKey.mock.calls).toEqual([
+      [0xffe3, "ControlLeft", true],
+      [0xffe3, "ControlLeft", false],
+    ]);
+    expect(down.mock.calls.map(([e]) => e.code)).toEqual(["KeyC"]);
+    expect(up).not.toHaveBeenCalled();
+  });
+
+  it("auto-repeat of ⌘ sends no further Control_L presses", () => {
+    renderGui({ capture: true });
+    const inner = canvasChild();
+    fireEvent.keyDown(inner, { key: "Meta", code: "MetaRight", metaKey: true });
+    fireEvent.keyDown(inner, { key: "Meta", code: "MetaRight", metaKey: true, repeat: true });
+    expect(latestRfb().sendKey).toHaveBeenCalledTimes(1);
+  });
+
+  it("focus leaving the canvas releases a held Control_L once; the late ⌘ keyup sends nothing", () => {
+    renderGui({ capture: true });
+    const inner = canvasChild();
+    fireEvent.keyDown(inner, { key: "Meta", code: "MetaLeft", metaKey: true });
+    fireEvent.focusOut(inner, { relatedTarget: null });
+    fireEvent.keyUp(inner, { key: "Meta", code: "MetaLeft" });
+    expect(latestRfb().sendKey.mock.calls).toEqual([
+      [0xffe3, "ControlLeft", true],
+      [0xffe3, "ControlLeft", false],
+    ]);
+  });
+
+  it("turning capture off releases a held Control_L", () => {
+    const { rerender, props } = renderGui({ capture: true });
+    fireEvent.keyDown(canvasChild(), { key: "Meta", code: "MetaLeft", metaKey: true });
+    rerender(<GuiSurface {...props} capture={false} />);
+    expect(latestRfb().sendKey).toHaveBeenLastCalledWith(0xffe3, "ControlLeft", false);
+  });
+
+  it("tearing the RFB down releases a held Control_L before disconnecting", () => {
+    const { unmount } = renderGui({ capture: true });
+    fireEvent.keyDown(canvasChild(), { key: "Meta", code: "MetaLeft", metaKey: true });
+    const rfb = latestRfb();
+    unmount();
+    expect(rfb.sendKey).toHaveBeenLastCalledWith(0xffe3, "ControlLeft", false);
+    expect(rfb.sendKey.mock.invocationCallOrder[1]).toBeLessThan(rfb.disconnect.mock.invocationCallOrder[0]);
+  });
+
+  it("uncaptured, ⌘ reaches noVNC untouched", () => {
+    renderGui({ capture: false });
+    const down = spyInner("keydown");
+    fireEvent.keyDown(canvasChild(), { key: "Meta", code: "MetaLeft", metaKey: true });
+    expect(down).toHaveBeenCalledOnce();
+    expect(latestRfb().sendKey).not.toHaveBeenCalled();
+  });
+
+  it("off a Mac, captured ⌘ reaches noVNC untouched", () => {
+    platform.mockReturnValue("Linux x86_64");
+    const ua = vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (X11; Linux x86_64)");
+    try {
+      renderGui({ capture: true });
+      const down = spyInner("keydown");
+      fireEvent.keyDown(canvasChild(), { key: "Meta", code: "MetaLeft", metaKey: true });
+      expect(down).toHaveBeenCalledOnce();
+      expect(latestRfb().sendKey).not.toHaveBeenCalled();
+    } finally {
+      ua.mockRestore();
+    }
+  });
+
+  it("the reclaim check still wins: the release chord is re-dispatched, never remapped", () => {
+    const shouldReclaimChord = vi.fn((e: KeyboardEvent) => e.code === "KeyG");
+    renderGui({ capture: true, shouldReclaimChord });
+    const down = spyInner("keydown");
+    const docSpy = vi.fn();
+    document.addEventListener("keydown", docSpy);
+    try {
+      fireEvent.keyDown(canvasChild(), { key: "G", code: "KeyG", metaKey: true, shiftKey: true });
+      expect(docSpy).toHaveBeenCalledOnce();
+      expect(down).not.toHaveBeenCalled();
+      expect(latestRfb().sendKey).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener("keydown", docSpy);
+    }
+  });
+});

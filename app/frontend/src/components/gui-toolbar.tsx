@@ -592,6 +592,8 @@ export function GuiToolbar({
                   data-testid="gui-capture-toggle"
                   aria-label="Keyboard capture"
                   aria-pressed={capture}
+                  // Toggling must leave keyboard focus on the guest canvas.
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => captureRow.onSelect()}
                   className={controlClass({
                     variant: "toggle",

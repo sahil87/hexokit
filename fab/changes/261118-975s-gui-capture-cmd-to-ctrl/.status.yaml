@@ -1,0 +1,53 @@
+id: 975s
+name: 261118-975s-gui-capture-cmd-to-ctrl
+created: 2026-11-18T14:04:51Z
+created_by: arnold-laishram-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: active
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 15
+    acceptance_completed: 0
+confidence:
+    certain: 4
+    confident: 7
+    tentative: 0
+    unresolved: 0
+    score: 3.9
+    fuzzy: true
+    dimensions:
+        signal: 64.5
+        reversibility: 85.0
+        competence: 76.8
+        disambiguation: 74.5
+stage_metrics:
+    intake: {started_at: "2026-11-18T14:04:51Z", driver: fab-new, iterations: 1, completed_at: "2026-11-19T04:28:42Z"}
+    apply: {started_at: "2026-11-19T04:28:42Z", driver: fab-ff, iterations: 1, completed_at: "2026-11-19T04:30:59Z"}
+    review: {started_at: "2026-11-19T04:30:59Z", driver: fab-ff, iterations: 1}
+prs: []
+base_branch: main
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-11-19T04:30:59Z"
+    computed_at_stage: apply
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-19T04:30:59Z

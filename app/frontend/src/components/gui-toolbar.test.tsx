@@ -444,6 +444,12 @@ describe("GuiToolbar — the pinned capture verb", () => {
     expect(spy).toHaveBeenCalledWith();
   });
 
+  it("a mousedown on the verb never takes focus, so keys keep reaching the guest canvas", () => {
+    setup({ coarsePointer: false });
+    const verb = screen.getByTestId("gui-capture-toggle");
+    expect(fireEvent.mouseDown(verb)).toBe(false);
+  });
+
   it("latches with the plain well recipe without leaving the 24px verb box", () => {
     const { rerenderWith } = setup({ coarsePointer: false });
     const verb = screen.getByTestId("gui-capture-toggle");

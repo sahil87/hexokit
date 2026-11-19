@@ -1,0 +1,6 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-18T14:04:51Z"}
+{"args":"GUI keyboard capture: Mac Cmd→Ctrl, canvas refocus, clipboard bridge (from discussion)","cmd":"fab-new","event":"command","ts":"2026-11-18T14:04:51Z"}
+{"delta":"+3.9","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-11-18T14:08:12Z"}
+{"cmd":"fab-ff","event":"command","ts":"2026-11-19T04:27:07Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"apply","ts":"2026-11-19T04:28:42Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"review","ts":"2026-11-19T04:30:59Z"}
