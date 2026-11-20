@@ -74,7 +74,11 @@ func Run(ctx context.Context, fire cron.Fire) cron.Outcome {
 	fireID, idErr := newRunIDFn()
 	if !res.Changed {
 		writeCheckRecord(ctx, fire, fireID, idErr, firedAt, res, "")
-		return outcome(cron.OutcomeNoChange)
+		out := outcome(cron.OutcomeNoChange)
+		if idErr == nil {
+			out.Fire = fireID
+		}
+		return out
 	}
 
 	recorded, err := launch(ctx, fire, res, fireID, idErr, firedAt)

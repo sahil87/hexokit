@@ -1,13 +1,14 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { controlClass } from "@/components/control";
 
-// The strip renders the FOUR-label set `Operator Terminal · Operator Tasks ·
-// Cron List · Cron Log` in that fixed order. Content-sized, non-wrapping
+// The strip renders the label set `Terminal · Tasks · Activity · Cron List ·
+// Cron Log` in that fixed order. Content-sized, non-wrapping
 // buttons (never equal-share) are what keep every label from truncating at
 // the desktop drawer width or a 375px mobile header.
 const SEGMENTS = [
-  { tab: "terminal", label: "Operator Terminal" },
-  { tab: "tasks", label: "Operator Tasks" },
+  { tab: "terminal", label: "Terminal" },
+  { tab: "tasks", label: "Tasks" },
+  { tab: "activity", label: "Activity" },
   { tab: "list", label: "Cron List" },
   { tab: "log", label: "Cron Log" },
 ] as const;
@@ -20,8 +21,8 @@ export type QuakeSegment = (typeof SEGMENTS)[number]["tab"];
 export { SEGMENTS };
 
 /**
- * The presentational `Operator Terminal | Operator Tasks | Cron List |
- * Cron Log` segment strip — one controlled render shared by the mobile
+ * The presentational `Terminal | Tasks | Activity | Cron List | Cron Log`
+ * segment strip — one controlled render shared by the mobile
  * operator route's tabs (`TerminalActivityTabs` below, driven by the router
  * `tab` search param) and the desktop quake terminal drawer (driven by
  * drawer-local component state). Both consumers get identical markup,
@@ -76,15 +77,17 @@ export function QuakeSegments({
  *
  * `clearTongue` adds the `pt-9` wrapper that clears the mobile tongue's hit
  * area: the tongue hangs `absolute top-0 h-9 w-16` centered over the content
- * column (app.tsx), and with four segments a middle segment's center would
- * land under it — the strip must start below the tongue's 36px box. The
+ * column (app.tsx), and a middle segment's center would land under it — the strip must start below the tongue's 36px box. The
  * tongue never renders on desktop, so the clearance is mobile-only.
  */
 export function TerminalActivityTabs({ clearTongue }: { clearTongue?: boolean }) {
   const navigate = useNavigate();
   const search = useSearch({ strict: false });
   const active: QuakeSegment =
-    search.tab === "tasks" || search.tab === "list" || search.tab === "log"
+    search.tab === "tasks" ||
+    search.tab === "activity" ||
+    search.tab === "list" ||
+    search.tab === "log"
       ? search.tab
       : "terminal";
 

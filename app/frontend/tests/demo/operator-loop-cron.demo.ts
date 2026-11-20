@@ -199,6 +199,9 @@ test.describe("operator-loop-cron demo", () => {
 
     const log = page.getByTestId("cron-log");
     await expect(log).toBeVisible({ timeout: READY_TIMEOUT });
+    // Loop rows sit behind the `show loop` toggle (absent on the base ref).
+    const showLoop = log.getByTestId("cron-log-show-loop");
+    if ((await showLoop.count()) > 0) await showLoop.click();
     const rows = log.getByTestId(`cron-delivery-row-${LOOP_ID}`);
     await expect(rows.first()).toBeVisible({ timeout: READY_TIMEOUT });
     await beat(page, 2_000);

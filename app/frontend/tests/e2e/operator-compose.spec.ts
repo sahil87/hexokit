@@ -210,21 +210,22 @@ test.describe("Operator compose (260822-wyn3)", () => {
   /**
    * Proves: the degrade-to-absent gate — with no `role: "operator"` window in
    * the sessions payload, both compose-dialog `Operator:` palette entries are
-   * omitted (not disabled). The five quake terminal entries — the openers
+   * omitted (not disabled). The seven quake terminal entries — the openers
    * `Operator: Open quake terminal`, `Operator: Show tasks`, `Operator: Show
-   * cron list` / `Operator: Show cron log`, and the geometry reset `Operator:
-   * Reset quake terminal size` — are deliberately ungated: the quake terminal
-   * itself opens and shows the no-operator body (and the cron clock is
-   * server-wide, operator or not; the reset is a per-viewer store write). The
-   * inverse gate lists `Operator: Start operator` exactly here — it exists
-   * only while the server has no operator — so six `Operator:` entries are
-   * the complete operator-less set.
+   * activity`, `Operator: Show cron list` / `Operator: Show cron log`,
+   * `Operator: Check now` (the loop is server-wide) and the geometry reset
+   * `Operator: Reset quake terminal size` — are deliberately ungated: the
+   * quake terminal itself opens and shows the no-operator body (and the cron
+   * clock is server-wide, operator or not; the reset is a per-viewer store
+   * write). The inverse gate lists `Operator: Start operator` exactly here —
+   * it exists only while the server has no operator — so eight `Operator:`
+   * entries are the complete operator-less set.
    *
    * Steps:
    * 1. Mock the backend WITHOUT an operator window.
    * 2. Open the palette, filter to `Operator:`.
-   * 3. Assert both compose entries are absent, the five quake terminal
-   *    entries plus `Operator: Start operator` are the only six listed.
+   * 3. Assert both compose entries are absent, the seven quake terminal
+   *    entries plus `Operator: Start operator` are the only eight listed.
    */
   test("compose palette entries are omitted when the server has no operator window", async ({ page }) => {
     await mockBackend(page, false);
@@ -233,10 +234,12 @@ test.describe("Operator compose (260822-wyn3)", () => {
     await openPaletteWith(page, "Operator:");
     await expect(page.getByRole("option", { name: "Operator: Spawn task…" })).toHaveCount(0);
     await expect(page.getByRole("option", { name: "Operator: Find discussion…" })).toHaveCount(0);
-    await expect(page.getByRole("option", { name: /^Operator:/ })).toHaveCount(6);
+    await expect(page.getByRole("option", { name: /^Operator:/ })).toHaveCount(8);
     await expect(page.getByRole("option", { name: "Operator: Start operator" })).toHaveCount(1);
     await expect(page.getByRole("option", { name: "Operator: Open quake terminal" })).toHaveCount(1);
     await expect(page.getByRole("option", { name: "Operator: Show tasks" })).toHaveCount(1);
+    await expect(page.getByRole("option", { name: "Operator: Show activity" })).toHaveCount(1);
+    await expect(page.getByRole("option", { name: "Operator: Check now" })).toHaveCount(1);
     await expect(page.getByRole("option", { name: "Operator: Show cron list" })).toHaveCount(1);
     await expect(page.getByRole("option", { name: "Operator: Show cron log" })).toHaveCount(1);
     await expect(page.getByRole("option", { name: "Operator: Reset quake terminal size" })).toHaveCount(1);

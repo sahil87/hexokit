@@ -11,6 +11,7 @@ import { QuakeSegments, type QuakeSegment } from "@/components/terminal-activity
 import { CronList } from "@/components/cron-list";
 import { CronLog } from "@/components/cron-log";
 import { CronStaleBanner } from "@/components/cron-stale-banner";
+import { OperatorActivity } from "@/components/operator-activity";
 import { WatchedTasks } from "@/components/watched-tasks";
 import { OperatorContextChip } from "@/components/operator-context-chip";
 import { OperatorStateGlyph } from "@/components/operator-state-glyph";
@@ -146,7 +147,7 @@ function withoutStartPending(
  * survives the gate.
  *
  * Anatomy (desktop): ONE header row folding the
- * Operator Terminal | Operator Tasks | Cron List | Cron Log segment strip
+ * Terminal | Tasks | Activity | Cron List | Cron Log segment strip
  * (the shared `QuakeSegments` strip from terminal-activity-tabs.tsx, driven
  * by the quake terminal's local ephemeral state) together with the meta
  * cluster (the server picker on param-less multi-server routes, else the
@@ -161,9 +162,10 @@ function withoutStartPending(
  * `WatchedTable`, dense variant — a row click navigates through the router to
  * the window's terminal and collapses the drawer explicitly: a click inside
  * the quake terminal bypasses the outside-click collapse, which stands down
- * for clicks inside the quake terminal's DOM); on Cron List / Cron Log the
- * `CronStaleBanner` (mounted once above either cron body) over the `CronList`
- * or `CronLog` (inline variant — the entry detail sheet renders
+ * for clicks inside the quake terminal's DOM); on Activity the
+ * `CronStaleBanner` over `OperatorActivity` (the fires newest first, the
+ * filter chips and Check now); on Cron List / Cron Log the `CronList` or
+ * `CronLog` (inline variant — the entry detail sheet renders
  * in-container). On every non-terminal segment the TerminalClient is
  * UNMOUNTED, so the drawer holds at
  * most one relay stream. While open the drawer carries the compose DOCKED at
@@ -1136,18 +1138,20 @@ export function QuakeTerminal() {
             dense
           />
         ) : (
-          // Same one-relay-stream rule for the cron tabs (the keyed remount
-          // on switching back is cheap). The stale banner mounts ONCE above
-          // either cron body; an unresolved server renders the tab's own
-          // hint line.
-          <>
-            <CronStaleBanner server={server ?? ""} />
-            {segment === "list" ? (
-              <CronList server={server ?? ""} inline />
-            ) : (
-              <CronLog server={server ?? ""} inline />
-            )}
-          </>
+          // Same one-relay-stream rule for Activity and the cron tabs (the
+          // keyed remount on switching back is cheap). The stale banner
+          // mounts above Activity only; an unresolved server renders the
+          // tab's own hint line.
+          segment === "activity" ? (
+            <>
+              <CronStaleBanner server={server ?? ""} />
+              <OperatorActivity server={server ?? ""} />
+            </>
+          ) : segment === "list" ? (
+            <CronList server={server ?? ""} inline />
+          ) : (
+            <CronLog server={server ?? ""} inline />
+          )
         )
       ) : target && server ? (
         <div className="flex-1 min-h-0 flex flex-col px-1 py-0.5">

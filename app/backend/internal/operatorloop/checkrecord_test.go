@@ -42,8 +42,12 @@ func TestRunNoChangeWritesCheckRecord(t *testing.T) {
 	}
 	f := fire()
 	f.Reason = cron.TriggerFireReason("manual")
-	if got := Run(context.Background(), f); got.String() != cron.OutcomeNoChange {
+	got := Run(context.Background(), f)
+	if got.String() != cron.OutcomeNoChange {
 		t.Fatalf("outcome = %q", got.String())
+	}
+	if got.Fire != runA {
+		t.Errorf("outcome fire = %q, want the check record's id %q", got.Fire, runA)
 	}
 	rec := readCheckJSON(t, r, runA)
 	if rec["changed"] != false || rec["reason"] != "trigger:manual" || rec["fired_at"] != "2026-11-12T10:15:00Z" ||
@@ -118,6 +122,20 @@ func TestRunWithoutCheckResultWritesNoCheckRecord(t *testing.T) {
 	}
 }
 
+// TestRunNoChangeWithoutIDCarriesNoFire: a fire whose id could not be generated
+// wrote no record, so its outcome names none.
+func TestRunNoChangeWithoutIDCarriesNoFire(t *testing.T) {
+	newRig(t)
+	newRunIDFn = func() (string, error) { return "", fmt.Errorf("no entropy") }
+	checkFn = func(context.Context, string, operator.CheckOptions) (operator.CheckResult, error) {
+		return operator.CheckResult{}, nil
+	}
+	got := Run(context.Background(), fire())
+	if got.String() != cron.OutcomeNoChange || got.Fire != "" {
+		t.Fatalf("outcome = %+v, want a plain no change with no fire", got)
+	}
+}
+
 // TestRunCheckRecordWriteFailureKeepsOutcome: a runs dir that cannot be
 // created only costs the record.
 func TestRunCheckRecordWriteFailureKeepsOutcome(t *testing.T) {
@@ -170,5 +188,47 @@ func TestPruneKeepsNewestTwoHundredCheckRecords(t *testing.T) {
 	}
 	if got, _ := listRunIDs(dir); len(got) != 1 {
 		t.Errorf("run listing sees check records: %v", got)
+	}
+}
+
+// TestReadCheckRecordRoundTrip: a written record reads back with its deltas
+// (kind-specific fields included) and notices, and a corrupt file errors.
+func TestReadCheckRecordRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	age := "3d"
+	to := "waiting"
+	want := newCheckRecord("2026-11-12T10:15:00Z", "trigger:manual", operator.CheckResult{
+		CheckedAt: "2026-11-12T10:15:01Z",
+		Changed:   true,
+		Changes:   []operator.CheckDelta{{Kind: operator.DeltaAgentState, ID: "pr-7", Pane: "%3", To: &to}},
+		Open:      []operator.CheckDelta{{Kind: operator.DeltaStale, ID: "pr-41", Age: age}},
+		Notices:   []operator.CheckNotice{{ID: "pr-9", Kind: "paused", Error: "boom", Failures: 2}},
+	}, runA)
+	if err := WriteCheckRecord(dir, runA, want); err != nil {
+		t.Fatal(err)
+	}
+	path, _ := CheckRecordPath(dir, runA)
+	got, err := ReadCheckRecord(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Changed || got.Reason != "trigger:manual" || got.Run != runA || got.CheckedAt != want.CheckedAt {
+		t.Errorf("record = %+v", got)
+	}
+	if len(got.Changes) != 1 || got.Changes[0].Kind != operator.DeltaAgentState || got.Changes[0].ID != "pr-7" ||
+		got.Changes[0].Pane != "%3" || got.Changes[0].To == nil || *got.Changes[0].To != to {
+		t.Errorf("changes = %+v", got.Changes)
+	}
+	if len(got.Open) != 1 || got.Open[0].Age != age {
+		t.Errorf("open = %+v", got.Open)
+	}
+	if len(got.Notices) != 1 || got.Notices[0].Failures != 2 {
+		t.Errorf("notices = %+v", got.Notices)
+	}
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadCheckRecord(path); err == nil {
+		t.Error("a corrupt record must error")
 	}
 }

@@ -138,6 +138,39 @@ func TestLoopLadderClimbsAndResets(t *testing.T) {
 	}
 }
 
+// TestLoopRungs: the rung at each line is the climbing streak before it; a
+// non-climbing line resets it, failures climb like `no change`, and the final
+// value agrees with LoopLadder.
+func TestLoopRungs(t *testing.T) {
+	T := backoffBase
+	e := loopEntry(T.Add(-time.Hour))
+	outcomes := []string{
+		OutcomeRan("did it", time.Minute), OutcomeNoChange, OutcomeNoChange,
+		OutcomeRunFailed(1, time.Second), OutcomeNoChange, OutcomeSkippedBusy("r"), OutcomeNoChange,
+	}
+	var own []LogLine
+	for i, o := range outcomes {
+		own = append(own, loopLine(e.ID, T.Add(time.Duration(i)*time.Minute), o))
+	}
+	want := []int{0, 0, 1, 2, 3, 4, 0}
+	got := LoopRungs(own)
+	if len(got) != len(want) {
+		t.Fatalf("rungs = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("rungs = %v, want %v", got, want)
+			break
+		}
+	}
+	if next := LoopLadder(e, own).Rung; next != 1 {
+		t.Errorf("ladder after the last line = %d, want 1", next)
+	}
+	if len(LoopRungs(nil)) != 0 {
+		t.Error("no lines, no rungs")
+	}
+}
+
 func TestIsLoopFailureOutcome(t *testing.T) {
 	for outcome, want := range map[string]bool{
 		OutcomeRunFailed(1, time.Second):       true,

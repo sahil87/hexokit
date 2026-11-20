@@ -73,6 +73,15 @@ vi.mock("@/lib/compose-strip-events", async (importActual) => ({
   focusComposeStrip: mockFocusComposeStrip,
 }));
 
+// The Activity segment mounts the real OperatorActivity; its fetch hook is
+// mocked out (controllable rows) so no request fires from these tests.
+const mockActivity = vi.hoisted(() => ({
+  current: { server: "srv1", in_flight: null, rows: [] } as import("@/api/client").OperatorActivityResponse,
+}));
+vi.mock("@/hooks/use-operator-activity", () => ({
+  useOperatorActivity: () => ({ data: mockActivity.current, fetchedAt: 1, refetch: () => {} }),
+}));
+
 // The cron segments mount the real CronList/CronLog; their cron fetch is
 // mocked out here (controllable shape) so no request fires from these tests.
 const mockCronData = vi.hoisted(() => ({
@@ -1001,7 +1010,7 @@ describe("QuakeTerminal", () => {
     expect(screen.getByTestId("cron-log")).toBeInTheDocument();
     expect(screen.queryByTestId("quake-terminal-empty")).toBeNull();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Operator Terminal" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Terminal" }));
     expect(screen.getByTestId("quake-terminal-empty")).toBeInTheDocument();
     expect(screen.getByTestId("quake-terminal-start-operator")).toBeInTheDocument();
     expect(screen.queryByTestId("cron-list")).toBeNull();
@@ -1803,18 +1812,19 @@ describe("QuakeTerminal (cron segments)", () => {
     return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Cron Log" });
   }
   function terminalTab() {
-    return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Operator Terminal" });
+    return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Terminal" });
   }
 
-  it("the desktop drawer renders the four segments in order with Operator Terminal selected", () => {
+  it("the desktop drawer renders the five segments in order with Terminal selected", () => {
     renderQuake();
     openDrawer();
 
     const strip = screen.getByTestId("terminal-activity-tabs");
     expect(strip).toHaveAttribute("role", "tablist");
     expect(within(strip).getAllByRole("tab").map((t) => t.textContent)).toEqual([
-      "Operator Terminal",
-      "Operator Tasks",
+      "Terminal",
+      "Tasks",
+      "Activity",
       "Cron List",
       "Cron Log",
     ]);
@@ -2019,10 +2029,10 @@ describe("QuakeTerminal (tasks segment)", () => {
   });
 
   function tasksTab() {
-    return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Operator Tasks" });
+    return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Tasks" });
   }
   function terminalTab() {
-    return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Operator Terminal" });
+    return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Terminal" });
   }
 
   const WATCHED_SESSIONS: ProjectSession[] = [
@@ -2700,5 +2710,101 @@ describe("QuakeTerminal (operator-kickoff notify)", () => {
     expect(screen.queryByText("checks green")).toBeNull();
     expect(screen.queryByText("unrelated tag")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("QuakeTerminal (activity segment)", () => {
+  beforeEach(() => {
+    stubMatchMedia(() => false);
+    setQuakeMachineState("rest");
+    resetOperatorComposeFlags();
+    mockMatches = [{ params: {} }];
+    mockSearch = {};
+    mockNavigate.mockReset();
+    terminalMounts.length = 0;
+    mockCronData.current = { entries: [], deliveries: [] };
+    mockActivity.current = { server: "srv1", in_flight: null, rows: [] };
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  const STALE_SESSIONS = new Map([
+    [
+      "srv1",
+      [
+        { name: "main", windows: [win({})], operatorLastTickAt: 1_700_000_000, operatorStale: true },
+        { name: "_rk-operator", windows: [OPERATOR_WINDOW], hidden: true },
+      ],
+    ],
+  ]);
+
+  function tab(name: string) {
+    return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name });
+  }
+
+  it("selecting Activity mounts its body and unmounts the terminal; Terminal reverses it", () => {
+    renderQuake();
+    openDrawer();
+    expect(screen.getByTestId("embedded-terminal")).toBeInTheDocument();
+
+    fireEvent.click(tab("Activity"));
+    expect(screen.getByTestId("operator-activity")).toBeInTheDocument();
+    expect(screen.getByTestId("operator-activity-empty")).toHaveTextContent("no operator activity yet");
+    expect(screen.queryByTestId("embedded-terminal")).toBeNull();
+
+    fireEvent.click(tab("Terminal"));
+    expect(screen.getByTestId("embedded-terminal")).toBeInTheDocument();
+    expect(screen.queryByTestId("operator-activity")).toBeNull();
+  });
+
+  it("an open request carrying segment: activity opens the drawer on Activity", () => {
+    renderQuake();
+    act(() => {
+      requestQuakeTerminal({ action: "open", segment: "activity" });
+    });
+    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
+    expect(tab("Activity")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("operator-activity")).toBeInTheDocument();
+  });
+
+  it("segment: activity on the operator route writes ?tab=activity in place and never opens the drawer", () => {
+    mockMatches = [{ params: { server: "srv1", window: "@9" } }];
+    renderQuake({ withToasts: true });
+    act(() => {
+      requestQuakeTerminal({ action: "open", segment: "activity" });
+    });
+    expect(getQuakeMachineState()).toBe("rest");
+    expect(screen.queryByTestId("quake-terminal")).toBeNull();
+    const call = mockNavigate.mock.calls[0]?.[0] as {
+      search: (prev: Record<string, unknown>) => Record<string, unknown>;
+    };
+    expect(call.search({})).toEqual({ tab: "activity" });
+  });
+
+  it("the staleness banner sits above Activity and not above the cron tabs", () => {
+    renderQuake({ sessionsByServer: STALE_SESSIONS });
+    act(() => {
+      requestQuakeTerminal({ action: "open", segment: "activity" });
+    });
+    expect(screen.getByTestId("cron-activity-banner")).toBeInTheDocument();
+
+    fireEvent.click(tab("Cron List"));
+    expect(screen.getByTestId("cron-list")).toBeInTheDocument();
+    expect(screen.queryByTestId("cron-activity-banner")).toBeNull();
+
+    fireEvent.click(tab("Cron Log"));
+    expect(screen.getByTestId("cron-log")).toBeInTheDocument();
+    expect(screen.queryByTestId("cron-activity-banner")).toBeNull();
+  });
+
+  it("the activity segment renders on an operator-less server", () => {
+    renderQuake({ sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({})] }]]]) });
+    act(() => {
+      requestQuakeTerminal({ action: "open", segment: "activity" });
+    });
+    expect(screen.getByTestId("operator-activity")).toBeInTheDocument();
+    expect(screen.queryByTestId("quake-terminal-empty")).toBeNull();
   });
 });

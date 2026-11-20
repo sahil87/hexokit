@@ -21,25 +21,24 @@ afterEach(() => {
 });
 
 describe("QuakeSegments (controlled strip)", () => {
-  it("renders the four segments in order: Operator Terminal, Operator Tasks, Cron List, Cron Log", () => {
+  it("renders the five segments in order: Terminal, Tasks, Activity, Cron List, Cron Log", () => {
     render(<QuakeSegments value="terminal" onChange={() => {}} />);
 
     const strip = screen.getByTestId("terminal-activity-tabs");
     expect(strip).toHaveAttribute("role", "tablist");
     const tabs = within(strip).getAllByRole("tab");
     expect(tabs.map((t) => t.textContent)).toEqual([
-      "Operator Terminal",
-      "Operator Tasks",
+      "Terminal",
+      "Tasks",
+      "Activity",
       "Cron List",
       "Cron Log",
     ]);
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
-    expect(tabs[1]).toHaveAttribute("aria-selected", "false");
-    expect(tabs[2]).toHaveAttribute("aria-selected", "false");
-    expect(tabs[3]).toHaveAttribute("aria-selected", "false");
+    for (const tab of tabs.slice(1)) expect(tab).toHaveAttribute("aria-selected", "false");
   });
 
-  it("sizes labels for the four-label set: nowrap, no truncation, content-sized", () => {
+  it("sizes labels for the full label set: nowrap, no truncation, content-sized", () => {
     render(<QuakeSegments value="terminal" onChange={() => {}} />);
 
     for (const tab of screen.getAllByRole("tab")) {
@@ -56,34 +55,29 @@ describe("QuakeSegments (controlled strip)", () => {
     const onChange = vi.fn();
     render(<QuakeSegments value="terminal" onChange={onChange} />);
 
-    fireEvent.click(screen.getByRole("tab", { name: "Operator Tasks" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Tasks" }));
     expect(onChange).toHaveBeenCalledWith("tasks");
+    fireEvent.click(screen.getByRole("tab", { name: "Activity" }));
+    expect(onChange).toHaveBeenCalledWith("activity");
     fireEvent.click(screen.getByRole("tab", { name: "Cron List" }));
     expect(onChange).toHaveBeenCalledWith("list");
     // Controlled: without a value change the selection does not move.
-    expect(screen.getByRole("tab", { name: "Operator Terminal" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    expect(screen.getByRole("tab", { name: "Terminal" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("renders Cron Log selected when the value prop says so", () => {
     render(<QuakeSegments value="log" onChange={() => {}} />);
 
     expect(screen.getByRole("tab", { name: "Cron Log" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: "Operator Terminal" })).toHaveAttribute(
-      "aria-selected",
-      "false",
-    );
+    expect(screen.getByRole("tab", { name: "Terminal" })).toHaveAttribute("aria-selected", "false");
   });
 
   it("the segment union agrees with the tab values validateTerminalSearch accepts", () => {
     // The strip's SEGMENTS, `QuakeTerminalRequest.segment`, and router-url.ts's
     // literal union are three spellings of the same set — this guard fails the
     // moment any one of them drifts (a probe of candidate values is the only
-    // way to read the leaf module's accepted set). The legacy `activity`
-    // alias normalizes to `log`, so it must NOT be in the accepted set.
-    const candidates = ["terminal", "tasks", "list", "log", "activity", "bogus", ""];
+    // way to read the leaf module's accepted set).
+    const candidates = ["terminal", "tasks", "activity", "list", "log", "bogus", ""];
     const accepted = candidates.filter((v) => validateTerminalSearch({ tab: v }).tab === v);
     expect(SEGMENTS.map((s) => s.tab)).toEqual(accepted);
   });
@@ -103,18 +97,17 @@ describe("TerminalActivityTabs (router-driven wrapper)", () => {
 
     mockSearch = { tab: "tasks" };
     render(<TerminalActivityTabs />);
-    expect(screen.getByRole("tab", { name: "Operator Tasks" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    expect(screen.getByRole("tab", { name: "Tasks" })).toHaveAttribute("aria-selected", "true");
+    cleanup();
+
+    mockSearch = { tab: "activity" };
+    render(<TerminalActivityTabs />);
+    expect(screen.getByRole("tab", { name: "Activity" })).toHaveAttribute("aria-selected", "true");
     cleanup();
 
     mockSearch = {};
     render(<TerminalActivityTabs />);
-    expect(screen.getByRole("tab", { name: "Operator Terminal" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    expect(screen.getByRole("tab", { name: "Terminal" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("a segment click writes the tab search param in place (to: '.', replace)", () => {

@@ -191,6 +191,7 @@ describe("CronLog operator-loop runs", () => {
       ],
     });
     renderLog(SERVER);
+    fireEvent.click(await screen.findByTestId("cron-log-show-loop"));
     const rows = await screen.findAllByTestId("cron-delivery-row-lp01");
     expect(rows[0]).toHaveTextContent("ran · stub acted · 20s");
     fireEvent.click(rows[0]);
@@ -207,6 +208,7 @@ describe("CronLog operator-loop runs", () => {
       ],
     });
     renderLog(SERVER);
+    fireEvent.click(await screen.findByTestId("cron-log-show-loop"));
     fireEvent.click(await screen.findByTestId("cron-delivery-row-lp01"));
     await screen.findByRole("dialog", { name: "Cron entry operator loop" });
     expect(screen.queryByTestId("cron-entry-run")).toBeNull();
@@ -238,11 +240,63 @@ describe("CronLog mechanical runs", () => {
       }],
     });
     renderLog(SERVER);
+    fireEvent.click(await screen.findByTestId("cron-log-show-loop"));
     const row = await screen.findByTestId("cron-delivery-row-lp01");
     expect(row).toHaveTextContent("ran · mechanical · 2 actions · 20s");
     fireEvent.click(row);
     expect(await screen.findByTestId("cron-entry-run-outcome")).toHaveTextContent(
       "ran · mechanical · 2 actions · 20s",
     );
+  });
+});
+
+describe("CronLog show loop toggle", () => {
+  const loop: CronEntry = {
+    id: "lp01",
+    name: "operator loop",
+    run: "operator-loop",
+    schedule: { kind: "backoff", min: "3m", max: "24m" },
+    target: { kind: "" },
+    payload: "",
+    lastFired: NOW_SEC - 60,
+  };
+  const MIXED: CronListResponse = {
+    entries: [...ENTRIES, loop],
+    deliveries: [
+      { ts: NOW_SEC - 60, entry: "lp01", name: "operator loop", target: "", reason: "schedule", outcome: "no change" },
+      { ts: NOW_SEC - 540, entry: "soon", name: "soon job", target: "%1", reason: "schedule", outcome: "delivered" },
+    ],
+  };
+
+  it("hides operator-loop rows by default and reveals them with the toggle", async () => {
+    installFetch(MIXED);
+    renderLog(SERVER);
+    await screen.findByTestId("cron-delivery-row-soon");
+    expect(screen.queryByTestId("cron-delivery-row-lp01")).toBeNull();
+    const toggle = screen.getByTestId("cron-log-show-loop");
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(rowOrder()).toEqual(["cron-delivery-row-lp01", "cron-delivery-row-soon"]);
+
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId("cron-delivery-row-lp01")).toBeNull();
+  });
+
+  it("says so when every delivery is a loop row and the toggle is off", async () => {
+    installFetch({ entries: [loop], deliveries: [MIXED.deliveries[0]] });
+    renderLog(SERVER);
+    expect(await screen.findByTestId("cron-log-empty")).toHaveTextContent("besides the operator loop");
+  });
+
+  it("keeps a since-deleted entry's row visible", async () => {
+    installFetch(MIXED);
+    renderLog(SERVER);
+    await screen.findByTestId("cron-delivery-row-soon");
+    cleanup();
+    installFetch({ entries: ENTRIES, deliveries: CRON_RESPONSE.deliveries });
+    renderLog(SERVER);
+    expect(await screen.findByTestId("cron-delivery-row-gone")).toBeInTheDocument();
   });
 });

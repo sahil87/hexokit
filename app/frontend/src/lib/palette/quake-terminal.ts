@@ -5,7 +5,7 @@ import {
   setQuakePinned,
   writeQuakeGeometry,
 } from "@/lib/quake-terminal";
-import { ApiError, startOperator, type OperatorStartResult } from "@/api/client";
+import { ApiError, postOperatorWake, startOperator, type OperatorStartResult } from "@/api/client";
 import type { QuakeSegment } from "@/components/terminal-activity-tabs";
 
 /**
@@ -70,6 +70,41 @@ export function buildQuakeTerminalTasksAction(): QuakeTerminalPaletteAction {
     id: "quake-terminal-tasks",
     label: "Operator: Show tasks",
     onSelect: () => requestQuakeTerminal({ action: "open", segment: "tasks" }),
+  };
+}
+
+/**
+ * The `Operator: Show activity` entry — the quake terminal opened straight
+ * onto its Activity segment (the operator loop's fires). No registry chord, the
+ * Tasks twin's gating and mobile mapping (`?tab=activity`).
+ */
+export function buildQuakeTerminalActivityAction(): QuakeTerminalPaletteAction {
+  return {
+    id: "quake-terminal-activity",
+    label: "Operator: Show activity",
+    onSelect: () => requestQuakeTerminal({ action: "open", segment: "activity" }),
+  };
+}
+
+/**
+ * The `Operator: Check now` entry — the palette twin of the Activity header's
+ * Check now button (Constitution V): the trigger door's POST for `server`, so
+ * the next cron tick runs one check. Needs no operator window; the
+ * registration site lists it whenever a server resolves.
+ */
+export function buildOperatorCheckNowAction(
+  server: string,
+  onQueued: () => void,
+  onError: (message: string) => void,
+): QuakeTerminalPaletteAction {
+  return {
+    id: "operator-check-now",
+    label: "Operator: Check now",
+    onSelect: () => {
+      void postOperatorWake(server)
+        .then(onQueued)
+        .catch((err: unknown) => onError(err instanceof Error ? err.message : "Check now failed"));
+    },
   };
 }
 

@@ -8,7 +8,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // one desktop view: status line, ◉ → operator header row + context chip +
 // key hints, bounded auto-grow textarea; Enter sends once with focus
 // retained, ⇧Enter newline, Esc yields to the embedded terminal first on the
-// Operator Terminal segment and collapses on the list segments), the top-bar
+// Terminal segment and collapses on the list segments), the top-bar
 // `Operator` launcher button (right cluster; one button, latched while open,
 // whose click re-focuses the docked textarea; the page heading is never hidden), the ONE
 // header row (segments + server/state/tick meta + pin + ▼), the pin
@@ -24,27 +24,29 @@ import { mockStateSocket } from "./_state-socket-mock";
 // the launcher ◉ live-state dot on every launcher rung, and drawer/launcher
 // image paste (upload to the operator window's session + insert-delivery)
 // with the route terminals' strip-forward guard. The drawer's
-// Operator Terminal | Operator Tasks | Cron List | Cron Log segment strip
-// swaps the body between the embedded terminal, the watched worker table, and
-// the cron tabs (one relay stream max per drawer); the status-bar ◷ chip
+// Terminal | Tasks | Activity | Cron List | Cron Log segment strip
+// swaps the body between the embedded terminal, the watched worker table, the
+// Activity fires and the cron tabs (one relay stream max per drawer); the status-bar ◷ chip
 // opens the drawer on Cron List; the operator window's own route IS the quake
 // surface on desktop too (the operator page: the segment strip above the tty
 // tile, the compose strip forced on and footer-docked, `?tab=` live as the
-// page's segment state — the legacy `?tab=activity` token normalizes to
-// `log`), so a desktop `?tab=` deep link lands on the page's segment with the
+// page's segment state — `?tab=activity` selects Activity), so a desktop `?tab=` deep link lands on the page's segment with the
 // param retained and openers on that route (⌘J, palette rows) focus the
 // page's compose strip or switch its segment instead of opening a drawer;
 // the drawer's `⤢ open as tab` header control navigates to that route. The
-// operator-less body carries the Start operator button. The palette carries `Operator: Show tasks` plus `Operator: Show cron
+// operator-less body carries the Start operator button. The palette carries `Operator: Show tasks`,
+// `Operator: Show activity` and `Operator: Check now` plus `Operator: Show cron
 // list` before `Operator: Show cron log`; the retired `Panel: Toggle Clock`
 // and `Workspace: Clock dashboard` entries stay gone. The watched-worker specs
 // seed the sessions payload with a `monitored: true` window carrying
 // `monitoredChange`/`monitoredStage`/`monitoredRepo` plus `operatorLastTickAt`
 // and `operatorTracked` on the sessions (the server-watched-zone spec's stub
-// shape): `operatorTracked` is the whole tracked set the Operator Tasks
+// shape): `operatorTracked` is the whole tracked set the Tasks
 // segment lists — the @2 worker item (pane %2, windowId @2) and a pane-less
 // n3 note item with refs, a `latestNote` and a `noteCount` of 3 (the full list
-// is served by the stubbed `GET /api/operator/notes`).
+// is served by the stubbed `GET /api/operator/notes`). `GET
+// /api/operator/activity` serves two loop rows and `POST /api/operator/wake`
+// is recorded, for the Activity segment specs.
 // On MOBILE there is no
 // sheet: every quake terminal entry point navigates to the operator window's
 // ordinary terminal route (the tongue is the standing affordance, an
@@ -98,9 +100,9 @@ function sessionsPayload(withOperator: boolean, operatorState = "idle", watched 
       { paneId: "%1", paneIndex: 0, cwd: "/tmp/wt", command: "zsh", isActive: true },
     ],
   };
-  // A watched worker (the WATCHED zone / Operator Tasks row): the monitored
+  // A watched worker (the WATCHED zone / Tasks row): the monitored
   // facets plus the operator tick stamps that mark the watchlist live. The
-  // operatorTracked list is the whole tracked set the Operator Tasks segment
+  // operatorTracked list is the whole tracked set the Tasks segment
   // renders: the worker item for @2 plus a pane-less note item.
   const watchedWorker = {
     windowId: "@2",
@@ -202,6 +204,41 @@ const CRON = JSON.stringify({
   ],
 });
 
+// The Activity payload — a `no change` fire carrying its check record and a
+// trigger fire whose run the loop transcribed.
+const ACTIVITY = JSON.stringify({
+  server: SERVER,
+  in_flight: null,
+  rows: [
+    {
+      ts: NOW - 120,
+      entry: "lp01",
+      reason: "schedule",
+      outcome: "no change",
+      rung: 1,
+      fire: "20261112T100000-aaaa",
+      check: {
+        checked_at: "t",
+        changed: false,
+        changes: [],
+        open: [{ kind: "stale", id: "pr-41", age: "3d" }],
+        notices: [],
+        items: 1,
+      },
+    },
+    {
+      ts: NOW - 900,
+      entry: "lp01",
+      reason: "trigger:manual",
+      outcome: "ran · fixed it · 20s",
+      rung: 0,
+      fire: "20261112T101500-ab12",
+      check: { checked_at: "t", changed: true, changes: [{ kind: "note", id: "pr-7", at: "t" }], open: [], notices: [], items: 1 },
+      run: { id: "20261112T101500-ab12", outcome: "fixed it", duration_s: 20, has_brief: false, has_log: false },
+    },
+  ],
+});
+
 /** The n3 item's full notes, oldest to newest; the last is its `latestNote`. */
 const N3_NOTES = [
   { at: NOW - 86_400, by: "user", text: "Archive once PR #834 merges." },
@@ -219,6 +256,7 @@ async function mockBackend(
 ) {
   const sendBodies: Record<string, unknown>[] = [];
   const requestCalls: { url: string; body: Record<string, unknown> }[] = [];
+  const wakeBodies: Record<string, unknown>[] = [];
   await page.routeWebSocket(/\/ws\/terminals/, () => {});
   await page.route("**/api/windows/*/select*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
@@ -256,7 +294,23 @@ async function mockBackend(
   await page.route("**/api/cron*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: CRON }),
   );
-  // The operator notes read seam (Operator Tasks expand) — same trailing-`*`
+  // The Activity read seam and the trigger door — same trailing-`*` rule; the
+  // wake bodies are recorded for the Check now spec.
+  // Once a wake has posted, the next activity read is held briefly so the
+  // button's transient `check queued` state is observable.
+  await page.route("**/api/operator/activity*", async (route) => {
+    if (wakeBodies.length > 0) await new Promise((resolve) => setTimeout(resolve, 1_500));
+    await route.fulfill({ status: 200, contentType: "application/json", body: ACTIVITY });
+  });
+  await page.route("**/api/operator/wake", (route) => {
+    wakeBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ server: SERVER, reason: "manual" }),
+    });
+  });
+  // The operator notes read seam (Tasks expand) — same trailing-`*`
   // rule; records each requested URL.
   const notesRequests: string[] = [];
   await page.route("**/api/operator/notes*", (route) => {
@@ -268,7 +322,7 @@ async function mockBackend(
     });
   });
   await mockStateSocket(page, { sessions: sessionsPayload(withOperator, operatorState, watched) });
-  return { sendBodies, requestCalls, notesRequests };
+  return { sendBodies, requestCalls, notesRequests, wakeBodies };
 }
 
 /** Stub the file-upload endpoint (multipart body — only the URL/session is
@@ -613,24 +667,22 @@ test.describe("Quake terminal", () => {
   });
 
   /**
-   * Proves: the desktop drawer's Operator Terminal | Operator Tasks | Cron
-   * List | Cron Log segment strip renders the four segments in that fixed
-   * order (Operator Terminal the default), no label truncates, and selecting
-   * a cron segment swaps the body — the cron tab mounts and the embedded
-   * terminal unmounts (one relay stream max per drawer), until Operator
-   * Terminal restores it.
+   * Proves: the desktop drawer's Terminal | Tasks | Activity | Cron List |
+   * Cron Log segment strip renders the five segments in that fixed order
+   * (Terminal the default), no label truncates, and selecting a cron
+   * segment swaps the body — the cron tab mounts and the embedded terminal
+   * unmounts (one relay stream max per drawer), until Terminal restores it.
    *
    * Steps:
    * 1. Mock the backend with an operator window (the cron stub gives both
    *    cron tabs a row); land on the @1 terminal route.
    * 2. Open the quake terminal via the palette `Operator: Open quake terminal` action;
-   *    assert the four tab labels in exact order, Operator Terminal
-   *    selected, no tab truncated (scrollWidth ≤ clientWidth), and the
+   *    assert the five tab labels in exact order, Terminal selected, no tab truncated (scrollWidth ≤ clientWidth), and the
    *    embedded terminal's xterm frame attached.
    * 3. Click Cron Log; assert the log body renders its delivery row inside
    *    the quake terminal and the xterm frame is gone.
    * 4. Click Cron List; assert the list body renders its entry row.
-   * 5. Click Operator Terminal; assert the xterm frame is back.
+   * 5. Click Terminal; assert the xterm frame is back.
    */
   test("the segment strip swaps the drawer body between the terminal and the cron tabs", async ({
     page,
@@ -645,10 +697,11 @@ test.describe("Quake terminal", () => {
 
     const tabs = drawer(page).getByTestId("terminal-activity-tabs");
     const buttons = tabs.getByRole("tab");
-    await expect(buttons).toHaveCount(4);
+    await expect(buttons).toHaveCount(5);
     expect(await buttons.allTextContents()).toEqual([
-      "Operator Terminal",
-      "Operator Tasks",
+      "Terminal",
+      "Tasks",
+      "Activity",
       "Cron List",
       "Cron Log",
     ]);
@@ -668,7 +721,7 @@ test.describe("Quake terminal", () => {
     await expect(drawer(page).getByTestId("cron-list")).toBeVisible({ timeout: 10_000 });
     await expect(drawer(page).getByTestId("cron-list-row-a3f9")).toBeVisible();
 
-    await tabs.getByRole("tab", { name: "Operator Terminal" }).click();
+    await tabs.getByRole("tab", { name: "Terminal" }).click();
     await expect(drawer(page).locator(".xterm")).toBeAttached({ timeout: 10_000 });
   });
 
@@ -716,7 +769,7 @@ test.describe("Quake terminal", () => {
    * 2. Click the ◷ chip.
    * 3. Assert the drawer opens with Cron List selected, its entry row
    *    visible, and no operator-less body.
-   * 4. Select Operator Terminal; assert the Start operator body appears.
+   * 4. Select Terminal; assert the Start operator body appears.
    */
   test("the ◷ chip opens Cron List on an operator-less server", async ({ page }) => {
     await mockBackend(page, false);
@@ -736,7 +789,7 @@ test.describe("Quake terminal", () => {
     await expect(drawer(page).getByTestId("cron-list-row-a3f9")).toBeVisible();
     await expect(drawer(page).getByTestId("quake-terminal-empty")).toHaveCount(0);
 
-    await tabs.getByRole("tab", { name: "Operator Terminal" }).click();
+    await tabs.getByRole("tab", { name: "Terminal" }).click();
     await expect(drawer(page).getByTestId("quake-terminal-start-operator")).toBeVisible();
     await expect(drawer(page).getByTestId("cron-list")).toHaveCount(0);
   });
@@ -873,39 +926,77 @@ test.describe("Quake terminal", () => {
   });
 
   /**
-   * Proves: a desktop `?tab=activity` deep link (the legacy alias, normalized
-   * to `log`) on the operator window's terminal route lands on the PAGE's
-   * Cron Log segment — the operator route wears the quake surface on desktop
-   * too, so no drawer opens and the `tab` param is retained (it IS the page's
-   * segment state now; a reload lands the same way).
+   * Proves: a desktop `?tab=activity` deep link on the operator window's
+   * terminal route lands on the PAGE's Activity segment — the operator route
+   * wears the quake surface on desktop too, so no drawer opens and the `tab`
+   * param is retained (it IS the page's segment state; a reload lands the
+   * same way).
    *
    * Steps:
-   * 1. Mock the backend with an operator window (the cron stub gives the log
-   *    a row); navigate directly to the operator route carrying
+   * 1. Mock the backend with an operator window (the activity stub gives the
+   *    tab two rows); navigate directly to the operator route carrying
    *    `?tab=activity`.
-   * 2. Assert no drawer renders; the page's segment strip shows Cron Log
-   *    selected and the cron log body is on the page.
-   * 3. Assert the URL still carries the tab param.
+   * 2. Assert no drawer renders; the page's segment strip shows Activity
+   *    selected and both fire rows are on the page.
+   * 3. Assert the URL still carries `tab=activity`.
    */
-  test("desktop ?tab=activity deep link lands on the page's Cron Log segment with the param retained", async ({
+  test("desktop ?tab=activity deep link lands on the page's Activity segment with the param retained", async ({
     page,
   }) => {
     await mockBackend(page, true);
     await page.goto(`${OPERATOR_PATH}?tab=activity`);
 
     const tabs = page.getByTestId("terminal-activity-tabs");
-    await expect(tabs.getByRole("tab", { name: "Cron Log" })).toHaveAttribute(
+    await expect(tabs.getByRole("tab", { name: "Activity" })).toHaveAttribute(
       "aria-selected",
       "true",
       { timeout: 10_000 },
     );
-    await expect(page.getByTestId("cron-log")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("operator-activity-row")).toHaveCount(2, { timeout: 10_000 });
     await expect(drawer(page)).toHaveCount(0);
-    await expect(page).toHaveURL(/[?&]tab=(activity|log)/, { timeout: 10_000 });
+    await expect(page).toHaveURL(/[?&]tab=activity/, { timeout: 10_000 });
   });
 
   /**
-   * Proves: the desktop drawer's Operator Tasks segment lists the operator's
+   * Proves: the palette's `Operator: Show activity` opens the drawer on the
+   * Activity segment, and Check now there posts the trigger door once with
+   * the server and then reads `check queued`, never forcing a run.
+   *
+   * Steps:
+   * 1. Mock the backend with an operator window (capturing wake POSTs); land
+   *    on the @1 terminal route.
+   * 2. Open the palette, type `activity`, pick `Operator: Show activity`.
+   * 3. Assert the drawer is open on Activity with both fire rows and the
+   *    schedule row's `schedule · rung 1` label.
+   * 4. Click `Check now`; assert exactly one wake POST with `{server}` and
+   *    that the button reads `check queued` while the held activity read is
+   *    pending, then returns to `Check now`.
+   */
+  test("the palette opens the drawer on Activity; Check now posts the wake once", async ({ page }) => {
+    const { wakeBodies } = await mockBackend(page, true);
+    await gotoWindow(page);
+
+    const paletteInput = await openPalette(page);
+    await paletteInput.fill("activity");
+    await page.getByRole("option", { name: /^Operator: Show activity/ }).click();
+
+    await expect(drawer(page)).toBeVisible();
+    const tabs = drawer(page).getByTestId("terminal-activity-tabs");
+    await expect(tabs.getByRole("tab", { name: "Activity" })).toHaveAttribute("aria-selected", "true");
+    await expect(drawer(page).getByTestId("operator-activity-row")).toHaveCount(2, { timeout: 10_000 });
+    await expect(drawer(page).getByText("schedule · rung 1")).toBeVisible();
+
+    const checkNow = drawer(page).getByTestId("operator-activity-check-now");
+    await checkNow.click();
+    await expect.poll(() => wakeBodies.length).toBe(1);
+    expect(wakeBodies[0]).toEqual({ server: SERVER });
+    await expect(checkNow).toHaveText("check queued");
+    await expect(checkNow).toHaveText("Check now", { timeout: 10_000 });
+    expect(wakeBodies).toHaveLength(1);
+  });
+
+  /**
+   * Proves: the desktop drawer's Tasks segment lists the operator's
    * WHOLE tracked set — the monitored @2 worker as a navigating worker row
    * and the pane-less n3 note as an item row (kind chip, id, its latest note
    * with author and a `+2` hint) — with the `{N} tracked · {W} watched`
@@ -921,7 +1012,7 @@ test.describe("Quake terminal", () => {
    *    list (the worker item + the n3 note carrying latestNote/noteCount) and
    *    a stubbed GET /api/operator/notes; land on the @1 terminal route.
    * 2. Open the quake terminal via the palette `Operator: Show tasks` action.
-   * 3. Assert the Operator Tasks tab is selected, the summary reads
+   * 3. Assert the Tasks tab is selected, the summary reads
    *    `2 tracked · 1 watched`, the table lists one worker row (change +
    *    stage) and one tracked-item row (note chip, id, latest note, author,
    *    `+2`), no notes request has fired, and no xterm frame is mounted.
@@ -931,7 +1022,7 @@ test.describe("Quake terminal", () => {
    * 5. Click the worker row's name button; assert the URL becomes the
    *    worker's terminal route and the drawer is gone.
    */
-  test("the Operator Tasks segment lists every tracked item, expands notes in place, and a worker row click navigates and collapses the drawer", async ({
+  test("the Tasks segment lists every tracked item, expands notes in place, and a worker row click navigates and collapses the drawer", async ({
     page,
   }) => {
     const { notesRequests } = await mockBackend(page, true, SEND_OK, "idle", true);
@@ -943,7 +1034,7 @@ test.describe("Quake terminal", () => {
     await expect(drawer(page)).toBeVisible();
 
     const tabs = drawer(page).getByTestId("terminal-activity-tabs");
-    await expect(tabs.getByRole("tab", { name: "Operator Tasks" })).toHaveAttribute(
+    await expect(tabs.getByRole("tab", { name: "Tasks" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
@@ -994,25 +1085,25 @@ test.describe("Quake terminal", () => {
 
   /**
    * Proves: a desktop `?tab=tasks` deep link on the operator window's terminal
-   * route lands on the PAGE's Operator Tasks segment — the operator route
+   * route lands on the PAGE's Tasks segment — the operator route
    * wears the quake surface on desktop too, so no drawer opens and the `tab`
    * param is retained (it IS the page's segment state now).
    *
    * Steps:
    * 1. Mock the backend with an operator window plus a monitored @2 worker;
    *    navigate directly to the operator route carrying `?tab=tasks`.
-   * 2. Assert no drawer renders; the page's segment strip shows Operator Tasks
+   * 2. Assert no drawer renders; the page's segment strip shows Tasks
    *    selected and the watched table is on the page.
    * 3. Assert the URL still carries `?tab=tasks`.
    */
-  test("desktop ?tab=tasks deep link lands on the page's Operator Tasks segment with the param retained", async ({
+  test("desktop ?tab=tasks deep link lands on the page's Tasks segment with the param retained", async ({
     page,
   }) => {
     await mockBackend(page, true, SEND_OK, "idle", true);
     await page.goto(`${OPERATOR_PATH}?tab=tasks`);
 
     const tabs = page.getByTestId("terminal-activity-tabs");
-    await expect(tabs.getByRole("tab", { name: "Operator Tasks" })).toHaveAttribute(
+    await expect(tabs.getByRole("tab", { name: "Tasks" })).toHaveAttribute(
       "aria-selected",
       "true",
       { timeout: 10_000 },

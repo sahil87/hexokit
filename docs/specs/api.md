@@ -334,12 +334,31 @@ Send a message into a window's resolved pane — the compose strip's single deli
 
 #### `GET /api/operator/notes?server=<slug>&id=<item-id>`
 
-One tracked item's full notes list — what the Operator Tasks row fetches when it expands. Read-only (notes are written by `rk operator track note`, runs and chat). The state file is chosen exactly as for `operatorTracked[]` (rk's file when it exists, else fab's), so the route and the sessions payload cannot disagree. `id` is compared for equality against the file's items and never used in a path; `server` rides `serverFromRequest`.
+One tracked item's full notes list — what the Tasks row fetches when it expands. Read-only (notes are written by `rk operator track note`, runs and chat). The state file is chosen exactly as for `operatorTracked[]` (rk's file when it exists, else fab's), so the route and the sessions payload cannot disagree. `id` is compared for equality against the file's items and never used in a path; `server` rides `serverFromRequest`.
 
 **Responses:**
 - `200` `{ "id": "<item-id>", "notes": [{ "at": 1762850000, "by": "run", "text": "…" }, …] }` — oldest → newest, file order; `[]` for an item without notes
 - `400` `{ "error": "id is required" }` — `id` missing or empty
 - `404` `{ "error": "…" }` — no state file is readable (absent or corrupt), or no item has that id
+
+#### `GET /api/operator/activity?server=<name>`
+
+The Activity tab's read: the operator-loop entries' own cron-log lines joined with the check record and run record each fire left under the server's runs dir (`$XDG_STATE_HOME/hexokit/operator/runs/<slug>/`). Read-only; every file is read at request time and a missing or corrupt record drops only its sub-object. `server` is validated with `ValidateServerName`.
+
+**Responses:**
+- `200` `{ "server", "in_flight": {"id","started_at"} | null, "rows": [...] }` — rows newest first, capped at 200. Each row: `ts`, `entry`, `reason` (raw fire reason: `schedule`, `wake`, `trigger:<why>`), `outcome` (raw loop-line outcome), `rung` (the backoff-ladder position at that line, replayed with the ladder's own climb rule), `fire` (the join id: the line's `fire`, else its `run`), `check` (`checked_at, changed, changes, open, notices, items` — `items` counts distinct item ids across `changes` and `open`) when `<fire>.check.json` reads, and `run` (`id, pass, outcome, lost, exit_code, started_at, ended_at, duration_s, has_brief, has_log`) when `<fire>.json` reads. An absent log, entries file or runs dir is `rows: []`.
+- While a run window is live (`tmux.ListOperatorRunWindows`), `in_flight` names its run and a synthetic newest row (`running: true`, `outcome: ""`, its `check` and `run` joined by the run id) leads `rows`; a tmux listing error yields `in_flight: null`, never a failed response.
+- `400` bad or missing `server`
+
+#### `GET /api/operator/runs/{server}/{id}/brief` · `GET /api/operator/runs/{server}/{id}/log`
+
+A run's rendered brief and its run log, as `text/plain; charset=utf-8`. The server and run id are validated (`ValidateServerName`, `ValidRunID`) and the path comes only from the `operatorloop` path helpers under the server's runs dir. Capped at 256 KiB: the brief serves its head, the log its tail; a cut response carries `X-Rk-Truncated: true`.
+
+**Responses:**
+- `200` the file contents
+- `400` bad server or run id
+- `404` no such run file (pruned, or never written)
+- `500` unexpected read error
 
 #### `POST /api/operator/start`
 
@@ -862,6 +881,9 @@ omit `Origin`.
 | `POST` | `/api/windows/:windowId/operator-request` | `operator.go` | Window-scoped operator request (closed template registry; busy ⇒ 202 queued) |
 | `POST` | `/api/operator-request` | `operator.go` | Server-scoped operator request (same registry) |
 | `GET` | `/api/operator/notes` | `operator_notes.go` | One tracked item's full notes (`?server=&id=`), oldest → newest; read-only |
+| `GET` | `/api/operator/activity` | `operator_activity.go` | Operator-loop fires newest first, joined with check and run records (`?server=`); read-only |
+| `GET` | `/api/operator/runs/:server/:id/brief` | `operator_activity.go` | A run's brief, raw text, head-capped at 256 KiB (`X-Rk-Truncated`) |
+| `GET` | `/api/operator/runs/:server/:id/log` | `operator_activity.go` | A run's log, raw text, tail-capped at 256 KiB (`X-Rk-Truncated`) |
 | `POST` | `/api/operator/start` | `operator_start.go` | Start the server operator (execs `rk operator -L <server> --json`; answers on the receipt line) |
 | `POST` | `/api/notify` | `push.go` | Web Push notification to subscribed devices |
 | `POST` | `/api/riff` | `riff.go` | Spawn worktree + window + agent (riff engine) |
