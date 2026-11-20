@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-17T18:48:19Z"}
+{"args":"Execute step H1 (Role model cell: inherit-first list that opens unfiltered, custom entry, stale-pin flag, tool change resets model/effort) of the plan at /home/sahil/code/sahil87/fab-kit/fab/plans/sahil/26-11-16-model-pins.md.","cmd":"fab-new","event":"command","ts":"2026-11-17T18:48:19Z"}
+{"delta":"+0.0","event":"confidence","score":3.7,"trigger":"calc-score","ts":"2026-11-17T18:50:39Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-17T18:52:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-17T18:53:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-17T19:02:13Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-11-17T19:06:55Z"}
+{"event":"review","result":"passed","ts":"2026-11-17T19:06:55Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-11-17T19:07:58Z"}
