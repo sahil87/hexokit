@@ -78,6 +78,9 @@ type ExecOptions struct {
 	Pass func(ctx context.Context) (*PassRecord, error)
 	// OwnedIDs identifies ledger ids whose pane conditions the engine handles.
 	OwnedIDs func(ctx context.Context) (map[string]bool, error)
+	// QueueEntries returns the autopilot queue entries the brief marks queue
+	// items with.
+	QueueEntries func(ctx context.Context) (map[string]operator.QueueEntry, error)
 	// SetupError is an environment-construction failure discovered before the
 	// wrapper could build its mechanical pass. Exec still records start and end.
 	SetupError error
@@ -177,6 +180,15 @@ func mechanicalPhase(ctx context.Context, opts ExecOptions, recPath, briefPath s
 			owned = ids
 		}
 	}
+	var queue map[string]operator.QueueEntry
+	if opts.QueueEntries != nil {
+		entries, err := opts.QueueEntries(ctx)
+		if err != nil {
+			pass.Error = strings.TrimSpace(pass.Error + "; " + err.Error())
+		} else {
+			queue = entries
+		}
+	}
 	statePath, err := statePathFn(ctx, opts.Server)
 	if err != nil {
 		return false, 0, err
@@ -192,7 +204,7 @@ func mechanicalPhase(ctx context.Context, opts ExecOptions, recPath, briefPath s
 	if len(judgment) == 0 {
 		return false, actions, nil
 	}
-	brief := operator.RenderBrief(operator.BriefInput{State: state, Server: opts.Server, Now: nowTime(), Changed: judgment})
+	brief := operator.RenderBrief(operator.BriefInput{State: state, Server: opts.Server, Now: nowTime(), Changed: judgment, Queue: queue})
 	if err := writeFile(briefPath, []byte(brief)); err != nil {
 		return false, 0, fmt.Errorf("writing judgment brief: %w", err)
 	}

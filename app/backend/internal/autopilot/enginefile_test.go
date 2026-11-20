@@ -107,3 +107,18 @@ func TestLegacyEngineFileLoadsIsIgnoredAndDroppedOnWrite(t *testing.T) {
 		t.Fatalf("the spawn did not reach the rewritten file:\n%s", data)
 	}
 }
+
+// QueueEntries reads each queue item's entry from the engine file.
+func TestQueueEntriesReadsTheEngineFile(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	stop := "hydrate"
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "only the F1 brief", StopStage: &stop})
+	got, err := QueueEntries(h.env.StatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e, ok := got["a"]; !ok || e.Task != "only the F1 brief" || e.StopStage != "hydrate" || e.MergeMode == "" {
+		t.Errorf("entries = %+v", got)
+	}
+}

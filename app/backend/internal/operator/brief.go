@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -59,6 +60,19 @@ type BriefInput struct {
 	Server  string
 	Now     time.Time
 	Changed []ChangedItem
+	// Queue holds the autopilot queue entry of each queue item by id. The
+	// ledger projection of a queue item carries no queue marker, so this is
+	// the brief's only statement that an item is engine queue work.
+	Queue map[string]QueueEntry
+}
+
+// QueueEntry is an autopilot queue item's entry as the engine file holds it:
+// what was asked (a raw task or an existing change) and where it stops.
+type QueueEntry struct {
+	Task      string
+	Change    string
+	StopStage string
+	MergeMode string
 }
 
 // briefLayout is one rendering pass's trim settings.
@@ -122,7 +136,7 @@ func renderBriefLayout(in BriefInput, layout briefLayout) string {
 	var b strings.Builder
 	writeBriefHeader(&b, in)
 	writeWhatChanged(&b, items, in.Changed)
-	writeAffected(&b, items, affected, now, layout)
+	writeAffected(&b, items, affected, in.Queue, now, layout)
 	writeOthers(&b, items, affected, now, layout.showOthers)
 	flag := "-L " + ServerLabel(in.Server)
 	writeSection(&b, "Rules", withServerFlag(briefRules, flag))
@@ -199,14 +213,15 @@ func affectedSet(items []TrackedItem, changed []ChangedItem) map[string]bool {
 	return affected
 }
 
-func writeAffected(b *strings.Builder, items []TrackedItem, affected map[string]bool, now time.Time, layout briefLayout) {
+func writeAffected(b *strings.Builder, items []TrackedItem, affected map[string]bool, queue map[string]QueueEntry, now time.Time, layout briefLayout) {
 	b.WriteString("## Affected items\n\n")
 	wrote := false
 	for _, it := range items {
 		if !affected[it.ID] {
 			continue
 		}
-		writeItemBlock(b, items, it, now, layout)
+		entry, inQueue := queue[it.ID]
+		writeItemBlock(b, items, it, entry, inQueue, now, layout)
 		wrote = true
 	}
 	if !wrote {
@@ -214,8 +229,11 @@ func writeAffected(b *strings.Builder, items []TrackedItem, affected map[string]
 	}
 }
 
-func writeItemBlock(b *strings.Builder, items []TrackedItem, it TrackedItem, now time.Time, layout briefLayout) {
+func writeItemBlock(b *strings.Builder, items []TrackedItem, it TrackedItem, entry QueueEntry, inQueue bool, now time.Time, layout briefLayout) {
 	fmt.Fprintf(b, "### %s (%s)\n\n", it.ID, it.Kind)
+	if inQueue {
+		fmt.Fprintf(b, "- queue: %s\n", briefQueueEntry(entry))
+	}
 	fmt.Fprintf(b, "- state: %s\n", listState(items, it, now))
 	fmt.Fprintf(b, "- probe: %s\n", it.Probe.Mode)
 	fmt.Fprintf(b, "- check_every: %s\n", briefOptional(it.CheckEvery))
@@ -240,6 +258,29 @@ func writeItemBlock(b *strings.Builder, items []TrackedItem, it TrackedItem, now
 	fmt.Fprintf(b, "- unchanged: %d\n", it.Unchanged)
 	writeNotes(b, it.Notes, layout)
 	b.WriteString("\n")
+}
+
+// briefQueueEntry renders a queue entry as one line: mode, stop stage, and
+// the task (quoted) or change it was queued with.
+func briefQueueEntry(e QueueEntry) string {
+	mode := e.MergeMode
+	if mode == "" {
+		mode = "cherry-pick-ladder"
+	}
+	stop := e.StopStage
+	if stop == "" {
+		stop = "null"
+	}
+	line := fmt.Sprintf("mode %s; stop_stage %s", mode, stop)
+	switch {
+	case e.Task != "":
+		line += "; task " + strconv.Quote(e.Task)
+	case e.Change != "":
+		line += "; change " + e.Change
+	default:
+		line += "; bare agent"
+	}
+	return line
 }
 
 // writeNotes shows the newest layout.notesShown notes plus every older
@@ -282,9 +323,11 @@ func writeNotes(b *strings.Builder, notes []Note, layout briefLayout) {
 
 // ItemBlock renders one item's brief block with every note, for the verb that
 // re-reads a single item. all is the whole ledger the item's state derives from.
+// The block carries no queue line: the verb reads the ledger only, and queue
+// membership is the engine file's fact (the run brief's block shows it).
 func ItemBlock(all []TrackedItem, it TrackedItem) string {
 	var b strings.Builder
-	writeItemBlock(&b, all, it, clock().UTC(), briefLayout{notesShown: len(it.Notes)})
+	writeItemBlock(&b, all, it, QueueEntry{}, false, clock().UTC(), briefLayout{notesShown: len(it.Notes)})
 	return b.String()
 }
 

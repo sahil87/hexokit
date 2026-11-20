@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"rk/internal/autopilot"
 	"rk/internal/operator"
 
 	"github.com/spf13/cobra"
@@ -99,8 +100,12 @@ func runOperatorBrief(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	// Queue entries come from the engine file beside the state file. A missing
+	// or unreadable engine file only drops the queue lines; the brief is still
+	// worth printing.
+	queue, _ := autopilot.QueueEntries(path)
 	brief := operator.RenderBrief(operator.BriefInput{
-		State: st, Server: server, Now: operatorBriefNowFn(), Changed: changed,
+		State: st, Server: server, Now: operatorBriefNowFn(), Changed: changed, Queue: queue,
 	})
 	newSink(cmd).Dataf("%s", brief)
 	return nil

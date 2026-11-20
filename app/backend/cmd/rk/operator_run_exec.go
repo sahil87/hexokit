@@ -90,6 +90,9 @@ func runOperatorRunExec(cmd *cobra.Command, args []string) error {
 			return pass, stepErr
 		}
 		opts.OwnedIDs = func(context.Context) (map[string]bool, error) { return autopilot.OwnedIDs(env.StatePath) }
+		opts.QueueEntries = func(context.Context) (map[string]operator.QueueEntry, error) {
+			return autopilot.QueueEntries(env.StatePath)
+		}
 	}
 	res, err := operatorRunExecFn(operatorTrackContext(cmd), opts)
 	if err != nil {

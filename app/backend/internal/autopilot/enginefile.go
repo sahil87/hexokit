@@ -281,6 +281,19 @@ func engineView(statePath string) (*operator.State, map[string]operator.TrackedI
 	return st, projections, nil
 }
 
+// QueueEntries returns each queue item's entry by id, for the run brief.
+func QueueEntries(statePath string) (map[string]operator.QueueEntry, error) {
+	st, err := loadEngineFile(statePath)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]operator.QueueEntry, len(st.Queue))
+	for _, it := range st.Queue {
+		out[it.ID] = operator.QueueEntry{Task: it.Task, Change: it.Change, StopStage: it.StopStage, MergeMode: it.MergeMode}
+	}
+	return out, nil
+}
+
 // OwnedIDs reports ids whose decisions belong to the engine file.
 func OwnedIDs(statePath string) (map[string]bool, error) {
 	st, err := loadEngineFile(statePath)

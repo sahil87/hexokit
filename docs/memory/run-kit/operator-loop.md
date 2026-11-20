@@ -99,7 +99,7 @@ Every fire on which `operator.Check` returned a result SHALL persist `<fire-id>.
 
 **Mechanical phase.** The phase reads the record, runs the pass, loads the ledger fresh and computes the judgment set from the record's `changes`, the pass result and the ledger. It records `pass` before deciding. Any other failure of the phase — a record read, the ledger load, the brief write, the record update, or building the production Env — records the run end (non-zero exit code, empty outcome) and takes the same failure path as a failed launcher (`run failed` note on each changed item plus the once-per-streak push); the start was already recorded.
 
-**Judgment set.** `judgmentSet` is a pure, table-tested function over the changes, the pass result, the ledger and the set of engine-owned ids. An item is judgment when:
+**Judgment set.** `judgmentSet` is a pure, table-tested function over the changes, the pass result, the ledger and the set of engine-owned ids (`ExecOptions.OwnedIDs`). `ExecOptions.QueueEntries` (wired to `autopilot.QueueEntries`) supplies the queue entries the brief's `queue:` lines render; a read error is appended to the pass record's error and the brief is written without them. An item is judgment when:
 
 - one of its changed reasons is an `agent_state` move to `waiting` or `idle`, an `agent_aged` (rendered `agent_aged <state> <duration>`), `due`, `stale`, `paused`, `unknown_dep`, `note` (rendered `note <at>`: an unanswered user or chat instruction), a `changed` probe delta on a `github-pr` item, a `done` on a `github-pr` item (merged or closed) or on any item with a non-empty `then`, or a pane condition (`pane_death`, `pane_mismatch`, `agent_exited`) on an item whose id is not in the engine file; or
 - the pass escalated it; or
