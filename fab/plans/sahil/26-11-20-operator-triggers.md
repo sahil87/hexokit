@@ -78,7 +78,7 @@ decided mechanically. Everything the Go side still does is cheap, deterministic,
 | Check records | The check result (changes, open, notices) is persisted on **every** fire, not only on a change, as `runs/<slug>/<fire-id>.check.json` (newest 200 kept) | Activity must explain a `no change` row; the data is otherwise thrown away |
 | Operator log vs cron log | Separate **views** over one file. The cron log stays the single delivery log; Activity joins loop lines with check records and run records | Merging them left the operator's work invisible under its own heartbeat |
 | Drawer | Four segments: **Terminal · Tasks · Activity · Cron**. Activity is new; Cron List + Cron Log merge; loop rows hidden in Cron behind a toggle; **Check now** in the Activity header; a **Needs you** band on Tasks | Principle IV: the strip stays at four |
-| PR trigger | `gh webhook forward` (the `cli/gh-webhook` extension) in a sibling tmux session `rk-gh-hooks`, opt-in per repo through a setting; the clock is the fallback wherever it is absent | Seconds instead of up to 24 min for the one fact class with no local edge, and no inbound port of our own |
+| PR trigger | **Opportunistic.** `gh webhook forward` (the `cli/gh-webhook` extension) in a sibling tmux session `rk-gh-hooks` for every repo in `operator.pr_hooks` where the logged-in account can create a hook (admin). Where it cannot, nothing is built — the clock picks the change up. No per-PR watcher | The hook only saves the minutes between the event and the next scheduled check; it is never required for correctness, so a missing permission is a doctor row, not a feature. Spike: `26-11-20-t8-spike-gh-webhook.md` — the forwarder creates a real repo hook and needs admin; `sahil-noon` has write on `sahil87/hexokit` |
 | Model | Sonnet 5.5 at medium for runs, unchanged until M1 | Measure before paying for a stronger model on every run |
 | Review bar | Unchanged from `26-11-16-operator-autopilot-restructure.md` § Decisions: must-fix = merges, pushes, deletes or spawns the wrong thing; loses or corrupts state; crashes the CLI; breaks a plan requirement. Should-fix = everything else | Keeps reviews convergent |
 
@@ -278,23 +278,34 @@ T1–T2 and T3–T7 are two independent lanes until T9 joins them.
 - Docs: `cron.md` § Operator Loop Entry (trigger marker), `operator-loop.md` (check records),
   `operator-state.md` (note condition), `api-and-sockets.md`.
 
-### T8 — PR trigger (run-kit)
+### T8 — PR trigger, opportunistic (run-kit)
 
-- **Spike first, inside the step:** confirm `gh extension install cli/gh-webhook` and
-  `gh webhook forward --repo <nwo> --events pull_request,check_suite,pull_request_review --url
-  http://127.0.0.1:<port>/hooks/github` deliver on the current GitHub. If `check_suite` is unavailable,
-  use `workflow_run`. If the extension is unusable, stop and report; the fallback design is a per-PR
-  `gh pr checks <n> --watch` watcher calling the door.
-- Setting `operator.pr_hooks` (list of `owner/name`; default empty = off). When non-empty, serve-start
-  (and `rk doctor`) ensure a sibling session `rk-gh-hooks` (the `rk-openai-mcp` pattern) running one
-  `gh webhook forward` per repo, plus the receiver `rk operator hooks serve` (hidden verb) on a
-  derived port. The receiver maps a PR event to every live server whose ledger holds a `github-pr` item
-  or a queue projection with that `repo`/`pr` or branch, and calls the door with
-  `pr:<nwo>#<n>:<event>`. Unknown PRs are ignored. No payload content is stored.
-- `rk doctor` gets a `pr hooks` row (off / running / forwarder missing).
-- Tests: receiver mapping; door called once per event; nothing on an untracked PR.
-- Docs: `cron.md` or a new `operator-triggers.md` memory file (triggers table), `configuration.md`,
-  `daemon-lifecycle.md` (sibling session).
+- The spike is done: `fab/plans/sahil/26-11-20-t8-spike-gh-webhook.md`. `gh webhook forward` (extension
+  `cli/gh-webhook` v0.2.0 on gh 2.103) exists and runs, but it works by **creating a real repository
+  hook**, so it needs admin on the repo; one `--repo` per process; it stops on a dropped relay
+  connection and needs a supervisor. The event list and hook cleanup are unverified because the spike ran
+  as `sahil-noon` (write, not admin, on `sahil87/hexokit`) — verify them in this step on a repo the
+  account administers.
+- **Rule:** if the account can add a hook, add it; if not, the change is picked up by the clock and that
+  is fine. The hook saves the minutes between a PR event and the next scheduled check and is never
+  required. There is no per-PR `gh pr checks --watch` watcher.
+- Setting `operator.pr_hooks` (list of `owner/name`; default empty = off). For each listed repo,
+  serve-start and `rk doctor` probe `gh api repos/<nwo>` → `permissions.admin`; when true, ensure a
+  sibling session `rk-gh-hooks` (the `rk-openai-mcp` pattern) runs one `gh webhook forward --repo <nwo>
+  --events pull_request,pull_request_review,check_suite,workflow_run` (drop names the extension rejects)
+  pointed at the receiver `rk operator hooks serve` (hidden verb, 127.0.0.1, derived port); the
+  supervisor restarts a forwarder that exits, with backoff. When `admin` is false, do nothing for that
+  repo and say so in doctor (`polled — no admin`); never fail serve-start over it.
+- The receiver maps a PR event to every live server whose ledger holds a `github-pr` item or a queue
+  projection with that `repo`/`pr` or head branch, and calls the door with `pr:<nwo>#<n>:<event>`.
+  Unknown PRs are ignored. No payload content is stored.
+- `rk doctor` gets a `pr hooks` row per listed repo (off / running / polled — no admin / forwarder
+  missing). Hook cleanup on stop: if the extension leaves the repo hook behind, `rk operator hooks
+  stop` removes the ones it created (identified by the forward URL), never others.
+- Tests: receiver mapping; door called once per event; nothing on an untracked PR; non-admin repo
+  yields no process and a doctor row.
+- Docs: a new `operator-triggers.md` memory file (triggers table, the opportunistic rule),
+  `configuration.md`, `daemon-lifecycle.md` (sibling session).
 
 ### T9 — Activity tab and Check now (run-kit)
 
@@ -361,7 +372,7 @@ count of `run-failed` streaks.
 | T3 | Streak marker beside the run records vs reading the cron log for the push-once rule |
 | T4 | Whether `autopilot status` should keep listing `github-pr` ledger items that were PR projections, or leave them to `track list` only |
 | T7 | Check-record retention (200) vs reusing the run-record pruning count (50) |
-| T8 | Receiver port derivation (port policy block) and whether the forwarder runs one process per repo or one with `--repo` repeated |
+| T8 | Receiver port derivation (port policy block); whether to run the spike again as `sahil87` to pin the accepted event names before coding the forwarder flags |
 | T9 | Whether the brief/log endpoints are server-side rendered text or raw files with the frontend rendering |
 
 ## Non-goals
