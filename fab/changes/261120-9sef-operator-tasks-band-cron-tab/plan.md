@@ -210,58 +210,63 @@ anything else to absent.
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `collectNeedsYou` yields escalation rows (not-done, newest note `by: run` `escalated:`) and waiting rows (worker, not done, waiting), one row per item, waiting first, oldest first
-- [ ] A-002 R2: `WatchedTasks` renders the `Needs you · <n>` band only when needs exist, with item id, wanted action, `open pane` (when a window resolves) and `note…`, in both drawer and mobile mounts
-- [ ] A-003 R3: `POST /api/operator/notes` appends a trimmed `by: user` note to rk's state file via `operator.AddNote` and returns the receipt after the write
-- [ ] A-004 R4: The composer writes then calls `postOperatorWake(server, "note:<id>")`, closing with the matching status line
-- [ ] A-005 R5: The expanded notes list offers `add note…` and refetches after a successful write
-- [ ] A-006 R6: The strip is exactly `Terminal · Tasks · Activity · Cron`; the three unions agree
-- [ ] A-007 R7: `CronConsole` stacks the unchanged `CronList` over the unchanged `CronLog` in both the drawer and the operator route
-- [ ] A-008 R8: One palette action `quake-terminal-cron`; no `quake-terminal-list`/`-log`; status-bar and mobile seam use `cron`
-- [ ] A-009 R9: `validateTerminalSearch` accepts `cron` and maps `log`/`list` to `cron`
-- [ ] A-010 R10: Cron push URLs carry `?tab=cron`
+- [x] A-001 R1: `collectNeedsYou` yields escalation rows (not-done, newest note `by: run` `escalated:`) and waiting rows (worker, not done, waiting), one row per item, waiting first, oldest first
+- [x] A-002 R2: `WatchedTasks` renders the `Needs you · <n>` band only when needs exist, with item id, wanted action, `open pane` (when a window resolves) and `note…`, in both drawer and mobile mounts
+- [x] A-003 R3: `POST /api/operator/notes` appends a trimmed `by: user` note to rk's state file via `operator.AddNote` and returns the receipt after the write
+- [x] A-004 R4: The composer writes then calls `postOperatorWake(server, "note:<id>")`, closing with the matching status line
+- [x] A-005 R5: The expanded notes list offers `add note…` and refetches after a successful write
+- [x] A-006 R6: The strip is exactly `Terminal · Tasks · Activity · Cron`; the three unions agree
+- [x] A-007 R7: `CronConsole` stacks the unchanged `CronList` over the unchanged `CronLog` in both the drawer and the operator route
+- [x] A-008 R8: One palette action `quake-terminal-cron`; no `quake-terminal-list`/`-log`; status-bar and mobile seam use `cron`
+- [x] A-009 R9: `validateTerminalSearch` accepts `cron` and maps `log`/`list` to `cron`
+- [x] A-010 R10: Cron push URLs carry `?tab=cron`
 
 ### Behavioral Correctness
 
-- [ ] A-011 R1: A band row clears on the next payload once a newer note lands, the item completes, or the agent leaves `waiting`
-- [ ] A-012 R7: The Cron Log's `show loop` toggle still defaults off inside the stacked console
+- [x] A-011 R1: A band row clears on the next payload once a newer note lands, the item completes, or the agent leaves `waiting`
+- [x] A-012 R7: The Cron Log's `show loop` toggle still defaults off inside the stacked console
 
 ### Removal Verification
 
-- [ ] A-013 R6: No `"list"`/`"log"` segment values, `Cron List`/`Cron Log` labels, or list/log palette builders remain in `app/frontend/src` outside the one-release normalization and its tests
+- [x] A-013 R6: No `"list"`/`"log"` segment values, `Cron List`/`Cron Log` labels, or list/log palette builders remain in `app/frontend/src` outside the one-release normalization and its tests
 
 ### Scenario Coverage
 
-- [ ] A-014 R1: Unit tests cover open / cleared-by-newer-note / cleared-by-done / waiting / waiting-clears / both→one / non-escalation run note
-- [ ] A-015 R3: Go tests cover 200, 404 unknown item, 404 fab-only (file untouched), 400 validation cases
-- [ ] A-016 R4: Composer tests cover success, write failure (no wake), and wake failure
-- [ ] A-017 R9: An e2e test proves a `?tab=log` deep link lands on the Cron segment
-- [ ] A-018 R2: An e2e test proves the band renders from a seeded escalated note and clears after a note is written
+- [x] A-014 R1: Unit tests cover open / cleared-by-newer-note / cleared-by-done / waiting / waiting-clears / both→one / non-escalation run note
+- [x] A-015 R3: Go tests cover 200, 404 unknown item, 404 fab-only (file untouched), 400 validation cases
+- [x] A-016 R4: Composer tests cover success, write failure (no wake), and wake failure
+- [x] A-017 R9: An e2e test proves a `?tab=log` deep link lands on the Cron segment
+- [x] A-018 R2: An e2e test proves the band renders from a seeded escalated note and clears after a note is written
 
 ### Edge Cases & Error Handling
 
-- [ ] A-019 R3: A server on fab's legacy file is refused with 404 and fab's file is never written
-- [ ] A-020 R4: Whitespace-only notes cannot be submitted; over-cap text surfaces the server's message without closing
-- [ ] A-021 R2: Done items never appear in the band; an escalation row on an item without a live window has no `open pane`
+- [x] A-019 R3: A server on fab's legacy file is refused with 404 and fab's file is never written
+- [x] A-020 R4: Whitespace-only notes cannot be submitted; over-cap text surfaces the server's message without closing
+- [x] A-021 R2: Done items never appear in the band; an escalation row on an item without a live window has no `open pane`
 
 ### Code Quality
 
-- [ ] A-022 Pattern consistency: New code follows naming and structural patterns of surrounding code (handler seams like `operatorStateFn`, `Control`/`controlClass` buttons, test ids)
-- [ ] A-023 No unnecessary duplication: `operator.AddNote`, `isWaiting`, `collectTrackedRows`, `postOperatorWake`, existing `CronList`/`CronLog` are reused, not reimplemented
-- [ ] A-024: Type narrowing over `as` casts in the new frontend code; no magic strings for the `escalated:` prefix or wake reason prefix (named constants)
-- [ ] A-025: No client polling — the band derives from the SSE payload; the composer only fetches on user action
-- [ ] A-026: Comments state constraints, not narration or change IDs
-- [ ] A-027: Every new/modified Playwright `test()` carries a Proves/Steps intent block
+- [x] A-022 Pattern consistency: New code follows naming and structural patterns of surrounding code (handler seams like `operatorStateFn`, `Control`/`controlClass` buttons, test ids)
+- [x] A-023 No unnecessary duplication: `operator.AddNote`, `isWaiting`, `collectTrackedRows`, `postOperatorWake`, existing `CronList`/`CronLog` are reused, not reimplemented
+- [x] A-024: Type narrowing over `as` casts in the new frontend code; no magic strings for the `escalated:` prefix or wake reason prefix (named constants)
+- [x] A-025: No client polling — the band derives from the SSE payload; the composer only fetches on user action
+- [x] A-026: Comments state constraints, not narration or change IDs
+- [x] A-027: Every new/modified Playwright `test()` carries a Proves/Steps intent block
 
 ### Security
 
-- [ ] A-028 R3: The item id is only compared for equality and never used to build a path; server validated before resolving a socket; POST only (Constitution IX)
+- [x] A-028 R3: The item id is only compared for equality and never used to build a path; server validated before resolving a socket; POST only (Constitution IX)
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- `app/frontend/src/components/cron-list.tsx:182` (`inline ? " relative"`) and `app/frontend/src/components/cron-log.tsx:104` (same) — the only `inline` mount of either table is now `CronConsole`, which demotes both roots back to `static` via `SHEET_ANCHOR_TO_CONSOLE`; dropping the `relative` branch (and the doc lines describing it, cron-list.tsx:32, cron-log.tsx:31) would let `CronConsole` drop its arbitrary-variant override too.
+- `app/frontend/src/components/cron-console.tsx:9` `SHEET_ANCHOR_TO_CONSOLE` — redundant once the tables' `inline` roots stop being `relative` (see above).
 
 ## Assumptions
 

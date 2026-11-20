@@ -234,7 +234,7 @@ export function useGlobalPaletteActions(): PaletteAction[] {
   );
 
   // Cron entry actions (wuiu R14) — the keyboard-first mute/delete path for
-  // the current server's cron entries (the Cron List tab's entry detail sheet
+  // the current server's cron entries (the Cron segment's entry detail sheet
   // is the pointer path). The entry list is fetched on server change and patched
   // locally from each mutation's own outcome — the hook lives outside the
   // per-server SSE slice plumbing, so it does not re-fetch on ticks. Both

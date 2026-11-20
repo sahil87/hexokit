@@ -16,7 +16,7 @@ import { CronCreateDialog } from "@/components/cron-create-dialog";
 import type { CronEntry } from "@/api/client";
 
 /**
- * The Cron List tab — the `rk cron list` registry rendered through the shared
+ * The Cron segment's registry half — the `rk cron list` registry rendered through the shared
  * `DataTable` (components/data-table.tsx): one row per entry with a sortable,
  * resizable header — entry name, target chip, schedule in plain words, backoff
  * rung, the deliver marker for non-immediate policies, the relative next fire,
