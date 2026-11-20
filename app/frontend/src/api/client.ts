@@ -1826,6 +1826,10 @@ export type FabConfigDocument =
       roles: FabRole[];
       modelSuggestions: Record<string, FabModelSuggestion[]>;
       effortSuggestions: string[];
+      /** Per tool, the reserved "use the tool's own default" model value:
+       *  `id` is what to write, `label` names the discovered default. A tool
+       *  fab reports none for has no entry; omitted when empty. */
+      toolDefaults?: Record<string, FabModelSuggestion>;
       /** Per tool: whether its command carries {effort}. Omitted when empty. */
       effortCapable?: Record<string, boolean>;
       /** fab stderr warning lines: discovery warnings on every read, plus write warnings on a POST. */

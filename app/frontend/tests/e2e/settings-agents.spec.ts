@@ -126,8 +126,8 @@ test.describe("Settings dialog — Agents tab", () => {
    * 3. Switch to the General tab and back, so the panel re-mounts and re-reads
    *    the stub's document.
    * 4. Assert `claude-sonnet-5-5` is still selected and the list reads inherit,
-   *    both claude suggestions (the labelled default as `label · id · tool
-   *    default`), then `Custom…`.
+   *    the tool default, both claude suggestions (the labelled default as
+   *    `label · id · tool default`), then `Custom…`.
    */
   test("a saved model still lists every suggestion when the tab is reopened", async ({ page }) => {
     const posts = await stubFabConfig(page);
@@ -144,6 +144,7 @@ test.describe("Settings dialog — Agents tab", () => {
     await expect(model).toHaveValue("claude-sonnet-5-5");
     await expect(model.locator("option")).toHaveText([
       "↳ inherit (tool default)",
+      "↳ tool default (claude-sonnet-5-5)",
       "claude-opus-5-5",
       "Claude Sonnet 5.5 · claude-sonnet-5-5 · tool default",
       "Custom…",
@@ -153,15 +154,16 @@ test.describe("Settings dialog — Agents tab", () => {
   /**
    * Proves: a tool with more than 30 models gets a searchable list that opens
    * unfiltered even with a model saved, narrows by label or id while keeping
-   * inherit and `Custom…`, and commits the filtered pick as that model's id.
+   * inherit, the tool default and `Custom…`, and commits the filtered pick as
+   * that model's id.
    *
    * Steps:
    * 1. Open the Agents tab; switch `doing` to `kimi` (40+ suggestions).
    * 2. Assert the model control is a button, not a native select.
    * 3. Pick a kimi alias from the list so a model is saved, then re-open the
    *    list and assert the filter is empty and every suggestion is listed.
-   * 4. Type `k3.1`; assert only the matching suggestion remains beside inherit
-   *    and `Custom…`, and Enter commits it.
+   * 4. Type `k3.1`; assert only the matching suggestion remains beside inherit,
+   *    the tool default and `Custom…`, and Enter commits it.
    * 5. Assert the POST sets `agent.profiles.doing.model` to its id.
    */
   test("a tool with many models gets a searchable list that opens unfiltered", async ({ page }) => {
@@ -181,17 +183,50 @@ test.describe("Settings dialog — Agents tab", () => {
     const filter = page.getByRole("combobox", { name: "Search doing models" });
     await expect(filter).toHaveValue("");
     const options = page.getByRole("listbox", { name: "doing models" }).getByRole("option");
-    await expect(options).toHaveCount(41 + 2);
+    await expect(options).toHaveCount(41 + 3);
 
     await filter.fill("k3.1");
-    await expect(options).toHaveCount(3);
+    await expect(options).toHaveCount(4);
     await expect(options.first()).toContainText("↳ inherit");
-    await expect(options.nth(1)).toContainText("Kimi K3.1 Pro");
+    await expect(options.nth(1)).toContainText("↳ tool default");
+    await expect(options.nth(2)).toContainText("Kimi K3.1 Pro");
     await expect(options.last()).toHaveText("Custom…");
 
     await filter.press("Enter");
     await expect(trigger).toHaveText(/Kimi K3\.1 Pro/);
     expect(posts.at(-1)).toEqual({ "agent.profiles.doing.model": "openrouter/moonshotai/kimi-k3.1-pro" });
+  });
+
+  /**
+   * Proves: a role can ask for its CLI's own default model — the second entry
+   * of the model list, labelled with the discovered default — and a row
+   * holding that value reads as the tool default after the tab re-reads, with
+   * no stale-pin note and the default model's efforts on offer.
+   *
+   * Steps:
+   * 1. Open the Agents tab; switch `review` to `codex`.
+   * 2. Assert the model list's second entry is `↳ tool default (gpt-6.1-sol)`
+   *    and pick it; assert the POST writes fab's `tool-default` value.
+   * 3. Switch to the General tab and back, so the panel re-reads the stub.
+   * 4. Assert the model control still shows `↳ tool default (gpt-6.1-sol)`,
+   *    no stale-pin note is shown, and the effort list offers `ultra`.
+   */
+  test("a role can use its CLI's own default model", async ({ page }) => {
+    const posts = await stubFabConfig(page);
+    await openAgentsTab(page);
+
+    await page.getByLabel("review CLI").selectOption("codex");
+    const model = page.getByLabel("review model", { exact: true });
+    await expect(model.locator("option").nth(1)).toHaveText("↳ tool default (gpt-6.1-sol)");
+    await model.selectOption({ label: "↳ tool default (gpt-6.1-sol)" });
+    await expect.poll(() => posts.at(-1)).toEqual({ "agent.profiles.review.model": "tool-default" });
+
+    await page.getByRole("tab", { name: "General" }).click();
+    await page.getByRole("tab", { name: "Agents" }).click();
+
+    await expect(model.locator("option:checked")).toHaveText("↳ tool default (gpt-6.1-sol)");
+    await expect(page.getByTestId("stale-model-review")).toHaveCount(0);
+    await expect(page.getByLabel("review effort").locator("option")).toContainText(["ultra"]);
   });
 
   /**

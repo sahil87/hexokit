@@ -13,7 +13,9 @@
 //	fab agent models --json                per-(tool, model) {cli|provider, id, label, efforts, default, source}
 //
 // The model rows are the tools' own offering; a fab without the verb (or a
-// failing discovery) falls back to the fill values in `fab config show`.
+// failing discovery) falls back to the fill values in `fab config show`. A
+// tool's reserved row (source "reserved") is not a model: it is the value that
+// asks for the tool's own default, carried apart from the suggestions.
 //
 // Writes validate the patch in full first (§I — fab itself rejects most bad
 // values but the daemon must not rely on it for subprocess input), then run
@@ -245,6 +247,11 @@ type Document struct {
 	Roles             []Role                       `json:"roles,omitempty"`
 	ModelSuggestions  map[string][]ModelSuggestion `json:"modelSuggestions,omitempty"`
 	EffortSuggestions []string                     `json:"effortSuggestions,omitempty"`
+	// ToolDefaults is each tool's reserved "use the tool's own default" model
+	// value from `fab agent models`: ID is the value to write, Label names the
+	// discovered default, Efforts are the default model's. A tool fab reports
+	// no reserved row for has no entry.
+	ToolDefaults map[string]ModelSuggestion `json:"toolDefaults,omitempty"`
 	// EffortCapable says per tool whether its interactive or headless
 	// command carries {effort}; without it an effort is never substituted.
 	EffortCapable map[string]bool `json:"effortCapable,omitempty"`
@@ -294,6 +301,17 @@ func (r modelRow) tool() string {
 		return r.CLI
 	}
 	return r.Provider
+}
+
+func (r modelRow) suggestion() ModelSuggestion {
+	s := ModelSuggestion{ID: r.ID, Default: r.Default}
+	if len(r.Efforts) > 0 {
+		s.Efforts = r.Efforts
+	}
+	if r.Label != r.ID {
+		s.Label = r.Label
+	}
+	return s
 }
 
 type explainRow struct {
@@ -398,6 +416,7 @@ func (c *Client) Read(ctx context.Context) (*Document, error) {
 	found := <-discovered
 	if found.ok {
 		doc.ModelSuggestions = discoveredSuggestions(found.rows, doc.Tools)
+		doc.ToolDefaults = discoveredToolDefaults(found.rows, doc.Tools)
 		doc.Warnings = found.warnings
 	}
 	for _, t := range doc.Tools {
@@ -596,14 +615,22 @@ func discoveredSuggestions(rows []modelRow, tools []string) map[string][]ModelSu
 			continue
 		}
 		ids[r.ID] = struct{}{}
-		s := ModelSuggestion{ID: r.ID, Default: r.Default}
-		if len(r.Efforts) > 0 {
-			s.Efforts = r.Efforts
+		out[tool] = append(out[tool], r.suggestion())
+	}
+	return out
+}
+
+// discoveredToolDefaults keys each listed tool's first reserved row with an id.
+func discoveredToolDefaults(rows []modelRow, tools []string) map[string]ModelSuggestion {
+	out := map[string]ModelSuggestion{}
+	for _, r := range rows {
+		tool := r.tool()
+		if r.Source != sourceReserved || r.ID == "" || !contains(tools, tool) {
+			continue
 		}
-		if r.Label != r.ID {
-			s.Label = r.Label
+		if _, dup := out[tool]; !dup {
+			out[tool] = r.suggestion()
 		}
-		out[tool] = append(out[tool], s)
 	}
 	return out
 }

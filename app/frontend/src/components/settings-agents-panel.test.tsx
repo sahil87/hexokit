@@ -1039,6 +1039,131 @@ describe("SettingsAgentsPanel — discovered models", () => {
     });
   });
 
+  describe("tool default", () => {
+    const toolDefaults: Record<string, FabModelSuggestion> = {
+      claude: { id: "tool-default", label: "tool default (claude-fable-5-1[1m])", efforts: ["low", "max"] },
+      codex: { id: "tool-default", label: "tool default (gpt-6.1-sol)", efforts: ["low", "high", "ultra"] },
+      kimi: { id: "tool-default", label: "tool default (kimi-a0)" },
+    };
+    const codexModels: FabModelSuggestion[] = [
+      { id: "gpt-6.1-sol", default: true, efforts: ["low", "medium"] },
+      { id: "gpt-5.6-sol", efforts: ["low"] },
+    ];
+    const docOn = (tool: string, model: FabRoleCell, defaults: Record<string, FabModelSuggestion> | undefined) =>
+      withRole(
+        makeDoc({
+          modelSuggestions: { ...makeDoc().modelSuggestions, codex: codexModels, kimi: kimiModels },
+          toolDefaults: defaults,
+        }),
+        "doing",
+        { tool: inherited(tool, "agent.workers"), model },
+      );
+    const pinnedToToolDefault = () => overridden("tool-default", "agent.profiles.doing.model", "gpt-5.6-sol");
+
+    it("is the second option, labelled from fab, and picking it POSTs fab's value", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      await renderPanel(docOn("codex", inherited("gpt-5.6-sol", "clis.codex.profiles.doing.model"), toolDefaults));
+      expect(optionTexts(screen.getByLabelText("doing model"))).toEqual([
+        "↳ inherit (gpt-5.6-sol)",
+        "↳ tool default (gpt-6.1-sol)",
+        "gpt-6.1-sol · tool default",
+        "gpt-5.6-sol",
+        "Custom…",
+      ]);
+      fireEvent.change(screen.getByLabelText("doing model"), { target: { value: "tool-default" } });
+      await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.doing.model": "tool-default" }));
+    });
+
+    it("is absent for a tool fab reports no default value for", async () => {
+      await renderPanel(docOn("codex", inherited("", ""), undefined));
+      expect(optionTexts(screen.getByLabelText("doing model"))).toEqual([
+        "↳ inherit (tool default)",
+        "gpt-6.1-sol · tool default",
+        "gpt-5.6-sol",
+        "Custom…",
+      ]);
+    });
+
+    it("shows a row holding it as the tool default, never as a stale pin", async () => {
+      await renderPanel(docOn("codex", pinnedToToolDefault(), toolDefaults));
+      const select = screen.getByLabelText("doing model") as HTMLSelectElement;
+      expect(select.selectedOptions[0]).toHaveTextContent("↳ tool default (gpt-6.1-sol)");
+      expect(optionTexts(select).some((t) => t?.includes("not offered"))).toBe(false);
+      expect(screen.queryByTestId("stale-model-doing")).not.toBeInTheDocument();
+    });
+
+    it("without fab naming it, the value is an ordinary unoffered pin", async () => {
+      await renderPanel(docOn("codex", pinnedToToolDefault(), undefined));
+      expect(optionTexts(screen.getByLabelText("doing model"))).toContain("tool-default (not offered)");
+      expect(screen.getByTestId("stale-model-doing")).toBeInTheDocument();
+    });
+
+    it("reads an inherited tool-default value as 'tool default'", async () => {
+      await renderPanel(docOn("codex", inherited("tool-default", "clis.codex.profiles.doing.model"), toolDefaults));
+      expect(optionTexts(screen.getByLabelText("doing model"))[0]).toBe("↳ inherit (tool default)");
+    });
+
+    it("stays listed under any filter in the searchable list and shows on its trigger", async () => {
+      await renderPanel(docOn("kimi", inherited("", ""), toolDefaults));
+      fireEvent.click(trigger());
+      expect(optionLabels()[1]).toBe("↳ tool default (kimi-a0)");
+      fireEvent.change(filter(), { target: { value: "no-such-model" } });
+      expect(optionLabels()).toEqual(["↳ inherit (tool default)", "↳ tool default (kimi-a0)", "Custom…"]);
+      cleanup();
+      await renderPanel(
+        docOn("kimi", overridden("tool-default", "agent.profiles.doing.model", "kimi-a0"), toolDefaults),
+      );
+      expect(trigger()).toHaveTextContent("↳ tool default (kimi-a0)");
+      expect(screen.queryByTestId("stale-model-doing")).not.toBeInTheDocument();
+    });
+
+    it("is never where Enter lands after typing", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      await renderPanel(docOn("kimi", inherited("", ""), toolDefaults));
+      fireEvent.click(trigger());
+      fireEvent.change(filter(), { target: { value: "moonshotai" } });
+      fireEvent.keyDown(filter(), { key: "Enter" });
+      await waitFor(() =>
+        expect(postFabConfig).toHaveBeenCalledWith({
+          "agent.profiles.doing.model": "openrouter/moonshotai/kimi-k3.1-pro",
+        }),
+      );
+    });
+
+    it("offers the tool default's efforts when the row uses it or no model", async () => {
+      const effortValues = () =>
+        Array.from((screen.getByLabelText("doing effort") as HTMLSelectElement).options).map((o) => o.value);
+      await renderPanel(docOn("codex", pinnedToToolDefault(), toolDefaults));
+      expect(effortValues()).toEqual(["", "low", "high", "ultra"]);
+      cleanup();
+      await renderPanel(docOn("codex", inherited("", ""), toolDefaults));
+      expect(effortValues()).toEqual(["", "low", "high", "ultra"]);
+    });
+
+    it("a tool change keeps it when the new tool has a default value and clears it otherwise", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      await renderPanel(docOn("codex", pinnedToToolDefault(), toolDefaults));
+      fireEvent.change(screen.getByLabelText("doing CLI"), { target: { value: "claude" } });
+      await waitFor(() =>
+        expect(postFabConfig).toHaveBeenCalledWith({
+          "agent.profiles.doing.tool": "claude",
+          "agent.profiles.doing.effort": null,
+        }),
+      );
+      cleanup();
+      vi.mocked(postFabConfig).mockClear();
+      await renderPanel(docOn("codex", pinnedToToolDefault(), toolDefaults));
+      fireEvent.change(screen.getByLabelText("doing CLI"), { target: { value: "agy" } });
+      await waitFor(() =>
+        expect(postFabConfig).toHaveBeenCalledWith({
+          "agent.profiles.doing.tool": "agy",
+          "agent.profiles.doing.model": null,
+          "agent.profiles.doing.effort": null,
+        }),
+      );
+    });
+  });
+
   describe("warnings", () => {
     it("renders the GET document's warnings on load", async () => {
       await renderPanel(makeDoc({ warnings: ["warning: codex: codex debug models: timed out after 3s"] }));
