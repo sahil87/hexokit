@@ -10,6 +10,10 @@
 //	fab config show --origin --json        per-leaf {key, value, origin, origin_detail, status, derived_from?}
 //	fab config show <key> --origin --json  one key's tier stack, winner first
 //	fab config explain --json              per-key {key, default, description, scope, advertise}
+//	fab agent models --json                per-(tool, model) {cli|provider, id, label, efforts, default, source}
+//
+// The model rows are the tools' own offering; a fab without the verb (or a
+// failing discovery) falls back to the fill values in `fab config show`.
 //
 // Writes validate the patch in full first (§I — fab itself rejects most bad
 // values but the daemon must not rely on it for subprocess input), then run
@@ -77,6 +81,7 @@ const (
 	interactiveCmdLeaf  = ".interactive_command"
 	headlessCmdLeaf     = ".headless_command"
 	effortToken         = "{effort}"
+	sourceReserved      = "reserved"
 )
 
 // ScalarKeys are the v1 non-profile keys, in display order.
@@ -233,17 +238,30 @@ type Role struct {
 
 // Document is the GET /api/fab-config payload.
 type Document struct {
-	Installed         bool                `json:"installed"`
-	SystemPath        string              `json:"systemPath,omitempty"`
-	Tools             []string            `json:"tools,omitempty"`
-	Fields            map[string]Field    `json:"fields,omitempty"`
-	Roles             []Role              `json:"roles,omitempty"`
-	ModelSuggestions  map[string][]string `json:"modelSuggestions,omitempty"`
-	EffortSuggestions []string            `json:"effortSuggestions,omitempty"`
+	Installed         bool                         `json:"installed"`
+	SystemPath        string                       `json:"systemPath,omitempty"`
+	Tools             []string                     `json:"tools,omitempty"`
+	Fields            map[string]Field             `json:"fields,omitempty"`
+	Roles             []Role                       `json:"roles,omitempty"`
+	ModelSuggestions  map[string][]ModelSuggestion `json:"modelSuggestions,omitempty"`
+	EffortSuggestions []string                     `json:"effortSuggestions,omitempty"`
 	// EffortCapable says per tool whether its interactive or headless
 	// command carries {effort}; without it an effort is never substituted.
 	EffortCapable map[string]bool `json:"effortCapable,omitempty"`
-	Warnings      []string        `json:"warnings,omitempty"`
+	// Warnings are fab's stderr warning lines: discovery warnings on every
+	// Read, plus the write calls' warnings on an Apply.
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// ModelSuggestion is one model a tool offers, as `fab agent models` reports it.
+type ModelSuggestion struct {
+	ID string `json:"id"`
+	// Label is omitted when it equals ID.
+	Label string `json:"label,omitempty"`
+	// Efforts is what this model takes; omitted when unknown.
+	Efforts []string `json:"efforts,omitempty"`
+	// Default marks the tool's own default model.
+	Default bool `json:"default,omitempty"`
 }
 
 type derivedFrom struct {
@@ -257,6 +275,25 @@ type showRow struct {
 	OriginDetail string          `json:"origin_detail"`
 	Status       string          `json:"status"`
 	DerivedFrom  *derivedFrom    `json:"derived_from"`
+}
+
+// modelRow is one `fab agent models --json` row. fab spells the tool field
+// `cli`; a fab that predates the rename spells it `provider`.
+type modelRow struct {
+	CLI      string   `json:"cli"`
+	Provider string   `json:"provider"`
+	ID       string   `json:"id"`
+	Label    string   `json:"label"`
+	Efforts  []string `json:"efforts"`
+	Default  bool     `json:"default"`
+	Source   string   `json:"source"`
+}
+
+func (r modelRow) tool() string {
+	if r.CLI != "" {
+		return r.CLI
+	}
+	return r.Provider
 }
 
 type explainRow struct {
@@ -335,8 +372,14 @@ func (c *Client) Read(ctx context.Context) (*Document, error) {
 	if !c.installed() {
 		return &Document{Installed: false}, nil
 	}
+	// Discovery can take its own timeout (codex), so it runs alongside the
+	// config reads and is joined before suggestions are built.
+	discovered := make(chan discovery, 1)
+	go func() { discovered <- c.discoverModels(ctx) }()
+
 	rows, err := c.loadRows(ctx)
 	if err != nil {
+		<-discovered
 		return nil, err
 	}
 	byKey := indexRows(rows)
@@ -348,12 +391,19 @@ func (c *Client) Read(ctx context.Context) (*Document, error) {
 		SystemPath:        c.systemPath(rows),
 		Tools:             toolNames(rows),
 		Fields:            map[string]Field{},
-		ModelSuggestions:  map[string][]string{},
+		ModelSuggestions:  map[string][]ModelSuggestion{},
 		EffortSuggestions: EffortSuggestions,
 		EffortCapable:     map[string]bool{},
 	}
+	found := <-discovered
+	if found.ok {
+		doc.ModelSuggestions = discoveredSuggestions(found.rows, doc.Tools)
+		doc.Warnings = found.warnings
+	}
 	for _, t := range doc.Tools {
-		doc.ModelSuggestions[t] = modelSuggestions(rows, t)
+		if !found.ok {
+			doc.ModelSuggestions[t] = modelSuggestions(rows, t)
+		}
 		doc.EffortCapable[t] = effortCapable(byKey, t)
 	}
 
@@ -480,9 +530,11 @@ func (c *Client) systemValue(ctx context.Context, key string) any {
 	return nil
 }
 
-func modelSuggestions(rows []showRow, tool string) []string {
+// modelSuggestions is the fallback list: the distinct fill values of the
+// tool's profiles, sorted, with no label, efforts or default.
+func modelSuggestions(rows []showRow, tool string) []ModelSuggestion {
 	seen := map[string]struct{}{}
-	var out []string
+	var ids []string
 	for _, r := range rows {
 		if !hasToolProfilePrefix(r.Key, tool) || !strings.HasSuffix(r.Key, "."+profileLeafModel) {
 			continue
@@ -490,13 +542,67 @@ func modelSuggestions(rows []showRow, tool string) []string {
 		if v := valueString(r.Value); v != "" {
 			if _, dup := seen[v]; !dup {
 				seen[v] = struct{}{}
-				out = append(out, v)
+				ids = append(ids, v)
 			}
 		}
 	}
-	sort.Strings(out)
-	if out == nil {
-		out = []string{}
+	sort.Strings(ids)
+	out := make([]ModelSuggestion, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, ModelSuggestion{ID: id})
+	}
+	return out
+}
+
+// discovery is the outcome of one `fab agent models --json` call; ok is false
+// when it failed for any reason (an older fab without the verb is the expected
+// one, so a failure is silent).
+type discovery struct {
+	rows     []modelRow
+	warnings []string
+	ok       bool
+}
+
+func (c *Client) discoverModels(ctx context.Context) discovery {
+	stdout, stderr, err := c.run(ctx, "agent", "models", "--json")
+	if err != nil {
+		return discovery{}
+	}
+	var rows []modelRow
+	if json.Unmarshal(stdout, &rows) != nil {
+		return discovery{}
+	}
+	return discovery{rows: rows, warnings: warningLines(stderr), ok: true}
+}
+
+// discoveredSuggestions keys fab's rows by tool in fab's order. Only tools in
+// tools are kept, each with an entry; reserved rows, empty ids and repeated
+// ids (first wins) are dropped.
+func discoveredSuggestions(rows []modelRow, tools []string) map[string][]ModelSuggestion {
+	out := make(map[string][]ModelSuggestion, len(tools))
+	seen := make(map[string]map[string]struct{}, len(tools))
+	for _, t := range tools {
+		out[t] = []ModelSuggestion{}
+		seen[t] = map[string]struct{}{}
+	}
+	for _, r := range rows {
+		tool := r.tool()
+		ids, known := seen[tool]
+		if !known || r.Source == sourceReserved || r.ID == "" {
+			continue
+		}
+		if _, dup := ids[r.ID]; dup {
+			continue
+		}
+		ids[r.ID] = struct{}{}
+		s := ModelSuggestion{ID: r.ID, Default: r.Default}
+		if len(r.Efforts) > 0 {
+			s.Efforts = r.Efforts
+		}
+		if r.Label != r.ID {
+			s.Label = r.Label
+		}
+		out[tool] = append(out[tool], s)
 	}
 	return out
 }
@@ -819,7 +925,8 @@ var applyMu sync.Mutex
 
 // Apply validates the whole patch, then runs the set/unset calls sequentially
 // (sorted by written key) and returns a freshly read document whose Warnings carry
-// fab's stderr warning lines. It stops at the first failing fab call — earlier
+// the write calls' stderr warning lines followed by the re-read's discovery
+// warnings. It stops at the first failing fab call — earlier
 // writes in the same patch are already durable (fab has no multi-key
 // transaction).
 func (c *Client) Apply(ctx context.Context, patch map[string]json.RawMessage) (*Document, error) {
@@ -852,7 +959,7 @@ func (c *Client) Apply(ctx context.Context, patch map[string]json.RawMessage) (*
 	if err != nil {
 		return nil, err
 	}
-	doc.Warnings = warnings
+	doc.Warnings = append(warnings, doc.Warnings...)
 	return doc, nil
 }
 

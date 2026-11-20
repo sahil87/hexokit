@@ -15,7 +15,8 @@ const systemPath = "/home/u/.fab-kit/config.yaml"
 
 // fakeFab is a scripted Runner: responses are keyed by the space-joined argv,
 // every call is recorded, and an unscripted argv fails the test — so no test
-// can reach the real binary or the developer's ~/.fab-kit/config.yaml.
+// can reach the real binary or the developer's ~/.fab-kit/config.yaml. Read
+// runs discovery concurrently with the config reads, so the call log is locked.
 type fakeFab struct {
 	t       *testing.T
 	show    string
@@ -24,16 +25,28 @@ type fakeFab struct {
 	failOn  string            // argv prefix that exits non-zero
 	failMsg string
 	setErr  string // stderr emitted by every successful set/unset
-	calls   [][]string
+	// models and modelsErr are the stdout and stderr of `agent models --json`;
+	// with models empty the call exits non-zero, like a fab without the verb.
+	models    string
+	modelsErr string
+	mu        sync.Mutex
+	calls     [][]string
 }
 
 func (f *fakeFab) run(_ context.Context, argv ...string) ([]byte, []byte, error) {
+	f.mu.Lock()
 	f.calls = append(f.calls, argv)
+	f.mu.Unlock()
 	joined := strings.Join(argv, " ")
 	if f.failOn != "" && strings.HasPrefix(joined, f.failOn) {
 		return nil, []byte(f.failMsg), errors.New("exit 1")
 	}
 	switch {
+	case joined == "agent models --json":
+		if f.models == "" {
+			return nil, []byte("unknown role: models"), errors.New("exit 1")
+		}
+		return []byte(f.models), []byte(f.modelsErr), nil
 	case joined == "config show --origin --json":
 		return []byte(f.show), nil, nil
 	case joined == "config explain --json":
@@ -50,9 +63,15 @@ func (f *fakeFab) run(_ context.Context, argv ...string) ([]byte, []byte, error)
 	return nil, nil, nil
 }
 
+func (f *fakeFab) callLog() [][]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([][]string(nil), f.calls...)
+}
+
 func (f *fakeFab) mutations() []string {
 	var out []string
-	for _, c := range f.calls {
+	for _, c := range f.callLog() {
 		if len(c) > 1 && (c[1] == "set" || c[1] == "unset") {
 			out = append(out, strings.Join(c, " "))
 		}
@@ -109,6 +128,15 @@ func newFake(t *testing.T, rows ...string) *fakeFab {
 		explain: `[{"key":"agent.workers","description":"Provider for worker stages"}]`,
 		stacks:  map[string]string{},
 	}
+}
+
+// ids is the fill-scan fallback shape: suggestions carrying only an id.
+func ids(v ...string) []ModelSuggestion {
+	out := make([]ModelSuggestion, 0, len(v))
+	for _, id := range v {
+		out = append(out, ModelSuggestion{ID: id})
+	}
+	return out
 }
 
 func patchOf(t *testing.T, body string) map[string]json.RawMessage {
@@ -169,7 +197,7 @@ func TestRead_buildsDocument(t *testing.T) {
 	if rp := doc.Fields["dispatch.reap_done"]; rp.Value != true {
 		t.Errorf("reap_done = %+v", rp)
 	}
-	if got := doc.ModelSuggestions["claude"]; !reflect.DeepEqual(got, []string{"claude-opus-5-5", "claude-sonnet-5-5"}) {
+	if got := doc.ModelSuggestions["claude"]; !reflect.DeepEqual(got, ids("claude-opus-5-5", "claude-sonnet-5-5")) {
 		t.Errorf("claude suggestions = %v", got)
 	}
 	if got := doc.ModelSuggestions["kimi"]; got == nil || len(got) != 0 {
@@ -366,7 +394,7 @@ func TestRead_everyCallIsFreshAndArgvOnly(t *testing.T) {
 	_, _ = c.Read(context.Background())
 	_, _ = c.Read(context.Background())
 	shows := 0
-	for _, call := range f.calls {
+	for _, call := range f.callLog() {
 		if strings.Join(call, " ") == "config show --origin --json" {
 			shows++
 		}
@@ -519,12 +547,16 @@ func TestApply_surfacesFabWarnings(t *testing.T) {
 }
 
 // Concurrent Applies (the API builds a Client per request) must not interleave
-// their fab calls: fab rewrites the whole system file without a lock.
+// their fab calls: fab rewrites the whole system file without a lock. The
+// read-only discovery call is exempt — it runs alongside the config reads.
 func TestApply_serializesAcrossClients(t *testing.T) {
 	show := showJSON(baseRows()...)
 	var mu sync.Mutex
 	inFlight, maxInFlight := 0, 0
 	run := func(_ context.Context, argv ...string) ([]byte, []byte, error) {
+		if strings.Join(argv, " ") == "agent models --json" {
+			return nil, nil, errors.New("exit 1")
+		}
 		mu.Lock()
 		inFlight++
 		maxInFlight = max(maxInFlight, inFlight)
@@ -610,7 +642,7 @@ func TestRead_bothSpellingsReadAlike(t *testing.T) {
 			if fast := roleByName(t, doc, "fast"); fast.Model.Inherited != "gemini-3.1-pro-high" || fast.Model.Source != sp.table+"agy.profiles.default.model" {
 				t.Errorf("fast.model = %+v, want agy's default-profile fill", fast.Model)
 			}
-			if got := doc.ModelSuggestions["codex"]; !reflect.DeepEqual(got, []string{"gpt-5.6-sol"}) {
+			if got := doc.ModelSuggestions["codex"]; !reflect.DeepEqual(got, ids("gpt-5.6-sol")) {
 				t.Errorf("codex suggestions = %v", got)
 			}
 			if !doc.EffortCapable["codex"] || doc.EffortCapable["kimi"] {
@@ -641,7 +673,7 @@ func TestRead_newSpellingWinsWhenBothShown(t *testing.T) {
 	if review.Model.Effective != "gpt-6.1-sol" || review.Model.Source != "clis.codex.profiles.review.model" {
 		t.Errorf("review.model = %+v, want the clis fill over providers", review.Model)
 	}
-	if got, want := doc.ModelSuggestions["codex"], []string{"gpt-5.6-sol", "gpt-6.1-sol"}; !reflect.DeepEqual(got, want) {
+	if got, want := doc.ModelSuggestions["codex"], ids("gpt-5.6-sol", "gpt-6.1-sol"); !reflect.DeepEqual(got, want) {
 		t.Errorf("codex suggestions = %v, want the union %v", got, want)
 	}
 }
@@ -707,5 +739,183 @@ func TestApply_toolLeafWritesInstalledSpelling(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// modelsFixture mirrors `fab agent models --json` on a machine: a reserved
+// row per tool, claude aliases plus tool rows (one labelled, one default),
+// codex under the pre-rename `provider` spelling, a repeated id, an empty id,
+// and a tool the document does not list.
+const modelsFixture = `[
+ {"cli":"agy","id":"tool-default","label":"tool default","efforts":[],"default":false,"source":"reserved"},
+ {"cli":"claude","id":"tool-default","label":"tool default (claude-fable-5-1[1m])","efforts":["low","medium"],"default":false,"source":"reserved"},
+ {"cli":"claude","id":"opus","label":"opus","efforts":["low","medium","high"],"default":false,"source":"alias"},
+ {"cli":"claude","id":"glm-latest[1m]","label":"GLM 5.3 (Latest)","efforts":["low","high"],"default":false,"source":"tool"},
+ {"cli":"claude","id":"claude-fable-5-1[1m]","label":"claude-fable-5-1[1m]","efforts":["low","medium","high","xhigh","max"],"default":true,"source":"tool"},
+ {"cli":"claude","id":"opus","label":"opus again","efforts":[],"default":false,"source":"tool"},
+ {"cli":"claude","id":"","label":"nameless","efforts":[],"default":false,"source":"tool"},
+ {"provider":"codex","id":"gpt-6.1-sol","label":"","efforts":["low","medium","high","xhigh","max","ultra"],"default":true,"source":"tool"},
+ {"cli":"zed","id":"zed-1","label":"Zed One","efforts":[],"default":false,"source":"tool"}
+]`
+
+func TestRead_discoversModelSuggestions(t *testing.T) {
+	f := newFake(t)
+	f.models = modelsFixture
+	doc, err := New(f.run).Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantClaude := []ModelSuggestion{
+		{ID: "opus", Efforts: []string{"low", "medium", "high"}},
+		{ID: "glm-latest[1m]", Label: "GLM 5.3 (Latest)", Efforts: []string{"low", "high"}},
+		{ID: "claude-fable-5-1[1m]", Efforts: []string{"low", "medium", "high", "xhigh", "max"}, Default: true},
+	}
+	if got := doc.ModelSuggestions["claude"]; !reflect.DeepEqual(got, wantClaude) {
+		t.Errorf("claude = %+v, want %+v (fab's order, reserved/empty/duplicate dropped, label omitted when equal to id)", got, wantClaude)
+	}
+	wantCodex := []ModelSuggestion{{ID: "gpt-6.1-sol", Efforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, Default: true}}
+	if got := doc.ModelSuggestions["codex"]; !reflect.DeepEqual(got, wantCodex) {
+		t.Errorf("codex = %+v, want %+v (read from the provider spelling)", got, wantCodex)
+	}
+	for _, tool := range doc.Tools {
+		if doc.ModelSuggestions[tool] == nil {
+			t.Errorf("tool %q has no suggestions entry, want one even when empty", tool)
+		}
+	}
+	if got := doc.ModelSuggestions["agy"]; len(got) != 0 {
+		t.Errorf("agy = %+v, want [] (only a reserved row)", got)
+	}
+	if _, ok := doc.ModelSuggestions["zed"]; ok {
+		t.Errorf("zed is not in doc.Tools, want its rows ignored")
+	}
+	if len(doc.Warnings) != 0 {
+		t.Errorf("warnings = %v, want none", doc.Warnings)
+	}
+}
+
+func TestRead_cliSpellingWinsOverProvider(t *testing.T) {
+	f := newFake(t)
+	f.models = `[{"cli":"claude","provider":"codex","id":"m","label":"m","efforts":[],"default":false,"source":"tool"}]`
+	doc, err := New(f.run).Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := doc.ModelSuggestions["claude"]; !reflect.DeepEqual(got, ids("m")) || len(doc.ModelSuggestions["codex"]) != 0 {
+		t.Errorf("suggestions = %+v, want m under claude only", doc.ModelSuggestions)
+	}
+}
+
+func TestRead_discoveryFailureFallsBackToFillsSilently(t *testing.T) {
+	cases := map[string]string{
+		"non-zero exit":  "",
+		"malformed json": "not json",
+		"not an array":   `{"cli":"claude"}`,
+	}
+	for name, models := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newFake(t)
+			f.models = models
+			doc, err := New(f.run).Read(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := doc.ModelSuggestions["claude"]; !reflect.DeepEqual(got, ids("claude-opus-5-5", "claude-sonnet-5-5")) {
+				t.Errorf("claude = %+v, want the fill scan", got)
+			}
+			if len(doc.Warnings) != 0 {
+				t.Errorf("warnings = %v, want none for a discovery failure", doc.Warnings)
+			}
+		})
+	}
+}
+
+func TestRead_discoveryWarningsSurface(t *testing.T) {
+	f := newFake(t)
+	f.models = modelsFixture
+	f.modelsErr = "warning: codex: codex debug models: timed out after 3s\nnote: unrelated"
+	doc, err := New(f.run).Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"warning: codex: codex debug models: timed out after 3s"}; !reflect.DeepEqual(doc.Warnings, want) {
+		t.Errorf("warnings = %v, want %v", doc.Warnings, want)
+	}
+}
+
+func TestRead_discoveryIsOneArgvOnlyCall(t *testing.T) {
+	f := newFake(t)
+	f.models = modelsFixture
+	if _, err := New(f.run).Read(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var discovery [][]string
+	for _, call := range f.callLog() {
+		if len(call) > 0 && call[0] == "agent" {
+			discovery = append(discovery, call)
+		}
+	}
+	if want := [][]string{{"agent", "models", "--json"}}; !reflect.DeepEqual(discovery, want) {
+		t.Errorf("discovery calls = %v, want exactly %v", discovery, want)
+	}
+}
+
+func TestRead_discoveryRunsConcurrentlyWithConfigReads(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	f := newFake(t)
+	f.models = modelsFixture
+	run := func(ctx context.Context, argv ...string) ([]byte, []byte, error) {
+		switch strings.Join(argv, " ") {
+		case "agent models --json":
+			close(started)
+			<-release
+		case "config show --origin --json":
+			select {
+			case <-started:
+				close(release)
+			case <-time.After(5 * time.Second):
+				t.Error("discovery had not started while the config reads ran")
+				close(release)
+			}
+		}
+		return f.run(ctx, argv...)
+	}
+	if _, err := New(run).Read(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRead_showFailureDoesNotLeakDiscovery(t *testing.T) {
+	f := newFake(t)
+	f.models = modelsFixture
+	f.failOn = "config show --origin --json"
+	f.failMsg = "boom"
+	if _, err := New(f.run).Read(context.Background()); err == nil {
+		t.Fatal("want the show failure surfaced")
+	}
+}
+
+func TestApply_keepsWriteAndDiscoveryWarnings(t *testing.T) {
+	f := newFake(t)
+	f.models = modelsFixture
+	f.modelsErr = "warning: codex: codex debug models: timed out after 3s"
+	f.setErr = "warning: x"
+	doc, err := New(f.run).Apply(context.Background(), patchOf(t, `{"agent.workers":"codex"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"warning: x", "warning: codex: codex debug models: timed out after 3s"}
+	if !reflect.DeepEqual(doc.Warnings, want) {
+		t.Errorf("warnings = %v, want write warnings then discovery warnings %v", doc.Warnings, want)
+	}
+}
+
+func TestRead_notInstalledSkipsDiscovery(t *testing.T) {
+	c := New(func(_ context.Context, argv ...string) ([]byte, []byte, error) {
+		t.Errorf("fab ran %v while not installed", argv)
+		return nil, nil, nil
+	}).WithLookPath(func(string) (string, error) { return "", errors.New("not found") })
+	if _, err := c.Read(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }

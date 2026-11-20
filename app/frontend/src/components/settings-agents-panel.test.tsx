@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor, fireEvent, within } from "@testing-library/react";
-import type { FabConfigDocument, FabField, FabRole, FabRoleCell } from "@/api/client";
+import type { FabConfigDocument, FabField, FabModelSuggestion, FabRole, FabRoleCell } from "@/api/client";
 import { SettingsAgentsPanel } from "./settings-agents-panel";
 
 // The panel talks to the daemon only through these two functions; mocking them
@@ -52,6 +52,8 @@ const field = (value: FabField["value"], origin: FabField["origin"], extra: Part
   ...extra,
 });
 
+const suggest = (...ids: string[]): FabModelSuggestion[] => ids.map((id) => ({ id }));
+
 function makeDoc(overrides: Partial<Doc> = {}): Doc {
   return {
     installed: true,
@@ -74,7 +76,12 @@ function makeDoc(overrides: Partial<Doc> = {}): Doc {
       role("hydrate", "workers", "claude", "agent.workers"),
       role("review", "workers", "claude", "agent.workers"),
     ],
-    modelSuggestions: { claude: ["claude-opus-5-5", "claude-sonnet-5-5"], codex: ["gpt-5.6-sol"], agy: [], kimi: [] },
+    modelSuggestions: {
+      claude: suggest("claude-opus-5-5", "claude-sonnet-5-5"),
+      codex: suggest("gpt-5.6-sol"),
+      agy: [],
+      kimi: [],
+    },
     effortSuggestions: ["low", "medium", "high", "xhigh", "max"],
     effortCapable: { agy: false, claude: true, codex: true, kimi: false },
     ...overrides,
@@ -738,5 +745,312 @@ describe("SettingsAgentsPanel", () => {
     cleanup();
     await renderPanel(makeDoc());
     expect(getFabConfig).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("SettingsAgentsPanel — discovered models", () => {
+  const claudeModels: FabModelSuggestion[] = [
+    { id: "glm-latest[1m]", label: "GLM 5.3 (Latest)", efforts: ["low", "high"] },
+    { id: "opus", efforts: ["low", "medium", "high", "xhigh", "max"] },
+    { id: "claude-fable-5-1[1m]", default: true, efforts: ["low", "max"] },
+  ];
+  const kimiModels: FabModelSuggestion[] = Array.from({ length: 40 }, (_, i) => ({
+    id: `kimi-a${i}`,
+    label: i === 3 ? "Kimi K3.1 Pro" : undefined,
+    default: i === 0,
+  })).concat([{ id: "openrouter/moonshotai/kimi-k3.1-pro", label: "Kimi K3.1 Pro (router)", default: false }]);
+
+  const kimiDoc = (model: FabRoleCell = inherited("", "")) =>
+    withRole(makeDoc({ modelSuggestions: { ...makeDoc().modelSuggestions, kimi: kimiModels } }), "doing", {
+      tool: inherited("kimi", "agent.workers"),
+      model,
+    });
+
+  const trigger = (name = "doing") => screen.getByRole("button", { name: `${name} model` });
+  const filter = (name = "doing") => screen.getByRole("combobox", { name: `Search ${name} models` });
+  // Scoped to the open list: the other rows' native selects expose options too.
+  const listOptions = () => within(screen.getByRole("listbox")).getAllByRole("option");
+  const listOption = (name: string | RegExp) => within(screen.getByRole("listbox")).getByRole("option", { name });
+  const optionLabels = () => listOptions().map((o) => o.textContent);
+
+  describe("labels and default marker", () => {
+    it("shows `label · id` when they differ, the id alone when not, and marks the tool default", async () => {
+      await renderPanel(makeDoc({ modelSuggestions: { ...makeDoc().modelSuggestions, claude: claudeModels } }));
+      expect(optionTexts(screen.getByLabelText("doing model"))).toEqual([
+        "↳ inherit (tool default)",
+        "GLM 5.3 (Latest) · glm-latest[1m]",
+        "opus",
+        "claude-fable-5-1[1m] · tool default",
+        "Custom…",
+      ]);
+    });
+
+    it("commits the id, not the display text", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      await renderPanel(makeDoc({ modelSuggestions: { ...makeDoc().modelSuggestions, claude: claudeModels } }));
+      fireEvent.change(screen.getByLabelText("doing model"), { target: { value: "glm-latest[1m]" } });
+      await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.doing.model": "glm-latest[1m]" }));
+    });
+
+    it("keeps a native select at the threshold and turns searchable above it", async () => {
+      const thirty = { ...makeDoc().modelSuggestions, claude: suggest(...Array.from({ length: 30 }, (_, i) => `m${i}`)) };
+      await renderPanel(makeDoc({ modelSuggestions: thirty }));
+      expect(screen.getByLabelText("doing model").tagName).toBe("SELECT");
+      cleanup();
+      await renderPanel(
+        makeDoc({ modelSuggestions: { ...thirty, claude: suggest(...Array.from({ length: 31 }, (_, i) => `m${i}`)) } }),
+      );
+      expect(screen.getByLabelText("doing model").tagName).toBe("BUTTON");
+    });
+  });
+
+  describe("searchable list", () => {
+    it("opens unfiltered with a saved override, listing every suggestion plus inherit and Custom…", async () => {
+      await renderPanel(kimiDoc(overridden("kimi-a7", "agent.profiles.doing.model")));
+      expect(trigger()).toHaveTextContent("kimi-a7");
+      fireEvent.click(trigger());
+      expect(filter()).toHaveValue("");
+      expect(listOptions()).toHaveLength(kimiModels.length + 2);
+      expect(optionLabels()[0]).toBe("↳ inherit (tool default)");
+      expect(optionLabels().at(-1)).toBe("Custom…");
+    });
+
+    it("dims the closed trigger while inheriting and disables it while a write is in flight", async () => {
+      vi.mocked(postFabConfig).mockReturnValue(new Promise(() => {}));
+      await renderPanel(kimiDoc());
+      expect(trigger()).toHaveTextContent("↳ inherit (tool default)");
+      expect(trigger().className).toContain("text-text-secondary");
+      fireEvent.click(trigger());
+      fireEvent.click(listOption(/kimi-a1$/));
+      await waitFor(() => expect(trigger()).toBeDisabled());
+    });
+
+    it("filters by label and by id, always keeping inherit and Custom…", async () => {
+      await renderPanel(kimiDoc());
+      fireEvent.click(trigger());
+
+      fireEvent.change(filter(), { target: { value: "K3.1" } });
+      expect(optionLabels()).toEqual([
+        "↳ inherit (tool default)",
+        expect.stringContaining("Kimi K3.1 Pro"),
+        expect.stringContaining("Kimi K3.1 Pro (router)"),
+        "Custom…",
+      ]);
+
+      fireEvent.change(filter(), { target: { value: "moonshotai" } });
+      expect(optionLabels()).toEqual([
+        "↳ inherit (tool default)",
+        expect.stringContaining("Kimi K3.1 Pro (router)"),
+        "Custom…",
+      ]);
+
+      fireEvent.change(filter(), { target: { value: "no-such-model" } });
+      expect(optionLabels()).toEqual(["↳ inherit (tool default)", "Custom…"]);
+    });
+
+    it("shows the label as primary text with the id and default marker beside it", async () => {
+      await renderPanel(kimiDoc());
+      fireEvent.click(trigger());
+      const labelled = listOptions().find((o) => o.textContent?.includes("Kimi K3.1 Pro"));
+      expect(labelled).toHaveTextContent("Kimi K3.1 Pro");
+      expect(labelled).toHaveTextContent("kimi-a3");
+      expect(listOption(/kimi-a0/)).toHaveTextContent("tool default");
+    });
+
+    it("Enter commits the first match after typing, as one POST of its id", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      await renderPanel(kimiDoc());
+      fireEvent.click(trigger());
+      fireEvent.change(filter(), { target: { value: "moonshotai" } });
+      fireEvent.keyDown(filter(), { key: "Enter" });
+      await waitFor(() =>
+        expect(postFabConfig).toHaveBeenCalledWith({
+          "agent.profiles.doing.model": "openrouter/moonshotai/kimi-k3.1-pro",
+        }),
+      );
+      expect(postFabConfig).toHaveBeenCalledTimes(1);
+    });
+
+    it("arrow keys move the active option and Enter commits it", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      await renderPanel(kimiDoc());
+      fireEvent.click(trigger());
+      // Starts on inherit; two steps down is the second suggestion.
+      fireEvent.keyDown(filter(), { key: "ArrowDown" });
+      fireEvent.keyDown(filter(), { key: "ArrowDown" });
+      fireEvent.keyDown(filter(), { key: "ArrowUp" });
+      expect(listOptions().filter((o) => o.getAttribute("aria-selected") === "true")).toHaveLength(1);
+      fireEvent.keyDown(filter(), { key: "Enter" });
+      await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.doing.model": "kimi-a0" }));
+    });
+
+    it("clicking an option commits it and picking inherit unsets", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(kimiDoc(overridden("kimi-a7", "agent.profiles.doing.model")));
+      await renderPanel(kimiDoc(overridden("kimi-a7", "agent.profiles.doing.model")));
+      fireEvent.click(trigger());
+      fireEvent.click(listOption(/kimi-a9$/));
+      await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.doing.model": "kimi-a9" }));
+      fireEvent.click(trigger());
+      fireEvent.click(listOption(/↳ inherit/));
+      await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.doing.model": null }));
+    });
+
+    it("Escape closes without committing and never reaches the dialog", async () => {
+      await renderPanel(kimiDoc());
+      const onDocumentKey = vi.fn();
+      document.addEventListener("keydown", onDocumentKey);
+      try {
+        fireEvent.click(trigger());
+        fireEvent.change(filter(), { target: { value: "k3" } });
+        fireEvent.keyDown(filter(), { key: "Escape" });
+        expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+        expect(trigger()).toBeInTheDocument();
+        expect(onDocumentKey).not.toHaveBeenCalled();
+        expect(postFabConfig).not.toHaveBeenCalled();
+        fireEvent.click(trigger());
+        expect(filter()).toHaveValue("");
+      } finally {
+        document.removeEventListener("keydown", onDocumentKey);
+      }
+    });
+
+    it("Custom… swaps to the free-text input", async () => {
+      await renderPanel(kimiDoc());
+      fireEvent.click(trigger());
+      fireEvent.click(listOption("Custom…"));
+      expect(screen.getByRole("textbox", { name: "doing model" })).toHaveFocus();
+    });
+
+    it("lists a pin the tool no longer offers and flags it", async () => {
+      await renderPanel(kimiDoc(overridden("kimi-gone", "agent.profiles.doing.model")));
+      expect(trigger()).toHaveTextContent("kimi-gone (not offered)");
+      expect(screen.getByTestId("stale-model-doing")).toHaveTextContent("kimi-gone");
+    });
+  });
+
+  describe("stale pins", () => {
+    it("compare against discovered ids, so a custom model the tool offers is not flagged", async () => {
+      const models = { ...makeDoc().modelSuggestions, claude: claudeModels };
+      await renderPanel(
+        withRole(makeDoc({ modelSuggestions: models }), "doing", {
+          model: overridden("glm-latest[1m]", "agent.profiles.doing.model"),
+        }),
+      );
+      expect(screen.queryByTestId("stale-model-doing")).not.toBeInTheDocument();
+      cleanup();
+      await renderPanel(
+        withRole(makeDoc({ modelSuggestions: models }), "doing", {
+          model: overridden("claude-opus-5-5", "agent.profiles.doing.model"),
+        }),
+      );
+      expect(screen.getByTestId("stale-model-doing")).toBeInTheDocument();
+    });
+  });
+
+  describe("effort options", () => {
+    const codexModels: FabModelSuggestion[] = [
+      { id: "gpt-6.1-sol", default: true, efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+      { id: "gpt-5.6-sol", efforts: ["low", "medium", "high"] },
+    ];
+    const effortValues = (name: string) =>
+      Array.from((screen.getByLabelText(`${name} effort`) as HTMLSelectElement).options).map((o) => o.value);
+    const codexDoc = (model: FabRoleCell, suggestions = codexModels) =>
+      withRole(makeDoc({ modelSuggestions: { ...makeDoc().modelSuggestions, codex: suggestions } }), "doing", {
+        tool: inherited("codex", "agent.workers"),
+        model,
+      });
+
+    it("offers the effective model's own efforts, including ultra", async () => {
+      await renderPanel(codexDoc(overridden("gpt-6.1-sol", "agent.profiles.doing.model")));
+      expect(effortValues("doing")).toEqual(["", "low", "medium", "high", "xhigh", "max", "ultra"]);
+      cleanup();
+      await renderPanel(codexDoc(overridden("gpt-5.6-sol", "agent.profiles.doing.model")));
+      expect(effortValues("doing")).toEqual(["", "low", "medium", "high"]);
+    });
+
+    it("uses the default model's efforts when the effective model is empty", async () => {
+      await renderPanel(codexDoc(inherited("", "")));
+      expect(effortValues("doing")).toEqual(["", "low", "medium", "high", "xhigh", "max", "ultra"]);
+    });
+
+    it("falls back to the tool's union when the model reports none, then to the global list", async () => {
+      await renderPanel(codexDoc(overridden("typed-by-hand", "agent.profiles.doing.model")));
+      expect(effortValues("doing")).toEqual(["", "low", "medium", "high", "xhigh", "max", "ultra"]);
+      cleanup();
+      await renderPanel(codexDoc(overridden("a", "agent.profiles.doing.model"), suggest("a", "b")));
+      expect(effortValues("doing")).toEqual(["", "low", "medium", "high", "xhigh", "max"]);
+    });
+
+    it("keeps an override outside the list visible and the disabled state for tools without {effort}", async () => {
+      const doc = withRole(codexDoc(overridden("gpt-5.6-sol", "agent.profiles.doing.model")), "doing", {
+        effort: overridden("ultra", "agent.profiles.doing.effort"),
+      });
+      await renderPanel(doc);
+      expect(effortValues("doing")).toEqual(["", "low", "medium", "high", "ultra"]);
+      cleanup();
+      await renderPanel(
+        withRole(makeDoc({ modelSuggestions: { ...makeDoc().modelSuggestions, kimi: kimiModels } }), "doing", {
+          tool: inherited("kimi", "agent.workers"),
+        }),
+      );
+      expect(screen.getByLabelText("doing effort")).toBeDisabled();
+    });
+  });
+
+  describe("tool change", () => {
+    const docWith = (effort: string, model: string) =>
+      withRole(
+        makeDoc({
+          modelSuggestions: {
+            ...makeDoc().modelSuggestions,
+            claude: suggest("opus", "claude-opus-5-5"),
+            codex: [
+              { id: "gpt-6.1-sol", efforts: ["low", "medium", "high"] },
+              { id: "gpt-5.6-sol", efforts: ["low"] },
+            ],
+          },
+        }),
+        "doing",
+        {
+          model: overridden(model, "agent.profiles.doing.model"),
+          effort: overridden(effort, "agent.profiles.doing.effort"),
+        },
+      );
+
+    it("clears a model the new tool doesn't offer and an effort outside its set", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      await renderPanel(docWith("xhigh", "opus"));
+      fireEvent.change(screen.getByLabelText("doing CLI"), { target: { value: "codex" } });
+      await waitFor(() =>
+        expect(postFabConfig).toHaveBeenCalledWith({
+          "agent.profiles.doing.tool": "codex",
+          "agent.profiles.doing.model": null,
+          "agent.profiles.doing.effort": null,
+        }),
+      );
+      expect(postFabConfig).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps a model id and an effort the new tool offers", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      await renderPanel(docWith("medium", "gpt-5.6-sol"));
+      fireEvent.change(screen.getByLabelText("doing CLI"), { target: { value: "codex" } });
+      await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.doing.tool": "codex" }));
+    });
+  });
+
+  describe("warnings", () => {
+    it("renders the GET document's warnings on load", async () => {
+      await renderPanel(makeDoc({ warnings: ["warning: codex: codex debug models: timed out after 3s"] }));
+      expect(screen.getByTestId("fab-warnings")).toHaveTextContent("codex debug models: timed out after 3s");
+    });
+
+    it("a POST replaces them with its own", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc({ warnings: ["warning: after write"] }));
+      await renderPanel(makeDoc({ warnings: ["warning: on load"] }));
+      fireEvent.click(within(row("agent.workers")).getByRole("button", { name: "codex" }));
+      await waitFor(() => expect(screen.getByTestId("fab-warnings")).toHaveTextContent("after write"));
+      expect(screen.getByTestId("fab-warnings")).not.toHaveTextContent("on load");
+    });
   });
 });

@@ -28,6 +28,25 @@ const ROLES: Array<[string, "session" | "workers"]> = [
   ["review", "workers"],
 ];
 
+const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+
+/** Per-tool model suggestions as `fab agent models` reports them: labels,
+ *  per-model efforts and a default. kimi lists enough models to exceed the
+ *  SPA's searchable-list threshold. */
+const KIMI_MODELS = [
+  { id: "openrouter/moonshotai/kimi-k3.1-pro", label: "Kimi K3.1 Pro", efforts: ["low", "high", "max"], default: true },
+  ...Array.from({ length: 40 }, (_, i) => ({ id: `kimi-alias-${i + 1}` })),
+];
+const MODEL_SUGGESTIONS = {
+  claude: [
+    { id: "claude-opus-5-5", efforts: EFFORTS },
+    { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", efforts: EFFORTS, default: true },
+  ],
+  codex: [{ id: "gpt-6.1-sol", efforts: [...EFFORTS, "ultra"], default: true }],
+  agy: [],
+  kimi: KIMI_MODELS,
+};
+
 /** Installs the stub (call before `page.goto`); returns the POST bodies seen.
  *  `system` seeds extra system-tier values; `env` keys win over system as
  *  origin `env` from `FAB_TEST_ENV`, carrying the shadowed `systemValue`. */
@@ -84,8 +103,8 @@ export async function stubFabConfig(
       providers: tools,
       fields,
       roles,
-      modelSuggestions: { claude: ["claude-opus-5-5", "claude-sonnet-5-5"], codex: ["gpt-5.6-sol"], agy: [], kimi: [] },
-      effortSuggestions: ["low", "medium", "high", "xhigh", "max"],
+      modelSuggestions: MODEL_SUGGESTIONS,
+      effortSuggestions: EFFORTS,
       effortCapable: { agy: false, claude: true, codex: true, kimi: false },
     };
   };

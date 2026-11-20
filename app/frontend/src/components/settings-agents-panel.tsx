@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   getFabConfig,
   postFabConfig,
   type FabConfigDocument,
   type FabField,
+  type FabModelSuggestion,
   type FabOrigin,
   type FabRole,
   type FabRoleCell,
@@ -43,6 +44,11 @@ const DISPATCH_MODES = ["pane", "native", "headless"];
 const SYSTEM_CONFIG_FALLBACK_PATH = "~/.fab-kit/config.yaml";
 const INHERIT_FALLBACK = "tool default";
 const NO_EFFORT_TITLE = "this tool takes no effort setting";
+const MODEL_TEXT_SEPARATOR = " · ";
+const DEFAULT_MODEL_MARKER = "tool default";
+// Above this many suggestions (kimi lists hundreds) the model cell is a
+// searchable list instead of a native select.
+const SEARCHABLE_MODEL_THRESHOLD = 30;
 
 const NOT_INSTALLED_MESSAGE =
   "fab isn't installed on this host. Install fab-kit to manage agent defaults here.";
@@ -464,19 +470,37 @@ const CLAUDE_TOOL = "claude";
 /** The model list in its fixed order — inherit, the tool's suggestions, the
  *  saved override when the tool doesn't suggest it, then free text. Renderers
  *  map over this, so the order and what each kind commits stay put when the
- *  control changes shape. */
+ *  control changes shape. A suggestion's `value` is its id, `name` its display
+ *  name, and `label` the one-line text a native option shows. */
 type ModelOption =
   | { kind: "inherit"; value: typeof MODEL_INHERIT; label: string }
-  | { kind: "suggestion"; value: string; label: string }
+  | { kind: "suggestion"; value: string; name: string; label: string; isDefault: boolean }
   | { kind: "stale"; value: string; label: string }
   | { kind: "custom"; value: typeof MODEL_CUSTOM; label: string };
 
-function modelOptions(cell: FabRoleCell, suggestions: string[]): ModelOption[] {
+function suggestionOption(s: FabModelSuggestion): ModelOption {
+  const name = s.label || s.id;
+  const isDefault = s.default === true;
+  const text = name === s.id ? s.id : `${name}${MODEL_TEXT_SEPARATOR}${s.id}`;
+  return {
+    kind: "suggestion",
+    value: s.id,
+    name,
+    label: isDefault ? `${text}${MODEL_TEXT_SEPARATOR}${DEFAULT_MODEL_MARKER}` : text,
+    isDefault,
+  };
+}
+
+function offersModel(suggestions: FabModelSuggestion[], id: string): boolean {
+  return suggestions.some((s) => s.id === id);
+}
+
+function modelOptions(cell: FabRoleCell, suggestions: FabModelSuggestion[]): ModelOption[] {
   const options: ModelOption[] = [
     { kind: "inherit", value: MODEL_INHERIT, label: `↳ inherit (${inheritedValue(cell)})` },
-    ...suggestions.map((s): ModelOption => ({ kind: "suggestion", value: s, label: s })),
+    ...suggestions.map(suggestionOption),
   ];
-  if (cell.override !== null && !suggestions.includes(cell.override)) {
+  if (cell.override !== null && !offersModel(suggestions, cell.override)) {
     // An empty list says nothing about what the tool offers.
     const label = suggestions.length > 0 ? `${cell.override} (not offered)` : cell.override;
     options.push({ kind: "stale", value: cell.override, label });
@@ -485,8 +509,25 @@ function modelOptions(cell: FabRoleCell, suggestions: string[]): ModelOption[] {
   return options;
 }
 
-function isStalePin(cell: FabRoleCell, suggestions: string[]): boolean {
-  return cell.override !== null && suggestions.length > 0 && !suggestions.includes(cell.override);
+/** A pin the tool doesn't offer: the override is not an id in the list fab
+ *  discovered for the role's tool (the kit's fills when discovery is
+ *  unavailable). An empty list flags nothing. */
+function isStalePin(cell: FabRoleCell, suggestions: FabModelSuggestion[]): boolean {
+  return cell.override !== null && suggestions.length > 0 && !offersModel(suggestions, cell.override);
+}
+
+/** The closed searchable control's text: a suggestion's display name, else the
+ *  option's own label. */
+function optionName(o: ModelOption): string {
+  return o.kind === "suggestion" ? o.name : o.label;
+}
+
+/** Whether an option survives the filter. Inherit and Custom… always do — they
+ *  are the commit paths a filter must never strand. */
+function matchesModelFilter(o: ModelOption, query: string): boolean {
+  if (o.kind === "inherit" || o.kind === "custom") return true;
+  const q = query.trim().toLowerCase();
+  return o.value.toLowerCase().includes(q) || optionName(o).toLowerCase().includes(q);
 }
 
 /** Free-text model entry: Enter/blur commit (blank unsets), and the cell goes
@@ -551,6 +592,163 @@ function CustomModelInput({
   );
 }
 
+/** The over-threshold model list: a trigger that opens a filter field above the
+ *  same options the native select lists. It opens unfiltered whatever is saved
+ *  (a pre-filled filter would hide the rest of the list), and renders inline
+ *  rather than as a popover so the table's scroll wrapper cannot clip it. */
+function SearchableModelList({
+  role,
+  cell,
+  options,
+  busy,
+  onChoose,
+}: {
+  role: string;
+  cell: FabRoleCell;
+  options: ModelOption[];
+  busy: boolean;
+  onChoose: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const refocusTrigger = useRef(false);
+  const listId = useId();
+
+  const current = options.find((o) => o.value === (cell.override ?? MODEL_INHERIT));
+  const visible = options.filter((o) => matchesModelFilter(o, query));
+  const optionId = (i: number) => `${listId}-option-${i}`;
+
+  useEffect(() => {
+    if (open) inputRef.current?.focus();
+    else if (refocusTrigger.current) {
+      refocusTrigger.current = false;
+      triggerRef.current?.focus();
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const el = listRef.current?.querySelector('[aria-selected="true"]');
+    if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "nearest" });
+  }, [open, active]);
+
+  const openList = () => {
+    setQuery("");
+    setActive(Math.max(0, options.indexOf(current ?? options[0])));
+    setOpen(true);
+  };
+  const closeList = (refocus: boolean) => {
+    refocusTrigger.current = refocus;
+    setOpen(false);
+  };
+  const choose = (o: ModelOption | undefined) => {
+    if (!o) return;
+    closeList(true);
+    onChoose(o.value);
+  };
+  const changeQuery = (value: string) => {
+    setQuery(value);
+    // Enter after typing should land on a match, not on the always-present inherit.
+    const next = options.filter((o) => matchesModelFilter(o, value));
+    setActive(Math.max(0, next.findIndex((o) => o.kind === "suggestion" || o.kind === "stale")));
+  };
+
+  if (!open) {
+    return (
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-label={`${role} model`}
+        aria-haspopup="listbox"
+        aria-expanded={false}
+        disabled={busy}
+        onClick={openList}
+        className={`${modelSelectClass} inline-flex items-center gap-1 text-left disabled:opacity-40 ${
+          cell.override === null ? "text-text-secondary" : ""
+        }`}
+      >
+        <span className="flex-1 min-w-0 truncate">{current ? optionName(current) : (cell.override ?? "")}</span>
+        <span aria-hidden="true">▾</span>
+      </button>
+    );
+  }
+  return (
+    <div
+      className="flex flex-col max-w-[16rem]"
+      onBlur={(e) => {
+        if (!(e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget))) closeList(false);
+      }}
+    >
+      <input
+        ref={inputRef}
+        type="text"
+        role="combobox"
+        aria-label={`Search ${role} models`}
+        aria-autocomplete="list"
+        aria-expanded
+        aria-controls={listId}
+        aria-activedescendant={visible.length > 0 ? optionId(Math.min(active, visible.length - 1)) : undefined}
+        value={query}
+        onChange={(e) => changeQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            // Close the list, not the dialog.
+            e.preventDefault();
+            e.stopPropagation();
+            closeList(true);
+          } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            e.preventDefault();
+            if (visible.length === 0) return;
+            const step = e.key === "ArrowDown" ? 1 : -1;
+            setActive((i) => (Math.min(i, visible.length - 1) + step + visible.length) % visible.length);
+          } else if (e.key === "Enter") {
+            e.preventDefault();
+            choose(visible[Math.min(active, visible.length - 1)]);
+          }
+        }}
+        placeholder="Search models…"
+        className={`${textSettingInputClass} p-1 text-xs`}
+      />
+      <div
+        id={listId}
+        ref={listRef}
+        role="listbox"
+        aria-label={`${role} models`}
+        // Keep focus in the filter while clicking, or the blur would close the
+        // list before the click lands.
+        onMouseDown={(e) => e.preventDefault()}
+        className="max-h-48 overflow-y-auto border border-border rounded mt-1 py-0.5"
+      >
+        {visible.map((o, i) => (
+          <div
+            key={`${o.kind}:${o.value}`}
+            id={optionId(i)}
+            role="option"
+            aria-selected={i === Math.min(active, visible.length - 1)}
+            onClick={() => choose(o)}
+            onMouseEnter={() => setActive(i)}
+            className={`px-1.5 py-1 text-xs cursor-pointer flex items-baseline gap-1.5 ${
+              i === Math.min(active, visible.length - 1) ? "bg-bg-card text-text-primary" : "text-text-secondary"
+            }`}
+          >
+            <span className="truncate">{optionName(o)}</span>
+            {o.kind === "suggestion" && o.name !== o.value && (
+              <span className="text-[10px] text-text-secondary/70 truncate">{o.value}</span>
+            )}
+            {o.kind === "suggestion" && o.isDefault && (
+              <span className="text-[10px] text-text-secondary/70 flex-none">{DEFAULT_MODEL_MARKER}</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function RoleModelCell({
   role,
   cell,
@@ -561,7 +759,7 @@ function RoleModelCell({
 }: {
   role: string;
   cell: FabRoleCell;
-  suggestions: string[];
+  suggestions: FabModelSuggestion[];
   busy: boolean;
   /** List pick — goes through the row's write state. */
   pick: (value: string | null) => void;
@@ -572,6 +770,14 @@ function RoleModelCell({
   if (custom) {
     return <CustomModelInput role={role} cell={cell} commit={commit} onDone={() => setCustom(false)} />;
   }
+  const options = modelOptions(cell, suggestions);
+  const choose = (v: string) => {
+    if (v === MODEL_CUSTOM) setCustom(true);
+    else pick(v === MODEL_INHERIT ? null : v);
+  };
+  if (suggestions.length > SEARCHABLE_MODEL_THRESHOLD) {
+    return <SearchableModelList role={role} cell={cell} options={options} busy={busy} onChoose={choose} />;
+  }
   // A native select lists every option whatever is selected — unlike a
   // datalist, which filters by the input's saved text.
   return (
@@ -579,14 +785,10 @@ function RoleModelCell({
       aria-label={`${role} model`}
       value={cell.override ?? MODEL_INHERIT}
       disabled={busy}
-      onChange={(e) => {
-        const v = e.target.value;
-        if (v === MODEL_CUSTOM) setCustom(true);
-        else pick(v === MODEL_INHERIT ? null : v);
-      }}
+      onChange={(e) => choose(e.target.value)}
       className={`${modelSelectClass} ${cell.override === null ? "text-text-secondary" : ""}`}
     >
-      {modelOptions(cell, suggestions).map((o) => (
+      {options.map((o) => (
         <option key={`${o.kind}:${o.value}`} value={o.value}>
           {o.label}
         </option>
@@ -595,8 +797,8 @@ function RoleModelCell({
   );
 }
 
-/** A pin the role's tool doesn't suggest, with a one-click way back to
- *  inheriting. */
+/** A pin the role's tool doesn't offer (per the list fab discovered, not the
+ *  kit's fills), with a one-click way back to inheriting. */
 function StaleModelNote({
   role,
   tool,
@@ -642,6 +844,26 @@ function takesEffort(effortCapable: Record<string, boolean> | undefined, tool: s
   return effortCapable?.[tool] !== false;
 }
 
+/** The efforts a tool's models take: the union across its suggestions in
+ *  first-seen order. Empty when no suggestion reports any. */
+function toolEfforts(suggestions: FabModelSuggestion[]): string[] {
+  return [...new Set(suggestions.flatMap((s) => s.efforts ?? []))];
+}
+
+/** A row's effort options: the effective model's own efforts when known (the
+ *  tool's default model when none is set), else the tool's set, else the
+ *  global list. */
+function modelEfforts(role: FabRole, suggestions: FabModelSuggestion[], fallback: string[]): string[] {
+  const effective = role.model.effective;
+  const model =
+    effective === ""
+      ? suggestions.find((s) => s.default === true)
+      : suggestions.find((s) => s.id === effective);
+  if (model?.efforts && model.efforts.length > 0) return model.efforts;
+  const tool = toolEfforts(suggestions);
+  return tool.length > 0 ? tool : fallback;
+}
+
 /** One POST for a tool change: a model or effort override the new tool doesn't
  *  offer is unset with it, so no cross-tool pair (`claude --model gpt-…`) is
  *  ever left behind. A write that keeps the same effective tool touches only
@@ -650,17 +872,20 @@ function toolChangePatch(
   role: FabRole,
   next: string | null,
   depthTool: string,
-  modelSuggestions: Record<string, string[]>,
-  efforts: string[],
+  modelSuggestions: Record<string, FabModelSuggestion[]>,
+  fallbackEfforts: string[],
   effortCapable: Record<string, boolean> | undefined,
 ): Patch {
   const patch: Patch = { [profileKey(role.role, "tool")]: next };
   const nextTool = next ?? depthTool;
   if (nextTool === role.tool.effective) return patch;
+  const suggestions = modelSuggestions[nextTool] ?? [];
   const model = role.model.override;
-  if (model === null || !(modelSuggestions[nextTool] ?? []).includes(model)) {
+  if (model === null || !offersModel(suggestions, model)) {
     patch[profileKey(role.role, "model")] = null;
   }
+  const nextEfforts = toolEfforts(suggestions);
+  const efforts = nextEfforts.length > 0 ? nextEfforts : fallbackEfforts;
   const effort = role.effort.override;
   if (effort === null || !efforts.includes(effort) || !takesEffort(effortCapable, nextTool)) {
     patch[profileKey(role.role, "effort")] = null;
@@ -681,7 +906,7 @@ function RoleRow({
   tools: string[];
   /** The depth knob's tool — what the row resolves to with no tool override. */
   depthTool: string;
-  modelSuggestions: Record<string, string[]>;
+  modelSuggestions: Record<string, FabModelSuggestion[]>;
   efforts: string[];
   effortCapable: Record<string, boolean> | undefined;
   write: Write;
@@ -735,7 +960,7 @@ function RoleRow({
           <RoleSelect
             label={`${role.role} effort`}
             cell={role.effort}
-            options={efforts}
+            options={modelEfforts(role, suggestions, efforts)}
             disabled={busy || !effortOK}
             title={effortOK ? undefined : NO_EFFORT_TITLE}
             onChange={(v) => void run({ [profileKey(role.role, "effort")]: v })}
@@ -910,13 +1135,19 @@ export function SettingsAgentsPanel() {
   const [loadError, setLoadError] = useState("");
   const [warnings, setWarnings] = useState<string[]>([]);
 
+  // Every document — GET or POST — carries the warnings to show with it.
+  const show = useCallback((d: FabConfigDocument) => {
+    setDoc(d);
+    setWarnings(d.installed ? (d.warnings ?? []) : []);
+  }, []);
+
   // Fetched on every mount — the panel only mounts while the tab is visible,
   // so each visit re-reads fab.
   useEffect(() => {
     let cancelled = false;
     getFabConfig()
       .then((d) => {
-        if (!cancelled) setDoc(d);
+        if (!cancelled) show(d);
       })
       .catch((err: unknown) => {
         if (!cancelled) setLoadError(errorMessage(err));
@@ -924,7 +1155,7 @@ export function SettingsAgentsPanel() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [show]);
 
   // Rejects on failure (the calling row shows the message); on success the
   // whole panel re-renders from the fresh document the POST returns.
@@ -937,13 +1168,12 @@ export function SettingsAgentsPanel() {
       // A multi-key write can fail after earlier keys were applied, so re-read
       // fab instead of keeping the pre-write document.
       await getFabConfig()
-        .then(setDoc)
+        .then(show)
         .catch(() => {});
       throw err;
     }
-    setDoc(next);
-    if (next.installed) setWarnings(next.warnings ?? []);
-  }, []);
+    show(next);
+  }, [show]);
 
   // Writes run one at a time: every response is a whole document, so an
   // overlapping older response could otherwise land after a newer one.
