@@ -37,7 +37,7 @@ stage_metrics:
 prs:
     - https://github.com/sahil87/hexokit/pull/1167
 change_type_source: explicit
-base_branch: 261120-7uqm-engine-rescope-pr-work-to-operator
+base_branch: main
 true_impact:
     added: 1058
     deleted: 104
@@ -55,4 +55,4 @@ true_impact:
 summary: 'Operator brief: PR tools back inside the tiers, per-mode Merging section, user/chat notes always shown, no-op runs write no note, new ''rk operator track show'''
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-20T08:27:53Z
+last_updated: 2026-11-20T10:08:12Z
