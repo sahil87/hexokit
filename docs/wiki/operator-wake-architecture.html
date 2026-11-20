@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Operator Wakes on Idle</title>
+<!-- Design proposal, 2026-11-20, from a /fab-discuss session. Figures are from six days of live data
+     (2026-11-14 → 11-20) on four tmux servers: cron logs, run records, ledgers and claude -p transcripts.
+     Predecessor: operator-explained.html (the R5 design). Self-contained; open in a browser. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;700;800&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#EEF1F4; --paper:#FFFFFF; --ink:#16202A; --muted:#5B6773; --line:#CDD5DD; --soft:#E2E7EC;
+  --go:#17834A; --go-soft:#DDF0E4; --you:#B86A00; --you-soft:#F7E8CF; --idle:#7A8590;
+  --ai:#5B4DB8; --ai-soft:#E8E4F7; --cut:#B23A3A; --cut-soft:#F6E0E0;
+  --display:"Schibsted Grotesk","Helvetica Neue",Arial,sans-serif;
+  --body:"Source Serif 4",Georgia,"Times New Roman",serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0E1318; --paper:#151C23; --ink:#E3E8ED; --muted:#97A3AF; --line:#2A343E; --soft:#1C252E;
+    --go:#3CC57A; --go-soft:#14301F; --you:#F0A535; --you-soft:#3A2A10; --idle:#7F8B97;
+    --ai:#A99BF0; --ai-soft:#262040; --cut:#E06C6C; --cut-soft:#3A1C1C;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0E1318; --paper:#151C23; --ink:#E3E8ED; --muted:#97A3AF; --line:#2A343E; --soft:#1C252E;
+  --go:#3CC57A; --go-soft:#14301F; --you:#F0A535; --you-soft:#3A2A10; --idle:#7F8B97;
+  --ai:#A99BF0; --ai-soft:#262040; --cut:#E06C6C; --cut-soft:#3A1C1C;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:18px/1.6 var(--body);padding-block:48px 96px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.frame{max-width:960px;margin:0 auto}
+.col{max-width:66ch}
+h1,h2,h3{font-family:var(--display);letter-spacing:-.015em;text-wrap:balance;margin:0}
+h1{font-weight:800;font-size:clamp(34px,5.4vw,58px);line-height:1.02}
+h2{font-weight:700;font-size:clamp(24px,3vw,30px);line-height:1.15;margin-top:72px;margin-bottom:14px}
+h3{font-weight:700;font-size:18px;margin:0 0 4px}
+p{margin:0 0 16px}
+.kicker{font-family:var(--mono);font-size:12.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:14px}
+.lede{font-size:21px;line-height:1.5;color:var(--muted);margin-top:18px;max-width:58ch}
+code{font-family:var(--mono);font-size:.8em;background:var(--soft);padding:1px 5px;border-radius:3px}
+strong{font-weight:600}
+.small{font-size:15px;color:var(--muted)}
+a{color:inherit}
+
+/* flow diagrams: a vertical spine of nodes, branches as a grid */
+.flow{margin:28px 0 8px;background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:22px 20px;font-family:var(--mono);font-size:13.5px;line-height:1.45}
+.flow .cap{font-family:var(--display);font-size:15px;font-weight:700;letter-spacing:0;margin:0 0 14px;color:var(--muted)}
+.node{border:1px solid var(--line);border-radius:7px;padding:10px 14px;background:var(--bg);position:relative}
+.node b{font-weight:500;display:block;color:var(--ink)}
+.node span{color:var(--muted);display:block}
+.node.go{border-color:var(--go);background:var(--go-soft)} .node.go b{color:var(--go)}
+.node.ai{border-color:var(--ai);background:var(--ai-soft)} .node.ai b{color:var(--ai)}
+.node.you{border-color:var(--you);background:var(--you-soft)} .node.you b{color:var(--you)}
+.node.cut{border-color:var(--cut);background:var(--cut-soft);color:var(--muted)} .node.cut b{color:var(--cut);text-decoration:line-through}
+.node.ghost{border-style:dashed;background:transparent}
+.arrow{text-align:center;color:var(--muted);padding:4px 0;line-height:1}
+.arrow em{font-style:normal;font-size:12px;display:block;margin-top:2px}
+.branches{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.branches .lane{display:flex;flex-direction:column;gap:0}
+.legend{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:16px;font-family:var(--mono);font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px;border:1px solid var(--line)}
+.legend .go i{background:var(--go-soft);border-color:var(--go)} .legend .ai i{background:var(--ai-soft);border-color:var(--ai)} .legend .you i{background:var(--you-soft);border-color:var(--you)} .legend .cut i{background:var(--cut-soft);border-color:var(--cut)}
+
+/* tables */
+table{border-collapse:collapse;width:100%;margin:18px 0 8px;font-size:15.5px;background:var(--paper);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+th,td{text-align:left;vertical-align:top;padding:9px 12px;border-top:1px solid var(--line)}
+th{font-family:var(--display);font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);background:var(--soft);border-top:none}
+td.num{font-family:var(--mono);font-size:13.5px;white-space:nowrap}
+td code{white-space:nowrap}
+.wrap{overflow-x:auto}
+.go-t{color:var(--go)} .ai-t{color:var(--ai)} .cut-t{color:var(--cut)}
+
+/* callouts */
+.stat{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin:22px 0 6px}
+.stat div{border-top:2px solid var(--ink);padding-top:10px}
+.stat .n{font-family:var(--display);font-size:34px;font-weight:800;line-height:1;display:block;margin-bottom:6px}
+.stat p{font-size:15px;color:var(--muted);margin:0}
+.never{margin-top:22px;padding:14px 18px;border:1px solid var(--you);background:var(--you-soft);border-radius:8px;max-width:66ch;font-size:16.5px}
+.rule{margin-top:22px;padding:14px 18px;border:1px solid var(--go);background:var(--go-soft);border-radius:8px;max-width:66ch;font-size:17px}
+ol.steps{padding-left:22px} ol.steps li{margin-bottom:10px}
+.log{margin:18px 0;background:var(--paper);border:1px solid var(--line);border-radius:8px;font-family:var(--mono);font-size:12.5px;overflow:hidden}
+.log .r{display:grid;grid-template-columns:11ch 1fr;gap:10px;padding:8px 14px;border-top:1px solid var(--line)}
+.log .r:first-child{border-top:none}
+.log .r.sub{background:var(--soft);padding-left:28px;color:var(--muted)}
+.log .t{color:var(--muted)}
+@media (max-width:560px){.log .r{grid-template-columns:1fr}}
+.log .r.manual .t{color:var(--you)} .log .chip{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--muted);margin-left:6px;vertical-align:1px}
+.log .chip.you{color:var(--you);border-color:var(--you);background:var(--you-soft)}
+.band{margin:18px 0;border:1px solid var(--you);background:var(--you-soft);border-radius:8px;overflow:hidden;font-family:var(--mono);font-size:12.5px}
+.band .h{padding:7px 14px;font-family:var(--display);font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--you);border-bottom:1px solid var(--you)}
+.band .r{display:grid;grid-template-columns:9ch 1fr auto;gap:10px;padding:8px 14px;border-top:1px solid var(--line);align-items:center;background:var(--paper)}
+.band .r:nth-child(2){border-top:none}
+.band .btn{font-size:11.5px;padding:2px 9px;border:1px solid var(--line);border-radius:4px;color:var(--ink);white-space:nowrap}
+@media (max-width:560px){.band .r{grid-template-columns:1fr}}
+.strip{display:flex;gap:4px;margin:18px 0 6px;font-family:var(--mono);font-size:12.5px}
+.strip span{padding:5px 12px;border:1px solid var(--line);border-radius:5px;color:var(--muted);background:var(--paper)}
+.strip span.on{color:var(--ink);border-color:var(--ink)}
+.strip .sp{flex:1;border:none;background:transparent;padding:0}
+.strip .btn{color:var(--go);border-color:var(--go);background:var(--go-soft)}
+</style>
+</head>
+<body>
+<div class="frame">
+<div class="col">
+  <div class="kicker">Design proposal · 2026-11-20 · supersedes the loop half of operator-explained.html · plan: <code>fab/plans/sahil/26-11-20-operator-triggers.md</code></div>
+  <h1>The operator wakes on idle.</h1>
+  <p class="lede">No regular tick. A free Go check runs whenever an agent stops, and the operator — an AI run with a full toolset — is started only when the next step needs judgment. The autopilot keeps the queue; everything about PRs goes back to the operator.</p>
+</div>
+
+<h2>As built today (2026-11-20)</h2>
+<div class="col"><p>What runs after R1–R6c. The loop became three layers: the clock, a Go check, and a Go rule table that acts on PRs before a model is consulted.</p></div>
+<div class="flow">
+  <p class="cap">Today</p>
+  <div class="node you"><b>30 s daemon tick → loop entry due?</b><span>backoff 3m→24m climbs on consecutive "no change" · OR wake: any pane on the server → idle / waiting / vanished (60 s debounce)</span></div>
+  <div class="arrow">↓</div>
+  <div class="node go"><b>operator.Check — Go, $0</b><span>one pane snapshot + proctree walk · shell / gh probes · edge-triggered diff against each item's <code>reported</code></span></div>
+  <div class="arrow">↓ <em>changed</em></div>
+  <div class="node go"><b>run window (tmux) → autopilot.Step — Go rule table</b><span>Q: readiness · spawn · respawn · completion · stall &nbsp;|&nbsp; P/B/C/F: ready · arm · merge · restack · ci-fix · rebase · halt · disarm</span></div>
+  <div class="arrow">↓ <em>judgment set non-empty</em></div>
+  <div class="node ai"><b>claude -p (Sonnet 5.5, medium) with the brief on stdin</b><span>tools: track verbs · mux capture/send · notify · autopilot queue/step/status · read-only git/gh — no git or gh writes</span></div>
+  <div class="arrow">↓</div>
+  <div class="node"><b>notes on items · <code>outcome:</code> line → Cron Log row</b></div>
+  <div class="legend"><span class="you"><i></i>clock</span><span class="go"><i></i>Go, deterministic</span><span class="ai"><i></i>AI run</span></div>
+</div>
+
+<h2>What six days of live data showed</h2>
+<div class="col"><p>Four servers, 2026-11-14 → 11-20: 2,110 loop fires, 168 model runs, 66 failed runs. The quiet-tick problem is solved — 87% of fires are a free <code>no change</code>, and idle servers settle at the 24-minute rung. The waste moved one layer down.</p></div>
+<div class="stat">
+  <div><span class="n">75%</span><p>of model runs did nothing: "idle only briefly mid-run, worker active, sent nothing, note recorded". 36 of 39 <code>agent_state</code> wakes.</p></div>
+  <div><span class="n">32 s</span><p>median idle age at those runs; 48 of 56 under a minute. A fab-fff parent goes idle between every stage while its worker pane runs.</p></div>
+  <div><span class="n">0</span><p>PRs auto-merge-armed. <code>gh repo view --json autoMergeAllowed</code> is not a valid field on gh 2.103; every waiting PR escalated once instead.</p></div>
+  <div><span class="n">62</span><p>failed runs in 12 h when <code>claude -p</code> lost its OAuth token. Each failure resets the ladder to 3 min and pushes a notification.</p></div>
+</div>
+<div class="col">
+  <p>Two more findings sit underneath: every tracked pane has <code>scope.stage: null</code> because the check only ever <em>diffs</em> a stage baseline and never seeds one, so the stall detector reported "stage (unknown) over 30m" on agents that were running normally; and 74 of 118 run notes are no-op observations, which have already pushed three of your own notes below the brief's newest-ten window on loom.</p>
+  <p>Cost: 163 real runs at ≈ 203K input tokens each (38K written to cache, 164K read back), ≈ 33M tokens in total against the old operator's ≈ 840M. The goal is met by a wide margin even though each run is three to four times fatter than the 10–15K brief it was planned around — most of the extra is the run re-reading the whole ledger with <code>track list --json</code>.</p>
+</div>
+
+<h2>The rule</h2>
+<div class="rule"><strong>Never wake the operator on a clock.</strong> Wake it when an agent becomes idle — meaning its work has actually stopped — or asks a question, and only when the next step cannot be decided mechanically. Everything the Go side still does must be cheap, deterministic, and visible.</div>
+<div class="col">
+  <p>Idle is the word that needs defining. Today it is the parent pane's own state, and a fab-fff parent is idle for thirty seconds between every stage while the worker it dispatched runs in the next pane. The check already sees both panes in one snapshot.</p>
+</div>
+<div class="wrap"><table>
+<tr><th>Observed</th><th>Means</th><th>Wakes the operator?</th></tr>
+<tr><td><code>waiting</code> — a prompt is open</td><td>the agent asked something</td><td class="go-t"><strong>Yes, at once.</strong> Routine prompts are answered; strategic ones get the defensible pick or you.</td></tr>
+<tr><td><code>idle</code>, and another pane in the same window or worktree is <code>active</code></td><td>waiting on a worker it dispatched</td><td><strong>No.</strong> Not an edge; the baseline advances silently.</td></tr>
+<tr><td><code>idle</code>, nothing else active, held past a short floor (2–5 min)</td><td>the agent is done or stuck</td><td class="go-t"><strong>Yes.</strong> This is the wake the rule is about.</td></tr>
+<tr><td><code>idle</code> held 30 min after that wake</td><td>the run's answer did not move it</td><td class="go-t">Once more per stretch (the existing <code>aged</code> condition).</td></tr>
+<tr><td>pane gone · agent exited · PR / probe field changed</td><td>a fact changed with no agent edge</td><td>Only through the free check, which keeps polling on its own ladder — no agent involved.</td></tr>
+</table></div>
+<div class="col"><p class="small">On the data above, this definition removes roughly nine of every ten model runs and nearly all no-op notes, and changes nothing about when a prompt is answered.</p></div>
+
+<h2>Proposed architecture</h2>
+<div class="flow">
+  <p class="cap">Proposed</p>
+  <div class="branches">
+    <div class="lane">
+      <div class="node you"><b>trigger: an agent stops</b><span>→ waiting, or → idle with nothing dispatched and past the floor · pane vanished · agent exited</span></div>
+    </div>
+    <div class="lane">
+      <div class="node you"><b>trigger: a PR event</b><span>GitHub webhook relayed by <code>gh webhook forward</code> → <code>rk operator wake --reason pr:…</code> · falls back to the clock where webhooks can't reach</span></div>
+    </div>
+    <div class="lane">
+      <div class="node you"><b>trigger: you</b><span>a <code>by: user</code> / <code>chat</code> note newer than the item's last run note · <strong>Check now</strong> (reason <code>manual</code>) · chat itself acts at once and never gets ticks</span></div>
+    </div>
+    <div class="lane">
+      <div class="node you"><b>trigger: the clock — backstop</b><span>backoff 3m→24m on "no change" · catches shell probes, due agent items, and anything the other triggers missed · never a reason by itself, only a fact it finds</span></div>
+    </div>
+  </div>
+  <div class="arrow">↓ <em>every trigger enters the same door; a false trigger costs one free check</em></div>
+  <div class="node go"><b>operator.Check — Go, $0</b><span>window-aware idle · seeds and diffs stage · edge-triggered · every result written to Activity with the trigger that caused it</span></div>
+  <div class="arrow">↓ <em>changed</em></div>
+  <div class="node go"><b>queue engine — Go, kept small</b><span>readiness → fetch-first SHA-pinned spawn → one respawn → completion → next item. Nothing about PRs. Escalates only what it cannot do.</span></div>
+  <div class="arrow">↓ <em>anything left that needs a decision</em></div>
+  <div class="node ai"><b>operator run — AI, full toolset</b><span>answers prompts · nudges · advances a ready intake · merges, restacks, resolves conflicts, fixes CI (within the confirmation tiers) · writes a note only when it did something</span></div>
+  <div class="arrow">↓</div>
+  <div class="node"><b>notes · outcome · brief · run log → Operator Log, all in the drawer</b></div>
+  <div class="arrow" style="padding-top:14px">removed</div>
+  <div class="branches">
+    <div class="lane"><div class="node cut"><b>rule-table rows P4–P7, B1–B2, C1–C6, F1</b><span>ready · arm · merge · restack · ci-fix · rebase · halt-cone · disarm retries · fix items</span></div></div>
+    <div class="lane"><div class="node cut"><b>stall detector Q6a on "stage unknown"</b><span>replaced by the idle wake + the stage baseline that now exists</span></div></div>
+    <div class="lane"><div class="node cut"><b>brief diet of git/gh writes</b><span>the operator gets git, gh, wt back; the destructive tier still needs <code>merge-auto</code> or you</span></div></div>
+  </div>
+  <div class="legend"><span class="you"><i></i>trigger</span><span class="go"><i></i>Go, deterministic</span><span class="ai"><i></i>AI run</span><span class="cut"><i></i>removed</span></div>
+</div>
+
+<h2>Triggers</h2>
+<div class="col">
+  <p>A trigger decides <em>when</em> to look; the check decides <em>what changed</em>. Because the check is edge-triggered and idempotent, a duplicate or spurious trigger costs one free Go check and a missed one is caught by the clock. That contract is what makes a new trigger source cheap to add and safe to get slightly wrong — none of them touches the run logic.</p>
+  <p>Every trigger enters through one door: <code>rk operator wake -L &lt;server&gt; --reason &lt;why&gt;</code>. The verb needs no daemon port — it writes a one-line marker under <code>cron/&lt;slug&gt;.wake</code>, the next 30 s tick consumes it and fires the loop with that reason, and the row lands in Activity. A hook can fire while the daemon is restarting without losing the trigger (Constitution II).</p>
+</div>
+<div class="wrap"><table>
+<tr><th>Trigger</th><th>Mechanism</th><th>Latency</th><th>Status</th></tr>
+<tr><td>An agent stops or asks</td><td>the 30 s tick fingerprints <code>@rk_pane_agent_state</code> across the server; with the idle definition above</td><td>≤ 30 s</td><td class="go-t">exists; redefine idle. The daemon's tmux control-mode subscription could make it a true event later — same door.</td></tr>
+<tr><td>A PR event</td><td><code>gh webhook forward</code> (the <code>cli/gh-webhook</code> extension) relays repo webhooks — <code>pull_request</code>, <code>check_suite</code>, <code>pull_request_review</code> — to a small local receiver in a sibling tmux session (<code>rk-gh-hooks</code>, like <code>rk-openai-mcp</code>), which maps <code>owner/repo#n</code> to the servers tracking that PR and calls the door with <code>pr:&lt;nwo&gt;#&lt;n&gt;</code></td><td>seconds</td><td class="ai-t">new, <strong>opportunistic</strong>: the forwarder creates a real repo hook, so it needs admin — if the account can add one, it does; if not, the clock picks the change up a few minutes later and nothing else is built (spike: <code>fab/plans/sahil/26-11-20-t8-spike-gh-webhook.md</code>). While an agent is still attached, <code>/git-pr</code>'s <code>gh pr checks --watch</code> already surfaces CI as an agent edge.</td></tr>
+<tr><td>You</td><td>a note from Tasks or chat is a condition the check reports; <strong>Check now</strong> calls the door with <code>manual</code></td><td>≤ 30 s</td><td class="ai-t">new</td></tr>
+<tr><td>The clock</td><td>the loop entry's ladder, 3→24 min on consecutive "no change"</td><td>≤ 24 min</td><td class="go-t">exists; the backstop for shell probes, due agent items, and anything a trigger missed</td></tr>
+<tr><td>Anything else</td><td>any process that can run <code>rk</code> — a fab stage hook, a CI step with a tunnel, a Slack bot — calls the door with its own reason</td><td>—</td><td class="small">open by construction; no code per source</td></tr>
+</table></div>
+
+<h2>Who does what</h2>
+<div class="col"><p>The split follows one test: is the next step unambiguous? Spawning the next queue item after its dependency finished is; merging a stack with a conflict in the middle is not.</p></div>
+<div class="wrap"><table>
+<tr><th>Job</th><th>Today</th><th>Proposed</th><th>Why</th></tr>
+<tr><td>Notice something changed</td><td class="go-t">Go check</td><td class="go-t">Go check</td><td>Free, deterministic, already correct apart from the idle definition and the stage seed.</td></tr>
+<tr><td>Queue: readiness, spawn, respawn, completion, chaining code</td><td class="go-t">Go engine</td><td class="go-t">Go engine</td><td>One right answer; makes "item done → next starts" cost nothing; its bugs were ordinary and are fixed.</td></tr>
+<tr><td>Ready a draft, arm auto-merge, merge green</td><td class="go-t">Go rows P4/P6/P7</td><td class="ai-t">Operator</td><td>Arming never worked here; a run per PR event is rare and cheap; the operator already reads the PR anyway.</td></tr>
+<tr><td>Restack a stacked PR after its predecessor merges</td><td class="go-t">Go row B1 + executor</td><td class="ai-t">Operator</td><td>Halts on the first conflict by design; the operator resolves the conflict instead. The executor may stay as a verb it can choose.</td></tr>
+<tr><td>CI red, merge conflict</td><td class="go-t">Go rows C1–C6, fix items</td><td class="ai-t">Operator</td><td>Too many outcomes to enumerate; this is where judgment pays.</td></tr>
+<tr><td>Stuck agent, open prompt, intake ready</td><td class="ai-t">Operator</td><td class="ai-t">Operator</td><td>Unchanged.</td></tr>
+<tr><td>Halt, disarm, stop</td><td class="go-t">Go</td><td class="ai-t">Operator + you</td><td>With nothing armed by Go there is nothing to disarm; <code>autopilot stop</code> keeps pausing spawns.</td></tr>
+</table></div>
+<div class="never">Unchanged guardrails: merge, close, delete branch or worktree stay in the destructive tier — the operator does them only under <code>merge-auto</code> for that queue or on your word in chat. A failed run still leaves a note.</div>
+
+<h2>Surfaces: everything the operator does is visible</h2>
+<div class="col">
+  <p>Today a wake and a scheduled fire both render in the Cron Log as <code>operator loop · no change</code>; the columns are entry, outcome, when. On loom that is 738 of the tab's 848 rows — the operator's real activity is drowned in its own heartbeat, in a table built for a different purpose. What the check probed, which pane woke it, what the mechanical pass did, and what the run was told live only in files under <code>$XDG_STATE_HOME/hexokit/</code>; the drawer shows a run's log <em>path</em>, copyable, never its contents.</p>
+  <p>The drawer keeps four segments. Each answers one question — <em>talk to it · what is it tracking · what has it done · what else is scheduled</em> — and the only button that starts anything is <strong>Check now</strong>.</p>
+</div>
+<div class="strip"><span>Terminal</span><span>Tasks</span><span class="on">Activity</span><span>Cron</span><span class="sp"></span><span class="btn">Check now</span></div>
+<div class="wrap"><table>
+<tr><th>Tab</th><th>Shows</th><th>Delta from today</th></tr>
+<tr><td><strong>Terminal</strong></td><td>the chat session</td><td>unchanged (the <code>Operator</code> prefix is dropped everywhere — the drawer <em>is</em> the operator)</td></tr>
+<tr><td><strong>Tasks</strong></td><td>the ledger — items, notes, a note composer — with a <strong>Needs you</strong> band on top: open escalations and unanswered prompts, each with the one action wanted</td><td>adds the band (the read it needs already rides the sessions payload); writing a note calls wake</td></tr>
+<tr><td><strong>Activity</strong></td><td>the operator log: one row per fire with its reason, a check summary, and the run — expanding to the brief and the run log inline; filter chips <code>runs · wakes · all</code>; the staleness banner; <strong>Check now</strong></td><td>new — takes the loop's rows out of Cron</td></tr>
+<tr><td><strong>Cron</strong></td><td>registry and deliveries of everything that is not the loop, in one tab; loop rows behind a toggle</td><td>Cron List + Cron Log collapsed into one</td></tr>
+</table></div>
+
+<h3 style="margin-top:28px">Activity</h3>
+<div class="log">
+  <div class="r manual"><span class="t">05:31:10</span><span>manual · Check now · check: 5 items, 1 change (note@05:30 on scr-s1) · run 05:31-r7dd · <strong>merged PR #5686 after your note</strong> · 58 s</span></div>
+  <div class="r sub"><span class="t">brief</span><span>scr-s1 · pane · new user note: "merge once green, squash" — 1 affected item, 4 notes shown ▸ open</span></div>
+  <div class="r sub"><span class="t">run log</span><span>rk operator track list · gh pr checks 5686 → green · gh pr merge 5686 --squash · rk operator track note ▸ open</span></div>
+  <div class="r"><span class="t">05:26:52</span><span>wake · %242 → idle (3m, nothing dispatched) · check: 5 items, 1 change · run 05:27-x1a2 · <strong>advanced scr-s1 /fab-fff</strong> · 41 s</span></div>
+  <div class="r sub"><span class="t">brief</span><span>scr-s1 · pane · agent_state active→idle (3m) — 2 affected items, 6 notes shown ▸ open</span></div>
+  <div class="r sub"><span class="t">run log</span><span>rk operator track list · rk mux capture %242 · rk mux send %242 "/fab-fff 261117-jo23" → delivered · rk operator track note ▸ open</span></div>
+  <div class="r"><span class="t">05:02:38</span><span>wake · %247 → idle (18 s, worker of %242) · <span class="t">not a wake: parent still active</span></span></div>
+  <div class="r"><span class="t">04:38:08</span><span>schedule · rung 3 (24m) · check: 5 items, 0 changes, 2 open (agent:idle step6c · done s6c-0-pr) · <strong>no change</strong></span></div>
+  <div class="r"><span class="t">04:14:08</span><span>schedule · rung 2 (12m) · check: gh unavailable (timeout) · notice, no run</span></div>
+  <div class="r"><span class="t">03:50:08</span><span>wake · %242 → waiting · run 03:50-k9pq · <strong>answered select menu ↓ Enter</strong> · 29 s · <span class="t">then idle 30m → re-woke 04:20</span></span></div>
+</div>
+<div class="col">
+  <p>Behind a row: the check result (changes, open conditions, notices) is persisted beside the run record on <em>every</em> fire, not only on a change; the wake cursor's "ignored" and "debounced" diagnostics become rows instead of debug-level log lines; the entry sheet's run block serves the brief and the run log inline. The cron log file stays the single source — Activity is a reader joined from three files, not a second log. No live "next check in 12 m" countdown here: the Cron tab's registry row already derives it, and a countdown pulls the eye back to the clock.</p>
+</div>
+
+<h3 style="margin-top:28px">Tasks · Needs you</h3>
+<div class="band">
+  <div class="h">Needs you · 2</div>
+  <div class="r"><span>scr-s1</span><span>review 4 failed — agent is waiting for your "go" in %242 to regenerate two eslint snapshots</span><span class="btn">open pane</span></div>
+  <div class="r"><span>pr-1154</span><span>CONFLICTING with main; needs a rebase by its owner, or say "operator: rebase it"</span><span class="btn">note…</span></div>
+</div>
+<div class="col">
+  <p>The band is the inbox the plan has been missing: every <code>escalated:</code> note and every unanswered <code>waiting</code> prompt, each with its one wanted action, cleared when the condition clears. Below it the ledger is as today.</p>
+</div>
+
+<h3 style="margin-top:28px">Check now, and the trap</h3>
+<div class="col">
+  <p>There is no manual fire today (<code>rk cron tick</code> only fires due entries). The obvious implementation — call <code>rk operator check</code> — is wrong: the check <strong>consumes the edges it reports</strong>, so a bare check run outside the loop swallows a change and the next loop fire reads "no change". The button goes through the loop runner: <code>POST /api/operator/wake</code> → a fire with reason <code>manual</code> → check → run if changed → one log line like any other fire; the busy gate applies ("run in progress, will check after"). The same verb on the CLI, <code>rk operator wake -L &lt;server&gt;</code>, and the same path the note composer uses. No separate "force a run": with notes as edges, Check now covers every case where you want the operator to look, and a forced run with nothing changed is exactly the paid no-op this removes.</p>
+</div>
+
+<h2>Change list, smallest first</h2>
+<div class="col"><ol class="steps">
+  <li><strong>Idle, defined.</strong> In <code>operator.Check</code>: an idle pane with an active sibling in its window or worktree is not idle; a bare idle must hold past a floor before it is a condition. Prompts stay immediate. (The cost win.)</li>
+  <li><strong>Seed the stage baseline</strong> in <code>trackStage</code> so <code>stage_advance</code> / <code>review_fail</code> fire and nothing reads "stage (unknown)" again.</li>
+  <li><strong>Failures climb, not reset.</strong> Consecutive <code>run-failed</code> lines move the ladder up like <code>no change</code>; one notification per streak, not per run.</li>
+  <li><strong>Re-scope the engine.</strong> Delete rows P4–P7, B1–B2, C1–C6, F1 and their executors (or demote <code>restack</code> / <code>rebase</code> to verbs); keep X/Q rows, the pass lock and the engine file. Drop Q6a.</li>
+  <li><strong>Give the operator its tools back.</strong> The brief's rules and allowlist regain git, gh and wt within the tiers; the merge section returns as prose for the three modes.</li>
+  <li><strong>Brief diet.</strong> The run stops dumping the whole ledger; a run that did nothing writes no note (or an observation the brief's ten-note window skips), so your notes never fall off.</li>
+  <li><strong>The trigger door.</strong> <code>rk operator wake --reason</code> writes the marker the tick consumes; the loop fire carries the reason; the check result is persisted on every fire; a user/chat note newer than the item's last run note is a condition. Check now and the PR receiver both call it.</li>
+  <li><strong>PR trigger.</strong> <code>gh webhook forward</code> in a sibling session plus the local receiver that maps PR events to the door; opt-in per repo, clock as fallback.</li>
+  <li><strong>Surfaces.</strong> The drawer becomes Terminal · Tasks (with the Needs-you band) · Activity (reason, check summary, run with brief and log inline, Check now) · Cron (list and log merged, loop rows behind a toggle); the mobile operator route mirrors the strip through <code>?tab=</code>.</li>
+  <li><strong>Housekeeping.</strong> Remove the muted legacy <code>operator tick</code> entries on all four servers.</li>
+</ol></div>
+
+<h2>Decisions and open questions</h2>
+<div class="wrap"><table>
+<tr><th>Decision</th><th>Choice</th><th>Why</th></tr>
+<tr><td>Regular tick</td><td>Gone for the agent; the Go poll stays</td><td>The poll is what notices a PR or probe change with no agent edge, and it costs nothing.</td></tr>
+<tr><td>Idle floor</td><td>Window-aware first; a 2–5 min floor as the fallback</td><td>The window rule is derivable from one snapshot (Constitution X); the floor covers an agent with no worker pane.</td></tr>
+<tr><td>PR work</td><td>Operator, with the engine's executors available as verbs</td><td>Judgment where the outcome space is wide; a deterministic helper where the operator wants one.</td></tr>
+<tr><td>Queue work</td><td>Stays in Go</td><td>Unambiguous next step; what makes the idle wake cheap.</td></tr>
+<tr><td>Operator log vs cron log</td><td>Separate views over one file</td><td>Cron is the substrate's delivery log for every entry; Activity is the consumer's view joined with check results and run records. Merging them left the operator's work invisible under its own heartbeat.</td></tr>
+<tr><td>Triggers vs the check</td><td>Triggers say when; the check says what</td><td>A false trigger is one free check and a missed one is caught by the clock, so trigger sources can be added without touching run logic.</td></tr>
+<tr><td>Trigger door</td><td>A file marker consumed by the tick, never a bare check and never an HTTP dependency</td><td>The check consumes the edges it reports, so a bare check outside the loop swallows a change without a run; a marker file survives a daemon restart.</td></tr>
+<tr><td>PR events</td><td><code>gh webhook forward</code> where the account is admin on the repo; the clock otherwise, with nothing else built</td><td>The hook only saves the minutes to the next scheduled check and is never required for correctness; a missing permission is a doctor row, not a feature.</td></tr>
+<tr><td>Force a run</td><td>Not offered</td><td>Notes as edges make Check now sufficient; a forced run with nothing changed is the paid no-op being removed.</td></tr>
+<tr><td>Drawer strip</td><td>Stays at four segments</td><td>One added (Activity), two merged (Cron); Principle IV.</td></tr>
+<tr><td>Open: run model</td><td>Sonnet 5.5 medium until M1 says otherwise</td><td>Runs with git and gh in hand may want a stronger model for conflict resolution; measure first.</td></tr>
+<tr><td>Open: observation notes</td><td>Skip them, or keep but hide from the brief</td><td>Skipping loses the "I looked and it was fine" trail; hiding keeps it off the model's plate.</td></tr>
+</table></div>
+
+</div>
+</body>
+</html>
