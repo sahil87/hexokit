@@ -8,8 +8,8 @@ progress:
     intake: done
     apply: done
     review: done
-    hydrate: active
-    ship: pending
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
@@ -32,23 +32,25 @@ stage_metrics:
     intake: {started_at: "2026-11-20T12:16:04Z", driver: fab-new, iterations: 1, completed_at: "2026-11-20T12:18:57Z"}
     apply: {started_at: "2026-11-20T12:18:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T12:43:22Z"}
     review: {started_at: "2026-11-20T12:43:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T12:55:16Z"}
-    hydrate: {started_at: "2026-11-20T12:55:16Z", driver: fab-fff, iterations: 1}
+    hydrate: {started_at: "2026-11-20T12:55:16Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T13:01:30Z"}
+    ship: {started_at: "2026-11-20T13:01:30Z", driver: fab-fff, iterations: 1}
 prs: []
 base_branch: main
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 2557
+    deleted: 393
+    net: 2164
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1919
+        deleted: 392
+        net: 1527
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-11-20T12:43:22Z"
-    computed_at_stage: apply
+        added: 623
+        deleted: 174
+        net: 449
+    computed_at: "2026-11-20T13:01:30Z"
+    computed_at_stage: hydrate
+summary: Operator Tasks Needs-you band and note composer (POST /api/operator/notes); Cron List + Cron Log merged into one Cron segment; ?tab=terminal|tasks|activity|cron with log/list → cron normalization
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-20T12:55:16Z
+last_updated: 2026-11-20T13:01:30Z

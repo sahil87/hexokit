@@ -236,7 +236,7 @@ Every daemon-originated write is durable before a run launches, and the daemon h
 
 ### Activity is a view over existing files, not a second log
 **Decision**: Activity joins the cron log's loop lines with check records and run records at request time; the cron log stays the single delivery log and the loop's `no change` outcome gains a fire id so its check record can be named.
-**Why**: The cron log is the one delivery log (Constitution II — durable files, the daemon derives); a separate operator log would duplicate lines and drift. The loop's rows are drowned in the Cron Log by heartbeats, so the loop gets its own view of the same file rather than its own file.
+**Why**: The cron log is the one delivery log (Constitution II — durable files, the daemon derives); a separate operator log would duplicate lines and drift. The loop's rows are drowned in the Cron segment's deliveries by heartbeats, so the loop gets its own view of the same file rather than its own file.
 **Rejected**: A dedicated operator activity log written beside the cron log (two writers of one fact); guessing a `no change` line's check record by timestamp.
 *Introduced by*: 261120-ny0u-operator-activity-tab-check-now
 
