@@ -167,45 +167,49 @@ A row's effort options SHALL be, in order of preference: (1) the `efforts` of th
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `Read` runs `agent models --json` once and fills `ModelSuggestions` as `[]ModelSuggestion` with label/efforts/default, every tool keyed
-- [ ] A-002 R2: `provider`-keyed rows are read, reserved rows excluded, duplicate ids dropped, fab order kept
-- [ ] A-003 R3: a failing or malformed discovery falls back to the fill scan with no warning
-- [ ] A-004 R4: discovery is started concurrently with the config reads and not run when fab is absent
-- [ ] A-005 R5: discovery warnings appear in `Warnings` on Read; Apply returns write warnings then discovery warnings
-- [ ] A-006 R6: `FabModelSuggestion` type exists and the SPA type-checks
-- [ ] A-007 R7: native options show `label · id`, id alone when unlabeled, and ` · tool default` on the default
-- [ ] A-008 R8: above 30 suggestions the cell is a searchable list meeting R8's open/filter/keyboard/Escape rules
-- [ ] A-009 R9: stale-pin detection compares ids of the discovered list
-- [ ] A-010 R10: effort options follow model → tool set → global, with H2's disabled state intact
-- [ ] A-011 R11: tool-change patch keeps model by id and effort by the new tool's set
-- [ ] A-012 R12: GET warnings render on load
-- [ ] A-013 R13: e2e stub and spec cover object suggestions and the searchable list
+- [x] A-001 R1: `Read` runs `agent models --json` once and fills `ModelSuggestions` as `[]ModelSuggestion` with label/efforts/default, every tool keyed
+- [x] A-002 R2: `provider`-keyed rows are read, reserved rows excluded, duplicate ids dropped, fab order kept
+- [x] A-003 R3: a failing or malformed discovery falls back to the fill scan with no warning
+- [x] A-004 R4: discovery is started concurrently with the config reads and not run when fab is absent
+- [x] A-005 R5: discovery warnings appear in `Warnings` on Read; Apply returns write warnings then discovery warnings
+- [x] A-006 R6: `FabModelSuggestion` type exists and the SPA type-checks
+- [x] A-007 R7: native options show `label · id`, id alone when unlabeled, and ` · tool default` on the default
+- [x] A-008 R8: above 30 suggestions the cell is a searchable list meeting R8's open/filter/keyboard/Escape rules
+- [x] A-009 R9: stale-pin detection compares ids of the discovered list
+- [x] A-010 R10: effort options follow model → tool set → global, with H2's disabled state intact
+- [x] A-011 R11: tool-change patch keeps model by id and effort by the new tool's set
+- [x] A-012 R12: GET warnings render on load
+- [x] A-013 R13: e2e stub and spec cover object suggestions and the searchable list
 
 ### Scenario Coverage
 
-- [ ] A-014 R8: a unit test opens the searchable list with a saved override and sees every suggestion (the H1 regression, searchable variant)
-- [ ] A-015 R3: a Go test covers the non-zero-exit fallback and the malformed-JSON fallback
+- [x] A-014 R8: a unit test opens the searchable list with a saved override and sees every suggestion (the H1 regression, searchable variant)
+- [x] A-015 R3: a Go test covers the non-zero-exit fallback and the malformed-JSON fallback
 
 ### Edge Cases & Error Handling
 
-- [ ] A-016 R2: a tool absent from discovery output still maps to `[]`; rows for unknown tools are ignored
-- [ ] A-017 R10: an effective model empty (tool default) uses the `default: true` suggestion's efforts
+- [x] A-016 R2: a tool absent from discovery output still maps to `[]`; rows for unknown tools are ignored
+- [x] A-017 R10: an effective model empty (tool default) uses the `default: true` suggestion's efforts
 
 ### Code Quality
 
-- [ ] A-018 Pattern consistency: new code follows the naming and structural patterns of `fabsysconfig.go` and `settings-agents-panel.tsx`
-- [ ] A-019 No unnecessary duplication: `warningLines`, `useTextSettingDraft`, `CustomModelInput`, `modelOptions` are reused rather than re-implemented
-- [ ] A-020: Subprocess calls stay argv-slice `exec.CommandContext` with the `FabTimeout` bound (Runner seam)
-- [ ] A-021: Magic values are named constants (`SEARCHABLE_MODEL_THRESHOLD`, the separator, the marker, the reserved source)
-- [ ] A-022: Frontend uses type narrowing rather than `as` casts for the option kinds
-- [ ] A-023: No comment narration or change IDs in code comments
-- [ ] A-024: Go tests, `tsc --noEmit`, unit tests and the affected e2e spec pass
+- [x] A-018 Pattern consistency: new code follows the naming and structural patterns of `fabsysconfig.go` and `settings-agents-panel.tsx`
+- [x] A-019 No unnecessary duplication: `warningLines`, `useTextSettingDraft`, `CustomModelInput`, `modelOptions` are reused rather than re-implemented
+- [x] A-020: Subprocess calls stay argv-slice `exec.CommandContext` with the `FabTimeout` bound (Runner seam)
+- [x] A-021: Magic values are named constants (`SEARCHABLE_MODEL_THRESHOLD`, the separator, the marker, the reserved source)
+- [x] A-022: Frontend uses type narrowing rather than `as` casts for the option kinds
+- [x] A-023: No comment narration or change IDs in code comments
+- [x] A-024: Go tests, `tsc --noEmit`, unit tests and the affected e2e spec pass
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+None — this change adds new functionality without making existing code redundant. The fill scan (`modelSuggestions` in `app/backend/internal/fabsysconfig/fabsysconfig.go`) is still the live fallback for a fab without `agent models`; it becomes deletable only once hexokit stops supporting fab older than the verb's release.
 
 ## Assumptions
 

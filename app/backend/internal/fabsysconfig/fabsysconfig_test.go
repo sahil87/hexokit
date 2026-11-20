@@ -547,15 +547,23 @@ func TestApply_surfacesFabWarnings(t *testing.T) {
 }
 
 // Concurrent Applies (the API builds a Client per request) must not interleave
-// their fab calls: fab rewrites the whole system file without a lock. The
-// read-only discovery call is exempt — it runs alongside the config reads.
+// their set/unset calls: fab rewrites the whole system file without a lock.
+// Read-only calls are exempt — the post-write re-read and its discovery run
+// outside the lock, as a plain GET does.
 func TestApply_serializesAcrossClients(t *testing.T) {
 	show := showJSON(baseRows()...)
 	var mu sync.Mutex
 	inFlight, maxInFlight := 0, 0
 	run := func(_ context.Context, argv ...string) ([]byte, []byte, error) {
-		if strings.Join(argv, " ") == "agent models --json" {
+		joined := strings.Join(argv, " ")
+		if joined == "agent models --json" {
 			return nil, nil, errors.New("exit 1")
+		}
+		if !strings.HasPrefix(joined, "config set ") && !strings.HasPrefix(joined, "config unset ") {
+			if joined == "config show --origin --json" {
+				return []byte(show), nil, nil
+			}
+			return []byte("[]"), nil, nil
 		}
 		mu.Lock()
 		inFlight++
@@ -565,10 +573,7 @@ func TestApply_serializesAcrossClients(t *testing.T) {
 		mu.Lock()
 		inFlight--
 		mu.Unlock()
-		if strings.Join(argv, " ") == "config show --origin --json" {
-			return []byte(show), nil, nil
-		}
-		return []byte("[]"), nil, nil
+		return nil, nil, nil
 	}
 	var wg sync.WaitGroup
 	for _, body := range []string{`{"agent.workers":"codex"}`, `{"dispatch.mode":"native"}`} {
@@ -582,7 +587,7 @@ func TestApply_serializesAcrossClients(t *testing.T) {
 	}
 	wg.Wait()
 	if maxInFlight != 1 {
-		t.Errorf("max concurrent fab calls = %d, want 1", maxInFlight)
+		t.Errorf("max concurrent set/unset calls = %d, want 1", maxInFlight)
 	}
 }
 
@@ -810,6 +815,7 @@ func TestRead_discoveryFailureFallsBackToFillsSilently(t *testing.T) {
 		"non-zero exit":  "",
 		"malformed json": "not json",
 		"not an array":   `{"cli":"claude"}`,
+		"json null":      "null",
 	}
 	for name, models := range cases {
 		t.Run(name, func(t *testing.T) {

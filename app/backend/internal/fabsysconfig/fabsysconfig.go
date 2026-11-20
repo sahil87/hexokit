@@ -569,7 +569,8 @@ func (c *Client) discoverModels(ctx context.Context) discovery {
 		return discovery{}
 	}
 	var rows []modelRow
-	if json.Unmarshal(stdout, &rows) != nil {
+	// A JSON null decodes without error; it carries no rows, so fall back too.
+	if json.Unmarshal(stdout, &rows) != nil || rows == nil {
 		return discovery{}
 	}
 	return discovery{rows: rows, warnings: warningLines(stderr), ok: true}
@@ -933,6 +934,23 @@ func (c *Client) Apply(ctx context.Context, patch map[string]json.RawMessage) (*
 	if !c.installed() {
 		return nil, ErrNotInstalled
 	}
+	warnings, err := c.write(ctx, patch)
+	if err != nil {
+		return nil, err
+	}
+	// The re-read runs outside applyMu: it writes nothing, and its model
+	// discovery can take seconds that a concurrent patch should not wait on.
+	doc, err := c.Read(ctx)
+	if err != nil {
+		return nil, err
+	}
+	doc.Warnings = append(warnings, doc.Warnings...)
+	return doc, nil
+}
+
+// write validates the patch and runs its set/unset calls under applyMu,
+// returning their warning lines.
+func (c *Client) write(ctx context.Context, patch map[string]json.RawMessage) ([]string, error) {
 	applyMu.Lock()
 	defer applyMu.Unlock()
 	rows, err := c.loadRows(ctx)
@@ -954,13 +972,7 @@ func (c *Client) Apply(ctx context.Context, patch map[string]json.RawMessage) (*
 		}
 		warnings = append(warnings, warningLines(stderr)...)
 	}
-
-	doc, err := c.Read(ctx)
-	if err != nil {
-		return nil, err
-	}
-	doc.Warnings = append(warnings, doc.Warnings...)
-	return doc, nil
+	return warnings, nil
 }
 
 func warningLines(stderr []byte) []string {
