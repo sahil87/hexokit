@@ -748,18 +748,21 @@ func TestApply_toolLeafWritesInstalledSpelling(t *testing.T) {
 }
 
 // modelsFixture mirrors `fab agent models --json` on a machine: a reserved
-// row per tool, claude aliases plus tool rows (one labelled, one default),
-// codex under the pre-rename `provider` spelling, a repeated id, an empty id,
-// and a tool the document does not list.
+// row per tool (claude's repeated), claude aliases plus tool rows (one
+// labelled, one default), codex under the pre-rename `provider` spelling, a
+// repeated id, an empty id, and a tool the document does not list.
 const modelsFixture = `[
  {"cli":"agy","id":"tool-default","label":"tool default","efforts":[],"default":false,"source":"reserved"},
  {"cli":"claude","id":"tool-default","label":"tool default (claude-fable-5-1[1m])","efforts":["low","medium"],"default":false,"source":"reserved"},
+ {"cli":"claude","id":"tool-default","label":"second reserved","efforts":[],"default":false,"source":"reserved"},
  {"cli":"claude","id":"opus","label":"opus","efforts":["low","medium","high"],"default":false,"source":"alias"},
  {"cli":"claude","id":"glm-latest[1m]","label":"GLM 5.3 (Latest)","efforts":["low","high"],"default":false,"source":"tool"},
  {"cli":"claude","id":"claude-fable-5-1[1m]","label":"claude-fable-5-1[1m]","efforts":["low","medium","high","xhigh","max"],"default":true,"source":"tool"},
  {"cli":"claude","id":"opus","label":"opus again","efforts":[],"default":false,"source":"tool"},
  {"cli":"claude","id":"","label":"nameless","efforts":[],"default":false,"source":"tool"},
+ {"provider":"codex","id":"tool-default","label":"tool default (gpt-6.1-sol)","efforts":["low","ultra"],"default":false,"source":"reserved"},
  {"provider":"codex","id":"gpt-6.1-sol","label":"","efforts":["low","medium","high","xhigh","max","ultra"],"default":true,"source":"tool"},
+ {"cli":"zed","id":"tool-default","label":"tool default","efforts":[],"default":false,"source":"reserved"},
  {"cli":"zed","id":"zed-1","label":"Zed One","efforts":[],"default":false,"source":"tool"}
 ]`
 
@@ -795,6 +798,53 @@ func TestRead_discoversModelSuggestions(t *testing.T) {
 	}
 	if len(doc.Warnings) != 0 {
 		t.Errorf("warnings = %v, want none", doc.Warnings)
+	}
+}
+
+func TestRead_discoversToolDefaults(t *testing.T) {
+	f := newFake(t)
+	f.models = modelsFixture
+	doc, err := New(f.run).Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]ModelSuggestion{
+		"agy":    {ID: "tool-default", Label: "tool default"},
+		"claude": {ID: "tool-default", Label: "tool default (claude-fable-5-1[1m])", Efforts: []string{"low", "medium"}},
+		"codex":  {ID: "tool-default", Label: "tool default (gpt-6.1-sol)", Efforts: []string{"low", "ultra"}},
+	}
+	if !reflect.DeepEqual(doc.ToolDefaults, want) {
+		t.Errorf("toolDefaults = %+v, want %+v (first reserved row per listed tool)", doc.ToolDefaults, want)
+	}
+	for tool, list := range doc.ModelSuggestions {
+		for _, s := range list {
+			if s.ID == "tool-default" {
+				t.Errorf("%s suggestions carry the reserved row %+v", tool, s)
+			}
+		}
+	}
+}
+
+func TestRead_noToolDefaultsWithoutDiscovery(t *testing.T) {
+	for name, models := range map[string]string{"non-zero exit": "", "malformed json": "not json"} {
+		t.Run(name, func(t *testing.T) {
+			f := newFake(t)
+			f.models = models
+			doc, err := New(f.run).Read(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if doc.ToolDefaults != nil {
+				t.Errorf("toolDefaults = %+v, want nil on the fill-scan fallback", doc.ToolDefaults)
+			}
+			b, err := json.Marshal(doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(b), "toolDefaults") {
+				t.Errorf("document JSON carries toolDefaults without discovery: %s", b)
+			}
+		})
 	}
 }
 

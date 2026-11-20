@@ -411,14 +411,22 @@ const roleSelectBase = `bg-transparent text-text-primary p-1 border border-borde
 const roleSelectClass = `${roleSelectBase} max-w-[9rem]`;
 const modelSelectClass = `${roleSelectBase} max-w-[12rem]`;
 
-/** What a leaf's inherit option stands for — what is in effect now, or while
- *  an override is set, what clearing it would restore. */
-function inheritedValue(cell: FabRoleCell): string {
-  return (cell.override === null ? cell.effective : cell.inherited) || INHERIT_FALLBACK;
+/** Whether a model value is the tool's reserved "use the tool's own default"
+ *  value. Only fab names it, so a tool without one recognises nothing. */
+function isToolDefault(value: string, toolDefault: FabModelSuggestion | undefined): boolean {
+  return toolDefault !== undefined && value === toolDefault.id;
 }
 
-function inheritedLabel(cell: FabRoleCell): string {
-  return `↳ ${inheritedValue(cell)}`;
+/** What a leaf's inherit option stands for — what is in effect now, or while
+ *  an override is set, what clearing it would restore. A model leaf's reserved
+ *  tool-default value reads like an empty one: the tool's own default applies. */
+function inheritedValue(cell: FabRoleCell, toolDefault?: FabModelSuggestion): string {
+  const value = cell.override === null ? cell.effective : cell.inherited;
+  return isToolDefault(value, toolDefault) ? INHERIT_FALLBACK : value || INHERIT_FALLBACK;
+}
+
+function inheritedLabel(cell: FabRoleCell, toolDefault?: FabModelSuggestion): string {
+  return `↳ ${inheritedValue(cell, toolDefault)}`;
 }
 
 /** A closed-set select whose first option is "inherit" (→ null). */
@@ -467,13 +475,15 @@ const CUSTOM_LABEL = "Custom…";
 // (it stops tracking newer models), not invalid.
 const CLAUDE_TOOL = "claude";
 
-/** The model list in its fixed order — inherit, the tool's suggestions, the
- *  saved override when the tool doesn't suggest it, then free text. Renderers
- *  map over this, so the order and what each kind commits stay put when the
- *  control changes shape. A suggestion's `value` is its id, `name` its display
- *  name, and `label` the one-line text a native option shows. */
+/** The model list in its fixed order — inherit, the tool's own default, the
+ *  tool's suggestions, the saved override when the tool doesn't offer it, then
+ *  free text. Renderers map over this, so the order and what each kind commits
+ *  stay put when the control changes shape. A suggestion's `value` is its id,
+ *  `name` its display name, and `label` the one-line text a native option
+ *  shows. */
 type ModelOption =
   | { kind: "inherit"; value: typeof MODEL_INHERIT; label: string }
+  | { kind: "toolDefault"; value: string; label: string }
   | { kind: "suggestion"; value: string; name: string; label: string; isDefault: boolean }
   | { kind: "stale"; value: string; label: string }
   | { kind: "custom"; value: typeof MODEL_CUSTOM; label: string };
@@ -495,12 +505,19 @@ function offersModel(suggestions: FabModelSuggestion[], id: string): boolean {
   return suggestions.some((s) => s.id === id);
 }
 
-function modelOptions(cell: FabRoleCell, suggestions: FabModelSuggestion[]): ModelOption[] {
+function modelOptions(
+  cell: FabRoleCell,
+  suggestions: FabModelSuggestion[],
+  toolDefault: FabModelSuggestion | undefined,
+): ModelOption[] {
   const options: ModelOption[] = [
-    { kind: "inherit", value: MODEL_INHERIT, label: `↳ inherit (${inheritedValue(cell)})` },
-    ...suggestions.map(suggestionOption),
+    { kind: "inherit", value: MODEL_INHERIT, label: `↳ inherit (${inheritedValue(cell, toolDefault)})` },
   ];
-  if (cell.override !== null && !offersModel(suggestions, cell.override)) {
+  if (toolDefault) {
+    options.push({ kind: "toolDefault", value: toolDefault.id, label: `↳ ${toolDefault.label || toolDefault.id}` });
+  }
+  options.push(...suggestions.map(suggestionOption));
+  if (cell.override !== null && !offersModel(suggestions, cell.override) && !isToolDefault(cell.override, toolDefault)) {
     // An empty list says nothing about what the tool offers.
     const label = suggestions.length > 0 ? `${cell.override} (not offered)` : cell.override;
     options.push({ kind: "stale", value: cell.override, label });
@@ -511,9 +528,19 @@ function modelOptions(cell: FabRoleCell, suggestions: FabModelSuggestion[]): Mod
 
 /** A pin the tool doesn't offer: the override is not an id in the list fab
  *  discovered for the role's tool (the kit's fills when discovery is
- *  unavailable). An empty list flags nothing. */
-function isStalePin(cell: FabRoleCell, suggestions: FabModelSuggestion[]): boolean {
-  return cell.override !== null && suggestions.length > 0 && !offersModel(suggestions, cell.override);
+ *  unavailable), nor the tool's reserved default value. An empty list flags
+ *  nothing. */
+function isStalePin(
+  cell: FabRoleCell,
+  suggestions: FabModelSuggestion[],
+  toolDefault: FabModelSuggestion | undefined,
+): boolean {
+  return (
+    cell.override !== null &&
+    suggestions.length > 0 &&
+    !offersModel(suggestions, cell.override) &&
+    !isToolDefault(cell.override, toolDefault)
+  );
 }
 
 /** The closed searchable control's text: a suggestion's display name, else the
@@ -522,10 +549,10 @@ function optionName(o: ModelOption): string {
   return o.kind === "suggestion" ? o.name : o.label;
 }
 
-/** Whether an option survives the filter. Inherit and Custom… always do — they
- *  are the commit paths a filter must never strand. */
+/** Whether an option survives the filter. Inherit, the tool default and
+ *  Custom… always do — they are the commit paths a filter must never strand. */
 function matchesModelFilter(o: ModelOption, query: string): boolean {
-  if (o.kind === "inherit" || o.kind === "custom") return true;
+  if (o.kind === "inherit" || o.kind === "toolDefault" || o.kind === "custom") return true;
   const q = query.trim().toLowerCase();
   return o.value.toLowerCase().includes(q) || optionName(o).toLowerCase().includes(q);
 }
@@ -536,11 +563,13 @@ function matchesModelFilter(o: ModelOption, query: string): boolean {
 function CustomModelInput({
   role,
   cell,
+  toolDefault,
   commit,
   onDone,
 }: {
   role: string;
   cell: FabRoleCell;
+  toolDefault: FabModelSuggestion | undefined;
   commit: (value: string | null) => Promise<void>;
   onDone: () => void;
 }) {
@@ -572,7 +601,7 @@ function CustomModelInput({
         type="text"
         aria-label={`${role} model`}
         value={draft}
-        placeholder={inheritedLabel(cell)}
+        placeholder={inheritedLabel(cell, toolDefault)}
         onChange={onChange}
         onBlur={finish}
         onKeyDown={(e) => {
@@ -753,6 +782,7 @@ function RoleModelCell({
   role,
   cell,
   suggestions,
+  toolDefault,
   busy,
   pick,
   commit,
@@ -760,6 +790,7 @@ function RoleModelCell({
   role: string;
   cell: FabRoleCell;
   suggestions: FabModelSuggestion[];
+  toolDefault: FabModelSuggestion | undefined;
   busy: boolean;
   /** List pick — goes through the row's write state. */
   pick: (value: string | null) => void;
@@ -768,9 +799,17 @@ function RoleModelCell({
 }) {
   const [custom, setCustom] = useState(false);
   if (custom) {
-    return <CustomModelInput role={role} cell={cell} commit={commit} onDone={() => setCustom(false)} />;
+    return (
+      <CustomModelInput
+        role={role}
+        cell={cell}
+        toolDefault={toolDefault}
+        commit={commit}
+        onDone={() => setCustom(false)}
+      />
+    );
   }
-  const options = modelOptions(cell, suggestions);
+  const options = modelOptions(cell, suggestions, toolDefault);
   const choose = (v: string) => {
     if (v === MODEL_CUSTOM) setCustom(true);
     else pick(v === MODEL_INHERIT ? null : v);
@@ -803,16 +842,18 @@ function StaleModelNote({
   role,
   tool,
   cell,
+  toolDefault,
   busy,
   onInherit,
 }: {
   role: string;
   tool: string;
   cell: FabRoleCell;
+  toolDefault: FabModelSuggestion | undefined;
   busy: boolean;
   onInherit: () => void;
 }) {
-  const inherited = inheritedValue(cell);
+  const inherited = inheritedValue(cell, toolDefault);
   const action = (
     <button
       type="button"
@@ -851,14 +892,20 @@ function toolEfforts(suggestions: FabModelSuggestion[]): string[] {
 }
 
 /** A row's effort options: the effective model's own efforts when known (the
- *  tool's default model when none is set), else the tool's set, else the
- *  global list. */
-function modelEfforts(role: FabRole, suggestions: FabModelSuggestion[], fallback: string[]): string[] {
+ *  tool's default model when none is set or the tool default is), else the
+ *  tool's set, else the global list. */
+function modelEfforts(
+  role: FabRole,
+  suggestions: FabModelSuggestion[],
+  toolDefault: FabModelSuggestion | undefined,
+  fallback: string[],
+): string[] {
   const effective = role.model.effective;
-  const model =
-    effective === ""
-      ? suggestions.find((s) => s.default === true)
-      : suggestions.find((s) => s.id === effective);
+  const usesToolDefault = effective === "" || isToolDefault(effective, toolDefault);
+  if (usesToolDefault && toolDefault?.efforts && toolDefault.efforts.length > 0) return toolDefault.efforts;
+  const model = usesToolDefault
+    ? suggestions.find((s) => s.default === true)
+    : suggestions.find((s) => s.id === effective);
   if (model?.efforts && model.efforts.length > 0) return model.efforts;
   const tool = toolEfforts(suggestions);
   return tool.length > 0 ? tool : fallback;
@@ -873,6 +920,7 @@ function toolChangePatch(
   next: string | null,
   depthTool: string,
   modelSuggestions: Record<string, FabModelSuggestion[]>,
+  toolDefaults: Record<string, FabModelSuggestion> | undefined,
   fallbackEfforts: string[],
   effortCapable: Record<string, boolean> | undefined,
 ): Patch {
@@ -880,11 +928,12 @@ function toolChangePatch(
   const nextTool = next ?? depthTool;
   if (nextTool === role.tool.effective) return patch;
   const suggestions = modelSuggestions[nextTool] ?? [];
+  const toolDefault = toolDefaults?.[nextTool];
   const model = role.model.override;
-  if (model === null || !offersModel(suggestions, model)) {
+  if (model === null || !(offersModel(suggestions, model) || isToolDefault(model, toolDefault))) {
     patch[profileKey(role.role, "model")] = null;
   }
-  const nextEfforts = toolEfforts(suggestions);
+  const nextEfforts = [...new Set([...toolEfforts(suggestions), ...(toolDefault?.efforts ?? [])])];
   const efforts = nextEfforts.length > 0 ? nextEfforts : fallbackEfforts;
   const effort = role.effort.override;
   if (effort === null || !efforts.includes(effort) || !takesEffort(effortCapable, nextTool)) {
@@ -898,6 +947,7 @@ function RoleRow({
   tools,
   depthTool,
   modelSuggestions,
+  toolDefaults,
   efforts,
   effortCapable,
   write,
@@ -907,12 +957,14 @@ function RoleRow({
   /** The depth knob's tool — what the row resolves to with no tool override. */
   depthTool: string;
   modelSuggestions: Record<string, FabModelSuggestion[]>;
+  toolDefaults: Record<string, FabModelSuggestion> | undefined;
   efforts: string[];
   effortCapable: Record<string, boolean> | undefined;
   write: Write;
 }) {
   const { busy, error, run } = useRowWrite(write);
   const suggestions = modelSuggestions[role.tool.effective] ?? [];
+  const toolDefault = toolDefaults?.[role.tool.effective];
   const effortOK = takesEffort(effortCapable, role.tool.effective);
   const inheritModel = () => void run({ [profileKey(role.role, "model")]: null });
   // A saved value shadowed by an env var still counts: reset is the only way
@@ -932,7 +984,7 @@ function RoleRow({
               cell={role.tool}
               options={tools}
               disabled={busy}
-              onChange={(v) => void run(toolChangePatch(role, v, depthTool, modelSuggestions, efforts, effortCapable))}
+              onChange={(v) => void run(toolChangePatch(role, v, depthTool, modelSuggestions, toolDefaults, efforts, effortCapable))}
             />
             {role.tool.origin === "env" && (
               <span
@@ -951,6 +1003,7 @@ function RoleRow({
             role={role.role}
             cell={role.model}
             suggestions={suggestions}
+            toolDefault={toolDefault}
             busy={busy}
             pick={(v) => void run({ [profileKey(role.role, "model")]: v })}
             commit={(v) => write({ [profileKey(role.role, "model")]: v })}
@@ -960,7 +1013,7 @@ function RoleRow({
           <RoleSelect
             label={`${role.role} effort`}
             cell={role.effort}
-            options={modelEfforts(role, suggestions, efforts)}
+            options={modelEfforts(role, suggestions, toolDefault, efforts)}
             disabled={busy || !effortOK}
             title={effortOK ? undefined : NO_EFFORT_TITLE}
             onChange={(v) => void run({ [profileKey(role.role, "effort")]: v })}
@@ -982,13 +1035,14 @@ function RoleRow({
           )}
         </td>
       </tr>
-      {isStalePin(role.model, suggestions) && (
+      {isStalePin(role.model, suggestions, toolDefault) && (
         <tr>
           <td colSpan={6} className="pb-1.5">
             <StaleModelNote
               role={role.role}
               tool={role.tool.effective}
               cell={role.model}
+              toolDefault={toolDefault}
               busy={busy}
               onInherit={inheritModel}
             />
@@ -1037,6 +1091,7 @@ function RoleTable({ doc, write }: { doc: Document; write: Write }) {
                 tools={doc.tools}
                 depthTool={role.tool.inherited || stringValue(doc.fields[`agent.${role.depth}`])}
                 modelSuggestions={doc.modelSuggestions}
+                toolDefaults={doc.toolDefaults}
                 efforts={doc.effortSuggestions}
                 effortCapable={doc.effortCapable}
                 write={write}

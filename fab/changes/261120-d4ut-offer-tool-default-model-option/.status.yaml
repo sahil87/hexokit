@@ -1,0 +1,58 @@
+id: d4ut
+name: 261120-d4ut-offer-tool-default-model-option
+created: 2026-11-20T07:18:57Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 15
+    acceptance_completed: 15
+confidence:
+    certain: 3
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 4.6
+    fuzzy: true
+    dimensions:
+        signal: 70.0
+        reversibility: 89.4
+        competence: 82.2
+        disambiguation: 75.6
+stage_metrics:
+    intake: {started_at: "2026-11-20T07:18:57Z", driver: fab-new, iterations: 1, completed_at: "2026-11-20T07:21:50Z"}
+    apply: {started_at: "2026-11-20T07:21:50Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T07:35:54Z"}
+    review: {started_at: "2026-11-20T07:35:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T07:40:46Z"}
+    hydrate: {started_at: "2026-11-20T07:40:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T07:42:50Z"}
+    ship: {started_at: "2026-11-20T07:42:50Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T07:47:55Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1165
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 2328
+    deleted: 95
+    net: 2233
+    excluding:
+        added: 1469
+        deleted: 87
+        net: 1382
+    tests:
+        added: 361
+        deleted: 15
+        net: 346
+    computed_at: "2026-11-20T07:47:55Z"
+    computed_at_stage: ship
+summary: Agents tab offers fab's reserved tool-default model value as the second model option (toolDefaults from fab agent models); token rows display as tool default
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-20T07:47:55Z

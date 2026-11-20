@@ -46,6 +46,14 @@ const MODEL_SUGGESTIONS = {
   agy: [],
   kimi: KIMI_MODELS,
 };
+/** Per-tool reserved "use the tool's own default" values, labelled with each
+ *  tool's default model as `fab agent models` labels them. */
+const TOOL_DEFAULTS = {
+  agy: { id: "tool-default", label: "tool default" },
+  claude: { id: "tool-default", label: "tool default (claude-sonnet-5-5)", efforts: EFFORTS },
+  codex: { id: "tool-default", label: "tool default (gpt-6.1-sol)", efforts: [...EFFORTS, "ultra"] },
+  kimi: { id: "tool-default", label: "tool default (openrouter/moonshotai/kimi-k3.1-pro)", efforts: ["low", "high", "max"] },
+};
 
 /** Installs the stub (call before `page.goto`); returns the POST bodies seen.
  *  `system` seeds extra system-tier values; `env` keys win over system as
@@ -104,6 +112,7 @@ export async function stubFabConfig(
       fields,
       roles,
       modelSuggestions: MODEL_SUGGESTIONS,
+      toolDefaults: TOOL_DEFAULTS,
       effortSuggestions: EFFORTS,
       effortCapable: { agy: false, claude: true, codex: true, kimi: false },
     };
