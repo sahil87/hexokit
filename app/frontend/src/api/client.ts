@@ -1805,6 +1805,17 @@ export type FabRole = {
   effort: FabRoleCell;
 };
 
+/** One model a tool offers, as `fab agent models` reports it. */
+export type FabModelSuggestion = {
+  id: string;
+  /** Display name; absent when it equals the id. */
+  label?: string;
+  /** Efforts this model takes; absent when unknown. */
+  efforts?: string[];
+  /** The tool's own default model. */
+  default?: boolean;
+};
+
 export type FabConfigDocument =
   | { installed: false }
   | {
@@ -1813,11 +1824,11 @@ export type FabConfigDocument =
       tools: string[];
       fields: Record<string, FabField>;
       roles: FabRole[];
-      modelSuggestions: Record<string, string[]>;
+      modelSuggestions: Record<string, FabModelSuggestion[]>;
       effortSuggestions: string[];
       /** Per tool: whether its command carries {effort}. Omitted when empty. */
       effortCapable?: Record<string, boolean>;
-      /** fab stderr warning lines from the last POST. */
+      /** fab stderr warning lines: discovery warnings on every read, plus write warnings on a POST. */
       warnings?: string[];
     };
 

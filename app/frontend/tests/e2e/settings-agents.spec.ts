@@ -126,7 +126,8 @@ test.describe("Settings dialog — Agents tab", () => {
    * 3. Switch to the General tab and back, so the panel re-mounts and re-reads
    *    the stub's document.
    * 4. Assert `claude-sonnet-5-5` is still selected and the list reads inherit,
-   *    both claude suggestions, then `Custom…`.
+   *    both claude suggestions (the labelled default as `label · id · tool
+   *    default`), then `Custom…`.
    */
   test("a saved model still lists every suggestion when the tab is reopened", async ({ page }) => {
     const posts = await stubFabConfig(page);
@@ -144,9 +145,53 @@ test.describe("Settings dialog — Agents tab", () => {
     await expect(model.locator("option")).toHaveText([
       "↳ inherit (tool default)",
       "claude-opus-5-5",
-      "claude-sonnet-5-5",
+      "Claude Sonnet 5.5 · claude-sonnet-5-5 · tool default",
       "Custom…",
     ]);
+  });
+
+  /**
+   * Proves: a tool with more than 30 models gets a searchable list that opens
+   * unfiltered even with a model saved, narrows by label or id while keeping
+   * inherit and `Custom…`, and commits the filtered pick as that model's id.
+   *
+   * Steps:
+   * 1. Open the Agents tab; switch `doing` to `kimi` (40+ suggestions).
+   * 2. Assert the model control is a button, not a native select.
+   * 3. Pick a kimi alias from the list so a model is saved, then re-open the
+   *    list and assert the filter is empty and every suggestion is listed.
+   * 4. Type `k3.1`; assert only the matching suggestion remains beside inherit
+   *    and `Custom…`, and Enter commits it.
+   * 5. Assert the POST sets `agent.profiles.doing.model` to its id.
+   */
+  test("a tool with many models gets a searchable list that opens unfiltered", async ({ page }) => {
+    const posts = await stubFabConfig(page);
+    await openAgentsTab(page);
+
+    await page.getByLabel("doing CLI").selectOption("kimi");
+    const trigger = page.getByRole("button", { name: "doing model" });
+    await expect(trigger).toBeVisible();
+    await expect(page.getByLabel("doing model", { exact: true })).toHaveJSProperty("tagName", "BUTTON");
+
+    await trigger.click();
+    await page.getByRole("option", { name: "kimi-alias-7" }).click();
+    await expect(trigger).toHaveText(/kimi-alias-7/);
+
+    await trigger.click();
+    const filter = page.getByRole("combobox", { name: "Search doing models" });
+    await expect(filter).toHaveValue("");
+    const options = page.getByRole("listbox", { name: "doing models" }).getByRole("option");
+    await expect(options).toHaveCount(41 + 2);
+
+    await filter.fill("k3.1");
+    await expect(options).toHaveCount(3);
+    await expect(options.first()).toContainText("↳ inherit");
+    await expect(options.nth(1)).toContainText("Kimi K3.1 Pro");
+    await expect(options.last()).toHaveText("Custom…");
+
+    await filter.press("Enter");
+    await expect(trigger).toHaveText(/Kimi K3\.1 Pro/);
+    expect(posts.at(-1)).toEqual({ "agent.profiles.doing.model": "openrouter/moonshotai/kimi-k3.1-pro" });
   });
 
   /**
