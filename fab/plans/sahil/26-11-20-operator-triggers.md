@@ -159,6 +159,7 @@ decided mechanically. Everything the Go side still does is cheap, deterministic,
 | **T5** | run-kit | PR trigger, opportunistic: `operator.pr_hooks`, admin probe, `rk-gh-hooks` sibling session + receiver, doctor rows | T2 | M | — |
 | **T6** | run-kit | Activity tab + Check now + `GET /api/operator/activity` + brief/log endpoints; loop rows hidden in Cron Log | T2, T4 | L | — |
 | **T7** | run-kit | Tasks Needs-you band + note composer calls wake; Cron List + Cron Log merge into one Cron tab; mobile `?tab=` | T6 | M | — |
+| **T8** | run-kit | Plain spawn in a fab repo: `plain: true` queue entries run a task as a plain agent (no `/fab-new`), the chat skill's spawn table gains the row, scratch tabs via `rk riff` are allowed when asked | — (added 2026-11-20 after R1) | S | — |
 | **R1** | — | **Done 2026-11-20 (v3.23.10).** Release and roll out: `just release patch`, wait for CI, `rk update`, restart each live daemon, verify one trigger → check → run cycle, notify | T5 (re-landed as #1169), T7 | S | operator chat, cron-woken |
 | **M1** | — | Report one week after R1: model runs/day, no-op share, tokens/run, failure streaks, PR-trigger latency; one note + notify | R1 | S | operator chat, cron-woken |
 
@@ -329,6 +330,37 @@ semantic order and is what the chat passes as `depends_on`.
   release.
 - PR evidence: desktop + mobile.
 - Docs: `ui/quake-terminal.md`, `ui/cron-console-tabs.md`, `ui/routes-and-shell.md`.
+
+### T8 — Plain spawn in a fab repo (run-kit) — added 2026-11-20
+
+**Problem.** The engine's spawn prompt is chosen by the repo, not by the request (`spawn.go`
+`buildPrompt`, the two-axis table): `fab/` present + task ⇒ `/fab-new <task>`, and the comment reads
+"raw implementation text never goes to a fab-project agent". The chat skill mirrors the table and says
+queues are the only spawn path. So on a fab repo (every repo the operator serves) there is no way to ask
+for an agent on a tab that just does a task — it is `/fab-new` or nothing. The rule guards against
+sending raw implementation text to an agent that *should* run the pipeline; it should not forbid the
+user from choosing a plain agent on purpose.
+
+- **Queue entry field `plain: true`** (`autopilot.Entry`). With `task`, the spawn uses the no-fab prompt
+  shape even when `fab/` is present: the task text plus "Commit on this branch, push, and open a draft PR
+  against `<base>`." — fresh worktree, SHA-pinned base, tracked, the same `pane` projection; completion
+  by the change-less rule that already exists (its branch has a merged PR, or an open one whose required
+  checks pass). `plain` with `change` is a usage error; `plain` without `task` is the existing bare agent.
+  Dependency chaining and the three modes' spawn shape are unchanged (a `stacked-prs` plain entry names
+  the dependency branch as its PR base, as the no-fab path already does). `status` and `status --json`
+  show `plain`. The engine file stores the flag (structure, Constitution II).
+- **Chat skill** (`rk skill operator`): the spawn table gains the row `fab/` present + task + `plain` ⇒
+  plain agent, and the rule: when the user asks for an agent on a tab for a task *without* the fab
+  pipeline, queue it `plain: true` (still tracked, still a worktree). When the user explicitly asks for an
+  untracked scratch tab, `rk riff` / `rk tab new -- <cmd>` is allowed and the skill says it is not
+  tracked and nothing may depend on it. The `/fab-new` default for a fab repo stays.
+- **Run brief**: the post-intake rule does not apply to a `plain` item (no intake); a `plain` item is
+  judged like a no-fab item (done when its PR merges or is green).
+- Tests: `buildPrompt` table cases for `plain`; `queue` rejects `plain` + `change`; a completion case.
+- Docs: `operator-autopilot.md` (Entry, prompt table), `docs/site/skill/operator.md` + sync, a Design
+  Decision "The request, not the repo, picks the pipeline".
+- Roll-out: CI auto-tags on merge (R1 found `just release` redundant); the chat runs `rk update` and
+  `rk daemon restart` once the PR is merged, the same way R1 did, with the 2-minute notice.
 
 ### R1 — Release and roll out (operator chat, cron-woken, no fab change)
 
