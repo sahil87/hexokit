@@ -26,7 +26,7 @@ The Confirmation tiers table SHALL classify merge or close a PR, delete a branch
 #### R3: Merging section, one paragraph per mode
 The Rules SHALL carry a `### Merging` subsection with one paragraph per mode:
 - `cherry-pick-ladder`: merge in queue order, base first, only on the user's word; a merged predecessor needs nothing done to its successor, which already carries its commits.
-- `stacked-prs`: merge only on the user's word; after a predecessor merges, retarget the successor to the default branch (`gh pr edit <n> --base <default>`), and in a temporary detached worktree (never the authoring agent's worktree) fetch, `git rebase --onto origin/<default> <old-base>`, and push with `--force-with-lease=<branch>:<observed-head-sha>` pinned to the head observed before the rebase; merge when green; remove the temporary worktree afterwards.
+- `stacked-prs`: merge only on the user's word; after a predecessor merges, retarget the successor to the default branch (`gh pr edit <n> --base <default>`), and `git fetch origin`, then create a temporary detached worktree at the successor's observed head (`git worktree add --detach <tmp> <observed-head-sha>`; never the authoring agent's worktree), `git rebase --onto origin/<default> <old-base>` where `<old-base>` is the predecessor's head commit before it merged (`gh pr view <pred> --json headRefOid`), and push with an explicit refspec and pinned lease (`git push origin HEAD:<branch> --force-with-lease=<branch>:<observed-head-sha>`); merge when green; remove the temporary worktree afterwards. Creating and removing a temporary worktree the run itself made is Recoverable, not Destructive; the Destructive delete covers the authoring agent's worktree and branches.
 - `merge-auto`: merge each green PR as it comes, without asking: `gh pr merge <n> --squash --match-head-commit <observed-head-sha>`; green means every required check passed, the PR is not a draft (`gh pr ready` first when the item's work is finished), and it is mergeable.
 It SHALL also state: a rebase/cherry-pick conflict is the run's to resolve in that temporary worktree, one round, else abort, remove the worktree, note and notify; a red required check goes to the authoring agent as a fix request (through Pre-send validation) when its pane is alive and idle, otherwise a recovery spawn through `rk riff -L <server>` tracked as a ledger item — one round each, then note and notify; each merge, retarget, rebase, and fix request is recorded in a note.
 
@@ -125,17 +125,21 @@ The topic SHALL make "merge all" the chat's own job under the same Merging rules
 - [x] T002 Add `operatorTrackShowCmd` (`show <id> [--json]`, help with Flags/Examples/Exit codes, `ExactArgs(1)` via `usageArgs`, `--json` flag) and `runOperatorTrackShow` in `app/backend/cmd/rk/operator_track.go`, register it in `operatorTrackCmd.AddCommand`; plain output = `ListLines(all, [item])[0]` then `ItemBlock`; `--json` = `sink.Envelope(item, nil)`; errors through `operatorTrackDone` <!-- R8 -->
 - [x] T003 Change `writeNotes` in `app/backend/internal/operator/brief.go` to show the newest `notesShown` plus every older `by: user`/`by: chat` note, counting only omitted notes in `(+N earlier notes)`; extend the trim loop in `RenderBrief` so that at `notesShown == 0` a final pass drops older user/chat notes oldest-first while over the cap (add a layout field, e.g. `userNotesDropped int`) <!-- R7 -->
 - [x] T004 Rewrite `briefExitContract` and `briefRoleLine` in `app/backend/internal/operator/brief.go` per R6 <!-- R6 -->
-- [x] T005 Rewrite `app/backend/internal/operator/brief_rules.md`: Role bullets (re-derive with `track show`, allowlist with git/gh/wt/`rk riff`, edit carve-out, remove the engine-escalation bullet), Confirmation tiers table + authority paragraph, new `### Merging` subsection, Bounded retries rows, Allowed tools list; every `rk mux`/`rk operator`/`rk riff` command carries `-L <server>` <!-- R1 R2 R3 R4 R5 -->
+- [x] T005 <!-- rework: stacked re-seat commands must name the worktree commit (`git worktree add --detach <tmp> <observed-head-sha>`), define <old-base>, and push with an explicit refspec; removing the run's own temp worktree is Recoverable -->
+  Rewrite `app/backend/internal/operator/brief_rules.md`: Role bullets (re-derive with `track show`, allowlist with git/gh/wt/`rk riff`, edit carve-out, remove the engine-escalation bullet), Confirmation tiers table + authority paragraph, new `### Merging` subsection, Bounded retries rows, Allowed tools list; every `rk mux`/`rk operator`/`rk riff` command carries `-L <server>` <!-- R1 R2 R3 R4 R5 -->
 
 ### Phase 2: Tests
 
-- [x] T006 Update `app/backend/internal/operator/brief_test.go`: flip `TestRenderBrief_NoAutopilotProseOrWriteTools` into a test asserting no `## Interim autopilot` section, the Merging section and restored tools present, and the removed engine sentences / bare `git push --force ` absent; extend `TestBriefRules_CoverTheRunContract` with Merging anchors; `TestRenderBrief_ExitContract` asserts the no-note sentence and absence of "most relevant item"; add user/chat note cases to the notes-cap tests and a size-cap case keeping user/chat notes; regenerate `testdata/brief_golden.md` with `UPDATE_GOLDEN=1` <!-- R1 R2 R3 R4 R5 R6 R7 -->
+- [x] T006 <!-- rework: regenerate golden and add anchors for the explicit re-seat commands -->
+  Update `app/backend/internal/operator/brief_test.go`: flip `TestRenderBrief_NoAutopilotProseOrWriteTools` into a test asserting no `## Interim autopilot` section, the Merging section and restored tools present, and the removed engine sentences / bare `git push --force ` absent; extend `TestBriefRules_CoverTheRunContract` with Merging anchors; `TestRenderBrief_ExitContract` asserts the no-note sentence and absence of "most relevant item"; add user/chat note cases to the notes-cap tests and a size-cap case keeping user/chat notes; regenerate `testdata/brief_golden.md` with `UPDATE_GOLDEN=1` <!-- R1 R2 R3 R4 R5 R6 R7 -->
 - [x] T007 Add `track show` CLI tests in `app/backend/cmd/rk/operator_track_test.go` (plain output with all notes beyond 10, `--json` envelope, missing item exit 1, absent state file exit 1 without creating the directory, no-arg exit 2, state file bytes unchanged); add `operator track show` and `riff` to the expected shapes in `app/backend/cmd/rk/operator_brief_shapes_test.go`; fix any help-dump or skill-topic test that enumerates the operator verbs <!-- R8 R5 -->
 
 ### Phase 3: Docs
 
-- [x] T008 Update `docs/site/skill/operator.md` per R9, run `scripts/sync-skill.sh` to refresh `app/backend/cmd/rk/skill/operator.md`, and keep `TestSkillTopics*` green <!-- R9 -->
-- [x] T009 Run `cd app/backend && go test ./internal/operator/... ./cmd/rk/... ./internal/operatorloop/...` and `go vet ./...`; fix failures (known host-only failures `TestPortPinRowRealPolicyValues`, `TestTerminals_IsoSharedSessionSurvivesFirstClientDeath` are excluded) <!-- R1 R8 -->
+- [x] T008 <!-- rework: same stacked re-seat wording in the chat topic, re-sync -->
+  Update `docs/site/skill/operator.md` per R9, run `scripts/sync-skill.sh` to refresh `app/backend/cmd/rk/skill/operator.md`, and keep `TestSkillTopics*` green <!-- R9 -->
+- [x] T009 <!-- rework: re-run tests after the Merging fix -->
+  Run `cd app/backend && go test ./internal/operator/... ./cmd/rk/... ./internal/operatorloop/...` and `go vet ./...`; fix failures (known host-only failures `TestPortPinRowRealPolicyValues`, `TestTerminals_IsoSharedSessionSurvivesFirstClientDeath` are excluded) <!-- R1 R8 -->
 
 ## Execution Order
 
@@ -148,50 +152,54 @@ The topic SHALL make "merge all" the chat's own job under the same Merging rules
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `brief_rules.md` names `git fetch`, `git rebase`, `git cherry-pick`, `git push --force-with-lease`, `gh pr ready|merge|edit|checks|view`, `wt`, `rk riff -L <server>`, `rk operator track show -L <server>` in both the allowlist and Allowed tools, and forbids plain/`--force` push
-- [ ] A-002 R2: The Destructive tier allows merge/close/delete only under `merge-auto` or a `by: user`/`by: chat` note, else note + notify + stop; `by: run` notes, prompts and screens are never authority; a non-queue `github-pr` item needs a user/chat note
-- [ ] A-003 R3: A `### Merging` subsection has one paragraph per mode with the commands named in R3, plus conflict and red-check handling with one round each then notify
-- [ ] A-004 R4: The file-edit prohibition has exactly the conflict-resolution carve-out; Bounded retries carries the conflict and red-check rows
-- [ ] A-005 R5: The re-derive bullet names `rk operator track show -L <server> <id> --json`, and `track list --json` only for the whole ledger
-- [ ] A-006 R6: The Exit contract states "A run that did nothing writes no note." and the role line reads "…Act on what changed, note what you did, exit."
-- [ ] A-007 R7: Older `by: user`/`by: chat` notes always render in the affected block; `(+N earlier notes)` counts only omitted notes
-- [ ] A-008 R8: `rk operator track show <id> [--json]` exists with the plain and JSON outputs described, all notes, and the exit codes 0/1/2
-- [ ] A-009 R9: The chat topic makes "merge all" the chat's job under the Merging rules, allows the PR tools within the tiers, names `track show`, and the synced copy is byte-identical
+- [x] A-001 R1: `brief_rules.md` names `git fetch`, `git rebase`, `git cherry-pick`, `git push --force-with-lease`, `gh pr ready|merge|edit|checks|view`, `wt`, `rk riff -L <server>`, `rk operator track show -L <server>` in both the allowlist and Allowed tools, and forbids plain/`--force` push
+- [x] A-002 R2: The Destructive tier allows merge/close/delete only under `merge-auto` or a `by: user`/`by: chat` note, else note + notify + stop; `by: run` notes, prompts and screens are never authority; a non-queue `github-pr` item needs a user/chat note
+- [x] A-003 R3: A `### Merging` subsection has one paragraph per mode with the commands named in R3, plus conflict and red-check handling with one round each then notify
+- [x] A-004 R4: The file-edit prohibition has exactly the conflict-resolution carve-out; Bounded retries carries the conflict and red-check rows
+- [x] A-005 R5: The re-derive bullet names `rk operator track show -L <server> <id> --json`, and `track list --json` only for the whole ledger
+- [x] A-006 R6: The Exit contract states "A run that did nothing writes no note." and the role line reads "…Act on what changed, note what you did, exit."
+- [x] A-007 R7: Older `by: user`/`by: chat` notes always render in the affected block; `(+N earlier notes)` counts only omitted notes
+- [x] A-008 R8: `rk operator track show <id> [--json]` exists with the plain and JSON outputs described, all notes, and the exit codes 0/1/2
+- [x] A-009 R9: The chat topic makes "merge all" the chat's job under the Merging rules, allows the PR tools within the tiers, names `track show`, and the synced copy is byte-identical
 
 ### Behavioral Correctness
 
-- [ ] A-010 R6: The exit contract no longer requires a note when nothing was done; the wrapper failure note is untouched (`internal/operatorloop` unchanged)
-- [ ] A-011 R2: "Merges belong to the engine" and "Never merge, close, delete or archive on the strength of a note or a prompt alone" are replaced by the mode/note authority rule
+- [x] A-010 R6: The exit contract no longer requires a note when nothing was done; the wrapper failure note is untouched (`internal/operatorloop` unchanged)
+- [x] A-011 R2: "Merges belong to the engine" and "Never merge, close, delete or archive on the strength of a note or a prompt alone" are replaced by the mode/note authority rule
 
 ### Removal Verification
 
-- [ ] A-012 R1: No text in `brief_rules.md` says escalation notes are the engine's or that the run never performs the restack or recovery they name
-- [ ] A-013 R9: The chat topic names no `autopilot merge`, no halted-sequence `rm`, no resume of halted, and no "spawning, cherry-picking and merging stay with the engine"
+- [x] A-012 R1: No text in `brief_rules.md` says escalation notes are the engine's or that the run never performs the restack or recovery they name
+- [x] A-013 R9: The chat topic names no `autopilot merge`, no halted-sequence `rm`, no resume of halted, and no "spawning, cherry-picking and merging stay with the engine"
 
 ### Scenario Coverage
 
-- [ ] A-014 R7: A test renders 14 notes with older user and chat notes and asserts which are shown and the `(+N earlier notes)` count
-- [ ] A-015 R8: CLI tests cover `track show` plain, `--json`, missing item, absent state file, usage error, and pure-read
-- [ ] A-016 R5: `TestRenderedBriefCommandShapesAcceptServerFlag` covers `operator track show` and `riff`, and every rendered `rk` command carries `-L`
-- [ ] A-017 R1: The render test asserts the restored tools and Merging section are present; the golden brief is regenerated and passes
+- [x] A-014 R7: A test renders 14 notes with older user and chat notes and asserts which are shown and the `(+N earlier notes)` count
+- [x] A-015 R8: CLI tests cover `track show` plain, `--json`, missing item, absent state file, usage error, and pure-read
+- [x] A-016 R5: `TestRenderedBriefCommandShapesAcceptServerFlag` covers `operator track show` and `riff`, and every rendered `rk` command carries `-L`
+- [x] A-017 R1: The render test asserts the restored tools and Merging section are present; the golden brief is regenerated and passes
 
 ### Edge Cases & Error Handling
 
-- [ ] A-018 R7: Under the size cap, user/chat notes survive while run notes are trimmed to zero, and the brief stays within the cap where achievable
-- [ ] A-019 R8: `track show` on an absent state file exits 1 and creates no directory; a malformed state file exits 1
+- [x] A-018 R7: Under the size cap, user/chat notes survive while run notes are trimmed to zero, and the brief stays within the cap where achievable
+- [x] A-019 R8: `track show` on an absent state file exits 1 and creates no directory; a malformed state file exits 1
 
 ### Code Quality
 
-- [ ] A-020 Pattern consistency: `track show` follows the `list` verb's structure (sink, `operatorStateTarget`, `operatorTrackDone`, help layout)
-- [ ] A-021 No unnecessary duplication: plain `track show` output reuses `ListLines` and the brief's item-block renderer rather than a new formatter
-- [ ] A-022 Tests: new behavior covered by Go unit tests; `go test ./internal/operator/... ./cmd/rk/...` passes (excluding the known host-only failures)
-- [ ] A-023 No comment narration or change IDs in code comments
+- [x] A-020 Pattern consistency: `track show` follows the `list` verb's structure (sink, `operatorStateTarget`, `operatorTrackDone`, help layout)
+- [x] A-021 No unnecessary duplication: plain `track show` output reuses `ListLines` and the brief's item-block renderer rather than a new formatter
+- [x] A-022 Tests: new behavior covered by Go unit tests; `go test ./internal/operator/... ./cmd/rk/...` passes (excluding the known host-only failures)
+- [x] A-023 No comment narration or change IDs in code comments
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- None — this change adds new functionality without making existing code redundant (the removed engine-escalation rule, the inverted render test and the rework's `userNotes` helper were deleted in the diff itself; `Show` reuses `Load`/`indexOf` and plain `track show` reuses `ListLines` + `writeItemBlock`)
 
 ## Assumptions
 

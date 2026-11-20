@@ -48,8 +48,8 @@ chains, and annotates. State lives in one plain YAML file per tmux server under
 the hexokit state home; every verb writes it atomically under a lock, so the
 operator chat, scheduled runs, and the daemon can write concurrently.
 
-Verbs: add, update, observe, rm, list, note, pause, resume. Only list is a pure
-read. All verbs take -L/--server (default: the caller's own server from $TMUX).`,
+Verbs: add, update, observe, rm, list, show, note, pause, resume. list and show
+are pure reads. All verbs take -L/--server (default: the caller's own server from $TMUX).`,
 	Example: `  rk operator track add pr-1234 --kind github-pr --scope '{"pr":1234}' --argv gh --argv pr --argv view --argv 1234 --fields state
   rk operator track note pr-1234 "waiting on the design review" --by chat
   rk operator track list --json`,

@@ -103,19 +103,15 @@ func RenderBrief(in BriefInput) string {
 func maxUserNotes(in BriefInput) int {
 	most := 0
 	for _, it := range briefItems(in.State) {
-		most = max(most, len(userNotes(it.Notes)))
+		count := 0
+		for _, n := range it.Notes {
+			if n.By == ByUser || n.By == ByChat {
+				count++
+			}
+		}
+		most = max(most, count)
 	}
 	return most
-}
-
-func userNotes(notes []Note) []Note {
-	var out []Note
-	for _, n := range notes {
-		if n.By == ByUser || n.By == ByChat {
-			out = append(out, n)
-		}
-	}
-	return out
 }
 
 func renderBriefLayout(in BriefInput, layout briefLayout) string {

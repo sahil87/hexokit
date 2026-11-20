@@ -447,6 +447,7 @@ func TestBriefRules_CoverTheRunContract(t *testing.T) {
 		"rk operator track observe", "### Allowed tools", "No file-editing tools",
 		"### Merging", "`cherry-pick-ladder`", "`stacked-prs`", "`merge-auto`", "temporary",
 		"--force-with-lease", "--match-head-commit", "rk riff -L <server>", "scope.merge_mode",
+		"git worktree add --detach", "headRefOid", "git push origin HEAD:",
 		"Conflict resolution", "Recovery spawn for a red check",
 	} {
 		if !strings.Contains(briefRules, want) {

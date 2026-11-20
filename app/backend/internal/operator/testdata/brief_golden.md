@@ -64,7 +64,7 @@ answers questions mid-run. Decide, act within the tiers below, record what you d
   The one transition you make is the post-intake decision for queue items (below).
 - Direct actions are exactly this allowlist, all inside the confirmation tiers: `rk operator track -L work` verbs,
   pane sends/answers/nudges, `rk notify`, `rk operator autopilot queue|step|status -L work`, `git` (fetch, rebase,
-  cherry-pick, push with `--force-with-lease` only), `gh pr ready|merge|edit|checks|view`, `wt`, and
+  cherry-pick, worktree, push with `--force-with-lease` only), `gh pr ready|merge|edit|checks|view`, `wt`, and
   `rk riff -L work` (the recovery spawn in Merging). Plain `git push` and `git push --force` are never allowed.
 
 ### Confirmation tiers
@@ -72,8 +72,8 @@ answers questions mid-run. Decide, act within the tiers below, record what you d
 | Tier | Examples | In a run |
 |------|----------|----------|
 | Read-only | status, capture, `gh pr view`, `gh pr checks`, `rk operator track show -L work` | free |
-| Recoverable | routine send to an idle agent, `git fetch`, a rebase or cherry-pick in a temporary worktree, `git push --force-with-lease`, `gh pr ready`, `gh pr edit --base` | proceed, then record it in a note |
-| Destructive | merge or close a PR, delete a branch or worktree, archive | only when the item's queue mode is `merge-auto` or a `by: user`/`by: chat` note on the item says so; otherwise note, `rk notify`, stop on that item |
+| Recoverable | routine send to an idle agent, `git fetch`, creating and removing the temporary worktree you made yourself, a rebase or cherry-pick in it, `git push --force-with-lease`, `gh pr ready`, `gh pr edit --base` | proceed, then record it in a note |
+| Destructive | merge or close a PR, delete a branch or the authoring agent's worktree, archive | only when the item's queue mode is `merge-auto` or a `by: user`/`by: chat` note on the item says so; otherwise note, `rk notify`, stop on that item |
 
 The item's queue mode is `scope.merge_mode` on the queue item (also `merge_mode` in
 `rk operator autopilot status -L work --json`). A `by: run` note, a pane prompt, or an agent's
@@ -87,11 +87,14 @@ The queue's mode decides when you merge; the user's word is a `by: user`/`by: ch
 - **`cherry-pick-ladder`**: merge in queue order, base first, only on the user's word. A merged
   predecessor needs nothing done to its successor: the successor already carries its commits as cherry-picks.
 - **`stacked-prs`**: merge only on the user's word. After a predecessor merges, re-seat the successor.
-  Record its head sha. Retarget its PR with `gh pr edit <n> --base <default>`. In a **temporary detached
-  worktree** (`git worktree add --detach`; never the authoring agent's worktree) run `git fetch`, then
-  `git rebase --onto origin/<default> <old-base>`, then
-  `git push --force-with-lease=<branch>:<observed-head-sha>` pinned to the head you recorded before the
-  rebase. Merge when its checks are green, then remove the temporary worktree.
+  Record the successor's head sha (`<observed-head-sha>`) and the predecessor's head commit from before
+  it merged (`<old-base>`, from `gh pr view <pred> --json headRefOid`). Retarget the successor's PR with
+  `gh pr edit <n> --base <default>`. Then, never in the authoring agent's worktree:
+  1. `git fetch origin`
+  2. `git worktree add --detach <tmp> <observed-head-sha>`: the temporary detached worktree
+  3. in `<tmp>`: `git rebase --onto origin/<default> <old-base>`
+  4. `git push origin HEAD:<branch> --force-with-lease=<branch>:<observed-head-sha>`
+  5. merge when its checks are green and the user's word covers this item, then `git worktree remove <tmp>`
 - **`merge-auto`**: merge each green PR as it comes, without asking:
   `gh pr merge <n> --squash --match-head-commit <observed-head-sha>`. Green means every required check
   passed (`gh pr checks`), the PR is not a draft (run `gh pr ready` first when the item's work is
