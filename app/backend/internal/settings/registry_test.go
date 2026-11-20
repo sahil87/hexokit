@@ -18,7 +18,7 @@ func TestRegistry_orderAndMetadata(t *testing.T) {
 	wantKeys := []string{
 		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host", "port",
 		"instance_name", "auto_name", "cron_ticker", "easter_eggs", "gui.enabled", "gui.wm", "gui.geometry",
-		"openai_mcp.enabled", "openai_mcp.tunnel_id", "operator.merge_mode", "tmux_conf", "log_level", "server_colors", "server_flairs", "board_order", "riff_presets",
+		"openai_mcp.enabled", "openai_mcp.tunnel_id", "operator.merge_mode", "tmux_conf", "log_level", "server_colors", "server_flairs", "board_order", "riff_presets", "operator.pr_hooks",
 	}
 	if len(infos) != len(wantKeys) {
 		t.Fatalf("Registry() returned %d entries, want %d", len(infos), len(wantKeys))
@@ -55,6 +55,7 @@ func TestRegistry_orderAndMetadata(t *testing.T) {
 		{"server_colors", "map", "{}", "appearance", true, true, nil},
 		{"server_flairs", "map", "{}", "appearance", true, true, nil},
 		{"board_order", "list", "[]", "layout", true, true, nil},
+		{"operator.pr_hooks", "list", "[]", "behavior", false, true, nil},
 		{"riff_presets", "map", `{"blank":"","discuss":"/fab-discuss","incognito":"/fab-incognito"}`, "behavior", false, true, nil},
 	}
 	for _, c := range checks {

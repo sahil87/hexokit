@@ -176,6 +176,21 @@ func NormalizeColorValue(value string) (string, bool) {
 	return strings.Join(parts, "+"), true
 }
 
+// githubRepoName is the GitHub owner/name shape: the owner starts with an
+// alphanumeric, both halves use the characters GitHub allows in names.
+var githubRepoName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_.-]+$`)
+
+// ValidateGitHubRepo validates a GitHub repository in owner/name form — the
+// one shape shared by the operator's github-pr items (pinned into `gh --repo`
+// argv) and the operator.pr_hooks setting. Returns an empty string if valid,
+// an error message otherwise.
+func ValidateGitHubRepo(nwo string) string {
+	if !githubRepoName.MatchString(nwo) {
+		return "GitHub repository must be owner/name"
+	}
+	return ""
+}
+
 // MaxSettingValueLength caps the ssh_host / instance_name settings values —
 // 253 is the DNS hostname maximum, a comfortable bound for both an SSH
 // destination and a display name.

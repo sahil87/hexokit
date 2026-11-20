@@ -480,6 +480,12 @@ func startSession(exe string) error {
 	// default install issues zero connector tmux commands.
 	ensureOpenAIMCP()
 
+	// Bring up the PR-event receiver and per-repo forwarders when
+	// operator.pr_hooks lists repos. Same best-effort posture; an empty list
+	// (the default) issues the daemon-liveness and session-existence probes
+	// and nothing else.
+	ensureGHHooks()
+
 	return nil
 }
 

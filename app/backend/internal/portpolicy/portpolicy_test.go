@@ -21,6 +21,21 @@ func TestCommittedValues(t *testing.T) {
 	if Sentinel != 21999 {
 		t.Errorf("Sentinel = %d, want 21999", Sentinel)
 	}
+	if GHHooks != 21900 {
+		t.Errorf("GHHooks = %d, want 21900", GHHooks)
+	}
+}
+
+func TestGHHooksOutsideOtherBlocks(t *testing.T) {
+	if Rig.Contains(GHHooks) || Tunnel.Contains(GHHooks) {
+		t.Errorf("gh-hooks port %d lies inside the rig or tunnel block", GHHooks)
+	}
+	if GHHooks == Sentinel || GHHooks == DaemonDefault || GHHooks == DaemonLegacy {
+		t.Errorf("gh-hooks port %d collides with a default port", GHHooks)
+	}
+	if GHHooks >= 21500 && GHHooks <= 21599 {
+		t.Errorf("gh-hooks port %d lies in the rule-P tunnel target 21500-21599", GHHooks)
+	}
 }
 
 func TestRigBlockInvariant(t *testing.T) {
@@ -42,9 +57,10 @@ func TestRigBlockInvariant(t *testing.T) {
 
 func TestParseErrors(t *testing.T) {
 	cases := map[string]string{
-		"missing key":   "PORTPOLICY_DAEMON_DEFAULT=3000\n",
-		"non-integer":   "PORTPOLICY_DAEMON_DEFAULT=abc\nPORTPOLICY_RIG_START=21000\nPORTPOLICY_RIG_END=21299\nPORTPOLICY_TUNNEL_START=3100\nPORTPOLICY_TUNNEL_END=3199\nPORTPOLICY_SENTINEL=21999\n",
-		"not KEY=VALUE": "PORTPOLICY_DAEMON_DEFAULT 3000\n",
+		"missing key":      "PORTPOLICY_DAEMON_DEFAULT=3000\n",
+		"non-integer":      "PORTPOLICY_DAEMON_DEFAULT=abc\nPORTPOLICY_RIG_START=21000\nPORTPOLICY_RIG_END=21299\nPORTPOLICY_TUNNEL_START=3100\nPORTPOLICY_TUNNEL_END=3199\nPORTPOLICY_SENTINEL=21999\nPORTPOLICY_GH_HOOKS=21900\n",
+		"not KEY=VALUE":    "PORTPOLICY_DAEMON_DEFAULT 3000\n",
+		"missing gh-hooks": "PORTPOLICY_DAEMON_DEFAULT=3000\nPORTPOLICY_DAEMON_LEGACY=3000\nPORTPOLICY_RIG_START=21000\nPORTPOLICY_RIG_END=21299\nPORTPOLICY_TUNNEL_START=3100\nPORTPOLICY_TUNNEL_END=3199\nPORTPOLICY_SENTINEL=21999\n",
 	}
 	for name, data := range cases {
 		if _, err := parse(data); err == nil {
@@ -69,6 +85,8 @@ func TestCollisions(t *testing.T) {
 		{"sentinel", 21999, 22001, []string{"sentinel"}},
 		{"sentinel via code-server", 21997, 21999, []string{"sentinel"}},
 		{"no double report", 21000, 21001, []string{"rig"}},
+		{"gh-hooks", 21900, 21902, []string{"gh-hooks"}},
+		{"gh-hooks via code-server", 21898, 21900, []string{"gh-hooks"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -87,17 +105,21 @@ func TestCollisions(t *testing.T) {
 
 func TestReserved(t *testing.T) {
 	res := Reserved()
-	if len(res) != 3 {
-		t.Fatalf("Reserved() returned %d blocks, want 3", len(res))
+	if len(res) != 4 {
+		t.Fatalf("Reserved() returned %d blocks, want 4", len(res))
 	}
 	sentinel := res[2]
 	if sentinel.Start != Sentinel || sentinel.End != Sentinel {
 		t.Errorf("sentinel block = %+v, want one-port block at %d", sentinel, Sentinel)
 	}
+	hooks := res[3]
+	if hooks.Name != "gh-hooks" || hooks.Start != GHHooks || hooks.End != GHHooks {
+		t.Errorf("gh-hooks block = %+v, want one-port block at %d", hooks, GHHooks)
+	}
 }
 
 func TestSummary(t *testing.T) {
-	want := "rig 21000–21299, tunnel 3100–3199, sentinel 21999"
+	want := "rig 21000–21299, tunnel 3100–3199, sentinel 21999, gh-hooks 21900"
 	if got := Summary(); got != want {
 		t.Errorf("Summary() = %q, want %q", got, want)
 	}

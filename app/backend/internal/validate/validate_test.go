@@ -893,3 +893,27 @@ func TestValidRunID(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateGitHubRepo(t *testing.T) {
+	cases := []struct {
+		nwo   string
+		valid bool
+	}{
+		{"sahil87/hexokit", true},
+		{"sahil-noon/conductor-playground", true},
+		{"o/r.x_y-z", true},
+		{"", false},
+		{"no-slash", false},
+		{"bad repo/x", false},
+		{"-lead/x", false},
+		{"a/b/c", false},
+		{"a/", false},
+		{"/b", false},
+		{"a/b;rm", false},
+	}
+	for _, tc := range cases {
+		if got := ValidateGitHubRepo(tc.nwo) == ""; got != tc.valid {
+			t.Errorf("ValidateGitHubRepo(%q) valid = %v, want %v", tc.nwo, got, tc.valid)
+		}
+	}
+}

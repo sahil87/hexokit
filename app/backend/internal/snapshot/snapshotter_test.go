@@ -421,14 +421,26 @@ func TestSnapshotterStartStopsWithContext(t *testing.T) {
 	src.set("kit", 1)
 	s, cap, _ := newTestSnapshotter(t, src)
 
+	// Start is `go s.run(ctx)`; running the loop here gives the test a join
+	// point. Returning while a tick is still writing into the store's
+	// t.TempDir races the TempDir cleanup ("directory not empty").
 	ctx, cancel := context.WithCancel(context.Background())
-	s.Start(ctx)
+	done := make(chan struct{})
+	go func() {
+		s.run(ctx)
+		close(done)
+	}()
 
 	deadline := time.Now().Add(2 * time.Second)
 	for cap.count() == 0 && time.Now().Before(deadline) {
 		time.Sleep(2 * time.Millisecond)
 	}
 	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ticker loop did not stop after context cancel")
+	}
 	if cap.count() == 0 {
 		t.Fatal("ticker loop never captured before deadline")
 	}
