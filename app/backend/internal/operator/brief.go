@@ -323,9 +323,11 @@ func writeNotes(b *strings.Builder, notes []Note, layout briefLayout) {
 
 // ItemBlock renders one item's brief block with every note, for the verb that
 // re-reads a single item. all is the whole ledger the item's state derives from.
+// The block carries no queue line: the verb reads the ledger only, and queue
+// membership is the engine file's fact (the run brief's block shows it).
 func ItemBlock(all []TrackedItem, it TrackedItem) string {
 	var b strings.Builder
-	writeItemBlock(&b, all, it, clock().UTC(), briefLayout{notesShown: len(it.Notes)})
+	writeItemBlock(&b, all, it, QueueEntry{}, false, clock().UTC(), briefLayout{notesShown: len(it.Notes)})
 	return b.String()
 }
 
