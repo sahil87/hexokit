@@ -9,7 +9,7 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
+    ship: done
     review-pr: pending
 plan:
     generated: true
@@ -33,14 +33,15 @@ stage_metrics:
     apply: {started_at: "2026-11-20T08:13:48Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-20T08:16:20Z"}
     review: {started_at: "2026-11-20T08:16:20Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-20T08:24:57Z"}
     hydrate: {started_at: "2026-11-20T08:24:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T08:26:50Z"}
-    ship: {started_at: "2026-11-20T08:26:50Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-11-20T08:26:50Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T08:27:53Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1167
 change_type_source: explicit
 base_branch: 261120-7uqm-engine-rescope-pr-work-to-operator
 true_impact:
-    added: 1006
-    deleted: 84
-    net: 922
+    added: 1058
+    deleted: 104
+    net: 954
     excluding:
         added: 525
         deleted: 76
@@ -49,9 +50,9 @@ true_impact:
         added: 258
         deleted: 10
         net: 248
-    computed_at: "2026-11-20T08:26:51Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-11-20T08:27:53Z"
+    computed_at_stage: ship
 summary: 'Operator brief: PR tools back inside the tiers, per-mode Merging section, user/chat notes always shown, no-op runs write no note, new ''rk operator track show'''
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-20T08:26:51Z
+last_updated: 2026-11-20T08:27:53Z
