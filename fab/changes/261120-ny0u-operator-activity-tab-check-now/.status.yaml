@@ -1,0 +1,57 @@
+id: ny0u
+name: 261120-ny0u-operator-activity-tab-check-now
+created: 2026-11-20T11:01:00Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 15
+    acceptance_count: 33
+    acceptance_completed: 33
+confidence:
+    certain: 5
+    confident: 11
+    tentative: 0
+    unresolved: 0
+    score: 3.1
+    fuzzy: true
+    dimensions:
+        signal: 68.1
+        reversibility: 85.3
+        competence: 74.4
+        disambiguation: 69.7
+stage_metrics:
+    intake: {started_at: "2026-11-20T11:01:00Z", driver: fab-new, iterations: 1, completed_at: "2026-11-20T11:04:49Z"}
+    apply: {started_at: "2026-11-20T11:04:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T11:48:30Z"}
+    review: {started_at: "2026-11-20T11:48:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T12:01:39Z"}
+    hydrate: {started_at: "2026-11-20T12:01:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T12:10:59Z"}
+    ship: {started_at: "2026-11-20T12:10:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T12:11:54Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1171
+base_branch: main
+true_impact:
+    added: 3865
+    deleted: 323
+    net: 3542
+    excluding:
+        added: 3099
+        deleted: 239
+        net: 2860
+    tests:
+        added: 1062
+        deleted: 132
+        net: 930
+    computed_at: "2026-11-20T12:11:55Z"
+    computed_at_stage: ship
+change_type_source: explicit
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-20T12:11:55Z

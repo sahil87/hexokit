@@ -48,11 +48,9 @@ export function urlSegmentToWindowId(segment: string): string {
 // in the consumer (`lib/popout.ts`), and an invalid value degrades to the
 // ordinary terminal render, never a route error. Unlike the retired params
 // above, the route-entry translation effect MUST NOT strip it. `tab` is the
-// operator route's segment selector (the notify deep-link carrier; Operator
-// Terminal | Operator Tasks | Cron List | Cron Log). Unknown values drop to
-// absent, which reads as "terminal" — the default segment. The legacy
-// `activity` value (the token already-sent push notifications carry) is
-// accepted inbound and normalized to `log`. The union is
+// operator route's segment selector (the notify deep-link carrier; Terminal |
+// Tasks | Activity | Cron List | Cron Log). Unknown values drop to absent,
+// which reads as "terminal" — the default segment. The union is
 // spelled out as literals here (NOT imported from terminal-activity-tabs.tsx)
 // because this module is a deliberately dependency-free leaf — importing the
 // component module would drag the router (and transitively xterm) into its
@@ -63,7 +61,7 @@ export type TerminalSearch = {
   layout?: string;
   from?: string;
   pop?: string;
-  tab?: "terminal" | "tasks" | "list" | "log";
+  tab?: "terminal" | "tasks" | "activity" | "list" | "log";
 };
 
 // Exported as a pure function so the unknown-value drop is unit-testable.
@@ -87,12 +85,11 @@ export function validateTerminalSearch(
   if (
     search.tab === "terminal" ||
     search.tab === "tasks" ||
+    search.tab === "activity" ||
     search.tab === "list" ||
     search.tab === "log"
   ) {
     out.tab = search.tab;
-  } else if (search.tab === "activity") {
-    out.tab = "log";
   }
   return out;
 }

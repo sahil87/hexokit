@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-20T11:01:00Z"}
+{"args":"Execute step T6 (Activity tab and Check now) of the plan at /home/sahil/code/sahil87/hexokit/fab/plans/sahil/26-11-20-operator-triggers.md. Read the whole plan first (Decisions and Rules bind you), then implement only the T6 Brief.","cmd":"fab-new","event":"command","ts":"2026-11-20T11:01:00Z"}
+{"delta":"+3.1","event":"confidence","score":3.1,"trigger":"calc-score","ts":"2026-11-20T11:02:47Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-20T11:04:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-20T11:04:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-20T11:48:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-11-20T12:01:39Z"}
+{"event":"review","result":"passed","ts":"2026-11-20T12:01:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-11-20T12:10:59Z"}

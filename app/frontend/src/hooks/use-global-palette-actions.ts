@@ -19,7 +19,7 @@ import { canCloseShellWindow, canNewShellWindow, closeShellWindow, newShellWindo
 import { focusSidebarCurrentRow } from "@/lib/sidebar-events";
 import { HOST_MENU_OPEN_EVENT } from "@/lib/shell-strip";
 import { buildNavActions, type NavMode } from "@/lib/palette/nav";
-import { buildQuakeTerminalAction, buildQuakeTerminalListAction, buildQuakeTerminalLogAction, buildQuakeTerminalOpenAsTabAction, buildQuakeTerminalPinAction, buildQuakeTerminalResetSizeAction, buildQuakeTerminalTasksAction, buildOperatorStartAction } from "@/lib/palette/quake-terminal";
+import { buildOperatorCheckNowAction, buildQuakeTerminalAction, buildQuakeTerminalActivityAction, buildQuakeTerminalListAction, buildQuakeTerminalLogAction, buildQuakeTerminalOpenAsTabAction, buildQuakeTerminalPinAction, buildQuakeTerminalResetSizeAction, buildQuakeTerminalTasksAction, buildOperatorStartAction } from "@/lib/palette/quake-terminal";
 import { useQuakeMachineState, useQuakePinned, useQuakeTerminalContext } from "@/lib/quake-terminal";
 import { buildUpdateActions, buildMaintenanceActions, buildCheckActions } from "@/lib/palette/update";
 import { buildVersionAction, displayVersion } from "@/lib/palette/version";
@@ -367,10 +367,15 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     () => buildQuakeTerminalLogAction(),
     [],
   );
-  // The Operator Tasks twin — same always-listed gating: an operator-less
+  // The Tasks twin — same always-listed gating: an operator-less
   // server is answered by the segment's hint line, not by hiding the entry.
   const quakeTerminalTasksEntry: PaletteAction = useMemo(
     () => buildQuakeTerminalTasksAction(),
+    [],
+  );
+  // The Activity twin — same always-listed gating as Tasks.
+  const quakeTerminalActivityEntry: PaletteAction = useMemo(
+    () => buildQuakeTerminalActivityAction(),
     [],
   );
   // The resize reset — the palette twin of the grips' double-click; a plain
@@ -428,6 +433,20 @@ export function useGlobalPaletteActions(): PaletteAction[] {
           )
         : null,
     [quakeCtx.server, quakeCtx.target, serverParam, windowParam, navigate, addToast],
+  );
+
+  // Check now — the Activity header button's palette twin, listed whenever a
+  // server resolves (the operator loop needs no operator window).
+  const operatorCheckNowEntry: PaletteAction | null = useMemo(
+    () =>
+      quakeCtx.server
+        ? buildOperatorCheckNowAction(
+            quakeCtx.server,
+            () => addToast("Check queued", "info"),
+            (message) => addToast(message, "error"),
+          )
+        : null,
+    [quakeCtx.server, addToast],
   );
 
   // Host switcher (260820-nv0o) — opens the desktop-shell titlebar strip's
@@ -636,10 +655,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...(quakeMachine === "open" && quakeTerminalOpenAsTabEntry ? [quakeTerminalOpenAsTabEntry] : []), ...(operatorStartEntry ? [operatorStartEntry] : []), ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, mcpEndpointEntry, ...openAIMCPActions, ...easterEggActions, createServerEntry],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalActivityEntry, quakeTerminalListEntry, quakeTerminalLogEntry, ...(operatorCheckNowEntry ? [operatorCheckNowEntry] : []), quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...(quakeMachine === "open" && quakeTerminalOpenAsTabEntry ? [quakeTerminalOpenAsTabEntry] : []), ...(operatorStartEntry ? [operatorStartEntry] : []), ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, mcpEndpointEntry, ...openAIMCPActions, ...easterEggActions, createServerEntry],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalListEntry, quakeTerminalLogEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, quakeTerminalOpenAsTabEntry, operatorStartEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, mcpEndpointEntry, openAIMCPActions, easterEggActions, createServerEntry, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalActivityEntry, quakeTerminalListEntry, quakeTerminalLogEntry, operatorCheckNowEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, quakeTerminalOpenAsTabEntry, operatorStartEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, mcpEndpointEntry, openAIMCPActions, easterEggActions, createServerEntry, bindingByAction, bindingHost],
   );
 }

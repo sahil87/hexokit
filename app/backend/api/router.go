@@ -330,6 +330,11 @@ type Server struct {
 	// temp dir.
 	cronDirFn func() (string, error)
 
+	// listRunWindowsFn lists a server's live operator run windows for GET
+	// /api/operator/activity's in-flight run. Nil falls back to
+	// tmux.ListOperatorRunWindows; tests inject a fixed list or an error.
+	listRunWindowsFn func(ctx context.Context, server string) ([]tmux.RunWindow, error)
+
 	// operatorStateFn reads one server's operator state for GET
 	// /api/operator/notes. Nil falls back to sessions.ReadOperatorStateForServer
 	// (a live tmux socket-path query); tests inject a fixed state.
@@ -1067,6 +1072,11 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/cron/pin", s.handleCronPin)
 	r.Post("/api/cron/edit", s.handleCronEdit)
 	r.Get("/api/operator/notes", s.handleOperatorNotes)
+	// Activity rows (loop lines joined with check and run records) and a run's
+	// brief / log contents — read-only. See api/operator_activity.go.
+	r.Get("/api/operator/activity", s.handleOperatorActivity)
+	r.Get("/api/operator/runs/{server}/{id}/brief", s.handleOperatorRunFile(operatorloop.BriefPath, false))
+	r.Get("/api/operator/runs/{server}/{id}/log", s.handleOperatorRunFile(operatorloop.LogPath, true))
 	r.Post("/api/sessions/{session}/color", s.handleSessionColor)
 	r.Post("/api/sessions/{session}/flair", s.handleSessionFlair)
 	r.Post("/api/sessions/{session}/kill", s.handleSessionKill)

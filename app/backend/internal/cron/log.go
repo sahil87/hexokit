@@ -30,6 +30,9 @@ type LogLine struct {
 	// Run is the operator-loop run id a transcribed outcome belongs to; empty
 	// on every other line.
 	Run string `json:"run,omitempty"`
+	// Fire is the operator-loop fire id whose check record
+	// (`<fire>.check.json`) explains this line; empty on every other line.
+	Fire string `json:"fire,omitempty"`
 }
 
 // AppendLog appends one delivery line, then trims to the newest tail when the

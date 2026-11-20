@@ -7,7 +7,7 @@
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { OperatorTrackedItem, ProjectSession, WindowInfo } from "@/types";
 
-/** One Operator Tasks row: a `worker` row is a tracked item whose `windowId`
+/** One Tasks row: a `worker` row is a tracked item whose `windowId`
  *  resolves to a live non-ghost window in `sessions` (its window facets render
  *  through the watched row and it navigates); every other item — pane-less
  *  (note / queued fab-change / github-pr / shell / task) or a pane no window
@@ -19,7 +19,7 @@ export type TrackedRow =
 /** One watched row per non-ghost window with `monitored === true` (the pane
  *  join of the operator state file's tracked list, done items excluded),
  *  ordered by session order then window index. The Server page WATCHED zone's
- *  workers view renders through it; the quake terminal's Operator Tasks segment
+ *  workers view renders through it; the quake terminal's Tasks segment
  *  renders through `collectTrackedRows` and reaches for this only as its
  *  older-backend fallback (`watchedWorkerRows`). */
 export function collectWatchedRows(
@@ -39,7 +39,7 @@ export function collectWatchedRows(
 
 /** `collectWatchedRows` lifted into `worker` rows with the identity facets
  *  synthesized from the window's `monitored*` fields — the WATCHED zone's row
- *  set, and the Operator Tasks segment's fallback when no session carries
+ *  set, and the Tasks segment's fallback when no session carries
  *  `operatorTracked`. One adapter so the two surfaces cannot drift. */
 export function watchedWorkerRows(sessions: ProjectSession[]): TrackedRow[] {
   return collectWatchedRows(sessions).map(({ session, win }) => ({
@@ -51,7 +51,7 @@ export function watchedWorkerRows(sessions: ProjectSession[]): TrackedRow[] {
   }));
 }
 
-/** The Operator Tasks rows: one per tracked item. Order: worker rows first in
+/** The Tasks rows: one per tracked item. Order: worker rows first in
  *  session order then window index (the WATCHED zone's order), then item rows
  *  in tracked-list order; within each species live items before done ones.
  *  Returns null when no session carries `operatorTracked` (older backend) so

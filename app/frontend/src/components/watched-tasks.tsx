@@ -8,7 +8,7 @@ import { formatDuration } from "@/lib/format";
 import type { ProjectSession } from "@/types";
 
 /**
- * The operator tracked-list segment body — the quake terminal's Operator Tasks
+ * The operator tracked-list segment body — the quake terminal's Tasks
  * segment (desktop drawer, dense) and the mobile operator route's `?tab=tasks`
  * content slot. A projection over the sessions payload taken by PROP: no hook,
  * no timer — every relative age is computed at render from `Date.now()` and

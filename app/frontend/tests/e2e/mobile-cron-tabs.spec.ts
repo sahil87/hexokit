@@ -1,13 +1,13 @@
-// Mobile cron tabs — the operator route's `Operator Terminal | Operator
-// Tasks | Cron List | Cron Log` segmented header, the `?tab=` deep links (the
-// legacy `activity` token normalizes to `log`), the stale banner above either
-// cron tab, and the Cron List action surfaces (`+ New entry`, the detail
-// sheet's Edit row and `Mute for…` presets).
+// Mobile cron tabs — the operator route's `Terminal | Tasks | Activity | Cron
+// List | Cron Log` segmented header, the `?tab=` deep links, the Activity tab
+// (rows, expansion, Check now) with the stale banner above it, and the Cron
+// List action surfaces (`+ New entry`, the detail sheet's Edit row and
+// `Mute for…` presets).
 //
 // Shared setup: fully mocked (no tmux). The sessions payload rides the
 // state-socket mock — a `dev` session with a work window `@1` plus a
 // `monitored: true` window `@2` (carrying `monitoredChange`/`monitoredStage`/
-// `monitoredRepo` — the Operator Tasks row) and `operatorLastTickAt` stamped,
+// `monitoredRepo` — the Tasks row) and `operatorLastTickAt` stamped,
 // plus an operator window `@9` with `role: "operator"` in `_rk-operator` (the
 // header's gate reads the role from this payload, so the header can only
 // appear after the snapshot lands). A payload variant stamps `operatorStale`
@@ -17,7 +17,11 @@
 // `POST /api/cron/mute` and `POST /api/cron/edit` are stubbed separately
 // (registered AFTER the general cron route so Playwright's
 // last-registered-wins matching picks them) and capture the request bodies
-// for the round-trip assertions. `/ws/terminals` is a no-op socket mock: the
+// for the round-trip assertions. `GET /api/operator/activity*` serves two
+// loop rows (a `no change` fire with its check record, a transcribed run with
+// a brief and log), `GET /api/operator/runs/**` the brief/log text, and
+// `POST /api/operator/wake` is captured for the Check now assertion.
+// `/ws/terminals` is a no-op socket mock: the
 // terminal mounts its xterm frame without stream data, and the mobile arrival
 // gate polls the terminal's `__rkTerminals` registration (the mobile specs'
 // idiom). Mobile tests run at 375×812; the desktop case (the operator page
@@ -111,11 +115,53 @@ const CRON = JSON.stringify({
   ],
 });
 
+const RUN_ID = "20261112T101500-ab12";
+const ACTIVITY = JSON.stringify({
+  server: SERVER,
+  in_flight: null,
+  rows: [
+    {
+      ts: NOW - 120,
+      entry: "lp01",
+      reason: "schedule",
+      outcome: "no change",
+      rung: 2,
+      fire: "20261112T100000-aaaa",
+      check: {
+        checked_at: "t",
+        changed: false,
+        changes: [],
+        open: [{ kind: "stale", id: "pr-41", age: "3d" }],
+        notices: [],
+        items: 1,
+      },
+    },
+    {
+      ts: NOW - 600,
+      entry: "lp01",
+      reason: "trigger:manual",
+      outcome: "ran · fixed it · 20s",
+      rung: 0,
+      fire: RUN_ID,
+      check: {
+        checked_at: "t",
+        changed: true,
+        changes: [{ kind: "stage-advance", id: "pr-7", from: "apply", to: "review" }],
+        open: [],
+        notices: [],
+        items: 1,
+      },
+      run: { id: RUN_ID, outcome: "fixed it", duration_s: 20, has_brief: true, has_log: true },
+    },
+  ],
+});
+
 /** Install the mocked backend (state socket + cron + the select seam).
- *  Returns probes holding the captured mute/edit POST bodies. */
+ *  Returns probes holding the captured mute/edit/wake POST bodies. */
 async function mockBackend(page: Page, opts: { stale?: boolean } = {}) {
   const mutePosts: Record<string, unknown>[] = [];
   const editPosts: Record<string, unknown>[] = [];
+  const wakePosts: Record<string, unknown>[] = [];
   await mockStateSocket(page, { sessions: sessionsPayload(opts.stale === true) });
   await page.routeWebSocket(/\/ws\/terminals/, () => {});
   await page.route("**/api/servers", (route) =>
@@ -141,10 +187,31 @@ async function mockBackend(page: Page, opts: { stale?: boolean } = {}) {
       body: '{"id":"a3f9"}',
     });
   });
+  // Once a wake has posted, the next activity read is held briefly so the
+  // button's transient `check queued` state is observable.
+  await page.route("**/api/operator/activity*", async (route) => {
+    if (wakePosts.length > 0) await new Promise((resolve) => setTimeout(resolve, 1_500));
+    await route.fulfill({ status: 200, contentType: "application/json", body: ACTIVITY });
+  });
+  await page.route("**/api/operator/runs/**", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "text/plain; charset=utf-8",
+      body: route.request().url().endsWith("/brief") ? "# the brief" : "the run log",
+    }),
+  );
+  await page.route("**/api/operator/wake", (route) => {
+    wakePosts.push(route.request().postDataJSON() as Record<string, unknown>);
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ server: SERVER, reason: "manual" }),
+    });
+  });
   await page.route("**/api/windows/*/select*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
   );
-  return { mutePosts, editPosts };
+  return { mutePosts, editPosts, wakePosts };
 }
 
 /** Mobile-pattern arrival: direct goto + a poll on the terminal's
@@ -171,20 +238,20 @@ const tabStrip = (page: Page) => page.getByRole("tablist", { name: "Quake termin
 
 test.describe("Mobile cron tabs", () => {
   /**
-   * Proves: at 375px the segment strip renders exactly the four segments —
-   * `Operator Terminal`, `Operator Tasks`, `Cron List`, `Cron Log` — in that
-   * order, and no label wraps or truncates or pushes the strip/page past the
-   * 375px width.
+   * Proves: at 375px the segment strip renders exactly the five segments —
+   * `Terminal`, `Tasks`, `Activity`, `Cron List`, `Cron Log` — in that order,
+   * and no label wraps or truncates or pushes the strip/page past the 375px
+   * width.
    *
    * Steps:
    * 1. Set the 375×812 viewport; mock the backend; land on the operator route
    *    `/default/9`.
-   * 2. Assert the four tab labels in exact order, with Operator Terminal
-   *    selected by default.
+   * 2. Assert the five tab labels in exact order, with Terminal selected by
+   *    default.
    * 3. Assert every tab is nowrap and untruncated (scrollWidth ≤ clientWidth)
    *    and the strip and page stay within the 375px width.
    */
-  test("the four segments render in order at 375px without wrap or truncation", async ({
+  test("the five segments render in order at 375px without wrap or truncation", async ({
     page,
   }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
@@ -194,10 +261,11 @@ test.describe("Mobile cron tabs", () => {
     const tabs = tabStrip(page);
     await expect(tabs).toBeVisible({ timeout: 10_000 });
     const buttons = tabs.getByRole("tab");
-    await expect(buttons).toHaveCount(4);
+    await expect(buttons).toHaveCount(5);
     expect(await buttons.allTextContents()).toEqual([
-      "Operator Terminal",
-      "Operator Tasks",
+      "Terminal",
+      "Tasks",
+      "Activity",
       "Cron List",
       "Cron Log",
     ]);
@@ -306,25 +374,81 @@ test.describe("Mobile cron tabs", () => {
   });
 
   /**
-   * Proves: a legacy `?tab=activity` deep link (the `rk notify` deep-link
-   * shape, aliased for one release) lands directly on the Cron Log segment
-   * with no extra tap.
+   * Proves: a `?tab=activity` deep link (the `rk notify` deep-link shape)
+   * lands directly on the Activity segment with its fire rows, no extra tap.
    *
    * Steps:
    * 1. Set the 375×812 viewport; mock the backend.
    * 2. Navigate straight to `/default/9?tab=activity`.
-   * 3. Assert the Cron Log body renders with its delivery row and the Cron Log
-   *    tab is selected (the header gate resolves once the sessions payload
-   *    lands).
+   * 3. Assert the Activity body renders both rows with their trigger labels
+   *    and the Activity tab is selected (the header gate resolves once the
+   *    sessions payload lands).
    */
-  test("?tab=activity deep link lands on the Cron Log segment", async ({ page }) => {
+  test("?tab=activity deep link lands on the Activity segment", async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
     await mockBackend(page);
     await page.goto(`/${SERVER}/9?tab=activity`);
 
-    await expect(page.getByTestId("cron-log")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByTestId("cron-delivery-row-a3f9")).toBeVisible();
-    await expect(page.getByRole("tab", { name: "Cron Log" })).toHaveAttribute("aria-selected", "true");
+    const activity = page.getByTestId("operator-activity");
+    await expect(activity).toBeVisible({ timeout: 10_000 });
+    await expect(activity.getByTestId("operator-activity-row")).toHaveCount(2);
+    await expect(activity.getByText("schedule · rung 2")).toBeVisible();
+    await expect(activity.getByText("manual", { exact: true })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Activity" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  /**
+   * Proves: an Activity row expands to its run's brief and log (fetched from
+   * the run-file endpoints) and the filter chips narrow the rows.
+   *
+   * Steps:
+   * 1. Set the 375×812 viewport; mock the backend; land on
+   *    `/default/9?tab=activity`.
+   * 2. Tap the `runs` chip; assert only the transcribed-run row remains.
+   * 3. Tap that row; assert its brief and run log text render.
+   * 4. Tap the `all` chip; assert both rows are back.
+   */
+  test("an Activity row expands to the brief and run log, and the chips filter", async ({ page }) => {
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await mockBackend(page);
+    await page.goto(`/${SERVER}/9?tab=activity`);
+
+    const rows = page.getByTestId("operator-activity-row");
+    await expect(rows).toHaveCount(2, { timeout: 10_000 });
+    await page.getByTestId("operator-activity-filter-runs").click();
+    await expect(rows).toHaveCount(1);
+    await rows.first().getByRole("button").click();
+    await expect(page.getByTestId("operator-activity-brief")).toContainText("# the brief");
+    await expect(page.getByTestId("operator-activity-log")).toContainText("the run log");
+    await page.getByTestId("operator-activity-filter-all").click();
+    await expect(rows).toHaveCount(2);
+  });
+
+  /**
+   * Proves: Check now posts the trigger door exactly once with the server and
+   * the button reads `check queued` afterwards.
+   *
+   * Steps:
+   * 1. Set the 375×812 viewport; mock the backend (capturing wake POSTs); land
+   *    on `/default/9?tab=activity`.
+   * 2. Tap `Check now`.
+   * 3. Assert one POST with body `{server: "default"}` was captured and the
+   *    button reads `check queued` while the held activity read is pending,
+   *    then returns to `Check now`.
+   */
+  test("Check now posts the wake once", async ({ page }) => {
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    const { wakePosts } = await mockBackend(page);
+    await page.goto(`/${SERVER}/9?tab=activity`);
+
+    const button = page.getByTestId("operator-activity-check-now");
+    await expect(button).toHaveText("Check now", { timeout: 10_000 });
+    await button.click();
+    await expect.poll(() => wakePosts.length).toBe(1);
+    expect(wakePosts[0]).toEqual({ server: SERVER });
+    await expect(button).toHaveText("check queued");
+    await expect(button).toHaveText("Check now", { timeout: 10_000 });
+    expect(wakePosts).toHaveLength(1);
   });
 
   /**
@@ -348,7 +472,7 @@ test.describe("Mobile cron tabs", () => {
   });
 
   /**
-   * Proves: tapping the Operator Tasks segment swaps the content in place —
+   * Proves: tapping the Tasks segment swaps the content in place —
    * the watchlist (the monitored worker rows) appears, the URL gains
    * `?tab=tasks`, and the page does NOT reload (an in-page probe survives the
    * tap, and the terminal's relay registration persists — the terminal is
@@ -358,12 +482,12 @@ test.describe("Mobile cron tabs", () => {
    * 1. Set the 375×812 viewport; mock the backend (the @2 window carries the
    *    monitored facets); land on `/default/9`.
    * 2. Stamp `window.__tasksProbe` as a reload tripwire.
-   * 3. Tap the Operator Tasks tab.
+   * 3. Tap the Tasks tab.
    * 4. Assert the watchlist renders the worker row, the URL carries
    *    `tab=tasks`, the probe is still set, and `__rkTerminals["@9"]` is
    *    still registered.
    */
-  test("tapping Operator Tasks swaps the content slot without a full reload", async ({ page }) => {
+  test("tapping Tasks swaps the content slot without a full reload", async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
     await mockBackend(page);
     await gotoWindowMobile(page, "@9");
@@ -371,7 +495,7 @@ test.describe("Mobile cron tabs", () => {
       (window as unknown as { __tasksProbe?: string }).__tasksProbe = "alive";
     });
 
-    await page.getByRole("tab", { name: "Operator Tasks" }).click();
+    await page.getByRole("tab", { name: "Tasks" }).click();
 
     const tasks = page.getByTestId("watched-tasks");
     await expect(tasks).toBeVisible({ timeout: 10_000 });
@@ -393,17 +517,17 @@ test.describe("Mobile cron tabs", () => {
   });
 
   /**
-   * Proves: a `?tab=tasks` deep link lands directly on the Operator Tasks
-   * segment (the watchlist) with no extra tap.
+   * Proves: a `?tab=tasks` deep link lands directly on the Tasks segment
+   * (the watchlist) with no extra tap.
    *
    * Steps:
    * 1. Set the 375×812 viewport; mock the backend.
    * 2. Navigate straight to `/default/9?tab=tasks`.
-   * 3. Assert the watchlist renders with the worker row and the Operator
-   *    Tasks tab is selected (the header gate resolves once the sessions
+   * 3. Assert the watchlist renders with the worker row and the Tasks tab is
+   *    selected (the header gate resolves once the sessions
    *    payload lands).
    */
-  test("?tab=tasks deep link lands on the Operator Tasks segment", async ({ page }) => {
+  test("?tab=tasks deep link lands on the Tasks segment", async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
     await mockBackend(page);
     await page.goto(`/${SERVER}/9?tab=tasks`);
@@ -411,24 +535,24 @@ test.describe("Mobile cron tabs", () => {
     const tasks = page.getByTestId("watched-tasks");
     await expect(tasks).toBeVisible({ timeout: 10_000 });
     await expect(tasks.getByText("watched-worker")).toBeVisible();
-    await expect(page.getByRole("tab", { name: "Operator Tasks" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("tab", { name: "Tasks" })).toHaveAttribute("aria-selected", "true");
   });
 
   /**
-   * Proves: the operator-staleness banner pins ABOVE either cron tab's body
-   * when a session reports `operatorStale`, and does not render above the
-   * Operator Terminal segment.
+   * Proves: the operator-staleness banner pins ABOVE the Activity body when a
+   * session reports `operatorStale`, and renders above neither the cron tabs
+   * nor the Terminal segment.
    *
    * Steps:
    * 1. Set the 375×812 viewport; mock the backend with a stale operator tick;
    *    land on `/default/9` (the terminal segment).
    * 2. Assert no banner renders.
-   * 3. Tap Cron Log; assert the banner is visible and sits above the log body
-   *    (bounding-box y).
-   * 4. Tap Cron List; assert the banner is visible above the list body.
-   * 5. Tap Operator Terminal; assert the banner is gone.
+   * 3. Tap Activity; assert the banner is visible and sits above the activity
+   *    body (bounding-box y).
+   * 4. Tap Cron Log, then Cron List; assert no banner renders above either.
+   * 5. Tap Terminal; assert no banner renders.
    */
-  test("the stale banner mounts above both cron tabs and never above the terminal", async ({
+  test("the stale banner mounts above Activity only", async ({
     page,
   }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
@@ -438,21 +562,22 @@ test.describe("Mobile cron tabs", () => {
     await expect(tabStrip(page)).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("cron-activity-banner")).toHaveCount(0);
 
-    await page.getByRole("tab", { name: "Cron Log" }).click();
+    await page.getByRole("tab", { name: "Activity" }).click();
     const banner = page.getByTestId("cron-activity-banner");
     await expect(banner).toBeVisible({ timeout: 10_000 });
     const bannerBox = await banner.boundingBox();
-    const logBox = await page.getByTestId("cron-log").boundingBox();
-    expect(bannerBox!.y).toBeLessThan(logBox!.y);
+    const activityBox = await page.getByTestId("operator-activity").boundingBox();
+    expect(bannerBox!.y).toBeLessThan(activityBox!.y);
+
+    await page.getByRole("tab", { name: "Cron Log" }).click();
+    await expect(page.getByTestId("cron-log")).toBeVisible({ timeout: 10_000 });
+    await expect(banner).toHaveCount(0);
 
     await page.getByRole("tab", { name: "Cron List" }).click();
     await expect(page.getByTestId("cron-list")).toBeVisible({ timeout: 10_000 });
-    await expect(banner).toBeVisible();
-    const bannerBox2 = await banner.boundingBox();
-    const listBox = await page.getByTestId("cron-list").boundingBox();
-    expect(bannerBox2!.y).toBeLessThan(listBox!.y);
+    await expect(banner).toHaveCount(0);
 
-    await page.getByRole("tab", { name: "Operator Terminal" }).click();
+    await page.getByRole("tab", { name: "Terminal" }).click();
     await expect(page.getByTestId("cron-activity-banner")).toHaveCount(0);
   });
 

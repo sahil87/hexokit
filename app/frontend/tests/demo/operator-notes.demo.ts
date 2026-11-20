@@ -1,5 +1,5 @@
 /**
- * Demo: the Operator Tasks segment reading rk's own operator state file and
+ * Demo: the Tasks segment reading rk's own operator state file and
  * showing each tracked item's notes, recorded for PR evidence. Every row's
  * note cell carries the item's latest note (author, age, `+N` for older
  * notes) and expands in place to the whole list, fetched on demand from
@@ -8,7 +8,7 @@
  *
  * Runs only under `just demo operator-notes` (playwright.demo.config.ts —
  * testDir ./tests/demo), against the throwaway e2e rig, once per project
- * (desktop 1280x800 → the quake drawer's Operator Tasks segment; mobile
+ * (desktop 1280x800 → the quake drawer's Tasks segment; mobile
  * 375x812 → the operator route's `?tab=tasks`). The `--before` pass runs the
  * same steps against the base ref, whose backend reads only fab's file: the
  * rows then show fab's frozen ledger (the legacy note text, no run notes), so
@@ -135,7 +135,7 @@ test.describe("operator-notes demo", () => {
   });
 
   /**
-   * Proves: with rk's operator state file present, the Operator Tasks
+   * Proves: with rk's operator state file present, the Tasks
    * segment lists rk's items (not fab's) with each item's latest note —
    * author, age and a `+N` hint — and expanding a note lists every note on
    * the item, oldest first; the worker row shows its item note rather than
@@ -154,7 +154,7 @@ test.describe("operator-notes demo", () => {
    *    (Base ref: the rows show fab's ledger; the expand toggles reveal the
    *    one legacy text, and the worker row shows the tab note.)
    */
-  test("Operator Tasks shows each item's latest note and expands to all notes", async ({ page }, testInfo) => {
+  test("Tasks shows each item's latest note and expands to all notes", async ({ page }, testInfo) => {
     const isMobile = testInfo.project.name === "mobile";
     const op = await resolveWindow(page, TMUX_SERVER, OPERATOR_SESSION, "operator");
     setWindowOption(op.windowId, "@rk_win_role", "operator");

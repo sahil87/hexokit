@@ -1390,6 +1390,36 @@ func TestTickTriggerConsumedExactlyOnce(t *testing.T) {
 	}
 }
 
+// TestTickLoopLineCarriesOutcomeFire: the runner's fire id lands on the loop
+// line it produced, and a line from an outcome without one carries none.
+func TestTickLoopLineCarriesOutcomeFire(t *testing.T) {
+	T := backoffBase
+	dir, entry, tick := loopTickRig(t, T)
+	quietLoopLog(t, dir, entry, T)
+	if err := WriteWakeMarker(dir, "dev", "manual", T); err != nil {
+		t.Fatal(err)
+	}
+	tick(Deps{LoopRunner: func(context.Context, Fire) Outcome {
+		return Outcome{Status: OutcomeNoChange, Fire: "20261112T101500-ab12"}
+	}})
+	if err := WriteWakeMarker(dir, "dev", "manual", T); err != nil {
+		t.Fatal(err)
+	}
+	tick(Deps{LoopRunner: func(context.Context, Fire) Outcome {
+		return Outcome{Status: OutcomeSkippedBusy("r")}
+	}})
+	log := readDevLog(t, dir)
+	if len(log) < 3 {
+		t.Fatalf("log = %+v", log)
+	}
+	if got := log[len(log)-2]; got.Fire != "20261112T101500-ab12" || got.Outcome != OutcomeNoChange {
+		t.Errorf("no change line = %+v, want the fire id", got)
+	}
+	if got := log[len(log)-1]; got.Fire != "" {
+		t.Errorf("skipped-busy line = %+v, want no fire", got)
+	}
+}
+
 func TestTickTriggerLeftInPlace(t *testing.T) {
 	T := backoffBase
 	t.Run("dead server", func(t *testing.T) {

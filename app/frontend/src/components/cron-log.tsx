@@ -3,7 +3,11 @@ import { useCronData } from "@/hooks/use-cron";
 import { formatDuration } from "@/lib/format";
 import { DataTable, type DataTableColumn, type DataTableRowProps } from "@/components/data-table";
 import { CronEntryDetailSheet } from "@/components/cron-entry-detail-sheet";
+import { controlClass } from "@/components/control";
 import type { CronDelivery } from "@/api/client";
+
+// The operator-loop entry's `run` value (CronEntry.run).
+const OPERATOR_LOOP_RUN = "operator-loop";
 
 /**
  * The Cron Log tab — the server's delivery log, nothing else: every line of
@@ -15,6 +19,11 @@ import type { CronDelivery } from "@/api/client";
  * per-viewer override persisted under `hexokit-table-cron-log`; `Table: Reset
  * columns` returns to API order. Data rides the mount fetch + state-socket
  * sessions cadence — no polling.
+ *
+ * Rows of the operator-loop entry are hidden by default — the loop's own
+ * view is the Activity tab — and a `show loop` toggle in the header reveals
+ * them (component state, not persisted). A line for a since-deleted entry
+ * cannot be told apart and stays visible.
  *
  * Tapping a row whose entry still exists opens the entry detail sheet; a line
  * for a since-deleted entry stays valid history but opens nothing (the sheet
@@ -30,12 +39,19 @@ export function CronLog({ server, inline = false }: { server: string; inline?: b
   // The tapped delivery line itself: the sheet needs its entry AND, for an
   // operator-loop run, the run fields the line carries.
   const [selectedDelivery, setSelectedDelivery] = useState<CronDelivery | null>(null);
+  const [showLoop, setShowLoop] = useState(false);
 
   const selectedEntry = selectedDelivery
     ? entries.find((e) => e.id === selectedDelivery.entry)
     : undefined;
 
   const nowMs = Date.now();
+
+  const visible = useMemo(() => {
+    if (showLoop) return deliveries;
+    const loopIds = new Set(entries.filter((e) => e.run === OPERATOR_LOOP_RUN).map((e) => e.id));
+    return deliveries.filter((d) => !loopIds.has(d.entry));
+  }, [deliveries, entries, showLoop]);
 
   const columns = useMemo<DataTableColumn<CronDelivery>[]>(
     () => [
@@ -88,20 +104,37 @@ export function CronLog({ server, inline = false }: { server: string; inline?: b
       className={`flex-1 min-h-0 flex flex-col${inline ? " relative" : ""}`}
       data-testid="cron-log"
     >
+      <div className="shrink-0 border-b border-border px-3 py-1.5 flex">
+        <button
+          type="button"
+          aria-pressed={showLoop}
+          onClick={() => setShowLoop((v) => !v)}
+          data-testid="cron-log-show-loop"
+          className={controlClass({
+            variant: "toggle",
+            base: "rounded border px-2 py-0.5 text-[11px] font-mono coarse:min-h-[36px]",
+            pressed: showLoop,
+          })}
+        >
+          show loop
+        </button>
+      </div>
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {deliveries.length === 0 ? (
+        {visible.length === 0 ? (
           <div
             className="flex h-full items-center justify-center px-4 text-xs text-text-secondary"
             data-testid="cron-log-empty"
           >
-            No deliveries yet on {server}.
+            {deliveries.length === 0
+              ? `No deliveries yet on ${server}.`
+              : `No deliveries on ${server} besides the operator loop.`}
           </div>
         ) : (
           <DataTable
             tableId="cron-log"
             label="Cron Log"
             columns={columns}
-            rows={deliveries}
+            rows={visible}
             rowKey={(delivery) => `${delivery.ts}-${delivery.entry}-${deliveries.indexOf(delivery)}`}
             initialSort={null}
             dense={inline}

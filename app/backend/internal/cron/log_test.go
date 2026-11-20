@@ -97,6 +97,26 @@ func TestAppendLog(t *testing.T) {
 	}
 }
 
+// TestLogLineFireRoundTrip: the fire id survives a write/read, stays out of
+// lines that have none, and a line written before the field parses with it empty.
+func TestLogLineFireRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dev.log")
+	if err := AppendLog(path, LogLine{TS: 1, Entry: "lp01", Reason: "schedule", Outcome: OutcomeNoChange, Fire: "20261112T101500-ab12"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendLog(path, LogLine{TS: 2, Entry: "lp01", Reason: "schedule", Outcome: "skipped-busy: x"}); err != nil {
+		t.Fatal(err)
+	}
+	data := mustRead(t, path)
+	if got := bytes.Count(data, []byte(`"fire"`)); got != 1 {
+		t.Errorf("fire key appears %d times, want once (omitempty)", got)
+	}
+	lines := ParseLog(append(data, []byte(`{"ts":3,"entry":"lp01","target":"","reason":"schedule","outcome":"no change"}`+"\n")...))
+	if len(lines) != 3 || lines[0].Fire != "20261112T101500-ab12" || lines[1].Fire != "" || lines[2].Fire != "" {
+		t.Errorf("lines = %+v", lines)
+	}
+}
+
 func mustRead(t *testing.T, path string) []byte {
 	t.Helper()
 	data, err := os.ReadFile(path)

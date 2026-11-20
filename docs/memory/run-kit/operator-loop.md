@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The operator loop runner (`internal/operatorloop`) behind the cron `run: operator-loop` entry: decision order (busy gate → `operator.Check` → run), the `_rk-operator` run window, run records (newest 50) and per-fire check records (newest 200), the `rk operator run-exec` wrapper (mechanical pass, judgment set, brief, failure notes, one push per failure streak), exactly-once transcription with the fire reason, launcher resolution, restart survival."
+description: "The operator loop runner (`internal/operatorloop`) behind the cron `run: operator-loop` entry: decision order (busy gate → `operator.Check` → run), the `_rk-operator` run window, run records (newest 50) and per-fire check records (newest 200), the `rk operator run-exec` wrapper (mechanical pass, judgment set, brief, failure notes, one push per streak), exactly-once transcription with the fire reason, the Activity read view, launcher resolution, restart survival."
 ---
 # Operator Loop
 
@@ -18,10 +18,10 @@ For a due loop fire on server S, `Run` SHALL decide in this order and stop at th
 
 1. An invalid server name ⇒ `check-failed: <message>`.
 2. A live run window on S (§ In-flight definition) ⇒ `skipped-busy: run <run-id>`, with `operator.Check` NOT called — the run in flight owns the current changes, and the state file's `last_check_at` stays untouched.
-3. `operator.Check(ctx, S, CheckOptions{})` — an error ⇒ `check-failed: <first line of the error>`; `Changed == false` ⇒ `no change`, and no window or run record is created (the fire's check record is — § Check records).
+3. `operator.Check(ctx, S, CheckOptions{})` — an error ⇒ `check-failed: <first line of the error>`; `Changed == false` ⇒ `no change`, and no window or run record is created (the fire's check record is — § Check records); the outcome carries the fire id, so its log line names that record (`LogLine.fire` — [cron](/run-kit/cron.md) § Operator Loop Entry).
 4. Otherwise map `CheckResult.Changes` to `[]operator.ChangedItem` (one per id in first-seen order, reasons accumulated as `<kind>[ <detail>]`, with a detail only where the delta carries a short one — a stage or agent-state move, the changed field names, an age, the paused error, the missing dependency), persist the run record (the changed items with their reasons, the fire's reason, and the fire's id as the run id), open the run window, and return a `Held` outcome — no log line at launch; the single line for the fire is written at transcription.
 
-The daemon renders no brief: the wrapper renders it after the mechanical pass, only when judgment is needed. A failure while preparing a run that left nothing on disk is logged at once as `run-lost: launch: <err>`. A failure after the record exists marks the record ended with a `lost` reason of `launch: <err>`, and transcription logs the same line. Every launch failure also appends a `run failed: launch: <err>` note (`--by run`) to each changed item, because the check already consumed those items' edges and the note is what keeps the failure visible. Probes cost nothing, so the loop opens a run window only when `Check` reports a change, and the run spends a model call only when judgment is needed.
+The daemon renders no brief: the wrapper renders it after the mechanical pass, only when judgment is needed. A failure while preparing a run that left nothing on disk is logged at once as `run-lost: launch: <err>`, carrying the fire id (the check record was already written under it). A failure after the record exists marks the record ended with a `lost` reason of `launch: <err>`, and transcription logs the same line. Every launch failure also appends a `run failed: launch: <err>` note (`--by run`) to each changed item, because the check already consumed those items' edges and the note is what keeps the failure visible. Probes cost nothing, so the loop opens a run window only when `Check` reports a change, and the run spends a model call only when judgment is needed.
 
 #### Scenario: Busy fire does not probe
 - **GIVEN** a live run window on S
@@ -85,6 +85,16 @@ Every fire on which `operator.Check` returned a result SHALL persist `<fire-id>.
 - **WHEN** `Prune` runs
 - **THEN** the 200 newest remain and run records are untouched
 
+### Requirement: Activity — the read view over loop lines, check records and run records
+
+The operator's work SHALL be readable as one row per fire, newest first, joined at request time from three plain-file sources: the entry's own cron-log lines (reason, outcome, timestamp), the fire's check record, and its run record. The join id is the line's `fire` (the `no change` and immediately logged `run-lost: launch: …` lines), else its `run` (a transcribed line — the run reuses the fire id); a `skipped-busy` or `check-failed` line, a line from before the field, and any fire whose record is missing, pruned or corrupt render with the loop line alone. A schedule fire's ladder position is replayed from the log (`cron.LoopRungs`), so the rung a fire ran at is recoverable after the fact. A run in flight has no log line until transcription, so it leads the list as a synthetic `running` row built from its records. The read is `GET /api/operator/activity` and the run files it links are `GET /api/operator/runs/{server}/{id}/brief|log` ([api-and-sockets](/run-kit/api-and-sockets.md)); the UI is the drawer's and operator route's Activity segment ([ui/quake-terminal](/run-kit/ui/quake-terminal.md) § Desktop segments), whose **Check now** posts the trigger door (`POST /api/operator/wake`) — a false trigger costs one free check, never a forced or paid no-op run. Activity holds no state of its own: it is a view, not a second log.
+
+#### Scenario: A quiet trigger fire is explained
+- **GIVEN** a `trigger:manual` fire whose check found nothing
+- **WHEN** Activity reads the server
+- **THEN** the row's reason is `trigger:manual`, its outcome `no change`, and its `check` carries the record's changes, open items and notices
+- **AND** a transcribed `ran · …` row joins both its check record and its run record through `run`
+
 ### Requirement: The `rk operator run-exec` wrapper
 
 `rk operator run-exec --server S --run <run-id> -- <launcher argv…>` (hidden; `cmd/rk/operator_run_exec.go`, body in `operatorloop.Exec`; excluded from the MCP policy table) runs inside the run window, so the wrapper — not the daemon — is the run's parent and the only writer of the run's end state. It SHALL:
@@ -143,7 +153,7 @@ The wrapper never writes the cron log. Its exit status mirrors the child's (124 
 | `exit_code != 0` | `run-failed: exit <n> · <duration>` |
 | ended, no outcome line | `run-failed: no outcome line · <duration>` |
 
-The duration is `ended_at − started_at`, falling back to `ended_at − fired_at` when the wrapper never recorded a start. A record with no `ended_at` whose window (matched by `@rk_win_operator_run`) no longer exists is marked ended with `lost: window gone` and transcribed as `run-lost: window gone`; if the window listing itself fails, no run is judged lost that tick; marking lost sets `lost` only while the re-read record still has no `ended_at`, so a wrapper that recorded a clean end between the read and the write is never rewritten as lost. An unparseable record is skipped with a warning, never failing the tick. After appending a line the tick calls `MarkLogged`, and a run id already present in the log is marked without a second line, so a crash between append and mark still yields exactly one line. Transcription then prunes (§ Run records, brief, and log); mechanical runs count toward the newest-50 retention. The Operator Tasks drawer and cron log render the mechanical line and `escalated: …` notes through their existing row rendering.
+The duration is `ended_at − started_at`, falling back to `ended_at − fired_at` when the wrapper never recorded a start. A record with no `ended_at` whose window (matched by `@rk_win_operator_run`) no longer exists is marked ended with `lost: window gone` and transcribed as `run-lost: window gone`; if the window listing itself fails, no run is judged lost that tick; marking lost sets `lost` only while the re-read record still has no `ended_at`, so a wrapper that recorded a clean end between the read and the write is never rewritten as lost. An unparseable record is skipped with a warning, never failing the tick. After appending a line the tick calls `MarkLogged`, and a run id already present in the log is marked without a second line, so a crash between append and mark still yields exactly one line. Transcription then prunes (§ Run records, brief, and log); mechanical runs count toward the newest-50 retention. The Tasks drawer segment and the cron log render the mechanical line and `escalated: …` notes through their existing row rendering.
 
 #### Scenario: A trigger-launched run keeps its reason
 - **GIVEN** a run launched by a `trigger:note` fire
@@ -223,6 +233,12 @@ Every daemon-originated write is durable before a run launches, and the daemon h
 **Why**: The log already holds the streak, so there is no second file to keep in sync, and a dead launcher backs off on the ladder instead of notifying every fire. An unreadable log pushes: a missed alert costs more than a repeated one.
 **Rejected**: A streak marker beside the run records (a second source of truth).
 *Introduced by*: 261120-pgns-operator-trigger-door-failure-streaks
+
+### Activity is a view over existing files, not a second log
+**Decision**: Activity joins the cron log's loop lines with check records and run records at request time; the cron log stays the single delivery log and the loop's `no change` outcome gains a fire id so its check record can be named.
+**Why**: The cron log is the one delivery log (Constitution II — durable files, the daemon derives); a separate operator log would duplicate lines and drift. The loop's rows are drowned in the Cron Log by heartbeats, so the loop gets its own view of the same file rather than its own file.
+**Rejected**: A dedicated operator activity log written beside the cron log (two writers of one fact); guessing a `no change` line's check record by timestamp.
+*Introduced by*: 261120-ny0u-operator-activity-tab-check-now
 
 ### A check record per fire, shared id with the run
 **Decision**: Every fire whose check ran persists `<fire-id>.check.json`, and a launched run reuses the fire id as its run id.

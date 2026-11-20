@@ -12,7 +12,7 @@ import { mockStateSocket, emitSessions } from "./_state-socket-mock";
 // Start operator button (pending → the SSE-equivalent sessions event carries
 // the new operator window and the embed mounts; failures surface inline) and
 // the sidebar's placeholder row (the pinned slot's operator-less form —
-// activation opens the drawer on Operator Terminal; a carrier swap replaces
+// activation opens the drawer on Terminal; a carrier swap replaces
 // it with the ordinary pinned row).
 //
 // Shared setup: fully mocked (no tmux). The sessions payload rides the
@@ -143,7 +143,7 @@ test.describe("operator page (desktop)", () => {
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on its route.
-   * 2. Assert the page's segment strip is visible with Operator Terminal
+   * 2. Assert the page's segment strip is visible with Terminal
    *    selected, the terminal frame is mounted, and the compose strip input
    *    is visible below it.
    */
@@ -155,7 +155,7 @@ test.describe("operator page (desktop)", () => {
 
     const tabs = page.getByTestId("terminal-activity-tabs");
     await expect(tabs).toBeVisible({ timeout: 10_000 });
-    await expect(tabs.getByRole("tab", { name: "Operator Terminal" })).toHaveAttribute(
+    await expect(tabs.getByRole("tab", { name: "Terminal" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
@@ -283,15 +283,15 @@ test.describe("operator page (desktop)", () => {
 
   /**
    * Proves: the sidebar's operator placeholder row opens the drawer on the
-   * Operator Terminal segment (where the Start button sits) when activated
+   * Terminal segment (where the Start button sits) when activated
    * from the keyboard — Enter through the roving-tabindex tree path.
    *
    * Steps:
    * 1. Mock the backend without an operator; land on the @1 route.
    * 2. Press Enter on the placeholder row.
-   * 3. Assert the drawer is open on Operator Terminal with the Start button.
+   * 3. Assert the drawer is open on Terminal with the Start button.
    */
-  test("Enter on the placeholder row opens the drawer on Operator Terminal with the Start button", async ({
+  test("Enter on the placeholder row opens the drawer on Terminal with the Start button", async ({
     page,
   }) => {
     await mockBackend(page, false);
@@ -303,7 +303,7 @@ test.describe("operator page (desktop)", () => {
 
     await expect(drawer(page)).toBeVisible();
     const tabs = drawer(page).getByTestId("terminal-activity-tabs");
-    await expect(tabs.getByRole("tab", { name: "Operator Terminal" })).toHaveAttribute(
+    await expect(tabs.getByRole("tab", { name: "Terminal" })).toHaveAttribute(
       "aria-selected",
       "true",
     );

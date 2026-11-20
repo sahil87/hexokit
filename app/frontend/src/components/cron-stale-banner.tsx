@@ -3,13 +3,13 @@ import { useSessionContext } from "@/contexts/session-context";
 import { formatDuration } from "@/lib/format";
 
 /**
- * The pinned (non-scrolling) operator-staleness banner for the cron tabs —
+ * The pinned (non-scrolling) operator-staleness banner for the Activity tab —
  * rendered exactly when any of the resolved server's sessions reports
  * `operatorStale === true`, reading the already-shipped
  * `operatorStale`/`operatorLastTickAt` fields off the sessions payload (no
  * new fetch). The relative age computes at render time; the SSE cadence is
- * the clock, never a timer. Mounted ONCE above the Cron List / Cron Log body
- * by their parents (never above Operator Terminal); renders nothing when the
+ * the clock, never a timer. Mounted above the Activity body by its parents
+ * (never above the terminal or the cron tabs); renders nothing when the
  * server is unresolvable or no session is stale.
  */
 export function CronStaleBanner({ server }: { server: string }) {

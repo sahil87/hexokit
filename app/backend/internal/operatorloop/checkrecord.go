@@ -3,6 +3,7 @@ package operatorloop
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 
@@ -61,6 +62,21 @@ func newCheckRecord(firedAt, reason string, res operator.CheckResult, run string
 
 // CheckRecordPath is FilePath for a check record.
 func CheckRecordPath(dir, id string) (string, error) { return FilePath(dir, id, checkRecordSuffix) }
+
+// ReadCheckRecord parses one check record file. CheckDelta marshals through a
+// kind-specific MarshalJSON whose keys match its field names, so the default
+// decoder reads them back.
+func ReadCheckRecord(path string) (CheckRecord, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return CheckRecord{}, err
+	}
+	var rec CheckRecord
+	if err := json.Unmarshal(data, &rec); err != nil {
+		return CheckRecord{}, fmt.Errorf("parsing %s: %w", path, err)
+	}
+	return rec, nil
+}
 
 // WriteCheckRecord writes the fire's check record atomically (0600) into dir,
 // creating the runs dir when absent.

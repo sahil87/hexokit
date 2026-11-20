@@ -1,7 +1,7 @@
 /**
  * The one data table — a headless TanStack Table model rendered in the
  * project's own Tailwind/Control vocabulary, mounted by `watched-table.tsx`
- * (Operator Tasks / the Server page WATCHED zone), `cron-list.tsx`, and
+ * (Tasks / the Server page WATCHED zone), `cron-list.tsx`, and
  * `cron-log.tsx`. The component owns the table chrome — the header row with
  * `aria-sort` sort buttons, the fine-pointer-only resize handles, the
  * `<colgroup>` widths, the per-viewer `hexokit-table-<id>` view-state store,

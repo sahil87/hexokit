@@ -2205,6 +2205,124 @@ export async function getOperatorNotes(server: string, id: string): Promise<Oper
   return Array.isArray(notes) ? notes.filter(isOperatorNote) : [];
 }
 
+/** One condition or event a fire's check reported, keyed by item id. `kind`
+ *  selects which of the optional fields the check set (the backend emits
+ *  exactly that set per kind). */
+export interface OperatorCheckDelta {
+  kind: string;
+  id: string;
+  pane?: string;
+  age?: string;
+  from?: string | null;
+  to?: string | null;
+  duration?: string | null;
+  dep?: string;
+  error?: string;
+  command?: string | null;
+  found?: string | null;
+  instruction?: string;
+  at?: string;
+  fields?: Record<string, { from: unknown; to: unknown }>;
+}
+
+/** A non-gating check observation (e.g. a paused item's failure streak). */
+export interface OperatorCheckNotice {
+  id: string;
+  kind: string;
+  error: string;
+  failures: number;
+}
+
+/** The check record joined to an Activity row; `items` counts distinct item
+ *  ids across `changes` and `open`. */
+export interface OperatorActivityCheck {
+  checked_at: string;
+  changed: boolean;
+  changes: OperatorCheckDelta[];
+  open: OperatorCheckDelta[];
+  notices: OperatorCheckNotice[];
+  items: number;
+}
+
+/** The run record joined to an Activity row. `pass.actions` > 0 with no
+ *  `outcome` is a mechanical-only pass. */
+export interface OperatorActivityRun {
+  id: string;
+  pass?: { actions: number; escalations?: string[]; busy?: boolean; error?: string };
+  outcome?: string;
+  lost?: string;
+  exit_code?: number;
+  started_at?: string;
+  ended_at?: string;
+  duration_s: number;
+  has_brief: boolean;
+  has_log: boolean;
+}
+
+/** One fire. `reason` is the raw fire reason (`schedule`, `wake`,
+ *  `trigger:<why>`), `outcome` the raw loop-line outcome ("" while the run is
+ *  in flight), `rung` the backoff-ladder position at the line. */
+export interface OperatorActivityRow {
+  ts: number;
+  entry: string;
+  reason: string;
+  outcome: string;
+  rung: number;
+  fire?: string;
+  running?: boolean;
+  check?: OperatorActivityCheck;
+  run?: OperatorActivityRun;
+}
+
+export interface OperatorActivityResponse {
+  server: string;
+  in_flight: { id: string; started_at: string } | null;
+  rows: OperatorActivityRow[];
+}
+
+/** GET /api/operator/activity?server=<slug> — the operator loop's fires,
+ *  newest first, each joined with its check and run records. Tolerant parse:
+ *  absent rows read as empty. */
+export async function getOperatorActivity(server: string): Promise<OperatorActivityResponse> {
+  const res = await deduplicatedFetch(withServer("/api/operator/activity", server));
+  if (!res.ok) await throwOnError(res);
+  const data = (await res.json()) as Partial<OperatorActivityResponse>;
+  return { server: data.server ?? server, in_flight: data.in_flight ?? null, rows: data.rows ?? [] };
+}
+
+/** One run file's text and whether the server cut it at its cap. */
+export interface OperatorRunFile {
+  text: string;
+  truncated: boolean;
+}
+
+/** GET /api/operator/runs/<server>/<id>/brief|log — the raw contents (a brief's
+ *  head, a log's tail) with `X-Rk-Truncated` read into `truncated`. Rejects
+ *  with an ApiError on 404 (a pruned run) or 400. */
+export async function getOperatorRunFile(
+  server: string,
+  id: string,
+  kind: "brief" | "log",
+): Promise<OperatorRunFile> {
+  const res = await fetch(
+    `/api/operator/runs/${encodeURIComponent(server)}/${encodeURIComponent(id)}/${kind}`,
+  );
+  if (!res.ok) await throwOnError(res);
+  return { text: await res.text(), truncated: res.headers.get("X-Rk-Truncated") === "true" };
+}
+
+/** POST /api/operator/wake {server[, reason]} — the trigger door: the next cron
+ *  tick runs one check (and a run only if something changed). An omitted
+ *  reason is `manual` server-side. */
+export async function postOperatorWake(server: string, reason?: string): Promise<void> {
+  const res = await fetch("/api/operator/wake", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(reason ? { server, reason } : { server }),
+  });
+  if (!res.ok) await throwOnError(res);
+}
+
 /** Body for POST /api/cron/create — the `rk cron add` schema fields in
  *  camelCase. `target` defaults server-side only through validation, so the
  *  caller always sends one (the dialog targets role "operator"). */

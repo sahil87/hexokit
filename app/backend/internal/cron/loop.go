@@ -143,3 +143,21 @@ func LoopLadder(e Entry, log []LogLine) LoopRung {
 	}
 	return l
 }
+
+// LoopRungs replays the ladder over an entry's own lines (chronological): the
+// rung in effect at each line is the count of consecutive climbing lines
+// immediately before it, so a schedule fire's position can be read back from
+// the log. It shares climbsLoopLadder with LoopLadder.
+func LoopRungs(own []LogLine) []int {
+	rungs := make([]int, len(own))
+	rung := 0
+	for i, l := range own {
+		rungs[i] = rung
+		if climbsLoopLadder(l.Outcome) {
+			rung++
+		} else {
+			rung = 0
+		}
+	}
+	return rungs
+}

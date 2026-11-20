@@ -212,6 +212,7 @@ import type { CodeTileCommands } from "@/components/surface-layout";
 import { CronList } from "@/components/cron-list";
 import { CronLog } from "@/components/cron-log";
 import { CronStaleBanner } from "@/components/cron-stale-banner";
+import { OperatorActivity } from "@/components/operator-activity";
 import { WatchedTasks } from "@/components/watched-tasks";
 import { TerminalActivityTabs } from "@/components/terminal-activity-tabs";
 import { BottomBar } from "@/components/bottom-bar";
@@ -1072,16 +1073,16 @@ function AppShell() {
   // `tab` absent/"terminal" (or the gate false) renders the pre-existing
   // tree byte-identically; the role is known only once the sessions payload
   // resolves the window, so a cold `?tab=` deep link swaps in a beat after
-  // mount. The legacy `tab=activity` token is normalized to `log` by
-  // validateTerminalSearch before this read. Never in the popout posture —
+  // mount. Never in the popout posture —
   // the popout renders one tile chrome-less.
   const operatorPage =
     !popoutPosture && windowParam != null && currentWindow?.role === "operator";
   const quakeTab = operatorPage ? (search.tab ?? "terminal") : "terminal";
   const cronTabActive = quakeTab === "list" || quakeTab === "log";
   const tasksTabActive = quakeTab === "tasks";
+  const activityTabActive = quakeTab === "activity";
   // Any non-terminal tab hides (never unmounts) the terminal column.
-  const terminalHidden = cronTabActive || tasksTabActive;
+  const terminalHidden = cronTabActive || tasksTabActive || activityTabActive;
 
   // The layout the window renders: the payload's `@rk_win_layout` value,
   // parsed and degraded (`effectiveLayout`), overlaid by the optimistic
@@ -3432,7 +3433,7 @@ function AppShell() {
   }, []);
 
   // The sidebar's operator placeholder row (no operator window on the server)
-  // opens the quake terminal drawer on the Operator Terminal segment, where
+  // opens the quake terminal drawer on the Terminal segment, where
   // the Start operator button sits. Identity-arg []-dep callback — the
   // memoized ServerGroup prop contract.
   const handleOperatorPlaceholder = useCallback((srv: string) => {
@@ -6171,7 +6172,7 @@ function AppShell() {
               applyLayout — R12) and the right-panel surface mount (the panel
               slot is a
               tile now — R6). Open-tile toggles (R10) live in the top bar's
-              surface-toggle group. On a non-terminal tab (Operator Tasks,
+              surface-toggle group. On a non-terminal tab (Tasks, Activity,
               Cron List, Cron Log) this column stays
               MOUNTED-but-hidden (the `hidden` class — the same
               hide-never-unmount posture SurfaceLayout applies to its own
@@ -6425,14 +6426,19 @@ function AppShell() {
           )}
           {/* The non-terminal tabs' content swap: the watchlist / cron body
               takes the slot the SurfaceLayout column vacates (hidden, not
-              unmounted, above). The cron tabs pin the stale banner above
-              the body. */}
+              unmounted, above). Activity pins the stale banner above its
+              body. */}
           {tasksTabActive && (
             <WatchedTasks server={server} sessions={sessions} onNavigate={navigateToWindow} />
           )}
-          {cronTabActive && (
+          {activityTabActive && (
             <div className="flex-1 min-w-0 min-h-0 flex flex-col">
               <CronStaleBanner server={server} />
+              <OperatorActivity server={server} />
+            </div>
+          )}
+          {cronTabActive && (
+            <div className="flex-1 min-w-0 min-h-0 flex flex-col">
               {quakeTab === "list" ? (
                 <CronList server={server} />
               ) : (

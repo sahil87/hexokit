@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  buildOperatorCheckNowAction,
   buildQuakeTerminalAction,
+  buildQuakeTerminalActivityAction,
   buildQuakeTerminalListAction,
   buildQuakeTerminalLogAction,
   buildQuakeTerminalOpenAsTabAction,
@@ -25,9 +27,11 @@ import {
 import { ApiError } from "@/api/client";
 
 const mockStartOperator = vi.hoisted(() => vi.fn());
+const mockPostOperatorWake = vi.hoisted(() => vi.fn());
 vi.mock("@/api/client", async (importActual) => ({
   ...(await importActual<typeof import("@/api/client")>()),
   startOperator: mockStartOperator,
+  postOperatorWake: mockPostOperatorWake,
 }));
 
 describe("buildQuakeTerminalAction", () => {
@@ -92,6 +96,55 @@ describe.each([
     expect(seen).toHaveLength(1);
     expect(isQuakeTerminalRequest(seen[0])).toBe(true);
     expect(seen[0]).toEqual({ action: "open", segment });
+  });
+});
+
+describe("buildQuakeTerminalActivityAction", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("is the chord-less Operator: Show activity entry that opens the drawer on Activity", () => {
+    const action = buildQuakeTerminalActivityAction();
+    expect(action).toMatchObject({ id: "quake-terminal-activity", label: "Operator: Show activity" });
+    expect(action.shortcut).toBeUndefined();
+    const seen: unknown[] = [];
+    const listener = (e: Event) => seen.push((e as CustomEvent<unknown>).detail);
+    document.addEventListener(QUAKE_TERMINAL_EVENT, listener);
+    try {
+      action.onSelect();
+    } finally {
+      document.removeEventListener(QUAKE_TERMINAL_EVENT, listener);
+    }
+    expect(seen).toEqual([{ action: "open", segment: "activity" }]);
+    expect(isQuakeTerminalRequest(seen[0])).toBe(true);
+  });
+});
+
+describe("buildOperatorCheckNowAction", () => {
+  afterEach(() => {
+    mockPostOperatorWake.mockReset();
+  });
+
+  it("posts the wake for its server and reports queued", async () => {
+    mockPostOperatorWake.mockResolvedValue(undefined);
+    const onQueued = vi.fn();
+    const onError = vi.fn();
+    const action = buildOperatorCheckNowAction("srv", onQueued, onError);
+    expect(action).toMatchObject({ id: "operator-check-now", label: "Operator: Check now" });
+    action.onSelect();
+    await vi.waitFor(() => expect(onQueued).toHaveBeenCalledTimes(1));
+    expect(mockPostOperatorWake).toHaveBeenCalledWith("srv");
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed post through onError", async () => {
+    mockPostOperatorWake.mockRejectedValue(new Error("wake failed"));
+    const onQueued = vi.fn();
+    const onError = vi.fn();
+    buildOperatorCheckNowAction("srv", onQueued, onError).onSelect();
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith("wake failed"));
+    expect(onQueued).not.toHaveBeenCalled();
   });
 });
 

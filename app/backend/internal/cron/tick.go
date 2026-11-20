@@ -35,6 +35,9 @@ type Outcome struct {
 	// counter-example: a busy-pane outcome that MUST be logged because
 	// advancing the anchor is its purpose.
 	Held bool
+	// Fire is the operator-loop fire id a `no change` outcome's check record
+	// was written under; the loop line carries it as LogLine.Fire.
+	Fire string
 }
 
 func (o Outcome) String() string {
@@ -464,6 +467,7 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 			Target:  fire.PaneID,
 			Reason:  string(fire.Reason),
 			Outcome: outcome.String(),
+			Fire:    outcome.Fire,
 		})
 	}
 

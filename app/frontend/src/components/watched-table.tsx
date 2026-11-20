@@ -3,7 +3,7 @@
  * rows, mounted by the Server page's WATCHED zone
  * (components/server-watched-zone/watched-zone.tsx, which adapts the
  * `collectWatchedRows` derivation into worker rows via ./model.ts's
- * `watchlistStatus`) and by the quake terminal's Operator Tasks segment
+ * `watchlistStatus`) and by the quake terminal's Tasks segment
  * (components/watched-tasks.tsx, over `collectTrackedRows`). Six columns —
  * status, session, change, awaiting, note, repo — rendered per row species:
  * a `worker` row is a tracked item on a live window (`StatusDot` + the
