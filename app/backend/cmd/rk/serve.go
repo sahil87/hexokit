@@ -407,6 +407,10 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		// edit or a dotfiles sync turned off, with or without a UI connected.
 		go daemon.WatchOpenAIMCPSettings(ctx, daemon.OpenAIMCPWatchInterval)
 
+		// The PR-event forwarders' settings watch: an edit to
+		// operator.pr_hooks takes effect without a daemon restart.
+		go daemon.WatchGHHooksSettings(ctx, daemon.OpenAIMCPWatchInterval)
+
 		if err := supervisor.Start(ctx); err != nil {
 			slog.Warn("tmuxctl supervisor failed to start; falling back to safety-net poll", "err", err)
 		} else {

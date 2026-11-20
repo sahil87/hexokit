@@ -123,6 +123,10 @@ func runDoctorChecks() doctorReport {
 	// (the gui posture). See openAIMCPDoctorCheck.
 	report.Checks = append(report.Checks, openAIMCPDoctorCheck())
 
+	// pr hooks: one row per repo in operator.pr_hooks (or a single off row).
+	// Always OK-shaped — see prHooksDoctorChecks.
+	report.Checks = append(report.Checks, prHooksDoctorChecks()...)
+
 	// mcp — the policy-table drift guard. Unlike the state rows above, a table
 	// that cannot resolve is a real defect, so this row is a verdict flipper.
 	c, mcpTools := mcpDoctorCheck()

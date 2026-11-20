@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -141,6 +142,11 @@ type Settings struct {
 	// from a hand-edited file is kept verbatim so the queue verb can refuse it
 	// by name; writes through the registry are validated.
 	OperatorMergeMode string
+	// OperatorPRHooks lists the GitHub repositories (owner/name) whose PR
+	// events the operator receives as triggers through `gh webhook forward`.
+	// Empty (the default) turns the feature off. Entries are validated on
+	// parse and apply and duplicates collapse, first order kept.
+	OperatorPRHooks []string
 	// LogLevel is the daemon log verbosity: "info" or "debug". Read at serve
 	// startup (the LOG_LEVEL env escape wins when set), so a change applies on
 	// the next daemon restart.
@@ -765,6 +771,14 @@ var registry = []registryEntry{
 		apply: mapValueChecked(func(s *Settings) *map[string]string { return &s.RiffPresets },
 			validateRiffPresetName, validateRiffPresetValue, normalizeRiffPresetValue),
 	},
+	{
+		key: "operator.pr_hooks", kind: "list", def: "[]",
+		desc:     "GitHub repositories (owner/name) whose PR events wake the operator through gh webhook forward. Only repos where the account has admin get a forwarder; the rest are polled. Empty = off.",
+		category: "behavior", ui: false, live: true,
+		section: validatedListSection("operator.pr_hooks", func(s *Settings) *[]string { return &s.OperatorPRHooks }, validate.ValidateGitHubRepo),
+		read:    func(s *Settings) any { return s.OperatorPRHooks },
+		apply:   validatedListValue(func(s *Settings) *[]string { return &s.OperatorPRHooks }, validate.ValidateGitHubRepo),
+	},
 }
 
 // quoteTrimmedScalar builds the parse hook for a plain string scalar: the
@@ -898,6 +912,28 @@ func listSection(key string, target func(s *Settings) *[]string) nestedSection {
 			return out
 		},
 	}
+}
+
+// validatedListSection is listSection with a per-entry gate: an entry the
+// validator rejects is skipped on parse (tolerant read) and a repeat of an
+// earlier entry collapses, so a hand-edited file never yields a value apply
+// would refuse.
+func validatedListSection(key string, target func(s *Settings) *[]string, validator func(string) string) nestedSection {
+	sec := listSection(key, target)
+	parseEntry := sec.parseEntry
+	sec.parseEntry = func(s *Settings, trimmed string) {
+		before := len(*target(s))
+		parseEntry(s, trimmed)
+		l := *target(s)
+		if len(l) == before {
+			return
+		}
+		name := l[len(l)-1]
+		if validator(name) != "" || slices.Contains(l[:len(l)-1], name) {
+			*target(s) = l[:len(l)-1]
+		}
+	}
+	return sec
 }
 
 // normalizeFlairValue is the membership-check normalize for the server_flairs
@@ -1193,6 +1229,34 @@ func listValue(target func(*Settings) *[]string) func(*Settings, json.RawMessage
 		}
 		out := make([]string, len(names))
 		copy(out, names)
+		*target(s) = out
+		return nil
+	}
+}
+
+// validatedListValue is listValue with strict entry validation and
+// duplicate collapse: one invalid entry rejects the whole patch, so nothing
+// is mutated.
+func validatedListValue(target func(*Settings) *[]string, validator func(string) string) func(*Settings, json.RawMessage) error {
+	return func(s *Settings, raw json.RawMessage) error {
+		if jsonNull(raw) {
+			*target(s) = nil
+			return nil
+		}
+		var names []string
+		if err := json.Unmarshal(raw, &names); err != nil {
+			return fmt.Errorf("value must be an array or null: %w", err)
+		}
+		var out []string
+		for _, name := range names {
+			name = strings.TrimSpace(name)
+			if msg := validator(name); msg != "" {
+				return fmt.Errorf("%q: %s", name, msg)
+			}
+			if !slices.Contains(out, name) {
+				out = append(out, name)
+			}
+		}
 		*target(s) = out
 		return nil
 	}
