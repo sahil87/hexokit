@@ -165,51 +165,56 @@ The `operator.merge_mode` setting description SHALL state that the mode shapes s
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `ruleTable` is exactly X0, X1, Q1–Q5, queue-kind only; no PR/fix kinds, statuses, actions or waits exist
-- [ ] A-002 R2: `merge.go`, `restack.go`, `recovery.go` and their tests are gone; no PR executor or PR observation remains reachable
-- [ ] A-003 R3: engine file is queue-only; `OwnedIDs` returns queue ids only
-- [ ] A-004 R4: migration absorbs only queue pane items
-- [ ] A-005 R5: merge-auto successor is held until the dependency PR reads `MERGED`
-- [ ] A-006 R6: `autopilot` has seven verbs; `merge` is gone
-- [ ] A-007 R7: `stop`/`rm`/`resume` behave and are documented as queue-only
-- [ ] A-008 R8: `status --json` has no `pr_status`/`fixes`; `step` reports queue lines only
-- [ ] A-009 R9: `changed`/`done` on a `github-pr` item are judgment
-- [ ] A-010 R10: settings description, chat skill (+ synced copy) and track help carry no deleted-verb wording; `brief_rules.md` unchanged
+- [x] A-001 R1: `ruleTable` is exactly X0, X1, Q1–Q5, queue-kind only; no PR/fix kinds, statuses, actions or waits exist
+- [x] A-002 R2: `merge.go`, `restack.go`, `recovery.go` and their tests are gone; no PR executor or PR observation remains reachable
+- [x] A-003 R3: engine file is queue-only; `OwnedIDs` returns queue ids only
+- [x] A-004 R4: migration absorbs only queue pane items
+- [x] A-005 R5: merge-auto successor is held until the dependency PR reads `MERGED`
+- [x] A-006 R6: `autopilot` has seven verbs; `merge` is gone
+- [x] A-007 R7: `stop`/`rm`/`resume` behave and are documented as queue-only
+- [x] A-008 R8: `status --json` has no `pr_status`/`fixes`; `step` reports queue lines only
+- [x] A-009 R9: `changed`/`done` on a `github-pr` item are judgment
+- [x] A-010 R10: settings description, chat skill (+ synced copy) and track help carry no deleted-verb wording; `brief_rules.md` unchanged
 
 ### Behavioral Correctness
 
-- [ ] A-011 R1: a spawned item idle in stage > 30 min and a queue open > 2 h decide no escalation
-- [ ] A-012 R9: a `done` on a non-PR item without `then` remains non-judgment; queue-item `pane_death` remains mechanical
+- [x] A-011 R1: a spawned item idle in stage > 30 min and a queue open > 2 h decide no escalation
+- [x] A-012 R9: a `done` on a non-PR item without `then` remains non-judgment; queue-item `pane_death` remains mechanical
 
 ### Removal Verification
 
-- [ ] A-013 R2: no references to `autoMergeAllowed`, `--disable-auto`, compare API, `ActionMerge`, `PRStatus`, `FixStatus`, `StartMerge` remain in `app/backend`
-- [ ] A-014 R6: no test or help text references `autopilot merge`
+- [x] A-013 R2: no references to `autoMergeAllowed`, `--disable-auto`, compare API, `ActionMerge`, `PRStatus`, `FixStatus`, `StartMerge` remain in `app/backend` (the only `PRStatus` hit is the unrelated `internal/prstatus` sidebar type)
+- [x] A-014 R6: no test or help text references `autopilot merge`
 
 ### Scenario Coverage
 
-- [ ] A-015 R3: a test loads a legacy engine file with `prs`/`fixes` and removed keys, runs a pass, and checks the rewrite drops them
-- [ ] A-016 R5: tests cover barrier held (OPEN), satisfied (MERGED), read failure escalation in step, and silence in status
-- [ ] A-017 R7: tests cover `stop` pausing without `halted`, and `rm`/`resume` of an unknown/PR id exiting 2
+- [x] A-015 R3: a test loads a legacy engine file with `prs`/`fixes` and removed keys, runs a pass, and checks the rewrite drops them
+- [x] A-016 R5: tests cover barrier held (OPEN), satisfied (MERGED), read failure escalation in step, and silence in status
+- [x] A-017 R7: tests cover `stop` pausing without `halted`, and `rm`/`resume` of an unknown/PR id exiting 2
 
 ### Edge Cases & Error Handling
 
-- [ ] A-018 R5: a merge-auto dependency with no recorded branch escalates once and the successor stays held
-- [ ] A-019 R3: a missing engine file still reads as an empty engine
+- [x] A-018 R5: a merge-auto dependency with no recorded branch escalates once and the successor stays held
+- [x] A-019 R3: a missing engine file still reads as an empty engine
 
 ### Code Quality
 
-- [ ] A-020 Pattern consistency: remaining code follows the package's existing naming, guarded-write and escalation patterns
-- [ ] A-021 No unnecessary duplication: the barrier read reuses `viewPR`/`noPRFound` rather than a new gh helper
-- [ ] A-022 Readability: no dead symbols, dormant branches or comments narrating the removal
-- [ ] A-023 Subprocess safety: every remaining gh/git call goes through the engine's `Runner` (argv slices, per-class timeouts)
-- [ ] A-024 Tests: changed behavior (barrier, tolerant read, judgment rows, verbs) has tests; `go test ./...` passes except the two known host-only failures
+- [x] A-020 Pattern consistency: remaining code follows the package's existing naming, guarded-write and escalation patterns
+- [x] A-021 No unnecessary duplication: the barrier read reuses `viewPR`/`noPRFound` rather than a new gh helper
+- [x] A-022 Readability: no dead symbols, dormant branches or comments narrating the removal
+- [x] A-023 Subprocess safety: every remaining gh/git call goes through the engine's `Runner` (argv slices, per-class timeouts)
+- [x] A-024 Tests: changed behavior (barrier, tolerant read, judgment rows, verbs) has tests; `go test ./...` passes except the two known host-only failures
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- `app/backend/internal/autopilot/gate.go:92` `depPRExists` / `gate.go:108` `depMerged` — near-identical branch-check + `viewPR` + `noPRFound` bodies; could fold into one helper returning the `prView` (differs only in the read-only no-PR handling and the `state` test)
+- `app/backend/internal/operator/brief_rules.md:17` "Escalation notes are the engine's … never perform the restack or recovery they name" — names engine work that no longer exists (T4 owns the edit; listed so T4 does not miss it)
 
 ## Assumptions
 
