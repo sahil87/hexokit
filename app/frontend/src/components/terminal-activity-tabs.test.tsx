@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 describe("QuakeSegments (controlled strip)", () => {
-  it("renders the five segments in order: Terminal, Tasks, Activity, Cron List, Cron Log", () => {
+  it("renders the four segments in order: Terminal, Tasks, Activity, Cron", () => {
     render(<QuakeSegments value="terminal" onChange={() => {}} />);
 
     const strip = screen.getByTestId("terminal-activity-tabs");
@@ -31,9 +31,10 @@ describe("QuakeSegments (controlled strip)", () => {
       "Terminal",
       "Tasks",
       "Activity",
-      "Cron List",
-      "Cron Log",
+      "Cron",
     ]);
+    expect(within(strip).queryByRole("tab", { name: "Cron List" })).toBeNull();
+    expect(within(strip).queryByRole("tab", { name: "Cron Log" })).toBeNull();
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
     for (const tab of tabs.slice(1)) expect(tab).toHaveAttribute("aria-selected", "false");
   });
@@ -59,16 +60,16 @@ describe("QuakeSegments (controlled strip)", () => {
     expect(onChange).toHaveBeenCalledWith("tasks");
     fireEvent.click(screen.getByRole("tab", { name: "Activity" }));
     expect(onChange).toHaveBeenCalledWith("activity");
-    fireEvent.click(screen.getByRole("tab", { name: "Cron List" }));
-    expect(onChange).toHaveBeenCalledWith("list");
+    fireEvent.click(screen.getByRole("tab", { name: "Cron" }));
+    expect(onChange).toHaveBeenCalledWith("cron");
     // Controlled: without a value change the selection does not move.
     expect(screen.getByRole("tab", { name: "Terminal" })).toHaveAttribute("aria-selected", "true");
   });
 
-  it("renders Cron Log selected when the value prop says so", () => {
-    render(<QuakeSegments value="log" onChange={() => {}} />);
+  it("renders Cron selected when the value prop says so", () => {
+    render(<QuakeSegments value="cron" onChange={() => {}} />);
 
-    expect(screen.getByRole("tab", { name: "Cron Log" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Cron" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "Terminal" })).toHaveAttribute("aria-selected", "false");
   });
 
@@ -77,7 +78,7 @@ describe("QuakeSegments (controlled strip)", () => {
     // literal union are three spellings of the same set — this guard fails the
     // moment any one of them drifts (a probe of candidate values is the only
     // way to read the leaf module's accepted set).
-    const candidates = ["terminal", "tasks", "activity", "list", "log", "bogus", ""];
+    const candidates = ["terminal", "tasks", "activity", "cron", "list", "log", "bogus", ""];
     const accepted = candidates.filter((v) => validateTerminalSearch({ tab: v }).tab === v);
     expect(SEGMENTS.map((s) => s.tab)).toEqual(accepted);
   });
@@ -85,14 +86,9 @@ describe("QuakeSegments (controlled strip)", () => {
 
 describe("TerminalActivityTabs (router-driven wrapper)", () => {
   it("reads the active tab from the ?tab= search param (absent = terminal)", () => {
-    mockSearch = { tab: "log" };
+    mockSearch = { tab: "cron" };
     render(<TerminalActivityTabs />);
-    expect(screen.getByRole("tab", { name: "Cron Log" })).toHaveAttribute("aria-selected", "true");
-    cleanup();
-
-    mockSearch = { tab: "list" };
-    render(<TerminalActivityTabs />);
-    expect(screen.getByRole("tab", { name: "Cron List" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Cron" })).toHaveAttribute("aria-selected", "true");
     cleanup();
 
     mockSearch = { tab: "tasks" };
@@ -114,7 +110,7 @@ describe("TerminalActivityTabs (router-driven wrapper)", () => {
     mockSearch = { from: "@1" };
     render(<TerminalActivityTabs />);
 
-    fireEvent.click(screen.getByRole("tab", { name: "Cron List" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Cron" }));
 
     expect(mockNavigate).toHaveBeenCalledTimes(1);
     const call = mockNavigate.mock.calls[0][0] as {
@@ -125,6 +121,6 @@ describe("TerminalActivityTabs (router-driven wrapper)", () => {
     expect(call.to).toBe(".");
     expect(call.replace).toBe(true);
     // The updater merges over the existing search — the ?from= survives.
-    expect(call.search({ from: "@1" })).toEqual({ from: "@1", tab: "list" });
+    expect(call.search({ from: "@1" })).toEqual({ from: "@1", tab: "cron" });
   });
 });

@@ -344,7 +344,7 @@ func TestCronRespawnSessionWallsEscalate(t *testing.T) {
 			if len(s.notifyCalls) != 1 {
 				t.Fatalf("notify calls = %v, want exactly one escalation", s.notifyCalls)
 			}
-			if want := "/work/42?tab=log"; s.notifyURLs[0] != want {
+			if want := "/work/42?tab=cron"; s.notifyURLs[0] != want {
 				t.Errorf("notify url = %q, want the spawned window's deep link %q", s.notifyURLs[0], want)
 			}
 		})

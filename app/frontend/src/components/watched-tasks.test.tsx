@@ -259,4 +259,80 @@ describe("WatchedTasks", () => {
     const row = screen.getByTestId("watched-row");
     expect(row.querySelectorAll("td")[0].className).toContain("py-0.5");
   });
+
+  describe("Needs you band", () => {
+    const escalatedItem = {
+      id: "pr-41",
+      kind: "github-pr",
+      updatedAt: NOW - 60,
+      latestNote: { at: NOW - 60, by: "run", text: "escalated: restack needed" },
+      noteCount: 1,
+    };
+
+    it("renders no band when nothing needs the user", () => {
+      renderTasks({
+        server: "srv1",
+        sessions: [makeSession({ operatorTracked: [{ id: "n1", kind: "note" }] })],
+      });
+      expect(screen.queryByTestId("needs-you-band")).toBeNull();
+    });
+
+    it("renders the band above the table with a waiting row first, and open pane navigates", () => {
+      const onNavigate = vi.fn();
+      renderTasks({
+        server: "srv1",
+        onNavigate,
+        sessions: [
+          makeSession({
+            name: "dev",
+            operatorTracked: [
+              escalatedItem,
+              { id: "wuiu", windowId: "@1", updatedAt: NOW - 30 },
+            ],
+            windows: [MONITORED],
+          }),
+        ],
+      });
+      const band = screen.getByTestId("needs-you-band");
+      expect(band).toHaveTextContent("Needs you · 2");
+      expect(
+        band.compareDocumentPosition(screen.getByTestId("watched-table")) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      const rows = screen.getAllByTestId("needs-you-row");
+      expect(rows.map((r) => r.getAttribute("data-item-id"))).toEqual(["wuiu", "pr-41"]);
+      fireEvent.click(within(rows[0]).getByTestId("needs-you-open-pane"));
+      expect(onNavigate).toHaveBeenCalledWith("@1");
+    });
+
+    it("a user note newer than the escalation clears the row on the next payload", () => {
+      const { rerender } = renderTasks({
+        server: "srv1",
+        sessions: [makeSession({ operatorTracked: [escalatedItem] })],
+      });
+      expect(screen.getByTestId("needs-you-band")).toBeInTheDocument();
+      rerender(
+        <WatchedTasks
+          server="srv1"
+          sessions={[
+            makeSession({
+              operatorTracked: [
+                { ...escalatedItem, latestNote: { at: NOW, by: "user", text: "merge it" } },
+              ],
+            }),
+          ]}
+          onNavigate={vi.fn()}
+        />,
+      );
+      expect(screen.queryByTestId("needs-you-band")).toBeNull();
+    });
+
+    it("done items never appear in the band", () => {
+      renderTasks({
+        server: "srv1",
+        sessions: [makeSession({ operatorTracked: [{ ...escalatedItem, doneAt: NOW - 10 }] })],
+      });
+      expect(screen.queryByTestId("needs-you-band")).toBeNull();
+    });
+  });
 });

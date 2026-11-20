@@ -343,7 +343,7 @@ describe("QuakeTerminal", () => {
   it("⤢ open as tab navigates to the operator route carrying the current segment and rests the machine", async () => {
     renderQuake();
     act(() => {
-      requestQuakeTerminal({ action: "open", segment: "log" });
+      requestQuakeTerminal({ action: "open", segment: "cron" });
     });
     await screen.findByTestId("quake-terminal");
 
@@ -352,7 +352,7 @@ describe("QuakeTerminal", () => {
     expect(mockNavigate).toHaveBeenCalledWith({
       to: "/$server/$window",
       params: { server: "srv1", window: "@9" },
-      search: { tab: "log" },
+      search: { tab: "cron" },
     });
     expect(getQuakeMachineState()).toBe("rest");
     await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull());
@@ -997,7 +997,7 @@ describe("QuakeTerminal", () => {
     };
     renderQuake({ sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({})] }]]]) });
     act(() => {
-      requestQuakeTerminal({ action: "open", segment: "list" });
+      requestQuakeTerminal({ action: "open", segment: "cron" });
     });
     expect(screen.getByTestId("cron-list")).toBeInTheDocument();
     expect(screen.getByTestId("cron-list-row-a3f9")).toBeInTheDocument();
@@ -1005,7 +1005,7 @@ describe("QuakeTerminal", () => {
     expect(terminalMounts).toHaveLength(0);
 
     act(() => {
-      requestQuakeTerminal({ action: "open", segment: "log" });
+      requestQuakeTerminal({ action: "open", segment: "cron" });
     });
     expect(screen.getByTestId("cron-log")).toBeInTheDocument();
     expect(screen.queryByTestId("quake-terminal-empty")).toBeNull();
@@ -1652,10 +1652,10 @@ describe("QuakeTerminal (docked compose)", () => {
     await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull());
   });
 
-  it("Esc in the docked compose on the Cron List segment collapses on the first press", async () => {
+  it("Esc in the docked compose on the Cron segment collapses on the first press", async () => {
     renderQuake();
     act(() => {
-      requestQuakeTerminal({ action: "open", segment: "list" });
+      requestQuakeTerminal({ action: "open", segment: "cron" });
     });
     const textarea = screen.getByTestId("quake-terminal-compose-input");
 
@@ -1805,17 +1805,14 @@ describe("QuakeTerminal (cron segments)", () => {
     vi.unstubAllGlobals();
   });
 
-  function listTab() {
-    return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Cron List" });
-  }
-  function logTab() {
-    return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Cron Log" });
+  function cronTab() {
+    return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Cron" });
   }
   function terminalTab() {
     return within(screen.getByTestId("terminal-activity-tabs")).getByRole("tab", { name: "Terminal" });
   }
 
-  it("the desktop drawer renders the five segments in order with Terminal selected", () => {
+  it("the desktop drawer renders the four segments in order with Terminal selected", () => {
     renderQuake();
     openDrawer();
 
@@ -1825,62 +1822,55 @@ describe("QuakeTerminal (cron segments)", () => {
       "Terminal",
       "Tasks",
       "Activity",
-      "Cron List",
-      "Cron Log",
+      "Cron",
     ]);
     expect(terminalTab()).toHaveAttribute("aria-selected", "true");
-    expect(listTab()).toHaveAttribute("aria-selected", "false");
-    expect(logTab()).toHaveAttribute("aria-selected", "false");
+    expect(cronTab()).toHaveAttribute("aria-selected", "false");
   });
 
-  it("selecting a cron tab mounts its body and unmounts the terminal; Operator Terminal reverses it", () => {
+  it("selecting Cron mounts the registry stacked over the deliveries and unmounts the terminal; Terminal reverses it", () => {
     renderQuake();
     openDrawer();
     expect(screen.getByTestId("embedded-terminal")).toBeInTheDocument();
 
-    fireEvent.click(listTab());
-    expect(screen.getByTestId("cron-list")).toBeInTheDocument();
+    fireEvent.click(cronTab());
+    const console = screen.getByTestId("cron-console");
+    const list = within(console).getByTestId("cron-list");
+    const log = within(console).getByTestId("cron-log");
+    expect(list.compareDocumentPosition(log) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByTestId("embedded-terminal")).toBeNull();
-
-    fireEvent.click(logTab());
-    expect(screen.getByTestId("cron-log")).toBeInTheDocument();
-    expect(screen.queryByTestId("cron-list")).toBeNull();
 
     fireEvent.click(terminalTab());
     expect(screen.getByTestId("embedded-terminal")).toBeInTheDocument();
-    expect(screen.queryByTestId("cron-log")).toBeNull();
+    expect(screen.queryByTestId("cron-console")).toBeNull();
   });
 
-  it("an open request carrying segment: log opens the drawer on the Cron Log segment", () => {
+  it("the stacked Cron segment hides loop rows behind the show loop toggle, default off", () => {
+    renderQuake();
+    openDrawer();
+    fireEvent.click(cronTab());
+    expect(screen.getByTestId("cron-log-show-loop")).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("an open request carrying segment: cron opens the drawer on the Cron segment", () => {
     renderQuake();
     act(() => {
-      requestQuakeTerminal({ action: "open", segment: "log" });
+      requestQuakeTerminal({ action: "open", segment: "cron" });
     });
 
     expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
-    expect(logTab()).toHaveAttribute("aria-selected", "true");
+    expect(cronTab()).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("cron-list")).toBeInTheDocument();
     expect(screen.getByTestId("cron-log")).toBeInTheDocument();
     expect(screen.queryByTestId("embedded-terminal")).toBeNull();
   });
 
-  it("an open request carrying segment: list opens the drawer on the Cron List segment", () => {
-    renderQuake();
-    act(() => {
-      requestQuakeTerminal({ action: "open", segment: "list" });
-    });
-
-    expect(screen.getByTestId("quake-terminal")).toBeInTheDocument();
-    expect(listTab()).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByTestId("cron-list")).toBeInTheDocument();
-    expect(screen.queryByTestId("embedded-terminal")).toBeNull();
-  });
-
-  it("segment: log on the operator route writes ?tab=log in place and never opens the drawer", () => {
+  it("segment: cron on the operator route writes ?tab=cron in place and never opens the drawer", () => {
     mockMatches = [{ params: { server: "srv1", window: "@9" } }];
     renderQuake({ withToasts: true });
 
     act(() => {
-      requestQuakeTerminal({ action: "open", segment: "log" });
+      requestQuakeTerminal({ action: "open", segment: "cron" });
     });
 
     expect(getQuakeMachineState()).toBe("rest");
@@ -1893,7 +1883,7 @@ describe("QuakeTerminal (cron segments)", () => {
     const call = mockNavigate.mock.calls[0]?.[0] as {
       search: (prev: Record<string, unknown>) => Record<string, unknown>;
     };
-    expect(call.search({ from: "@1" })).toEqual({ from: "@1", tab: "log" });
+    expect(call.search({ from: "@1" })).toEqual({ from: "@1", tab: "cron" });
   });
 
   it("Escape inside the inline entry sheet returns to the list without collapsing the drawer", () => {
@@ -1916,7 +1906,7 @@ describe("QuakeTerminal (cron segments)", () => {
     };
     renderQuake();
     act(() => {
-      requestQuakeTerminal({ action: "open", segment: "list" });
+      requestQuakeTerminal({ action: "open", segment: "cron" });
     });
 
     fireEvent.click(screen.getByTestId("cron-list-row-a3f9"));
@@ -1934,16 +1924,16 @@ describe("QuakeTerminal (cron segments)", () => {
     stubMatchMedia((query) => query === "(prefers-reduced-motion: reduce)");
     renderQuake();
     act(() => {
-      requestQuakeTerminal({ action: "open", segment: "log" });
+      requestQuakeTerminal({ action: "open", segment: "cron" });
     });
-    expect(logTab()).toHaveAttribute("aria-selected", "true");
+    expect(cronTab()).toHaveAttribute("aria-selected", "true");
 
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull());
 
     openDrawer();
     expect(terminalTab()).toHaveAttribute("aria-selected", "true");
-    expect(screen.queryByTestId("cron-log")).toBeNull();
+    expect(screen.queryByTestId("cron-console")).toBeNull();
   });
 
   it("the header row carries the tick-age stamp from the first session with operatorLastTickAt > 0", () => {
@@ -2267,27 +2257,27 @@ describe("QuakeTerminal (mobile navigation)", () => {
     expect(mockOperatorRequest).not.toHaveBeenCalled();
   });
 
-  it("a segment: list request navigates with search.tab = list, merged with the ?from= origin", () => {
+  it("a segment: cron request navigates with search.tab = cron, merged with the ?from= origin", () => {
     mockMatches = [{ params: { server: "srv1", window: "@1" } }];
     renderQuake();
     act(() => {
-      requestQuakeTerminal({ action: "open", segment: "list" });
+      requestQuakeTerminal({ action: "open", segment: "cron" });
     });
 
     expect(mockNavigate).toHaveBeenCalledWith({
       to: "/$server/$window",
       params: { server: "srv1", window: "@9" },
-      search: { from: "@1", tab: "list" },
+      search: { from: "@1", tab: "cron" },
     });
     expect(screen.queryByTestId("quake-terminal")).toBeNull();
   });
 
-  it("already on the operator route, segment: log updates the tab search param in place", () => {
+  it("already on the operator route, segment: cron updates the tab search param in place", () => {
     mockMatches = [{ params: { server: "srv1", window: "@9" } }];
     mockSearch = { from: "@1" };
     renderQuake();
     act(() => {
-      requestQuakeTerminal({ action: "open", segment: "log" });
+      requestQuakeTerminal({ action: "open", segment: "cron" });
     });
 
     expect(mockNavigate).toHaveBeenCalledTimes(1);
@@ -2299,7 +2289,7 @@ describe("QuakeTerminal (mobile navigation)", () => {
     expect(call.to).toBe(".");
     expect(call.replace).toBe(true);
     // The updater merges over the existing search — the ?from= survives.
-    expect(call.search({ from: "@1" })).toEqual({ from: "@1", tab: "log" });
+    expect(call.search({ from: "@1" })).toEqual({ from: "@1", tab: "cron" });
   });
 
   it("a segment: tasks request navigates with search.tab = tasks, merged with the ?from= origin", () => {
@@ -2359,13 +2349,11 @@ describe("QuakeTerminal (mobile navigation)", () => {
       withToasts: true,
       sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({})] }]]]),
     });
-    for (const segment of ["list", "log"] as const) {
-      act(() => {
-        requestQuakeTerminal({ action: "open", segment });
-      });
-    }
+    act(() => {
+      requestQuakeTerminal({ action: "open", segment: "cron" });
+    });
 
-    expect(mockNavigate).toHaveBeenCalledTimes(2);
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
     for (const call of mockNavigate.mock.calls) {
       expect(call[0]).toEqual({ to: "/$server", params: { server: "srv1" }, hash: "cron" });
     }
@@ -2391,7 +2379,7 @@ describe("QuakeTerminal (mobile navigation)", () => {
   it("a cron-segment request with no resolvable server toasts and never navigates", () => {
     renderQuake({ withToasts: true, servers: [], sessionsByServer: new Map() });
     act(() => {
-      requestQuakeTerminal({ action: "open", segment: "list" });
+      requestQuakeTerminal({ action: "open", segment: "cron" });
     });
 
     expect(mockNavigate).not.toHaveBeenCalled();
@@ -2405,7 +2393,7 @@ describe("QuakeTerminal (mobile navigation)", () => {
       isConnectedByServer: new Map([["srv1", false]]),
     });
     act(() => {
-      requestQuakeTerminal({ action: "open", segment: "list" });
+      requestQuakeTerminal({ action: "open", segment: "cron" });
     });
 
     expect(mockNavigate).not.toHaveBeenCalled();
@@ -2783,19 +2771,15 @@ describe("QuakeTerminal (activity segment)", () => {
     expect(call.search({})).toEqual({ tab: "activity" });
   });
 
-  it("the staleness banner sits above Activity and not above the cron tabs", () => {
+  it("the staleness banner sits above Activity and not above the Cron segment", () => {
     renderQuake({ sessionsByServer: STALE_SESSIONS });
     act(() => {
       requestQuakeTerminal({ action: "open", segment: "activity" });
     });
     expect(screen.getByTestId("cron-activity-banner")).toBeInTheDocument();
 
-    fireEvent.click(tab("Cron List"));
-    expect(screen.getByTestId("cron-list")).toBeInTheDocument();
-    expect(screen.queryByTestId("cron-activity-banner")).toBeNull();
-
-    fireEvent.click(tab("Cron Log"));
-    expect(screen.getByTestId("cron-log")).toBeInTheDocument();
+    fireEvent.click(tab("Cron"));
+    expect(screen.getByTestId("cron-console")).toBeInTheDocument();
     expect(screen.queryByTestId("cron-activity-banner")).toBeNull();
   });
 

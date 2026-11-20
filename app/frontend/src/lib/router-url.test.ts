@@ -135,11 +135,16 @@ describe("validateTerminalSearch (?pop= pass-through)", () => {
 });
 
 // The `?tab=` param selects the operator route's segment — handled exactly
-// like `?view=`: the five known values pass, anything else is DROPPED (absent
-// reads as "terminal"), never thrown.
+// like `?view=`: the four known values pass, the legacy `log`/`list` tokens
+// normalize to `cron`, anything else is DROPPED (absent reads as "terminal"),
+// never thrown.
 describe("validateTerminalSearch (?tab= drop)", () => {
-  it.each(["terminal", "tasks", "activity", "list", "log"] as const)("accepts tab=%s", (tab) => {
+  it.each(["terminal", "tasks", "activity", "cron"] as const)("accepts tab=%s", (tab) => {
     expect(validateTerminalSearch({ tab })).toEqual({ tab });
+  });
+
+  it.each(["log", "list"])("normalizes the legacy tab=%s to cron", (tab) => {
+    expect(validateTerminalSearch({ tab })).toEqual({ tab: "cron" });
   });
 
   it("drops an unknown value without throwing (?tab=bogus → tab undefined)", () => {

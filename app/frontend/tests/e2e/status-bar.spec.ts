@@ -12,7 +12,7 @@ import { openPalette, seedComposeStrip } from "./_ready";
 // (1280px) unless a test resizes. The clock-chip test additionally stubs
 // `GET /api/cron` via page.route (trailing `*` — withServer appends
 // `?server=`) with one nextFire-bearing entry so the chip renders
-// deterministically and the quake terminal drawer's Cron List has rows.
+// deterministically and the quake terminal drawer's Cron segment has rows.
 //
 // Subjects: the full-width attached status strip at the shell bottom
 // (desktop-only), the width-or-coarse mobile predicate that suppresses it, the
@@ -20,7 +20,7 @@ import { openPalette, seedComposeStrip } from "./_ready";
 // split, the measured priority fold with the `…` overflow chevron (every
 // segment renders at natural width or folds into the menu, one ladder across
 // both clusters), and the `◷` clock chip that opens the quake terminal on the
-// Cron List segment.
+// Cron segment.
 
 const SERVER = "default";
 
@@ -415,17 +415,17 @@ test.describe("Status bar (260814-ldbs)", () => {
   /**
    * Proves: with a cron entry carrying a `nextFire`, the status bar's `◷`
    * clock chip renders in the right cluster, and clicking it opens the
-   * quake terminal drawer directly on the Cron List segment.
+   * quake terminal drawer directly on the Cron segment.
    *
    * Steps:
    * 1. Stub `GET /api/cron` with one nextFire-bearing entry (the chip's
    *    next-fire state); navigate to `/default/1`.
    * 2. Assert the `status-bar-clock` chip is visible — the default 1280px
    *    viewport fits every segment, so the fold keeps the chip in the strip.
-   * 3. Click the chip; assert the quake terminal drawer opens with the Cron List tab
+   * 3. Click the chip; assert the quake terminal drawer opens with the Cron tab
    *    selected and the cron registry visible.
    */
-  test("the clock chip opens the quake terminal on Cron List", async ({ page }) => {
+  test("the clock chip opens the quake terminal on Cron", async ({ page }) => {
     await page.route("**/api/cron*", (route) =>
       route.fulfill({
         status: 200,
@@ -455,7 +455,7 @@ test.describe("Status bar (260814-ldbs)", () => {
     const drawer = page.getByTestId("quake-terminal");
     await expect(drawer).toBeVisible();
     await expect(
-      drawer.getByTestId("terminal-activity-tabs").getByRole("tab", { name: "Cron List" }),
+      drawer.getByTestId("terminal-activity-tabs").getByRole("tab", { name: "Cron", exact: true }),
     ).toHaveAttribute("aria-selected", "true");
     await expect(drawer.getByTestId("cron-list")).toBeVisible({ timeout: 10_000 });
   });

@@ -1,16 +1,15 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { controlClass } from "@/components/control";
 
-// The strip renders the label set `Terminal · Tasks · Activity · Cron List ·
-// Cron Log` in that fixed order. Content-sized, non-wrapping
+// The strip renders the label set `Terminal · Tasks · Activity · Cron` in that
+// fixed order. Content-sized, non-wrapping
 // buttons (never equal-share) are what keep every label from truncating at
 // the desktop drawer width or a 375px mobile header.
 const SEGMENTS = [
   { tab: "terminal", label: "Terminal" },
   { tab: "tasks", label: "Tasks" },
   { tab: "activity", label: "Activity" },
-  { tab: "list", label: "Cron List" },
-  { tab: "log", label: "Cron Log" },
+  { tab: "cron", label: "Cron" },
 ] as const;
 
 export type QuakeSegment = (typeof SEGMENTS)[number]["tab"];
@@ -21,7 +20,7 @@ export type QuakeSegment = (typeof SEGMENTS)[number]["tab"];
 export { SEGMENTS };
 
 /**
- * The presentational `Terminal | Tasks | Activity | Cron List | Cron Log`
+ * The presentational `Terminal | Tasks | Activity | Cron`
  * segment strip — one controlled render shared by the mobile
  * operator route's tabs (`TerminalActivityTabs` below, driven by the router
  * `tab` search param) and the desktop quake terminal drawer (driven by
@@ -86,8 +85,7 @@ export function TerminalActivityTabs({ clearTongue }: { clearTongue?: boolean })
   const active: QuakeSegment =
     search.tab === "tasks" ||
     search.tab === "activity" ||
-    search.tab === "list" ||
-    search.tab === "log"
+    search.tab === "cron"
       ? search.tab
       : "terminal";
 

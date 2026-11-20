@@ -24,10 +24,10 @@ import { mockStateSocket } from "./_state-socket-mock";
 // the launcher ◉ live-state dot on every launcher rung, and drawer/launcher
 // image paste (upload to the operator window's session + insert-delivery)
 // with the route terminals' strip-forward guard. The drawer's
-// Terminal | Tasks | Activity | Cron List | Cron Log segment strip
+// Terminal | Tasks | Activity | Cron segment strip
 // swaps the body between the embedded terminal, the watched worker table, the
-// Activity fires and the cron tabs (one relay stream max per drawer); the status-bar ◷ chip
-// opens the drawer on Cron List; the operator window's own route IS the quake
+// Activity fires and the stacked Cron body (one relay stream max per drawer); the status-bar ◷ chip
+// opens the drawer on Cron; the operator window's own route IS the quake
 // surface on desktop too (the operator page: the segment strip above the tty
 // tile, the compose strip forced on and footer-docked, `?tab=` live as the
 // page's segment state — `?tab=activity` selects Activity), so a desktop `?tab=` deep link lands on the page's segment with the
@@ -35,8 +35,8 @@ import { mockStateSocket } from "./_state-socket-mock";
 // page's compose strip or switch its segment instead of opening a drawer;
 // the drawer's `⤢ open as tab` header control navigates to that route. The
 // operator-less body carries the Start operator button. The palette carries `Operator: Show tasks`,
-// `Operator: Show activity` and `Operator: Check now` plus `Operator: Show cron
-// list` before `Operator: Show cron log`; the retired `Panel: Toggle Clock`
+// `Operator: Show activity` and `Operator: Check now` plus `Operator: Show cron`;
+// the retired `Panel: Toggle Clock`
 // and `Workspace: Clock dashboard` entries stay gone. The watched-worker specs
 // seed the sessions payload with a `monitored: true` window carrying
 // `monitoredChange`/`monitoredStage`/`monitoredRepo` plus `operatorLastTickAt`
@@ -65,7 +65,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // send endpoints (window send + window operator-request) are stubbed via
 // page.route with recorded call lists. `GET /api/cron` is stubbed with one
 // entry (carrying a `nextFire`, so the status bar's ◷ chip renders) and one
-// delivery, so the drawer's Cron List / Cron Log segments each have a row.
+// delivery, so the drawer's Cron segment shows a registry row and a delivery row.
 // The route mocks carry a trailing `*` — the client appends `?server=`
 // (withServer), so a bare glob would silently miss. `/ws/terminals`
 // is a no-op socket mock: the quake terminal's embedded terminal mounts its xterm
@@ -667,24 +667,24 @@ test.describe("Quake terminal", () => {
   });
 
   /**
-   * Proves: the desktop drawer's Terminal | Tasks | Activity | Cron List |
-   * Cron Log segment strip renders the five segments in that fixed order
-   * (Terminal the default), no label truncates, and selecting a cron
-   * segment swaps the body — the cron tab mounts and the embedded terminal
+   * Proves: the desktop drawer's Terminal | Tasks | Activity | Cron segment
+   * strip renders the four segments in that fixed order (Terminal the
+   * default), no label truncates, and selecting Cron swaps the body — the
+   * registry stacked over the deliveries mounts and the embedded terminal
    * unmounts (one relay stream max per drawer), until Terminal restores it.
    *
    * Steps:
    * 1. Mock the backend with an operator window (the cron stub gives both
-   *    cron tabs a row); land on the @1 terminal route.
+   *    cron tables a row); land on the @1 terminal route.
    * 2. Open the quake terminal via the palette `Operator: Open quake terminal` action;
-   *    assert the five tab labels in exact order, Terminal selected, no tab truncated (scrollWidth ≤ clientWidth), and the
+   *    assert the four tab labels in exact order, Terminal selected, no tab truncated (scrollWidth ≤ clientWidth), and the
    *    embedded terminal's xterm frame attached.
-   * 3. Click Cron Log; assert the log body renders its delivery row inside
-   *    the quake terminal and the xterm frame is gone.
-   * 4. Click Cron List; assert the list body renders its entry row.
-   * 5. Click Terminal; assert the xterm frame is back.
+   * 3. Click Cron; assert the deliveries table renders its delivery row and
+   *    the registry its entry row inside the quake terminal, the registry
+   *    above the deliveries, and the xterm frame is gone.
+   * 4. Click Terminal; assert the xterm frame is back.
    */
-  test("the segment strip swaps the drawer body between the terminal and the cron tabs", async ({
+  test("the segment strip swaps the drawer body between the terminal and the cron console", async ({
     page,
   }) => {
     await mockBackend(page, true);
@@ -697,13 +697,12 @@ test.describe("Quake terminal", () => {
 
     const tabs = drawer(page).getByTestId("terminal-activity-tabs");
     const buttons = tabs.getByRole("tab");
-    await expect(buttons).toHaveCount(5);
+    await expect(buttons).toHaveCount(4);
     expect(await buttons.allTextContents()).toEqual([
       "Terminal",
       "Tasks",
       "Activity",
-      "Cron List",
-      "Cron Log",
+      "Cron",
     ]);
     await expect(buttons.nth(0)).toHaveAttribute("aria-selected", "true");
     const noTruncation = await tabs.evaluate((el) =>
@@ -712,14 +711,14 @@ test.describe("Quake terminal", () => {
     expect(noTruncation).toBe(true);
     await expect(drawer(page).locator(".xterm")).toBeAttached({ timeout: 10_000 });
 
-    await tabs.getByRole("tab", { name: "Cron Log" }).click();
+    await tabs.getByRole("tab", { name: "Cron", exact: true }).click();
     await expect(drawer(page).getByTestId("cron-log")).toBeVisible({ timeout: 10_000 });
     await expect(drawer(page).getByTestId("cron-delivery-row-a3f9")).toBeVisible();
-    await expect(drawer(page).locator(".xterm")).toHaveCount(0);
-
-    await tabs.getByRole("tab", { name: "Cron List" }).click();
-    await expect(drawer(page).getByTestId("cron-list")).toBeVisible({ timeout: 10_000 });
     await expect(drawer(page).getByTestId("cron-list-row-a3f9")).toBeVisible();
+    const listBox = await drawer(page).getByTestId("cron-list").boundingBox();
+    const logBox = await drawer(page).getByTestId("cron-log").boundingBox();
+    expect(listBox!.y).toBeLessThan(logBox!.y);
+    await expect(drawer(page).locator(".xterm")).toHaveCount(0);
 
     await tabs.getByRole("tab", { name: "Terminal" }).click();
     await expect(drawer(page).locator(".xterm")).toBeAttached({ timeout: 10_000 });
@@ -727,17 +726,17 @@ test.describe("Quake terminal", () => {
 
   /**
    * Proves: the status-bar ◷ chip (visually unchanged, next-fire readout)
-   * opens the quake terminal drawer on its Cron List segment.
+   * opens the quake terminal drawer on its Cron segment.
    *
    * Steps:
    * 1. Mock the backend with an operator window (the cron stub's entry
    *    carries a next fire, so the chip renders); land on the @1 terminal
    *    route.
    * 2. Click the ◷ chip.
-   * 3. Assert the drawer is visible with the Cron List tab selected and the
-   *    Cron List body rendering its entry row.
+   * 3. Assert the drawer is visible with the Cron tab selected and the
+   *    registry rendering its entry row.
    */
-  test("the ◷ chip opens the drawer on Cron List", async ({ page }) => {
+  test("the ◷ chip opens the drawer on Cron", async ({ page }) => {
     await mockBackend(page, true);
     await gotoWindow(page);
 
@@ -747,7 +746,7 @@ test.describe("Quake terminal", () => {
 
     await expect(drawer(page)).toBeVisible();
     const tabs = drawer(page).getByTestId("terminal-activity-tabs");
-    await expect(tabs.getByRole("tab", { name: "Cron List" })).toHaveAttribute(
+    await expect(tabs.getByRole("tab", { name: "Cron", exact: true })).toHaveAttribute(
       "aria-selected",
       "true",
     );
@@ -758,7 +757,7 @@ test.describe("Quake terminal", () => {
   /**
    * Proves: cron needs no operator — on a server WITHOUT an operator window
    * the ◷ chip still renders (its state is entries/staleness, never the
-   * operator) and still opens the drawer on Cron List with the registry
+   * operator) and still opens the drawer on Cron with the registry
    * rendering; the operator-less Start-operator body belongs to the Operator
    * Terminal segment only.
    *
@@ -767,11 +766,11 @@ test.describe("Quake terminal", () => {
    *    carries a next fire, so the chip renders); land on the @1 terminal
    *    route.
    * 2. Click the ◷ chip.
-   * 3. Assert the drawer opens with Cron List selected, its entry row
+   * 3. Assert the drawer opens with Cron selected, its entry row
    *    visible, and no operator-less body.
    * 4. Select Terminal; assert the Start operator body appears.
    */
-  test("the ◷ chip opens Cron List on an operator-less server", async ({ page }) => {
+  test("the ◷ chip opens Cron on an operator-less server", async ({ page }) => {
     await mockBackend(page, false);
     await gotoWindow(page);
 
@@ -781,7 +780,7 @@ test.describe("Quake terminal", () => {
 
     await expect(drawer(page)).toBeVisible();
     const tabs = drawer(page).getByTestId("terminal-activity-tabs");
-    await expect(tabs.getByRole("tab", { name: "Cron List" })).toHaveAttribute(
+    await expect(tabs.getByRole("tab", { name: "Cron", exact: true })).toHaveAttribute(
       "aria-selected",
       "true",
     );
@@ -795,7 +794,7 @@ test.describe("Quake terminal", () => {
   });
 
   /**
-   * Proves: the Cron List header row sorts the registry on click (a per-viewer
+   * Proves: the Cron registry's header row sorts the registry on click (a per-viewer
    * override over the at-rest soonest-first order), and the chosen order
    * survives a page reload via the `hexokit-table-cron-list` view state.
    *
@@ -803,13 +802,13 @@ test.describe("Quake terminal", () => {
    * 1. Mock the backend with an operator window; override the cron stub with
    *    two entries whose label order opposes their next-fire order (`zulu`
    *    fires first, `alpha` second); land on the @1 terminal route.
-   * 2. Open the drawer on Cron List; assert the at-rest order (zulu first).
+   * 2. Open the drawer on Cron; assert the at-rest order (zulu first).
    * 3. Click the `entry` header's sort button; assert the order flips to
    *    alpha-first and the header carries `aria-sort="ascending"`.
-   * 4. Reload, reopen the drawer on Cron List; assert the alpha-first order
+   * 4. Reload, reopen the drawer on Cron; assert the alpha-first order
    *    persists.
    */
-  test("Cron List header click re-sorts and the order survives a reload", async ({ page }) => {
+  test("Cron registry header click re-sorts and the order survives a reload", async ({ page }) => {
     await mockBackend(page, true);
     // Two entries, label order ≠ next-fire order (the later Playwright route
     // registration shadows the shared stub).
@@ -857,7 +856,7 @@ test.describe("Quake terminal", () => {
     await paletteInput.fill("Open quake terminal");
     await page.getByRole("option", { name: /^Operator: Open quake terminal/ }).click();
     await expect(drawer(page)).toBeVisible();
-    await drawer(page).getByTestId("terminal-activity-tabs").getByRole("tab", { name: "Cron List" }).click();
+    await drawer(page).getByTestId("terminal-activity-tabs").getByRole("tab", { name: "Cron", exact: true }).click();
     await expect(drawer(page).getByTestId("cron-list-row-a-early")).toBeVisible({ timeout: 10_000 });
     expect(await listRowOrder()).toEqual(["cron-list-row-a-early", "cron-list-row-b-late"]);
 
@@ -871,25 +870,22 @@ test.describe("Quake terminal", () => {
     await paletteInput2.fill("Open quake terminal");
     await page.getByRole("option", { name: /^Operator: Open quake terminal/ }).click();
     await expect(drawer(page)).toBeVisible();
-    await drawer(page).getByTestId("terminal-activity-tabs").getByRole("tab", { name: "Cron List" }).click();
+    await drawer(page).getByTestId("terminal-activity-tabs").getByRole("tab", { name: "Cron", exact: true }).click();
     await expect(drawer(page).getByTestId("cron-list-row-a-early")).toBeVisible({ timeout: 10_000 });
     expect(await listRowOrder()).toEqual(["cron-list-row-b-late", "cron-list-row-a-early"]);
   });
 
   /**
-   * Proves: a `cron` query surfaces both operator cron entries, ordered by
-   * match quality rather than registration order. `cron` is a whole word in
-   * both labels, so the tier ties and the denser match wins — the query is a
-   * larger fraction of `Operator: Show cron log` (23 chars) than of
-   * `Operator: Show cron list` (24), so the log row sits above the list row.
+   * Proves: a `cron` query surfaces exactly one segment opener,
+   * `Operator: Show cron` — the former list/log pair is one entry now.
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on the terminal route.
    * 2. Open the palette and filter to `cron`.
-   * 3. Assert both entries render and the cron-log row sits above the
-   *    cron-list row in the option list.
+   * 3. Assert `Operator: Show cron` renders once and no `Show cron list` /
+   *    `Show cron log` option exists.
    */
-  test("palette ranks the cron entries by match quality, denser label first", async ({
+  test("palette lists one Show cron entry", async ({
     page,
   }) => {
     await mockBackend(page, true);
@@ -898,11 +894,8 @@ test.describe("Quake terminal", () => {
     const paletteInput = await openPalette(page);
     await paletteInput.fill("cron");
 
-    const names = await page.getByRole("option").allTextContents();
-    const listIndex = names.findIndex((n) => n.includes("Operator: Show cron list"));
-    const logIndex = names.findIndex((n) => n.includes("Operator: Show cron log"));
-    expect(logIndex).toBeGreaterThanOrEqual(0);
-    expect(listIndex).toBeGreaterThan(logIndex);
+    await expect(page.getByRole("option", { name: "Operator: Show cron", exact: true })).toHaveCount(1);
+    await expect(page.getByRole("option", { name: /Show cron (list|log)/ })).toHaveCount(0);
   });
 
   /**
@@ -1042,9 +1035,10 @@ test.describe("Quake terminal", () => {
     await expect(tasks).toBeVisible();
     await expect(tasks.getByTestId("watched-tasks-summary")).toHaveText("2 tracked · 1 watched");
     await expect(tasks.getByTestId("watched-row")).toHaveCount(1);
-    await expect(tasks.getByText("watched-worker")).toBeVisible();
-    await expect(tasks.getByText("wuiu")).toBeVisible();
-    await expect(tasks.getByText("review")).toBeVisible();
+    const table = tasks.getByTestId("watched-table");
+    await expect(table.getByText("watched-worker")).toBeVisible();
+    await expect(table.getByText("wuiu")).toBeVisible();
+    await expect(table.getByText("review")).toBeVisible();
     const noteRow = tasks.getByTestId("tracked-item-row");
     await expect(noteRow).toHaveCount(1);
     await expect(noteRow.getByText("note")).toBeVisible();
@@ -1140,18 +1134,18 @@ test.describe("Quake terminal", () => {
   });
 
   /**
-   * Proves: a segment-carrying palette entry (`Operator: Show cron list`) on
+   * Proves: a segment-carrying palette entry (`Operator: Show cron`) on
    * the desktop operator route switches the PAGE's segment in place — the
-   * URL gains `?tab=list` and the cron list renders on the page; no drawer
+   * URL gains `?tab=cron` and the cron console renders on the page; no drawer
    * opens.
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on the operator route.
-   * 2. Pick `Operator: Show cron list` from the palette.
-   * 3. Assert the URL carries `?tab=list`, the page's strip shows Cron List
+   * 2. Pick `Operator: Show cron` from the palette.
+   * 3. Assert the URL carries `?tab=cron`, the page's strip shows Cron
    *    selected, and no drawer mounted.
    */
-  test("Operator: Show cron list on the desktop operator route switches the page to ?tab=list", async ({
+  test("Operator: Show cron on the desktop operator route switches the page to ?tab=cron", async ({
     page,
   }) => {
     await mockBackend(page, true);
@@ -1159,16 +1153,16 @@ test.describe("Quake terminal", () => {
     await expect(page.getByTestId("terminal-activity-tabs")).toBeVisible({ timeout: 10_000 });
 
     const paletteInput = await openPalette(page);
-    await paletteInput.fill("Show cron list");
-    await page.getByRole("option", { name: /^Operator: Show cron list/ }).click();
+    await paletteInput.fill("Show cron");
+    await page.getByRole("option", { name: /^Operator: Show cron/ }).click();
 
-    await expect(page).toHaveURL(/[?&]tab=list/, { timeout: 10_000 });
+    await expect(page).toHaveURL(/[?&]tab=cron/, { timeout: 10_000 });
     const tabs = page.getByTestId("terminal-activity-tabs");
-    await expect(tabs.getByRole("tab", { name: "Cron List" })).toHaveAttribute(
+    await expect(tabs.getByRole("tab", { name: "Cron", exact: true })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    await expect(page.getByTestId("cron-list")).toBeVisible();
+    await expect(page.getByTestId("cron-console")).toBeVisible();
     await expect(drawer(page)).toHaveCount(0);
   });
 
@@ -1180,10 +1174,10 @@ test.describe("Quake terminal", () => {
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on the @1 terminal
-   *    route and open the drawer on the Cron List segment via the palette.
+   *    route and open the drawer on the Cron segment via the palette.
    * 2. Click `⤢ open as tab` in the drawer header.
-   * 3. Assert the URL is the operator route with `?tab=list`, the page's
-   *    strip shows Cron List selected, and the drawer is gone.
+   * 3. Assert the URL is the operator route with `?tab=cron`, the page's
+   *    strip shows Cron selected, and the drawer is gone.
    */
   test("⤢ open as tab navigates from the drawer to the operator route carrying the segment", async ({
     page,
@@ -1192,15 +1186,15 @@ test.describe("Quake terminal", () => {
     await gotoWindow(page);
 
     const paletteInput = await openPalette(page);
-    await paletteInput.fill("Show cron list");
-    await page.getByRole("option", { name: /^Operator: Show cron list/ }).click();
+    await paletteInput.fill("Show cron");
+    await page.getByRole("option", { name: /^Operator: Show cron/ }).click();
     await expect(drawer(page)).toBeVisible();
 
     await page.getByTestId("quake-terminal-open-as-tab").click();
 
-    await expect(page).toHaveURL(/\/default\/9\?tab=list/, { timeout: 10_000 });
+    await expect(page).toHaveURL(/\/default\/9\?tab=cron/, { timeout: 10_000 });
     const tabs = page.getByTestId("terminal-activity-tabs");
-    await expect(tabs.getByRole("tab", { name: "Cron List" })).toHaveAttribute(
+    await expect(tabs.getByRole("tab", { name: "Cron", exact: true })).toHaveAttribute(
       "aria-selected",
       "true",
       { timeout: 10_000 },
@@ -2269,18 +2263,18 @@ test.describe("Quake terminal", () => {
 
   /**
    * Proves: cron needs no operator on mobile either — with no operator window
-   * on the server, `Operator: Show cron list` navigates to the Workspace
+   * on the server, `Operator: Show cron` navigates to the Workspace
    * page's Cron section (`/$server#cron`, the phone's operator-less cron home)
    * with the registry row rendering, and no hint toast fires.
    *
    * Steps:
    * 1. Set the 375×812 viewport; mock the backend WITHOUT an operator
    *    window; land on the @1 terminal route.
-   * 2. Pick `Operator: Show cron list` from the palette.
+   * 2. Pick `Operator: Show cron` from the palette.
    * 3. Assert the URL is the Server page with the `#cron` hash, the Cron
    *    section and its entry row are visible, and no hint toast rendered.
    */
-  test("mobile: Operator: Show cron list on an operator-less server lands on the Server page's Cron section", async ({
+  test("mobile: Operator: Show cron on an operator-less server lands on the Server page's Cron section", async ({
     page,
   }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
@@ -2288,8 +2282,8 @@ test.describe("Quake terminal", () => {
     await gotoWindowMobile(page);
 
     const paletteInput = await openPalette(page);
-    await paletteInput.fill("Show cron list");
-    await page.getByRole("option", { name: /^Operator: Show cron list/ }).click();
+    await paletteInput.fill("Show cron");
+    await page.getByRole("option", { name: /^Operator: Show cron/ }).click();
 
     await expect(page).toHaveURL(new RegExp(`/${SERVER}#cron$`), { timeout: 10_000 });
     const zone = page.getByTestId("clock-zone-cron");

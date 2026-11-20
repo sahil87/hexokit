@@ -8,8 +8,7 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useOccludes } from "@/hooks/use-occludes";
 import { TerminalClient } from "@/components/terminal-client";
 import { QuakeSegments, type QuakeSegment } from "@/components/terminal-activity-tabs";
-import { CronList } from "@/components/cron-list";
-import { CronLog } from "@/components/cron-log";
+import { CronConsole } from "@/components/cron-console";
 import { CronStaleBanner } from "@/components/cron-stale-banner";
 import { OperatorActivity } from "@/components/operator-activity";
 import { WatchedTasks } from "@/components/watched-tasks";
@@ -147,7 +146,7 @@ function withoutStartPending(
  * survives the gate.
  *
  * Anatomy (desktop): ONE header row folding the
- * Terminal | Tasks | Activity | Cron List | Cron Log segment strip
+ * Terminal | Tasks | Activity | Cron segment strip
  * (the shared `QuakeSegments` strip from terminal-activity-tabs.tsx, driven
  * by the quake terminal's local ephemeral state) together with the meta
  * cluster (the server picker on param-less multi-server routes, else the
@@ -164,9 +163,9 @@ function withoutStartPending(
  * the quake terminal bypasses the outside-click collapse, which stands down
  * for clicks inside the quake terminal's DOM); on Activity the
  * `CronStaleBanner` over `OperatorActivity` (the fires newest first, the
- * filter chips and Check now); on Cron List / Cron Log the `CronList` or
- * `CronLog` (inline variant — the entry detail sheet renders
- * in-container). On every non-terminal segment the TerminalClient is
+ * filter chips and Check now); on Cron the `CronConsole` (the `CronList`
+ * registry over the `CronLog` deliveries, inline variant — the entry detail
+ * sheet renders in-container). On every non-terminal segment the TerminalClient is
  * UNMOUNTED, so the drawer holds at
  * most one relay stream. While open the drawer carries the compose DOCKED at
  * its bottom edge (the QuakeCompose strip below): the shared compose seam's
@@ -487,7 +486,7 @@ export function QuakeTerminal() {
     // `sessions` event, and treating that as operator-less would route past
     // an operator that exists. Until then the hint toast (below) answers.
     const loaded = srv ? isConnectedByServer.get(srv) === true : false;
-    if (srv && loaded && !tgt && (detail.segment === "list" || detail.segment === "log")) {
+    if (srv && loaded && !tgt && detail.segment === "cron") {
       void navigate({ to: "/$server", params: { server: srv }, hash: CRON_ZONE_HASH });
       return;
     }
@@ -1147,10 +1146,8 @@ export function QuakeTerminal() {
               <CronStaleBanner server={server ?? ""} />
               <OperatorActivity server={server ?? ""} />
             </>
-          ) : segment === "list" ? (
-            <CronList server={server ?? ""} inline />
           ) : (
-            <CronLog server={server ?? ""} inline />
+            <CronConsole server={server ?? ""} inline />
           )
         )
       ) : target && server ? (

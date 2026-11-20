@@ -49,7 +49,8 @@ export function urlSegmentToWindowId(segment: string): string {
 // ordinary terminal render, never a route error. Unlike the retired params
 // above, the route-entry translation effect MUST NOT strip it. `tab` is the
 // operator route's segment selector (the notify deep-link carrier; Terminal |
-// Tasks | Activity | Cron List | Cron Log). Unknown values drop to absent,
+// Tasks | Activity | Cron; the legacy `log` and `list` tokens normalize to
+// `cron`). Unknown values drop to absent,
 // which reads as "terminal" — the default segment. The union is
 // spelled out as literals here (NOT imported from terminal-activity-tabs.tsx)
 // because this module is a deliberately dependency-free leaf — importing the
@@ -61,7 +62,7 @@ export type TerminalSearch = {
   layout?: string;
   from?: string;
   pop?: string;
-  tab?: "terminal" | "tasks" | "activity" | "list" | "log";
+  tab?: "terminal" | "tasks" | "activity" | "cron";
 };
 
 // Exported as a pure function so the unknown-value drop is unit-testable.
@@ -86,10 +87,13 @@ export function validateTerminalSearch(
     search.tab === "terminal" ||
     search.tab === "tasks" ||
     search.tab === "activity" ||
-    search.tab === "list" ||
-    search.tab === "log"
+    search.tab === "cron"
   ) {
     out.tab = search.tab;
+  } else if (search.tab === "log" || search.tab === "list") {
+    // Legacy tokens: cron-delivery pushes already in the wild deep-link
+    // `?tab=log`. Remove after the next release.
+    out.tab = "cron";
   }
   return out;
 }

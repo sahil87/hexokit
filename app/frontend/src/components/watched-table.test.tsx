@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, within, waitFor } from "@testing-library/react";
-import { getOperatorNotes } from "@/api/client";
+import { getOperatorNotes, postOperatorNote, postOperatorWake } from "@/api/client";
 import { makeWindow } from "@/test-utils/fixtures";
 import { NOTE_STALE_SECONDS } from "@/components/sidebar/row-flyout-card";
 import type { TrackedRow } from "@/components/server-watched-zone/model";
@@ -9,7 +9,7 @@ import { WatchedTable } from "./watched-table";
 
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
-  return { ...actual, getOperatorNotes: vi.fn() };
+  return { ...actual, getOperatorNotes: vi.fn(), postOperatorNote: vi.fn(), postOperatorWake: vi.fn() };
 });
 
 const mockedGetOperatorNotes = vi.mocked(getOperatorNotes);
@@ -404,6 +404,36 @@ describe("WatchedTable", () => {
       expect(mockedGetOperatorNotes).not.toHaveBeenCalled();
       expect(screen.getAllByTestId("tracked-item-note")).toHaveLength(1);
       expect(screen.getByTestId("tracked-item-expand")).not.toHaveTextContent("loading…");
+    });
+
+    it("the expanded list's add note… writes, wakes and refetches the notes", async () => {
+      mockedGetOperatorNotes.mockResolvedValue(NOTES);
+      vi.mocked(postOperatorNote).mockResolvedValue({ at: 1, by: "user", text: "ship it" });
+      vi.mocked(postOperatorWake).mockResolvedValue(undefined);
+      renderTable([itemRow(noted())], { server: "srv" });
+
+      fireEvent.click(screen.getByTestId("tracked-item-expand"));
+      await waitFor(() => expect(screen.getAllByTestId("tracked-item-note")).toHaveLength(3));
+      fireEvent.click(screen.getByTestId("tracked-item-add-note"));
+      fireEvent.change(screen.getByTestId("operator-note-input"), { target: { value: "ship it" } });
+      fireEvent.click(screen.getByTestId("operator-note-save"));
+
+      await waitFor(() =>
+        expect(screen.getByTestId("tracked-item-note-status")).toHaveTextContent(
+          "note saved · check queued",
+        ),
+      );
+      expect(postOperatorNote).toHaveBeenCalledWith("srv", "x1", "ship it");
+      expect(postOperatorWake).toHaveBeenCalledWith("srv", "note:x1");
+      expect(mockedGetOperatorNotes).toHaveBeenCalledTimes(2);
+      expect(screen.queryByTestId("operator-note-composer")).toBeNull();
+      expect(screen.getByTestId("tracked-item-add-note")).toBeInTheDocument();
+    });
+
+    it("without a server the expanded list offers no add note…", () => {
+      renderTable([itemRow(noted())]);
+      fireEvent.click(screen.getByTestId("tracked-item-expand"));
+      expect(screen.queryByTestId("tracked-item-add-note")).toBeNull();
     });
 
     it("a worker row with a latest note shows it instead of the tab note, undimmed", () => {

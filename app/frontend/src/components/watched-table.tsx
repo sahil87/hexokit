@@ -31,6 +31,7 @@
  */
 import { useMemo, useRef, useState } from "react";
 import { getOperatorNotes } from "@/api/client";
+import { OperatorNoteComposer, useTransientStatus } from "@/components/operator-note-composer";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { StatusDot } from "@/components/status-dot";
 import { Tip } from "@/components/tip";
@@ -365,12 +366,13 @@ function ItemNoteCell({
   dense: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [composing, setComposing] = useState(false);
   const [notes, setNotes] = useState<NotesState>({ status: "idle" });
+  const [savedStatus, showSavedStatus] = useTransientStatus();
   const requestRef = useRef(0);
 
-  const expand = () => {
+  const loadNotes = () => {
     const request = ++requestRef.current;
-    setExpanded(true);
     if (server === undefined) {
       setNotes({ status: "idle" });
       return;
@@ -385,33 +387,67 @@ function ItemNoteCell({
       },
     );
   };
+  const expand = () => {
+    setExpanded(true);
+    loadNotes();
+  };
   const collapse = () => {
     requestRef.current++;
     setExpanded(false);
+    setComposing(false);
   };
 
   if (expanded) {
     const list = notes.status === "ready" && notes.notes.length > 0 ? notes.notes : [note];
     return (
-      <button
-        type="button"
-        aria-expanded="true"
-        data-testid="tracked-item-expand"
-        onClick={collapse}
-        className="block w-full text-left whitespace-pre-wrap text-text-secondary"
-      >
-        {list.map((n, i) => {
-          const age = noteAge(n, nowSeconds);
-          return (
-            <span key={i} data-testid="tracked-item-note" className="block">
-              {age && `${age} · `}
-              {n.by} · {n.text}
-            </span>
-          );
-        })}
-        {notes.status === "loading" && <span className="block opacity-70">loading…</span>}
-        {notes.status === "error" && <span className="block opacity-70">notes unavailable</span>}
-      </button>
+      <div className="w-full">
+        <button
+          type="button"
+          aria-expanded="true"
+          data-testid="tracked-item-expand"
+          onClick={collapse}
+          className="block w-full text-left whitespace-pre-wrap text-text-secondary"
+        >
+          {list.map((n, i) => {
+            const age = noteAge(n, nowSeconds);
+            return (
+              <span key={i} data-testid="tracked-item-note" className="block">
+                {age && `${age} · `}
+                {n.by} · {n.text}
+              </span>
+            );
+          })}
+          {notes.status === "loading" && <span className="block opacity-70">loading…</span>}
+          {notes.status === "error" && <span className="block opacity-70">notes unavailable</span>}
+        </button>
+        {server !== undefined &&
+          (composing ? (
+            <OperatorNoteComposer
+              server={server}
+              itemId={item.id}
+              onCancel={() => setComposing(false)}
+              onSaved={(status) => {
+                setComposing(false);
+                showSavedStatus(status);
+                loadNotes();
+              }}
+            />
+          ) : (
+            <button
+              type="button"
+              data-testid="tracked-item-add-note"
+              onClick={() => setComposing(true)}
+              className="mt-1 text-left text-accent-green hover:underline"
+            >
+              add note…
+            </button>
+          ))}
+        {savedStatus !== null && (
+          <span role="status" data-testid="tracked-item-note-status" className="block text-accent-green">
+            {savedStatus}
+          </span>
+        )}
+      </div>
     );
   }
 

@@ -209,8 +209,7 @@ import { buildForkWindowActions } from "@/lib/palette/fork";
 import { SurfaceLayout } from "@/components/surface-layout";
 import { PoppedOutPlaceholder, PopoutEnded, type PoppedLeafRow } from "@/components/popout-states";
 import type { CodeTileCommands } from "@/components/surface-layout";
-import { CronList } from "@/components/cron-list";
-import { CronLog } from "@/components/cron-log";
+import { CronConsole } from "@/components/cron-console";
 import { CronStaleBanner } from "@/components/cron-stale-banner";
 import { OperatorActivity } from "@/components/operator-activity";
 import { WatchedTasks } from "@/components/watched-tasks";
@@ -1078,7 +1077,7 @@ function AppShell() {
   const operatorPage =
     !popoutPosture && windowParam != null && currentWindow?.role === "operator";
   const quakeTab = operatorPage ? (search.tab ?? "terminal") : "terminal";
-  const cronTabActive = quakeTab === "list" || quakeTab === "log";
+  const cronTabActive = quakeTab === "cron";
   const tasksTabActive = quakeTab === "tasks";
   const activityTabActive = quakeTab === "activity";
   // Any non-terminal tab hides (never unmounts) the terminal column.
@@ -6173,7 +6172,7 @@ function AppShell() {
               slot is a
               tile now — R6). Open-tile toggles (R10) live in the top bar's
               surface-toggle group. On a non-terminal tab (Tasks, Activity,
-              Cron List, Cron Log) this column stays
+              Cron) this column stays
               MOUNTED-but-hidden (the `hidden` class — the same
               hide-never-unmount posture SurfaceLayout applies to its own
               hidden tiles), so the terminal stream survives the tab swap and
@@ -6437,15 +6436,7 @@ function AppShell() {
               <OperatorActivity server={server} />
             </div>
           )}
-          {cronTabActive && (
-            <div className="flex-1 min-w-0 min-h-0 flex flex-col">
-              {quakeTab === "list" ? (
-                <CronList server={server} />
-              ) : (
-                <CronLog server={server} />
-              )}
-            </div>
-          )}
+          {cronTabActive && <CronConsole server={server} />}
         </div>
       </main>
 

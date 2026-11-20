@@ -686,7 +686,7 @@ describe("StatusBar (260814-ldbs)", () => {
       mockCronEntries = [{ id: "a1", name: "deploy", nextFire: nowSec + 300 }];
       renderFolded({ server: "alpha" }, 170);
       expect(screen.queryByTestId("status-bar-clock")).toBeNull();
-      expect(within(openMenu()).getByRole("menuitem", { name: "◷ Cron List" })).toBeInTheDocument();
+      expect(within(openMenu()).getByRole("menuitem", { name: "◷ Cron" })).toBeInTheDocument();
 
       // Stale: the chip never folds (the connection-dot alarm precedent), so
       // it stays in the strip at the same budget and needs no menu row.
@@ -695,7 +695,7 @@ describe("StatusBar (260814-ldbs)", () => {
       ]);
       renderFolded({ server: "alpha" }, 170);
       expect(screen.getByTestId("status-bar-clock")).toHaveTextContent("◷ stale 2m");
-      expect(within(openMenu()).queryByRole("menuitem", { name: "◷ Cron List" })).toBeNull();
+      expect(within(openMenu()).queryByRole("menuitem", { name: "◷ Cron" })).toBeNull();
     });
 
     it("clicking the chip dispatches the quake terminal request with segment: list", () => {
@@ -711,7 +711,7 @@ describe("StatusBar (260814-ldbs)", () => {
         document.removeEventListener("rk:quake-terminal", listener);
       }
 
-      expect(seen).toEqual([{ action: "open", segment: "list" }]);
+      expect(seen).toEqual([{ action: "open", segment: "cron" }]);
     });
   });
 

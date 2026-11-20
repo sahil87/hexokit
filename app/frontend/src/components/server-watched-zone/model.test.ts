@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { makeSession, makeWindow } from "@/test-utils/fixtures";
 import type { OperatorTrackedItem } from "@/types";
-import { collectTrackedRows } from "./model";
+import { collectNeedsYou, collectTrackedRows, watchedWorkerRows } from "./model";
 
 const NOTE: OperatorTrackedItem = {
   id: "n3",
@@ -96,5 +96,104 @@ describe("collectTrackedRows", () => {
     const b: OperatorTrackedItem = { id: "aa", kind: "note" };
     const sessions = [makeSession({ operatorTracked: [a, b] })];
     expect(collectTrackedRows(sessions)?.map((r) => r.item.id)).toEqual(["zz", "aa"]);
+  });
+});
+
+describe("collectNeedsYou", () => {
+  const escalated = (over: Partial<OperatorTrackedItem> = {}): OperatorTrackedItem => ({
+    id: "pr-41",
+    kind: "github-pr",
+    updatedAt: 1_800_000_100,
+    latestNote: { at: 1_800_000_100, by: "run", text: "escalated: spawn interrupted: x" },
+    noteCount: 1,
+    ...over,
+  });
+  const needs = (items: OperatorTrackedItem[], windows = [makeWindow({ windowId: "@2" })]) =>
+    collectNeedsYou(
+      collectTrackedRows([makeSession({ operatorTracked: items, windows })]) ?? [],
+    );
+
+  it("an open escalation yields one row with the reason after the prefix", () => {
+    expect(needs([escalated()])).toEqual([
+      { kind: "escalation", id: "pr-41", action: "spawn interrupted: x", windowId: undefined, updatedAt: 1_800_000_100 },
+    ]);
+  });
+
+  it("a newer user note clears the escalation", () => {
+    const answered = escalated({
+      latestNote: { at: 1_800_000_200, by: "user", text: "merge it" },
+    });
+    expect(needs([answered])).toEqual([]);
+  });
+
+  it("a newer run note that is not an escalation clears it too", () => {
+    const progress = escalated({
+      latestNote: { at: 1_800_000_200, by: "run", text: "retrying" },
+    });
+    expect(needs([progress])).toEqual([]);
+  });
+
+  it("a done item never yields a row", () => {
+    expect(needs([escalated({ doneAt: 1_800_000_300 })])).toEqual([]);
+  });
+
+  it("a user note that happens to start with escalated: is not an escalation", () => {
+    const user = escalated({ latestNote: { at: 1, by: "user", text: "escalated: me" } });
+    expect(needs([user])).toEqual([]);
+  });
+
+  it("a waiting worker yields a waiting row naming its window, and clears when it leaves waiting", () => {
+    const item: OperatorTrackedItem = { id: "w1", windowId: "@2", updatedAt: 5 };
+    const waitingWin = makeWindow({ windowId: "@2", name: "builder", agentState: "waiting" });
+    expect(needs([item], [waitingWin])).toEqual([
+      { kind: "waiting", id: "w1", action: "answer the prompt in builder", windowId: "@2", updatedAt: 5 },
+    ]);
+    const activeWin = makeWindow({ windowId: "@2", name: "builder", agentState: "active" });
+    expect(needs([item], [activeWin])).toEqual([]);
+  });
+
+  it("an item both waiting and escalated yields one waiting row carrying the reason", () => {
+    const item = escalated({ windowId: "@2" });
+    const win = makeWindow({ windowId: "@2", name: "builder", agentState: "waiting" });
+    const rows = needs([item], [win]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: "waiting",
+      action: "answer the prompt in builder · spawn interrupted: x",
+      windowId: "@2",
+    });
+  });
+
+  it("an escalation on an item with a live window carries its windowId", () => {
+    const rows = needs([escalated({ windowId: "@2" })]);
+    expect(rows[0]).toMatchObject({ kind: "escalation", windowId: "@2" });
+  });
+
+  it("a waiting item row with no live window is not a waiting prompt", () => {
+    const item: OperatorTrackedItem = { id: "w1", windowId: "@9", updatedAt: 5 };
+    expect(needs([item], [makeWindow({ windowId: "@2", agentState: "waiting" })])).toEqual([]);
+  });
+
+  it("orders waiting before escalations, oldest first within each kind", () => {
+    const items: OperatorTrackedItem[] = [
+      escalated({ id: "e-new", updatedAt: 30 }),
+      escalated({ id: "e-old", updatedAt: 10 }),
+      { id: "w-new", windowId: "@3", updatedAt: 40 },
+      { id: "w-old", windowId: "@2", updatedAt: 20 },
+    ];
+    const wins = [
+      makeWindow({ windowId: "@2", agentState: "waiting" }),
+      makeWindow({ windowId: "@3", agentState: "waiting" }),
+    ];
+    expect(needs(items, wins).map((r) => r.id)).toEqual(["w-old", "w-new", "e-old", "e-new"]);
+  });
+
+  it("skips id-less rows (the older-backend window fallback)", () => {
+    const rows = collectNeedsYou(
+      watchedWorkerRows([
+        makeSession({ windows: [makeWindow({ monitored: true, agentState: "waiting" })] }),
+      ]),
+    );
+    expect(rows).toEqual([]);
   });
 });

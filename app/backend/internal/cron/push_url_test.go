@@ -11,9 +11,9 @@ func TestPushURL(t *testing.T) {
 	for _, tc := range []struct {
 		server, windowID, want string
 	}{
-		{"live1", "@7", "/live1/7?tab=log"},
+		{"live1", "@7", "/live1/7?tab=cron"},
 		{"live1", "", ""},
-		{"live1", "7", "/live1/7?tab=log"},
+		{"live1", "7", "/live1/7?tab=cron"},
 	} {
 		if got := PushURL(tc.server, tc.windowID); got != tc.want {
 			t.Errorf("PushURL(%q, %q) = %q, want %q", tc.server, tc.windowID, got, tc.want)
@@ -31,8 +31,8 @@ func TestOperatorPushURL(t *testing.T) {
 			{WindowID: "@5"},
 			{WindowID: "@9", Role: RoleOperator},
 		}}
-		if got := operatorPushURL(context.Background(), "dev", fk); got != "/dev/9?tab=log" {
-			t.Errorf("operatorPushURL = %q, want /dev/9?tab=log", got)
+		if got := operatorPushURL(context.Background(), "dev", fk); got != "/dev/9?tab=cron" {
+			t.Errorf("operatorPushURL = %q, want /dev/9?tab=cron", got)
 		}
 	})
 
