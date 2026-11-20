@@ -1,0 +1,58 @@
+id: jt0z
+name: 261120-jt0z-operator-brief-tools-merging-diet
+created: 2026-11-20T07:55:08Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 9
+    acceptance_count: 23
+    acceptance_completed: 23
+confidence:
+    certain: 5
+    confident: 9
+    tentative: 0
+    unresolved: 0
+    score: 3.4
+    fuzzy: true
+    dimensions:
+        signal: 71.1
+        reversibility: 81.1
+        competence: 76.8
+        disambiguation: 71.1
+stage_metrics:
+    intake: {started_at: "2026-11-20T07:55:08Z", driver: fab-new, iterations: 1, completed_at: "2026-11-20T07:59:20Z"}
+    apply: {started_at: "2026-11-20T08:13:48Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-20T08:16:20Z"}
+    review: {started_at: "2026-11-20T08:16:20Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-20T08:24:57Z"}
+    hydrate: {started_at: "2026-11-20T08:24:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T08:26:50Z"}
+    ship: {started_at: "2026-11-20T08:26:50Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T08:27:53Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1167
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 1058
+    deleted: 104
+    net: 954
+    excluding:
+        added: 525
+        deleted: 76
+        net: 449
+    tests:
+        added: 258
+        deleted: 10
+        net: 248
+    computed_at: "2026-11-20T08:27:53Z"
+    computed_at_stage: ship
+summary: 'Operator brief: PR tools back inside the tiers, per-mode Merging section, user/chat notes always shown, no-op runs write no note, new ''rk operator track show'''
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-20T10:08:12Z

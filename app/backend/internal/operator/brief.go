@@ -18,7 +18,7 @@ const (
 	// briefValueCap bounds one rendered scope/last value, in runes.
 	briefValueCap = 500
 
-	briefRoleLine = "You are a one-shot operator run. Act on what changed, write a note, exit."
+	briefRoleLine = "You are a one-shot operator run. Act on what changed, note what you did, exit."
 	// BriefTruncationMarker is the last line of a brief that was trimmed to
 	// fit BriefSizeCap.
 	BriefTruncationMarker = "[brief truncated to fit the size cap: other tracked items and older notes omitted]"
@@ -36,12 +36,11 @@ const (
 //go:embed brief_rules.md
 var briefRules string
 
-const briefExitContract = `Before exiting, append at least one note per item you acted on, or one note on the
-most relevant item when nothing needed doing:
+const briefExitContract = `Before exiting, append a note on each item you acted on:
 
     rk operator track note -L <server> <id> "<text>" --by run
 
-Then print exactly one final line to stdout, and nothing after it:
+A run that did nothing writes no note. Then print exactly one final line to stdout, and nothing after it:
 
     outcome: <one-line summary>`
 
@@ -66,13 +65,16 @@ type BriefInput struct {
 type briefLayout struct {
 	showOthers bool
 	notesShown int
+	// userNotesDropped is how many of an item's oldest by-user/by-chat notes the
+	// size-cap trim has discarded, applied only once notesShown is zero.
+	userNotesDropped int
 }
 
 // RenderBrief renders the run brief as Markdown. For identical input the
 // output is byte-identical. Past BriefSizeCap it drops the other-items lines,
-// then shows fewer notes per affected item, and ends with
-// BriefTruncationMarker; the header, What changed, Rules and Exit contract are
-// never dropped.
+// then shows fewer run notes per affected item, then drops the oldest user and
+// chat notes, and ends with BriefTruncationMarker; the header, What changed,
+// Rules and Exit contract are never dropped.
 func RenderBrief(in BriefInput) string {
 	layout := briefLayout{showOthers: true, notesShown: briefNotesShown}
 	out := renderBriefLayout(in, layout)
@@ -82,11 +84,34 @@ func RenderBrief(in BriefInput) string {
 	layout.showOthers = false
 	for {
 		out = renderBriefLayout(in, layout) + BriefTruncationMarker + "\n"
-		if len(out) <= BriefSizeCap || layout.notesShown == 0 {
+		if len(out) <= BriefSizeCap {
 			return out
 		}
-		layout.notesShown--
+		switch {
+		case layout.notesShown > 0:
+			layout.notesShown--
+		case layout.userNotesDropped < maxUserNotes(in):
+			layout.userNotesDropped++
+		default:
+			return out
+		}
 	}
+}
+
+// maxUserNotes is the most by-user/by-chat notes any one item carries: the
+// bound on how far the trim's final pass can go.
+func maxUserNotes(in BriefInput) int {
+	most := 0
+	for _, it := range briefItems(in.State) {
+		count := 0
+		for _, n := range it.Notes {
+			if n.By == ByUser || n.By == ByChat {
+				count++
+			}
+		}
+		most = max(most, count)
+	}
+	return most
 }
 
 func renderBriefLayout(in BriefInput, layout briefLayout) string {
@@ -97,7 +122,7 @@ func renderBriefLayout(in BriefInput, layout briefLayout) string {
 	var b strings.Builder
 	writeBriefHeader(&b, in)
 	writeWhatChanged(&b, items, in.Changed)
-	writeAffected(&b, items, affected, now, layout.notesShown)
+	writeAffected(&b, items, affected, now, layout)
 	writeOthers(&b, items, affected, now, layout.showOthers)
 	flag := "-L " + ServerLabel(in.Server)
 	writeSection(&b, "Rules", withServerFlag(briefRules, flag))
@@ -174,14 +199,14 @@ func affectedSet(items []TrackedItem, changed []ChangedItem) map[string]bool {
 	return affected
 }
 
-func writeAffected(b *strings.Builder, items []TrackedItem, affected map[string]bool, now time.Time, notesShown int) {
+func writeAffected(b *strings.Builder, items []TrackedItem, affected map[string]bool, now time.Time, layout briefLayout) {
 	b.WriteString("## Affected items\n\n")
 	wrote := false
 	for _, it := range items {
 		if !affected[it.ID] {
 			continue
 		}
-		writeItemBlock(b, items, it, now, notesShown)
+		writeItemBlock(b, items, it, now, layout)
 		wrote = true
 	}
 	if !wrote {
@@ -189,7 +214,7 @@ func writeAffected(b *strings.Builder, items []TrackedItem, affected map[string]
 	}
 }
 
-func writeItemBlock(b *strings.Builder, items []TrackedItem, it TrackedItem, now time.Time, notesShown int) {
+func writeItemBlock(b *strings.Builder, items []TrackedItem, it TrackedItem, now time.Time, layout briefLayout) {
 	fmt.Fprintf(b, "### %s (%s)\n\n", it.ID, it.Kind)
 	fmt.Fprintf(b, "- state: %s\n", listState(items, it, now))
 	fmt.Fprintf(b, "- probe: %s\n", it.Probe.Mode)
@@ -213,25 +238,54 @@ func writeItemBlock(b *strings.Builder, items []TrackedItem, it TrackedItem, now
 	}
 	fmt.Fprintf(b, "- last: %s\n", briefMap(it.Last, false))
 	fmt.Fprintf(b, "- unchanged: %d\n", it.Unchanged)
-	writeNotes(b, it.Notes, notesShown)
+	writeNotes(b, it.Notes, layout)
 	b.WriteString("\n")
 }
 
-func writeNotes(b *strings.Builder, notes []Note, notesShown int) {
+// writeNotes shows the newest layout.notesShown notes plus every older
+// by-user/by-chat note (the user's instructions), oldest first. The earlier
+// count covers only the omitted notes.
+func writeNotes(b *strings.Builder, notes []Note, layout briefLayout) {
 	if len(notes) == 0 {
 		b.WriteString("- notes: none\n")
 		return
 	}
 	b.WriteString("- notes:\n")
-	shown := notes
-	if len(notes) > notesShown {
-		shown = notes[len(notes)-notesShown:]
-		fmt.Fprintf(b, "  (+%d earlier notes)\n", len(notes)-notesShown)
+	cut := max(len(notes)-layout.notesShown, 0)
+	dropUser := 0
+	if layout.notesShown == 0 {
+		dropUser = layout.userNotesDropped
+	}
+	var shown []Note
+	for i, n := range notes {
+		if i >= cut {
+			shown = append(shown, n)
+			continue
+		}
+		if n.By != ByUser && n.By != ByChat {
+			continue
+		}
+		if dropUser > 0 {
+			dropUser--
+			continue
+		}
+		shown = append(shown, n)
+	}
+	if omitted := len(notes) - len(shown); omitted > 0 {
+		fmt.Fprintf(b, "  (+%d earlier notes)\n", omitted)
 	}
 	for _, n := range shown {
 		text := strings.ReplaceAll(n.Text, "\n", "\n    ")
 		fmt.Fprintf(b, "  - %s%s%s%s%s\n", n.At, briefSep, n.By, briefSep, text)
 	}
+}
+
+// ItemBlock renders one item's brief block with every note, for the verb that
+// re-reads a single item. all is the whole ledger the item's state derives from.
+func ItemBlock(all []TrackedItem, it TrackedItem) string {
+	var b strings.Builder
+	writeItemBlock(&b, all, it, clock().UTC(), briefLayout{notesShown: len(it.Notes)})
+	return b.String()
 }
 
 func writeOthers(b *strings.Builder, items []TrackedItem, affected map[string]bool, now time.Time, show bool) {

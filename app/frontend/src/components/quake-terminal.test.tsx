@@ -245,9 +245,16 @@ describe("QuakeTerminal", () => {
     stepMachine();
     expect(getQuakeMachineState()).toBe("rest");
     // The unmount rides the slide's timeout fallback (jsdom fires no
-    // transitionend); give it headroom under full-suite load.
-    await waitFor(() => expect(screen.queryByTestId("quake-terminal")).toBeNull(), { timeout: 3000 });
-    expect(overlayCount("modal")).toBe(0);
+    // transitionend); give it headroom under full-suite load. The release is a
+    // passive-effect cleanup that can land after the DOM removal, so both are
+    // awaited together.
+    await waitFor(
+      () => {
+        expect(screen.queryByTestId("quake-terminal")).toBeNull();
+        expect(overlayCount("modal")).toBe(0);
+      },
+      { timeout: 3000 },
+    );
   });
 
   it.each(["toggle", "open"] as const)(

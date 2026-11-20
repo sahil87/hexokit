@@ -939,3 +939,45 @@ func TestTimestampsComeFromTheInjectedClock(t *testing.T) {
 		t.Errorf("added/updated/note at = %s/%s/%s, want %s", it.AddedAt, it.UpdatedAt, it.Notes[0].At, want)
 	}
 }
+
+func TestShow(t *testing.T) {
+	path := seededState(t, "")
+	stubSeams(t)
+	if _, _, err := Show(path, "w1"); err == nil || err.Error() != "no tracked item w1" {
+		t.Fatalf("absent state file: err = %v, want no tracked item w1", err)
+	}
+	if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
+		t.Error("Show created the state directory")
+	}
+
+	if err := Add(context.Background(), path, AddSpec{ID: "w1", Kind: KindTask}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Add(context.Background(), path, AddSpec{ID: "w2", Kind: KindTask}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 12; i++ {
+		if err := AddNote(path, "w1", ByRun, fmt.Sprintf("n%d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, item, err := Show(path, "w1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.ID != "w1" || len(item.Notes) != 12 || len(all) != 2 {
+		t.Fatalf("item = %s with %d notes of %d items", item.ID, len(item.Notes), len(all))
+	}
+	block := ItemBlock(all, item)
+	for i := 0; i < 12; i++ {
+		if !strings.Contains(block, fmt.Sprintf("n%d", i)) {
+			t.Errorf("ItemBlock omitted note n%d", i)
+		}
+	}
+	if strings.Contains(block, "earlier notes") {
+		t.Errorf("ItemBlock capped the notes:\n%s", block)
+	}
+	if _, _, err := Show(path, "zz"); err == nil || err.Error() != "no tracked item zz" {
+		t.Errorf("missing item: err = %v", err)
+	}
+}
