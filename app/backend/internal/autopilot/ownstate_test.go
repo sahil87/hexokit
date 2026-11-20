@@ -3,6 +3,8 @@ package autopilot
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -10,32 +12,20 @@ import (
 	"rk/internal/operator"
 )
 
-func TestPausedPRProjectionWaitsWithoutDisarm(t *testing.T) {
-	h, _, head := armableFixture(t)
-	if err := operator.Pause(h.env.StatePath, head.ID); err != nil {
-		t.Fatal(err)
-	}
-	e, d := h.decideFor(head.ID)
-	h.run.reset()
-	if d.Status != string(PRPaused) || d.Action != ActionWait {
-		t.Fatalf("decision = %+v", d)
-	}
-	execOne(t, e, d)
-	if len(h.run.calls) != 0 {
-		t.Fatalf("paused PR reached a mutation: %q", h.run.calls)
-	}
-}
-
 func TestRemovedProjectionNotifiesOnceAndIsNotReadded(t *testing.T) {
-	h, _, head := armableFixture(t)
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Change: "aaaa"})
+	h.step()
+	h.livePanes()
 	var notified []string
 	h.env.Notify = func(_ context.Context, title, body string) { notified = append(notified, title+": "+body) }
-	if err := operator.Remove(h.env.StatePath, head.ID); err != nil {
+	if err := operator.Remove(h.env.StatePath, "a"); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
 		res := h.step()
-		if i == 0 && !hasEscalation(res, "projection removed: "+head.ID) {
+		if i == 0 && !hasEscalation(res, "projection removed: a") {
 			t.Fatalf("first pass = %+v", res.Escalations)
 		}
 	}
@@ -46,10 +36,10 @@ func TestRemovedProjectionNotifiesOnceAndIsNotReadded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if operator.IndexOf(ledger.Tracked, head.ID) >= 0 {
+	if operator.IndexOf(ledger.Tracked, "a") >= 0 {
 		t.Fatal("removed projection was recreated")
 	}
-	if !h.has(head.ID) {
+	if !h.has("a") {
 		t.Fatal("engine item was lost with its projection")
 	}
 }
@@ -133,39 +123,6 @@ func TestRemoveRejectsDependentsAndResumeUndoesStop(t *testing.T) {
 	}
 }
 
-func TestRemoveUnspawnedQueueItemAndHaltedSequence(t *testing.T) {
-	t.Run("queue", func(t *testing.T) {
-		h := newHarness(t)
-		foo := newRepo(t, "foo")
-		h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
-		if _, err := Remove(context.Background(), h.env, "a"); err != nil {
-			t.Fatal(err)
-		}
-		if h.has("a") {
-			t.Fatal("unspawned item survived rm")
-		}
-	})
-	t.Run("sequence", func(t *testing.T) {
-		h, _, head := armFixture(t)
-		if _, err := Stop(context.Background(), h.env); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := Remove(context.Background(), h.env, head.ID); err != nil {
-			t.Fatal(err)
-		}
-		if h.has("pr-1") || !h.has("pr-2") {
-			t.Fatalf("rm changed more than the named sequence: %v", ids(h.state().Tracked))
-		}
-		ledger, err := operator.Load(h.env.StatePath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if operator.IndexOf(ledger.Tracked, "pr-1") >= 0 || operator.IndexOf(ledger.Tracked, "pr-2") < 0 {
-			t.Fatal("sequence projection removal did not match the engine change")
-		}
-	})
-}
-
 func TestStopWithIdentityProjectionDoesNotSpawnAfterCauseIsFixed(t *testing.T) {
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
@@ -215,34 +172,6 @@ func TestGuardedPatchDoesNotStoreProjectionPause(t *testing.T) {
 	}
 }
 
-func TestRemoveHaltedSequenceRefusesArmedOrUnreadablePR(t *testing.T) {
-	for _, scenario := range []string{"armed", "unreadable"} {
-		t.Run(scenario, func(t *testing.T) {
-			h, pr, head := armableFixture(t)
-			if _, err := Stop(context.Background(), h.env); err != nil {
-				t.Fatal(err)
-			}
-			if scenario == "armed" {
-				pr.Armed = true
-			} else {
-				h.run.fail("gh pr view 1", "API unavailable")
-			}
-			_, err := Remove(context.Background(), h.env, head.ID)
-			var invalid *InvalidError
-			if err == nil || errors.As(err, &invalid) || !strings.Contains(err.Error(), "PR #1") {
-				t.Fatalf("rm error = %v", err)
-			}
-			if !h.has(head.ID) {
-				t.Fatal("refusal dropped the halted sequence")
-			}
-			engine, loadErr := loadEngineFile(h.env.StatePath)
-			if loadErr != nil || len(engine.PRs) != 2 {
-				t.Fatalf("refusal changed PR items: %+v, %v", engine.PRs, loadErr)
-			}
-		})
-	}
-}
-
 func TestRespawnDoesNotRecreateRemovedProjection(t *testing.T) {
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
@@ -273,9 +202,6 @@ func (failingPanes) Snapshot(context.Context) (map[string]operator.PaneInfo, err
 	return nil, errors.New("snapshot unavailable")
 }
 func (failingPanes) PID(context.Context, string) (int, error) { return 123, nil }
-func (failingPanes) Send(context.Context, string, string) error {
-	return errors.New("send unavailable")
-}
 
 func TestQueuePassErrorReceiptReportsSuccessAndEscalation(t *testing.T) {
 	h := newHarness(t)
@@ -300,43 +226,6 @@ func TestQueuePassErrorReceiptReportsSuccessAndEscalation(t *testing.T) {
 	engine, err := loadEngineFile(h.env.StatePath)
 	if err != nil || len(engine.Queue) != 1 {
 		t.Fatalf("engine write missing: %+v, %v", engine.Queue, err)
-	}
-}
-
-func TestRemoveHaltedMergeAutoSequenceNeverRetracksOrRearms(t *testing.T) {
-	h := newHarness(t)
-	foo := newRepo(t, "foo")
-	h.queue("merge-auto", Entry{ID: "a", Repo: foo.Dir, Task: "work"})
-	pr := pendingPR(h.shipped(1, "a")[0])
-	h.step() // track PR
-	h.step() // arm it
-	if !pr.Armed {
-		t.Fatal("fixture did not arm the merge-auto PR")
-	}
-	if _, err := Stop(context.Background(), h.env); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Remove(context.Background(), h.env, "pr-1"); err != nil {
-		t.Fatal(err)
-	}
-	engine, err := loadEngineFile(h.env.StatePath)
-	if err != nil || len(engine.Queue) != 1 || !engine.Queue[0].PRDropped || len(engine.PRs) != 0 {
-		t.Fatalf("drop state = %+v, %v", engine, err)
-	}
-	for i := 0; i < 3; i++ {
-		res := h.step()
-		if hasAction(res, ActPRTracked, "") || hasAction(res, ActArmed, "") || h.has("pr-1") {
-			t.Fatalf("pass %d retracked the dropped PR: %+v", i, res)
-		}
-	}
-	if pr.Armed || pr.MergeCalls != 0 {
-		t.Fatalf("drop was re-armed or merged: %+v", pr)
-	}
-
-	h.startMerge()
-	engine, err = loadEngineFile(h.env.StatePath)
-	if err != nil || engine.Queue[0].PRDropped || len(engine.PRs) != 1 {
-		t.Fatalf("explicit merge did not re-chain: %+v, %v", engine, err)
 	}
 }
 
@@ -374,7 +263,102 @@ func TestCheckWrittenDoneAtIsCachedBeforeProjectionRemoval(t *testing.T) {
 	}
 }
 
-func pendingPR(pr *simPR) *simPR {
-	pending(pr)
-	return pr
+func TestRemoveUnspawnedQueueItem(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
+	res, err := Remove(context.Background(), h.env, "a")
+	if err != nil || !hasAction(res, ActRemoved, "a") || h.has("a") {
+		t.Fatalf("rm = %+v, %v, items %v", res, err, ids(h.state().Tracked))
+	}
+}
+
+func TestRemoveRefusesASpawnedItem(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
+	h.step()
+	_, err := Remove(context.Background(), h.env, "a")
+	var invalid *InvalidError
+	if !errors.As(err, &invalid) || !h.has("a") {
+		t.Fatalf("rm of a spawned item: %v", err)
+	}
+}
+
+// A former PR or fix item in a legacy engine file or the ledger is no engine
+// item: rm and resume name it as unknown and write nothing.
+func TestRmAndResumeOfAFormerPRIDAreUnknownIDs(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
+	pr, err := operator.NewGitHubPRItem("pr-41", nil, map[string]interface{}{"repo": foo.Dir, "pr": 41, "merge_seq": "s", "halted": true}, "o/foo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeOperatorItems(t, h.env.StatePath, pr)
+	if err := operator.Pause(h.env.StatePath, "pr-41"); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(h.env.StatePath)
+	beforeEngine, _ := os.ReadFile(engineFilePath(h.env.StatePath))
+	for name, call := range map[string]func() error{
+		"rm":     func() error { _, err := Remove(context.Background(), h.env, "pr-41"); return err },
+		"resume": func() error { _, err := Resume(context.Background(), h.env, "pr-41"); return err },
+		"rm seq": func() error { _, err := Remove(context.Background(), h.env, "s"); return err },
+	} {
+		var invalid *InvalidError
+		if err := call(); !errors.As(err, &invalid) || !strings.Contains(err.Error(), "unknown autopilot item") {
+			t.Errorf("%s: err = %v, want an unknown-item usage error", name, err)
+		}
+	}
+	after, _ := os.ReadFile(h.env.StatePath)
+	afterEngine, _ := os.ReadFile(engineFilePath(h.env.StatePath))
+	if string(before) != string(after) || string(beforeEngine) != string(afterEngine) {
+		t.Fatal("a refused rm or resume wrote state")
+	}
+}
+
+// A queue item that carries only the retired `halted` marker has nothing to
+// resume.
+func TestResumeOfAHaltedOnlyItemIsAUsageError(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	legacy := "version: 1\nmigrated: true\nqueue:\n  - id: a\n    queue: q\n    repo: " + foo.Dir + "\n    task: work\n    depends_on: []\n    halted: true\n"
+	if err := os.MkdirAll(filepath.Dir(h.env.StatePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(engineFilePath(h.env.StatePath), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Resume(context.Background(), h.env, "a")
+	var invalid *InvalidError
+	if !errors.As(err, &invalid) || !strings.Contains(err.Error(), "not skipped or paused") {
+		t.Fatalf("resume of a halted-only item: %v", err)
+	}
+}
+
+// stop pauses every unspawned, unfinished item, leaves live panes alone, and
+// neither reads nor writes any PR state.
+func TestStopPausesUnspawnedItemsAndWritesNoHalt(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Change: "aaaa", DependsOn: &[]string{}}, Entry{ID: "b", Repo: foo.Dir, Change: "bbbb", DependsOn: &[]string{}})
+	h.step() // both spawn
+	h.livePanes()
+	h.queue("", Entry{ID: "c", Repo: foo.Dir, Change: "cccc", DependsOn: &[]string{"a"}})
+	h.run.reset()
+	res, err := Stop(context.Background(), h.env)
+	if err != nil || !hasAction(res, ActPaused, "c") || hasAction(res, ActPaused, "a") || hasAction(res, ActPaused, "b") {
+		t.Fatalf("stop = %+v, %v", res, err)
+	}
+	if !h.item("c").Paused || h.item("a").Paused || h.item("b").Paused {
+		t.Fatal("stop must pause only the unspawned item")
+	}
+	if h.run.called("gh ") != 0 {
+		t.Fatalf("stop reached GitHub: %q", h.run.calls)
+	}
+	data, err := os.ReadFile(engineFilePath(h.env.StatePath))
+	if err != nil || strings.Contains(string(data), "halted") {
+		t.Fatalf("stop wrote a halt marker: %s, %v", data, err)
+	}
 }

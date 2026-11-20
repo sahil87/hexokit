@@ -9,7 +9,12 @@ import (
 
 func TestJudgmentSetReasonKinds(t *testing.T) {
 	then := "continue"
-	state := &operator.State{Tracked: []operator.TrackedItem{{ID: "item", Then: &then}, {ID: "without-then"}}}
+	state := &operator.State{Tracked: []operator.TrackedItem{
+		{ID: "item", Then: &then},
+		{ID: "without-then"},
+		{ID: "pr", Kind: operator.KindGitHubPR},
+		{ID: "pane", Kind: operator.KindPane},
+	}}
 	cases := []struct {
 		name, reason, id string
 		owned, want      bool
@@ -31,13 +36,17 @@ func TestJudgmentSetReasonKinds(t *testing.T) {
 		{"agent exited owned", "agent_exited", "item", true, false},
 		{"stage advance", "stage_advance apply→review", "item", false, false},
 		{"review failure", "review_fail review→apply", "item", false, false},
-		{"PR changed", "changed state", "item", false, false},
 		{"unanswered note", "note 2026-11-20T10:00:00Z", "item", false, true},
 		{"unanswered note on engine work", "note 2026-11-20T10:00:00Z", "item", true, true},
+		{"PR changed on a non-PR item", "changed state", "item", false, false},
+		{"changed on a github-pr item", "changed state", "pr", false, true},
+		{"changed on a pane item", "changed state", "pane", false, false},
+		{"done on a github-pr item without then", "done", "pr", false, true},
+		{"done on a pane item without then", "done", "pane", false, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := judgmentSet([]ChangeRecord{{ID: tc.id, Reasons: []string{tc.reason}}}, nil, state, map[string]bool{"item": tc.owned})
+			got := judgmentSet([]ChangeRecord{{ID: tc.id, Reasons: []string{tc.reason}}}, nil, state, map[string]bool{tc.id: tc.owned})
 			if (len(got) == 1) != tc.want {
 				t.Fatalf("judgment = %+v, want %v", got, tc.want)
 			}

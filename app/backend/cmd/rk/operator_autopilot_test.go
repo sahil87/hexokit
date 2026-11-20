@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"testing"
@@ -23,8 +23,7 @@ import (
 // repo validation sees the requested directory as a git root, and nothing else
 // is reachable.
 type cliRunner struct {
-	calls     []string
-	acceptPRs bool
+	calls []string
 }
 
 func (r *cliRunner) Run(_ context.Context, dir string, argv ...string) (string, error) {
@@ -32,50 +31,15 @@ func (r *cliRunner) Run(_ context.Context, dir string, argv ...string) (string, 
 	if len(argv) >= 3 && argv[0] == "git" && argv[1] == "rev-parse" && argv[2] == "--show-toplevel" {
 		return dir + "\n", nil
 	}
-	if r.acceptPRs && len(argv) >= 3 && argv[0] == "gh" && argv[1] == "pr" && argv[2] == "view" {
-		return `{"number":1,"url":"https://example.test/pull/1","state":"OPEN","mergeable":"MERGEABLE","headRefOid":"abc"}`, nil
-	}
-	if r.acceptPRs && len(argv) >= 3 && argv[0] == "gh" && argv[1] == "repo" && argv[2] == "view" {
-		return `{"nameWithOwner":"o/repo"}`, nil
-	}
 	return "", &autopilot.ExecError{Argv: argv, Stderr: "unscripted in the CLI test", Err: fmt.Errorf("exit status 1")}
 }
 
-type cliPanes struct {
-	sendErr error
-	sent    []string
-}
+type cliPanes struct{}
 
 func (*cliPanes) Snapshot(context.Context) (map[string]operator.PaneInfo, error) {
 	return map[string]operator.PaneInfo{}, nil
 }
 func (*cliPanes) PID(context.Context, string) (int, error) { return 123, nil }
-func (p *cliPanes) Send(_ context.Context, pane, text string) error {
-	if p.sendErr != nil {
-		return p.sendErr
-	}
-	p.sent = append(p.sent, pane+"|"+text)
-	return nil
-}
-
-func TestAutopilotPanesSendRefusesBusyAndSanitizesIdleDelivery(t *testing.T) {
-	for _, state := range []string{"active", "waiting"} {
-		f := &muxFake{states: map[string]string{"%5": state}}
-		installMuxFakes(t, f)
-		err := (autopilotPanes{server: "default"}).Send(context.Background(), "%5", "fix")
-		if !errors.Is(err, autopilot.ErrPaneBusy) || len(f.engineCalls) != 0 {
-			t.Fatalf("state %s: err = %v calls = %+v", state, err, f.engineCalls)
-		}
-	}
-	f := &muxFake{states: map[string]string{"%5": "idle"}}
-	installMuxFakes(t, f)
-	if err := (autopilotPanes{server: "default"}).Send(context.Background(), "%5", "fix\x00request"); err != nil {
-		t.Fatal(err)
-	}
-	if len(f.engineCalls) != 1 || f.engineCalls[0].text != "fixrequest" || !f.engineCalls[0].submit {
-		t.Fatalf("engine calls = %+v", f.engineCalls)
-	}
-}
 
 // autopilotSandbox stubs the engine environment and the setting, leaving the
 // real state file under a temp state home.
@@ -235,7 +199,7 @@ func TestAutopilotStepAndStopOnAnEmptyLedger(t *testing.T) {
 		OK     bool                 `json:"ok"`
 		Result autopilot.StepResult `json:"result"`
 	}
-	if err := json.Unmarshal([]byte(out), &env); err != nil || !env.OK || env.Result.Actions == nil || env.Result.Escalations == nil || env.Result.Report == nil {
+	if err := json.Unmarshal([]byte(out), &env); err != nil || !env.OK || env.Result.Actions == nil || env.Result.Escalations == nil {
 		t.Fatalf("stop envelope = %s (%v)", out, err)
 	}
 	if _, err := autopilotCLI(t, "", "step", "--by", "user"); err == nil {
@@ -254,19 +218,6 @@ func TestAutopilotStepDryRunPlansASpawn(t *testing.T) {
 	out, err := autopilotCLI(t, "", "step", "--dry-run")
 	if err != nil || !strings.Contains(out, "dry-run: spawn q1 (Q2)") {
 		t.Fatalf("out = %q err %v", out, err)
-	}
-}
-
-func TestAutopilotMergeRefusesUnfinishedQueue(t *testing.T) {
-	autopilotSandbox(t, "")
-	if _, err := autopilotCLI(t, queueJSON(t.TempDir()), "queue"); err != nil {
-		t.Fatal(err)
-	}
-	_, err := autopilotCLI(t, "", "merge")
-	wantExit(t, err, 1, "not done yet: q1")
-	out, jerr := autopilotCLI(t, "", "merge", "--json")
-	if jerr == nil || !strings.Contains(out, `"ok": false`) {
-		t.Fatalf("out = %q err %v", out, jerr)
 	}
 }
 
@@ -293,49 +244,6 @@ func TestAutopilotStatus(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(out), &env); err != nil || len(env.Result.Items) != 2 || env.Result.Complete {
 		t.Fatalf("status envelope = %s (%v)", out, err)
-	}
-}
-
-func TestAutopilotStatusShowsTheDerivedPRStatus(t *testing.T) {
-	path, _ := autopilotSandbox(t, "")
-	repo := t.TempDir()
-	if _, err := autopilotCLI(t, queueJSON(repo), "queue"); err != nil {
-		t.Fatal(err)
-	}
-	writeCLIEngineDoneAndDeferredPR(t, path, repo)
-	out, err := autopilotCLI(t, "", "status")
-	if err != nil || !strings.HasPrefix(out, "q1 · done · cherry-pick-ladder · "+repo) || !strings.Contains(out, " · PR #7 · deferred · 1/1\n") {
-		t.Fatalf("status = %q err %v", out, err)
-	}
-	out, err = autopilotCLI(t, "", "status", "--json")
-	if err != nil || !strings.Contains(out, `"pr_status": "deferred"`) || !strings.Contains(out, `"state": "done"`) {
-		t.Fatalf("status envelope = %s err %v", out, err)
-	}
-}
-
-func TestAutopilotStatusListsFixItems(t *testing.T) {
-	path, _ := autopilotSandbox(t, "")
-	enginePath := cliEnginePath(path)
-	if err := os.MkdirAll(filepath.Dir(enginePath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	data := []byte("version: 1\nqueue: []\nprs: []\nfixes:\n  - id: ab12-fix\n    repo: /r\n    branch: a-branch\n")
-	if err := os.WriteFile(enginePath, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	out, err := autopilotCLI(t, "", "status")
-	if err != nil || !strings.Contains(out, "fix ab12-fix · resolved · /r · a-branch") || strings.Contains(out, "no queue") {
-		t.Fatalf("status = %q err %v", out, err)
-	}
-	out, err = autopilotCLI(t, "", "status", "--json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var envelope struct {
-		Result autopilot.StatusResult `json:"result"`
-	}
-	if err := json.Unmarshal([]byte(out), &envelope); err != nil || len(envelope.Result.Fixes) != 1 || envelope.Result.Fixes[0].State != "resolved" {
-		t.Fatalf("status envelope = %s err %v", out, err)
 	}
 }
 
@@ -426,17 +334,14 @@ func TestAutopilotStepRendererCapsEveryList(t *testing.T) {
 		res := &autopilot.StepResult{}
 		for i := 0; i < autopilotListCap+3; i++ {
 			id := fmt.Sprintf("item-%03d", i)
-			res.Actions = append(res.Actions, autopilot.Action{Kind: "merged", Item: id})
-			res.Report = append(res.Report, "report "+id)
+			res.Actions = append(res.Actions, autopilot.Action{Kind: "done", Item: id})
 			res.Escalations = append(res.Escalations, autopilot.Escalation{Item: id, Reason: "failed"})
-			res.Unreviewed = append(res.Unreviewed, id)
 		}
-		res.Report = append(res.Report, "merged without review: "+strings.Join(res.Unreviewed, ", "))
 		renderStep(cmd, newSinkWriters(&out, &out), res)
 		if strings.Contains(out.String(), "item-022") != all {
 			t.Fatalf("all=%v: %s", all, out.String())
 		}
-		if !all && strings.Count(out.String(), "23 total; showing 20") != 4 {
+		if !all && strings.Count(out.String(), "23 total; showing 20") != 2 {
 			t.Fatalf("missing exact totals: %s", out.String())
 		}
 	}
@@ -526,48 +431,6 @@ func TestAutopilotAlreadyTrackedIDMatchesHelpExitCode(t *testing.T) {
 	}
 }
 
-func TestAutopilotMergeRejectsInvalidRepoFilter(t *testing.T) {
-	for _, kind := range []string{"relative", "missing", "unmatched", "empty"} {
-		t.Run(kind, func(t *testing.T) {
-			path, runner := autopilotSandbox(t, "")
-			if _, err := autopilotCLI(t, queueJSON(t.TempDir()), "queue"); err != nil {
-				t.Fatal(err)
-			}
-			before, err := os.ReadFile(cliEnginePath(path))
-			if err != nil {
-				t.Fatal(err)
-			}
-			repo := "relative"
-			switch kind {
-			case "missing":
-				repo = t.TempDir() + "/missing"
-			case "unmatched":
-				repo = t.TempDir()
-			case "empty":
-				repo = ""
-			}
-			out, err := autopilotCLI(t, "", "merge", "--repo", repo, "--json")
-			wantExit(t, err, 2, "--repo")
-			var envelope map[string]interface{}
-			if json.Unmarshal([]byte(out), &envelope) != nil {
-				t.Fatalf("not a JSON envelope: %s", out)
-			}
-			after, err := os.ReadFile(cliEnginePath(path))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Equal(before, after) {
-				t.Fatal("invalid filter changed state")
-			}
-			for _, call := range runner.calls {
-				if strings.HasPrefix(call, "gh ") {
-					t.Fatalf("invalid filter reached GitHub: %s", call)
-				}
-			}
-		})
-	}
-}
-
 func TestAutopilotQueueRejectsExplicitEmptyMode(t *testing.T) {
 	autopilotSandbox(t, "")
 	_, err := autopilotCLI(t, queueJSON(t.TempDir()), "queue", "--mode", "")
@@ -600,7 +463,7 @@ func TestAutopilotBusyPassExitsZeroAndDoesNothing(t *testing.T) {
 	before, _ := os.ReadFile(cliEnginePath(path))
 	holdAutopilotPassLock(t, path)
 	runner.calls = nil
-	for _, verb := range []string{"step", "merge", "stop"} {
+	for _, verb := range []string{"step", "stop"} {
 		out, err := autopilotCLI(t, "", verb)
 		if err != nil || !strings.Contains(out, "busy: another autopilot pass is running on this server; retry later") {
 			t.Fatalf("%s human out = %q err %v", verb, out, err)
@@ -644,53 +507,47 @@ func TestAutopilotNotBusyOnceThePassLockIsFree(t *testing.T) {
 	}
 }
 
-func TestAutopilotMergeAcceptsAStackedQueue(t *testing.T) {
-	path, runner := autopilotSandbox(t, "")
-	if _, err := autopilotCLI(t, queueJSON(t.TempDir(), t.TempDir()), "queue", "--mode", "stacked-prs"); err != nil {
-		t.Fatal(err)
-	}
-	writeCLIEngineDone(t, path, true)
-	runner.acceptPRs = true
-	runner.calls = nil
-	if _, err := autopilotCLI(t, "", "merge"); err != nil {
-		t.Fatal(err)
-	}
-	engine := readCLIEngine(t, path)
-	if len(engine.PRs) != 2 || engine.PRs[0].MergeSeq == "" || engine.PRs[0].MergeMode != "stacked-prs" || len(engine.PRs[1].DependsOn) != 1 || engine.PRs[1].DependsOn[0] != engine.PRs[0].ID {
-		t.Fatalf("stacked PRs = %+v", engine.PRs)
-	}
-	for _, call := range runner.calls {
-		if strings.HasPrefix(call, "gh pr merge") || strings.HasPrefix(call, "gh pr ready") {
-			t.Fatalf("stacked merge armed or merged a PR: %s", call)
-		}
-	}
-}
-
-func TestAutopilotHelpStatesBusyExitCodesRecoveryAndStackedMerging(t *testing.T) {
+func TestAutopilotHelpDescribesTheQueueOnlyEngine(t *testing.T) {
 	for verb, wants := range map[string][]string{
 		"step": {
 			"0  stepped (with or without actions or escalations), or busy",
 			`If another pass`, `holds it, step does nothing, prints "busy" and exits 0`,
-			"one CI fix round", "detached-worktree rebase", "30 minutes without a push",
-			`"dry-run: <action> <item> (<row>)"`, "advances one PR per pass",
-		},
-		"merge": {
-			"0  started (or nothing to merge), or busy",
-			"Stacked-prs sequences ready, restack and merge", "1  operational failure (queue items not done, no PR for a branch",
+			`"dry-run: <action> <item> (<row>)"`, "reads merged",
 		},
 		"stop": {
-			"0  stopped, or busy", "whoever armed it", "retried by the next stop or step until github reports it disarmed",
+			"0  stopped, or busy", "pause every unspawned, unfinished queue item", "no PR is read or changed",
 			"rk operator autopilot resume <id>",
 		},
+		"rm": {
+			"unspawned queue item", "any other id, including a pr's, is an unknown id",
+			"2  usage error (unknown id, spawned or spawning item, or unfinished dependents)",
+		},
+		"resume": {
+			"skipped or paused", "neither skipped nor paused",
+		},
+		"": {
+			"readiness, sha-pinned spawn, one respawn and completion", "the operator run's work",
+			"the operator merges green prs without asking", "the operator merges only on the user's word",
+			"verbs: queue, step, stop, status, rm, resume, pause",
+		},
 	} {
-		help, err := autopilotCLI(t, "", verb, "--help")
+		args := []string{"--help"}
+		if verb != "" {
+			args = []string{verb, "--help"}
+		}
+		help, err := autopilotCLI(t, "", args...)
 		if err != nil {
 			t.Fatal(err)
 		}
 		flat := strings.Join(strings.Fields(strings.ToLower(help)), " ")
 		for _, want := range wants {
 			if !strings.Contains(flat, strings.Join(strings.Fields(strings.ToLower(want)), " ")) {
-				t.Errorf("%s help lacks %q:\n%s", verb, want, help)
+				t.Errorf("%q help lacks %q:\n%s", verb, want, help)
+			}
+		}
+		for _, gone := range []string{"disarm", "halted", "merge sequence", "pr_status"} {
+			if strings.Contains(flat, gone) {
+				t.Errorf("%q help still names %q:\n%s", verb, gone, help)
 			}
 		}
 	}
@@ -700,13 +557,145 @@ func TestAutopilotHelpStatesBusyExitCodesRecoveryAndStackedMerging(t *testing.T)
 		t.Fatalf("status help = %s err %v", help, err)
 	}
 	for _, want := range []string{
-		"makes read-only GitHub calls", "gh pr view", "Queue Completion Summary", "exits 1",
-		"Recovery-spawn fix items", "fixing",
+		"makes read-only GitHub calls", "merge-auto predecessor's PR is merged", "Queue Completion Summary", "exits 1",
 		"1 operational failure (state file unreadable, a gh lookup failed)",
 		"takes no pass lock and reports no escalations",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("status help lacks %q:\n%s", want, help)
+		}
+	}
+	for _, gone := range []string{"pr_status", "Recovery-spawn", "fixing", "halted"} {
+		if strings.Contains(flat, gone) {
+			t.Errorf("status help still names %q:\n%s", gone, help)
+		}
+	}
+}
+
+// The engine has seven verbs; merge is the operator run's work, not a verb.
+func TestAutopilotHasSevenVerbsAndNoMerge(t *testing.T) {
+	var names []string
+	for _, c := range operatorAutopilotCmd.Commands() {
+		names = append(names, c.Name())
+	}
+	sort.Strings(names)
+	if got, want := strings.Join(names, ","), "pause,queue,resume,rm,status,step,stop"; got != want {
+		t.Fatalf("autopilot verbs = %s, want %s", got, want)
+	}
+	autopilotSandbox(t, "")
+	out, err := autopilotCLI(t, "", "merge")
+	if err == nil || exitCode(err) == 0 || !strings.Contains(err.Error()+out, "unknown command") {
+		t.Fatalf("merge = %q, %v; want an unknown-command failure", out, err)
+	}
+	help, err := autopilotCLI(t, "", "--help")
+	if err != nil || strings.Contains(help, "merge sequence") || strings.Contains(help, "\n  merge ") {
+		t.Fatalf("help names a merge verb: %s, %v", help, err)
+	}
+}
+
+// status carries queue facts only: no PR column, no pr_status, no fixes list,
+// and a former PR projection in the ledger is not listed.
+func TestAutopilotStatusCarriesNoPRFields(t *testing.T) {
+	path, _ := autopilotSandbox(t, "")
+	repo := t.TempDir()
+	if _, err := autopilotCLI(t, queueJSON(repo), "queue"); err != nil {
+		t.Fatal(err)
+	}
+	writeCLIEngineDone(t, path)
+	pr, err := operator.NewGitHubPRItem("pr-7", nil, map[string]interface{}{"repo": repo, "pr": 7, "merge_seq": "seq", "item": "q1"}, "o/r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := operator.Mutate(path, func(st *operator.State) error {
+		st.Tracked = append(st.Tracked, pr)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := autopilotCLI(t, "", "status")
+	if err != nil || !strings.HasPrefix(out, "q1 · done · cherry-pick-ladder · "+repo) || strings.Contains(out, "PR #") || strings.Contains(out, "pr-7") {
+		t.Fatalf("status = %q err %v", out, err)
+	}
+	out, err = autopilotCLI(t, "", "status", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, gone := range []string{"pr_status", `"fixes"`, `"halted"`, `"sequence"`, "pr-7"} {
+		if strings.Contains(out, gone) {
+			t.Fatalf("status envelope carries %s: %s", gone, out)
+		}
+	}
+	if !strings.Contains(out, `"state": "done"`) || !strings.Contains(out, `"summary"`) {
+		t.Fatalf("status envelope lost queue facts: %s", out)
+	}
+}
+
+// A legacy engine file's prs and fixes lists are ignored by status.
+func TestAutopilotStatusIgnoresLegacyPRAndFixLists(t *testing.T) {
+	path, _ := autopilotSandbox(t, "")
+	enginePath := cliEnginePath(path)
+	if err := os.MkdirAll(filepath.Dir(enginePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte("version: 1\nmigrated: true\nqueue: []\nprs:\n  - id: pr-41\n    merge_seq: s\n    pr: 41\nfixes:\n  - id: ab12-fix\n    repo: /r\n")
+	if err := os.WriteFile(enginePath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := autopilotCLI(t, "", "status")
+	if err != nil || strings.TrimSpace(out) != "no queue" {
+		t.Fatalf("status = %q err %v", out, err)
+	}
+}
+
+// rm and resume of a former PR id are unknown-id usage errors that write
+// nothing; a queue item carrying only the retired halted marker has nothing to
+// resume.
+func TestAutopilotRmAndResumeRefuseFormerPRItems(t *testing.T) {
+	path, _ := autopilotSandbox(t, "")
+	repo := t.TempDir()
+	enginePath := cliEnginePath(path)
+	if err := os.MkdirAll(filepath.Dir(enginePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte("version: 1\nmigrated: true\nqueue:\n  - id: q1\n    queue: q\n    repo: " + repo + "\n    task: work\n    depends_on: []\n    halted: true\n" +
+		"prs:\n  - id: pr-41\n    merge_seq: s\n    pr: 41\n    halted: true\n")
+	if err := os.WriteFile(enginePath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"rm", "pr-41"}, {"rm", "s"}, {"resume", "pr-41"}} {
+		_, err := autopilotCLI(t, "", args...)
+		wantExit(t, err, 2, "unknown autopilot item")
+	}
+	_, err := autopilotCLI(t, "", "resume", "q1")
+	wantExit(t, err, 2, "not skipped or paused")
+	after, _ := os.ReadFile(enginePath)
+	if !bytes.Equal(after, data) {
+		t.Fatalf("a refused verb rewrote the engine file:\n%s", after)
+	}
+}
+
+// stop pauses the unspawned items, writes no halt marker and reads no PR.
+func TestAutopilotStopPausesUnspawnedItemsOnly(t *testing.T) {
+	path, runner := autopilotSandbox(t, "")
+	if _, err := autopilotCLI(t, queueJSON(t.TempDir(), t.TempDir()), "queue"); err != nil {
+		t.Fatal(err)
+	}
+	runner.calls = nil
+	out, err := autopilotCLI(t, "", "stop")
+	if err != nil || !strings.Contains(out, "paused q1") || !strings.Contains(out, "paused q2") {
+		t.Fatalf("stop = %q err %v", out, err)
+	}
+	engine := readCLIEngine(t, path)
+	if len(engine.Queue) != 2 || !engine.Queue[0].Paused || !engine.Queue[1].Paused {
+		t.Fatalf("queue = %+v", engine.Queue)
+	}
+	raw, _ := os.ReadFile(cliEnginePath(path))
+	if strings.Contains(string(raw), "halted") {
+		t.Fatalf("stop wrote a halt marker:\n%s", raw)
+	}
+	for _, call := range runner.calls {
+		if strings.HasPrefix(call, "gh ") {
+			t.Fatalf("stop read GitHub: %s", call)
 		}
 	}
 }
@@ -753,7 +742,6 @@ func TestAutopilotStatusGitHubFailureMatchesTheHelp(t *testing.T) {
 type cliEngineItem struct {
 	ID        string   `yaml:"id"`
 	MergeMode string   `yaml:"merge_mode"`
-	MergeSeq  string   `yaml:"merge_seq"`
 	Paused    bool     `yaml:"paused"`
 	DoneAt    *string  `yaml:"done_at"`
 	Pane      string   `yaml:"pane"`
@@ -763,7 +751,6 @@ type cliEngineItem struct {
 
 type cliEngineState struct {
 	Queue []cliEngineItem `yaml:"queue"`
-	PRs   []cliEngineItem `yaml:"prs"`
 }
 
 func cliEnginePath(statePath string) string {
@@ -795,14 +782,12 @@ func writeCLIEngineDone(t *testing.T, statePath string, branches ...bool) {
 		t.Fatal(err)
 	}
 	now := operator.NowRFC3339()
-	for _, key := range []string{"queue", "prs"} {
-		items, _ := raw[key].([]interface{})
-		for _, item := range items {
-			fields := item.(map[string]interface{})
-			fields["done_at"] = now
-			if key == "queue" && len(branches) > 0 && branches[0] {
-				fields["branch"] = fields["id"].(string) + "-branch"
-			}
+	items, _ := raw["queue"].([]interface{})
+	for _, item := range items {
+		fields := item.(map[string]interface{})
+		fields["done_at"] = now
+		if len(branches) > 0 && branches[0] {
+			fields["branch"] = fields["id"].(string) + "-branch"
 		}
 	}
 	data, err = yaml.Marshal(raw)
@@ -830,33 +815,6 @@ func writeCLIEngineFirstDoneBranch(t *testing.T, statePath string) {
 	now := operator.NowRFC3339()
 	first["done_at"] = now
 	first["branch"] = "q1-branch"
-	data, err = yaml.Marshal(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func writeCLIEngineDoneAndDeferredPR(t *testing.T, statePath, repo string) {
-	t.Helper()
-	path := cliEnginePath(statePath)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var raw map[string]interface{}
-	if err := yaml.Unmarshal(data, &raw); err != nil {
-		t.Fatal(err)
-	}
-	now := operator.NowRFC3339()
-	raw["queue"].([]interface{})[0].(map[string]interface{})["done_at"] = now
-	raw["prs"] = []interface{}{map[string]interface{}{
-		"id": "pr-7", "item": "q1", "repo": repo, "nwo": "o/r", "pr": 7,
-		"merge_seq": "seq", "merge_mode": "cherry-pick-ladder", "deferred": true,
-		"depends_on": []string{}, "done_at": nil, "escalated": map[string]interface{}{},
-	}}
 	data, err = yaml.Marshal(raw)
 	if err != nil {
 		t.Fatal(err)

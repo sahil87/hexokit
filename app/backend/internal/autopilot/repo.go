@@ -2,7 +2,6 @@ package autopilot
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -17,9 +16,7 @@ import (
 
 // repoMeta is what the engine learns once per repo per verb.
 type repoMeta struct {
-	defaultBranch      string
-	defaultBranchKnown bool
-	nwo                string
+	defaultBranch string
 }
 
 // cleanRepo normalizes a repo path for comparison.
@@ -73,11 +70,10 @@ func (e *engine) defaultBranch(ctx context.Context, repo, id string) string {
 		return m.defaultBranch
 	}
 	branch := ""
-	known := false
 	if out, err := e.git(ctx, repo, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"); err == nil {
 		cand := strings.TrimPrefix(out, "origin/")
 		if _, verr := e.git(ctx, repo, "rev-parse", "--verify", "-q", "refs/remotes/origin/"+cand); verr == nil && cand != "" {
-			branch, known = cand, true
+			branch = cand
 		} else if verr != nil && !exitCode(verr, 1) {
 			e.escalate(id, "default branch verification failed: "+stderrOf(verr))
 		}
@@ -87,7 +83,6 @@ func (e *engine) defaultBranch(ctx context.Context, repo, id string) string {
 	if branch == "" {
 		if out, err := e.gh(ctx, repo, "repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"); err == nil {
 			branch = strings.TrimSpace(out)
-			known = branch != ""
 		} else {
 			e.escalate(id, "GitHub default branch lookup failed: "+stderrOf(err))
 		}
@@ -103,7 +98,6 @@ func (e *engine) defaultBranch(ctx context.Context, repo, id string) string {
 		}
 	}
 	e.metaFor(repo).defaultBranch = branch
-	e.metaFor(repo).defaultBranchKnown = known
 	return branch
 }
 
@@ -114,29 +108,6 @@ func (e *engine) metaFor(repo string) *repoMeta {
 		e.meta[repo] = m
 	}
 	return m
-}
-
-// nameWithOwner resolves the repo's owner/name for a github-pr probe's --repo.
-// Failure must refuse probe creation: an ambient repo could observe another PR.
-func (e *engine) nameWithOwner(ctx context.Context, repo string) (string, error) {
-	if m := e.meta[repo]; m != nil && m.nwo != "" {
-		return m.nwo, nil
-	}
-	out, err := e.gh(ctx, repo, "repo", "view", "--json", "nameWithOwner")
-	if err != nil {
-		return "", fmt.Errorf("cannot resolve owner/name for %s: %w", repo, err)
-	}
-	var v struct {
-		NameWithOwner string `json:"nameWithOwner"`
-	}
-	if err := json.Unmarshal([]byte(out), &v); err != nil {
-		return "", fmt.Errorf("cannot resolve owner/name for %s: %w", repo, err)
-	}
-	if v.NameWithOwner == "" {
-		return "", fmt.Errorf("cannot resolve owner/name for %s: empty nameWithOwner", repo)
-	}
-	e.metaFor(repo).nwo = v.NameWithOwner
-	return v.NameWithOwner, nil
 }
 
 // safeBranch returns name when it is a valid branch name, else "": the rules of
@@ -168,18 +139,6 @@ func validBranchName(name string) bool {
 		}
 	}
 	return true
-}
-
-// prNum reads scope.pr as a PR number: digits only, else "" (a string from
-// hand-edited YAML must never reach gh as an option).
-func prNum(scope map[string]interface{}) string {
-	n := operator.ScopePRNumber(scope)
-	for _, r := range n {
-		if r < '0' || r > '9' {
-			return ""
-		}
-	}
-	return n
 }
 
 // changeIDRe is the shape of a fab change reference (an id or a folder name).

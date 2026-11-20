@@ -224,7 +224,7 @@ func TestParseEntries(t *testing.T) {
 
 func ptr(s string) *string { return &s }
 
-func TestSafeBranchAndPRNumber(t *testing.T) {
+func TestSafeBranch(t *testing.T) {
 	for _, bad := range []string{"", "-x", "--upload-pack=evil", "a..b", "a b", "a\nb", "a:b", "x.lock", "a~1", "a[b"} {
 		if safeBranch(bad) != "" {
 			t.Errorf("safeBranch(%q) accepted", bad)
@@ -234,12 +234,6 @@ func TestSafeBranchAndPRNumber(t *testing.T) {
 		if safeBranch(ok) != ok {
 			t.Errorf("safeBranch(%q) rejected", ok)
 		}
-	}
-	if prNum(map[string]interface{}{"pr": "--web"}) != "" || prNum(map[string]interface{}{"pr": "12x"}) != "" {
-		t.Error("prNum accepted a non-number")
-	}
-	if prNum(map[string]interface{}{"pr": 42}) != "42" || prNum(map[string]interface{}{"pr": float64(7)}) != "7" {
-		t.Error("prNum rejected a number")
 	}
 }
 

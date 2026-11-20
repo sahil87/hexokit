@@ -50,7 +50,7 @@ func TestMigrateEngineStateFileWinsAfterCrash(t *testing.T) {
 		"merge_mode": operator.MergeModeMergeAuto, "repo": "/repo", "change": "legacy",
 	}, Last: map[string]interface{}{}}
 	writeOperatorItems(t, path, original)
-	if err := writeEngineFile(path, &engineState{Version: 1, Queue: []engineItem{{ID: "legacy", MergeMode: operator.MergeModeStackedPRs, Repo: "/engine", Escalated: map[string]interface{}{}}}, PRs: []engineItem{}}); err != nil {
+	if err := writeEngineFile(path, &engineState{Version: 1, Queue: []engineItem{{ID: "legacy", MergeMode: operator.MergeModeStackedPRs, Repo: "/engine", Escalated: map[string]interface{}{}}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := migrateEngineState(path); err != nil {
@@ -75,7 +75,9 @@ func TestMigrateEngineStateFileWinsAfterCrash(t *testing.T) {
 	}
 }
 
-func TestMigrateEngineStateAdoptShapeAndSequencePR(t *testing.T) {
+// A github-pr item carrying scope.merge_seq is an ordinary ledger item: the
+// migration moves the queue pane item and leaves the PR item exactly as it was.
+func TestMigrateEngineStateLeavesSequencePRItemsInTheLedger(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "default.yaml")
 	pr, err := operator.NewGitHubPRItem("pr-41", []string{"pr-40"}, map[string]interface{}{
 		"repo": "/repo", "pr": 41, "change": "a1", "merge_seq": "repo", "item": "a1", "halted": true,
@@ -83,8 +85,8 @@ func TestMigrateEngineStateAdoptShapeAndSequencePR(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	adopted := operator.TrackedItem{ID: "a1", Kind: operator.KindPane, Scope: map[string]interface{}{"merge_mode": operator.MergeModeCherryPickLadder}, Last: map[string]interface{}{}}
-	writeOperatorItems(t, path, adopted, pr)
+	queue := operator.TrackedItem{ID: "a1", Kind: operator.KindPane, Scope: map[string]interface{}{"merge_mode": operator.MergeModeCherryPickLadder, "pane": "%1"}, Last: map[string]interface{}{}}
+	writeOperatorItems(t, path, queue, pr)
 	if err := migrateEngineState(path); err != nil {
 		t.Fatal(err)
 	}
@@ -92,15 +94,16 @@ func TestMigrateEngineStateAdoptShapeAndSequencePR(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(engine.Queue) != 1 || len(engine.PRs) != 1 || !engine.PRs[0].Halted || engine.PRs[0].NWO != "owner/repo" {
+	if len(engine.Queue) != 1 || engine.Queue[0].ID != "a1" {
 		t.Fatalf("migration = %#v", engine)
 	}
 	ledger, err := operator.Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ledger.Tracked) != 1 || ledger.Tracked[0].ID != "pr-41" || ledger.Tracked[0].Scope["repo"] != "/repo" || len(ledger.Tracked[0].DependsOn) != 0 {
-		t.Fatalf("projection = %#v", ledger.Tracked)
+	got := ledger.Tracked[operator.IndexOf(ledger.Tracked, "pr-41")]
+	if got.Scope["merge_seq"] != "repo" || got.Scope["item"] != "a1" || got.Scope["halted"] != true || len(got.DependsOn) != 1 || got.DependsOn[0] != "pr-40" {
+		t.Fatalf("the PR item was rewritten by the migration: %#v", got)
 	}
 }
 
@@ -135,7 +138,7 @@ func TestMigrationRunsOnlyOnceAndLaterScopeKeysAreIgnored(t *testing.T) {
 		t.Fatal(err)
 	}
 	engine, err = loadEngineFile(path)
-	if err != nil || len(engine.Queue) != 1 || len(engine.PRs) != 0 {
+	if err != nil || len(engine.Queue) != 1 {
 		t.Fatalf("later write was migrated: %+v, %v", engine, err)
 	}
 	view, _, err := engineView(path)

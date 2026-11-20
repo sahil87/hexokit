@@ -191,7 +191,7 @@ func (e *engine) launchWithPolicy(ctx context.Context, it operator.TrackedItem, 
 		}
 	}); err != nil {
 		if errors.Is(err, errItemChanged) {
-			e.writeFailed(id, false, "", err)
+			e.writeFailed(id, "", err)
 		} else {
 			e.escalate(id, "spawn marker not written, nothing launched: "+err.Error())
 		}
@@ -390,7 +390,7 @@ func (e *engine) prepareWorktree(ctx context.Context, wt, id, change, def, mode 
 				continue
 			}
 			if _, err := e.git(ctx, wt, "cherry-pick", "--no-commit", "origin/"+def+".."+d.ref); err != nil {
-				if _, abortErr := e.git(ctx, wt, "cherry-pick", "--abort"); !alreadyApplied(abortErr, "cherry-pick-abort") {
+				if _, abortErr := e.git(ctx, wt, "cherry-pick", "--abort"); !noCherryPickInProgress(abortErr) {
 					e.escalate(id, "git cherry-pick --abort failed: "+stderrOf(abortErr))
 				}
 				return &conflictError{dep: d.id, err: err}

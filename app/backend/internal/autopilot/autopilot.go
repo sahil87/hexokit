@@ -7,8 +7,9 @@
 // A pass is observe → derive → decide → execute. Observe reads engine state,
 // projections, and external facts; derive computes a status per item; decide
 // picks at most one rule-table action per item; executors apply those actions
-// in engine order. Armed state, repo auto-merge, halt cones, and recovery heads
-// are derived each pass rather than stored.
+// in engine order. Statuses are derived each pass rather than stored. PR
+// readying, arming, merging and recovery are the operator run's work, not the
+// engine's.
 //
 // Escalations are reported in the result, written as by: run notes on ledger
 // projections, and sent through Env.Notify once per engine-file dedupe key.
@@ -104,15 +105,11 @@ func timeoutFor(argv []string) time.Duration {
 }
 
 // Panes is the engine's view of the tmux server: the pane snapshot with each
-// pane's derived fab change, typed delivery, and a pane's process id.
+// pane's derived fab change, and a pane's process id.
 type Panes interface {
 	Snapshot(ctx context.Context) (map[string]operator.PaneInfo, error)
-	Send(ctx context.Context, paneID, text string) error
 	PID(ctx context.Context, paneID string) (int, error)
 }
-
-// ErrPaneBusy reports that a send would interrupt an active or waiting agent.
-var ErrPaneBusy = errors.New("pane agent is busy")
 
 // SpawnRequest is one agent window: a worktree of Repo, prepared, then a tab.
 type SpawnRequest struct {
@@ -181,23 +178,13 @@ func (e Env) now() time.Time {
 
 // Action kinds reported by the verbs.
 const (
-	ActSpawned       = "spawned"
-	ActRespawned     = "respawned"
-	ActCherryPicked  = "cherry-picked"
-	ActArmed         = "armed"
-	ActMerged        = "merged"
-	ActDisarmed      = "disarmed"
-	ActPaused        = "paused"
-	ActDone          = "done"
-	ActRemoved       = "removed"
-	ActResumed       = "resumed"
-	ActPRTracked     = "pr-tracked"
-	ActReadied       = "readied"
-	ActRecoverySent  = "recovery-sent"
-	ActRecoverySpawn = "recovery-spawned"
-	ActRetargeted    = "retargeted"
-	ActRebased       = "rebased"
-	ActUntracked     = "untracked"
+	ActSpawned      = "spawned"
+	ActRespawned    = "respawned"
+	ActCherryPicked = "cherry-picked"
+	ActPaused       = "paused"
+	ActDone         = "done"
+	ActRemoved      = "removed"
+	ActResumed      = "resumed"
 )
 
 // Action is one thing a verb did (or, under --dry-run, would do).
@@ -221,15 +208,10 @@ type StepResult struct {
 	Busy        bool         `json:"busy,omitempty"`
 	Actions     []Action     `json:"actions"`
 	Escalations []Escalation `json:"escalations"`
-	// Report carries the per-merge lines (`ab12: merged (foo 1/2)`) and the
-	// unreviewed summary.
-	Report []string `json:"report"`
-	// Human output caps this list independently of the per-merge report.
-	Unreviewed []string `json:"-"`
 }
 
 func newResult(dry bool) *StepResult {
-	return &StepResult{DryRun: dry, Actions: []Action{}, Escalations: []Escalation{}, Report: []string{}}
+	return &StepResult{DryRun: dry, Actions: []Action{}, Escalations: []Escalation{}}
 }
 
 // engine is one verb's working context.
@@ -241,28 +223,14 @@ type engine struct {
 	// reported as escalations and never written as notes.
 	readOnly bool
 	warnings []string
-	// facts is the pass's observation, read by executors that need a fact
-	// (halt disarms its own item only if it was observed armed).
-	facts *facts
-	// autoMergeFailed remembers repos whose autoMergeAllowed could not be read,
-	// so one pass escalates each once.
-	autoMergeFailed map[string]bool
-	// disarmErr joins this pass's failed disarms and coneErr the halted PRs
-	// whose armed state could not be read, for `stop` to report; both are
-	// retried by the next pass either way.
-	disarmErr, coneErr error
 }
 
 func newEngine(env Env) *engine {
-	return &engine{env: env, res: newResult(env.DryRun), meta: map[string]*repoMeta{}, autoMergeFailed: map[string]bool{}}
+	return &engine{env: env, res: newResult(env.DryRun), meta: map[string]*repoMeta{}}
 }
 
 func (e *engine) act(kind, item, detail string) {
 	e.res.Actions = append(e.res.Actions, Action{Kind: kind, Item: item, Detail: detail})
-}
-
-func (e *engine) reportf(format string, a ...interface{}) {
-	e.res.Report = append(e.res.Report, fmt.Sprintf(format, a...))
 }
 
 // escalate records an escalation and, once per distinct reason, a note on the
@@ -408,6 +376,10 @@ func stderrOf(err error) string {
 	}
 	return ""
 }
+
+// errItemChanged marks a write refused because the item no longer carries what
+// the pass observed: external writes win.
+var errItemChanged = errors.New("item changed externally")
 
 // nowUnix is the window-note clock.
 func nowUnix() int64 { return time.Now().Unix() }

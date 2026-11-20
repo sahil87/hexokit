@@ -7,10 +7,8 @@ import (
 )
 
 var engineScopeKeys = []string{
-	scopeQueue, scopeMergeMode, scopeMergeSeq, scopeItem, scopeURL, scopeSpawning,
-	scopeRespawned, scopeSkipped, scopeHalted, scopeDeferred, scopeEscalated,
-	scopeArmed, scopeDirect, scopeStallSeen, scopeTask, scopeBare, scopeProjected,
-	scopeRecovery, scopeFixHead, scopeRecoverAt, scopeFixItem, "worktree", "nwo",
+	scopeQueue, scopeMergeMode, scopeSpawning, scopeRespawned, scopeSkipped,
+	scopeEscalated, scopeTask, scopeBare, scopeProjected, "worktree",
 }
 
 // legacyQueueItem is only the migration predicate. Runtime queue membership
@@ -35,15 +33,13 @@ func migrateEngineState(statePath string) error {
 	moving := map[string]bool{}
 	changed := false
 	for _, it := range ledger.Tracked {
-		queue := legacyQueueItem(ledger, it)
-		pr := isSeqPR(it)
-		if !queue && !pr {
+		if !legacyQueueItem(ledger, it) {
 			continue
 		}
 		moving[it.ID] = true
 		if !engine.has(it.ID) {
-			projected := pr || operator.ScopeString(it.Scope, "pane") != "" || len(it.Notes) > 0
-			engine.upsert(engineItemFromTracked(it, projected), pr)
+			projected := operator.ScopeString(it.Scope, "pane") != "" || len(it.Notes) > 0
+			engine.upsert(engineItemFromTracked(it, projected))
 			changed = true
 		}
 	}
@@ -63,8 +59,7 @@ func migrateEngineState(statePath string) error {
 				kept = append(kept, item)
 				continue
 			}
-			queue := legacyQueueItem(st, item)
-			if queue && operator.ScopeString(item.Scope, "pane") == "" && len(item.Notes) == 0 {
+			if operator.ScopeString(item.Scope, "pane") == "" && len(item.Notes) == 0 {
 				continue
 			}
 			item.DependsOn = []string{}
@@ -156,12 +151,6 @@ func (e *engine) upsertProjection(it operator.TrackedItem) error {
 		var out operator.TrackedItem
 		if i >= 0 {
 			out = st.Tracked[i]
-		} else if it.Kind == operator.KindGitHubPR {
-			var err error
-			out, err = operator.NewGitHubPRItem(it.ID, nil, projectionScope(it), pinnedRepo(it))
-			if err != nil {
-				return err
-			}
 		} else {
 			var err error
 			out, err = operator.NewPaneItem(it.ID, nil, projectionScope(it))

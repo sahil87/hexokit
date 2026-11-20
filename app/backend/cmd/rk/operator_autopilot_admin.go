@@ -9,11 +9,11 @@ import (
 
 var operatorAutopilotRemoveCmd = &cobra.Command{
 	Use:   "rm <id> [--all] [--json]",
-	Short: "Remove an unspawned queue item or a halted merge sequence",
-	Long: `Remove one unspawned queue item (no pane and no spawning marker), or every PR
-item of a halted merge sequence. The argument is a queue item id, a PR item id,
-or a merge_seq. A queue item with unfinished dependents is refused. Engine state
-and projections are updated under the pass lock, then one pass runs.
+	Short: "Remove an unspawned queue item",
+	Long: `Remove one unspawned queue item (no pane and no spawning marker) and its
+identity-only projection. A queue item with unfinished dependents is refused. Any
+other id, including a PR's, is an unknown id. Engine state and the projection are
+updated under the pass lock, then one pass runs.
 
 Flags:
   -L, --server    tmux server (default: the caller's own server from $TMUX)
@@ -22,13 +22,11 @@ Flags:
 
 Examples:
   rk operator autopilot rm ab12
-  rk operator autopilot rm pr-41
 
 Exit codes:
   0  removed, or busy
   1  operational failure or a pass error
-  2  usage error (unknown id, spawned or spawning item, unfinished dependents,
-     or a sequence that is not halted)`,
+  2  usage error (unknown id, spawned or spawning item, or unfinished dependents)`,
 	Args:         usageArgs(cobra.ExactArgs(1)),
 	SilenceUsage: true,
 	RunE:         runAutopilotRemove,
@@ -36,10 +34,9 @@ Exit codes:
 
 var operatorAutopilotResumeCmd = &cobra.Command{
 	Use:   "resume <id> [--all] [--json]",
-	Short: "Resume one halted, skipped, or paused autopilot item",
-	Long: `Clear halted, skipped, or paused intent on one engine item, including a pause
-on its projection, then run one pass. Clearing halted on the item that carries
-it resumes that item's derived downstream cone.
+	Short: "Resume one skipped or paused queue item",
+	Long: `Clear skipped or paused intent on one queue item, including a pause on its
+projection, then run one pass.
 
 Flags:
   -L, --server    tmux server (default: the caller's own server from $TMUX)
@@ -47,13 +44,12 @@ Flags:
   --json          machine-readable envelope on stdout
 
 Examples:
-  rk operator autopilot resume pr-41
   rk operator autopilot resume ab12
 
 Exit codes:
   0  resumed, or busy
   1  operational failure or a pass error
-  2  usage error (unknown id, or the item is not halted, skipped, or paused)`,
+  2  usage error (unknown id, or the item is neither skipped nor paused)`,
 	Args:         usageArgs(cobra.ExactArgs(1)),
 	SilenceUsage: true,
 	RunE:         runAutopilotResume,

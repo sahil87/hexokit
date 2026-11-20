@@ -9,33 +9,24 @@ import (
 	"rk/internal/operator"
 )
 
-// Q6b: a queue open for over two hours is reported once, on its oldest
-// unfinished item, whatever that item's status.
-func TestQueueOpenTooLongEscalatesOnTheOldestItemOnce(t *testing.T) {
+// A stage that has not moved for a long time and a queue that has been open for
+// hours are not engine business: the check's aged conditions cover a stuck
+// agent, so the pass decides nothing for such an item.
+func TestALongRunningQueueNeverEscalatesFromThePass(t *testing.T) {
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"}, Entry{ID: "b", Repo: foo.Dir, Task: "b"})
-	e := newEngine(h.env)
-	if err := e.mutateEngine(func(st *engineState) error {
-		st.Queue[0].Paused = true
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	h.clock = h.clock.Add(slowQueue + time.Minute)
-	reason := "queue open for over 2h0m0s"
-	res := h.step()
-	var on []string
-	for _, e := range res.Escalations {
-		if e.Reason == reason {
-			on = append(on, e.Item)
+	h.attachBranch("a", "a-branch")
+	h.gh.add(1, "a-branch").Checks = []checkRun{{State: "PENDING"}}
+	h.clock = h.clock.Add(3 * time.Hour)
+	for i := 0; i < 2; i++ {
+		res := h.step()
+		if len(res.Actions) != 0 || len(res.Escalations) != 0 {
+			t.Fatalf("pass %d acted on an aged, working queue: %+v", i, res)
 		}
 	}
-	if len(on) != 1 || on[0] != "a" {
-		t.Fatalf("escalated on %v, want the oldest item a once: %+v", on, res.Escalations)
-	}
-	if res := h.step(); hasEscalation(res, reason) {
-		t.Fatalf("a recorded reason escalated again: %+v", res.Escalations)
+	if got := h.stateOf(h.item("a")); got != QueueSpawned {
+		t.Fatalf("a = %s, want spawned", got)
 	}
 }
 
@@ -81,15 +72,22 @@ func TestExecutorsRunInLedgerOrderFromOneSnapshot(t *testing.T) {
 
 // A pass with nothing to do changes nothing and reports nothing.
 func TestAnIdleStepIsIdempotent(t *testing.T) {
-	h, _ := ladderPair(t)
-	h.step()
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"}, Entry{ID: "b", Repo: foo.Dir, Task: "b"})
+	h.attachBranch("a", "a-branch")
+	h.gh.add(1, "a-branch").Checks = []checkRun{{State: "PENDING"}}
 	before, err := os.ReadFile(h.env.StatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeEngine, err := os.ReadFile(engineFilePath(h.env.StatePath))
 	if err != nil {
 		t.Fatal(err)
 	}
 	h.run.reset()
 	res := h.step()
-	if len(res.Actions)+len(res.Escalations)+len(res.Report) != 0 {
+	if len(res.Actions)+len(res.Escalations) != 0 {
 		t.Fatalf("an idle step did something: %+v", res)
 	}
 	for _, c := range h.run.calls {
@@ -100,28 +98,30 @@ func TestAnIdleStepIsIdempotent(t *testing.T) {
 		}
 	}
 	after, _ := os.ReadFile(h.env.StatePath)
-	// The head's polled state is rewritten each pass; everything else is stable.
-	if strings.Count(string(before), "\n") != strings.Count(string(after), "\n") {
-		t.Fatalf("state shape changed:\n%s\n---\n%s", before, after)
+	afterEngine, _ := os.ReadFile(engineFilePath(h.env.StatePath))
+	if string(before) != string(after) || string(beforeEngine) != string(afterEngine) {
+		t.Fatalf("an idle step rewrote state:\n%s\n---\n%s", before, after)
 	}
 }
 
 // The dry run lists every chosen row and runs none of them.
-func TestDryRunListsRowsForEveryKindOfAction(t *testing.T) {
-	h, prs := ladderPair(t)
-	prs[0].State = "MERGED"
+func TestDryRunListsTheChosenRowsAndRunsNone(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Change: "aaaa"}, Entry{ID: "b", Repo: foo.Dir, Task: "b", DependsOn: &[]string{}})
+	h.attachBranch("a", "a-branch")
+	h.panes.panes["%900"] = operator.PaneInfo{PaneID: "%900", Change: "260101-aaaa-x", Stage: "ship", DisplayState: "done"}
 	h.env.DryRun = true
 	h.run.reset()
 	res := h.step()
-	if !res.DryRun || len(res.Actions) != 1 || res.Actions[0].Kind != string(ActionRecordMerged) || res.Actions[0].Item != "pr-1" || res.Actions[0].Detail != "(P1)" {
-		t.Fatalf("dry-run actions = %+v", res.Actions)
+	var got []string
+	for _, a := range res.Actions {
+		got = append(got, a.Kind+" "+a.Item+" "+a.Detail)
 	}
-	for _, c := range h.run.calls {
-		if strings.HasPrefix(c, "gh pr merge") || strings.HasPrefix(c, "gh pr ready") {
-			t.Fatalf("dry-run acted: %q", c)
-		}
+	if !res.DryRun || strings.Join(got, "|") != "record-done a (Q1)|spawn b (Q2)" {
+		t.Fatalf("dry-run actions = %q", got)
 	}
-	if operator.ItemDone(h.item("pr-1")) {
-		t.Fatal("dry-run recorded a merge")
+	if operator.ItemDone(h.item("a")) || h.spawn.n != 0 {
+		t.Fatal("dry-run changed state or spawned")
 	}
 }

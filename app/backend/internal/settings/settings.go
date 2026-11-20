@@ -137,7 +137,8 @@ type Settings struct {
 	// command construction, so a change applies on the next daemon restart.
 	TmuxConf string
 	// OperatorMergeMode is the merge mode `rk operator autopilot queue` stamps
-	// on a new queue when no --mode flag is given. An out-of-set value read
+	// on a new queue when no --mode flag is given: it shapes how each item is
+	// spawned and is the operator's merge authority. An out-of-set value read
 	// from a hand-edited file is kept verbatim so the queue verb can refuse it
 	// by name; writes through the registry are validated.
 	OperatorMergeMode string
@@ -674,7 +675,7 @@ var registry = []registryEntry{
 	},
 	{
 		key: "operator.merge_mode", kind: "enum", def: DefaultOperatorMergeMode,
-		desc:     "How a new operator queue merges: cherry-pick-ladder and stacked-prs create PRs to merge after review; merge-auto arms each PR to merge as it ships. A queue's --mode flag wins; read only when a queue is created.",
+		desc:     "How a new operator queue is spawned and merged: the mode shapes each item's spawn (cherry-pick-ladder cherry-picks dependency code in, stacked-prs cuts from the dependency's branch, merge-auto bases every PR on the default branch, unchained) and sets the operator's merge authority (merge-auto merges green PRs without asking; the other two merge only on your word). A queue's --mode flag wins; read only when a queue is created.",
 		category: "behavior", ui: true, live: true,
 		options: OperatorMergeModes,
 		// Stored verbatim on read (no validation) so `rk operator autopilot
