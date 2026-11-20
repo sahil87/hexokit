@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-18T14:04:51Z"}
+{"args":"GUI keyboard capture: Mac Cmd→Ctrl, canvas refocus, clipboard bridge (from discussion)","cmd":"fab-new","event":"command","ts":"2026-11-18T14:04:51Z"}
+{"delta":"+3.9","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-11-18T14:08:12Z"}
+{"cmd":"fab-ff","event":"command","ts":"2026-11-19T04:27:07Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"apply","ts":"2026-11-19T04:28:42Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"review","ts":"2026-11-19T04:30:59Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-11-19T04:33:14Z"}
+{"event":"review","result":"failed","ts":"2026-11-19T04:36:54Z"}
+{"action":"re-entry","driver":"fab-ff","event":"stage-transition","stage":"apply","ts":"2026-11-19T04:36:54Z"}
+{"action":"re-entry","driver":"fab-ff","event":"stage-transition","stage":"review","ts":"2026-11-19T04:38:37Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-11-19T04:39:08Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"hydrate","ts":"2026-11-19T04:41:52Z"}
+{"event":"review","result":"passed","ts":"2026-11-19T04:41:52Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"ship","ts":"2026-11-19T04:42:55Z"}

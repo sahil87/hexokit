@@ -3,6 +3,8 @@ import RFB from "@novnc/novnc";
 import { fetchGuiStatus, pingGui } from "@/api/client";
 import type { GuiSignal } from "@/contexts/session-context";
 import { copyToClipboard } from "@/lib/clipboard";
+import { KEYSYM_CONTROL_L, KEYSYM_SHIFT_L, keysymForChar } from "@/lib/gui-keysyms";
+import { detectPlatform } from "@/lib/keybindings";
 import { STATS_PING_MS, STATS_SAMPLE_MS, sampleRates } from "@/lib/gui-stats";
 import { createWheelAccumulator } from "@/lib/zoom-gesture";
 import {
@@ -124,7 +126,11 @@ import { zoomedHostSize } from "@/lib/gui-posture";
  *   bubbling KeyboardEvent on the parent document so rk's window-level
  *   dispatcher handles the chord (the code-surface grammar — the dispatcher
  *   listens in the bubble phase, so a plain stopPropagation would eat the
- *   chord). Every other key reaches the guest. No steal guard: noVNC grabs
+ *   chord). Every other key reaches the guest — except that on a Mac with
+ *   the capture latch set, Cmd (and a Shift pressed after it) is held in the
+ *   guest by rk as Control_L/Shift, released on focusout, unlatch, and
+ *   teardown; and ⌘V hands the host clipboard text to the guest before its
+ *   V, so it pastes what was copied on the Mac. No steal guard: noVNC grabs
  *   focus only on click (`focusOnClick`), never programmatically.
  * - **Stats overlay**: the per-viewer `statsVisible` posture
  *   (`rk-gui-stats-visible`) mounts `GuiStatsOverlay` (gui-stats-overlay.tsx)
@@ -243,6 +249,9 @@ interface GuiSurfaceProps {
   /** Registry-chord predicate bound to kind "gui" (built in app.tsx from
    *  `hasReclaimableMatch`). Absent ⇒ no reclaim. */
   shouldReclaimChord?: (e: KeyboardEvent) => boolean;
+  /** The per-viewer keyboard-capture latch (`rk-gui-capture`, owned by
+   *  app.tsx). On a Mac it turns the Cmd modifier into Control_L on the wire. */
+  capture?: boolean;
   /** POST /api/gui/host/restart (via app.tsx); a 409 surfaces as
    *  `{ ok: false, disabled: true }` so the empty state can render
    *  "gui turned off" instead of an error. */
@@ -250,6 +259,22 @@ interface GuiSurfaceProps {
   onOpenLogs: () => void;
   /** Filled with the imperative seams while an RFB is live (paste/reconnect). */
   commandsRef?: { current: GuiSurfaceCommands | null };
+}
+
+// Keys rk itself holds down in the guest during a captured Cmd, keysym by
+// guest code: Cmd as Control_L, plus a Shift pressed after Cmd (noVNC taps
+// any key pressed while meta is held, which would drop Shift from the chord).
+type HeldKeys = Map<string, number>;
+
+function guestHold(code: string): [code: string, keysym: number] | null {
+  if (code === "MetaLeft" || code === "MetaRight") return ["ControlLeft", KEYSYM_CONTROL_L];
+  if (code === "ShiftLeft" || code === "ShiftRight") return [code, KEYSYM_SHIFT_L];
+  return null;
+}
+
+function releaseHeld(rfb: RFB | null, held: HeldKeys) {
+  for (const [code, keysym] of held) rfb?.sendKey(keysym, code, false);
+  held.clear();
 }
 
 export default function GuiSurface({
@@ -273,6 +298,7 @@ export default function GuiSurface({
   onConnectionChange,
   onInteract,
   shouldReclaimChord,
+  capture = false,
   onRestart,
   onOpenLogs,
   commandsRef,
@@ -352,6 +378,13 @@ export default function GuiSurface({
   onFullscreenChangeRef.current = onFullscreenChange;
   const reclaimRef = useRef(shouldReclaimChord);
   reclaimRef.current = shouldReclaimChord;
+  const captureRef = useRef(capture);
+  captureRef.current = capture;
+  const heldRef = useRef<HeldKeys>(new Map());
+
+  useEffect(() => {
+    if (!capture) releaseHeld(rfbRef.current, heldRef.current);
+  }, [capture]);
 
   // D7: only the focused fine-pointer viewer on an unlocked host (neither the
   // viewer-local pin nor `rk gui lock` set) whose host setting is `auto`
@@ -461,6 +494,7 @@ export default function GuiSurface({
       onConnectionChangeRef.current(true);
     };
     const onDisconnect = () => {
+      heldRef.current.clear();
       setConnected(false);
       onConnectionChangeRef.current(false);
       if (!wantConnectionRef.current) return;
@@ -498,6 +532,7 @@ export default function GuiSurface({
       rfb.removeEventListener("clipboard", onClipboard);
       rfb.removeEventListener("credentialsrequired", onCredentials);
       rfb.removeEventListener("securityfailure", onSecurityFailure);
+      releaseHeld(rfb, heldRef.current);
       rfb.disconnect();
       rfbRef.current = null;
       hostEl.replaceChildren();
@@ -955,7 +990,47 @@ export default function GuiSurface({
       }}
       onKeyDownCapture={(e) => {
         onInteractRef.current?.();
-        if (!reclaimRef.current?.(e.nativeEvent)) return;
+        if (!reclaimRef.current?.(e.nativeEvent)) {
+          // noVNC maps Cmd to Alt_L on macOS; while captured the guest gets
+          // Control_L instead, and noVNC's meta-held press+release of the
+          // next key then lands as Ctrl+key.
+          const hold = captureRef.current && detectPlatform() === "mac" ? guestHold(e.code) : null;
+          const rfbNow = rfbRef.current;
+          if (e.code === "KeyV" && heldRef.current.has("ControlLeft") && rfbNow && navigator.clipboard?.readText) {
+            // ⌘V pastes the HOST clipboard: the guest only knows it once rk
+            // hands it over, so V waits for the text, then follows it down
+            // the same socket. An unreadable clipboard still sends the V.
+            e.preventDefault();
+            e.stopPropagation();
+            void navigator.clipboard
+              .readText()
+              .then((text) => {
+                if (text) rfbNow.clipboardPasteFrom(text);
+              })
+              .catch(() => {})
+              .then(() => {
+                // ⌘ may be up already (a quick tap, or a permission prompt).
+                // ponytail: a Shift released by then is dropped (⌘⇧V lands as Ctrl+V).
+                const ctrlHeld = heldRef.current.has("ControlLeft");
+                if (!ctrlHeld) rfbNow.sendKey(KEYSYM_CONTROL_L, "ControlLeft", true);
+                rfbNow.sendKey(keysymForChar("v"), "KeyV");
+                if (!ctrlHeld) rfbNow.sendKey(KEYSYM_CONTROL_L, "ControlLeft", false);
+              });
+            return;
+          }
+          if (!hold) return;
+          const [code, keysym] = hold;
+          const held = heldRef.current;
+          // A Shift pressed before Cmd is an ordinary held key — noVNC's.
+          if (code !== "ControlLeft" && !held.has("ControlLeft")) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const rfb = rfbRef.current;
+          if (e.repeat || held.has(code) || !rfb) return;
+          rfb.sendKey(keysym, code, true);
+          held.set(code, keysym);
+          return;
+        }
         // noVNC's Keyboard listens on the canvas (a descendant) — stop the
         // event before it descends, then re-dispatch on the parent document:
         // rk's keybinding dispatcher listens at window in the BUBBLE phase,
@@ -973,6 +1048,20 @@ export default function GuiSurface({
             bubbles: true,
           }),
         );
+      }}
+      onKeyUpCapture={(e) => {
+        const hold = guestHold(e.code);
+        if (!hold || !heldRef.current.has(hold[0])) return;
+        e.preventDefault();
+        e.stopPropagation();
+        heldRef.current.delete(hold[0]);
+        rfbRef.current?.sendKey(hold[1], hold[0], false);
+      }}
+      onBlur={(e) => {
+        // macOS never delivers the Cmd keyup once focus leaves (⌘Tab, a click
+        // elsewhere), so a held Control_L would stay down in the guest.
+        if (e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return;
+        releaseHeld(rfbRef.current, heldRef.current);
       }}
     >
       {bare && !wmStripDismissed ? (
