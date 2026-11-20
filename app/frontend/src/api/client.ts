@@ -1814,6 +1814,8 @@ export type FabConfigDocument =
       roles: FabRole[];
       modelSuggestions: Record<string, string[]>;
       effortSuggestions: string[];
+      /** Per tool: whether its command carries {effort}. Omitted when empty. */
+      effortCapable?: Record<string, boolean>;
       /** fab stderr warning lines from the last POST. */
       warnings?: string[];
     };

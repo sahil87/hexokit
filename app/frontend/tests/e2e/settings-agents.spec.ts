@@ -94,7 +94,7 @@ test.describe("Settings dialog — Agents tab", () => {
     await openAgentsTab(page);
 
     const effort = page.getByLabel("doing effort");
-    await expect(effort.locator("option").first()).toHaveText("↳ provider default");
+    await expect(effort.locator("option").first()).toHaveText("↳ tool default");
 
     await effort.selectOption("high");
     await expect(effort).toHaveValue("high");
@@ -136,11 +136,46 @@ test.describe("Settings dialog — Agents tab", () => {
 
     await expect(model).toHaveValue("claude-sonnet-5-5");
     await expect(model.locator("option")).toHaveText([
-      "↳ inherit (provider default)",
+      "↳ inherit (tool default)",
       "claude-opus-5-5",
       "claude-sonnet-5-5",
       "Custom…",
     ]);
+  });
+
+  /**
+   * Proves: switching a role to a tool whose commands carry no `{effort}`
+   * clears its effort override in the same request and disables the effort
+   * select with an explanatory title; switching back re-enables it.
+   *
+   * Steps:
+   * 1. Open the Agents tab; pick `high` for `review`'s effort.
+   * 2. Pick `kimi` as `review`'s tool; assert one POST setting the tool and
+   *    nulling model and effort.
+   * 3. Assert the effort select is disabled, titled "this tool takes no effort
+   *    setting", and back on inherit.
+   * 4. Pick `codex`; assert the effort select is enabled again.
+   */
+  test("a tool without {effort} disables the role's effort select", async ({ page }) => {
+    const posts = await stubFabConfig(page);
+    await openAgentsTab(page);
+
+    const effort = page.getByLabel("review effort");
+    await effort.selectOption("high");
+    await expect(effort).toHaveValue("high");
+
+    await page.getByLabel("review provider").selectOption("kimi");
+    await expect(effort).toBeDisabled();
+    await expect(effort).toHaveAttribute("title", "this tool takes no effort setting");
+    await expect(effort).toHaveValue("");
+    expect(posts[1]).toEqual({
+      "agent.profiles.review.provider": "kimi",
+      "agent.profiles.review.model": null,
+      "agent.profiles.review.effort": null,
+    });
+
+    await page.getByLabel("review provider").selectOption("codex");
+    await expect(effort).toBeEnabled();
   });
 
   /**

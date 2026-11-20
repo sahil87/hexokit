@@ -76,6 +76,7 @@ function makeDoc(overrides: Partial<Doc> = {}): Doc {
     ],
     modelSuggestions: { claude: ["claude-opus-5-5", "claude-sonnet-5-5"], codex: ["gpt-5.6-sol"], agy: [], kimi: [] },
     effortSuggestions: ["low", "medium", "high", "xhigh", "max"],
+    effortCapable: { agy: false, claude: true, codex: true, kimi: false },
     ...overrides,
   };
 }
@@ -276,7 +277,7 @@ describe("SettingsAgentsPanel", () => {
       expect(within(rows[5]).getAllByRole("cell")[1]).toHaveTextContent("workers");
     });
 
-    it("shows inherited cells dimmed with a ↳ prefix and 'provider default' when unknown", async () => {
+    it("shows inherited cells dimmed with a ↳ prefix and 'tool default' when unknown", async () => {
       const doc = withRole(makeDoc(), "doing", { provider: inherited("kimi", "agent.workers") });
       await renderPanel(doc);
       const provider = screen.getByLabelText("doing provider") as HTMLSelectElement;
@@ -285,7 +286,7 @@ describe("SettingsAgentsPanel", () => {
       expect(provider.className).toContain("text-text-secondary");
       const model = screen.getByLabelText("doing model") as HTMLSelectElement;
       expect(model.value).toBe("");
-      expect(model.options[0].textContent).toBe("↳ inherit (provider default)");
+      expect(model.options[0].textContent).toBe("↳ inherit (tool default)");
       expect(model.className).toContain("text-text-secondary");
     });
 
@@ -337,7 +338,7 @@ describe("SettingsAgentsPanel", () => {
       const model = screen.getByLabelText("doing model") as HTMLSelectElement;
       expect(model.value).toBe("claude-sonnet-5-5");
       expect(optionTexts(model)).toEqual([
-        "↳ inherit (provider default)",
+        "↳ inherit (tool default)",
         "claude-opus-5-5",
         "claude-sonnet-5-5",
         "Custom…",
@@ -366,7 +367,7 @@ describe("SettingsAgentsPanel", () => {
         model: overridden("kimi-k3", "agent.profiles.review.model"),
       });
       await renderPanel(doc);
-      expect(optionTexts(screen.getByLabelText("review model"))).toEqual(["↳ inherit (provider default)", "kimi-k3", "Custom…"]);
+      expect(optionTexts(screen.getByLabelText("review model"))).toEqual(["↳ inherit (tool default)", "kimi-k3", "Custom…"]);
       expect(screen.queryByTestId("stale-model-review")).not.toBeInTheDocument();
     });
 
@@ -541,6 +542,69 @@ describe("SettingsAgentsPanel", () => {
       expect(Array.from(effort.options).map((o) => o.value)).toEqual(["", "low", "medium", "high", "xhigh", "max"]);
       fireEvent.change(effort, { target: { value: "xhigh" } });
       await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.doing.effort": "xhigh" }));
+    });
+
+    it("a tool change to a tool with {effort} keeps a suggested effort", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      const doc = withRole(makeDoc(), "review", {
+        provider: overridden("codex", "agent.profiles.review.provider"),
+        effort: overridden("high", "agent.profiles.review.effort"),
+      });
+      await renderPanel(doc);
+      fireEvent.change(screen.getByLabelText("review provider"), { target: { value: "claude" } });
+      await waitFor(() =>
+        expect(postFabConfig).toHaveBeenCalledWith({
+          "agent.profiles.review.provider": "claude",
+          "agent.profiles.review.model": null,
+        }),
+      );
+    });
+
+    it("a tool change to a tool without {effort} unsets a suggested effort", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      const doc = withRole(makeDoc(), "review", {
+        provider: overridden("codex", "agent.profiles.review.provider"),
+        effort: overridden("high", "agent.profiles.review.effort"),
+      });
+      await renderPanel(doc);
+      fireEvent.change(screen.getByLabelText("review provider"), { target: { value: "agy" } });
+      await waitFor(() =>
+        expect(postFabConfig).toHaveBeenCalledWith({
+          "agent.profiles.review.provider": "agy",
+          "agent.profiles.review.model": null,
+          "agent.profiles.review.effort": null,
+        }),
+      );
+    });
+
+    it("disables effort for a tool without {effort}, keeping a stale override visible and resettable", async () => {
+      vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+      const doc = withRole(makeDoc(), "review", {
+        provider: inherited("kimi", "agent.workers"),
+        effort: overridden("high", "agent.profiles.review.effort"),
+      });
+      await renderPanel(doc);
+      const effort = screen.getByLabelText("review effort") as HTMLSelectElement;
+      expect(effort).toBeDisabled();
+      expect(effort).toHaveAttribute("title", "this tool takes no effort setting");
+      expect(effort.value).toBe("high");
+      expect(screen.getByLabelText("doing effort")).toBeEnabled();
+      expect(screen.getByLabelText("doing effort")).not.toHaveAttribute("title");
+
+      fireEvent.click(screen.getByRole("button", { name: "Reset review overrides" }));
+      await waitFor(() =>
+        expect(postFabConfig).toHaveBeenCalledWith({
+          "agent.profiles.review.provider": null,
+          "agent.profiles.review.model": null,
+          "agent.profiles.review.effort": null,
+        }),
+      );
+    });
+
+    it("keeps effort enabled for a tool the document doesn't classify", async () => {
+      const doc = withRole(makeDoc({ effortCapable: undefined }), "review", { provider: inherited("kimi", "agent.workers") });
+      await renderPanel(doc);
+      expect(screen.getByLabelText("review effort")).toBeEnabled();
     });
 
     it("row reset appears only with an override and unsets all three leaves in one POST", async () => {

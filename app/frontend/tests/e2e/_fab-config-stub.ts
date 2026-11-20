@@ -87,6 +87,7 @@ export async function stubFabConfig(
       roles,
       modelSuggestions: { claude: ["claude-opus-5-5", "claude-sonnet-5-5"], codex: ["gpt-5.6-sol"], agy: [], kimi: [] },
       effortSuggestions: ["low", "medium", "high", "xhigh", "max"],
+      effortCapable: { agy: false, claude: true, codex: true, kimi: false },
     };
   };
 
