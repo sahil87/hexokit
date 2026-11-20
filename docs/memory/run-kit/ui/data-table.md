@@ -8,7 +8,7 @@ description: "The shared DataTable component over @tanstack/react-table — colu
 
 ## Overview
 
-`components/data-table.tsx` is the ONE data table — a headless TanStack Table model (`@tanstack/react-table`) rendered in the project's own Tailwind/Control vocabulary, mounted by `watched-table.tsx` (Operator Tasks / the Server page WATCHED zone), `cron-list.tsx`, and `cron-log.tsx`. The component owns the table *chrome* — the header row with `aria-sort` sort buttons, the fine-pointer-only resize handles, the `<colgroup>` widths, the per-viewer `hexokit-table-<id>` view-state store, and the mounted-table registry behind the palette's `Table: Reset columns`; consumers own their *cells* via per-column `cell(row)` renderers and per-row `rowProps(row)`. The frontend's third TanStack dependency (the router family) — the shadcn/Radix data-table path is rejected (§ Design Decisions).
+`components/data-table.tsx` is the ONE data table — a headless TanStack Table model (`@tanstack/react-table`) rendered in the project's own Tailwind/Control vocabulary, mounted by `watched-table.tsx` (Tasks / the Server page WATCHED zone), `cron-list.tsx`, and `cron-log.tsx`. The component owns the table *chrome* — the header row with `aria-sort` sort buttons, the fine-pointer-only resize handles, the `<colgroup>` widths, the per-viewer `hexokit-table-<id>` view-state store, and the mounted-table registry behind the palette's `Table: Reset columns`; consumers own their *cells* via per-column `cell(row)` renderers and per-row `rowProps(row)`. The frontend's third TanStack dependency (the router family) — the shadcn/Radix data-table path is rejected (§ Design Decisions).
 
 ## Requirements
 
