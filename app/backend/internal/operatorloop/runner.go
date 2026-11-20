@@ -74,11 +74,7 @@ func Run(ctx context.Context, fire cron.Fire) cron.Outcome {
 	fireID, idErr := newRunIDFn()
 	if !res.Changed {
 		writeCheckRecord(ctx, fire, fireID, idErr, firedAt, res, "")
-		out := outcome(cron.OutcomeNoChange)
-		if idErr == nil {
-			out.Fire = fireID
-		}
-		return out
+		return withFire(outcome(cron.OutcomeNoChange), fireID, idErr)
 	}
 
 	recorded, err := launch(ctx, fire, res, fireID, idErr, firedAt)
@@ -96,9 +92,19 @@ func Run(ctx context.Context, fire cron.Fire) cron.Outcome {
 	default:
 		// Nothing durable exists to transcribe, so the fire logs its loss now.
 		slog.Warn("operator loop: preparing run failed", "server", server, "err", err)
-		return outcome(cron.OutcomeRunLost("launch: " + firstLine(err.Error())))
+		return withFire(outcome(cron.OutcomeRunLost("launch: "+firstLine(err.Error()))), fireID, idErr)
 	}
 	return cron.Outcome{Status: "launched", Held: true}
+}
+
+// withFire names the fire's check record on an outcome the tick logs now
+// (no run record exists to carry the id through transcription). A fire whose
+// id could not be generated wrote no record and names none.
+func withFire(out cron.Outcome, id string, idErr error) cron.Outcome {
+	if idErr == nil {
+		out.Fire = id
+	}
+	return out
 }
 
 // writeCheckRecord persists the fire's check record. A failure — including an

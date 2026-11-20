@@ -119,7 +119,7 @@ function withoutStartPending(
  * (lib/quake-terminal.ts): rest ⇄ open (drawer down, the docked compose
  * textarea focused — focus and the expanded drawer are linked, so one chord
  * engages both and the next releases both). Enter in the docked compose
- * sends; Esc on the Operator Terminal segment first yields focus to the
+ * sends; Esc on the Terminal segment first yields focus to the
  * embedded terminal, then releases to rest (on the list segments the first
  * Esc releases); the palette action lands on open+focused; a click outside
  * the quake terminal's own DOM (the drawer or the launcher button) collapses
@@ -153,11 +153,11 @@ function withoutStartPending(
  * cluster (the server picker on param-less multi-server routes, else the
  * server name; the operator window's live agent state; the operator loop's
  * tick-age stamp), the pin, and the collapse affordance — then the body: on
- * Operator Terminal an embedded LIVE
+ * Terminal an embedded LIVE
  * terminal view of the operator window (a plain TerminalClient over the
  * shared /ws/terminals relay mux — the same mechanism a board pane uses,
  * registerFocus off so the BottomBar keeps its target, `transparent` on so
- * the glass background shows through the cells); on Operator Tasks the
+ * the glass background shows through the cells); on Tasks the
  * `WatchedTasks` watchlist (the shared
  * `WatchedTable`, dense variant — a row click navigates through the router to
  * the window's terminal and collapses the drawer explicitly: a click inside
@@ -272,7 +272,7 @@ export function QuakeTerminal() {
   const latestStartGenRef = useRef(new Map<string, number>());
   // The drawer's body segment — the quake terminal's local ephemeral state
   // (no URL, tmux,
-  // or localStorage write), defaulting to Operator Terminal and resetting on
+  // or localStorage write), defaulting to Terminal and resetting on
   // close; a seam request carrying `segment` sets it on open.
   const [segment, setSegment] = useState<QuakeSegment>("terminal");
   const rootRef = useRef<HTMLDivElement>(null);
@@ -1115,7 +1115,7 @@ export function QuakeTerminal() {
       {segment !== "terminal" ? (
         segment === "tasks" ? (
           // One relay stream max per drawer: the TerminalClient is UNMOUNTED
-          // while Operator Tasks shows. A row click navigates through the
+          // while Tasks shows. A row click navigates through the
           // router to the window's terminal route and collapses the drawer
           // explicitly — the outside-click collapse stands down for clicks
           // inside the quake terminal's DOM, so the handler drives the
@@ -1321,7 +1321,7 @@ export function QuakeTerminal() {
  * templated/direct fork as everywhere) with focus retained for follow-ups,
  * Shift+Enter inserts a local newline, an empty/whitespace Enter is a no-op.
  * Auto-grow is the route strip's bounded idiom (lib/textarea-autogrow.ts).
- * Esc is the ladder's first rung: on the Operator Terminal segment it yields
+ * Esc is the ladder's first rung: on the Terminal segment it yields
  * to the embedded terminal (prevented, so the drawer's document listener
  * skips this press and the next Esc collapses) — but only when a terminal is
  * actually mounted to receive focus (an operator-less drawer's Esc collapses

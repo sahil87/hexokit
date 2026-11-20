@@ -258,8 +258,11 @@ type WakeState =
   | { kind: "queued"; since: number }
   | { kind: "error" };
 
+// A running row's ts can be the fetch time (its record may be unreadable), so
+// it keys on the run id alone to keep an expanded row open across refetches.
 function rowKey(row: OperatorActivityRow): string {
-  return `${row.running ? "running" : "line"}:${row.ts}:${row.fire ?? ""}:${row.reason}:${row.outcome}`;
+  if (row.running) return `running:${row.fire ?? ""}`;
+  return `line:${row.ts}:${row.fire ?? ""}:${row.reason}:${row.outcome}`;
 }
 
 export function OperatorActivity({ server }: { server: string }) {

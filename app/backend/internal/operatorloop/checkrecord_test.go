@@ -232,3 +232,29 @@ func TestReadCheckRecordRoundTrip(t *testing.T) {
 		t.Error("a corrupt record must error")
 	}
 }
+
+// TestRunPrepareFailureNamesItsCheckRecord: a changed fire whose run failed
+// before any run record existed still wrote its check record, so the
+// immediately logged `run-lost` outcome names it.
+func TestRunPrepareFailureNamesItsCheckRecord(t *testing.T) {
+	r := newRig(t)
+	newRunIDFn = func() (string, error) { return runA, nil }
+	checkFn = changedCheck("a")
+	// Only launch's state-path lookup fails; the check record's own lookup
+	// that follows resolves.
+	resolve, failed := statePathFn, false
+	statePathFn = func(ctx context.Context, server string) (string, error) {
+		if !failed {
+			failed = true
+			return "", errBoom
+		}
+		return resolve(ctx, server)
+	}
+	got := Run(context.Background(), fire())
+	if got.Held || got.String() != "run-lost: launch: boom" || got.Fire != runA {
+		t.Fatalf("outcome = %+v, want run-lost naming fire %q", got, runA)
+	}
+	if rec := readCheckJSON(t, r, runA); rec["changed"] != true {
+		t.Errorf("record = %v", rec)
+	}
+}

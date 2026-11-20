@@ -60,7 +60,7 @@ export function buildQuakeTerminalLogAction(): QuakeTerminalPaletteAction {
 
 /**
  * The `Operator: Show tasks` entry — the quake terminal opened straight onto
- * its Operator Tasks segment (the operator watchlist). No registry chord: the
+ * its Tasks segment (the operator watchlist). No registry chord: the
  * segment is a view inside the quake terminal, one Tab-reachable click past
  * ⌘J; the palette entry is its keyboard-parity path (Constitution V). On
  * mobile the seam maps it to the operator route's `?tab=tasks`.

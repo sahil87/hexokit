@@ -3433,7 +3433,7 @@ function AppShell() {
   }, []);
 
   // The sidebar's operator placeholder row (no operator window on the server)
-  // opens the quake terminal drawer on the Operator Terminal segment, where
+  // opens the quake terminal drawer on the Terminal segment, where
   // the Start operator button sits. Identity-arg []-dep callback — the
   // memoized ServerGroup prop contract.
   const handleOperatorPlaceholder = useCallback((srv: string) => {
@@ -6172,7 +6172,7 @@ function AppShell() {
               applyLayout — R12) and the right-panel surface mount (the panel
               slot is a
               tile now — R6). Open-tile toggles (R10) live in the top bar's
-              surface-toggle group. On a non-terminal tab (Operator Tasks,
+              surface-toggle group. On a non-terminal tab (Tasks, Activity,
               Cron List, Cron Log) this column stays
               MOUNTED-but-hidden (the `hidden` class — the same
               hide-never-unmount posture SurfaceLayout applies to its own

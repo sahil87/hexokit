@@ -188,54 +188,54 @@ The memory files listed in the intake's Affected Memory are updated at hydrate; 
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `no change` loop lines carry `fire` equal to the check record id; other lines carry none
-- [ ] A-002 R2: the rung helper returns the ladder position per line using `climbsLoopLadder`
-- [ ] A-003 R3: `/api/operator/activity` returns joined rows newest first, capped at 200
-- [ ] A-004 R4: `in_flight` and the synthetic running row appear while a run window is live
-- [ ] A-005 R5: brief/log endpoints serve raw capped contents with the truncation header
-- [ ] A-006 R6: the strip reads `Terminal · Tasks · Activity · Cron List · Cron Log`
-- [ ] A-007 R7: `?tab=activity` selects Activity on mobile and desktop request paths
-- [ ] A-008 R8: rows render the trigger label, check summary and run summary per the rules
-- [ ] A-009 R9: rows expand by mouse and keyboard and lazily load brief and log
-- [ ] A-010 R10: filter chips filter as defined, default `all`
-- [ ] A-011 R11: Check now posts the wake once, disables while a run is in flight
-- [ ] A-012 R12: the staleness banner shows on Activity and not on the cron tabs
-- [ ] A-013 R13: palette lists the Activity segment and Check now actions
-- [ ] A-014 R14: Cron Log hides loop rows until `show loop` is on
-- [ ] A-015 R15: memory files and (if applicable) `docs/specs/api.md` document the endpoints and UI
+- [x] A-001 R1: `no change` loop lines carry `fire` equal to the check record id; other lines carry none
+- [x] A-002 R2: the rung helper returns the ladder position per line using `climbsLoopLadder`
+- [x] A-003 R3: `/api/operator/activity` returns joined rows newest first, capped at 200
+- [x] A-004 R4: `in_flight` and the synthetic running row appear while a run window is live
+- [x] A-005 R5: brief/log endpoints serve raw capped contents with the truncation header
+- [x] A-006 R6: the strip reads `Terminal · Tasks · Activity · Cron List · Cron Log`
+- [x] A-007 R7: `?tab=activity` selects Activity on mobile and desktop request paths
+- [x] A-008 R8: rows render the trigger label, check summary and run summary per the rules
+- [x] A-009 R9: rows expand by mouse and keyboard and lazily load brief and log
+- [x] A-010 R10: filter chips filter as defined, default `all`
+- [x] A-011 R11: Check now posts the wake once, disables while a run is in flight
+- [x] A-012 R12: the staleness banner shows on Activity and not on the cron tabs
+- [x] A-013 R13: palette lists the Activity segment and Check now actions
+- [x] A-014 R14: Cron Log hides loop rows until `show loop` is on
+- [x] A-015 R15: memory files and (if applicable) `docs/specs/api.md` document the endpoints and UI — `docs/specs/api.md` documents the three routes; memory files are hydrate-stage work per R15
 
 ### Behavioral Correctness
 
-- [ ] A-016 R7: the legacy `activity` → `log` normalization is gone; `activity` is kept
-- [ ] A-017 R12: Cron List / Cron Log no longer render `CronStaleBanner`
+- [x] A-016 R7: the legacy `activity` → `log` normalization is gone; `activity` is kept
+- [x] A-017 R12: Cron List / Cron Log no longer render `CronStaleBanner`
 
 ### Scenario Coverage
 
-- [ ] A-018 R3: Go tests cover join by `fire`, join by `run`, missing and corrupt records
-- [ ] A-019 R8: Vitest covers each row kind, chips, Check now and lazy expansion
-- [ ] A-020 R6: the segment agreement test includes `activity`
+- [x] A-018 R3: Go tests cover join by `fire`, join by `run`, missing and corrupt records
+- [x] A-019 R8: Vitest covers each row kind, chips, Check now and lazy expansion
+- [x] A-020 R6: the segment agreement test includes `activity`
 
 ### Edge Cases & Error Handling
 
-- [ ] A-021 R3: absent log/entries/runs dir → 200 with `rows: []`; bad server → 400
-- [ ] A-022 R4: a tmux listing error yields `in_flight: null`, not a 500
-- [ ] A-023 R5: bad server or run id → 400; absent file → 404
-- [ ] A-024 R11: a failed wake POST shows an error state without throwing
+- [x] A-021 R3: absent log/entries/runs dir → 200 with `rows: []`; bad server → 400
+- [x] A-022 R4: a tmux listing error yields `in_flight: null`, not a 500
+- [x] A-023 R5: bad server or run id → 400; absent file → 404
+- [x] A-024 R11: a failed wake POST shows an error state without throwing
 
 ### Code Quality
 
-- [ ] A-025 Pattern consistency: new handlers, hook and component follow `operator_notes.go`/`operator_wake.go`, `use-cron.ts` and `cron-log.tsx` patterns
-- [ ] A-026 No unnecessary duplication: path, validation and ladder logic reuse `operatorloop`, `validate` and `cron` helpers
-- [ ] A-027: Subprocess calls (tmux listing) go through `internal/tmux` with its timeout; no inline tmux command
-- [ ] A-028: No client polling — refresh rides the sessions payload change and explicit refetch
-- [ ] A-029: Named constants for the 200-row and 256 KiB caps; no magic numbers
-- [ ] A-030: Comments state constraints only — no narration or change IDs
-- [ ] A-031: New behavior has Go and Vitest tests; touched Playwright tests carry intent comments
+- [x] A-025 Pattern consistency: new handlers, hook and component follow `operator_notes.go`/`operator_wake.go`, `use-cron.ts` and `cron-log.tsx` patterns
+- [x] A-026 No unnecessary duplication: path, validation and ladder logic reuse `operatorloop`, `validate` and `cron` helpers
+- [x] A-027: Subprocess calls (tmux listing) go through `internal/tmux` with its timeout; no inline tmux command
+- [x] A-028: No client polling — refresh rides the sessions payload change and explicit refetch
+- [x] A-029: Named constants for the 200-row and 256 KiB caps; no magic numbers
+- [x] A-030: Comments state constraints only — no narration or change IDs
+- [x] A-031: New behavior has Go and Vitest tests; touched Playwright tests carry intent comments
 
 ### Security
 
-- [ ] A-032 R5: run-file paths are built only from validated server and run id via `operatorloop` path helpers; no traversal
-- [ ] A-033 R3: all new routes are GET and read-only (Constitution IX)
+- [x] A-032 R5: run-file paths are built only from validated server and run id via `operatorloop` path helpers; no traversal
+- [x] A-033 R3: all new routes are GET and read-only (Constitution IX)
 
 ## Notes
 
@@ -261,3 +261,7 @@ The memory files listed in the intake's Affected Memory are updated at hydrate; 
 | 12 | Confident | `docs/specs/cron.md` and `docs/specs/index.md` still name the old four-label strip; only `docs/specs/api.md` is edited here | The task scopes spec edits to T015; the strip is mid-redesign until T7 lands the four-segment end state | S:60 R:85 A:70 D:65 |
 
 12 assumptions (0 certain, 12 confident, 0 tentative).
+
+## Deletion Candidates
+
+- None — this change adds new functionality without making existing code redundant (the legacy `activity` → `log` normalization it obsoletes was removed in this diff)
