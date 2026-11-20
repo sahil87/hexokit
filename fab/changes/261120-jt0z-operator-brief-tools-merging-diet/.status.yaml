@@ -8,8 +8,8 @@ progress:
     intake: done
     apply: done
     review: done
-    hydrate: active
-    ship: pending
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
@@ -32,24 +32,26 @@ stage_metrics:
     intake: {started_at: "2026-11-20T07:55:08Z", driver: fab-new, iterations: 1, completed_at: "2026-11-20T07:59:20Z"}
     apply: {started_at: "2026-11-20T08:13:48Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-20T08:16:20Z"}
     review: {started_at: "2026-11-20T08:16:20Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-20T08:24:57Z"}
-    hydrate: {started_at: "2026-11-20T08:24:57Z", driver: fab-fff, iterations: 1}
+    hydrate: {started_at: "2026-11-20T08:24:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T08:26:50Z"}
+    ship: {started_at: "2026-11-20T08:26:50Z", driver: fab-fff, iterations: 1}
 prs: []
 change_type_source: explicit
 base_branch: 261120-7uqm-engine-rescope-pr-work-to-operator
 true_impact:
-    added: 987
-    deleted: 82
-    net: 905
+    added: 1006
+    deleted: 84
+    net: 922
     excluding:
-        added: 520
-        deleted: 74
-        net: 446
+        added: 525
+        deleted: 76
+        net: 449
     tests:
-        added: 257
+        added: 258
         deleted: 10
-        net: 247
-    computed_at: "2026-11-20T08:16:21Z"
-    computed_at_stage: apply
+        net: 248
+    computed_at: "2026-11-20T08:26:51Z"
+    computed_at_stage: hydrate
+summary: 'Operator brief: PR tools back inside the tiers, per-mode Merging section, user/chat notes always shown, no-op runs write no note, new ''rk operator track show'''
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-20T08:24:57Z
+last_updated: 2026-11-20T08:26:51Z
