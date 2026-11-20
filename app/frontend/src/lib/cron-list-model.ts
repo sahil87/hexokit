@@ -1,4 +1,4 @@
-// Pure derivation helpers for the quake terminal's Cron List / Cron Log tabs — the
+// Pure derivation helpers for the quake terminal's Cron segment (registry and deliveries) — the
 // shared row anatomy (target chip, dim predicate, mute badge) and the registry
 // sort. Leaf module in the lib/cron-schedule.ts mold: no fetch, no timers;
 // every relative time is computed by the caller and passed in as `nowSeconds`
@@ -60,7 +60,7 @@ export function compareCronEntries(a: CronEntry, b: CronEntry): number {
   return byLabel !== 0 ? byLabel : a.id.localeCompare(b.id);
 }
 
-/** Registry order for the Cron List tab. Pure — the same `entries` always
+/** Registry order for the Cron segment. Pure — the same `entries` always
  *  yields the same order, and the input is never mutated. */
 export function sortCronEntries(entries: CronEntry[]): CronEntry[] {
   return [...entries].sort(compareCronEntries);

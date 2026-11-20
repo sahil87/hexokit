@@ -7,13 +7,13 @@ import (
 )
 
 // push_url.go — the notify deep-link: a same-origin path to the server's
-// role:operator window with the console's cron log tab selected
-// (/{server}/{N}?tab=log). The fail-silent contract is absolute: an
+// role:operator window with the Cron segment selected
+// (/{server}/{N}?tab=cron). The fail-silent contract is absolute: an
 // unresolvable operator window yields "", and the notify fires URL-less —
 // the tick never errors, blocks, or retries over a missing deep link.
 
 // cronPushTab is the terminal-route search-param value the deep-link selects.
-const cronPushTab = "log"
+const cronPushTab = "cron"
 
 // PushURL builds the deep-link path from a resolved operator window id: the
 // URL segment is the window id's numeric part (the tmux `@N` sans `@`), both

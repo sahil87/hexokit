@@ -693,7 +693,7 @@ func TestTickIfAbsentNotifyDeepLink(t *testing.T) {
 		if len(nt.calls) != 1 {
 			t.Fatalf("notify calls = %d, want 1", len(nt.calls))
 		}
-		if want := "/live1/7?tab=log"; nt.calls[0].url != want {
+		if want := "/live1/7?tab=cron"; nt.calls[0].url != want {
 			t.Errorf("notify url = %q, want %q", nt.calls[0].url, want)
 		}
 	})

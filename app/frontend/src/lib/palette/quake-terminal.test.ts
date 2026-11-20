@@ -3,8 +3,7 @@ import {
   buildOperatorCheckNowAction,
   buildQuakeTerminalAction,
   buildQuakeTerminalActivityAction,
-  buildQuakeTerminalListAction,
-  buildQuakeTerminalLogAction,
+  buildQuakeTerminalCronAction,
   buildQuakeTerminalOpenAsTabAction,
   buildQuakeTerminalPinAction,
   buildQuakeTerminalResetSizeAction,
@@ -62,16 +61,10 @@ describe("buildQuakeTerminalAction", () => {
 
 describe.each([
   {
-    build: buildQuakeTerminalListAction,
-    id: "quake-terminal-list",
-    label: "Operator: Show cron list",
-    segment: "list",
-  },
-  {
-    build: buildQuakeTerminalLogAction,
-    id: "quake-terminal-log",
-    label: "Operator: Show cron log",
-    segment: "log",
+    build: buildQuakeTerminalCronAction,
+    id: "quake-terminal-cron",
+    label: "Operator: Show cron",
+    segment: "cron",
   },
 ])("the cron-segment entry $label", ({ build, id, label, segment }) => {
   afterEach(() => {
@@ -267,11 +260,11 @@ describe("buildQuakeTerminalOpenAsTabAction", () => {
 
   it("onSelect navigates to the operator route with the segment as ?tab= and rests the machine", () => {
     const navigate = vi.fn();
-    buildQuakeTerminalOpenAsTabAction({ server: "srv1", windowId: "@9" }, navigate, "log").onSelect();
+    buildQuakeTerminalOpenAsTabAction({ server: "srv1", windowId: "@9" }, navigate, "cron").onSelect();
     expect(navigate).toHaveBeenCalledWith({
       to: "/$server/$window",
       params: { server: "srv1", window: "@9" },
-      search: { tab: "log" },
+      search: { tab: "cron" },
     });
     expect(getQuakeMachineState()).toBe("rest");
   });

@@ -5,6 +5,7 @@
 // on the SSE cadence alone.
 
 import { isGhostWindow } from "@/contexts/optimistic-context";
+import { isWaiting } from "@/lib/waiting";
 import type { OperatorTrackedItem, ProjectSession, WindowInfo } from "@/types";
 
 /** One Tasks row: a `worker` row is a tracked item whose `windowId`
@@ -100,6 +101,69 @@ export function collectTrackedRows(sessions: ProjectSession[]): TrackedRow[] | n
   liveWorkers.sort(workerOrder);
   doneWorkers.sort(workerOrder);
   return [...liveWorkers, ...doneWorkers, ...liveItems, ...doneItems];
+}
+
+/** Prefix of the note the operator engine writes once per escalated condition
+ *  (`escalated: <reason>`, `by: run`). */
+export const ESCALATION_NOTE_PREFIX = "escalated:";
+
+/** One Needs-you row: the one thing the user is wanted for on a tracked item.
+ *  `windowId` is set when the item's pane resolves to a live window (the
+ *  `open pane` target). */
+export type NeedsYouRow = {
+  kind: "waiting" | "escalation";
+  id: string;
+  action: string;
+  windowId?: string;
+  updatedAt: number;
+};
+
+/** The Needs-you band's rows, derived from the tracked rows alone.
+ *
+ *  - waiting prompt: a live worker row, not done, whose window is `waiting` —
+ *    the payload carries no question text, so the action names the window;
+ *  - open escalation: a not-done item whose NEWEST note is the engine's
+ *    `by: run` `escalated:` note. Anything newer (a user/chat answer, a run
+ *    note) or completion clears it — the payload carries only the newest note,
+ *    so "still the newest" is the derivable reading of "condition still open".
+ *
+ *  An item matching both yields one waiting row with the escalation reason
+ *  appended. Waiting rows sort first, then escalations; oldest `updatedAt`
+ *  first within each kind. */
+export function collectNeedsYou(rows: TrackedRow[]): NeedsYouRow[] {
+  const waiting: NeedsYouRow[] = [];
+  const escalations: NeedsYouRow[] = [];
+  for (const row of rows) {
+    // An id-less row (the older-backend window fallback) has nothing to note on.
+    if (row.done || row.item.id === "") continue;
+    const { item } = row;
+    const note = item.latestNote;
+    const reason =
+      note !== undefined && note.by === "run" && note.text.startsWith(ESCALATION_NOTE_PREFIX)
+        ? note.text.slice(ESCALATION_NOTE_PREFIX.length).trim()
+        : null;
+    const updatedAt = item.updatedAt ?? 0;
+    if (row.kind === "worker" && isWaiting(row.win)) {
+      const action = `answer the prompt in ${row.win.name}`;
+      waiting.push({
+        kind: "waiting",
+        id: item.id,
+        action: reason ? `${action} · ${reason}` : action,
+        windowId: row.win.windowId,
+        updatedAt,
+      });
+    } else if (reason !== null) {
+      escalations.push({
+        kind: "escalation",
+        id: item.id,
+        action: reason,
+        windowId: row.kind === "worker" ? row.win.windowId : undefined,
+        updatedAt,
+      });
+    }
+  }
+  const oldestFirst = (a: NeedsYouRow, b: NeedsYouRow) => a.updatedAt - b.updatedAt;
+  return [...waiting.sort(oldestFirst), ...escalations.sort(oldestFirst)];
 }
 
 /** The watchlist's zone-level derivations: `stale` = any session reports

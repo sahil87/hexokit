@@ -340,6 +340,11 @@ type Server struct {
 	// (a live tmux socket-path query); tests inject a fixed state.
 	operatorStateFn func(ctx context.Context, server string) (cron.OperatorState, bool)
 
+	// operatorStatePathFn resolves rk's operator state file for POST
+	// /api/operator/notes. Nil falls back to operator.StatePathForServer (a
+	// live tmux socket-path query); tests point it at a temp file.
+	operatorStatePathFn func(ctx context.Context, server string) (string, error)
+
 	// The gui*Fn group is the injectable seam layer behind GET /api/gui/{id},
 	// POST /api/gui/{id}/restart, POST /api/gui/{id}/launch,
 	// POST /api/gui/{id}/resize, and the gui.enabled/gui.geometry settings POST
@@ -1072,6 +1077,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/cron/pin", s.handleCronPin)
 	r.Post("/api/cron/edit", s.handleCronEdit)
 	r.Get("/api/operator/notes", s.handleOperatorNotes)
+	r.Post("/api/operator/notes", s.handleOperatorNoteAdd)
 	// Activity rows (loop lines joined with check and run records) and a run's
 	// brief / log contents — read-only. See api/operator_activity.go.
 	r.Get("/api/operator/activity", s.handleOperatorActivity)

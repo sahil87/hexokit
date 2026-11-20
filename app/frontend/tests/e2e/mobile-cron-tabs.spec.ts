@@ -1,7 +1,7 @@
-// Mobile cron tabs — the operator route's `Terminal | Tasks | Activity | Cron
-// List | Cron Log` segmented header, the `?tab=` deep links, the Activity tab
-// (rows, expansion, Check now) with the stale banner above it, and the Cron
-// List action surfaces (`+ New entry`, the detail sheet's Edit row and
+// Mobile cron tabs — the operator route's `Terminal | Tasks | Activity | Cron`
+// segmented header, the `?tab=` deep links (including the legacy `log`/`list`
+// tokens), the Activity tab (rows, expansion, Check now) with the stale banner
+// above it, and the Cron segment's action surfaces (`+ New entry`, the detail sheet's Edit row and
 // `Mute for…` presets).
 //
 // Shared setup: fully mocked (no tmux). The sessions payload rides the
@@ -238,20 +238,20 @@ const tabStrip = (page: Page) => page.getByRole("tablist", { name: "Quake termin
 
 test.describe("Mobile cron tabs", () => {
   /**
-   * Proves: at 375px the segment strip renders exactly the five segments —
-   * `Terminal`, `Tasks`, `Activity`, `Cron List`, `Cron Log` — in that order,
+   * Proves: at 375px the segment strip renders exactly the four segments —
+   * `Terminal`, `Tasks`, `Activity`, `Cron` — in that order,
    * and no label wraps or truncates or pushes the strip/page past the 375px
    * width.
    *
    * Steps:
    * 1. Set the 375×812 viewport; mock the backend; land on the operator route
    *    `/default/9`.
-   * 2. Assert the five tab labels in exact order, with Terminal selected by
+   * 2. Assert the four tab labels in exact order, with Terminal selected by
    *    default.
    * 3. Assert every tab is nowrap and untruncated (scrollWidth ≤ clientWidth)
    *    and the strip and page stay within the 375px width.
    */
-  test("the five segments render in order at 375px without wrap or truncation", async ({
+  test("the four segments render in order at 375px without wrap or truncation", async ({
     page,
   }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
@@ -261,13 +261,12 @@ test.describe("Mobile cron tabs", () => {
     const tabs = tabStrip(page);
     await expect(tabs).toBeVisible({ timeout: 10_000 });
     const buttons = tabs.getByRole("tab");
-    await expect(buttons).toHaveCount(5);
+    await expect(buttons).toHaveCount(4);
     expect(await buttons.allTextContents()).toEqual([
       "Terminal",
       "Tasks",
       "Activity",
-      "Cron List",
-      "Cron Log",
+      "Cron",
     ]);
     await expect(buttons.nth(0)).toHaveAttribute("aria-selected", "true");
 
@@ -335,19 +334,19 @@ test.describe("Mobile cron tabs", () => {
   });
 
   /**
-   * Proves: tapping a cron segment swaps the content in place — the Cron Log
-   * body appears, the URL gains `?tab=log`, and the page does NOT reload (an
+   * Proves: tapping the Cron segment swaps the content in place — the registry
+   * and the deliveries both appear, the URL gains `?tab=cron`, and the page does NOT reload (an
    * in-page probe survives the tap, and the terminal's relay registration
    * persists — the terminal is hidden, not unmounted).
    *
    * Steps:
    * 1. Set the 375×812 viewport; mock the backend; land on `/default/9`.
    * 2. Stamp `window.__cronProbe` as a reload tripwire.
-   * 3. Tap the Cron Log tab.
-   * 4. Assert the log renders, the URL carries `tab=log`, the probe is still
+   * 3. Tap the Cron tab.
+   * 4. Assert the stacked console renders, the URL carries `tab=cron`, the probe is still
    *    set, and `__rkTerminals["@9"]` is still registered.
    */
-  test("tapping Cron Log switches content without a full reload", async ({ page }) => {
+  test("tapping Cron switches content without a full reload", async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
     await mockBackend(page);
     await gotoWindowMobile(page, "@9");
@@ -355,10 +354,12 @@ test.describe("Mobile cron tabs", () => {
       (window as unknown as { __cronProbe?: string }).__cronProbe = "alive";
     });
 
-    await page.getByRole("tab", { name: "Cron Log" }).click();
+    await page.getByRole("tab", { name: "Cron", exact: true }).click();
 
-    await expect(page.getByTestId("cron-log")).toBeVisible({ timeout: 10_000 });
-    await expect(page).toHaveURL(/tab=log/);
+    await expect(page.getByTestId("cron-console")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("cron-list")).toBeVisible();
+    await expect(page.getByTestId("cron-log")).toBeVisible();
+    await expect(page).toHaveURL(/tab=cron/);
     await expect
       .poll(() =>
         page.evaluate(() => (window as unknown as { __cronProbe?: string }).__cronProbe ?? null),
@@ -452,23 +453,31 @@ test.describe("Mobile cron tabs", () => {
   });
 
   /**
-   * Proves: a `?tab=list` deep link lands directly on the Cron List segment
-   * with no extra tap.
+   * Proves: a `?tab=cron` deep link lands directly on the Cron segment with
+   * no extra tap, and the legacy `?tab=log` / `?tab=list` tokens (push
+   * notifications already delivered carry `log`) land on it too.
    *
    * Steps:
    * 1. Set the 375×812 viewport; mock the backend.
-   * 2. Navigate straight to `/default/9?tab=list`.
-   * 3. Assert the Cron List body renders with its entry row and the Cron List
-   *    tab is selected.
+   * 2. For each of `cron`, `log`, `list`: navigate straight to
+   *    `/default/9?tab=<token>`.
+   * 3. Assert the registry renders with its entry row, the deliveries table
+   *    is mounted, and the Cron tab is selected.
    */
-  test("?tab=list deep link lands on the Cron List segment", async ({ page }) => {
+  test("?tab=cron and the legacy log/list tokens land on the Cron segment", async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
     await mockBackend(page);
-    await page.goto(`/${SERVER}/9?tab=list`);
+    for (const token of ["cron", "log", "list"]) {
+      await page.goto(`/${SERVER}/9?tab=${token}`);
 
-    await expect(page.getByTestId("cron-list")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByTestId("cron-list-row-a3f9")).toBeVisible();
-    await expect(page.getByRole("tab", { name: "Cron List" })).toHaveAttribute("aria-selected", "true");
+      await expect(page.getByTestId("cron-list")).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId("cron-list-row-a3f9")).toBeVisible();
+      await expect(page.getByTestId("cron-log")).toBeVisible();
+      await expect(page.getByRole("tab", { name: "Cron", exact: true })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    }
   });
 
   /**
@@ -500,7 +509,7 @@ test.describe("Mobile cron tabs", () => {
     const tasks = page.getByTestId("watched-tasks");
     await expect(tasks).toBeVisible({ timeout: 10_000 });
     await expect(tasks.getByTestId("watched-row")).toHaveCount(1);
-    await expect(tasks.getByText("watched-worker")).toBeVisible();
+    await expect(tasks.getByTestId("watched-table").getByText("watched-worker")).toBeVisible();
     await expect(page).toHaveURL(/tab=tasks/);
     await expect
       .poll(() =>
@@ -534,14 +543,14 @@ test.describe("Mobile cron tabs", () => {
 
     const tasks = page.getByTestId("watched-tasks");
     await expect(tasks).toBeVisible({ timeout: 10_000 });
-    await expect(tasks.getByText("watched-worker")).toBeVisible();
+    await expect(tasks.getByTestId("watched-table").getByText("watched-worker")).toBeVisible();
     await expect(page.getByRole("tab", { name: "Tasks" })).toHaveAttribute("aria-selected", "true");
   });
 
   /**
    * Proves: the operator-staleness banner pins ABOVE the Activity body when a
-   * session reports `operatorStale`, and renders above neither the cron tabs
-   * nor the Terminal segment.
+   * session reports `operatorStale`, and renders above neither the Cron
+   * segment nor the Terminal segment.
    *
    * Steps:
    * 1. Set the 375×812 viewport; mock the backend with a stale operator tick;
@@ -549,7 +558,7 @@ test.describe("Mobile cron tabs", () => {
    * 2. Assert no banner renders.
    * 3. Tap Activity; assert the banner is visible and sits above the activity
    *    body (bounding-box y).
-   * 4. Tap Cron Log, then Cron List; assert no banner renders above either.
+   * 4. Tap Cron; assert no banner renders above it.
    * 5. Tap Terminal; assert no banner renders.
    */
   test("the stale banner mounts above Activity only", async ({
@@ -569,12 +578,8 @@ test.describe("Mobile cron tabs", () => {
     const activityBox = await page.getByTestId("operator-activity").boundingBox();
     expect(bannerBox!.y).toBeLessThan(activityBox!.y);
 
-    await page.getByRole("tab", { name: "Cron Log" }).click();
-    await expect(page.getByTestId("cron-log")).toBeVisible({ timeout: 10_000 });
-    await expect(banner).toHaveCount(0);
-
-    await page.getByRole("tab", { name: "Cron List" }).click();
-    await expect(page.getByTestId("cron-list")).toBeVisible({ timeout: 10_000 });
+    await page.getByRole("tab", { name: "Cron", exact: true }).click();
+    await expect(page.getByTestId("cron-console")).toBeVisible({ timeout: 10_000 });
     await expect(banner).toHaveCount(0);
 
     await page.getByRole("tab", { name: "Terminal" }).click();
@@ -582,18 +587,18 @@ test.describe("Mobile cron tabs", () => {
   });
 
   /**
-   * Proves: Cron List's `+ New entry` affordance opens the create dialog.
+   * Proves: The Cron segment's `+ New entry` affordance opens the create dialog.
    *
    * Steps:
-   * 1. Set the 375×812 viewport; mock the backend; land on `/default/9` and
-   *    switch to Cron List.
+   * 1. Set the 375×812 viewport; mock the backend; land on
+   *    `/default/9?tab=cron`.
    * 2. Click `+ New entry`.
    * 3. Assert the `New cron entry` dialog renders.
    */
   test("+ New entry opens the create dialog", async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
     await mockBackend(page);
-    await page.goto(`/${SERVER}/9?tab=list`);
+    await page.goto(`/${SERVER}/9?tab=cron`);
     await expect(page.getByTestId("cron-list")).toBeVisible({ timeout: 10_000 });
 
     await page.getByTestId("cron-list-new").click();
@@ -608,8 +613,8 @@ test.describe("Mobile cron tabs", () => {
    *
    * Steps:
    * 1. Set the 375×812 viewport; mock the backend; land on
-   *    `/default/9?tab=list`.
-   * 2. Open the entry's detail sheet from its Cron List row.
+   *    `/default/9?tab=cron`.
+   * 2. Open the entry's detail sheet from its registry row.
    * 3. Click the `Edit` row; assert the `Edit entry` dialog renders.
    * 4. Change only the Name field and click Save.
    * 5. Assert exactly one edit POST landed with `{id, name}` (no unchanged
@@ -620,7 +625,7 @@ test.describe("Mobile cron tabs", () => {
   }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
     const { editPosts } = await mockBackend(page);
-    await page.goto(`/${SERVER}/9?tab=list`);
+    await page.goto(`/${SERVER}/9?tab=cron`);
     await expect(page.getByTestId("cron-list")).toBeVisible({ timeout: 10_000 });
 
     await page.getByTestId("cron-list-row-a3f9").click();
@@ -645,15 +650,15 @@ test.describe("Mobile cron tabs", () => {
    *
    * Steps:
    * 1. Set the 375×812 viewport; mock the backend; land on
-   *    `/default/9?tab=list`.
-   * 2. Open the entry's detail sheet from its Cron List row.
+   *    `/default/9?tab=cron`.
+   * 2. Open the entry's detail sheet from its registry row.
    * 3. Expand `Mute for…`; assert the four presets render.
    * 4. Click `2h`; assert exactly one mute POST landed with the `for` field.
    */
   test("the Mute for… 2h preset posts the additive lease field", async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
     const { mutePosts } = await mockBackend(page);
-    await page.goto(`/${SERVER}/9?tab=list`);
+    await page.goto(`/${SERVER}/9?tab=cron`);
     await expect(page.getByTestId("cron-list")).toBeVisible({ timeout: 10_000 });
 
     await page.getByTestId("cron-list-row-a3f9").click();

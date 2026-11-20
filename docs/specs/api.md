@@ -334,12 +334,22 @@ Send a message into a window's resolved pane — the compose strip's single deli
 
 #### `GET /api/operator/notes?server=<slug>&id=<item-id>`
 
-One tracked item's full notes list — what the Tasks row fetches when it expands. Read-only (notes are written by `rk operator track note`, runs and chat). The state file is chosen exactly as for `operatorTracked[]` (rk's file when it exists, else fab's), so the route and the sessions payload cannot disagree. `id` is compared for equality against the file's items and never used in a path; `server` rides `serverFromRequest`.
+One tracked item's full notes list — what the Tasks row fetches when it expands. Read-only (notes are written by `rk operator track note`, runs, chat and `POST /api/operator/notes`). The state file is chosen exactly as for `operatorTracked[]` (rk's file when it exists, else fab's), so the route and the sessions payload cannot disagree. `id` is compared for equality against the file's items and never used in a path; `server` rides `serverFromRequest`.
 
 **Responses:**
 - `200` `{ "id": "<item-id>", "notes": [{ "at": 1762850000, "by": "run", "text": "…" }, …] }` — oldest → newest, file order; `[]` for an item without notes
 - `400` `{ "error": "id is required" }` — `id` missing or empty
 - `404` `{ "error": "…" }` — no state file is readable (absent or corrupt), or no item has that id
+
+#### `POST /api/operator/notes`
+
+The drawer's note composer write path: appends one `by: user` note to a tracked item through `operator.AddNote` (the validation, `NoteTextCap` and `NoteCap` of `rk operator track note`, written under the state file's lock) in **rk's** operator state file for the server — fab's legacy file is never written. Body `{ "server": "<name>", "id": "<item-id>", "text": "<note>" }`; `server` is validated with `ValidateServerName` and `id` is compared for equality, never used in a path. The handler does not write a wake marker — the composer calls `POST /api/operator/wake` itself after a successful write.
+
+**Responses:**
+- `200` `{ "id": "<item-id>", "note": { "at": 1762850000, "by": "user", "text": "<trimmed>" } }` — sent only after the atomic write
+- `400` `{ "error": "…" }` — malformed body, bad `server`, empty `id`, or note validation (empty, over the cap) with the validator's message
+- `404` `{ "error": "…" }` — rk's state file does not exist (the server is still on fab's ledger; nothing is written), or no item has that id
+- `500` state path, read or write failure
 
 #### `GET /api/operator/activity?server=<name>`
 
@@ -881,6 +891,7 @@ omit `Origin`.
 | `POST` | `/api/windows/:windowId/operator-request` | `operator.go` | Window-scoped operator request (closed template registry; busy ⇒ 202 queued) |
 | `POST` | `/api/operator-request` | `operator.go` | Server-scoped operator request (same registry) |
 | `GET` | `/api/operator/notes` | `operator_notes.go` | One tracked item's full notes (`?server=&id=`), oldest → newest; read-only |
+| `POST` | `/api/operator/notes` | `operator_notes.go` | Append a `by: user` note to a tracked item in rk's state file (`{server, id, text}`); never writes fab's file, no wake |
 | `GET` | `/api/operator/activity` | `operator_activity.go` | Operator-loop fires newest first, joined with check and run records (`?server=`); read-only |
 | `GET` | `/api/operator/runs/:server/:id/brief` | `operator_activity.go` | A run's brief, raw text, head-capped at 256 KiB (`X-Rk-Truncated`) |
 | `GET` | `/api/operator/runs/:server/:id/log` | `operator_activity.go` | A run's log, raw text, tail-capped at 256 KiB (`X-Rk-Truncated`) |

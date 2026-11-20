@@ -19,7 +19,7 @@ import { canCloseShellWindow, canNewShellWindow, closeShellWindow, newShellWindo
 import { focusSidebarCurrentRow } from "@/lib/sidebar-events";
 import { HOST_MENU_OPEN_EVENT } from "@/lib/shell-strip";
 import { buildNavActions, type NavMode } from "@/lib/palette/nav";
-import { buildOperatorCheckNowAction, buildQuakeTerminalAction, buildQuakeTerminalActivityAction, buildQuakeTerminalListAction, buildQuakeTerminalLogAction, buildQuakeTerminalOpenAsTabAction, buildQuakeTerminalPinAction, buildQuakeTerminalResetSizeAction, buildQuakeTerminalTasksAction, buildOperatorStartAction } from "@/lib/palette/quake-terminal";
+import { buildOperatorCheckNowAction, buildQuakeTerminalAction, buildQuakeTerminalActivityAction, buildQuakeTerminalCronAction, buildQuakeTerminalOpenAsTabAction, buildQuakeTerminalPinAction, buildQuakeTerminalResetSizeAction, buildQuakeTerminalTasksAction, buildOperatorStartAction } from "@/lib/palette/quake-terminal";
 import { useQuakeMachineState, useQuakePinned, useQuakeTerminalContext } from "@/lib/quake-terminal";
 import { buildUpdateActions, buildMaintenanceActions, buildCheckActions } from "@/lib/palette/update";
 import { buildVersionAction, displayVersion } from "@/lib/palette/version";
@@ -234,7 +234,7 @@ export function useGlobalPaletteActions(): PaletteAction[] {
   );
 
   // Cron entry actions (wuiu R14) — the keyboard-first mute/delete path for
-  // the current server's cron entries (the Cron List tab's entry detail sheet
+  // the current server's cron entries (the Cron segment's entry detail sheet
   // is the pointer path). The entry list is fetched on server change and patched
   // locally from each mutation's own outcome — the hook lives outside the
   // per-server SSE slice plumbing, so it does not re-fetch on ticks. Both
@@ -355,16 +355,12 @@ export function useGlobalPaletteActions(): PaletteAction[] {
   // effective ⌘J/⇧Ctrl+J hint attaches and the chord resolves this same
   // toggle seam.
   const quakeTerminalEntry: PaletteAction = useMemo(() => buildQuakeTerminalAction(), []);
-  // The cron-segment twins — always listed: cron needs no operator, so the
-  // desktop drawer renders both segments whenever a server resolves, and on
+  // The cron-segment twin — always listed: cron needs no operator, so the
+  // desktop drawer renders the segment whenever a server resolves, and on
   // mobile an operator-less server lands on the tmux Server page's Cron
-  // section instead of the operator route. List registers before log.
-  const quakeTerminalListEntry: PaletteAction = useMemo(
-    () => buildQuakeTerminalListAction(),
-    [],
-  );
-  const quakeTerminalLogEntry: PaletteAction = useMemo(
-    () => buildQuakeTerminalLogAction(),
+  // section instead of the operator route.
+  const quakeTerminalCronEntry: PaletteAction = useMemo(
+    () => buildQuakeTerminalCronAction(),
     [],
   );
   // The Tasks twin — same always-listed gating: an operator-less
@@ -655,10 +651,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalActivityEntry, quakeTerminalListEntry, quakeTerminalLogEntry, ...(operatorCheckNowEntry ? [operatorCheckNowEntry] : []), quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...(quakeMachine === "open" && quakeTerminalOpenAsTabEntry ? [quakeTerminalOpenAsTabEntry] : []), ...(operatorStartEntry ? [operatorStartEntry] : []), ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, mcpEndpointEntry, ...openAIMCPActions, ...easterEggActions, createServerEntry],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalActivityEntry, quakeTerminalCronEntry, ...(operatorCheckNowEntry ? [operatorCheckNowEntry] : []), quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...(quakeMachine === "open" && quakeTerminalOpenAsTabEntry ? [quakeTerminalOpenAsTabEntry] : []), ...(operatorStartEntry ? [operatorStartEntry] : []), ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, mcpEndpointEntry, ...openAIMCPActions, ...easterEggActions, createServerEntry],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalActivityEntry, quakeTerminalListEntry, quakeTerminalLogEntry, operatorCheckNowEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, quakeTerminalOpenAsTabEntry, operatorStartEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, mcpEndpointEntry, openAIMCPActions, easterEggActions, createServerEntry, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalActivityEntry, quakeTerminalCronEntry, operatorCheckNowEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, quakeTerminalOpenAsTabEntry, operatorStartEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, mcpEndpointEntry, openAIMCPActions, easterEggActions, createServerEntry, bindingByAction, bindingHost],
   );
 }

@@ -2205,6 +2205,27 @@ export async function getOperatorNotes(server: string, id: string): Promise<Oper
   return Array.isArray(notes) ? notes.filter(isOperatorNote) : [];
 }
 
+/** POST /api/operator/notes {server, id, text} — append a `by: user` note to
+ *  one tracked item of rk's operator state file. Resolves with the stored note
+ *  (trimmed text); a validation failure (empty, over the cap), an unknown item
+ *  or a server without an rk state file rejects with the server's message. */
+export async function postOperatorNote(
+  server: string,
+  id: string,
+  text: string,
+): Promise<OperatorNote> {
+  const res = await fetch("/api/operator/notes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ server, id, text }),
+  });
+  if (!res.ok) await throwOnError(res);
+  const data: unknown = await res.json();
+  const note = typeof data === "object" && data !== null && "note" in data ? data.note : null;
+  if (!isOperatorNote(note)) throw new Error("malformed note receipt");
+  return note;
+}
+
 /** One condition or event a fire's check reported, keyed by item id. `kind`
  *  selects which of the optional fields the check set (the backend emits
  *  exactly that set per kind). */

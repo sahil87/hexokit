@@ -1,12 +1,14 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"rk/internal/cron"
@@ -26,6 +28,9 @@ func notesServer(t *testing.T) http.Handler {
 	server, _ := newWakeSeamServer(t, &mockTmuxOps{})
 	server.operatorStateFn = func(context.Context, string) (cron.OperatorState, bool) {
 		return sessions.ReadOperatorState(notesTestSock)
+	}
+	server.operatorStatePathFn = func(context.Context, string) (string, error) {
+		return operator.StatePath(notesTestSock)
 	}
 	return server.buildRouter()
 }
@@ -164,6 +169,125 @@ func TestOperatorNotes(t *testing.T) {
 			if _, err := os.Stat(p); !os.IsNotExist(err) {
 				t.Errorf("%s exists after a read (stat err %v)", p, err)
 			}
+		}
+	})
+}
+
+func postNote(t *testing.T, router http.Handler, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/operator/notes", bytes.NewBufferString(body)))
+	return rec
+}
+
+func noteBody(server, id, text string) string {
+	b, _ := json.Marshal(operatorNoteBody{Server: server, ID: id, Text: text})
+	return string(b)
+}
+
+func TestOperatorNoteAdd(t *testing.T) {
+	t.Run("200 appends a trimmed by-user note and the GET reads it back last", func(t *testing.T) {
+		router := notesServer(t)
+		rk, _ := operator.StatePath(notesTestSock)
+		writeNotesFile(t, rk, rkNotesBody)
+
+		rec := postNote(t, router, noteBody("runKit", "x", "  merge once green "))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		var receipt operatorNoteReceipt
+		if err := json.NewDecoder(rec.Body).Decode(&receipt); err != nil {
+			t.Fatal(err)
+		}
+		if receipt.ID != "x" || receipt.Note.By != "user" || receipt.Note.Text != "merge once green" || receipt.Note.At == 0 {
+			t.Errorf("receipt = %+v", receipt)
+		}
+
+		got := getNotes(t, router, "?server=runKit&id=x")
+		var notes operatorNotesJSON
+		if err := json.NewDecoder(got.Body).Decode(&notes); err != nil || len(notes.Notes) != 3 {
+			t.Fatalf("notes = %+v err=%v, want 3 notes", notes, err)
+		}
+		if last := notes.Notes[2]; last.By != "user" || last.Text != "merge once green" {
+			t.Errorf("last note = %+v", last)
+		}
+	})
+
+	t.Run("404 for an unknown item and the file is unchanged", func(t *testing.T) {
+		router := notesServer(t)
+		rk, _ := operator.StatePath(notesTestSock)
+		writeNotesFile(t, rk, rkNotesBody)
+		rec := postNote(t, router, noteBody("runKit", "nope", "hi"))
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404", rec.Code)
+		}
+		if raw, _ := os.ReadFile(rk); string(raw) != rkNotesBody {
+			t.Errorf("rk file changed on a 404:\n%s", raw)
+		}
+	})
+
+	t.Run("404 when only fab's legacy file exists; fab's file is byte-identical and no rk file appears", func(t *testing.T) {
+		router := notesServer(t)
+		rk, _ := operator.StatePath(notesTestSock)
+		fab, _ := cron.FabOperatorStatePath(cron.FabOperatorSlug(notesTestSock))
+		const fabBody = "tracked:\n  - {id: x, kind: note, text: from fab}\n"
+		writeNotesFile(t, fab, fabBody)
+
+		rec := postNote(t, router, noteBody("runKit", "x", "hi"))
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404", rec.Code)
+		}
+		if raw, _ := os.ReadFile(fab); string(raw) != fabBody {
+			t.Errorf("fab's file changed:\n%s", raw)
+		}
+		if _, err := os.Stat(rk); !os.IsNotExist(err) {
+			t.Errorf("rk file created by a refused note (stat err %v)", err)
+		}
+	})
+
+	t.Run("400 for empty text, over-cap text, missing id, bad server and bad JSON", func(t *testing.T) {
+		router := notesServer(t)
+		rk, _ := operator.StatePath(notesTestSock)
+		writeNotesFile(t, rk, rkNotesBody)
+		over := strings.Repeat("a", operator.NoteTextCap+1)
+		cases := map[string]string{
+			"empty":      noteBody("runKit", "x", "   "),
+			"over cap":   noteBody("runKit", "x", over),
+			"missing id": noteBody("runKit", "", "hi"),
+			"bad server": noteBody("bad/server", "x", "hi"),
+			"bad json":   "{not json",
+		}
+		for name, body := range cases {
+			rec := postNote(t, router, body)
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("%s: status = %d, want 400; body=%s", name, rec.Code, rec.Body.String())
+			}
+		}
+		rec := postNote(t, router, cases["over cap"])
+		if !strings.Contains(rec.Body.String(), "over the") {
+			t.Errorf("over-cap message = %s, want the validator's text", rec.Body.String())
+		}
+		if raw, _ := os.ReadFile(rk); string(raw) != rkNotesBody {
+			t.Errorf("rk file changed on a 400:\n%s", raw)
+		}
+	})
+
+	t.Run("the write does not drop a wake marker", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		server, _ := newWakeSeamServer(t, &mockTmuxOps{})
+		cronDir := t.TempDir()
+		server.cronDirFn = func() (string, error) { return cronDir, nil }
+		server.operatorStatePathFn = func(context.Context, string) (string, error) {
+			return operator.StatePath(notesTestSock)
+		}
+		rk, _ := operator.StatePath(notesTestSock)
+		writeNotesFile(t, rk, rkNotesBody)
+
+		if rec := postNote(t, server.buildRouter(), noteBody("runKit", "x", "hi")); rec.Code != http.StatusOK {
+			t.Fatalf("status = %d", rec.Code)
+		}
+		if entries, _ := os.ReadDir(cronDir); len(entries) != 0 {
+			t.Errorf("cron dir not empty after a note write: %v", entries)
 		}
 	})
 }

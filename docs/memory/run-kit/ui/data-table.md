@@ -48,7 +48,7 @@ One JSON key per `tableId`: `DATA_TABLE_STORAGE_PREFIX = "hexokit-table-"` + `ta
 `data-table.tsx` SHALL keep a module-level registry of mounted tables (`tableId → label`, registered on mount, unregistered on unmount) and export `useMountedDataTables(): { id, label }[]` (a `useSyncExternalStore`-backed subscription). `lib/palette/data-table.ts` SHALL export the pure builder `buildDataTableActions(mounted, reset?)`: zero mounted → `[]` (omit-not-disable); one → a direct `Table: Reset columns` action resetting that table; two or more → one `Table: Reset columns…` action with an `optionPicker` over the mounted tables (`Pick a table to reset — Space toggle · Enter apply`) whose apply resets each picked table (the `lib/palette/cron.ts` picker idiom). Reset clears the table's `hexokit-table-<id>` key — sort back to `initialSort`, widths back to `size` — the Constitution V keyboard path for the mouse-only resize. `app.tsx` calls `useMountedDataTables()` in AppShell and spreads `buildDataTableActions(mounted)` into the `paletteActions` memo beside the cron group.
 
 #### Scenario: Two tables mounted
-- **GIVEN** the quake drawer's Cron List open over the Server page's WATCHED zone
+- **GIVEN** the quake drawer's Cron segment open over the Server page's WATCHED zone
 - **WHEN** the palette opens
 - **THEN** it lists `Table: Reset columns…` whose picker offers `Cron List` and `Watched`
 

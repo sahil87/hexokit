@@ -10,13 +10,13 @@ import type { CronDelivery } from "@/api/client";
 const OPERATOR_LOOP_RUN = "operator-loop";
 
 /**
- * The Cron Log tab — the server's delivery log, nothing else: every line of
- * `useCronData(server).deliveries` (fires, `missed`, `skipped-absent`,
+ * The Cron segment's deliveries half — the server's delivery log, nothing
+ * else: every line of `useCronData(server).deliveries` (fires, `missed`, `skipped-absent`,
  * `rate-capped`, `rescheduled`, respawn outcomes), rendered through the shared
  * `DataTable` (components/data-table.tsx) in the API's most-recent-first
  * order as-is (`initialSort: null`). No upcoming fires, no "now" divider —
- * the registry half lives in the Cron List tab. A header sort is an additive
- * per-viewer override persisted under `hexokit-table-cron-log`; `Table: Reset
+ * the registry half is CronList, stacked above it in CronConsole. A header
+ * sort is an additive per-viewer override persisted under `hexokit-table-cron-log`; `Table: Reset
  * columns` returns to API order. Data rides the mount fetch + state-socket
  * sessions cadence — no polling.
  *

@@ -33,28 +33,20 @@ export function buildQuakeTerminalAction(): QuakeTerminalPaletteAction {
 }
 
 /**
- * The cron-segment twins — the quake terminal opened straight onto its Cron
- * List / Cron Log segment. No registry chord: the segment is a view inside the
- * quake terminal, one Tab-reachable click past ⌘J; the palette entries are its
- * keyboard-parity path (Constitution V). Cron needs no operator: the desktop
- * segments render whenever a server resolves. On mobile the seam maps them to
- * the operator route's `?tab=` param, or — with no operator window on the
- * server — to the tmux Server page's Cron section (`/$server#cron`). List
- * registers before log everywhere.
+ * The `Operator: Show cron` entry — the quake terminal opened straight onto its
+ * Cron segment (the registry stacked over the deliveries). No registry chord:
+ * the segment is a view inside the quake terminal, one Tab-reachable click past
+ * ⌘J; the palette entry is its keyboard-parity path (Constitution V). Cron
+ * needs no operator: the desktop segment renders whenever a server resolves. On
+ * mobile the seam maps it to the operator route's `?tab=cron`, or — with no
+ * operator window on the server — to the tmux Server page's Cron section
+ * (`/$server#cron`).
  */
-export function buildQuakeTerminalListAction(): QuakeTerminalPaletteAction {
+export function buildQuakeTerminalCronAction(): QuakeTerminalPaletteAction {
   return {
-    id: "quake-terminal-list",
-    label: "Operator: Show cron list",
-    onSelect: () => requestQuakeTerminal({ action: "open", segment: "list" }),
-  };
-}
-
-export function buildQuakeTerminalLogAction(): QuakeTerminalPaletteAction {
-  return {
-    id: "quake-terminal-log",
-    label: "Operator: Show cron log",
-    onSelect: () => requestQuakeTerminal({ action: "open", segment: "log" }),
+    id: "quake-terminal-cron",
+    label: "Operator: Show cron",
+    onSelect: () => requestQuakeTerminal({ action: "open", segment: "cron" }),
   };
 }
 

@@ -1453,7 +1453,7 @@ describe("operator page — the operator window's route wears the quake surface 
     const listener = (e: Event) => seen.push(e);
     document.addEventListener("rk:quake-terminal", listener);
     try {
-      renderAt(["/srv/9?tab=list"]);
+      renderAt(["/srv/9?tab=log"]);
       await waitFor(() => screen.getByTestId("mock-surface-layout"));
       // The param is retained — it IS the page's segment state now.
       expect(screen.getByTestId("terminal-activity-tabs")).toBeInTheDocument();

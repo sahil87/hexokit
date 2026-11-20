@@ -1,5 +1,8 @@
+import { NeedsYouBand } from "@/components/needs-you-band";
+import { useTransientStatus } from "@/components/operator-note-composer";
 import { WatchedTable } from "@/components/watched-table";
 import {
+  collectNeedsYou,
   collectTrackedRows,
   watchedWorkerRows,
   watchlistStatus,
@@ -28,9 +31,11 @@ import type { ProjectSession } from "@/types";
  * Anatomy top→bottom: (1) a pinned staleness banner rendered exactly when the
  * server's sessions report `operatorStale` (the server's own 15-minute
  * verdict — the frontend never re-derives the threshold), carrying the tick
- * age or `no recent check` when no session carries one; (2) the summary
- * line and the scroll body holding the shared `WatchedTable` when rows exist;
- * (3) otherwise a centered hint line — `no server resolved` / `No operator on
+ * age or `no recent check` when no session carries one; (2) the Needs-you
+ * band (open escalations and waiting prompts, only when any exist) and the
+ * transient note-saved status line; (3) the summary line and the scroll body
+ * holding the shared `WatchedTable` when rows exist; (4) otherwise a centered
+ * hint line — `no server resolved` / `No operator on
  * this server` / `No tracked items` (an absent state file reads as an empty
  * list by the backend's tolerant parse, so an empty list is a state, not an
  * error).
@@ -53,6 +58,9 @@ export function WatchedTasks({
   // monitored-derived worker rows.
   const rows = collectTrackedRows(sessions) ?? watchedWorkerRows(sessions);
 
+  const needs = collectNeedsYou(rows);
+  const [noteStatus, showNoteStatus] = useTransientStatus();
+
   const watched = rows.filter((row) => row.kind === "worker" && !row.done).length;
 
   const hint = !server
@@ -74,6 +82,21 @@ export function WatchedTasks({
           {tickAgeSeconds !== null
             ? `operator loop — last check ${formatDuration(tickAgeSeconds)} ago`
             : "operator loop — no recent check"}
+        </div>
+      )}
+      <NeedsYouBand
+        rows={needs}
+        server={server}
+        onNavigate={onNavigate}
+        onSaved={showNoteStatus}
+      />
+      {noteStatus !== null && (
+        <div
+          className="shrink-0 px-3 pt-2 text-xs font-mono text-accent-green"
+          role="status"
+          data-testid="needs-you-status"
+        >
+          {noteStatus}
         </div>
       )}
       {hint !== null ? (

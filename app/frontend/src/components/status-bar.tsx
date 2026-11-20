@@ -357,9 +357,9 @@ function useClockChipState(server: string | null | undefined): ClockChipState {
 }
 
 /** The chip and its overflow row share the one open action: the quake
- *  terminal on its Cron List segment. */
-function openCronList(): void {
-  requestQuakeTerminal({ action: "open", segment: "list" });
+ *  terminal on its Cron segment. */
+function openCron(): void {
+  requestQuakeTerminal({ action: "open", segment: "cron" });
 }
 
 /** The `◷` clock chip — the right-cluster glance at the server's cron clock.
@@ -388,7 +388,7 @@ function ClockChip({
       aria-label={probe ? undefined : "Cron list"}
       data-testid={probe ? undefined : "status-bar-clock"}
       tabIndex={probe ? -1 : undefined}
-      onClick={openCronList}
+      onClick={openCron}
       className={`flex items-center rounded border px-1 transition-colors ${
         stale
           ? "border-signal-yellow/50 text-signal-yellow hover:border-signal-yellow"
@@ -603,7 +603,7 @@ function OverflowMenu({
       case "ld":
         return metrics ? textRow("ld", `ld ${loadPercent(metrics)}%`) : null;
       case "clock":
-        return clock?.kind === "next" ? actionRow("clk", "◷ Cron List", openCronList) : null;
+        return clock?.kind === "next" ? actionRow("clk", "◷ Cron", openCron) : null;
       case "server":
         return server ? copyRow("server", server, "", server, "Copy workspace name") : null;
       case "host":

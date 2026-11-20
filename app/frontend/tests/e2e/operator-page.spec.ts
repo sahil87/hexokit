@@ -28,7 +28,7 @@ import { mockStateSocket, emitSessions } from "./_state-socket-mock";
 // `?server=` (withServer), so a bare glob would silently miss.
 // `/ws/terminals` is a no-op socket mock: terminals mount their xterm frame
 // without stream data. `GET /api/cron` is stubbed with one entry so the Cron
-// List segment has a row.
+// segment's registry has a row.
 
 const SERVER = "default";
 const NOW = Math.floor(Date.now() / 1000);
@@ -171,24 +171,24 @@ test.describe("operator page (desktop)", () => {
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on the operator route
-   *    carrying `?tab=list`.
-   * 2. Assert Cron List is selected on the page's strip and its body renders.
+   *    carrying `?tab=cron`.
+   * 2. Assert Cron is selected on the page's strip and its stacked body renders.
    * 3. Assert the xterm frame is still mounted but hidden, and the compose
    *    strip input is still visible.
    */
-  test("?tab=list swaps the body, keeps the terminal mounted-but-hidden, and keeps the compose strip visible", async ({
+  test("?tab=cron swaps the body, keeps the terminal mounted-but-hidden, and keeps the compose strip visible", async ({
     page,
   }) => {
     await mockBackend(page, true);
-    await page.goto(`${OPERATOR_PATH}?tab=list`);
+    await page.goto(`${OPERATOR_PATH}?tab=cron`);
 
     const tabs = page.getByTestId("terminal-activity-tabs");
-    await expect(tabs.getByRole("tab", { name: "Cron List" })).toHaveAttribute(
+    await expect(tabs.getByRole("tab", { name: "Cron", exact: true })).toHaveAttribute(
       "aria-selected",
       "true",
       { timeout: 10_000 },
     );
-    await expect(page.getByTestId("cron-list")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("cron-console")).toBeVisible({ timeout: 10_000 });
     const xterm = page.locator(".xterm").first();
     await expect(xterm).toHaveCount(1);
     await expect(xterm).toBeHidden();

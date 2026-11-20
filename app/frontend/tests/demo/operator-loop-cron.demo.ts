@@ -1,14 +1,14 @@
 /**
- * Demo: the operator loop's Cron List row and Cron Log detail sheet, recorded
+ * Demo: the operator loop's registry row and delivery detail sheet, recorded
  * for PR evidence. The loop is a target-less cron entry (`run: operator-loop`):
- * the Cron List shows it with the `operator loop` chip instead of a role or
- * session target, and a Cron Log row for a finished run opens a detail sheet
+ * the registry shows it with the `operator loop` chip instead of a role or
+ * session target, and a delivery row for a finished run opens a detail sheet
  * that carries the run's id, outcome line and run log path as copyable text.
  *
  * Runs only under `just demo operator-loop-cron` (playwright.demo.config.ts —
  * testDir ./tests/demo), against the throwaway e2e rig, once per project
- * (desktop 1280x800 → the quake drawer's cron segments; mobile 375x812 → the
- * operator route's `?tab=list` / `?tab=log`). The `--before` pass runs the same
+ * (desktop 1280x800 → the quake drawer's Cron segment; mobile 375x812 → the
+ * operator route's `?tab=cron`). The `--before` pass runs the same
  * steps against the base ref, whose backend neither knows the `run` key (the
  * loop entry is skipped as invalid, so the list shows only the typed entry)
  * nor joins run fields into deliveries (the sheet shows no run block) — the
@@ -27,6 +27,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { Locator, Page } from "@playwright/test";
 import { test, expect, beat } from "./_demo";
 import { READY_TIMEOUT, openPalette, resolveWindow } from "../e2e/_ready";
 import { TMUX_SERVER, createSession, killSession, setWindowOption } from "../e2e/_tmux";
@@ -87,6 +88,23 @@ function logLine(ts: number, outcome: string, run?: string): string {
   return JSON.stringify({ ts, entry: LOOP_ID, target: "", reason: "schedule", outcome, ...(run ? { run } : {}) });
 }
 
+/** Open the palette's cron segment opener: the unified `Operator: Show cron`,
+ *  or on the base ref the separate `Show cron list` / `Show cron log`. */
+async function openCronSegment(
+  page: Page,
+  palette: Locator,
+  legacy: "list" | "log",
+): Promise<void> {
+  await palette.fill("Show cron");
+  await beat(page, 600);
+  const unified = page.getByRole("option", { name: "Operator: Show cron", exact: true });
+  if ((await unified.count()) > 0) {
+    await unified.click();
+  } else {
+    await page.getByRole("option", { name: `Operator: Show cron ${legacy}` }).click();
+  }
+}
+
 test.describe("operator-loop-cron demo", () => {
   test.beforeAll(async () => {
     createSession(WORKER_SESSION, { windows: ["worker"] });
@@ -99,26 +117,27 @@ test.describe("operator-loop-cron demo", () => {
   });
 
   /**
-   * Proves: the Cron List shows the operator loop as a target-less entry (the
+   * Proves: the registry shows the operator loop as a target-less entry (the
    * `operator loop` chip, no role/session target) beside the muted legacy
-   * tick, and opening a Cron Log row for a finished run shows its run id,
+   * tick, and opening a delivery row for a finished run shows its run id,
    * outcome line and run log path as copyable text. Same on mobile via the
-   * operator route's `?tab=list` and `?tab=log`.
+   * operator route's `?tab=cron`.
    *
    * Steps:
    * 1. Stamp the operator window's role and write the cron entry file, the
    *    delivery log and one finished run's record + log under the rig's
    *    XDG_STATE_HOME.
    * 2. Desktop: open the worker window's terminal route, open the palette and
-   *    run `Operator: Show cron list`; `beat()` on the rows.
-   *    Mobile: open the operator window's route with `?tab=list`; `beat()`.
-   * 3. Desktop: palette → `Operator: Show cron log`. Mobile: `?tab=log`.
-   *    `beat()` on the delivery rows.
+   *    run `Operator: Show cron`; `beat()` on the rows.
+   *    Mobile: open the operator window's route with `?tab=cron`; `beat()`.
+   * 3. `beat()` on the delivery rows below the registry. (Base ref: two
+   *    segments — palette `Operator: Show cron list`, then `Show cron log` /
+   *    `?tab=list`, then `?tab=log`.)
    * 4. Open the `ran` delivery's row; `beat()` on the sheet's run fields;
    *    click Copy on the run log row. (Base ref: the row opens a sheet with no
    *    run block — the backend predates the fields.)
    */
-  test("Cron List shows the operator loop; a run's Cron Log sheet shows its run log", async ({ page }, testInfo) => {
+  test("the registry shows the operator loop; a run's delivery sheet shows its run log", async ({ page }, testInfo) => {
     const isMobile = testInfo.project.name === "mobile";
     const op = await resolveWindow(page, TMUX_SERVER, OPERATOR_SESSION, "operator");
     setWindowOption(op.windowId, "@rk_win_role", "operator");
@@ -170,7 +189,7 @@ test.describe("operator-loop-cron demo", () => {
     writeFileSync(join(runsDir, `${id}.log`), `acted on pa9n\noutcome: ${OUTCOME}\n`, { mode: 0o600 });
 
     if (isMobile) {
-      await page.goto(`/${TMUX_SERVER}/${op.windowId.replace(/^@/, "")}?tab=list`);
+      await page.goto(`/${TMUX_SERVER}/${op.windowId.replace(/^@/, "")}?tab=cron`);
     } else {
       await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(worker.windowId)}`);
       await expect(page.getByTestId("status-bar").locator("[aria-label='Connected']")).toBeVisible({
@@ -178,9 +197,7 @@ test.describe("operator-loop-cron demo", () => {
       });
       await beat(page);
       const palette = await openPalette(page);
-      await palette.fill("Show cron list");
-      await beat(page, 600);
-      await palette.press("Enter");
+      await openCronSegment(page, palette, "list");
     }
 
     const list = page.getByTestId("cron-list");
@@ -188,13 +205,15 @@ test.describe("operator-loop-cron demo", () => {
     await expect(page.getByTestId(`cron-list-row-${LEGACY_ID}`)).toBeVisible({ timeout: READY_TIMEOUT });
     await beat(page, 2_500);
 
-    if (isMobile) {
-      await page.goto(`/${TMUX_SERVER}/${op.windowId.replace(/^@/, "")}?tab=log`);
-    } else {
-      const palette = await openPalette(page);
-      await palette.fill("Show cron log");
-      await beat(page, 600);
-      await palette.press("Enter");
+    // One Cron segment stacks the deliveries under the registry; the base ref
+    // has a separate Cron Log segment to open.
+    if ((await page.getByTestId("cron-log").count()) === 0) {
+      if (isMobile) {
+        await page.goto(`/${TMUX_SERVER}/${op.windowId.replace(/^@/, "")}?tab=log`);
+      } else {
+        const palette = await openPalette(page);
+        await openCronSegment(page, palette, "log");
+      }
     }
 
     const log = page.getByTestId("cron-log");
