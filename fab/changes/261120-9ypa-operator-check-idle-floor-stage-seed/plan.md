@@ -88,40 +88,44 @@ When a clean-joined pane item has an empty `scope.stage` and the snapshot resolv
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `paneRow.WindowID` is populated from `WindowInfo.WindowID` in `defaultPaneSnapshot` with no new tmux call
-- [ ] A-002 R2: `agent:idle` is derived only when no other same-window pane is `active` and the idle epoch is ≥ `idleFloor` (named constant, 3m); epoch 0 counts as reached
-- [ ] A-003 R3: under the gate `scope.agent` still advances and nothing is reported; the first gated-through check reports one `agent_state` with the real duration and `from: null` if the baseline was already `idle`
-- [ ] A-004 R5: an empty `scope.stage` is seeded from the observed stage with no event
+- [x] A-001 R1: `paneRow.WindowID` is populated from `WindowInfo.WindowID` in `defaultPaneSnapshot` with no new tmux call
+- [x] A-002 R2: `agent:idle` is derived only when no other same-window pane is `active` and the idle epoch is ≥ `idleFloor` (named constant, 3m); epoch 0 counts as reached
+- [x] A-003 R3: under the gate `scope.agent` still advances and nothing is reported; the first gated-through check reports one `agent_state` with the real duration and `from: null` if the baseline was already `idle`
+- [x] A-004 R5: an empty `scope.stage` is seeded from the observed stage with no event
 
 ### Behavioral Correctness
 
-- [ ] A-005 R4: `agent:waiting` fires immediately regardless of siblings; aged conditions are unchanged and fire even with an active sibling
-- [ ] A-006 R5: after seeding, `stage_advance` and `review_fail` report as before
+- [x] A-005 R4: `agent:waiting` fires immediately regardless of siblings; aged conditions are unchanged and fire even with an active sibling
+- [x] A-006 R5: after seeding, `stage_advance` and `review_fail` report as before
 
 ### Scenario Coverage
 
-- [ ] A-007 R2: tests cover worker-active, floor-not-reached, both-pass (with an active pane in a different window), and no-epoch
-- [ ] A-008 R3: a test covers suppressed-then-passing idle producing exactly one change then `open`
-- [ ] A-009 R4: tests cover waiting-unaffected and aged-with-active-sibling
-- [ ] A-010 R5: the stage test covers seed → `stage_advance` → `review_fail`
+- [x] A-007 R2: tests cover worker-active, floor-not-reached, both-pass (with an active pane in a different window), and no-epoch
+- [x] A-008 R3: a test covers suppressed-then-passing idle producing exactly one change then `open`
+- [x] A-009 R4: tests cover waiting-unaffected and aged-with-active-sibling
+- [x] A-010 R5: the stage test covers seed → `stage_advance` → `review_fail`
 
 ### Edge Cases & Error Handling
 
-- [ ] A-011 R2: a pane with an empty `WindowID` is never blocked by other empty-window panes
+- [x] A-011 R2: a pane with an empty `WindowID` is never blocked by other empty-window panes
 
 ### Code Quality
 
-- [ ] A-012 Pattern consistency: new code follows the naming and structure of `check_pane.go` / `check_conditions.go`
-- [ ] A-013 No unnecessary duplication: uses `tmux.AgentStateActive`/`AgentStateIdle` and existing helpers (`nullable`, `FormatAgentDuration`)
-- [ ] A-014 No magic numbers: the floor is the named constant `idleFloor`
-- [ ] A-015 Comments state constraints only — no narration, no change ids
-- [ ] A-016 Tests: `go test ./...` in `app/backend` is green apart from the known host-only failures
+- [x] A-012 Pattern consistency: new code follows the naming and structure of `check_pane.go` / `check_conditions.go`
+- [x] A-013 No unnecessary duplication: uses `tmux.AgentStateActive`/`AgentStateIdle` and existing helpers (`nullable`, `FormatAgentDuration`)
+- [x] A-014 No magic numbers: the floor is the named constant `idleFloor`
+- [x] A-015 Comments state constraints only — no narration, no change ids
+- [x] A-016 Tests: `go test ./...` in `app/backend` is green apart from the known host-only failures
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- None — this change adds new functionality without making existing code redundant
 
 ## Assumptions
 

@@ -388,8 +388,9 @@ func trackAgent(it *TrackedItem, row paneRow, panes map[string]paneRow, now time
 		duration = tmux.FormatAgentDuration(now.Unix() - row.AgentEpoch)
 	}
 	to := row.AgentState
-	// A baseline already at the observed state was moved by a check that
-	// reported nothing; "idle → idle" would claim a transition that check saw.
+	// A baseline already at the observed state was moved by an earlier check
+	// that reported nothing, so "idle → idle" would name a transition no
+	// report ever carried.
 	if prev == to {
 		prev = ""
 	}
