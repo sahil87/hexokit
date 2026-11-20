@@ -1014,6 +1014,30 @@ same checks (261114-8w1x-operator-autopilot-go):
   README surfaces do not list them beyond the operator chat topic's queue
   section.
 
+The `rk operator hooks` group (`operator_hooks.go` — see
+[operator-triggers](/run-kit/operator-triggers.md)) is measured against the same
+checks (261120-xdig-operator-pr-trigger-hooks):
+
+- **help-dump: a visible group with one visible verb.** `hooks` registers
+  unconditionally on `operatorCmd`; `stop` is visible and `serve` / `forward`
+  are `Hidden` (the daemon starts them inside the `rk-gh-hooks` session), so the
+  tree walk dumps `operator hooks` with `stop` alone and no help-dump code
+  change or fixture edit is needed. Each `Long:` block carries Flags, Examples
+  and Exit codes sections, and a CLI test pins that `rk operator hooks --help`
+  lists `stop` and not `serve` / `forward`.
+- **Principle 9: the receipt is data.** `stop`'s per-repo lines are `Dataf` and
+  survive `--quiet`; `--json` emits exactly one envelope document through the
+  shared sink.
+- **Exit-code convention (P4)** — `stop`: 0 session stopped (or absent) and
+  every forwarder hook removed, 1 operational (a hook could not be removed, a
+  probe failed, tmux error), 2 usage. `serve`: 0 stopped by signal, 1 port in
+  use. `forward`: 0 stopped by signal, 2 missing or invalid `--repo` / `--port`.
+- **The `skill` standard covers it in one sentence** — the `operator` topic page
+  (canonical `docs/site/skill/operator.md`, synced to the embedded copy) says PR
+  events arrive as `pr:<nwo>#<n>:<event>` wake reasons when `operator.pr_hooks`
+  lists the repo and the account has admin, and otherwise the clock picks the
+  change up; the page stays within its budget exemption.
+
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host
 - **WHEN** `rk desktop install` runs
