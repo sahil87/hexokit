@@ -656,6 +656,20 @@ func List(path, kind string) (all, shown []TrackedItem, err error) {
 	return st.Tracked, shown, nil
 }
 
+// Show is a pure read of one item: it never locks, writes, or converts. all is
+// the whole ledger (the state derivation of one item reads its dependencies).
+func Show(path, id string) (all []TrackedItem, item TrackedItem, err error) {
+	st, err := Load(path)
+	if err != nil {
+		return nil, TrackedItem{}, err
+	}
+	i := indexOf(st.Tracked, id)
+	if i < 0 {
+		return nil, TrackedItem{}, fmt.Errorf("no tracked item %s", id)
+	}
+	return st.Tracked, st.Tracked[i], nil
+}
+
 // ListLines renders one line per shown item: id · kind · state · checked-age ·
 // next.
 func ListLines(all, shown []TrackedItem) []string {

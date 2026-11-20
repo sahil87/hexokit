@@ -223,6 +223,31 @@ Exit codes:
 	RunE:         runOperatorTrackList,
 }
 
+var operatorTrackShowCmd = &cobra.Command{
+	Use:   "show <id> [--json]",
+	Short: "Show one tracked item with all its notes",
+	Long: `Show one tracked item: its list line (id · kind · state · checked age · next),
+then its fields and every note, uncapped. A pure read like list: it never
+writes and never converts. --json prints the single full item, including all
+its notes.
+
+Flags:
+  -L, --server    tmux server (default: the caller's own server from $TMUX)
+  --json          machine-readable envelope on stdout (the full item)
+
+Examples:
+  rk operator track show pr-913
+  rk operator track show w1 --json -L work
+
+Exit codes:
+  0  shown
+  1  operational failure (no such item, an absent state file included; state file unreadable)
+  2  usage error (missing or extra argument, invalid -L)`,
+	Args:         usageArgs(cobra.ExactArgs(1)),
+	SilenceUsage: true,
+	RunE:         runOperatorTrackShow,
+}
+
 var operatorTrackNoteCmd = &cobra.Command{
 	Use:   "note <id> <text> [--by user|run|chat]",
 	Short: "Append a note to a tracked item",
@@ -336,13 +361,15 @@ func init() {
 	f.String("kind", "", "filter to one kind")
 	f.Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 
+	operatorTrackShowCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
+
 	f = operatorTrackNoteCmd.Flags()
 	f.String("by", operator.ByUser, "note author: user, run, or chat")
 	f.Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 
 	operatorTrackCmd.AddCommand(
 		operatorTrackAddCmd, operatorTrackUpdateCmd, operatorTrackObserveCmd,
-		operatorTrackRmCmd, operatorTrackListCmd, operatorTrackNoteCmd,
+		operatorTrackRmCmd, operatorTrackListCmd, operatorTrackShowCmd, operatorTrackNoteCmd,
 		operatorTrackPauseCmd, operatorTrackResumeCmd,
 	)
 	operatorCmd.AddCommand(operatorTrackCmd)
@@ -613,5 +640,23 @@ func runOperatorTrackList(cmd *cobra.Command, args []string) error {
 	for _, line := range operator.ListLines(all, shown) {
 		sink.Dataf("%s\n", line)
 	}
+	return nil
+}
+
+func runOperatorTrackShow(cmd *cobra.Command, args []string) error {
+	asJSON, _ := cmd.Flags().GetBool("json")
+	sink := newSink(cmd)
+	_, path, err := operatorStateTarget(cmd)
+	if err != nil {
+		return operatorTrackDone(cmd, operatorTrackReceipt{}, err)
+	}
+	all, item, err := operator.Show(path, args[0])
+	if err != nil {
+		return operatorTrackDone(cmd, operatorTrackReceipt{}, err)
+	}
+	if asJSON {
+		return sink.Envelope(item, nil)
+	}
+	sink.Dataf("%s\n\n%s", operator.ListLines(all, []operator.TrackedItem{item})[0], operator.ItemBlock(all, item))
 	return nil
 }

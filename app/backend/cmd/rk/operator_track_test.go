@@ -154,13 +154,13 @@ func TestOperatorTrackRegisteredUnderOperator(t *testing.T) {
 	for _, c := range operatorTrackCmd.Commands() {
 		verbs[c.Name()] = true
 	}
-	for _, want := range []string{"add", "update", "observe", "rm", "list", "note", "pause", "resume"} {
+	for _, want := range []string{"add", "update", "observe", "rm", "list", "show", "note", "pause", "resume"} {
 		if !verbs[want] {
 			t.Errorf("verb %q missing", want)
 		}
 	}
-	if len(verbs) != 8 || verbs["clock"] {
-		t.Errorf("verbs = %v, want exactly the eight (no clock)", verbs)
+	if len(verbs) != 9 || verbs["clock"] {
+		t.Errorf("verbs = %v, want exactly the nine (no clock)", verbs)
 	}
 	for _, name := range []string{"text", "pause", "resume"} {
 		if operatorTrackUpdateCmd.Flags().Lookup(name) != nil {
@@ -496,4 +496,89 @@ func TestOperatorTrackAddRefusesEngineItemID(t *testing.T) {
 			t.Fatalf("engine id was overlaid with a note item: %+v", item)
 		}
 	}
+}
+
+func TestOperatorTrackShow(t *testing.T) {
+	state := operatorSandbox(t)
+	mustTrack(t, "add", "w1", "--kind", "task")
+	mustTrack(t, "add", "w2", "--kind", "task")
+	for i := 0; i < 25; i++ {
+		mustTrack(t, "note", "w1", fmt.Sprintf("note-%02d", i), "--by", "run")
+	}
+	before, err := os.ReadFile(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("plain prints the list line then every note", func(t *testing.T) {
+		out := mustTrack(t, "show", "w1")
+		if !strings.HasPrefix(out, "w1 · task · ") {
+			t.Errorf("show does not open with the list line: %q", out)
+		}
+		for i := 0; i < 25; i++ {
+			if !strings.Contains(out, fmt.Sprintf("note-%02d", i)) {
+				t.Errorf("note-%02d missing from plain output", i)
+			}
+		}
+		if strings.Contains(out, "w2") {
+			t.Errorf("show printed another item:\n%s", out)
+		}
+	})
+
+	t.Run("json is one envelope around the full item", func(t *testing.T) {
+		out := mustTrack(t, "show", "w1", "--json")
+		var doc struct {
+			OK     bool        `json:"ok"`
+			Result trackedJSON `json:"result"`
+		}
+		if err := json.Unmarshal([]byte(out), &doc); err != nil {
+			t.Fatalf("not one JSON document: %v\n%s", err, out)
+		}
+		if !doc.OK || doc.Result.ID != "w1" || len(doc.Result.Notes) != 25 {
+			t.Errorf("envelope = %+v", doc)
+		}
+	})
+
+	t.Run("a missing item exits 1", func(t *testing.T) {
+		_, err := track(t, "show", "nope")
+		wantExit(t, err, 1, "no tracked item nope")
+	})
+
+	t.Run("usage errors exit 2", func(t *testing.T) {
+		_, err := track(t, "show")
+		wantExit(t, err, 2, "")
+		_, err = track(t, "show", "w1", "w2")
+		wantExit(t, err, 2, "")
+		_, err = track(t, "show", "w1", "-L", "bad name")
+		wantExit(t, err, 2, "")
+	})
+
+	after, err := os.ReadFile(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Error("show changed the state file")
+	}
+}
+
+func TestOperatorTrackShowOnAbsentStateIsPureRead(t *testing.T) {
+	state := operatorSandbox(t)
+	_, err := track(t, "show", "w1")
+	wantExit(t, err, 1, "no tracked item w1")
+	if _, err := os.Stat(filepath.Dir(state)); !os.IsNotExist(err) {
+		t.Error("show created the state directory")
+	}
+}
+
+func TestOperatorTrackShowMalformedStateExits1(t *testing.T) {
+	state := operatorSandbox(t)
+	if err := os.MkdirAll(filepath.Dir(state), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state, []byte("tracked: [unclosed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := track(t, "show", "w1")
+	wantExit(t, err, 1, state)
 }

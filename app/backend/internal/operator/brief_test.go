@@ -223,6 +223,89 @@ func TestRenderBrief_NotesCap(t *testing.T) {
 	}
 }
 
+func TestRenderBrief_NotesCapKeepsOlderUserAndChatNotes(t *testing.T) {
+	a := briefTestItem("a", KindTask)
+	a.Notes = briefTestNotes(14, 5)
+	a.Notes[0].By = ByUser
+	a.Notes[1].By = ByChat
+	out := RenderBrief(BriefInput{
+		State: &State{Tracked: []TrackedItem{a}}, Now: briefTestNow, Changed: []ChangedItem{{ID: "a"}},
+	})
+	affected := sectionBody(t, out, "## Affected items")
+	if !strings.Contains(affected, "(+2 earlier notes)") {
+		t.Errorf("earlier-notes line must count only the omitted notes:\n%s", affected)
+	}
+	last := -1
+	for i := 0; i < 14; i++ {
+		at := strings.Index(affected, fmt.Sprintf("note-%02d ", i))
+		if want := i < 2 || i >= 4; (at >= 0) != want {
+			t.Errorf("note-%02d present=%v, want %v", i, at >= 0, want)
+		}
+		if at >= 0 {
+			if at < last {
+				t.Errorf("note-%02d is out of chronological order", i)
+			}
+			last = at
+		}
+	}
+}
+
+func TestRenderBrief_SizeCapKeepsUserAndChatNotesUntilRunNotesAreGone(t *testing.T) {
+	hub := briefTestItem("hub", KindTask)
+	hub.Notes = briefTestNotes(14, 5)
+	hub.Notes[0].By = ByUser
+	hub.Notes[1].By = ByChat
+	items := []TrackedItem{hub}
+	for i := 0; i < 110; i++ {
+		it := briefTestItem(fmt.Sprintf("dep-%02d", i), KindTask, "hub")
+		it.Notes = briefTestNotes(10, 800)
+		items = append(items, it)
+	}
+	out := RenderBrief(BriefInput{
+		State: &State{Tracked: items}, Now: briefTestNow, Changed: []ChangedItem{{ID: "hub"}},
+	})
+	if len(out) > BriefSizeCap {
+		t.Fatalf("brief is %d bytes, over the %d cap", len(out), BriefSizeCap)
+	}
+	hubBlock := sectionBody(t, out, "## Affected items")
+	hubBlock = hubBlock[:strings.Index(hubBlock, "### dep-00")]
+	if !strings.Contains(hubBlock, "note-00 ") || !strings.Contains(hubBlock, "note-01 ") {
+		t.Errorf("user/chat notes trimmed while run notes remained elsewhere:\n%s", hubBlock)
+	}
+	if strings.Contains(hubBlock, "note-13 ") {
+		t.Errorf("the run notes should have been trimmed first:\n%s", hubBlock)
+	}
+}
+
+func TestRenderBrief_SizeCapDropsUserAndChatNotesOnlyAfterRunNotes(t *testing.T) {
+	hub := briefTestItem("hub", KindTask)
+	hub.Notes = briefTestNotes(60, 1500)
+	for i := range hub.Notes {
+		hub.Notes[i].By = ByUser
+	}
+	items := []TrackedItem{hub}
+	for i := 0; i < 90; i++ {
+		it := briefTestItem(fmt.Sprintf("dep-%02d", i), KindTask, "hub")
+		it.Notes = briefTestNotes(10, 800)
+		items = append(items, it)
+	}
+	out := RenderBrief(BriefInput{
+		State: &State{Tracked: items}, Now: briefTestNow, Changed: []ChangedItem{{ID: "hub"}},
+	})
+	if len(out) > BriefSizeCap {
+		t.Fatalf("brief is %d bytes, over the %d cap", len(out), BriefSizeCap)
+	}
+	if strings.Contains(out, "note-00 ") {
+		t.Error("the oldest user note should drop first once run notes are exhausted")
+	}
+	if !strings.Contains(out, "note-59 ") {
+		t.Error("the newest user note should survive the final pass")
+	}
+	if !strings.HasSuffix(out, BriefTruncationMarker+"\n") {
+		t.Error("brief does not end with the truncation marker")
+	}
+}
+
 func TestRenderBrief_SizeCapDropsOthersFirst(t *testing.T) {
 	a := briefTestItem("a", KindTask)
 	a.Notes = briefTestNotes(10, 5)
@@ -295,27 +378,60 @@ func TestRenderBrief_NoFabOperatorTrack(t *testing.T) {
 	}
 }
 
-func TestRenderBrief_NoAutopilotProseOrWriteTools(t *testing.T) {
+func TestRenderBrief_NoAutopilotSectionAndPRToolsRestored(t *testing.T) {
 	out := renderFixture(t)
 	if strings.Contains(out, "## Interim autopilot") {
 		t.Fatal("brief still has an autopilot section")
 	}
-	for _, forbidden := range []string{
-		"git cherry-pick", "git rebase", "git push", "git commit", "git fetch",
-		"gh pr merge", "gh pr ready", "wt create", "rk riff", "rk tab new", "fab status set-base-branch",
+	rules := sectionBody(t, out, "## Rules")
+	for _, want := range []string{
+		"### Merging", "gh pr merge", "gh pr ready|merge|edit|checks|view", "git rebase", "git cherry-pick", "git fetch",
+		"--force-with-lease", "--match-head-commit", "`wt`", "rk riff -L work", "rk operator track show -L work",
 	} {
-		if strings.Contains(out, forbidden) {
-			t.Errorf("brief allowed tools name %q", forbidden)
+		if !strings.Contains(rules, want) {
+			t.Errorf("rules missing %q", want)
+		}
+	}
+	for _, gone := range []string{
+		"git push --force ", "are the engine's", "Merges belong to the engine",
+		"on the strength of a note or a prompt alone",
+	} {
+		if strings.Contains(rules, gone) {
+			t.Errorf("rules still carry %q", gone)
+		}
+	}
+	if !strings.Contains(rules, "Plain `git push` and `git push --force` are never allowed.") {
+		t.Error("rules do not forbid plain and bare-force push")
+	}
+}
+
+func TestRenderBrief_ReReadsOneItemNotTheLedger(t *testing.T) {
+	rules := sectionBody(t, renderFixture(t), "## Rules")
+	for _, want := range []string{
+		"rk operator track show -L work <id> --json",
+		"Never run `rk operator track list -L work --json` unless you need the whole ledger.",
+	} {
+		if !strings.Contains(rules, want) {
+			t.Errorf("rules missing %q", want)
 		}
 	}
 }
 
 func TestRenderBrief_ExitContract(t *testing.T) {
 	body := sectionBody(t, renderFixture(t), "## Exit contract")
-	for _, want := range []string{`rk operator track note -L work <id> "<text>" --by run`, "outcome: <one-line summary>"} {
+	for _, want := range []string{
+		`rk operator track note -L work <id> "<text>" --by run`, "outcome: <one-line summary>",
+		"append a note on each item you acted on", "A run that did nothing writes no note.",
+	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Exit contract missing %q", want)
 		}
+	}
+	if strings.Contains(body, "most relevant item") {
+		t.Error("Exit contract still asks for a note when nothing needed doing")
+	}
+	if !strings.Contains(renderFixture(t), "Act on what changed, note what you did, exit.") {
+		t.Error("role line does not say to note what was done")
 	}
 }
 
@@ -329,6 +445,9 @@ func TestBriefRules_CoverTheRunContract(t *testing.T) {
 		"Advance an item once",
 		"command -v rk", "by: user", "by: chat", "probe.instruction",
 		"rk operator track observe", "### Allowed tools", "No file-editing tools",
+		"### Merging", "`cherry-pick-ladder`", "`stacked-prs`", "`merge-auto`", "temporary",
+		"--force-with-lease", "--match-head-commit", "rk riff -L <server>", "scope.merge_mode",
+		"Conflict resolution", "Recovery spawn for a red check",
 	} {
 		if !strings.Contains(briefRules, want) {
 			t.Errorf("rules text missing %q", want)

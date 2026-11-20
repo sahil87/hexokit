@@ -77,6 +77,7 @@ func TestRenderedBriefCommandShapesAcceptServerFlag(t *testing.T) {
 	for _, want := range []string{
 		"mux capture", "mux send", "mux inventory",
 		"operator track add", "operator track update", "operator track rm", "operator track list",
+		"operator track show", "riff",
 		"operator track note", "operator track pause", "operator track observe",
 		"operator brief", "operator autopilot queue", "operator autopilot step", "operator autopilot status",
 	} {

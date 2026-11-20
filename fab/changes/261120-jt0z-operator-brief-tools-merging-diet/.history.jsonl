@@ -1,0 +1,7 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-20T07:55:08Z"}
+{"args":"Execute step T4 (Brief and chat skill: git/gh/wt back within the tiers; Merging section per mode; track show; re-read one item; no note when nothing done; user notes always shown) of the plan at /home/sahil/code/sahil87/hexokit/fab/plans/sahil/26-11-20-operator-triggers.md","cmd":"fab-new","event":"command","ts":"2026-11-20T07:55:08Z"}
+{"delta":"+0.0","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-11-20T07:56:44Z"}
+{"delta":"+0.0","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-11-20T07:56:56Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-20T07:59:16Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-20T07:59:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-20T08:08:13Z"}
