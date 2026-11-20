@@ -194,7 +194,7 @@ After the table, one line per queue — `mp: 2 of 7 done · F3 spawned · F2 wai
 
 ## Making the operator look
 
-To make the operator look at a server now — after a note, or because the user asks for a check — run `rk operator wake [-L <server>] [--reason <text>]`. It writes a one-line marker the next cron tick consumes: the loop fires with that reason, runs its deterministic check, and starts a run only when something changed. It needs no daemon and never forces a run. Never run a bare `rk operator check` to make the operator look: a check outside the loop consumes the changes it reports, so the run that should have seen them never starts. Notes you write `--by chat` are instructions the loop picks up on its own; a wake only brings the next look sooner.
+To make the operator look at a server now — after a note, or because the user asks for a check — run `rk operator wake [-L <server>] [--reason <text>]`. It writes a one-line marker the next cron tick consumes: the loop fires with that reason, runs its deterministic check, and starts a run only when something changed. It needs no daemon and never forces a run. Never run a bare `rk operator check` to make the operator look: a check outside the loop consumes the changes it reports, so the run that should have seen them never starts. Notes you write `--by chat` are instructions the loop picks up on its own; a wake only brings the next look sooner. PR events can wake the loop too: when `operator.pr_hooks` lists a repository and the logged-in `gh` account is admin on it, a PR event for a tracked PR arrives as a `pr:<owner>/<repo>#<n>:<event>` wake reason within seconds; where the account is not admin the clock picks the change up, and `rk doctor` shows the `pr hooks` row.
 
 ## Gotchas
 

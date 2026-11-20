@@ -50,6 +50,9 @@ var (
 	// Sentinel is the Playwright fail-closed port: a bare `playwright test`
 	// connects here and finds nothing listening.
 	Sentinel int
+	// GHHooks is the loopback port of the GitHub-webhook receiver
+	// (`rk operator hooks serve`).
+	GHHooks int
 )
 
 func init() {
@@ -62,6 +65,7 @@ func init() {
 	Rig = Block{Name: "rig", Start: vals["PORTPOLICY_RIG_START"], End: vals["PORTPOLICY_RIG_END"]}
 	Tunnel = Block{Name: "tunnel", Start: vals["PORTPOLICY_TUNNEL_START"], End: vals["PORTPOLICY_TUNNEL_END"]}
 	Sentinel = vals["PORTPOLICY_SENTINEL"]
+	GHHooks = vals["PORTPOLICY_GH_HOOKS"]
 }
 
 // parse reads bash-sourceable KEY=integer lines; '#' comments and blank
@@ -92,6 +96,7 @@ func parse(data string) (map[string]int, error) {
 		"PORTPOLICY_TUNNEL_START",
 		"PORTPOLICY_TUNNEL_END",
 		"PORTPOLICY_SENTINEL",
+		"PORTPOLICY_GH_HOOKS",
 	} {
 		if _, ok := vals[key]; !ok {
 			return nil, fmt.Errorf("ports.env: missing key %s", key)
@@ -101,13 +106,18 @@ func parse(data string) (map[string]int, error) {
 }
 
 // Reserved returns every block a daemon must not land in: the rig block,
-// the tunnel block, and the sentinel as a one-port block.
+// the tunnel block, and the sentinel and the webhook receiver port as
+// one-port blocks.
 func Reserved() []Block {
-	return []Block{Rig, Tunnel, {Name: "sentinel", Start: Sentinel, End: Sentinel}}
+	return []Block{
+		Rig, Tunnel,
+		{Name: "sentinel", Start: Sentinel, End: Sentinel},
+		{Name: "gh-hooks", Start: GHHooks, End: GHHooks},
+	}
 }
 
 // Summary renders the reserved blocks as a one-line list
-// ("rig 21000–21299, tunnel 3100–3199, sentinel 21999"). It is the single
+// ("rig 21000–21299, tunnel 3100–3199, sentinel 21999, gh-hooks 21900"). It is the single
 // formatter for that list — `rk ports` and the doctor ports row both use it
 // so the two surfaces can never disagree.
 func Summary() string {

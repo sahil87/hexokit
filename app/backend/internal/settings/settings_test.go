@@ -538,6 +538,10 @@ func TestOptionalSettingRoundTrips(t *testing.T) {
 			`{"review": "/code-review high"}`, map[string]string{"review": "/code-review high"},
 			`{"blank": "/fab-discuss"}`, map[string]string{"review": "/code-review high", "blank": "/fab-discuss"},
 			map[string]string(nil)),
+		"operator.pr_hooks": registryValueFixture(
+			`["a/b","c/d"]`, []string{"a/b", "c/d"},
+			`["e/f"]`, []string{"e/f"},
+			[]string(nil)),
 		"board_order": func(t *testing.T, _ *registryEntry) {
 			t.Setenv("HOME", t.TempDir())
 			if got := GetBoardOrder(); got != nil {
@@ -1738,4 +1742,70 @@ func TestOperatorMergeMode(t *testing.T) {
 			t.Fatalf("a rejected value mutated the settings: %q", s.OperatorMergeMode)
 		}
 	})
+}
+
+func TestOperatorPRHooksParseValidatesAndDedups(t *testing.T) {
+	s := parse("operator.pr_hooks:\n  - \"sahil87/hexokit\"\n  - \"bad repo\"\n  - \"sahil87/hexokit\"\n  - other/repo\nlog_level: debug\n")
+	if want := []string{"sahil87/hexokit", "other/repo"}; !reflect.DeepEqual(s.OperatorPRHooks, want) {
+		t.Errorf("OperatorPRHooks = %v, want %v", s.OperatorPRHooks, want)
+	}
+	if s.LogLevel != "debug" {
+		t.Errorf("a key after the section was lost: LogLevel = %q", s.LogLevel)
+	}
+	if got := parse("theme: system\n").OperatorPRHooks; got != nil {
+		t.Errorf("default OperatorPRHooks = %v, want empty (feature off)", got)
+	}
+}
+
+func TestOperatorPRHooksSerializeRoundTrip(t *testing.T) {
+	s := Default()
+	if got := serialize(s); strings.Contains(got, "pr_hooks") {
+		t.Errorf("empty list must be omitted, got %q", got)
+	}
+	s.OperatorPRHooks = []string{"sahil87/hexokit", "sahil-noon/conductor-playground"}
+	text := serialize(s)
+	if want := "operator.pr_hooks:\n  - \"sahil87/hexokit\"\n  - \"sahil-noon/conductor-playground\"\n"; !strings.Contains(text, want) {
+		t.Errorf("serialize = %q, want it to contain %q", text, want)
+	}
+	if got := parse(text).OperatorPRHooks; !reflect.DeepEqual(got, s.OperatorPRHooks) {
+		t.Errorf("round trip = %v, want %v", got, s.OperatorPRHooks)
+	}
+}
+
+func TestOperatorPRHooksApplyValue(t *testing.T) {
+	s := Default()
+	if err := ApplyValue(&s, "operator.pr_hooks", json.RawMessage(`["a/b"," c/d ","a/b"]`)); err != nil {
+		t.Fatalf("valid apply: %v", err)
+	}
+	if want := []string{"a/b", "c/d"}; !reflect.DeepEqual(s.OperatorPRHooks, want) {
+		t.Errorf("after apply = %v, want %v (trimmed, duplicates collapsed)", s.OperatorPRHooks, want)
+	}
+	if err := ApplyValue(&s, "operator.pr_hooks", json.RawMessage(`["ok/repo","no slash"]`)); err == nil {
+		t.Error("an invalid entry must reject the whole apply")
+	}
+	if want := []string{"a/b", "c/d"}; !reflect.DeepEqual(s.OperatorPRHooks, want) {
+		t.Errorf("a rejected apply mutated the value: %v", s.OperatorPRHooks)
+	}
+	if err := ApplyValue(&s, "operator.pr_hooks", json.RawMessage(`"a/b"`)); err == nil {
+		t.Error("a non-array must be rejected")
+	}
+	for _, clear := range []string{`null`, `[]`} {
+		s.OperatorPRHooks = []string{"a/b"}
+		if err := ApplyValue(&s, "operator.pr_hooks", json.RawMessage(clear)); err != nil || len(s.OperatorPRHooks) != 0 {
+			t.Errorf("apply %s: err=%v value=%v, want cleared", clear, err, s.OperatorPRHooks)
+		}
+	}
+}
+
+func TestOperatorPRHooksRegistryMetadata(t *testing.T) {
+	for _, k := range Registry() {
+		if k.Key != "operator.pr_hooks" {
+			continue
+		}
+		if k.Kind != "list" || k.UI || !k.Live || k.Default != "[]" {
+			t.Errorf("operator.pr_hooks metadata = %+v, want list, ui=false, live=true, default []", k)
+		}
+		return
+	}
+	t.Fatal("operator.pr_hooks missing from the registry")
 }

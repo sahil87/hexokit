@@ -74,7 +74,7 @@ func TestGetSettings_registryOrderAndDefaults(t *testing.T) {
 		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host", "port",
 		"instance_name", "auto_name", "cron_ticker", "easter_eggs", "gui.enabled", "gui.wm", "gui.geometry", "openai_mcp.enabled", "openai_mcp.tunnel_id",
 		"operator.merge_mode", "tmux_conf",
-		"log_level", "server_colors", "server_flairs", "board_order", "riff_presets",
+		"log_level", "server_colors", "server_flairs", "board_order", "riff_presets", "operator.pr_hooks",
 	}
 	if len(entries) != len(wantKeys) {
 		t.Fatalf("GET returned %d entries, want %d", len(entries), len(wantKeys))
