@@ -91,7 +91,7 @@ func TestGetFabConfig_returnsFreshDocument(t *testing.T) {
 		if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
 			t.Fatal(err)
 		}
-		if !doc.Installed || len(doc.Providers) != 2 || doc.Fields["agent.session"].Origin != "system" {
+		if !doc.Installed || len(doc.Tools) != 2 || doc.Fields["agent.session"].Origin != "system" {
 			t.Errorf("document = %+v", doc)
 		}
 	}

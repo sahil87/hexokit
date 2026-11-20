@@ -71,18 +71,17 @@ export async function stubFabConfig(
           ? { override: String(sys), effective: String(sys), source: key, origin: "system", originDetail: systemPath, inherited }
           : { override: null, effective: inherited, source, origin: "default", inherited };
       };
-      return {
-        role,
-        depth,
-        provider: cell("provider", String(fields[tierKey].value), tierKey),
-        model: cell("model", "", ""),
-        effort: cell("effort", "", ""),
-      };
+      const tool = cell("tool", String(fields[tierKey].value), tierKey);
+      // `provider` mirrors `tool` so `just demo --before` can replay this
+      // stub against a base SPA that predates the neutral field names.
+      return { role, depth, tool, provider: tool, model: cell("model", "", ""), effort: cell("effort", "", "") };
     });
+    const tools = ["agy", "claude", "codex", "kimi"];
     return {
       installed: true,
       systemPath,
-      providers: ["agy", "claude", "codex", "kimi"],
+      tools,
+      providers: tools,
       fields,
       roles,
       modelSuggestions: { claude: ["claude-opus-5-5", "claude-sonnet-5-5"], codex: ["gpt-5.6-sol"], agy: [], kimi: [] },

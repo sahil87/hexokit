@@ -55,7 +55,9 @@ function hasSystemOverride(field: FabField | undefined): boolean {
   return field !== undefined && (field.origin === "system" || field.systemValue !== undefined);
 }
 
-function profileKey(role: string, leaf: "provider" | "model" | "effort"): string {
+/** The tool leaf is neutral: the backend writes it in the installed fab's
+ *  spelling (`cli`, or `provider` before fab's rename). */
+function profileKey(role: string, leaf: "tool" | "model" | "effort"): string {
   return `agent.profiles.${role}.${leaf}`;
 }
 
@@ -652,9 +654,9 @@ function toolChangePatch(
   efforts: string[],
   effortCapable: Record<string, boolean> | undefined,
 ): Patch {
-  const patch: Patch = { [profileKey(role.role, "provider")]: next };
+  const patch: Patch = { [profileKey(role.role, "tool")]: next };
   const nextTool = next ?? depthTool;
-  if (nextTool === role.provider.effective) return patch;
+  if (nextTool === role.tool.effective) return patch;
   const model = role.model.override;
   if (model === null || !(modelSuggestions[nextTool] ?? []).includes(model)) {
     patch[profileKey(role.role, "model")] = null;
@@ -668,7 +670,7 @@ function toolChangePatch(
 
 function RoleRow({
   role,
-  providers,
+  tools,
   depthTool,
   modelSuggestions,
   efforts,
@@ -676,7 +678,7 @@ function RoleRow({
   write,
 }: {
   role: FabRole;
-  providers: string[];
+  tools: string[];
   /** The depth knob's tool — what the row resolves to with no tool override. */
   depthTool: string;
   modelSuggestions: Record<string, string[]>;
@@ -685,12 +687,12 @@ function RoleRow({
   write: Write;
 }) {
   const { busy, error, run } = useRowWrite(write);
-  const suggestions = modelSuggestions[role.provider.effective] ?? [];
-  const effortOK = takesEffort(effortCapable, role.provider.effective);
+  const suggestions = modelSuggestions[role.tool.effective] ?? [];
+  const effortOK = takesEffort(effortCapable, role.tool.effective);
   const inheritModel = () => void run({ [profileKey(role.role, "model")]: null });
   // A saved value shadowed by an env var still counts: reset is the only way
   // to clear it from here.
-  const overridden = [role.provider, role.model, role.effort].some(
+  const overridden = [role.tool, role.model, role.effort].some(
     (cell) => cell.override !== null || cell.systemValue !== undefined,
   );
   return (
@@ -701,17 +703,17 @@ function RoleRow({
         <td className="py-1.5 pr-2">
           <span className="inline-flex items-center gap-1">
             <RoleSelect
-              label={`${role.role} provider`}
-              cell={role.provider}
-              options={providers}
+              label={`${role.role} CLI`}
+              cell={role.tool}
+              options={tools}
               disabled={busy}
               onChange={(v) => void run(toolChangePatch(role, v, depthTool, modelSuggestions, efforts, effortCapable))}
             />
-            {role.provider.origin === "env" && (
+            {role.tool.origin === "env" && (
               <span
                 role="img"
-                aria-label="provider set by an environment variable"
-                title={`${role.provider.originDetail ?? "An environment variable"} sets this provider — changes here won't take effect until it is unset`}
+                aria-label="CLI set by an environment variable"
+                title={`${role.tool.originDetail ?? "An environment variable"} sets this CLI — changes here won't take effect until it is unset`}
                 className="text-signal-yellow"
               >
                 ⚠
@@ -746,7 +748,7 @@ function RoleRow({
               busy={busy}
               onReset={() =>
                 void run({
-                  [profileKey(role.role, "provider")]: null,
+                  [profileKey(role.role, "tool")]: null,
                   [profileKey(role.role, "model")]: null,
                   [profileKey(role.role, "effort")]: null,
                 })
@@ -760,7 +762,7 @@ function RoleRow({
           <td colSpan={6} className="pb-1.5">
             <StaleModelNote
               role={role.role}
-              tool={role.provider.effective}
+              tool={role.tool.effective}
               cell={role.model}
               busy={busy}
               onInherit={inheritModel}
@@ -794,7 +796,7 @@ function RoleTable({ doc, write }: { doc: Document; write: Write }) {
             <tr className="text-left text-[10px] uppercase tracking-wider text-text-secondary border-b border-border">
               <th className="py-1 pr-2 font-medium">Role</th>
               <th className="py-1 pr-2 font-medium">Tier</th>
-              <th className="py-1 pr-2 font-medium">Provider</th>
+              <th className="py-1 pr-2 font-medium">CLI</th>
               <th className="py-1 pr-2 font-medium">Model</th>
               <th className="py-1 pr-2 font-medium">Effort</th>
               <th className="py-1 font-medium">
@@ -807,8 +809,8 @@ function RoleTable({ doc, write }: { doc: Document; write: Write }) {
               <RoleRow
                 key={role.role}
                 role={role}
-                providers={doc.providers}
-                depthTool={role.provider.inherited || stringValue(doc.fields[`agent.${role.depth}`])}
+                tools={doc.tools}
+                depthTool={role.tool.inherited || stringValue(doc.fields[`agent.${role.depth}`])}
                 modelSuggestions={doc.modelSuggestions}
                 efforts={doc.effortSuggestions}
                 effortCapable={doc.effortCapable}
@@ -834,7 +836,7 @@ function AgentsContent({
   const f = doc.fields;
   return (
     <>
-      <section aria-label="Agent providers">
+      <section aria-label="Agent CLIs">
         <ScopeHeading
           label="Agents"
           hint={`${doc.systemPath || SYSTEM_CONFIG_FALLBACK_PATH} · machine-wide, outranks project files`}
@@ -842,17 +844,17 @@ function AgentsContent({
         <div className="divide-y divide-border/40">
           <ChipRow
             fieldKey={KEY_SESSION}
-            label="Session agent"
+            label="Session CLI"
             sublabel="What you talk to: fab agent, operator, batch"
-            options={doc.providers}
+            options={doc.tools}
             field={f[KEY_SESSION]}
             write={write}
           />
           <ChipRow
             fieldKey={KEY_WORKERS}
-            label="Worker agent"
+            label="Worker CLI"
             sublabel="What pipeline stages dispatch to"
-            options={doc.providers}
+            options={doc.tools}
             field={f[KEY_WORKERS]}
             write={write}
           />
@@ -886,7 +888,10 @@ function AgentsContent({
       )}
 
       <footer className="mt-4 pt-2 border-t border-border/40 text-[10px] text-text-secondary space-y-1">
-        <p>The providers table and other list/map keys can&apos;t be set from the CLI.</p>
+        <p>
+          The CLI table (<code>providers:</code> / <code>clis:</code>) and other list/map keys can&apos;t be set
+          from the command line.
+        </p>
         <p className="flex items-center gap-2 flex-wrap">
           <span>Edit them in</span>
           <code data-testid="fab-system-path" className="text-text-primary break-all">

@@ -121,9 +121,9 @@ test.describe("agents-model-list demo", () => {
     await beat(page, 2_500);
 
     const postsBefore = posts.length;
-    await page.getByLabel("doing provider", { exact: true }).selectOption("codex");
+    await page.getByLabel("doing CLI", { exact: true }).selectOption("codex");
     await expect.poll(() => posts.length).toBeGreaterThan(postsBefore);
-    await expect(page.getByLabel("doing provider", { exact: true })).toHaveValue("codex");
+    await expect(page.getByLabel("doing CLI", { exact: true })).toHaveValue("codex");
     await caption(
       page,
       `Switched doing's tool to codex\nPOST ${JSON.stringify(posts.at(-1))}\ndoing's model is now: ${(await modelValue(page, "doing")) || "(inherit)"}`,

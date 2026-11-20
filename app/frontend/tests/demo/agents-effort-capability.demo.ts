@@ -73,9 +73,9 @@ test.describe("agents-effort-capability demo", () => {
     const posts = await stubFabConfig(page, {
       systemPath: "/home/demo/.fab-kit/config.yaml",
       system: {
-        "agent.profiles.review.provider": "kimi",
+        "agent.profiles.review.tool": "kimi",
         "agent.profiles.review.effort": "high",
-        "agent.profiles.doing.provider": "codex",
+        "agent.profiles.doing.tool": "codex",
         "agent.profiles.doing.effort": "high",
       },
     });
@@ -93,9 +93,9 @@ test.describe("agents-effort-capability demo", () => {
 
     await page.getByTestId("role-row-doing").scrollIntoViewIfNeeded();
     const postsBefore = posts.length;
-    await page.getByLabel("doing provider", { exact: true }).selectOption("agy");
+    await page.getByLabel("doing CLI", { exact: true }).selectOption("agy");
     await expect.poll(() => posts.length).toBeGreaterThan(postsBefore);
-    await expect(page.getByLabel("doing provider", { exact: true })).toHaveValue("agy");
+    await expect(page.getByLabel("doing CLI", { exact: true })).toHaveValue("agy");
     await caption(
       page,
       `Switched doing from codex (effort high) to agy\nPOST ${JSON.stringify(posts.at(-1))}\neffort select: ${await effortState(page, "doing")}`,

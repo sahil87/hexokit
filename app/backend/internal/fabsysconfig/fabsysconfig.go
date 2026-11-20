@@ -15,6 +15,12 @@
 // values but the daemon must not rely on it for subprocess input), then run
 // `fab config set|unset <key> [<value>] --system` sequentially.
 //
+// fab spells its CLI table `clis:` and a role's tool leaf
+// `agent.profiles.<role>.cli`; older fab spells them `providers:` and
+// `.provider`, and a fab mid-deprecation may show both. Reads accept either
+// spelling (new wins); the document and the patch speak a neutral `tool`
+// leaf, mapped on write to the spelling the installed fab emits.
+//
 // Every subprocess is an argv-slice exec.CommandContext with a timeout and
 // Dir=$HOME, so the view is strictly machine-wide (env, system and default
 // tiers): a daemon started inside a repo never leaks that repo's project tier.
@@ -42,31 +48,35 @@ const FabTimeout = 10 * time.Second
 
 // Config key names the UI surfaces.
 const (
-	KeyAgentSession      = "agent.session"
-	KeyAgentWorkers      = "agent.workers"
-	KeyDispatchMode      = "dispatch.mode"
-	KeyDispatchColWidth  = "dispatch.column_width"
-	KeyDispatchMinCols   = "dispatch.min_cols"
-	KeyDispatchMinRows   = "dispatch.min_rows"
-	KeyDispatchReapDone  = "dispatch.reap_done"
-	profileKeyPrefix     = "agent.profiles."
-	providersKeyPrefix   = "providers."
-	systemConfigRelPath  = ".fab-kit/config.yaml"
-	originEnv            = "env"
-	originSystem         = "system"
-	depthSession         = "session"
-	depthWorkers         = "workers"
-	maxProfileValueLen   = 128
-	maxColumnWidth       = 99
-	warningMarker        = "warning"
-	profileLeafProvider  = "provider"
-	profileLeafModel     = "model"
-	profileLeafEffort    = "effort"
-	providerProfileInfix = ".profiles."
-	defaultProfile       = "default"
-	interactiveCmdLeaf   = ".interactive_command"
-	headlessCmdLeaf      = ".headless_command"
-	effortToken          = "{effort}"
+	KeyAgentSession     = "agent.session"
+	KeyAgentWorkers     = "agent.workers"
+	KeyDispatchMode     = "dispatch.mode"
+	KeyDispatchColWidth = "dispatch.column_width"
+	KeyDispatchMinCols  = "dispatch.min_cols"
+	KeyDispatchMinRows  = "dispatch.min_rows"
+	KeyDispatchReapDone = "dispatch.reap_done"
+	profileKeyPrefix    = "agent.profiles."
+	clisKeyPrefix       = "clis."
+	providersKeyPrefix  = "providers."
+	clisTableKey        = "clis"
+	systemConfigRelPath = ".fab-kit/config.yaml"
+	originEnv           = "env"
+	originSystem        = "system"
+	depthSession        = "session"
+	depthWorkers        = "workers"
+	maxProfileValueLen  = 128
+	maxColumnWidth      = 99
+	warningMarker       = "warning"
+	profileLeafTool     = "tool"
+	profileLeafCLI      = "cli"
+	profileLeafProvider = "provider"
+	profileLeafModel    = "model"
+	profileLeafEffort   = "effort"
+	toolProfileInfix    = ".profiles."
+	defaultProfile      = "default"
+	interactiveCmdLeaf  = ".interactive_command"
+	headlessCmdLeaf     = ".headless_command"
+	effortToken         = "{effort}"
 )
 
 // ScalarKeys are the v1 non-profile keys, in display order.
@@ -91,7 +101,18 @@ var DispatchModes = []string{"pane", "native", "headless"}
 // EffortSuggestions is the effort select's option list; fab exposes no enum.
 var EffortSuggestions = []string{"low", "medium", "high", "xhigh", "max"}
 
-var profileLeaves = []string{profileLeafProvider, profileLeafModel, profileLeafEffort}
+// toolTablePrefixes and toolLeafSpellings list fab's spellings newest first,
+// so every read prefers the new one when fab emits both.
+var (
+	toolTablePrefixes = []string{clisKeyPrefix, providersKeyPrefix}
+	toolLeafSpellings = []string{profileLeafCLI, profileLeafProvider}
+)
+
+// toolLeaves are the accepted patch spellings of a role's tool leaf: the
+// neutral one the SPA sends plus fab's two.
+var toolLeaves = []string{profileLeafTool, profileLeafCLI, profileLeafProvider}
+
+var profileLeaves = append(append([]string{}, toolLeaves...), profileLeafModel, profileLeafEffort)
 
 // Runner executes one fab argv and returns its stdout and stderr separately.
 // It is the test seam: unit tests inject a fake so the real binary — and the
@@ -125,6 +146,10 @@ type Client struct {
 	run      Runner
 	lookPath func(string) (string, error)
 	home     func() (string, error)
+	// writeToolLeaf is fab's spelling of the role tool leaf ("cli" or
+	// "provider"), probed by each Read and Apply. The API builds a Client per
+	// request, so a fab upgrade is honoured on the next request.
+	writeToolLeaf string
 }
 
 // NewClient returns a Client that runs the real fab binary from $HOME.
@@ -181,7 +206,7 @@ type Field struct {
 	Description string `json:"description,omitempty"`
 }
 
-// Cell is one role leaf (provider, model or effort).
+// Cell is one role leaf (tool, model or effort).
 type Cell struct {
 	// Override is set only when the leaf's origin is the system tier.
 	Override     *string `json:"override"`
@@ -190,8 +215,8 @@ type Cell struct {
 	Origin       string  `json:"origin"`
 	OriginDetail string  `json:"originDetail,omitempty"`
 	// Inherited is what the leaf resolves to with no override: the depth knob
-	// for provider; for model/effort the resolved provider's fill for this
-	// role, else its default-profile fill (fab's own fallback order).
+	// for the tool; for model/effort the resolved tool's fill for this role,
+	// else its default-profile fill (fab's own fallback order).
 	Inherited string `json:"inherited"`
 	// SystemValue is the system-tier value shadowed by an env winner.
 	SystemValue *string `json:"systemValue,omitempty"`
@@ -199,23 +224,23 @@ type Cell struct {
 
 // Role is one row of the per-role override table.
 type Role struct {
-	Role     string `json:"role"`
-	Depth    string `json:"depth"`
-	Provider Cell   `json:"provider"`
-	Model    Cell   `json:"model"`
-	Effort   Cell   `json:"effort"`
+	Role   string `json:"role"`
+	Depth  string `json:"depth"`
+	Tool   Cell   `json:"tool"`
+	Model  Cell   `json:"model"`
+	Effort Cell   `json:"effort"`
 }
 
 // Document is the GET /api/fab-config payload.
 type Document struct {
 	Installed         bool                `json:"installed"`
 	SystemPath        string              `json:"systemPath,omitempty"`
-	Providers         []string            `json:"providers,omitempty"`
+	Tools             []string            `json:"tools,omitempty"`
 	Fields            map[string]Field    `json:"fields,omitempty"`
 	Roles             []Role              `json:"roles,omitempty"`
 	ModelSuggestions  map[string][]string `json:"modelSuggestions,omitempty"`
 	EffortSuggestions []string            `json:"effortSuggestions,omitempty"`
-	// EffortCapable says per provider whether its interactive or headless
+	// EffortCapable says per tool whether its interactive or headless
 	// command carries {effort}; without it an effort is never substituted.
 	EffortCapable map[string]bool `json:"effortCapable,omitempty"`
 	Warnings      []string        `json:"warnings,omitempty"`
@@ -280,17 +305,20 @@ func (c *Client) loadRows(ctx context.Context) ([]showRow, error) {
 	return rows, nil
 }
 
-// providerNames derives the provider set from the providers.<name>.* leaves —
-// never a hard-coded list, so a kit that ships a new provider appears at once.
-func providerNames(rows []showRow) []string {
+// toolNames derives the tool set from the clis.<name>.* and
+// providers.<name>.* leaves — never a hard-coded list, so a kit that ships a
+// new tool appears at once.
+func toolNames(rows []showRow) []string {
 	seen := map[string]struct{}{}
 	for _, r := range rows {
-		rest, ok := strings.CutPrefix(r.Key, providersKeyPrefix)
-		if !ok {
-			continue
-		}
-		if name, _, found := strings.Cut(rest, "."); found && name != "" {
-			seen[name] = struct{}{}
+		for _, prefix := range toolTablePrefixes {
+			rest, ok := strings.CutPrefix(r.Key, prefix)
+			if !ok {
+				continue
+			}
+			if name, _, found := strings.Cut(rest, "."); found && name != "" {
+				seen[name] = struct{}{}
+			}
 		}
 	}
 	names := make([]string, 0, len(seen))
@@ -311,26 +339,24 @@ func (c *Client) Read(ctx context.Context) (*Document, error) {
 	if err != nil {
 		return nil, err
 	}
-	byKey := make(map[string]showRow, len(rows))
-	for _, r := range rows {
-		byKey[r.Key] = r
-	}
+	byKey := indexRows(rows)
+	descriptions := c.descriptions(ctx)
+	c.writeToolLeaf = probeToolLeaf(rows, descriptions)
 
 	doc := &Document{
 		Installed:         true,
 		SystemPath:        c.systemPath(rows),
-		Providers:         providerNames(rows),
+		Tools:             toolNames(rows),
 		Fields:            map[string]Field{},
 		ModelSuggestions:  map[string][]string{},
 		EffortSuggestions: EffortSuggestions,
 		EffortCapable:     map[string]bool{},
 	}
-	for _, p := range doc.Providers {
-		doc.ModelSuggestions[p] = modelSuggestions(rows, p)
-		doc.EffortCapable[p] = effortCapable(byKey, p)
+	for _, t := range doc.Tools {
+		doc.ModelSuggestions[t] = modelSuggestions(rows, t)
+		doc.EffortCapable[t] = effortCapable(byKey, t)
 	}
 
-	descriptions := c.descriptions(ctx)
 	for _, key := range ScalarKeys {
 		row, ok := byKey[key]
 		if !ok {
@@ -349,14 +375,16 @@ func (c *Client) Read(ctx context.Context) (*Document, error) {
 	}
 
 	for _, rd := range Roles {
-		role := buildRole(rd, byKey)
-		for leaf, cell := range map[string]*Cell{
-			profileLeafProvider: &role.Provider, profileLeafModel: &role.Model, profileLeafEffort: &role.Effort,
+		role := buildRole(rd, byKey, c.writeToolLeaf)
+		for key, cell := range map[string]*Cell{
+			roleToolKey(byKey, rd.Name, c.writeToolLeaf):         &role.Tool,
+			profileKeyPrefix + rd.Name + "." + profileLeafModel:  &role.Model,
+			profileKeyPrefix + rd.Name + "." + profileLeafEffort: &role.Effort,
 		} {
 			if cell.Origin != originEnv {
 				continue
 			}
-			if v := c.systemValue(ctx, profileKeyPrefix+rd.Name+"."+leaf); v != nil {
+			if v := c.systemValue(ctx, key); v != nil {
 				s := fmt.Sprint(v)
 				cell.SystemValue = &s
 			}
@@ -364,6 +392,44 @@ func (c *Client) Read(ctx context.Context) (*Document, error) {
 		doc.Roles = append(doc.Roles, role)
 	}
 	return doc, nil
+}
+
+func indexRows(rows []showRow) map[string]showRow {
+	byKey := make(map[string]showRow, len(rows))
+	for _, r := range rows {
+		byKey[r.Key] = r
+	}
+	return byKey
+}
+
+// probeToolLeaf picks the role tool leaf the installed fab writes: "cli" once
+// fab shows any new-spelling key (a renamed fab emits clis.<name>.* defaults
+// for its built-in tools) or explains one, else today's "provider". It reuses
+// output already fetched, so the probe costs no extra fab call.
+func probeToolLeaf(rows []showRow, explained map[string]string) string {
+	for _, r := range rows {
+		if isNewSpellingKey(r.Key) {
+			return profileLeafCLI
+		}
+	}
+	for key := range explained {
+		if isNewSpellingKey(key) {
+			return profileLeafCLI
+		}
+	}
+	return profileLeafProvider
+}
+
+func isNewSpellingKey(key string) bool {
+	if key == clisTableKey || strings.HasPrefix(key, clisKeyPrefix) {
+		return true
+	}
+	rest, ok := strings.CutPrefix(key, profileKeyPrefix)
+	if !ok {
+		return false
+	}
+	_, leaf, _ := strings.Cut(rest, ".")
+	return leaf == profileLeafCLI
 }
 
 func (c *Client) systemPath(rows []showRow) string {
@@ -414,12 +480,11 @@ func (c *Client) systemValue(ctx context.Context, key string) any {
 	return nil
 }
 
-func modelSuggestions(rows []showRow, provider string) []string {
-	prefix := providersKeyPrefix + provider + providerProfileInfix
+func modelSuggestions(rows []showRow, tool string) []string {
 	seen := map[string]struct{}{}
 	var out []string
 	for _, r := range rows {
-		if !strings.HasPrefix(r.Key, prefix) || !strings.HasSuffix(r.Key, "."+profileLeafModel) {
+		if !hasToolProfilePrefix(r.Key, tool) || !strings.HasSuffix(r.Key, "."+profileLeafModel) {
 			continue
 		}
 		if v := valueString(r.Value); v != "" {
@@ -436,18 +501,54 @@ func modelSuggestions(rows []showRow, provider string) []string {
 	return out
 }
 
-// effortCapable reports whether either of the provider's commands takes an
-// effort; a provider with neither command takes none.
-func effortCapable(byKey map[string]showRow, provider string) bool {
-	for _, leaf := range []string{interactiveCmdLeaf, headlessCmdLeaf} {
-		if strings.Contains(valueString(byKey[providersKeyPrefix+provider+leaf].Value), effortToken) {
+func hasToolProfilePrefix(key, tool string) bool {
+	for _, prefix := range toolTablePrefixes {
+		if strings.HasPrefix(key, prefix+tool+toolProfileInfix) {
 			return true
 		}
 	}
 	return false
 }
 
-// depthKey is the knob a role's provider inherits from.
+// tableKey is the first spelling of <table>.<tool><suffix> that fab shows,
+// else "".
+func tableKey(byKey map[string]showRow, tool, suffix string) string {
+	for _, prefix := range toolTablePrefixes {
+		if key := prefix + tool + suffix; hasRow(byKey, key) {
+			return key
+		}
+	}
+	return ""
+}
+
+func hasRow(byKey map[string]showRow, key string) bool {
+	_, ok := byKey[key]
+	return ok
+}
+
+// effortCapable reports whether either of the tool's commands takes an
+// effort; a tool with neither command takes none.
+func effortCapable(byKey map[string]showRow, tool string) bool {
+	for _, leaf := range []string{interactiveCmdLeaf, headlessCmdLeaf} {
+		if strings.Contains(valueString(byKey[tableKey(byKey, tool, leaf)].Value), effortToken) {
+			return true
+		}
+	}
+	return false
+}
+
+// roleToolKey is the row key a role's tool is read from: the first spelling
+// fab shows, else agent.profiles.<role>.<fallbackLeaf> (absent — no override).
+func roleToolKey(byKey map[string]showRow, role, fallbackLeaf string) string {
+	for _, leaf := range toolLeafSpellings {
+		if key := profileKeyPrefix + role + "." + leaf; hasRow(byKey, key) {
+			return key
+		}
+	}
+	return profileKeyPrefix + role + "." + fallbackLeaf
+}
+
+// depthKey is the knob a role's tool inherits from.
 func depthKey(depth string) string {
 	if depth == depthSession {
 		return KeyAgentSession
@@ -455,13 +556,13 @@ func depthKey(depth string) string {
 	return KeyAgentWorkers
 }
 
-func buildRole(rd roleDef, byKey map[string]showRow) Role {
+func buildRole(rd roleDef, byKey map[string]showRow, toolLeaf string) Role {
 	role := Role{Role: rd.Name, Depth: rd.Depth}
-	provider := cellFor(byKey, profileKeyPrefix+rd.Name+"."+profileLeafProvider, "")
-	provider.Inherited = valueString(byKey[depthKey(rd.Depth)].Value)
-	role.Provider = provider
+	tool := cellFor(byKey, roleToolKey(byKey, rd.Name, toolLeaf), "")
+	tool.Inherited = valueString(byKey[depthKey(rd.Depth)].Value)
+	role.Tool = tool
 	for _, leaf := range []string{profileLeafModel, profileLeafEffort} {
-		fallback := fillKey(byKey, provider.Effective, rd.Name, leaf)
+		fallback := fillKey(byKey, tool.Effective, rd.Name, leaf)
 		cell := cellFor(byKey, profileKeyPrefix+rd.Name+"."+leaf, fallback)
 		cell.Inherited = valueString(byKey[fallback].Value)
 		if leaf == profileLeafModel {
@@ -473,21 +574,23 @@ func buildRole(rd roleDef, byKey map[string]showRow) Role {
 	return role
 }
 
-// fillKey is the provider-table key an unset role leaf inherits: the
-// provider's non-empty fill for this role, else its non-empty default-profile
-// fill, else "" (the tool's own default applies) — fab skips empty fills too.
-func fillKey(byKey map[string]showRow, provider, role, leaf string) string {
+// fillKey is the tool-table key an unset role leaf inherits: the tool's
+// non-empty fill for this role, else its non-empty default-profile fill, else
+// "" (the tool's own default applies) — fab skips empty fills too.
+func fillKey(byKey map[string]showRow, tool, role, leaf string) string {
 	for _, profile := range []string{role, defaultProfile} {
-		key := providersKeyPrefix + provider + providerProfileInfix + profile + "." + leaf
-		if r, ok := byKey[key]; ok && valueString(r.Value) != "" {
-			return key
+		for _, prefix := range toolTablePrefixes {
+			key := prefix + tool + toolProfileInfix + profile + "." + leaf
+			if r, ok := byKey[key]; ok && valueString(r.Value) != "" {
+				return key
+			}
 		}
 	}
 	return ""
 }
 
 // cellFor reads one role leaf. A present row wins; otherwise fallbackKey (the
-// provider table's value) supplies the inherited display, and a missing
+// tool table's value) supplies the inherited display, and a missing
 // fallback leaves Effective empty ("tool default" in the UI).
 func cellFor(byKey map[string]showRow, key, fallbackKey string) Cell {
 	row, ok := byKey[key]
@@ -552,9 +655,10 @@ func (o op) argv() []string {
 	return []string{"config", "set", o.key, *o.value, "--system"}
 }
 
-// validate turns a raw patch into ordered ops, or a ValidationError. Nothing
-// is exec'd here. providers is the effective providers set.
-func validate(patch map[string]json.RawMessage, providers []string) ([]op, error) {
+// validate turns a raw patch into ops sorted by the key fab will write, or a
+// ValidationError. Nothing is exec'd here. tools is the effective tool set;
+// toolLeaf is the installed fab's spelling every role tool leaf is written as.
+func validate(patch map[string]json.RawMessage, tools []string, toolLeaf string) ([]op, error) {
 	keys := make([]string, 0, len(patch))
 	for k := range patch {
 		keys = append(keys, k)
@@ -562,29 +666,45 @@ func validate(patch map[string]json.RawMessage, providers []string) ([]op, error
 	sort.Strings(keys)
 
 	ops := make([]op, 0, len(keys))
+	writeKeys := map[string]string{}
 	for _, key := range keys {
 		raw := patch[key]
 		if !isScalarKey(key) && !isProfileKey(key) {
 			return nil, &ValidationError{Msg: "unknown key: " + key}
 		}
+		target := writeKey(key, toolLeaf)
+		if prev, dup := writeKeys[target]; dup {
+			return nil, &ValidationError{Msg: key + ": same setting as " + prev}
+		}
+		writeKeys[target] = key
 		if string(bytes.TrimSpace(raw)) == "null" {
-			ops = append(ops, op{key: key})
+			ops = append(ops, op{key: target})
 			continue
 		}
-		val, err := validateValue(key, raw, providers)
+		val, err := validateValue(key, raw, tools)
 		if err != nil {
 			return nil, &ValidationError{Msg: key + ": " + err.Error()}
 		}
 		if val == nil { // empty profile leaf == unset
-			ops = append(ops, op{key: key})
+			ops = append(ops, op{key: target})
 			continue
 		}
-		ops = append(ops, op{key: key, value: val})
+		ops = append(ops, op{key: target, value: val})
 	}
+	sort.Slice(ops, func(i, j int) bool { return ops[i].key < ops[j].key })
 	return ops, nil
 }
 
-func validateValue(key string, raw json.RawMessage, providers []string) (*string, error) {
+// writeKey maps any accepted spelling of a role's tool leaf to toolLeaf; every
+// other key is written as given.
+func writeKey(key, toolLeaf string) string {
+	if !isToolKey(key) || !strings.HasPrefix(key, profileKeyPrefix) {
+		return key
+	}
+	return key[:strings.LastIndex(key, ".")+1] + toolLeaf
+}
+
+func validateValue(key string, raw json.RawMessage, tools []string) (*string, error) {
 	switch key {
 	case KeyDispatchReapDone:
 		var b bool
@@ -623,9 +743,9 @@ func validateValue(key string, raw json.RawMessage, providers []string) (*string
 	if s == "" && isProfile {
 		return nil, nil
 	}
-	if isProviderKey(key) {
-		if !contains(providers, s) {
-			return nil, fmt.Errorf("unknown provider %q (available: %s)", s, strings.Join(providers, ", "))
+	if isToolKey(key) {
+		if !contains(tools, s) {
+			return nil, fmt.Errorf("unknown CLI %q (available: %s)", s, strings.Join(tools, ", "))
 		}
 		return &s, nil
 	}
@@ -636,11 +756,16 @@ func validateValue(key string, raw json.RawMessage, providers []string) (*string
 	return &s, nil
 }
 
-func isProviderKey(key string) bool {
+// isToolKey reports whether key names a tool: a depth knob or any accepted
+// spelling of a role's tool leaf.
+func isToolKey(key string) bool {
 	if key == KeyAgentSession || key == KeyAgentWorkers {
 		return true
 	}
-	return strings.HasSuffix(key, "."+profileLeafProvider) && strings.HasPrefix(key, profileKeyPrefix)
+	if !strings.HasPrefix(key, profileKeyPrefix) {
+		return false
+	}
+	return contains(toolLeaves, key[strings.LastIndex(key, ".")+1:])
 }
 
 // checkFreeText guards model/effort: single-line, non-empty, no YAML comment
@@ -693,7 +818,7 @@ func ptr(s string) *string { return &s }
 var applyMu sync.Mutex
 
 // Apply validates the whole patch, then runs the set/unset calls sequentially
-// (sorted key order) and returns a freshly read document whose Warnings carry
+// (sorted by written key) and returns a freshly read document whose Warnings carry
 // fab's stderr warning lines. It stops at the first failing fab call — earlier
 // writes in the same patch are already durable (fab has no multi-key
 // transaction).
@@ -707,7 +832,8 @@ func (c *Client) Apply(ctx context.Context, patch map[string]json.RawMessage) (*
 	if err != nil {
 		return nil, err
 	}
-	ops, err := validate(patch, providerNames(rows))
+	c.writeToolLeaf = probeToolLeaf(rows, nil)
+	ops, err := validate(patch, toolNames(rows), c.writeToolLeaf)
 	if err != nil {
 		return nil, err
 	}

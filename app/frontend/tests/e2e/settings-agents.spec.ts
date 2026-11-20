@@ -27,7 +27,8 @@ test.describe("Settings dialog — Agents tab", () => {
   /**
    * Proves: the palette's `Settings: Agents` entry opens the dialog on the new
    * tab, the rail reads General, Appearance, Agents, Shortcuts, All settings,
-   * and the tab renders both scope groups plus the per-role table.
+   * and the tab renders both scope groups plus the per-role table, with the
+   * tool controls labelled "CLI".
    *
    * Steps:
    * 1. Stub `/api/fab-config`, load `/`, open the palette and run
@@ -35,6 +36,8 @@ test.describe("Settings dialog — Agents tab", () => {
    * 2. Assert the dialog is open with Agents selected.
    * 3. Assert the rail's tab order.
    * 4. Assert the Agents and Dispatch groups and the six role rows.
+   * 5. Assert the "Session CLI" / "Worker CLI" knobs and the role table's
+   *    "CLI" column.
    */
   test("palette deep-links the Agents tab with the documented rail order", async ({ page }) => {
     await stubFabConfig(page);
@@ -42,13 +45,16 @@ test.describe("Settings dialog — Agents tab", () => {
 
     const tabs = page.getByRole("tablist", { name: "Settings sections" }).getByRole("tab");
     await expect(tabs).toHaveText(["General", "Appearance", "Agents", "Shortcuts", "All settings"]);
-    await expect(page.getByRole("region", { name: "Agent providers" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Agent CLIs" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Dispatch" })).toBeVisible();
     await expect(page.getByTestId(/^role-row-/)).toHaveCount(6);
+    await expect(page.getByRole("group", { name: "Session CLI" })).toBeVisible();
+    await expect(page.getByRole("group", { name: "Worker CLI" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "CLI" })).toBeVisible();
   });
 
   /**
-   * Proves: choosing a worker provider writes it through `/api/fab-config`, the
+   * Proves: choosing a worker CLI writes it through `/api/fab-config`, the
    * row re-renders from the response with a system provenance chip and a reset
    * link, and reset returns it to the default (chip back to `default`, reset
    * link gone).
@@ -61,7 +67,7 @@ test.describe("Settings dialog — Agents tab", () => {
    * 4. Click reset; assert the POST body is `{"agent.workers": null}` and the
    *    row is back to `default` with `claude` latched.
    */
-  test("setting and resetting the worker agent round-trips through the API", async ({ page }) => {
+  test("setting and resetting the worker CLI round-trips through the API", async ({ page }) => {
     const posts = await stubFabConfig(page);
     await openAgentsTab(page);
 
@@ -87,7 +93,7 @@ test.describe("Settings dialog — Agents tab", () => {
    * Steps:
    * 1. Open the Agents tab; assert `doing`'s effort select offers `↳ …` first.
    * 2. Pick `high` for `doing`'s effort; assert the POST and the new value.
-   * 3. Click the row's reset; assert one POST nulling provider, model and effort.
+   * 3. Click the row's reset; assert one POST nulling tool, model and effort.
    */
   test("per-role override shows inherited cells and resets all three leaves", async ({ page }) => {
     const posts = await stubFabConfig(page);
@@ -103,7 +109,7 @@ test.describe("Settings dialog — Agents tab", () => {
     await page.getByRole("button", { name: "Reset doing overrides" }).click();
     await expect(effort).toHaveValue("");
     expect(posts[1]).toEqual({
-      "agent.profiles.doing.provider": null,
+      "agent.profiles.doing.tool": null,
       "agent.profiles.doing.model": null,
       "agent.profiles.doing.effort": null,
     });
@@ -164,17 +170,17 @@ test.describe("Settings dialog — Agents tab", () => {
     await effort.selectOption("high");
     await expect(effort).toHaveValue("high");
 
-    await page.getByLabel("review provider").selectOption("kimi");
+    await page.getByLabel("review CLI").selectOption("kimi");
     await expect(effort).toBeDisabled();
     await expect(effort).toHaveAttribute("title", "this tool takes no effort setting");
     await expect(effort).toHaveValue("");
     expect(posts[1]).toEqual({
-      "agent.profiles.review.provider": "kimi",
+      "agent.profiles.review.tool": "kimi",
       "agent.profiles.review.model": null,
       "agent.profiles.review.effort": null,
     });
 
-    await page.getByLabel("review provider").selectOption("codex");
+    await page.getByLabel("review CLI").selectOption("codex");
     await expect(effort).toBeEnabled();
   });
 
@@ -184,7 +190,7 @@ test.describe("Settings dialog — Agents tab", () => {
    *
    * Steps:
    * 1. Stub the endpoint as `{installed: false}`; open the Agents tab.
-   * 2. Assert the empty-state message and that neither the provider controls nor an
+   * 2. Assert the empty-state message and that neither the CLI controls nor an
    error alert render inside the dialog.
    */
   test("shows the not-installed empty state", async ({ page }) => {
@@ -193,7 +199,7 @@ test.describe("Settings dialog — Agents tab", () => {
 
     await expect(page.getByTestId("fab-not-installed")).toContainText("fab isn't installed on this host");
     const dialog = page.getByRole("dialog", { name: "Settings" });
-    await expect(dialog.getByRole("region", { name: "Agent providers" })).toHaveCount(0);
+    await expect(dialog.getByRole("region", { name: "Agent CLIs" })).toHaveCount(0);
     await expect(dialog.getByRole("alert")).toHaveCount(0);
   });
 

@@ -1,0 +1,58 @@
+id: dxxr
+name: 261117-dxxr-agents-tab-cli-spelling-compat
+created: 2026-11-17T19:36:52Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 18
+    acceptance_completed: 18
+confidence:
+    certain: 6
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.5
+    fuzzy: true
+    dimensions:
+        signal: 77.5
+        reversibility: 84.5
+        competence: 81.5
+        disambiguation: 77.5
+stage_metrics:
+    intake: {started_at: "2026-11-17T19:36:52Z", driver: fab-new, iterations: 1, completed_at: "2026-11-18T12:14:45Z"}
+    apply: {started_at: "2026-11-18T12:14:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-18T12:35:06Z"}
+    review: {started_at: "2026-11-18T12:35:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-18T12:41:21Z"}
+    hydrate: {started_at: "2026-11-18T12:41:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-18T12:42:48Z"}
+    ship: {started_at: "2026-11-18T12:42:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-18T12:47:34Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1157
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 2777
+    deleted: 255
+    net: 2522
+    excluding:
+        added: 1454
+        deleted: 244
+        net: 1210
+    tests:
+        added: 331
+        deleted: 25
+        net: 306
+    computed_at: "2026-11-18T12:47:34Z"
+    computed_at_stage: ship
+summary: Agents tab reads both fab CLI spellings (clis/.cli and providers/.provider), writes the installed fab's, and labels the tool controls CLI
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-18T12:47:34Z

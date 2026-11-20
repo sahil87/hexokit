@@ -35,11 +35,11 @@ const overridden = (value: string, key: string, inheritedValue = ""): FabRoleCel
   inherited: inheritedValue,
 });
 
-function role(name: string, depth: FabRole["depth"], provider: string, tier: string): FabRole {
+function role(name: string, depth: FabRole["depth"], tool: string, tier: string): FabRole {
   return {
     role: name,
     depth,
-    provider: inherited(provider, tier),
+    tool: inherited(tool, tier),
     model: inherited("", ""),
     effort: inherited("", ""),
   };
@@ -56,7 +56,7 @@ function makeDoc(overrides: Partial<Doc> = {}): Doc {
   return {
     installed: true,
     systemPath: SYSTEM_PATH,
-    providers: ["agy", "claude", "codex", "kimi"],
+    tools: ["agy", "claude", "codex", "kimi"],
     fields: {
       "agent.session": field("claude", "system"),
       "agent.workers": field("claude", "default"),
@@ -116,12 +116,23 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("SettingsAgentsPanel", () => {
-  it("renders provider chips with the effective one latched", async () => {
+  it("renders CLI chips with the effective one latched", async () => {
     await renderPanel(makeDoc());
-    const group = within(row("agent.session")).getByRole("group", { name: "Session agent" });
+    const group = within(row("agent.session")).getByRole("group", { name: "Session CLI" });
     expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(["agy", "claude", "codex", "kimi"]);
     expect(within(group).getByRole("button", { name: "claude" })).toHaveAttribute("aria-pressed", "true");
     expect(within(group).getByRole("button", { name: "codex" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("labels the tool controls CLI, never provider", async () => {
+    await renderPanel(makeDoc());
+    expect(screen.getByRole("region", { name: "Agent CLIs" })).toBeInTheDocument();
+    expect(within(row("agent.workers")).getByRole("group", { name: "Worker CLI" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "CLI" })).toBeInTheDocument();
+    expect(screen.getByLabelText("doing CLI")).toBeInTheDocument();
+    // The footer names the `providers:` config key in <code>; prose and labels never say it.
+    expect(screen.queryByText(/provider/i, { ignore: "code, script, style" })).toBeNull();
+    expect(screen.queryByLabelText(/provider/i)).toBeNull();
   });
 
   it("shows provenance chip, modified dot and reset only for system overrides", async () => {
@@ -278,12 +289,12 @@ describe("SettingsAgentsPanel", () => {
     });
 
     it("shows inherited cells dimmed with a ↳ prefix and 'tool default' when unknown", async () => {
-      const doc = withRole(makeDoc(), "doing", { provider: inherited("kimi", "agent.workers") });
+      const doc = withRole(makeDoc(), "doing", { tool: inherited("kimi", "agent.workers") });
       await renderPanel(doc);
-      const provider = screen.getByLabelText("doing provider") as HTMLSelectElement;
-      expect(provider.value).toBe("");
-      expect(provider.options[0].textContent).toBe("↳ kimi");
-      expect(provider.className).toContain("text-text-secondary");
+      const tool = screen.getByLabelText("doing CLI") as HTMLSelectElement;
+      expect(tool.value).toBe("");
+      expect(tool.options[0].textContent).toBe("↳ kimi");
+      expect(tool.className).toContain("text-text-secondary");
       const model = screen.getByLabelText("doing model") as HTMLSelectElement;
       expect(model.value).toBe("");
       expect(model.options[0].textContent).toBe("↳ inherit (tool default)");
@@ -292,13 +303,13 @@ describe("SettingsAgentsPanel", () => {
 
     it("labels inherit on an overridden leaf with the value clearing it restores", async () => {
       const doc = withRole(makeDoc(), "review", {
-        provider: overridden("codex", "agent.profiles.review.provider", "claude"),
+        tool: overridden("codex", "agent.profiles.review.provider", "claude"),
         model: overridden("gpt-5.6-sol", "agent.profiles.review.model", "claude-opus-5-5"),
       });
       await renderPanel(doc);
-      const provider = screen.getByLabelText("review provider") as HTMLSelectElement;
-      expect(provider.value).toBe("codex");
-      expect(provider.options[0].textContent).toBe("↳ claude");
+      const tool = screen.getByLabelText("review CLI") as HTMLSelectElement;
+      expect(tool.value).toBe("codex");
+      expect(tool.options[0].textContent).toBe("↳ claude");
       const model = screen.getByLabelText("review model") as HTMLSelectElement;
       expect(model.value).toBe("gpt-5.6-sol");
       expect(model.options[0].textContent).toBe("↳ inherit (claude-opus-5-5)");
@@ -306,25 +317,25 @@ describe("SettingsAgentsPanel", () => {
 
     it("choosing inherit on an overridden leaf POSTs null for that key", async () => {
       vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
-      const doc = withRole(makeDoc(), "review", { provider: overridden("codex", "agent.profiles.review.provider") });
+      const doc = withRole(makeDoc(), "review", { tool: overridden("codex", "agent.profiles.review.provider") });
       await renderPanel(doc);
-      fireEvent.change(screen.getByLabelText("review provider"), { target: { value: "" } });
+      fireEvent.change(screen.getByLabelText("review CLI"), { target: { value: "" } });
       await waitFor(() =>
         expect(postFabConfig).toHaveBeenCalledWith({
-          "agent.profiles.review.provider": null,
+          "agent.profiles.review.tool": null,
           "agent.profiles.review.model": null,
           "agent.profiles.review.effort": null,
         }),
       );
     });
 
-    it("a provider pick POSTs that role's provider key, unsetting model and effort in the same request", async () => {
+    it("a CLI pick POSTs that role's neutral tool key, unsetting model and effort in the same request", async () => {
       vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
       await renderPanel(makeDoc());
-      fireEvent.change(screen.getByLabelText("operator provider"), { target: { value: "codex" } });
+      fireEvent.change(screen.getByLabelText("operator CLI"), { target: { value: "codex" } });
       await waitFor(() =>
         expect(postFabConfig).toHaveBeenCalledWith({
-          "agent.profiles.operator.provider": "codex",
+          "agent.profiles.operator.tool": "codex",
           "agent.profiles.operator.model": null,
           "agent.profiles.operator.effort": null,
         }),
@@ -347,7 +358,7 @@ describe("SettingsAgentsPanel", () => {
 
     it("lists a pin the tool doesn't suggest as not offered, after the suggestions", async () => {
       const doc = withRole(makeDoc(), "review", {
-        provider: inherited("codex", "agent.workers"),
+        tool: inherited("codex", "agent.workers"),
         model: overridden("claude-opus-5-5", "agent.profiles.review.model", "gpt-5.6-sol"),
       });
       await renderPanel(doc);
@@ -363,7 +374,7 @@ describe("SettingsAgentsPanel", () => {
 
     it("with no suggestions the pin is listed plainly and gets no stale note", async () => {
       const doc = withRole(makeDoc(), "review", {
-        provider: inherited("kimi", "agent.workers"),
+        tool: inherited("kimi", "agent.workers"),
         model: overridden("kimi-k3", "agent.profiles.review.model"),
       });
       await renderPanel(doc);
@@ -439,7 +450,7 @@ describe("SettingsAgentsPanel", () => {
     it("flags a pin the tool doesn't offer with a note whose action unsets it", async () => {
       vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
       const doc = withRole(makeDoc(), "review", {
-        provider: inherited("codex", "agent.workers"),
+        tool: inherited("codex", "agent.workers"),
         model: overridden("claude-opus-5-5", "agent.profiles.review.model", "gpt-5.6-sol"),
       });
       await renderPanel(doc);
@@ -474,8 +485,8 @@ describe("SettingsAgentsPanel", () => {
         effort: overridden("high", "agent.profiles.review.effort"),
       });
       await renderPanel(doc);
-      fireEvent.change(screen.getByLabelText("review provider"), { target: { value: "codex" } });
-      await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.review.provider": "codex" }));
+      fireEvent.change(screen.getByLabelText("review CLI"), { target: { value: "codex" } });
+      await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.review.tool": "codex" }));
     });
 
     it("a tool change unsets a model the new tool doesn't offer and keeps a suggested effort", async () => {
@@ -485,10 +496,10 @@ describe("SettingsAgentsPanel", () => {
         effort: overridden("high", "agent.profiles.review.effort"),
       });
       await renderPanel(doc);
-      fireEvent.change(screen.getByLabelText("review provider"), { target: { value: "codex" } });
+      fireEvent.change(screen.getByLabelText("review CLI"), { target: { value: "codex" } });
       await waitFor(() =>
         expect(postFabConfig).toHaveBeenCalledWith({
-          "agent.profiles.review.provider": "codex",
+          "agent.profiles.review.tool": "codex",
           "agent.profiles.review.model": null,
         }),
       );
@@ -501,10 +512,10 @@ describe("SettingsAgentsPanel", () => {
         effort: overridden("ultra", "agent.profiles.review.effort"),
       });
       await renderPanel(doc);
-      fireEvent.change(screen.getByLabelText("review provider"), { target: { value: "codex" } });
+      fireEvent.change(screen.getByLabelText("review CLI"), { target: { value: "codex" } });
       await waitFor(() =>
         expect(postFabConfig).toHaveBeenCalledWith({
-          "agent.profiles.review.provider": "codex",
+          "agent.profiles.review.tool": "codex",
           "agent.profiles.review.effort": null,
         }),
       );
@@ -513,15 +524,15 @@ describe("SettingsAgentsPanel", () => {
     it("picking inherit for the tool weighs the overrides against the depth knob's tool", async () => {
       vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
       const doc = withRole(withField(makeDoc(), "agent.workers", field("codex", "system")), "review", {
-        provider: overridden("claude", "agent.profiles.review.provider", "codex"),
+        tool: overridden("claude", "agent.profiles.review.provider", "codex"),
         model: overridden("claude-opus-5-5", "agent.profiles.review.model"),
         effort: overridden("high", "agent.profiles.review.effort"),
       });
       await renderPanel(doc);
-      fireEvent.change(screen.getByLabelText("review provider"), { target: { value: "" } });
+      fireEvent.change(screen.getByLabelText("review CLI"), { target: { value: "" } });
       await waitFor(() =>
         expect(postFabConfig).toHaveBeenCalledWith({
-          "agent.profiles.review.provider": null,
+          "agent.profiles.review.tool": null,
           "agent.profiles.review.model": null,
         }),
       );
@@ -531,8 +542,8 @@ describe("SettingsAgentsPanel", () => {
       vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
       const doc = withRole(makeDoc(), "doing", { model: overridden("glm-latest[1m]", "agent.profiles.doing.model") });
       await renderPanel(doc);
-      fireEvent.change(screen.getByLabelText("doing provider"), { target: { value: "claude" } });
-      await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.doing.provider": "claude" }));
+      fireEvent.change(screen.getByLabelText("doing CLI"), { target: { value: "claude" } });
+      await waitFor(() => expect(postFabConfig).toHaveBeenCalledWith({ "agent.profiles.doing.tool": "claude" }));
     });
 
     it("effort is a select over the suggestions plus inherit", async () => {
@@ -547,14 +558,14 @@ describe("SettingsAgentsPanel", () => {
     it("a tool change to a tool with {effort} keeps a suggested effort", async () => {
       vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
       const doc = withRole(makeDoc(), "review", {
-        provider: overridden("codex", "agent.profiles.review.provider"),
+        tool: overridden("codex", "agent.profiles.review.provider"),
         effort: overridden("high", "agent.profiles.review.effort"),
       });
       await renderPanel(doc);
-      fireEvent.change(screen.getByLabelText("review provider"), { target: { value: "claude" } });
+      fireEvent.change(screen.getByLabelText("review CLI"), { target: { value: "claude" } });
       await waitFor(() =>
         expect(postFabConfig).toHaveBeenCalledWith({
-          "agent.profiles.review.provider": "claude",
+          "agent.profiles.review.tool": "claude",
           "agent.profiles.review.model": null,
         }),
       );
@@ -563,14 +574,14 @@ describe("SettingsAgentsPanel", () => {
     it("a tool change to a tool without {effort} unsets a suggested effort", async () => {
       vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
       const doc = withRole(makeDoc(), "review", {
-        provider: overridden("codex", "agent.profiles.review.provider"),
+        tool: overridden("codex", "agent.profiles.review.provider"),
         effort: overridden("high", "agent.profiles.review.effort"),
       });
       await renderPanel(doc);
-      fireEvent.change(screen.getByLabelText("review provider"), { target: { value: "agy" } });
+      fireEvent.change(screen.getByLabelText("review CLI"), { target: { value: "agy" } });
       await waitFor(() =>
         expect(postFabConfig).toHaveBeenCalledWith({
-          "agent.profiles.review.provider": "agy",
+          "agent.profiles.review.tool": "agy",
           "agent.profiles.review.model": null,
           "agent.profiles.review.effort": null,
         }),
@@ -580,7 +591,7 @@ describe("SettingsAgentsPanel", () => {
     it("disables effort for a tool without {effort}, keeping a stale override visible and resettable", async () => {
       vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
       const doc = withRole(makeDoc(), "review", {
-        provider: inherited("kimi", "agent.workers"),
+        tool: inherited("kimi", "agent.workers"),
         effort: overridden("high", "agent.profiles.review.effort"),
       });
       await renderPanel(doc);
@@ -594,7 +605,7 @@ describe("SettingsAgentsPanel", () => {
       fireEvent.click(screen.getByRole("button", { name: "Reset review overrides" }));
       await waitFor(() =>
         expect(postFabConfig).toHaveBeenCalledWith({
-          "agent.profiles.review.provider": null,
+          "agent.profiles.review.tool": null,
           "agent.profiles.review.model": null,
           "agent.profiles.review.effort": null,
         }),
@@ -602,7 +613,7 @@ describe("SettingsAgentsPanel", () => {
     });
 
     it("keeps effort enabled for a tool the document doesn't classify", async () => {
-      const doc = withRole(makeDoc({ effortCapable: undefined }), "review", { provider: inherited("kimi", "agent.workers") });
+      const doc = withRole(makeDoc({ effortCapable: undefined }), "review", { tool: inherited("kimi", "agent.workers") });
       await renderPanel(doc);
       expect(screen.getByLabelText("review effort")).toBeEnabled();
     });
@@ -615,7 +626,7 @@ describe("SettingsAgentsPanel", () => {
       fireEvent.click(screen.getByRole("button", { name: "Reset hydrate overrides" }));
       await waitFor(() =>
         expect(postFabConfig).toHaveBeenCalledWith({
-          "agent.profiles.hydrate.provider": null,
+          "agent.profiles.hydrate.tool": null,
           "agent.profiles.hydrate.model": null,
           "agent.profiles.hydrate.effort": null,
         }),
@@ -625,7 +636,7 @@ describe("SettingsAgentsPanel", () => {
     it("keeps the row reset when an env var shadows a saved role value", async () => {
       vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
       const doc = withRole(makeDoc(), "doing", {
-        provider: {
+        tool: {
           override: null,
           effective: "kimi",
           source: "agent.profiles.doing.provider",
@@ -638,16 +649,16 @@ describe("SettingsAgentsPanel", () => {
       await renderPanel(doc);
       fireEvent.click(screen.getByRole("button", { name: "Reset doing overrides" }));
       await waitFor(() =>
-        expect(postFabConfig).toHaveBeenCalledWith(expect.objectContaining({ "agent.profiles.doing.provider": null })),
+        expect(postFabConfig).toHaveBeenCalledWith(expect.objectContaining({ "agent.profiles.doing.tool": null })),
       );
     });
 
-    it("warns when an env var sets a role's provider", async () => {
+    it("warns when an env var sets a role's CLI", async () => {
       const doc = withRole(makeDoc(), "doing", {
-        provider: { override: null, effective: "kimi", source: "agent.profiles.doing.provider", origin: "env", originDetail: "FAB_X", inherited: "claude" },
+        tool: { override: null, effective: "kimi", source: "agent.profiles.doing.provider", origin: "env", originDetail: "FAB_X", inherited: "claude" },
       });
       await renderPanel(doc);
-      expect(screen.getByRole("img", { name: "provider set by an environment variable" })).toHaveAttribute("title", expect.stringContaining("FAB_X"));
+      expect(screen.getByRole("img", { name: "CLI set by an environment variable" })).toHaveAttribute("title", expect.stringContaining("FAB_X"));
     });
 
     it("scrolls inside its own wrapper", async () => {
@@ -656,10 +667,10 @@ describe("SettingsAgentsPanel", () => {
     });
 
     it("a failed role write shows the message under the table row", async () => {
-      vi.mocked(postFabConfig).mockRejectedValue(new Error("unknown provider"));
+      vi.mocked(postFabConfig).mockRejectedValue(new Error("unknown CLI"));
       await renderPanel(makeDoc());
-      fireEvent.change(screen.getByLabelText("doing provider"), { target: { value: "codex" } });
-      expect(await screen.findByRole("alert")).toHaveTextContent("unknown provider");
+      fireEvent.change(screen.getByLabelText("doing CLI"), { target: { value: "codex" } });
+      expect(await screen.findByRole("alert")).toHaveTextContent("unknown CLI");
     });
   });
 
@@ -692,7 +703,15 @@ describe("SettingsAgentsPanel", () => {
 
   it("footer explains the unsettable keys and copies the config path", async () => {
     await renderPanel(makeDoc());
-    expect(screen.getByText(/providers table and other list\/map keys can't be set from the CLI/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        (_, el) =>
+          el?.tagName === "P" &&
+          /^The CLI table \(providers: \/ clis:\) and other list\/map keys can't be set\s+from the command line\.$/.test(
+            el.textContent?.trim() ?? "",
+          ),
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByText(/Project-only keys \(fab\/project\/config.yaml\) aren't shown here/)).toBeInTheDocument();
     expect(screen.getByTestId("fab-system-path")).toHaveTextContent(SYSTEM_PATH);
     fireEvent.click(screen.getByRole("button", { name: "Copy fab system config path" }));
