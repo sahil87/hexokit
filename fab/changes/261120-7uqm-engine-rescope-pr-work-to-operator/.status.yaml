@@ -37,7 +37,7 @@ stage_metrics:
 prs:
     - https://github.com/sahil87/hexokit/pull/1166
 change_type_source: explicit
-base_branch: 261120-9ypa-operator-check-idle-floor-stage-seed
+base_branch: main
 true_impact:
     added: 1614
     deleted: 7491
@@ -55,4 +55,4 @@ true_impact:
 summary: Rewrite operator-autopilot memory to the queue-only engine (PR rows, merge verb, prs/fixes removed; merge-auto merged-PR barrier); judgment set, state, config, cli and toolkit-standards follow
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-20T07:52:23Z
+last_updated: 2026-11-20T09:09:09Z
