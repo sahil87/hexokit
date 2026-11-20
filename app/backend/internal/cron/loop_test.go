@@ -129,11 +129,62 @@ func TestLoopLadderClimbsAndResets(t *testing.T) {
 		t.Errorf("capped gap after the newest line = %v, want %v", got, max)
 	}
 
-	// Any other line resets, including skipped-busy and rescheduled.
-	for _, outcome := range []string{OutcomeSkippedBusy("r"), "rescheduled", OutcomeCheckFailed("x"), OutcomeRunLost("y")} {
+	// Any other line resets, including skipped-busy, rescheduled and a finished run.
+	for _, outcome := range []string{OutcomeSkippedBusy("r"), "rescheduled", "rate-capped", OutcomeRan("z", time.Second)} {
 		reset := LoopLadder(e, append(append([]LogLine{}, log...), loopLine(e.ID, T.Add(10*time.Hour), outcome)))
 		if reset.Rung != 0 || !reset.Anchor.Equal(T.Add(10*time.Hour)) {
 			t.Errorf("after %q ladder = %+v, want rung 0 at the line", outcome, reset)
+		}
+	}
+}
+
+func TestIsLoopFailureOutcome(t *testing.T) {
+	for outcome, want := range map[string]bool{
+		OutcomeRunFailed(1, time.Second):       true,
+		OutcomeRunFailedNoOutcome(time.Second): true,
+		OutcomeRunLost("window gone"):          true,
+		OutcomeCheckFailed("boom"):             true,
+		OutcomeNoChange:                        false,
+		OutcomeRan("did it", time.Minute):      false,
+		OutcomeSkippedBusy("r1"):               false,
+		"rate-capped":                          false,
+		"rescheduled":                          false,
+		"":                                     false,
+	} {
+		if got := IsLoopFailureOutcome(outcome); got != want {
+			t.Errorf("IsLoopFailureOutcome(%q) = %v, want %v", outcome, got, want)
+		}
+	}
+}
+
+// TestLoopLadderFailureStreakClimbs: failure lines climb the ladder like
+// `no change`, mixed tails count both, and a run or a busy skip ends the count.
+func TestLoopLadderFailureStreakClimbs(t *testing.T) {
+	T := backoffBase
+	e := loopEntry(T.Add(-time.Hour))
+	min, max := e.Schedule.Min.Duration, e.Schedule.Max.Duration
+	log := []LogLine{
+		loopLine(e.ID, T, OutcomeRan("x", time.Minute)),
+		loopLine(e.ID, T.Add(3*time.Minute), OutcomeRunFailed(1, 4*time.Second)),
+		loopLine(e.ID, T.Add(9*time.Minute), OutcomeCheckFailed("boom")),
+		loopLine(e.ID, T.Add(21*time.Minute), OutcomeNoChange),
+	}
+	l := LoopLadder(e, log)
+	if !l.Anchor.Equal(T.Add(21*time.Minute)) || l.Rung != 3 {
+		t.Fatalf("ladder = %+v, want anchor T+21m rung 3", l)
+	}
+	if want := T.Add(21*time.Minute + 24*time.Minute); !l.NextFire(min, max).Equal(want) {
+		t.Errorf("next fire = %v, want %v", l.NextFire(min, max), want)
+	}
+
+	lost := LoopLadder(e, append(append([]LogLine{}, log...), loopLine(e.ID, T.Add(time.Hour), OutcomeRunLost("gone"))))
+	if lost.Rung != 4 {
+		t.Errorf("rung after run-lost = %d, want 4", lost.Rung)
+	}
+	for _, outcome := range []string{OutcomeSkippedBusy("r1"), OutcomeRan("ok", time.Minute)} {
+		reset := LoopLadder(e, append(append([]LogLine{}, log...), loopLine(e.ID, T.Add(time.Hour), outcome)))
+		if reset.Rung != 0 {
+			t.Errorf("rung after %q = %d, want 0", outcome, reset.Rung)
 		}
 	}
 }
@@ -224,6 +275,21 @@ func TestDeriveLoopEntry(t *testing.T) {
 	d := DeriveEntry(e, []LogLine{loopLine(e.ID, T.Add(3*time.Minute), OutcomeNoChange)}, TargetFacts{}, T)
 	if d.Orphaned || !d.HasNextFire || d.Rung != 2 || !d.NextFire.Equal(T.Add(9*time.Minute)) {
 		t.Errorf("derived = %+v", d)
+	}
+}
+
+// TestDeriveLoopEntryFailureStreakBacksOff: a failing launcher's next fire
+// follows the climbed rung instead of the 3-minute floor.
+func TestDeriveLoopEntryFailureStreakBacksOff(t *testing.T) {
+	T := backoffBase
+	e := loopEntry(T)
+	log := []LogLine{
+		loopLine(e.ID, T.Add(3*time.Minute), OutcomeRunFailed(1, time.Second)),
+		loopLine(e.ID, T.Add(9*time.Minute), OutcomeRunFailed(1, time.Second)),
+	}
+	d := DeriveEntry(e, log, TargetFacts{}, T)
+	if !d.HasNextFire || d.Rung != 3 || !d.NextFire.Equal(T.Add(21*time.Minute)) {
+		t.Errorf("derived = %+v, want rung 3 and next fire T+21m", d)
 	}
 }
 
@@ -542,7 +608,9 @@ func TestSeedWhenRkFileExists(t *testing.T) {
 	T := backoffBase
 	writeEntryFile(t, dir, "dev", legacyTickYAML)
 	exists := true
-	seedTick(t, dir, T, func(string) bool { return exists })
+	if seeded, err := SeedOperatorLoop(dir, "dev", T); err != nil || !seeded {
+		t.Fatalf("SeedOperatorLoop = %v, %v", seeded, err)
+	}
 
 	path := filepath.Join(dir, "dev.yaml")
 	entries, diags := LoadEntries(path)
@@ -574,7 +642,7 @@ func TestSeedWhenRkFileExists(t *testing.T) {
 	}
 
 	// The user rolls back: mute the loop, unmute the legacy entry. Later
-	// ticks must change nothing.
+	// ticks must change nothing (the sweep takes muted legacy rows only).
 	if _, err := SetMuted(dir, "dev", loop.ID, true); err != nil {
 		t.Fatal(err)
 	}
@@ -700,5 +768,112 @@ func TestTickLoopCatchUpAfterDowntimeFiresOnce(t *testing.T) {
 	}
 	if fires != 1 {
 		t.Fatalf("loop fired %d times across 3 ticks after downtime, want 1", fires)
+	}
+}
+
+const sweepLogLines = 1
+
+// TestTickSweepsMutedLegacyEntries: with a loop entry present, the tick removes
+// the muted legacy operator-tick entry in one write and logs exactly one
+// `expired-legacy` line for it; the unmuted legacy entry and unrelated entries
+// stay.
+func TestTickSweepsMutedLegacyEntries(t *testing.T) {
+	dir := t.TempDir()
+	T := backoffBase
+	writeEntryFile(t, dir, "dev", legacyTickYAML)
+	if _, err := SeedOperatorLoop(dir, "dev", T); err != nil { // mutes a3f9
+		t.Fatal(err)
+	}
+	// An unmuted legacy duplicate: someone rolled one back on purpose.
+	dup := Entry{ID: "b4e8", Name: "operator tick", Schedule: Schedule{Kind: ScheduleBackoff, Min: Duration{3 * time.Minute}, Max: Duration{24 * time.Minute}},
+		Target: Target{Kind: TargetRole, Role: RoleOperator}, Payload: legacyOperatorPayload, CreatedBy: CreatedBy{At: T.Unix()}}
+	added, err := Add(dir, "dev", dup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedTick(t, dir, T.Add(time.Minute), func(string) bool { return true })
+
+	entries, _ := LoadEntries(filepath.Join(dir, "dev.yaml"))
+	ids := map[string]bool{}
+	for _, e := range entries {
+		ids[e.ID] = true
+	}
+	if ids["a3f9"] || !ids[added.ID] || !ids["k7q2"] || len(entries) != 3 {
+		t.Fatalf("entries after sweep = %v, want the muted legacy entry gone and the rest kept", ids)
+	}
+	var expired []LogLine
+	for _, l := range readDevLog(t, dir) {
+		if l.Outcome == OutcomeExpiredLegacy {
+			expired = append(expired, l)
+		}
+	}
+	if len(expired) != sweepLogLines || expired[0].Entry != "a3f9" {
+		t.Fatalf("expired-legacy lines = %+v, want exactly one for a3f9", expired)
+	}
+	// A second tick finds nothing to sweep and logs nothing more.
+	seedTick(t, dir, T.Add(2*time.Minute), func(string) bool { return true })
+	n := 0
+	for _, l := range readDevLog(t, dir) {
+		if l.Outcome == OutcomeExpiredLegacy {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("expired-legacy lines after a second tick = %d, want 1", n)
+	}
+}
+
+func TestSweepLegacyOperatorTicksNoLoopEntryNoWrite(t *testing.T) {
+	dir := t.TempDir()
+	body := legacyTickYAML + `  - id: m1m1
+    name: operator tick
+    schedule: { kind: backoff, min: 3m, max: 24m }
+    target: { kind: role, role: operator }
+    payload: "operator tick"
+    muted: true
+    created_by: { at: 1788254000 }
+`
+	writeEntryFile(t, dir, "dev", body)
+	path := filepath.Join(dir, "dev.yaml")
+	before, _ := os.ReadFile(path)
+	removed, err := SweepLegacyOperatorTicks(dir, "dev")
+	if err != nil || len(removed) != 0 {
+		t.Fatalf("removed=%v err=%v, want none", removed, err)
+	}
+	after, _ := os.ReadFile(path)
+	if string(before) != string(after) {
+		t.Fatalf("a file with no loop entry was rewritten:\n%s", after)
+	}
+}
+
+func TestSweepLegacyOperatorTicksNothingToRemoveNoWrite(t *testing.T) {
+	dir := t.TempDir()
+	writeEntryFile(t, dir, "dev", legacyTickYAML)
+	if _, err := SeedOperatorLoop(dir, "dev", backoffBase); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SweepLegacyOperatorTicks(dir, "dev"); err != nil { // removes the muted a3f9
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "dev.yaml")
+	before, _ := os.ReadFile(path)
+	removed, err := SweepLegacyOperatorTicks(dir, "dev")
+	after, _ := os.ReadFile(path)
+	if err != nil || len(removed) != 0 || string(before) != string(after) {
+		t.Fatalf("second sweep: removed=%v err=%v rewritten=%v", removed, err, string(before) != string(after))
+	}
+}
+
+func TestSweepLegacyOperatorTicksCorruptFileNeverWritten(t *testing.T) {
+	dir := t.TempDir()
+	writeEntryFile(t, dir, "dev", "entries: [unterminated\n  - {")
+	path := filepath.Join(dir, "dev.yaml")
+	before, _ := os.ReadFile(path)
+	if _, err := SweepLegacyOperatorTicks(dir, "dev"); err == nil {
+		t.Error("a corrupt file must error")
+	}
+	after, _ := os.ReadFile(path)
+	if string(before) != string(after) {
+		t.Fatal("the sweep wrote over a corrupt cron file")
 	}
 }

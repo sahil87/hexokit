@@ -178,3 +178,18 @@ func TestMarkLostDoesNotOverwriteACleanEnd(t *testing.T) {
 		t.Errorf("on-disk record was rewritten as lost: %+v", onDisk)
 	}
 }
+
+// TestTranscribeCarriesFireReason: the line takes the record's fire reason; a
+// record written without one (the installed binary's) reads as a schedule fire.
+func TestTranscribeCarriesFireReason(t *testing.T) {
+	r := newRig(t)
+	withReason := ended(runA, intp(0), "acted")
+	withReason.Reason = "trigger:note"
+	r.writeRun(withReason)
+	r.writeRun(ended(runB, intp(0), "acted"))
+
+	lines := Transcribe(context.Background(), testServer)
+	if len(lines) != 2 || lines[0].Reason != "trigger:note" || lines[1].Reason != "schedule" {
+		t.Fatalf("lines = %+v, want reasons trigger:note then schedule", lines)
+	}
+}

@@ -23,6 +23,9 @@ const (
 	condStale            = "stale"
 	condDuePrefix        = "due@"
 	condUnknownDepPrefix = "unknown_dep:"
+	// condNotePrefix is completed with the unanswered instruction note's own
+	// `at`, so a newer user or chat note is a new condition.
+	condNotePrefix = "note@"
 )
 
 // agentAgedAfter is how long an agent may stay waiting or idle before the
@@ -67,11 +70,21 @@ func (c condDelta) openDelta() CheckDelta {
 	return d
 }
 
-// itemConditions derives the item's current condition set, in emission order.
-// A done item is inert beyond done and unknown dependencies; a paused item
-// reports only the failure-cap pause; the rest carries its pane conditions and
-// the agent-item due/stale conditions.
+// itemConditions derives the item's current condition set, in emission order:
+// the state conditions, then the unanswered-note condition, which every item
+// carries — a user instruction is never inert, whatever the item's state.
 func itemConditions(items []TrackedItem, it TrackedItem, pane []condDelta, now time.Time) []condDelta {
+	conds := stateConditions(items, it, pane, now)
+	if at, ok := PendingInstruction(it.Notes); ok {
+		conds = append(conds, condDelta{condNotePrefix + at, CheckDelta{Kind: DeltaNote, ID: it.ID, At: at}})
+	}
+	return conds
+}
+
+// stateConditions: a done item is inert beyond done and unknown dependencies;
+// a paused item reports only the failure-cap pause; the rest carries its pane
+// conditions and the agent-item due/stale conditions.
+func stateConditions(items []TrackedItem, it TrackedItem, pane []condDelta, now time.Time) []condDelta {
 	conds := unknownDepConditions(items, it)
 	switch {
 	case itemDone(it):

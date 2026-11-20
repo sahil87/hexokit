@@ -72,6 +72,7 @@ const (
 	DeltaStale          = "stale"
 	DeltaDue            = "due"
 	DeltaUnknownDep     = "unknown_dep"
+	DeltaNote           = "note"
 	NoticeProbeError    = "probe_error"
 	NoticeSkipped       = "skipped"
 	NoticeGHUnavailable = "gh_unavailable"
@@ -111,6 +112,8 @@ type CheckDelta struct {
 	To          *string
 	Duration    *string
 	Dep         string
+	// At is a note delta's instruction note time.
+	At string
 }
 
 // CheckNotice is a non-gating observation: it never sets Changed.
@@ -178,6 +181,8 @@ func (d CheckDelta) MarshalJSON() ([]byte, error) {
 		add("duration", d.Duration)
 	case DeltaUnknownDep:
 		add("dep", d.Dep)
+	case DeltaNote:
+		add("at", d.At)
 	}
 	var buf bytes.Buffer
 	buf.WriteByte('{')

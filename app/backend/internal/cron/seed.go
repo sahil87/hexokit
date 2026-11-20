@@ -11,8 +11,10 @@ import (
 // rk's operator state file for the server (the same existence rule the
 // operator display read uses): before one exists a server keeps fab's typed
 // `operator tick` entry untouched; once it exists, the next tick seeds the
-// loop entry and mutes — never deletes — the legacy entry, so rollback is one
-// unmute and fab's reconcile still sees a role:operator row.
+// loop entry and mutes the legacy entry — an unmute is the rollback while the
+// muted row lasts. Once the loop entry exists the tick sweeps the muted legacy
+// rows away (SweepLegacyOperatorTicks); an unmuted one is a deliberate
+// rollback and stays.
 
 // Seeded loop entry shape: today's operator ladder and wake, now target-less.
 const (
@@ -23,6 +25,10 @@ const (
 
 	// legacyOperatorPayload is the text of fab's typed operator-tick entry.
 	legacyOperatorPayload = "operator tick"
+
+	// OutcomeExpiredLegacy is the log line for a swept legacy operator-tick
+	// entry.
+	OutcomeExpiredLegacy = "expired-legacy"
 )
 
 // isLegacyOperatorTick reports a fab-seeded typed-prompt operator entry.
@@ -81,20 +87,60 @@ func SeedOperatorLoop(dir, slug string, now time.Time) (bool, error) {
 	return true, saveEntries(path, append(entries, seeded))
 }
 
+// SweepLegacyOperatorTicks removes every muted legacy operator-tick entry in
+// one atomic write, when the server's cron file holds a loop entry (muted or
+// not), and returns the removed ids. An unmuted legacy entry stays (a rollback
+// on purpose). It writes nothing when there is no loop entry or nothing to
+// remove, and a corrupt file errors without writing.
+func SweepLegacyOperatorTicks(dir, slug string) ([]string, error) {
+	path, entries, err := loadForMutate(dir, slug)
+	if err != nil {
+		return nil, err
+	}
+	hasLoop := false
+	for _, e := range entries {
+		if e.IsLoop() {
+			hasLoop = true
+			break
+		}
+	}
+	if !hasLoop {
+		return nil, nil
+	}
+	var removed []string
+	kept := make([]Entry, 0, len(entries))
+	for _, e := range entries {
+		if isLegacyOperatorTick(e) && e.Muted {
+			removed = append(removed, e.ID)
+			continue
+		}
+		kept = append(kept, e)
+	}
+	if len(removed) == 0 {
+		return nil, nil
+	}
+	return removed, saveEntries(path, kept)
+}
+
 // seedLoop runs the per-tick seed step for one server: a no-op without the
-// seam or without rk's operator state file.
-func seedLoop(ctx context.Context, slug, dir string, now time.Time, exists func(context.Context, string) bool) []Diagnostic {
+// seam or without rk's operator state file. It returns the ids of the legacy
+// entries it swept, for the caller to log.
+func seedLoop(ctx context.Context, slug, dir string, now time.Time, exists func(context.Context, string) bool) (swept []string, diags []Diagnostic) {
 	if exists == nil || !exists(ctx, slug) {
-		return nil
+		return nil, nil
 	}
 	seeded, err := SeedOperatorLoop(dir, slug, now)
 	if err != nil {
-		return []Diagnostic{{Server: slug, Reason: "loop-seed-failed", Detail: err.Error()}}
+		return nil, []Diagnostic{{Server: slug, Reason: "loop-seed-failed", Detail: err.Error()}}
 	}
 	if seeded {
 		slog.Info("operator loop entry seeded", "server", slug)
 	}
-	return nil
+	swept, err = SweepLegacyOperatorTicks(dir, slug)
+	if err != nil {
+		return nil, []Diagnostic{{Server: slug, Reason: "legacy-sweep-failed", Detail: err.Error()}}
+	}
+	return swept, nil
 }
 
 // withSeedableServers extends the swept slugs with live servers that have no

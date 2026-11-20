@@ -122,6 +122,35 @@ type Note struct {
 	Text string `yaml:"text" json:"text"`
 }
 
+// PendingInstruction reports an unanswered instruction: the newest `by: user`
+// or `by: chat` note is strictly newer than the newest `by: run` note (or no
+// run note exists). at is that instruction note's own `at`. Notes whose `at`
+// does not parse are ignored. It is the one owner of this rule — the check's
+// note condition and the run's judgment set both read it.
+func PendingInstruction(notes []Note) (at string, ok bool) {
+	var latestInstruction, latestRun time.Time
+	for _, note := range notes {
+		t, err := time.Parse(time.RFC3339, note.At)
+		if err != nil {
+			continue
+		}
+		switch note.By {
+		case ByUser, ByChat:
+			if t.After(latestInstruction) {
+				latestInstruction, at = t, note.At
+			}
+		case ByRun:
+			if t.After(latestRun) {
+				latestRun = t
+			}
+		}
+	}
+	if latestInstruction.IsZero() || (!latestRun.IsZero() && !latestInstruction.After(latestRun)) {
+		return "", false
+	}
+	return at, true
+}
+
 // TrackedItem is one `tracked` list entry. Field order pins the YAML key
 // order; seen, notes and reported are omitempty. Reported is the condition
 // keys the last check already surfaced as changes — written only by Check.

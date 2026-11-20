@@ -95,7 +95,7 @@ func isLoopRateOutcome(outcome string) bool {
 
 // LoopRung is a loop entry's log-derived backoff position: the newest own
 // line's time (created_by.at when the entry has none) and how many consecutive
-// `no change` lines end its history.
+// `no change` or failure lines end its history.
 type LoopRung struct {
 	Anchor time.Time
 	Rung   int
@@ -113,18 +113,32 @@ func (l LoopRung) Due(now time.Time, min, max time.Duration) bool {
 	return !now.Before(l.NextFire(min, max))
 }
 
+// IsLoopFailureOutcome reports the loop outcome classes that mean a fire went
+// wrong: a launcher that exited non-zero or printed no outcome, a run that
+// never recorded an end, or a probe failure. It is the single owner of the
+// failure test the ladder and the failed-run push both key on.
+func IsLoopFailureOutcome(outcome string) bool {
+	return strings.HasPrefix(outcome, outcomeRunFailedPrefix) ||
+		strings.HasPrefix(outcome, outcomeRunLostPrefix) ||
+		strings.HasPrefix(outcome, outcomeCheckFailedPrefix)
+}
+
+func climbsLoopLadder(outcome string) bool {
+	return outcome == OutcomeNoChange || IsLoopFailureOutcome(outcome)
+}
+
 // LoopLadder derives a loop entry's backoff position purely from its own log:
-// each consecutive `no change` line at the end of the history climbs one rung,
-// and any other own line (a run outcome, `rescheduled`, `skipped-busy`, …)
-// ends the count. A pure function of (entry, log), so the evaluator stays
-// stateless.
+// each consecutive `no change` or failure line at the end of the history
+// climbs one rung, so a dead launcher backs off like a quiet server, and any
+// other own line (a finished run, `rescheduled`, `skipped-busy`, …) ends the
+// count. A pure function of (entry, log), so the evaluator stays stateless.
 func LoopLadder(e Entry, log []LogLine) LoopRung {
 	own := OwnDeliveries(log, e.ID)
 	l := LoopRung{Anchor: time.Unix(e.CreatedBy.At, 0)}
 	if len(own) > 0 {
 		l.Anchor = time.Unix(own[len(own)-1].TS, 0)
 	}
-	for i := len(own) - 1; i >= 0 && own[i].Outcome == OutcomeNoChange; i-- {
+	for i := len(own) - 1; i >= 0 && climbsLoopLadder(own[i].Outcome); i-- {
 		l.Rung++
 	}
 	return l

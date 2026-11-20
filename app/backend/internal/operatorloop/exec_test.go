@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"rk/internal/cron"
 	"rk/internal/operator"
 )
 
@@ -307,5 +308,88 @@ func TestExecWritesHeaderAndKeepsOutcomeCapture(t *testing.T) {
 	res, _, _, _ = doExec(t, "sh", "-c", `echo done`)
 	if !res.Failed || res.Outcome != "" {
 		t.Errorf("a run with no outcome line must still fail: %+v", res)
+	}
+}
+
+// failingExec runs a failing launcher and returns what was pushed.
+func failingExec(t *testing.T, r *rig) []string {
+	t.Helper()
+	execRig(t, r, "pr-41")
+	_, _, _, pushed := doExec(t, "sh", "-c", `echo boom >&2; exit 1`)
+	return pushed
+}
+
+// TestExecPushesOncePerFailureStreak: the note is written on every failure, the
+// push only when the loop entry's previous own line is not itself a failure.
+func TestExecPushesOncePerFailureStreak(t *testing.T) {
+	cases := []struct {
+		name     string
+		previous string
+		have     bool
+		wantPush bool
+	}{
+		{"first failure with no history", "", false, true},
+		{"after a finished run", cron.OutcomeRan("ok", time.Minute), true, true},
+		{"after a no change", cron.OutcomeNoChange, true, true},
+		{"after a run-failed", cron.OutcomeRunFailed(1, time.Second), true, false},
+		{"after a run-lost", cron.OutcomeRunLost("window gone"), true, false},
+		{"after a check-failed", cron.OutcomeCheckFailed("boom"), true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRig(t)
+			lastLoopOutcomeFn = func(server, entry string) (string, bool) {
+				if server != testServer || entry != "lp01" {
+					t.Errorf("lookup for %q/%q, want %q/lp01", server, entry, testServer)
+				}
+				return tc.previous, tc.have
+			}
+			pushed := failingExec(t, r)
+			if got := len(pushed) == 1; got != tc.wantPush || len(pushed) > 1 {
+				t.Errorf("pushed = %v, want push=%v", pushed, tc.wantPush)
+			}
+			notes := itemNotes(t, r, "pr-41")
+			if last := notes[len(notes)-1]; last.By != "run" || !strings.HasPrefix(last.Text, "run failed: exit 1") {
+				t.Errorf("note = %+v, want the failure note written regardless of the push", last)
+			}
+		})
+	}
+}
+
+// TestLastLoopOutcomeReadsCronLog: the production lookup reads the newest own
+// line of the entry from the server's cron log; absent or unreadable logs and
+// other entries' lines are no history.
+func TestLastLoopOutcomeReadsCronLog(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	dir, err := cron.DefaultDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := lastLoopOutcome(testServer, "lp01"); ok {
+		t.Fatal("an absent log must read as no history")
+	}
+	if err := cron.EnsureDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	logPath, _ := cron.LogPath(dir, testServer)
+	for _, l := range []cron.LogLine{
+		{TS: 1, Entry: "lp01", Outcome: cron.OutcomeRan("ok", time.Minute)},
+		{TS: 2, Entry: "lp01", Outcome: cron.OutcomeRunFailed(1, time.Second)},
+		{TS: 3, Entry: "other", Outcome: cron.OutcomeNoChange},
+	} {
+		if err := cron.AppendLog(logPath, l); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, ok := lastLoopOutcome(testServer, "lp01")
+	if !ok || !cron.IsLoopFailureOutcome(got) {
+		t.Fatalf("lookup = %q, %v, want the newest own line (a run-failed)", got, ok)
+	}
+	if _, ok := lastLoopOutcome(testServer, "nobody"); ok {
+		t.Error("an entry with no lines must read as no history")
+	}
+	if _, ok := lastLoopOutcome("../x", "lp01"); ok {
+		t.Error("an invalid server slug must read as no history")
 	}
 }

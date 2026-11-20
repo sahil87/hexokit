@@ -80,9 +80,13 @@ func Transcribe(ctx context.Context, server string) []cron.LogLine {
 			}
 			rec = markLost(path, rec, lostWindowGone)
 		}
+		reason := rec.Reason
+		if reason == "" {
+			reason = string(cron.FireSchedule)
+		}
 		lines = append(lines, cron.LogLine{
 			Entry:   rec.Entry,
-			Reason:  string(cron.FireSchedule),
+			Reason:  reason,
 			Outcome: outcomeFor(rec),
 			Run:     rec.ID,
 		})

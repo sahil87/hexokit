@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"rk/internal/cron"
 	"rk/internal/operator"
 	"rk/internal/selfpath"
 	"rk/internal/tmux"
@@ -154,6 +155,21 @@ func TestRunChangedPersistsThenLaunches(t *testing.T) {
 	briefPath, _ := BriefPath(r.runsDir(), runA)
 	if exists(t, briefPath) {
 		t.Error("daemon rendered a brief before the wrapper's mechanical pass")
+	}
+}
+
+func TestRunPersistsFireReason(t *testing.T) {
+	r := newRig(t)
+	r.addNoteItem("pr-41")
+	checkFn = changedCheck("pr-41")
+	newRunIDFn = func() (string, error) { return runA, nil }
+	stubLaunch(t, r, nil)
+	f := fire()
+	f.Reason = cron.TriggerFireReason("note")
+	Run(context.Background(), f)
+	rec, err := ReadRecord(mustRecordPath(t, r, runA))
+	if err != nil || rec.Reason != "trigger:note" {
+		t.Fatalf("record reason = %q, err %v", rec.Reason, err)
 	}
 }
 

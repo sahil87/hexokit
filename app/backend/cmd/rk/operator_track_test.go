@@ -38,6 +38,7 @@ func resetOperatorFlags() {
 	reset(operatorTrackCmd)
 	reset(operatorAdoptCmd)
 	reset(operatorCheckCmd)
+	reset(operatorWakeCmd)
 	reset(operatorBriefCmd)
 	reset(operatorRunExecCmd)
 	reset(operatorAutopilotCmd)

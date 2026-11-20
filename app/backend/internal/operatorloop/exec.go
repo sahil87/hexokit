@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"rk/internal/cron"
 	"rk/internal/operator"
 	"rk/internal/shellq"
 	"rk/internal/tmux"
@@ -51,6 +52,11 @@ const (
 // originalTMUXFn is the wrapper's $TMUX as captured before internal/tmux's
 // init() stripped it; a seam so tests choose it.
 var originalTMUXFn = func() string { return tmux.OriginalTMUX }
+
+// lastLoopOutcomeFn returns the outcome of the newest own line of the run's
+// loop entry in the server's cron delivery log; ok is false when the log has
+// none or cannot be read. A seam so tests feed the log.
+var lastLoopOutcomeFn = lastLoopOutcome
 
 // outcomeLine matches the run's exit-contract line (the LAST one wins).
 var outcomeLine = regexp.MustCompile(`^outcome: (.*)$`)
@@ -301,7 +307,8 @@ func exitStatus(err error, stderr io.Writer) int {
 }
 
 // reportFailure leaves the failure note on each changed item and pushes a
-// fail-silent notification.
+// fail-silent notification — once per failure streak: the push is skipped when
+// the loop entry's newest own log line is itself a failure.
 func reportFailure(ctx context.Context, opts ExecOptions, rec Record, exit int, logPath string) {
 	text := fmt.Sprintf("run failed: exit %d — %s", exit, logTail(logPath))
 	if statePath, err := statePathFn(ctx, opts.Server); err == nil {
@@ -309,9 +316,36 @@ func reportFailure(ctx context.Context, opts ExecOptions, rec Record, exit int, 
 	} else {
 		slog.Warn("operator loop: no state path for failure notes", "server", opts.Server, "err", err)
 	}
-	if opts.Notify != nil {
-		opts.Notify(ctx, notifyTitle, fmt.Sprintf("%s on %s: %s", rec.ID, opts.Server, text))
+	if opts.Notify == nil || inFailureStreak(opts.Server, rec.Entry) {
+		return
 	}
+	opts.Notify(ctx, notifyTitle, fmt.Sprintf("%s on %s: %s", rec.ID, opts.Server, text))
+}
+
+// inFailureStreak reports that the loop entry's previous fire already failed.
+// The current run's own line is not in the log yet (the tick writes it at
+// transcription, and the loop entry is suppressed while a run window lives),
+// so the newest own line is the preceding fire's. An empty or unreadable log is
+// not a streak: failures fail toward notifying.
+func inFailureStreak(server, entry string) bool {
+	outcome, ok := lastLoopOutcomeFn(server, entry)
+	return ok && cron.IsLoopFailureOutcome(outcome)
+}
+
+func lastLoopOutcome(server, entry string) (string, bool) {
+	dir, err := cron.DefaultDir()
+	if err != nil {
+		return "", false
+	}
+	logPath, err := cron.LogPath(dir, server)
+	if err != nil {
+		return "", false
+	}
+	own := cron.OwnDeliveries(cron.ReadLog(logPath), entry)
+	if len(own) == 0 {
+		return "", false
+	}
+	return own[len(own)-1].Outcome, true
 }
 
 // logTail is the last failureTailBytes of the run log, whitespace-collapsed to
