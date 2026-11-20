@@ -34,6 +34,11 @@ const (
 // auto-default.
 const agentAgedAfter = 30 * time.Minute
 
+// idleFloor is how long an agent must stay idle before agent:idle is a
+// condition. A /fab-fff parent idles ~30 s between stages while its worker
+// runs; that pause is not the work stopping, and reporting it costs a run.
+const idleFloor = 3 * time.Minute
+
 // condDelta is one standing condition with the delta that reports it.
 type condDelta struct {
 	key   string
