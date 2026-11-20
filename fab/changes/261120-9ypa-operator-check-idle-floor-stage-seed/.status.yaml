@@ -8,8 +8,8 @@ progress:
     intake: done
     apply: done
     review: done
-    hydrate: active
-    ship: pending
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
@@ -32,23 +32,25 @@ stage_metrics:
     intake: {started_at: "2026-11-20T06:50:35Z", driver: fab-new, iterations: 1, completed_at: "2026-11-20T06:54:34Z"}
     apply: {started_at: "2026-11-20T06:54:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T06:59:11Z"}
     review: {started_at: "2026-11-20T06:59:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T07:05:16Z"}
-    hydrate: {started_at: "2026-11-20T07:05:16Z", driver: fab-fff, iterations: 1}
+    hydrate: {started_at: "2026-11-20T07:05:16Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T07:06:19Z"}
+    ship: {started_at: "2026-11-20T07:06:19Z", driver: fab-fff, iterations: 1}
 prs: []
 base_branch: main
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 547
+    deleted: 17
+    net: 530
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 146
+        deleted: 17
+        net: 129
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-11-20T06:59:11Z"
-    computed_at_stage: apply
+        added: 93
+        deleted: 7
+        net: 86
+    computed_at: "2026-11-20T07:06:19Z"
+    computed_at_stage: hydrate
+summary: 'operator check: agent:idle needs a 3-min idle floor and no active same-window pane; empty scope.stage is seeded without an event'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-20T07:05:16Z
+last_updated: 2026-11-20T07:06:19Z
