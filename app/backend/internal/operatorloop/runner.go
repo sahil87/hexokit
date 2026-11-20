@@ -136,7 +136,7 @@ func launch(ctx context.Context, fire cron.Fire, res operator.CheckResult, id st
 		return false, err
 	}
 	failed := func(err error) (bool, error) {
-		NoteFailure(statePath, changedIDs(changed), "run failed: launch: "+firstLine(err.Error()))
+		NoteFailure(statePath, changedIDs(changed), "launch: "+firstLine(err.Error()))
 		return recorded, err
 	}
 

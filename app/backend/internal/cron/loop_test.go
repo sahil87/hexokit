@@ -823,6 +823,25 @@ func TestTickSweepsMutedLegacyEntries(t *testing.T) {
 	}
 }
 
+func TestTickSweepsWithoutStateFile(t *testing.T) {
+	dir := t.TempDir()
+	T := backoffBase
+	writeEntryFile(t, dir, "dev", legacyTickYAML)
+	if _, err := SeedOperatorLoop(dir, "dev", T); err != nil { // mutes a3f9
+		t.Fatal(err)
+	}
+	// The state file is gone: no re-seed, but the loop entry alone is enough
+	// for the sweep.
+	seedTick(t, dir, T.Add(time.Minute), func(string) bool { return false })
+
+	entries, _ := LoadEntries(filepath.Join(dir, "dev.yaml"))
+	for _, e := range entries {
+		if e.ID == "a3f9" {
+			t.Fatalf("muted legacy entry survived a tick with no state file: %+v", entries)
+		}
+	}
+}
+
 func TestSweepLegacyOperatorTicksNoLoopEntryNoWrite(t *testing.T) {
 	dir := t.TempDir()
 	body := legacyTickYAML + `  - id: m1m1

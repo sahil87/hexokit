@@ -41,9 +41,9 @@ open (still standing) instead of new. Probes and the pane listing run before
 the state file is locked, so a check never blocks track verbs.
 
 A condition that persists (a finished item, a dead pane, an exited agent, a
-paused probe, a stale or due agent item, an unanswered user or chat note) is reported as new once, then listed as
-open until it clears. Notices (a single probe failure, a skipped probe) never
-count as a change.
+paused probe, a stale or due agent item, an unanswered user or chat note) is
+reported as new once, then listed as open until it clears. Notices (a single
+probe failure, a skipped probe) never count as a change.
 
 Flags:
   -L, --server    tmux server (default: the caller's own server from $TMUX)

@@ -66,6 +66,12 @@ const (
 	ByChat = "chat"
 )
 
+// FailureNotePrefix starts the `by: run` note the loop leaves when a run fails
+// to launch or exits without an outcome. It is not an answer to an
+// instruction, so PendingInstruction skips it: the instruction stays pending
+// for the next run that actually starts.
+const FailureNotePrefix = "run failed: "
+
 // Merge modes a chained pane item may carry in scope.merge_mode.
 const (
 	MergeModeCherryPickLadder = "cherry-pick-ladder"
@@ -125,7 +131,7 @@ type Note struct {
 // PendingInstruction reports an unanswered instruction: the newest `by: user`
 // or `by: chat` note is strictly newer than the newest `by: run` note (or no
 // run note exists). at is that instruction note's own `at`. Notes whose `at`
-// does not parse are ignored. It is the one owner of this rule — the check's
+// does not parse, and run failure notes (FailureNotePrefix), are ignored. It is the one owner of this rule — the check's
 // note condition and the run's judgment set both read it.
 func PendingInstruction(notes []Note) (at string, ok bool) {
 	var latestInstruction, latestRun time.Time
@@ -140,6 +146,9 @@ func PendingInstruction(notes []Note) (at string, ok bool) {
 				latestInstruction, at = t, note.At
 			}
 		case ByRun:
+			if strings.HasPrefix(note.Text, FailureNotePrefix) {
+				continue
+			}
 			if t.After(latestRun) {
 				latestRun = t
 			}

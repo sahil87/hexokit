@@ -2,20 +2,20 @@ id: pgns
 name: 261120-pgns-operator-trigger-door-failure-streaks
 created: 2026-11-20T06:52:04Z
 created_by: sahil-noon
-change_type: fix
+change_type: feat
 issues: []
 progress:
     intake: done
     apply: done
-    review: active
-    hydrate: pending
+    review: done
+    hydrate: active
     ship: pending
     review-pr: pending
 plan:
     generated: true
     task_count: 12
     acceptance_count: 30
-    acceptance_completed: 0
+    acceptance_completed: 30
 confidence:
     certain: 10
     confident: 10
@@ -31,7 +31,8 @@ confidence:
 stage_metrics:
     intake: {started_at: "2026-11-20T06:52:04Z", driver: fab-new, iterations: 1, completed_at: "2026-11-20T06:55:40Z"}
     apply: {started_at: "2026-11-20T06:55:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T07:13:58Z"}
-    review: {started_at: "2026-11-20T07:13:58Z", driver: fab-fff, iterations: 1}
+    review: {started_at: "2026-11-20T07:13:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T07:25:06Z"}
+    hydrate: {started_at: "2026-11-20T07:25:06Z", driver: fab-fff, iterations: 1}
 prs: []
 base_branch: main
 true_impact:
@@ -48,6 +49,7 @@ true_impact:
         net: 0
     computed_at: "2026-11-20T07:13:58Z"
     computed_at_stage: apply
+change_type_source: explicit
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-20T07:13:58Z
+last_updated: 2026-11-20T07:25:06Z

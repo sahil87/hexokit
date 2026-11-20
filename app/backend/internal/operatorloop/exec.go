@@ -310,9 +310,10 @@ func exitStatus(err error, stderr io.Writer) int {
 // fail-silent notification — once per failure streak: the push is skipped when
 // the loop entry's newest own log line is itself a failure.
 func reportFailure(ctx context.Context, opts ExecOptions, rec Record, exit int, logPath string) {
-	text := fmt.Sprintf("run failed: exit %d — %s", exit, logTail(logPath))
+	detail := fmt.Sprintf("exit %d — %s", exit, logTail(logPath))
+	text := operator.FailureNotePrefix + detail
 	if statePath, err := statePathFn(ctx, opts.Server); err == nil {
-		NoteFailure(statePath, rec.Changed, text)
+		NoteFailure(statePath, rec.Changed, detail)
 	} else {
 		slog.Warn("operator loop: no state path for failure notes", "server", opts.Server, "err", err)
 	}

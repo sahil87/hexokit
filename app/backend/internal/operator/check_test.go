@@ -545,6 +545,7 @@ func TestPendingInstruction(t *testing.T) {
 		{"newer chat after run", []Note{n("2026-11-11T10:00:00Z", ByUser), n("2026-11-11T10:01:00Z", ByRun), n("2026-11-11T10:02:00Z", ByChat)}, "2026-11-11T10:02:00Z", true},
 		{"newest instruction wins", []Note{n("2026-11-11T10:03:00Z", ByUser), n("2026-11-11T10:02:00Z", ByChat)}, "2026-11-11T10:03:00Z", true},
 		{"run only", []Note{n("2026-11-11T10:00:00Z", ByRun)}, "", false},
+		{"failure note does not answer", []Note{n("2026-11-11T10:00:00Z", ByUser), {At: "2026-11-11T10:01:00Z", By: ByRun, Text: FailureNotePrefix + "exit 1 — no output"}}, "2026-11-11T10:00:00Z", true},
 		{"unparseable at ignored", []Note{n("garbage", ByUser)}, "", false},
 	}
 	for _, tc := range cases {

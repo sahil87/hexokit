@@ -221,7 +221,11 @@ func writeFile(path string, data []byte) error {
 
 // listRunIDs returns the run ids that have a record file in dir, ascending
 // (the id sorts chronologically). An absent dir is no runs.
-func listRunIDs(dir string) ([]string, error) {
+func listRunIDs(dir string) ([]string, error) { return listIDs(dir, recordSuffix) }
+
+// listIDs returns the run-id-shaped stems of the files in dir ending in
+// suffix, ascending. An absent dir is no ids.
+func listIDs(dir, suffix string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -232,10 +236,10 @@ func listRunIDs(dir string) ([]string, error) {
 	var ids []string
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, recordSuffix) {
+		if e.IsDir() || !strings.HasSuffix(name, suffix) {
 			continue
 		}
-		if id := strings.TrimSuffix(name, recordSuffix); ValidRunID(id) {
+		if id := strings.TrimSuffix(name, suffix); ValidRunID(id) {
 			ids = append(ids, id)
 		}
 	}

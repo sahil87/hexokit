@@ -123,20 +123,23 @@ func SweepLegacyOperatorTicks(dir, slug string) ([]string, error) {
 }
 
 // seedLoop runs the per-tick seed step for one server: a no-op without the
-// seam or without rk's operator state file. It returns the ids of the legacy
-// entries it swept, for the caller to log.
+// seam. Seeding needs rk's operator state file; the legacy sweep does not —
+// its only condition is a loop entry in the cron file. It returns the ids of
+// the legacy entries it swept, for the caller to log.
 func seedLoop(ctx context.Context, slug, dir string, now time.Time, exists func(context.Context, string) bool) (swept []string, diags []Diagnostic) {
-	if exists == nil || !exists(ctx, slug) {
+	if exists == nil {
 		return nil, nil
 	}
-	seeded, err := SeedOperatorLoop(dir, slug, now)
-	if err != nil {
-		return nil, []Diagnostic{{Server: slug, Reason: "loop-seed-failed", Detail: err.Error()}}
+	if exists(ctx, slug) {
+		seeded, err := SeedOperatorLoop(dir, slug, now)
+		if err != nil {
+			return nil, []Diagnostic{{Server: slug, Reason: "loop-seed-failed", Detail: err.Error()}}
+		}
+		if seeded {
+			slog.Info("operator loop entry seeded", "server", slug)
+		}
 	}
-	if seeded {
-		slog.Info("operator loop entry seeded", "server", slug)
-	}
-	swept, err = SweepLegacyOperatorTicks(dir, slug)
+	swept, err := SweepLegacyOperatorTicks(dir, slug)
 	if err != nil {
 		return nil, []Diagnostic{{Server: slug, Reason: "legacy-sweep-failed", Detail: err.Error()}}
 	}

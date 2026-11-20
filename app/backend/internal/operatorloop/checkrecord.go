@@ -5,8 +5,6 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"sort"
-	"strings"
 
 	"rk/internal/fsatomic"
 	"rk/internal/operator"
@@ -16,7 +14,7 @@ import (
 // records in the same runs dir: `<fire-id>.check.json`. A fire that launches a
 // run shares its id with the run, so `<id>.check.json` sits next to
 // `<id>.json`. Listing and pruning of run records ignore these files (their
-// stem `<id>.check` is not a run id), so they carry their own lister.
+// stem `<id>.check` is not a run id), so they are listed by their own suffix.
 
 const (
 	checkRecordSuffix = ".check.json"
@@ -83,27 +81,7 @@ func WriteCheckRecord(dir, id string, rec CheckRecord) error {
 
 // ListCheckIDs returns the fire ids that have a check record in dir,
 // ascending (the id sorts chronologically). An absent dir is no records.
-func ListCheckIDs(dir string) ([]string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	var ids []string
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, checkRecordSuffix) {
-			continue
-		}
-		if id := strings.TrimSuffix(name, checkRecordSuffix); ValidRunID(id) {
-			ids = append(ids, id)
-		}
-	}
-	sort.Strings(ids)
-	return ids, nil
-}
+func ListCheckIDs(dir string) ([]string, error) { return listIDs(dir, checkRecordSuffix) }
 
 // pruneChecks deletes every check record past the newest CheckRetention.
 func pruneChecks(dir string) error {

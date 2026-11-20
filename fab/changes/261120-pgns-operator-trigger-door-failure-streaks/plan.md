@@ -184,57 +184,62 @@ The router SHALL register `POST /api/operator/wake` taking `{"server": "<name>",
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `LoopLadder` climbs on `no change` and all three failure classes, resets on any other own line; `IsLoopFailureOutcome` is the single classifier
-- [ ] A-002 R2: `reportFailure` writes the note every time and pushes only when the previous own loop line is not a failure
-- [ ] A-003 R3: Marker helpers exist with the exact `<unix-ts> <reason>\n` format, 0600, atomic write, shared normalizer
-- [ ] A-004 R4: `rk operator wake` writes the marker with no daemon, default reason `manual`, exit codes 0/1/2 as specified
-- [ ] A-005 R5: The tick fires the loop once per marker with `trigger:<reason>` in the fire and log line and deletes the marker before the runner call
-- [ ] A-006 R6: Run records carry `reason`; transcribed lines use it with a `schedule` fallback
-- [ ] A-007 R7: `POST /api/operator/wake` writes the marker before a 200 `{server, reason}` and is POST-only
-- [ ] A-008 R8: Check records are written for every fire whose check ran, with the specified fields, shared fire/run id, retention 200
-- [ ] A-009 R9: `note@<at>` condition / `note` delta derived for every item, edge-triggered, one shared helper owns the rule
-- [ ] A-010 R10: `note` is a judgment reason, rendered `note <at>` in run reasons and the check CLI, no duplicate reason per item
-- [ ] A-011 R11: Sweep removes only muted legacy operator-tick entries when a loop entry exists, logs one `expired-legacy` line each
-- [ ] A-012 R12: Skill topic (both copies, in sync) and help-dump include `rk operator wake`
+- [x] A-001 R1: `LoopLadder` climbs on `no change` and all three failure classes, resets on any other own line; `IsLoopFailureOutcome` is the single classifier
+- [x] A-002 R2: `reportFailure` writes the note every time and pushes only when the previous own loop line is not a failure
+- [x] A-003 R3: Marker helpers exist with the exact `<unix-ts> <reason>\n` format, 0600, atomic write, shared normalizer
+- [x] A-004 R4: `rk operator wake` writes the marker with no daemon, default reason `manual`, exit codes 0/1/2 as specified
+- [x] A-005 R5: The tick fires the loop once per marker with `trigger:<reason>` in the fire and log line and deletes the marker before the runner call
+- [x] A-006 R6: Run records carry `reason`; transcribed lines use it with a `schedule` fallback
+- [x] A-007 R7: `POST /api/operator/wake` writes the marker before a 200 `{server, reason}` and is POST-only
+- [x] A-008 R8: Check records are written for every fire whose check ran, with the specified fields, shared fire/run id, retention 200
+- [x] A-009 R9: `note@<at>` condition / `note` delta derived for every item, edge-triggered, one shared helper owns the rule
+- [x] A-010 R10: `note` is a judgment reason, rendered `note <at>` in run reasons and the check CLI, no duplicate reason per item
+- [x] A-011 R11: Sweep removes only muted legacy operator-tick entries when a loop entry exists, logs one `expired-legacy` line each
+- [x] A-012 R12: Skill topic (both copies, in sync) and help-dump include `rk operator wake`
 
 ### Behavioral Correctness
 
-- [ ] A-013 R1: A failure streak no longer resets the loop to the 3-minute rung (watchdog/DeriveEntry next-fire follow the climbed rung)
-- [ ] A-014 R6: Wake/trigger-launched runs no longer transcribe as `schedule`
+- [x] A-013 R1: A failure streak no longer resets the loop to the 3-minute rung (watchdog/DeriveEntry next-fire follow the climbed rung)
+- [x] A-014 R6: Wake/trigger-launched runs no longer transcribe as `schedule`
 
 ### Scenario Coverage
 
-- [ ] A-015 R5: Tests prove the marker is consumed exactly once and left in place on a dead server, run in flight, and muted entry
-- [ ] A-016 R8: Tests prove a check record exists for a `no change` fire
-- [ ] A-017 R9: Tests prove the note condition fires once and re-fires on a newer instruction note
-- [ ] A-018 R11: Tests prove the sweep removes muted entries only
-- [ ] A-019 R2: Tests prove one push per streak
+- [x] A-015 R5: Tests prove the marker is consumed exactly once and left in place on a dead server, run in flight, and muted entry
+- [x] A-016 R8: Tests prove a check record exists for a `no change` fire
+- [x] A-017 R9: Tests prove the note condition fires once and re-fires on a newer instruction note
+- [x] A-018 R11: Tests prove the sweep removes muted entries only
+- [x] A-019 R2: Tests prove one push per streak
 
 ### Edge Cases & Error Handling
 
-- [ ] A-020 R3: Reasons with control characters or > 120 runes are rejected by CLI (exit 2) and API (400) without writing
-- [ ] A-021 R5: A rate-capped trigger fire consumes the marker and its `rate-capped` line carries the trigger reason; a delete failure is a diagnostic, not a tick error
-- [ ] A-022 R8: A check-record write failure does not change the fire's outcome
-- [ ] A-023 R6: Reason-less records (written by the installed binary) transcribe correctly; new records stay readable by old code (additive JSON field)
+- [x] A-020 R3: Reasons with control characters or > 120 runes are rejected by CLI (exit 2) and API (400) without writing
+- [x] A-021 R5: A rate-capped trigger fire consumes the marker and its `rate-capped` line carries the trigger reason; a delete failure is a diagnostic, not a tick error
+- [x] A-022 R8: A check-record write failure does not change the fire's outcome
+- [x] A-023 R6: Reason-less records (written by the installed binary) transcribe correctly; new records stay readable by old code (additive JSON field)
 
 ### Code Quality
 
-- [ ] A-024 Pattern consistency: New code follows the naming, seam, and comment conventions of `internal/cron`, `internal/operatorloop`, `internal/operator`, `cmd/rk`, and `api`
-- [ ] A-025 No unnecessary duplication: The pending-instruction rule, the failure classifier, and the reason normalizer each have exactly one owner
-- [ ] A-026: No magic strings/numbers — default reason, reason cap, `CheckRetention`, condition prefix, `expired-legacy`, and the `trigger:` prefix are named constants
-- [ ] A-027: No god functions — `tickServer` and `Run` additions are factored into helpers rather than growing inline past readability
-- [ ] A-028: Comments state constraints only (no narration, no change IDs)
-- [ ] A-029: New behavior is covered by Go tests; `go test ./...` passes apart from the two known host-only failures
+- [x] A-024 Pattern consistency: New code follows the naming, seam, and comment conventions of `internal/cron`, `internal/operatorloop`, `internal/operator`, `cmd/rk`, and `api`
+- [x] A-025 No unnecessary duplication: The pending-instruction rule, the failure classifier, and the reason normalizer each have exactly one owner
+- [x] A-026: No magic strings/numbers — default reason, reason cap, `CheckRetention`, condition prefix, `expired-legacy`, and the `trigger:` prefix are named constants
+- [x] A-027: No god functions — `tickServer` and `Run` additions are factored into helpers rather than growing inline past readability
+- [x] A-028: Comments state constraints only (no narration, no change IDs)
+- [x] A-029: New behavior is covered by Go tests; `go test ./...` passes apart from the two known host-only failures
 
 ### Security
 
-- [ ] A-030 R4: Server names are validated before building any path; the marker path is built only from a `ValidSlug` slug; no subprocess is spawned by the door
+- [x] A-030 R4: Server names are validated before building any path; the marker path is built only from a `ValidSlug` slug; no subprocess is spawned by the door
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- `app/backend/internal/operatorloop/record.go:224 listRunIDs` — near-verbatim twin of the new `ListCheckIDs` (`checkrecord.go:85`); differs only in the suffix, so one suffix-parameterized lister could serve both
+- `app/backend/internal/operatorloop/judgment.go:47-51` (`pendingNoteReason` scan in `judgmentSet`) — partly redundant now that the `note@` condition feeds change records; kept as a backstop for an instruction an earlier fire reported (plan Assumption 4), so it's a candidate to revisit in T4, not to delete now
 
 ## Assumptions
 
