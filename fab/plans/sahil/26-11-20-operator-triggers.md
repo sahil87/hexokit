@@ -122,8 +122,11 @@ decided mechanically. Everything the Go side still does is cheap, deterministic,
    live daemons keep the **installed** `rk` until step **R1**, which the operator runs itself once every
    code step has merged; no step before R1 installs a binary or restarts a daemon.
 2. One fab change per code step (T1–T7), started with `/fab-new` in a fresh worktree off `main`, using
-   the step's **Brief** as the description plus this file's absolute path. R1 and M1 are plain agents
-   given their brief (no fab change — nothing to review).
+   the step's **Brief** as the description plus this file's absolute path. **R1 and M1 are executed by
+   the operator chat itself**, woken by a cron entry (their briefs give the exact `rk cron add`) — not
+   by a queue entry (the engine turns any task in a fab repo into `/fab-new`) and not by a `note` item
+   (nothing executes a note). If either was queued as a note, the note stays as the record and the cron
+   entry is the mechanism.
 3. Queue mode **`merge-auto`**, entries in table order. A green PR merges without anyone's word; the
    next step spawns off the merged predecessor. A halted PR (closed, red after one fix round) is an
    escalation to the user, not a wait.
@@ -152,8 +155,8 @@ decided mechanically. Everything the Go side still does is cheap, deterministic,
 | **T5** | run-kit | PR trigger, opportunistic: `operator.pr_hooks`, admin probe, `rk-gh-hooks` sibling session + receiver, doctor rows | T2 | M | — |
 | **T6** | run-kit | Activity tab + Check now + `GET /api/operator/activity` + brief/log endpoints; loop rows hidden in Cron Log | T2, T4 | L | — |
 | **T7** | run-kit | Tasks Needs-you band + note composer calls wake; Cron List + Cron Log merge into one Cron tab; mobile `?tab=` | T6 | M | — |
-| **R1** | — | Release and roll out: `just release patch`, wait for CI, `rk update`, restart each live daemon, verify one trigger → check → run cycle, notify | T5, T7 | S | operator |
-| **M1** | — | Report one week after R1: model runs/day, no-op share, tokens/run, failure streaks, PR-trigger latency; one note + notify | R1 | S | operator |
+| **R1** | — | Release and roll out: `just release patch`, wait for CI, `rk update`, restart each live daemon, verify one trigger → check → run cycle, notify | T5 (re-landed as #1169), T7 | S | operator chat, cron-woken |
+| **M1** | — | Report one week after R1: model runs/day, no-op share, tokens/run, failure streaks, PR-trigger latency; one note + notify | R1 | S | operator chat, cron-woken |
 
 ```
 T1 ── T3 ── T4 ──┐
@@ -323,7 +326,18 @@ semantic order and is what the chat passes as `depends_on`.
 - PR evidence: desktop + mobile.
 - Docs: `ui/quake-terminal.md`, `ui/cron-console-tabs.md`, `ui/routes-and-shell.md`.
 
-### R1 — Release and roll out (operator, no fab change)
+### R1 — Release and roll out (operator chat, cron-woken, no fab change)
+
+**Mechanism.** The chat does not poll for this; a cron entry on the plan's server wakes it every four
+hours with the condition and the instruction, and the chat removes the entry once R1 is verified:
+
+```sh
+rk cron add -L hexokit2 --name "r1 release" --cron "0 */4 * * *" --role operator --deliver when-idle \
+  "operator: plan fab/plans/sahil/26-11-20-operator-triggers.md — if every code-step PR (T1–T7, with T5 counted only by its re-land #1169 on main) shows MERGED and R1 is not yet done, execute step R1 exactly as its brief says and then rk cron rm this entry; otherwise reply 'R1: not yet' and do nothing else."
+```
+
+The 2-minute heads-up notification before the daemon restart is the only user-facing moment, and it
+needs no reply. T5 counts as merged only when #1169 is `MERGED` (#1168 landed on T2's branch).
 
 Run only after T1–T7 are merged (`gh pr view` on each shows `MERGED`). From a clean checkout of `main`
 on this box:
@@ -350,10 +364,17 @@ Rollback: `brew` the previous version (`rk update` cannot downgrade; `brew insta
 `brew switch`-equivalent as documented in `toolkit-standards.md`), `rk serve --restart`. The engine file's
 dropped keys are ignored by both versions.
 
-### M1 — Report (operator, no fab change)
+### M1 — Report (operator chat, cron-woken, no fab change)
 
-Seven days after R1 (queue it paused with a note naming the date; the chat resumes it, or a cron entry
-`rk cron add "m1 report" --cron "<date>" --role operator` types the request). Compute from the four
+Seven days after R1. The last thing R1 does is add the entry that wakes the chat for M1, dated R1's
+completion plus seven days (daemon local time):
+
+```sh
+rk cron add -L hexokit2 --name "m1 report" --cron "<minute> <hour> <day> <month> *" --role operator --deliver when-idle \
+  "operator: plan fab/plans/sahil/26-11-20-operator-triggers.md — execute step M1 (the one-week report) now, then rk cron rm this entry."
+```
+
+Compute from the four
 servers' cron logs, run records and the `claude -p` transcripts (the same method as this plan's Problem
 section): loop fires/day and the share of `no change`; model runs/day and the no-op share (target under
 20 %); tokens per run (target under 60K total-in); `run-failed` streaks; PR-trigger latency where hooks
