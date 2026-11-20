@@ -6,6 +6,11 @@
 > The parent plan's "Decisions already taken" table and its "Rules for the operator executing
 > this plan" still bind, except where this doc replaces them.
 
+> **Status (2026-11-20): complete except M1.** Done: R6a #1135, R6r-i #1138, R6r-ii #1139, R6b #1141, R6c #1142; F2 shipped
+> in fab-kit #703 (its user gate was waived by the user 2026-11-17). M1 is due 2026-11-21 (parent plan) and is being written; the
+> before/after "model runs per queue event" baseline was never captured and cannot be now. The PR rows, executors and R6b/R6c
+> briefs below are **superseded** by `26-11-20-operator-triggers.md` T3 (see the note above the rule table).
+
 **Problem.** R6 (fab change `261114-8w1x-operator-autopilot-go`, PR #1135) ported the whole of
 fab's §6 autopilot to Go in one change: queue, readiness, spawn, dependency code, ordered merge
 in all three modes, and PR recovery. It never passed review. Over two `/fab-fff` runs (8 reviews,
@@ -120,6 +125,9 @@ Facts read each pass besides the status inputs: `autoMergeRequest` (armed or not
 
 ### Rule table
 
+> **Superseded by triggers plan T3 (#1166).** T3 deleted the PR rows (P1–P7, B1, C1–C6, F1), the PR executors, `prs`/`fixes`,
+> the `merge` verb, and Q6a/Q6b/Q7. Only the queue spawn side (Q1–Q5) survives. Rows marked "superseded" are kept as history.
+
 | # | Item · status | Guard | Action | Intent written first | Step |
 |---|---|---|---|---|---|
 | Q1 | queue · `done` | `done_at` unset | `record-done` | — | R6r-i |
@@ -128,22 +136,22 @@ Facts read each pass besides the status inputs: `autoMergeRequest` (armed or not
 | Q4 | queue · `dead` | respawn unspent | `respawn` | `respawned`, `spawning` | R6r-i |
 | Q5 | queue · `dead` | respawn spent | `skip` + `escalate` | `skipped` | R6r-i |
 | Q6 | queue · `spawned` | stage unchanged 30 min, or queue open 2 h | `escalate` once | dedupe key | R6r-i |
-| Q7 | queue · `done`, `merge-auto` | no PR item | `track-pr` | — (the item write is the action) | R6r-i |
-| P1 | PR · `merged` | `done_at` unset | `record-merged` (+ unreviewed report) | — | R6r-i |
-| P2 | PR · `closed` | — | `halt` | `halted` | R6r-i |
-| P3 | PR · `halted` | armed | `disarm` | — | R6r-i |
-| B1 | PR · `stale-base` | predecessor merged | `restack`: verify or perform the retarget, `rebase --onto`, `--force-with-lease`; a conflict halts | — | R6b |
-| P4 | PR · `draft` | — | `ready` | — | R6r-i |
-| C1 | PR · `fixing` | `recovery_at` older than 30 min | `halt` | `halted` | R6c |
-| C2 | PR · `failed` | `ci-fix` round unspent, authoring pane alive | `fix-request` | `ci-fix` round spent, `fix_head`, `recovery_at` | R6c |
-| C3 | PR · `failed` | `ci-fix` round unspent, no authoring pane | `recovery-spawn` | as C2, plus `fix_item` | R6c |
-| C4 | PR · `failed` | `ci-fix` round spent (head ≠ `fix_head`) | `halt` | `halted` | R6c |
-| C5 | PR · `conflicting` | `rebase` round unspent | `rebase` onto default + `--force-with-lease`; a conflict halts | `rebase` round spent | R6c |
-| C6 | PR · `conflicting` | `rebase` round spent | `halt` | `halted` | R6c |
-| P5 | PR · `failed` or `conflicting` | (rows C2–C6 absent) | `escalate` `recovery needed` once per head | dedupe key | R6r-i; removed by R6c |
-| P6 | PR · `waiting` | not `stacked-prs`, repo allows auto-merge, not armed | `arm` | — | R6r-i |
-| P7 | PR · `green` | not armed | `merge` (squash) | — | R6r-i (`stacked-prs`: R6b) |
-| F1 | fix item | parent merged or halted, or head ≠ `fix_head` and `green` | `untrack` | — | R6c |
+| Q7 | queue · `done`, `merge-auto` | no PR item | `track-pr` | — (the item write is the action) | R6r-i; superseded by T3 |
+| P1 | PR · `merged` | `done_at` unset | `record-merged` (+ unreviewed report) | — | R6r-i; superseded by T3 |
+| P2 | PR · `closed` | — | `halt` | `halted` | R6r-i; superseded by T3 |
+| P3 | PR · `halted` | armed | `disarm` | — | R6r-i; superseded by T3 |
+| B1 | PR · `stale-base` | predecessor merged | `restack`: verify or perform the retarget, `rebase --onto`, `--force-with-lease`; a conflict halts | — | R6b; superseded by T3 |
+| P4 | PR · `draft` | — | `ready` | — | R6r-i; superseded by T3 |
+| C1 | PR · `fixing` | `recovery_at` older than 30 min | `halt` | `halted` | R6c; superseded by T3 |
+| C2 | PR · `failed` | `ci-fix` round unspent, authoring pane alive | `fix-request` | `ci-fix` round spent, `fix_head`, `recovery_at` | R6c; superseded by T3 |
+| C3 | PR · `failed` | `ci-fix` round unspent, no authoring pane | `recovery-spawn` | as C2, plus `fix_item` | R6c; superseded by T3 |
+| C4 | PR · `failed` | `ci-fix` round spent (head ≠ `fix_head`) | `halt` | `halted` | R6c; superseded by T3 |
+| C5 | PR · `conflicting` | `rebase` round unspent | `rebase` onto default + `--force-with-lease`; a conflict halts | `rebase` round spent | R6c; superseded by T3 |
+| C6 | PR · `conflicting` | `rebase` round spent | `halt` | `halted` | R6c; superseded by T3 |
+| P5 | PR · `failed` or `conflicting` | (rows C2–C6 absent) | `escalate` `recovery needed` once per head | dedupe key | R6r-i; removed by R6c; superseded by T3 |
+| P6 | PR · `waiting` | not `stacked-prs`, repo allows auto-merge, not armed | `arm` | — | R6r-i; superseded by T3 |
+| P7 | PR · `green` | not armed | `merge` (squash) | — | R6r-i (`stacked-prs`: R6b); superseded by T3 |
+| F1 | fix item | parent merged or halted, or head ≠ `fix_head` and `green` | `untrack` | — | R6c; superseded by T3 |
 
 Every other status is an explicit `wait`. Consequences of the table, binding:
 
@@ -257,16 +265,14 @@ run's end state, and already has the run's `$TMUX` and run log. The daemon stays
 - **Merged to `main`**: R1 State Engine (#1120), R2 Check (#1129), R3 Operator Tasks (#1130), R4 Run
   Brief + Chat Skill (#1128), R5 Operator Loop (#1132), plus #1134 (explicit server for runs).
 - **C1**: complete (per the user, 2026-11-14). F1 shipped as part of C1's release.
-- **M1**: not verified from this repo. Check the measurement notes before scheduling F2. Record
-  the "model runs per queue event" baseline **before R6r-ii lands** — it cannot be collected
-  afterwards.
+- **M1**: due 2026-11-21 per the parent plan and being written (as of 2026-11-20). The "model runs per queue
+  event" baseline was never recorded before R6r-ii landed and cannot be collected now.
 - **R6a**: change `261114-8w1x-operator-autopilot-go`, branch of the same name, PR #1135.
   Re-scoped from R6 by this doc on 2026-11-16 and run through `/fab-fff` the same day: five
   reviews (4 → 3 → 3 → 1 → 2 must-fix, nothing returning once fixed; reviews 1–3 were all
   "another writer changed an engine field mid-pass", solved by the scope allow-list R28–R33;
   reviews 4–5 were spec-precision findings), then review passed on the user's authority after
-  the two review-5 fixes. Shipping was in progress when this doc was last updated — check
-  `.status.yaml` and PR #1135. It ships on the imperative shape with the allow-list; R6r-i and
+  the two review-5 fixes. It shipped as PR #1135, on on the imperative shape with the allow-list; R6r-i and
   R6r-ii replace both.
 - **Reference branch**: `origin/261114-8w1x-r6-full-reference` (commit `e99ca698`), the full-scope
   engine after the second review run, with its `plan.md` (requirements R1–R28, tasks T001–T032).
@@ -379,7 +385,7 @@ R6b and R6c once R6r-ii has.
 | **R6b** | run-kit | `stacked-prs` merge-all: status `stale-base`, row B1 and the `restack` executor (base retarget, `rebase --onto` + force-push), P7 for stacked PRs; replaces the interim `restack needed` escalation | R6r-ii | M | — |
 | **R6c** | run-kit | PR recovery: rows C1–C6 and F1 and their executors (`ci-failed` fix round, `conflicting` rebase, recovery spawn), replacing P5 | R6r-ii | M | — |
 | **M1** | — | Measure one week vs baseline (unchanged from the parent plan), plus model runs per queue event before and after R6r-ii | C1 | S | — |
-| **F2** | fab-kit | Delete fab's operator code, skill and docs (unchanged), and retire fab's `autopilot.merge_mode` key | C1 + 1 release, R6b, R6c, M1 | M | **user gate** |
+| **F2** | fab-kit | Delete fab's operator code, skill and docs (unchanged), and retire fab's `autopilot.merge_mode` key | C1 + 1 release, R6b, R6c, M1 | M | **user gate** (waived 2026-11-17; done, fab-kit #703) |
 
 R7 (delete the brief) is absorbed by R6r-ii; R8 (daemon-driven `step`) is absorbed by R6r-ii
 and is no longer a candidate. The reference branch is deleted by hand once R6b and R6c merge.
@@ -528,6 +534,8 @@ Make the mechanical half free and the model's job small. Four parts, one change:
 
 ### R6b — `stacked-prs` merge-all (run-kit)
 
+> Done (#1141); the `stale-base` status, row B1 and the `restack` executor were later deleted by triggers plan T3 (#1166).
+
 - Add the `stale-base` status, row B1 and the `restack` executor. Port the executor body from the
   reference branch's `prepareStacked` (fetch, verify or perform the retarget, `rebase --onto` +
   `--force-with-lease`, conflict abort), with its tests from `merge.go` and `merge_test.go`,
@@ -542,6 +550,8 @@ Make the mechanical half free and the model's job small. Four parts, one change:
 - Single-writer model throughout; no claim machinery; no new engine-file key.
 
 ### R6c — PR recovery (run-kit)
+
+> Done (#1142); rows C1–C6 and F1 and their executors were later deleted by triggers plan T3 (#1166).
 
 - Add the `fixing` status, rows C1–C6 and F1, and the `fix-request`, `recovery-spawn`, `rebase`
   and `untrack` executors. Port the executor bodies from the reference branch's `recovery.go`
@@ -563,7 +573,7 @@ Make the mechanical half free and the model's job small. Four parts, one change:
 Unchanged from the parent plan, plus two measurements: run tokens on queue ticks before and
 after R6a (queue work is where the brief swap should cut cost), and **model runs per queue
 event** before and after R6r-ii (the goal row's metric: after R6r-ii a merged PR or a stage
-advance should launch no model run). Capture the "before" of both now.
+advance should launch no model run). The "before" of both was never captured and cannot be now.
 
 ### F2 — Delete fab's operator (fab-kit, user gate)
 

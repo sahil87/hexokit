@@ -10,6 +10,9 @@
 > Drafted in fab-kit (sahil87/fab-kit#695, closed unmerged) and moved here on 2026-11-11 so the
 > plan is executed by a hexokit operator. "run-kit" in the step table means this repo.
 
+> **Status (2026-11-20): complete except M1.** Done: S1, R1–R5, F1 (fab-kit #701), C1, R6, R7, F2 (fab-kit #703;
+> its user gate was waived by the user 2026-11-17). M1 (one-week measurement) is due 2026-11-21 and is being written.
+
 **Problem.** The operator is one chat session that rk cron types `operator tick` into every
 3–30 min. A chat re-reads its whole history on every reply, so the cost of a tick grows with the
 session's age, not with its work. Measured on loom2 `snappy-gopher` (149 h, 1,563 ticks, Opus 5.5
@@ -125,7 +128,7 @@ launcher, `wt` (via run-kit's `internal/wt` wrapper).
 | **M1** | — | Measure one week vs baseline ($451 / 6.2 days); confirm cache TTL of runs | C1 | S | — |
 | **R6** | run-kit | Autopilot in Go: queue, readiness, spawn, dependency code, ordered merge, 3 modes | C1 | L | — |
 | **R7** | run-kit | Remove interim autopilot text from the brief | R6 | S | — |
-| **F2** | fab-kit | Delete fab operator code, skill, docs (after one release cycle) | C1 + 1 release, R7 | M | **user gate** |
+| **F2** | fab-kit | Delete fab operator code, skill, docs (after one release cycle) | C1 + 1 release, R7 | M | **user gate** (waived 2026-11-17) |
 
 Parallel lanes after **R1**: R2, R3, R4 can run at once. S1 can start immediately.
 

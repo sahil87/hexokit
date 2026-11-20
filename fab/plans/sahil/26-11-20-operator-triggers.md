@@ -7,6 +7,10 @@
 > days of live data (2026-11-14 → 11-20) on four tmux servers: cron logs, run records, ledgers, and the
 > `claude -p` transcripts. "run-kit" in the step table means this repo (hexokit). Every step is in this repo.
 
+> **Status (2026-11-20): complete except M1.** Done: T1 #1162, T2 #1164, T3 #1166, T4 #1167, T5 #1169 (feature off:
+> `operator.pr_hooks` unset; the T8 spike was blocked because the account is not admin), T6 #1171, T7 #1172, R1 (done 2026-11-20,
+> v3.23.10). M1 is scheduled for 2026-11-27.
+
 **Your involvement.** None until the end. PRs merge when green (`merge-auto`); the operator runs the
 one release itself (step **R1**) and notifies you before the daemon restart and after verification.
 You hear from it only on a halt, at R1, and when the one-week report (**M1**) lands. If you want to
@@ -75,7 +79,7 @@ decided mechanically. Everything the Go side still does is cheap, deterministic,
 | Queue work | **Stays in Go**: X0–X1, Q1–Q5 (readiness, fetch-first SHA-pinned spawn with the three modes' chaining, one respawn, completion). Q6a/Q6b go | One right answer; what makes "item done → next starts" free |
 | Merge modes | Kept as stamps on queue items. They still shape **spawn** (ladder cherry-pick, stacked base + `set-base-branch`, merge-auto no chaining) and now tell the **AI** its merge authority: `merge-auto` = merge green PRs without asking; the other two = merge only on the user's word | The spawn half of a mode is mechanical; the merge half is authority, which is a rule for the operator, not a row |
 | This plan's queue mode | **`merge-auto`**, queued in the step order below. The current (installed) engine merges a green PR directly (row P7); its "repo auto-merge lookup failed" escalations are noise until T3 lands | No per-PR review wait; the fab pipeline's sub-agent review and Copilot are the gate. Serial by construction (each step spawns off the merged predecessor) — it costs calendar time, not your time |
-| Release | **One, run by the operator** (step R1): `just release patch` → CI publishes → `rk update` → `rk serve --restart` on each live server → verify → notify. No user gate | A daemon restart loses nothing (runs live in tmux, state is files — Constitution II/VI); the reads of every file this plan changes are tolerant in both directions, so the new binary can land under a running queue |
+| Release | **One, run by the operator** (step R1): `just release patch` → CI publishes → `rk update` → `rk daemon restart` on each live server → verify → notify. No user gate | A daemon restart loses nothing (runs live in tmux, state is files — Constitution II/VI); the reads of every file this plan changes are tolerant in both directions, so the new binary can land under a running queue |
 | Legacy `operator tick` entries | Removed by the tick itself, once, on a server whose cron file holds a loop entry (T2) | A user action that nothing else depends on is a chore the tick can do |
 | Measurement | An operator report item (M1), not a user action | The operator has the cron logs, run records and transcripts; the user reads one note |
 | Failure backoff | Consecutive `run-failed` / `run-lost` / `check-failed` lines climb the ladder like `no change`; one push per failure streak | A dead launcher must not run every 3 min and notify 62 times |
@@ -105,7 +109,7 @@ decided mechanically. Everything the Go side still does is cheap, deterministic,
   `cmd/rk/operator_*.go`, frontend `components/quake-terminal.tsx`, `terminal-activity-tabs.tsx`,
   `cron-log.tsx`, `cron-list.tsx`, `watched-table.tsx`, `cron-entry-detail-sheet.tsx`.
 - Release: `just release patch` (`scripts/release.sh`: clean tree, bump tag, push; CI builds and
-  publishes); on a box, `rk update` (brew-installed: the managed update job) then `rk serve --restart`.
+  publishes); on a box, `rk update` (brew-installed: the managed update job) then `rk daemon restart`.
 - Memory: `docs/memory/run-kit/{operator-state,operator-loop,operator-brief,operator-autopilot,cron}.md`,
   `ui/{quake-terminal,cron-console-tabs}.md`. The chat skill is `docs/site/skill/operator.md`, synced to
   `cmd/rk/skill/operator.md`.
@@ -155,7 +159,7 @@ decided mechanically. Everything the Go side still does is cheap, deterministic,
 | **T5** | run-kit | PR trigger, opportunistic: `operator.pr_hooks`, admin probe, `rk-gh-hooks` sibling session + receiver, doctor rows | T2 | M | — |
 | **T6** | run-kit | Activity tab + Check now + `GET /api/operator/activity` + brief/log endpoints; loop rows hidden in Cron Log | T2, T4 | L | — |
 | **T7** | run-kit | Tasks Needs-you band + note composer calls wake; Cron List + Cron Log merge into one Cron tab; mobile `?tab=` | T6 | M | — |
-| **R1** | — | Release and roll out: `just release patch`, wait for CI, `rk update`, restart each live daemon, verify one trigger → check → run cycle, notify | T5 (re-landed as #1169), T7 | S | operator chat, cron-woken |
+| **R1** | — | **Done 2026-11-20 (v3.23.10).** Release and roll out: `just release patch`, wait for CI, `rk update`, restart each live daemon, verify one trigger → check → run cycle, notify | T5 (re-landed as #1169), T7 | S | operator chat, cron-woken |
 | **M1** | — | Report one week after R1: model runs/day, no-op share, tokens/run, failure streaks, PR-trigger latency; one note + notify | R1 | S | operator chat, cron-woken |
 
 ```
@@ -342,7 +346,7 @@ needs no reply. T5 counts as merged only when #1169 is `MERGED` (#1168 landed on
 Run only after T1–T7 are merged (`gh pr view` on each shows `MERGED`). From a clean checkout of `main`
 on this box:
 
-1. `just release patch` (`scripts/release.sh`: refuses a dirty tree; bumps the `v*` tag, pushes). Watch
+1. `just release patch` (done 2026-11-20: CI auto-tagged v3.23.10, so `just release patch` was not needed) (`scripts/release.sh`: refuses a dirty tree; bumps the `v*` tag, pushes). Watch
    the release workflow to completion (`gh run list --workflow` / `gh run watch`); on failure, stop and
    notify with the run URL.
 2. `rk notify "operator release: restarting daemons in 2 minutes" --title "R1"`; wait 2 minutes so a
@@ -350,7 +354,7 @@ on this box:
 3. `rk update` (brew-installed: the managed update job; otherwise `just build` and copy `dist/rk` over
    the path `rk doctor` reports as the daemon binary). Confirm `rk --version` shows the new tag.
 4. For each live server (`rk mux sessions`-level listing, or `tmux -L <server> list-sessions` per known
-   server): `rk serve --restart` (the daemon is one per box; run it once, then confirm every server's
+   server): `rk daemon restart` (the daemon is one per box; run it once, then confirm every server's
    loop entry still fires — `rk cron list -L <server>`). Set `operator.pr_hooks` to the repos the ledgers
    track and confirm `rk doctor`'s `pr hooks` rows.
 5. Verify one cycle: `rk operator wake -L hexokit --reason manual`; within a minute `GET
@@ -361,7 +365,7 @@ on this box:
    note on this plan's tracking item with the tag, the servers restarted, and anything skipped.
 
 Rollback: `brew` the previous version (`rk update` cannot downgrade; `brew install rk@<prev>` or
-`brew switch`-equivalent as documented in `toolkit-standards.md`), `rk serve --restart`. The engine file's
+`brew switch`-equivalent as documented in `toolkit-standards.md`), `rk daemon restart`. The engine file's
 dropped keys are ignored by both versions.
 
 ### M1 — Report (operator chat, cron-woken, no fab change)
