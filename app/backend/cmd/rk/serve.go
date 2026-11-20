@@ -196,6 +196,21 @@ var deleteLegacyHomes = homemigrate.DeleteLegacyHomes
 // daemon port — the migration-deferral guard's seam (tests stub it).
 var daemonPortBusyFn = daemon.PortBusy
 
+// startGHHooksWatcher runs the rk-gh-hooks settings watch, except in a dev
+// build (version == "dev": just dev/air and the e2e rigs). The watch's ensure
+// acts on the rk-daemon tmux socket, which a rig shares with the box's live
+// daemon; a rig's empty operator.pr_hooks would otherwise kill the live
+// rk-gh-hooks session and, with it, the repo hooks it holds.
+func startGHHooksWatcher(ctx context.Context) {
+	if version == "dev" {
+		return
+	}
+	go ghHooksWatchFn(ctx, daemon.GHHooksWatchInterval)
+}
+
+// ghHooksWatchFn is the watch's seam (tests stub it).
+var ghHooksWatchFn = daemon.WatchGHHooksSettings
+
 // migrateHomesUnlessDev runs the one-time run-kit → hexokit home migration at
 // daemon start — before config.Load and tmux.EnsureConfig read anything — and
 // then re-resolves the tmux managed-conf path: tmux.DefaultConfigPath was
@@ -406,6 +421,10 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		// The ChatGPT connector's settings watch: stops a tunnel-client a hand
 		// edit or a dotfiles sync turned off, with or without a UI connected.
 		go daemon.WatchOpenAIMCPSettings(ctx, daemon.OpenAIMCPWatchInterval)
+
+		// The PR-event forwarders' settings watch: an edit to
+		// operator.pr_hooks takes effect without a daemon restart.
+		startGHHooksWatcher(ctx)
 
 		if err := supervisor.Start(ctx); err != nil {
 			slog.Warn("tmuxctl supervisor failed to start; falling back to safety-net poll", "err", err)

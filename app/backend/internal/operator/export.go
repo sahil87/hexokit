@@ -2,7 +2,8 @@ package operator
 
 import (
 	"context"
-	"regexp"
+
+	"rk/internal/validate"
 )
 
 // The helpers below are the ledger primitives the autopilot engine builds on:
@@ -69,15 +70,13 @@ func NewPaneItem(id string, deps []string, scope map[string]interface{}) (Tracke
 	return it, nil
 }
 
-var githubRepoName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_.-]+$`)
-
 // NewGitHubPRItem builds a github-pr item probing `gh pr view <n> --repo
 // <nwo>` with the kind defaults. nwo is the repo's owner/name.
 func NewGitHubPRItem(id string, deps []string, scope map[string]interface{}, nwo string) (TrackedItem, error) {
 	if id == "" {
 		return TrackedItem{}, invalidf("tracked item id must not be empty")
 	}
-	if !githubRepoName.MatchString(nwo) {
+	if validate.ValidateGitHubRepo(nwo) != "" {
 		return TrackedItem{}, invalidf("kind github-pr requires an explicit owner/name repository")
 	}
 	pr := scopePRNumber(scope)

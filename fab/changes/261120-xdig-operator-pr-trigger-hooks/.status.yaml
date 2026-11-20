@@ -1,0 +1,58 @@
+id: xdig
+name: 261120-xdig-operator-pr-trigger-hooks
+created: 2026-11-20T07:33:20Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 13
+    acceptance_count: 24
+    acceptance_completed: 24
+confidence:
+    certain: 9
+    confident: 5
+    tentative: 1
+    unresolved: 0
+    score: 3.5
+    fuzzy: true
+    dimensions:
+        signal: 77.7
+        reversibility: 81.0
+        competence: 80.3
+        disambiguation: 76.7
+stage_metrics:
+    intake: {started_at: "2026-11-20T07:33:20Z", driver: fab-new, iterations: 1, completed_at: "2026-11-20T07:38:14Z"}
+    apply: {started_at: "2026-11-20T08:18:00Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-20T08:23:02Z"}
+    review: {started_at: "2026-11-20T08:23:02Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-20T08:26:12Z"}
+    hydrate: {started_at: "2026-11-20T08:26:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T08:30:12Z"}
+    ship: {started_at: "2026-11-20T08:30:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T08:32:01Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1168
+base_branch: 261120-pgns-operator-trigger-door-failure-streaks
+true_impact:
+    added: 4269
+    deleted: 30
+    net: 4239
+    excluding:
+        added: 3621
+        deleted: 22
+        net: 3599
+    tests:
+        added: 1874
+        deleted: 13
+        net: 1861
+    computed_at: "2026-11-20T08:32:01Z"
+    computed_at_stage: ship
+change_type_source: explicit
+summary: 'Operator PR trigger hooks: operator.pr_hooks setting, admin probe, rk-gh-hooks session (receiver on 127.0.0.1:21900 + per-repo gh webhook forward supervisors), pr:<nwo>#<n>:<event> wake reasons through the marker door, rk operator hooks stop, pr hooks doctor rows'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-20T08:32:01Z
