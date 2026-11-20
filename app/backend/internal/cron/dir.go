@@ -9,6 +9,7 @@
 //	<server-slug>.yaml        entries (intent — the same class as .status.yaml)
 //	<server-slug>.log         delivery log (JSON lines; recovery-backup class)
 //	<server-slug>.cursor.yaml wake_on cursor (seed-cache class, never authoritative)
+//	<server-slug>.wake        pending trigger marker (one line, consumed by the tick)
 //	.lock                     non-blocking tick flock
 package cron
 
@@ -80,6 +81,14 @@ func CursorPath(dir, slug string) (string, error) {
 		return "", fmt.Errorf("invalid server slug %q", slug)
 	}
 	return filepath.Join(dir, slug+".cursor.yaml"), nil
+}
+
+// WakePath is the trigger marker for a server slug (wake_marker.go).
+func WakePath(dir, slug string) (string, error) {
+	if !ValidSlug(slug) {
+		return "", fmt.Errorf("invalid server slug %q", slug)
+	}
+	return filepath.Join(dir, slug+".wake"), nil
 }
 
 // LockPath is the tick lock file (no slug — one lock serializes the tick

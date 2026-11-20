@@ -2,7 +2,6 @@ package operatorloop
 
 import (
 	"strings"
-	"time"
 
 	"rk/internal/operator"
 )
@@ -46,23 +45,45 @@ func judgmentSet(changes []ChangeRecord, pass *PassRecord, state *operator.State
 	}
 	if state != nil {
 		for _, it := range state.Tracked {
-			if hasUserInstruction(it.Notes) {
-				add(it.ID, "new user or chat note")
+			if _, pending := operator.PendingInstruction(it.Notes); pending && !hasReasonKind(out, pos, it.ID, operator.DeltaNote) {
+				add(it.ID, pendingNoteReason)
 			}
 		}
 	}
 	return out
 }
 
-func reasonNeedsJudgment(reason string, item operator.TrackedItem, owned bool) bool {
-	kind := reason
-	if fields := strings.Fields(reason); len(fields) > 0 {
-		kind = fields[0]
+// pendingNoteReason covers an unanswered instruction whose `note` condition an
+// earlier fire already reported, so this run's change records do not carry it.
+const pendingNoteReason = "new user or chat note"
+
+// hasReasonKind reports whether the item already carries a reason of the kind.
+func hasReasonKind(out []operator.ChangedItem, pos map[string]int, id, kind string) bool {
+	i, ok := pos[id]
+	if !ok {
+		return false
 	}
-	switch kind {
+	for _, reason := range out[i].Reasons {
+		if reasonKind(reason) == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// reasonKind is the delta kind a rendered reason (`<kind>[ <detail>]`) opens with.
+func reasonKind(reason string) string {
+	if fields := strings.Fields(reason); len(fields) > 0 {
+		return fields[0]
+	}
+	return reason
+}
+
+func reasonNeedsJudgment(reason string, item operator.TrackedItem, owned bool) bool {
+	switch reasonKind(reason) {
 	case operator.DeltaAgentState:
 		return strings.HasSuffix(reason, "→waiting") || strings.HasSuffix(reason, "→idle")
-	case operator.DeltaAgentAged, operator.DeltaDue, operator.DeltaStale, operator.DeltaPaused, operator.DeltaUnknownDep:
+	case operator.DeltaAgentAged, operator.DeltaDue, operator.DeltaStale, operator.DeltaPaused, operator.DeltaUnknownDep, operator.DeltaNote:
 		return true
 	case operator.DeltaDone:
 		return item.Then != nil && strings.TrimSpace(*item.Then) != ""
@@ -70,25 +91,4 @@ func reasonNeedsJudgment(reason string, item operator.TrackedItem, owned bool) b
 		return !owned
 	}
 	return false
-}
-
-func hasUserInstruction(notes []operator.Note) bool {
-	var latestInstruction, latestRun time.Time
-	for _, note := range notes {
-		at, err := time.Parse(time.RFC3339, note.At)
-		if err != nil {
-			continue
-		}
-		switch note.By {
-		case operator.ByUser, operator.ByChat:
-			if at.After(latestInstruction) {
-				latestInstruction = at
-			}
-		case operator.ByRun:
-			if at.After(latestRun) {
-				latestRun = at
-			}
-		}
-	}
-	return !latestInstruction.IsZero() && (latestRun.IsZero() || latestInstruction.After(latestRun))
 }

@@ -37,12 +37,15 @@ func newRig(t *testing.T) *rig {
 		self      func() (string, error)
 		home      func() (string, error)
 		runID     func() (string, error)
-	}{statePathFn, nowTime, listRunWindowsFn, checkFn, launchWindowFn, operatorRootFn, resolveLauncherFn, selfPathFn, homeDirFn, newRunIDFn}
+		lastLoop  func(string, string) (string, bool)
+	}{statePathFn, nowTime, listRunWindowsFn, checkFn, launchWindowFn, operatorRootFn, resolveLauncherFn, selfPathFn, homeDirFn, newRunIDFn, lastLoopOutcomeFn}
 	t.Cleanup(func() {
 		statePathFn, nowTime, listRunWindowsFn, checkFn = saved.statePath, saved.now, saved.windows, saved.check
 		launchWindowFn, operatorRootFn, resolveLauncherFn = saved.launch, saved.root, saved.resolve
 		selfPathFn, homeDirFn, newRunIDFn = saved.self, saved.home, saved.runID
+		lastLoopOutcomeFn = saved.lastLoop
 	})
+	lastLoopOutcomeFn = func(string, string) (string, bool) { return "", false }
 	statePathFn = func(context.Context, string) (string, error) { return r.statePath, nil }
 	nowTime = func() time.Time { return r.now }
 	listRunWindowsFn = func(context.Context, string) ([]tmux.RunWindow, error) { return nil, nil }

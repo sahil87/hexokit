@@ -164,6 +164,7 @@ func TestOperatorCheckDetailPerKind(t *testing.T) {
 		{operator.CheckDelta{Kind: operator.DeltaStale, Age: "20m"}, "20m"},
 		{operator.CheckDelta{Kind: operator.DeltaDue, Age: "6m"}, "6m"},
 		{operator.CheckDelta{Kind: operator.DeltaUnknownDep, Dep: "ghost"}, "ghost"},
+		{operator.CheckDelta{Kind: operator.DeltaNote, At: "2026-11-20T10:00:00Z"}, "2026-11-20T10:00:00Z"},
 		{operator.CheckDelta{Kind: operator.DeltaChanged, Fields: map[string]operator.FieldChange{
 			"b": {From: nil, To: 2}, "a": {From: "x", To: "y"},
 		}}, `a: "x" → "y"; b: null → 2`},

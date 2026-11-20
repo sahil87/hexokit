@@ -21,7 +21,8 @@ import (
 
 // record.go — the per-run durable files under
 // <state home>/operator/runs/<slug>/ (dir 0700, files 0600): the run record,
-// the rendered brief and the wrapper's output log. The record is the only
+// the rendered brief and the wrapper's output log (check records live beside
+// them, see checkrecord.go). The record is the only
 // state a fresh daemon needs: written before the window exists (durable before
 // acknowledged), updated atomically by the wrapper and by transcription.
 
@@ -81,7 +82,9 @@ type PassRecord struct {
 	Error       string   `json:"error,omitempty"`
 }
 
-// Record is one run's durable record. Timestamps are RFC3339 UTC with zero
+// Record is one run's durable record. Reason is the fire's reason (schedule,
+// wake, trigger:<why>); a record written without one reads as a schedule fire.
+// Timestamps are RFC3339 UTC with zero
 // values omitted; ExitCode is a pointer because 0 is a real exit status. Lost
 // carries the reason a run never produced an exit status (the launch failed,
 // or its window vanished) — transcribed as `run-lost: <reason>`.
@@ -90,6 +93,7 @@ type Record struct {
 	Server     string         `json:"server"`
 	Entry      string         `json:"entry"`
 	FiredAt    string         `json:"fired_at,omitempty"`
+	Reason     string         `json:"reason,omitempty"`
 	Changed    []string       `json:"changed,omitempty"`
 	Changes    []ChangeRecord `json:"changes,omitempty"`
 	Pass       *PassRecord    `json:"pass,omitempty"`
@@ -217,7 +221,11 @@ func writeFile(path string, data []byte) error {
 
 // listRunIDs returns the run ids that have a record file in dir, ascending
 // (the id sorts chronologically). An absent dir is no runs.
-func listRunIDs(dir string) ([]string, error) {
+func listRunIDs(dir string) ([]string, error) { return listIDs(dir, recordSuffix) }
+
+// listIDs returns the run-id-shaped stems of the files in dir ending in
+// suffix, ascending. An absent dir is no ids.
+func listIDs(dir, suffix string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -228,10 +236,10 @@ func listRunIDs(dir string) ([]string, error) {
 	var ids []string
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, recordSuffix) {
+		if e.IsDir() || !strings.HasSuffix(name, suffix) {
 			continue
 		}
-		if id := strings.TrimSuffix(name, recordSuffix); ValidRunID(id) {
+		if id := strings.TrimSuffix(name, suffix); ValidRunID(id) {
 			ids = append(ids, id)
 		}
 	}
@@ -241,8 +249,13 @@ func listRunIDs(dir string) ([]string, error) {
 
 // Prune deletes the record, brief and log of every run past the newest
 // RunRetention — except a record still awaiting transcription, which is
-// history the log has not received yet.
+// history the log has not received yet — and every check record past the
+// newest CheckRetention.
 func Prune(dir string) error {
+	return errors.Join(pruneRuns(dir), pruneChecks(dir))
+}
+
+func pruneRuns(dir string) error {
 	ids, err := listRunIDs(dir)
 	if err != nil || len(ids) <= RunRetention {
 		return err

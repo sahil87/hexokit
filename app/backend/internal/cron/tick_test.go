@@ -1336,3 +1336,192 @@ entries:
 		})
 	}
 }
+
+// quietLoopLog makes the rig's loop entry not otherwise due at T.
+func quietLoopLog(t *testing.T, dir string, entry Entry, T time.Time) {
+	t.Helper()
+	logPath, _ := LogPath(dir, "dev")
+	seedLog(t, logPath, 1, entry.ID, "", OutcomeNoChange, T.Add(-time.Minute).Unix())
+}
+
+func wakeMarkerPresent(t *testing.T, dir, slug string) bool {
+	t.Helper()
+	_, ok, err := ReadWakeMarker(dir, slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ok
+}
+
+// TestTickTriggerConsumedExactlyOnce: a marker fires the loop once with the
+// trigger reason in the fire and the logged line, the marker is gone before the
+// runner returns, and a second tick does not fire again.
+func TestTickTriggerConsumedExactlyOnce(t *testing.T) {
+	T := backoffBase
+	dir, entry, tick := loopTickRig(t, T)
+	quietLoopLog(t, dir, entry, T)
+	if err := WriteWakeMarker(dir, "dev", "manual", T); err != nil {
+		t.Fatal(err)
+	}
+	var fires []Fire
+	markerAtRun := true
+	runner := func(ctx context.Context, f Fire) Outcome {
+		fires = append(fires, f)
+		markerAtRun = wakeMarkerPresent(t, dir, "dev")
+		return Outcome{Status: OutcomeNoChange}
+	}
+	tick(Deps{LoopRunner: runner})
+	if len(fires) != 1 || fires[0].Reason != "trigger:manual" {
+		t.Fatalf("fires = %+v", fires)
+	}
+	if markerAtRun {
+		t.Error("marker still on disk when the runner was invoked")
+	}
+	if wakeMarkerPresent(t, dir, "dev") {
+		t.Error("marker survived consumption")
+	}
+	log := readDevLog(t, dir)
+	if last := log[len(log)-1]; last.Reason != "trigger:manual" || last.Outcome != OutcomeNoChange {
+		t.Errorf("last line = %+v", last)
+	}
+	tick(Deps{LoopRunner: runner})
+	if len(fires) != 1 {
+		t.Fatalf("second tick fired again: %+v", fires)
+	}
+}
+
+func TestTickTriggerLeftInPlace(t *testing.T) {
+	T := backoffBase
+	t.Run("dead server", func(t *testing.T) {
+		dir, entry, _ := loopTickRig(t, T)
+		quietLoopLog(t, dir, entry, T)
+		if err := WriteWakeMarker(dir, "dev", "x", T); err != nil {
+			t.Fatal(err)
+		}
+		ran := false
+		_, err := Tick(context.Background(), Deps{
+			Dir: dir, Now: func() time.Time { return T }, Tmux: newFakeTmux(),
+			ListServers: func(context.Context) ([]string, error) { return []string{"other"}, nil },
+			LoopRunner:  func(context.Context, Fire) Outcome { ran = true; return Outcome{Status: OutcomeNoChange} },
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ran || !wakeMarkerPresent(t, dir, "dev") {
+			t.Errorf("dead server: ran=%v marker present=%v, want untouched", ran, wakeMarkerPresent(t, dir, "dev"))
+		}
+	})
+
+	t.Run("run in flight", func(t *testing.T) {
+		dir, entry, _ := loopTickRig(t, T)
+		quietLoopLog(t, dir, entry, T)
+		if err := WriteWakeMarker(dir, "dev", "x", T); err != nil {
+			t.Fatal(err)
+		}
+		fk := newFakeTmux()
+		fk.sessions["dev"] = []tmux.SessionInfo{{Name: tmux.OperatorSessionName}}
+		fk.windows["dev"] = map[string][]tmux.WindowInfo{
+			tmux.OperatorSessionName: {{WindowID: "@1", Role: tmux.RoleOperatorRun}},
+		}
+		fk.runWins["dev"] = []tmux.RunWindow{{WindowID: "@1", Session: tmux.OperatorSessionName, RunID: "20261112T101500-ab12", PaneIDs: []string{"%9"}}}
+		ran := false
+		_, err := Tick(context.Background(), Deps{
+			Dir: dir, Now: func() time.Time { return T }, Tmux: fk,
+			ListServers: func(context.Context) ([]string, error) { return []string{"dev"}, nil },
+			LoopRunner:  func(context.Context, Fire) Outcome { ran = true; return Outcome{Status: OutcomeNoChange} },
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ran || !wakeMarkerPresent(t, dir, "dev") {
+			t.Errorf("run in flight: ran=%v marker present=%v", ran, wakeMarkerPresent(t, dir, "dev"))
+		}
+	})
+
+	t.Run("muted loop entry", func(t *testing.T) {
+		dir, entry, tick := loopTickRig(t, T)
+		quietLoopLog(t, dir, entry, T)
+		if _, err := SetMuted(dir, "dev", entry.ID, true); err != nil {
+			t.Fatal(err)
+		}
+		if err := WriteWakeMarker(dir, "dev", "x", T); err != nil {
+			t.Fatal(err)
+		}
+		ran := false
+		tick(Deps{LoopRunner: func(context.Context, Fire) Outcome { ran = true; return Outcome{Status: OutcomeNoChange} }})
+		if ran || !wakeMarkerPresent(t, dir, "dev") {
+			t.Errorf("muted: ran=%v marker present=%v", ran, wakeMarkerPresent(t, dir, "dev"))
+		}
+	})
+
+	t.Run("no loop entry", func(t *testing.T) {
+		dir := t.TempDir()
+		writeEntryFile(t, dir, "dev", sprintfTick(T))
+		if err := WriteWakeMarker(dir, "dev", "x", T); err != nil {
+			t.Fatal(err)
+		}
+		fk := newFakeTmux()
+		fk.sessions["dev"] = []tmux.SessionInfo{{Name: "work"}}
+		fk.windows["dev"] = map[string][]tmux.WindowInfo{"work": {{WindowID: "@5"}}}
+		fk.alive["dev"] = map[string]bool{"%42": true}
+		ran := false
+		_, err := Tick(context.Background(), Deps{
+			Dir: dir, Now: func() time.Time { return T }, Tmux: fk,
+			ListServers: func(context.Context) ([]string, error) { return []string{"dev"}, nil },
+			LoopRunner:  func(context.Context, Fire) Outcome { ran = true; return Outcome{Status: OutcomeNoChange} },
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ran || !wakeMarkerPresent(t, dir, "dev") {
+			t.Errorf("no loop entry: ran=%v marker present=%v", ran, wakeMarkerPresent(t, dir, "dev"))
+		}
+	})
+}
+
+// TestTickTriggerRateCappedStillConsumed: the rate cap suppresses the trigger
+// fire, but the marker is consumed and the `rate-capped` line carries the
+// trigger reason.
+func TestTickTriggerRateCappedStillConsumed(t *testing.T) {
+	T := backoffBase
+	dir, entry, tick := loopTickRig(t, T)
+	logPath, _ := LogPath(dir, "dev")
+	seedLog(t, logPath, DefaultTargetRatePerHour, entry.ID, "", OutcomeRan("x", time.Second), T.Add(-30*time.Minute).Unix())
+	quietLoopLog(t, dir, entry, T)
+	if err := WriteWakeMarker(dir, "dev", "note", T); err != nil {
+		t.Fatal(err)
+	}
+	ran := false
+	tick(Deps{LoopRunner: func(context.Context, Fire) Outcome { ran = true; return Outcome{Status: OutcomeNoChange} }})
+	if ran {
+		t.Fatal("runner called past the rate cap")
+	}
+	if wakeMarkerPresent(t, dir, "dev") {
+		t.Error("rate-capped trigger left the marker behind")
+	}
+	log := readDevLog(t, dir)
+	if last := log[len(log)-1]; last.Outcome != "rate-capped" || last.Reason != "trigger:note" {
+		t.Errorf("last line = %+v", last)
+	}
+}
+
+// TestTickTriggerRemoveFailureIsDiagnostic: a marker that cannot be deleted
+// is reported and never fails the tick.
+func TestTickTriggerRemoveFailureIsDiagnostic(t *testing.T) {
+	T := backoffBase
+	dir, entry, tick := loopTickRig(t, T)
+	quietLoopLog(t, dir, entry, T)
+	// A non-empty directory at the marker path reads as an error and cannot be
+	// removed, which stands in for any delete failure.
+	markerDir := filepath.Join(dir, "dev.wake")
+	if err := os.MkdirAll(filepath.Join(markerDir, "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if diags := consumeTrigger(dir, "dev", WakeMarker{Reason: "x"}, []Fire{{Entry: entry, Reason: TriggerFireReason("x")}}); !hasDiag(diags, "wake-marker-remove-failed") {
+		t.Fatalf("diags = %v", diagReasons(diags))
+	}
+	res := tick(Deps{LoopRunner: func(context.Context, Fire) Outcome { return Outcome{Status: OutcomeNoChange} }})
+	if !hasDiag(res.Diags, "wake-marker-read-failed") {
+		t.Errorf("an unreadable marker must surface a diagnostic: %v", diagReasons(res.Diags))
+	}
+}

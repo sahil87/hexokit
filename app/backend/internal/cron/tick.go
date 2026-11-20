@@ -275,6 +275,39 @@ func Tick(ctx context.Context, deps Deps) (TickResult, error) {
 	return res, nil
 }
 
+// pendingTrigger reads the server's trigger marker. An unreadable marker is a
+// diagnostic and reads as no trigger.
+func pendingTrigger(dir, slug string) (WakeMarker, []Diagnostic) {
+	m, ok, err := ReadWakeMarker(dir, slug)
+	if err != nil {
+		return WakeMarker{}, []Diagnostic{{Server: slug, Reason: "wake-marker-read-failed", Detail: err.Error()}}
+	}
+	if !ok {
+		return WakeMarker{}, nil
+	}
+	return m, nil
+}
+
+// consumeTrigger deletes the marker exactly when a loop fire carrying its
+// reason was emitted. It runs before any fire is delivered, so a crash
+// mid-run cannot fire the trigger twice, and a rate-capped fire still consumes
+// it. A failed delete is a diagnostic: the marker fires again next tick.
+func consumeTrigger(dir, slug string, trigger WakeMarker, fires []Fire) []Diagnostic {
+	if trigger.Reason == "" {
+		return nil
+	}
+	want := TriggerFireReason(trigger.Reason)
+	for _, f := range fires {
+		if f.Entry.IsLoop() && f.Reason == want {
+			if err := RemoveWakeMarker(dir, slug); err != nil {
+				return []Diagnostic{{Server: slug, EntryID: f.Entry.ID, Reason: "wake-marker-remove-failed", Detail: err.Error()}}
+			}
+			return nil
+		}
+	}
+	return nil
+}
+
 // tickServer runs the per-server pipeline: load → facts → Evaluate → deliver →
 // log → GC → cursor. A per-file failure is a diagnostic, never an aborted tick.
 func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxSeam, deliverer Deliverer, notifier func(context.Context, string, string, string) error, runRespawn RunRespawnFunc, sessionRespawner func(context.Context, Fire) Outcome, loop loopSeams) (fires int, diags []Diagnostic) {
@@ -282,7 +315,8 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 	if err != nil {
 		return 0, []Diagnostic{{Server: slug, Reason: "path-invalid", Detail: err.Error()}}
 	}
-	diags = append(diags, seedLoop(ctx, slug, dir, now, loop.seed)...)
+	sweptLegacy, seedDiags := seedLoop(ctx, slug, dir, now, loop.seed)
+	diags = append(diags, seedDiags...)
 	entries, loadDiags := LoadEntries(entriesPath)
 	for _, d := range loadDiags {
 		d.Server = slug
@@ -301,6 +335,8 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 		return fires, append(diags, Diagnostic{Server: slug, Reason: "path-invalid", Detail: err.Error()})
 	}
 	cursor, _ := ReadWakeCursor(cursorPath) // absent/corrupt = cold start
+	trigger, triggerDiags := pendingTrigger(dir, slug)
+	diags = append(diags, triggerDiags...)
 
 	logLines := ReadLog(logPath)
 
@@ -315,6 +351,13 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 		logLines = append(logLines, line)
 		fires++
 		return true
+	}
+
+	// Swept legacy entries are the audit trail of the sweep — expiry is never
+	// silent.
+	for _, id := range sweptLegacy {
+		slog.Info("legacy operator tick entry swept", "server", slug, "entry", id)
+		appendLine(id, LogLine{TS: now.Unix(), Entry: id, Outcome: OutcomeExpiredLegacy})
 	}
 
 	// Finished operator-loop runs go first, before evaluation: the tick is the
@@ -349,10 +392,12 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 		Log:     logLines,
 		Cursor:  cursor,
 
-		RunPanes:    facts.RunPanes,
-		RunInFlight: facts.RunInFlight,
+		RunPanes:      facts.RunPanes,
+		RunInFlight:   facts.RunInFlight,
+		TriggerReason: trigger.Reason,
 	})
 	diags = append(diags, eval.Diags...)
+	diags = append(diags, consumeTrigger(dir, slug, trigger, eval.Fires)...)
 
 	// rateCapped reports (and records) a suppression when the target is at or
 	// past the per-target cap. The rate-capped line IS appended: it is the

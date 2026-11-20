@@ -15,13 +15,20 @@ type Diagnostic struct {
 	Detail  string
 }
 
-// FireReason is why a fire is due: the schedule predicate or the wake edge.
+// FireReason is why a fire is due: the schedule predicate, the wake edge, or a
+// trigger marker (TriggerFireReason).
 type FireReason string
 
 const (
 	FireSchedule FireReason = "schedule"
 	FireWake     FireReason = "wake"
 )
+
+// TriggerFireReason is the fire reason of a loop fire caused by a trigger
+// marker: `trigger:<marker reason>`.
+func TriggerFireReason(reason string) FireReason {
+	return FireReason(TriggerReasonPrefix + reason)
+}
 
 // TargetFacts is one entry's resolved fire-time target (T010's gatherer is the
 // producer). Unresolved is "" when the target resolved; otherwise it carries
@@ -78,6 +85,10 @@ type EvalInput struct {
 	// entry does not fire while its run is going (the runner's own busy gate
 	// stays as the race backstop).
 	RunInFlight bool
+	// TriggerReason is the pending trigger marker's reason ("" when none). It
+	// makes the server's loop entry due once — after the muted and in-flight
+	// suppressions, which still win.
+	TriggerReason string
 }
 
 // EvalResult carries the due fires, the due-but-target-unresolved fires, the
@@ -105,6 +116,7 @@ type EvalResult struct {
 // emit.
 func Evaluate(in EvalInput) EvalResult {
 	res := EvalResult{NextCursor: in.Cursor.clone()}
+	triggerPending := in.TriggerReason != ""
 	for i, e := range in.Entries {
 		// Eval-time defense of the per-server entry cap: a hand-edited file
 		// past the cap processes only its first cap-many entries.
@@ -207,7 +219,14 @@ func Evaluate(in EvalInput) EvalResult {
 			}
 		}
 
-		if !schedDue && !wakeDue && !missed {
+		// One trigger fire per marker: the first loop entry that reaches this
+		// point (past the muted and in-flight gates) takes it.
+		triggerDue := triggerPending && e.IsLoop()
+		if triggerDue {
+			triggerPending = false
+		}
+
+		if !schedDue && !wakeDue && !missed && !triggerDue {
 			continue
 		}
 
@@ -227,12 +246,18 @@ func Evaluate(in EvalInput) EvalResult {
 				At:     in.Now,
 			})
 		}
-		if !schedDue && !wakeDue {
+		if !schedDue && !wakeDue && !triggerDue {
 			continue
 		}
 
 		reason := FireSchedule
-		if !schedDue {
+		switch {
+		case triggerDue:
+			// The trigger is the most specific "why" when several are due.
+			reason = TriggerFireReason(in.TriggerReason)
+			rung = 0
+			dueAt = in.Now
+		case !schedDue:
 			reason = FireWake
 			// A wake fire is not firing the ladder — it carries no rung, and
 			// its due time is the edge observation, not a schedule point.

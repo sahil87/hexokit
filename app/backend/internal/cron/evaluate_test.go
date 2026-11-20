@@ -605,3 +605,55 @@ func TestRescheduledResetsEveryAnchor(t *testing.T) {
 		t.Errorf("DueAt = %v, want %v (anchor T+20m + 3m)", res.Fires[0].DueAt, want)
 	}
 }
+
+func TestEvaluateTriggerFiresLoopEntryOnce(t *testing.T) {
+	T := backoffBase
+	e := loopEntry(T.Add(-time.Hour))
+	log := []LogLine{loopLine(e.ID, T.Add(-time.Minute), OutcomeNoChange)}
+	if res := Evaluate(EvalInput{Server: "dev", Now: T, Entries: []Entry{e}, Log: log}); len(res.Fires) != 0 {
+		t.Fatal("loop entry due without a trigger")
+	}
+	res := Evaluate(EvalInput{Server: "dev", Now: T, Entries: []Entry{e}, Log: log, TriggerReason: "note"})
+	if len(res.Fires) != 1 {
+		t.Fatalf("fires = %d, want 1", len(res.Fires))
+	}
+	f := res.Fires[0]
+	if f.Reason != "trigger:note" || f.Rung != 0 || !f.DueAt.Equal(T) || f.PaneID != "" {
+		t.Errorf("fire = %+v", f)
+	}
+}
+
+// TestEvaluateTriggerWinsOverDueSchedule: a due schedule and a trigger still
+// make one fire, and the trigger reason wins.
+func TestEvaluateTriggerWinsOverDueSchedule(t *testing.T) {
+	T := backoffBase
+	e := loopEntry(T.Add(-time.Hour))
+	res := Evaluate(EvalInput{Server: "dev", Now: T, Entries: []Entry{e}, TriggerReason: "manual"})
+	if len(res.Fires) != 1 || res.Fires[0].Reason != "trigger:manual" || res.Fires[0].Rung != 0 {
+		t.Fatalf("fires = %+v", res.Fires)
+	}
+}
+
+func TestEvaluateTriggerLosesToMutedAndInFlight(t *testing.T) {
+	T := backoffBase
+	muted := loopEntry(T.Add(-time.Hour))
+	muted.Muted = true
+	if res := Evaluate(EvalInput{Server: "dev", Now: T, Entries: []Entry{muted}, TriggerReason: "x"}); len(res.Fires) != 0 {
+		t.Errorf("muted loop entry fired on a trigger: %+v", res.Fires)
+	}
+	live := loopEntry(T.Add(-time.Hour))
+	if res := Evaluate(EvalInput{Server: "dev", Now: T, Entries: []Entry{live}, TriggerReason: "x", RunInFlight: true}); len(res.Fires) != 0 {
+		t.Errorf("loop entry fired on a trigger with a run in flight: %+v", res.Fires)
+	}
+}
+
+func TestEvaluateTriggerIgnoresNonLoopEntries(t *testing.T) {
+	T := backoffBase
+	e := Entry{ID: "a3f9", Schedule: Schedule{Kind: ScheduleEvery, Interval: Duration{time.Hour}},
+		Target: Target{Kind: TargetPane, Pane: "%42"}, Payload: "x", CreatedBy: CreatedBy{At: T.Unix()}}
+	res := Evaluate(EvalInput{Server: "dev", Now: T, Entries: []Entry{e}, TriggerReason: "x",
+		Facts: map[string]TargetFacts{e.ID: {PaneID: "%42"}}})
+	if len(res.Fires) != 0 || len(res.Absent) != 0 {
+		t.Fatalf("a trigger fired a non-loop entry: %+v", res)
+	}
+}

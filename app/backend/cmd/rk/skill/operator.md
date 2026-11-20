@@ -192,6 +192,10 @@ After the table, one line per queue — `mp: 2 of 7 done · F3 spawned · F2 wai
 
 `rk operator brief` prints the brief a one-shot run would be handed — the changed items with their dependency neighbours and notes, one line for every other item, the run rules and the exit contract. It only reads the ledger: `rk operator brief [--changed pr-913=merged] [--state ./ledger.yaml] [-L work]`. Use it to check that your items, `then` prose and notes read the way you intend, and to debug why a run did what it did.
 
+## Making the operator look
+
+To make the operator look at a server now — after a note, or because the user asks for a check — run `rk operator wake [-L <server>] [--reason <text>]`. It writes a one-line marker the next cron tick consumes: the loop fires with that reason, runs its deterministic check, and starts a run only when something changed. It needs no daemon and never forces a run. Never run a bare `rk operator check` to make the operator look: a check outside the loop consumes the changes it reports, so the run that should have seen them never starts. Notes you write `--by chat` are instructions the loop picks up on its own; a wake only brings the next look sooner.
+
 ## Gotchas
 
 - `rk operator track` has no clock verb and no `update --pause`; pause a ledger item with `track pause`, an unspawned queue entry with `autopilot pause`. The clock is the `operator loop` entry in `rk cron list -L <server>`: "hold the checks for 30 minutes" → `rk cron mute <id> --for 30m`; cadence → `rk cron edit <id> --backoff --min 3m --max 24m`. Never create a typed `operator tick` entry.

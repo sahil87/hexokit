@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-20T06:52:04Z"}
+{"args":"Execute step T2 (Clock: failure streaks climb; trigger door (rk operator wake, marker, fire reason); check record per fire; notes as conditions; POST /api/operator/wake; legacy-tick sweep) of the plan at /home/sahil/code/sahil87/hexokit/fab/plans/sahil/26-11-20-operator-triggers.md","cmd":"fab-new","event":"command","ts":"2026-11-20T06:52:04Z"}
+{"delta":"+3.5","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-11-20T06:53:54Z"}
+{"delta":"+0.0","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-11-20T06:54:05Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-20T06:55:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-20T06:55:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-20T07:13:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-11-20T07:25:06Z"}
+{"event":"review","result":"passed","ts":"2026-11-20T07:25:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-11-20T07:28:57Z"}

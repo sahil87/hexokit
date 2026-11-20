@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"rk/internal/cron"
 	"rk/internal/operator"
@@ -43,11 +44,13 @@ var (
 // Run handles one due loop fire for fire.Server, in order: a live run window
 // means busy (no check — the run in flight owns the current changes); the
 // free deterministic check decides whether anything changed; only a change
-// persists a run record and brief, then opens the run window. A launch
-// returns a Held outcome: the single log line for the fire is written later,
-// at transcription.
+// persists a run record and brief, then opens the run window. Every fire whose
+// check ran also leaves a check record under the fire's id, which a launched
+// run shares. A launch returns a Held outcome: the single log line for the
+// fire is written later, at transcription.
 func Run(ctx context.Context, fire cron.Fire) cron.Outcome {
 	server := fire.Server
+	firedAt := nowTime()
 	if msg := validate.ValidateServerName(server); msg != "" {
 		return outcome(cron.OutcomeCheckFailed(msg))
 	}
@@ -68,11 +71,18 @@ func Run(ctx context.Context, fire cron.Fire) cron.Outcome {
 	if err != nil {
 		return outcome(cron.OutcomeCheckFailed(firstLine(err.Error())))
 	}
+	fireID, idErr := newRunIDFn()
 	if !res.Changed {
+		writeCheckRecord(ctx, fire, fireID, idErr, firedAt, res, "")
 		return outcome(cron.OutcomeNoChange)
 	}
 
-	recorded, err := launch(ctx, fire, res)
+	recorded, err := launch(ctx, fire, res, fireID, idErr, firedAt)
+	run := ""
+	if recorded {
+		run = fireID
+	}
+	writeCheckRecord(ctx, fire, fireID, idErr, firedAt, res, run)
 	switch {
 	case err == nil:
 	case recorded:
@@ -85,6 +95,22 @@ func Run(ctx context.Context, fire cron.Fire) cron.Outcome {
 		return outcome(cron.OutcomeRunLost("launch: " + firstLine(err.Error())))
 	}
 	return cron.Outcome{Status: "launched", Held: true}
+}
+
+// writeCheckRecord persists the fire's check record. A failure — including an
+// id that could not be generated — is a warning: it never changes the fire's
+// outcome.
+func writeCheckRecord(ctx context.Context, fire cron.Fire, id string, idErr error, firedAt time.Time, res operator.CheckResult, run string) {
+	err := idErr
+	if err == nil {
+		var dir string
+		if dir, err = Dir(ctx, fire.Server); err == nil {
+			err = WriteCheckRecord(dir, id, newCheckRecord(FormatTime(firedAt), string(fire.Reason), res, run))
+		}
+	}
+	if err != nil {
+		slog.Warn("operator loop: writing check record failed", "server", fire.Server, "err", err)
+	}
 }
 
 // outcome wraps a fully rendered loop outcome string as a cron.Outcome.
@@ -102,7 +128,7 @@ func firstLine(s string) string {
 // with a lost reason, so the fire still yields one `run-lost: launch: …` line.
 // Every failure leaves a note on each changed item — the check already
 // consumed their edges, so the note is what keeps the failure visible.
-func launch(ctx context.Context, fire cron.Fire, res operator.CheckResult) (recorded bool, err error) {
+func launch(ctx context.Context, fire cron.Fire, res operator.CheckResult, id string, idErr error, firedAt time.Time) (recorded bool, err error) {
 	server := fire.Server
 	changed := changedItems(res.Changes)
 	statePath, err := statePathFn(ctx, server)
@@ -110,11 +136,14 @@ func launch(ctx context.Context, fire cron.Fire, res operator.CheckResult) (reco
 		return false, err
 	}
 	failed := func(err error) (bool, error) {
-		NoteFailure(statePath, changedIDs(changed), "run failed: launch: "+firstLine(err.Error()))
+		NoteFailure(statePath, changedIDs(changed), "launch: "+firstLine(err.Error()))
 		return recorded, err
 	}
 
-	dir, rec, err := persistRun(ctx, fire, statePath, changed)
+	if idErr != nil {
+		return failed(idErr)
+	}
+	dir, rec, err := persistRun(ctx, fire, id, firedAt, changed)
 	if err != nil {
 		return failed(err)
 	}
@@ -130,12 +159,7 @@ func launch(ctx context.Context, fire cron.Fire, res operator.CheckResult) (reco
 
 // persistRun writes the run record before any window exists. The wrapper
 // renders a brief only if its post-pass judgment set is non-empty.
-func persistRun(ctx context.Context, fire cron.Fire, statePath string, changed []operator.ChangedItem) (dir string, rec Record, err error) {
-	now := nowTime()
-	id, err := newRunIDFn()
-	if err != nil {
-		return "", Record{}, err
-	}
+func persistRun(ctx context.Context, fire cron.Fire, id string, firedAt time.Time, changed []operator.ChangedItem) (dir string, rec Record, err error) {
 	if dir, err = Dir(ctx, fire.Server); err != nil {
 		return "", Record{}, err
 	}
@@ -144,7 +168,7 @@ func persistRun(ctx context.Context, fire cron.Fire, statePath string, changed [
 	}
 	rec = Record{
 		ID: id, Server: fire.Server, Entry: fire.Entry.ID,
-		FiredAt: FormatTime(now), Changed: changedIDs(changed), Changes: changeRecords(changed), Window: RunWindowPrefix + ShortID(id),
+		FiredAt: FormatTime(firedAt), Reason: string(fire.Reason), Changed: changedIDs(changed), Changes: changeRecords(changed), Window: RunWindowPrefix + ShortID(id),
 	}
 	recPath, err := RecordPath(dir, id)
 	if err != nil {
@@ -225,7 +249,8 @@ func changeRecords(items []operator.ChangedItem) []ChangeRecord {
 
 // reasonFor renders a delta as `<kind>[ <detail>]`, the detail only where the
 // delta carries a short one (a stage move, an agent-state move, the changed
-// field names, an age, the paused error, the missing dependency).
+// field names, an age, the paused error, the missing dependency, the note's
+// time).
 func reasonFor(d operator.CheckDelta) string {
 	detail := ""
 	switch d.Kind {
@@ -249,6 +274,8 @@ func reasonFor(d operator.CheckDelta) string {
 		detail = d.Error
 	case operator.DeltaUnknownDep:
 		detail = d.Dep
+	case operator.DeltaNote:
+		detail = d.At
 	}
 	if detail == "" {
 		return d.Kind

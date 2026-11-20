@@ -325,6 +325,11 @@ type Server struct {
 	// transcript paths). Nil (the test router) joins nothing.
 	cronRunsDirFn func(ctx context.Context, server string) (string, error)
 
+	// cronDirFn resolves the cron state dir POST /api/operator/wake writes its
+	// trigger marker under. Nil selects cron.DefaultDir; tests point it at a
+	// temp dir.
+	cronDirFn func() (string, error)
+
 	// operatorStateFn reads one server's operator state for GET
 	// /api/operator/notes. Nil falls back to sessions.ReadOperatorStateForServer
 	// (a live tmux socket-path query); tests inject a fixed state.
@@ -1100,6 +1105,9 @@ func (s *Server) buildRouter() chi.Router {
 	// `rk operator -L <server> --json` and answers on the JSON receipt. See
 	// api/operator_start.go.
 	r.Post("/api/operator/start", s.handleOperatorStart)
+	// The trigger door's HTTP half — writes the server's wake marker the cron
+	// tick consumes. See api/operator_wake.go.
+	r.Post("/api/operator/wake", s.handleOperatorWake)
 	r.Get("/api/windows/{windowId}/history", s.handleWindowHistory)
 	// Derived per-tab .code-workspace file — read-shaped ensure (GET, §IX); the
 	// ONLY daemon-side writer of workspace files. See api/codeworkspace.go.

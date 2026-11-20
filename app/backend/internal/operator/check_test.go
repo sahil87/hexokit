@@ -292,6 +292,7 @@ func TestCheckDelta_MarshalPinsKeysPerKind(t *testing.T) {
 		{CheckDelta{Kind: DeltaDue, ID: "a", Age: "6m", Instruction: "look"}, `{"kind":"due","id":"a","age":"6m","instruction":"look"}`},
 		{CheckDelta{Kind: DeltaPaused, ID: "a", Error: "boom", Failures: 3, Paused: true}, `{"kind":"paused","id":"a","error":"boom","failures":3,"paused":true}`},
 		{CheckDelta{Kind: DeltaUnknownDep, ID: "a", Dep: "x"}, `{"kind":"unknown_dep","id":"a","dep":"x"}`},
+		{CheckDelta{Kind: DeltaNote, ID: "a", At: "2026-11-11T12:00:00Z"}, `{"kind":"note","id":"a","at":"2026-11-11T12:00:00Z"}`},
 		{CheckDelta{Kind: DeltaChanged, ID: "a", Fields: map[string]FieldChange{"state": {From: "OPEN", To: "MERGED"}, "n": {To: 1}}},
 			`{"kind":"changed","id":"a","fields":{"n":{"from":null,"to":1},"state":{"from":"OPEN","to":"MERGED"}}}`},
 	}
@@ -441,6 +442,118 @@ func TestCheck_DoneItemIsInertAndNotReProbed(t *testing.T) {
 		t.Errorf("a done item was probed %d times", e.probeCalls)
 	}
 	wantKinds(t, "second open", e.run().Open, "s:done")
+}
+
+// TestCheck_UnansweredNoteIsAConditionThatFiresOncePerInstruction: a user note
+// with no later run note is a change once, open while unanswered, cleared by a
+// newer run note, and a change again for a newer chat note.
+func TestCheck_UnansweredNoteIsAConditionThatFiresOncePerInstruction(t *testing.T) {
+	e := newCheckEnv(t)
+	e.seed(baseItem("n", KindNote, probeNone))
+	wantKinds(t, "no notes", e.run().Changes)
+
+	e.advance(time.Minute)
+	if err := AddNote(e.path, "n", ByUser, "please look at X"); err != nil {
+		t.Fatal(err)
+	}
+	userAt := e.now.UTC().Format(time.RFC3339)
+	first := e.run()
+	wantKinds(t, "first changes", first.Changes, "n:note")
+	if d := first.Changes[0]; d.At != userAt || !first.Changed {
+		t.Errorf("note delta = %+v changed=%v, want at %s", d, first.Changed, userAt)
+	}
+	second := e.run()
+	wantKinds(t, "second changes", second.Changes)
+	wantKinds(t, "second open", second.Open, "n:note")
+	if second.Changed {
+		t.Error("an open note must not set changed")
+	}
+
+	e.advance(time.Minute)
+	if err := AddNote(e.path, "n", ByRun, "looked at X"); err != nil {
+		t.Fatal(err)
+	}
+	cleared := e.run()
+	wantKinds(t, "cleared changes", cleared.Changes)
+	wantKinds(t, "cleared open", cleared.Open)
+	if got := e.item("n").Reported; len(got) != 0 {
+		t.Errorf("Reported = %v, want it cleared", got)
+	}
+
+	e.advance(time.Minute)
+	if err := AddNote(e.path, "n", ByChat, "and Y too"); err != nil {
+		t.Fatal(err)
+	}
+	again := e.run()
+	wantKinds(t, "chat changes", again.Changes, "n:note")
+	if d := again.Changes[0]; d.At != e.now.UTC().Format(time.RFC3339) {
+		t.Errorf("chat note at = %s", d.At)
+	}
+}
+
+// TestCheck_NewerInstructionRefiresWhileOlderOneIsOpen: a second user note
+// before any run note moves the condition key, so it is a change again.
+func TestCheck_NewerInstructionRefiresWhileOlderOneIsOpen(t *testing.T) {
+	e := newCheckEnv(t)
+	e.seed(baseItem("n", KindNote, probeNone))
+	e.advance(time.Minute)
+	if err := AddNote(e.path, "n", ByUser, "one"); err != nil {
+		t.Fatal(err)
+	}
+	wantKinds(t, "first", e.run().Changes, "n:note")
+	e.advance(time.Minute)
+	if err := AddNote(e.path, "n", ByUser, "two"); err != nil {
+		t.Fatal(err)
+	}
+	res := e.run()
+	wantKinds(t, "second changes", res.Changes, "n:note")
+	wantKinds(t, "second open", res.Open)
+}
+
+// TestCheck_DoneAndPausedItemsStillReportAnUnansweredNote: a user instruction
+// is never inert.
+func TestCheck_DoneAndPausedItemsStillReportAnUnansweredNote(t *testing.T) {
+	e := newCheckEnv(t)
+	doneAt := "2026-11-11T11:30:00Z"
+	done := baseItem("d", KindTask, probeNone)
+	done.DoneAt = &doneAt
+	paused := baseItem("p", KindTask, probeNone)
+	paused.Paused = true
+	e.seed(done, paused)
+	e.advance(time.Minute)
+	for _, id := range []string{"d", "p"} {
+		if err := AddNote(e.path, id, ByUser, "still want this"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wantKinds(t, "changes", e.run().Changes, "d:done", "d:note", "p:note")
+}
+
+func TestPendingInstruction(t *testing.T) {
+	n := func(at, by string) Note { return Note{At: at, By: by, Text: "x"} }
+	cases := []struct {
+		name   string
+		notes  []Note
+		wantAt string
+		wantOK bool
+	}{
+		{"no notes", nil, "", false},
+		{"user only", []Note{n("2026-11-11T10:00:00Z", ByUser)}, "2026-11-11T10:00:00Z", true},
+		{"chat only", []Note{n("2026-11-11T10:00:00Z", ByChat)}, "2026-11-11T10:00:00Z", true},
+		{"answered", []Note{n("2026-11-11T10:00:00Z", ByUser), n("2026-11-11T10:01:00Z", ByRun)}, "", false},
+		{"same instant is answered", []Note{n("2026-11-11T10:00:00Z", ByUser), n("2026-11-11T10:00:00Z", ByRun)}, "", false},
+		{"newer chat after run", []Note{n("2026-11-11T10:00:00Z", ByUser), n("2026-11-11T10:01:00Z", ByRun), n("2026-11-11T10:02:00Z", ByChat)}, "2026-11-11T10:02:00Z", true},
+		{"newest instruction wins", []Note{n("2026-11-11T10:03:00Z", ByUser), n("2026-11-11T10:02:00Z", ByChat)}, "2026-11-11T10:03:00Z", true},
+		{"run only", []Note{n("2026-11-11T10:00:00Z", ByRun)}, "", false},
+		{"failure note does not answer", []Note{n("2026-11-11T10:00:00Z", ByUser), {At: "2026-11-11T10:01:00Z", By: ByRun, Text: FailureNotePrefix + "exit 1 — no output"}}, "2026-11-11T10:00:00Z", true},
+		{"unparseable at ignored", []Note{n("garbage", ByUser)}, "", false},
+	}
+	for _, tc := range cases {
+		at, ok := PendingInstruction(tc.notes)
+		if at != tc.wantAt || ok != tc.wantOK {
+			t.Errorf("%s: PendingInstruction = %q, %v; want %q, %v", tc.name, at, ok, tc.wantAt, tc.wantOK)
+		}
+	}
 }
 
 // --- engine: the lock discipline -----------------------------------------------

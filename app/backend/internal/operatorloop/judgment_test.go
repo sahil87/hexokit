@@ -32,6 +32,8 @@ func TestJudgmentSetReasonKinds(t *testing.T) {
 		{"stage advance", "stage_advance apply→review", "item", false, false},
 		{"review failure", "review_fail review→apply", "item", false, false},
 		{"PR changed", "changed state", "item", false, false},
+		{"unanswered note", "note 2026-11-20T10:00:00Z", "item", false, true},
+		{"unanswered note on engine work", "note 2026-11-20T10:00:00Z", "item", true, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -95,5 +97,31 @@ func TestReasonForAgentAged(t *testing.T) {
 		if got := reasonFor(tc.d); got != tc.want {
 			t.Errorf("reasonFor(%+v) = %q, want %q", tc.d, got, tc.want)
 		}
+	}
+}
+
+// TestJudgmentSetListsAnUnansweredNoteOnce: a `note` change record puts the item
+// in the set with its own reason, and the pending-instruction scan adds no
+// second one; an item whose note was reported by an earlier fire still gets the
+// scan's reason.
+func TestJudgmentSetListsAnUnansweredNoteOnce(t *testing.T) {
+	state := &operator.State{Tracked: []operator.TrackedItem{
+		{ID: "x", Notes: []operator.Note{{At: "2026-11-20T10:00:00Z", By: operator.ByUser, Text: "look"}}},
+		{ID: "y", Notes: []operator.Note{{At: "2026-11-20T10:00:00Z", By: operator.ByChat, Text: "look"}}},
+	}}
+	got := judgmentSet([]ChangeRecord{{ID: "x", Reasons: []string{"note 2026-11-20T10:00:00Z"}}}, nil, state, nil)
+	want := []operator.ChangedItem{
+		{ID: "x", Reasons: []string{"note 2026-11-20T10:00:00Z"}},
+		{ID: "y", Reasons: []string{pendingNoteReason}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("judgment = %+v, want %+v", got, want)
+	}
+}
+
+func TestReasonForNote(t *testing.T) {
+	d := operator.CheckDelta{Kind: operator.DeltaNote, ID: "x", At: "2026-11-20T10:00:00Z"}
+	if got := reasonFor(d); got != "note 2026-11-20T10:00:00Z" {
+		t.Errorf("reasonFor = %q", got)
 	}
 }
