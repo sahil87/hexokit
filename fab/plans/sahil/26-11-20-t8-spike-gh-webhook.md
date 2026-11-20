@@ -78,6 +78,10 @@ evidence and would only have added GitHub writes to clean up.
 
 ## Recommendation for T8
 
+> **Superseded.** The per-PR `gh pr checks --watch` watcher recommended below was not built. T5 (#1169) shipped the
+> opportunistic webhook relay instead, with a probe-and-skip path for repos where the account is not admin. See T5 in
+> `26-11-20-operator-triggers.md`. Kept as the spike record.
+
 Build T8 on the **per-PR watcher fallback**, not the webhook relay. The relay's hard requirement is
 repo **admin** per tracked repo (one hook-creating process each, plus a supervisor because it exits on
 websocket loss), and the account HexoKit actually runs as here has only `write` on its own main repo —
