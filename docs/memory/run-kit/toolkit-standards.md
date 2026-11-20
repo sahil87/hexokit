@@ -994,22 +994,21 @@ The `rk operator autopilot` family (`operator_autopilot.go` — see
 same checks (261114-8w1x-operator-autopilot-go):
 
 - **help-dump: platform-stable registration.** `autopilot` registers
-  unconditionally on `operatorCmd` with five verbs (`queue`, `step`, `merge`,
-  `stop`, `status`); each `Long:` block carries Flags, Examples and Exit codes
+  unconditionally on `operatorCmd` with seven verbs (`queue`, `step`, `stop`,
+  `status`, `rm`, `resume`, `pause`); each `Long:` block carries Flags, Examples and Exit codes
   sections, `-L/--server` is a persistent flag on the group, and the tree walk
   dumps it with no help-dump code change. CLI tests pin that the help states
-  exactly what the implementation does (the exit codes, `busy`, `merge`'s
-  stacked-prs refusal, the `recovery needed` escalations, what `status` probes).
+  exactly what the implementation does (the exit codes, `busy`, which ids `rm`
+  and `resume` accept, what `status` probes).
 - **Principle 9: bounded lists.** Every human list (actions, report lines,
-  escalations, queue items, merge positions) caps at 20 entries with the exact
-  total, a truncation notice and `--all`; `--json` is always the complete
+  escalations, queue items) caps at 20 entries with the exact total, a
+  truncation notice and `--all`; `--json` is always the complete
   envelope (`{"ok":true,"result":{…}}`) on stdout.
 - **Exit-code convention (P4)** — 0 ok, including a `busy` pass (another
   autopilot pass holds the server's lock: nothing done, `"busy":true`); 1
   operational (state file busy or unreadable, a gh lookup or state write
-  failed, `merge` on incomplete or `stacked-prs` queues); 2 usage or invalid
-  input (the library's `InvalidError`, bad `--mode`/`--by`, a refused queue
-  entry).
+  failed); 2 usage or invalid input (the library's `InvalidError`, bad
+  `--mode`, an unknown or unremovable `rm`/`resume` id, a refused queue entry).
 - **CLI-only.** The verbs have no MCP policy-table row, and the `skill` and
   README surfaces do not list them beyond the operator chat topic's queue
   section.

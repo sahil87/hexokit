@@ -8,8 +8,8 @@ progress:
     intake: done
     apply: done
     review: done
-    hydrate: active
-    ship: pending
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
@@ -32,24 +32,26 @@ stage_metrics:
     intake: {started_at: "2026-11-20T07:11:30Z", driver: fab-new, iterations: 1, completed_at: "2026-11-20T07:14:47Z"}
     apply: {started_at: "2026-11-20T07:14:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T07:37:58Z"}
     review: {started_at: "2026-11-20T07:37:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T07:46:00Z"}
-    hydrate: {started_at: "2026-11-20T07:46:00Z", driver: fab-fff, iterations: 1}
+    hydrate: {started_at: "2026-11-20T07:46:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T07:50:07Z"}
+    ship: {started_at: "2026-11-20T07:50:07Z", driver: fab-fff, iterations: 1}
 prs: []
 change_type_source: explicit
 base_branch: 261120-9ypa-operator-check-idle-floor-stage-seed
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1510
+    deleted: 7274
+    net: -5764
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1021
+        deleted: 7262
+        net: -6241
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-11-20T07:37:58Z"
-    computed_at_stage: apply
+        added: 684
+        deleted: 4496
+        net: -3812
+    computed_at: "2026-11-20T07:50:07Z"
+    computed_at_stage: hydrate
+summary: Rewrite operator-autopilot memory to the queue-only engine (PR rows, merge verb, prs/fixes removed; merge-auto merged-PR barrier); judgment set, state, config, cli and toolkit-standards follow
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-20T07:46:00Z
+last_updated: 2026-11-20T07:50:07Z

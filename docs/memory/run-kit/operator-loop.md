@@ -101,11 +101,11 @@ Every fire on which `operator.Check` returned a result SHALL persist `<fire-id>.
 
 **Judgment set.** `judgmentSet` is a pure, table-tested function over the changes, the pass result, the ledger and the set of engine-owned ids. An item is judgment when:
 
-- one of its changed reasons is an `agent_state` move to `waiting` or `idle`, an `agent_aged` (rendered `agent_aged <state> <duration>`), `due`, `stale`, `paused`, `unknown_dep`, `note` (rendered `note <at>`: an unanswered user or chat instruction), a `done` whose item has a non-empty `then`, or a pane condition (`pane_death`, `pane_mismatch`, `agent_exited`) on an item whose id is not in the engine file; or
+- one of its changed reasons is an `agent_state` move to `waiting` or `idle`, an `agent_aged` (rendered `agent_aged <state> <duration>`), `due`, `stale`, `paused`, `unknown_dep`, `note` (rendered `note <at>`: an unanswered user or chat instruction), a `changed` probe delta on a `github-pr` item, a `done` on a `github-pr` item (merged or closed) or on any item with a non-empty `then`, or a pane condition (`pane_death`, `pane_mismatch`, `agent_exited`) on an item whose id is not in the engine file; or
 - the pass escalated it; or
 - the ledger item carries an unanswered instruction (`operator.PendingInstruction` — [operator-state](/run-kit/operator-state.md) § Conditions) whose `note` condition an earlier fire already reported, so this run's change records do not carry it; the scan lists the item once, never beside a `note` reason it already has.
 
-`stage_advance`, `review_fail`, a `changed` probe delta on a PR item, a queue item's `pane_death`, and a `done` without `then` are never judgment: the engine handles them or they need no action. An escalation the engine already notified once does not re-enter the set on later passes, because its escalate-once row waits.
+`stage_advance`, `review_fail`, a `changed` probe delta on a non-PR item, a queue item's `pane_death`, and a `done` on a non-PR item without `then` are never judgment: the engine handles them or they need no action. The engine owns queue items only, so a `github-pr` item — including a PR the engine never tracks — reaches the run through its `changed` and `done` deltas. An escalation the engine already notified once does not re-enter the set on later passes, because its escalate-once row waits.
 
 **Brief after the pass.** For a non-empty judgment set the wrapper renders `operator.RenderBrief` from a fresh ledger load with the judgment set as the changed list, writes it to the run's brief path, and runs the launcher as above; the brief therefore reflects the pass's notes and projections.
 
