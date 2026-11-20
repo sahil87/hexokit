@@ -2,20 +2,20 @@ id: xdig
 name: 261120-xdig-operator-pr-trigger-hooks
 created: 2026-11-20T07:33:20Z
 created_by: sahil-noon
-change_type: fix
+change_type: feat
 issues: []
 progress:
     intake: done
     apply: done
-    review: active
-    hydrate: pending
+    review: done
+    hydrate: active
     ship: pending
     review-pr: pending
 plan:
     generated: true
     task_count: 13
     acceptance_count: 24
-    acceptance_completed: 0
+    acceptance_completed: 24
 confidence:
     certain: 9
     confident: 5
@@ -30,24 +30,26 @@ confidence:
         disambiguation: 76.7
 stage_metrics:
     intake: {started_at: "2026-11-20T07:33:20Z", driver: fab-new, iterations: 1, completed_at: "2026-11-20T07:38:14Z"}
-    apply: {started_at: "2026-11-20T07:38:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-20T08:09:17Z"}
-    review: {started_at: "2026-11-20T08:09:17Z", driver: fab-fff, iterations: 1}
+    apply: {started_at: "2026-11-20T08:18:00Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-20T08:23:02Z"}
+    review: {started_at: "2026-11-20T08:23:02Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-20T08:26:12Z"}
+    hydrate: {started_at: "2026-11-20T08:26:12Z", driver: fab-fff, iterations: 1}
 prs: []
 base_branch: 261120-pgns-operator-trigger-door-failure-streaks
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 3939
+    deleted: 23
+    net: 3916
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 3489
+        deleted: 22
+        net: 3467
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-11-20T08:09:17Z"
+        added: 1769
+        deleted: 13
+        net: 1756
+    computed_at: "2026-11-20T08:23:02Z"
     computed_at_stage: apply
+change_type_source: explicit
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-20T08:09:17Z
+last_updated: 2026-11-20T08:26:12Z

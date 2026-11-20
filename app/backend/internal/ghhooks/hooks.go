@@ -1,6 +1,7 @@
 package ghhooks
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -20,9 +21,8 @@ const (
 
 // Hook is the part of a repository hook cleanup reads.
 type Hook struct {
-	ID     int64    `json:"id"`
-	Name   string   `json:"name"`
-	Events []string `json:"events"`
+	ID     int64  `json:"id"`
+	Name   string `json:"name"`
 	Config struct {
 		URL string `json:"url"`
 	} `json:"config"`
@@ -40,13 +40,20 @@ func ListHooks(ctx context.Context, nwo string) ([]Hook, error) {
 	if msg := validate.ValidateGitHubRepo(nwo); msg != "" {
 		return nil, fmt.Errorf("%s", msg)
 	}
-	out, err := runGH(ctx, "api", "repos/"+nwo+"/hooks")
+	// GitHub pages the hook list at 30; --paginate --jq '.[]' flattens every
+	// page into one JSON object per line, whatever the page boundaries.
+	out, err := runGH(ctx, "api", "--paginate", "repos/"+nwo+"/hooks", "--jq", ".[]")
 	if err != nil {
 		return nil, err
 	}
 	var hooks []Hook
-	if err := json.Unmarshal(out, &hooks); err != nil {
-		return nil, fmt.Errorf("decoding hooks of %s: %w", nwo, err)
+	dec := json.NewDecoder(bytes.NewReader(out))
+	for dec.More() {
+		var h Hook
+		if err := dec.Decode(&h); err != nil {
+			return nil, fmt.Errorf("decoding hooks of %s: %w", nwo, err)
+		}
+		hooks = append(hooks, h)
 	}
 	return hooks, nil
 }
@@ -57,7 +64,7 @@ func DeleteHook(ctx context.Context, nwo string, id int64) error {
 		return fmt.Errorf("%s", msg)
 	}
 	_, err := runGH(ctx, "api", "-X", "DELETE", fmt.Sprintf("repos/%s/hooks/%d", nwo, id))
-	if err != nil && strings.Contains(err.Error(), "404") {
+	if err != nil && strings.Contains(err.Error(), "HTTP 404") {
 		// Already gone: the extension removes its own hook when its session is
 		// killed, and cleanup runs right behind that.
 		return nil

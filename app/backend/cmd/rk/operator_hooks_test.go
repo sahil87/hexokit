@@ -235,11 +235,10 @@ func withStopSeams(t *testing.T, s *stopSeams) {
 func TestOperatorHooksStopRemovesOnlyAdminRepoHooks(t *testing.T) {
 	s := &stopSeams{
 		killed: true,
-		repos:  []string{"a/admin", "b/noadmin", "c/failed"},
+		repos:  []string{"a/admin", "b/noadmin"},
 		probes: map[string]ghhooks.ProbeResult{
 			"a/admin":   {Admin: ghhooks.AdminYes},
 			"b/noadmin": {Admin: ghhooks.AdminNo},
-			"c/failed":  {Err: errors.New("gh down")},
 		},
 		removed: map[string][]int64{"a/admin": {7}},
 	}
@@ -251,7 +250,7 @@ func TestOperatorHooksStopRemovesOnlyAdminRepoHooks(t *testing.T) {
 	if !reflect.DeepEqual(s.sweptRepos, []string{"a/admin"}) {
 		t.Errorf("hook sweep ran on %v, want only the admin repo", s.sweptRepos)
 	}
-	for _, want := range []string{"killed the rk-gh-hooks session", "a/admin: removed 1 forwarder hook(s)", "b/noadmin: polled — no admin", "c/failed: polled — no admin"} {
+	for _, want := range []string{"killed the rk-gh-hooks session", "a/admin: removed 1 forwarder hook(s)", "b/noadmin: polled — no admin"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
@@ -310,6 +309,28 @@ func TestOperatorHooksStopFailureIsOperational(t *testing.T) {
 	}
 	if err == nil || json.Unmarshal([]byte(jsonOut), &doc) != nil || doc.OK || doc.Error.Code != "operational" {
 		t.Errorf("--json failure: out = %q err = %v, want one ok:false operational envelope", jsonOut, err)
+	}
+}
+
+func TestOperatorHooksStopProbeFailureIsNotNoAdmin(t *testing.T) {
+	s := &stopSeams{
+		repos:  []string{"c/failed"},
+		probes: map[string]ghhooks.ProbeResult{"c/failed": {Err: errors.New("gh: timeout")}},
+	}
+	withStopSeams(t, s)
+	out, _, err := runOperatorCLI(t, "", "hooks", "stop")
+	if err == nil || exitCode(err) != 1 {
+		t.Errorf("err = %v exit %d, want exit 1: an unknown admin state may leave a hook behind", err, exitCode(err))
+	}
+	if !strings.Contains(out, "c/failed: probe failed: gh: timeout") || strings.Contains(out, "no admin") {
+		t.Errorf("output = %q, want the probe failure and not a no-admin claim", out)
+	}
+	if len(s.sweptRepos) != 0 {
+		t.Errorf("hook sweep ran on %v after a failed probe", s.sweptRepos)
+	}
+	jsonOut, _, _ := runOperatorCLI(t, "", "hooks", "stop", "--json")
+	if !strings.Contains(jsonOut, `"error": "probe failed: gh: timeout"`) {
+		t.Errorf("--json receipt lacks the probe error: %s", jsonOut)
 	}
 }
 

@@ -36,6 +36,15 @@ import (
 // check.
 const hooksLoopback = "127.0.0.1"
 
+// Receiver server bounds: a delivery is a few KiB from a local forwarder, so
+// slow reads are a stray client, and shutdown only needs to finish in-flight
+// 2xx replies.
+const (
+	hooksReadHeaderTimeout = 10 * time.Second
+	hooksReadTimeout       = 30 * time.Second
+	hooksShutdownGrace     = 5 * time.Second
+)
+
 // Seams for tests.
 var (
 	hooksNowFn          = time.Now
@@ -235,8 +244,8 @@ func listenHooks(port int) (net.Listener, error) {
 func serveHooks(ctx context.Context, ln net.Listener, h http.Handler) error {
 	srv := &http.Server{
 		Handler:           h,
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
+		ReadHeaderTimeout: hooksReadHeaderTimeout,
+		ReadTimeout:       hooksReadTimeout,
 	}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
@@ -245,7 +254,7 @@ func serveHooks(ctx context.Context, ln net.Listener, h http.Handler) error {
 		return err
 	case <-ctx.Done():
 	}
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), hooksShutdownGrace)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return err
@@ -304,14 +313,21 @@ func runOperatorHooksStop(cmd *cobra.Command, args []string) error {
 		row := hooksStopRepo{Repo: repo, Removed: []int64{}}
 		// Only an admin repo can have a forwarder hook; probing first also keeps
 		// the hook listing off repos the account cannot read.
-		if res := hooksProbeAdminFn(ctx, repo); res.Admin == ghhooks.AdminYes {
+		switch res := hooksProbeAdminFn(ctx, repo); {
+		case res.Admin == ghhooks.AdminYes:
 			row.Admin = true
 			removed, err := hooksRemoveHooksFn(ctx, repo)
 			row.Removed = append(row.Removed, removed...)
 			if err != nil {
 				row.Error = err.Error()
-				failures = append(failures, row.Error)
 			}
+		case res.Err != nil:
+			// Unknown is not "no admin": a hook may be left behind, so the
+			// stop is incomplete.
+			row.Error = "probe failed: " + res.Err.Error()
+		}
+		if row.Error != "" {
+			failures = append(failures, repo+": "+row.Error)
 		}
 		receipt.Repos = append(receipt.Repos, row)
 	}

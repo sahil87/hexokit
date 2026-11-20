@@ -3,6 +3,7 @@ package ghhooks
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -97,7 +98,7 @@ func matchServer(st *operator.State, ev Event, resolve func(dir string) string) 
 			if !strings.EqualFold(pinnedRepo(it.Probe.Argv), ev.NWO) {
 				continue
 			}
-			if pr, err := strconv.Atoi(operator.ScopePRNumber(it.Scope)); err == nil && containsInt(ev.PRs, pr) {
+			if pr, err := strconv.Atoi(operator.ScopePRNumber(it.Scope)); err == nil && slices.Contains(ev.PRs, pr) {
 				return Hit{PR: pr, Branch: ev.Branch}, true
 			}
 			if byBranch == nil && ev.Branch != "" && operator.ScopeString(it.Scope, "branch") == ev.Branch {
@@ -145,15 +146,6 @@ func pinnedRepo(argv []string) string {
 		}
 	}
 	return ""
-}
-
-func containsInt(list []int, n int) bool {
-	for _, v := range list {
-		if v == n {
-			return true
-		}
-	}
-	return false
 }
 
 // Reason is the wake reason for a hit: pr:<nwo>#<n>:<event>, the branch

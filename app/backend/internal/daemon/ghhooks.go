@@ -32,18 +32,22 @@ const (
 	// ensure with no settings change, so a dead window, a later-installed
 	// extension or a recovered network are picked up without a restart.
 	GHHooksReconcileEvery = 10 * time.Minute
+	// GHHooksWatchInterval is how often `rk serve` stats the settings file for
+	// WatchGHHooksSettings.
+	GHHooksWatchInterval = 5 * time.Second
 	// ghHooksEnsureTimeout bounds one ensure, probes included.
 	ghHooksEnsureTimeout = 30 * time.Second
 )
 
 // GHHooks doctor states (the `pr hooks` row's note).
 const (
-	GHHooksStateOff            = "off"
-	GHHooksStateRunning        = "running"
-	GHHooksStatePolledNoAdmin  = "polled — no admin"
-	GHHooksStateForwarderLost  = "forwarder missing"
-	ghHooksDaemonDownHint      = "rk daemon is not running (rk serve -d)"
-	ghHooksReceiverMissingNote = "receiver window is not running"
+	GHHooksStateOff             = "off"
+	GHHooksStateRunning         = "running"
+	GHHooksStatePolledNoAdmin   = "polled — no admin"
+	GHHooksStateForwarderLost   = "forwarder missing"
+	ghHooksDaemonDownHint       = "rk daemon is not running (rk serve -d)"
+	ghHooksReceiverMissingNote  = "receiver window is not running"
+	ghHooksForwarderMissingNote = "forwarder window is not running"
 )
 
 // The package seams mirror the openai-mcp ones so tests drive every branch
@@ -406,7 +410,7 @@ func classifyGHHooks(repo string, p ghHooksRepoProbe) GHHooksRepoStatus {
 	case !p.receiverLive:
 		st.State, st.Detail = GHHooksStateForwarderLost, ghHooksReceiverMissingNote
 	case !p.forwarderLive:
-		st.State, st.Detail = GHHooksStateForwarderLost, "forwarder window is not running"
+		st.State, st.Detail = GHHooksStateForwarderLost, ghHooksForwarderMissingNote
 	default:
 		st.State = GHHooksStateRunning
 	}

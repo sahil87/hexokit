@@ -482,7 +482,8 @@ func startSession(exe string) error {
 
 	// Bring up the PR-event receiver and per-repo forwarders when
 	// operator.pr_hooks lists repos. Same best-effort posture; an empty list
-	// (the default) issues one session-existence probe and nothing else.
+	// (the default) issues the daemon-liveness and session-existence probes
+	// and nothing else.
 	ensureGHHooks()
 
 	return nil

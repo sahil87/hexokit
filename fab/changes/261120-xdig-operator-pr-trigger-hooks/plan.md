@@ -166,42 +166,42 @@ A visible verb SHALL kill the `rk-gh-hooks` session (exact match; absent = succe
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `operator.pr_hooks` parses, validates (shared validator), dedups, serializes, and defaults empty
-- [ ] A-002 R2: `PORTPOLICY_GH_HOOKS=21900` is in ports.env, exposed as `portpolicy.GHHooks`, and in the collision check
-- [ ] A-003 R3: the admin probe returns admin / no-admin / probe-failed via an argv `exec.CommandContext` with a timeout
-- [ ] A-004 R4: ensure builds the session with a receiver and one forwarder per admin repo only, removes stale windows, kills the session when the list is empty, and never fails daemon start
-- [ ] A-005 R5: the forwarder runs `gh webhook forward` with the four events and the loopback URL and restarts with the specified backoff
-- [ ] A-006 R6: the receiver binds 127.0.0.1 only, serves only `POST /hooks/github`, extracts the four event kinds, caps the body, stores no payload
-- [ ] A-007 R7: a tracked PR (github-pr by pr or branch; projection by resolved nwo + branch) writes one `pr:<nwo>#<n>:<event>` marker per matching live server
-- [ ] A-008 R8: doctor shows one OK-shaped `pr hooks` row per listed repo with the four states
-- [ ] A-009 R9: `rk operator hooks stop` kills the session and deletes only forwarder-created hooks
-- [ ] A-010 R10: `rk operator hooks` help lists `stop` only; skill topic carries the PR-trigger sentence and is synced
+- [x] A-001 R1: `operator.pr_hooks` parses, validates (shared validator), dedups, serializes, and defaults empty
+- [x] A-002 R2: `PORTPOLICY_GH_HOOKS=21900` is in ports.env, exposed as `portpolicy.GHHooks`, and in the collision check
+- [x] A-003 R3: the admin probe returns admin / no-admin / probe-failed via an argv `exec.CommandContext` with a timeout
+- [x] A-004 R4: ensure builds the session with a receiver and one forwarder per admin repo only, removes stale windows, kills the session when the list is empty, and never fails daemon start
+- [x] A-005 R5: the forwarder runs `gh webhook forward` with the four events and the loopback URL and restarts with the specified backoff
+- [x] A-006 R6: the receiver binds 127.0.0.1 only, serves only `POST /hooks/github`, extracts the four event kinds, caps the body, stores no payload
+- [x] A-007 R7: a tracked PR (github-pr by pr or branch; projection by resolved nwo + branch) writes one `pr:<nwo>#<n>:<event>` marker per matching live server
+- [x] A-008 R8: doctor shows one OK-shaped `pr hooks` row per listed repo with the four states
+- [x] A-009 R9: `rk operator hooks stop` kills the session and deletes only forwarder-created hooks
+- [x] A-010 R10: `rk operator hooks` help lists `stop` only; skill topic carries the PR-trigger sentence and is synced
 
 ### Scenario Coverage
 
-- [ ] A-011 R7: tests prove door called once per event per server, nothing on an untracked PR, dead server skipped
-- [ ] A-012 R4: test proves a non-admin repo yields no process/window and a doctor row
-- [ ] A-013 R5: backoff schedule test (5, 10, 20 … cap 300 s; reset after ≥ 10 min)
+- [x] A-011 R7: tests prove door called once per event per server, nothing on an untracked PR, dead server skipped
+- [x] A-012 R4: test proves a non-admin repo yields no process/window and a doctor row
+- [x] A-013 R5: backoff schedule test (5, 10, 20 … cap 300 s; reset after ≥ 10 min)
 
 ### Edge Cases & Error Handling
 
-- [ ] A-014 R6: malformed JSON / unknown event / no PR identity ⇒ 2xx, no marker; over-cap body ⇒ 413
-- [ ] A-015 R3: gh missing, unauthenticated, or timing out ⇒ probe-failed, no spawn, doctor note says probe failed
-- [ ] A-016 R4: daemon down ⇒ ensure touches no tmux and doctor says `forwarder missing` with the `rk serve -d` hint
+- [x] A-014 R6: malformed JSON / unknown event / no PR identity ⇒ 2xx, no marker; over-cap body ⇒ 413
+- [x] A-015 R3: gh missing, unauthenticated, or timing out ⇒ probe-failed, no spawn, doctor note says probe failed
+- [x] A-016 R4: daemon down ⇒ ensure touches no tmux and doctor says `forwarder missing` with the `rk serve -d` hint
 
 ### Code Quality
 
-- [ ] A-017 Pattern consistency: `internal/daemon/ghhooks.go` mirrors `openaimcp.go` (seams, postures, slog, exact-match targets, teardown audit log)
-- [ ] A-018 No unnecessary duplication: the repo regex, wake marker writer, operator state loader, and stable rk path resolver are reused, not re-implemented
-- [ ] A-019 Every subprocess uses `exec.CommandContext` with an argv slice and a timeout (Constitution I / § Process Execution); tmux goes through `internal/tmux` / the daemon's runTmux
-- [ ] A-020 No magic strings/numbers: session/window names, port, events, backoff bounds, body cap are named constants
-- [ ] A-021 Comments state constraints, not narration; no change IDs in code comments
-- [ ] A-022 New behavior has Go tests alongside (`*_test.go` in the same package)
+- [x] A-017 Pattern consistency: `internal/daemon/ghhooks.go` mirrors `openaimcp.go` (seams, postures, slog, exact-match targets, teardown audit log)
+- [x] A-018 No unnecessary duplication: the repo regex, wake marker writer, operator state loader, and stable rk path resolver are reused, not re-implemented
+- [x] A-019 Every subprocess uses `exec.CommandContext` with an argv slice and a timeout (Constitution I / § Process Execution); tmux goes through `internal/tmux` / the daemon's runTmux — the supervised `gh webhook forward` child is long-lived and bound to the signal context only (documented in `RunForwarder`; same posture as the `tmuxctl` control-mode client)
+- [x] A-020 No magic strings/numbers: session/window names, port, events, backoff bounds, body cap are named constants
+- [x] A-021 Comments state constraints, not narration; no change IDs in code comments
+- [x] A-022 New behavior has Go tests alongside (`*_test.go` in the same package)
 
 ### Security
 
-- [ ] A-023 R6: the receiver never binds a non-loopback address and never logs/persists payload content
-- [ ] A-024 R9: hook deletion is gated by the forwarder-shape predicate and admin probe; no other hook can be deleted
+- [x] A-023 R6: the receiver never binds a non-loopback address and never logs/persists payload content
+- [x] A-024 R9: hook deletion is gated by the forwarder-shape predicate and admin probe; no other hook can be deleted
 
 ## Notes
 
@@ -219,6 +219,10 @@ T011 live verification (2026-11-20, `gh` 2.103.3, `cli/gh-webhook` v0.2.0, accou
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- None — this change adds new functionality without making existing code redundant (the one superseded symbol, `operator.githubRepoName`, was already moved into `validate.ValidateGitHubRepo` by the change itself)
 
 ## Assumptions
 

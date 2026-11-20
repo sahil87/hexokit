@@ -3,6 +3,7 @@ package ghhooks
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -60,7 +61,7 @@ type checkRun struct {
 // owner/name, and a delivery that names neither a PR nor a branch — all of
 // which are ignored, not errors. A body that is not JSON is an error.
 func Extract(event string, body []byte) (ev Event, ok bool, err error) {
-	if !subscribed(event) {
+	if !slices.Contains(Events, event) {
 		return Event{}, false, nil
 	}
 	var p payload
@@ -87,15 +88,6 @@ func Extract(event string, body []byte) (ev Event, ok bool, err error) {
 		return Event{}, false, nil
 	}
 	return ev, true, nil
-}
-
-func subscribed(event string) bool {
-	for _, e := range Events {
-		if e == event {
-			return true
-		}
-	}
-	return false
 }
 
 func fromCheckRun(c *checkRun) (prs []int, branch string) {
