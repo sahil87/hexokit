@@ -85,8 +85,10 @@ func reasonNeedsJudgment(reason string, item operator.TrackedItem, owned bool) b
 		return strings.HasSuffix(reason, "→waiting") || strings.HasSuffix(reason, "→idle")
 	case operator.DeltaAgentAged, operator.DeltaDue, operator.DeltaStale, operator.DeltaPaused, operator.DeltaUnknownDep, operator.DeltaNote:
 		return true
+	case operator.DeltaChanged:
+		return item.Kind == operator.KindGitHubPR
 	case operator.DeltaDone:
-		return item.Then != nil && strings.TrimSpace(*item.Then) != ""
+		return item.Kind == operator.KindGitHubPR || (item.Then != nil && strings.TrimSpace(*item.Then) != "")
 	case operator.DeltaPaneDeath, operator.DeltaPaneMismatch, operator.DeltaAgentExited:
 		return !owned
 	}

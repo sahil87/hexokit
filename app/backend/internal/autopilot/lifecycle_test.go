@@ -11,9 +11,29 @@ import (
 	"rk/internal/operator"
 )
 
+// readOnlyState makes the state directory unwritable until the test ends, so
+// every durable write of the pass fails.
+func readOnlyState(t *testing.T, h *harness) {
+	t.Helper()
+	dir := filepath.Dir(h.env.StatePath)
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+}
+
+// restoreStateWrites makes the state directory writable again mid-test.
 func restoreStateWrites(t *testing.T, h *harness) {
 	t.Helper()
-	if err := os.Chmod(filepath.Dir(h.env.StatePath), 0700); err != nil {
+	if err := os.Chmod(filepath.Dir(h.env.StatePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// execOne runs one decision through the executors.
+func execOne(t *testing.T, e *engine, d Decision) {
+	t.Helper()
+	if err := e.execute(context.Background(), []Decision{d}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -37,22 +57,10 @@ func (p faultPanes) PID(ctx context.Context, pane string) (int, error) {
 	return p.Panes.PID(ctx, pane)
 }
 
-func TestObservationFailureDoesNotDriveMerge(t *testing.T) {
-	h, pr, head := armFixture(t)
-	pending(pr)
-	e := newEngine(h.env)
-	if err := e.setScope(head.ID, map[string]interface{}{scopeDeferred: false}); err != nil {
-		t.Fatal(err)
-	}
-	h.run.on("gh pr view 1", func(dir string, argv []string) (string, error) { readOnlyState(t, h); return h.gh.handle(dir, argv) })
-	res := h.step()
-	if !hasEscalation(res, "PR observation not written") || pr.Armed || hasAction(res, ActArmed, "") {
-		t.Fatalf("observation failure advanced: %+v", res)
-	}
-}
-
 func TestStateReloadFailuresEscalate(t *testing.T) {
-	h, _, _ := armFixture(t)
+	h := newHarness(t)
+	repo := newRepo(t, "repo")
+	h.queue("", Entry{ID: "a", Repo: repo.Dir, Task: "work"})
 	write(t, h.env.StatePath, "tracked: [broken")
 	e := newEngine(h.env)
 	if _, _, err := e.observe(context.Background()); err == nil || !hasEscalation(e.res, "state load failed") {
@@ -72,77 +80,6 @@ func TestPaneFingerprintFailureIsReportedWithAttachedPane(t *testing.T) {
 	}
 }
 
-func TestMergeRepoFilterValidation(t *testing.T) {
-	h := newHarness(t)
-	repo := newRepo(t, "repo")
-	other := newRepo(t, "other")
-	h.queue("", Entry{ID: "a", Repo: repo.Dir, Change: "aaaa"})
-	for _, path := range []string{"relative", filepath.Join(t.TempDir(), "missing"), t.TempDir(), other.Dir} {
-		res, err := StartMerge(context.Background(), h.env, MergeOptions{Repo: path})
-		var invalid *InvalidError
-		if !errors.As(err, &invalid) || len(res.Actions) != 0 {
-			t.Fatalf("filter=%q result=%+v error=%v", path, res, err)
-		}
-	}
-	if h.run.called("gh pr merge") != 0 {
-		t.Fatal("invalid filter acted")
-	}
-}
-
-func TestAlreadyDisabledStopConverges(t *testing.T) {
-	for _, message := range []string{"auto-merge is already disabled", "Pull request Auto merge is not currently enabled", "auto-merge is not enabled"} {
-		t.Run(message, func(t *testing.T) {
-			h, pr, head := armFixture(t)
-			pr.Armed = true
-			h.run.on("gh pr merge --disable-auto", func(_ string, argv []string) (string, error) {
-				pr.Armed = false
-				return "", ghErr(argv, message)
-			})
-			res, err := Stop(context.Background(), h.env)
-			if err != nil || !hasAction(res, ActDisarmed, head.ID) {
-				t.Fatalf("stop=%+v err=%v", res, err)
-			}
-			count := h.run.called("gh pr merge --disable-auto")
-			_, err = Stop(context.Background(), h.env)
-			if err != nil || count != h.run.called("gh pr merge --disable-auto") {
-				t.Fatal("converged stop called GitHub again")
-			}
-		})
-	}
-}
-
-func TestAlreadyAppliedReadyAndArm(t *testing.T) {
-	h, pr, head := armableFixture(t)
-	pr.IsDraft = true
-	h.run.fail("gh pr ready", "Pull request is already ready for review")
-	e, d := h.decideFor(head.ID)
-	if d.Action != ActionReady {
-		t.Fatalf("decision = %+v", d)
-	}
-	execOne(t, e, d)
-	if !hasAction(e.res, ActReadied, head.ID) {
-		t.Fatal("ready did not converge")
-	}
-	pr.IsDraft = false
-	h.run.fail("gh pr merge --auto", "auto-merge is already enabled")
-	e, d = h.decideFor(head.ID)
-	if d.Action != ActionArm {
-		t.Fatalf("decision = %+v", d)
-	}
-	execOne(t, e, d)
-	if !hasAction(e.res, ActArmed, head.ID) {
-		t.Fatal("arm did not converge")
-	}
-	for _, op := range []string{"ready", "arm", "disarm", "merge"} {
-		if alreadyApplied(errors.New("HTTP 502: action may already have completed"), op) {
-			t.Fatalf("%s classified an uncertain outcome as success", op)
-		}
-	}
-	if len(e.res.Escalations) != 0 {
-		t.Fatalf("idempotent outcomes escalated: %+v", e.res)
-	}
-}
-
 func TestEscalationNoteWriteFailureIsVisible(t *testing.T) {
 	h := newHarness(t)
 	repo := newRepo(t, "repo")
@@ -156,10 +93,10 @@ func TestEscalationNoteWriteFailureIsVisible(t *testing.T) {
 }
 
 func TestAlreadyAbortedCleanupConverges(t *testing.T) {
-	if !alreadyApplied(errors.New("error: no cherry-pick or revert in progress"), "cherry-pick-abort") {
+	if !noCherryPickInProgress(errors.New("error: no cherry-pick or revert in progress")) {
 		t.Fatal("completed abort rejected")
 	}
-	if alreadyApplied(errors.New("fatal: cannot open .git/CHERRY_PICK_HEAD"), "cherry-pick-abort") {
+	if noCherryPickInProgress(errors.New("fatal: cannot open .git/CHERRY_PICK_HEAD")) {
 		t.Fatal("filesystem failure mistaken for completed abort")
 	}
 }

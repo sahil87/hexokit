@@ -175,43 +175,27 @@ func (s *scriptRunner) reset() {
 // ---- gh simulator -------------------------------------------------------------
 
 type simPR struct {
-	Number      int
-	Branch      string
-	URL         string
-	State       string
-	IsDraft     bool
-	Mergeable   string
-	HeadOid     string
-	Base        string
-	MergeCommit string
-	Origin      *testRepo
-	Reviews     []reviewSummary
-	Checks      []checkRun
-	AutoErr     string
-	Armed       bool
-	Disarms     int
-	MergeCalls  int
+	Number int
+	Branch string
+	URL    string
+	State  string
+	Checks []checkRun
 }
 
 type ghSim struct {
-	t       *testing.T
-	prs     map[int]*simPR
-	run     *scriptRunner
-	repo    string
-	onMerge func(*simPR)
-	// noAutoMerge lists the repos (by owner/name) whose autoMergeAllowed is false.
-	noAutoMerge map[string]bool
+	t   *testing.T
+	prs map[int]*simPR
+	run *scriptRunner
 }
 
 func newGHSim(t *testing.T, run *scriptRunner) *ghSim {
-	g := &ghSim{t: t, prs: map[int]*simPR{}, run: run, noAutoMerge: map[string]bool{}}
+	g := &ghSim{t: t, prs: map[int]*simPR{}, run: run}
 	run.on("gh ", g.handle)
 	return g
 }
 
 func (g *ghSim) add(number int, branch string) *simPR {
-	pr := &simPR{Number: number, Branch: branch, URL: fmt.Sprintf("https://example.test/pull/%d", number),
-		State: "OPEN", Mergeable: "MERGEABLE", HeadOid: fmt.Sprintf("%040d", number), Base: "main"}
+	pr := &simPR{Number: number, Branch: branch, URL: fmt.Sprintf("https://example.test/pull/%d", number), State: "OPEN"}
 	g.prs[number] = pr
 	return pr
 }
@@ -225,22 +209,6 @@ func (g *ghSim) find(ref string) *simPR {
 	return nil
 }
 
-func (g *ghSim) headOid(p *simPR) string {
-	if p.Origin != nil && gitOK(p.Origin.Origin, "rev-parse", "--verify", "-q", "refs/heads/"+p.Branch) {
-		return runGit(g.t, p.Origin.Origin, "rev-parse", "refs/heads/"+p.Branch)
-	}
-	return p.HeadOid
-}
-
-func (g *ghSim) compareOrigin() *testRepo {
-	for _, p := range g.prs {
-		if p.Origin != nil {
-			return p.Origin
-		}
-	}
-	return nil
-}
-
 func ghErr(argv []string, msg string) error {
 	return &ExecError{Argv: argv, Stderr: msg, Err: fmt.Errorf("exit status 1")}
 }
@@ -249,36 +217,13 @@ func (g *ghSim) handle(dir string, argv []string) (string, error) {
 	args := argv[1:]
 	switch {
 	case len(args) >= 2 && args[0] == "repo" && args[1] == "view":
-		joined := strings.Join(args, " ")
-		if strings.Contains(joined, "autoMergeAllowed") {
-			nwo := ""
-			if len(args) > 2 && args[2] != "--json" {
-				nwo = args[2]
-			}
-			return fmt.Sprintf(`{"autoMergeAllowed":%t}`, !g.noAutoMerge[nwo]), nil
-		}
-		if strings.Contains(joined, "nameWithOwner") {
-			return `{"nameWithOwner":"o/` + filepath.Base(dir) + `"}`, nil
-		}
 		return "main\n", nil
 	case len(args) >= 3 && args[0] == "pr" && args[1] == "view":
 		p := g.find(args[2])
 		if p == nil {
 			return "", ghErr(argv, "no pull requests found for "+args[2])
 		}
-		var armed interface{}
-		if p.Armed {
-			armed = map[string]string{"mergeMethod": "SQUASH"}
-		}
-		var mergeCommit interface{}
-		if p.MergeCommit != "" {
-			mergeCommit = map[string]string{"oid": p.MergeCommit}
-		}
-		b, _ := json.Marshal(map[string]interface{}{
-			"number": p.Number, "url": p.URL, "state": p.State, "isDraft": p.IsDraft, "mergedAt": mergedAt(p),
-			"mergeable": p.Mergeable, "headRefOid": g.headOid(p), "autoMergeRequest": armed, "baseRefName": p.Base,
-			"mergeCommit": mergeCommit, "reviews": p.Reviews, "statusCheckRollup": rollup(p.Checks),
-		})
+		b, _ := json.Marshal(map[string]interface{}{"url": p.URL, "state": p.State})
 		return string(b), nil
 	case len(args) >= 3 && args[0] == "pr" && args[1] == "checks":
 		p := g.find(args[2])
@@ -295,103 +240,15 @@ func (g *ghSim) handle(dir string, argv []string) (string, error) {
 			}
 		}
 		return string(b), nil
-	case len(args) >= 3 && args[0] == "pr" && args[1] == "edit":
-		p := g.find(args[2])
-		if p == nil {
-			return "", ghErr(argv, "no pull request "+args[2])
-		}
-		for i := 3; i+1 < len(args); i++ {
-			if args[i] == "--base" {
-				p.Base = args[i+1]
-				return "", nil
-			}
-		}
-		return "", ghErr(argv, "base required")
-	case len(args) >= 3 && args[0] == "pr" && args[1] == "ready":
-		g.find(args[2]).IsDraft = false
-		return "", nil
-	case len(args) >= 3 && args[0] == "pr" && args[1] == "merge":
-		return g.merge(argv, args[2:])
-	case len(args) >= 2 && args[0] == "api" && strings.Contains(args[1], "/compare/"):
-		parts := strings.SplitN(strings.SplitN(args[1], "/compare/", 2)[1], "...", 2)
-		origin := g.compareOrigin()
-		if len(parts) != 2 || origin == nil {
-			return "", ghErr(argv, "comparison unavailable")
-		}
-		if gitOK(origin.Origin, "merge-base", "--is-ancestor", parts[0], parts[1]) {
-			return "ahead\n", nil
-		}
-		return "behind\n", nil
 	}
 	return "", ghErr(argv, "unscripted gh call")
-}
-
-func (g *ghSim) merge(argv, rest []string) (string, error) {
-	n := ""
-	for _, r := range rest {
-		if r != "" && r[0] >= '0' && r[0] <= '9' {
-			n = r
-			break
-		}
-	}
-	p := g.find(n)
-	if p == nil {
-		return "", ghErr(argv, "no pull request "+n)
-	}
-	has := func(f string) bool {
-		for _, r := range rest {
-			if r == f {
-				return true
-			}
-		}
-		return false
-	}
-	switch {
-	case has("--disable-auto"):
-		p.Armed = false
-		p.Disarms++
-	case has("--auto"):
-		if p.AutoErr != "" {
-			return "", ghErr(argv, p.AutoErr)
-		}
-		p.Armed = true
-	default:
-		if !has("--squash") {
-			return "", ghErr(argv, "merge method required")
-		}
-		p.State = "MERGED"
-		p.MergeCalls++
-		p.MergeCommit = g.headOid(p)
-		if g.onMerge != nil {
-			g.onMerge(p)
-		}
-	}
-	return "", nil
-}
-
-func mergedAt(p *simPR) string {
-	if p.State == "MERGED" {
-		return "2026-01-01T00:00:00Z"
-	}
-	return ""
-}
-
-func rollup(cs []checkRun) []map[string]string {
-	out := []map[string]string{}
-	for _, c := range cs {
-		out = append(out, map[string]string{"state": c.State})
-	}
-	return out
 }
 
 // ---- fakes --------------------------------------------------------------------
 
 type fakePanes struct {
-	mu      sync.Mutex
-	panes   map[string]operator.PaneInfo
-	sendErr error
-	sent    []string
-	onSend  func(pane, text string)
+	mu    sync.Mutex
+	panes map[string]operator.PaneInfo
 }
 
 func (f *fakePanes) Snapshot(ctx context.Context) (map[string]operator.PaneInfo, error) {
@@ -402,20 +259,6 @@ func (f *fakePanes) Snapshot(ctx context.Context) (map[string]operator.PaneInfo,
 		out[k] = v
 	}
 	return out, nil
-}
-
-func (f *fakePanes) Send(_ context.Context, pane, text string) error {
-	f.mu.Lock()
-	err := f.sendErr
-	onSend := f.onSend
-	if err == nil {
-		f.sent = append(f.sent, pane+"|"+text)
-	}
-	f.mu.Unlock()
-	if onSend != nil {
-		onSend(pane, text)
-	}
-	return err
 }
 
 // fakeSpawner builds real git worktrees so SHA pinning, upstream tracking and
@@ -568,6 +411,17 @@ func (h *harness) step() *StepResult {
 	return res
 }
 
+// livePanes puts every pane an engine item recorded into the pane snapshot, as
+// a running agent would be.
+func (h *harness) livePanes() {
+	h.t.Helper()
+	for _, it := range h.state().Tracked {
+		if pane := operator.ScopeString(it.Scope, "pane"); pane != "" {
+			h.panes.panes[pane] = operator.PaneInfo{PaneID: pane}
+		}
+	}
+}
+
 // setDone marks an item done with the evidence a finished pane leaves.
 func (h *harness) setDone(id string) {
 	h.t.Helper()
@@ -625,15 +479,6 @@ func (h *harness) shipped(first int, names ...string) []*simPR {
 	return prs
 }
 
-func (h *harness) startMerge() *StepResult {
-	h.t.Helper()
-	res, err := StartMerge(context.Background(), h.env, MergeOptions{})
-	if err != nil {
-		h.t.Fatalf("StartMerge: %v", err)
-	}
-	return res
-}
-
 func (f *fakePanes) PID(context.Context, string) (int, error) { return 123, nil }
 
 // stateOf is the engine's derived queue status for the item, read-only.
@@ -648,28 +493,8 @@ func (h *harness) stateOf(it operator.TrackedItem) QueueStatus {
 	return deriveQueue(st, f, st.Tracked[operator.IndexOf(st.Tracked, it.ID)])
 }
 
-// prStatusOf is the engine's derived PR status for the item, read-only.
-func (h *harness) prStatusOf(id string) PRStatus {
-	h.t.Helper()
-	e := newEngine(h.env)
-	e.readOnly = true
-	st, f, err := e.observe(context.Background())
-	if err != nil {
-		h.t.Fatal(err)
-	}
-	return derivePR(st, f, st.Tracked[operator.IndexOf(st.Tracked, id)])
-}
-
-// pending gives each PR one pending required check, so an unarmed PR is
-// `waiting` (armed by P6) instead of `green` (merged by P7).
-func pending(prs ...*simPR) {
-	for _, p := range prs {
-		p.Checks = []checkRun{{Name: "ci", State: "PENDING"}}
-	}
-}
-
 // decideFor runs observe and decide against the harness state and returns the
-// engine (with its facts, ready for execute) and the item's decision.
+// engine and the item's decision.
 func (h *harness) decideFor(id string) (*engine, Decision) {
 	h.t.Helper()
 	e := newEngine(h.env)
@@ -677,8 +502,7 @@ func (h *harness) decideFor(id string) (*engine, Decision) {
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	e.facts = f
-	for _, d := range decide(st, f, h.env.Now()) {
+	for _, d := range decide(st, f) {
 		if d.Item == id {
 			return e, d
 		}
@@ -697,22 +521,20 @@ func (h *harness) decisionRows() map[string]string {
 		h.t.Fatal(err)
 	}
 	rows := map[string]string{}
-	for _, d := range decide(st, f, h.env.Now()) {
+	for _, d := range decide(st, f) {
 		rows[d.Item] = d.Row
 	}
 	return rows
 }
 
-// decisions observes and decides against the harness state with e, leaving
-// e.facts set for execute.
+// decisions observes and decides against the harness state with e.
 func (h *harness) decisions(e *engine) []Decision {
 	h.t.Helper()
 	st, f, err := e.observe(context.Background())
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	e.facts = f
-	return decide(st, f, h.env.Now())
+	return decide(st, f)
 }
 
 // setScope merges keys into the item's scope; a nil value stores null.

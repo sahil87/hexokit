@@ -87,5 +87,3 @@ func (p helperPanes) Snapshot(ctx context.Context) (map[string]operator.PaneInfo
 func (p helperPanes) PID(ctx context.Context, pane string) (int, error) {
 	return tmux.PanePIDCtx(ctx, pane, p.server)
 }
-
-func (helperPanes) Send(context.Context, string, string) error { return autopilot.ErrPaneBusy }

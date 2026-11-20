@@ -17,17 +17,6 @@ func mergeAutoBarrier(st *operator.State, it, dep operator.TrackedItem) bool {
 	return legacyQueueItem(st, it) && legacyQueueItem(st, dep) && modeOf(it) == operator.MergeModeMergeAuto && modeOf(dep) == operator.MergeModeMergeAuto
 }
 
-// prMerged reports whether the github-pr item created for queue item id is
-// done (a verified merge).
-func prMerged(st *operator.State, id string) bool {
-	for _, p := range st.Tracked {
-		if p.Kind == operator.KindGitHubPR && operator.ScopeString(p.Scope, scopeItem) == id {
-			return operator.ItemDone(p)
-		}
-	}
-	return false
-}
-
 func fabPresent(repo string) (bool, error) {
 	fi, err := os.Stat(filepath.Join(repo, "fab"))
 	if os.IsNotExist(err) {
@@ -52,30 +41,13 @@ func isPlainAgent(st *operator.State, it operator.TrackedItem) (bool, error) {
 
 // prView is the subset of `gh pr view` the engine reads.
 type prView struct {
-	Number      int    `json:"number"`
-	URL         string `json:"url"`
-	State       string `json:"state"`
-	IsDraft     bool   `json:"isDraft"`
-	MergedAt    string `json:"mergedAt"`
-	Mergeable   string `json:"mergeable"`
-	HeadRefOid  string `json:"headRefOid"`
-	BaseRefName string `json:"baseRefName"`
-	MergeCommit struct {
-		OID string `json:"oid"`
-	} `json:"mergeCommit"`
-	// AutoMergeRequest is non-nil exactly when auto-merge is armed.
-	AutoMergeRequest *struct{}       `json:"autoMergeRequest"`
-	Reviews          []reviewSummary `json:"reviews"`
-}
-
-type reviewSummary struct {
+	URL   string `json:"url"`
 	State string `json:"state"`
 }
 
-// viewPR runs `gh pr view <ref> --json <fields>` in the repo. A non-empty nwo
-// pins the PR's repository (`--repo`) instead of leaving it to the checkout.
-func (e *engine) viewPR(ctx context.Context, repo, nwo, ref, fields string) (prView, error) {
-	out, err := e.gh(ctx, repo, withRepo(nwo, "pr", "view", ref, "--json", fields)...)
+// viewPR runs `gh pr view <ref> --json <fields>` in the repo.
+func (e *engine) viewPR(ctx context.Context, repo, ref, fields string) (prView, error) {
+	out, err := e.gh(ctx, repo, "pr", "view", ref, "--json", fields)
 	if err != nil {
 		return prView{}, err
 	}
@@ -94,7 +66,7 @@ func (e *engine) plainAgentDone(ctx context.Context, st *operator.State, it oper
 		e.escalate(it.ID, "cannot observe completion: no branch recorded")
 		return false
 	}
-	v, err := e.viewPR(ctx, operator.ScopeString(it.Scope, "repo"), "", branch, "url,state")
+	v, err := e.viewPR(ctx, operator.ScopeString(it.Scope, "repo"), branch, "url,state")
 	if err != nil {
 		if !e.readOnly || !noPRFound(err) {
 			e.escalate(it.ID, "completion PR lookup failed: "+stderrOf(err))
@@ -105,7 +77,7 @@ func (e *engine) plainAgentDone(ctx context.Context, st *operator.State, it oper
 	case "MERGED":
 		return true
 	case "OPEN":
-		runs, err := e.requiredChecks(ctx, operator.ScopeString(it.Scope, "repo"), "", branch)
+		runs, err := e.requiredChecks(ctx, operator.ScopeString(it.Scope, "repo"), branch)
 		if err != nil {
 			e.escalate(it.ID, "completion checks lookup failed: "+stderrOf(err))
 			return false
@@ -122,13 +94,30 @@ func (e *engine) depPRExists(ctx context.Context, it, dep operator.TrackedItem, 
 		e.escalate(it.ID, "dependency "+dep.ID+" has no branch recorded")
 		return false
 	}
-	if _, err := e.viewPR(ctx, repo, "", branch, "url"); err != nil {
+	if _, err := e.viewPR(ctx, repo, branch, "url"); err != nil {
 		if !e.readOnly || !noPRFound(err) {
 			e.escalate(it.ID, "dependency "+dep.ID+" PR lookup failed: "+stderrOf(err))
 		}
 		return false
 	}
 	return true
+}
+
+// depMerged reports whether a merge-auto dependency's branch PR reads MERGED. A
+// branch with no PR yet is a normal held item; any other failure is escalated.
+func (e *engine) depMerged(ctx context.Context, it, dep operator.TrackedItem, repo, branch string) bool {
+	if branch == "" {
+		e.escalate(it.ID, "dependency "+dep.ID+" has no branch recorded")
+		return false
+	}
+	v, err := e.viewPR(ctx, repo, branch, "url,state")
+	if err != nil {
+		if !noPRFound(err) {
+			e.escalate(it.ID, "dependency "+dep.ID+" PR lookup failed: "+stderrOf(err))
+		}
+		return false
+	}
+	return strings.EqualFold(v.State, "MERGED")
 }
 
 // noPRFound reports gh's answer for a branch that has no PR yet: a normal

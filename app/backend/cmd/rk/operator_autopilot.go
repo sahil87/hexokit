@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"rk/internal/autopilot"
-	"rk/internal/inject"
 	"rk/internal/operator"
 	"rk/internal/settings"
 	"rk/internal/tmux"
@@ -18,8 +17,8 @@ import (
 
 // rk operator autopilot — the CLI door onto internal/autopilot, the
 // deterministic queue engine. Runs and the operator chat call these verbs
-// instead of executing git/gh choreography from prose; the queue itself is the
-// tracked items, so there is no queue store to keep in sync.
+// instead of executing git choreography from prose; the queue itself is the
+// engine file's items, so there is no queue store to keep in sync.
 
 const autopilotStdinCap = 1 << 20
 const autopilotListCap = 20
@@ -59,54 +58,45 @@ func (p autopilotPanes) Snapshot(ctx context.Context) (map[string]operator.PaneI
 	return operator.SnapshotPanes(ctx, p.server)
 }
 
-// Send refuses to interrupt an active or waiting agent; other sends use the
-// same sanitized, Enter-terminated injection path as mux send.
-func (p autopilotPanes) Send(ctx context.Context, paneID, text string) error {
-	facts, err := muxSendFactsFn(ctx, paneID, p.server)
-	if err != nil {
-		return fmt.Errorf("read pane facts: %w", err)
-	}
-	switch facts.AgentState {
-	case tmux.AgentStateActive, tmux.AgentStateWaiting:
-		return autopilot.ErrPaneBusy
-	}
-	engine := inject.NewEngine(muxBufferNameFn())
-	return muxSendEngineSendFn(ctx, engine, cliInjectTmux{}, p.server, paneID, inject.Sanitize(text), true)
-}
-
 var operatorAutopilotCmd = &cobra.Command{
 	Use:   "autopilot",
-	Short: "Run operator queues: spawn, chain, merge, and recover PRs",
+	Short: "Run operator queues: readiness, spawn, respawn, completion",
 	Long: `Run operator queues deterministically. A queue is N pane items chained by
-depends_on; a merge sequence is a chain of github-pr items. Every verb re-reads
-the operator state file, acts, and writes back under a lock, so nothing is held
-in memory and a fresh run picks up exactly where the last one stopped.
+depends_on. Every verb re-reads the operator state file, acts, and writes back
+under a lock, so nothing is held in memory and a fresh run picks up exactly where
+the last one stopped.
 
 Each pass observes the facts of the items that can act, derives a status per
 item, picks at most one rule row per item, and executes the chosen actions in
-ledger order. step --dry-run prints the chosen rows and runs nothing.
+queue order. step --dry-run prints the chosen rows and runs nothing.
 
-Verbs: queue, step, merge, stop, rm, resume, status. Engine intent lives in a
+The engine does queue work only: readiness, SHA-pinned spawn, one respawn and
+completion. Readying, arming, merging and restacking PRs and fixing red CI or
+conflicts are the operator run's work, under the queue's mode as its merge
+authority.
+
+Verbs: queue, step, stop, status, rm, resume, pause. Engine intent lives in a
 per-server YAML file beside the ledger; ledger items are projections only.
 Escalations become by: run notes and rk notify calls. Only status is a pure read.
 All verbs take -L/--server (default: the caller's own server from $TMUX).
 
 Every writing verb is single-writer: it takes a per-server pass lock for the
 whole intent write and following pass. A second one that finds the lock held
-writes nothing and reports busy. Step, merge, stop, rm and resume exit 0 on busy;
+writes nothing and reports busy. Step, stop, rm, resume and pause exit 0 on busy;
 queue exits 1 without queueing and asks for a retry. status takes no lock.
 
-Merge modes (--mode, or the operator.merge_mode setting):
+Merge modes (--mode, or the operator.merge_mode setting) shape how an item is
+spawned and tell the operator its merge authority:
   cherry-pick-ladder  chained PRs; each change gets its dependencies cherry-picked
-                      in; merge after review
-  stacked-prs         chained PRs; each is cut from its dependency's branch;
-                      merge readies, restacks, then merges green heads directly;
-                      never arms; rebase conflicts halt and escalate
-  merge-auto          each PR is armed to merge as it ships; the next change waits
-                      for the verified merge`,
+                      in; the operator merges only on the user's word
+  stacked-prs         chained PRs; each is cut from its dependency's branch and
+                      records that base; the operator merges only on the user's
+                      word
+  merge-auto          every PR is based on the default branch, unchained; the next
+                      change waits until the previous PR is merged; the operator
+                      merges green PRs without asking`,
 	Example: `  echo '[{"id":"ab12","repo":"/src/app","change":"ab12"}]' | rk operator autopilot queue
   rk operator autopilot step --json
-  rk operator autopilot merge
   rk operator autopilot status`,
 	Args: usageArgs(cobra.NoArgs),
 	RunE: func(cmd *cobra.Command, args []string) error { return cmd.Help() },
@@ -165,29 +155,22 @@ Exit codes:
 
 var operatorAutopilotStepCmd = &cobra.Command{
 	Use:   "step [--dry-run] [--all] [--json]",
-	Short: "Advance every queue and merge sequence one idempotent pass",
-	Long: `Run one pass over the server's tracked items: observe, derive each item's
+	Short: "Advance every queue one idempotent pass",
+	Long: `Run one pass over the server's queue items: observe, derive each item's
 status, pick at most one rule row per item, and execute the chosen actions. A
 queue item whose completion is observed is recorded done; a pending item whose
-dependencies are satisfied is spawned; a dead pane is respawned once. A merge
-sequence advances one PR per pass: the head PR is readied if draft, armed while
-its checks are pending, and merged when green (a repo without auto-merge is
-merged on green); a PR merged on GitHub is recorded and its successor acts on
-the next pass. Every armed PR of a halted sequence is disarmed, whoever armed
-it. No call waits for CI; call step again later.
+dependencies are satisfied is spawned; a dead pane is respawned once. No call
+waits for CI or a merge; call step again later.
 
-A failed required check starts one CI fix round: the engine sends a fix request
-to an idle authoring pane or spawns one recovery agent when that pane is gone.
-A new red head or 30 minutes without a push halts and disarms the PR. A stalled
-CONFLICTING PR gets one detached-worktree rebase and lease-pinned force-push;
-auto-merge is re-armed by the next pass, and a recurring conflict halts.
+A merge-auto item waits until its predecessor is done and that predecessor's PR
+reads merged. A same-repo successor of an item with no stop_stage waits until the
+predecessor's PR exists.
 
 step takes the per-server pass lock (a --dry-run does not). If another pass
 holds it, step does nothing, prints "busy" and exits 0.
 
-The output lists actions taken (spawned, cherry-picked, armed, merged,
-disarmed, readied), per-merge report lines, and escalations. The engine writes
-each escalation as a by: run note and sends rk notify once per dedupe key.
+The output lists actions taken (spawned, respawned, cherry-picked, paused, done,
+removed, resumed) and escalations. The engine writes each escalation as a by: run note and sends rk notify once per dedupe key.
 --dry-run reads but changes nothing: it lists each chosen row as
 "dry-run: <action> <item> (<row>)", for example "dry-run: spawn ab12 (Q2)".
 
@@ -211,52 +194,12 @@ Exit codes:
 	RunE:         runAutopilotStep,
 }
 
-var operatorAutopilotMergeCmd = &cobra.Command{
-	Use:   "merge [--repo <path>] [--all] [--json]",
-	Short: "Start the ordered merge of a completed queue",
-	Long: `Start the ordered merge for completed cherry-pick-ladder and stacked-prs
-queues (every repo, or one with --repo): create the github-pr chain items in the
-engine file and their ledger projections, then run one pass. Cherry-pick-ladder
-sequences ready, arm or merge each head in later steps. Stacked-prs sequences
-ready, restack and merge: after a predecessor merges, the successor is retargeted,
-rebased with rebase --onto and force-pushed with --force-with-lease; its green
-restacked head merges directly in a later pass, never armed. A rebase conflict
-halts and escalates. Run this only on the user's confirmation to merge all. It
-refuses while queue items are not done and does nothing for merge-auto items.
-
-merge takes the per-server pass lock. If another pass holds it, merge does
-nothing, prints "busy" and exits 0.
-
-Flags:
-  --repo          limit to one repo (absolute path)
-  -L, --server    tmux server (default: the caller's own server from $TMUX)
-  --all           show every entry (human lists default to 20 entries each)
-  --json          complete machine-readable envelope on stdout
-
-Examples:
-  rk operator autopilot merge
-  rk operator autopilot merge --repo /src/app --json
-
-Exit codes:
-  0  started (or nothing to merge), or busy
-  1  operational failure (queue items not done, no PR for a branch, state file
-     busy or unreadable, a gh lookup failed)
-  2  usage error (--repo empty, relative or not a queued repository)`,
-	Args:         usageArgs(cobra.NoArgs),
-	SilenceUsage: true,
-	RunE:         runAutopilotMerge,
-}
-
 var operatorAutopilotStopCmd = &cobra.Command{
 	Use:   "stop [--all] [--json]",
-	Short: "Disarm every armed PR and pause every unspawned queue item",
-	Long: `Global user stop: halt the unfinished merge sequences so a later step does
-not re-arm them, pause every unspawned queue item, and disarm every armed PR in
-the halted sequences (gh pr merge --disable-auto), whoever armed it. Live panes
-are left untouched. Armed is read from GitHub, so a disarm that fails is retried
-by the next stop or step until GitHub reports it disarmed. Use
-rk operator autopilot resume <id> on the one item that carries halted to resume
-its derived downstream cone.
+	Short: "Pause every unspawned queue item",
+	Long: `Global user stop: pause every unspawned, unfinished queue item so a later step
+does not spawn it, then run one pass. Live panes are left untouched, and no PR is
+read or changed. Use rk operator autopilot resume <id> to release an item.
 
 stop takes the per-server pass lock. If another pass holds it, stop does
 nothing, prints "busy" and exits 0.
@@ -271,8 +214,7 @@ Examples:
 
 Exit codes:
   0  stopped, or busy
-  1  operational failure (state file busy or unreadable, a state write failed,
-     a disarm failed)
+  1  operational failure (state file busy or unreadable, a state write failed)
   2  usage error`,
 	Args:         usageArgs(cobra.NoArgs),
 	SilenceUsage: true,
@@ -281,29 +223,26 @@ Exit codes:
 
 var operatorAutopilotStatusCmd = &cobra.Command{
 	Use:   "status [--all] [--json]",
-	Short: "Show queue and recovery items with their derived status",
+	Short: "Show queue items with their derived status",
 	Long: `Queue view: per item the derived status (done, paused, skipped, held,
-pending, spawn-unknown, spawned, dead), mode, repo, branch and, for an item with
-a PR item, the PR number, the PR item's derived status (merged, paused, halted,
-closed, deferred, blocked, stale-base, draft, fixing, failed, conflicting, green,
-waiting) and its merge-sequence position, e.g. "PR #12 · green · 1/3".
-Recovery-spawn fix items are listed with resolved, spawn-unknown or working
-status. Status writes nothing, takes no pass lock and reports no escalations.
+pending, spawn-unknown, spawned, dead), mode, repo and branch. Status writes
+nothing, takes no pass lock and reports no escalations. It lists queue items
+only; PRs are read with rk operator track list.
 
 Statuses are derived by the same observe and derive stages as step, so status
-makes read-only GitHub calls: gh pr view and gh pr checks for the PRs that can
-act, and for readiness whether a same-repo dependency's PR exists (a dependency
-with no PR yet is simply held). The Queue Completion Summary (shown when every
-item is done) reads each PR link. If a gh lookup fails, the
-failures are printed as plain text, nothing else is listed in the human view,
-and the command exits 1; with --json the envelope reports ok:false with that
-error and still carries the items it derived.
+makes read-only GitHub calls: whether a same-repo dependency's PR exists (a
+dependency with no PR yet is simply held), whether a merge-auto predecessor's PR
+is merged, and a plain agent's PR state. The Queue Completion Summary (shown
+when every item is done) reads each PR link. If a gh lookup fails, the failures
+are printed as plain text, nothing else is listed in the human view, and the
+command exits 1; with --json the envelope reports ok:false with that error and
+still carries the items it derived.
 
 Flags:
   -L, --server    tmux server (default: the caller's own server from $TMUX)
   --all           show every entry (human lists default to 20 entries each)
   --json          complete machine-readable envelope on stdout (items carry
-                  state and pr_status)
+                  state, mode, task, change and stop_stage)
 
 Examples:
   rk operator autopilot status
@@ -330,20 +269,18 @@ func init() {
 	f.Bool("dry-run", false, "report the plan without side effects")
 	f.Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 
-	operatorAutopilotMergeCmd.Flags().String("repo", "", "limit to one repo (absolute path)")
-	operatorAutopilotMergeCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 	operatorAutopilotStopCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 	operatorAutopilotStatusCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 	operatorAutopilotRemoveCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 	operatorAutopilotResumeCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 	operatorAutopilotPauseCmd.Flags().Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 
-	for _, cmd := range []*cobra.Command{operatorAutopilotQueueCmd, operatorAutopilotStepCmd, operatorAutopilotMergeCmd, operatorAutopilotStopCmd, operatorAutopilotStatusCmd, operatorAutopilotRemoveCmd, operatorAutopilotResumeCmd, operatorAutopilotPauseCmd} {
+	for _, cmd := range []*cobra.Command{operatorAutopilotQueueCmd, operatorAutopilotStepCmd, operatorAutopilotStopCmd, operatorAutopilotStatusCmd, operatorAutopilotRemoveCmd, operatorAutopilotResumeCmd, operatorAutopilotPauseCmd} {
 		cmd.Flags().Bool("all", false, "show every list entry (default: 20 per human list; JSON is always complete)")
 	}
 
 	operatorAutopilotCmd.AddCommand(
-		operatorAutopilotQueueCmd, operatorAutopilotStepCmd, operatorAutopilotMergeCmd,
+		operatorAutopilotQueueCmd, operatorAutopilotStepCmd,
 		operatorAutopilotStopCmd, operatorAutopilotRemoveCmd, operatorAutopilotResumeCmd, operatorAutopilotPauseCmd, operatorAutopilotStatusCmd,
 	)
 	operatorCmd.AddCommand(operatorAutopilotCmd)
@@ -409,7 +346,7 @@ func runAutopilotQueue(cmd *cobra.Command, args []string) error {
 		}
 		autopilotListTotal(s, "misfits", len(rec.Misfits), autopilotShown(cmd, len(rec.Misfits)))
 		if len(rec.Actions)+len(rec.Escalations) > 0 {
-			renderStep(cmd, s, &autopilot.StepResult{Actions: rec.Actions, Escalations: rec.Escalations, Report: []string{}})
+			renderStep(cmd, s, &autopilot.StepResult{Actions: rec.Actions, Escalations: rec.Escalations})
 		}
 	}, err)
 }
@@ -431,23 +368,11 @@ func renderStep(cmd *cobra.Command, s outputSink, res *autopilot.StepResult) {
 		s.Dataf("%s\n", line)
 	}
 	autopilotListTotal(s, "actions", len(res.Actions), autopilotShown(cmd, len(res.Actions)))
-	reports := res.Report
-	if len(res.Unreviewed) > 0 {
-		reports = reports[:len(reports)-1]
-	}
-	for _, r := range reports[:autopilotShown(cmd, len(reports))] {
-		s.Dataf("%s\n", r)
-	}
-	autopilotListTotal(s, "reports", len(reports), autopilotShown(cmd, len(reports)))
-	if len(res.Unreviewed) > 0 {
-		s.Dataf("merged without review: %s\n", strings.Join(res.Unreviewed[:autopilotShown(cmd, len(res.Unreviewed))], ", "))
-		autopilotListTotal(s, "unreviewed merges", len(res.Unreviewed), autopilotShown(cmd, len(res.Unreviewed)))
-	}
 	for _, e := range res.Escalations[:autopilotShown(cmd, len(res.Escalations))] {
 		s.Dataf("escalate %s: %s\n", e.Item, e.Reason)
 	}
 	autopilotListTotal(s, "escalations", len(res.Escalations), autopilotShown(cmd, len(res.Escalations)))
-	if len(res.Actions)+len(res.Report)+len(res.Escalations) == 0 {
+	if len(res.Actions)+len(res.Escalations) == 0 {
 		s.Dataf("%snothing to do\n", prefix)
 	}
 }
@@ -459,16 +384,6 @@ func runAutopilotStep(cmd *cobra.Command, args []string) error {
 		return autopilotFinish(cmd, nil, nil, err)
 	}
 	res, err := autopilot.Step(operatorTrackContext(cmd), env)
-	return autopilotFinish(cmd, res, func(s outputSink) { renderStep(cmd, s, res) }, err)
-}
-
-func runAutopilotMerge(cmd *cobra.Command, args []string) error {
-	repo, _ := cmd.Flags().GetString("repo")
-	env, err := autopilotEnvFn(cmd, operator.ByChat, false)
-	if err != nil {
-		return autopilotFinish(cmd, nil, nil, err)
-	}
-	res, err := autopilot.StartMerge(operatorTrackContext(cmd), env, autopilot.MergeOptions{Repo: repo, RepoSet: cmd.Flags().Changed("repo")})
 	return autopilotFinish(cmd, res, func(s outputSink) { renderStep(cmd, s, res) }, err)
 }
 
@@ -493,27 +408,10 @@ func runAutopilotStatus(cmd *cobra.Command, args []string) error {
 			if it.Branch != "" {
 				line += " · " + it.Branch
 			}
-			if it.PR != "" {
-				line += " · PR #" + it.PR
-			}
-			if it.PRStatus != "" {
-				line += " · " + it.PRStatus
-			}
-			if it.Sequence != "" {
-				line += " · " + it.Sequence
-			}
 			s.Dataf("%s\n", line)
 		}
 		autopilotListTotal(s, "items", len(res.Items), autopilotShown(cmd, len(res.Items)))
-		for _, it := range res.Fixes[:autopilotShown(cmd, len(res.Fixes))] {
-			line := fmt.Sprintf("fix %s · %s · %s", it.ID, it.State, it.Repo)
-			if it.Branch != "" {
-				line += " · " + it.Branch
-			}
-			s.Dataf("%s\n", line)
-		}
-		autopilotListTotal(s, "fix items", len(res.Fixes), autopilotShown(cmd, len(res.Fixes)))
-		if len(res.Items)+len(res.Fixes) == 0 {
+		if len(res.Items) == 0 {
 			s.Dataf("no queue\n")
 		}
 		if res.Summary != "" {

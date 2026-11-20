@@ -704,9 +704,6 @@ func TestRespawnFollowsTheBranchFabNewRenamed(t *testing.T) {
 	if operator.ScopeString(it.Scope, "change") != change || operator.ScopeString(it.Scope, "stage") != "intake" || operator.ScopeString(it.Scope, "branch") != change {
 		t.Fatalf("engine view scope = %v, want the ledger's change, stage and branch", it.Scope)
 	}
-	if _, reason := slowStageText(&ruleCtx{it: it}); !strings.HasPrefix(reason, "stage intake over") {
-		t.Errorf("slow-stage reason = %q, want it naming the stage", reason)
-	}
 
 	delete(h.panes.panes, "%101")
 	res := h.step()

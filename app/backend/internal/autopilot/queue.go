@@ -27,25 +27,10 @@ const (
 	scopeRespawned = "respawned"
 	scopeSkipped   = "skipped"
 	scopeSpawning  = "spawning"
-	scopeMergeSeq  = "merge_seq"
-	scopeItem      = "item"
-	scopeArmed     = "armed"
-	scopeHalted    = "halted"
-	scopeDirect    = "direct"
-	scopeStallSeen = "stall_seen"
-	scopeDeferred  = "deferred"
 	scopeQueue     = "queue"
 	scopeEscalated = "escalated"
 	scopeMergeMode = "merge_mode"
-	scopeURL       = "url"
 	scopeProjected = "projected"
-	scopePRDropped = "pr_dropped"
-	scopeRecovery  = "recovery"
-	scopeFixHead   = "fix_head"
-	scopeRecoverAt = "recovery_at"
-	scopeFixItem   = "fix_item"
-	recoveryCIFix  = "ci-fix"
-	recoveryRebase = "rebase"
 	// scopeEngineDone distinguishes the engine file's own done_at from an
 	// overlaid projection timestamp in the decision snapshot.
 	scopeEngineDone = "engine_done_at"
@@ -141,6 +126,11 @@ func modeOf(it operator.TrackedItem) string {
 	return operator.MergeModeCherryPickLadder
 }
 
+func scopeBool(it operator.TrackedItem, key string) bool {
+	b, _ := it.Scope[key].(bool)
+	return b
+}
+
 func isBare(it operator.TrackedItem) bool {
 	b, _ := it.Scope[scopeBare].(bool)
 	return b
@@ -201,7 +191,7 @@ func enqueue(ctx context.Context, env Env, entries []Entry, opts QueueOptions, s
 				if err := operator.ValidateDeps(it, append(append([]operator.TrackedItem(nil), view.Tracked...), items...)); err != nil {
 					return err
 				}
-				fresh.upsert(engineItemFromTracked(it, false), false)
+				fresh.upsert(engineItemFromTracked(it, false))
 			}
 			return nil
 		}); err != nil {

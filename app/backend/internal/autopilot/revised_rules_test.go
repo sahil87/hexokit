@@ -38,10 +38,6 @@ func TestBareTrackedPaneNeverRespawns(t *testing.T) {
 	if err != nil || len(status.Items) != 0 {
 		t.Fatalf("ordinary pane listed: %+v, %v", status, err)
 	}
-	res, err := StartMerge(context.Background(), h.env, MergeOptions{})
-	if err != nil || len(res.Actions) != 0 || h.run.called("gh pr view") != 0 {
-		t.Fatalf("ordinary pane selected for merge: %+v %v", res, err)
-	}
 }
 
 func TestLegacyMergeModeItemRemainsQueueWork(t *testing.T) {
@@ -60,11 +56,6 @@ func TestLegacyMergeModeItemRemainsQueueWork(t *testing.T) {
 	status, err := Status(context.Background(), h.env)
 	if err != nil || len(status.Items) != 1 {
 		t.Fatalf("legacy status=%+v %v", status, err)
-	}
-	h.shipped(1, "legacy")
-	res := h.startMerge()
-	if !hasAction(res, ActPRTracked, "legacy") {
-		t.Fatalf("legacy merge=%+v", res)
 	}
 }
 
@@ -150,7 +141,7 @@ func TestSpawnRejectsSharedDependencyBranchesBeforeFetch(t *testing.T) {
 			}
 			h.run.reset()
 			ds := h.decisions(e)
-			if err := e.execute(context.Background(), e.facts, ds); err != nil {
+			if err := e.execute(context.Background(), ds); err != nil {
 				t.Fatal(err)
 			}
 			assertNoBranchMutations(t, h, e.res)
@@ -201,9 +192,9 @@ func TestOwnBranchMapAndRespawnBranchesAreValidatedBeforeMutation(t *testing.T) 
 }
 
 func TestEmptyBranchCannotSelectDetachedWorktree(t *testing.T) {
-	h, _, head := armFixture(t)
+	h := newHarness(t)
+	repo := newRepo(t, "repo").Dir
 	e := newEngine(h.env)
-	repo := operator.ScopeString(head.Scope, "repo")
 	h.run.reset()
 	if _, err := e.worktreeForBranch(context.Background(), repo, ""); err == nil {
 		t.Fatal("empty branch accepted")

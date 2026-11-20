@@ -1,11 +1,6 @@
 package autopilot
 
-import (
-	"strings"
-
-	"rk/internal/operator"
-	"rk/internal/tmux"
-)
+import "rk/internal/operator"
 
 // QueueStatus is a queue item's derived status, never stored: every pass
 // derives it from durable intent plus observed facts.
@@ -27,41 +22,6 @@ var allQueueStatuses = []QueueStatus{
 	QueueDone, QueuePaused, QueueSkipped, QueueHeld, QueuePending, QueueSpawnUnknown, QueueSpawned, QueueDead,
 }
 
-// PRStatus is a merge-sequence PR item's derived status.
-type PRStatus string
-
-// PR statuses in precedence order (first match wins).
-const (
-	PRMerged      PRStatus = "merged"
-	PRPaused      PRStatus = "paused"
-	PRHalted      PRStatus = "halted"
-	PRClosed      PRStatus = "closed"
-	PRDeferred    PRStatus = "deferred"
-	PRBlocked     PRStatus = "blocked"
-	PRStaleBase   PRStatus = "stale-base"
-	PRDraft       PRStatus = "draft"
-	PRFixing      PRStatus = "fixing"
-	PRFailed      PRStatus = "failed"
-	PRConflicting PRStatus = "conflicting"
-	PRGreen       PRStatus = "green"
-	PRWaiting     PRStatus = "waiting"
-)
-
-var allPRStatuses = []PRStatus{
-	PRMerged, PRPaused, PRHalted, PRClosed, PRDeferred, PRBlocked, PRStaleBase, PRDraft, PRFixing, PRFailed, PRConflicting, PRGreen, PRWaiting,
-}
-
-// FixStatus is a recovery-spawn item's derived status.
-type FixStatus string
-
-const (
-	FixResolved     FixStatus = "resolved"
-	FixSpawnUnknown FixStatus = "spawn-unknown"
-	FixWorking      FixStatus = "working"
-)
-
-var allFixStatuses = []FixStatus{FixResolved, FixSpawnUnknown, FixWorking}
-
 // facts is everything observe read from outside the ledger. A zero value is a
 // valid "nothing known" snapshot, which derive reads as waiting/unknown.
 type facts struct {
@@ -71,17 +31,13 @@ type facts struct {
 	panes      map[string]operator.PaneInfo
 	panesKnown bool
 	queue      map[string]*queueFacts
-	pr         map[string]*prFacts
 	projection map[string]bool
-	// autoMerge is the repos' autoMergeAllowed, keyed by owner/name; a repo
-	// that could not be read is absent.
-	autoMerge map[string]bool
 }
 
 func newFacts() *facts {
 	return &facts{
 		panes: map[string]operator.PaneInfo{}, panesKnown: true,
-		queue: map[string]*queueFacts{}, pr: map[string]*prFacts{}, autoMerge: map[string]bool{}, projection: map[string]bool{},
+		queue: map[string]*queueFacts{}, projection: map[string]bool{},
 	}
 }
 
@@ -92,30 +48,15 @@ type queueFacts struct {
 	completed bool
 	// depPR records, per same-repo dependency id, whether its PR exists.
 	depPR map[string]bool
-}
-
-// prFacts are the externally observed inputs of one PR item.
-type prFacts struct {
-	// read is false when the PR could not be viewed.
-	read       bool
-	view       prView
-	checks     []checkRun
-	checksRead bool
-	// staleRead is true only when every stale-base fact needed by a stacked PR
-	// was read this pass.
-	stacked       bool
-	staleRead     bool
-	base          string
-	defaultBranch string
-	hasPred       bool
-	predMerge     string
-	ancestor      bool
+	// depMerged records, per merge-auto barrier dependency id, whether its
+	// branch's PR reads MERGED this pass.
+	depMerged map[string]bool
 }
 
 func (f *facts) queueFor(id string) *queueFacts {
 	q := f.queue[id]
 	if q == nil {
-		q = &queueFacts{depPR: map[string]bool{}}
+		q = &queueFacts{depPR: map[string]bool{}, depMerged: map[string]bool{}}
 		f.queue[id] = q
 	}
 	return q
@@ -132,9 +73,6 @@ func (f *facts) paneAlive(pane string) bool {
 	return ok
 }
 
-// armed is derived from the PR's autoMergeRequest, never stored.
-func (p *prFacts) armed() bool { return p != nil && p.read && p.view.AutoMergeRequest != nil }
-
 // itemDone reports whether the item is done now: its stored done_at, or, for a
 // queue item, a completion observed this pass.
 func itemDone(st *operator.State, f *facts, it operator.TrackedItem) bool {
@@ -148,11 +86,11 @@ func itemDone(st *operator.State, f *facts, it operator.TrackedItem) bool {
 }
 
 // unmetDep returns the first dependency that keeps the item held ("" when all
-// are satisfied): not done; in merge-auto a dependency whose PR item has not
+// are satisfied): not done; in merge-auto a dependency whose branch PR has not
 // merged; or a same-repo dependency without stop_stage that has no PR. A
-// dependency surviving only in branch_map is satisfied. exists answers the PR
-// lookup: derive reads the observed fact, observe performs the read.
-func unmetDep(st *operator.State, f *facts, it operator.TrackedItem, exists func(dep operator.TrackedItem, branch string) bool) string {
+// dependency surviving only in branch_map is satisfied. exists and merged answer
+// the PR lookups: derive reads the observed facts, observe performs the reads.
+func unmetDep(st *operator.State, f *facts, it operator.TrackedItem, exists, merged func(dep operator.TrackedItem, branch string) bool) string {
 	repo := cleanRepo(operator.ScopeString(it.Scope, "repo"))
 	for _, dep := range it.DependsOn {
 		di := operator.IndexOf(st.Tracked, dep)
@@ -167,8 +105,8 @@ func unmetDep(st *operator.State, f *facts, it operator.TrackedItem, exists func
 			return dep
 		}
 		if mergeAutoBarrier(st, it, d) {
-			if !prMerged(st, d.ID) {
-				return dep
+			if !merged(d, depBranch(st, d)) {
+				return dep + " (PR not merged)"
 			}
 			continue
 		}
@@ -194,11 +132,14 @@ func deriveQueue(st *operator.State, f *facts, it operator.TrackedItem) QueueSta
 		return QueueSkipped
 	}
 	if len(it.DependsOn) > 0 {
-		var depPR map[string]bool
-		if q := f.queue[it.ID]; q != nil {
-			depPR = q.depPR
+		var q queueFacts
+		if observed := f.queue[it.ID]; observed != nil {
+			q = *observed
 		}
-		if unmetDep(st, f, it, func(d operator.TrackedItem, branch string) bool { return branch != "" && depPR[d.ID] }) != "" {
+		held := unmetDep(st, f, it,
+			func(d operator.TrackedItem, branch string) bool { return branch != "" && q.depPR[d.ID] },
+			func(d operator.TrackedItem, branch string) bool { return branch != "" && q.depMerged[d.ID] })
+		if held != "" {
 			return QueueHeld
 		}
 	}
@@ -213,184 +154,4 @@ func deriveQueue(st *operator.State, f *facts, it operator.TrackedItem) QueueSta
 		return QueueSpawned
 	}
 	return QueueDead
-}
-
-// haltedCone reports whether the item is halted: stored `halted` on it or on
-// any not-done item it transitively depends_on. The cone is derived, so
-// clearing `halted` on the one item that carries it resumes everything
-// downstream. An upstream that is merged (stored done_at, or MERGED observed
-// this pass) holds nothing back, so a stale `halted` on a hand-merged PR does
-// not propagate. f may be nil: observe asks for the superset of items that may
-// need reading before any fact exists.
-func haltedCone(st *operator.State, f *facts, it operator.TrackedItem) bool {
-	seen := map[string]bool{}
-	var visit func(x operator.TrackedItem) bool
-	visit = func(x operator.TrackedItem) bool {
-		if seen[x.ID] || operator.ItemDone(x) || observedMerged(f, x.ID) {
-			return false
-		}
-		seen[x.ID] = true
-		if scopeBool(x, scopeHalted) {
-			return true
-		}
-		for _, d := range x.DependsOn {
-			if i := operator.IndexOf(st.Tracked, d); i >= 0 && visit(st.Tracked[i]) {
-				return true
-			}
-		}
-		return false
-	}
-	return visit(it)
-}
-
-func observedMerged(f *facts, id string) bool {
-	if f == nil {
-		return false
-	}
-	pf := f.pr[id]
-	return pf != nil && pf.read && strings.EqualFold(pf.view.State, "MERGED")
-}
-
-// blockedByDeps reports whether a PR item still waits on another item (the
-// previous PR of its repo, or a cross-repo barrier). Only a recorded merge
-// unblocks it, so a successor acts one pass after its predecessor's P1. A
-// dependency that names no ledger item blocks too: its predecessor never
-// merged, so the successor must not act.
-func blockedByDeps(st *operator.State, it operator.TrackedItem) bool {
-	for _, d := range it.DependsOn {
-		if i := operator.IndexOf(st.Tracked, d); i < 0 || !operator.ItemDone(st.Tracked[i]) {
-			return true
-		}
-	}
-	return false
-}
-
-// inSeqPredecessor returns the dependency PR of the same merge sequence;
-// cross-repo barriers are not restack predecessors.
-func inSeqPredecessor(st *operator.State, it operator.TrackedItem) (operator.TrackedItem, bool) {
-	for _, id := range it.DependsOn {
-		i := operator.IndexOf(st.Tracked, id)
-		if i >= 0 && isPRItem(st.Tracked[i]) && seqOf(st.Tracked[i]) == seqOf(it) {
-			return st.Tracked[i], true
-		}
-	}
-	return operator.TrackedItem{}, false
-}
-
-// prPrecheck derives the statuses that need no check facts: merged › paused ›
-// halted › closed › deferred › blocked › (unread or unsettled stale-base facts
-// →) waiting › stale-base › draft › fixing. ok is false when the item reaches
-// the check-based statuses, which tells observe to read them.
-func prPrecheck(st *operator.State, f *facts, it operator.TrackedItem) (status PRStatus, ok bool) {
-	pf := f.pr[it.ID]
-	state := ""
-	if pf != nil && pf.read {
-		state = strings.ToUpper(pf.view.State)
-	}
-	switch {
-	case state == "MERGED" || operator.ItemDone(it):
-		return PRMerged, true
-	case it.Paused:
-		return PRPaused, true
-	case haltedCone(st, f, it):
-		return PRHalted, true
-	case state == "CLOSED":
-		return PRClosed, true
-	case scopeBool(it, scopeDeferred):
-		return PRDeferred, true
-	case blockedByDeps(st, it):
-		return PRBlocked, true
-	case pf == nil || !pf.read:
-		return PRWaiting, true
-	case pf.stacked && !pf.staleRead:
-		return PRWaiting, true
-	case pf.stacked && (pf.base != pf.defaultBranch || (pf.hasPred && !pf.ancestor)):
-		return PRStaleBase, true
-	case pf.view.IsDraft:
-		return PRDraft, true
-	case roundSpent(it, recoveryCIFix) && pf.view.HeadRefOid != "" && pf.view.HeadRefOid == operator.ScopeString(it.Scope, scopeFixHead):
-		return PRFixing, true
-	}
-	return "", false
-}
-
-// derivePR is the PR status table: merged › paused › halted › closed › deferred
-// › blocked › stale-base › draft › fixing › failed › conflicting › green › waiting.
-func derivePR(st *operator.State, f *facts, it operator.TrackedItem) PRStatus {
-	if s, ok := prPrecheck(st, f, it); ok {
-		return s
-	}
-	pf := f.pr[it.ID]
-	if !pf.checksRead {
-		return PRWaiting
-	}
-	switch {
-	case firstFailed(pf.checks) != nil:
-		return PRFailed
-	case strings.EqualFold(pf.view.Mergeable, "CONFLICTING") && it.Unchanged >= stallUnchanged:
-		return PRConflicting
-	case !checksPending(pf.checks) && strings.EqualFold(pf.view.Mergeable, "MERGEABLE"):
-		return PRGreen
-	}
-	return PRWaiting
-}
-
-// deriveFix resolves recovery agents from their parent PR, never queue membership.
-func deriveFix(st *operator.State, f *facts, it operator.TrackedItem) FixStatus {
-	parent, ok := fixParent(st, it.ID)
-	if !ok {
-		return FixResolved
-	}
-	parentStatus := derivePR(st, f, *parent)
-	if parentStatus == PRMerged || parentStatus == PRHalted {
-		return FixResolved
-	}
-	if parentStatus == PRGreen {
-		pf := f.pr[parent.ID]
-		if pf != nil && pf.read && pf.view.HeadRefOid != operator.ScopeString(parent.Scope, scopeFixHead) {
-			return FixResolved
-		}
-	}
-	pane := operator.ScopeString(it.Scope, "pane")
-	if spawningSet(it) && !f.paneAlive(pane) {
-		return FixSpawnUnknown
-	}
-	return FixWorking
-}
-
-// authoringPane finds the lowest matching live pane and whether its agent is idle.
-// known is false only when the whole snapshot is unavailable.
-func authoringPane(st *operator.State, f *facts, it operator.TrackedItem) (pane string, idle, known bool) {
-	if !f.panesKnown {
-		return "", false, false
-	}
-	change := operator.ScopeString(it.Scope, "change")
-	if change == "" {
-		if i := operator.IndexOf(st.Tracked, operator.ScopeString(it.Scope, scopeItem)); i >= 0 {
-			pane = operator.ScopeString(st.Tracked[i].Scope, "pane")
-			info, alive := f.panes[pane]
-			if alive {
-				return pane, paneIdle(info), true
-			}
-		}
-		return "", false, true
-	}
-	for id, info := range f.panes {
-		if info.Change != "" && changeMatches(info.Change, change) && (pane == "" || id < pane) {
-			pane = id
-		}
-	}
-	if pane == "" {
-		return "", false, true
-	}
-	return pane, paneIdle(f.panes[pane]), true
-}
-
-func paneIdle(info operator.PaneInfo) bool {
-	return info.AgentState != tmux.AgentStateActive && info.AgentState != tmux.AgentStateWaiting
-}
-
-// changeMatches compares a derived change folder with a full folder or its id segment.
-func changeMatches(derived, change string) bool {
-	return derived == change || strings.Contains("-"+derived+"-", "-"+change+"-")
 }

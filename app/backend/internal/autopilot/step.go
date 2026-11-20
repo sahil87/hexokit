@@ -37,19 +37,17 @@ func (e *engine) pass(ctx context.Context) (*StepResult, error) {
 	if err != nil {
 		return e.res, err
 	}
-	ds := decide(st, f, e.env.now())
+	ds := decide(st, f)
 	if e.env.DryRun {
 		e.renderDecisions(ds)
 		return e.res, nil
 	}
-	return e.res, e.execute(ctx, f, ds)
+	return e.res, e.execute(ctx, ds)
 }
 
-// Stop is the global user stop: it halts the unfinished merge sequences so a
-// later step does not re-arm them, pauses every unspawned queue item, and runs
-// one pass, in which row P3 disarms every armed PR in the halted cone. Live
-// panes are left untouched. A disarm that fails is retried by the next stop or
-// step. It runs under the pass lock.
+// Stop is the global user stop: it pauses every unspawned, unfinished queue
+// item so a later step does not spawn it, and runs one pass. Live panes are left
+// untouched. It runs under the pass lock.
 func Stop(ctx context.Context, env Env) (*StepResult, error) {
 	return passLocked(env, func() (*StepResult, error) { return stop(ctx, env) })
 }
@@ -58,7 +56,6 @@ func stop(ctx context.Context, env Env) (*StepResult, error) {
 	e := newEngine(env)
 	var paused []string
 	if err := e.mutateEngine(func(st *engineState) error {
-		unfinished := false
 		for i := range st.Queue {
 			it := &st.Queue[i]
 			if it.Pane == "" && it.DoneAt == nil && !it.Paused {
@@ -67,14 +64,7 @@ func stop(ctx context.Context, env Env) (*StepResult, error) {
 				paused = append(paused, it.ID)
 			}
 		}
-		for i := range st.PRs {
-			it := &st.PRs[i]
-			if it.DoneAt == nil {
-				it.Halted = true
-				unfinished = true
-			}
-		}
-		if len(paused) == 0 && !unfinished {
+		if len(paused) == 0 {
 			return operator.ErrNoWrite
 		}
 		return nil
@@ -86,7 +76,7 @@ func stop(ctx context.Context, env Env) (*StepResult, error) {
 		e.act(ActPaused, id, "")
 	}
 	_, err := e.pass(ctx)
-	return e.res, errors.Join(err, e.disarmErr, e.coneErr)
+	return e.res, err
 }
 
 // StatusItem is one queue item in the status view.
@@ -96,17 +86,9 @@ type StatusItem struct {
 	Mode      string      `json:"mode"`
 	Repo      string      `json:"repo"`
 	Branch    string      `json:"branch"`
-	PR        string      `json:"pr"`
 	DependsOn []string    `json:"depends_on"`
-	// Sequence is the item's merge-sequence position ("2/3"), "" before one
-	// exists.
-	Sequence string `json:"sequence"`
 	// Queue is the id stamped by `autopilot queue` ("" for a legacy item).
 	Queue string `json:"queue"`
-	// PRStatus is the derived status of the item's PR item ("" before one
-	// exists).
-	PRStatus string `json:"pr_status"`
-	Halted   bool   `json:"halted"`
 	// Task, Change and StopStage are the item's entry, so a judgment run can
 	// compare an intake with what was asked; each is omitted when unset.
 	Task      string `json:"task,omitempty"`
@@ -114,21 +96,12 @@ type StatusItem struct {
 	StopStage string `json:"stop_stage,omitempty"`
 }
 
-// FixStatusItem is one recovery-spawn agent in the status view.
-type FixStatusItem struct {
-	ID     string    `json:"id"`
-	State  FixStatus `json:"state"`
-	Repo   string    `json:"repo"`
-	Branch string    `json:"branch"`
-}
-
-// StatusResult is the read-only queue and recovery view. Summary is the Queue
-// Completion Summary, present when every queue item is done.
+// StatusResult is the read-only queue view. Summary is the Queue Completion
+// Summary, present when every queue item is done.
 type StatusResult struct {
-	Items    []StatusItem    `json:"items"`
-	Fixes    []FixStatusItem `json:"fixes"`
-	Complete bool            `json:"complete"`
-	Summary  string          `json:"summary"`
+	Items    []StatusItem `json:"items"`
+	Complete bool         `json:"complete"`
+	Summary  string       `json:"summary"`
 	// Structured human-rendering inputs share the full JSON summary source.
 	SummaryItems []string `json:"-"`
 	MergeOrder   []string `json:"-"`
@@ -145,16 +118,9 @@ func Status(ctx context.Context, env Env) (StatusResult, error) {
 	e.readOnly = true
 	st, f, err := e.observe(ctx)
 	if err != nil {
-		return StatusResult{Items: []StatusItem{}, Fixes: []FixStatusItem{}}, err
+		return StatusResult{Items: []StatusItem{}}, err
 	}
-	res := StatusResult{Items: []StatusItem{}, Fixes: []FixStatusItem{}}
-	for _, it := range st.Tracked {
-		if it.Kind == "fix" {
-			res.Fixes = append(res.Fixes, FixStatusItem{
-				ID: it.ID, State: deriveFix(st, f, it), Repo: operator.ScopeString(it.Scope, "repo"), Branch: operator.ScopeString(it.Scope, "branch"),
-			})
-		}
-	}
+	res := StatusResult{Items: []StatusItem{}}
 	var queue []operator.TrackedItem
 	for _, it := range st.Tracked {
 		if legacyQueueItem(st, it) {
@@ -173,20 +139,6 @@ func Status(ctx context.Context, env Env) (StatusResult, error) {
 			Queue: operator.ScopeString(it.Scope, scopeQueue),
 			Task:  operator.ScopeString(it.Scope, scopeTask), Change: operator.ScopeString(it.Scope, "change"),
 			StopStage: operator.ScopeString(it.Scope, "stop_stage"),
-		}
-		for _, p := range st.Tracked {
-			if !isPRItem(p) || operator.ScopeString(p.Scope, scopeItem) != it.ID {
-				continue
-			}
-			row.PR = prNum(p.Scope)
-			ps := derivePR(st, f, p)
-			row.PRStatus, row.Halted = string(ps), ps == PRHalted
-			seq := seqItems(st, seqOf(p))
-			for i, s := range seq {
-				if s.ID == p.ID {
-					row.Sequence = fmt.Sprintf("%d/%d", i+1, len(seq))
-				}
-			}
 		}
 		res.Items = append(res.Items, row)
 	}
@@ -217,7 +169,7 @@ func (e *engine) completionSummary(ctx context.Context, st *operator.State, queu
 		repo := cleanRepo(operator.ScopeString(it.Scope, "repo"))
 		url := "(no PR found)"
 		if br := itemBranch(st, it); br != "" {
-			if v, err := e.viewPR(ctx, repo, "", br, "url"); err != nil {
+			if v, err := e.viewPR(ctx, repo, br, "url"); err != nil {
 				e.escalate(it.ID, "completion summary PR lookup failed: "+stderrOf(err))
 			} else if v.URL != "" {
 				url = v.URL

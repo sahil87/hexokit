@@ -3,28 +3,15 @@ package autopilot
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
 	"rk/internal/operator"
 )
 
-// prViewFields is the one `gh pr view` field list: the status inputs plus
-// autoMergeRequest, which is how armed is derived.
-const prViewFields = "number,url,state,isDraft,mergedAt,mergeable,headRefOid,autoMergeRequest,baseRefName"
-
-// stallUnchanged is the number of polls with no change after which a PR with
-// no failed check and a CONFLICTING mergeable state is read as stuck.
-const stallUnchanged = 3
-
 // observe is the first stage of a pass. It loads the ledger, takes one pane
 // snapshot and reads external facts only for items that can act: queue items'
-// completion and dependency PRs, each merge sequence's head, and every
-// not-done PR item of a halted cone (so an armed one can be disarmed). One
-// fact read per item per pass. The returned ledger is the decision snapshot:
-// it is reloaded after the head observations are written, because the stall
-// clock (`unchanged`) lives in that write.
+// completion and dependency PRs. One fact read per item per pass.
 func (e *engine) observe(ctx context.Context) (*operator.State, *facts, error) {
 	st, err := e.load()
 	if err != nil {
@@ -50,11 +37,6 @@ func (e *engine) observe(ctx context.Context) (*operator.State, *facts, error) {
 	}
 	e.observeCompletion(ctx, st, f)
 	e.observeReadiness(ctx, st, f)
-	if e.observePRs(ctx, st, f) {
-		if st, err = e.load(); err != nil {
-			return nil, nil, err
-		}
-	}
 	return st, f, nil
 }
 
@@ -86,8 +68,9 @@ func (e *engine) observeCompletion(ctx context.Context, st *operator.State, f *f
 	}
 }
 
-// observeReadiness looks up the PR of each same-repo dependency that the
-// readiness gate needs, for every unfinished, unpaused queue item.
+// observeReadiness looks up the PR of each dependency that the readiness gate
+// needs (a same-repo dependency's existence, a merge-auto barrier's merge), for
+// every unfinished, unpaused queue item.
 func (e *engine) observeReadiness(ctx context.Context, st *operator.State, f *facts) {
 	for _, it := range st.Tracked {
 		if !legacyQueueItem(st, it) || len(it.DependsOn) == 0 || itemDone(st, f, it) || it.Paused || skipped(it) {
@@ -95,245 +78,29 @@ func (e *engine) observeReadiness(ctx context.Context, st *operator.State, f *fa
 		}
 		q := f.queueFor(it.ID)
 		repo := cleanRepo(operator.ScopeString(it.Scope, "repo"))
-		unmetDep(st, f, it, func(d operator.TrackedItem, branch string) bool {
-			ok := e.depPRExists(ctx, it, d, repo, branch)
-			q.depPR[d.ID] = ok
-			return ok
-		})
+		unmetDep(st, f, it,
+			func(d operator.TrackedItem, branch string) bool {
+				ok := e.depPRExists(ctx, it, d, repo, branch)
+				q.depPR[d.ID] = ok
+				return ok
+			},
+			func(d operator.TrackedItem, branch string) bool {
+				ok := e.depMerged(ctx, it, d, cleanRepo(depRepo(st, d)), branch)
+				q.depMerged[d.ID] = ok
+				return ok
+			})
 	}
-}
-
-func isSeqPR(it operator.TrackedItem) bool { return isPRItem(it) && seqOf(it) != "" }
-
-// observePRs reads the PR facts of every merge sequence's head and of every
-// not-done PR item in a halted cone, and reports whether any head observation
-// was written to the ledger.
-func (e *engine) observePRs(ctx context.Context, st *operator.State, f *facts) (wrote bool) {
-	heads := map[string]string{}
-	for _, it := range st.Tracked {
-		if isSeqPR(it) && !operator.ItemDone(it) {
-			if _, ok := heads[seqOf(it)]; !ok {
-				heads[seqOf(it)] = it.ID
-			}
-		}
-	}
-	for _, it := range st.Tracked {
-		if !isSeqPR(it) || operator.ItemDone(it) {
-			continue
-		}
-		cone := haltedCone(st, nil, it)
-		head := heads[seqOf(it)] == it.ID
-		if !cone && !(head && !scopeBool(it, scopeDeferred) && !blockedByDeps(st, it)) {
-			continue
-		}
-		if e.observePR(ctx, st, f, it, head && !cone, cone) {
-			wrote = true
-		}
-	}
-	return wrote
-}
-
-// observePR reads one PR item's facts. A stacked head also reads its default
-// base and predecessor merge ancestry before checks. A head outside a halted
-// cone has its polled state stored (the `unchanged` clock the conflicting
-// status needs). It reports whether it wrote that observation. A halted item
-// whose armed state cannot be read is kept in coneErr: stop reports that it
-// cannot promise the disarm.
-func (e *engine) observePR(ctx context.Context, st *operator.State, f *facts, it operator.TrackedItem, poll, cone bool) (wrote bool) {
-	unreadable := func() {
-		if cone {
-			e.coneErr = errors.Join(e.coneErr, fmt.Errorf("%s: cannot tell whether the halted PR is armed", it.ID))
-		}
-	}
-	n := prNum(it.Scope)
-	if n == "" {
-		e.escalate(it.ID, "scope.pr is not a PR number")
-		unreadable()
-		return false
-	}
-	nwo, ok := e.pin(it)
-	if !ok {
-		unreadable()
-		return false
-	}
-	repo := cleanRepo(operator.ScopeString(it.Scope, "repo"))
-	pf := &prFacts{stacked: modeOf(it) == operator.MergeModeStackedPRs}
-	f.pr[it.ID] = pf
-	v, err := e.viewPR(ctx, repo, nwo, n, prViewFields)
-	if err != nil {
-		e.escalate(it.ID, "gh pr view failed: "+stderrOf(err))
-		unreadable()
-		return false
-	}
-	pf.view, pf.read = v, true
-	if strings.EqualFold(v.State, "MERGED") {
-		return false
-	}
-	if poll {
-		if err := e.observePRWrite(it, v); err != nil {
-			pf.read = false
-			return false
-		}
-		wrote = !e.env.DryRun
-	}
-	if status, settled := prPrecheck(st, f, it); settled && (status != PRWaiting || !pf.stacked) {
-		return wrote
-	}
-	if pf.stacked {
-		e.observeStaleBase(ctx, st, f, it, repo, nwo)
-		if _, settled := prPrecheck(st, f, it); settled {
-			return wrote
-		}
-	}
-	runs, err := e.requiredChecks(ctx, repo, nwo, n)
-	if err != nil {
-		e.escalate(it.ID, "gh pr checks failed: "+stderrOf(err))
-		return wrote
-	}
-	pf.checks, pf.checksRead = runs, true
-	if derivePR(st, f, it) == PRWaiting && !pf.armed() && !pf.stacked {
-		e.observeAutoMerge(ctx, f, it, repo, nwo)
-	}
-	return wrote
-}
-
-// observeStaleBase reads every fact needed to prove a stacked PR is on the
-// default base and contains its predecessor's squash merge. Any missing fact
-// leaves staleRead false, which derives waiting and never green.
-func (e *engine) observeStaleBase(ctx context.Context, st *operator.State, f *facts, it operator.TrackedItem, repo, nwo string) {
-	pf := f.pr[it.ID]
-	pf.base = pf.view.BaseRefName
-	pf.defaultBranch = e.defaultBranch(ctx, repo, it.ID)
-	if pf.base == "" {
-		e.escalate(it.ID, "stacked PR baseRefName is empty")
-	}
-	if !e.metaFor(repo).defaultBranchKnown {
-		e.escalate(it.ID, "stacked PR default branch is unproven")
-	}
-	if pf.base == "" || !e.metaFor(repo).defaultBranchKnown {
-		return
-	}
-	pred, hasPred := inSeqPredecessor(st, it)
-	pf.hasPred = hasPred
-	if !hasPred {
-		pf.staleRead = true
-		return
-	}
-	predN := prNum(pred.Scope)
-	if predN == "" {
-		e.escalate(it.ID, "predecessor merge commit lookup failed: scope.pr is not a PR number")
-		return
-	}
-	v, err := e.viewPR(ctx, repo, nwo, predN, "mergeCommit")
-	if err != nil || v.MergeCommit.OID == "" {
-		if err == nil {
-			err = fmt.Errorf("empty merge commit")
-		}
-		e.escalate(it.ID, "predecessor merge commit lookup failed: "+stderrOf(err))
-		return
-	}
-	pf.predMerge = v.MergeCommit.OID
-	if pf.base != pf.defaultBranch {
-		pf.staleRead = true
-		return
-	}
-	if pf.view.HeadRefOid == "" {
-		e.escalate(it.ID, "ancestry lookup failed: empty head commit")
-		return
-	}
-	out, err := e.gh(ctx, repo, "api", "repos/"+nwo+"/compare/"+pf.predMerge+"..."+pf.view.HeadRefOid, "--jq", ".status")
-	status := strings.TrimSpace(out)
-	if err == nil {
-		switch status {
-		case "ahead", "identical":
-			pf.ancestor, pf.staleRead = true, true
-		case "behind", "diverged":
-			pf.staleRead = true
-		default:
-			err = fmt.Errorf("unreadable compare status %q", status)
-		}
-	}
-	if err != nil {
-		e.escalate(it.ID, "ancestry lookup failed: "+stderrOf(err))
-	}
-}
-
-// observePRWrite stores the polled PR facts on the github-pr item, so
-// `unchanged` counts polls with no change. Under --dry-run nothing is written.
-func (e *engine) observePRWrite(it operator.TrackedItem, v prView) error {
-	if e.env.DryRun {
-		return nil
-	}
-	var merged interface{}
-	if v.MergedAt != "" {
-		merged = v.MergedAt
-	}
-	want := identityOf(it)
-	engine, err := loadEngineFile(e.env.StatePath)
-	if err != nil {
-		return err
-	}
-	current, ok := engine.find(it.ID)
-	if !ok || identityOf(current.tracked()) != want {
-		err = errItemChanged
-		e.writeFailed(it.ID, true, "PR observation not written", err)
-		return err
-	}
-	if _, present, projectionErr := e.projection(it.ID); projectionErr != nil {
-		return projectionErr
-	} else if !present {
-		return nil
-	}
-	err = operator.Observe(e.env.StatePath, operator.ObserveSpec{
-		ID: it.ID, Fields: map[string]interface{}{"state": v.State, "mergedAt": merged, "mergeable": v.Mergeable},
-		Guard: func(cur operator.TrackedItem) error {
-			if identityOf(cur) != want {
-				return errItemChanged
-			}
-			return nil
-		},
-	})
-	if err != nil {
-		e.writeFailed(it.ID, true, "PR observation not written", err)
-	}
-	return err
-}
-
-// observeAutoMerge reads whether the repo allows auto-merge, once per repo per
-// pass. A repo that cannot be read stays absent from the facts, which derives
-// as "not allowed": the PR waits.
-func (e *engine) observeAutoMerge(ctx context.Context, f *facts, it operator.TrackedItem, repo, nwo string) {
-	if _, read := f.autoMerge[nwo]; read || e.autoMergeFailed[nwo] {
-		return
-	}
-	out, err := e.gh(ctx, repo, "repo", "view", nwo, "--json", "autoMergeAllowed")
-	var v struct {
-		AutoMergeAllowed *bool `json:"autoMergeAllowed"`
-	}
-	if err == nil {
-		if jerr := json.Unmarshal([]byte(out), &v); jerr != nil || v.AutoMergeAllowed == nil {
-			err = fmt.Errorf("unreadable gh repo view output")
-		}
-	}
-	if err != nil {
-		e.autoMergeFailed[nwo] = true
-		e.escalate(it.ID, "repo auto-merge lookup failed: "+stderrOf(err))
-		return
-	}
-	f.autoMerge[nwo] = *v.AutoMergeAllowed
 }
 
 type checkRun struct {
-	Name  string `json:"name"`
 	State string `json:"state"`
-	Link  string `json:"link"`
 }
 
 // requiredChecks lists the PR's required checks. `gh pr checks` signals failing
 // or pending checks through its exit status while still printing the JSON, and
 // prints no JSON at all when nothing is required.
-func (e *engine) requiredChecks(ctx context.Context, repo, nwo, n string) ([]checkRun, error) {
-	out, err := e.gh(ctx, repo, withRepo(nwo, "pr", "checks", n, "--required", "--json", "name,state,link")...)
+func (e *engine) requiredChecks(ctx context.Context, repo, n string) ([]checkRun, error) {
+	out, err := e.gh(ctx, repo, "pr", "checks", n, "--required", "--json", "state")
 	var runs []checkRun
 	if jerr := json.Unmarshal([]byte(out), &runs); jerr == nil {
 		return runs, nil
@@ -345,15 +112,6 @@ func (e *engine) requiredChecks(ctx context.Context, repo, nwo, n string) ([]che
 		return nil, fmt.Errorf("unreadable gh pr checks output")
 	}
 	return nil, err
-}
-
-func firstFailed(runs []checkRun) *checkRun {
-	for i := range runs {
-		if strings.EqualFold(runs[i].State, "FAILURE") {
-			return &runs[i]
-		}
-	}
-	return nil
 }
 
 func checksPending(runs []checkRun) bool {

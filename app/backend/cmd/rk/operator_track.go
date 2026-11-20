@@ -180,7 +180,7 @@ from every dependent's depends_on so the chain advances; a not-done removal
 keeps the edges. The branch_map is untouched.
 
 Removing a projection never changes autopilot engine intent; use rk operator
-autopilot rm for an unspawned queue item or a halted merge sequence.
+autopilot rm for an unspawned queue item.
 
 Flags:
   -L, --server    tmux server (default: the caller's own server from $TMUX)

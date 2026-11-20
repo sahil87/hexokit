@@ -75,7 +75,9 @@ func gateOf(t *testing.T, h *harness, id string) (bool, string) {
 		t.Fatal(err)
 	}
 	q := f.queueFor(id)
-	why := unmetDep(st, f, st.Tracked[operator.IndexOf(st.Tracked, id)], func(d operator.TrackedItem, branch string) bool { return branch != "" && q.depPR[d.ID] })
+	why := unmetDep(st, f, st.Tracked[operator.IndexOf(st.Tracked, id)],
+		func(d operator.TrackedItem, branch string) bool { return branch != "" && q.depPR[d.ID] },
+		func(d operator.TrackedItem, branch string) bool { return branch != "" && q.depMerged[d.ID] })
 	return why == "", why
 }
 
@@ -100,7 +102,7 @@ func TestGateDependencyNotDoneHolds(t *testing.T) {
 	foo := newRepo(t, "foo")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "a"}, Entry{ID: "b", Repo: foo.Dir, Task: "b"})
 	h.attachBranch("a", "a-branch")
-	pending(h.gh.add(7, "a-branch"))
+	h.gh.add(7, "a-branch").Checks = []checkRun{{State: "PENDING"}}
 	if ok, why := gateOf(t, h, "b"); ok || why != "a" {
 		t.Fatalf("ok=%v why=%q, want held by a", ok, why)
 	}
@@ -155,13 +157,130 @@ func TestGateDependencyOnlyInBranchMapPasses(t *testing.T) {
 	}
 }
 
-func TestMergeAutoDependencyWaitsForVerifiedMerge(t *testing.T) {
+// mergeAutoPair queues merge-auto a→b in one repo, with a done and its branch
+// recorded.
+func mergeAutoPair(t *testing.T) (*harness, *testRepo) {
+	t.Helper()
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
 	h.queue("merge-auto", Entry{ID: "a", Repo: foo.Dir, Task: "a"}, Entry{ID: "b", Repo: foo.Dir, Task: "b"})
 	h.setDone("a")
-	if ok, _ := gateOf(t, h, "b"); ok {
-		t.Fatal("merge-auto: the dependency shipped but its PR is not merged yet")
+	return h, foo
+}
+
+func spawnedNames(h *harness) []string {
+	var names []string
+	for _, r := range h.spawn.reqs {
+		names = append(names, r.WorktreeName)
+	}
+	return names
+}
+
+func TestMergeAutoSuccessorWaitsForThePredecessorsMergedPR(t *testing.T) {
+	h, _ := mergeAutoPair(t)
+	h.attachBranch("a", "a-branch")
+	pr := h.gh.add(1, "a-branch")
+
+	res := h.step()
+	if got := h.stateOf(h.item("b")); got != QueueHeld || len(spawnedNames(h)) != 0 || len(res.Escalations) != 0 {
+		t.Fatalf("dependency done with its PR open: b = %s, spawned %v, %+v", got, spawnedNames(h), res)
+	}
+	if h.run.called("gh pr view a-branch --json url,state") == 0 {
+		t.Fatal("the barrier did not read the dependency's PR state")
+	}
+	if ok, why := gateOf(t, h, "b"); ok || !strings.Contains(why, "PR not merged") {
+		t.Fatalf("gate ok=%v why=%q, want held on the unmerged PR", ok, why)
+	}
+
+	pr.State = "MERGED"
+	res = h.step()
+	if !hasAction(res, ActSpawned, "b") || strings.Join(spawnedNames(h), ",") != "b" {
+		t.Fatalf("dependency PR merged: %+v, spawned %v", res, spawnedNames(h))
+	}
+}
+
+func TestMergeAutoBarrierWithNoPRIsAPlainHeldState(t *testing.T) {
+	h, _ := mergeAutoPair(t)
+	h.attachBranch("a", "a-branch")
+	for i := 0; i < 2; i++ {
+		res := h.step()
+		if len(res.Escalations) != 0 || len(spawnedNames(h)) != 0 || h.stateOf(h.item("b")) != QueueHeld {
+			t.Fatalf("pass %d: no PR yet must hold quietly: %+v", i, res)
+		}
+	}
+}
+
+func TestMergeAutoBarrierReadFailureEscalatesOncePerReasonAndHolds(t *testing.T) {
+	h, _ := mergeAutoPair(t)
+	h.attachBranch("a", "a-branch")
+	h.run.fail("gh pr view a-branch", "API unavailable")
+	for i := 0; i < 2; i++ {
+		res := h.step()
+		assertEscalationNote(t, h, res, "b", "dependency a PR lookup failed: API unavailable")
+		if len(spawnedNames(h)) != 0 {
+			t.Fatal("a failed barrier read spawned the successor")
+		}
+	}
+}
+
+func TestMergeAutoBarrierWithoutABranchEscalatesAndHolds(t *testing.T) {
+	h, _ := mergeAutoPair(t)
+	for i := 0; i < 2; i++ {
+		res := h.step()
+		assertEscalationNote(t, h, res, "b", "dependency a has no branch recorded")
+		if len(spawnedNames(h)) != 0 {
+			t.Fatal("a barrier without a branch spawned the successor")
+		}
+	}
+}
+
+func TestMergeAutoBarrierIsSilentAndWritesNothingInStatus(t *testing.T) {
+	h, _ := mergeAutoPair(t)
+	h.attachBranch("a", "a-branch")
+	before, err := os.ReadFile(h.env.StatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := Status(context.Background(), h.env)
+	if err != nil || res.Items[1].State != QueueHeld {
+		t.Fatalf("a PR that does not exist yet is a held item, not a failure: %+v, %v", res.Items, err)
+	}
+	h.gh.add(1, "a-branch")
+	res, err = Status(context.Background(), h.env)
+	if err != nil || res.Items[1].State != QueueHeld {
+		t.Fatalf("an open PR holds the successor: %+v, %v", res.Items, err)
+	}
+	h.gh.prs[1].State = "MERGED"
+	res, err = Status(context.Background(), h.env)
+	if err != nil || res.Items[1].State != QueuePending {
+		t.Fatalf("a merged PR releases the successor: %+v, %v", res.Items, err)
+	}
+	h.run.fail("gh pr view a-branch", "API unavailable")
+	res, err = Status(context.Background(), h.env)
+	if err == nil || !strings.Contains(err.Error(), "API unavailable") || res.Items[1].State != QueueHeld {
+		t.Fatalf("a failed read is plain error text, and holds: %+v, %v", res.Items, err)
+	}
+	after, _ := os.ReadFile(h.env.StatePath)
+	if string(before) != string(after) || len(h.item("b").Notes) != 0 {
+		t.Fatal("status wrote the state or a note")
+	}
+}
+
+// The barrier is merge-auto's: a ladder or stacked dependent waits only for the
+// PR to exist, never for its merge.
+func TestOtherModesDoNotWaitForTheMerge(t *testing.T) {
+	for _, mode := range []string{operator.MergeModeCherryPickLadder, operator.MergeModeStackedPRs} {
+		t.Run(mode, func(t *testing.T) {
+			h := newHarness(t)
+			foo := newRepo(t, "foo")
+			h.queue(mode, Entry{ID: "a", Repo: foo.Dir, Task: "a"}, Entry{ID: "b", Repo: foo.Dir, Task: "b"})
+			h.setDone("a")
+			h.attachBranch("a", "a-branch")
+			h.gh.add(1, "a-branch")
+			if ok, why := gateOf(t, h, "b"); !ok {
+				t.Fatalf("an open dependency PR held a %s item: %q", mode, why)
+			}
+		})
 	}
 }
 
@@ -171,11 +290,11 @@ func TestObserveDonePlainAgent(t *testing.T) {
 		pr     func(*simPR)
 		isDone bool
 	}{
-		{"draft PR with green checks", func(p *simPR) { p.IsDraft = true; p.Checks = []checkRun{{Name: "ci", State: "SUCCESS"}} }, true},
+		{"open PR with green checks", func(p *simPR) { p.Checks = []checkRun{{State: "SUCCESS"}} }, true},
 		{"no required checks", func(p *simPR) {}, true},
-		{"failing checks", func(p *simPR) { p.Checks = []checkRun{{Name: "ci", State: "FAILURE"}} }, false},
-		{"pending checks", func(p *simPR) { p.Checks = []checkRun{{Name: "ci", State: "PENDING"}} }, false},
-		{"merged", func(p *simPR) { p.State = "MERGED"; p.Checks = []checkRun{{Name: "ci", State: "FAILURE"}} }, true},
+		{"failing checks", func(p *simPR) { p.Checks = []checkRun{{State: "FAILURE"}} }, false},
+		{"pending checks", func(p *simPR) { p.Checks = []checkRun{{State: "PENDING"}} }, false},
+		{"merged", func(p *simPR) { p.State = "MERGED"; p.Checks = []checkRun{{State: "FAILURE"}} }, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

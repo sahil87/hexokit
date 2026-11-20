@@ -33,74 +33,6 @@ func assertEscalationNote(t *testing.T, h *harness, res *StepResult, id, reason 
 	}
 }
 
-func TestMergeAutoDiscoveryFailureEscalatesAndRetries(t *testing.T) {
-	for _, failure := range []string{"branch absent", "gh unavailable"} {
-		t.Run(failure, func(t *testing.T) {
-			h := newHarness(t)
-			repo := newRepo(t, "repo")
-			h.queue("merge-auto", Entry{ID: "a", Repo: repo.Dir, Change: "aaaa"}, Entry{ID: "b", Repo: repo.Dir, Change: "bbbb"})
-			h.setDone("a")
-			reason := "no branch recorded"
-			if failure == "gh unavailable" {
-				h.attachBranch("a", "a-branch")
-				reason = "API unavailable"
-				h.run.fail("gh pr view a-branch", reason)
-			}
-			for i := 0; i < 2; i++ {
-				res := h.step()
-				assertEscalationNote(t, h, res, "a", reason)
-				if h.has("pr-1") || h.spawn.n != 0 || h.run.called("gh pr merge") != 0 {
-					t.Fatal("discovery failure advanced queue")
-				}
-			}
-			h.attachBranch("a", "a-branch")
-			pr := h.gh.add(1, "a-branch")
-			h.run.on("gh pr view a-branch", h.gh.handle)
-			pending(pr)
-			res := h.step()
-			if !h.has("pr-1") || !hasAction(res, ActPRTracked, "a") {
-				t.Fatalf("discovery did not recover: %+v", res)
-			}
-			if h.step(); !pr.Armed {
-				t.Fatal("the tracked PR was not armed on the next pass")
-			}
-		})
-	}
-}
-
-func TestAdvancePollingFailureEscalatesAndRetries(t *testing.T) {
-	h, pr, head := armFixture(t)
-	pending(pr)
-	e := newEngine(h.env)
-	if err := e.setScope(head.ID, map[string]interface{}{scopeDeferred: false}); err != nil {
-		t.Fatal(err)
-	}
-	h.run.fail("gh pr view 1", "API unavailable")
-	for i := 0; i < 2; i++ {
-		res := h.step()
-		assertEscalationNote(t, h, res, head.ID, "gh pr view failed: API unavailable")
-		if pr.Armed || operator.ItemDone(h.item(head.ID)) {
-			t.Fatal("failed poll advanced PR")
-		}
-	}
-	h.run.on("gh pr view 1", h.gh.handle)
-	if res := h.step(); !pr.Armed || !hasAction(res, ActArmed, head.ID) {
-		t.Fatalf("poll did not recover: %+v", res)
-	}
-}
-
-func TestCheckQueryFailuresEscalateWithoutActing(t *testing.T) {
-	h, pr, head := armableFixture(t)
-	h.run.fail("gh pr checks", "checks unavailable")
-	for i := 0; i < 2; i++ {
-		res := h.step()
-		assertEscalationNote(t, h, res, head.ID, "gh pr checks failed: checks unavailable")
-		if pr.State == "MERGED" || pr.Armed || len(res.Actions) > 0 {
-			t.Fatalf("failed query acted: %+v", res)
-		}
-	}
-}
-
 func TestCompletionAndDependencyQueryFailuresEscalate(t *testing.T) {
 	h := newHarness(t)
 	repo := newRepo(t, "repo")
@@ -125,22 +57,6 @@ func TestCompletionAndDependencyQueryFailuresEscalate(t *testing.T) {
 		t.Fatal("failed checks marked done")
 	}
 	assertEscalationNote(t, h, e.res, "a", "checks unavailable")
-}
-
-func TestReviewLookupFailureEscalatesAndKeepsTheVerifiedMerge(t *testing.T) {
-	h, pr, head := armFixture(t)
-	changePRItem(t, h, head.ID, "", func(it *operator.TrackedItem, _ string) { it.Scope[scopeDeferred] = false })
-	pr.State = "MERGED"
-	h.run.fail("gh pr view 1 --json reviews", "reviews unavailable")
-	e, d := h.decideFor(head.ID)
-	execOne(t, e, d)
-	if !operator.ItemDone(h.item(head.ID)) {
-		t.Fatal("verified merge lost")
-	}
-	assertEscalationNote(t, h, e.res, head.ID, "reviews unavailable")
-	if len(e.res.Unreviewed) != 0 {
-		t.Fatal("unknown review status treated as unreviewed")
-	}
 }
 
 func TestStatusLookupFailureIsVisibleAndReadOnly(t *testing.T) {
@@ -220,36 +136,4 @@ func TestCherryPickCleanupFailureEscalates(t *testing.T) {
 	// Other escalation reasons between retries must not duplicate the cleanup note.
 	res = h.step()
 	assertEscalationNote(t, h, res, "child", "git cherry-pick --abort failed")
-}
-
-func TestStartMergeDiscoveryFailureEscalates(t *testing.T) {
-	h := newHarness(t)
-	repo := newRepo(t, "repo")
-	h.queue("", Entry{ID: "a", Repo: repo.Dir, Change: "aaaa"})
-	h.shipped(1, "a")
-	h.run.fail("gh pr view", "discovery unavailable")
-	res, err := StartMerge(context.Background(), h.env, MergeOptions{})
-	if err == nil {
-		t.Fatal("discovery failure returned success")
-	}
-	assertEscalationNote(t, h, res, "a", "discovery unavailable")
-	if h.has("pr-1") {
-		t.Fatal("failed discovery registered a PR")
-	}
-}
-
-func TestRepoAutoMergeLookupFailureEscalatesAndTheWaitingPRIsNotArmed(t *testing.T) {
-	h, pr, head := armableFixture(t)
-	h.run.fail("gh repo view o/foo --json autoMergeAllowed", "rate limited")
-	for i := 0; i < 2; i++ {
-		res := h.step()
-		assertEscalationNote(t, h, res, head.ID, "repo auto-merge lookup failed: rate limited")
-		if pr.Armed || h.run.called("gh pr merge") != 0 {
-			t.Fatalf("armed a PR in a repo whose auto-merge setting is unknown: %+v", res)
-		}
-	}
-	h.run.on("gh repo view o/foo --json autoMergeAllowed", h.gh.handle)
-	if h.step(); !pr.Armed {
-		t.Fatal("the PR was not armed once the repo setting could be read")
-	}
 }

@@ -62,9 +62,8 @@ func TestBusyPassDoesNothing(t *testing.T) {
 	h.panes.panes = nil
 
 	verbs := map[string]func() (*StepResult, error){
-		"step":  func() (*StepResult, error) { return Step(context.Background(), h.env) },
-		"merge": func() (*StepResult, error) { return StartMerge(context.Background(), h.env, MergeOptions{}) },
-		"stop":  func() (*StepResult, error) { return Stop(context.Background(), h.env) },
+		"step": func() (*StepResult, error) { return Step(context.Background(), h.env) },
+		"stop": func() (*StepResult, error) { return Stop(context.Background(), h.env) },
 	}
 	for name, verb := range verbs {
 		res, err := verb()
