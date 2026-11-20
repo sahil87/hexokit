@@ -92,36 +92,40 @@ When the row's effective model is empty or equals the tool-default id, the effor
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `Read` populates `ToolDefaults` from reserved rows (first per tool, `doc.Tools` only) and leaves it nil on fallback; reserved rows stay out of `ModelSuggestions`
-- [ ] A-002 R2: The tool-default option is second, labelled `↳ <fab label>`, commits the fab-reported id, and is absent without an entry
-- [ ] A-003 R3: A token override shows the tool-default option, no `(not offered)` option and no stale note; inherited token text reads `tool default`
-- [ ] A-004 R4: The searchable list keeps the option visible under any filter and never lands Enter on it after typing
-- [ ] A-005 R5: Effort options for an empty/token model come from the entry's efforts first
-- [ ] A-006 R6: Tool change keeps a token override when the next tool has an entry and clears it otherwise
+- [x] A-001 R1: `Read` populates `ToolDefaults` from reserved rows (first per tool, `doc.Tools` only) and leaves it nil on fallback; reserved rows stay out of `ModelSuggestions`
+- [x] A-002 R2: The tool-default option is second, labelled `↳ <fab label>`, commits the fab-reported id, and is absent without an entry
+- [x] A-003 R3: A token override shows the tool-default option, no `(not offered)` option and no stale note; inherited token text reads `tool default`
+- [x] A-004 R4: The searchable list keeps the option visible under any filter and never lands Enter on it after typing
+- [x] A-005 R5: Effort options for an empty/token model come from the entry's efforts first
+- [x] A-006 R6: Tool change keeps a token override when the next tool has an entry and clears it otherwise
 
 ### Scenario Coverage
 
-- [ ] A-007 R1: Go tests cover reserved-row extraction, fallback nil and JSON omission
-- [ ] A-008 R2: Unit tests cover option order, label and the POSTed token; e2e covers pick → write → reload display
+- [x] A-007 R1: Go tests cover reserved-row extraction, fallback nil and JSON omission
+- [x] A-008 R2: Unit tests cover option order, label and the POSTed token; e2e covers pick → write → reload display
 
 ### Edge Cases & Error Handling
 
-- [ ] A-009 R3: With no `toolDefaults` entry, a `tool-default` override renders exactly as H4 does (plain stale value)
+- [x] A-009 R3: With no `toolDefaults` entry, a `tool-default` override renders exactly as H4 does (plain stale value)
 
 ### Code Quality
 
-- [ ] A-010 Pattern consistency: New code follows the surrounding naming, discriminated-union `ModelOption` shape and comment density
-- [ ] A-011 No unnecessary duplication: Row → `ModelSuggestion` conversion is shared, not copied
-- [ ] A-012 Type narrowing: frontend uses discriminated-union narrowing on option `kind`, no `as` casts
-- [ ] A-013 No magic strings: hexokit never hard-codes the `tool-default` token outside test fixtures/stubs
-- [ ] A-014 Tests: new behaviour covered by Go, unit and e2e tests; e2e test carries a Proves/Steps intent comment
-- [ ] A-015 Comments state constraints only — no narration or change IDs
+- [x] A-010 Pattern consistency: New code follows the surrounding naming, discriminated-union `ModelOption` shape and comment density
+- [x] A-011 No unnecessary duplication: Row → `ModelSuggestion` conversion is shared, not copied
+- [x] A-012 Type narrowing: frontend uses discriminated-union narrowing on option `kind`, no `as` casts
+- [x] A-013 No magic strings: hexokit never hard-codes the `tool-default` token outside test fixtures/stubs
+- [x] A-014 Tests: new behaviour covered by Go, unit and e2e tests; e2e test carries a Proves/Steps intent comment
+- [x] A-015 Comments state constraints only — no narration or change IDs
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- None — this change adds new functionality without making existing code redundant (the row → `ModelSuggestion` conversion was factored into `modelRow.suggestion()`, not duplicated)
 
 ## Assumptions
 

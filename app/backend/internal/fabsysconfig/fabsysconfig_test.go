@@ -826,21 +826,25 @@ func TestRead_discoversToolDefaults(t *testing.T) {
 }
 
 func TestRead_noToolDefaultsWithoutDiscovery(t *testing.T) {
-	f := newFake(t)
-	f.models = ""
-	doc, err := New(f.run).Read(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if doc.ToolDefaults != nil {
-		t.Errorf("toolDefaults = %+v, want nil on the fill-scan fallback", doc.ToolDefaults)
-	}
-	b, err := json.Marshal(doc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(b), "toolDefaults") {
-		t.Errorf("document JSON carries toolDefaults without discovery: %s", b)
+	for name, models := range map[string]string{"non-zero exit": "", "malformed json": "not json"} {
+		t.Run(name, func(t *testing.T) {
+			f := newFake(t)
+			f.models = models
+			doc, err := New(f.run).Read(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if doc.ToolDefaults != nil {
+				t.Errorf("toolDefaults = %+v, want nil on the fill-scan fallback", doc.ToolDefaults)
+			}
+			b, err := json.Marshal(doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(b), "toolDefaults") {
+				t.Errorf("document JSON carries toolDefaults without discovery: %s", b)
+			}
+		})
 	}
 }
 

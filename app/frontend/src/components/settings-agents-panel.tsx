@@ -477,10 +477,10 @@ const CLAUDE_TOOL = "claude";
 
 /** The model list in its fixed order — inherit, the tool's own default, the
  *  tool's suggestions, the saved override when the tool doesn't offer it, then
- *  free text. Renderers
- *  map over this, so the order and what each kind commits stay put when the
- *  control changes shape. A suggestion's `value` is its id, `name` its display
- *  name, and `label` the one-line text a native option shows. */
+ *  free text. Renderers map over this, so the order and what each kind commits
+ *  stay put when the control changes shape. A suggestion's `value` is its id,
+ *  `name` its display name, and `label` the one-line text a native option
+ *  shows. */
 type ModelOption =
   | { kind: "inherit"; value: typeof MODEL_INHERIT; label: string }
   | { kind: "toolDefault"; value: string; label: string }
