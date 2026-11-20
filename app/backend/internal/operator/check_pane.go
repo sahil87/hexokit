@@ -31,6 +31,7 @@ const (
 // reconciled agent state, and the fab tier derived from the pane's cwd.
 type paneRow struct {
 	PaneID       string
+	WindowID     string
 	Cwd          string
 	Command      string
 	PanePID      int
@@ -66,7 +67,7 @@ func defaultPaneSnapshot(ctx context.Context, server string) (map[string]paneRow
 			for _, p := range w.Panes {
 				fab := memo.Derive(p.Cwd)
 				rows[p.PaneID] = paneRow{
-					PaneID: p.PaneID, Cwd: p.Cwd, Command: p.Command,
+					PaneID: p.PaneID, WindowID: w.WindowID, Cwd: p.Cwd, Command: p.Command,
 					PanePID: p.PanePID, AgentPID: p.AgentPID,
 					AgentState: p.AgentState, AgentEpoch: p.AgentStateEpoch,
 					Change: fab.Change, Stage: fab.Stage, DisplayState: fab.DisplayState,
@@ -242,7 +243,7 @@ func joinPane(it *TrackedItem, row paneRow, st *State, obs observation, now time
 			v.events = append(v.events, d)
 		}
 	}
-	v.conds = append(v.conds, trackAgent(it, row, now)...)
+	v.conds = append(v.conds, trackAgent(it, row, obs.panes, now)...)
 	return v
 }
 
@@ -331,10 +332,17 @@ func completeBuiltIn(it *TrackedItem, row paneRow, nowStr string) {
 
 // trackStage diffs the resolved stage against scope.stage and consumes it.
 // review → apply is the rework reset, reported as review_fail. A missing
-// baseline diffs against nothing.
+// baseline is seeded from the observation without an event: neither pane
+// creation nor the engine's projections write a stage, so without the seed no
+// stage event could ever fire.
 func trackStage(it *TrackedItem, row paneRow, nowStr string) (CheckDelta, bool) {
 	baseline := scopeString(it.Scope, "stage")
-	if baseline == "" || row.Stage == baseline {
+	if baseline == "" {
+		it.Scope["stage"] = row.Stage
+		it.UpdatedAt = nowStr
+		return CheckDelta{}, false
+	}
+	if row.Stage == baseline {
 		return CheckDelta{}, false
 	}
 	kind := DeltaStageAdvance
@@ -349,14 +357,16 @@ func trackStage(it *TrackedItem, row paneRow, nowStr string) (CheckDelta, bool) 
 
 // trackAgent records the observed agent state in scope.agent (null when
 // unknown) and reports waiting or idle as a standing condition; active and
-// unknown only move the baseline. A waiting or idle state held for
+// unknown only move the baseline. Idle is a condition only once the work has
+// stopped (idleStopped); until then it too only moves the baseline, so the
+// first idle past the gate is the edge. A waiting or idle state held for
 // agentAgedAfter adds a second condition, agent_aged. For waiting it is keyed
 // by the 30-minute bucket, so an unanswered prompt is a change again every
 // half hour until it moves; for idle it fires once per stretch — the check
 // cannot tell finished work from stuck work, and a finished agent must not
 // cost a run every half hour. The keys drop out when the state changes, so
 // each new stretch starts over.
-func trackAgent(it *TrackedItem, row paneRow, now time.Time) []condDelta {
+func trackAgent(it *TrackedItem, row paneRow, panes map[string]paneRow, now time.Time) []condDelta {
 	prev := scopeString(it.Scope, "agent")
 	it.Scope["agent"] = nil
 	if row.AgentState != "" {
@@ -378,10 +388,18 @@ func trackAgent(it *TrackedItem, row paneRow, now time.Time) []condDelta {
 		duration = tmux.FormatAgentDuration(now.Unix() - row.AgentEpoch)
 	}
 	to := row.AgentState
-	conds := []condDelta{{key, CheckDelta{
-		Kind: DeltaAgentState, ID: it.ID, Pane: row.PaneID,
-		From: nullable(prev), To: &to, Duration: nullable(duration),
-	}}}
+	// A baseline already at the observed state was moved by a check that
+	// reported nothing; "idle → idle" would claim a transition that check saw.
+	if prev == to {
+		prev = ""
+	}
+	var conds []condDelta
+	if row.AgentState != tmux.AgentStateIdle || idleStopped(row, panes, held) {
+		conds = append(conds, condDelta{key, CheckDelta{
+			Kind: DeltaAgentState, ID: it.ID, Pane: row.PaneID,
+			From: nullable(prev), To: &to, Duration: nullable(duration),
+		}})
+	}
 	if held >= agentAgedAfter {
 		if row.AgentState == tmux.AgentStateWaiting {
 			agedKey = fmt.Sprintf("%s:%d", agedKey, int(held/agentAgedAfter))
@@ -391,6 +409,25 @@ func trackAgent(it *TrackedItem, row paneRow, now time.Time) []condDelta {
 		}})
 	}
 	return conds
+}
+
+// idleStopped reports whether an idle pane's work has stopped: the idle has
+// held idleFloor (an unknown epoch counts as held, so a missing epoch never
+// hides the idle for good) and no other pane in its window is active — a
+// /fab-fff parent idles between stages while its worker runs beside it.
+func idleStopped(row paneRow, panes map[string]paneRow, held time.Duration) bool {
+	if row.AgentEpoch > 0 && held < idleFloor {
+		return false
+	}
+	if row.WindowID == "" {
+		return true
+	}
+	for id, p := range panes {
+		if id != row.PaneID && p.WindowID == row.WindowID && p.AgentState == tmux.AgentStateActive {
+			return false
+		}
+	}
+	return true
 }
 
 // scopeInt reads an integer scope value (JSON decodes numbers as float64,

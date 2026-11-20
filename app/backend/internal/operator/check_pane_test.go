@@ -246,7 +246,7 @@ func TestCheck_CompletedPaneItemSurvivesThePaneDisappearing(t *testing.T) {
 	wantKinds(t, "after the pane left open", res.Open, "p:done")
 }
 
-func TestCheck_StageAdvanceReviewFailAndNoBaseline(t *testing.T) {
+func TestCheck_StageAdvanceReviewFailAndBaselineSeed(t *testing.T) {
 	e := newCheckEnv(t)
 	e.seed(
 		paneItem("adv", map[string]interface{}{"pane": "%1", "stage": "apply"}),
@@ -266,10 +266,96 @@ func TestCheck_StageAdvanceReviewFailAndNoBaseline(t *testing.T) {
 	if scopeOf(e, "adv", "stage") != "review" || scopeOf(e, "fail", "stage") != "apply" {
 		t.Error("stage baselines not consumed")
 	}
-	if scopeOf(e, "none", "stage") != nil {
-		t.Errorf("an item with no baseline stage must stay null: %v", scopeOf(e, "none", "stage"))
+	if scopeOf(e, "none", "stage") != "apply" {
+		t.Errorf("an item with no baseline stage must be seeded: %v", scopeOf(e, "none", "stage"))
 	}
 	wantKinds(t, "consumed", e.run().Changes)
+
+	// The seeded baseline diffs like any other from the next check on.
+	e.panes["%3"] = paneRow{PaneID: "%3", Command: "claude", PanePID: 3, Stage: "review", DisplayState: "active"}
+	res = e.run()
+	wantKinds(t, "seeded advance", res.Changes, "none:stage_advance")
+	if d := res.Changes[0]; *d.From != "apply" || *d.To != "review" {
+		t.Errorf("seeded stage_advance = %s → %s", *d.From, *d.To)
+	}
+	e.panes["%3"] = paneRow{PaneID: "%3", Command: "claude", PanePID: 3, Stage: "apply", DisplayState: "active"}
+	wantKinds(t, "seeded rework", e.run().Changes, "none:review_fail")
+}
+
+// Idle is a condition only once the work has stopped: held for idleFloor and
+// no other pane in its window active. Waiting is immediate, aged unchanged.
+func TestCheck_IdleNeedsTheFloorAndNoActiveSibling(t *testing.T) {
+	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	ago := func(d time.Duration) int64 { return now.Add(-d).Unix() }
+	tracked := func(state string, epoch int64) paneRow {
+		return paneRow{PaneID: "%1", WindowID: "@1", Command: "claude", PanePID: 5, AgentState: state, AgentEpoch: epoch}
+	}
+	sibling := func(id, window, state string) paneRow {
+		return paneRow{PaneID: id, WindowID: window, Command: "claude", PanePID: 6, AgentState: state}
+	}
+	cases := []struct {
+		name     string
+		rows     []paneRow
+		want     []string
+		duration string
+	}{
+		{"worker active", []paneRow{tracked("idle", ago(5*time.Minute)), sibling("%2", "@1", "active")}, nil, ""},
+		{"floor not reached", []paneRow{tracked("idle", ago(30*time.Second))}, nil, ""},
+		{"both pass", []paneRow{tracked("idle", ago(idleFloor)), sibling("%2", "@1", "idle"), sibling("%3", "@2", "active")}, []string{"p:agent_state"}, "3m"},
+		{"no epoch", []paneRow{tracked("idle", 0)}, []string{"p:agent_state"}, ""},
+		{"waiting unaffected", []paneRow{tracked("waiting", ago(30*time.Second)), sibling("%2", "@1", "active")}, []string{"p:agent_state"}, "30s"},
+		{"aged with worker active", []paneRow{tracked("idle", ago(31*time.Minute)), sibling("%2", "@1", "active")}, []string{"p:agent_aged"}, "31m"},
+		{"no window never groups", []paneRow{
+			{PaneID: "%1", Command: "claude", PanePID: 5, AgentState: "idle", AgentEpoch: ago(idleFloor)},
+			sibling("%2", "", "active"),
+		}, []string{"p:agent_state"}, "3m"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newCheckEnv(t)
+			e.now = now
+			e.seed(paneItem("p", map[string]interface{}{"pane": "%1", "agent": "active"}))
+			for _, r := range tc.rows {
+				e.panes[r.PaneID] = r
+			}
+			res := e.run()
+			wantKinds(t, "changes", res.Changes, tc.want...)
+			wantKinds(t, "open", res.Open)
+			if len(res.Changes) > 0 {
+				if d := res.Changes[0].Duration; (d == nil) != (tc.duration == "") || (d != nil && *d != tc.duration) {
+					t.Errorf("duration = %v, want %q", d, tc.duration)
+				}
+			}
+			if got := scopeOf(e, "p", "agent"); got != tc.rows[0].AgentState {
+				t.Errorf("scope.agent = %v, want %s", got, tc.rows[0].AgentState)
+			}
+		})
+	}
+}
+
+// A suppressed idle moves the baseline silently; the check at which it passes
+// the gate reports one edge, with no "from" since the baseline is already idle.
+func TestCheck_IdleResumesWithOneEdge(t *testing.T) {
+	e := newCheckEnv(t)
+	e.now = time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	e.seed(paneItem("p", map[string]interface{}{"pane": "%1", "agent": "active"}))
+	epoch := e.now.Add(-time.Minute).Unix()
+	e.panes["%1"] = paneRow{PaneID: "%1", WindowID: "@1", Command: "claude", PanePID: 5, AgentState: "idle", AgentEpoch: epoch}
+	e.panes["%2"] = paneRow{PaneID: "%2", WindowID: "@1", Command: "claude", PanePID: 6, AgentState: "active"}
+	wantKinds(t, "under floor, worker active", e.run().Changes)
+
+	e.advance(5 * time.Minute)
+	wantKinds(t, "past floor, worker active", e.run().Changes)
+
+	e.panes["%2"] = paneRow{PaneID: "%2", WindowID: "@1", Command: "claude", PanePID: 6, AgentState: "idle"}
+	res := e.run()
+	wantKinds(t, "worker stopped", res.Changes, "p:agent_state")
+	if d := res.Changes[0]; d.From != nil || d.Duration == nil || *d.Duration != "6m" {
+		t.Errorf("agent_state = from %v duration %v, want null and 6m", d.From, d.Duration)
+	}
+	again := e.run()
+	wantKinds(t, "still idle changes", again.Changes)
+	wantKinds(t, "still idle open", again.Open, "p:agent_state")
 }
 
 func TestCheck_AgentStateFiresOnlyIntoWaitingOrIdle(t *testing.T) {
@@ -328,11 +414,11 @@ func TestCheck_AgentAged(t *testing.T) {
 	row := func(state string, epoch int64) paneRow {
 		return paneRow{PaneID: "%1", Command: "claude", PanePID: 5, AgentState: state, AgentEpoch: epoch}
 	}
-	epoch := e.now.Unix() - 60
+	epoch := e.now.Add(-idleFloor).Unix()
 	e.panes["%1"] = row("idle", epoch)
 	wantKinds(t, "into idle", e.run().Changes, "p:agent_state")
 
-	e.now = e.now.Add(28 * time.Minute)
+	e.now = e.now.Add(26 * time.Minute)
 	wantKinds(t, "idle 29m", e.run().Changes)
 
 	e.now = e.now.Add(2 * time.Minute)
@@ -353,9 +439,9 @@ func TestCheck_AgentAged(t *testing.T) {
 	// A nudge makes it active; the next idle stretch ages again from zero.
 	e.panes["%1"] = row("active", 0)
 	wantKinds(t, "to active", e.run().Changes)
-	e.panes["%1"] = row("idle", e.now.Unix())
+	e.panes["%1"] = row("idle", e.now.Add(-idleFloor).Unix())
 	wantKinds(t, "idle again", e.run().Changes, "p:agent_state")
-	e.now = e.now.Add(30 * time.Minute)
+	e.now = e.now.Add(27 * time.Minute)
 	wantKinds(t, "idle again 30m", e.run().Changes, "p:agent_aged")
 
 	// Waiting ages every half hour it stays unanswered, so a run that could
