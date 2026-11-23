@@ -174,9 +174,6 @@ func enqueue(ctx context.Context, env Env, entries []Entry, opts QueueOptions, s
 		if env.DryRun {
 			return newResult(true), nil
 		}
-		if len(rec.Misfits) > 0 && opts.Mode == "" {
-			return nil, operatorInvalid("queue not written: %s; preview with --dry-run and confirm an explicit --mode", strings.Join(rec.Misfits, "; "))
-		}
 		if err := e.mutateEngine(func(fresh *engineState) error {
 			view, _, err := engineView(env.StatePath)
 			if err != nil {
@@ -253,9 +250,9 @@ func (e *engine) buildQueue(ctx context.Context, st *operator.State, entries []E
 	items := make([]operator.TrackedItem, 0, len(entries))
 	for i, en := range entries {
 		en.Repo = cleanRepo(en.Repo)
-		deps, explicit := e.depsFor(entries, i, mode)
+		deps, _ := e.depsFor(entries, i, mode)
 		if en.DependsOn != nil {
-			deps, explicit = append([]string{}, *en.DependsOn...), true
+			deps = append([]string{}, *en.DependsOn...)
 		}
 		for _, d := range deps {
 			if err := checkDep(st, byID, en, d); err != nil {
@@ -263,9 +260,6 @@ func (e *engine) buildQueue(ctx context.Context, st *operator.State, entries []E
 			}
 			if j, inQueue := pos[d]; inQueue && j >= i {
 				return nil, nil, operatorInvalid("entry %s depends on %s, which is not an earlier entry in the queue: a dependency must come before its dependent", en.ID, d)
-			}
-			if mode == operator.MergeModeMergeAuto && explicit && en.DependsOn != nil && sameRepoDep(st, byID, en, d) {
-				misfits = append(misfits, fmt.Sprintf("misfit: merge-auto with same-repo depends_on (%s → %s): each entry is based on the default branch independently, so the dependency's code never reaches it; ask whether stacked-prs or cherry-pick-ladder is meant", en.ID, d))
 			}
 		}
 		scope := map[string]interface{}{

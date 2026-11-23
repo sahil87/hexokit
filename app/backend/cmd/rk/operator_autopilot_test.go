@@ -132,12 +132,12 @@ func TestAutopilotQueueJSONEnvelope(t *testing.T) {
 	}
 }
 
-func TestAutopilotQueueMisfitIsPrinted(t *testing.T) {
+func TestAutopilotQueueMergeAutoSameRepoDependsOnIsNotAMisfit(t *testing.T) {
 	autopilotSandbox(t, "")
 	repo := t.TempDir()
 	in := fmt.Sprintf(`[{"id":"a","repo":%q,"task":"a"},{"id":"b","repo":%q,"task":"b","depends_on":["a"]}]`, repo, repo)
 	out, err := autopilotCLI(t, in, "queue", "--mode", "merge-auto")
-	if err != nil || !strings.Contains(out, "misfit: merge-auto with same-repo depends_on") {
+	if err != nil || strings.Contains(out, "misfit") {
 		t.Fatalf("out = %q err %v", out, err)
 	}
 }
@@ -347,24 +347,6 @@ func TestAutopilotStepRendererCapsEveryList(t *testing.T) {
 	}
 }
 
-func TestAutopilotQueueCapsMisfits(t *testing.T) {
-	autopilotSandbox(t, "")
-	repo := t.TempDir()
-	entries := make([]autopilot.Entry, autopilotListCap+3)
-	for i := range entries {
-		entries[i] = autopilot.Entry{ID: fmt.Sprintf("item-%03d", i), Repo: repo, Task: "work"}
-		if i > 0 {
-			deps := []string{entries[i-1].ID}
-			entries[i].DependsOn = &deps
-		}
-	}
-	raw, _ := json.Marshal(entries)
-	out, err := autopilotCLI(t, string(raw), "queue", "--mode", "merge-auto", "--dry-run")
-	if err != nil || strings.Count(out, "misfit:") != autopilotListCap || !strings.Contains(out, "misfits: 22 total; showing 20") {
-		t.Fatalf("output = %s; err = %v", out, err)
-	}
-}
-
 func TestAutopilotCompletionSummaryIsBounded(t *testing.T) {
 	path, _ := autopilotSandbox(t, "")
 	repos := make([]string, autopilotListCap+3)
@@ -385,20 +367,18 @@ func TestAutopilotCompletionSummaryIsBounded(t *testing.T) {
 	}
 }
 
-func TestAutopilotMisfitDryRunThenOneLiveCall(t *testing.T) {
+func TestAutopilotDryRunThenOneLiveCall(t *testing.T) {
 	path, _ := autopilotSandbox(t, "merge-auto")
 	repo := t.TempDir()
 	in := fmt.Sprintf(`[{"id":"a","repo":%q,"task":"a"},{"id":"b","repo":%q,"task":"b","depends_on":["a"]}]`, repo, repo)
-	_, err := autopilotCLI(t, in, "queue")
-	wantExit(t, err, 2, "queue not written")
 	out, err := autopilotCLI(t, in, "queue", "--dry-run")
-	if err != nil || !strings.Contains(out, "mode: merge-auto (setting)") || !strings.Contains(out, "misfit:") {
+	if err != nil || !strings.Contains(out, "mode: merge-auto (setting)") || strings.Contains(out, "misfit") {
 		t.Fatalf("preview = %s, err = %v", out, err)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("preview or rejected queue wrote state: %v", err)
+		t.Fatalf("preview wrote state: %v", err)
 	}
-	if _, err := autopilotCLI(t, in, "queue", "--mode", "stacked-prs"); err != nil {
+	if _, err := autopilotCLI(t, in, "queue"); err != nil {
 		t.Fatal(err)
 	}
 	engine := readCLIEngine(t, path)
@@ -406,8 +386,8 @@ func TestAutopilotMisfitDryRunThenOneLiveCall(t *testing.T) {
 		t.Fatalf("engine = %+v", engine)
 	}
 	for _, it := range engine.Queue {
-		if it.MergeMode != "stacked-prs" {
-			t.Fatal("unconfirmed mode persisted")
+		if it.MergeMode != "merge-auto" {
+			t.Fatal("setting mode not persisted")
 		}
 	}
 }
