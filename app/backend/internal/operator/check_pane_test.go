@@ -333,6 +333,34 @@ func TestCheck_IdleNeedsTheFloorAndNoActiveSibling(t *testing.T) {
 	}
 }
 
+// A manual trigger waives the idle floor — an idle of seconds is reported —
+// but not the active-sibling rule: a worker still running means the work has
+// not stopped, whoever asked.
+func TestCheck_ManualTriggerIgnoresTheIdleFloor(t *testing.T) {
+	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	epoch := now.Add(-20 * time.Second).Unix()
+	tracked := paneRow{PaneID: "%1", WindowID: "@1", Command: "claude", PanePID: 5, AgentState: "idle", AgentEpoch: epoch}
+	worker := paneRow{PaneID: "%2", WindowID: "@1", Command: "claude", PanePID: 6, AgentState: "active"}
+
+	e := newCheckEnv(t)
+	e.now = now
+	e.seed(paneItem("p", map[string]interface{}{"pane": "%1", "agent": "active"}))
+	e.panes["%1"] = tracked
+	wantKinds(t, "scheduled, under floor", e.run().Changes)
+	res := e.runWith(CheckOptions{IgnoreIdleFloor: true})
+	wantKinds(t, "manual, under floor", res.Changes, "p:agent_state")
+	if d := res.Changes[0].Duration; d == nil || *d != "20s" {
+		t.Errorf("duration = %v, want 20s", d)
+	}
+
+	e = newCheckEnv(t)
+	e.now = now
+	e.seed(paneItem("q", map[string]interface{}{"pane": "%1", "agent": "active"}))
+	e.panes["%1"] = tracked
+	e.panes["%2"] = worker
+	wantKinds(t, "manual, worker active", e.runWith(CheckOptions{IgnoreIdleFloor: true}).Changes)
+}
+
 // A suppressed idle moves the baseline silently; the check at which it passes
 // the gate reports one edge, with no "from" since the baseline is already idle.
 func TestCheck_IdleResumesWithOneEdge(t *testing.T) {

@@ -19,7 +19,7 @@ The operator loop runs on a clock ([cron](/run-kit/cron.md) § Operator Loop Ent
 | User / note | `rk operator wake`, `POST /api/operator/wake`, a chat note ([operator-state](/run-kit/operator-state.md)) | `trigger:<reason>` (default `manual`) |
 | Clock backstop | the loop's `LoopLadder` schedule | a scheduled fire |
 
-The clock picks up every change regardless of the other rows; a trigger only shortens the wait. No trigger is required for correctness.
+The clock picks up every change regardless of the other rows; a trigger only shortens the wait. No trigger is required for correctness. One trigger changes what the check reports: a `trigger:manual` fire reports an idle agent regardless of the idle floor (the active-sibling rule still holds), because Check now is the user asking to look now ([operator-state](/run-kit/operator-state.md) § Conditions).
 
 ## The One Door
 
