@@ -119,17 +119,22 @@ Entries arrive as a JSON array on stdin:
   ]
 
 An entry names an existing fab change (change), raw text (task), or neither (a
-bare agent, which nothing may depend on). Two optional fields shape it: plain
-(true) runs a task as a plain agent in a fab repo too — the task text plus
-"commit, push and open a draft PR", no /fab-new, finished when its PR merges or
-is green — and is refused with a change or a stop_stage; base names the branch
-the worktree starts from and the PR targets (default: the repo's default
-branch), and must exist on the repo's origin. base is refused on a stacked-prs
-entry that has a same-repo dependency, which bases on that dependency's branch.
-The mode resolves as --mode, then the
-operator.merge_mode setting, then cherry-pick-ladder, and is stamped on every
-item; the receipt prints it as "mode: <name> (flag|setting|default)". An invalid
-setting value is an error, never a silent fallback.
+bare agent, which nothing may depend on). Two optional fields shape it. base
+names the branch the worktree starts from and the PR targets (default: the
+repo's default branch); it applies to a change or a task entry and must exist on
+the repo's origin. plain (true) runs a task as a plain agent in a fab repo too:
+the task text plus "commit, push and open a draft PR", no /fab-new, finished
+when its PR merges or is green; it is refused with a change or a stop_stage.
+In stacked-prs, base is refused on an entry that has a same-repo dependency
+(it bases on that dependency's branch). In cherry-pick-ladder, an entry and its
+same-repo dependencies must share one base, else the entry is refused. In
+merge-auto, a barrier across different bases only orders the two; the dependent
+starts from its own base.
+
+The mode resolves as --mode, then the operator.merge_mode setting, then
+cherry-pick-ladder, and is stamped on every item; the receipt prints it as
+"mode: <name> (flag|setting|default)". An invalid setting value is an error,
+never a silent fallback.
 
 Every entry after the first depends on the nearest earlier entry in its repo,
 else on the previous entry (an ordering-only barrier across repos). An explicit
@@ -156,8 +161,9 @@ Exit codes:
   2  usage error (bad entries, id already tracked, invalid mode or setting,
                   bare dependency, forward or cyclic dependency, relative or
                   non-git repo, plain with a change or stop_stage, base that
-                  is invalid, not on origin, or set on a stacked-prs entry
-                  with a same-repo dependency)`,
+                  is invalid, not on origin, set on a stacked-prs entry
+                  with a same-repo dependency, or differing from a
+                  cherry-pick-ladder dependency's base)`,
 	Args:         usageArgs(cobra.NoArgs),
 	SilenceUsage: true,
 	RunE:         runAutopilotQueue,

@@ -108,6 +108,12 @@ func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.
 	stackedBranch := ""
 	switch mode {
 	case operator.MergeModeCherryPickLadder:
+		for _, d := range deps {
+			if db := operator.ScopeString(d.Scope, scopeBase); db != itemBase {
+				e.escalate(id, fmt.Sprintf("base %q differs from dependency %s's base %q: nothing was spawned", itemBase, d.ID, db))
+				return
+			}
+		}
 		var err error
 		ladder, err = e.ladderDeps(ctx, st, repo, deps)
 		if err != nil {

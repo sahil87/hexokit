@@ -47,7 +47,7 @@ A `plain` queue item with a task SHALL complete by the existing change-less rule
 ### Autopilot queue: `base` entries
 
 #### R5: `base` entry field and validation
-`autopilot.Entry` SHALL accept an optional string `base` (`json:"base,omitempty"`). `buildQueue` SHALL reject as a usage error, before any write and under `--dry-run` too: a `base` that fails `safeBranch`; a `base` that is not a branch on the entry repo's `origin` (probed with `git ls-remote --exit-code --heads origin refs/heads/<base>` through the engine's runner); a `base` on a `stacked-prs` entry that has a same-repo dependency (implicit chaining or explicit `depends_on`, in-queue or already tracked) — a misfit of two bases. A `base` on a `stacked-prs` entry with no same-repo dependency SHALL be accepted.
+`autopilot.Entry` SHALL accept an optional string `base` (`json:"base,omitempty"`). `buildQueue` SHALL reject as a usage error, before any write and under `--dry-run` too: a `base` that fails `safeBranch`; a `base` that is not a branch on the entry repo's `origin` (probed with `git ls-remote --exit-code --heads origin refs/heads/<base>` through the engine's runner); a `base` on a `stacked-prs` entry that has a same-repo dependency (implicit chaining or explicit `depends_on`, in-queue or already tracked) — a misfit of two bases. A `base` on a `stacked-prs` entry with no same-repo dependency SHALL be accepted. In `cherry-pick-ladder`, `buildQueue` SHALL also reject (usage error, before any write, dry-run included) an entry whose effective base (its `base`, or the default branch when unset) differs from the effective base of any of its same-repo dependencies (an in-queue entry's `base`, or an already-tracked item's scope `base`; implicit chaining or explicit `depends_on`) — the cherry-pick range `origin/<base>..<dep>` would otherwise carry the other base's whole history. The spawn SHALL apply the same check as defense in depth (escalate, no spawn). In `merge-auto` a same-repo barrier across different bases is accepted and is ordering-only: the dependent starts from its own base, which need not contain the dependency; the queue help and the chat skill SHALL say so.
 
 - **GIVEN** `{"id":"b1","repo":"/src/app","task":"x","base":"eng-v2"}` and `origin` has no `eng-v2`
 - **WHEN** `autopilot queue` runs
@@ -60,6 +60,11 @@ A `plain` queue item with a task SHALL complete by the existing change-less rule
 - **GIVEN** a `--mode stacked-prs` queue whose first entry sets `base: eng-v2` and `eng-v2` exists on origin
 - **WHEN** `autopilot queue` runs
 - **THEN** the queue is written
+
+- **GIVEN** a `--mode cherry-pick-ladder` queue `[a{base: eng-v2}, b]` (or `[a, b{base: eng-v2}]`) in one repo, `eng-v2` on origin
+- **WHEN** `autopilot queue` runs (live or `--dry-run`)
+- **THEN** it fails with a usage error naming `b` and both bases, and writes nothing
+- **AND** `[a{base: eng-v2}, b{base: eng-v2}]` is accepted
 
 #### R6: `base` at spawn
 When an item has `base`, the spawn SHALL use `origin/<base>` wherever it would use `origin/<default>`: after the existing `git fetch origin`, `git rev-parse origin/<base>` SHALL be the `BaseSHA` (fetch-first SHA pin unchanged — no `wt --fetch`, that is T9); the ladder cherry-pick range SHALL be `origin/<base>..<dep>`; an existing-`change` fab item SHALL run `fab status set-base-branch <change> <base>` in the new worktree (as the stacked path does); a raw-task fab item's `/fab-new` prompt SHALL carry the trailing `set-base-branch <new-change> <base>` instruction (same text and skill-prefix rendering as the stacked path); a plain/no-fab prompt SHALL name `<base>` as the PR base. `respawn` SHALL build its prompt with the same base precedence. A spawn that finds both a stacked dependency base and an item `base` SHALL escalate and not spawn (defense in depth behind R5). Without `base`, every spawn path SHALL behave exactly as today.
@@ -155,6 +160,14 @@ When an item has `base`, the spawn SHALL use `origin/<base>` wherever it would u
 - [x] T012 Update the `queue` `Long` help in `app/backend/cmd/rk/operator_autopilot.go` per R11 (plain/base entry docs + example, `base`+`stacked-prs` misfit, remove the stale merge-auto misfit sentence); update any help golden/`help-dump` fixture that captures it <!-- R11 -->
 - [x] T013 Run `just test-backend` and fix failures caused by this change (known host-only failures `TestPortPinRowRealPolicyValues`, `TestTerminals_IsoSharedSessionSurvivesFirstClientDeath` are pre-existing and not blockers) <!-- R1 -->
 
+### Phase 5: Rework (cycle 1)
+
+- [x] T014 In `buildQueue` (`app/backend/internal/autopilot/queue.go`) refuse a `cherry-pick-ladder` entry whose effective base differs from a same-repo dependency's effective base (in-queue `Entry.Base` or tracked scope `base`; "" = default), reusing `sameRepoDep`/the existing stacked-misfit helper shape; add the same check at spawn in `spawnItem` (`spawn.go`) as defense in depth — escalate, no spawn <!-- R5 -->
+- [x] T015 [P] `queue_test.go`: ladder rejects `[a{base}, b]` and `[a, b{base}]` (live and `--dry-run`), rejects a tracked dependency on a different base, accepts `[a{base}, b{base}]` and merge-auto `[a{base}, b]`; `spawn_test.go`: ladder spawn with a dependency on a different base escalates without spawning <!-- R5 -->
+- [x] T016 [P] Document per-entry `base` in `app/backend/cmd/rk/operator_autopilot.go` `queue` help (ladder: same base as same-repo deps or refused; merge-auto: a barrier across bases is ordering-only) and re-wrap the entry paragraph so no short dangling line remains; mirror both rules in `docs/site/skill/operator.md` and reword "Two optional fields shape a `task` entry" so `base` applies to any entry (`change` or `task`) and `plain` to task entries only; run `scripts/sync-skill.sh` <!-- R10, R11 -->
+- [x] T017 [P] Add a `cmd/rk` test asserting the human `autopilot status` row renders ` · plain` and ` · base <b>` (and omits them when unset) — `app/backend/cmd/rk/operator_autopilot_test.go` <!-- R8 -->
+- [x] T018 Re-run `cd app/backend && go vet ./internal/autopilot/ ./internal/operator/ ./cmd/rk/ && go test ./internal/autopilot/ ./internal/operator/ ./cmd/rk/` (known host-only `TestPortPinRowRealPolicyValues` excepted) <!-- R5 -->
+
 ## Execution Order
 
 - T001–T002 before T003–T007; T003–T007 before their tests T008–T010; T011–T012 independent of tests; T013 last
@@ -163,52 +176,61 @@ When an item has `base`, the spawn SHALL use `origin/<base>` wherever it would u
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `Entry` decodes `plain` and `base`; unknown keys are still rejected; the parse error lists `plain?` and `base?`
-- [ ] A-002 R2: `plain`+`change` and `plain`+`stop_stage` are usage errors before any write (dry-run included); `plain` without task is queued bare
-- [ ] A-003 R3: a `plain` task item in a fab repo gets the plain prompt naming the right PR base, and no `/fab-new`/`fab change switch`/`set-base-branch`
-- [ ] A-004 R4: `isPlainAgent` is true for a plain task item in a fab repo, and such an item completes via `plainAgentDone`
-- [ ] A-005 R5: `base` failing `safeBranch`, missing on origin, or combined with `stacked-prs` + a same-repo dependency is a usage error before any write; a stacked first entry with `base` is accepted
-- [ ] A-006 R6: with `base`, `BaseSHA` comes from `origin/<base>`, the ladder range is `origin/<base>..<dep>`, an existing change records `set-base-branch <change> <base>`, a raw-task fab prompt carries the `set-base-branch` instruction, plain/no-fab prompts name `<base>`, and respawn uses the same base
-- [ ] A-007 R7: `plain`/`base` survive an engine-file write and reload; a file without them loads as today
-- [ ] A-008 R8: `status --json` carries `plain`/`base` when set and omits them otherwise; the human row shows them
-- [ ] A-009 R9: the brief `queue:` line renders `plain`/`base`, and `brief_rules.md` exempts plain items from the post-intake rule
-- [ ] A-010 R10: `rk skill operator` carries the plain row, the `base:` note, the plain/scratch-tab rule and the Principles carve-out; the two skill copies are identical
-- [ ] A-011 R11: `queue --help` documents `plain`/`base` and the `base` misfit, and no longer calls merge-auto `depends_on` a misfit
+- [x] A-001 R1: `Entry` decodes `plain` and `base`; unknown keys are still rejected; the parse error lists `plain?` and `base?`
+- [x] A-002 R2: `plain`+`change` and `plain`+`stop_stage` are usage errors before any write (dry-run included); `plain` without task is queued bare
+- [x] A-003 R3: a `plain` task item in a fab repo gets the plain prompt naming the right PR base, and no `/fab-new`/`fab change switch`/`set-base-branch`
+- [x] A-004 R4: `isPlainAgent` is true for a plain task item in a fab repo, and such an item completes via `plainAgentDone`
+- [x] A-005 R5: `base` failing `safeBranch`, missing on origin, or combined with `stacked-prs` + a same-repo dependency is a usage error before any write; a stacked first entry with `base` is accepted
+- [x] A-006 R6: with `base`, `BaseSHA` comes from `origin/<base>`, the ladder range is `origin/<base>..<dep>`, an existing change records `set-base-branch <change> <base>`, a raw-task fab prompt carries the `set-base-branch` instruction, plain/no-fab prompts name `<base>`, and respawn uses the same base
+- [x] A-007 R7: `plain`/`base` survive an engine-file write and reload; a file without them loads as today
+- [x] A-008 R8: `status --json` carries `plain`/`base` when set and omits them otherwise; the human row shows them
+- [x] A-009 R9: the brief `queue:` line renders `plain`/`base`, and `brief_rules.md` exempts plain items from the post-intake rule
+- [x] A-010 R10: `rk skill operator` carries the plain row, the `base:` note, the plain/scratch-tab rule and the Principles carve-out; the two skill copies are identical
+- [x] A-011 R11: `queue --help` documents `plain`/`base` and the `base` misfit, and no longer calls merge-auto `depends_on` a misfit
 
 ### Behavioral Correctness
 
-- [ ] A-012 R3: a fab repo + task without `plain` still produces `/fab-new <task>` (default unchanged)
-- [ ] A-013 R6: an item without `base` spawns exactly as before (same fetch, `rev-parse origin/<default>`, same ladder range, same prompts)
+- [x] A-012 R3: a fab repo + task without `plain` still produces `/fab-new <task>` (default unchanged)
+- [x] A-013 R6: an item without `base` spawns exactly as before (same fetch, `rev-parse origin/<default>`, same ladder range, same prompts)
 
 ### Scenario Coverage
 
-- [ ] A-014 R3: `buildPrompt` table tests cover plain/base/stacked/no-fab/raw-task combinations
-- [ ] A-015 R5: queue tests cover each rejection and the stacked-first-entry acceptance
-- [ ] A-016 R4: a completion test covers a plain item in a fab repo (merged and open-green)
+- [x] A-014 R3: `buildPrompt` table tests cover plain/base/stacked/no-fab/raw-task combinations
+- [x] A-015 R5: queue tests cover each rejection and the stacked-first-entry acceptance
+- [x] A-016 R4: a completion test covers a plain item in a fab repo (merged and open-green)
 
 ### Edge Cases & Error Handling
 
-- [ ] A-017 R6: a spawn that sees both a stacked dependency branch and an item `base` escalates and opens no window
-- [ ] A-018 R5: the origin probe failure (non-zero exit) yields a usage error, not a panic or a silent accept; the probe runs through the runner with a timeout (no shell string)
+- [x] A-017 R6: a spawn that sees both a stacked dependency branch and an item `base` escalates and opens no window
+- [x] A-018 R5: the origin probe failure (non-zero exit) yields a usage error, not a panic or a silent accept; the probe runs through the runner with a timeout (no shell string)
+
+- [x] A-026 R5: a `cherry-pick-ladder` entry whose effective base differs from a same-repo dependency's (in-queue or tracked) is refused before any write, dry-run included; equal bases are accepted; the spawn escalates on a mismatch
+- [x] A-027 R5: a `merge-auto` same-repo barrier across different bases is accepted, and the help and skill state it is ordering-only
+- [x] A-028 R10: the skill says `base` applies to any entry and `plain` to task entries; the two skill copies are identical
+- [x] A-029 R8: a cmd/rk test covers the human status row's `plain`/`base` cells
 
 ### Code Quality
 
-- [ ] A-019 Pattern consistency: new fields, scope keys and validation follow the existing `task`/`stop_stage`/`merge_mode` patterns in `queue.go`/`enginefile.go`
-- [ ] A-020 No unnecessary duplication: `safeBranch`, `sameRepoDep`, `RenderSkillRef` and the existing stacked `set-base-branch` paths are reused rather than re-implemented
-- [ ] A-021: All subprocess calls go through the engine runner (`exec.CommandContext`, argv slices, per-class timeout) — no shell strings
-- [ ] A-022: No god functions — `buildQueue`/`spawnItem` stay readable (helpers extracted where they would exceed ~50 lines of new logic)
-- [ ] A-023: Comments state constraints, not narration; no change IDs or PR numbers in code comments
-- [ ] A-024: New behavior is covered by tests (`just test-backend` green apart from the two known host-only failures)
+- [x] A-019 Pattern consistency: new fields, scope keys and validation follow the existing `task`/`stop_stage`/`merge_mode` patterns in `queue.go`/`enginefile.go`
+- [x] A-020 No unnecessary duplication: `safeBranch`, `sameRepoDep`, `RenderSkillRef` and the existing stacked `set-base-branch` paths are reused rather than re-implemented
+- [x] A-021: All subprocess calls go through the engine runner (`exec.CommandContext`, argv slices, per-class timeout) — no shell strings
+- [x] A-022: No god functions — `buildQueue`/`spawnItem` stay readable (helpers extracted where they would exceed ~50 lines of new logic)
+- [x] A-023: Comments state constraints, not narration; no change IDs or PR numbers in code comments
+- [x] A-024: New behavior is covered by tests (`just test-backend` green apart from the two known host-only failures)
 
 ### Security
 
-- [ ] A-025 R5: `base` is validated by `safeBranch` before it reaches any git argv
+- [x] A-025 R5: `base` is validated by `safeBranch` before it reaches any git argv
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- `app/backend/internal/autopilot/queue.go:258` (`var misfits []string` and `buildQueue`'s second return value) — never appended to since the merge-auto explicit-`depends_on` misfit was dropped; this change's help rewrite removes the last "misfit" wording, so the always-nil return, `QueueReceipt.Misfits` population at `queue.go:174-176`, and the `misfits` total line at `cmd/rk/operator_autopilot.go:357` are dead plumbing (keep the JSON `misfits: []` key only if consumers rely on it)
 
 ## Assumptions
 
@@ -220,5 +242,6 @@ When an item has `base`, the spawn SHALL use `origin/<base>` wherever it would u
 | 4 | Confident | A spawn finding both a stacked dependency base and an item `base` escalates (defense in depth) | An item tracked from an earlier queue call could pair them past queue-time checks only through hand edits; refusing is the safe outcome | S:60 R:85 A:80 D:75 |
 | 5 | Confident | The human `status` row appends ` · plain` and ` · base <b>` after the existing fields | Matches the ` · `-joined row style; placement is cosmetic | S:65 R:95 A:80 D:70 |
 | 6 | Certain | Memory files are updated at hydrate, not in apply; apply updates the skill doc, CLI help, and brief rules | The pipeline's hydrate stage owns `docs/memory/` | S:85 R:90 A:95 D:90 |
+| 7 | Confident | Mixed bases across a same-repo dependency are refused in `cherry-pick-ladder` but accepted as ordering-only in `merge-auto` | Ladder carries dependency code by cherry-pick, so mixed bases spawn the wrong code; merge-auto is unchained by design and refusing would block serial queues that target different branches | S:65 R:80 A:75 D:60 |
 
-6 assumptions (2 certain, 4 confident, 0 tentative).
+7 assumptions (2 certain, 5 confident, 0 tentative).

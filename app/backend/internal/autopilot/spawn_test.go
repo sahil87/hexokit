@@ -923,3 +923,28 @@ func TestRespawnKeepsTheItemBase(t *testing.T) {
 		t.Fatalf("respawns = %d, want 2", respawned)
 	}
 }
+
+func TestLadderDependencyOnADifferentBaseEscalatesWithoutSpawning(t *testing.T) {
+	h, foo, _ := baseFixture(t, false)
+	h.queue("cherry-pick-ladder",
+		Entry{ID: "dep", Repo: foo.Dir, Task: "dep work", Base: "eng-v2"},
+		Entry{ID: "child", Repo: foo.Dir, Task: "child work", Base: "eng-v2"},
+	)
+	foo.branch("dep-branch", "eng-v2", "dep.txt", "from dep\n")
+	h.setDone("dep")
+	h.attachBranch("dep", "dep-branch")
+	h.gh.add(1, "dep-branch")
+	// Queue validation refuses this pairing; an edited engine file can still hold it.
+	if err := newEngine(h.env).setScope("child", map[string]interface{}{scopeBase: nil}); err != nil {
+		t.Fatal(err)
+	}
+	res := h.step()
+	for _, r := range h.spawn.reqs {
+		if r.WorktreeName == "child" {
+			t.Fatalf("child spawned on a different base than its dependency: %+v", r)
+		}
+	}
+	if !hasEscalation(res, "differs from dependency dep's base") || spawningSet(h.item("child")) {
+		t.Fatalf("escalations=%+v", res.Escalations)
+	}
+}

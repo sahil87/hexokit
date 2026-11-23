@@ -270,8 +270,8 @@ func (e *engine) buildQueue(ctx context.Context, st *operator.State, entries []E
 			if j, inQueue := pos[d]; inQueue && j >= i {
 				return nil, nil, operatorInvalid("entry %s depends on %s, which is not an earlier entry in the queue: a dependency must come before its dependent", en.ID, d)
 			}
-			if en.Base != "" && mode == operator.MergeModeStackedPRs && sameRepoDep(st, byID, en, d) {
-				return nil, nil, operatorInvalid("entry %s: base %s conflicts with its stacked-prs dependency %s: a stacked entry bases on its dependency's branch", en.ID, en.Base, d)
+			if err := checkDepBase(st, byID, en, d, mode); err != nil {
+				return nil, nil, err
 			}
 		}
 		scope := map[string]interface{}{
@@ -376,6 +376,39 @@ func checkDep(st *operator.State, byID map[string]Entry, en Entry, dep string) e
 		return operatorInvalid("entry %s depends on %s, a bare agent with no task: nothing can depend on it", en.ID, dep)
 	}
 	return nil
+}
+
+// checkDepBase refuses a base that cannot sit with a same-repo dependency: a
+// stacked-prs entry bases on its dependency's branch, and a cherry-pick-ladder
+// entry cherry-picks origin/<base>..<dep>, which carries the dependency's whole
+// history unless both start from the same base ("" is the default branch). A
+// merge-auto barrier only orders the two, so any bases are fine.
+func checkDepBase(st *operator.State, byID map[string]Entry, en Entry, dep, mode string) error {
+	if !sameRepoDep(st, byID, en, dep) {
+		return nil
+	}
+	switch mode {
+	case operator.MergeModeStackedPRs:
+		if en.Base != "" {
+			return operatorInvalid("entry %s: base %s conflicts with its stacked-prs dependency %s: a stacked entry bases on its dependency's branch", en.ID, en.Base, dep)
+		}
+	case operator.MergeModeCherryPickLadder:
+		if db := depBaseOf(st, byID, dep); db != en.Base {
+			return operatorInvalid("entry %s: base %q differs from its dependency %s's base %q: a cherry-pick-ladder entry and its same-repo dependencies must start from the same base", en.ID, en.Base, dep, db)
+		}
+	}
+	return nil
+}
+
+// depBaseOf is a dependency's base: its queue entry's, else its tracked scope's.
+func depBaseOf(st *operator.State, byID map[string]Entry, dep string) string {
+	if d, ok := byID[dep]; ok {
+		return d.Base
+	}
+	if i := operator.IndexOf(st.Tracked, dep); i >= 0 {
+		return operator.ScopeString(st.Tracked[i].Scope, scopeBase)
+	}
+	return ""
 }
 
 func sameRepoDep(st *operator.State, byID map[string]Entry, en Entry, dep string) bool {

@@ -381,6 +381,12 @@ func TestEnqueuePlainAndBaseRejectionsWriteNothing(t *testing.T) {
 		{"base with an explicit stacked dependency", func(d string) []Entry {
 			return []Entry{{ID: "a", Repo: d, Task: "a"}, {ID: "b", Repo: d, Task: "b", Base: "eng-v2", DependsOn: &[]string{"a"}}}
 		}, operator.MergeModeStackedPRs, "entry b"},
+		{"ladder base with a dependency on the default branch", func(d string) []Entry {
+			return []Entry{{ID: "a", Repo: d, Task: "a", Base: "eng-v2"}, {ID: "b", Repo: d, Task: "b"}}
+		}, operator.MergeModeCherryPickLadder, "differs from its dependency a"},
+		{"ladder default base with a dependency on a base", func(d string) []Entry {
+			return []Entry{{ID: "a", Repo: d, Task: "a"}, {ID: "b", Repo: d, Task: "b", Base: "eng-v2"}}
+		}, operator.MergeModeCherryPickLadder, "differs from its dependency a"},
 	}
 	for _, c := range cases {
 		for _, dry := range []bool{false, true} {
@@ -456,4 +462,46 @@ func TestEnqueueStoresPlainOnlyWithATask(t *testing.T) {
 	if it := h.item("p4"); !scopeBool(it, scopePlain) || isBare(it) {
 		t.Errorf("plain with a task: scope=%v", it.Scope)
 	}
+}
+
+func TestEnqueueLadderBaseMustMatchATrackedDependency(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	pushedBranch(t, foo, "eng-v2")
+	h.queue(operator.MergeModeCherryPickLadder, Entry{ID: "a", Repo: foo.Dir, Task: "a", Base: "eng-v2"})
+	_, err := Enqueue(context.Background(), h.env, []Entry{{ID: "b", Repo: foo.Dir, Task: "b", DependsOn: &[]string{"a"}}}, QueueOptions{Mode: operator.MergeModeCherryPickLadder}, "")
+	var inv *InvalidError
+	if !errors.As(err, &inv) || !strings.Contains(err.Error(), "differs from its dependency a") {
+		t.Fatalf("err = %v", err)
+	}
+	if h.has("b") {
+		t.Fatal("a rejected entry was tracked")
+	}
+}
+
+func TestEnqueueAcceptsMatchingAndBarrierBases(t *testing.T) {
+	t.Run("ladder with equal bases", func(t *testing.T) {
+		h := newHarness(t)
+		foo := newRepo(t, "foo")
+		pushedBranch(t, foo, "eng-v2")
+		rec := h.queue(operator.MergeModeCherryPickLadder,
+			Entry{ID: "a", Repo: foo.Dir, Task: "a", Base: "eng-v2"},
+			Entry{ID: "b", Repo: foo.Dir, Task: "b", Base: "eng-v2"},
+		)
+		if len(rec.Items) != 2 {
+			t.Fatalf("receipt = %+v", rec)
+		}
+	})
+	t.Run("merge-auto barrier across bases is ordering only", func(t *testing.T) {
+		h := newHarness(t)
+		foo := newRepo(t, "foo")
+		pushedBranch(t, foo, "eng-v2")
+		rec := h.queue(operator.MergeModeMergeAuto,
+			Entry{ID: "a", Repo: foo.Dir, Task: "a", Base: "eng-v2"},
+			Entry{ID: "b", Repo: foo.Dir, Task: "b"},
+		)
+		if len(rec.Items) != 2 {
+			t.Fatalf("receipt = %+v", rec)
+		}
+	})
 }
