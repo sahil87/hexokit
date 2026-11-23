@@ -123,6 +123,16 @@ func (e *checkEnv) run() CheckResult {
 	return res
 }
 
+// runWith is run with explicit CheckOptions.
+func (e *checkEnv) runWith(opts CheckOptions) CheckResult {
+	e.t.Helper()
+	res, err := Check(context.Background(), checkTestServer, opts)
+	if err != nil {
+		e.t.Fatalf("Check: %v", err)
+	}
+	return res
+}
+
 func (e *checkEnv) advance(d time.Duration) { e.now = e.now.Add(d) }
 
 func (e *checkEnv) item(id string) TrackedItem { return item(e.t, e.path, id) }

@@ -67,7 +67,7 @@ func Run(ctx context.Context, fire cron.Fire) cron.Outcome {
 		return outcome(cron.OutcomeSkippedBusy(id))
 	}
 
-	res, err := checkFn(ctx, server, operator.CheckOptions{})
+	res, err := checkFn(ctx, server, operator.CheckOptions{IgnoreIdleFloor: manualTrigger(fire)})
 	if err != nil {
 		return outcome(cron.OutcomeCheckFailed(firstLine(err.Error())))
 	}
@@ -95,6 +95,14 @@ func Run(ctx context.Context, fire cron.Fire) cron.Outcome {
 		return withFire(outcome(cron.OutcomeRunLost("launch: "+firstLine(err.Error()))), fireID, idErr)
 	}
 	return cron.Outcome{Status: "launched", Held: true}
+}
+
+// manualTrigger reports a trigger:manual fire — Check now, or `rk operator
+// wake` with the default reason — on which the check reports an idle agent
+// regardless of the idle floor: the floor filters automatic edges, and a
+// manual trigger is the user asking to look now.
+func manualTrigger(fire cron.Fire) bool {
+	return string(fire.Reason) == cron.TriggerReasonPrefix+cron.DefaultWakeReason
 }
 
 // withFire names the fire's check record on an outcome the tick logs now

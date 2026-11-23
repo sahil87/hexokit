@@ -243,7 +243,7 @@ func joinPane(it *TrackedItem, row paneRow, st *State, obs observation, now time
 			v.events = append(v.events, d)
 		}
 	}
-	v.conds = append(v.conds, trackAgent(it, row, obs.panes, now)...)
+	v.conds = append(v.conds, trackAgent(it, row, obs.panes, now, obs.ignoreIdleFloor)...)
 	return v
 }
 
@@ -366,7 +366,7 @@ func trackStage(it *TrackedItem, row paneRow, nowStr string) (CheckDelta, bool) 
 // cannot tell finished work from stuck work, and a finished agent must not
 // cost a run every half hour. The keys drop out when the state changes, so
 // each new stretch starts over.
-func trackAgent(it *TrackedItem, row paneRow, panes map[string]paneRow, now time.Time) []condDelta {
+func trackAgent(it *TrackedItem, row paneRow, panes map[string]paneRow, now time.Time, ignoreFloor bool) []condDelta {
 	prev := scopeString(it.Scope, "agent")
 	it.Scope["agent"] = nil
 	if row.AgentState != "" {
@@ -395,7 +395,7 @@ func trackAgent(it *TrackedItem, row paneRow, panes map[string]paneRow, now time
 		prev = ""
 	}
 	var conds []condDelta
-	if row.AgentState != tmux.AgentStateIdle || idleStopped(row, panes, held) {
+	if row.AgentState != tmux.AgentStateIdle || idleStopped(row, panes, held, ignoreFloor) {
 		conds = append(conds, condDelta{key, CheckDelta{
 			Kind: DeltaAgentState, ID: it.ID, Pane: row.PaneID,
 			From: nullable(prev), To: &to, Duration: nullable(duration),
@@ -416,8 +416,10 @@ func trackAgent(it *TrackedItem, row paneRow, panes map[string]paneRow, now time
 // held idleFloor (an unknown epoch counts as held, so a missing epoch never
 // hides the idle for good) and no other pane in its window is active — a
 // /fab-fff parent idles between stages while its worker runs beside it.
-func idleStopped(row paneRow, panes map[string]paneRow, held time.Duration) bool {
-	if row.AgentEpoch > 0 && held < idleFloor {
+// ignoreFloor (a manual trigger) waives the floor only: a worker still
+// running beside the pane means the work has not stopped, whoever asked.
+func idleStopped(row paneRow, panes map[string]paneRow, held time.Duration, ignoreFloor bool) bool {
+	if !ignoreFloor && row.AgentEpoch > 0 && held < idleFloor {
 		return false
 	}
 	if row.WindowID == "" {

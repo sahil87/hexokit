@@ -134,7 +134,7 @@ Each check derives every item's current condition-key set and compares it with t
 | `done` | `done_at` set, built-in completion fired this check, or `done_when` holds against `last` |
 | `pane_death`, `pane_mismatch`, `agent_exited` | the pane cases above |
 | `agent:waiting` | clean join with observed state `waiting` (`agent_state` delta) |
-| `agent:idle` | clean join with observed state `idle` held ≥ `idleFloor` (3m; no epoch ⇒ held) and no other `active` pane in the same tmux window (`agent_state` delta) |
+| `agent:idle` | clean join with observed state `idle` held ≥ `idleFloor` (3m; no epoch ⇒ held) and no other `active` pane in the same tmux window (`agent_state` delta); `CheckOptions.IgnoreIdleFloor` — set by the loop for a `trigger:manual` fire — waives the floor, never the sibling rule |
 | `agent:waiting:aged:<n>`, `agent:idle:aged` | the state held for `agentAgedAfter` (30m) by the pane's agent-state epoch (`agent_aged` delta: `pane`, `to`, `duration`); waiting carries its 30-minute bucket, so an unanswered prompt is a change again every half hour, idle fires once per stretch; no epoch ⇒ never aged |
 | `paused` | `paused` with `failures ≥ 3` (the probe-failure pause) |
 | `stale` | agent item with `now − (checked_at ?? added_at) > 2 × check_every` |
@@ -251,3 +251,9 @@ A done item yields only `done` plus any `unknown_dep:*`; a user-paused item belo
 **Why**: A note written from the drawer must start a run without waiting for an unrelated edge, and a key per instruction note makes each new note fire once. Judgment and check must never disagree about what is pending, so one helper serves both. The failure-note skip reads only `by: run` notes, which cannot suppress anyone's instruction — a forged one merely keeps it pending — so it does not break the rule that decisions never read note text for escalations.
 **Rejected**: Leaving notes out of the check (a note alone never started a run); a second copy of the rule in the judgment scan; counting a failure note as an answer (the instruction would be dropped by a run that never read it).
 *Introduced by*: 261120-pgns-operator-trigger-door-failure-streaks
+
+### A manual trigger waives the idle floor, not the sibling rule
+**Decision**: `CheckOptions.IgnoreIdleFloor` reports an idle agent regardless of how long it has been idle; the operator loop sets it for a `trigger:manual` fire (Check now, `rk operator wake` with the default reason). An `active` pane in the same window still suppresses the idle.
+**Why**: The floor filters automatic edges — a `/fab-fff` parent idles for seconds between stages. A manual trigger is the user saying "look now": on loom a Check now pressed 24 s after an agent finished its intake was a free no-op, and the `/fab-fff` send waited six minutes for the ladder. A worker still running beside the pane is "not stopped" whoever asked.
+**Rejected**: lowering `idleFloor` (brings the no-op runs back for every automatic edge); waiving the floor for every `trigger:` reason (a PR event says nothing about the agent's idle).
+*Introduced by*: PR (direct change, no fab intake) — manual-trigger-ignores-idle-floor

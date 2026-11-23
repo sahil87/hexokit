@@ -53,6 +53,11 @@ type CheckOptions struct {
 	// Budget bounds the wall clock spent starting shell probes; zero means
 	// defaultCheckBudget.
 	Budget time.Duration
+	// IgnoreIdleFloor reports an idle agent regardless of how long it has
+	// been idle. The loop sets it for a trigger:manual fire: the floor filters
+	// automatic edges (a /fab-fff parent idles between stages), while Check
+	// now is the user saying "look now". The active-sibling rule still holds.
+	IgnoreIdleFloor bool
 }
 
 const defaultCheckBudget = 60 * time.Second
@@ -227,6 +232,8 @@ type observation struct {
 	// exited marks snapshot panes whose foreground is a bare shell with no
 	// live agent anywhere under it.
 	exited map[string]bool
+	// ignoreIdleFloor is CheckOptions.IgnoreIdleFloor for this observation.
+	ignoreIdleFloor bool
 	// branches is the current git branch by pane cwd, resolved only for
 	// panes whose change still lacks a branch_map entry.
 	branches map[string]string
@@ -240,6 +247,7 @@ func observe(ctx context.Context, server string, st *State, opts CheckOptions) (
 		probes: map[string]probeOutcome{},
 		skips:  map[string]CheckNotice{},
 	}
+	obs.ignoreIdleFloor = opts.IgnoreIdleFloor
 	if anyPaneItems(st.Tracked) {
 		panes, err := paneSnapshotFn(ctx, server)
 		if err != nil {
