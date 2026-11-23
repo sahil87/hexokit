@@ -588,17 +588,19 @@ func TestRenderBrief_NotesAreNotSubstituted(t *testing.T) {
 // A queue entry renders as one `queue:` line at the top of the item's block,
 // and only for items that have one.
 func TestRenderBrief_QueueLine(t *testing.T) {
-	st := &State{Tracked: []TrackedItem{briefTestItem("q1", "note"), briefTestItem("q2", "note"), briefTestItem("plain", "note")}}
+	st := &State{Tracked: []TrackedItem{briefTestItem("q1", "note"), briefTestItem("q2", "note"), briefTestItem("q3", "note"), briefTestItem("plain", "note")}}
 	stop := "hydrate"
 	out := RenderBrief(BriefInput{
 		State: st, Server: "work", Now: briefTestNow,
-		Changed: []ChangedItem{{ID: "q1"}, {ID: "q2"}, {ID: "plain"}},
+		Changed: []ChangedItem{{ID: "q1"}, {ID: "q2"}, {ID: "q3"}, {ID: "plain"}},
 		Queue: map[string]QueueEntry{
 			"q1": {Task: `say "hi"`, MergeMode: "stacked-prs"},
 			"q2": {Change: "261117-ab12-x", StopStage: stop},
+			"q3": {Task: "bump deps", MergeMode: "merge-auto", Plain: true, Base: "eng-v2"},
 		},
 	})
 	for _, want := range []string{
+		"- queue: mode merge-auto; stop_stage null; plain; base eng-v2; task \"bump deps\"\n",
 		"### q1 (note)\n\n- queue: mode stacked-prs; stop_stage null; task \"say \\\"hi\\\"\"\n- state:",
 		"### q2 (note)\n\n- queue: mode cherry-pick-ladder; stop_stage hydrate; change 261117-ab12-x\n- state:",
 		"### plain (note)\n\n- state:",

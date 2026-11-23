@@ -123,11 +123,14 @@ prompt you did not leave open, one a note marks `do not auto-default`, or one yo
 
 A queue item entered as raw task text starts with `/fab-new` and stops once its intake is ready.
 Nobody advances it but you. A queue item is exactly an item whose block in this brief has a
-`queue:` line, which carries its mode, `stop_stage` and `task` from the engine. The ledger's
+`queue:` line, which carries its mode, `stop_stage` and `task` from the engine (plus `plain` and
+`base` when set). The ledger's
 `scope.stop_stage` and other scope fields do not tell you whether an item is queued. When a changed
 queue item's agent is `idle` and its change (the item's `scope.change`) is at intake ready, decide
-what happens next. Run the fab reads in the pane's working directory (`fab pane map --all-sessions`
-lists it):
+what happens next. This rule does not apply to a `plain` item (its `queue:` line says `plain`): it
+has no intake, and it is judged like a no-fab item: done when its PR merges or is green, and under
+`merge-auto` its green PR is merged per § Merging like any other. Run the fab reads in the pane's
+working directory (`fab pane map --all-sessions` lists it):
 
 1. `stop_stage` is `intake`: the item is done there; send nothing and stop.
 2. `fab status display-stage <change>` prints `intake:ready`; otherwise this rule does not apply.

@@ -122,3 +122,69 @@ func TestQueueEntriesReadsTheEngineFile(t *testing.T) {
 		t.Errorf("entries = %+v", got)
 	}
 }
+
+func TestEngineFileRoundTripsPlainAndBase(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "default.yaml")
+	st := newEngineState()
+	st.Queue = append(st.Queue,
+		engineItem{ID: "a", Repo: "/repo/a", Task: "bump deps", Plain: true, Base: "eng-v2"},
+		engineItem{ID: "b", Repo: "/repo/a", Task: "x"},
+	)
+	if err := writeEngineFile(statePath, st); err != nil {
+		t.Fatal(err)
+	}
+	got, err := loadEngineFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := got.Queue[0], got.Queue[1]
+	if !a.Plain || a.Base != "eng-v2" {
+		t.Fatalf("reloaded a = %+v", a)
+	}
+	back := engineItemFromTracked(a.tracked(), false)
+	if !back.Plain || back.Base != "eng-v2" {
+		t.Fatalf("scope round trip lost plain/base: %+v", back)
+	}
+	if b.Plain || b.Base != "" {
+		t.Fatalf("legacy item reads plain=%v base=%q", b.Plain, b.Base)
+	}
+	raw, err := os.ReadFile(engineFilePath(statePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(raw), "plain:") != 1 || strings.Count(string(raw), "base:") != 1 {
+		t.Fatalf("unset plain/base must be omitted from the file:\n%s", raw)
+	}
+}
+
+func TestEngineFileWithoutPlainAndBaseLoadsAsToday(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "default.yaml")
+	legacy := "version: 1\nqueue:\n  - id: a\n    repo: /repo/a\n    task: x\n    depends_on: []\n    done_at: null\n    escalated: {}\n"
+	if err := os.WriteFile(engineFilePath(statePath), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := loadEngineFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	it := st.Queue[0].tracked()
+	if scopeBool(it, scopePlain) {
+		t.Error("a file without plain loads as plain: false")
+	}
+	if _, ok := it.Scope[scopeBase]; ok {
+		t.Error("a file without base carries no base scope key")
+	}
+}
+
+func TestQueueEntriesCarryPlainAndBase(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "bump deps", Plain: true})
+	got, err := QueueEntries(h.env.StatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := got["a"]; !e.Plain || e.Base != "" {
+		t.Errorf("entry = %+v", e)
+	}
+}

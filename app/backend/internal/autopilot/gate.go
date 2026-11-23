@@ -29,11 +29,14 @@ func fabPresent(repo string) (bool, error) {
 }
 
 // isPlainAgent reports whether the item is a change-less plain-agent item: a
-// task in a repo with no fab/, which has no pipeline to finish and is done when
-// its PR is ready.
+// task that was queued plain, or any task in a repo with no fab/. It has no
+// pipeline to finish and is done when its PR is ready.
 func isPlainAgent(st *operator.State, it operator.TrackedItem) (bool, error) {
 	if !legacyQueueItem(st, it) || operator.ScopeString(it.Scope, scopeTask) == "" || operator.ScopeString(it.Scope, "change") != "" {
 		return false, nil
+	}
+	if scopeBool(it, scopePlain) {
+		return true, nil
 	}
 	fab, err := fabPresent(operator.ScopeString(it.Scope, "repo"))
 	return !fab, err

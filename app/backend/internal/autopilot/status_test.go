@@ -234,3 +234,36 @@ func TestStatusCarriesQueueFactsOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestStatusShowsPlainAndBaseOnlyWhenSet(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	runGit(t, foo.Dir, "push", "origin", "main:eng-v2")
+	h.queue("merge-auto",
+		Entry{ID: "a", Repo: foo.Dir, Task: "bump deps", Plain: true, Base: "eng-v2"},
+		Entry{ID: "b", Repo: foo.Dir, Task: "plain old task"},
+	)
+	res, err := Status(context.Background(), h.env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Items []map[string]interface{} `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Items[0]["plain"] != true || doc.Items[0]["base"] != "eng-v2" {
+		t.Errorf("item a = %v", doc.Items[0])
+	}
+	if _, ok := doc.Items[1]["plain"]; ok {
+		t.Errorf("item b carries plain: %v", doc.Items[1])
+	}
+	if _, ok := doc.Items[1]["base"]; ok {
+		t.Errorf("item b carries base: %v", doc.Items[1])
+	}
+}

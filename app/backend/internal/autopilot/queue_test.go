@@ -3,7 +3,9 @@ package autopilot
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -333,5 +335,125 @@ func TestSafeBranchMatchesGitCheckRefFormat(t *testing.T) {
 		if got := safeBranch(n) != ""; got != want {
 			t.Errorf("safeBranch(%q) accepted=%v, git check-ref-format --branch accepts=%v", n, got, want)
 		}
+	}
+}
+
+func TestParseEntriesAcceptsPlainAndBase(t *testing.T) {
+	es, err := ParseEntries([]byte(`[{"id":"p1","repo":"/src/app","task":"bump deps","plain":true,"base":"eng-v2"}]`))
+	if err != nil || len(es) != 1 || !es[0].Plain || es[0].Base != "eng-v2" {
+		t.Fatalf("entries = %+v, err %v", es, err)
+	}
+	_, err = ParseEntries([]byte(`[{"id":"p1","repo":"/src/app","bogus":1}]`))
+	if err == nil || !strings.Contains(err.Error(), "plain?") || !strings.Contains(err.Error(), "base?") {
+		t.Fatalf("the parse error must list plain? and base?: %v", err)
+	}
+}
+
+// pushedBranch creates branch on origin, as a long-lived integration branch.
+func pushedBranch(t *testing.T, r *testRepo, name string) {
+	t.Helper()
+	r.branch(name, "main", name+".txt", name+"\n")
+	r.pushBranch(name)
+}
+
+func TestEnqueuePlainAndBaseRejectionsWriteNothing(t *testing.T) {
+	cases := []struct {
+		name    string
+		entries func(dir string) []Entry
+		mode    string
+		want    string
+	}{
+		{"plain with a change", func(d string) []Entry {
+			return []Entry{{ID: "p1", Repo: d, Change: "ab12", Plain: true}}
+		}, "", "plain cannot be combined with a change"},
+		{"plain with a stop_stage", func(d string) []Entry {
+			return []Entry{{ID: "p2", Repo: d, Task: "x", Plain: true, StopStage: ptr("intake")}}
+		}, "", "stop_stage"},
+		{"base not on origin", func(d string) []Entry {
+			return []Entry{{ID: "b1", Repo: d, Task: "x", Base: "eng-v3"}}
+		}, "", "base eng-v3 is not a branch on origin"},
+		{"unsafe base", func(d string) []Entry {
+			return []Entry{{ID: "b2", Repo: d, Task: "x", Base: "--upload-pack=x"}}
+		}, "", "invalid base"},
+		{"base with an implicit stacked dependency", func(d string) []Entry {
+			return []Entry{{ID: "a", Repo: d, Task: "a"}, {ID: "b", Repo: d, Task: "b", Base: "eng-v2"}}
+		}, operator.MergeModeStackedPRs, "entry b"},
+		{"base with an explicit stacked dependency", func(d string) []Entry {
+			return []Entry{{ID: "a", Repo: d, Task: "a"}, {ID: "b", Repo: d, Task: "b", Base: "eng-v2", DependsOn: &[]string{"a"}}}
+		}, operator.MergeModeStackedPRs, "entry b"},
+	}
+	for _, c := range cases {
+		for _, dry := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s dry=%v", c.name, dry), func(t *testing.T) {
+				h := newHarness(t)
+				foo := newRepo(t, "foo")
+				pushedBranch(t, foo, "eng-v2")
+				h.env.DryRun = dry
+				_, err := Enqueue(context.Background(), h.env, c.entries(foo.Dir), QueueOptions{Mode: c.mode}, "")
+				var inv *InvalidError
+				if !errors.As(err, &inv) || !strings.Contains(err.Error(), c.want) {
+					t.Fatalf("err = %v, want InvalidError containing %q", err, c.want)
+				}
+				if es, loadErr := loadEngineFile(h.env.StatePath); loadErr != nil || len(es.Queue) != 0 {
+					t.Fatalf("a rejected queue wrote items: %+v (%v)", es, loadErr)
+				}
+			})
+		}
+	}
+}
+
+func TestEnqueueBaseProbeFailureIsAUsageError(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	runGit(t, foo.Dir, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
+	_, err := Enqueue(context.Background(), h.env, []Entry{{ID: "b", Repo: foo.Dir, Task: "x", Base: "eng-v2"}}, QueueOptions{}, "")
+	var inv *InvalidError
+	if !errors.As(err, &inv) || !strings.Contains(err.Error(), "cannot verify base eng-v2 on origin") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestEnqueueBaseProbeRunsThroughTheRunner(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	pushedBranch(t, foo, "eng-v2")
+	h.queue("", Entry{ID: "b", Repo: foo.Dir, Task: "x", Base: "eng-v2"})
+	if n := h.run.called("git ls-remote --exit-code --heads origin refs/heads/eng-v2"); n != 1 {
+		t.Fatalf("ls-remote probes = %d; calls: %v", n, h.run.calls)
+	}
+}
+
+func TestEnqueueAcceptsBaseOnAStackedFirstEntry(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	pushedBranch(t, foo, "eng-v2")
+	rec := h.queue(operator.MergeModeStackedPRs,
+		Entry{ID: "a", Repo: foo.Dir, Task: "a", Base: "eng-v2"},
+		Entry{ID: "b", Repo: foo.Dir, Task: "b"},
+	)
+	if len(rec.Items) != 2 {
+		t.Fatalf("receipt = %+v", rec)
+	}
+	if got := operator.ScopeString(h.item("a").Scope, scopeBase); got != "eng-v2" {
+		t.Errorf("a base = %q", got)
+	}
+	if got := operator.ScopeString(h.item("b").Scope, scopeBase); got != "" {
+		t.Errorf("b base = %q, want none", got)
+	}
+}
+
+func TestEnqueueStoresPlainOnlyWithATask(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue(operator.MergeModeMergeAuto,
+		Entry{ID: "p3", Repo: foo.Dir, Plain: true},
+		Entry{ID: "p4", Repo: foo.Dir, Task: "bump deps", Plain: true, DependsOn: &[]string{}},
+	)
+	bare := h.item("p3")
+	if !isBare(bare) || scopeBool(bare, scopePlain) {
+		t.Errorf("plain without a task must be the bare agent: scope=%v", bare.Scope)
+	}
+	if it := h.item("p4"); !scopeBool(it, scopePlain) || isBare(it) {
+		t.Errorf("plain with a task: scope=%v", it.Scope)
 	}
 }
