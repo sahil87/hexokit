@@ -8,8 +8,8 @@ progress:
     intake: done
     apply: done
     review: done
-    hydrate: active
-    ship: pending
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
@@ -32,23 +32,24 @@ stage_metrics:
     intake: {started_at: "2026-11-23T18:42:05Z", driver: fab-new, iterations: 1, completed_at: "2026-11-23T18:47:44Z"}
     apply: {started_at: "2026-11-23T19:06:43Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-23T19:10:33Z"}
     review: {started_at: "2026-11-23T19:10:33Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-23T19:15:42Z"}
-    hydrate: {started_at: "2026-11-23T19:15:42Z", driver: fab-fff, iterations: 1}
+    hydrate: {started_at: "2026-11-23T19:15:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-23T19:17:39Z"}
+    ship: {started_at: "2026-11-23T19:17:39Z", driver: fab-fff, iterations: 1}
 prs: []
 base_branch: main
 true_impact:
-    added: 1069
-    deleted: 50
-    net: 1019
+    added: 1242
+    deleted: 53
+    net: 1189
     excluding:
-        added: 616
-        deleted: 45
-        net: 571
+        added: 760
+        deleted: 48
+        net: 712
     tests:
-        added: 445
+        added: 541
         deleted: 4
-        net: 441
-    computed_at: "2026-11-23T19:10:33Z"
-    computed_at_stage: apply
+        net: 537
+    computed_at: "2026-11-23T19:17:39Z"
+    computed_at_stage: hydrate
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-23T19:15:42Z
+last_updated: 2026-11-23T19:17:39Z
