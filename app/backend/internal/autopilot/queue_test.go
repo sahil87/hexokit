@@ -105,7 +105,7 @@ func TestEnqueueExplicitDependsReplacesImplicit(t *testing.T) {
 	}
 }
 
-func TestEnqueueMergeAutoBarrierAndMisfit(t *testing.T) {
+func TestEnqueueMergeAutoBarrierImplicitAndExplicit(t *testing.T) {
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
 	rec := h.queue("merge-auto",
@@ -125,8 +125,11 @@ func TestEnqueueMergeAutoBarrierAndMisfit(t *testing.T) {
 		Entry{ID: "a", Repo: foo.Dir, Change: "a"},
 		Entry{ID: "b", Repo: foo.Dir, Change: "b", DependsOn: &same},
 	)
-	if len(rec.Misfits) != 1 || !strings.Contains(rec.Misfits[0], "merge-auto") {
-		t.Fatalf("misfits = %v, want the merge-auto + same-repo misfit", rec.Misfits)
+	if deps := h2.item("b").DependsOn; !reflect.DeepEqual(deps, []string{"a"}) {
+		t.Fatalf("explicit merge-auto b depends_on = %v, want the same-repo barrier kept", deps)
+	}
+	if len(rec.Misfits) != 0 {
+		t.Fatalf("an explicit same-repo barrier is the merge-auto barrier, not a misfit: %v", rec.Misfits)
 	}
 }
 
@@ -330,37 +333,5 @@ func TestSafeBranchMatchesGitCheckRefFormat(t *testing.T) {
 		if got := safeBranch(n) != ""; got != want {
 			t.Errorf("safeBranch(%q) accepted=%v, git check-ref-format --branch accepts=%v", n, got, want)
 		}
-	}
-}
-
-func TestMisfitWithoutExplicitModeWritesNothing(t *testing.T) {
-	h := newHarness(t)
-	repo := newRepo(t, "repo")
-	h.queue("", Entry{ID: "existing", Repo: repo.Dir, Task: "keep"})
-	before, err := os.ReadFile(engineFilePath(h.env.StatePath))
-	if err != nil {
-		t.Fatal(err)
-	}
-	deps := []string{"a"}
-	entries := []Entry{{ID: "a", Repo: repo.Dir, Task: "a"}, {ID: "b", Repo: repo.Dir, Task: "b", DependsOn: &deps}}
-	rec, err := Enqueue(context.Background(), h.env, entries, QueueOptions{}, operator.MergeModeMergeAuto)
-	if err == nil || len(rec.Misfits) != 1 || !strings.Contains(err.Error(), "queue not written") {
-		t.Fatalf("receipt = %+v, err = %v", rec, err)
-	}
-	after, err := os.ReadFile(engineFilePath(h.env.StatePath))
-	if err != nil || string(before) != string(after) {
-		t.Fatal("misfit wrote state")
-	}
-	dry := h.env
-	dry.DryRun = true
-	rec, err = Enqueue(context.Background(), dry, entries, QueueOptions{}, operator.MergeModeMergeAuto)
-	if err != nil || len(rec.Misfits) != 1 {
-		t.Fatalf("preview = %+v, err = %v", rec, err)
-	}
-	if _, err := Enqueue(context.Background(), h.env, entries, QueueOptions{Mode: operator.MergeModeMergeAuto}, operator.MergeModeMergeAuto); err != nil {
-		t.Fatal(err)
-	}
-	if len(h.state().Tracked) != 3 {
-		t.Fatal("explicit confirmation did not persist all entries")
 	}
 }

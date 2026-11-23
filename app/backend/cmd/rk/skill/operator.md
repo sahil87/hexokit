@@ -88,11 +88,11 @@ A bare entry gets no prompt and nothing may depend on it. **Never `fab init`** a
 
 ## Queues
 
-A queue is created and advanced by `rk operator autopilot` — never by hand-writing items. First run `queue --dry-run` with the entries and any user-specified `--mode`; then confirm the receipt’s mode and any misfits with the user:
+A queue is created and advanced by `rk operator autopilot` — never by hand-writing items. First run `queue --dry-run` with the entries and any user-specified `--mode`; then confirm the receipt’s mode with the user:
 
 Confirmation lines: `cherry-pick-ladder` "creates PRs — I merge only on your word"; `stacked-prs` "creates stacked PRs — I merge only on your word"; `merge-auto` "I merge green PRs without asking".
 
-The mode comes from the first source that has one: the user's instruction (`--mode`), then the `operator.merge_mode` setting, then `cherry-pick-ladder`. The dry-run resolves it, prints `mode: <name> (flag|setting|default)`, without writing items — say it in the confirmation. Ask the mode question only on a misfit: the verb's receipt reports `misfit: …` when `merge-auto` meets same-repo dependencies, and you ask when the user's words contradict the mode (they say "merge as you go" while the mode is a held one). The question includes the glyphs, the three diagrams below and a one-line tradeoff each, then preview again with the chosen `--mode` if it changes. After confirmation, make exactly one live `queue --mode <confirmed-mode>` call with the same entries; it stamps the mode on every item. A live misfit without an explicit `--mode` refuses without writing.
+The mode comes from the first source that has one: the user's instruction (`--mode`), then the `operator.merge_mode` setting, then `cherry-pick-ladder`. The dry-run resolves it, prints `mode: <name> (flag|setting|default)`, without writing items — say it in the confirmation. Ask the mode question only when the user's words contradict the mode (they say "merge as you go" while the mode is a held one). In `merge-auto` a same-repo `depends_on`, implicit or explicit, is the merged-PR barrier: the dependent waits until the dependency's PR is merged and then starts from the advanced default branch — not a misfit, nothing to confirm. The question includes the glyphs, the three diagrams below and a one-line tradeoff each, then preview again with the chosen `--mode` if it changes. After confirmation, make exactly one live `queue --mode <confirmed-mode>` call with the same entries; it stamps the mode on every item. A live misfit without an explicit `--mode` refuses without writing.
 
 At a glance: `▂▄▆` cherry-pick-ladder · `░▒▓█` merge-auto · `▄▀` stacked-prs.
 

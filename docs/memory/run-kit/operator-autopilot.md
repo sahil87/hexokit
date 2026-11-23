@@ -107,7 +107,7 @@ A `step` pass reports its decided actions in engine order: `spawned`, `respawned
 - **Stamping**: every item gets `queue` (the queue id) and `merge_mode`, resolved once as `--mode` > rk setting `operator.merge_mode` > `cherry-pick-ladder`; the receipt prints `mode: <name> (flag|setting|default)`. An invalid setting value is an error naming the valid set. fab's `autopilot.merge_mode` is never read.
 - **Chaining**: each entry after the first depends on the nearest earlier same-repo entry, else the previous entry (cross-repo is ordering-only); explicit `depends_on` replaces it. In `merge-auto`, each entry depends on the previous entry as an ordering barrier only.
 - **Rejected before any write**: forward and cyclic dependencies, dependencies on bare entries, duplicate ids (checked against both the engine file and the ledger), repos that are not absolute git roots, invalid branches.
-- **Misfit-safe live call**: a live `queue` whose receipt has a misfit (`merge-auto` with explicit same-repo `depends_on`) and no explicit `--mode` writes nothing and errors naming the misfit. The chat flow is `queue --dry-run`, confirm mode and misfits with the user, then exactly one live call.
+- **Explicit `depends_on` in `merge-auto` is the barrier**: an explicit same-repo dependency is kept as-is and behaves exactly like the implicit predecessor barrier — the dependent is `held` until the dependency's PR reads `MERGED`, then spawns off the advanced default branch (§ Readiness gate). The receipt's `misfits` list exists for the `--json` shape and is empty; no entry shape is a misfit today. The chat flow is `queue --dry-run`, confirm the mode with the user, then exactly one live call.
 - **Explicit membership**: queue work is exactly what the engine file's `queue` list holds. A pane tracked with `rk operator track add` is never spawned, respawned or listed by `status`, whatever its `depends_on`; `track add` refuses an id that names an engine item.
 
 ### Requirement: Remove, pause, resume and stop
@@ -260,3 +260,9 @@ A queue's merge mode (`cherry-pick-ladder`, `stacked-prs`, `merge-auto`) has two
 **Why**: A queued entry has no ledger record until it spawns, so `rk operator track pause` cannot hold it, and `stop` pauses every unspawned entry; without a per-entry pause the engine spawned a gated step the moment its dependencies finished, and the run's intake rule then advanced it past the gate.
 **Rejected**: queuing gated steps in a later `queue` call only (works, but the gate is then invisible in `status` until the user remembers); a `gate` field with its own semantics (paused already derives the status and `resume` already clears it).
 *Introduced by*: PR #1150 (direct change, no fab intake)
+
+### An explicit same-repo dependency in merge-auto is not a misfit
+**Decision**: `queue` no longer reports `misfit: merge-auto with same-repo depends_on …` nor refuses a live call over it; an explicit same-repo `depends_on` is the merged-PR barrier, the same as the implicit one.
+**Why**: The misfit text ("each entry is based on the default branch independently, so the dependency's code never reaches it") was true in R6a and false since the merged-PR barrier (#1166): the dependent waits for the dependency's PR to merge and spawns off the advanced base, so the code does reach it. The stale receipt made the chat ask the user to pick a mode for the one shape that was already correct (the wt plan's W1 → W2).
+**Rejected**: rewording the misfit as an informational line (there is nothing to decide); keeping the refusal for a future misfit (no producer exists; add it with the producer).
+*Introduced by*: PR (direct change, no fab intake) — merge-auto-same-repo-barrier
