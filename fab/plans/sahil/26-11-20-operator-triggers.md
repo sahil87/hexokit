@@ -7,10 +7,13 @@
 > days of live data (2026-11-14 → 11-20) on four tmux servers: cron logs, run records, ledgers, and the
 > `claude -p` transcripts. "run-kit" in the step table means this repo (hexokit). Every step is in this repo.
 
-> **Status (2026-11-20): complete except M1.** Done: T1 #1162, T2 #1164, T3 #1166, T4 #1167, T5 #1169 (feature off:
-> `operator.pr_hooks` unset; the T8 spike was blocked because the account is not admin), T6 #1171, T7 #1172, R1 (done 2026-11-20,
-> v3.23.10). M1 is scheduled for 2026-11-27.
-
+> **Status (2026-11-23).**
+> **Done** — T1 #1162 · T2 #1164 · T3 #1166 · T4 #1167 · T5 #1169 (feature off: `operator.pr_hooks` unset — the account is
+> not admin) · T6 #1171 · T7 #1172 · **R1** 2026-11-20 as v3.23.10 (installed binary now v3.23.11). Direct fixes since: #1176
+> (a manual trigger waives the idle floor), #1177 (same-repo `depends_on` in `merge-auto` is the barrier, not a misfit).
+> **Pending** — **T8** plain spawn + `base` (not queued) · **T9** adopt `wt` v0.1.8 receipt (not queued) · **T10** `--temp`/`--pr`
+> in the run rules (not queued) · **R2** roll-out (cron entry `00g2` armed on `hexokit2`, waits for T8–T10) · **M1** report
+> (cron entry `qd4p`, fires 2026-11-27).
 **Your involvement.** None until the end. PRs merge when green (`merge-auto`); the operator runs the
 one release itself (step **R1**) and notifies you before the daemon restart and after verification.
 You hear from it only on a halt, at R1, and when the one-week report (**M1**) lands. If you want to
@@ -152,16 +155,19 @@ decided mechanically. Everything the Go side still does is cheap, deterministic,
 
 | ID | Repo | Step | Depends on | Size | Gate |
 |---|---|---|---|---|---|
-| **T1** | run-kit | Check: idle defined (same-window worker + 3-min floor); stage baseline seeded | — | M | — |
-| **T2** | run-kit | Clock: failure streaks climb; trigger door (`rk operator wake`, marker, fire reason); check record per fire; notes as conditions; `POST /api/operator/wake`; legacy-tick sweep | — | M | — |
-| **T3** | run-kit | Engine re-scope: delete PR rows, executors, `prs`/`fixes`, `merge`, Q6a/Q6b/Q7; modes become spawn shape + AI authority; judgment set updated | T1 | L | — |
-| **T4** | run-kit | Brief and chat skill: git/gh/wt back within the tiers; Merging section per mode; `track show`; re-read one item; no note when nothing done; user notes always shown | T3 | M | — |
-| **T5** | run-kit | PR trigger, opportunistic: `operator.pr_hooks`, admin probe, `rk-gh-hooks` sibling session + receiver, doctor rows | T2 | M | — |
-| **T6** | run-kit | Activity tab + Check now + `GET /api/operator/activity` + brief/log endpoints; loop rows hidden in Cron Log | T2, T4 | L | — |
-| **T7** | run-kit | Tasks Needs-you band + note composer calls wake; Cron List + Cron Log merge into one Cron tab; mobile `?tab=` | T6 | M | — |
-| **T8** | run-kit | Plain spawn in a fab repo: `plain: true` queue entries run a task as a plain agent (no `/fab-new`), the chat skill's spawn table gains the row, scratch tabs via `rk riff` are allowed when asked | — (added 2026-11-20 after R1) | S | — |
-| **R1** | — | **Done 2026-11-20 (v3.23.10).** Release and roll out: `just release patch`, wait for CI, `rk update`, restart each live daemon, verify one trigger → check → run cycle, notify | T5 (re-landed as #1169), T7 | S | operator chat, cron-woken |
-| **M1** | — | Report one week after R1: model runs/day, no-op share, tokens/run, failure streaks, PR-trigger latency; one note + notify | R1 | S | operator chat, cron-woken |
+| **T1** | ✓ done #1162 · run-kit | Check: idle defined (same-window worker + 3-min floor); stage baseline seeded | — | M | — |
+| **T2** | ✓ done #1164 · run-kit | Clock: failure streaks climb; trigger door (`rk operator wake`, marker, fire reason); check record per fire; notes as conditions; `POST /api/operator/wake`; legacy-tick sweep | — | M | — |
+| **T3** | ✓ done #1166 · run-kit | Engine re-scope: delete PR rows, executors, `prs`/`fixes`, `merge`, Q6a/Q6b/Q7; modes become spawn shape + AI authority; judgment set updated | T1 | L | — |
+| **T4** | ✓ done #1167 · run-kit | Brief and chat skill: git/gh/wt back within the tiers; Merging section per mode; `track show`; re-read one item; no note when nothing done; user notes always shown | T3 | M | — |
+| **T5** | ✓ done #1169 · run-kit | PR trigger, opportunistic: `operator.pr_hooks`, admin probe, `rk-gh-hooks` sibling session + receiver, doctor rows | T2 | M | — |
+| **T6** | ✓ done #1171 · run-kit | Activity tab + Check now + `GET /api/operator/activity` + brief/log endpoints; loop rows hidden in Cron Log | T2, T4 | L | — |
+| **T7** | ✓ done #1172 · run-kit | Tasks Needs-you band + note composer calls wake; Cron List + Cron Log merge into one Cron tab; mobile `?tab=` | T6 | M | — |
+| **R1** | ✓ done 2026-11-20 (v3.23.10) · — | Release and roll out: `just release patch`, wait for CI, `rk update`, restart each live daemon, verify one trigger → check → run cycle, notify | T5 (re-landed as #1169), T7 | S | operator chat, cron-woken |
+| **T8** | ○ pending · run-kit | Plain spawn in a fab repo: `plain: true` queue entries run a task as a plain agent (no `/fab-new`); `base: <branch>` picks the start point and PR base; the chat skill's spawn table gains both; scratch tabs via `rk riff` are allowed when asked | — (added 2026-11-20 after R1) | M | — |
+| **T9** | ○ pending · run-kit | Adopt `wt` v0.1.8 in riff and the engine: `wt create --fetch --json`, the receipt replaces `Path:` parsing and the engine's own fetch/`rev-parse`/branch copy; respawn unchanged | T8 | M | — |
+| **T10** | ○ pending · run-kit | Run rules and chat skill use `wt create --temp <sha>` / `--pr <n>` for restacks and conflict work, and `rk riff -- --base origin/<b> --fetch` for hand spawns; `wt list --json` `base` is the recorded PR base | T9 | S | — |
+| **R2** | ○ pending · — | Roll-out after T8–T10 merge: `rk update`, `rk daemon restart`, verify one plain spawn with a base, notify (CI auto-tags) | T10 | S | operator chat, cron-woken |
+| **M1** | ○ pending · — | Report one week after R1: model runs/day, no-op share, tokens/run, failure streaks, PR-trigger latency; one note + notify | R1 | S | operator chat, cron-woken |
 
 ```
 T1 ── T3 ── T4 ──┐
@@ -349,8 +355,18 @@ user from choosing a plain agent on purpose.
   Dependency chaining and the three modes' spawn shape are unchanged (a `stacked-prs` plain entry names
   the dependency branch as its PR base, as the no-fab path already does). `status` and `status --json`
   show `plain`. The engine file stores the flag (structure, Constitution II).
+- **Queue entry field `base: <branch>`** (added 2026-11-23). The start point of the new worktree and the
+  PR base: spawn passes `--base origin/<base>` to `wt create` (fetch-first SHA pin as today — after T9,
+  `wt create --fetch` does the fetch and pin), `fab status set-base-branch <change> <base>` for a fab
+  item (the same mechanism the stacked path uses), the prompt's "open a draft PR against `<base>`" for a
+  plain one; the ladder's cherry-pick range becomes `origin/<base>..<dep>`. The branch must exist on
+  `origin` (rejected before any write otherwise). `base` with `stacked-prs` and a same-repo dependency
+  is a misfit of two bases → refuse. `status --json` shows `base`. Default: the repo's default branch,
+  exactly as today. Why: the engine computes its base from two inputs (default branch, or the
+  dependency's branch in `stacked-prs`) and a user-chosen base — loom2's `eng-v2` — is neither; `wt`
+  already takes any ref, the engine never asked.
 - **Chat skill** (`rk skill operator`): the spawn table gains the row `fab/` present + task + `plain` ⇒
-  plain agent, and the rule: when the user asks for an agent on a tab for a task *without* the fab
+  plain agent, a `base:` note ("the work belongs on `<branch>`" ⇒ `base`), and the rule: when the user asks for an agent on a tab for a task *without* the fab
   pipeline, queue it `plain: true` (still tracked, still a worktree). When the user explicitly asks for an
   untracked scratch tab, `rk riff` / `rk tab new -- <cmd>` is allowed and the skill says it is not
   tracked and nothing may depend on it. The `/fab-new` default for a fab repo stays.
@@ -361,6 +377,56 @@ user from choosing a plain agent on purpose.
   Decision "The request, not the repo, picks the pipeline".
 - Roll-out: CI auto-tags on merge (R1 found `just release` redundant); the chat runs `rk update` and
   `rk daemon restart` once the PR is merged, the same way R1 did, with the 2-minute notice.
+
+### T9 — Adopt `wt` v0.1.8 in riff and the engine (run-kit) — added 2026-11-23
+
+`wt` v0.1.8 (sahil87/wt plan `26-11-23-worktree-base-receipts.md`, PRs #62–#66) ships
+`wt create --fetch --json`, the recorded base (`branch.<name>.wt-base[-sha]`, `base`/`base_sha` in
+`wt list --json`), the `--reuse`+`--base` usage error, `--pr <n>` and `--temp <ref>`. Everything riff
+and the engine do around `wt create` today exists to compensate for their absence.
+
+- **riff** (`internal/riff/riff.go`): `runWtCreate` passes `--fetch --json`; `parseWorktreePath`'s
+  `^Path:` scan is replaced by decoding the one receipt document (`{path, name, branch, base_ref,
+  base_sha, mode, init}`); `Result` gains `BaseRef`, `BaseSHA` and `Init`. A receipt with
+  `init: failed` is the existing exit-7 shape: the worktree exists, report it, never roll back. `rk riff`
+  keeps the `--` passthrough.
+- **engine** (`internal/autopilot/spawn.go`): delete the engine's `git fetch origin` and the
+  `rev-parse` of `baseRef`; pass `--base origin/<def|dep|base>` with `--fetch` and take `base_sha` and
+  `branch` from the receipt for the attach write and `branch_map`. "A failed fetch stops the spawn"
+  becomes `wt` exit 3 → the same escalation and `pending` outcome. The ladder cherry-pick keeps its
+  `rev-parse --verify refs/remotes/origin/<dep>` (the fetch inside `wt create` has refreshed it). The
+  stacked path's `set-base-branch` and respawn (`--checkout`) are unchanged.
+- **Minimum version**: riff probes `wt --version` once per process and refuses to spawn below
+  v0.1.8 with a one-line fix (`wt update`); the engine escalates the same text. No silent fallback to the
+  old parsing.
+- Tests: riff's wt fake emits the receipt; engine spawn tests assert no `fetch`/`rev-parse` argv and
+  the receipt-sourced `branch`/`base_sha`; exit-3 and exit-7 receipts.
+- Docs: `rk-riff.md`, `operator-autopilot.md` § Spawn (fetch-first SHA pin becomes "`wt` fetches and
+  pins; the receipt is the record"), a Design Decision "The receipt is the spawn's record".
+
+### T10 — `--temp`, `--pr` and the recorded base in the run rules and chat skill (run-kit) — added 2026-11-23
+
+- `brief_rules.md` § Merging: the temporary detached worktree for a restack or conflict round is
+  `wt create --temp <observed-head-sha> --fetch --json` (cleanup `wt delete <name>`), never raw
+  `git worktree add --detach`; a fix on a PR's head is `wt create --pr <n>`. The PR base for a plain
+  item is read from `wt list --json` (`base`) in the item's repo when the brief does not carry it.
+- `rk skill operator`: hand spawns the user explicitly asks for are
+  `rk riff -L <server> -- --base origin/<branch> --fetch` (the `--` passthrough), tracked with
+  `track add`; the gotcha that `--reuse` and `--base` no longer combine.
+- Tests: the render test asserts the `wt create --temp` text and that `git worktree add` is absent
+  from the rules; skill drift guards.
+- Docs: `operator-brief.md`, `docs/site/skill/operator.md` + sync.
+
+### R2 — Roll-out after T8–T10 (operator chat, cron-woken, no fab change)
+
+CI auto-tags on merge, so there is no release step; the chat, woken by a cron entry like R1's, runs
+`rk update`, `rk daemon restart`, verifies one `plain: true` spawn with a `base` on a scratch queue
+(`autopilot queue --dry-run` first), writes a note, notifies, and removes the entry:
+
+```sh
+rk cron add -L hexokit2 --name "r2 wt adoption" --cron "30 */4 * * *" --role operator --deliver when-idle \
+  "operator: plan fab/plans/sahil/26-11-20-operator-triggers.md, step R2 — once the PRs of ot-t8, ot-t9 and ot-t10 all show MERGED, execute R2 as its brief says (rk update, rk daemon restart with the 2-minute notice, verify, note, notify), then rk cron rm this entry; otherwise reply 'R2: not yet' and do nothing else."
+```
 
 ### R1 — Release and roll out (operator chat, cron-woken, no fab change)
 
