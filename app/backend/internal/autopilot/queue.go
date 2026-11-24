@@ -23,6 +23,8 @@ const (
 // Engine-file field names. Ledger projections never carry these keys.
 const (
 	scopeTask      = "task"
+	scopePlain     = "plain"
+	scopeBase      = "base"
 	scopeBare      = "bare"
 	scopeRespawned = "respawned"
 	scopeSkipped   = "skipped"
@@ -40,12 +42,16 @@ var itemIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 // Entry is one queue entry as it arrives on stdin. Exactly one of Change (an
 // existing fab change) and Task (raw text) names the work; neither is a bare
-// agent, which nothing may depend on.
+// agent, which nothing may depend on. Plain makes a Task run as a plain agent
+// even in a fab repo; Base is the branch the worktree starts from and the PR
+// targets (the default branch when empty).
 type Entry struct {
 	ID        string    `json:"id"`
 	Repo      string    `json:"repo"`
 	Change    string    `json:"change,omitempty"`
 	Task      string    `json:"task,omitempty"`
+	Plain     bool      `json:"plain,omitempty"`
+	Base      string    `json:"base,omitempty"`
 	DependsOn *[]string `json:"depends_on,omitempty"`
 	StopStage *string   `json:"stop_stage,omitempty"`
 	// Paused queues the entry held: the spawn gate skips it until
@@ -59,7 +65,7 @@ func ParseEntries(data []byte) ([]Entry, error) {
 	dec.DisallowUnknownFields()
 	var entries []Entry
 	if err := dec.Decode(&entries); err != nil {
-		return nil, operatorInvalid("invalid queue entries (want a JSON array of {id, repo, change|task, depends_on?, stop_stage?, paused?}): %v", err)
+		return nil, operatorInvalid("invalid queue entries (want a JSON array of {id, repo, change|task, plain?, base?, depends_on?, stop_stage?, paused?}): %v", err)
 	}
 	if _, err := dec.Token(); err != io.EOF {
 		return nil, operatorInvalid("invalid queue entries: unexpected input after the JSON array")
@@ -241,6 +247,9 @@ func (e *engine) buildQueue(ctx context.Context, st *operator.State, entries []E
 		if en.StopStage != nil && *en.StopStage != "" && !validStage(*en.StopStage) {
 			return nil, nil, operatorInvalid("entry %s: invalid stop_stage %q", en.ID, *en.StopStage)
 		}
+		if err := e.validatePlainBase(ctx, en); err != nil {
+			return nil, nil, err
+		}
 		byID[en.ID] = en
 		pos[en.ID] = i
 	}
@@ -261,6 +270,9 @@ func (e *engine) buildQueue(ctx context.Context, st *operator.State, entries []E
 			if j, inQueue := pos[d]; inQueue && j >= i {
 				return nil, nil, operatorInvalid("entry %s depends on %s, which is not an earlier entry in the queue: a dependency must come before its dependent", en.ID, d)
 			}
+			if err := checkDepBase(st, byID, en, d, mode); err != nil {
+				return nil, nil, err
+			}
 		}
 		scope := map[string]interface{}{
 			"repo": en.Repo, scopeMergeMode: mode, scopeBare: en.Change == "" && en.Task == "", scopeQueue: queueID,
@@ -270,6 +282,12 @@ func (e *engine) buildQueue(ctx context.Context, st *operator.State, entries []E
 		}
 		if en.Task != "" {
 			scope[scopeTask] = en.Task
+		}
+		if en.Plain && en.Task != "" {
+			scope[scopePlain] = true
+		}
+		if en.Base != "" {
+			scope[scopeBase] = en.Base
 		}
 		if en.StopStage != nil && *en.StopStage != "" {
 			scope["stop_stage"] = *en.StopStage
@@ -282,6 +300,34 @@ func (e *engine) buildQueue(ctx context.Context, st *operator.State, entries []E
 		items = append(items, it)
 	}
 	return items, misfits, nil
+}
+
+// validatePlainBase checks an entry's plain and base fields. A plain entry has
+// no change and no pipeline stages to stop at; a base must be a valid branch
+// name that exists on the repo's origin, probed authoritatively with ls-remote
+// rather than a possibly stale remote-tracking ref.
+func (e *engine) validatePlainBase(ctx context.Context, en Entry) error {
+	if en.Plain {
+		if en.Change != "" {
+			return operatorInvalid("entry %s: plain cannot be combined with a change", en.ID)
+		}
+		if en.StopStage != nil && *en.StopStage != "" {
+			return operatorInvalid("entry %s: plain cannot be combined with a stop_stage (a plain agent has no pipeline stages)", en.ID)
+		}
+	}
+	if en.Base == "" {
+		return nil
+	}
+	if safeBranch(en.Base) == "" {
+		return operatorInvalid("entry %s: invalid base %q", en.ID, en.Base)
+	}
+	if _, err := e.git(ctx, en.Repo, "ls-remote", "--exit-code", "--heads", "origin", "refs/heads/"+en.Base); err != nil {
+		if exitCode(err, 2) {
+			return operatorInvalid("entry %s: base %s is not a branch on origin", en.ID, en.Base)
+		}
+		return operatorInvalid("entry %s: cannot verify base %s on origin: %s", en.ID, en.Base, stderrOf(err))
+	}
+	return nil
 }
 
 // queueID names one `queue` call: the first entry's id plus the call time, so
@@ -330,6 +376,39 @@ func checkDep(st *operator.State, byID map[string]Entry, en Entry, dep string) e
 		return operatorInvalid("entry %s depends on %s, a bare agent with no task: nothing can depend on it", en.ID, dep)
 	}
 	return nil
+}
+
+// checkDepBase refuses a base that cannot sit with a same-repo dependency: a
+// stacked-prs entry bases on its dependency's branch, and a cherry-pick-ladder
+// entry cherry-picks origin/<base>..<dep>, which carries the dependency's whole
+// history unless both start from the same base ("" is the default branch). A
+// merge-auto barrier only orders the two, so any bases are fine.
+func checkDepBase(st *operator.State, byID map[string]Entry, en Entry, dep, mode string) error {
+	if !sameRepoDep(st, byID, en, dep) {
+		return nil
+	}
+	switch mode {
+	case operator.MergeModeStackedPRs:
+		if en.Base != "" {
+			return operatorInvalid("entry %s: base %s conflicts with its stacked-prs dependency %s: a stacked entry bases on its dependency's branch", en.ID, en.Base, dep)
+		}
+	case operator.MergeModeCherryPickLadder:
+		if db := depBaseOf(st, byID, dep); db != en.Base {
+			return operatorInvalid("entry %s: base %q differs from its dependency %s's base %q: a cherry-pick-ladder entry and its same-repo dependencies must start from the same base", en.ID, en.Base, dep, db)
+		}
+	}
+	return nil
+}
+
+// depBaseOf is a dependency's base: its queue entry's, else its tracked scope's.
+func depBaseOf(st *operator.State, byID map[string]Entry, dep string) string {
+	if d, ok := byID[dep]; ok {
+		return d.Base
+	}
+	if i := operator.IndexOf(st.Tracked, dep); i >= 0 {
+		return operator.ScopeString(st.Tracked[i].Scope, scopeBase)
+	}
+	return ""
 }
 
 func sameRepoDep(st *operator.State, byID map[string]Entry, en Entry, dep string) bool {

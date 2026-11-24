@@ -31,6 +31,9 @@ func (r *cliRunner) Run(_ context.Context, dir string, argv ...string) (string, 
 	if len(argv) >= 3 && argv[0] == "git" && argv[1] == "rev-parse" && argv[2] == "--show-toplevel" {
 		return dir + "\n", nil
 	}
+	if len(argv) >= 2 && argv[0] == "git" && argv[1] == "ls-remote" {
+		return "deadbeef\trefs/heads/eng-v2\n", nil
+	}
 	return "", &autopilot.ExecError{Argv: argv, Stderr: "unscripted in the CLI test", Err: fmt.Errorf("exit status 1")}
 }
 
@@ -244,6 +247,26 @@ func TestAutopilotStatus(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(out), &env); err != nil || len(env.Result.Items) != 2 || env.Result.Complete {
 		t.Fatalf("status envelope = %s (%v)", out, err)
+	}
+}
+
+func TestAutopilotStatusRowShowsPlainAndBaseOnlyWhenSet(t *testing.T) {
+	autopilotSandbox(t, "")
+	repo := t.TempDir()
+	entries := fmt.Sprintf(`[{"id":"p1","repo":%q,"task":"bump deps","plain":true,"base":"eng-v2"},{"id":"p2","repo":%q,"task":"other","depends_on":[]}]`, repo, repo)
+	if _, err := autopilotCLI(t, entries, "queue", "--mode", "merge-auto"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := autopilotCLI(t, "", "status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) < 2 || !strings.HasSuffix(lines[0], " · plain · base eng-v2") {
+		t.Fatalf("status = %q", out)
+	}
+	if strings.Contains(lines[1], "plain") || strings.Contains(lines[1], "base") {
+		t.Fatalf("an item without plain/base shows them: %q", lines[1])
 	}
 }
 

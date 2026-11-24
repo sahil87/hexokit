@@ -23,6 +23,8 @@ type engineItem struct {
 	Repo      string                 `yaml:"repo,omitempty" json:"repo,omitempty"`
 	Change    string                 `yaml:"change,omitempty" json:"change,omitempty"`
 	Task      string                 `yaml:"task,omitempty" json:"task,omitempty"`
+	Plain     bool                   `yaml:"plain,omitempty" json:"plain,omitempty"`
+	Base      string                 `yaml:"base,omitempty" json:"base,omitempty"`
 	Bare      bool                   `yaml:"bare,omitempty" json:"bare,omitempty"`
 	Branch    string                 `yaml:"branch,omitempty" json:"branch,omitempty"`
 	Worktree  string                 `yaml:"worktree,omitempty" json:"worktree,omitempty"`
@@ -153,6 +155,7 @@ func engineItemFromTracked(it operator.TrackedItem, projected bool) engineItem {
 		ID: it.ID, Queue: operator.ScopeString(it.Scope, scopeQueue),
 		Repo:   operator.ScopeString(it.Scope, "repo"),
 		Change: operator.ScopeString(it.Scope, "change"), Task: operator.ScopeString(it.Scope, scopeTask), Bare: isBare(it),
+		Plain: scopeBool(it, scopePlain), Base: operator.ScopeString(it.Scope, scopeBase),
 		Branch: operator.ScopeString(it.Scope, "branch"), MergeMode: operator.ScopeString(it.Scope, scopeMergeMode), StopStage: operator.ScopeString(it.Scope, "stop_stage"),
 		DependsOn: append([]string{}, it.DependsOn...), Paused: it.Paused, Spawning: operator.ScopeString(it.Scope, scopeSpawning),
 		Respawned: scopeBool(it, scopeRespawned), Skipped: skipped(it), Pane: operator.ScopeString(it.Scope, "pane"),
@@ -184,6 +187,12 @@ func (it engineItem) tracked() operator.TrackedItem {
 	}
 	if it.Task != "" {
 		scope[scopeTask] = it.Task
+	}
+	if it.Plain {
+		scope[scopePlain] = true
+	}
+	if it.Base != "" {
+		scope[scopeBase] = it.Base
 	}
 	if it.StopStage != "" {
 		scope["stop_stage"] = it.StopStage
@@ -289,7 +298,7 @@ func QueueEntries(statePath string) (map[string]operator.QueueEntry, error) {
 	}
 	out := make(map[string]operator.QueueEntry, len(st.Queue))
 	for _, it := range st.Queue {
-		out[it.ID] = operator.QueueEntry{Task: it.Task, Change: it.Change, StopStage: it.StopStage, MergeMode: it.MergeMode}
+		out[it.ID] = operator.QueueEntry{Task: it.Task, Change: it.Change, StopStage: it.StopStage, MergeMode: it.MergeMode, Plain: it.Plain, Base: it.Base}
 	}
 	return out, nil
 }

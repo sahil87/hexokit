@@ -96,13 +96,24 @@ func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.
 		return
 	}
 	def := e.defaultBranch(ctx, repo, id)
-	baseRef := "origin/" + def
+	itemBase := operator.ScopeString(it.Scope, scopeBase)
+	base := def
+	if itemBase != "" {
+		base = itemBase
+	}
+	baseRef := "origin/" + base
 	deps := sameRepoDeps(st, it)
 
 	var ladder []depRef
 	stackedBranch := ""
 	switch mode {
 	case operator.MergeModeCherryPickLadder:
+		for _, d := range deps {
+			if db := operator.ScopeString(d.Scope, scopeBase); db != itemBase {
+				e.escalate(id, fmt.Sprintf("base %q differs from dependency %s's base %q: nothing was spawned", itemBase, d.ID, db))
+				return
+			}
+		}
 		var err error
 		ladder, err = e.ladderDeps(ctx, st, repo, deps)
 		if err != nil {
@@ -117,6 +128,10 @@ func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.
 		}
 		stackedBranch = b
 		if b != "" {
+			if itemBase != "" {
+				e.escalate(id, fmt.Sprintf("base %s conflicts with the stacked dependency base %s: nothing was spawned", itemBase, b))
+				return
+			}
 			baseRef = "origin/" + b
 		}
 	}
@@ -162,12 +177,16 @@ func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.
 		e.escalate(id, err.Error())
 		return
 	}
+	recordBase := stackedBranch
+	if recordBase == "" {
+		recordBase = itemBase
+	}
 	req := SpawnRequest{
 		Repo: repo, Session: session, WorktreeName: id, BaseSHA: sha, NewBranch: newBranch,
 		Prompt: prompt,
 		Note:   id + " · spawned",
 		Prepare: func(ctx context.Context, wt string) error {
-			return e.prepareWorktree(ctx, wt, id, change, def, mode, ladder, stackedBranch)
+			return e.prepareWorktree(ctx, wt, id, change, base, mode, ladder, recordBase)
 		},
 	}
 	e.launch(ctx, it, fp, req, ActSpawned, false)
@@ -341,26 +360,35 @@ func (e *engine) belowConfidenceGate(repo, folder string) string {
 	return ""
 }
 
-// buildPrompt applies the two-axis table: fab/ present or not, task given or
-// not. A bare agent carries no prompt, and raw implementation text never goes
-// to a fab-project agent.
+// buildPrompt picks the prompt from the request and the repo: a plain task
+// (or any task in a repo without fab/) is the task text plus the commit, push
+// and draft-PR instruction; a task in a fab repo otherwise goes through
+// /fab-new, never as raw text; an existing change runs /fab-fff. A bare agent
+// carries no prompt. The PR base is the stacked dependency branch, else the
+// item's base, else the default branch; a fab item with a stacked or item base
+// has that base recorded on its change.
 func (e *engine) buildPrompt(ctx context.Context, it operator.TrackedItem, repo, def, stackedBase string) (string, error) {
 	change := operator.ScopeString(it.Scope, "change")
 	task := operator.ScopeString(it.Scope, scopeTask)
+	itemBase := operator.ScopeString(it.Scope, scopeBase)
 	hasFab, err := fabPresent(repo)
 	if err != nil {
 		return "", err
 	}
-	if hasFab {
+	if hasFab && !scopeBool(it, scopePlain) {
 		switch {
 		case change != "":
 			return "/fab-fff " + change, nil
 		case task != "":
 			p := "/fab-new " + task
-			if stackedBase != "" {
+			recorded := stackedBase
+			if recorded == "" {
+				recorded = itemBase
+			}
+			if recorded != "" {
 				prefix := resolveAgentFn(ctx, repo, "").SkillPrefix
 				p += fmt.Sprintf("\n\nAfter %s creates the change, run `fab status set-base-branch <new-change> %s`.",
-					riff.RenderSkillRef(prefix, "/fab-new"), stackedBase)
+					riff.RenderSkillRef(prefix, "/fab-new"), recorded)
 			}
 			return p, nil
 		}
@@ -369,17 +397,21 @@ func (e *engine) buildPrompt(ctx context.Context, it operator.TrackedItem, repo,
 	if task == "" {
 		return "", nil
 	}
-	base := def
-	if stackedBase != "" {
-		base = stackedBase
+	prBase := def
+	switch {
+	case stackedBase != "":
+		prBase = stackedBase
+	case itemBase != "":
+		prBase = itemBase
 	}
-	return task + "\n\nCommit on this branch, push, and open a draft PR against " + base + ".", nil
+	return task + "\n\nCommit on this branch, push, and open a draft PR against " + prBase + ".", nil
 }
 
 // prepareWorktree runs in the new worktree before any window opens: dependency
-// code by mode, the stacked-prs base record, then the fail-soft pointer
+// code by mode (cherry-picked on top of base), the base record when the change
+// is based on a non-default branch (recordBase), then the fail-soft pointer
 // activation. A returned error rolls the worktree back.
-func (e *engine) prepareWorktree(ctx context.Context, wt, id, change, def, mode string, ladder []depRef, stackedBase string) error {
+func (e *engine) prepareWorktree(ctx context.Context, wt, id, change, base, mode string, ladder []depRef, recordBase string) error {
 	if mode == operator.MergeModeCherryPickLadder {
 		for _, d := range ladder {
 			ancestor, err := e.isAncestor(ctx, wt, d.ref, "HEAD")
@@ -389,7 +421,7 @@ func (e *engine) prepareWorktree(ctx context.Context, wt, id, change, def, mode 
 			if ancestor {
 				continue
 			}
-			if _, err := e.git(ctx, wt, "cherry-pick", "--no-commit", "origin/"+def+".."+d.ref); err != nil {
+			if _, err := e.git(ctx, wt, "cherry-pick", "--no-commit", "origin/"+base+".."+d.ref); err != nil {
 				if _, abortErr := e.git(ctx, wt, "cherry-pick", "--abort"); !noCherryPickInProgress(abortErr) {
 					e.escalate(id, "git cherry-pick --abort failed: "+stderrOf(abortErr))
 				}
@@ -416,8 +448,8 @@ func (e *engine) prepareWorktree(ctx context.Context, wt, id, change, def, mode 
 	if !hasFab {
 		return nil
 	}
-	if mode == operator.MergeModeStackedPRs && stackedBase != "" {
-		if _, err := e.run(ctx, wt, "fab", "status", "set-base-branch", change, stackedBase); err != nil {
+	if recordBase != "" {
+		if _, err := e.run(ctx, wt, "fab", "status", "set-base-branch", change, recordBase); err != nil {
 			return fmt.Errorf("recording the base branch: %s", stderrOf(err))
 		}
 	}

@@ -94,6 +94,10 @@ type StatusItem struct {
 	Task      string `json:"task,omitempty"`
 	Change    string `json:"change,omitempty"`
 	StopStage string `json:"stop_stage,omitempty"`
+	// Plain marks a task run as a plain agent in a fab repo; Base is the branch
+	// the item starts from and its PR targets. Each is omitted when unset.
+	Plain bool   `json:"plain,omitempty"`
+	Base  string `json:"base,omitempty"`
 }
 
 // StatusResult is the read-only queue view. Summary is the Queue Completion
@@ -139,6 +143,7 @@ func Status(ctx context.Context, env Env) (StatusResult, error) {
 			Queue: operator.ScopeString(it.Scope, scopeQueue),
 			Task:  operator.ScopeString(it.Scope, scopeTask), Change: operator.ScopeString(it.Scope, "change"),
 			StopStage: operator.ScopeString(it.Scope, "stop_stage"),
+			Plain:     scopeBool(it, scopePlain), Base: operator.ScopeString(it.Scope, scopeBase),
 		}
 		res.Items = append(res.Items, row)
 	}

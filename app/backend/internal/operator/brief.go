@@ -73,6 +73,10 @@ type QueueEntry struct {
 	Change    string
 	StopStage string
 	MergeMode string
+	// Plain marks a task run as a plain agent (no fab pipeline) even in a fab
+	// repo; Base is the branch it starts from and its PR targets.
+	Plain bool
+	Base  string
 }
 
 // briefLayout is one rendering pass's trim settings.
@@ -260,8 +264,9 @@ func writeItemBlock(b *strings.Builder, items []TrackedItem, it TrackedItem, ent
 	b.WriteString("\n")
 }
 
-// briefQueueEntry renders a queue entry as one line: mode, stop stage, and
-// the task (quoted) or change it was queued with.
+// briefQueueEntry renders a queue entry as one line: mode, stop stage, the
+// plain and base markers when set, and the task (quoted) or change it was
+// queued with.
 func briefQueueEntry(e QueueEntry) string {
 	mode := e.MergeMode
 	if mode == "" {
@@ -272,6 +277,12 @@ func briefQueueEntry(e QueueEntry) string {
 		stop = "null"
 	}
 	line := fmt.Sprintf("mode %s; stop_stage %s", mode, stop)
+	if e.Plain {
+		line += "; plain"
+	}
+	if e.Base != "" {
+		line += "; base " + e.Base
+	}
 	switch {
 	case e.Task != "":
 		line += "; task " + strconv.Quote(e.Task)

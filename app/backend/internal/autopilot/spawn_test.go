@@ -378,6 +378,12 @@ func TestPromptTable(t *testing.T) {
 		{"plain task against the default branch", plain.Dir, map[string]interface{}{scopeTask: "fix it"}, "", "fix it\n\nCommit on this branch, push, and open a draft PR against main."},
 		{"plain task stacked", plain.Dir, map[string]interface{}{scopeTask: "fix it"}, "dep-branch", "fix it\n\nCommit on this branch, push, and open a draft PR against dep-branch."},
 		{"plain bare", plain.Dir, map[string]interface{}{scopeBare: true}, "", ""},
+		{"fab task queued plain", fabRepo.Dir, map[string]interface{}{scopeTask: "fix it", scopePlain: true}, "", "fix it\n\nCommit on this branch, push, and open a draft PR against main."},
+		{"fab task queued plain with a base", fabRepo.Dir, map[string]interface{}{scopeTask: "fix it", scopePlain: true, scopeBase: "eng-v2"}, "", "fix it\n\nCommit on this branch, push, and open a draft PR against eng-v2."},
+		{"fab task queued plain stacked", fabRepo.Dir, map[string]interface{}{scopeTask: "fix it", scopePlain: true}, "dep-branch", "fix it\n\nCommit on this branch, push, and open a draft PR against dep-branch."},
+		{"no-fab task with a base", plain.Dir, map[string]interface{}{scopeTask: "fix it", scopeBase: "eng-v2"}, "", "fix it\n\nCommit on this branch, push, and open a draft PR against eng-v2."},
+		{"fab raw text with a base", fabRepo.Dir, map[string]interface{}{scopeTask: "fix it", scopeBase: "eng-v2"}, "", "/fab-new fix it\n\nAfter /fab-new creates the change, run `fab status set-base-branch <new-change> eng-v2`."},
+		{"fab existing change with a base", fabRepo.Dir, map[string]interface{}{"change": "ab12", scopeBase: "eng-v2"}, "", "/fab-fff ab12"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -385,8 +391,8 @@ func TestPromptTable(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.HasPrefix(got, c.want) || (c.want == "" && got != "") {
-				t.Fatalf("prompt = %q, want prefix %q", got, c.want)
+			if got != c.want {
+				t.Fatalf("prompt = %q, want %q", got, c.want)
 			}
 		})
 	}
@@ -759,5 +765,186 @@ func TestPausedEntryHoldsUntilResume(t *testing.T) {
 	}
 	if !hasAction(res, ActSpawned, "gate") || len(h.spawn.reqs) != 2 || h.spawn.reqs[len(h.spawn.reqs)-1].WorktreeName != "gate" {
 		t.Fatalf("resumed gate not spawned: %+v reqs %d", res.Actions, len(h.spawn.reqs))
+	}
+}
+
+// baseFixture is a repo with a pushed long-lived branch eng-v2 that main does
+// not contain.
+func baseFixture(t *testing.T, withFab bool) (*harness, *testRepo, string) {
+	t.Helper()
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	if withFab {
+		commitFile(t, foo.Dir, "fab/project/config.yaml", "x: 1\n", "fab")
+		runGit(t, foo.Dir, "push", "origin", "main")
+	}
+	tip := foo.branch("eng-v2", "main", "eng.txt", "eng\n")
+	foo.pushBranch("eng-v2")
+	return h, foo, tip
+}
+
+func TestBaseStartsTheWorktreeAtTheBaseTip(t *testing.T) {
+	h, foo, tip := baseFixture(t, false)
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "bump deps", Base: "eng-v2"})
+	h.step()
+	req := h.spawn.reqs[0]
+	if req.BaseSHA != tip {
+		t.Fatalf("BaseSHA = %s, want the origin/eng-v2 tip %s", req.BaseSHA, tip)
+	}
+	if n := h.run.called("git rev-parse origin/eng-v2"); n != 1 {
+		t.Fatalf("rev-parse origin/eng-v2 calls = %d; calls: %v", n, h.run.calls)
+	}
+	if !strings.Contains(req.Prompt, "open a draft PR against eng-v2") {
+		t.Fatalf("prompt = %q", req.Prompt)
+	}
+}
+
+func TestLadderCherryPicksOnTopOfTheBase(t *testing.T) {
+	h, foo, tip := baseFixture(t, false)
+	h.queue("cherry-pick-ladder",
+		Entry{ID: "dep", Repo: foo.Dir, Task: "dep work", Base: "eng-v2"},
+		Entry{ID: "child", Repo: foo.Dir, Task: "child work", Base: "eng-v2"},
+	)
+	foo.branch("dep-branch", "eng-v2", "dep.txt", "from dep\n")
+	h.setDone("dep")
+	h.attachBranch("dep", "dep-branch")
+	h.gh.add(1, "dep-branch")
+
+	res := h.step()
+	if !hasAction(res, ActCherryPicked, "child") {
+		t.Fatalf("actions = %+v; escalations = %+v", res.Actions, res.Escalations)
+	}
+	var child SpawnRequest
+	for _, r := range h.spawn.reqs {
+		if r.WorktreeName == "child" {
+			child = r
+		}
+	}
+	if child.BaseSHA != tip {
+		t.Fatalf("BaseSHA = %s, want %s", child.BaseSHA, tip)
+	}
+	if n := h.run.called("git cherry-pick --no-commit origin/eng-v2.."); n != 1 {
+		t.Fatalf("cherry-pick must range from origin/eng-v2; calls: %v", h.run.calls)
+	}
+	wt := h.spawn.lastPath(t)
+	for _, f := range []string{"dep.txt", "eng.txt"} {
+		if _, err := os.Stat(filepath.Join(wt, f)); err != nil {
+			t.Fatalf("%s missing from the new worktree: %v", f, err)
+		}
+	}
+}
+
+func TestBaseRecordsTheBaseBranchForAnExistingFabChange(t *testing.T) {
+	h, foo, _ := baseFixture(t, true)
+	h.queue("", Entry{ID: "ab12", Repo: foo.Dir, Change: "ab12", Base: "eng-v2"})
+	h.step()
+	if n := h.run.called("fab status set-base-branch ab12 eng-v2"); n != 1 {
+		t.Fatalf("set-base-branch calls = %d; calls: %v", n, h.run.calls)
+	}
+	if prompt := h.spawn.reqs[0].Prompt; prompt != "/fab-fff ab12" {
+		t.Fatalf("prompt = %q", prompt)
+	}
+}
+
+func TestPlainTaskInAFabRepoSpawnsThePlainPrompt(t *testing.T) {
+	h, foo, _ := baseFixture(t, true)
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "bump deps", Plain: true})
+	h.step()
+	want := "bump deps\n\nCommit on this branch, push, and open a draft PR against main."
+	if got := h.spawn.reqs[0].Prompt; got != want {
+		t.Fatalf("prompt = %q, want %q", got, want)
+	}
+	for _, c := range []string{"fab change switch", "fab status set-base-branch"} {
+		if n := h.run.called(c); n != 0 {
+			t.Fatalf("a plain item ran %q (%d calls)", c, n)
+		}
+	}
+}
+
+func TestSpawnWithoutBaseIsUnchanged(t *testing.T) {
+	h, foo, _ := baseFixture(t, true)
+	tip := foo.advanceOrigin("x.txt", "1\n")
+	h.queue("", Entry{ID: "ab12", Repo: foo.Dir, Change: "ab12"})
+	h.step()
+	if got := h.spawn.reqs[0].BaseSHA; got != tip {
+		t.Fatalf("BaseSHA = %s, want the origin/main tip %s", got, tip)
+	}
+	if n := h.run.called("fab status set-base-branch"); n != 0 {
+		t.Fatalf("set-base-branch ran without a base: %v", h.run.calls)
+	}
+}
+
+func TestStackedDependencyBaseAndItemBaseEscalateWithoutSpawning(t *testing.T) {
+	h, foo, _ := baseFixture(t, false)
+	h.queue("stacked-prs", Entry{ID: "dep", Repo: foo.Dir, Task: "dep"}, Entry{ID: "child", Repo: foo.Dir, Task: "child work"})
+	foo.branch("dep-branch", "main", "dep.txt", "x\n")
+	foo.pushBranch("dep-branch")
+	h.setDone("dep")
+	h.attachBranch("dep", "dep-branch")
+	h.gh.add(1, "dep-branch")
+	// Queue validation refuses this pairing; an edited engine file can still hold it.
+	if err := newEngine(h.env).setScope("child", map[string]interface{}{scopeBase: "eng-v2"}); err != nil {
+		t.Fatal(err)
+	}
+	res := h.step()
+	if len(h.spawn.reqs) != 0 || !hasEscalation(res, "conflicts with the stacked dependency base") {
+		t.Fatalf("reqs=%d escalations=%+v", len(h.spawn.reqs), res.Escalations)
+	}
+	if spawningSet(h.item("child")) {
+		t.Fatal("the refused spawn left its marker set")
+	}
+}
+
+func TestRespawnKeepsTheItemBase(t *testing.T) {
+	h, foo, _ := baseFixture(t, true)
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "bump deps", Plain: true, Base: "eng-v2"}, Entry{ID: "b", Repo: foo.Dir, Task: "raw task", Base: "eng-v2", DependsOn: &[]string{}})
+	h.step()
+	delete(h.panes.panes, "%101")
+	delete(h.panes.panes, "%102")
+	h.step()
+	respawned := 0
+	for _, r := range h.spawn.reqs {
+		if r.CheckoutBranch == "" {
+			continue
+		}
+		respawned++
+		switch r.WorktreeName {
+		case "a":
+			if !strings.Contains(r.Prompt, "open a draft PR against eng-v2") {
+				t.Fatalf("respawned plain prompt = %q", r.Prompt)
+			}
+		case "b":
+			if !strings.Contains(r.Prompt, "set-base-branch <new-change> eng-v2") {
+				t.Fatalf("respawned raw-task prompt = %q", r.Prompt)
+			}
+		}
+	}
+	if respawned != 2 {
+		t.Fatalf("respawns = %d, want 2", respawned)
+	}
+}
+
+func TestLadderDependencyOnADifferentBaseEscalatesWithoutSpawning(t *testing.T) {
+	h, foo, _ := baseFixture(t, false)
+	h.queue("cherry-pick-ladder",
+		Entry{ID: "dep", Repo: foo.Dir, Task: "dep work", Base: "eng-v2"},
+		Entry{ID: "child", Repo: foo.Dir, Task: "child work", Base: "eng-v2"},
+	)
+	foo.branch("dep-branch", "eng-v2", "dep.txt", "from dep\n")
+	h.setDone("dep")
+	h.attachBranch("dep", "dep-branch")
+	h.gh.add(1, "dep-branch")
+	// Queue validation refuses this pairing; an edited engine file can still hold it.
+	if err := newEngine(h.env).setScope("child", map[string]interface{}{scopeBase: nil}); err != nil {
+		t.Fatal(err)
+	}
+	res := h.step()
+	for _, r := range h.spawn.reqs {
+		if r.WorktreeName == "child" {
+			t.Fatalf("child spawned on a different base than its dependency: %+v", r)
+		}
+	}
+	if !hasEscalation(res, "differs from dependency dep's base") || spawningSet(h.item("child")) {
+		t.Fatalf("escalations=%+v", res.Escalations)
 	}
 }

@@ -412,3 +412,59 @@ func TestStatusReportsNoEscalationsAndWritesNoNotes(t *testing.T) {
 		}
 	}
 }
+
+func TestPlainTaskInAFabRepoIsAPlainAgent(t *testing.T) {
+	h := newHarness(t)
+	fabRepo := newRepo(t, "fabbed")
+	commitFile(t, fabRepo.Dir, "fab/project/config.yaml", "x: 1\n", "fab")
+	h.queue("merge-auto",
+		Entry{ID: "plain", Repo: fabRepo.Dir, Task: "bump deps", Plain: true},
+		Entry{ID: "piped", Repo: fabRepo.Dir, Task: "build it"},
+	)
+	st := h.state()
+	if got, err := isPlainAgent(st, h.item("plain")); err != nil || !got {
+		t.Fatalf("a plain task item in a fab repo: isPlainAgent = %v, %v", got, err)
+	}
+	if got, err := isPlainAgent(st, h.item("piped")); err != nil || got {
+		t.Fatalf("a non-plain task item in a fab repo: isPlainAgent = %v, %v", got, err)
+	}
+}
+
+func TestObserveDonePlainAgentInAFabRepo(t *testing.T) {
+	cases := []struct {
+		name   string
+		pr     func(*simPR)
+		isDone bool
+	}{
+		{"merged", func(p *simPR) { p.State = "MERGED" }, true},
+		{"open PR with required checks passing", func(p *simPR) { p.Checks = []checkRun{{State: "SUCCESS"}} }, true},
+		{"open PR with required checks pending", func(p *simPR) { p.Checks = []checkRun{{State: "PENDING"}} }, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t)
+			foo := newRepo(t, "foo")
+			commitFile(t, foo.Dir, "fab/project/config.yaml", "x: 1\n", "fab")
+			h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "bump deps", Plain: true})
+			h.attachBranch("a", "a-branch")
+			c.pr(h.gh.add(3, "a-branch"))
+			h.step()
+			if got := operator.ItemDone(h.item("a")); got != c.isDone {
+				t.Fatalf("done = %v, want %v", got, c.isDone)
+			}
+		})
+	}
+}
+
+func TestNonPlainTaskInAFabRepoIsNotDoneByItsPR(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	commitFile(t, foo.Dir, "fab/project/config.yaml", "x: 1\n", "fab")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "build it"})
+	h.attachBranch("a", "a-branch")
+	h.gh.add(3, "a-branch").State = "MERGED"
+	h.step()
+	if operator.ItemDone(h.item("a")) {
+		t.Fatal("a pipeline item's completion is its change reaching the terminus, not its PR")
+	}
+}
