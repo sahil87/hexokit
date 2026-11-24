@@ -207,45 +207,49 @@ PR-trigger decision).
 
 ### Functional Completeness
 
-- [ ] A-001 R1: Q1's guard is `done_at` unset OR (merge-auto AND `pr_tracked` empty); `pr_tracked` round-trips through the engine file and every guarded write, and never appears in a ledger item's scope
-- [ ] A-002 R2: an OPEN PR on a done merge-auto item yields a `github-pr` item with exactly the R2 id, probe argv/fields (with `--repo <nwo>`), `check_every: 5m`, `done_when`, `then`, empty `depends_on` and scope `{repo, pr, change, item}`; the marker names it; a `pr-tracked` action is reported
-- [ ] A-003 R3: no PR ⇒ nothing and a later retry; MERGED/CLOSED ⇒ marker only; branch/gh/nwo/write failures ⇒ escalation and no marker
-- [ ] A-004 R4: a second pass is a no-op; same repo+pr already tracked ⇒ no duplicate; id collision follows `pr-<n>` → `pr-<base>-<n>` → `-2…`; a removed projected item is not re-added
-- [ ] A-005 R5: `OwnedIDs`, `QueueEntries` and `status` exclude the projected item
-- [ ] A-006 R6: the integration test shows done → `pr-<n>` → MERGED → successor spawned on the next pass
-- [ ] A-007 R7: judgment tests cover `pr-<n>` `changed` and `done`, and a queue item's `done` stays mechanical
-- [ ] A-008 R8: `brief_rules.md` § Merging carries the projected-item line and the `scope.item` authority exception; brief tests and golden pass
-- [ ] A-009 R9: the chat skill carries the sentence and its synced copy matches
+- [x] A-001 R1: Q1's guard is `done_at` unset OR (merge-auto AND `pr_tracked` empty); `pr_tracked` round-trips through the engine file and every guarded write, and never appears in a ledger item's scope
+- [x] A-002 R2: an OPEN PR on a done merge-auto item yields a `github-pr` item with exactly the R2 id, probe argv/fields (with `--repo <nwo>`), `check_every: 5m`, `done_when`, `then`, empty `depends_on` and scope `{repo, pr, change, item}`; the marker names it; a `pr-tracked` action is reported
+- [x] A-003 R3: no PR ⇒ nothing and a later retry; MERGED/CLOSED ⇒ marker only; branch/gh/nwo/write failures ⇒ escalation and no marker
+- [x] A-004 R4: a second pass is a no-op; same repo+pr already tracked ⇒ no duplicate; id collision follows `pr-<n>` → `pr-<base>-<n>` → `-2…`; a removed projected item is not re-added
+- [x] A-005 R5: `OwnedIDs`, `QueueEntries` and `status` exclude the projected item
+- [x] A-006 R6: the integration test shows done → `pr-<n>` → MERGED → successor spawned on the next pass
+- [x] A-007 R7: judgment tests cover `pr-<n>` `changed` and `done`, and a queue item's `done` stays mechanical
+- [x] A-008 R8: `brief_rules.md` § Merging carries the projected-item line and the `scope.item` authority exception; brief tests and golden pass
+- [x] A-009 R9: the chat skill carries the sentence and its synced copy matches
 
 ### Behavioral Correctness
 
-- [ ] A-010 R1: `cherry-pick-ladder` and `stacked-prs` done items behave exactly as before (wait, no gh read)
-- [ ] A-011 R2: the engine issues no `gh pr ready|merge|edit` or any PR-mutating call
+- [x] A-010 R1: `cherry-pick-ladder` and `stacked-prs` done items behave exactly as before (wait, no gh read)
+- [x] A-011 R2: the engine issues no `gh pr ready|merge|edit` or any PR-mutating call
 
 ### Scenario Coverage
 
-- [ ] A-012 R3: tests exist for OPEN, no-PR-then-PR, MERGED, CLOSED and gh-failure outcomes
-- [ ] A-013 R4: tests exist for idempotence, dedupe, both collision steps, and `track rm` of the projection
+- [x] A-012 R3: tests exist for OPEN, no-PR-then-PR, MERGED, CLOSED and gh-failure outcomes
+- [x] A-013 R4: tests exist for idempotence, dedupe, both collision steps, and `track rm` of the projection
 
 ### Edge Cases & Error Handling
 
-- [ ] A-014 R4: a source queue item removed between decide and the ledger write produces `changedText` and no item
-- [ ] A-015 R2: the `nameWithOwner` read is cached per repo and a failure is an escalation, not a crash
+- [x] A-014 R4: a source queue item removed between decide and the ledger write produces `changedText` and no item
+- [x] A-015 R2: the `nameWithOwner` read is cached per repo and a failure is an escalation, not a crash
 
 ### Code Quality
 
-- [ ] A-016 Pattern consistency: the executor follows the re-read/guarded-write/escalate patterns of `execute.go` and `gate.go`; no god function over ~50 lines
-- [ ] A-017 No unnecessary duplication: reuses `viewPR`, `noPRFound`, `itemBranch`, `samePath`, `operator.NewGitHubPRItem`, `escalate`, `mutateEngine`
-- [ ] A-018 Subprocess calls go through the engine runner (`exec.CommandContext` with timeout via `ExecRunner`); no shell strings
-- [ ] A-019 Named constants for the `then` text, `check_every` and probe fields; no magic strings inline
-- [ ] A-020 Comments state constraints only — no narration, no change IDs or PR numbers
-- [ ] A-021 `just test-backend` passes apart from the two known host-only failures; `gofmt` clean
+- [x] A-016 Pattern consistency: the executor follows the re-read/guarded-write/escalate patterns of `execute.go` and `gate.go`; no god function over ~50 lines
+- [x] A-017 No unnecessary duplication: reuses `viewPR`, `noPRFound`, `itemBranch`, `samePath`, `operator.NewGitHubPRItem`, `escalate`, `mutateEngine`
+- [x] A-018 Subprocess calls go through the engine runner (`exec.CommandContext` with timeout via `ExecRunner`); no shell strings
+- [x] A-019 Named constants for the `then` text, `check_every` and probe fields; no magic strings inline
+- [x] A-020 Comments state constraints only — no narration, no change IDs or PR numbers
+- [x] A-021 `just test-backend` passes apart from the two known host-only failures; `gofmt` clean
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+None — this change adds new functionality without making existing code redundant
 
 ## Assumptions
 

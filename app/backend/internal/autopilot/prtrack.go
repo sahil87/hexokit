@@ -98,7 +98,7 @@ func (e *engine) projectPR(ctx context.Context, it operator.TrackedItem, v prVie
 		e.escalate(it.ID, "PR lookup failed: no PR number")
 		return nil
 	}
-	nwo, err := e.nameWithOwner(ctx, repo)
+	nwo, err := e.nameWithOwner(ctx, cleanRepo(repo))
 	if err != nil {
 		e.escalate(it.ID, "PR repo lookup failed: "+err.Error())
 		return nil

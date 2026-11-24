@@ -191,13 +191,15 @@ waits for CI or a merge; call step again later.
 
 A merge-auto item waits until its predecessor is done and that predecessor's PR
 reads merged. A same-repo successor of an item with no stop_stage waits until the
-predecessor's PR exists.
+predecessor's PR exists. When a merge-auto item is done, step tracks its branch's
+open PR as a github-pr ledger item (pr-<n>) for an operator run to merge; the
+engine never readies or merges a PR itself.
 
 step takes the per-server pass lock (a --dry-run does not). If another pass
 holds it, step does nothing, prints "busy" and exits 0.
 
 The output lists actions taken (spawned, respawned, cherry-picked, paused, done,
-removed, resumed) and escalations. The engine writes each escalation as a by: run note and sends rk notify once per dedupe key.
+pr-tracked, removed, resumed) and escalations. The engine writes each escalation as a by: run note and sends rk notify once per dedupe key.
 --dry-run reads but changes nothing: it lists each chosen row as
 "dry-run: <action> <item> (<row>)", for example "dry-run: spawn ab12 (Q2)".
 
