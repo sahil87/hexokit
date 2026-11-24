@@ -111,9 +111,11 @@ The operator's work SHALL be readable as one row per fire, newest first, joined 
 
 **Judgment set.** `judgmentSet` is a pure, table-tested function over the changes, the pass result, the ledger and the set of engine-owned ids (`ExecOptions.OwnedIDs`). `ExecOptions.QueueEntries` (wired to `autopilot.QueueEntries`) supplies the queue entries the brief's `queue:` lines render; a read error is appended to the pass record's error and the brief is written without them. An item is judgment when:
 
-- one of its changed reasons is an `agent_state` move to `waiting` or `idle`, an `agent_aged` (rendered `agent_aged <state> <duration>`), `due`, `stale`, `paused`, `unknown_dep`, `note` (rendered `note <at>`: an unanswered user or chat instruction), a `changed` probe delta on a `github-pr` item, a `done` on a `github-pr` item (merged or closed) or on any item with a non-empty `then`, or a pane condition (`pane_death`, `pane_mismatch`, `agent_exited`) on an item whose id is not in the engine file; or
+- one of its changed reasons is an `agent_state` move to `waiting` or `idle`, an `agent_aged` (rendered `agent_aged <state> <duration>`), `due`, `stale`, `paused`, `unknown_dep`, `note` (rendered `note <at>`: an unanswered user or chat instruction), `failed` (rendered `failed <at>`: the item's newest run note is a failure note — judgment for every item, owned or not, because the mechanical pass already ran and what failed was the model run), a `changed` probe delta on a `github-pr` item, a `done` on a `github-pr` item (merged or closed) or on any item with a non-empty `then`, or a pane condition (`pane_death`, `pane_mismatch`, `agent_exited`) on an item whose id is not in the engine file; or
 - the pass escalated it; or
 - the ledger item carries an unanswered instruction (`operator.PendingInstruction` — [operator-state](/run-kit/operator-state.md) § Conditions) whose `note` condition an earlier fire already reported, so this run's change records do not carry it; the scan lists the item once, never beside a `note` reason it already has.
+
+An already-reported `failed` condition has no scan fallback: it is offered once per failure, and the run's `retried after failure:` note closes it. The wrapper writes the failure note on every `changed` item, so after a launcher failure even items whose changes were mechanical-only (an engine-owned `pane_death`, say) come back as `failed` judgment items on the retry, and the retry run notes them.
 
 `stage_advance`, `review_fail`, a `changed` probe delta on a non-PR item, a queue item's `pane_death`, and a `done` on a non-PR item without `then` are never judgment: the engine handles them or they need no action. The engine owns queue items only, so a `github-pr` item — including a PR the engine never tracks — reaches the run through its `changed` and `done` deltas. An escalation the engine already notified once does not re-enter the set on later passes, because its escalate-once row waits.
 
@@ -223,9 +225,9 @@ Every daemon-originated write is durable before a run launches, and the daemon h
 *Introduced by*: 261114-qxos-operator-run-explicit-server
 
 ### Failure notes at the wrapper and launch, because the check consumed the edges
-**Decision**: A failed launch, a failed mechanical phase and a failed run (non-zero exit or no outcome line) each append a `--by run` failure note (`operator.FailureNotePrefix` + detail) to each changed item, and `PendingInstruction` skips those notes, so a failure never answers an instruction.
+**Decision**: A failed launch, a failed mechanical phase and a failed run (non-zero exit or no outcome line) each append a `--by run` failure note (`operator.FailureNotePrefix` + detail) to each changed item, and `PendingInstruction` skips those notes, so a failure never answers an instruction. The note is also the `failed@<at>` condition: the next fire re-offers each noted item as a `failed` judgment reason ([operator-state](/run-kit/operator-state.md) § Conditions).
 **Why**: `Check` is edge-triggered and has already recorded the changes as reported, so without a note a failed run would be invisible until the condition changed again. A run that failed before acting has not read the user's note, so the instruction must stay pending for the next run that actually starts.
-**Rejected**: Relying on the log line and the push alone (the item's own notes are what the next run and the drawer read); letting a failure note clear a pending instruction (the instruction would be silently dropped).
+**Rejected**: Relying on the log line and the push alone (the item's own notes are what the next run and the drawer read); a forced re-run in place of the re-offered condition; letting a failure note clear a pending instruction (the instruction would be silently dropped).
 *Introduced by*: 261112-xxvq-operator-loop-check-run-note
 
 ### Push once per failure streak by reading the cron log
