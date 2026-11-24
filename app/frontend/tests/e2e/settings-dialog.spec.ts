@@ -135,8 +135,8 @@ test.describe("Settings dialog", () => {
    *    `aria-selected`.
    * 4. Assert "This host" and "This device" section labels render, plus the
    *    Instance name input, SSH host input, and the `Notifications` label.
-   * 5. Click the Appearance tab; assert the `Set instance color` button and
-   *    the theme trigger render while the Themes listbox stays hidden
+   * 5. Click the Appearance tab; assert the `Host color` swatch radiogroup
+   *    and the theme trigger render while the Themes listbox stays hidden
    *    (collapsed at rest); click the trigger and assert the search combobox
    *    and listbox open with exactly two `Current theme` checks (the dark and
    *    light preferred slots); assert the `Increase terminal font` button
@@ -152,8 +152,7 @@ test.describe("Settings dialog", () => {
 
     // General (the tab-less default): instance name + SSH host under This
     // host, notifications under This device. Scope to the dialog: the
-    // sidebar HOST panel carries its own accent-picker button with the same
-    // accessible name.
+    // sidebar HOST panel carries its own host-color picker.
     const dialog = page.getByRole("dialog", { name: "Settings" });
     await expect(dialog.getByRole("tab", { name: "General" })).toHaveAttribute(
       "aria-selected",
@@ -170,7 +169,7 @@ test.describe("Settings dialog", () => {
     // ACTIVE theme; clicking it opens the search field with the list in a
     // popover, where both preferred slots (dark + light) carry a check.
     await dialog.getByRole("tab", { name: "Appearance" }).click();
-    await expect(dialog.getByRole("button", { name: "Set instance color" })).toBeVisible();
+    await expect(dialog.getByRole("radiogroup", { name: "Host color" })).toBeVisible();
     const themeTrigger = dialog.getByTestId("theme-picker-trigger");
     await expect(themeTrigger).toBeVisible();
     await expect(dialog.getByRole("listbox", { name: "Themes" })).not.toBeVisible();
