@@ -83,14 +83,14 @@ Surfaces never change autostart: enabling or disabling stays `rk daemon autostar
   A failing probe degrades its field instead of failing the verb.
 - **Timing**: with lingering, the unit runs at boot. Without it, the user manager starts the unit at the user's first login, and stopping that manager at the last logout tears the daemon down even under `KillMode=process`. `on` never enables lingering, because that is a privileged one-time step. `status` prints the command instead.
 - **Seams**: the `systemd` struct holds `run` (argv + per-call timeout: 10 s systemctl, 5 s loginctl/getent, 120 s restart), `configDir`, `username`, `lookPath`, `booted`, `rkPath`, `getenv` and `executable`. Tests drive all three verbs with a fake runner and a temp config dir, so no real systemctl, loginctl or getent runs.
-- **Not yet exercised on a real machine**: `on`, `off` on an active unit, lingering and a reboot. That is plan step A5, run with the user.
+- **Verified on Ubuntu 24.04** (A5, a Parallels VM): `on` writes the unit and is idempotent; a reboot with lingering starts the daemon with no login (`on (boot)`); without lingering, an auto-login starts it; the tmux global environment matches a manual interactive start, with no systemd variables; `off` on an active unit leaves the daemon running; `on --now` against a running daemon starts no second one.
 
 ## macOS (launchd)
 
 `internal/daemon/autostart/launchd.go` registers for `darwin`. It is a per-user **LaunchAgent** in the `gui/<uid>` domain, so `starts_at` is always `login`: a boot-time LaunchDaemon would run as root.
 
 - **Identity**: label `ai.shll.hexokit.daemon`; plist `~/Library/LaunchAgents/ai.shll.hexokit.daemon.plist`; service target `gui/<uid>/ai.shll.hexokit.daemon`.
-- **Plist**: the `ManagedMarker` comment; `ProgramArguments = [<login shell>, -lc, StartScript(rkPath, nil)]`; `RunAtLoad` and `AbandonProcessGroup` true; **no `KeepAlive`**; stdout and stderr go to `<state home>/logs/autostart.log` (`apphome.LogsDir()`). It is rendered by hand with `encoding/xml` text escaping, so the output is byte-stable and `stale` is a plain byte comparison.
+- **Plist**: the `ManagedMarker` comment; `ProgramArguments = [<login shell>, -lc, StartScript(rkPath, launchdInjectedEnv)]`, which strips `XPC_SERVICE_NAME`, `XPC_FLAGS` and `OSLogRateLimit` (launchd sets them in every agent; unstripped they reach the tmux server's global environment and every agent, and `OSLogRateLimit` throttles their logging); `RunAtLoad` and `AbandonProcessGroup` true; **no `KeepAlive`**; stdout and stderr go to `<state home>/logs/autostart.log` (`apphome.LogsDir()`). It is rendered by hand with `encoding/xml` text escaping, so the output is byte-stable and `stale` is a plain byte comparison.
 - **Login shell**: `dscl . -read /Users/<user> UserShell`, falling back to `/bin/zsh`. `$SHELL` is never read.
 - **`on`**:
   - Ensures `~/Library/LaunchAgents` and the logs dir exist on every run. launchd does not create the log file's directory, and a missing one fails the job before the shell starts.
@@ -109,14 +109,13 @@ Surfaces never change autostart: enabling or disabling stays `rk daemon autostar
   - Hints cover: disabled, stale, a failed last start (naming the log), and for zsh/bash the profile-vs-rc caveat (`~/.zprofile` but not `~/.zshrc`; `~/.bash_profile` but not `~/.bashrc`). fish gets no caveat because it reads `config.fish` for login shells.
 - **Seams**: one `run(ctx, name, args…) → (out, exitCode, err)` (production: `exec.CommandContext`, 10 s timeout), plus `homeDir`, `uid`, `username`, `rkPath` and `logsDir` fields. Tests drive every verb on Linux with a recording fake and `t.TempDir()` homes.
 - **Desktop app**: it does not expose the switch. Starting from both the app and launchd ends with one daemon: `rk daemon start` refuses a second one and the agent's `--if-not-running` reads that as success. A start race between the two can still record a non-zero `last exit code` while the daemon ends up running.
-- **Unverified on a real Mac** (A5's checklist, from S1 § macOS and review):
-  - the tmux server outliving the job, with and without `AbandonProcessGroup`;
-  - `bootout` leaving the daemon running;
-  - the `zsh -lc` environment diff against a manual start;
-  - the tmux socket path under the agent's `TMPDIR`;
-  - no second daemon on a second login;
-  - an intermittent `Bootstrap failed: 5: Input/output error` right after a `bootout`;
-  - `launchctl enable` failing in an SSH-only session that has no `gui/<uid>` domain.
+- **Verified on macOS 27.2** (A5, a Parallels VM with auto-login):
+  - a reboot starts the daemon at login (job exits 0; the tmux server reparents to PID 1 and outlives it, with `AbandonProcessGroup`);
+  - `off` boots the job out and leaves the daemon running;
+  - `on --now` against a running daemon re-runs the job and starts no second daemon;
+  - five back-to-back `off` / `on --now` cycles hit no `Bootstrap failed: 5`;
+  - the daemon's environment matches an interactive login start (same PATH and Homebrew variables, plus launchd's `TMPDIR` and `SSH_AUTH_SOCK`, which a Terminal has too); the tmux socket is `/private/tmp/tmux-<uid>/` either way, since tmux ignores `TMPDIR`.
+- **Unverified on a real Mac**: the tmux server outliving the job without `AbandonProcessGroup`; a real logout and second login; `launchctl enable` failing in an SSH-only session that has no `gui/<uid>` domain.
 
 ## Design Decisions
 

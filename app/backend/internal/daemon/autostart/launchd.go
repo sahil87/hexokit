@@ -32,6 +32,15 @@ const (
 	launchdCmdTimeout    = 10 * time.Second
 )
 
+// launchdInjectedEnv are the variables launchd sets in every agent process.
+// Unstripped, they land in the rk-daemon tmux server's global environment and
+// so in every agent; OSLogRateLimit would also throttle their unified logging.
+var launchdInjectedEnv = []string{
+	"XPC_SERVICE_NAME",
+	"XPC_FLAGS",
+	"OSLogRateLimit",
+}
+
 func init() {
 	Register("darwin", newLaunchd)
 }
@@ -108,7 +117,7 @@ func (l *launchd) desired(ctx context.Context) (launchdDesired, error) {
 	log := filepath.Join(logs, launchdLogName)
 	return launchdDesired{
 		path:  launchdPlistPath(home),
-		plist: launchdPlist(shell, StartScript(rk, nil), log),
+		plist: launchdPlist(shell, StartScript(rk, launchdInjectedEnv), log),
 		shell: shell,
 		rk:    rk,
 		log:   log,

@@ -147,14 +147,14 @@ func TestLaunchd_RegisteredForDarwin(t *testing.T) {
 }
 
 func TestLaunchdPlist_Shape(t *testing.T) {
-	data := launchdPlist("/bin/zsh", StartScript(launchdTestRK, nil), "/Users/t/.local/state/hexokit/logs/autostart.log")
+	data := launchdPlist("/bin/zsh", StartScript(launchdTestRK, launchdInjectedEnv), "/Users/t/.local/state/hexokit/logs/autostart.log")
 	if !strings.Contains(string(data), "<!-- "+ManagedMarker+" -->") {
 		t.Errorf("plist lacks the managed marker comment:\n%s", data)
 	}
 	got := launchdParsePlist(t, data)
 	want := map[string]any{
 		"Label":               "ai.shll.hexokit.daemon",
-		"ProgramArguments":    []string{"/bin/zsh", "-lc", `exec '/opt/homebrew/bin/hexokit' daemon start --if-not-running`},
+		"ProgramArguments":    []string{"/bin/zsh", "-lc", `exec env -u 'XPC_SERVICE_NAME' -u 'XPC_FLAGS' -u 'OSLogRateLimit' '/opt/homebrew/bin/hexokit' daemon start --if-not-running`},
 		"RunAtLoad":           true,
 		"AbandonProcessGroup": true,
 		"StandardOutPath":     "/Users/t/.local/state/hexokit/logs/autostart.log",
