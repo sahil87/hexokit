@@ -9,7 +9,7 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
+    ship: done
     review-pr: pending
 plan:
     generated: true
@@ -33,14 +33,15 @@ stage_metrics:
     apply: {started_at: "2026-11-24T15:37:54Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-24T15:46:03Z"}
     review: {started_at: "2026-11-24T15:46:03Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-24T15:52:48Z"}
     hydrate: {started_at: "2026-11-24T15:52:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T15:57:40Z"}
-    ship: {started_at: "2026-11-24T15:57:40Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-11-24T15:57:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T16:03:32Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1203
 change_type_source: explicit
 base_branch: main
 true_impact:
-    added: 6693
-    deleted: 1248
-    net: 5445
+    added: 6768
+    deleted: 1270
+    net: 5498
     excluding:
         added: 6061
         deleted: 1248
@@ -49,9 +50,9 @@ true_impact:
         added: 1810
         deleted: 71
         net: 1739
-    computed_at: "2026-11-24T15:57:40Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-11-24T16:03:32Z"
+    computed_at_stage: ship
 summary: 'Settings > Agents preset editor: Use a preset / Presets / Leftover settings sections, preset CRUD with multi-write ops and /api/fab-config/presets|leftovers routes, per-preset resolution, palette entries; Customize grid removed'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-24T15:57:40Z
+last_updated: 2026-11-24T16:03:32Z
