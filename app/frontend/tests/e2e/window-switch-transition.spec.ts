@@ -19,10 +19,10 @@
  * Confirmation-gated motion: the slide is an EARNED signal —
  * it plays ONLY when the incoming bytes confirm within the ~300ms budget; a
  * timeout SKIPS the slide and shows a LogoSpinner "pending" mask instead, and a
- * failed switch bounces the URL back to tmux truth. Those timing-sensitive
- * branches (mask arm-at-timeout / lift-on-late-write / failure bounce) cannot be
+ * rejected switch returns the URL to tmux truth. Those timing-sensitive
+ * branches (mask arm-at-timeout / lift-on-late-write / rejected switch) cannot be
  * forced deterministically against a live relay on localhost, so they are
- * UNIT-covered in `src/lib/window-transition.test.ts`. What this spec adds for
+ * UNIT-covered in `src/lib/window-transition.test.ts` and `src/lib/switch-overlay.test.ts`. What this spec adds for
  * the new behavior is the deterministic fast-path invariant: a confirmed-fast
  * switch plays the slide and leaves NO pending mask stuck once it settles. A
  * brief legitimate mask flash is allowed (localhost timing can push the first

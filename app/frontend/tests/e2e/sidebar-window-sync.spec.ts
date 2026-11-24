@@ -203,9 +203,9 @@ test.describe("Sidebar Window Sync", () => {
 
   /**
    * Proves: after selecting window A, clicking window B switches to B and
-   * stays on B — the optimistic navigate plus the pendingClickRef intent
-   * guard prevent a stale SSE snapshot (still reporting A active) from
-   * bouncing the selection back to A before tmux confirms the switch.
+   * stays on B — the optimistic navigate plus the bounded switch overlay
+   * prevent a stale SSE snapshot (still reporting A active) from bouncing
+   * the selection back to A before tmux confirms the switch.
    *
    * Steps:
    * 1. Create two windows switch-a-<ts> and switch-b-<ts> via the shared

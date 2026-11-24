@@ -352,7 +352,7 @@ function settleGate(gate: SwitchGate, reason: GateSettleReason): void {
 // ARMED at gate timeout (a gated/tty switch whose incoming bytes did not arrive
 // within the ~300ms budget), LIFTED on the late first write (the same
 // `notifyFirstWrite` receipt that would have released the gate), and TORN DOWN
-// on supersession and on failure/bounce. It carries NO DOM and NO React — the
+// on supersession and on rejection. It carries NO DOM and NO React — the
 // app subscribes via `useSyncExternalStore(subscribeMaskState, getMaskState)`
 // and renders the LogoSpinner overlay. Keeping arm/lift/teardown here (driven by
 // the same seams as the gate) is what guarantees the mask and gate never drift.
@@ -454,17 +454,12 @@ function setMaskState(next: MaskState): void {
  * fresh switch start (a new switch owns all feedback). Idempotent no-op when
  * already idle and no timer pending.
  *
- * NOTE (cycle-3 N1, per the plan's Deletion Candidates narrowing note): the
- * abandonment/arrival callers were folded away — app.tsx's former direct callers
- * (failure/bounce, route-leave/unmount) were replaced by `abandonSwitchFeedback()`
- * in the G2 rework, which additionally settles a still-pending gate. For those
- * intents production callers reach for `abandonSwitchFeedback` (abandonment),
+ * Production callers reach for `abandonSwitchFeedback` (abandonment),
  * `confirmSwitchArrived` (byte-gated confirmed arrival), or
- * `forceSwitchArrived` (the unconditional confirmation-timer rescue), all of
- * which delegate here. The
- * ONE sanctioned direct production caller of the bare primitive is
- * `beginPendingSwitch`'s fresh-switch teardown (260719-h0x4): it must clear a
- * leftover mask WITHOUT settling a gate, because on the animated path it runs
+ * `forceSwitchArrived` (the unconditional deadline rescue), all of which
+ * delegate here. The ONE sanctioned direct production caller of the bare
+ * primitive is `beginSwitch`'s fresh-switch teardown in `app.tsx`: it must clear
+ * a leftover mask WITHOUT settling a gate, because on the animated path it runs
  * while the switch's own just-opened gate is current — settling it would skip the
  * earned slide, which is exactly why the abandonment wrapper is wrong there.
  */
@@ -497,12 +492,12 @@ export function confirmSwitchArrived(): void {
 }
 
 /**
- * The UNCONDITIONAL arrival teardown (the 5 s confirmation-timer rescue in
- * `app.tsx`'s `bouncePendingSwitch`): settle any still-pending gate as
- * `"first-write"` and tear down any mask/grace timer, regardless of byte
- * counting. After the confirmation window has elapsed with SSE reporting the
- * target active, a mask whose byte-driven lift path never fired must not stay
- * up — a stuck input-blocking mask is the worst outcome the design forbids.
+ * The UNCONDITIONAL arrival teardown (the switch deadline rescue in `app.tsx`):
+ * settle any still-pending gate as `"first-write"` and tear down any
+ * mask/grace timer, regardless of byte counting. After the confirmation window
+ * has elapsed with SSE reporting the target active, a mask whose byte-driven
+ * lift path never fired must not stay up — a stuck input-blocking mask is the
+ * worst outcome the design forbids.
  */
 export function forceSwitchArrived(): void {
   if (currentGate) {
@@ -517,13 +512,12 @@ export function forceSwitchArrived(): void {
  * `"timeout"` that RE-ARMS the mask — and tear down any mask/grace timer
  * already showing.
  *
- * The failure/bounce and route-leave/unmount paths call this instead of a bare
- * `tearDownMask()`. Tearing down only the mask leaves the pending gate armed:
- * a `selectWindow` POST that rejects INSIDE the 300ms budget bounces first,
- * then the gate's timer fires `settleGate(gate, "timeout")` and arms a mask
- * over the bounced-back window with NO lift path (`liftAccepting` stays false
- * after a rejected POST, and `confirmSwitchArrived` is only reachable while
- * `pendingClickRef` is set) — a permanently stuck input-blocking mask. Same
+ * The rejection, wrong-window and route-leave/unmount paths call this instead of
+ * a bare `tearDownMask()`. Tearing down only the mask leaves the pending gate
+ * armed: a `selectWindow` POST that rejects INSIDE the 300ms budget ends the
+ * switch first, then the gate's timer fires `settleGate(gate, "timeout")` and
+ * arms a mask over the active window with NO lift path (`liftAccepting` stays
+ * false after a rejected POST) — a permanently stuck input-blocking mask. Same
  * for leaving/unmounting the route within the 300ms window: the gate would
  * re-mask up to 300ms later, leaking masked state into the next mount.
  * Idempotent no-op when nothing is pending or showing.
@@ -558,7 +552,7 @@ export interface GraceMaskHandle {
    * content). Epoch-guarded: a stale switch's late POST resolution is ignored.
    */
   openForLift(): void;
-  /** Disarm the pending grace timer (switch confirmed/superseded/bounced). */
+  /** Disarm the pending grace timer (switch confirmed/superseded/rejected). */
   cancel(): void;
 }
 
@@ -569,7 +563,7 @@ export interface GraceMaskHandle {
  * only if the incoming window's first countable write has NOT arrived by the
  * threshold — same threshold as the gate, different mechanism, same
  * lift/teardown semantics (`notifyFirstWrite`'s filtered lift; `tearDownMask`
- * on failure/bounce).
+ * on rejection).
  *
  * One switch's feedback machinery at a time: arming supersedes any prior grace
  * timer AND any still-pending gate (a rapid animated→instant switch sequence
@@ -674,7 +668,7 @@ export function isMaskExemptKey(
  * A switch click that cannot change anything (rework G3): the target is BOTH
  * the URL's window AND tmux's active window. tmux `select-window` on the
  * already-active window emits no bytes, and the SSE snapshot is event-driven —
- * no change means no confirming event — so arming the pending-switch machinery
+ * no change means no confirming event — so starting a switch overlay
  * for such a click guarantees a spurious spinner mask at the 300ms threshold
  * and a false "didn't confirm" failure toast at the confirmation window, over
  * the very terminal the user is looking at. `navigateToWindow` early-outs on
@@ -689,44 +683,6 @@ export function isRedundantSwitch(
   activeWindowId: string | undefined,
 ): boolean {
   return targetId === urlWindowId && targetId === activeWindowId;
-}
-
-/**
- * The server-scoped identity of a pending window switch (rework H1, cycle 3).
- *
- * tmux window ids (`@N`) are only unique PER SERVER, and AppShell persists
- * across `$server` route changes without remounting — so every consumer of the
- * pending-switch intent MUST compare BOTH fields. Matching on `windowId` alone
- * false-positives when two servers carry a colliding id (serverA/@5 vs
- * serverB/@5): the alignment skip would suppress serverB's tmux alignment, the
- * writeback's `urlMatchesPending`/`sseConfirmed` would keep stale tracking
- * alive, and the stale serverA bounce would later yank the user cross-server
- * with a false failure toast.
- */
-export interface PendingSwitchTarget {
-  server: string;
-  windowId: string;
-}
-
-/**
- * True iff `pending` records exactly this `{server, windowId}` pair. `null`
- * pending, an `undefined` windowId (no window in the URL), or a mismatch on
- * EITHER field is not a match — the cross-server id collision (same `@N`
- * string, different server) is precisely what the server field disambiguates.
- * Pure and unit-testable; app.tsx uses it at the alignment skip, the
- * writeback's `urlMatchesPending`/`sseConfirmed` checks, and the bounce guard.
- */
-export function isSamePendingTarget(
-  pending: PendingSwitchTarget | null,
-  server: string,
-  windowId: string | undefined,
-): boolean {
-  return (
-    pending !== null &&
-    windowId !== undefined &&
-    pending.server === server &&
-    pending.windowId === windowId
-  );
 }
 
 /**
@@ -753,92 +709,4 @@ export function nextDirectionToken(): number {
 /** True only if `token` is still the latest minted direction token. */
 export function isLatestDirectionToken(token: number): boolean {
   return token === latestDirectionToken;
-}
-
-// ── Confirmation-on-200 and the freshness-gated bounce (260823-ke9i) ────────
-
-/** The settlement-shape of a `selectWindow` POST, from the caller's side. */
-export type SwitchPostOutcome =
-  | { kind: "resolved"; resp: { ok: boolean; activeWindow?: string } }
-  | { kind: "rejected" };
-
-/**
- * What a settled `selectWindow` POST does to the tracked pending switch
- * (260823-ke9i).
- */
-export type SwitchPostEffect = "confirm" | "contradiction" | "none";
-
-/**
- * Decide how a settled `selectWindow` POST affects the pending switch's
- * failure detector. Pure — the caller supplies the ambient identity facts (the
- * still-points-at-itself tracked-entry guard, and whether the intent still
- * records this `{server, windowId}`).
- *
- * - `"confirm"` — the 200 is synchronous proof tmux executed the select:
- *   cancel the bounce timer only (never the intent or the gate/mask — paint
- *   feedback stays byte-driven).
- * - `"contradiction"` — fresh post-click evidence: an explicit rejection
- *   (rejection IS fresh evidence — it post-dates the click, so the
- *   freshness-gated verdict can bounce immediately instead of re-arming into
- *   the SF8 limbo) or a mismatched `activeWindow` (an external switch won).
- * - `"none"` — a superseded switch's late settlement, or an intent that has
- *   moved on: a no-op; the newer switch's tracking is untouched.
- */
-export function resolvePendingSwitchPost(opts: {
-  outcome: SwitchPostOutcome;
-  targetWindowId: string;
-  isCurrent: boolean;
-  intentMatches: boolean;
-}): SwitchPostEffect {
-  if (!opts.isCurrent || !opts.intentMatches) return "none";
-  if (opts.outcome.kind === "rejected") return "contradiction";
-  return postConfirmsSwitch(opts.outcome.resp, opts.targetWindowId)
-    ? "confirm"
-    : "contradiction";
-}
-
-/**
- * True iff a resolved `selectWindow` POST response confirms the pending switch
- * to `targetWindowId`. The 200 alone proves tmux executed the select (the
- * handler runs it synchronously), so an absent `activeWindow` field (older
- * daemon) counts as confirming; a mismatched `activeWindow` is fresh evidence
- * of a contradiction (an external switch won the race), not a confirmation.
- */
-export function postConfirmsSwitch(
-  resp: { ok: boolean; activeWindow?: string },
-  targetWindowId: string,
-): boolean {
-  return resp.ok && (resp.activeWindow === undefined || resp.activeWindow === targetWindowId);
-}
-
-/**
- * The expiry decision for a pending switch's confirmation timer
- * (260823-ke9i): the verdict is freshness-gated so a failure is never rendered
- * from evidence older than the click.
- *
- * - `"confirm"` — post-click evidence shows the target active (the silent-clear
- *   rescue).
- * - `"bounce"` — fresh post-click evidence shows a DIFFERENT window active
- *   (either a mismatched POST `activeWindow`, or a post-click snapshot
- *   contradicting the target).
- * - `"rearm"` — no fresh evidence (disconnected socket, or no receipt since
- *   the click): the verdict must not fire on a frozen pre-click snapshot, so
- *   the timer re-arms and waits for evidence (extend-until-evidence).
- *
- * Pure — the caller supplies the ambient facts; `activeWindowId` is only
- * consulted when it is post-click evidence (a receipt tick newer than the one
- * recorded at the click, or the POST contradiction flag).
- */
-export function resolvePendingSwitchVerdict(opts: {
-  isConnected: boolean;
-  tickAtClick: number;
-  currentTick: number;
-  postContradiction: boolean;
-  activeWindowId: string | undefined;
-  targetWindowId: string;
-}): "confirm" | "bounce" | "rearm" {
-  const hasFreshEvidence =
-    opts.postContradiction || opts.currentTick > opts.tickAtClick;
-  if (!opts.isConnected || !hasFreshEvidence) return "rearm";
-  return opts.activeWindowId === opts.targetWindowId ? "confirm" : "bounce";
 }

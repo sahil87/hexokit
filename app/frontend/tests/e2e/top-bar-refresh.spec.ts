@@ -34,8 +34,9 @@ import { mockStateSocket } from "./_state-socket-mock";
 // because the deep-linked `@1` is NOT the tmux-active window, makes the
 // mount-time alignment fire exactly one `selectWindow(server, "@1")` POST so
 // the `/select` mock is genuinely exercised (a same-window payload would
-// take the no-op path and never call `/select`; a pending intent holds the
-// URL on `@1`, so `currentWindow` resolves to `@1`). `**/api/windows/*/select*`
+// take the no-op path and never call `/select`; the switch overlay holds the
+// URL on `@1` for up to the 5 s overlay deadline — this static payload never
+// confirms — so `currentWindow` resolves to `@1` while each test runs). `**/api/windows/*/select*`
 // fulfills `{ ok: true }` — the trailing `*` is required because Playwright
 // globs match the full URL including the query string, and client.ts
 // `withServer` appends `?server=default`; without it the POST would fall
@@ -53,8 +54,9 @@ const SERVER = "default";
 // One session with two windows. The URL deep-links to `@1`, but `@2` is the
 // tmux-active window (`isActiveWindow: true`) — so app.tsx's mount-time
 // alignment fires exactly one `selectWindow(server, "@1")` POST to bring tmux
-// into agreement with the URL, and records a pending intent that holds the URL
-// on `@1` (the URL-writeback bounce is suppressed until SSE confirms). This is
+// into agreement with the URL, and starts a switch overlay that holds the URL
+// on `@1` until a newer sessions snapshot arrives or the 5 s overlay deadline
+// passes (this static payload sends none, so the deadline bounds the hold). This is
 // deliberate: it makes the `/select` mock actually fire (so its interception is
 // verifiable — see `selectHits` below) instead of the no-op path a URL that
 // already matches the active window would take. `currentWindow` keys on the URL

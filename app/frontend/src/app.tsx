@@ -160,13 +160,19 @@ import {
   getMaskState,
   isMaskExemptKey,
   isRedundantSwitch,
-  isSamePendingTarget,
-  postConfirmsSwitch,
-  resolvePendingSwitchPost,
-  resolvePendingSwitchVerdict,
-  type SwitchPostOutcome,
-  type PendingSwitchTarget,
 } from "@/lib/window-transition";
+import {
+  CONFIRMATION_WINDOW_MS,
+  onDeadline,
+  onPostSettled,
+  onSnapshot,
+  overlayTargets,
+  startOverlay,
+  type OverlayEndReason,
+  type OverlayTransition,
+  type SwitchOverlay,
+  type SwitchPostOutcome,
+} from "@/lib/switch-overlay";
 import { ThemeProvider, useTheme, useThemeActions } from "@/contexts/theme-context";
 import { InstanceAccentProvider, useInstanceAccent } from "@/contexts/instance-accent-context";
 import { InstanceNameProvider, useInstanceName } from "@/contexts/instance-name-context";
@@ -858,17 +864,6 @@ function removeStorageKey(key: string): void {
 }
 
 /**
- * How long a pending window switch may stay unconfirmed before the failure
- * bounce-back fires (260715-38kg). If neither an explicit `selectWindow` POST
- * rejection nor an SSE confirmation arrives within this window, the pending
- * intent is cleared so the URL/heading bounce back to tmux's actual active
- * window (un-sticking the silent-failure limbo). A named tunable — a "few
- * seconds" per the design; trivially adjusted. This is a SINGLE per-switch
- * timer, not a polling loop (SSE remains the confirmation source).
- */
-const CONFIRMATION_WINDOW_MS = 5000;
-
-/**
  * How long the focus-restore rAF retry waits for `focusTerminalRef` to
  * register (the ref lands late in TerminalClient init, after the restore
  * effect has already run). Named tunable: 2s proved too tight under a loaded
@@ -1300,7 +1295,7 @@ function AppShell() {
   // on EVERY arrival path (sidebar click, palette, deep link, board hop, tmux
   // writeback), so a later server switch can reopen it. Write-only — no
   // navigation, and independent of the alignment guard (`hasAlignedToUrlRef`)
-  // and click-suppression window (`pendingClickRef`). No write on bare
+  // and the switch overlay. No write on bare
   // `/$server` — a stored value stays intact there.
   useEffect(() => {
     if (server && windowParam) writeLastWindow(server, windowParam);
@@ -2378,7 +2373,7 @@ function AppShell() {
   // Server create/kill dialogs + the merged palette list (260811-239r): both
   // dialogs mount ONCE in AppLayout (`ServerDialogs`); this route shell only
   // consumes the triggers (sidebar/palette call sites) and the open-state (the
-  // dialogOpenRef gating predicate below). For id-resolution seams the route
+  // `dialogOpen` writeback gate below). For id-resolution seams the route
   // subscribes to the GLOBALS-ONLY channel (`usePaletteGlobals`) and resolves
   // against `[...paletteActions, ...paletteGlobals]` — both sides fresh THIS
   // render, no slot lag — while macro invocation uses the imperative
@@ -2520,18 +2515,13 @@ function AppShell() {
     [handleDragStart],
   );
 
-  // tmux is the source of truth for "current window". The URL is a
-  // resumable bookmark used only on initial mount to align tmux with a
-  // deep-linked window; after that the URL is treated as derived state and
-  // re-written whenever the SSE-driven `isActiveWindow` changes. The 3s
-  // `userNavTimestampRef` debounce was removed in this change — there is
-  // no client-side window state worth protecting from server overrides.
-  //
-  // We retain `dialogOpenRef` so that the URL-write effect can skip
-  // navigation while a dialog is open (preventing focus-stealing re-renders
-  // mid-dialog). The dialog-open suppression applies to the URL writeback
-  // only, not to the underlying SSE-derived selection state.
-  const dialogOpenRef = useRef(false);
+  // tmux owns the viewed window on the home-tab route: the URL `$window`,
+  // heading, sidebar selection and Compose target project the SSE-derived
+  // `activeWindow`. A UI switch is a `selectWindow` request held by a bounded
+  // overlay (lib/switch-overlay.ts), never a second source of truth. The
+  // writeback below is suppressed while any dialog is open to avoid
+  // focus-stealing re-renders; the open-state is a dependency, so closing the
+  // dialog re-projects.
   // hasAlignedToUrlRef gates mount-time alignment of tmux to the URL. On
   // the first `currentSession` value received after the route mounts, if
   // the URL's `$window` differs from tmux's current `isActiveWindow`, fire
@@ -2542,23 +2532,6 @@ function AppShell() {
   // Reset alignment guard whenever the route's session changes (this is
   // effectively a fresh "mount" for the alignment contract).
   const lastAlignedSessionRef = useRef<string | null>(null);
-  // Pending click intent. A sidebar/palette click optimistically navigates
-  // the URL to the clicked window id (@N) AND fires `selectWindow`. Until
-  // the SSE snapshot confirms tmux switched (the clicked window reports
-  // `isActiveWindow`), the writeback below would see the still-stale
-  // `activeWindow` and bounce the URL back to the previously-active window.
-  // We record the intent here keyed on `{server, windowId}` (rework H1: `@N`
-  // ids are only unique PER SERVER and AppShell persists across `$server`
-  // changes, so the server is part of identity — but never the session name:
-  // a rename/cross-session move with `@N` preserved keeps the intent alive)
-  // and suppress the writeback while the URL still matches BOTH fields.
-  // CONFIRMATION is event-driven: the intent clears the instant SSE confirms
-  // it (this is NOT the removed 3s wall-clock debounce). FAILURE detection is
-  // the one timer in the design (260715-38kg): each pending switch also arms a
-  // single CONFIRMATION_WINDOW_MS bounce timer (`beginPendingSwitch`) so a
-  // silent selectWindow failure can't park the intent in limbo forever.
-  const pendingClickRef = useRef<PendingSwitchTarget | null>(null);
-
   // Latest flattened window order + current window id, for the window-switch
   // slide transition (260703-l4nf). Held in a ref (synced at render time,
   // below) so `navigateToWindow` can read the current order WITHOUT taking
@@ -2635,11 +2608,9 @@ function AppShell() {
   }, [currentSession]);
 
   // Live refs to tmux's actual active window, the URL's window param, and the
-  // route's server, read by the failure bounce-back (260715-38kg) inside the
-  // confirmation-timer callback without stale closures. The server ref is part
-  // of the H1 cross-server identity guard: a timer armed on serverA must
-  // recognize that the route has moved to serverB even when the window-id
-  // STRING coincides (`@N` is only unique per server).
+  // route's server, read by the switch overlay's async callbacks without stale
+  // closures. `@N` ids are only unique per server, so the overlay's server must
+  // be compared against the live route server.
   const activeWindowRef = useRef(activeWindow);
   activeWindowRef.current = activeWindow;
   const windowParamRef = useRef(windowParam);
@@ -2651,304 +2622,181 @@ function AppShell() {
   searchTabRef.current = search.tab;
   const serverRef = useRef(server);
   serverRef.current = server;
-  // Live isConnected + receipt-tick reads for the freshness-gated bounce
-  // verdict (260823-ke9i): the timer callback must not capture a stale
-  // render-scope connection flag, and the tick read stays imperative
-  // (ref-backed) so it never subscribes to re-renders.
-  const isConnectedRef = useRef(isConnected);
-  isConnectedRef.current = isConnected;
-  const getServerReceiptTickRef = useRef(ctx.getServerReceiptTick);
-  getServerReceiptTickRef.current = ctx.getServerReceiptTick;
 
-  // Pending-switch tracking (260715-38kg): the confirmation timer + the grace
-  // mask's cancel fn, so both tear down together when the switch confirms,
-  // supersedes, or fails. A single `setTimeout` per pending switch (NOT a poll).
-  // 260823-ke9i adds the freshness evidence for the verdict: `tickAtClick`
-  // (the server receipt tick at switch start — a snapshot/event arriving later
-  // is post-click evidence) and `postContradiction` (the POST 200 reported a
-  // different active window — fresh post-click evidence even with a dead
-  // socket).
-  const pendingSwitchRef = useRef<{
-    timer: ReturnType<typeof setTimeout>;
-    cancelMask: (() => void) | null;
-    tickAtClick: number;
-    postContradiction: boolean;
-    // Set by the confirmation-on-200 path (260823-ke9i): the POST proved tmux
-    // switched, so the failure detector is disarmed. A straggler timer fire
-    // (a timer created before the POST resolved) is a silent no-op.
-    bounceDisarmed: boolean;
-  } | null>(null);
+  // Switch overlay state. The ref is the synchronous source for imperative
+  // readers (alignment skip, POST settlement, timers); the state mirrors it so
+  // ending the overlay re-runs the URL writeback in the same commit.
+  const [switchOverlay, setSwitchOverlay] = useState<SwitchOverlay | null>(null);
+  const overlayRef = useRef<SwitchOverlay | null>(null);
+  const overlaySeqRef = useRef(0);
+  const switchStartedAtRef = useRef(0);
+  // Cleared only when the overlay ends or is superseded/torn down — never on
+  // POST success (`selectWindow` has no client timeout).
+  const deadlineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Paint-only backstop for a confirm that lands before any byte is counted: the
+  // input-blocking mask must not outlive the deadline.
+  const paintRescueTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The raw snapshot array's identity is the "a new snapshot arrived" token; it
+  // changes only when a sessions snapshot is received for this server.
+  const snapshotTokenRef = useRef<unknown>(rawSessions);
+  snapshotTokenRef.current = rawSessions;
 
-  // Clear the confirmation timer + grace-mask cancel for the current pending
-  // switch (called on SSE-confirm, supersession, or bounce). Does NOT itself
-  // clear `pendingClickRef` — the writeback owns that on confirm; the bounce
-  // clears it explicitly.
-  const clearPendingSwitchTracking = useCallback(() => {
-    const tracked = pendingSwitchRef.current;
-    if (!tracked) return;
-    clearTimeout(tracked.timer);
-    tracked.cancelMask?.();
-    pendingSwitchRef.current = null;
+  const commitOverlay = useCallback((next: SwitchOverlay | null) => {
+    overlayRef.current = next;
+    setSwitchOverlay(next);
   }, []);
 
-  // Failure bounce-back (260715-38kg): the switch never confirmed (explicit POST
-  // rejection or the confirmation-window timeout). Un-stick the limbo — clear
-  // the pending intent so the URL/heading follow tmux truth, tear down any mask,
-  // surface a lightweight toast, and (since a stale `activeWindow` won't retrigger
-  // the writeback effect) navigate explicitly to tmux's actual active window.
-  // Guarded on the intent STILL targeting `windowId`: a newer navigation that
-  // already superseded this switch must not be bounced.
-  const bouncePendingSwitch = useCallback(
-    (target: PendingSwitchTarget) => {
-      // Identity is `{server, windowId}` (rework H1): the intent must still
-      // record exactly this switch — a windowId-only match false-positives on
-      // cross-server `@N` collisions.
-      if (!isSamePendingTarget(pendingClickRef.current, target.server, target.windowId))
-        return;
-      // Recorded-server mismatch (rework H1): the route has moved to a DIFFERENT
-      // server since this switch was armed (AppShell does not remount across
-      // `$server` changes, so a stale timer can survive in principle). The
-      // server-change teardown effect normally clears this first — defense-in-
-      // depth: drop the stale intent and its feedback silently. NEVER toast or
-      // navigate for a switch on a server the user has left.
-      if (serverRef.current !== target.server) {
-        pendingClickRef.current = null;
-        clearPendingSwitchTracking();
-        abandonSwitchFeedback();
-        return;
-      }
-      // The bounce only applies while the URL still shows the failed target
-      // (rework F1). If the user has left the terminal route (Cockpit/board/
-      // windowless /$server) or moved to another window, the teardown effects
-      // below clear this timer — this guard is defense-in-depth so a straggler
-      // callback can never navigate the user back off their chosen route or
-      // toast about a switch they abandoned.
-      if (windowParamRef.current !== target.windowId) return;
-      // SSE already reports the target ACTIVE — the switch DID confirm, but the
-      // writeback (the normal event-driven clearer) can be suppressed for the
-      // whole confirmation window (`dialogOpenRef` — e.g. a dialog held open
-      // >5s over a confirmed switch; rework SF7), or deliberately held the
-      // intent because no incoming byte had been counted yet. Not a failure:
-      // clear the intent silently — no toast, no navigation. The teardown here
-      // is UNCONDITIONAL (`forceSwitchArrived`, not the byte-gated
-      // `confirmSwitchArrived`): after the confirmation window has elapsed with
-      // the target active, a mask whose byte-driven lift path never fired must
-      // never stay up — a stuck input-blocking mask is the worst outcome the
-      // design forbids. This rescue runs BEFORE the `bounceDisarmed` check
-      // below: a POST-200 disarms the BOUNCE, never the rescue.
-      if (activeWindowRef.current?.windowId === target.windowId) {
-        pendingClickRef.current = null;
-        clearPendingSwitchTracking();
+  const clearSwitchTimers = useCallback(() => {
+    if (deadlineTimerRef.current !== null) {
+      clearTimeout(deadlineTimerRef.current);
+      deadlineTimerRef.current = null;
+    }
+    if (paintRescueTimerRef.current !== null) {
+      clearTimeout(paintRescueTimerRef.current);
+      paintRescueTimerRef.current = null;
+    }
+  }, []);
+
+  // Paint feedback stays byte-driven and never decides the URL. A confirm with
+  // no counted byte leaves the gate's timeout / grace mask to the first write,
+  // with a rescue at the overlay deadline so the mask cannot stay up.
+  const settleSwitchPaint = useCallback((ended: OverlayEndReason, windowId: string) => {
+    if (ended === "confirm") {
+      confirmSwitchArrived();
+      if (hasCountedIncomingBytes()) return;
+      const remaining = Math.max(
+        0,
+        CONFIRMATION_WINDOW_MS - (Date.now() - switchStartedAtRef.current),
+      );
+      paintRescueTimerRef.current = setTimeout(() => {
+        paintRescueTimerRef.current = null;
         forceSwitchArrived();
-        return;
-      }
-      // Freshness-gate the verdict (260823-ke9i): a failure is only rendered
-      // from evidence that POST-DATES the click. A frozen pre-click snapshot
-      // (post-sleep half-open socket) or a disconnected socket re-arms the
-      // timer instead — extend-until-evidence, no toast, no navigation. The
-      // re-armed timer replaces the tracked entry's (clearPendingSwitchTracking
-      // reads the current entry, so every existing clear path cancels it).
-      const tracked = pendingSwitchRef.current;
-      if (tracked) {
-        // A POST-200 already confirmed this switch — the failure detector is
-        // disarmed; a straggler fire is a silent no-op (the intent still
-        // clears via SSE).
-        if (tracked.bounceDisarmed) return;
-        const verdict = resolvePendingSwitchVerdict({
-          isConnected: isConnectedRef.current,
-          tickAtClick: tracked.tickAtClick,
-          currentTick: getServerReceiptTickRef.current(target.server),
-          postContradiction: tracked.postContradiction,
-          activeWindowId: activeWindowRef.current?.windowId,
-          targetWindowId: target.windowId,
-        });
-        if (verdict === "rearm") {
-          tracked.timer = setTimeout(() => bouncePendingSwitch(target), CONFIRMATION_WINDOW_MS);
-          return;
-        }
-      }
-      clearPendingSwitchTracking();
-      pendingClickRef.current = null;
-      // Abandon, don't just unmask (rework G2): a fast POST rejection can land
-      // INSIDE the 300ms budget with the gate still pending — a bare
-      // tearDownMask would let that gate's timer fire moments later and re-arm
-      // the mask over the bounced-back window with no lift path (the POST
-      // rejected, so liftAccepting never opens). Settling the gate too makes
-      // the bounce final.
+      }, remaining);
+      return;
+    }
+    if (ended === "deadline" && activeWindowRef.current?.windowId === windowId) {
+      forceSwitchArrived();
+    } else {
       abandonSwitchFeedback();
+    }
+  }, []);
+
+  const applyOverlayTransition = useCallback(
+    (prev: SwitchOverlay, next: OverlayTransition) => {
+      if (next.overlay === prev) return;
+      commitOverlay(next.overlay);
+      if (next.ended === null) return;
+      if (deadlineTimerRef.current !== null) {
+        clearTimeout(deadlineTimerRef.current);
+        deadlineTimerRef.current = null;
+      }
+      settleSwitchPaint(next.ended, prev.windowId);
+      if (next.ended !== "rejected" || serverRef.current !== prev.server) return;
       const active = activeWindowRef.current;
       if (active) {
-        // `target.server` — verified equal to the CURRENT route server above,
-        // so the callback needs no `server` closure dep (H1: no stale-server
-        // navigation is expressible from here).
         navigate({
           to: "/$server/$window",
-          params: { server: target.server, window: active.windowId },
+          params: { server: prev.server, window: active.windowId },
           search: {},
           replace: true,
         });
       }
       addToast("Tab switch didn't confirm — back to the active tab", "error");
     },
-    [navigate, addToast, clearPendingSwitchTracking],
+    [commitOverlay, settleSwitchPaint, navigate, addToast],
   );
 
-  // Begin tracking a pending switch: record the `{server, windowId}` intent
-  // (rework H1 — window ids are only unique per server), arm the confirmation
-  // timer, and (for a gated tty target on the instant-switch path) arm the grace
-  // mask. Bounces on explicit POST rejection OR the confirmation-window timeout —
-  // NEVER merely because SSE still reports the old window (normal mid-switch).
-  const beginPendingSwitch = useCallback(
+  // Start a UI-initiated switch overlay for `{server, windowId}` (`@N` ids are
+  // only unique per server) and route the `selectWindow` POST settlement into
+  // it. A fresh switch owns ALL feedback: the bare mask teardown (not
+  // `abandonSwitchFeedback`) so the animated path's own just-opened gate is
+  // never settled — that would skip the earned slide. `graceMask` arms the
+  // ~300ms grace mask on the instant-switch path only; the animated path's gate
+  // timeout arms the mask instead.
+  const beginSwitch = useCallback(
     (
-      target: PendingSwitchTarget,
-      opts: { posted?: Promise<unknown>; graceMask?: boolean } = {},
+      target: { server: string; windowId: string },
+      opts: { posted: Promise<SelectWindowResult>; graceMask?: boolean },
     ) => {
-      pendingClickRef.current = { server: target.server, windowId: target.windowId };
-      // Supersede any prior pending switch's tracking (its timer/mask).
-      clearPendingSwitchTracking();
-      // A fresh switch owns ALL feedback: proactively clear a mask/grace timer a
-      // prior TIMED-OUT switch left showing (module state — the
-      // clearPendingSwitchTracking above only cancels the tracked entry's own
-      // timer/handle, never the module mask). The gated paths get this via armGraceMask/
-      // beginWindowSwitchGate; the two gateless paths (mount-time cold deep-link
-      // alignment, waiting-target navigation) otherwise leave the stale mask up
-      // until SSE confirmation. Deliberately the BARE teardown, NOT
-      // abandonSwitchFeedback: on the animated path this runs (via
-      // beginWindowSwitchGate → startViewTransition → runSwitch) while the
-      // switch's OWN just-opened gate is current, and settling it would skip the
-      // earned slide (260715-38kg R8). Idempotent no-op when nothing is showing.
+      clearSwitchTimers();
       tearDownMask();
+      const seq = ++overlaySeqRef.current;
+      commitOverlay(startOverlay(target.server, target.windowId, seq));
+      switchStartedAtRef.current = Date.now();
+      deadlineTimerRef.current = setTimeout(() => {
+        deadlineTimerRef.current = null;
+        const cur = overlayRef.current;
+        if (cur) applyOverlayTransition(cur, onDeadline(cur, seq));
+      }, CONFIRMATION_WINDOW_MS);
       const grace = opts.graceMask ? armGraceMask() : null;
-      if (grace) {
-        // Post-POST lift filter (rework F3): only once the switch's selectWindow
-        // POST resolves may incoming bytes cancel the grace timer / lift the
-        // mask — a busy OUTGOING window's bytes ride the same socket and must
-        // not un-mask stale content. Mirrors the gate's chained openForNotify.
-        void opts.posted?.then(() => grace.openForLift()).catch(() => {});
-      }
-      // The timer closure carries the full `{server, windowId}` identity so the
-      // bounce can verify BOTH fields against the live route (H1).
-      const timer = setTimeout(() => bouncePendingSwitch(target), CONFIRMATION_WINDOW_MS);
-      const tracked = {
-        timer,
-        cancelMask: grace ? grace.cancel : null,
-        // Freshness evidence for the bounce verdict (260823-ke9i): the receipt
-        // tick at click time (a later tick is post-click evidence) and the
-        // POST-contradiction flag (set by the .then chain below).
-        tickAtClick: getServerReceiptTickRef.current(target.server),
-        postContradiction: false,
-        bounceDisarmed: false,
-      };
-      pendingSwitchRef.current = tracked;
-      // POST settlement handling (260823-ke9i) — decision logic in
-      // `resolvePendingSwitchPost`; the identity guards are load-bearing: the
-      // tracked entry must still be current (a superseded switch's late
-      // settlement is a no-op) and the intent must still record this target.
-      //
-      // - "confirm": the 200 is synchronous proof tmux executed the select —
-      //   cancel THIS switch's bounce timer so a dead state socket can never
-      //   false-bounce it. It cancels ONLY the timer: pendingClickRef stays set
-      //   until SSE confirms (the intent is the writeback suppression), and the
-      //   gate/mask machinery is untouched (paint feedback stays byte-driven).
-      // - "contradiction": fresh post-click evidence — a mismatched
-      //   `activeWindow` (an external switch won) or an explicit rejection. The
-      //   rejection counts as fresh evidence (it post-dates the click) so the
-      //   freshness-gated verdict bounces immediately rather than re-arming
-      //   into the failure limbo (SF8). The timer's own expiry handles the
-      //   mismatched-200 case.
-      const handlePostSettlement = (outcome: SwitchPostOutcome) => {
-        const effect = resolvePendingSwitchPost({
-          outcome,
-          targetWindowId: target.windowId,
-          isCurrent: pendingSwitchRef.current === tracked,
-          intentMatches: isSamePendingTarget(pendingClickRef.current, target.server, target.windowId),
-        });
-        if (effect === "confirm") {
-          clearTimeout(tracked.timer);
-          tracked.bounceDisarmed = true;
-        } else if (effect === "contradiction") {
-          tracked.postContradiction = true;
-          if (outcome.kind === "rejected") bouncePendingSwitch(target);
+      const settle = (outcome: SwitchPostOutcome) => {
+        const cur = overlayRef.current;
+        if (cur) {
+          applyOverlayTransition(
+            cur,
+            onPostSettled(cur, seq, outcome, snapshotTokenRef.current),
+          );
         }
       };
-      opts.posted?.then(
+      opts.posted.then(
         (resp) => {
-          const isResult = (
-            r: unknown,
-          ): r is SelectWindowResult =>
-            typeof r === "object" &&
-            r !== null &&
-            "ok" in r &&
-            typeof r.ok === "boolean";
-          handlePostSettlement(
-            isResult(resp)
-              ? { kind: "resolved", resp }
-              : { kind: "resolved", resp: { ok: false } },
-          );
+          // Only lift the grace mask once the POST resolved: a busy OUTGOING
+          // window's bytes ride the same socket and must not un-mask stale
+          // content.
+          grace?.openForLift();
+          settle({ kind: "resolved", resp });
         },
-        () => handlePostSettlement({ kind: "rejected" }),
+        () => settle({ kind: "rejected" }),
       );
     },
-    [clearPendingSwitchTracking, bouncePendingSwitch],
+    [clearSwitchTimers, commitOverlay, applyOverlayTransition],
   );
 
-  // Route-leave teardown (rework F1, must-fix): leaving the terminal leaf while
-  // a switch is pending must abandon the switch, not park a live 5s bounce. On
-  // the windowless `/$server` (SessionTiles) the writeback effect can early-
-  // return (`!activeWindow || !sessionName`), so without this the timer would
-  // fire with frozen refs and navigate the user BACK to a stale terminal route
-  // with a spurious failure toast — even when the switch actually succeeded.
-  // `abandonSwitchFeedback` (not a bare tearDownMask — rework G2) also settles
-  // a still-pending gate, whose timer could otherwise re-mask up to 300ms
-  // after the leave.
+  // A snapshot for the route's server is the confirm / post-settle-snapshot
+  // signal. The switch state is a dependency so a freshly started overlay is
+  // checked against the snapshot already held.
+  useEffect(() => {
+    const cur = overlayRef.current;
+    if (!cur) return;
+    applyOverlayTransition(
+      cur,
+      onSnapshot(cur, { server, activeWindowId: activeWindow?.windowId, token: rawSessions }),
+    );
+  }, [rawSessions, activeWindow, switchOverlay, server, applyOverlayTransition]);
+
+  // End the overlay and abandon its paint feedback (route leave, `$server`
+  // change, unmount). `abandonSwitchFeedback` (not a bare mask teardown) also
+  // settles a still-pending gate whose timer would otherwise re-mask later.
+  const teardownSwitch = useCallback(() => {
+    clearSwitchTimers();
+    commitOverlay(null);
+    abandonSwitchFeedback();
+  }, [clearSwitchTimers, commitOverlay]);
+
   useEffect(() => {
     if (windowParam) return;
-    pendingClickRef.current = null;
-    clearPendingSwitchTracking();
-    abandonSwitchFeedback();
-  }, [windowParam, clearPendingSwitchTracking]);
+    teardownSwitch();
+  }, [windowParam, teardownSwitch]);
 
-  // Unmount teardown (rework F1): navigating to the Cockpit `/` or a board
-  // route unmounts AppShell, but the confirmation timer (a setTimeout closure)
-  // and the module-level mask state + pending gate outlive the component
-  // instance. Abandon both (rework G2: a bare tearDownMask would leak a
-  // re-masking gate timer into the next mount) so no straggler bounce or
-  // leftover mask greets it. `clearPendingSwitchTracking` is a stable
-  // useCallback, so this cleanup runs only at actual unmount.
-  useEffect(
-    () => () => {
-      clearPendingSwitchTracking();
-      abandonSwitchFeedback();
-    },
-    [clearPendingSwitchTracking],
-  );
+  useEffect(() => teardownSwitch, [teardownSwitch]);
 
-  // Server-change teardown (rework H1, must-fix): window ids (`@N`) are only
-  // unique PER SERVER, and AppShell persists across `$server` route changes
-  // WITHOUT remounting — a cross-server navigation to a colliding id (serverA
-  // pending @5 → serverB's @5) keeps `windowParam` the same string, so neither
-  // the route-leave nor the unmount teardown fires. Abandon the previous
-  // server's pending switch here: its timer closure, gate, and mask all
-  // describe a window that no longer means the same thing. DECLARED BEFORE the
+  // Window ids are only unique per server and AppShell persists across
+  // `$server` changes without remounting, so a same-string `@N` on another
+  // server must not inherit the previous server's overlay. DECLARED BEFORE the
   // alignment effect (effects run in declaration order within a commit) so the
-  // alignment skip sees a cleared intent and serverB's tmux alignment fires.
-  // A prev-ref makes this a no-op on mount and fires it only on actual change.
+  // alignment skip sees a cleared overlay and the new server's tmux aligns.
   const prevServerRef = useRef(server);
   useEffect(() => {
     if (prevServerRef.current === server) return;
     prevServerRef.current = server;
-    pendingClickRef.current = null;
-    clearPendingSwitchTracking();
-    abandonSwitchFeedback();
-  }, [server, clearPendingSwitchTracking]);
+    teardownSwitch();
+  }, [server, teardownSwitch]);
 
-  // Mount-time alignment: if a deep-linked URL points at a window that is
-  // not the current tmux-active window for its (derived) session, fire exactly
-  // one `selectWindow` to align tmux to the URL. The comparison is window-id
-  // only, so a deep link to `/$server/@N` aligns to `@N` regardless of which
-  // session the snapshot reports it under. Guarded by `hasAlignedToUrlRef`,
-  // re-armed per window-route so subsequent navigations within the same window
-  // don't replay the alignment (which would clobber user clicks).
+  // Mount-time alignment: if a deep-linked (or history-navigated) URL points at
+  // a window that is not tmux's active window, request the switch once and hold
+  // the URL with an overlay. The comparison is window-id only, so a deep link to
+  // `/$server/@N` aligns to `@N` regardless of which session the snapshot
+  // reports it under. Re-armed per window route.
   useEffect(() => {
     // The popout never aligns tmux to its URL: its window id is fixed at
     // open, and selecting it would yank every other viewer of the server.
@@ -2956,7 +2804,6 @@ function AppShell() {
     if (!windowParam || !currentSession) return;
     const windowKey = `${server}|${windowParam}`;
     if (lastAlignedSessionRef.current !== windowKey) {
-      // Fresh window route — re-arm the guard.
       hasAlignedToUrlRef.current = false;
       lastAlignedSessionRef.current = windowKey;
     }
@@ -2967,107 +2814,23 @@ function AppShell() {
     if (activeId === null) return;
     hasAlignedToUrlRef.current = true;
     if (activeId !== windowParam) {
-      // A click-driven switch already recorded THIS exact intent (rework G1,
-      // must-fix): every optimistic click navigation re-fires this effect with
-      // SSE still stale (`activeId !== windowParam` one commit after a click),
-      // and re-tracking here would fire a DUPLICATE selectWindow POST and —
-      // worse — `beginPendingSwitch`'s supersession would cancel the click's
-      // just-armed grace mask, making the instant-path mask dead in the live
-      // app. This effect's tracking is for the COLD deep-link only, where no
-      // click recorded an intent. The match is server-scoped (rework H1): a
-      // stale intent from ANOTHER server with a colliding `@N` must not
-      // suppress THIS server's alignment (the server-change teardown above
-      // normally clears it first; this comparison is the correctness seam).
-      if (isSamePendingTarget(pendingClickRef.current, server, windowParam)) return;
-      // Deep-link to a window that is NOT tmux's current active window: record
-      // a pending intent on `@N` (same mechanism as a sidebar click) so the URL
-      // writeback below does NOT bounce us back to the currently-active window
-      // before tmux confirms the alignment. Without this, a cold deep-link to
-      // `/$server/@N` would flicker to the active window and unmount the
-      // terminal. The intent clears the instant SSE reports `@N` active.
-      // The confirmation timer + rejection bounce (260715-38kg) un-stick a
-      // silent-failure limbo where the alignment POST fails or never confirms;
-      // no grace mask here — a cold deep-link mounts a fresh terminal (a
-      // connecting pane, not stale bytes).
+      // A click already started this exact overlay: every optimistic click
+      // navigation re-fires this effect with the snapshot still stale, and a
+      // second start would POST a duplicate select and cancel the click's
+      // instant-path grace mask.
+      if (overlayTargets(overlayRef.current, server, windowParam)) return;
       const posted = selectWindow(server, windowParam);
       posted.catch(() => {});
-      beginPendingSwitch({ server, windowId: windowParam }, { posted });
+      beginSwitch({ server, windowId: windowParam }, { posted });
     }
-  }, [server, windowParam, currentSession, activeWindow, beginPendingSwitch, popoutPosture]);
-
-  // URL writeback: whenever the SSE snapshot says a different window is
-  // active than what the URL reflects, write the URL via `replace`. No
-  // debounce — tmux truth wins always. Dialogs suppress the writeback to
-  // keep focus-stealing re-renders from interrupting user input.
-  useEffect(() => {
-    // The popout's route is fixed for its lifetime — it never follows the
-    // opener's (or tmux's) navigation.
-    if (popoutPosture) return;
-    if (!activeWindow || !sessionName) return;
-    if (dialogOpenRef.current) return;
-    // Honor a pending click: while the URL still points at the optimistically
-    // navigated window the user just clicked, suppress the writeback so a
-    // stale snapshot can't bounce us back to the previously-active window.
-    // Clear the intent the moment SSE confirms it (active matches the click)
-    // or the URL has moved on (a newer navigation superseded it).
-    const pending = pendingClickRef.current;
-    if (pending) {
-      // Match on `{server, windowId}` — never the session name (a rename or
-      // cross-session move that preserves `@N` must NOT release the suppression
-      // early), and never the window id alone (rework H1: `@N` is only unique
-      // per server, so a stale intent from another server with a colliding id
-      // must neither suppress the writeback nor read as confirmed — it falls
-      // into the `!urlMatchesPending` clear-and-abandon branch below).
-      const urlMatchesPending = isSamePendingTarget(pending, server, windowParam);
-      const sseConfirmed = isSamePendingTarget(pending, server, activeWindow.windowId);
-      // SSE confirmation is authoritative for INTENT, but paint feedback stays
-      // byte-driven: until a byte has been counted as the incoming window's,
-      // `confirmSwitchArrived` is a no-op on the gate and the mask (the gate's
-      // 300ms timeout arms the spinner; the first counted write lifts it), and
-      // the tracked confirmation timer is the ONLY path to the unconditional
-      // `forceSwitchArrived` rescue. So a confirmation that lands before the
-      // byte keeps BOTH the intent and its tracking: clearing them here would
-      // leave a timeout-armed mask with no lift when bytes never come. The
-      // next SSE tick after the byte (or the timer itself) resolves it.
-      if (sseConfirmed && urlMatchesPending && !hasCountedIncomingBytes()) return;
-      if (sseConfirmed || !urlMatchesPending) {
-        pendingClickRef.current = null;
-        // The switch resolved (confirmed with a counted byte, or superseded by
-        // a newer nav): stop tracking so the confirmation timer never fires a
-        // spurious late bounce and any grace mask's cancel is released.
-        clearPendingSwitchTracking();
-        // A same-session switch whose tmux redraw completed BEFORE
-        // `openForNotify` counts that receipt at the POST's resolution (the
-        // in-flight receipt), so the confirmation here lands after the counted
-        // byte in the landed-fast case.
-        //
-        // UNCONFIRMED clear (`!urlMatchesPending` — browser Back/Forward away
-        // from a pending target; rework SF5): abandon the switch's feedback —
-        // if its POST failed, an armed mask has no other lift path, and a
-        // still-pending gate must not re-mask the destination.
-        if (sseConfirmed) confirmSwitchArrived();
-        else abandonSwitchFeedback();
-      } else {
-        return; // intent outstanding — let the URL stand
-      }
-    }
-    if (activeWindow.windowId === windowParam) return;
-    navigate({
-      to: "/$server/$window",
-      params: { server, window: activeWindow.windowId },
-      // Window switch driven by tmux (SSE writeback): empty search so the
-      // newly-active window resolves its own stored layout.
-      search: {},
-      replace: true,
-    });
-  }, [activeWindow, sessionName, windowParam, navigate, server, clearPendingSwitchTracking, popoutPosture]);
+  }, [server, windowParam, currentSession, activeWindow, beginSwitch, popoutPosture]);
 
   // Navigation callback for sidebar/breadcrumbs. tmux is the source of truth,
   // but a click is explicit user intent: we navigate the URL optimistically
   // (so the terminal renders immediately, including the first click from the
   // Dashboard and cross-session clicks the SSE writeback alone can't express)
-  // AND fire `selectWindow` to bring tmux into agreement. `pendingClickRef`
-  // suppresses the writeback's bounce-back until SSE confirms the switch.
+  // AND fire `selectWindow` to bring tmux into agreement. The switch overlay
+  // suppresses the writeback's bounce-back until tmux's truth catches up.
   //
   // On mobile, close the overlay sidebar after a destination tap.
   const navigateToWindow = useCallback(
@@ -3075,8 +2838,8 @@ function AppShell() {
       // Same-window no-op click (rework G3, must-fix): the target is BOTH the
       // URL window AND tmux's active window (a mobile drawer dismissal tap, the
       // palette's "(current)" entry). Nothing will change — tmux emits no bytes
-      // and the event-driven SSE snapshot never re-confirms — so arming the
-      // pending-switch machinery would guarantee a spurious spinner mask at
+      // and the event-driven SSE snapshot never re-confirms — so starting a
+      // switch overlay would guarantee a spurious spinner mask at
       // 300ms over the very terminal the user is on, plus a false failure
       // toast at the confirmation window. Keep the ergonomic drawer close;
       // arm nothing tmux-side. The one navigation the no-op still owes is
@@ -3135,10 +2898,7 @@ function AppShell() {
         });
         const posted = selectWindow(server, windowId);
         posted.catch(() => {}); // ignore errors (fire-and-forget)
-        // Record the pending intent + arm the confirmation timer (and, on the
-        // instant path, the grace mask). Bounces on explicit POST rejection or
-        // the confirmation-window timeout — un-sticking the silent-failure limbo.
-        beginPendingSwitch({ server, windowId }, { posted, graceMask });
+        beginSwitch({ server, windowId }, { posted, graceMask });
         if (isMobile) setSidebarOpen(false);
         return posted;
       };
@@ -3173,10 +2933,9 @@ function AppShell() {
         // — non-tty (web/chat) targets stay mask-less, matching the gated path.
         const { ungatedIds } = switchTransitionRef.current;
         const targetUngated = ungatedIds.has(windowId);
-        // A fresh switch owns ALL feedback. A leftover ARMED mask is now
-        // cleared by `beginPendingSwitch`'s fresh-switch teardown (via
-        // `runSwitch` below — 260719-h0x4); this call's remaining unique value
-        // is settling a still-PENDING prior gate as "superseded" so its later
+        // A fresh switch owns ALL feedback. A leftover ARMED mask is cleared
+        // by `beginSwitch`'s fresh-switch teardown (via `runSwitch` below);
+        // this call's remaining unique value is settling a still-PENDING prior gate as "superseded" so its later
         // timeout cannot re-mask the new non-tty view (the bare teardown
         // deliberately never touches the gate — the animated path reaches it
         // with its OWN gate current). Without this, an animated switch
@@ -3278,7 +3037,7 @@ function AppShell() {
         })
         .catch(() => {});
     },
-    [server, navigate, isMobile, setSidebarOpen, beginPendingSwitch],
+    [server, navigate, isMobile, setSidebarOpen, beginSwitch],
   );
 
   // Dialog state management. The two option callbacks are useCallback-stable:
@@ -3305,12 +3064,36 @@ function AppShell() {
     onSessionRenamed: handleDialogSessionRenamed,
   });
 
-  // Keep dialogOpenRef in sync so the activeWindow effect can check it without deps.
   // The server create/kill open-state comes from the layout-owned
-  // `server-dialogs-context` (260811-239r) — the dialogs mount in AppLayout now,
-  // but gating this route's URL writeback while one is up is unchanged.
-  dialogOpenRef.current =
+  // `server-dialogs-context` — the dialogs mount in AppLayout, but this route's
+  // URL writeback is still suppressed while one is up.
+  const dialogOpen =
     dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || killServerTarget != null || adoptServerTarget != null || newSheetOpen || showTmuxCommands || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null || operatorComposeMode != null || noteTarget != null;
+
+  // URL writeback: the URL projects tmux's active window. Suppressed while a
+  // same-server switch overlay is live (bounded) and while a dialog is open;
+  // both are dependencies, so ending the overlay or closing the dialog
+  // re-projects.
+  useEffect(() => {
+    // The popout's route is fixed for its lifetime — it never follows the
+    // opener's (or tmux's) navigation.
+    if (popoutPosture) return;
+    if (!activeWindow || !sessionName) return;
+    // The ref, not the state: an overlay started by the alignment effect in this
+    // same commit is not yet in `switchOverlay`. The state stays a dependency so
+    // ending the overlay re-runs the projection.
+    if (overlayRef.current?.server === server) return;
+    if (dialogOpen) return;
+    if (activeWindow.windowId === windowParam) return;
+    navigate({
+      to: "/$server/$window",
+      params: { server, window: activeWindow.windowId },
+      // Window switch driven by tmux (SSE writeback): empty search so the
+      // newly-active window resolves its own stored layout.
+      search: {},
+      replace: true,
+    });
+  }, [activeWindow, sessionName, windowParam, switchOverlay, dialogOpen, navigate, server, popoutPosture]);
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -3346,7 +3129,7 @@ function AppShell() {
 
   // Freshest-value refs for the instant-create path. `sessions`/`currentWindow`
   // churn on every SSE tick; reading them via
-  // render-time-mutated refs (the same pattern as `dialogOpenRef` above) keeps
+  // render-time-mutated refs (the same pattern as `windowParamRef` above) keeps
   // `handleCreateSessionInstant` referentially stable across ticks, so it (and
   // the Sidebar/palette consumers that receive it) don't defeat the
   // memoization downstream. The values read are always the latest committed
@@ -5125,23 +4908,19 @@ function AppShell() {
   // Navigate to a waiting target on the bare terminal route (empty search —
   // the target window resolves its own stored layout; the compose strip is
   // where the user answers the agent). A SAME-SERVER target needs the tmux
-  // alignment the sidebar/palette path provides: fire `selectWindow` + track
-  // the pending switch so the URL writeback (app.tsx:663) doesn't bounce back
-  // to the previously-active window before SSE confirms the switch.
-  // Cross-server targets navigate plainly — identity is window-id-only on the
-  // 2-segment route and the destination's mount-time alignment (app.tsx:633)
-  // handles tmux there.
+  // alignment the sidebar/palette path provides: fire `selectWindow` + start
+  // the switch overlay so the URL writeback doesn't bounce back to the
+  // previously-active window before SSE confirms the switch. Cross-server
+  // targets navigate plainly — identity is window-id-only on the 2-segment
+  // route and the destination's mount-time alignment handles tmux there.
   const navigateToWaitingTarget = useCallback(
     (targetServer: string, targetWindowId: string) => {
       if (targetServer === server) {
-        // Same-server: tmux-align + track the pending switch so the failure
-        // bounce-back (260715-38kg) un-sticks a limbo if the POST fails or never
-        // confirms. No grace mask — the target may remount on layout change.
-        // Cross-server navigates plainly (destination handles its own
-        // mount-time alignment + tracking).
+        // Same-server: tmux-align + start the switch overlay. No grace mask —
+        // the target may remount on layout change.
         const posted = selectWindow(server, targetWindowId);
         posted.catch(() => {});
-        beginPendingSwitch({ server, windowId: targetWindowId }, { posted });
+        beginSwitch({ server, windowId: targetWindowId }, { posted });
       }
       navigate({
         to: "/$server/$window",
@@ -5150,13 +4929,13 @@ function AppShell() {
       });
       if (isMobile) setSidebarOpen(false);
     },
-    [server, navigate, isMobile, setSidebarOpen, beginPendingSwitch],
+    [server, navigate, isMobile, setSidebarOpen, beginSwitch],
   );
 
   // Per-window switch entries — one per window across every session. Grouped
   // under the "Tab:" family (user-facing copy calls tmux windows "tabs") to
   // surface the keyboard switch path (constitution V). Reuses navigateToWindow
-  // (URL nav + selectWindow + mobile-close + pendingClickRef writeback
+  // (URL nav + selectWindow + mobile-close + switch-overlay writeback
   // suppression); the `(current)` suffix marks the URL-active window, mirroring
   // `Server: Switch to <name> (current)`.
   const windowSwitchActions: PaletteAction[] = useMemo(
@@ -5761,7 +5540,7 @@ function AppShell() {
       // lands on the session's first waiting window.
       const target = nextWaitingTarget(ordered, server, windowParam);
       if (!target) return;
-      // Same-server targets tmux-align (selectWindow + pendingClickRef) so the
+      // Same-server targets tmux-align (selectWindow + switch overlay) so the
       // URL writeback can't bounce back; cross-server navigates plainly. See
       // `navigateToWaitingTarget`.
       navigateToWaitingTarget(target.server, target.windowId);
@@ -6105,7 +5884,7 @@ function AppShell() {
             ...(fixedWidth ? { maxWidth: 900, width: "100%", marginInline: "auto" } : {}),
           }}
           // Block keyboard input to the OLD window while the pending-switch mask
-          // is up (260715-38kg): the hazard being fixed is typing into the window
+          // is up: the hazard being fixed is typing into the window
           // you THINK you left. Capture-phase intercept runs before xterm's
           // hidden-textarea handler; keystrokes are DROPPED, not buffered/replayed
           // (assumption 10). Pointer input is blocked by the overlay's own
@@ -6197,12 +5976,12 @@ function AppShell() {
               server={server}
               windowId={windowParam}
               sessionName={sessionName ?? ""}
-              // A UI-initiated switch records its intent (`pendingClickRef`)
-              // in the same tick as the navigate, before this render: only then
-              // may the tty tile arm its deferred buffer clear. A tmux/SSE-
-              // driven URL writeback carries no intent — the attached client
-              // already redrew, so the clear must stay off.
-              clearOnWindowChange={isSamePendingTarget(pendingClickRef.current, server, windowParam)}
+              // A UI-initiated switch starts its overlay in the same tick as
+              // the navigate, before this render: only then may the tty tile
+              // arm its deferred buffer clear. A tmux/SSE-driven URL writeback
+              // carries no overlay — the attached client already redrew, so the
+              // clear must stay off.
+              clearOnWindowChange={overlayTargets(switchOverlay, server, windowParam)}
               // The payload's window record: the code tile reads the shared
               // code root (`codeRootFor`), the web tile the active web tab.
               window={effectiveWindow}

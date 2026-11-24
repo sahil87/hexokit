@@ -92,8 +92,10 @@ export async function mockGuiBackend(page: Page, gui: unknown, statusDoc?: unkno
     route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
   );
   // The mount-time tmux alignment POSTs select when the URL window is not the
-  // payload's active one — unstubbed, the failure bounces the route back to
-  // the active window (@1).
+  // payload's active one — unstubbed, the rejection ends the switch overlay
+  // and the route follows the payload's active window (@1). Stubbed, the
+  // static payload never confirms, so the overlay holds the URL for at most
+  // the 5 s overlay deadline.
   await page.route("**/api/windows/*/select*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
   );

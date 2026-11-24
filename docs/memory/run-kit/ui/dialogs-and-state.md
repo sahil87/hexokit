@@ -559,7 +559,7 @@ which does not fit the cell width — the gloss is retained as the headings' acc
 *Introduced by*: 260829-11t0-reopen-closed-tab-recently-closed-stack
 
 ### Window-switch feedback stays optimistic
-**Decision**: window-switch navigation stays optimistic — the heading/URL flip at click (acknowledged intent) and the sidebar highlight stays SSE-derived (confirmation); the slide plays only on confirmed-fast arrival, with a pending mask + failure bounce-back layered on.
+**Decision**: window-switch navigation stays optimistic — the heading/URL flip at click (acknowledged intent) and the sidebar highlight stays SSE-derived (confirmation); the slide plays only on confirmed-fast arrival, with a pending mask layered on and the URL held by a bounded switch overlay (ends on SSE confirm, the first post-settle snapshot, rejection with an error toast, or a 5 s deadline).
 **Why**: keeps the terminal rendering immediately while giving each visual state an honest, distinct signal.
 **Rejected**: pessimistic navigation (waits for confirmation before flipping); a dimmed overlay.
 *Introduced by*: 260715-38kg-window-switch-confirmed-motion
