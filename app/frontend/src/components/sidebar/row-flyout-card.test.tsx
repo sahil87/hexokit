@@ -674,13 +674,13 @@ describe("Fix tab name action row (260822-fih1)", () => {
     expect(screen.queryByTestId("row-flyout-fix-name-action")).toBeNull();
   });
 
-  it("is absent when the subject carries no agent session ref", () => {
+  it("is absent for a plain shell", () => {
     render(<Row win={makeWindow({})} hasOperator onFixTabName={fixNameResolved()} />);
     hoverOpen();
     expect(screen.queryByTestId("row-flyout-fix-name-action")).toBeNull();
   });
 
-  it("is absent for an identity-only subject (no conversation capability)", () => {
+  it("renders for an agent with identity and no transcript", () => {
     render(
       <Row
         win={makeWindow({ agentProvider: "copilot", agentSessionRef: "ref-1" })}
@@ -689,7 +689,7 @@ describe("Fix tab name action row (260822-fih1)", () => {
       />,
     );
     hoverOpen();
-    expect(screen.queryByTestId("row-flyout-fix-name-action")).toBeNull();
+    expect(screen.getByTestId("row-flyout-fix-name-action")).toBeInTheDocument();
   });
 
   it("is absent on the operator's own row", () => {

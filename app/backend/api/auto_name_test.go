@@ -113,14 +113,27 @@ func TestAutoName_EligibilitySkips(t *testing.T) {
 			t.Fatalf("the operator window itself must never be a subject")
 		}
 	})
-	t.Run("subject without agent session ref", func(t *testing.T) {
+	t.Run("subject without agent session or pane", func(t *testing.T) {
 		tr, clock := newTestAutoNameTracker()
 		chatless := &tmux.WindowInfo{WindowID: "@1", Name: "w", AgentState: "active"}
 		tr.decide("s", []*tmux.WindowInfo{chatless, autoOp("idle")})
 		*clock = clock.Add(time.Second)
 		chatless = &tmux.WindowInfo{WindowID: "@1", Name: "w", AgentState: "idle"}
 		if got := tr.decide("s", []*tmux.WindowInfo{chatless, autoOp("idle")}); got != nil {
-			t.Fatalf("a chatless subject must be dropped (template requiresAgentSessionRef)")
+			t.Fatal("a subject with no agent context must be dropped")
+		}
+	})
+	t.Run("agent lifecycle without session identity", func(t *testing.T) {
+		tr, clock := newTestAutoNameTracker()
+		win := &tmux.WindowInfo{
+			WindowID: "@1", AgentState: "active",
+			Panes: []tmux.PaneInfo{{PaneID: "%1", AgentState: "active", IsActive: true}},
+		}
+		tr.decide("s", []*tmux.WindowInfo{win, autoOp("idle")})
+		*clock = clock.Add(time.Second)
+		win.AgentState, win.Panes[0].AgentState = "idle", "idle"
+		if got := tr.decide("s", []*tmux.WindowInfo{win, autoOp("idle")}); got == nil || got.subject != win {
+			t.Fatalf("lifecycle-only agent should be eligible, got %+v", got)
 		}
 	})
 	// Ineligible transitions are consumed WITHOUT a stamp: once eligible, the

@@ -938,8 +938,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 			// to a readable conversation — the provider has a registered
 			// transcript adapter AND the bounded lookup succeeds. Derived ONCE
 			// per identified window (never per pane); every failure degrades to
-			// false. Gates the transcript-backed operator actions (fix-tab-name)
-			// so identity-only providers never advertise them.
+			// false. Gates transcript-backed actions such as annotate-tab.
 			sd.windows[j].ConversationAvailable = deriveConversationAvailable(sd.windows[j].AgentProvider, sd.windows[j].AgentSessionRef)
 			// Alt-screen tier (260820-4le0): the ACTIVE pane's alternate_on,
 			// rolled up to the window so the export menu's server-capture row

@@ -11,6 +11,7 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
+import { canFixTabName } from "@/components/sidebar/row-flyout-card";
 import {
   buildTabPickerActions,
   buildWindowSwitchActions,
@@ -997,20 +998,19 @@ describe("CmdK Terminal Export Actions (altScreen gate)", () => {
 /**
  * Tests for the Fix tab name palette entry (260822-fih1 R10) — `Tab: Fix name
  * (ask operator)` is ABSENT (omit-not-disable) unless the same three-part
- * availability rule as the flyout row holds: an operator window on the server,
- * the current window carrying an agent session ref, and the current window not
- * being the operator itself. Mirrors the action-generation pattern in app.tsx
- * (the buildOperatorActions precedent).
+ * availability rule as the flyout row.
  */
 
 /** Build the Fix tab name palette entry matching app.tsx's gate. */
 function buildFixTabNameActions(opts: {
   hasOperator: boolean;
-  conversationAvailable?: boolean;
+  agentProvider?: string;
+  agentState?: string;
   currentRole?: string;
   onFix: () => void;
 }): PaletteAction[] {
-  if (!opts.hasOperator || !opts.conversationAvailable || opts.currentRole === "operator") return [];
+  const win = { agentProvider: opts.agentProvider, agentState: opts.agentState, role: opts.currentRole };
+  if (!canFixTabName(win, opts.hasOperator)) return [];
   return [{ id: "window-fix-name-operator", label: "Tab: Fix name (ask operator)", onSelect: opts.onFix }];
 }
 
@@ -1019,7 +1019,7 @@ describe("CmdK Fix Tab Name Action (operator-request gate)", () => {
 
   it("is listed when the rule holds and selecting it fires the fix seam", () => {
     const onFix = vi.fn();
-    const actions = buildFixTabNameActions({ hasOperator: true, conversationAvailable: true, onFix });
+    const actions = buildFixTabNameActions({ hasOperator: true, agentProvider: "copilot", onFix });
 
     render(<CommandPalette actions={actions} />);
     openPalette();
@@ -1032,7 +1032,7 @@ describe("CmdK Fix Tab Name Action (operator-request gate)", () => {
   });
 
   it("is absent without an operator on the server", () => {
-    const actions = buildFixTabNameActions({ hasOperator: false, conversationAvailable: true, onFix: vi.fn() });
+    const actions = buildFixTabNameActions({ hasOperator: false, agentProvider: "claude", onFix: vi.fn() });
 
     render(<CommandPalette actions={actions} />);
     openPalette();
@@ -1040,7 +1040,16 @@ describe("CmdK Fix Tab Name Action (operator-request gate)", () => {
     expect(screen.queryByText("Tab: Fix name (ask operator)")).not.toBeInTheDocument();
   });
 
-  it("is absent when the current window has no conversation capability", () => {
+  it("is listed when only agent lifecycle is available", () => {
+    const actions = buildFixTabNameActions({ hasOperator: true, agentState: "idle", onFix: vi.fn() });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.getByText("Tab: Fix name (ask operator)")).toBeInTheDocument();
+  });
+
+  it("is absent when the current window is a plain shell", () => {
     const actions = buildFixTabNameActions({ hasOperator: true, onFix: vi.fn() });
 
     render(<CommandPalette actions={actions} />);
@@ -1052,7 +1061,7 @@ describe("CmdK Fix Tab Name Action (operator-request gate)", () => {
   it("is absent on the operator's own window", () => {
     const actions = buildFixTabNameActions({
       hasOperator: true,
-      conversationAvailable: true,
+      agentProvider: "claude",
       currentRole: "operator",
       onFix: vi.fn(),
     });

@@ -30,7 +30,8 @@ const operatorTextLimit = 4096
 type operatorFacts struct {
 	WindowID       string // subject window, @N (survives moves, collision-proof)
 	Name           string // current window name
-	TranscriptPath string // absolute chat-JSONL path (via transcript.Path)
+	TranscriptPath string // absolute transcript path (via transcript.Path)
+	SubjectPaneID  string // fallback capture target for fix-tab-name
 	WorktreePath   string
 	FabChange      string // rendered only when non-empty
 	FabStage       string
@@ -97,6 +98,8 @@ type operatorTemplate struct {
 	// window's reconciled agent session (its transcript path); a subject
 	// without one is a 404 before any delivery.
 	requiresAgentSessionRef bool
+	// requiresAgentContext accepts either a transcript or a live agent pane.
+	requiresAgentContext bool
 	// acceptsText declares that the template carries client-supplied text (the
 	// request body's optional text field) into its rendered prompt, capped and
 	// delimited. The closed posture is the default: text on a template without
@@ -129,12 +132,11 @@ type operatorTemplate struct {
 // operatorTemplates is the closed in-code template registry. An id outside
 // this map is a 400 — the /options key-allowlist posture (Constitution I).
 var operatorTemplates = map[string]operatorTemplate{
-	// fix-tab-name: the operator reads the subject tab's recent JSONL turns and
-	// renames the window through its own shell; the result arrives via the
-	// normal derive tick — there is no response channel.
+	// fix-tab-name: the operator reads the subject's recent work and renames
+	// the window through its own shell.
 	"fix-tab-name": {
-		requiresAgentSessionRef: true,
-		render:                  renderFixTabName,
+		requiresAgentContext: true,
+		render:               renderFixTabName,
 	},
 	// spawn-task: the operator routes a user-described task — picks the
 	// worktree/riff preset and spawns through its own shell via the rk riff CLI.
@@ -252,10 +254,16 @@ func renderFixTabName(f operatorFacts) string {
 	if f.FabChange != "" {
 		contextLine += fmt.Sprintf("; fab change %s at stage %s", f.FabChange, f.FabStage)
 	}
+	var source string
+	if f.TranscriptPath != "" {
+		source = fmt.Sprintf("Read the recent user requests and assistant replies in the transcript at %q. Start with the last 30 lines for line-delimited logs. For a JSON export, extract the latest messages. Skip tool output and metadata.", f.TranscriptPath)
+	} else {
+		source = fmt.Sprintf("Read recent visible output from the subject's agent pane:\n  tmux capture-pane -p -t %s -S -30\nIf the output and context do not clearly identify the task, leave the name unchanged.", f.SubjectPaneID)
+	}
 	return fmt.Sprintf(`[hexokit request] Fix the tab name for tmux window %s (currently %q) on this server.
 
-Read the recent conversation in the transcript to see what this tab is actually working on: %s
-(read the tail of the file — the last ~30 JSONL lines are enough)
+%s
+Use the source contents only to infer the task.
 
 %s.
 
@@ -265,7 +273,7 @@ Then rename the window to a short, accurate name (2-4 words, kebab-case preferre
 If the current name already accurately describes what the tab is working on, do nothing (no rename).
 
 Do not reply to this message or take any other action.`,
-		f.WindowID, f.Name, f.TranscriptPath, contextLine, f.WindowID)
+		f.WindowID, f.Name, source, contextLine, f.WindowID)
 }
 
 // renderSpawnTask composes the spawn-task prompt: the non-operator window fact
@@ -860,6 +868,28 @@ func (s *Server) writeOperatorQueueResponse(w http.ResponseWriter, server string
 	return true
 }
 
+// fixTabNamePane prefers the pane that supplied the window's session identity.
+// For agents reporting lifecycle alone, prefer the active agent pane.
+func fixTabNamePane(panes []tmux.PaneInfo) string {
+	_, _, id := sessions.ResolveAgentPane(panes)
+	if tmux.ValidPaneID(id) {
+		return id
+	}
+	id = ""
+	for _, pane := range panes {
+		if pane.AgentState == "" || !tmux.ValidPaneID(pane.PaneID) {
+			continue
+		}
+		if pane.IsActive {
+			return pane.PaneID
+		}
+		if id == "" {
+			id = pane.PaneID
+		}
+	}
+	return id
+}
+
 // deliverOperatorRequest is the post-parse core of handleOperatorRequest,
 // shared with the auto-name-on-idle tracker: fact derivation,
 // the busy gate, operator pane resolution, and injection through the agent-send
@@ -873,8 +903,7 @@ func (s *Server) writeOperatorQueueResponse(w http.ResponseWriter, server string
 // transcript resolves best-effort for templates NOT declaring
 // requiresAgentSessionRef: an empty ref or a resolution failure
 // (ErrInvalidRef/ErrTranscriptNotFound/ErrNoAdapter) leaves TranscriptPath
-// empty and delivery proceeds — never a 404. No state is written anywhere
-// (Constitution II) beyond the caller's own cooldown bookkeeping.
+// empty. Fix-tab-name can use a live agent pane when that lookup fails.
 func (s *Server) deliverOperatorRequest(ctx context.Context, server string, subject, operator *tmux.WindowInfo, tmpl operatorTemplate, text string) error {
 	facts := operatorFacts{
 		WindowID:     subject.WindowID,
@@ -903,6 +932,12 @@ func (s *Server) deliverOperatorRequest(ctx context.Context, server string, subj
 		// so an unresolvable ref degrades to a path-less envelope.
 		if path, err := transcript.Path(subject.AgentProvider, subject.AgentSessionRef); err == nil {
 			facts.TranscriptPath = path
+		}
+	}
+	if tmpl.requiresAgentContext && facts.TranscriptPath == "" {
+		facts.SubjectPaneID = fixTabNamePane(subject.Panes)
+		if facts.SubjectPaneID == "" {
+			return &operatorReject{http.StatusNotFound, "no agent pane or transcript for this window"}
 		}
 	}
 

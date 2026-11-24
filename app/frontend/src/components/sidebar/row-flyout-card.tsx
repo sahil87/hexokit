@@ -421,17 +421,14 @@ export function canForkWindow(win: WindowInfo): boolean {
   return win.agentProvider === "claude" || win.agentProvider === "codex";
 }
 
-/**
- * The derived availability rule for the window-scoped operator-request
- * affordance (Fix tab name — 260822-fih1) — degrade to
- * ABSENT, never disabled: the row renders only when (a) the server has an
- * operator window, (b) the subject window's reconciled agent identity resolves
- * to a readable conversation (the server-derived `conversationAvailable`
- * capability — an identity-only provider never advertises an action that would
- * predictably 404), and (c) the subject is not itself the operator. All three
- * facts already ride the sessions payload. */
+/** Availability for transcript-backed operator requests such as Annotate tab. */
 export function canRequestWindowOperatorAction(win: WindowInfo, hasOperator: boolean): boolean {
   return hasOperator && win.conversationAvailable === true && win.role !== "operator";
+}
+
+/** Fix tab name can use the agent pane when its transcript is unavailable. */
+export function canFixTabName(win: Pick<WindowInfo, "agentProvider" | "agentState" | "role">, hasOperator: boolean): boolean {
+  return hasOperator && win.role !== "operator" && Boolean(win.agentProvider || win.agentState);
 }
 
 /** Shared geometry for the card's sectioned action rows: full-bleed inside
@@ -776,7 +773,7 @@ export function WindowFlyoutContent({
   onForkWorktree?: () => Promise<void>;
   /** Fire the operator-request seam for this window (fix-tab-name). OPTIONAL:
    *  a consumer wiring no seam renders no row. Renders only when the
-   *  availability rule holds (canRequestWindowOperatorAction). */
+   *  availability rule holds (canFixTabName). */
   onFixTabName?: () => Promise<void>;
   /** Whether the server has an operator window — availability input (a) for
    *  the Fix tab name row. */
@@ -825,10 +822,7 @@ export function WindowFlyoutContent({
   // narrowing, which a refactor could silently break.
   const forkHandler = canForkWindow(win) ? onFork : undefined;
   const forkWorktreeHandler = canForkWindow(win) ? onForkWorktree : undefined;
-  // The Fix tab name row keeps the same double gate: the derived availability
-  // rule (operator present + subject agent session ref + not the operator's
-  // own row) AND a wired handler.
-  const fixNameHandler = canRequestWindowOperatorAction(win, hasOperator) ? onFixTabName : undefined;
+  const fixNameHandler = canFixTabName(win, hasOperator) ? onFixTabName : undefined;
 
   return (
     <>

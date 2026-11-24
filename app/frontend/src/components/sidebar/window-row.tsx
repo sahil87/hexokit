@@ -154,7 +154,7 @@ type WindowRowProps = {
    *  (260822-fih1-operator-request-fix-tab-name). Optional (mirrors
    *  `onForkWindow`): when omitted — e.g. the board-route sidebar — the row
    *  flyout's Fix tab name affordance is hidden. The flyout additionally gates
-   *  on the derived availability rule (`canRequestWindowOperatorAction`). */
+   *  on the derived availability rule (`canFixTabName`). */
   onFixTabName?: (server: string, windowId: string) => Promise<void>;
   /** The tab-popout seam: the flyout card's Open in new window row (or, while
    *  the tab's terminal is popped out, its Focus window + Bring back rows) and

@@ -214,7 +214,7 @@ import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
 import { HeadsetIcon } from "@/components/sidebar/icons";
 import { PANE_PANEL_OPEN_STORAGE_KEY, PANE_PANEL_DEFAULT_OPEN } from "@/components/sidebar/status-panel";
-import { canRequestWindowOperatorAction } from "@/components/sidebar/row-flyout-card";
+import { canFixTabName, canRequestWindowOperatorAction } from "@/components/sidebar/row-flyout-card";
 import { buildForkWindowActions } from "@/lib/palette/fork";
 import { SurfaceLayout } from "@/components/surface-layout";
 import { PoppedOutPlaceholder, PopoutEnded, type PoppedLeafRow } from "@/components/popout-states";
@@ -3818,13 +3818,7 @@ function AppShell() {
                 setNoteTarget({ server, windowId: currentWindow.windowId, note: currentWindow.note ?? "" });
               },
             },
-            // Fix tab name (260822-fih1) — the palette arm of the operator
-            // actuation seam, gated by the SAME server-derived capability rule
-            // as the flyout row (canRequestWindowOperatorAction —
-            // omit-not-disable): an operator on the server, the subject's
-            // identity resolving to a readable conversation, and the subject
-            // not being the operator itself.
-            ...(canRequestWindowOperatorAction(currentWindow, hasOperatorWindow)
+            ...(canFixTabName(currentWindow, hasOperatorWindow)
               ? [
                   {
                     id: "window-fix-name-operator",
@@ -3833,9 +3827,10 @@ function AppShell() {
                       void handleFixTabName(server, currentWindow.windowId);
                     },
                   },
-                  // Annotate tab (260824-bb5n) — the palette arm of the
-                  // annotate-tab operator template, gated by the SAME
-                  // availability triple as fix-name.
+                ]
+              : []),
+            ...(canRequestWindowOperatorAction(currentWindow, hasOperatorWindow)
+              ? [
                   {
                     id: "window-annotate-operator",
                     label: "Operator: Annotate tab",

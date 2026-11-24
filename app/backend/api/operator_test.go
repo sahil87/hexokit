@@ -138,10 +138,8 @@ func TestOperatorRequestNoOperator(t *testing.T) {
 	}
 }
 
-// TestOperatorRequestSubjectNoAgentSessionRef: the fix-tab-name template
-// declares the agent session ref as a required fact — a subject without a
-// reconciled agent session is a 404 with no injection.
-func TestOperatorRequestSubjectNoAgentSessionRef(t *testing.T) {
+// A subject without a transcript or an agent pane cannot be named.
+func TestOperatorRequestSubjectNoAgentContext(t *testing.T) {
 	sf := &mockSessionFetcher{result: []sessions.ProjectSession{
 		{Name: "s", Windows: []tmux.WindowInfo{
 			{WindowID: "@1", Name: "zsh"},
@@ -164,22 +162,20 @@ func TestOperatorRequestSubjectNoAgentSessionRef(t *testing.T) {
 	}
 }
 
-// TestOperatorRequestTranscriptNotFound: a resolvable-looking ref whose
-// transcript is absent on disk is a 404 (same vocabulary as the chat read
-// endpoints) with no injection.
-func TestOperatorRequestTranscriptNotFound(t *testing.T) {
+func TestOperatorRequestMissingTranscriptUsesPane(t *testing.T) {
 	stageEmptyConfigDir(t)
+	fastAgentSendProbe(t)
 	sf := &mockSessionFetcher{result: operatorSessions("idle")}
-	ops := &mockTmuxOps{}
+	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]", "working"}}
 	router := NewTestRouter(slog.Default(), sf, ops, "host")
 
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, operatorReq(`{"template":"fix-tab-name"}`))
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	if len(ops.agentSendCalls) != 0 {
-		t.Errorf("injection ran (%v) with an unresolvable transcript", ops.agentSendCalls)
+	if !strings.Contains(ops.setAgentBufferText, "tmux capture-pane -p -t %1 -S -30") {
+		t.Errorf("prompt did not fall back to the subject pane: %s", ops.setAgentBufferText)
 	}
 }
 
