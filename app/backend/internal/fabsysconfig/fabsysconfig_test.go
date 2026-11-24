@@ -29,8 +29,13 @@ type fakeFab struct {
 	// with models empty the call exits non-zero, like a fab without the verb.
 	models    string
 	modelsErr string
-	mu        sync.Mutex
-	calls     [][]string
+	// presets and presetsErr are the stdout and stderr of `agent presets
+	// --json`; with presets empty the call exits non-zero, like a fab without
+	// the verb.
+	presets    string
+	presetsErr string
+	mu         sync.Mutex
+	calls      [][]string
 }
 
 func (f *fakeFab) run(_ context.Context, argv ...string) ([]byte, []byte, error) {
@@ -47,6 +52,11 @@ func (f *fakeFab) run(_ context.Context, argv ...string) ([]byte, []byte, error)
 			return nil, []byte("unknown role: models"), errors.New("exit 1")
 		}
 		return []byte(f.models), []byte(f.modelsErr), nil
+	case joined == "agent presets --json":
+		if f.presets == "" {
+			return nil, []byte("unknown role: presets"), errors.New("exit 1")
+		}
+		return []byte(f.presets), []byte(f.presetsErr), nil
 	case joined == "config show --origin --json":
 		return []byte(f.show), nil, nil
 	case joined == "config explain --json":
@@ -906,7 +916,7 @@ func TestRead_discoveryIsOneArgvOnlyCall(t *testing.T) {
 	}
 	var discovery [][]string
 	for _, call := range f.callLog() {
-		if len(call) > 0 && call[0] == "agent" {
+		if len(call) > 1 && call[0] == "agent" && call[1] == "models" {
 			discovery = append(discovery, call)
 		}
 	}
@@ -973,5 +983,361 @@ func TestRead_notInstalledSkipsDiscovery(t *testing.T) {
 	}).WithLookPath(func(string) (string, error) { return "", errors.New("not found") })
 	if _, err := c.Read(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// ---- agent presets ----
+
+// presetsFixture is fab 2.31.1's `agent presets --json` output.
+const presetsFixture = `[{"name":"claude","description":"All roles on Claude (today's defaults)","source":"built-in","session":"claude","workers":"claude"},
+{"name":"codex-review","description":"Only the review role on Codex","source":"built-in","profiles":{"review":{"cli":"codex"}}},
+{"name":"codex-workers","description":"Pipeline workers on Codex; session on Claude","source":"built-in","workers":"codex"}]`
+
+func presetNames(presets []AgentPreset) []string {
+	names := make([]string, 0, len(presets))
+	for _, p := range presets {
+		names = append(names, p.Name)
+	}
+	return names
+}
+
+func TestRead_agentPresetUnsetHasNoField(t *testing.T) {
+	f := newFake(t)
+	f.presets = presetsFixture
+	doc, err := New(f.run).Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := doc.Fields[KeyAgentPreset]; ok {
+		t.Errorf("fields[agent.preset] = %+v, want absent when unset", doc.Fields[KeyAgentPreset])
+	}
+	if want := []string{"claude", "codex-review", "codex-workers"}; !reflect.DeepEqual(presetNames(doc.AgentPresets), want) {
+		t.Errorf("agent_presets = %v, want %v", presetNames(doc.AgentPresets), want)
+	}
+}
+
+func TestRead_agentPresetsDecodeTheContract(t *testing.T) {
+	f := newFake(t)
+	f.presets = presetsFixture
+	doc, err := New(f.run).Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []AgentPreset{
+		{Name: "claude", Description: "All roles on Claude (today's defaults)", Source: "built-in", Session: "claude", Workers: "claude"},
+		{Name: "codex-review", Description: "Only the review role on Codex", Source: "built-in", Profiles: map[string]map[string]string{"review": {"cli": "codex"}}},
+		{Name: "codex-workers", Description: "Pipeline workers on Codex; session on Claude", Source: "built-in", Workers: "codex"},
+	}
+	if !reflect.DeepEqual(doc.AgentPresets, want) {
+		t.Errorf("agent_presets = %+v, want %+v", doc.AgentPresets, want)
+	}
+	b, _ := json.Marshal(doc)
+	if !strings.Contains(string(b), `"agent_presets":[{"name":"claude"`) {
+		t.Errorf("json = %s, want a snake_case agent_presets key", b)
+	}
+}
+
+func TestRead_agentPresetSetAtSystem(t *testing.T) {
+	rows := append([]string{row(KeyAgentPreset, `"codex-review"`, "system", systemPath)}, baseRows()...)
+	f := newFake(t, rows...)
+	f.presets = presetsFixture
+	doc, err := New(f.run).Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := doc.Fields[KeyAgentPreset]
+	if p.Value != "codex-review" || p.Origin != "system" || p.OriginDetail != systemPath || p.Preset != "" {
+		t.Errorf("agent.preset = %+v, want the system value, not itself preset-supplied", p)
+	}
+}
+
+func TestRead_agentPresetEnvWinsOverSystem(t *testing.T) {
+	rows := append([]string{row(KeyAgentPreset, `"codex-review"`, "env", "FAB_AGENT_PRESET")}, baseRows()...)
+	f := newFake(t, rows...)
+	f.presets = presetsFixture
+	f.stacks[KeyAgentPreset] = showJSON(
+		row(KeyAgentPreset, `"codex-review"`, "env", "FAB_AGENT_PRESET"),
+		`{"key":"agent.preset","value":"claude","origin":"system","origin_detail":"`+systemPath+`","status":"shadowed"}`,
+	)
+	doc, err := New(f.run).Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := doc.Fields[KeyAgentPreset]
+	if p.Value != "codex-review" || p.Origin != "env" || p.OriginDetail != "FAB_AGENT_PRESET" || p.SystemValue != "claude" {
+		t.Errorf("agent.preset = %+v, want env winner with systemValue claude", p)
+	}
+}
+
+func TestRead_olderFabOmitsAgentPresets(t *testing.T) {
+	cases := map[string]struct {
+		presets string // empty = exit non-zero
+	}{
+		"non-zero exit": {presets: ""},
+		"not json":      {presets: "usage: fab agent [role]"},
+		"json object":   {presets: `{"presets":[]}`},
+		"json null":     {presets: "null"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newFake(t)
+			f.presets = tc.presets
+			doc, err := New(f.run).Read(context.Background())
+			if err != nil {
+				t.Fatalf("Read: %v, want success", err)
+			}
+			if doc.AgentPresets != nil {
+				t.Errorf("agent_presets = %v, want omitted", doc.AgentPresets)
+			}
+			b, _ := json.Marshal(doc)
+			if strings.Contains(string(b), "agent_presets") {
+				t.Errorf("json = %s, want no agent_presets key", b)
+			}
+			if !doc.Installed || len(doc.Roles) != 6 || doc.Fields["agent.workers"].Value != "claude" {
+				t.Errorf("the rest of the document changed: %+v", doc)
+			}
+		})
+	}
+}
+
+func TestRead_presetListIsOneArgvOnlyCall(t *testing.T) {
+	f := newFake(t)
+	f.presets = presetsFixture
+	if _, err := New(f.run).Read(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var presets [][]string
+	for _, call := range f.callLog() {
+		if len(call) > 1 && call[0] == "agent" && call[1] == "presets" {
+			presets = append(presets, call)
+		}
+	}
+	if want := [][]string{{"agent", "presets", "--json"}}; !reflect.DeepEqual(presets, want) {
+		t.Errorf("preset calls = %v, want exactly %v", presets, want)
+	}
+}
+
+func TestRead_presetListRunsConcurrentlyWithConfigReads(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	f := newFake(t)
+	f.presets = presetsFixture
+	run := func(ctx context.Context, argv ...string) ([]byte, []byte, error) {
+		switch strings.Join(argv, " ") {
+		case "agent presets --json":
+			close(started)
+			<-release
+		case "config show --origin --json":
+			select {
+			case <-started:
+				close(release)
+			case <-time.After(5 * time.Second):
+				t.Error("the preset list had not started while the config reads ran")
+				close(release)
+			}
+		}
+		return f.run(ctx, argv...)
+	}
+	if _, err := New(run).Read(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRead_presetWarningsSurfaceOnce(t *testing.T) {
+	f := newFake(t)
+	f.models = modelsFixture
+	f.modelsErr = "fab: warning: unknown agent preset \"bogus\" (agent.preset from env); ignoring it"
+	f.presets = presetsFixture
+	f.presetsErr = f.modelsErr + "\nwarning: another"
+	doc, err := New(f.run).Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{f.modelsErr, "warning: another"}
+	if !reflect.DeepEqual(doc.Warnings, want) {
+		t.Errorf("warnings = %v, want %v", doc.Warnings, want)
+	}
+}
+
+func TestRead_showFailureDoesNotLeakPresetList(t *testing.T) {
+	f := newFake(t)
+	f.presets = presetsFixture
+	f.failOn = "config show --origin --json"
+	if _, err := New(f.run).Read(context.Background()); err == nil {
+		t.Fatal("want the show failure")
+	}
+}
+
+func TestRead_presetSuppliedRowsAreNeverOverrides(t *testing.T) {
+	detail := "preset codex-review"
+	rows := []string{
+		row(KeyAgentPreset, `"codex-review"`, "system", systemPath),
+		row("agent.profiles.review.cli", `"codex"`, "system", detail),
+		row("agent.workers", `"codex"`, "system", "preset codex-workers"),
+		row("agent.session", `"claude"`, "env", "preset claude"),
+	}
+	for _, r := range baseRows() {
+		if strings.Contains(r, `"agent.workers"`) || strings.Contains(r, `"agent.session"`) || strings.Contains(r, "agent.profiles.review.provider") {
+			continue
+		}
+		rows = append(rows, r)
+	}
+	f := newFake(t, rows...)
+	f.presets = presetsFixture
+	doc, err := New(f.run).Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	review := roleByName(t, doc, "review")
+	if review.Tool.Effective != "codex" || review.Tool.Origin != "system" || review.Tool.Preset != "codex-review" || review.Tool.Override != nil {
+		t.Errorf("review tool = %+v, want codex from system via preset codex-review with no override", review.Tool)
+	}
+	w := doc.Fields["agent.workers"]
+	if w.Value != "codex" || w.Preset != "codex-workers" {
+		t.Errorf("agent.workers = %+v, want preset codex-workers", w)
+	}
+	s := doc.Fields["agent.session"]
+	if s.Preset != "claude" || s.SystemValue != nil {
+		t.Errorf("agent.session = %+v, want preset claude and no systemValue read for a preset-supplied env row", s)
+	}
+	for _, call := range f.callLog() {
+		if len(call) > 2 && call[0] == "config" && call[1] == "show" && call[2] == "agent.session" {
+			t.Errorf("unexpected stack read for a preset-supplied row: %v", call)
+		}
+	}
+}
+
+func TestRead_explicitSystemRowStillOverrides(t *testing.T) {
+	rows := append([]string{
+		row(KeyAgentPreset, `"codex-review"`, "system", systemPath),
+		row("agent.profiles.review.cli", `"claude"`, "system", systemPath),
+	}, baseRows()...)
+	f := newFake(t, rows...)
+	f.presets = presetsFixture
+	doc, err := New(f.run).Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := roleByName(t, doc, "review").Tool
+	if tool.Override == nil || *tool.Override != "claude" || tool.Preset != "" {
+		t.Errorf("review tool = %+v, want an explicit system override", tool)
+	}
+}
+
+func TestApply_agentPresetValidation(t *testing.T) {
+	t.Run("a listed preset sets", func(t *testing.T) {
+		f := newFake(t)
+		f.presets = presetsFixture
+		if _, err := New(f.run).Apply(context.Background(), patchOf(t, `{"agent.preset":"codex-review"}`)); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := f.mutations(), []string{"config set agent.preset codex-review --system"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("mutations = %v, want %v", got, want)
+		}
+	})
+	t.Run("the value is trimmed", func(t *testing.T) {
+		f := newFake(t)
+		f.presets = presetsFixture
+		if _, err := New(f.run).Apply(context.Background(), patchOf(t, `{"agent.preset":"  claude "}`)); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := f.mutations(), []string{"config set agent.preset claude --system"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("mutations = %v, want %v", got, want)
+		}
+	})
+	t.Run("the reserved none sets", func(t *testing.T) {
+		f := newFake(t)
+		f.presets = presetsFixture
+		if _, err := New(f.run).Apply(context.Background(), patchOf(t, `{"agent.preset":"none"}`)); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := f.mutations(), []string{"config set agent.preset none --system"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("mutations = %v, want %v", got, want)
+		}
+	})
+	t.Run("null unsets without listing presets before the write", func(t *testing.T) {
+		f := newFake(t)
+		if _, err := New(f.run).Apply(context.Background(), patchOf(t, `{"agent.preset":null}`)); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := f.mutations(), []string{"config unset agent.preset --system"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("mutations = %v, want %v", got, want)
+		}
+		assertNoPresetListBeforeWrite(t, f)
+	})
+	t.Run("the list is fetched before any write and only when needed", func(t *testing.T) {
+		f := newFake(t)
+		f.presets = presetsFixture
+		if _, err := New(f.run).Apply(context.Background(), patchOf(t, `{"agent.preset":"claude","dispatch.mode":"pane"}`)); err != nil {
+			t.Fatal(err)
+		}
+		firstList, firstWrite := -1, -1
+		for i, call := range f.callLog() {
+			if len(call) > 1 && call[0] == "agent" && call[1] == "presets" && firstList < 0 {
+				firstList = i
+			}
+			if len(call) > 1 && (call[1] == "set" || call[1] == "unset") && firstWrite < 0 {
+				firstWrite = i
+			}
+		}
+		if firstList < 0 || firstList > firstWrite {
+			t.Errorf("preset list at call %d, first write at %d, want the list first", firstList, firstWrite)
+		}
+	})
+	t.Run("a patch that does not set agent.preset never lists it before writing", func(t *testing.T) {
+		f := newFake(t)
+		f.presets = presetsFixture
+		if _, err := New(f.run).Apply(context.Background(), patchOf(t, `{"dispatch.mode":"pane"}`)); err != nil {
+			t.Fatal(err)
+		}
+		assertNoPresetListBeforeWrite(t, f)
+	})
+}
+
+// assertNoPresetListBeforeWrite fails when `agent presets` ran before the first
+// set/unset (the re-read after the write lists them legitimately).
+func assertNoPresetListBeforeWrite(t *testing.T, f *fakeFab) {
+	t.Helper()
+	for _, call := range f.callLog() {
+		if len(call) > 1 && (call[1] == "set" || call[1] == "unset") {
+			return
+		}
+		if len(call) > 1 && call[0] == "agent" && call[1] == "presets" {
+			t.Errorf("listed presets before the write: %v", call)
+		}
+	}
+}
+
+func TestApply_agentPresetRejectsBeforeExec(t *testing.T) {
+	cases := map[string]struct {
+		presets string
+		body    string
+		wantMsg string
+	}{
+		"unknown name":        {presetsFixture, `{"agent.preset":"bogus"}`, `agent.preset: unknown agent preset "bogus" (available: claude, codex-review, codex-workers)`},
+		"empty":               {presetsFixture, `{"agent.preset":""}`, "agent.preset: must not be empty"},
+		"leading dash":        {presetsFixture, `{"agent.preset":"--system"}`, "agent.preset: must not start with '-'"},
+		"hash":                {presetsFixture, `{"agent.preset":"a # b"}`, "agent.preset: must not contain '#'"},
+		"not a string":        {presetsFixture, `{"agent.preset":3}`, "agent.preset: must be a string"},
+		"no list":             {"", `{"agent.preset":"claude"}`, "agent.preset: agent presets are not supported by the installed fab"},
+		"no list, none":       {"", `{"agent.preset":"none"}`, "agent.preset: agent presets are not supported by the installed fab"},
+		"valid + invalid mix": {presetsFixture, `{"dispatch.mode":"pane","agent.preset":"bogus"}`, `agent.preset: unknown agent preset "bogus" (available: claude, codex-review, codex-workers)`},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newFake(t)
+			f.presets = tc.presets
+			_, err := New(f.run).Apply(context.Background(), patchOf(t, tc.body))
+			var ve *ValidationError
+			if !errors.As(err, &ve) {
+				t.Fatalf("err = %v, want ValidationError", err)
+			}
+			if ve.Msg != tc.wantMsg {
+				t.Errorf("message = %q, want %q", ve.Msg, tc.wantMsg)
+			}
+			if got := f.mutations(); len(got) != 0 {
+				t.Errorf("mutations = %v, want none (reject before exec)", got)
+			}
+		})
 	}
 }

@@ -51,8 +51,8 @@ import {
  *
  * CUSTOM section (260730-hbyh): editable macro rows — label, resolved-command
  * preview chip, the same click-to-rebind capture as builtins, a delete
- * affordance, and a `missing preset` error badge when a riff macro's preset
- * is absent from the fetched preset list. The `+ bind a key…` add flow offers
+ * affordance, and a `missing riff preset` error badge when a riff macro's riff
+ * preset is absent from the fetched riff-preset list. The `+ bind a key…` add flow offers
  * riff presets + the mount's palette actions as targets (via the
  * `paletteTargets`/`riffPresetNames` props — `paletteTargets == null` gates
  * the whole add flow off).
@@ -469,7 +469,7 @@ export function SettingsShortcutsPanel({
       options.push({
         key: `riff:${preset}`,
         label: `riff: ${preset}`,
-        target: { type: "riff", preset },
+        target: { type: "riff", riff_preset: preset },
       });
     }
     for (const action of paletteTargets ?? []) {
@@ -878,10 +878,10 @@ export function SettingsShortcutsPanel({
               const b = byAction.get(m.actionId);
               if (!b) return null;
               const combo = { code: b.code, tier: b.tier };
-              const missingPreset =
+              const missingRiffPreset =
                 m.target.type === "riff" &&
                 riffPresetNames != null &&
-                !riffPresetNames.includes(m.target.preset);
+                !riffPresetNames.includes(m.target.riff_preset);
               return (
                 <div key={m.actionId} data-actionid={m.actionId}>
                   <div className="group flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-bg-inset/70">
@@ -893,12 +893,12 @@ export function SettingsShortcutsPanel({
                     >
                       {macroCommandPreview(m.target)}
                     </span>
-                    {missingPreset && (
+                    {missingRiffPreset && (
                       <span
                         className="flex-none text-[9.5px] tracking-wider uppercase px-2 py-px rounded-full border border-red-500/60 text-red-500"
-                        title={`preset “${m.target.type === "riff" ? m.target.preset : ""}” is not among this group's riff presets — running the macro will fail with an error toast`}
+                        title={`riff preset “${m.target.type === "riff" ? m.target.riff_preset : ""}” is not among this group's riff presets — running the macro will fail with an error toast`}
                       >
-                        missing preset
+                        missing riff preset
                       </span>
                     )}
                     {capturingId === m.actionId ? (

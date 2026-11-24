@@ -306,3 +306,133 @@ test.describe("Settings dialog — Agents tab", () => {
     expect(scrolls).toBe(true);
   });
 });
+
+test.describe("Settings dialog — Agents tab, agent presets", () => {
+  /**
+   * Proves: with a fab that lists presets, choosing one through the dropdown
+   * writes `agent.preset`, the Customize grid then shows the preset's values
+   * as supplied by the preset (a `preset` chip, inherited selects, no reset
+   * link), and None clears it again.
+   *
+   * Steps:
+   * 1. Stub `/api/fab-config` with presets (the stub's system tier always
+   *    sets the session CLI); open the Agents tab.
+   * 2. Assert the Agent preset select reads None and Customize is expanded at
+   *    `1 set explicitly` (the session CLI).
+   * 3. Choose `codex-workers`; assert the POST body `{"agent.preset":
+   *    "codex-workers"}` and the select value.
+   * 4. Assert Worker CLI latches `codex` with a `preset` chip titled `preset
+   *    codex-workers` and no reset link, a worker role's CLI select reads `↳
+   *    codex`, and the count is still 1 (preset-supplied values never count).
+   * 5. Choose None; assert the POST body `{"agent.preset": null}` and the
+   *    Worker CLI row is back to `default` with `claude` latched.
+   */
+  test("choosing a preset fills the Customize grid from it and None clears it", async ({ page }) => {
+    const posts = await stubFabConfig(page, { presets: true });
+    await openAgentsTab(page);
+
+    const preset = page.getByTestId("agent-preset-select");
+    const customize = page.getByTestId("agent-customize-toggle");
+    await expect(preset).toHaveValue("");
+    await expect(customize).toHaveText(/Customize · 1 set explicitly/);
+    await expect(customize).toHaveAttribute("aria-expanded", "true");
+
+    await preset.selectOption("codex-workers");
+    await expect(preset).toHaveValue("codex-workers");
+    expect(posts).toEqual([{ "agent.preset": "codex-workers" }]);
+
+    const workers = page.getByTestId("fab-row-agent.workers");
+    await expect(workers.getByRole("button", { name: "codex" })).toHaveAttribute("aria-pressed", "true");
+    await expect(workers.getByTestId("provenance-chip")).toHaveText("preset");
+    await expect(workers.getByTestId("provenance-chip")).toHaveAttribute("title", "preset codex-workers");
+    await expect(workers.getByRole("button", { name: "Reset agent.workers" })).toHaveCount(0);
+    await expect(page.getByLabel("doing CLI").locator("option").first()).toHaveText("↳ codex");
+    await expect(customize).toHaveText(/Customize · 1 set explicitly/);
+
+    await preset.selectOption("");
+    await expect(preset).toHaveValue("");
+    expect(posts[1]).toEqual({ "agent.preset": null });
+    await expect(workers.getByTestId("provenance-chip")).toHaveText("default");
+    await expect(workers.getByRole("button", { name: "claude" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  /**
+   * Proves: an explicit per-role value sitting on a key the chosen preset also
+   * sets is called out by a note that offers no clearing action, and its own
+   * reset link keeps working.
+   *
+   * Steps:
+   * 1. Stub with presets and a system override of the review role's CLI; open
+   *    the Agents tab.
+   * 2. Assert Customize is expanded at `2 set explicitly` (the session CLI the
+   *    stub always sets, plus the review role) and no note shows.
+   * 3. Choose `codex-review`; assert the note reads `1 explicit field
+   *    overrides parts of this preset — see Customize` and holds no button.
+   * 4. Click the review row's reset; assert the note is gone.
+   */
+  test("an explicit override of a preset's key is noted, never cleared for you", async ({ page }) => {
+    const posts = await stubFabConfig(page, { presets: true, system: { "agent.profiles.review.tool": "claude" } });
+    await openAgentsTab(page);
+
+    await expect(page.getByTestId("agent-customize-toggle")).toHaveText(/Customize · 2 set explicitly/);
+    await expect(page.getByTestId("agent-customize-toggle")).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByTestId("agent-preset-override-note")).toHaveCount(0);
+
+    await page.getByTestId("agent-preset-select").selectOption("codex-review");
+    const note = page.getByTestId("agent-preset-override-note");
+    await expect(note).toHaveText("1 explicit field overrides parts of this preset — see Customize");
+    await expect(note.getByRole("button")).toHaveCount(0);
+    expect(posts).toEqual([{ "agent.preset": "codex-review" }]);
+
+    await page.getByRole("button", { name: "Reset review overrides" }).click();
+    await expect(note).toHaveCount(0);
+    await expect(page.getByLabel("review CLI").locator("option").first()).toHaveText("↳ codex");
+  });
+
+  /**
+   * Proves: the palette's `Settings: Agent preset…` entry opens the dialog on
+   * the Agents tab and leaves the preset dropdown focused once the panel has
+   * loaded.
+   *
+   * Steps:
+   * 1. Stub with presets; load `/`; open the palette and run `Settings: Agent
+   *    preset…`.
+   * 2. Assert the dialog is open on the Agents tab.
+   * 3. Assert the Agent preset select is visible and focused.
+   */
+  test("the palette action opens Agents with the preset dropdown focused", async ({ page }) => {
+    await stubFabConfig(page, { presets: true });
+    await page.goto("/");
+    const palette = await openPalette(page);
+    await palette.fill("Settings: Agent preset");
+    await page.keyboard.press("Enter");
+
+    await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("tab", { name: "Agents" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("agent-preset-select")).toBeFocused();
+  });
+
+  /**
+   * Proves: against a fab that cannot list presets the tab renders exactly as
+   * before — no preset dropdown, no Customize disclosure — and the palette
+   * entry still opens the Agents tab.
+   *
+   * Steps:
+   * 1. Stub without presets; load `/`; run `Settings: Agent preset…`.
+   * 2. Assert the Agents tab is open, the knobs and role rows are visible, and
+   *    neither the select nor the disclosure exists.
+   */
+  test("without preset support the tab is unchanged and the palette entry still opens it", async ({ page }) => {
+    await stubFabConfig(page);
+    await page.goto("/");
+    const palette = await openPalette(page);
+    await palette.fill("Settings: Agent preset");
+    await page.keyboard.press("Enter");
+
+    await expect(page.getByRole("tab", { name: "Agents" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("group", { name: "Session CLI" })).toBeVisible();
+    await expect(page.getByTestId(/^role-row-/)).toHaveCount(6);
+    await expect(page.getByTestId("agent-preset-select")).toHaveCount(0);
+    await expect(page.getByTestId("agent-customize")).toHaveCount(0);
+  });
+});

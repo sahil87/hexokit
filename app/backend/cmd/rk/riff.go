@@ -36,14 +36,20 @@ var (
 	// the correct pane order.
 	riffPaneSpecs []riff.PaneSpec
 
-	riffLayoutFlag     string
-	riffCountFlag      int
-	riffPresetFlag     string
-	riffListPresetsFlg bool
-	riffServerFlag     string
-	riffSessionFlag    string
-	riffRepoFlag       string
-	riffJSONFlag       bool
+	riffLayoutFlag          string
+	riffCountFlag           int
+	riffRiffPresetFlag      string
+	riffListRiffPresetsFlag bool
+	riffServerFlag          string
+	riffSessionFlag         string
+	riffRepoFlag            string
+	riffJSONFlag            bool
+
+	// Deprecated spellings (--preset, --list-presets) bind their own variables
+	// so a conflict with the new flag is detectable; mergeLegacyRiffPresetFlags
+	// folds them into the variables above right after the flag parse.
+	riffLegacyPresetFlag      string
+	riffLegacyListPresetsFlag bool
 )
 
 // riffWindowReceipt is one spawned window in the --json receipt — the engine's
@@ -58,12 +64,12 @@ type riffWindowReceipt struct {
 }
 
 var riffCmd = &cobra.Command{
-	Use:   "riff [preset] [--skill <skill>...] [--cmd <cmd>...] [--layout <name>] [--count <N>] [--preset <name>] [--list-presets] [-- <wt-flags>...]",
+	Use:   "riff [riff-preset] [--skill <skill>...] [--cmd <cmd>...] [--layout <name>] [--count <N>] [--riff-preset <name>] [--list-riff-presets] [-- <wt-flags>...]",
 	Short: "Create a worktree, tmux window, and Claude Code session",
 	Long: `Create a git worktree via wt, open a new tmux window in it, and launch
 a Claude Code session with a skill or slash-command. Supports multi-pane
-windows via repeatable --skill and --cmd flags, named layouts, presets from
-run-kit's riff_presets, and parallel spawning across N worktrees via --count.
+windows via repeatable --skill and --cmd flags, named layouts, riff presets
+from run-kit's riff_presets, and parallel spawning across N worktrees via --count.
 
 Prerequisites:
   - You must be inside a tmux session ($TMUX set).
@@ -89,15 +95,15 @@ Launcher resolution:
   'fab' is not on PATH or the call fails, falls back to
   'claude --dangerously-skip-permissions' with the '/' skill prefix.
 
-Presets:
-  Named invocations like 'run-kit riff incognito' or 'run-kit riff --preset
-  incognito' resolve against run-kit's riff_presets: three built-ins ship with
-  the binary (discuss → /fab-discuss, incognito → /fab-incognito, blank → a
-  bare agent), and user entries under riff_presets in
+Riff presets:
+  Named invocations like 'run-kit riff incognito' or 'run-kit riff
+  --riff-preset incognito' resolve against run-kit's riff_presets: three
+  built-ins ship with the binary (discuss → /fab-discuss, incognito →
+  /fab-incognito, blank → a bare agent), and user entries under riff_presets in
   ~/.config/hexokit/config.yaml add to them — a name matching a built-in
-  overrides it. Each preset is exactly one skill pane. CLI --skill/--cmd flags
-  replace the preset's pane entirely. Run 'run-kit riff --list-presets' to see
-  the merged list.
+  overrides it. Each riff preset is exactly one skill pane. CLI --skill/--cmd
+  flags replace the riff preset's pane entirely. Run 'run-kit riff
+  --list-riff-presets' to see the merged list.
 
 Count:
   --count N (short -N) creates N worktree/window pairs in parallel, each with
@@ -111,15 +117,15 @@ Examples:
   run-kit riff --skill /fab-fff --cmd "just dev"         # 2 panes (even-horizontal by default)
   run-kit riff --cmd --skill /fab --cmd htop --skill     # 4 interleaved panes (auto-tiled)
   run-kit riff --skill /a --cmd x --cmd y --layout main-vertical
-  run-kit riff incognito                                 # invoke the 'incognito' built-in preset
-  run-kit riff --preset blank                            # named-flag preset alias
+  run-kit riff incognito                                 # invoke the 'incognito' built-in riff preset
+  run-kit riff --riff-preset blank                       # named-flag riff preset
   run-kit riff discuss --count 3                         # 3 parallel discuss workspaces (also: -N 3)
   run-kit riff -- --name pacing-canyon                   # name the worktree
 
 Exit codes:
   0  success
   1  precondition failure ($TMUX unset, wt not found, not in a git repository)
-  2  validation/usage error (unknown layout, invalid --count, unknown/conflicting preset, bad flag)
+  2  validation/usage error (unknown layout, invalid --count, unknown/conflicting riff preset, bad flag)
   3  subprocess failure (wt or tmux non-zero, output parse failure, timeout)`,
 	// Interspersed=false so the "--" separator terminates cobra's flag parsing
 	// and the remainder lands in args[] for passthrough to `wt create`.
@@ -156,8 +162,14 @@ func init() {
 
 	riffCmd.Flags().StringVar(&riffLayoutFlag, "layout", "auto", layoutFlagUsage())
 	riffCmd.Flags().IntVarP(&riffCountFlag, "count", "N", 1, "Spawn N worktree/window pairs in parallel (N >= 1)")
-	riffCmd.Flags().StringVar(&riffPresetFlag, "preset", "", "Named preset from run-kit's riff_presets (built-ins: discuss, incognito, blank)")
-	riffCmd.Flags().BoolVar(&riffListPresetsFlg, "list-presets", false, "List defined presets and exit")
+	riffCmd.Flags().StringVar(&riffRiffPresetFlag, "riff-preset", "", "Named riff preset from run-kit's riff_presets (built-ins: discuss, incognito, blank)")
+	riffCmd.Flags().BoolVar(&riffListRiffPresetsFlag, "list-riff-presets", false, "List defined riff presets and exit")
+	riffCmd.Flags().StringVar(&riffLegacyPresetFlag, "preset", "", "Deprecated spelling of --riff-preset")
+	riffCmd.Flags().BoolVar(&riffLegacyListPresetsFlag, "list-presets", false, "Deprecated spelling of --list-riff-presets")
+	// MarkDeprecated also hides the flag from help; pflag prints the notice to
+	// the flag set's output, which runRiffWithExitCode points at stderr.
+	_ = riffCmd.Flags().MarkDeprecated("preset", "use --riff-preset")
+	_ = riffCmd.Flags().MarkDeprecated("list-presets", "use --list-riff-presets")
 	riffCmd.Flags().StringVarP(&riffServerFlag, "server", "L", "", "Address the named tmux server (no $TMUX required; with --session unset and no $TMUX the window lands in the server's current session)")
 	riffCmd.Flags().StringVar(&riffSessionFlag, "session", "", "Session the window is created in (=S exact form, e.g. --session =work)")
 	riffCmd.Flags().StringVar(&riffRepoFlag, "repo", "", "Repo to spawn from (absolute or cwd-relative; must be the git toplevel; default: the process cwd's repo)")
@@ -185,8 +197,10 @@ func runRiffWithExitCode(cmd *cobra.Command, args []string) error {
 	riffPaneSpecs = nil
 	riffLayoutFlag = "auto"
 	riffCountFlag = 1
-	riffPresetFlag = ""
-	riffListPresetsFlg = false
+	riffRiffPresetFlag = ""
+	riffListRiffPresetsFlag = false
+	riffLegacyPresetFlag = ""
+	riffLegacyListPresetsFlag = false
 	riffServerFlag = ""
 	riffSessionFlag = ""
 	riffRepoFlag = ""
@@ -219,8 +233,12 @@ func runRiffWithExitCode(cmd *cobra.Command, args []string) error {
 	// (*riff.ExitCodeError, from runRiff) is still printed here and os.Exited with
 	// its own class code (1/2/3) — that path owns its bare-message stderr and is
 	// unchanged.
+	cmd.Flags().SetOutput(cmd.ErrOrStderr())
 	if parseErr := cmd.Flags().Parse(riffArgv); parseErr != nil {
 		return usageError(parseErr)
+	}
+	if mergeErr := mergeLegacyRiffPresetFlags(); mergeErr != nil {
+		return usageError(mergeErr)
 	}
 	err := runRiff(cmd, cmd.Flags().Args(), wtArgv)
 	if err == nil {
@@ -243,14 +261,28 @@ func runRiffWithExitCode(cmd *cobra.Command, args []string) error {
 	return err
 }
 
+// mergeLegacyRiffPresetFlags folds the deprecated --preset / --list-presets
+// values into the --riff-preset / --list-riff-presets variables. Two different
+// non-empty values are a usage error; equal values are accepted.
+func mergeLegacyRiffPresetFlags() error {
+	if riffLegacyPresetFlag != "" {
+		if riffRiffPresetFlag != "" && riffRiffPresetFlag != riffLegacyPresetFlag {
+			return fmt.Errorf("--preset %q and --riff-preset %q disagree (--preset is deprecated; use --riff-preset)", riffLegacyPresetFlag, riffRiffPresetFlag)
+		}
+		riffRiffPresetFlag = riffLegacyPresetFlag
+	}
+	riffListRiffPresetsFlag = riffListRiffPresetsFlag || riffLegacyListPresetsFlag
+	return nil
+}
+
 // runRiff orchestrates the CLI flow:
 //  0. Targeting flags (-L/--session/--repo) — pure validation, no subprocess
-//  1. --list-presets short-circuit (before any other work — never side-effects)
+//  1. --list-riff-presets short-circuit (before any other work — never side-effects)
 //  2. Preconditions ($TMUX set unless -L names the server, wt on PATH, repo root resolved)
 //  3. Signal wrap on root context
-//  4. Layout / count / preset-conflict validation (fail-fast, no subprocess)
+//  4. Layout / count / riff-preset-conflict validation (fail-fast, no subprocess)
 //  5. Launcher resolution (engine helper, rooted at the repo root)
-//  6. Preset resolution (positional or --preset; args are pre-"--" only)
+//  6. Riff-preset resolution (positional or --riff-preset; args are pre-"--" only)
 //  7. Effective spec assembly (engine helper; wtArgs forward to wt create)
 //  8. Dispatch to riff.Run (engine owns count==1 direct spawn + count≥2 fan-out)
 func runRiff(cmd *cobra.Command, args, wtArgs []string) error {
@@ -279,10 +311,11 @@ func runRiff(cmd *cobra.Command, args, wtArgs []string) error {
 		session = name
 	}
 
-	// Step 1: --list-presets is a pure read + print. Must short-circuit BEFORE
-	// preconditions — a user outside tmux should still be able to list presets.
-	if riffListPresetsFlg {
-		return printPresets(settings.LoadRiffPresets(), cmd.OutOrStdout())
+	// Step 1: --list-riff-presets is a pure read + print. Must short-circuit
+	// BEFORE preconditions — a user outside tmux should still be able to list
+	// riff presets.
+	if riffListRiffPresetsFlag {
+		return printRiffPresets(settings.LoadRiffPresets(), cmd.OutOrStdout())
 	}
 
 	// Step 2: preconditions (fast-fail order: $TMUX, wt, git repo). An explicit
@@ -325,14 +358,14 @@ func runRiff(cmd *cobra.Command, args, wtArgs []string) error {
 	// a web-UI-only affordance. Never errors — falls back to the default.
 	agent := riff.ResolveAgent(ctx, repoRoot, "")
 
-	// Step 6: preset resolution against run-kit's riff_presets (built-ins +
+	// Step 6: riff-preset resolution against run-kit's riff_presets (built-ins +
 	// user) — not repo-scoped.
 	available := settings.RiffPresetMap(settings.LoadRiffPresets())
 	positional := ""
 	if len(args) > 0 {
 		positional = args[0]
 	}
-	preset, remaining, err := riff.ResolveActivePreset(args, positional, riffPresetFlag, available)
+	preset, remaining, err := riff.ResolveActiveRiffPreset(args, positional, riffRiffPresetFlag, available)
 	if err != nil {
 		return &riff.ExitCodeError{Code: riff.ExitValidation, Msg: err.Error()}
 	}
@@ -401,7 +434,7 @@ func printRiffReceipts(cmd *cobra.Command, receipts []riff.SpawnReceipt) {
 // riffRepoRoot resolves the repo root: --repo (a cwd-relative or absolute path
 // that MUST be the git toplevel — a nested directory is a usage error) wins;
 // else the process-cwd derivation. An empty result (cwd outside any repo) is
-// returned without error so --list-presets still works there; checkPreconditions
+// returned without error so --list-riff-presets still works there; checkPreconditions
 // rejects it before any subprocess runs.
 func riffRepoRoot() (string, error) {
 	if riffRepoFlag == "" {
@@ -460,12 +493,12 @@ func checkPreconditions(server, repoRoot string) error {
 	return nil
 }
 
-// printPresets writes the merged preset list (built-ins + user, in RiffPresets
-// order) to out as indented plain text: one `name:` block per preset — suffixed
+// printRiffPresets writes the merged riff-preset list (built-ins + user, in
+// RiffPresets order) to out as indented plain text: one `name:` block per preset — suffixed
 // ` (built-in)`, or ` (built-in, overridden)` when the user's value replaced the
 // built-in's — with its single skill pane (`""` for the bare launcher). The
 // list is never empty (the built-ins always exist). Returns nil on all paths.
-func printPresets(presets []settings.RiffPreset, out io.Writer) error {
+func printRiffPresets(presets []settings.RiffPreset, out io.Writer) error {
 	for i, p := range presets {
 		if i > 0 {
 			fmt.Fprintln(out)
@@ -486,7 +519,7 @@ func printPresets(presets []settings.RiffPreset, out io.Writer) error {
 
 // builtinRiffPresetSkill returns the code-default skill for a built-in preset
 // name (ok=false for user-added names) — the reference an override is detected
-// against in printPresets.
+// against in printRiffPresets.
 func builtinRiffPresetSkill(name string) (string, bool) {
 	for _, b := range settings.BuiltinRiffPresets {
 		if b.Name == name {

@@ -187,7 +187,7 @@ func freshPaneFlagSet(skill, cmd *paneFlag) *pflag.FlagSet {
 func TestPrintPresets(t *testing.T) {
 	t.Run("built-ins carry the marker in canonical order", func(t *testing.T) {
 		var buf bytes.Buffer
-		if err := printPresets(settings.BuiltinRiffPresets, &buf); err != nil {
+		if err := printRiffPresets(settings.BuiltinRiffPresets, &buf); err != nil {
 			t.Fatalf("err: %v", err)
 		}
 		want := `discuss: (built-in)
@@ -212,7 +212,7 @@ blank: (built-in)
 		presets[2].Skill = "/fab-discuss" // blank overridden to a real skill
 		presets = append(presets, settings.RiffPreset{Name: "review", Skill: "/code-review high"})
 		var buf bytes.Buffer
-		if err := printPresets(presets, &buf); err != nil {
+		if err := printRiffPresets(presets, &buf); err != nil {
 			t.Fatalf("err: %v", err)
 		}
 		out := buf.String()
@@ -235,7 +235,7 @@ blank: (built-in)
 	t.Run("an empty config still lists the built-ins", func(t *testing.T) {
 		t.Setenv("RK_CONFIG_DIR", t.TempDir())
 		var buf bytes.Buffer
-		if err := printPresets(settings.LoadRiffPresets(), &buf); err != nil {
+		if err := printRiffPresets(settings.LoadRiffPresets(), &buf); err != nil {
 			t.Fatalf("err: %v", err)
 		}
 		for _, name := range []string{"discuss: (built-in)", "incognito: (built-in)", "blank: (built-in)"} {
@@ -512,11 +512,11 @@ func TestRiffGitRepoPrecondition(t *testing.T) {
 	t.Setenv("PATH", binDir)
 	defer chdir(t, cwd)()
 
-	origServer, origRepo, origList := riffServerFlag, riffRepoFlag, riffListPresetsFlg
+	origServer, origRepo, origList := riffServerFlag, riffRepoFlag, riffListRiffPresetsFlag
 	riffServerFlag = "scratch"
 	riffRepoFlag = ""
-	riffListPresetsFlg = false
-	t.Cleanup(func() { riffServerFlag, riffRepoFlag, riffListPresetsFlg = origServer, origRepo, origList })
+	riffListRiffPresetsFlag = false
+	t.Cleanup(func() { riffServerFlag, riffRepoFlag, riffListRiffPresetsFlag = origServer, origRepo, origList })
 
 	cmd := &cobra.Command{}
 	cmd.SetOut(&bytes.Buffer{})
@@ -535,12 +535,12 @@ func TestRiffGitRepoPrecondition(t *testing.T) {
 		t.Errorf("subprocesses ran before the precondition: %q", data)
 	}
 
-	t.Run("--list-presets still works outside a repo", func(t *testing.T) {
+	t.Run("--list-riff-presets still works outside a repo", func(t *testing.T) {
 		t.Setenv("RK_CONFIG_DIR", t.TempDir())
-		riffListPresetsFlg = true
-		defer func() { riffListPresetsFlg = false }()
+		riffListRiffPresetsFlag = true
+		defer func() { riffListRiffPresetsFlag = false }()
 		if err := runRiff(cmd, nil, nil); err != nil {
-			t.Errorf("runRiff --list-presets: %v", err)
+			t.Errorf("runRiff --list-riff-presets: %v", err)
 		}
 	})
 }
@@ -629,7 +629,7 @@ func TestSplitAtSeparator(t *testing.T) {
 // TestRiffPassthroughBoundary pins the `--` passthrough contract at the
 // runRiff level: wtArgs tokens are NEVER preset candidates — a preset-named
 // tail token (`rk riff -- discuss`) reaches wt create verbatim, and a tail
-// token cannot trigger the positional/--preset mutual-exclusion error.
+// token cannot trigger the positional/--riff-preset mutual-exclusion error.
 func TestRiffPassthroughBoundary(t *testing.T) {
 	dir := t.TempDir()
 	repoRoot := filepath.Join(t.TempDir(), "repo")
@@ -660,13 +660,13 @@ func TestRiffPassthroughBoundary(t *testing.T) {
 	// -L waives the $TMUX precondition so the test is independent of whether the
 	// suite itself runs inside tmux (CI does not); the session seam stands in for
 	// the server's current-session lookup that -L without $TMUX triggers.
-	origRepo, origPreset, origServer := riffRepoFlag, riffPresetFlag, riffServerFlag
+	origRepo, origPreset, origServer := riffRepoFlag, riffRiffPresetFlag, riffServerFlag
 	origSess := riffCurrentSessionFn
 	riffRepoFlag = repoRoot
 	riffServerFlag = "scratch"
 	riffCurrentSessionFn = func(_ context.Context, _ string) (string, error) { return "boot", nil }
 	t.Cleanup(func() {
-		riffRepoFlag, riffPresetFlag, riffServerFlag = origRepo, origPreset, origServer
+		riffRepoFlag, riffRiffPresetFlag, riffServerFlag = origRepo, origPreset, origServer
 		riffCurrentSessionFn = origSess
 	})
 
@@ -712,12 +712,120 @@ func TestRiffPassthroughBoundary(t *testing.T) {
 		}
 	})
 
-	t.Run("--preset plus preset-named tail token does not conflict", func(t *testing.T) {
+	t.Run("--riff-preset plus preset-named tail token does not conflict", func(t *testing.T) {
 		riffPaneSpecs = nil
-		riffPresetFlag = "discuss"
-		defer func() { riffPresetFlag = "" }()
+		riffRiffPresetFlag = "discuss"
+		defer func() { riffRiffPresetFlag = "" }()
 		if err := runRiff(newCmd(), nil, []string{"discuss"}); err != nil {
 			t.Fatalf("runRiff: %v", err)
+		}
+	})
+}
+
+// runRiffArgv drives the real flag-parse path (riffCmd's own flag set, the
+// deprecation notices, the legacy-flag merge) and returns what the command
+// wrote to stdout and stderr.
+func runRiffArgv(t *testing.T, argv ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	var out, errBuf bytes.Buffer
+	riffCmd.SetOut(&out)
+	riffCmd.SetErr(&errBuf)
+	riffCmd.SetContext(context.Background())
+	t.Cleanup(func() { riffCmd.SetOut(nil); riffCmd.SetErr(nil) })
+	err = runRiffWithExitCode(riffCmd, argv)
+	return out.String(), errBuf.String(), err
+}
+
+// TestRiffPresetDeprecatedAliases pins the one-release compatibility window:
+// --preset and --list-presets behave exactly like --riff-preset and
+// --list-riff-presets, announce the deprecation on stderr only, and a pair that
+// disagrees is a usage error before anything spawns.
+func TestRiffPresetDeprecatedAliases(t *testing.T) {
+	t.Run("--preset spawns like --riff-preset and warns on stderr", func(t *testing.T) {
+		repoRoot, tmuxLog, _ := riffTargetFixture(t)
+		t.Setenv("RK_CONFIG_DIR", t.TempDir())
+		base := []string{"-L", "scratch", "--repo", repoRoot, "--json"}
+
+		newOut, newErr, err := runRiffArgv(t, append([]string{"--riff-preset", "blank"}, base...)...)
+		if err != nil {
+			t.Fatalf("--riff-preset: %v", err)
+		}
+		newTmux, _ := os.ReadFile(tmuxLog)
+		if err := os.Remove(tmuxLog); err != nil {
+			t.Fatal(err)
+		}
+
+		oldOut, oldErr, err := runRiffArgv(t, append([]string{"--preset", "blank"}, base...)...)
+		if err != nil {
+			t.Fatalf("--preset: %v", err)
+		}
+		oldTmux, _ := os.ReadFile(tmuxLog)
+
+		if oldOut != newOut {
+			t.Errorf("stdout differs:\n--preset:      %q\n--riff-preset: %q", oldOut, newOut)
+		}
+		if string(oldTmux) != string(newTmux) {
+			t.Errorf("tmux argv differs:\n--preset:      %q\n--riff-preset: %q", oldTmux, newTmux)
+		}
+		if newErr != "" {
+			t.Errorf("--riff-preset wrote to stderr: %q", newErr)
+		}
+		if !strings.Contains(oldErr, "--preset") || !strings.Contains(oldErr, "--riff-preset") {
+			t.Errorf("stderr = %q, want a deprecation notice naming --preset and --riff-preset", oldErr)
+		}
+	})
+
+	t.Run("--list-presets lists like --list-riff-presets and warns on stderr", func(t *testing.T) {
+		t.Setenv("RK_CONFIG_DIR", t.TempDir())
+		newOut, newErr, err := runRiffArgv(t, "--list-riff-presets")
+		if err != nil {
+			t.Fatalf("--list-riff-presets: %v", err)
+		}
+		oldOut, oldErr, err := runRiffArgv(t, "--list-presets")
+		if err != nil {
+			t.Fatalf("--list-presets: %v", err)
+		}
+		if newOut == "" || oldOut != newOut {
+			t.Errorf("list output differs:\n--list-presets:      %q\n--list-riff-presets: %q", oldOut, newOut)
+		}
+		if newErr != "" {
+			t.Errorf("--list-riff-presets wrote to stderr: %q", newErr)
+		}
+		if !strings.Contains(oldErr, "--list-presets") || !strings.Contains(oldErr, "--list-riff-presets") {
+			t.Errorf("stderr = %q, want a deprecation notice naming --list-presets and --list-riff-presets", oldErr)
+		}
+	})
+
+	t.Run("disagreeing --preset and --riff-preset exit 2 before any subprocess", func(t *testing.T) {
+		repoRoot, tmuxLog, wtLog := riffTargetFixture(t)
+		_, _, err := runRiffArgv(t, "--preset", "discuss", "--riff-preset", "blank", "-L", "scratch", "--repo", repoRoot)
+		if err == nil {
+			t.Fatal("expected a usage error, got nil")
+		}
+		if got := exitCode(err); got != exitUsage {
+			t.Errorf("exit code = %d, want %d (usage)", got, exitUsage)
+		}
+		for _, log := range []string{tmuxLog, wtLog} {
+			if data, readErr := os.ReadFile(log); readErr == nil {
+				t.Errorf("subprocess ran despite the usage error: %q", data)
+			}
+		}
+	})
+
+	t.Run("equal --preset and --riff-preset are accepted", func(t *testing.T) {
+		repoRoot, _, _ := riffTargetFixture(t)
+		t.Setenv("RK_CONFIG_DIR", t.TempDir())
+		if _, _, err := runRiffArgv(t, "--preset", "blank", "--riff-preset", "blank", "-L", "scratch", "--repo", repoRoot); err != nil {
+			t.Errorf("equal pair rejected: %v", err)
+		}
+	})
+
+	t.Run("the deprecated flags are hidden from help", func(t *testing.T) {
+		for _, name := range []string{"preset", "list-presets"} {
+			f := riffCmd.Flags().Lookup(name)
+			if f == nil || !f.Hidden || f.Deprecated == "" {
+				t.Errorf("--%s: hidden/deprecated not set (%+v)", name, f)
+			}
 		}
 	})
 }

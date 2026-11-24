@@ -1780,6 +1780,8 @@ export type FabField = {
   /** The system-tier value hidden behind an env winner. */
   systemValue?: string | number | boolean | null;
   description?: string;
+  /** The agent preset that supplied this value; such a value is never an override. */
+  preset?: string;
 };
 
 export type FabRoleCell = {
@@ -1794,6 +1796,8 @@ export type FabRoleCell = {
   inherited: string;
   /** The system-tier value hidden behind an env winner. */
   systemValue?: string;
+  /** The agent preset that supplied this leaf; such a leaf is never an override. */
+  preset?: string;
 };
 
 export type FabRole = {
@@ -1816,12 +1820,28 @@ export type FabModelSuggestion = {
   default?: boolean;
 };
 
+/** One named role assignment from `fab agent presets --json`; fields the
+ *  preset does not set are absent. */
+export type FabAgentPreset = {
+  name: string;
+  description?: string;
+  /** built-in | system | project | env */
+  source: string;
+  session?: string;
+  workers?: string;
+  /** role → { cli, model, effort } */
+  profiles?: Record<string, Record<string, string>>;
+};
+
 export type FabConfigDocument =
   | { installed: false }
   | {
       installed: true;
       systemPath: string;
       tools: string[];
+      /** The presets fab can apply; absent when the installed fab cannot list
+       *  them, which hides the preset dropdown and the Customize disclosure. */
+      agent_presets?: FabAgentPreset[];
       fields: Record<string, FabField>;
       roles: FabRole[];
       modelSuggestions: Record<string, FabModelSuggestion[]>;
@@ -1993,20 +2013,20 @@ export type RiffSpawnResult = {
  *  `where` body field. */
 export type RiffWhere = "worktree" | "checkout";
 
-/** The spawn dialog's preflight fetch — presets + the available agent tiers,
+/** The spawn dialog's preflight fetch — riff presets + the available agent tiers,
  *  both from the single `GET /api/riff/presets` (mockup-v2). `tiers` is always
  *  non-empty (fab-kit built-ins ∪ the repo's `agent.tiers`, `default` first). */
 export type RiffPreflight = {
-  presets: RiffPreset[];
+  riffPresets: RiffPreset[];
   tiers: string[];
 };
 
 /** The mockup-v2 spawn-shaping options. All optional and additive over the
- *  shipped `{task, preset}` — omitted fields fall back to the backend defaults
+ *  shipped `{task, riff_preset}` — omitted fields fall back to the backend defaults
  *  (worktree isolation, auto-named worktree, default tier). */
 export type SpawnRiffOptions = {
   task?: string;
-  preset?: string;
+  riffPreset?: string;
   where?: RiffWhere;
   worktreeName?: string;
   tier?: string;
@@ -2014,7 +2034,7 @@ export type SpawnRiffOptions = {
 
 /** Spawn a riff agent window in `session`'s repo. `opts.task` (optional) becomes
  *  the agent's boot task (auto-submits); an empty task spawns a blank agent
- *  session. `opts.preset` selects a riff preset; `opts.where` chooses worktree
+ *  session. `opts.riffPreset` selects a riff preset (sent as `riff_preset`); `opts.where` chooses worktree
  *  (default) vs. the existing checkout; `opts.worktreeName` names the worktree
  *  (worktree mode only); `opts.tier` picks the fab agent tier. Each field is
  *  omitted from the POST body when unset/default, so a defaults-only call is
@@ -2028,7 +2048,7 @@ export async function spawnRiff(
 ): Promise<RiffSpawnResult> {
   const body: Record<string, string> = { session };
   if (opts.task) body.task = opts.task;
-  if (opts.preset) body.preset = opts.preset;
+  if (opts.riffPreset) body.riff_preset = opts.riffPreset;
   // "worktree" is the backend default — omit it to keep the shipped path's body.
   if (opts.where && opts.where !== "worktree") body.where = opts.where;
   if (opts.worktreeName) body.worktreeName = opts.worktreeName;
@@ -2074,7 +2094,7 @@ export async function forkWindow(
 /** Fetch the spawn dialog's preflight for `session`'s repo: the riff presets
  *  (YAML source order; [] when none) and the available agent tiers (built-ins ∪
  *  repo config, `default` first). Throws on a non-ok response (e.g. 400 for a
- *  non-repo cwd); the dialog treats a failure as "no presets, tier `default`
+ *  non-repo cwd); the dialog treats a failure as "no riff presets, tier `default`
  *  only" (it cannot enumerate the repo's tiers without this fetch) and still
  *  allows a task-only spawn. */
 export async function getRiffPresets(
@@ -2085,8 +2105,8 @@ export async function getRiffPresets(
     withServer(`/api/riff/presets?session=${encodeURIComponent(session)}`, server),
   );
   if (!res.ok) await throwOnError(res);
-  const data: { presets?: RiffPreset[]; tiers?: string[] } = await res.json();
-  return { presets: data.presets ?? [], tiers: data.tiers ?? [] };
+  const data: { riff_presets?: RiffPreset[]; tiers?: string[] } = await res.json();
+  return { riffPresets: data.riff_presets ?? [], tiers: data.tiers ?? [] };
 }
 
 // --- Cron (the operator clock: entries + derived fire facts + delivery log) ---

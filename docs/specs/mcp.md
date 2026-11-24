@@ -89,7 +89,9 @@ The MCP server has no pane, no `$TMUX`, no `$TMUX_PANE`. Therefore:
   above, or a filesystem path beyond what the verb already validates. `riff`'s
   `--cmd` (a pane shell command; its bare form drops into `$SHELL`) is therefore
   **excluded** from the `riff` tool's inputs — the tool exposes `server`, `repo`,
-  `session`, `preset`, `skill`, `layout`, and `count` only.
+  `session`, `riff_preset`, `skill`, `layout`, and `count` only. The
+  pre-rename argument `preset` is not aliased: the strict input schema rejects it
+  as an unknown argument, and clients pick up the new name when they re-list tools.
 
 ## Envelope (`--json`)
 
@@ -263,7 +265,7 @@ not this spec's.
 | Talk | `await` | `mux await <target> --until … --timeout ≤40` | ro | yes (envelope) |
 | Talk | `notify` | `notify <message> [--title]` | — | yes (`--json`) |
 | Talk | `operator_request` | `operator request <template> [--window @N] [--text] [--session]` | — | yes |
-| Spawn | `riff` | `riff [preset] [--skill…] [--layout] [--count]` (no `--cmd`) | — | yes (`--json`; plus `-L`/`--session`/`--repo` targeting flags) |
+| Spawn | `riff` | `riff [riff-preset] [--skill…] [--layout] [--count]` (no `--cmd`) | — | yes (`--json`; plus `-L`/`--session`/`--repo` targeting flags) |
 | Spawn | `new_server` | `mux new <name> [--ephemeral] --json` | — | yes (envelope; live collision refuses) |
 | Spawn | `new_window` | `tab new [--session =S] [--cwd] [--name] [--layout]` | — | yes (`--json`; a bare document until the envelope lands) |
 | Spawn | `operator` | `operator [--workers] [--dir /abs/path] [-L]` | idem | yes (`--json`) |

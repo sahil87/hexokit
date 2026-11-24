@@ -534,11 +534,11 @@ Window cross-session move endpoint:
 
 ## `rk riff` Window Creation
 
-`rk riff` creates N parallel worktree/window pairs (N defaults to 1) in the **user's current tmux server** (not the managed `runkit`/`default` server that `internal/tmux` targets). Each window may contain multiple panes — composed from argv-ordered `--skill`/`--cmd` occurrences or a preset's `panes:` list. The command lives at `app/backend/cmd/rk/riff.go` and bypasses `internal/tmux`'s execution helpers — it invokes `tmux` directly via `exec.CommandContext` so windows land where the user is attached.
+`rk riff` creates N parallel worktree/window pairs (N defaults to 1) in the **user's current tmux server** (not the managed `runkit`/`default` server that `internal/tmux` targets). Each window may contain multiple panes — composed from argv-ordered `--skill`/`--cmd` occurrences or a riff preset's single skill pane. The command lives at `app/backend/cmd/rk/riff.go` and bypasses `internal/tmux`'s execution helpers — it invokes `tmux` directly via `exec.CommandContext` so windows land where the user is attached.
 
 Mechanics:
 
-- **Preconditions** — `$TMUX` must be set (read via `tmux.OriginalTMUX`, captured before `internal/tmux` init() strips `$TMUX` from the process env) and `wt` must be on PATH. Fast-fail, exit 2. `--list-presets` short-circuits before preconditions.
+- **Preconditions** — `$TMUX` must be set (read via `tmux.OriginalTMUX`, captured before `internal/tmux` init() strips `$TMUX` from the process env) and `wt` must be on PATH. Fast-fail, exit 2. `--list-riff-presets` short-circuits before preconditions.
 - **Per-window pane sequence** — each window is built via:
   1. `tmux new-window -P -F '#{pane_id}' -n <resolvedName> -c <worktree-path> <pane-0-shell>` creates the window and prints the new pane's id (e.g. `%87`), captured by the orchestrator for the focus step below.
   2. `tmux split-window -t <resolvedName> -c <worktree-path> <pane-i-shell>` appends each additional pane (panes 1..N-1). The initial split direction is `-h` by default; the final arrangement is set by `select-layout`.
@@ -551,7 +551,7 @@ Mechanics:
 - **Timeouts** — `exec.CommandContext` with 30s for `wt create` / `wt delete`, 10s per tmux call.
 - **Signals** — SIGINT/SIGTERM once, at the top of `runRiff` via `signal.NotifyContext`; propagates to all goroutines and their subprocess calls.
 
-The new windows never appear on the managed `runkit`/`default` servers unless the user's current `$TMUX` happens to point there. See `rk-riff.md` for flag surface (`--skill`, `--cmd`, `--layout`, `--count`/`-N`, `--preset`, `--list-presets`), exit codes, and preset schema.
+The new windows never appear on the managed `runkit`/`default` servers unless the user's current `$TMUX` happens to point there. See `rk-riff.md` for flag surface (`--skill`, `--cmd`, `--layout`, `--count`/`-N`, `--riff-preset`, `--list-riff-presets`), exit codes, and riff-preset schema.
 
 `rk riff`'s bare `new-window` carries no active-window-highlight logic of its own: when it lands on a server run-kit observes, the resulting `%session-window-changed` is what drives the sidebar/URL to follow the new window (event-derived highlight — see § Terminal Relay → Active-window highlight). The derivation path is creator-agnostic, so `rk riff`, `wt open`, and raw external `new-window` all update the highlight correctly without any creator-local change (260530-v6hm-active-window-event-derivation).
 

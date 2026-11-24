@@ -15,7 +15,7 @@ const DISCUSS: MacroAction = {
   actionId: "macro:discuss",
   kind: "macro",
   label: "riff: discuss",
-  target: { type: "riff", preset: "discuss" },
+  target: { type: "riff", riff_preset: "discuss" },
 };
 
 const PALETTE: MacroAction = {
@@ -47,13 +47,29 @@ describe("parseMacros (tolerant)", () => {
       DISCUSS,
       "garbage",
       null,
-      { actionId: "not-prefixed", kind: "macro", label: "x", target: { type: "riff", preset: "p" } },
-      { actionId: "macro:empty-label", kind: "macro", label: "", target: { type: "riff", preset: "p" } },
-      { actionId: "macro:no-preset", kind: "macro", label: "x", target: { type: "riff", preset: "" } },
+      { actionId: "not-prefixed", kind: "macro", label: "x", target: { type: "riff", riff_preset: "p" } },
+      { actionId: "macro:empty-label", kind: "macro", label: "", target: { type: "riff", riff_preset: "p" } },
+      { actionId: "macro:no-preset", kind: "macro", label: "x", target: { type: "riff", riff_preset: "" } },
       { actionId: "macro:bad-target", kind: "macro", label: "x", target: { type: "shell", cmd: "rm -rf" } },
       { actionId: "macro:no-target", kind: "macro", label: "x" },
     ]);
     expect(parseMacros(raw)).toEqual([DISCUSS]);
+  });
+
+  it("re-projects a legacy riff target (`preset`) to `riff_preset`", () => {
+    const raw = JSON.stringify([
+      { actionId: "macro:x", kind: "macro", label: "X", target: { type: "riff", preset: "discuss" } },
+    ]);
+    const [macro] = parseMacros(raw);
+    expect(macro.target).toEqual({ type: "riff", riff_preset: "discuss" });
+    expect(macro.target).not.toHaveProperty("preset");
+  });
+
+  it("prefers `riff_preset` when a target carries both keys", () => {
+    const raw = JSON.stringify([
+      { ...DISCUSS, target: { type: "riff", riff_preset: "new", preset: "old" } },
+    ]);
+    expect(parseMacros(raw)[0].target).toEqual({ type: "riff", riff_preset: "new" });
   });
 
   it("pins kind and drops unknown keys on re-projection", () => {
@@ -104,7 +120,7 @@ describe("macroToBinding", () => {
       scope: "global",
       kind: "macro",
       label: "riff: discuss",
-      description: "rk riff --preset discuss",
+      description: "rk riff --riff-preset discuss",
       mapLabel: "riff: discuss",
     });
   });
@@ -112,7 +128,7 @@ describe("macroToBinding", () => {
 
 describe("macroCommandPreview", () => {
   it("renders riff and palette previews", () => {
-    expect(macroCommandPreview(DISCUSS.target)).toBe("rk riff --preset discuss");
+    expect(macroCommandPreview(DISCUSS.target)).toBe("rk riff --riff-preset discuss");
     expect(macroCommandPreview(PALETTE.target)).toBe("palette: create-window");
   });
 });

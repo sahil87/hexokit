@@ -2461,7 +2461,7 @@ func TestRiffPresetsBlockCheck(t *testing.T) {
 		if c.Name != "riff presets" {
 			t.Errorf("name = %q, want %q", c.Name, "riff presets")
 		}
-		want := "fab/project/config.yaml has a riff: block that rk no longer reads — define presets under riff_presets in ~/.config/hexokit/config.yaml"
+		want := "fab/project/config.yaml has a riff: block that rk no longer reads — define riff presets under riff_presets in ~/.config/hexokit/config.yaml"
 		if c.Note != want {
 			t.Errorf("note = %q, want %q", c.Note, want)
 		}

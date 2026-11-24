@@ -681,8 +681,8 @@ SHALL render the routing fact table — for every non-operator window across the
 server's sessions: session name, `@N` window id, window name, worktree path,
 agent state, and fab change/stage when non-empty — then the user's task text
 in the delimited data block, then the instruction to pick an appropriate
-worktree/preset and spawn via the `rk riff` CLI (naming the discovery commands
-`rk riff --list-presets`, the `rk riff [--preset <p>] "<task>"` shape, and
+worktree/riff preset and spawn via the `rk riff` CLI (naming the discovery commands
+`rk riff --list-riff-presets`, the `rk riff [--riff-preset <p>] "<task>"` shape, and
 `rk riff --help` for the full flags), and the explicit bounds: spawn EXACTLY
 ONE agent, do not modify any existing window, and on repo/project ambiguity
 ask nothing — pick the current server's dominant project and note the choice

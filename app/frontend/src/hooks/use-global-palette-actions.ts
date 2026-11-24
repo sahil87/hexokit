@@ -26,6 +26,7 @@ import { buildVersionAction, displayVersion } from "@/lib/palette/version";
 import { buildEasterEggActions } from "@/lib/palette/easter-eggs";
 import { fire as fireScreenBreak } from "@/lib/screen-break-store";
 import { copyToClipboard } from "@/lib/clipboard";
+import { focusAgentPresetSelect } from "@/lib/agent-preset-focus";
 import { mcpEndpointUrl } from "@/lib/mcp-endpoint";
 import { buildOpenAIMCPActions } from "@/lib/palette/openai-mcp";
 
@@ -203,6 +204,20 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       id: "settings-agents",
       label: "Settings: Agents",
       onSelect: () => openSettings("agents"),
+    }),
+    [openSettings],
+  );
+  // `Settings: Agent preset…` opens the Agents tab and focuses the preset
+  // dropdown once the panel has loaded. It fetches nothing itself — the panel's
+  // own mount fetch supplies the preset list.
+  const settingsAgentPresetEntry: PaletteAction = useMemo(
+    () => ({
+      id: "settings-agent-preset",
+      label: "Settings: Agent preset…",
+      onSelect: () => {
+        openSettings("agents");
+        focusAgentPresetSelect();
+      },
     }),
     [openSettings],
   );
@@ -651,10 +666,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalActivityEntry, quakeTerminalCronEntry, ...(operatorCheckNowEntry ? [operatorCheckNowEntry] : []), quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...(quakeMachine === "open" && quakeTerminalOpenAsTabEntry ? [quakeTerminalOpenAsTabEntry] : []), ...(operatorStartEntry ? [operatorStartEntry] : []), ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, mcpEndpointEntry, ...openAIMCPActions, ...easterEggActions, createServerEntry],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAgentPresetEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalActivityEntry, quakeTerminalCronEntry, ...(operatorCheckNowEntry ? [operatorCheckNowEntry] : []), quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...(quakeMachine === "open" && quakeTerminalOpenAsTabEntry ? [quakeTerminalOpenAsTabEntry] : []), ...(operatorStartEntry ? [operatorStartEntry] : []), ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, mcpEndpointEntry, ...openAIMCPActions, ...easterEggActions, createServerEntry],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalActivityEntry, quakeTerminalCronEntry, operatorCheckNowEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, quakeTerminalOpenAsTabEntry, operatorStartEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, mcpEndpointEntry, openAIMCPActions, easterEggActions, createServerEntry, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAgentPresetEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalActivityEntry, quakeTerminalCronEntry, operatorCheckNowEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, quakeTerminalOpenAsTabEntry, operatorStartEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, mcpEndpointEntry, openAIMCPActions, easterEggActions, createServerEntry, bindingByAction, bindingHost],
   );
 }

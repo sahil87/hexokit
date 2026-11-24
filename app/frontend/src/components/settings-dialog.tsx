@@ -670,7 +670,7 @@ function ShortcutsTabPanel() {
     let cancelled = false;
     getRiffPresets(server, sessionName)
       .then((data) => {
-        if (!cancelled) setRiffPresetNames(data.presets.map((p) => p.name));
+        if (!cancelled) setRiffPresetNames(data.riffPresets.map((p) => p.name));
       })
       .catch(() => {
         if (!cancelled) setRiffPresetNames(null);

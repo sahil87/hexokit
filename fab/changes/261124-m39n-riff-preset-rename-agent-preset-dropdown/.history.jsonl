@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-24T04:42:21Z"}
+{"args":"Execute step H1 (Riff-preset rename and the agent-preset dropdown in Settings \u003e Agent) of the plan at /home/sahil/code/sahil87/hexokit/fab/plans/sahil/26-11-24-agent-presets.md. Read the whole plan first (Decisions and Rules bind you), then implement only the H1 Brief.","cmd":"fab-new","event":"command","ts":"2026-11-24T04:42:21Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-11-24T04:44:40Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-11-24T04:44:58Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-11-24T04:45:03Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-24T04:53:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-24T04:53:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-24T05:31:21Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-11-24T05:40:14Z"}
+{"event":"review","result":"passed","ts":"2026-11-24T05:40:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-11-24T05:45:52Z"}

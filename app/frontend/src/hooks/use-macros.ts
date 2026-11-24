@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   MACROS_STORAGE_KEY,
   makeMacroActionId,
+  migrateLegacyMacros,
   readStoredMacros,
   writeStoredMacros,
   type MacroAction,
@@ -45,6 +46,9 @@ export function useMacros(): UseMacros {
   const [macros, setMacros] = useState<MacroAction[]>(readStoredMacros);
 
   useEffect(() => {
+    // Legacy riff targets (`preset`) are read as `riff_preset` already; this
+    // rewrites storage once so the legacy reader can eventually be dropped.
+    migrateLegacyMacros();
     const onNotify = (next: MacroAction[]) => setMacros(next);
     subscribers.add(onNotify);
     const onStorage = (event: StorageEvent) => {

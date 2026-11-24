@@ -34,7 +34,7 @@ describe("SpawnAgentDialog", () => {
   beforeEach(() => {
     getRiffPresets.mockReset();
     spawnRiff.mockReset();
-    getRiffPresets.mockResolvedValue({ presets: [], tiers: BUILTIN_TIERS });
+    getRiffPresets.mockResolvedValue({ riffPresets: [], tiers: BUILTIN_TIERS });
     spawnRiff.mockResolvedValue({ server: "work", session: "mysess", window: "riff-x", windowId: "@9" });
   });
   afterEach(cleanup);
@@ -67,18 +67,18 @@ describe("SpawnAgentDialog", () => {
     expect(screen.queryByLabelText("Worktree name")).not.toBeInTheDocument();
   });
 
-  it("shows the PRESET dropdown only when the repo defines presets", async () => {
-    getRiffPresets.mockResolvedValue({ presets: [{ name: "ship", layout: "deck-h", paneCount: 2 }], tiers: BUILTIN_TIERS });
+  it("shows the RIFF PRESET dropdown only when riff presets are defined", async () => {
+    getRiffPresets.mockResolvedValue({ riffPresets: [{ name: "ship", layout: "deck-h", paneCount: 2 }], tiers: BUILTIN_TIERS });
     renderDialog();
-    await waitFor(() => expect(screen.getByLabelText("Preset")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText("Riff preset")).toBeInTheDocument());
     expect(screen.getByRole("option", { name: /ship/i })).toBeInTheDocument();
   });
 
-  it("does not render the PRESET dropdown when there are no presets", async () => {
-    getRiffPresets.mockResolvedValue({ presets: [], tiers: BUILTIN_TIERS });
+  it("does not render the RIFF PRESET dropdown when there are no riff presets", async () => {
+    getRiffPresets.mockResolvedValue({ riffPresets: [], tiers: BUILTIN_TIERS });
     renderDialog();
     await waitFor(() => expect(getRiffPresets).toHaveBeenCalled());
-    expect(screen.queryByLabelText("Preset")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Riff preset")).not.toBeInTheDocument();
   });
 
   it("Enter from the task field submits with the trimmed task and worktree defaults", async () => {
@@ -89,7 +89,7 @@ describe("SpawnAgentDialog", () => {
     await waitFor(() =>
       expect(spawnRiff).toHaveBeenCalledWith("work", "mysess", {
         task: "fix the bug",
-        preset: undefined,
+        riffPreset: undefined,
         where: "worktree",
         worktreeName: undefined,
         tier: "default",
@@ -109,7 +109,7 @@ describe("SpawnAgentDialog", () => {
     await waitFor(() =>
       expect(spawnRiff).toHaveBeenCalledWith("work", "mysess", {
         task: "explore",
-        preset: undefined,
+        riffPreset: undefined,
         where: "checkout",
         worktreeName: undefined,
         tier: "doing",
@@ -124,7 +124,7 @@ describe("SpawnAgentDialog", () => {
     await waitFor(() =>
       expect(spawnRiff).toHaveBeenCalledWith("work", "mysess", {
         task: undefined,
-        preset: undefined,
+        riffPreset: undefined,
         where: "worktree",
         worktreeName: "my-agent",
         tier: "default",
@@ -180,14 +180,14 @@ describe("SpawnAgentDialog", () => {
     // Agent dropdown still has a usable "default" option and no preset dropdown.
     await waitFor(() => expect(getRiffPresets).toHaveBeenCalled());
     expect((screen.getByLabelText("Agent tier") as HTMLSelectElement).value).toBe("default");
-    expect(screen.queryByLabelText("Preset")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Riff preset")).not.toBeInTheDocument();
   });
 
   // gsmu: the tier is fab-gated at the backend — a non-fab repo returns
   // `tiers: []`, which hides the Agent Tier field entirely and omits `tier` from
   // the POST body (a tier is inert in a non-fab repo).
   it("hides the Agent Tier field when the fetched tiers are empty (non-fab repo)", async () => {
-    getRiffPresets.mockResolvedValue({ presets: [], tiers: [] });
+    getRiffPresets.mockResolvedValue({ riffPresets: [], tiers: [] });
     renderDialog();
     await waitFor(() => expect(getRiffPresets).toHaveBeenCalled());
     // The field is absent entirely — no label, no control.
@@ -197,7 +197,7 @@ describe("SpawnAgentDialog", () => {
   });
 
   it("omits tier from the POST body when the Agent Tier field is hidden", async () => {
-    getRiffPresets.mockResolvedValue({ presets: [], tiers: [] });
+    getRiffPresets.mockResolvedValue({ riffPresets: [], tiers: [] });
     renderDialog();
     await waitFor(() => expect(screen.queryByLabelText("Agent tier")).not.toBeInTheDocument());
     fireEvent.change(screen.getByLabelText("Task"), { target: { value: "do it" } });
@@ -205,7 +205,7 @@ describe("SpawnAgentDialog", () => {
     await waitFor(() =>
       expect(spawnRiff).toHaveBeenCalledWith("work", "mysess", {
         task: "do it",
-        preset: undefined,
+        riffPreset: undefined,
         where: "worktree",
         worktreeName: undefined,
         tier: undefined,

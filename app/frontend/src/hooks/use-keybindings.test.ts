@@ -108,7 +108,7 @@ describe("useKeybindings macro-awareness (260730-hbyh)", () => {
     actionId: "macro:discuss",
     kind: "macro",
     label: "riff: discuss",
-    target: { type: "riff", preset: "discuss" },
+    target: { type: "riff", riff_preset: "discuss" },
   };
 
   it("surfaces a stored macro in the effective map (unbound without a diff)", () => {

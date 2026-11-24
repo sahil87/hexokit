@@ -22,6 +22,9 @@ type fabStub struct {
 	calls   []string
 	failOn  string
 	failMsg string
+	// presets is the stdout of `agent presets --json`; empty exits non-zero,
+	// like a fab without the verb.
+	presets string
 }
 
 const fabStubShow = `[
@@ -45,6 +48,8 @@ func (f *fabStub) run(_ context.Context, argv ...string) ([]byte, []byte, error)
 		return []byte(fabStubShow), nil, nil
 	case joined == "config explain --json":
 		return []byte(`[]`), nil, nil
+	case joined == "agent presets --json" && f.presets != "":
+		return []byte(f.presets), nil, nil
 	case strings.HasPrefix(joined, "config set "), strings.HasPrefix(joined, "config unset "):
 		return nil, nil, nil
 	}
@@ -176,4 +181,83 @@ func TestPostFabConfig_notInstalledIs503(t *testing.T) {
 	if rec := fabPost(s, `{"agent.workers":"codex"}`); rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503", rec.Code)
 	}
+}
+
+const fabStubPresets = `[
+ {"name":"claude","description":"All roles on Claude","source":"built-in","session":"claude","workers":"claude"},
+ {"name":"codex-review","description":"Only the review role on Codex","source":"built-in","profiles":{"review":{"cli":"codex"}}}
+]`
+
+func TestGetFabConfig_carriesAgentPresets(t *testing.T) {
+	s := fabConfigServer(&fabStub{presets: fabStubPresets})
+	rec := httptest.NewRecorder()
+	s.handleGetFabConfig(rec, httptest.NewRequest(http.MethodGet, "/api/fab-config", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var doc fabsysconfig.Document
+	if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.AgentPresets) != 2 || doc.AgentPresets[1].Name != "codex-review" || doc.AgentPresets[1].Profiles["review"]["cli"] != "codex" {
+		t.Errorf("agent_presets = %+v", doc.AgentPresets)
+	}
+	if _, ok := doc.Fields["agent.preset"]; ok {
+		t.Errorf("fields[agent.preset] present while unset: %+v", doc.Fields["agent.preset"])
+	}
+}
+
+func TestGetFabConfig_olderFabHasNoAgentPresetsKey(t *testing.T) {
+	s := fabConfigServer(&fabStub{})
+	rec := httptest.NewRecorder()
+	s.handleGetFabConfig(rec, httptest.NewRequest(http.MethodGet, "/api/fab-config", nil))
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "agent_presets") {
+		t.Errorf("got %d %s, want 200 without agent_presets", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPostFabConfig_agentPreset(t *testing.T) {
+	t.Run("a listed preset is written", func(t *testing.T) {
+		stub := &fabStub{presets: fabStubPresets}
+		rec := fabPost(fabConfigServer(stub), `{"agent.preset":"codex-review"}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+		}
+		if got := stub.mutations(); len(got) != 1 || got[0] != "config set agent.preset codex-review --system" {
+			t.Errorf("mutations = %v", got)
+		}
+	})
+	t.Run("an unknown preset is 400 without a write", func(t *testing.T) {
+		stub := &fabStub{presets: fabStubPresets}
+		rec := fabPost(fabConfigServer(stub), `{"agent.preset":"bogus"}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), `unknown agent preset \"bogus\" (available: claude, codex-review)`) {
+			t.Errorf("body = %s", rec.Body.String())
+		}
+		if m := stub.mutations(); len(m) != 0 {
+			t.Errorf("mutations = %v, want none", m)
+		}
+	})
+	t.Run("an older fab is 400 without a write", func(t *testing.T) {
+		stub := &fabStub{}
+		rec := fabPost(fabConfigServer(stub), `{"agent.preset":"claude"}`)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "not supported by the installed fab") {
+			t.Errorf("got %d %s", rec.Code, rec.Body.String())
+		}
+		if m := stub.mutations(); len(m) != 0 {
+			t.Errorf("mutations = %v, want none", m)
+		}
+	})
+	t.Run("null unsets", func(t *testing.T) {
+		stub := &fabStub{}
+		rec := fabPost(fabConfigServer(stub), `{"agent.preset":null}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+		}
+		if got := stub.mutations(); len(got) != 1 || got[0] != "config unset agent.preset --system" {
+			t.Errorf("mutations = %v", got)
+		}
+	})
 }

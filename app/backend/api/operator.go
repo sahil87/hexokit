@@ -137,7 +137,7 @@ var operatorTemplates = map[string]operatorTemplate{
 		render:                  renderFixTabName,
 	},
 	// spawn-task: the operator routes a user-described task — picks the
-	// worktree/preset and spawns through its own shell via the rk riff CLI.
+	// worktree/riff preset and spawns through its own shell via the rk riff CLI.
 	"spawn-task": {
 		serverScoped: true,
 		acceptsText:  true,
@@ -288,9 +288,9 @@ func renderSpawnTask(f serverOperatorFacts) string {
 	b.WriteString(delimitUserText("The user's task description follows", f.Text))
 	b.WriteString(`
 
-Pick an appropriate worktree and preset, then spawn via the rk riff CLI:
-  rk riff --list-presets            # list the defined presets
-  rk riff [--preset <p>] "<task>"   # spawn one agent (rk riff --help for the full flags)
+Pick an appropriate worktree and riff preset, then spawn via the rk riff CLI:
+  rk riff --list-riff-presets              # list the defined riff presets
+  rk riff [--riff-preset <p>] "<task>"     # spawn one agent (rk riff --help for the full flags)
 
 Bounds: spawn EXACTLY ONE agent. Do not modify any existing window. If the task is ambiguous about which repo/project, ask nothing — pick the current server's dominant project and note the choice in the spawned window's name.`)
 	return b.String()

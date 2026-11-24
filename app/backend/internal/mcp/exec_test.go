@@ -401,7 +401,7 @@ func TestBuildArgvW2cRows(t *testing.T) {
 		},
 		{
 			"riff", "riff",
-			map[string]any{"server": "s", "repo": "/r", "session": "=boot", "preset": "ship", "skill": []any{"/a", "/b"}},
+			map[string]any{"server": "s", "repo": "/r", "session": "=boot", "riff_preset": "ship", "skill": []any{"/a", "/b"}},
 			[]string{"riff", "-L", "s", "--repo", "/r", "--session", "=boot", "ship", "--skill", "/a", "--skill", "/b", "--json"},
 		},
 		{
@@ -417,5 +417,27 @@ func TestBuildArgvW2cRows(t *testing.T) {
 				t.Errorf("argv = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestRiffPresetArgRenamed: the riff row names its positional-1 argument
+// riff_preset; the old `preset` spelling is not aliased, so the strict schema
+// rejects it before anything execs.
+func TestRiffPresetArgRenamed(t *testing.T) {
+	row := findRow(t, "riff")
+	base := `"server":"s","repo":"/r"`
+
+	args, err := ValidateArgs(row, json.RawMessage(`{`+base+`,"riff_preset":"discuss"}`))
+	if err != nil {
+		t.Fatalf("riff_preset rejected: %v", err)
+	}
+	want := []string{"riff", "-L", "s", "--repo", "/r", "discuss", "--json"}
+	if got := BuildArgv(row, args); !reflect.DeepEqual(got, want) {
+		t.Errorf("argv = %v, want %v", got, want)
+	}
+
+	_, err = ValidateArgs(row, json.RawMessage(`{`+base+`,"preset":"discuss"}`))
+	if err == nil || !strings.Contains(err.Error(), `unknown argument "preset"`) {
+		t.Errorf("legacy preset argument: err = %v, want unknown argument \"preset\"", err)
 	}
 }

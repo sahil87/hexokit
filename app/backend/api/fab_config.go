@@ -18,7 +18,9 @@ func (s *Server) fabSysClient() *fabsysconfig.Client {
 
 // handleGetFabConfig returns fab-kit's machine-wide config document, re-read
 // from the fab CLI on every request (no cache — external writers win).
-// GET /api/fab-config → 200 {"installed": bool, "systemPath", "tools", "fields", "roles", ...}
+// GET /api/fab-config → 200 {"installed": bool, "systemPath", "tools", "fields", "roles", "agent_presets"?, ...}
+// agent_presets is `fab agent presets --json`, absent on a fab that cannot list
+// presets; fields["agent.preset"] is absent while no preset is selected.
 func (s *Server) handleGetFabConfig(w http.ResponseWriter, r *http.Request) {
 	doc, err := s.fabSysClient().Read(r.Context())
 	if err != nil {
@@ -35,7 +37,9 @@ func (s *Server) handleGetFabConfig(w http.ResponseWriter, r *http.Request) {
 // mid-patch leaves earlier keys written (fab has no multi-key transaction).
 // A role's tool leaf is neutral (`.tool`); the wrapper writes it in the
 // installed fab's spelling (`.cli`, or `.provider` before fab's rename).
-// POST /api/fab-config ← {"agent.workers": "codex", "agent.profiles.review.tool": "codex", "agent.profiles.review.model": null}
+// agent.preset is validated against fab's own preset list (or the reserved
+// "none") before any write; null unsets it.
+// POST /api/fab-config ← {"agent.preset": "codex-review", "agent.workers": "codex", "agent.profiles.review.tool": "codex", "agent.profiles.review.model": null}
 func (s *Server) handlePostFabConfig(w http.ResponseWriter, r *http.Request) {
 	var patch map[string]json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil || patch == nil {

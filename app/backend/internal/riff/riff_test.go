@@ -1212,15 +1212,15 @@ func TestAutoLayout(t *testing.T) {
 	}
 }
 
-// TestResolveActivePreset covers positional match, positional non-match,
-// --preset resolution, conflict, unknown preset, and no-preset-available.
-func TestResolveActivePreset(t *testing.T) {
+// TestResolveActiveRiffPreset covers positional match, positional non-match,
+// --riff-preset resolution, conflict, unknown riff preset, and no-preset-available.
+func TestResolveActiveRiffPreset(t *testing.T) {
 	presets := map[string]string{
 		"ship":        "/fab-fff",
 		"investigate": "/fab-discuss",
 	}
 	t.Run("positional match consumes arg", func(t *testing.T) {
-		p, rem, err := ResolveActivePreset([]string{"ship", "--", "--base", "main"}, "ship", "", presets)
+		p, rem, err := ResolveActiveRiffPreset([]string{"ship", "--", "--base", "main"}, "ship", "", presets)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1232,7 +1232,7 @@ func TestResolveActivePreset(t *testing.T) {
 		}
 	})
 	t.Run("positional non-match leaves args untouched", func(t *testing.T) {
-		p, rem, err := ResolveActivePreset([]string{"nosuch"}, "nosuch", "", presets)
+		p, rem, err := ResolveActiveRiffPreset([]string{"nosuch"}, "nosuch", "", presets)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1243,8 +1243,8 @@ func TestResolveActivePreset(t *testing.T) {
 			t.Errorf("remaining = %v", rem)
 		}
 	})
-	t.Run("--preset flag resolves", func(t *testing.T) {
-		p, _, err := ResolveActivePreset(nil, "", "investigate", presets)
+	t.Run("--riff-preset flag resolves", func(t *testing.T) {
+		p, _, err := ResolveActiveRiffPreset(nil, "", "investigate", presets)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1252,8 +1252,8 @@ func TestResolveActivePreset(t *testing.T) {
 			t.Errorf("preset = %#v, want investigate", p)
 		}
 	})
-	t.Run("conflict positional + --preset", func(t *testing.T) {
-		_, _, err := ResolveActivePreset([]string{"ship"}, "ship", "investigate", presets)
+	t.Run("conflict positional + --riff-preset", func(t *testing.T) {
+		_, _, err := ResolveActiveRiffPreset([]string{"ship"}, "ship", "investigate", presets)
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -1261,20 +1261,20 @@ func TestResolveActivePreset(t *testing.T) {
 			t.Errorf("error missing 'mutually exclusive': %v", err)
 		}
 	})
-	t.Run("unknown preset via --preset", func(t *testing.T) {
-		_, _, err := ResolveActivePreset(nil, "", "nope", presets)
+	t.Run("unknown riff preset via --riff-preset", func(t *testing.T) {
+		_, _, err := ResolveActiveRiffPreset(nil, "", "nope", presets)
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "unknown preset") {
-			t.Errorf("error missing 'unknown preset': %v", err)
+		if !strings.Contains(err.Error(), "unknown riff preset") {
+			t.Errorf("error missing 'unknown riff preset': %v", err)
 		}
 		if !strings.Contains(err.Error(), "ship") || !strings.Contains(err.Error(), "investigate") {
 			t.Errorf("error should list defined presets: %v", err)
 		}
 	})
 	t.Run("no preset available returns nil", func(t *testing.T) {
-		p, rem, err := ResolveActivePreset([]string{"ship"}, "ship", "", nil)
+		p, rem, err := ResolveActiveRiffPreset([]string{"ship"}, "ship", "", nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1290,7 +1290,7 @@ func TestResolveActivePreset(t *testing.T) {
 // TestResolveEffectiveSpec covers pane/layout/passthrough resolution rules.
 func TestResolveEffectiveSpec(t *testing.T) {
 	t.Run("preset pane used when no CLI panes", func(t *testing.T) {
-		preset := &Preset{Name: "incognito", Skill: "/fab-incognito"}
+		preset := &RiffPreset{Name: "incognito", Skill: "/fab-incognito"}
 		spec, err := ResolveEffectiveSpec(nil, false, "auto", 1, preset, nil)
 		if err != nil {
 			t.Fatalf("err: %v", err)
@@ -1301,7 +1301,7 @@ func TestResolveEffectiveSpec(t *testing.T) {
 		}
 	})
 	t.Run("CLI panes replace preset panes", func(t *testing.T) {
-		preset := &Preset{Name: "incognito", Skill: "/fab-incognito"}
+		preset := &RiffPreset{Name: "incognito", Skill: "/fab-incognito"}
 		cli := []PaneSpec{{Kind: PaneKindSkill, Value: "/review"}}
 		spec, err := ResolveEffectiveSpec(cli, false, "auto", 1, preset, nil)
 		if err != nil {
@@ -1348,7 +1348,7 @@ func TestResolveEffectiveSpec(t *testing.T) {
 		}
 	})
 	t.Run("preset with empty skill yields one bare pane and empty layout", func(t *testing.T) {
-		preset := &Preset{Name: "blank", Skill: ""}
+		preset := &RiffPreset{Name: "blank", Skill: ""}
 		spec, err := ResolveEffectiveSpec(nil, false, "auto", 1, preset, nil)
 		if err != nil {
 			t.Fatalf("err: %v", err)
@@ -1362,7 +1362,7 @@ func TestResolveEffectiveSpec(t *testing.T) {
 		}
 	})
 	t.Run("passthrough is exactly the user's -- args", func(t *testing.T) {
-		preset := &Preset{Name: "blank", Skill: ""}
+		preset := &RiffPreset{Name: "blank", Skill: ""}
 		spec, err := ResolveEffectiveSpec(nil, false, "auto", 1, preset, []string{"--base", "main", "--reuse"})
 		if err != nil {
 			t.Fatalf("err: %v", err)
@@ -1469,13 +1469,13 @@ func TestApplySkillPrefix(t *testing.T) {
 // NOT share. A nil result means "defer to preset/default"; a non-nil result
 // means "these panes replace the preset's".
 func TestComposePanes(t *testing.T) {
-	preset := &Preset{Name: "incognito", Skill: "/fab-incognito"}
-	barePreset := &Preset{Name: "blank", Skill: ""}
+	preset := &RiffPreset{Name: "incognito", Skill: "/fab-incognito"}
+	barePreset := &RiffPreset{Name: "blank", Skill: ""}
 
 	cases := []struct {
 		name   string
 		task   string
-		preset *Preset
+		preset *RiffPreset
 		want   []PaneSpec
 	}{
 		{
@@ -1761,7 +1761,7 @@ func TestSpawn_PresetFromSettings(t *testing.T) {
 
 	t.Run("blank built-in spawns the bare launcher", func(t *testing.T) {
 		repoRoot, newWindowLog := setup(t)
-		_, err := Spawn(context.Background(), Options{RepoRoot: repoRoot, Where: "checkout", Preset: "blank"})
+		_, err := Spawn(context.Background(), Options{RepoRoot: repoRoot, Where: "checkout", RiffPreset: "blank"})
 		if err != nil {
 			t.Fatalf("Spawn(blank) error: %v", err)
 		}
@@ -1779,7 +1779,7 @@ func TestSpawn_PresetFromSettings(t *testing.T) {
 
 	t.Run("incognito built-in renders /fab-incognito", func(t *testing.T) {
 		repoRoot, newWindowLog := setup(t)
-		_, err := Spawn(context.Background(), Options{RepoRoot: repoRoot, Where: "checkout", Preset: "incognito"})
+		_, err := Spawn(context.Background(), Options{RepoRoot: repoRoot, Where: "checkout", RiffPreset: "incognito"})
 		if err != nil {
 			t.Fatalf("Spawn(incognito) error: %v", err)
 		}
@@ -1794,7 +1794,7 @@ func TestSpawn_PresetFromSettings(t *testing.T) {
 
 	t.Run("user addition resolves through the same seam", func(t *testing.T) {
 		repoRoot, newWindowLog := setup(t)
-		_, err := Spawn(context.Background(), Options{RepoRoot: repoRoot, Where: "checkout", Preset: "review"})
+		_, err := Spawn(context.Background(), Options{RepoRoot: repoRoot, Where: "checkout", RiffPreset: "review"})
 		if err != nil {
 			t.Fatalf("Spawn(review) error: %v", err)
 		}
@@ -1809,12 +1809,12 @@ func TestSpawn_PresetFromSettings(t *testing.T) {
 
 	t.Run("unknown preset is a ValidationErr listing the defined names", func(t *testing.T) {
 		repoRoot, _ := setup(t)
-		_, err := Spawn(context.Background(), Options{RepoRoot: repoRoot, Where: "checkout", Preset: "nope"})
+		_, err := Spawn(context.Background(), Options{RepoRoot: repoRoot, Where: "checkout", RiffPreset: "nope"})
 		var ec *ExitCodeError
 		if !errors.As(err, &ec) || ec.Code != ExitValidation {
 			t.Fatalf("Spawn(nope) error = %v, want an ExitValidation ExitCodeError", err)
 		}
-		if !strings.Contains(ec.Msg, `unknown preset "nope" (defined: blank, discuss, incognito, review)`) {
+		if !strings.Contains(ec.Msg, `unknown riff preset "nope" (defined: blank, discuss, incognito, review)`) {
 			t.Errorf("error message = %q, want the sorted defined-names list", ec.Msg)
 		}
 	})
