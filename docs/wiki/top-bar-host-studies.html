@@ -406,7 +406,7 @@ ol.ann li::before { content: counter(i); position: absolute; left: 6px; top: 5px
   <div class="col"><h3>Making colour hold up</h3><p class="note">The nameplate always names the active host. Squares use <b>well-separated hues</b>. Today's accents don't work here: §2 shows ws-01, mac-mini and loom-box blurring together. The colour picker below only offers well-separated hues and labels any hue that another connected host already uses. A background host that's waiting gets an amber corner dot.</p></div>
 </div>
 <div class="row">
-  <div class="col"><h3>Key hints: the <code>⌥⌘</code> pill, with no layout shift</h3><p class="note">A small <code>⌥⌘</code> pill (<code>Alt</code> on Windows and Linux) sits to the left of the squares. Its space is <b>always reserved</b>, and it only becomes visible when you hover the title bar, so nothing moves when it appears. <b>Holding ⌥⌘</b> (or hovering the pill) shows each square's number. The squares are a <b>fixed 18px</b>, big enough for a digit, so numbers appear inside them without anything resizing. The active square is marked by a ring, not a bigger size. Try it above: hover the strip, then hold ⌥⌘ (Alt on Windows/Linux) and press 1–4 to switch. The pill's tooltip also mentions <kbd>⇧⌘H</kbd>, which moves focus to the squares.</p></div>
+  <div class="col"><h3>Key hints: the <code>⌥⌘</code> pill, with no layout shift</h3><p class="note">A small <code>⌥⌘</code> pill (<code>Alt</code> on Windows and Linux) sits to the left of the squares. Its space is <b>always reserved</b>, and it only becomes visible when you hover the title bar, so nothing moves when it appears. <b>Holding ⌥⌘</b> (or hovering the pill) shows each square's number. The squares are a <b>fixed 18px</b>, big enough for a digit, so numbers appear inside them without anything resizing. The active square is marked by a ring, not a bigger size. Try it above: hover the strip, then hold ⌥⌘ (Alt on Windows/Linux) and press 1–4 to switch. The pill's tooltip also mentions <kbd>⇧⌘H</kbd>, which moves focus to the squares.</p><p class="note"><b>Cycling:</b> <kbd>⌥⌘←</kbd> / <kbd>⌥⌘→</kbd> (<kbd>Alt+PageUp</kbd> / <kbd>Alt+PageDown</kbd> on Windows and Linux) step to the previous / next host in square order and wrap at both ends. They are native Hosts-menu items, so they work wherever focus is, terminals included, and the light slides between squares. Windows/Linux avoid Alt+←/→ because shells use it for word-jump and a focused square uses <kbd>⌥←/→</kbd> to reorder. Try it above.</p></div>
   <div class="col"><h3>Reordering: drag a square</h3><p class="note">Drag a square left or right. The others move aside, and while you drag every square shows its number, which updates live, so you can see the shortcut you're assigning. Dropping saves the order (the shell's existing <code>reorderShellHosts(id, toIndex)</code>, one call per drop). The same order drives <kbd>⌥⌘1–9</kbd> and the native Hosts menu. Clicking without moving still switches hosts. With the keyboard, focus a square (<kbd>⇧⌘H</kbd>) and press <kbd>⌥←</kbd> / <kbd>⌥→</kbd>. The squares don't drag the window, so moving them is never mistaken for moving the window.</p></div>
 </div>
 <div class="row">
@@ -417,6 +417,7 @@ ol.ann li::before { content: counter(i); position: absolute; left: 6px; top: 5px
 <p class="note">Both new settings go in Appearance, under a third scope group, <b>This app</b>, between This host and This device. The strip effect is chosen from preview cards drawn with the real effect, not from a text list. <b>Host colour</b> replaces the instance-accent row. It's still a This-host setting, because a host's colour is part of its identity and every device should see the same colour. Rows marked with a green edge are new or changed. Click a card, an On-switch chip or a swatch, and the mock above updates.</p>
 <div id="settings-mock"></div>
 <h3>Band treatment gallery: every treatment for the host currently active above</h3>
+<p class="note"><b>Reach:</b> the lights are proportional to the strip, not fixed in pixels. Glow, Halftone, Hex mesh, Scanlines and Edge light reach about <b>75% of the band</b> on a wide window, with a pixel floor (Glow 320px) so narrow windows and the settings preview cards keep their look. The right ~25% stays neutral for the window controls and the drag area. Livery deliberately frames the squares and nameplate, and Flat fills the band. In CSS each radial light is a no-repeat tile <code>calc(var(--ax) + max(floor, 75%))</code> wide with <code>farthest-side</code> radii, because Chromium rejects mixed px/% math in a radial gradient's size.</p>
 <div class="gal" id="c-gallery"></div>
 
 <!-- =============================================================== 5 -->
@@ -458,18 +459,20 @@ ol.ann li::before { content: counter(i); position: absolute; left: 6px; top: 5px
 
 <!-- =============================================================== 8 -->
 <h2><span class="num">9</span>Recommendation</h2>
-<div class="verdict"><b>Updated after the review: Option C.</b> Keep a titlebar row and make it the host switcher: one coloured square per connected host plus a nameplate for the active one. The band lights up from the selected square instead of a flat tint. Colour stays (you asked to keep it) but never has to work alone, because the nameplate always says the name. <b>Option A</b> is still the alternative if reclaiming vertical space ever matters more than colour. <b>B</b> is out: it looks like a browser.</div>
+<div class="verdict"><b>Shipped: Option C</b> — #1192 (squares, nameplate, lit band, This-app settings, host colour set), #1193 (⌥⌘←/→ host cycling), #1195 (lights reach ~75% of the band). <b>Updated after the review: Option C.</b> Keep a titlebar row and make it the host switcher: one coloured square per connected host plus a nameplate for the active one. The band lights up from the selected square instead of a flat tint. Colour stays (you asked to keep it) but never has to work alone, because the nameplate always says the name. <b>Option A</b> is still the alternative if reclaiming vertical space ever matters more than colour. <b>B</b> is out: it looks like a browser.</div>
 <div class="tablewrap"><table>
 <tr><th>#</th><th>Decision</th><th></th></tr>
-<tr><td>1</td><td>Keep the shell titlebar strip. Replace its centred label with squares (one per connected host, in host-list order, which is also the <kbd>⌥⌘1–9</kbd> order) and a nameplate next to them.</td><td><span class="tag rec">proposed</span></td></tr>
-<tr><td>2</td><td>Clicking a square switches hosts, and hovering previews the host in the nameplate. Dragging a square left or right reorders hosts, which renumbers <kbd>⌥⌘1–9</kbd>; with a square focused (<kbd>⇧⌘H</kbd>), <kbd>⌥←/→</kbd> does the same. Edit, remove and add stay in the existing host menu, opened from <code>+</code> or by right-clicking a square.</td><td><span class="tag rec">proposed</span></td></tr>
-<tr><td>3</td><td>Selecting a square lights the band up from that square. The effect (<code>strip.effect</code>: Glow, Livery, Halftone, Hex mesh, Scanlines, Edge light, Flat) and the switch motion (<code>strip.motion</code>: Light slides, Slide + sweep, Cut) are user settings in <b>Settings → Appearance → This app</b>, saved in the desktop app's store and applied to every host. Defaults: <b>Glow</b> (decided, so it's what people see after upgrading) and Light slides.</td><td><span class="tag rec">decided</span></td></tr>
-<tr><td>3b</td><td>An <code>⌥⌘</code> / <code>Alt</code> pill sits to the left of the squares. Hovering it or holding the chord shows the digits in the squares.</td><td><span class="tag rec">proposed</span></td></tr>
-<tr><td>4</td><td>Remove the top-bar wash and stripe, so colour lives only in the strip. Keep it on the dock icon, favicon and PWA titlebar.</td><td><span class="tag rec">proposed</span></td></tr>
-<tr><td>5</td><td>Host colours are <b>host-owned only</b>: stored in the host's settings (<code>instance_color</code>), so a host has the same colour on every device, and there's no per-device or per-app override. The colours come from a set of well-separated hues (the Host colour row in Appearance → This host replaces the instance-accent row). A hue another connected host already uses is labelled, with a warning that's advisory only.</td><td><span class="tag rec">decided</span></td></tr>
-<tr><td>5b</td><td>Squares are plain colour, with no monogram letters. Numbers appear in them only while hints are showing.</td><td><span class="tag rec">decided</span></td></tr>
-<tr><td>6</td><td>Nameplate fields: name · user@machine · OS + kind · link · agents, folding from the right. Needs extra fields in the <code>servers:list</code> projection.</td><td><span class="tag rec">proposed</span></td></tr>
-<tr><td>7</td><td>Strip height: keep 28px or allow 32px.</td><td><span class="tag open">open</span></td></tr>
+<tr><td>1</td><td>Keep the shell titlebar strip. Replace its centred label with squares (one per connected host, in host-list order, which is also the <kbd>⌥⌘1–9</kbd> order) and a nameplate next to them.</td><td><span class="tag rec">shipped</span></td></tr>
+<tr><td>2</td><td>Clicking a square switches hosts, and hovering previews the host in the nameplate. Dragging a square left or right reorders hosts, which renumbers <kbd>⌥⌘1–9</kbd>; with a square focused (<kbd>⇧⌘H</kbd>), <kbd>⌥←/→</kbd> does the same. Edit, remove and add stay in the existing host menu, opened from <code>+</code> or by right-clicking a square.</td><td><span class="tag rec">shipped</span></td></tr>
+<tr><td>3</td><td>Selecting a square lights the band up from that square. The effect (<code>strip.effect</code>: Glow, Livery, Halftone, Hex mesh, Scanlines, Edge light, Flat) and the switch motion (<code>strip.motion</code>: Light slides, Slide + sweep, Cut) are user settings in <b>Settings → Appearance → This app</b>, saved in the desktop app's store and applied to every host. Defaults: <b>Glow</b> (decided, so it's what people see after upgrading) and Light slides.</td><td><span class="tag rec">shipped</span></td></tr>
+<tr><td>3b</td><td>An <code>⌥⌘</code> / <code>Alt</code> pill sits to the left of the squares. Hovering it or holding the chord shows the digits in the squares.</td><td><span class="tag rec">shipped</span></td></tr>
+<tr><td>3c</td><td>Cycle hosts with <kbd>⌥⌘←</kbd> / <kbd>⌥⌘→</kbd> (<kbd>Alt+PageUp</kbd> / <kbd>Alt+PageDown</kbd> on Windows/Linux), wrapping at both ends, as native Hosts-menu items, plus <code>Host: Previous</code> / <code>Host: Next</code> in the palette. Inside the code tile on macOS this takes precedence over VS Code's editor-tab chord.</td><td><span class="tag rec">shipped</span></td></tr>
+<tr><td>3d</td><td>The lights reach about 75% of the band, with a pixel floor (Glow 320px); Livery and Flat unchanged.</td><td><span class="tag rec">shipped</span></td></tr>
+<tr><td>4</td><td>Remove the top-bar wash and stripe, so colour lives only in the strip. Keep it on the dock icon, favicon and PWA titlebar.</td><td><span class="tag rec">shipped</span></td></tr>
+<tr><td>5</td><td>Host colours are <b>host-owned only</b>: stored in the host's settings (<code>instance_color</code>), so a host has the same colour on every device, and there's no per-device or per-app override. The colours come from a set of well-separated hues (the Host colour row in Appearance → This host replaces the instance-accent row). A hue another connected host already uses is labelled, with a warning that's advisory only.</td><td><span class="tag rec">shipped</span></td></tr>
+<tr><td>5b</td><td>Squares are plain colour, with no monogram letters. Numbers appear in them only while hints are showing.</td><td><span class="tag rec">shipped</span></td></tr>
+<tr><td>6</td><td>Nameplate fields: name · user@machine · OS + kind · link · agents, folding from the right. Needs extra fields in the <code>servers:list</code> projection.</td><td><span class="tag rec">shipped</span></td></tr>
+<tr><td>7</td><td>Strip height stays 28px (the squares fit at 18px).</td><td><span class="tag rec">shipped</span></td></tr>
 <tr><td>8</td><td>Carried over from A: show one crumb when the workspace and group have the same name, and move Refresh into the overflow menu.</td><td><span class="tag rec">proposed</span></td></tr>
 <tr><td>9</td><td>Browser: there's no strip, so the squares move into the top bar's sidebar head or the HOST panel.</td><td><span class="tag open">open</span></td></tr>
 <tr><td>10</td><td>Option A (merged bar) is the fallback if vertical space wins; option B (host tabs) is rejected because it looks like a browser.</td><td><span class="tag rej">not chosen</span></td></tr>
@@ -537,7 +540,7 @@ function cTitle(st, hs, act) {
   const padL = mac ? 80 : 12, padR = winp ? 146 : 12;
   const mini = !!st.mini;
   const inner = (h, i) => `${st.letters === "on" ? `<span class="lt">${mono(h.name)}</span>` : ""}${i < 9 ? `<span class="kd">${i + 1}</span>` : ""}`;
-  const pill = !mini && st.keys !== "off" ? `<span class="kpill nd" title="${mac ? "⌥⌘" : "Alt+"}1–9 switches host · ${mac ? "⇧⌘H" : "⇧Ctrl+H"} focuses the squares">${mac ? "⌥⌘" : "Alt"}</span>` : "";
+  const pill = !mini && st.keys !== "off" ? `<span class="kpill nd" title="${mac ? "⌥⌘1–9 switches host · ⌥⌘←/→ previous/next" : "Alt+1–9 switches host · Alt+PgUp/PgDn previous/next"} · ${mac ? "⇧⌘H" : "⇧Ctrl+H"} focuses the squares">${mac ? "⌥⌘" : "Alt"}</span>` : "";
   return `<div class="ctitle drag tr-${st.treat} ${st.keys === "always" ? "showkeys" : ""}"><div class="ctreat"></div><div class="csweep"></div>${mac ? LIGHTS : ""}<div class="crow" style="padding-left:${mini ? 10 : padL}px;padding-right:${padR}px">${pill}<div class="blocks">${hs.map((h, i) => `<button class="blk nd ${h === act ? "on" : ""}" data-act="switch" data-id="${h.name}" style="--c:${colorOf(h, st)}" title="${h.name}${i < 9 ? " · " + hint(st, i) : ""}">${inner(h, i)}${h !== act && h.waiting ? `<i class="bw"></i>` : ""}</button>`).join("")}${mini ? "" : `<button class="blk add nd" title="Add host">+</button>`}</div><div class="cdet">${mini ? `<span class="dn">${act.name}</span>` : detailsHTML(act)}</div></div>${winp ? WCTL : ""}</div>`;
 }
 function lightC(ct, st, act, animate, sweep) {
@@ -813,12 +816,12 @@ makeMock(document.getElementById("m-b"),
   [PLATFORM_SHELL, N, SIDEBAR, DOT, DRAG, W]);
 
 const TREATS = [
-  ["glow", "Glow", "A radial light centred on the active square that fades out across the band. The far end stays neutral, so the window controls and the drag area stay calm."],
+  ["glow", "Glow", "A radial light centred on the active square that fades out at about 75% of the band (never shorter than 320px). The far end stays neutral, so the window controls and the drag area stay calm."],
   ["livery", "Livery", "A colour panel behind the squares and the nameplate, ending in a slanted cut with two pinstripes, like a racing livery. It frames the identity zone and leaves the rest of the strip neutral."],
-  ["halftone", "Halftone", "Two dot grids, dense at the square and thinning outwards. Fits the terminal/CRT look the app already uses (glitch, boot-sweep, CRT glint)."],
-  ["hex", "Hex mesh", "The brand's hexagon as a honeycomb texture, fading out from the square over a faint glow."],
-  ["scan", "Scanlines", "CRT scanlines in the host colour, solid up to the square and fading out across the band."],
-  ["edge", "Edge light", "The band stays neutral. Light rises from the bottom edge under the square, and a 2px rule in the host colour fades out from it in both directions."],
+  ["halftone", "Halftone", "Two dot grids, dense at the square and thinning out to about 75% of the band. Fits the terminal/CRT look the app already uses (glitch, boot-sweep, CRT glint)."],
+  ["hex", "Hex mesh", "The brand's hexagon as a honeycomb texture, fading out from the square to about 75% of the band over a faint glow."],
+  ["scan", "Scanlines", "CRT scanlines in the host colour, solid up to the square and fading out by about 75% of the band."],
+  ["edge", "Edge light", "The band stays neutral. Light rises from the bottom edge under the square, and a 2px rule in the host colour fades out from it in both directions, reaching about 75% of the band."],
   ["flat", "Flat (today)", "A 35% fill across the whole band. Loud, and it doesn't point at which square is active."],
 ];
 function drawGallery(src) {
@@ -848,8 +851,19 @@ function setHold(on) {
   const ct = cm.win.querySelector(".ctitle");
   if (ct) ct.classList.toggle("hold", on);
 }
+function cycleHost(dir) {
+  const { hs, act } = hostOf(cm.st);
+  if (hs.length < 2) return;
+  const h = hs[(hs.indexOf(act) + dir + hs.length) % hs.length];
+  cm.st._switched = true; cm.st.flash = true; cm.st.active = h.name; cm.draw();
+}
 document.addEventListener("keydown", e => {
   setHold(chordHeld(e));
+  const mac = cm.st.platform === "mac";
+  const dir = mac
+    ? (e.altKey && e.metaKey ? (e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0) : 0)
+    : (e.altKey && !e.metaKey ? (e.key === "PageUp" ? -1 : e.key === "PageDown" ? 1 : 0) : 0);
+  if (dir) { e.preventDefault(); cycleHost(dir); return; }
   const m = /^Digit([1-9])$/.exec(e.code);
   if (m && chordHeld(e)) {
     const { hs } = hostOf(cm.st);
@@ -911,7 +925,7 @@ cm.win.addEventListener("pointercancel", endDrag);
 cm.win.addEventListener("click", e => { if (suppressClick) { suppressClick = false; e.stopImmediatePropagation(); e.preventDefault(); } }, true);
 cm.win.addEventListener("keydown", e => {
   const b = e.target.closest(".blocks .blk[data-id]");
-  if (!b || !e.altKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+  if (!b || !e.altKey || e.metaKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
   e.preventDefault();
   const n = hostOf(cm.st).hs.length, id = b.dataset.id;
   const from = HOSTS.findIndex(h => h.name === id);
