@@ -1720,6 +1720,16 @@ describe("ShellTitlebarStrip reorder (squares)", () => {
     });
   });
 
+  it("⌥⌘←/⌥⌘→ on a focused square is left to the shell's host-cycling accelerator: no reorder, no focus move, not prevented", async () => {
+    const bridge = await renderSquares({ reorder: true });
+    squareEls()[1].focus();
+    expect(fireEvent.keyDown(squareEls()[1], { key: "ArrowRight", altKey: true, metaKey: true })).toBe(true);
+    expect(fireEvent.keyDown(squareEls()[1], { key: "ArrowLeft", altKey: true, metaKey: true })).toBe(true);
+    expect(bridge.reorder).not.toHaveBeenCalled();
+    expect(labels()).toEqual(["studio-mac", "lab", "ws-01"]);
+    expect(document.activeElement).toBe(squareEls()[1]);
+  });
+
   it("⌥←/⌥→ at the row's edges swallow the key without invoking the shell (no wrap)", async () => {
     const bridge = await renderSquares({ reorder: true });
     fireEvent.keyDown(squareEls()[0], { key: "ArrowLeft", altKey: true });

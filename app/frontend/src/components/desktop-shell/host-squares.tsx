@@ -172,6 +172,10 @@ export const HostSquares = forwardRef<HostSquaresHandle, HostSquaresProps>(funct
       return;
     }
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      // ⌘/Ctrl-modified arrows are not square navigation — ⌥⌘←/→ is the
+      // shell's host-cycling accelerator, which only fires if the page leaves
+      // the key unhandled.
+      if (e.metaKey || e.ctrlKey) return;
       e.preventDefault();
       const delta = e.key === "ArrowRight" ? 1 : -1;
       const next = index + delta;

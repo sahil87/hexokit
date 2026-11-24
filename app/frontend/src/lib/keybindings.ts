@@ -714,6 +714,23 @@ export function shouldRefuseTerminalChord(
   return platform === "mac" && e.ctrlKey && !e.metaKey && matches.some((b) => b.tier === "ctrl");
 }
 
+/**
+ * The desktop shell's host-cycling chords — the Hosts-menu Previous/Next Host
+ * accelerators: mac ⌥⌘←/⌥⌘→, win/linux Alt+PageUp/Alt+PageDown (exact
+ * modifiers, no Shift). Electron routes a key to the page FIRST and fires a
+ * menu accelerator only when the page leaves the key unhandled, so every page
+ * surface that would otherwise consume these (xterm encodes them as
+ * modifier-arrow / modifier-PageUp escape sequences and cancels the event)
+ * must let them through untouched inside the shell.
+ */
+export function isHostCycleChord(e: ChordEvent, platform: BindingPlatform): boolean {
+  if (e.shiftKey || e.ctrlKey || !e.altKey) return false;
+  if (platform === "mac") {
+    return e.metaKey && (e.code === "ArrowLeft" || e.code === "ArrowRight");
+  }
+  return !e.metaKey && (e.code === "PageUp" || e.code === "PageDown");
+}
+
 // ── override storage ────────────────────────────────────────────────────────
 
 const TIERS: readonly BindingTier[] = ["shifted", "cmd", "ctrl", "optcmd"];
