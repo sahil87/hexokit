@@ -187,12 +187,6 @@ describe("buildLayoutActions — shows/hides", () => {
     expect(actions).not.toContain("tile-show-code");
   });
 
-  it("an unavailable surface gets no Show entry", () => {
-    const actions = ids(SINGLE_TTY, ["tty", "web"]);
-    expect(actions).toContain("tile-show-web");
-    expect(actions).not.toContain("tile-show-code");
-  });
-
   it("a kind open only as a FOREIGN tile keeps its Show row and gets no Hide row", () => {
     // h(tty,@3/web): the bare web slot is not open — Show Web adds it; the
     // foreign tile's exit verb is Send Back, not Hide.

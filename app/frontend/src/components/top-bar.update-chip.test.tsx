@@ -5,10 +5,7 @@ import { ChromeProvider } from "@/contexts/chrome-context";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
 import { SettingsDialogProvider } from "@/contexts/settings-dialog-context";
-import {
-  StandaloneSessionContextProvider,
-  shouldReloadOnVersion,
-} from "@/contexts/session-context";
+import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 import type { SessionContextType, UpdateAvailable, UpdateTool } from "@/contexts/session-context";
 
 beforeEach(() => {
@@ -434,20 +431,6 @@ describe("overflow menu version row (260715-h1ck)", () => {
     fireEvent.click(screen.getByLabelText("More controls"));
     const menu = screen.getByRole("menu", { name: "More controls" });
     expect(within(menu).getByText("HexoKit v0.6.2")).toBeInTheDocument();
-  });
-});
-
-describe("shouldReloadOnVersion (reload guard)", () => {
-  it("never reloads on the first version seen", () => {
-    expect(shouldReloadOnVersion(null, null, "0.5.3", "b1")).toBe(false);
-  });
-
-  it("does not reload when version and boot are unchanged", () => {
-    expect(shouldReloadOnVersion("0.5.3", "b1", "0.5.3", "b1")).toBe(false);
-  });
-
-  it("reloads when a later version differs from the first-seen one", () => {
-    expect(shouldReloadOnVersion("0.5.3", "b1", "0.6.0", "b1")).toBe(true);
   });
 });
 

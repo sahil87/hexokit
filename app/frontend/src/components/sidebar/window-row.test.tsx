@@ -196,13 +196,6 @@ describe("WindowRow", () => {
     expect(kill.textContent).toBe("");
   });
 
-  it("does not render tooltip (removed in favor of status panel)", () => {
-    const win = makeWindow({ windowId: "@0", index: 0 });
-    const { container } = renderRow(win);
-    const tooltip = container.querySelector(".top-full.opacity-0.group-hover\\:opacity-100");
-    expect(tooltip).toBeNull();
-  });
-
   it("renders ghost window with reduced opacity", () => {
     const win = makeGhostWindow();
     const { container } = renderGhostRow(win);

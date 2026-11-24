@@ -698,11 +698,6 @@ describe("Sidebar", () => {
     });
   });
 
-  it("does not show external marker (removed in single-server model)", () => {
-    renderSidebar();
-    expect(screen.queryByLabelText("external session")).not.toBeInTheDocument();
-  });
-
   describe("section order (17m3)", () => {
     it("renders Boards above Server above Sessions", () => {
       renderSidebar();

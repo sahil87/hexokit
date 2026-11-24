@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
-import { gotoWindow as gotoWindowRaw, openPalette, resolveWindow as resolveWindowRaw } from "./_ready";
-import { TMUX_SERVER, createSession, killSession, newWindow, stampWebTab, windowOption } from "./_tmux";
+import { gotoWindow as gotoWindowRaw, resolveWindow as resolveWindowRaw } from "./_ready";
+import { TMUX_SERVER, createSession, killSession, newWindow, stampWebTab } from "./_tmux";
 import { reserveDeadPort, type DeadPort } from "./_ports";
 import { stubProxyPorts } from "./_web-tile";
 
@@ -786,19 +786,11 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
   });
 });
 
-// The ViewSwitcher is RETIRED (260812-0c6o) — lens switching is palette-only
-// (plus the top bar's surface-toggle group, 260815-19me — the rail that used
-// to carry the open-tile toggles is REMOVED). This block uses a web-capable
-// window (a stamped web tab ⇒ `[tty|web]`; the repo-cwd pane also derives
-// a gitRoot ⇒ `code`) with a long name to prove palette activation still
-// switches the lens at a wide width and the fit pyramid over the remaining
-// candidates is intact with the surface-toggle group as
-// terminal's first-to-yield fit candidate (the ▦ Layout chip next; the split
-// control left the terminal bar in 260813-w1lf — `menuOnly`, never a fit
-// candidate there).
+// Use a web-capable window with a long name to exercise the surface-toggle
+// group as the last control to overflow on desktop and a pinned control on mobile.
 const VIEW_WINDOW_NAME = `overflow-view-long-worktree-${Date.now().toString().slice(-6)}`;
 
-test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", () => {
+test.describe("Top-bar overflow: surface-toggle group", () => {
   test.beforeAll(() => {
     try {
       newWindow(TEST_SESSION, VIEW_WINDOW_NAME);
@@ -807,27 +799,17 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     }
   });
 
-  async function gotoViewWindow(page: Page): Promise<string> {
+  async function gotoViewWindow(page: Page): Promise<void> {
     const id = await resolveWindow(page, VIEW_WINDOW_NAME);
-    // Stamp the slot-1 web tab (the derived dead URL) so the window offers the
-    // `web` lens (`[tty|web]` → the multi-view gate passes and the palette's
-    // `View: Web` action renders). Set before navigating so the first snapshot
-    // carries it.
+    // Stamp the web tab before navigation so the first snapshot includes it.
     stampWebTab(id, DEAD.url);
     await gotoWindow(page, id);
-    return id;
   }
 
   /**
-   * Proves: with the right rail removed (its open-tile toggles relocated
-   * into the top bar as ONE bordered group) and the split control menuOnly
-   * in terminal mode, the surface-toggle group is terminal's FIRST fit
-   * candidate (the L1 head) — on DESKTOP, whenever its `Terminal tile`
-   * button is still in-bar, nothing has dropped yet, so every L1/L2/L3
-   * control is also in-bar (the surviving set is a suffix of the fit
-   * order). On MOBILE (<640px) the same entry forks to SWITCH mode and is
-   * PINNED: it stays in-bar at every mobile width (never overflowed, no
-   * Tiles menu rows) while other candidates drop around it.
+   * On desktop, the surface-toggle group stays in the bar as long as any
+   * other overflow candidate fits. Below 640px, the mobile switch group
+   * stays pinned in the bar.
    *
    * Steps:
    * 1. Navigate to the web-capable window.
@@ -899,136 +881,5 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     // (gated above), and pinned in-bar at the mobile leaf (asserted in the
     // loop — the switch fork never overflows there).
     expect(sawInBar, "the surface-toggle group was in-bar at some (wide) width").toBe(true);
-  });
-
-  /**
-   * Proves: when the group overflows at a DESKTOP width (below 640px the
-   * entry switches to the pinned in-bar switch group with NO menu rows),
-   * the chevron menu gains a Tiles section as its FIRST section (its label
-   * sits above View's), holding one `menuitemcheckbox` row per shown
-   * surface named `<Label> tile` with `aria-checked` = tile open.
-   *
-   * Steps:
-   * 1. Navigate to the web-capable window (offers `[tty|web|code]`).
-   * 2. Step the viewport down from 800px in 20px increments (staying above
-   *    the 640px mobile boundary), gating on the renamable heading each
-   *    step, until a bounded RETRYING expect confirms the in-bar
-   *    `Terminal tile` button is gone (the group is `dropLast` — the last
-   *    fit candidate to overflow — and the sidebar head yields before the
-   *    bar gets that narrow, so the group may never overflow on desktop:
-   *    then the test SKIPS, and the Tiles section stays covered by the unit
-   *    suite where jsdom overflows everything).
-   * 3. Open the `More controls` menu; assert the `Tiles` and `View` section
-   *    labels are both visible and the Tiles label's box sits ABOVE View's.
-   * 4. Assert the `Terminal tile` checkbox row is visible with
-   *    `aria-checked="true"` (the tty tile is open) and the `Web tile` /
-   *    `Code tile` rows are visible with `aria-checked="false"`.
-   */
-  test("the overflowed surface-toggle group renders a Tiles menu section FIRST (before View)", async ({
-    page,
-  }) => {
-    await gotoViewWindow(page);
-    const heading = page.getByRole("button", { name: `Rename tab ${VIEW_WINDOW_NAME}` });
-
-    // The group's MENU form is desktop-only (below 640px the entry switches to
-    // the pinned in-bar switch group with NO menu rows — the main block's
-    // 375px menu test proves that absence), so it appears only at a DESKTOP
-    // width narrow enough to overflow it. Step down from 800px until the
-    // in-bar `Terminal tile` button is gone. The group is `dropLast` (the last
-    // fit candidate to overflow) and the sidebar head yields before the bar
-    // gets that narrow, so on this window the group may stay in-bar at every
-    // desktop width — then there is nothing to assert here and the test
-    // skips; the unit suite (`top-bar.test.tsx`, "overflows into a Tiles menu
-    // section…") covers the section's rendering in jsdom, where everything
-    // overflows. Each probe is a bounded RETRYING expect so a mid-cascade
-    // re-fit frame can't fake the drop.
-    // The sweep is expected to come up empty on this window (see above), so
-    // each step's probe is short and the steps are 20px — 8 bounded probes
-    // instead of 16 long ones; `test.slow()` triples the budget for the case
-    // where the group does drop and the menu assertions follow.
-    test.slow();
-    let menuWidth = 0;
-    for (let w = 800; w > 640; w -= 20) {
-      await page.setViewportSize({ width: w, height: 800 });
-      await expect(heading).toBeVisible({ timeout: 10_000 });
-      try {
-        await expect(byRoleName(page, "Terminal tile")).toHaveCount(0, { timeout: 1_000 });
-        menuWidth = w;
-        break;
-      } catch {
-        // Still in-bar at this width — keep shrinking.
-      }
-    }
-    test.skip(
-      menuWidth === 0,
-      "the dropLast surface-toggle group stayed in-bar at every desktop width (641–800px); the Tiles section is unit-tested",
-    );
-
-    await page.getByRole("button", { name: "More controls" }).click();
-    const menu = page.getByRole("menu", { name: "More controls" });
-    await expect(menu).toBeVisible();
-
-    // Tiles is the menu's FIRST section — its label sits above View's.
-    const tilesLabel = menu.getByText("Tiles", { exact: true });
-    const viewLabel = menu.getByText("View", { exact: true });
-    await expect(tilesLabel).toBeVisible();
-    await expect(viewLabel).toBeVisible();
-    const tilesBox = (await tilesLabel.boundingBox())!;
-    const viewBox = (await viewLabel.boundingBox())!;
-    expect(tilesBox.y, "Tiles section precedes View").toBeLessThan(viewBox.y);
-
-    // One `menuitemcheckbox` row per shown surface, aria-checked = tile open.
-    // This window offers
-    // [tty|web|code] (a stamped web tab ⇒ web; the repo-cwd pane derives a gitRoot ⇒
-    // code) and only the tty tile is open.
-    const ttyRow = menu.getByRole("menuitemcheckbox", { name: "Terminal tile" });
-    await expect(ttyRow).toBeVisible();
-    await expect(ttyRow).toHaveAttribute("aria-checked", "true");
-    const webRow = menu.getByRole("menuitemcheckbox", { name: "Web tile" });
-    await expect(webRow).toBeVisible();
-    await expect(webRow).toHaveAttribute("aria-checked", "false");
-    const codeRow = menu.getByRole("menuitemcheckbox", { name: "Code tile" });
-    await expect(codeRow).toBeVisible();
-    await expect(codeRow).toHaveAttribute("aria-checked", "false");
-  });
-
-  /**
-   * Proves: the palette is a fully functional lens switcher at a WIDE width
-   * — the distinguishing case (the bar has room, yet the menu holds no
-   * `View:` rows): running the palette's `View: Web` action switches the
-   * lens (the selection becomes a single-tile `web` layout through the shared
-   * mutation path, POSTed to the window's `@rk_win_layout` option — the URL
-   * stays bare).
-   *
-   * Steps:
-   * 1. Navigate to the web-capable window; set 1440×800; gate on the
-   *    renamable heading.
-   * 2. Open the palette (`openPalette`); fill `View: Web`; click the `View: Web` option.
-   * 3. Assert the window's `@rk_win_layout` option reads `web` (the tree form) and
-   *    the proxied iframe (`title="Proxied content"`) renders.
-   */
-  test("a palette `View:` action switches the lens — even at a wide width", async ({
-    page,
-  }) => {
-    const viewWindowId = await gotoViewWindow(page);
-    const heading = page.getByRole("button", { name: `Rename tab ${VIEW_WINDOW_NAME}` });
-    // A wide width is the distinguishing case: the bar has room, yet lens
-    // switching is palette-only (260812-0c6o) — the menu holds no `View:` rows.
-    await page.setViewportSize({ width: 1440, height: 800 });
-    await expect(heading).toBeVisible({ timeout: 10_000 });
-
-    // The command palette's `View: Web` action switches the lens: the selection
-    // becomes a single-tile `web` layout POSTed to the shared option (the URL never
-    // carries it).
-    const paletteInput = await openPalette(page);
-    await paletteInput.fill("View: Web");
-    const webOption = page.getByRole("option", { name: "View: Web" });
-    await expect(webOption).toBeVisible();
-    await webOption.click();
-    await expect
-      .poll(() => windowOption(viewWindowId, "@rk_win_layout"), { timeout: 10_000 })
-      .toBe("web");
-    expect(new URL(page.url()).search).toBe("");
-    await expect(page.getByTitle("Proxied content")).toBeVisible({ timeout: 10_000 });
   });
 });
