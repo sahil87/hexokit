@@ -28,6 +28,7 @@ type engineItem struct {
 	Bare      bool                   `yaml:"bare,omitempty" json:"bare,omitempty"`
 	Branch    string                 `yaml:"branch,omitempty" json:"branch,omitempty"`
 	Worktree  string                 `yaml:"worktree,omitempty" json:"worktree,omitempty"`
+	BaseSHA   string                 `yaml:"base_sha,omitempty" json:"base_sha,omitempty"`
 	MergeMode string                 `yaml:"merge_mode,omitempty" json:"merge_mode,omitempty"`
 	StopStage string                 `yaml:"stop_stage,omitempty" json:"stop_stage,omitempty"`
 	DependsOn []string               `yaml:"depends_on" json:"depends_on"`
@@ -207,6 +208,7 @@ func (it engineItem) tracked() operator.TrackedItem {
 func applyEngineItem(dst *engineItem, src operator.TrackedItem, projected bool) {
 	updated := engineItemFromTracked(src, projected)
 	updated.Worktree = dst.Worktree
+	updated.BaseSHA = dst.BaseSHA
 	updated.Paused = dst.Paused
 	*dst = updated
 }

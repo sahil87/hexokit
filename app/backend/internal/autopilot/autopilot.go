@@ -27,15 +27,14 @@ import (
 	"rk/internal/operator"
 )
 
-// Subprocess bounds by class (Constitution I). A fetch moves objects; the rest
-// are local or single API calls.
+// Subprocess bounds by class (Constitution I): the engine's calls are local or
+// single API calls; wt does the fetching.
 const (
-	gitFetchTimeout = 60 * time.Second
-	gitTimeout      = 30 * time.Second
-	ghTimeout       = 30 * time.Second
-	wtTimeout       = 30 * time.Second
-	fabTimeout      = 10 * time.Second
-	defaultTimeout  = 30 * time.Second
+	gitTimeout     = 30 * time.Second
+	ghTimeout      = 30 * time.Second
+	wtTimeout      = 30 * time.Second
+	fabTimeout     = 10 * time.Second
+	defaultTimeout = 30 * time.Second
 )
 
 // Runner executes one argv in dir and returns stdout. A non-zero exit is an
@@ -88,11 +87,6 @@ func (ExecRunner) Run(ctx context.Context, dir string, argv ...string) (string, 
 func timeoutFor(argv []string) time.Duration {
 	switch argv[0] {
 	case "git":
-		for _, a := range argv[1:] {
-			if a == "fetch" {
-				return gitFetchTimeout
-			}
-		}
 		return gitTimeout
 	case "gh":
 		return ghTimeout
@@ -116,10 +110,14 @@ type SpawnRequest struct {
 	Repo         string
 	Session      string
 	WorktreeName string
-	// BaseSHA pins the new branch's start point (never a ref: a
-	// remote-tracking start point sets upstream tracking). NewBranch names it
-	// when it differs from the worktree name.
-	BaseSHA   string
+	// BaseRef is the new branch's start point, `origin/<base>`: the spawner has
+	// wt fetch and resolve it, and the SHA wt pinned comes back as
+	// SpawnResult.BaseSHA. wt sets upstream tracking on a branch cut from a
+	// remote-tracking ref, so the spawner suppresses it — fab's /git-pr pushes
+	// a branch without an upstream with `push -u origin <branch>`, where a
+	// tracking branch would take a bare `git push` to its base. NewBranch names
+	// the branch when it differs from the worktree name.
+	BaseRef   string
 	NewBranch string
 	// CheckoutBranch puts the worktree on an existing branch (respawn).
 	// ExistingWorktree opens the window in a worktree that already holds the
@@ -144,6 +142,9 @@ type SpawnResult struct {
 	WindowID     string
 	WorktreePath string
 	Branch       string
+	// BaseSHA is the commit wt cut the new branch from, as its receipt states
+	// it ("" for a respawn, which cuts nothing).
+	BaseSHA string
 }
 
 // Spawner opens agent windows. The production implementation is RiffSpawner

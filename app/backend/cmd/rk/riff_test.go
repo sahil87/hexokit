@@ -290,6 +290,17 @@ func TestRiffFanOutFlagRejected(t *testing.T) {
 	}
 }
 
+// wtReceiptStub is a wt stand-in for the CLI tests: `--version` answers v0.1.8,
+// `create` runs logCmd then prints the success receipt for worktree on branch
+// feature-x.
+func wtReceiptStub(worktree, logCmd string) string {
+	doc := `{"ok":true,"result":{"path":"` + worktree + `","name":"swift-fox","branch":"feature-x","base_ref":null,"base_sha":null,"mode":"new","init":"ok"}}`
+	return "#!/bin/sh\ncase \"$1\" in\n" +
+		"  --version) echo 'wt version v0.1.8';;\n" +
+		"  create) " + logCmd + "; printf '%s\\n' '" + doc + "';;\n" +
+		"esac\n"
+}
+
 // riffTargetFixture wires the stub-binaries harness for the -L/--repo/--json
 // path: wt/tmux/git/fab stubs on PATH (tmux logs its argv), a temp repo with a
 // .git dir, and the riff flag vars reset on cleanup.
@@ -306,7 +317,7 @@ func riffTargetFixture(t *testing.T) (repoRoot, tmuxLog, wtLog string) {
 	}
 	tmuxLog = filepath.Join(dir, "tmux.log")
 	wtLog = filepath.Join(dir, "wt.log")
-	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\nprintf '%s\n' \"$PWD\" >> "+wtLog+"\nprintf 'Path: %s\\n' '"+worktree+"'\n")
+	testutil.WriteStub(t, dir, "wt", wtReceiptStub(worktree, `printf '%s\n' "$PWD" >> `+wtLog))
 	testutil.WriteStub(t, dir, "tmux", "#!/bin/sh\nprintf '%s\n' \"$*\" >> "+tmuxLog+"\n"+
 		"last=\"${!#}\"\n"+
 		"case \" $* \" in\n"+
@@ -323,7 +334,6 @@ func riffTargetFixture(t *testing.T) (repoRoot, tmuxLog, wtLog string) {
 		"  list-panes) printf '%s\n' '%20' '%21' ;;\n"+
 		"  *) exit 0 ;;\n"+
 		"esac\n")
-	testutil.WriteStub(t, dir, "git", "#!/bin/sh\necho 'feature-x'\n")
 	testutil.WriteStub(t, dir, "fab", "#!/bin/sh\nprintf 'command: claude --dangerously-skip-permissions\\nskill_prefix: /\\n'\n")
 	t.Setenv("PATH", dir)
 
@@ -631,7 +641,7 @@ func TestRiffPassthroughBoundary(t *testing.T) {
 		t.Fatalf("mkdir worktree: %v", err)
 	}
 	wtLog := filepath.Join(dir, "wt.log")
-	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\nprintf '%s\n' \"$*\" >> "+wtLog+"\nprintf 'Path: %s\\n' '"+worktree+"'\n")
+	testutil.WriteStub(t, dir, "wt", wtReceiptStub(worktree, `printf '%s\n' "$*" >> `+wtLog))
 	testutil.WriteStub(t, dir, "tmux", "#!/bin/sh\n"+
 		"case \"$1\" in\n"+
 		"  -L) shift 2 ;;\n"+
@@ -644,7 +654,6 @@ func TestRiffPassthroughBoundary(t *testing.T) {
 		"  list-panes) printf '%s\n' '%20' ;;\n"+
 		"  *) exit 0 ;;\n"+
 		"esac\n")
-	testutil.WriteStub(t, dir, "git", "#!/bin/sh\necho 'feature-x'\n")
 	testutil.WriteStub(t, dir, "fab", "#!/bin/sh\nprintf 'command: claude --dangerously-skip-permissions\\nskill_prefix: /\\n'\n")
 	t.Setenv("PATH", dir)
 

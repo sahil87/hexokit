@@ -37,6 +37,14 @@ func (r *cliRunner) Run(_ context.Context, dir string, argv ...string) (string, 
 	return "", &autopilot.ExecError{Argv: argv, Stderr: "unscripted in the CLI test", Err: fmt.Errorf("exit status 1")}
 }
 
+// cliSpawner opens no window: the CLI tests drive passes that reach a spawn but
+// have no tmux server or wt to spawn into.
+type cliSpawner struct{}
+
+func (cliSpawner) Spawn(context.Context, autopilot.SpawnRequest) (autopilot.SpawnResult, error) {
+	return autopilot.SpawnResult{}, fmt.Errorf("no spawner in the CLI test")
+}
+
 type cliPanes struct{}
 
 func (*cliPanes) Snapshot(context.Context) (map[string]operator.PaneInfo, error) {
@@ -58,7 +66,7 @@ func autopilotSandbox(t *testing.T, setting string) (statePath string, runner *c
 			return autopilot.Env{}, err
 		}
 		return autopilot.Env{
-			Server: "autopilot-test-none", StatePath: path, Run: runner, Panes: panes,
+			Server: "autopilot-test-none", StatePath: path, Run: runner, Panes: panes, Spawn: cliSpawner{},
 			Session: func(context.Context, string) (string, error) { return "work", nil },
 			DryRun:  dry,
 		}, nil

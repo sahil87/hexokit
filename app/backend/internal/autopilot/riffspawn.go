@@ -25,28 +25,31 @@ type RiffSpawner struct {
 func (s RiffSpawner) Spawn(ctx context.Context, req SpawnRequest) (SpawnResult, error) {
 	opts := riff.Options{
 		Server: s.Server, Session: req.Session, RepoRoot: req.Repo, Task: req.Prompt,
-		WorktreeName: req.WorktreeName, WorktreeBase: req.BaseSHA,
-		WorktreeBranch: req.NewBranch, CheckoutBranch: req.CheckoutBranch,
+		WorktreeName: req.WorktreeName, WorktreeBase: req.BaseRef, WorktreeFetch: req.BaseRef != "",
+		WorktreeNoUpstream: true,
+		WorktreeBranch:     req.NewBranch, CheckoutBranch: req.CheckoutBranch,
 	}
 	prepare := req.Prepare
 	if req.ExistingWorktree != "" {
 		opts.Where = "checkout"
 		opts.RepoRoot = req.ExistingWorktree
 		opts.WorktreeName, opts.WorktreeBase, opts.WorktreeBranch, opts.CheckoutBranch = "", "", "", ""
+		opts.WorktreeFetch, opts.WorktreeNoUpstream = false, false
 		prepare = nil
 	}
 	branch := ""
-	opened := func(ctx context.Context, pane, window, path string) error {
+	opened := func(ctx context.Context, w riff.OpenedWindow) error {
+		pane := w.PaneID
 		closeWindow := func() error {
-			target := window
+			target := w.WindowID
 			if target == "" {
 				target = pane
 			}
 			return tmux.KillWindow(target, s.Server)
 		}
-		b, err := openedBranch(ctx, s.Run, req, path)
+		b, err := openedBranch(ctx, s.Run, req, w)
 		if err != nil {
-			err = fmt.Errorf("pane %s closed because its branch could not be read: %w", pane, err)
+			err = fmt.Errorf("pane %s closed because its branch could not be determined: %w", pane, err)
 			if closeErr := closeWindow(); closeErr != nil {
 				return errors.Join(fmt.Errorf("orphan pane %s: %w", pane, err), fmt.Errorf("window rollback failed: %w", closeErr))
 			}
@@ -56,14 +59,14 @@ func (s RiffSpawner) Spawn(ctx context.Context, req SpawnRequest) (SpawnResult, 
 		if req.Opened == nil {
 			return nil
 		}
-		res := SpawnResult{PaneID: pane, WindowID: window, Session: req.Session, WorktreePath: path, Branch: branch}
+		res := SpawnResult{PaneID: pane, WindowID: w.WindowID, Session: req.Session, WorktreePath: w.WorktreePath, Branch: branch, BaseSHA: w.BaseSHA}
 		return persistOpened(req, res, closeWindow)
 	}
 	res, err := riff.SpawnObserved(ctx, opts, prepare, opened)
 	if err != nil {
 		return SpawnResult{}, err
 	}
-	out := SpawnResult{PaneID: res.PaneID, Session: res.Session, WindowID: res.WindowID, WorktreePath: res.WorktreePath, Branch: branch}
+	out := SpawnResult{PaneID: res.PaneID, Session: res.Session, WindowID: res.WindowID, WorktreePath: res.WorktreePath, Branch: branch, BaseSHA: res.BaseSHA}
 	if out.Session == "" {
 		out.Session = req.Session
 	}
@@ -74,28 +77,32 @@ func (s RiffSpawner) Spawn(ctx context.Context, req SpawnRequest) (SpawnResult, 
 }
 
 // openedBranch names the branch the new window works on: the request's own
-// when it fixed one, else the worktree's checked-out branch. A raw-task or
-// bare spawn fixes none, so wt names the branch and only git knows it.
-func openedBranch(ctx context.Context, run Runner, req SpawnRequest, worktree string) (string, error) {
+// when it fixed one, else the branch wt's receipt reports for a new worktree.
+// A raw-task or bare spawn fixes none, so wt names the branch. Only a window
+// opened in an existing worktree has no receipt; its branch is read from git.
+func openedBranch(ctx context.Context, run Runner, req SpawnRequest, w riff.OpenedWindow) (string, error) {
 	for _, b := range []string{req.NewBranch, req.CheckoutBranch} {
 		if b != "" {
 			return b, nil
 		}
 	}
-	if worktree == "" {
-		worktree = req.ExistingWorktree
+	if req.ExistingWorktree == "" {
+		if b := safeBranch(w.Branch); b != "" {
+			return b, nil
+		}
+		return "", errors.New("wt's receipt names no branch for the new worktree")
 	}
-	if run == nil || worktree == "" {
-		return "", errors.New("no worktree to read the branch from")
+	if run == nil {
+		return "", errors.New("no runner to read the branch with")
 	}
-	out, err := run.Run(ctx, worktree, "git", "rev-parse", "--abbrev-ref", "HEAD")
+	out, err := run.Run(ctx, req.ExistingWorktree, "git", "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return "", err
 	}
 	if b := safeBranch(strings.TrimSpace(out)); b != "" {
 		return b, nil
 	}
-	return "", fmt.Errorf("worktree %s is not on a named branch", worktree)
+	return "", fmt.Errorf("worktree %s is not on a named branch", req.ExistingWorktree)
 }
 
 // Marker failures leave the recorded pane in place; the caller reports them.

@@ -175,7 +175,7 @@ func TestSpawnNonClaudeTaskTypedDelivery(t *testing.T) {
 	repoRoot := t.TempDir()
 	newWindowLog := filepath.Join(dir, "new-window.log")
 
-	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\nprintf 'Path: %s\\n' '"+repoRoot+"'\n")
+	testutil.WriteStub(t, dir, "wt", wtStubScript(repoRoot, "", ""))
 	testutil.WriteStub(t, dir, "tmux", stubTmuxScriptServerLabel(newWindowLog))
 	// The repo's default tier resolves a NON-claude launcher.
 	testutil.WriteStub(t, dir, "fab", "#!/bin/sh\necho 'kimi --auto'\n")
@@ -225,7 +225,7 @@ func TestSpawnCodexSkillPrefixRenderedTask(t *testing.T) {
 	repoRoot := t.TempDir()
 	newWindowLog := filepath.Join(dir, "new-window.log")
 
-	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\nprintf 'Path: %s\\n' '"+repoRoot+"'\n")
+	testutil.WriteStub(t, dir, "wt", wtStubScript(repoRoot, "", ""))
 	testutil.WriteStub(t, dir, "tmux", stubTmuxScriptServerLabel(newWindowLog))
 	// The repo's default tier resolves a codex launcher with the $ prefix.
 	testutil.WriteStub(t, dir, "fab", "#!/bin/sh\nprintf 'command: %s\\nskill_prefix: %s\\n' 'codex --yolo' '$'\n")
@@ -273,7 +273,7 @@ func TestSpawnClaudeTaskPositionalNoDelivery(t *testing.T) {
 	repoRoot := t.TempDir()
 	newWindowLog := filepath.Join(dir, "new-window.log")
 
-	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\nprintf 'Path: %s\\n' '"+repoRoot+"'\n")
+	testutil.WriteStub(t, dir, "wt", wtStubScript(repoRoot, "", ""))
 	testutil.WriteStub(t, dir, "tmux", stubTmuxScriptServerLabel(newWindowLog))
 	testutil.WriteStub(t, dir, "fab", "#!/bin/sh\necho 'claude --dangerously-skip-permissions'\n")
 	t.Setenv("PATH", dir)
@@ -312,7 +312,7 @@ func TestSpawnDaemonDeliveryDoesNotBlock(t *testing.T) {
 	repoRoot := t.TempDir()
 	newWindowLog := filepath.Join(dir, "new-window.log")
 
-	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\nprintf 'Path: %s\\n' '"+repoRoot+"'\n")
+	testutil.WriteStub(t, dir, "wt", wtStubScript(repoRoot, "", ""))
 	testutil.WriteStub(t, dir, "tmux", stubTmuxScriptServerLabel(newWindowLog))
 	testutil.WriteStub(t, dir, "fab", "#!/bin/sh\necho 'kimi --auto'\n")
 	t.Setenv("PATH", dir)
@@ -354,7 +354,7 @@ func TestRunCliTypedDeliveryWarning(t *testing.T) {
 	worktree := t.TempDir()
 	newWindowLog := filepath.Join(dir, "new-window.log")
 
-	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\nprintf 'Path: %s\\n' '"+worktree+"'\n")
+	testutil.WriteStub(t, dir, "wt", wtStubScript(worktree, "", ""))
 	testutil.WriteStub(t, dir, "tmux", stubTmuxScript(newWindowLog))
 	t.Setenv("PATH", dir)
 
@@ -388,7 +388,7 @@ func TestRunCliFanOutDeliveryFailureKeepsWindows(t *testing.T) {
 	newWindowLog := filepath.Join(dir, "new-window.log")
 	killLog := filepath.Join(dir, "kill-window.log")
 
-	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\nprintf 'Path: %s\\n' '"+worktree+"'\n")
+	testutil.WriteStub(t, dir, "wt", wtStubScript(worktree, "", ""))
 	// The stub also logs kill-window calls so the test can prove no rollback ran.
 	testutil.WriteStub(t, dir, "tmux", "#!/bin/sh\n"+
 		"case \"$1\" in\n"+
