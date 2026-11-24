@@ -8,8 +8,8 @@ progress:
     intake: done
     apply: done
     review: done
-    hydrate: active
-    ship: pending
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
@@ -32,24 +32,26 @@ stage_metrics:
     intake: {started_at: "2026-11-24T04:56:45Z", driver: fab-new, iterations: 1, completed_at: "2026-11-24T05:06:48Z"}
     apply: {started_at: "2026-11-24T05:06:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T05:41:21Z"}
     review: {started_at: "2026-11-24T05:41:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T05:55:48Z"}
-    hydrate: {started_at: "2026-11-24T05:55:48Z", driver: fab-fff, iterations: 1}
+    hydrate: {started_at: "2026-11-24T05:55:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T06:00:36Z"}
+    ship: {started_at: "2026-11-24T06:00:36Z", driver: fab-fff, iterations: 1}
 prs: []
 change_type_source: explicit
 base_branch: main
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1465
+    deleted: 944
+    net: 521
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1019
+        deleted: 944
+        net: 75
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-11-24T05:41:21Z"
-    computed_at_stage: apply
+        added: 339
+        deleted: 230
+        net: 109
+    computed_at: "2026-11-24T06:00:36Z"
+    computed_at_stage: hydrate
+summary: Viewed window on the home-tab terminal route is a projection of tmux's active window; UI switches are selectWindow requests behind a bounded switch overlay (confirm / post-settle snapshot / rejection / 5 s deadline), replacing the pending-intent lock, failure bounce and receipt-tick freshness verdict
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-24T05:55:48Z
+last_updated: 2026-11-24T06:00:36Z
