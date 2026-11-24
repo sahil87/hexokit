@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import type { ShellServer } from "../shell";
-import { buildShellServerActions } from "./shell";
+import { buildShellHostCycleActions, buildShellServerActions } from "./shell";
 
 // buildShellServerActions backs the shell-gated `Host: Switch to "<name>"`
 // palette entries wired in app.tsx. Covering label quoting, the active
@@ -36,5 +36,38 @@ describe("buildShellServerActions", () => {
 
   it("yields no entries for an empty list (plain browser)", () => {
     expect(buildShellServerActions([], vi.fn())).toEqual([]);
+  });
+});
+
+// buildShellHostCycleActions backs `Host: Previous` / `Host: Next` — the
+// palette path for the shell's cycle accelerators, which live outside every
+// registry tier, so the shortcut hints are literals.
+describe("buildShellHostCycleActions", () => {
+  const two = [server("a", "studio"), server("b", "lab")];
+
+  it("emits Previous then Next with mac ⌥⌘ arrow hints", () => {
+    const actions = buildShellHostCycleActions(two, "mac", vi.fn());
+    expect(actions.map((a) => [a.id, a.label, a.shortcut])).toEqual([
+      ["shell-host-prev", "Host: Previous", "⌥⌘←"],
+      ["shell-host-next", "Host: Next", "⌥⌘→"],
+    ]);
+  });
+
+  it("uses Alt+PgUp / Alt+PgDn hints off mac", () => {
+    const actions = buildShellHostCycleActions(two, "other", vi.fn());
+    expect(actions.map((a) => a.shortcut)).toEqual(["Alt+PgUp", "Alt+PgDn"]);
+  });
+
+  it("selects with direction -1 (previous) and 1 (next)", () => {
+    const onCycle = vi.fn();
+    const [prev, next] = buildShellHostCycleActions(two, "other", onCycle);
+    prev.onSelect();
+    next.onSelect();
+    expect(onCycle.mock.calls).toEqual([[-1], [1]]);
+  });
+
+  it("yields nothing below two hosts", () => {
+    expect(buildShellHostCycleActions([], "mac", vi.fn())).toEqual([]);
+    expect(buildShellHostCycleActions([server("a", "solo")], "mac", vi.fn())).toEqual([]);
   });
 });

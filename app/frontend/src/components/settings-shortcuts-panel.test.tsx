@@ -98,18 +98,34 @@ describe("SettingsShortcutsPanel", () => {
     // Alt+1–9 sits outside every tier (the mac ⌥⌘ precedent), so claims
     // data dropped the rows.
     expect(screen.queryByText("⌥")).toBeNull();
-    expect(screen.getByText("Alt")).toBeInTheDocument();
+    // One Alt cap each on the switcher row and the two cycle rows.
+    expect(screen.getAllByText("Alt")).toHaveLength(3);
     expect(screen.queryAllByTitle("server")).toHaveLength(0);
     fireEvent.click(screen.getByText("macOS"));
-    // The switcher row diverges to ⌥⌘1…9 (the mac shell tier) — the only ⌥
-    // keycap in the panel — while Force reload keeps the shared ⇧⌘ caps.
-    expect(screen.getAllByText("⌥").length).toBe(1);
+    // The switcher and cycle rows diverge to ⌥⌘ (the mac shell tier) — the
+    // only ⌥ keycaps in the panel — while Force reload keeps the shared ⇧⌘ caps.
+    expect(screen.getAllByText("⌥")).toHaveLength(3);
     expect(screen.getAllByText("⇧").length).toBeGreaterThan(0);
     expect(screen.getByText("Switch to host 1–9")).toBeInTheDocument();
     // The mac shifted map carries no shell "server" digit claims either:
     // Digit1/2/9 render free (the 3/4/5 screenshot claims live inside the
     // ellipsis run).
     expect(screen.queryAllByTitle("server")).toHaveLength(0);
+  });
+
+  it("shell rows carry locked Previous/Next host cycle caps per display", () => {
+    renderPanel();
+    const globalSection = screen.getByText("GLOBAL").closest("section")!;
+    // Win·Linux display (jsdom default): Alt + PgUp / PgDn.
+    expect(within(globalSection).getByText("Previous host")).toBeInTheDocument();
+    expect(within(globalSection).getByText("Next host")).toBeInTheDocument();
+    expect(within(globalSection).getByText("PgUp")).toBeInTheDocument();
+    expect(within(globalSection).getByText("PgDn")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("macOS"));
+    // Mac display: ⌥ ⌘ ← / → — one arrow cap per row.
+    expect(within(globalSection).getByText("←")).toBeInTheDocument();
+    expect(within(globalSection).getByText("→")).toBeInTheDocument();
+    expect(within(globalSection).queryByText("PgUp")).toBeNull();
   });
 
   it("macOS display offers the ⌘ map layer via the modifier picker; Win·Linux display omits it (260801-r8j2)", () => {

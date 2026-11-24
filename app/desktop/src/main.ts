@@ -109,6 +109,7 @@ import {
   parseConnectOrigin,
   parseRemoteAddOutput,
 } from "./remote-host";
+import { adjacentHostId } from "./host-cycle";
 import { availableUpdateVersion, isUpdateCheckDue } from "./update-check";
 import { guestNavigationAction, isEditorDeeplink, isHttpUrl, windowOpenAction } from "./window-open";
 import {
@@ -1577,6 +1578,16 @@ function rebuildMenu(): void {
     onSwitchHost: (id) => {
       const win = focusedWindow();
       if (win) switchToHost(win, id);
+    },
+    onCycleHost: (direction) => {
+      const win = focusedWindow();
+      if (!win) return;
+      const target = adjacentHostId(
+        loadHosts(userDataDir()).hosts.map((h) => h.id),
+        activeHostForWindow(views, win.id),
+        direction,
+      );
+      if (target) switchToHost(win, target);
     },
     onAddHost: () => {
       const win = focusedWindow();

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { ShellServer } from "@/lib/shell";
 import {
   activeShellHostName,
+  adjacentShellServer,
   dragTarget,
   effectiveMotion,
   hostAcceleratorHint,
@@ -232,7 +233,10 @@ describe("key hints", () => {
     expect(keyHintLabel("darwin")).toBe("⌥⌘");
     expect(keyHintLabel("win32")).toBe("Alt");
     expect(keyHintTip("darwin")).toContain("⇧⌘H");
+    expect(keyHintTip("darwin")).toContain("⌥⌘←/→ cycles");
     expect(keyHintTip("linux")).toContain("Alt+1–9");
+    expect(keyHintTip("linux")).toContain("Alt+PgUp/PgDn cycles");
+    expect(keyHintTip("win32")).toContain("Alt+PgUp/PgDn cycles");
   });
 
   it("detects the chord: Option+Command on darwin, Alt elsewhere", () => {
@@ -357,5 +361,40 @@ describe("self-host resolution", () => {
     const rows = shellHostMenuRows([{ ...a, waiting: 2 }, { ...b, waiting: 1 }], "linux");
     expect(rows.map((r) => r.active)).toEqual([false, true]);
     expect(rows.map((r) => r.waiting)).toEqual([2, null]);
+  });
+});
+
+describe("adjacentShellServer", () => {
+  const list = (currentId: string | null, ids = ["a", "b", "c"]): ShellServer[] =>
+    ids.map((id) => ({ id, name: id, url: `http://${id}:3000`, active: false, current: id === currentId }));
+
+  it("steps to the neighbour and wraps at both ends", () => {
+    expect(adjacentShellServer(list("a"), 1)?.id).toBe("b");
+    expect(adjacentShellServer(list("b"), -1)?.id).toBe("a");
+    expect(adjacentShellServer(list("c"), 1)?.id).toBe("a");
+    expect(adjacentShellServer(list("a"), -1)?.id).toBe("c");
+  });
+
+  it("reads `current`, falling back to `active` on older shells", () => {
+    const older: ShellServer[] = ["a", "b", "c"].map((id) => ({
+      id,
+      name: id,
+      url: `http://${id}:3000`,
+      active: id === "b",
+    }));
+    expect(adjacentShellServer(older, 1)?.id).toBe("c");
+    // `current` wins over a stale `active` on another window's host.
+    const split = list("a").map((s) => (s.id === "c" ? { ...s, active: true } : s));
+    expect(adjacentShellServer(split, 1)?.id).toBe("b");
+  });
+
+  it("starts before the first when nothing is current", () => {
+    expect(adjacentShellServer(list(null), 1)?.id).toBe("a");
+    expect(adjacentShellServer(list(null), -1)?.id).toBe("c");
+  });
+
+  it("is null below two servers", () => {
+    expect(adjacentShellServer([], 1)).toBeNull();
+    expect(adjacentShellServer(list("a", ["a"]), -1)).toBeNull();
   });
 });

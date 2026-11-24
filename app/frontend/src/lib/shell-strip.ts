@@ -77,6 +77,24 @@ export function isSelfHost(server: ShellServer): boolean {
   return server.current ?? server.active;
 }
 
+/**
+ * The server to switch to when cycling from the current host in list order,
+ * wrapping at both ends; null below 2 servers. With no current entry, next →
+ * first and previous → last. Mirrors the desktop shell's `adjacentHostId`
+ * (app/desktop/src/host-cycle.ts) — Electron main cannot import the SPA
+ * bundle, so the ~10 lines of wrap math live on both sides of the boundary.
+ */
+export function adjacentShellServer(
+  servers: ShellServer[],
+  direction: 1 | -1,
+): ShellServer | null {
+  const count = servers.length;
+  if (count < 2) return null;
+  const index = servers.findIndex(isSelfHost);
+  if (index === -1) return direction === 1 ? servers[0] : servers[count - 1];
+  return servers[(index + direction + count) % count];
+}
+
 /** Document CustomEvent name opening the strip's host-switcher menu — the
  *  `terminal-find:open` seam shape: entry points that cannot reach the strip's
  *  state (the palette's `Host: Switcher` body) dispatch it, and the mounted
@@ -237,11 +255,11 @@ export function keyHintLabel(platform: string): string {
   return platform === "darwin" ? "⌥⌘" : "Alt";
 }
 
-/** Pill tooltip: the switch chord and the focus-squares chord. */
+/** Pill tooltip: the switch chord, the cycle chords and the focus-squares chord. */
 export function keyHintTip(platform: string): string {
   return platform === "darwin"
-    ? "⌥⌘1–9 switches host · ⇧⌘H focuses the squares"
-    : "Alt+1–9 switches host · ⇧Ctrl+H focuses the squares";
+    ? "⌥⌘1–9 switches host · ⌥⌘←/→ cycles · ⇧⌘H focuses the squares"
+    : "Alt+1–9 switches host · Alt+PgUp/PgDn cycles · ⇧Ctrl+H focuses the squares";
 }
 
 /** Whether a key event shows the switch chord's modifiers as held. */

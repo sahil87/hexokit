@@ -433,8 +433,14 @@ export function SettingsShortcutsPanel({
       displayPlatform === "mac" ? ["⇧", "⌘", key] : ["Shift", "Ctrl", key];
     const switcherCaps =
       displayPlatform === "mac" ? ["⌥", "⌘", "1…9"] : ["Alt", "1…9"];
+    const cycleCaps = (dir: "prev" | "next") =>
+      displayPlatform === "mac"
+        ? ["⌥", "⌘", dir === "prev" ? "←" : "→"]
+        : ["Alt", dir === "prev" ? "PgUp" : "PgDn"];
     const rows = [
       { label: "Switch to host 1–9", description: "owned by the shell menu", parts: switcherCaps },
+      { label: "Previous host", description: "owned by the shell menu", parts: cycleCaps("prev") },
+      { label: "Next host", description: "owned by the shell menu", parts: cycleCaps("next") },
       { label: "Force reload", description: undefined, parts: tierCaps("R") },
     ];
     if (displayPlatform !== "mac") {

@@ -1036,6 +1036,17 @@ describe("claimedKeys", () => {
     expect(inBrowser.map((c) => c.code).sort()).toEqual(["KeyN", "KeyT", "KeyW"]);
   });
 
+  it("mac shell claims ⌥⌘←/→ (host cycling) on the optcmd tier; browser and win/linux carry none", () => {
+    const optcmd = (platform: "mac" | "other", shell: boolean) =>
+      claimedKeys(platform, shell).filter((c) => c.tier === "optcmd");
+    expect(optcmd("mac", true).map((c) => [c.code, c.owner])).toEqual([
+      ["ArrowLeft", "shell"],
+      ["ArrowRight", "shell"],
+    ]);
+    expect(optcmd("mac", false)).toEqual([]);
+    expect(optcmd("other", true)).toEqual([]);
+  });
+
   it("mac shell claims the ⌘ menu-accelerator set on the cmd tier plus the system ⌘` row (260730-n789, 260820-lfla)", () => {
     const macShellCmd = claimedKeys("mac", true).filter((c) => c.tier === "cmd");
     expect(macShellCmd.filter((c) => c.owner === "shell").map((c) => c.code).sort()).toEqual(

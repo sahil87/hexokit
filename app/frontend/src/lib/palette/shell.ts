@@ -16,6 +16,7 @@
  * Add/Remove Server stay in the shell's native menu + welcome flow.
  */
 import type { PaletteAction } from "@/components/command-palette";
+import type { BindingPlatform } from "@/lib/keybindings";
 import type { ShellServer } from "@/lib/shell";
 
 /** One switch action per shell-registered server; `[]` for an empty list. */
@@ -28,4 +29,35 @@ export function buildShellServerActions(
     label: `Host: Switch to "${server.name}"${server.active ? " (current)" : ""}`,
     onSelect: () => onSwitch(server.id),
   }));
+}
+
+/**
+ * `Host: Previous` / `Host: Next` — the palette path for the shell's host
+ * cycling accelerators (⌥⌘←/→ mac, Alt+PageUp/PageDown win/linux). The chords
+ * are shell menu accelerators outside every registry tier, so the `shortcut`
+ * hints are literals that `withShortcutHints` passes through unchanged; the
+ * ids must never collide with a `DEFAULT_BINDINGS` actionId. `[]` below 2
+ * servers (nothing to cycle to).
+ */
+export function buildShellHostCycleActions(
+  servers: ShellServer[],
+  platform: BindingPlatform,
+  onCycle: (direction: 1 | -1) => void,
+): PaletteAction[] {
+  if (servers.length < 2) return [];
+  const mac = platform === "mac";
+  return [
+    {
+      id: "shell-host-prev",
+      label: "Host: Previous",
+      shortcut: mac ? "⌥⌘←" : "Alt+PgUp",
+      onSelect: () => onCycle(-1),
+    },
+    {
+      id: "shell-host-next",
+      label: "Host: Next",
+      shortcut: mac ? "⌥⌘→" : "Alt+PgDn",
+      onSelect: () => onCycle(1),
+    },
+  ];
 }

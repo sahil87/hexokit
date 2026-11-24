@@ -15,10 +15,11 @@ import type { PaletteAction } from "@/components/command-palette";
 import { HELP_URL } from "@/components/global-chrome";
 import { HELP_TOPICS, helpTopicActionId, helpTopicPaletteLabel, openHelpTopic } from "@/lib/help-topics";
 import { withShortcutHints } from "@/lib/keybindings";
-import { canCloseShellWindow, canNewShellWindow, closeShellWindow, newShellWindow } from "@/lib/shell";
+import { canCloseShellWindow, canNewShellWindow, closeShellWindow, listShellServers, newShellWindow, switchShellServer } from "@/lib/shell";
 import { focusSidebarCurrentRow } from "@/lib/sidebar-events";
-import { HOST_MENU_OPEN_EVENT, HOST_STRIP_FOCUS_EVENT } from "@/lib/shell-strip";
+import { adjacentShellServer, HOST_MENU_OPEN_EVENT, HOST_STRIP_FOCUS_EVENT } from "@/lib/shell-strip";
 import { buildNavActions, type NavMode } from "@/lib/palette/nav";
+import { buildShellHostCycleActions } from "@/lib/palette/shell";
 import { buildOperatorCheckNowAction, buildQuakeTerminalAction, buildQuakeTerminalActivityAction, buildQuakeTerminalCronAction, buildQuakeTerminalOpenAsTabAction, buildQuakeTerminalPinAction, buildQuakeTerminalResetSizeAction, buildQuakeTerminalTasksAction, buildOperatorStartAction } from "@/lib/palette/quake-terminal";
 import { useQuakeMachineState, useQuakePinned, useQuakeTerminalContext } from "@/lib/quake-terminal";
 import { buildUpdateActions, buildMaintenanceActions, buildCheckActions } from "@/lib/palette/update";
@@ -488,6 +489,22 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     [shellServers],
   );
 
+  // Host: Previous / Next — palette parity for the shell's cycle accelerators.
+  // The target resolves from a FRESH list at select time: `useShellServers` is
+  // a mount-time snapshot and the view survives warm switches, while squares
+  // can be reordered since — a stale order would step to the wrong neighbour.
+  const hostCycleActions: PaletteAction[] = useMemo(
+    () =>
+      buildShellHostCycleActions(shellServers, bindingHost.platform, (direction) => {
+        void listShellServers().then(async (list) => {
+          const target = list ? adjacentShellServer(list, direction) : null;
+          if (!target) return;
+          if (!(await switchShellServer(target.id))) addToast("Host switch failed", "error");
+        });
+      }),
+    [shellServers, bindingHost.platform, addToast],
+  );
+
   // Update actions — keyboard-first parity (Constitution V) for the top-bar
   // update chip. Gated on a qualifying pending update (dev version suppressed).
   // Only the Dismiss action remains here (mirroring the chip's `✕` for
@@ -671,10 +688,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAgentPresetEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalActivityEntry, quakeTerminalCronEntry, ...(operatorCheckNowEntry ? [operatorCheckNowEntry] : []), quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...(quakeMachine === "open" && quakeTerminalOpenAsTabEntry ? [quakeTerminalOpenAsTabEntry] : []), ...(operatorStartEntry ? [operatorStartEntry] : []), ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, mcpEndpointEntry, ...openAIMCPActions, ...easterEggActions, createServerEntry],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, ...helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAgentPresetEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalActivityEntry, quakeTerminalCronEntry, ...(operatorCheckNowEntry ? [operatorCheckNowEntry] : []), quakeTerminalResetSizeEntry, ...(quakeMachine === "open" ? [quakeTerminalPinEntry] : []), ...(quakeMachine === "open" && quakeTerminalOpenAsTabEntry ? [quakeTerminalOpenAsTabEntry] : []), ...(operatorStartEntry ? [operatorStartEntry] : []), ...hostMenuActions, ...hostCycleActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions, mcpEndpointEntry, ...openAIMCPActions, ...easterEggActions, createServerEntry],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAgentPresetEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalActivityEntry, quakeTerminalCronEntry, operatorCheckNowEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, quakeTerminalOpenAsTabEntry, operatorStartEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, mcpEndpointEntry, openAIMCPActions, easterEggActions, createServerEntry, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, helpTopicActions, settingsEntry, settingsAppearanceEntry, settingsAgentsEntry, settingsAgentPresetEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, quakeTerminalEntry, quakeTerminalTasksEntry, quakeTerminalActivityEntry, quakeTerminalCronEntry, operatorCheckNowEntry, quakeTerminalResetSizeEntry, quakeMachine, quakeTerminalPinEntry, quakeTerminalOpenAsTabEntry, operatorStartEntry, hostMenuActions, hostCycleActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, mcpEndpointEntry, openAIMCPActions, easterEggActions, createServerEntry, bindingByAction, bindingHost],
   );
 }
