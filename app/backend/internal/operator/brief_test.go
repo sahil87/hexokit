@@ -422,6 +422,7 @@ func TestRenderBrief_ExitContract(t *testing.T) {
 	for _, want := range []string{
 		`rk operator track note -L work <id> "<text>" --by run`, "outcome: <one-line summary>",
 		"append a note on each item you acted on", "A run that did nothing writes no note.",
+		"`failed <at>`", "retried after failure: <what you found or did>",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Exit contract missing %q", want)

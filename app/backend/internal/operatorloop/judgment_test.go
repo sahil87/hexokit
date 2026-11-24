@@ -134,3 +134,26 @@ func TestReasonForNote(t *testing.T) {
 		t.Errorf("reasonFor = %q", got)
 	}
 }
+
+func TestReasonForFailed(t *testing.T) {
+	d := operator.CheckDelta{Kind: operator.DeltaFailed, ID: "x", At: "2026-11-23T19:19:00Z"}
+	if got := reasonFor(d); got != "failed 2026-11-23T19:19:00Z" {
+		t.Errorf("reasonFor = %q", got)
+	}
+}
+
+// A failed run on an engine-owned queue item is still the run's to retry, so
+// the reason enters the judgment set whoever owns the item.
+func TestJudgmentSetCarriesAFailedReasonForOwnedAndUnownedItems(t *testing.T) {
+	reason := "failed 2026-11-23T19:19:00Z"
+	got := judgmentSet(
+		[]ChangeRecord{{ID: "owned", Reasons: []string{reason}}, {ID: "free", Reasons: []string{reason}}},
+		nil, &operator.State{}, map[string]bool{"owned": true})
+	want := []operator.ChangedItem{
+		{ID: "owned", Reasons: []string{reason}},
+		{ID: "free", Reasons: []string{reason}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("judgment = %+v, want %+v", got, want)
+	}
+}

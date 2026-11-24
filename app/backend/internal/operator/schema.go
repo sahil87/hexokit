@@ -160,6 +160,31 @@ func PendingInstruction(notes []Note) (at string, ok bool) {
 	return at, true
 }
 
+// PendingFailure reports a run failure nothing has answered yet: the item's
+// newest `by: run` note is a failure note (FailureNotePrefix) and no later
+// `by: run` note exists. at is that failure note's own `at`, so each failure
+// is its own condition. Notes whose `at` does not parse are ignored, and of
+// equal timestamps the note appended last counts as newest. It is the one
+// owner of this rule — the check's failed condition reads it.
+func PendingFailure(notes []Note) (at string, ok bool) {
+	var latest time.Time
+	for _, note := range notes {
+		if note.By != ByRun {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, note.At)
+		if err != nil || t.Before(latest) {
+			continue
+		}
+		latest = t
+		at, ok = note.At, strings.HasPrefix(note.Text, FailureNotePrefix)
+	}
+	if !ok {
+		return "", false
+	}
+	return at, true
+}
+
 // TrackedItem is one `tracked` list entry. Field order pins the YAML key
 // order; seen, notes and reported are omitempty. Reported is the condition
 // keys the last check already surfaced as changes — written only by Check.

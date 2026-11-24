@@ -41,7 +41,9 @@ const briefExitContract = `Before exiting, append a note on each item you acted 
 
     rk operator track note -L <server> <id> "<text>" --by run
 
-A run that did nothing writes no note. Then print exactly one final line to stdout, and nothing after it:
+A run that did nothing writes no note. The one exception is an item listed with a ` + "`failed <at>`" + ` reason: an earlier run failed on it and it was offered again. Note it either way — ` + "`retried after failure: <what you found or did>`" + ` — even when nothing needed doing; until a run note follows the failure note, the item stays flagged.
+
+Then print exactly one final line to stdout, and nothing after it:
 
     outcome: <one-line summary>`
 
