@@ -9,7 +9,7 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
+    ship: done
     review-pr: pending
 plan:
     generated: true
@@ -33,14 +33,15 @@ stage_metrics:
     apply: {started_at: "2026-11-24T04:53:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T05:31:21Z"}
     review: {started_at: "2026-11-24T05:31:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T05:40:14Z"}
     hydrate: {started_at: "2026-11-24T05:40:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T05:45:52Z"}
-    ship: {started_at: "2026-11-24T05:45:52Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-11-24T05:45:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T05:47:53Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1189
 change_type_source: explicit
 base_branch: main
 true_impact:
-    added: 2945
-    deleted: 383
-    net: 2562
+    added: 3076
+    deleted: 473
+    net: 2603
     excluding:
         added: 2296
         deleted: 373
@@ -49,9 +50,9 @@ true_impact:
         added: 1054
         deleted: 104
         net: 950
-    computed_at: "2026-11-24T05:45:52Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-11-24T05:47:53Z"
+    computed_at_stage: ship
 summary: Riff presets renamed (--riff-preset, riff_preset, deprecated aliases for one release) and the agent-preset dropdown, Customize disclosure and palette action in Settings > Agent documented; fab agent presets read model and agent.preset writes recorded
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-24T05:45:52Z
+last_updated: 2026-11-24T05:47:53Z
