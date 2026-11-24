@@ -37,9 +37,12 @@
  * with plain Alt+digits: the registry
  * excludes Alt from every chord tier too, while Ctrl+Alt stays off the
  * table (AltGr on many European layouts — Ctrl+Alt+digit would steal
- * character typing in a terminal app). A menu accelerator wins over the
- * page unconditionally, so the switcher could not stay on ⇧Ctrl once the
- * SPA's tile chords bound ⇧Ctrl+1/2/3.
+ * character typing in a terminal app). A key reaches the page FIRST; the
+ * menu accelerator fires only when the page leaves it unhandled — so a
+ * shell-tier chord stays shell-owned only while the page lets it through
+ * (the terminal refuses the host-cycling chords inside the shell; a focused
+ * host square ignores ⌘/Ctrl-modified arrows), and the switcher could not
+ * stay on ⇧Ctrl once the SPA's tile chords bound ⇧Ctrl+1/2/3.
  *
  * The menu is applied PER PLATFORM — symmetry of rule, not symmetry of
  * accelerator table. Carve-outs the rule tolerates (documented, never

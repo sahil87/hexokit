@@ -19,7 +19,7 @@ import { isQuakeTerminalTarget } from "@/lib/quake-terminal";
 import { copyToClipboard } from "@/lib/clipboard";
 import { notifyFirstWrite } from "@/lib/window-transition";
 import { relayMux, type RelayStream } from "@/lib/relay-mux";
-import { shouldRefuseTerminalChord } from "@/lib/keybindings";
+import { isHostCycleChord, shouldRefuseTerminalChord } from "@/lib/keybindings";
 import { createGestureArm, createWheelAccumulator } from "@/lib/zoom-gesture";
 import {
   installTerminalVisibilityShim,
@@ -347,6 +347,8 @@ export function TerminalClient({
   appKeybindingsRef.current = appKeybindings;
   const keybindingPlatformRef = useRef(keybindingHost.platform);
   keybindingPlatformRef.current = keybindingHost.platform;
+  const keybindingShellRef = useRef(keybindingHost.shell);
+  keybindingShellRef.current = keybindingHost.shell;
 
   // The progress addon registers its onChange once at terminal init, but the
   // callback prop can change on any render — same attach-once reason as the
@@ -656,6 +658,16 @@ export function TerminalClient({
         // pane bytes). Plain-Ctrl chords (Ctrl+W delete-word, Ctrl+L clear,
         // Ctrl+T fzf, Ctrl+[ ESC) always reach the pane on every platform —
         // refusing a plain-Ctrl cmd-tier alias would steal them.
+        // Shell host-cycling chords are menu accelerators, and a menu
+        // accelerator only fires for keys the page leaves unhandled — xterm
+        // would encode them as escape sequences and cancel them.
+        if (
+          event.type === "keydown" &&
+          keybindingShellRef.current &&
+          isHostCycleChord(event, keybindingPlatformRef.current)
+        ) {
+          return false;
+        }
         if (
           event.type === "keydown" &&
           shouldRefuseTerminalChord(

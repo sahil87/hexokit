@@ -19,6 +19,7 @@ import {
   readStoredOverrides,
   resolveBindings,
   scopesOverlap,
+  isHostCycleChord,
   shouldRefuseTerminalChord,
   shouldSuppressChord,
   focusIsEngaged,
@@ -2044,6 +2045,36 @@ describe("findMatches — scoped-beats-global precedence (260730-n789)", () => {
       ),
     ).toEqual(["window-next"]);
     expect(findMatches(chord({ code: "ArrowDown" }), resolved())).toEqual([]);
+  });
+});
+
+describe("isHostCycleChord", () => {
+  const ev = (code: string, mods: Partial<Record<"metaKey" | "ctrlKey" | "shiftKey" | "altKey", boolean>> = {}) => ({
+    code,
+    metaKey: false,
+    ctrlKey: false,
+    shiftKey: false,
+    altKey: false,
+    ...mods,
+  });
+
+  it("mac: exactly ⌥⌘← / ⌥⌘→", () => {
+    expect(isHostCycleChord(ev("ArrowLeft", { altKey: true, metaKey: true }), "mac")).toBe(true);
+    expect(isHostCycleChord(ev("ArrowRight", { altKey: true, metaKey: true }), "mac")).toBe(true);
+    expect(isHostCycleChord(ev("ArrowRight", { altKey: true }), "mac")).toBe(false); // ⌥→ = square reorder / word-jump
+    expect(isHostCycleChord(ev("ArrowRight", { metaKey: true }), "mac")).toBe(false);
+    expect(isHostCycleChord(ev("ArrowRight", { altKey: true, metaKey: true, shiftKey: true }), "mac")).toBe(false);
+    expect(isHostCycleChord(ev("ArrowRight", { altKey: true, metaKey: true, ctrlKey: true }), "mac")).toBe(false);
+    expect(isHostCycleChord(ev("PageDown", { altKey: true }), "mac")).toBe(false);
+  });
+
+  it("win/linux: exactly Alt+PageUp / Alt+PageDown", () => {
+    expect(isHostCycleChord(ev("PageUp", { altKey: true }), "other")).toBe(true);
+    expect(isHostCycleChord(ev("PageDown", { altKey: true }), "other")).toBe(true);
+    expect(isHostCycleChord(ev("ArrowRight", { altKey: true }), "other")).toBe(false); // shell word-jump stays with the pane
+    expect(isHostCycleChord(ev("PageDown"), "other")).toBe(false);
+    expect(isHostCycleChord(ev("PageDown", { altKey: true, ctrlKey: true }), "other")).toBe(false);
+    expect(isHostCycleChord(ev("PageDown", { altKey: true, shiftKey: true }), "other")).toBe(false);
   });
 });
 

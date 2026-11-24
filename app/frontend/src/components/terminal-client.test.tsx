@@ -2018,3 +2018,38 @@ describe("TerminalClient WebGL fallback telemetry", () => {
     expect(loaded).toContain(vi.mocked(UnicodeGraphemesAddon).mock.results[0]?.value);
   });
 });
+
+describe("TerminalClient — shell host-cycling chord", () => {
+  afterEach(() => {
+    cleanup();
+    delete window.runkitShell;
+    vi.mocked(Terminal).mockClear();
+  });
+
+  async function keyHandler(): Promise<(e: KeyboardEvent) => boolean> {
+    renderTerminalClient();
+    await waitFor(() => {
+      const t = vi.mocked(Terminal).mock.results.at(-1)?.value;
+      expect(t?.attachCustomKeyEventHandler).toHaveBeenCalled();
+    });
+    const t = vi.mocked(Terminal).mock.results.at(-1)!.value;
+    return t.attachCustomKeyEventHandler.mock.calls.at(-1)[0];
+  }
+
+  const altPageDown = () =>
+    new KeyboardEvent("keydown", { key: "PageDown", code: "PageDown", altKey: true });
+
+  it("inside the shell, xterm refuses the cycle chord so it reaches the Hosts-menu accelerator", async () => {
+    window.runkitShell = { version: "1", platform: "linux" };
+    const handler = await keyHandler();
+    expect(handler(altPageDown())).toBe(false);
+    // Plain PageDown and Alt+→ (shell word-jump) stay with the pane.
+    expect(handler(new KeyboardEvent("keydown", { key: "PageDown", code: "PageDown" }))).toBe(true);
+    expect(handler(new KeyboardEvent("keydown", { key: "ArrowRight", code: "ArrowRight", altKey: true }))).toBe(true);
+  });
+
+  it("in a plain browser the pane keeps Alt+PageDown", async () => {
+    const handler = await keyHandler();
+    expect(handler(altPageDown())).toBe(true);
+  });
+});
