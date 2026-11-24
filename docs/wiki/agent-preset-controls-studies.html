@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Preset Controls — design study</title>
+<style>
+/* Layout: one live sidebar + card stage on top, static sketches below. Colors are HexoKit's own theme tokens. */
+:root {
+  --bg: #0f1117; --card: #171b24; --inset: #0a0c12; --chrome: #1a1b1f;
+  --text: #e8eaf0; --dim: #7a8394; --border: #454d66;
+  --accent: #5b8af0; --green: #22c55e; --yellow: #facc15; --red: #f87171;
+  --hover: rgba(232,234,240,.08); --new: rgba(34,197,94,.10);
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f8f9fb; --card: #ffffff; --inset: #e8eaef; --chrome: #e9eaeb;
+    --text: #1a1d24; --dim: #6b7280; --border: #d1d5db;
+    --accent: #4a7ae8; --green: #16a34a; --yellow: #a16207; --red: #dc2626;
+    --hover: rgba(26,29,36,.07); --new: rgba(22,163,74,.10);
+    color-scheme: light;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 13px/1.5 ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  padding: 20px max(16px, env(safe-area-inset-right, 0px)) 48px max(16px, env(safe-area-inset-left, 0px));
+}
+main { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+h1 { font-size: 17px; margin: 0 0 4px; font-weight: 600; }
+h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin: 0 0 10px; font-weight: 600; }
+p { margin: 0; max-width: 72ch; }
+.lede { color: var(--dim); }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* toolbar */
+.bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; color: var(--dim); font-size: 12px; margin-bottom: 10px; }
+.link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+
+/* stage */
+.stage { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; }
+.sidebar { width: 250px; flex: 0 0 250px; background: var(--chrome); border: 1px solid var(--border); border-radius: 6px; padding: 6px 0; }
+.sb-label { color: var(--dim); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; padding: 4px 10px 2px; }
+.row { display: flex; align-items: center; gap: 7px; width: 100%; padding: 4px 10px; min-height: 28px; }
+.row:hover { background: var(--hover); }
+.row[aria-current="true"] { background: var(--hover); box-shadow: inset 2px 0 0 var(--green); }
+.row .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .count { color: var(--dim); margin-left: auto; flex: none; }
+.swatch { width: 3px; align-self: stretch; border-radius: 2px; flex: none; }
+.tab { padding-left: 27px; color: var(--dim); cursor: default; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.chip { flex: none; font-size: 10px; line-height: 1; padding: 3px 5px; border: 1px solid var(--border); border-radius: 4px; color: var(--dim); max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* flyout card — same shell as the real card */
+.float { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 6px; width: 100%; max-width: 340px; font-size: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.28); overflow: hidden; }
+.card-head { padding: 6px 8px 2px; font-weight: 600; }
+.card-head .sec { color: var(--dim); font-weight: 400; }
+.fact { padding: 0 8px; color: var(--dim); overflow-wrap: anywhere; }
+.fact b { color: var(--text); font-weight: 400; }
+.actions { margin-top: 6px; background: var(--inset); border-top: 1px solid var(--border); }
+.act { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 8px; color: var(--dim); border-left: 2px solid transparent; border-bottom: 1px solid var(--border); }
+.act:last-child { border-bottom: 0; }
+.act:hover { color: var(--text); border-left-color: var(--green); }
+.act.danger:hover { color: var(--red); border-left-color: var(--red); }
+.act .ico { width: 1.6ch; text-align: center; flex: none; }
+.act .hint { margin-left: auto; color: var(--dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 8px; }
+.act.new { background: var(--new); color: var(--text); }
+.note-new { font-size: 11px; color: var(--green); }
+
+/* chooser */
+.opt { display: grid; grid-template-columns: 2ch 1fr; column-gap: 6px; width: 100%; padding: 5px 8px; border-left: 2px solid transparent; border-bottom: 1px solid var(--border); }
+.opt:hover, .opt:focus-visible { background: var(--hover); border-left-color: var(--green); }
+.opt .mark { color: var(--dim); }
+.opt[aria-checked="true"] .mark, .opt[aria-checked="true"] .on { color: var(--green); }
+.opt .desc { grid-column: 2; color: var(--dim); font-size: 11px; }
+.foot { padding: 6px 8px; color: var(--dim); font-size: 11px; }
+
+/* resolution ladder */
+.ladder { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; }
+.rung { border: 1px solid var(--border); border-radius: 5px; padding: 4px 8px; color: var(--dim); }
+.rung small { display: block; font-size: 10px; }
+.rung.win { border-color: var(--green); color: var(--text); background: var(--new); }
+.rung.skip { opacity: .55; }
+.arrow { color: var(--dim); }
+
+/* static sketches */
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 16px; align-items: start; }
+.cap { color: var(--dim); font-size: 11px; margin-bottom: 6px; }
+ul { margin: 0; padding-left: 18px; max-width: 72ch; }
+li { margin: 3px 0; }
+.panel { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 12px; display: flex; flex-direction: column; gap: 8px; max-width: 520px; }
+.field { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.select { border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; background: var(--inset); min-width: 150px; display: inline-flex; justify-content: space-between; gap: 12px; }
+.btn { border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; color: var(--dim); }
+.btn.newb { border-color: var(--green); color: var(--green); background: var(--new); }
+.mrow { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-top: 1px solid var(--border); }
+.mrow .src { color: var(--dim); font-size: 10px; border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px; }
+.mrow .ops { margin-left: auto; color: var(--dim); display: flex; gap: 10px; }
+@media (max-width: 560px) { .sidebar { flex: 1 1 100%; width: 100%; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Agent preset controls</h1>
+    <p class="lede">A mock of a mouse-first way to set a group's or a workspace's agent preset. Today both can only be set from the command palette. The mock uses example groups and the three presets fab ships.</p>
+  </header>
+
+  <section aria-labelledby="h-live">
+    <h2 id="h-live">1 · Live mock — click a group or the workspace, then "Agent preset…"</h2>
+    <div class="bar">
+      <span>A row shows the preset name when the group or workspace has its own preset.</span>
+      <button type="button" class="link" id="reset">reset example</button>
+    </div>
+    <div class="stage">
+      <nav class="sidebar" aria-label="Sidebar mock" id="sidebar"></nav>
+      <div class="float">
+        <div id="popup"></div>
+        <div>
+          <div class="cap" id="ladder-cap"></div>
+          <div class="ladder" id="ladder"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-diff">
+    <h2 id="h-diff">2 · What changes on the card</h2>
+    <div class="cols">
+      <div>
+        <div class="cap">Today — group with no preset of its own</div>
+        <div class="card">
+          <div class="card-head"><span class="sec">Group </span>fab-kit</div>
+          <div class="fact">2 tabs · 1 agent active</div>
+          <div class="actions">
+            <div class="act"><span class="ico">◑</span>Change color…</div>
+            <div class="act"><span class="ico">▸</span>Spawn agent…</div>
+            <div class="act"><span class="ico">✎</span>Update annotations<span class="hint">asks the operator</span></div>
+            <div class="act"><span class="ico">+</span>New tab</div>
+            <div class="act"><span class="ico">×</span>Kill group<span class="hint">confirms first</span></div>
+          </div>
+        </div>
+      </div>
+      <ul>
+        <li><b>A preset line that is always there.</b> It shows the preset new tabs will use and where it comes from, including when the group inherits.</li>
+        <li><b>An "Agent preset…" row</b> next to "Change color…", on both the group card and the workspace card.</li>
+        <li><b>A chooser</b> that lists the presets with their one-line descriptions, plus "inherit" and "none". It only picks a preset; what a preset contains is shown in Settings &gt; Agent.</li>
+        <li><b>The preset name on the row</b> when a group or workspace has its own preset, so you can see it without opening the card.</li>
+        <li>The palette actions stay as they are and open the same chooser list.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-later">
+    <h2 id="h-later">3 · Later — making your own presets in Settings &gt; Agent (static sketch)</h2>
+    <div class="cols">
+      <div class="panel" aria-label="Settings Agent panel sketch">
+        <div class="field">
+          <span>Agent preset</span>
+          <span class="select"><span>codex-review</span><span>▾</span></span>
+          <span class="btn newb">Save as preset…</span>
+          <span class="btn newb">Manage…</span>
+        </div>
+        <div style="color:var(--dim);font-size:11px">2 explicit fields override parts of this preset — see Customize</div>
+        <div class="field"><span class="btn">▸ Customize</span><span style="color:var(--dim);font-size:11px">the six-role grid, as today</span></div>
+        <div>
+          <div class="mrow"><span>claude</span><span class="src">built-in</span><span class="ops">locked</span></div>
+          <div class="mrow"><span>codex-workers</span><span class="src">built-in</span><span class="ops">locked</span></div>
+          <div class="mrow"><span>codex-review</span><span class="src">built-in</span><span class="ops">locked</span></div>
+          <div class="mrow"><span>night-shift</span><span class="src">yours</span><span class="ops"><span>rename</span><span>delete</span></span></div>
+        </div>
+      </div>
+      <ul>
+        <li><b>Save as preset…</b> names the current Customize grid as a new preset.</li>
+        <li><b>Manage…</b> lists every preset; yours can be renamed or deleted, built-ins are locked.</li>
+        <li>This is a separate, larger change. It depends on <code>fab config set</code> being able to write preset definitions, which is not checked yet.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-open">
+    <h2 id="h-open">Settled</h2>
+    <ul>
+      <li>Row marker: the preset name.</li>
+      <li>The chooser picks a preset only; no role breakdown.</li>
+      <li>Section 3 (making your own presets in Settings) is wanted, as a second change.</li>
+    </ul>
+  </section>
+</main>
+
+<script>
+const PRESETS = {
+  "claude":        { desc: "All roles on Claude (today's defaults)" },
+  "codex-review":  { desc: "Only the review role on Codex" },
+  "codex-workers": { desc: "Pipeline workers on Codex; session on Claude" },
+};
+const GROUPS = [
+  { name: "hexokit", color: "#5b8af0", tabs: [["jade-marsh", "green"], ["agent-presets", "yellow"], ["scratch", "dim"]] },
+  { name: "fab-kit", color: "#c084fc", tabs: [["presets-f1", "green"], ["docs", "dim"]] },
+  { name: "ops",     color: "#f59e0b", tabs: [["deploy", "dim"]] },
+];
+const INITIAL = { machine: "claude", workspace: "codex-workers", groups: { hexokit: "codex-review", "fab-kit": null, ops: "none" } };
+let state, selected = { kind: "group", name: "hexokit" }, choosing = false;
+
+const $ = (id) => document.getElementById(id);
+const own = (sel) => sel.kind === "workspace" ? state.workspace : state.groups[sel.name];
+// What a scope inherits when it has no value of its own.
+function inherited(sel) {
+  if (sel.kind === "group" && state.workspace) return { name: state.workspace, from: "workspace" };
+  if (state.machine) return { name: state.machine, from: "machine default" };
+  return { name: null, from: "fab's defaults" };
+}
+function effective(sel) {
+  const v = own(sel);
+  return v ? { name: v, from: sel.kind === "group" ? "this group" : "this workspace" } : inherited(sel);
+}
+const show = (name) => name === "none" ? "none (no preset)" : (name || "fab's defaults");
+
+function markerHtml(value) {
+  if (!value) return "";
+  return `<span class="chip" title="agent preset: ${value}">${value}</span>`;
+}
+function renderSidebar() {
+  const cur = (kind, name) => selected.kind === kind && selected.name === name ? ' aria-current="true"' : "";
+  let h = `<div class="sb-label">Workspace</div>
+    <button type="button" class="row" data-kind="workspace" data-name="loom"${cur("workspace", "loom")}>
+      <span class="name">loom</span><span class="count">${GROUPS.length} groups</span>${markerHtml(state.workspace)}
+    </button><div class="sb-label">Groups</div>`;
+  for (const g of GROUPS) {
+    h += `<button type="button" class="row" data-kind="group" data-name="${g.name}"${cur("group", g.name)}>
+      <span class="swatch" style="background:${g.color}"></span><span class="name">${g.name}</span>
+      <span class="count">${g.tabs.length}</span>${markerHtml(state.groups[g.name])}</button>`;
+    for (const [t, s] of g.tabs)
+      h += `<div class="row tab"><span class="dot" style="background:var(--${s})"></span><span class="name">${t}</span></div>`;
+  }
+  $("sidebar").innerHTML = h;
+}
+function renderCard() {
+  const isGroup = selected.kind === "group", noun = isGroup ? "Group" : "Workspace";
+  const eff = effective(selected), g = GROUPS.find((x) => x.name === selected.name);
+  const facts = isGroup ? `${g.tabs.length} tabs · ${g.tabs.filter((t) => t[1] === "green").length} agent active` : `${GROUPS.length} groups · 6 tabs`;
+  const rows = isGroup
+    ? [["◑", "Change color…"], ["▸", "Spawn agent…"], "PRESET", ["✎", "Update annotations", "asks the operator"], ["+", "New tab"], ["×", "Kill group", "confirms first", "danger"]]
+    : [["◑", "Change color…"], "PRESET", ["+", "New group"], ["×", "Kill workspace", "confirms first", "danger"]];
+  const acts = rows.map((r) => r === "PRESET"
+    ? `<button type="button" class="act new" id="open-chooser"><span class="ico">⚙</span>Agent preset…<span class="hint">${show(eff.name)}</span></button>`
+    : `<div class="act ${r[3] || ""}"><span class="ico">${r[0]}</span>${r[1]}${r[2] ? `<span class="hint">${r[2]}</span>` : ""}</div>`).join("");
+  $("popup").innerHTML = `<div class="card">
+      <div class="card-head"><span class="sec">${noun} </span>${selected.name}</div>
+      <div class="fact">${facts}</div>
+      <div class="fact">agent preset: <b>${show(eff.name)}</b> · ${own(selected) ? "set here" : "from " + eff.from}</div>
+      <div class="actions">${acts}</div>
+    </div><div class="note-new">Green row and the always-present preset line are the proposed additions.</div>`;
+  $("open-chooser").onclick = () => { choosing = true; render(); };
+}
+function renderChooser() {
+  const cur = own(selected), inh = inherited(selected), noun = selected.kind === "group" ? "Group" : "Workspace";
+  const opts = [{ value: null, label: "inherit", desc: `uses ${show(inh.name)} (${inh.from})` }]
+    .concat(Object.keys(PRESETS).map((n) => ({ value: n, label: n, desc: PRESETS[n].desc })))
+    .concat([{ value: "none", label: "none", desc: "no preset, even the machine default" }]);
+  $("popup").innerHTML = `<div class="card" role="radiogroup" aria-label="Agent preset for ${selected.name}">
+      <div class="card-head"><span class="sec">Agent preset · ${noun} </span>${selected.name}</div>
+      <div class="actions" id="opts">${opts.map((o, i) => `<button type="button" class="opt" role="radio" data-i="${i}" aria-checked="${o.value === cur}">
+          <span class="mark">${o.value === cur ? "●" : "○"}</span><span class="on">${o.label}</span><span class="desc">${o.desc}</span></button>`).join("")}</div>
+      <div class="foot">Applies to tabs created from now on. Running tabs keep theirs. <button type="button" class="link" id="cancel">Esc · back</button></div>
+    </div>`;
+  const buttons = [...document.querySelectorAll("#opts .opt")];
+  buttons.forEach((b, i) => {
+    const o = opts[i];
+    b.onclick = () => { if (selected.kind === "workspace") state.workspace = o.value; else state.groups[selected.name] = o.value; choosing = false; render(); };
+    b.onkeydown = (e) => {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); buttons[(i + (e.key === "ArrowDown" ? 1 : buttons.length - 1)) % buttons.length].focus(); }
+      if (e.key === "Escape") { choosing = false; render(); }
+    };
+  });
+  $("cancel").onclick = () => { choosing = false; render(); };
+  (buttons.find((b) => b.getAttribute("aria-checked") === "true") || buttons[0]).focus({ preventScroll: true });
+}
+function renderLadder() {
+  const grp = selected.kind === "group" ? selected.name : null;
+  const rungs = [["spawn dialog pick", null]];
+  if (grp) rungs.push([`group ${grp}`, state.groups[grp]]);
+  rungs.push(["workspace loom", state.workspace], ["machine (Settings)", state.machine], ["fab's defaults", "-"]);
+  const win = rungs.findIndex((r) => r[1]);
+  $("ladder-cap").textContent = grp ? `A new tab in ${grp} launches with the first of these that has a value:` : "A new tab in a group with no preset of its own launches with the first of these that has a value:";
+  $("ladder").innerHTML = rungs.map((r, i) => `${i ? '<span class="arrow">›</span>' : ""}<span class="rung ${i === win ? "win" : i > win ? "skip" : ""}">${r[0]}<small>${r[1] === "-" ? "built-in" : r[1] ? show(r[1]) : i === 0 ? "optional, one tab" : "not set"}</small></span>`).join("");
+}
+function render() {
+  renderSidebar(); choosing ? renderChooser() : renderCard(); renderLadder();
+  document.querySelectorAll("#sidebar button.row").forEach((b) => b.onclick = () => { selected = { kind: b.dataset.kind, name: b.dataset.name }; choosing = false; render(); });
+}
+$("reset").onclick = () => { state = JSON.parse(JSON.stringify(INITIAL)); choosing = false; render(); };
+state = JSON.parse(JSON.stringify(INITIAL));
+render();
+</script>
+</body>
+</html>
