@@ -446,7 +446,7 @@ function SettingsDialogBody({ onClose }: { onClose: () => void }) {
                   />
                 )}
                 {active && t.id === "appearance" && <AppearancePanel />}
-                {active && t.id === "agents" && <SettingsAgentsPanel />}
+                {active && t.id === "agents" && <AgentsTabPanel />}
                 {active && t.id === "all" && <SettingsAllPanel registry={registry} />}
                 {active && t.id === "shortcuts" && <ShortcutsTabPanel />}
               </div>
@@ -575,6 +575,13 @@ function AppearancePanel() {
       </section>
     </>
   );
+}
+
+/** The Agents tab, fed the streamed servers and sessions its preset usage notes
+ *  and leftover-settings disclosure read. */
+function AgentsTabPanel() {
+  const { servers, sessionsByServer } = useSessionContext();
+  return <SettingsAgentsPanel servers={servers} sessionsByServer={sessionsByServer} />;
 }
 
 /** The Shortcuts tab — the retired shortcuts-overlay's body plus the per-open

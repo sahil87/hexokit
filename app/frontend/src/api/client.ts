@@ -1880,7 +1880,7 @@ export type FabConfigDocument =
       systemPath: string;
       tools: string[];
       /** The presets fab can apply; absent when the installed fab cannot list
-       *  them, which hides the preset dropdown and the Customize disclosure. */
+       *  them, which hides the preset dropdown and the preset editor. */
       agent_presets?: FabAgentPreset[];
       fields: Record<string, FabField>;
       roles: FabRole[];
@@ -1914,6 +1914,59 @@ export async function postFabConfig(
   });
   if (!res.ok) await throwOnError(res);
   return res.json();
+}
+
+/** What one role resolves to under a preset, per fab; empty strings when fab
+ *  cannot resolve the role. */
+export type FabResolvedRole = { cli: string; model: string; effort: string };
+export type FabResolvedRoles = Record<string, FabResolvedRole>;
+
+async function postFabConfigOp(path: string, body: Record<string, string>): Promise<FabConfigDocument> {
+  const res = await fetch(`/api/fab-config/${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** Copy every field of a listed preset (built-in or yours) to a new name; the
+ *  description, when given, replaces the copied one. A failure part-way rejects
+ *  with a message naming the writes that landed. */
+export function duplicateAgentPreset(from: string, to: string, description: string): Promise<FabConfigDocument> {
+  return postFabConfigOp("presets/duplicate", { from, to, description });
+}
+
+/** Rename one of your presets; the machine default and every workspace and
+ *  group option naming it follow the new name. */
+export function renameAgentPreset(from: string, to: string): Promise<FabConfigDocument> {
+  return postFabConfigOp("presets/rename", { from, to });
+}
+
+/** Delete one of your presets; the machine default and every workspace and
+ *  group option naming it are cleared. */
+export function deleteAgentPreset(name: string): Promise<FabConfigDocument> {
+  return postFabConfigOp("presets/delete", { name });
+}
+
+/** Move the loose machine-wide values into a new preset that becomes the
+ *  machine default. */
+export function moveLeftoverSettings(name: string, description: string): Promise<FabConfigDocument> {
+  return postFabConfigOp("leftovers/move", { name, description });
+}
+
+/** Unset the loose machine-wide values. */
+export function clearLeftoverSettings(): Promise<FabConfigDocument> {
+  return postFabConfigOp("leftovers/clear", {});
+}
+
+/** What each role resolves to when a tab is launched with `name`, from fab. */
+export async function resolveAgentPreset(name: string): Promise<FabResolvedRoles> {
+  const res = await fetch(`/api/fab-config/presets/resolve?name=${encodeURIComponent(name)}`);
+  if (!res.ok) await throwOnError(res);
+  const body: { roles?: FabResolvedRoles } = await res.json();
+  return body.roles ?? {};
 }
 
 // --- Theme settings ---

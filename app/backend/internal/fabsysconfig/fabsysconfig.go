@@ -27,7 +27,10 @@
 //
 // Writes validate the patch in full first (§I — fab itself rejects most bad
 // values but the daemon must not rely on it for subprocess input), then run
-// `fab config set|unset <key> [<value>] --system` sequentially.
+// `fab config set|unset <key> [<value>] --system` sequentially. Preset
+// definitions (agent_presets.<name>.*) and the multi-write operations built on
+// them — duplicate, rename, delete, leftover move/clear, per-role resolution —
+// live in presets.go.
 //
 // fab spells its CLI table `clis:` and a role's tool leaf
 // `agent.profiles.<role>.cli`; older fab spells them `providers:` and
@@ -946,7 +949,8 @@ func (o op) argv() []string {
 // validate turns a raw patch into ops sorted by the key fab will write, or a
 // ValidationError. Nothing is exec'd here. tools is the effective tool set;
 // toolLeaf is the installed fab's spelling every role tool leaf is written as;
-// presets is fab's current preset list, consulted only for an agent.preset set.
+// presets is fab's current preset list, consulted for an agent.preset set and
+// for every agent_presets.* key.
 func validate(patch map[string]json.RawMessage, tools []string, toolLeaf string, presets presetList) ([]op, error) {
 	keys := make([]string, 0, len(patch))
 	for k := range patch {
@@ -958,6 +962,14 @@ func validate(patch map[string]json.RawMessage, tools []string, toolLeaf string,
 	writeKeys := map[string]string{}
 	for _, key := range keys {
 		raw := patch[key]
+		if strings.HasPrefix(key, presetsKeyPrefix) {
+			o, err := validatePresetKey(key, raw, tools, presets)
+			if err != nil {
+				return nil, &ValidationError{Msg: key + ": " + err.Error()}
+			}
+			ops = append(ops, o)
+			continue
+		}
 		if !isScalarKey(key) && !isProfileKey(key) {
 			return nil, &ValidationError{Msg: "unknown key: " + key}
 		}
@@ -981,6 +993,9 @@ func validate(patch map[string]json.RawMessage, tools []string, toolLeaf string,
 		ops = append(ops, op{key: target, value: val})
 	}
 	sort.Slice(ops, func(i, j int) bool { return ops[i].key < ops[j].key })
+	if err := checkPresetOps(ops, presets); err != nil {
+		return nil, err
+	}
 	return ops, nil
 }
 
@@ -1063,10 +1078,18 @@ func validatePreset(name string, presets presetList) (*string, error) {
 	return &name, nil
 }
 
-// patchSetsPreset reports whether the patch sets (not unsets) agent.preset.
-func patchSetsPreset(patch map[string]json.RawMessage) bool {
-	raw, ok := patch[KeyAgentPreset]
-	return ok && string(bytes.TrimSpace(raw)) != "null"
+// patchNeedsPresets reports whether validating the patch needs fab's preset
+// list: it sets (not unsets) agent.preset or touches a preset definition.
+func patchNeedsPresets(patch map[string]json.RawMessage) bool {
+	if raw, ok := patch[KeyAgentPreset]; ok && string(bytes.TrimSpace(raw)) != "null" {
+		return true
+	}
+	for key := range patch {
+		if strings.HasPrefix(key, presetsKeyPrefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // isToolKey reports whether key names a tool: a depth knob or any accepted
@@ -1167,7 +1190,7 @@ func (c *Client) write(ctx context.Context, patch map[string]json.RawMessage) ([
 	// The list is fetched here, under applyMu and before any write, so a
 	// preset another process removed since the SPA's read is rejected up front.
 	var presets presetList
-	if patchSetsPreset(patch) {
+	if patchNeedsPresets(patch) {
 		presets = c.listPresets(ctx)
 	}
 	ops, err := validate(patch, toolNames(rows), c.writeToolLeaf, presets)

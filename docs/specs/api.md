@@ -549,6 +549,60 @@ failures):
 
 ---
 
+### Fab Config (Settings > Agents)
+
+fab-kit's machine-wide config (`~/.fab-kit/config.yaml`) behind the Settings dialog's Agents tab. HexoKit never parses or rewrites that file: every read re-runs the `fab` CLI (`Dir = $HOME`, so only env, system and default tiers show) and every write is a `fab config set|unset <key> [<value>] --system` argv, validated before any exec and run sequentially under one package mutex. Writes are `POST` (Constitution IX); the read of one preset's resolution is `GET`. Errors map `400` validation (nothing ran), `503` fab not installed, `502` a fab (or tmux) step failed, carrying fab's own stderr.
+
+#### `GET /api/fab-config`
+
+**Response** `200`: `{"installed": bool, "systemPath", "tools", "agent_presets"?, "fields", "roles", "modelSuggestions", "effortSuggestions", "toolDefaults"?, "effortCapable"?, "warnings"?}`. `agent_presets` is `fab agent presets --json` (`[{name, description?, source, session?, workers?, profiles?}]`, `source` ∈ `built-in | system | project | env`), absent on a fab that cannot list presets. `{"installed": false}` when fab is absent.
+
+#### `POST /api/fab-config`
+
+Partial merge: present keys set, `null` unsets. The response is the re-read document (same shape as the `GET`) with fab's write warnings first.
+
+Accepted keys: the scalar keys (`agent.preset`, `agent.session`, `agent.workers`, `dispatch.*`), `agent.profiles.<role>.{tool|cli|provider,model,effort}` (the tool leaf is written in the installed fab's spelling), and the preset definition keys:
+
+| Key | Value | fab call |
+|-----|-------|----------|
+| `agent_presets.<name>.description` | non-empty string | `set` |
+| `agent_presets.<name>.session` / `.workers` | a known CLI; `""` or `null` unsets | `set` / `unset` |
+| `agent_presets.<name>.profiles.<role>.cli` | a known CLI; `""` or `null` unsets | `set` / `unset` |
+| `agent_presets.<name>.profiles.<role>.{model,effort}` | free text (single line, ≤ 128, no `#`, no leading `-`); `""` or `null` unsets | `set` / `unset` |
+| `agent_presets.<name>` | `null` only | `unset` (removes the whole preset) |
+
+Preset keys are validated before any exec: `<name>` passes `validate.ValidateAgentPresetName` (`^[a-zA-Z0-9_][a-zA-Z0-9_-]*$`, ≤ 64), is not `none`, and is not a built-in's name (`source == "built-in"`); `<role>` is one of `default operator doing fast hydrate review`; `profiles.<role>.tool` / `.provider` are refused (a preset spells it `cli`). A patch whose unsets would leave a listed preset with no field is a `400` (`a preset needs at least one setting — delete it instead`), because fab deletes a preset whose last leaf is unset; removing a preset is the whole-preset `null`, alone.
+
+#### `POST /api/fab-config/presets/duplicate`
+
+`{"from": "codex-review", "to": "night-review", "description": "…"?}` writes every field of the listed preset `from` (built-in or yours) to the new preset `to` — description, session, workers, every `profiles.<role>.{cli,model,effort}` — in that order. A non-empty `description` replaces the copied one; the result must have one. `to` must pass the name rules and not be listed. Response: the re-read document.
+
+#### `POST /api/fab-config/presets/rename`
+
+`{"from": "night-shift", "to": "late-shift"}`; `from` must be a preset defined in the system config (not built-in, not env). One request, fixed create-before-remove order: (1) write every field of `from` to `to`; (2) if the system `agent.preset` is `from`, set it to `to`; (3) on every server `tmux.ListServers` returns, repoint `@rk_srv_agent_preset` and each session's `@rk_ses_agent_preset` equal to `from`; (4) `fab config unset agent_presets.<from> --system`. Renaming to the same name is a no-op `200`. Tabs already running keep the old name in their environment and fall back to the default.
+
+#### `POST /api/fab-config/presets/delete`
+
+`{"name": "night-shift"}`; same eligibility as rename. In order: unset the system `agent.preset` if it names the preset; clear every server and session agent-preset option naming it; `fab config unset agent_presets.<name> --system`.
+
+#### `POST /api/fab-config/leftovers/move`
+
+`{"name": "my-overrides", "description": "Moved from loose machine-wide settings"}`. Loose values are the explicit system-layer `agent.session`, `agent.workers` and `agent.profiles.<role>.<leaf>` (leaf ∈ tool/cli/provider/model/effort) that no preset supplied; environment values are never leftovers. Creates preset `name` (valid, unlisted, description required) holding the current machine default preset's fields overlaid with the loose values (legacy `tool`/`provider` written as `cli`), sets the system `agent.preset` to it, then unsets each loose key — the machine-wide result is unchanged. `400` when there is nothing to move.
+
+#### `POST /api/fab-config/leftovers/clear`
+
+`{}`; unsets each loose key. A no-op `200` when there are none.
+
+#### Multi-write failures
+
+fab has no multi-key transaction, so duplicate, rename, delete and the leftover operations stop at the first failing step and answer `502` with `{"error", "landed": [...], "failed": "<step>"}` — `landed` names the writes already durable (e.g. `set agent_presets.late-shift.description Overnight`, `repoint workspace default`), `failed` the one that did not, and `error` carries fab's or tmux's message plus the landed steps. The SPA re-reads the document so it shows the real state. When `agent.preset` is set in the daemon's environment it cannot be repointed or cleared: the operation proceeds for the system layer and the tmux options and the response document's `warnings` carries a note.
+
+#### `GET /api/fab-config/presets/resolve?name=<preset>`
+
+What each role resolves to when a tab is launched with the preset, from `fab agent <role> --preset <name> -o yaml` (one call per role, each with a timeout): `{"roles": {"<role>": {"cli", "model", "effort"}}}`. A role fab cannot resolve (e.g. a preset naming a CLI with no dispatch capability) is returned with empty strings; the request never fails for one. `400` for a name that fails the identifier rule.
+
+---
+
 ### Updates
 
 Toolkit update surface. The daemon's periodic checker delegates the check to
@@ -880,6 +934,14 @@ omit `Origin`.
 | `POST` | `/api/sessions/:session/windows/:index/keys` | `windows.go` | Send keystrokes |
 | `POST` | `/api/sessions/:session/upload` | `upload.go` | File upload |
 | `GET` | `/api/directories` | `directories.go` | Directory autocomplete |
+| `GET` | `/api/fab-config` | `fab_config.go` | fab-kit machine-wide config document (Settings > Agents) |
+| `POST` | `/api/fab-config` | `fab_config.go` | Partial-merge write via `fab config set|unset --system`, incl. `agent_presets.<name>.*` leaves and whole-preset removal |
+| `POST` | `/api/fab-config/presets/duplicate` | `fab_config.go` | Copy a preset (`{from, to, description?}`) |
+| `POST` | `/api/fab-config/presets/rename` | `fab_config.go` | Rename a preset and repoint the machine default and every workspace/group option (`{from, to}`) |
+| `POST` | `/api/fab-config/presets/delete` | `fab_config.go` | Delete a preset and clear the machine default and workspace/group options naming it (`{name}`) |
+| `POST` | `/api/fab-config/leftovers/move` | `fab_config.go` | Move loose machine-wide values into a new machine-default preset (`{name, description}`) |
+| `POST` | `/api/fab-config/leftovers/clear` | `fab_config.go` | Unset the loose machine-wide values |
+| `GET` | `/api/fab-config/presets/resolve` | `fab_config.go` | Per-role resolution under one preset (`?name=`) |
 | `POST` | `/api/update` | `update.go` | One-click toolkit upgrade (scoped/force) |
 | `POST` | `/api/updates/check` | `update.go` | On-demand update check (inline checker pass, synchronous verdict) |
 | `WS` | `/ws/terminals` | `terminals_ws.go` | Terminals mux (all pane relays, one socket/tab) |

@@ -51,6 +51,12 @@ export function loadMachineAgentPresetInfo(): Promise<MachineAgentPresetInfo> {
   return promise;
 }
 
+/** Forget the cached machine-wide read. The Settings editor calls it after any
+ *  change so the card choosers and palette lists never serve a stale list. */
+export function invalidateMachineAgentPresets(): void {
+  machineInfo = null;
+}
+
 /** The machine-wide agent presets (`GET /api/fab-config`'s `agent_presets`);
  *  resolves undefined when fab is absent or too old to list presets. */
 export async function loadMachineAgentPresets(): Promise<FabAgentPreset[] | undefined> {

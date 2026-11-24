@@ -34,8 +34,11 @@ type fakeFab struct {
 	// the verb.
 	presets    string
 	presetsErr string
-	mu         sync.Mutex
-	calls      [][]string
+	// resolved is the stdout of `agent <role> --preset <name> -o yaml`, keyed
+	// "<role> <name>"; a missing key exits non-zero.
+	resolved map[string]string
+	mu       sync.Mutex
+	calls    [][]string
 }
 
 func (f *fakeFab) run(_ context.Context, argv ...string) ([]byte, []byte, error) {
@@ -52,6 +55,11 @@ func (f *fakeFab) run(_ context.Context, argv ...string) ([]byte, []byte, error)
 			return nil, []byte("unknown role: models"), errors.New("exit 1")
 		}
 		return []byte(f.models), []byte(f.modelsErr), nil
+	case strings.HasPrefix(joined, "agent ") && strings.HasSuffix(joined, " -o yaml") && len(argv) == 6:
+		if out, ok := f.resolved[argv[1]+" "+argv[3]]; ok {
+			return []byte(out), nil, nil
+		}
+		return nil, []byte("no dispatch mode is available"), errors.New("exit 1")
 	case joined == "agent presets --json":
 		if f.presets == "" {
 			return nil, []byte("unknown role: presets"), errors.New("exit 1")

@@ -1,15 +1,14 @@
 /**
- * Demo: the Settings dialog's Agents tab gains an Agent preset dropdown — one
- * named role assignment for the machine instead of a hand-edited per-role grid
- * — and the spawn dialog's preset field is now labelled "Riff preset", so the
- * two kinds of preset can never be confused.
+ * Demo: the Settings dialog's Agents tab keeps picking and defining separate —
+ * the "Use a preset" box holds only the Machine default dropdown, the Presets
+ * box lists every preset with its `default` and built-in/yours tags — and the
+ * spawn dialog's preset field is labelled "Riff preset", so the two kinds of
+ * preset can never be confused.
  *
  * The recording opens Settings → Agent preset… from the command palette (the
- * dropdown arrives focused), opens the Customize disclosure, picks
- * `codex-workers` (the grid then shows Codex for the worker roles with a
- * `preset` chip and no reset links), picks `codex-review` over an explicit
- * review-role override (the override note appears), clears the preset with
- * None, then opens the spawn dialog to show the `Riff preset` field.
+ * dropdown arrives focused), picks `codex-workers` (the list tags it
+ * `default`), picks `codex-review`, clears the preset with None, then opens the
+ * spawn dialog to show the `Riff preset` field.
  *
  * Runs only under `just demo agent-preset-dropdown` (playwright.demo.config.ts —
  * testDir ./tests/demo), against the throwaway e2e rig, once per project
@@ -32,29 +31,26 @@ const SERVER = "default";
 
 test.describe("agent-preset-dropdown demo", () => {
   /**
-   * Proves: a reviewer can see the preset dropdown take over the role grid —
-   * focus from the palette action, the Customize disclosure, a preset's values
-   * read as preset-supplied, the override note, None — and the spawn dialog's
-   * renamed Riff preset field.
+   * Proves: a reviewer can see the Machine default dropdown only select —
+   * focus from the palette action, the Use a preset box, the `default` tag
+   * following the choice in the Presets list, None — and the spawn dialog's
+   * Riff preset field.
    *
    * Steps:
-   * 1. Install the stateful `/api/fab-config` stub (presets on, one explicit
-   *    review-role override) and the spawn-dialog stubs; load `/default/1`.
-   * 2. Run `Settings: Agent preset…` from the palette; assert the Agent preset
-   *    select is focused; `beat()`.
-   * 3. Expand Customize; `beat()`.
-   * 4. Choose `codex-workers`; assert the Worker CLI row reads `codex` with a
-   *    `preset` chip; `beat()`.
-   * 5. Choose `codex-review`; assert the override note; `beat()`.
-   * 6. Choose None; assert the select is back to None; `beat()`.
-   * 7. Close Settings, run `Agent: Spawn`; assert the `Riff preset (optional):`
+   * 1. Install the stateful `/api/fab-config` stub (presets on) and the
+   *    spawn-dialog stubs; load `/default/1`.
+   * 2. Run `Settings: Agent preset…` from the palette; assert the Machine
+   *    default select is focused; `beat()`.
+   * 3. Choose `codex-workers`; assert the list tags it `default`; `beat()`.
+   * 4. Choose `codex-review`; assert the tag moved; `beat()`.
+   * 5. Choose None; assert the select is back to None; `beat()`.
+   * 6. Close Settings, run `Agent: Spawn`; assert the `Riff preset (optional):`
    *    field; `beat()`.
    */
-  test("the agent preset dropdown, Customize, and the Riff preset field", async ({ page }) => {
+  test("the machine default dropdown and the Riff preset field", async ({ page }) => {
     await stubFabConfig(page, {
       systemPath: "/home/demo/.fab-kit/config.yaml",
       presets: true,
-      system: { "agent.profiles.review.tool": "claude" },
     });
     await page.routeWebSocket(/\/ws\/terminals/, () => {});
     await page.route("**/api/servers", (route) =>
@@ -103,22 +99,17 @@ test.describe("agent-preset-dropdown demo", () => {
     await expect(preset).toBeFocused({ timeout: 10_000 });
     await beat(page);
 
-    // The stub's explicit review-role override opens Customize by default; make
-    // sure the grid is visible either way.
-    const customize = page.getByTestId("agent-customize-toggle");
-    if ((await customize.getAttribute("aria-expanded")) !== "true") await customize.click();
-    await beat(page);
-
+    const tagged = (name: string) =>
+      page.getByRole("listbox", { name: "Presets" }).getByRole("option", { name: new RegExp(`^${name}`) });
     await preset.selectOption("codex-workers");
-    const workers = page.getByTestId("fab-row-agent.workers");
-    await expect(workers.getByRole("button", { name: "codex" })).toHaveAttribute("aria-pressed", "true");
-    await expect(workers.getByTestId("provenance-chip")).toHaveText("preset");
-    await workers.scrollIntoViewIfNeeded();
+    await expect(tagged("codex-workers")).toContainText("default");
+    await tagged("codex-workers").scrollIntoViewIfNeeded();
     await beat(page, 1_500);
 
     await preset.scrollIntoViewIfNeeded();
     await preset.selectOption("codex-review");
-    await expect(page.getByTestId("agent-preset-override-note")).toBeVisible();
+    await expect(tagged("codex-review")).toContainText("default");
+    await expect(tagged("codex-workers")).not.toContainText("default");
     await beat(page, 1_500);
 
     await preset.selectOption("");

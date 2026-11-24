@@ -1220,6 +1220,12 @@ func (s *Server) buildRouter() chi.Router {
 	// GET re-reads fab every time, POST is a partial merge (null unsets).
 	r.Get("/api/fab-config", s.handleGetFabConfig)
 	r.Post("/api/fab-config", s.handlePostFabConfig)
+	r.Get("/api/fab-config/presets/resolve", s.handleResolveAgentPreset)
+	r.Post("/api/fab-config/presets/duplicate", s.handleDuplicateAgentPreset)
+	r.Post("/api/fab-config/presets/rename", s.handleRenameAgentPreset)
+	r.Post("/api/fab-config/presets/delete", s.handleDeleteAgentPreset)
+	r.Post("/api/fab-config/leftovers/move", s.handleMoveLeftoverSettings)
+	r.Post("/api/fab-config/leftovers/clear", s.handleClearLeftoverSettings)
 
 	// GUI surface — the status document (GET, incl. the apps list the
 	// off-confirm renders), the supervisor restart, the allowlisted
