@@ -517,7 +517,7 @@ func TestPromptTable(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := e.buildPrompt(context.Background(), item(c.repo, c.scope), c.repo, "main", c.base)
+			got, err := e.buildPrompt(context.Background(), item(c.repo, c.scope), c.repo, "grp", "main", c.base)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -700,7 +700,7 @@ func TestLockIsNeverHeldAcrossASubprocess(t *testing.T) {
 
 func TestStackedRawTextPromptRendersThroughTheProductionPrefixRenderer(t *testing.T) {
 	h := newHarness(t)
-	resolveAgentFn = func(context.Context, string, string) riff.ResolvedAgent {
+	resolveAgentFn = func(context.Context, string, string, string) riff.ResolvedAgent {
 		return riff.ResolvedAgent{Launcher: "codex", SkillPrefix: "$"}
 	}
 	foo := newRepo(t, "foo")
@@ -1085,5 +1085,41 @@ func TestLadderDependencyOnADifferentBaseEscalatesWithoutSpawning(t *testing.T) 
 	}
 	if !hasEscalation(res, "differs from dependency dep's base") || spawningSet(h.item("child")) {
 		t.Fatalf("escalations=%+v", res.Escalations)
+	}
+}
+
+// The skill prefix is resolved under the preset the spawn itself will carry:
+// the ladder runs against the item's group session on the autopilot's server,
+// and its name reaches the agent resolution.
+func TestPromptPrefixFollowsTheGroupAgentPreset(t *testing.T) {
+	h := newHarness(t)
+	fabRepo := newRepo(t, "fabbed")
+	commitFile(t, fabRepo.Dir, "fab/project/config.yaml", "x: 1\n", "fab")
+	h.env.Server = "ws"
+	var ladderServer, ladderSession, agentPreset string
+	resolvePresetFn = func(_ context.Context, explicit, server, session, _ string) string {
+		if explicit != "" {
+			t.Errorf("explicit pick = %q, want none", explicit)
+		}
+		ladderServer, ladderSession = server, session
+		return "codex-workers"
+	}
+	resolveAgentFn = func(_ context.Context, _, _, preset string) riff.ResolvedAgent {
+		agentPreset = preset
+		return riff.ResolvedAgent{Launcher: "codex", SkillPrefix: "$"}
+	}
+	it, err := operator.NewPaneItem("x", nil, map[string]interface{}{"repo": fabRepo.Dir, scopeTask: "fix it", scopeBase: "eng-v2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := newEngine(h.env).buildPrompt(context.Background(), it, fabRepo.Dir, "grp", "main", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ladderServer != "ws" || ladderSession != "grp" || agentPreset != "codex-workers" {
+		t.Errorf("ladder %q/%q, agent preset %q; want ws/grp and codex-workers", ladderServer, ladderSession, agentPreset)
+	}
+	if !strings.Contains(got, "After $fab-new creates the change") {
+		t.Errorf("prompt = %q, want the codex `$` skill prefix", got)
 	}
 }

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -104,8 +105,12 @@ type sessionStringOption struct {
 	// (flair) falls through to the unset arm, while one rejecting it (color)
 	// 400s — so null is color's only clear form.
 	validate func(value string) string
-	set      func(session, value, server string) error
-	unset    func(session, server string) error
+	// check is an optional extra rule run before a non-empty value is set
+	// (membership against an external list); it returns the HTTP status and
+	// message of a rejection, or (0, "") to proceed. Nothing is written on one.
+	check func(ctx context.Context, session, value, server string) (status int, msg string)
+	set   func(session, value, server string) error
+	unset func(session, server string) error
 }
 
 // handleSessionStringOption is the shared handler behind the session-scoped
@@ -132,6 +137,13 @@ func (s *Server) handleSessionStringOption(w http.ResponseWriter, r *http.Reques
 	}
 
 	server := serverFromRequest(r)
+
+	if opt.check != nil && value != nil && *value != "" {
+		if status, msg := opt.check(r.Context(), session, *value, server); msg != "" {
+			writeError(w, status, msg)
+			return
+		}
+	}
 
 	if value != nil && *value != "" {
 		err = opt.set(session, *value, server)

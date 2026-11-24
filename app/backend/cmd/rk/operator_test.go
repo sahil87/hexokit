@@ -16,6 +16,7 @@ import (
 	"rk/internal/config"
 	"rk/internal/inject"
 	"rk/internal/riff"
+	"rk/internal/tmux"
 
 	"github.com/spf13/cobra"
 )
@@ -60,6 +61,12 @@ type operatorStub struct {
 
 	repoRoot string
 	tier     string
+	// preset is the agent-preset name the ladder stub resolves ("" = none);
+	// ladderServer/ladderSession/ladderTMUX record its target and
+	// resolvedPreset what the agent resolution then received.
+	preset                                  string
+	ladderServer, ladderSession, ladderTMUX string
+	resolvedPreset                          string
 	// skillPrefix is the resolved agent's skill-invocation prefix the stub
 	// serves ("/" unless a test overrides it).
 	skillPrefix string
@@ -131,10 +138,15 @@ func stubOperatorSeams(t *testing.T, listOutput string) *operatorStub {
 		}
 		return nil, fmt.Errorf("unexpected RunOutput verb %q", args[0])
 	}
-	origResolve := operatorResolveAgentFn
-	operatorResolveAgentFn = func(_ context.Context, rr, tr string) riff.ResolvedAgent {
+	origResolve, origPreset := operatorResolveAgentFn, operatorResolvePresetFn
+	operatorResolvePresetFn = func(_ context.Context, explicit, server, session, callerTMUX string) string {
+		s.ladderServer, s.ladderSession, s.ladderTMUX = server, session, callerTMUX
+		return s.preset
+	}
+	operatorResolveAgentFn = func(_ context.Context, rr, tr, preset string) riff.ResolvedAgent {
 		s.repoRoot = rr
 		s.tier = tr
+		s.resolvedPreset = preset
 		prefix := s.skillPrefix
 		if prefix == "" {
 			prefix = "/"
@@ -179,7 +191,7 @@ func stubOperatorSeams(t *testing.T, listOutput string) *operatorStub {
 	t.Cleanup(func() {
 		operatorOriginalTMUXFn = origTMUX
 		operatorRunFn, operatorRunOutputFn = origRun, origOut
-		operatorResolveAgentFn = origResolve
+		operatorResolveAgentFn, operatorResolvePresetFn = origResolve, origPreset
 		operatorDeliverFn = origDeliver
 		operatorGetRootFn = origGetRoot
 		operatorStampRootFn = origStampRoot
@@ -1408,5 +1420,35 @@ func TestOperatorDeliveryOptsByMode(t *testing.T) {
 				t.Error("IsGone must match exactly tmux's can't find pane diagnostic")
 			}
 		})
+	}
+}
+
+// The chat window follows the ladder for the hidden operator session on the
+// caller's server: a resolved name reaches the agent resolution and becomes
+// `-e FAB_AGENT_PRESET=<name>` before the shell command; with none the
+// new-window argv is exactly the golden one (TestOperatorCreatesStampsAndDelivers).
+func TestOperatorChatWindowCarriesTheAgentPreset(t *testing.T) {
+	resetOperatorWorkers(t)
+	s := stubOperatorSeams(t, "@3\t\tother\n")
+	s.preset = "codex-review"
+	cmd, _, _ := operatorTestCmd()
+	if err := runOperator(cmd); err != nil {
+		t.Fatalf("runOperator() = %v", err)
+	}
+	if s.ladderSession != tmux.OperatorSessionName || s.ladderServer != "" || s.ladderTMUX != operatorTestSocket {
+		t.Errorf("ladder target = server %q session %q tmux %q, want the caller's server and %s", s.ladderServer, s.ladderSession, s.ladderTMUX, tmux.OperatorSessionName)
+	}
+	if s.resolvedPreset != "codex-review" {
+		t.Errorf("agent resolution preset = %q, want codex-review", s.resolvedPreset)
+	}
+	var newWindow []string
+	for _, c := range s.calls {
+		if c.args[0] == "new-window" {
+			newWindow = c.args
+		}
+	}
+	joined := strings.Join(newWindow, " ")
+	if want := "-n operator -e FAB_AGENT_PRESET=codex-review "; !strings.Contains(joined, want) {
+		t.Errorf("new-window argv %q missing %q (env before the shell command)", joined, want)
 	}
 }

@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"rk/internal/fabsysconfig"
 )
 
 // TestMain post-sweeps dead-PID test sockets AFTER all tests run, self-healing
@@ -28,6 +30,11 @@ import (
 // directs a small duplicated helper over exporting test-only logic from
 // production code.
 func TestMain(m *testing.M) {
+	// Hermetic default: no test may reach the developer's real fab for the
+	// preset list; tests that need a table stub listAgentPresets themselves.
+	listAgentPresets = func(context.Context, string) ([]fabsysconfig.AgentPreset, error) {
+		return nil, fabsysconfig.ErrPresetsUnsupported
+	}
 	code := m.Run()
 	sweepDeadTestSockets()
 	os.Exit(code)

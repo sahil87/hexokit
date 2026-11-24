@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { spawnRiff, getRiffPresets, type RiffPreset, type RiffWhere } from "@/api/client";
+import { spawnRiff, getRiffPresets, type FabAgentPreset, type RiffPreflight, type RiffPreset, type RiffWhere } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { controlClass } from "@/components/control";
 import { INPUT_COARSE, INPUT_FOCUS } from "@/components/controls";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { finalizeSafeName, toSafeWorktreeName } from "@/lib/names";
+import { NO_AGENT_PRESET, rememberRepoAgentPresets } from "@/lib/agent-presets";
 
 type SpawnAgentDialogProps = {
   /** The target tmux server — the server that OWNS the target session. Supplied
@@ -27,6 +28,17 @@ type SpawnAgentDialogProps = {
  *  to the shipped (tier-less) path. */
 const DEFAULT_TIER = "default";
 
+/** The inherit option's label: the group's/workspace's preset when one is set,
+ *  else the machine setting. */
+function inheritLabel(inherited: RiffPreflight["agentPresetInherited"]): string {
+  if (!inherited) return "Default (machine setting)";
+  return `${inherited.from === "group" ? "Group" : "Workspace"} default: ${inherited.name}`;
+}
+
+function presetOptionLabel(p: FabAgentPreset): string {
+  return p.description ? `${p.name} — ${p.description}` : p.name;
+}
+
 /**
  * Compact dialog surfacing `rk riff` as a one-action web spawn (260713-sbk1,
  * extended to the full mockup in 260714-q9cg). Fields in mockup order:
@@ -36,6 +48,8 @@ const DEFAULT_TIER = "default";
  *   Where     — radio: new worktree (default) | this checkout
  *   Worktree  — editable name, blank = auto-named; hidden when "this checkout"
  *   Agent     — tier dropdown (built-ins ∪ repo agent.tiers), default = "default"
+ *   Agent preset — dropdown: inherit (labelled with the group/workspace default),
+ *                  one row per fab preset, `none`; hidden when fab lists none
  *
  * The title carries the target session (`Spawn agent in {session}`). Enter
  * submits from any field. While the synchronous spawn runs it shows an
@@ -57,6 +71,10 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
   const [worktreeName, setWorktreeName] = useState("");
   const [tier, setTier] = useState(DEFAULT_TIER);
   const [tiers, setTiers] = useState<string[]>([DEFAULT_TIER]);
+  // "" = inherit (nothing sent); any other value is an explicit pick.
+  const [agentPreset, setAgentPreset] = useState("");
+  const [agentPresets, setAgentPresets] = useState<FabAgentPreset[] | undefined>(undefined);
+  const [agentPresetInherited, setAgentPresetInherited] = useState<RiffPreflight["agentPresetInherited"]>(undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const taskRef = useRef<HTMLInputElement>(null);
@@ -89,11 +107,17 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
         if (cancelled) return;
         setRiffPresets(data.riffPresets);
         setTiers(data.tiers);
+        setAgentPresets(data.agentPresets);
+        // The group card judges its stored preset against this repo-scoped list.
+        rememberRepoAgentPresets(server, session, data.agentPresets);
+        setAgentPresetInherited(data.agentPresetInherited);
       })
       .catch(() => {
         if (!cancelled) {
           setRiffPresets([]);
           setTiers([DEFAULT_TIER]);
+          setAgentPresets(undefined);
+          setAgentPresetInherited(undefined);
         }
       });
     return () => {
@@ -125,6 +149,8 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
       // — non-empty tiers). When the field is hidden (non-fab repo) `tier` is
       // omitted entirely, matching the gate: rk never sends an inert tier.
       tier: tiers.length > 0 ? tier : undefined,
+      // Only an explicit pick is sent; inherit leaves the ladder to the backend.
+      agentPreset: agentPresets && agentPreset ? agentPreset : undefined,
     })
       .then((res) => {
         if (!mountedRef.current) return;
@@ -140,7 +166,7 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
         setBusy(false);
         setError(err.message || "Failed to spawn agent");
       });
-  }, [busy, server, session, task, riffPreset, where, worktreeName, tier, tiers, onClose, onSpawned]);
+  }, [busy, server, session, task, riffPreset, where, worktreeName, tier, tiers, agentPreset, agentPresets, onClose, onSpawned]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter") {
@@ -271,6 +297,29 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
                 {t}
               </option>
             ))}
+          </select>
+        </div>
+      )}
+
+      {/* Agent preset — hidden when fab lists no presets (older fab / failure). */}
+      {agentPresets && (
+        <div className="mb-3">
+          <p className="text-xs text-text-secondary mb-1.5">Agent preset:</p>
+          <select
+            value={agentPreset}
+            onChange={(e) => setAgentPreset(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={busy}
+            aria-label="Agent preset"
+            className="w-full bg-bg-primary text-text-primary p-2 border border-border rounded outline-none disabled:opacity-50"
+          >
+            <option value="">{inheritLabel(agentPresetInherited)}</option>
+            {agentPresets.map((p) => (
+              <option key={p.name} value={p.name}>
+                {presetOptionLabel(p)}
+              </option>
+            ))}
+            <option value={NO_AGENT_PRESET}>none — no preset, even the machine default</option>
           </select>
         </div>
       )}

@@ -54,6 +54,10 @@ import {
   setWindowRole,
   setWindowFlair,
   setSessionFlair,
+  setSessionAgentPreset,
+  setServerAgentPreset,
+  spawnRiff,
+  getRiffPresets,
   addWebTab,
   removeWebTab,
   selectWebTab,
@@ -1055,6 +1059,78 @@ describe("POST verb migration + /options contract", () => {
     expect(capturedMethod).toBe("POST");
     expect(capturedUrl).toMatch(/\/api\/sessions\/alpha\/flair\?server=default$/);
     expect(bodies).toEqual([{ flair: "naruto" }, { flair: null }]);
+  });
+
+  it("setSessionAgentPreset POSTs /api/sessions/{session}/agent-preset with {agent_preset}; null clears", async () => {
+    let capturedUrl = "";
+    const bodies: Array<{ agent_preset?: string | null }> = [];
+    mswServer.use(
+      http.post("/api/sessions/:session/agent-preset", async ({ request }) => {
+        capturedUrl = request.url;
+        bodies.push((await request.json()) as { agent_preset?: string | null });
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await setSessionAgentPreset("default", "alpha", "codex-review");
+    await setSessionAgentPreset("default", "alpha", null);
+    expect(capturedUrl).toMatch(/\/api\/sessions\/alpha\/agent-preset\?server=default$/);
+    expect(bodies).toEqual([{ agent_preset: "codex-review" }, { agent_preset: null }]);
+  });
+
+  it("setServerAgentPreset POSTs /api/servers/agent-preset with {name, agent_preset}; a 400 throws its message", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    mswServer.use(
+      http.post("/api/servers/agent-preset", async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        bodies.push(body);
+        if (body.agent_preset === "nope") {
+          return HttpResponse.json({ error: 'unknown agent preset "nope"' }, { status: 400 });
+        }
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await setServerAgentPreset("work", "claude");
+    await setServerAgentPreset("work", null);
+    expect(bodies).toEqual([
+      { name: "work", agent_preset: "claude" },
+      { name: "work", agent_preset: null },
+    ]);
+    await expect(setServerAgentPreset("work", "nope")).rejects.toThrow(/unknown agent preset/);
+  });
+
+  it("spawnRiff sends agent_preset only for an explicit pick", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    mswServer.use(
+      http.post("/api/riff", async ({ request }) => {
+        bodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json({ server: "s", session: "a", window: "w", windowId: "@1" });
+      }),
+    );
+    await spawnRiff("s", "a", {});
+    await spawnRiff("s", "a", { agentPreset: "none" });
+    expect(bodies[0]).toEqual({ session: "a" });
+    expect(bodies[1]).toEqual({ session: "a", agent_preset: "none" });
+  });
+
+  it("getRiffPresets maps agent_presets and agent_preset_inherited; both stay absent for an older backend", async () => {
+    mswServer.use(
+      http.get("/api/riff/presets", ({ request }) => {
+        const session = new URL(request.url).searchParams.get("session");
+        if (session === "old") return HttpResponse.json({ riff_presets: [], tiers: [] });
+        return HttpResponse.json({
+          riff_presets: [],
+          tiers: [],
+          agent_presets: [{ name: "claude", source: "built-in" }],
+          agent_preset_inherited: { name: "claude", from: "workspace" },
+        });
+      }),
+    );
+    const modern = await getRiffPresets("s", "new");
+    expect(modern.agentPresets).toEqual([{ name: "claude", source: "built-in" }]);
+    expect(modern.agentPresetInherited).toEqual({ name: "claude", from: "workspace" });
+    const old = await getRiffPresets("s", "old");
+    expect(old.agentPresets).toBeUndefined();
+    expect(old.agentPresetInherited).toBeUndefined();
   });
 
   it("setThemePreference issues POST (not PUT) with the changed keys as a patch", async () => {

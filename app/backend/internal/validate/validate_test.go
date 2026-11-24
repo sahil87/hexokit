@@ -917,3 +917,33 @@ func TestValidateGitHubRepo(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateAgentPresetName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantErr  bool
+		contains string
+	}{
+		{"built-in", "codex-review", false, ""},
+		{"underscore", "my_preset", false, ""},
+		{"reserved none", "none", false, ""},
+		{"empty", "", true, "Agent preset name"},
+		{"leading hyphen is a flag", "--x", true, "must not start with a hyphen"},
+		{"semicolon", "a;b", true, "alphanumeric"},
+		{"space", "a b", true, "alphanumeric"},
+		{"equals would split an env entry", "a=b", true, "alphanumeric"},
+		{"over max length", strings.Repeat("a", MaxTierNameLength+1), true, "maximum length"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ValidateAgentPresetName(tt.input)
+			if tt.wantErr != (got != "") {
+				t.Fatalf("ValidateAgentPresetName(%q) = %q, wantErr %v", tt.input, got, tt.wantErr)
+			}
+			if tt.contains != "" && !contains(got, tt.contains) {
+				t.Errorf("ValidateAgentPresetName(%q) = %q, want it to contain %q", tt.input, got, tt.contains)
+			}
+		})
+	}
+}

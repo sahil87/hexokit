@@ -28,9 +28,13 @@ type restoreOps struct {
 	selectPane         func(paneID, server string) error
 	selectWindow       func(session, windowID, server string) error
 	setSessionColor    func(session, color, server string) error
-	setWindowOpts      func(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error
-	setSessionOrder    func(ctx context.Context, server string, order []string) error
-	setServerRank      func(ctx context.Context, server string, rank int) error
+	// setSessionAgentPreset / setServerAgentPreset re-apply the group and
+	// workspace agent presets.
+	setSessionAgentPreset func(session, name, server string) error
+	setServerAgentPreset  func(ctx context.Context, server, name string) error
+	setWindowOpts         func(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error
+	setSessionOrder       func(ctx context.Context, server string, order []string) error
+	setServerRank         func(ctx context.Context, server string, rank int) error
 	// dirExists reports whether a stored pane cwd still exists on disk (a
 	// deleted worktree falls back to the server default dir with a note).
 	dirExists func(path string) bool
@@ -47,15 +51,17 @@ func productionRestoreOps() restoreOps {
 		createWindowAppend: func(session, name, cwd, server string) (string, error) {
 			return tmux.CreateWindowWithOptionsID(session, name, cwd, server, nil)
 		},
-		renumberWindow:  tmux.RenumberWindow,
-		splitWindow:     tmux.SplitWindow,
-		selectLayout:    tmux.SelectLayout,
-		selectPane:      tmux.SelectPane,
-		selectWindow:    tmux.SelectWindowInSession,
-		setSessionColor: tmux.SetSessionColor,
-		setWindowOpts:   tmux.SetWindowOptions,
-		setSessionOrder: tmux.SetSessionOrder,
-		setServerRank:   tmux.SetServerRank,
+		renumberWindow:        tmux.RenumberWindow,
+		splitWindow:           tmux.SplitWindow,
+		selectLayout:          tmux.SelectLayout,
+		selectPane:            tmux.SelectPane,
+		selectWindow:          tmux.SelectWindowInSession,
+		setSessionColor:       tmux.SetSessionColor,
+		setSessionAgentPreset: tmux.SetSessionAgentPreset,
+		setServerAgentPreset:  tmux.SetServerAgentPreset,
+		setWindowOpts:         tmux.SetWindowOptions,
+		setSessionOrder:       tmux.SetSessionOrder,
+		setServerRank:         tmux.SetServerRank,
 		dirExists: func(path string) bool {
 			info, err := os.Stat(path)
 			return err == nil && info.IsDir()
@@ -275,6 +281,13 @@ func restore(ctx context.Context, server string, snap *Snapshot, ops restoreOps)
 			}
 		}
 
+		if sess.AgentPreset != "" && len(rs.Windows) > 0 {
+			if perr := ops.setSessionAgentPreset(sess.Name, sess.AgentPreset, server); perr != nil {
+				report.Notes = append(report.Notes,
+					fmt.Sprintf("session %q: agent preset not reapplied: %v", sess.Name, perr))
+			}
+		}
+
 		if len(rs.Windows) > 0 {
 			report.Sessions = append(report.Sessions, rs)
 		}
@@ -293,6 +306,11 @@ func restore(ctx context.Context, server string, snap *Snapshot, ops restoreOps)
 	if snap.ServerRank != nil {
 		if err := ops.setServerRank(ctx, server, *snap.ServerRank); err != nil {
 			report.Notes = append(report.Notes, fmt.Sprintf("server rank not reapplied: %v", err))
+		}
+	}
+	if snap.ServerAgentPreset != "" {
+		if err := ops.setServerAgentPreset(ctx, server, snap.ServerAgentPreset); err != nil {
+			report.Notes = append(report.Notes, fmt.Sprintf("server agent preset not reapplied: %v", err))
 		}
 	}
 

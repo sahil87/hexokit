@@ -114,7 +114,10 @@ var (
 	tutorialRunOutputFn = func(ctx context.Context, args, env []string) ([]byte, error) {
 		return tmux.RunOutput(ctx, args, tmux.RunOpts{Env: env})
 	}
-	tutorialResolveLauncherFn = riff.ResolveLauncher
+	// rk tutorial is not a group/workspace spawn: it resolves under no preset.
+	tutorialResolveLauncherFn = func(ctx context.Context, repoRoot, tier string) string {
+		return riff.ResolveLauncher(ctx, repoRoot, tier, "")
+	}
 )
 
 // runTutorialWithExitCode is the cobra RunE. The riff ExitCodeError discipline

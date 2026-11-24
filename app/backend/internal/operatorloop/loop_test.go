@@ -31,17 +31,18 @@ func newRig(t *testing.T) *rig {
 		now       func() time.Time
 		windows   func(context.Context, string) ([]tmux.RunWindow, error)
 		check     func(context.Context, string, operator.CheckOptions) (operator.CheckResult, error)
-		launch    func(context.Context, string, string, string, string, string) (tmux.WindowBirth, error)
+		launch    func(context.Context, string, string, string, string, string, []string) (tmux.WindowBirth, error)
 		root      func(context.Context, string) (string, error)
-		resolve   func(context.Context, string, string) string
+		resolve   func(context.Context, string, string, string) string
+		preset    func(context.Context, string, string, string, string) string
 		self      func() (string, error)
 		home      func() (string, error)
 		runID     func() (string, error)
 		lastLoop  func(string, string) (string, bool)
-	}{statePathFn, nowTime, listRunWindowsFn, checkFn, launchWindowFn, operatorRootFn, resolveLauncherFn, selfPathFn, homeDirFn, newRunIDFn, lastLoopOutcomeFn}
+	}{statePathFn, nowTime, listRunWindowsFn, checkFn, launchWindowFn, operatorRootFn, resolveLauncherFn, resolvePresetFn, selfPathFn, homeDirFn, newRunIDFn, lastLoopOutcomeFn}
 	t.Cleanup(func() {
 		statePathFn, nowTime, listRunWindowsFn, checkFn = saved.statePath, saved.now, saved.windows, saved.check
-		launchWindowFn, operatorRootFn, resolveLauncherFn = saved.launch, saved.root, saved.resolve
+		launchWindowFn, operatorRootFn, resolveLauncherFn, resolvePresetFn = saved.launch, saved.root, saved.resolve, saved.preset
 		selfPathFn, homeDirFn, newRunIDFn = saved.self, saved.home, saved.runID
 		lastLoopOutcomeFn = saved.lastLoop
 	})
@@ -52,7 +53,8 @@ func newRig(t *testing.T) *rig {
 	selfPathFn = func() (string, error) { return "/opt/rk/bin/rk", nil }
 	homeDirFn = func() (string, error) { return "/home/tester", nil }
 	operatorRootFn = func(context.Context, string) (string, error) { return "", nil }
-	resolveLauncherFn = func(context.Context, string, string) string { return riffDefaultForTest }
+	resolveLauncherFn = func(context.Context, string, string, string) string { return riffDefaultForTest }
+	resolvePresetFn = func(context.Context, string, string, string, string) string { return "" }
 	return r
 }
 

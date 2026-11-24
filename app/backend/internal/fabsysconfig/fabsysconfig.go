@@ -648,21 +648,81 @@ type presetList struct {
 }
 
 func (c *Client) listPresets(ctx context.Context) presetList {
-	stdout, stderr, err := c.run(ctx, "agent", "presets", "--json")
+	stdout, stderr, err := c.run(ctx, presetsArgv...)
 	if err != nil {
 		return presetList{}
 	}
-	var presets []AgentPreset
-	// A JSON null decodes without error; it is not a list, so fall back too.
-	if json.Unmarshal(stdout, &presets) != nil || presets == nil {
+	presets, ok := decodePresets(stdout)
+	if !ok {
 		return presetList{}
 	}
 	return presetList{presets: presets, warnings: warningLines(stderr), ok: true}
 }
 
-func (l presetList) names() []string {
-	names := make([]string, 0, len(l.presets))
-	for _, p := range l.presets {
+// presetsArgv is the fab invocation behind every preset list read.
+var presetsArgv = []string{"agent", "presets", "--json"}
+
+// decodePresets decodes `fab agent presets --json` output. A JSON null
+// decodes without error but is not a list, so it reports !ok like malformed
+// output.
+func decodePresets(stdout []byte) ([]AgentPreset, bool) {
+	var presets []AgentPreset
+	if json.Unmarshal(stdout, &presets) != nil || presets == nil {
+		return nil, false
+	}
+	return presets, true
+}
+
+// ErrPresetsUnsupported reports a fab that cannot list agent presets (one
+// that predates the verb, or a failed/timed-out call).
+var ErrPresetsUnsupported = errors.New("agent presets are not supported by the installed fab")
+
+// ListAgentPresets runs `fab agent presets --json` with dir as the working
+// directory, so project-defined presets resolve for that repo; the machine-wide
+// view passes $HOME. Any failure (fab absent or older, timeout, non-array
+// output) returns ErrPresetsUnsupported.
+func ListAgentPresets(ctx context.Context, dir string) ([]AgentPreset, error) {
+	stdout, err := runPresetsIn(ctx, dir)
+	if err != nil {
+		return nil, ErrPresetsUnsupported
+	}
+	presets, ok := decodePresets(stdout)
+	if !ok {
+		return nil, ErrPresetsUnsupported
+	}
+	return presets, nil
+}
+
+// runPresetsIn is the exec seam behind ListAgentPresets (a var for tests).
+var runPresetsIn = func(ctx context.Context, dir string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, FabTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "fab", presetsArgv...)
+	cmd.Dir = dir
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return nil, err
+	}
+	return stdout.Bytes(), nil
+}
+
+// PresetNone is fab's reserved "no preset here, even if a lower layer chose
+// one"; it is never listed but accepted wherever a preset name is.
+const PresetNone = presetNone
+
+// CheckPresetMember accepts a name fab lists, or the reserved PresetNone.
+func CheckPresetMember(name string, presets []AgentPreset) error {
+	names := namesOf(presets)
+	if name != PresetNone && !contains(names, name) {
+		return fmt.Errorf("unknown agent preset %q (available: %s)", name, strings.Join(names, ", "))
+	}
+	return nil
+}
+
+func namesOf(presets []AgentPreset) []string {
+	names := make([]string, 0, len(presets))
+	for _, p := range presets {
 		names = append(names, p.Name)
 	}
 	return names
@@ -995,10 +1055,10 @@ func validatePreset(name string, presets presetList) (*string, error) {
 		return nil, err
 	}
 	if !presets.ok {
-		return nil, errors.New("agent presets are not supported by the installed fab")
+		return nil, ErrPresetsUnsupported
 	}
-	if name != presetNone && !contains(presets.names(), name) {
-		return nil, fmt.Errorf("unknown agent preset %q (available: %s)", name, strings.Join(presets.names(), ", "))
+	if err := CheckPresetMember(name, presets.presets); err != nil {
+		return nil, err
 	}
 	return &name, nil
 }

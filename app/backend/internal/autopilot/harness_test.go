@@ -379,11 +379,12 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	prev := resolveAgentFn
-	resolveAgentFn = func(context.Context, string, string) riff.ResolvedAgent {
+	prev, prevPreset := resolveAgentFn, resolvePresetFn
+	resolveAgentFn = func(context.Context, string, string, string) riff.ResolvedAgent {
 		return riff.ResolvedAgent{Launcher: "claude", SkillPrefix: "/"}
 	}
-	t.Cleanup(func() { resolveAgentFn = prev })
+	resolvePresetFn = func(context.Context, string, string, string, string) string { return "" }
+	t.Cleanup(func() { resolveAgentFn, resolvePresetFn = prev, prevPreset })
 
 	run := &scriptRunner{}
 	h := &harness{t: t, run: run, panes: &fakePanes{panes: map[string]operator.PaneInfo{}}, spawn: newFakeSpawner(t), clock: time.Now()}

@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"rk/internal/config"
+	"rk/internal/fabsysconfig"
 	"rk/internal/riff"
 	"rk/internal/settings"
 	"rk/internal/testutil"
@@ -828,4 +829,150 @@ func TestRiffPresetDeprecatedAliases(t *testing.T) {
 			}
 		}
 	})
+}
+
+// agentPresetRiffRun drives runRiff against the stub-binaries fixture with an
+// explicit --agent-preset value and the fab/tmux seams stubbed, returning the
+// run's error plus the tmux and fab-env logs.
+func agentPresetRiffRun(t *testing.T, pick string, presets []fabsysconfig.AgentPreset, listErr error) (err error, tmuxLog, fabEnvLog string) {
+	t.Helper()
+	repoRoot, tmuxLog, _ := riffTargetFixture(t)
+	stubDir := filepath.Dir(tmuxLog)
+	fabEnvLog = filepath.Join(stubDir, "fab-env.log")
+	testutil.WriteStub(t, stubDir, "fab", "#!/bin/sh\nprintf '%s\\n' \"${FAB_AGENT_PRESET-unset}\" >> "+fabEnvLog+"\n"+
+		"printf 'command: claude --dangerously-skip-permissions\\nskill_prefix: /\\n'\n")
+
+	origList, origLadder, origPick := riffListAgentPresetsFn, riffResolveAgentPresetFn, riffAgentPresetFlag
+	riffListAgentPresetsFn = func(context.Context, string) ([]fabsysconfig.AgentPreset, error) { return presets, listErr }
+	t.Cleanup(func() {
+		riffListAgentPresetsFn, riffResolveAgentPresetFn, riffAgentPresetFlag = origList, origLadder, origPick
+	})
+	riffServerFlag, riffRepoFlag, riffAgentPresetFlag = "scratch", repoRoot, pick
+	riffPaneSpecs, riffLayoutFlag, riffCountFlag = nil, "auto", 1
+
+	cmd := &cobra.Command{}
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetContext(context.Background())
+	return runRiff(cmd, nil, nil), tmuxLog, fabEnvLog
+}
+
+func TestRiffAgentPresetValidation(t *testing.T) {
+	listed := []fabsysconfig.AgentPreset{{Name: "claude"}, {Name: "codex-review"}}
+	cases := []struct {
+		name     string
+		pick     string
+		presets  []fabsysconfig.AgentPreset
+		listErr  error
+		wantCode int
+		wantMsg  string
+	}{
+		{"bad charset", "a;b", listed, nil, exitUsage, "--agent-preset"},
+		{"leading hyphen", "--x", listed, nil, exitUsage, "must not start with a hyphen"},
+		{"unknown name", "bogus", listed, nil, riff.ExitValidation, `unknown agent preset "bogus" (available: claude, codex-review)`},
+		{"older fab", "claude", nil, fabsysconfig.ErrPresetsUnsupported, riff.ExitValidation, "not supported by the installed fab"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err, tmuxLog, fabEnvLog := agentPresetRiffRun(t, tc.pick, tc.presets, tc.listErr)
+			if err == nil || !strings.Contains(err.Error(), tc.wantMsg) {
+				t.Fatalf("err = %v, want it to contain %q", err, tc.wantMsg)
+			}
+			got := exitCode(err)
+			var ece *riff.ExitCodeError
+			if errors.As(err, &ece) {
+				got = ece.Code
+			}
+			if got != tc.wantCode {
+				t.Errorf("exit code = %d, want %d", got, tc.wantCode)
+			}
+			for _, log := range []string{tmuxLog, fabEnvLog} {
+				if data, readErr := os.ReadFile(log); readErr == nil {
+					t.Errorf("a subprocess ran despite the rejection: %q", data)
+				}
+			}
+		})
+	}
+}
+
+// A valid pick rides the fab exec env and `-e` on the new window; with neither
+// a pick nor an option the window argv has no `-e` and fab's env is untouched.
+func TestRiffAgentPresetPassThrough(t *testing.T) {
+	listed := []fabsysconfig.AgentPreset{{Name: "claude"}, {Name: "codex-review"}}
+
+	t.Run("explicit pick", func(t *testing.T) {
+		err, tmuxLog, fabEnvLog := agentPresetRiffRun(t, "codex-review", listed, nil)
+		if err != nil {
+			t.Fatalf("runRiff: %v", err)
+		}
+		fabEnv, _ := os.ReadFile(fabEnvLog)
+		if got := strings.TrimSpace(string(fabEnv)); got != "codex-review" {
+			t.Errorf("fab saw FAB_AGENT_PRESET=%q, want codex-review", got)
+		}
+		tmuxData, _ := os.ReadFile(tmuxLog)
+		if !strings.Contains(string(tmuxData), "-e FAB_AGENT_PRESET=codex-review ") {
+			t.Errorf("tmux log lacks -e FAB_AGENT_PRESET=codex-review:\n%s", tmuxData)
+		}
+	})
+
+	t.Run("ladder from the caller's session and server", func(t *testing.T) {
+		var gotExplicit, gotServer, gotSession string
+		repoRoot, tmuxLog, _ := riffTargetFixture(t)
+		riffResolveAgentPresetFn = func(_ context.Context, explicit, server, session, _ string) string {
+			gotExplicit, gotServer, gotSession = explicit, server, session
+			return "claude"
+		}
+		t.Cleanup(func() { riffResolveAgentPresetFn = riff.ResolveAgentPreset })
+		riffServerFlag, riffRepoFlag, riffAgentPresetFlag = "scratch", repoRoot, ""
+		riffPaneSpecs, riffLayoutFlag, riffCountFlag = nil, "auto", 1
+		cmd := &cobra.Command{}
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetContext(context.Background())
+		if err := runRiff(cmd, nil, nil); err != nil {
+			t.Fatalf("runRiff: %v", err)
+		}
+		// The session is "boot" when the process has no $TMUX (the -L default
+		// rule) and "" (the caller's current session) when it does.
+		if gotExplicit != "" || gotServer != "scratch" || (gotSession != "boot" && gotSession != "") {
+			t.Errorf("ladder ran for (%q, %q, %q), want no pick on server scratch and the caller's session", gotExplicit, gotServer, gotSession)
+		}
+		if data, _ := os.ReadFile(tmuxLog); !strings.Contains(string(data), "-e FAB_AGENT_PRESET=claude ") {
+			t.Errorf("tmux log lacks the ladder's -e FAB_AGENT_PRESET=claude:\n%s", data)
+		}
+	})
+
+	t.Run("nothing resolved leaves the argv and fab env unchanged", func(t *testing.T) {
+		repoRoot, tmuxLog, _ := riffTargetFixture(t)
+		stubDir := filepath.Dir(tmuxLog)
+		fabEnvLog := filepath.Join(stubDir, "fab-env.log")
+		testutil.WriteStub(t, stubDir, "fab", "#!/bin/sh\nprintf '%s\\n' \"${FAB_AGENT_PRESET-unset}\" >> "+fabEnvLog+"\n"+
+			"printf 'command: claude --dangerously-skip-permissions\\nskill_prefix: /\\n'\n")
+		riffResolveAgentPresetFn = func(context.Context, string, string, string, string) string { return "" }
+		t.Cleanup(func() { riffResolveAgentPresetFn = riff.ResolveAgentPreset })
+		riffServerFlag, riffRepoFlag, riffAgentPresetFlag = "scratch", repoRoot, ""
+		riffPaneSpecs, riffLayoutFlag, riffCountFlag = nil, "auto", 1
+		cmd := &cobra.Command{}
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetContext(context.Background())
+		t.Setenv("FAB_AGENT_PRESET", "")
+		_ = os.Unsetenv("FAB_AGENT_PRESET")
+		if err := runRiff(cmd, nil, nil); err != nil {
+			t.Fatalf("runRiff: %v", err)
+		}
+		if data, _ := os.ReadFile(fabEnvLog); strings.TrimSpace(string(data)) != "unset" {
+			t.Errorf("fab env = %q, want FAB_AGENT_PRESET untouched (unset)", data)
+		}
+		if data, _ := os.ReadFile(tmuxLog); strings.Contains(string(data), "FAB_AGENT_PRESET") || strings.Contains(string(data), " -e ") {
+			t.Errorf("tmux log carries an env for a spawn with no preset:\n%s", data)
+		}
+	})
+}
+
+func TestRiffAgentPresetFlagRegistered(t *testing.T) {
+	f := riffCmd.Flags().Lookup("agent-preset")
+	if f == nil || f.Hidden || !strings.Contains(f.Usage, "agent preset") {
+		t.Fatalf("--agent-preset flag = %+v, want a visible flag with usage text", f)
+	}
 }

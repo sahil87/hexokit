@@ -195,20 +195,19 @@ func buildSpawnArgvs(worktreePath, resolvedName string, spec EffectiveSpec) [][]
 	if t := sessionTarget(spec); t != "" {
 		newWindow = append(newWindow, "-t", t)
 	}
-	newWindow = append(newWindow,
-		"-n", resolvedName,
-		"-c", worktreePath,
-		taskPaneShellString(spec.Launcher, spec.Panes[0]),
-	)
+	newWindow = append(newWindow, "-n", resolvedName, "-c", worktreePath)
+	newWindow = append(newWindow, presetEnvArgs(spec)...)
+	newWindow = append(newWindow, taskPaneShellString(spec.Launcher, spec.Panes[0]))
 	argvs = append(argvs, newWindow)
 	for _, pane := range spec.Panes[1:] {
-		argvs = append(argvs, []string{
+		split := []string{
 			"split-window",
 			"-h",
 			"-t", windowTarget(spec, resolvedName),
 			"-c", worktreePath,
-			paneShellString(spec.Launcher, pane),
-		})
+		}
+		split = append(split, presetEnvArgs(spec)...)
+		argvs = append(argvs, append(split, paneShellString(spec.Launcher, pane)))
 	}
 	if spec.Layout != "" {
 		argvs = append(argvs, []string{"select-layout", "-t", windowTarget(spec, resolvedName), spec.Layout})
@@ -232,12 +231,21 @@ func buildNewWindowCaptureArgs(worktreePath, resolvedName string, spec Effective
 	if t := sessionTarget(spec); t != "" {
 		argv = append(argv, "-t", t)
 	}
-	argv = append(argv,
-		"-n", resolvedName,
-		"-c", worktreePath,
-		taskPaneShellString(spec.Launcher, spec.Panes[0]),
-	)
-	return argv
+	argv = append(argv, "-n", resolvedName, "-c", worktreePath)
+	argv = append(argv, presetEnvArgs(spec)...)
+	return append(argv, taskPaneShellString(spec.Launcher, spec.Panes[0]))
+}
+
+// presetEnvArgs is the `-e FAB_AGENT_PRESET=<name>` pair every pane of the tab
+// is created with, so a fab command the agent runs there (including `fab
+// dispatch start`) resolves the same preset as its launcher. Nil when no preset
+// resolved — the argv is then byte-identical to a spawn that never heard of
+// presets.
+func presetEnvArgs(spec EffectiveSpec) []string {
+	if spec.AgentPreset == "" {
+		return nil
+	}
+	return []string{"-e", AgentPresetEnvEntry(spec.AgentPreset)}
 }
 
 // parsePaneID parses the stdout of `tmux new-window -P -F '#{pane_id}'` (a single

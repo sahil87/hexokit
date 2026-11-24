@@ -155,6 +155,14 @@ type mockTmuxOps struct {
 	unsetSessionFlairSession string
 	unsetSessionFlairErr     error
 
+	// agentPresetCalls records the agent-preset writes in order
+	// ("set-session proj codex-review srv", "unset-server srv", …);
+	// agentPresetOptions seeds the reads, keyed "session:<server>/<name>" and
+	// "server:<server>".
+	agentPresetCalls   []string
+	agentPresetOptions map[string]string
+	agentPresetErr     error
+
 	setWindowColorCalled     bool
 	setWindowColorWindowID   string
 	setWindowColorColor      string
@@ -521,6 +529,28 @@ func (m *mockTmuxOps) UnsetSessionFlair(session string, server string) error {
 		return m.unsetSessionFlairErr
 	}
 	return m.err
+}
+func (m *mockTmuxOps) SetSessionAgentPreset(session string, name string, server string) error {
+	m.agentPresetCalls = append(m.agentPresetCalls, "set-session "+session+" "+name+" "+server)
+	return m.agentPresetErr
+}
+func (m *mockTmuxOps) UnsetSessionAgentPreset(session string, server string) error {
+	m.agentPresetCalls = append(m.agentPresetCalls, "unset-session "+session+" "+server)
+	return m.agentPresetErr
+}
+func (m *mockTmuxOps) GetSessionAgentPreset(ctx context.Context, server, session string) (string, error) {
+	return m.agentPresetOptions["session:"+server+"/"+session], nil
+}
+func (m *mockTmuxOps) SetServerAgentPreset(ctx context.Context, server, name string) error {
+	m.agentPresetCalls = append(m.agentPresetCalls, "set-server "+server+" "+name)
+	return m.agentPresetErr
+}
+func (m *mockTmuxOps) UnsetServerAgentPreset(ctx context.Context, server string) error {
+	m.agentPresetCalls = append(m.agentPresetCalls, "unset-server "+server)
+	return m.agentPresetErr
+}
+func (m *mockTmuxOps) GetServerAgentPreset(ctx context.Context, server string) (string, error) {
+	return m.agentPresetOptions["server:"+server], nil
 }
 func (m *mockTmuxOps) SetWindowColor(windowID string, color string, server string) error {
 	m.setWindowColorCalled = true

@@ -36,9 +36,11 @@ var (
 	launchWindowFn    = tmux.LaunchOperatorRunWindow
 	operatorRootFn    = tmux.GetOperatorRoot
 	resolveLauncherFn = riff.ResolveHeadlessAgent
-	selfPathFn        = selfpath.Stable
-	homeDirFn         = os.UserHomeDir
-	newRunIDFn        = func() (string, error) { return NewRunID(nowTime()) }
+	// resolvePresetFn runs the agent-preset ladder for the run window.
+	resolvePresetFn = riff.ResolveAgentPreset
+	selfPathFn      = selfpath.Stable
+	homeDirFn       = os.UserHomeDir
+	newRunIDFn      = func() (string, error) { return NewRunID(nowTime()) }
 )
 
 // Run handles one due loop fire for fire.Server, in order: a live run window
@@ -206,10 +208,19 @@ func openRunWindow(ctx context.Context, server, dir string, rec Record) error {
 		return fmt.Errorf("resolving rk binary: %w", err)
 	}
 	cwd := runWindowDir(ctx, server)
-	launcher := resolveLauncherFn(ctx, cwd, launcherTier)
+	// The hidden _rk-operator session never carries its own option, so in
+	// practice the workspace's preset applies; the name reaches both the
+	// headless resolver and the run window's env (wrapper and dispatched
+	// workers inherit it).
+	preset := resolvePresetFn(ctx, "", server, tmux.OperatorSessionName, "")
+	launcher := resolveLauncherFn(ctx, cwd, launcherTier, preset)
+	var env []string
+	if preset != "" {
+		env = []string{riff.AgentPresetEnvEntry(preset)}
+	}
 	argv := append(append([]string{self}, wrapperVerb...),
 		"--server", server, "--run", rec.ID, "--", "sh", "-c", launcher)
-	if _, err := launchWindowFn(ctx, server, rec.Window, cwd, shellq.QuoteArgv(argv), rec.ID); err != nil {
+	if _, err := launchWindowFn(ctx, server, rec.Window, cwd, shellq.QuoteArgv(argv), rec.ID, env); err != nil {
 		return err
 	}
 	return nil

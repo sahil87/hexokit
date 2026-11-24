@@ -91,6 +91,8 @@ New agents belong in autopilot queue entries, always in a fresh engine-created w
 
 A **hand spawn**, an agent the user explicitly asks you to start yourself instead of queueing it, is the only case where you start one: `rk riff -L <server> -- --base origin/<branch> --fetch` (riff's `--` passthrough hands the flags to `wt create`; `<branch>` is the default branch unless the user names one), then `rk operator track add <id> --kind pane --pane <pane> --repo <repo> --session <session>` so the loop watches it (`--json` before the `--` prints the pane ids and worktree path). It is not an engine queue entry, so nothing may depend on it; say so. A plain shell tab is `rk tab new -- <cmd>`. Any other request for an agent is a queue entry.
 
+A workspace or group agent preset (`@rk_srv_agent_preset` / `@rk_ses_agent_preset`) applies to every agent the operator spawns — queue entries and hand spawns alike — so never pass your own preset choice; `rk riff --agent-preset <name>` on a hand spawn is only for a preset the user names.
+
 A bare entry gets no prompt and nothing may depend on it. **Never `fab init`** a repo. The engine fetches and SHA-pins the base, creates and tracks the worktree and pane, and projects its binding into the ledger. Use the queue flow below rather than hand-written spawn items or git/wt/tmux choreography.
 
 ## Queues

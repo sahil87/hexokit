@@ -104,6 +104,9 @@ export type ProjectSession = {
    *  Decoration only (FLAIR_STATES in themes.ts) — an ambient CSS-only overlay
    *  with no status semantics. */
   flair?: string;
+  /** The group's agent preset (`@rk_ses_agent_preset`) on the wire key
+   *  `agent_preset`; absent when unset. Read by the session flyout card. */
+  agent_preset?: string;
   /** Content-conditional operator-home marker, computed backend-side at the
    *  FetchSessions join: true only for the `_rk-operator` session while every
    *  window in it carries role "operator". The session and its windows STAY in

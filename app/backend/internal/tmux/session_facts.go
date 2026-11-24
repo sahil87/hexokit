@@ -140,8 +140,8 @@ func buildSessionFacts(lines []string, clients []ClientInfo) []SessionFacts {
 		if len(parts) >= 6 {
 			f.Windows, _ = strconv.Atoi(parts[5])
 		}
-		if len(parts) >= 9 {
-			f.Path = parts[8]
+		if len(parts) >= 10 {
+			f.Path = parts[9]
 		}
 		out = append(out, f)
 	}

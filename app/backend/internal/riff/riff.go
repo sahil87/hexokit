@@ -44,6 +44,7 @@ import (
 
 	"rk/internal/settings"
 	"rk/internal/tmux"
+	"rk/internal/validate"
 )
 
 // Subprocess timeouts — `wt create` is the slowest step (matches constitution
@@ -123,7 +124,11 @@ type EffectiveSpec struct {
 	Count         int      // number of parallel worktree/window pairs (≥ 1)
 	Passthrough   []string // forwarded to wt create
 	Launcher      string
-	Server        string // tmux server label; "" → target current server via OriginalTMUX
+	// AgentPreset is the agent preset resolved for this spawn ("" = none): when
+	// set, every pane of the tab is created with `-e FAB_AGENT_PRESET=<name>`.
+	// It never changes the argv or the env when empty.
+	AgentPreset string
+	Server      string // tmux server label; "" → target current server via OriginalTMUX
 	// Session is the tmux session the window is created in (daemon path). When
 	// non-empty, tmux window operations are session-scoped: `new-window -t
 	// <session>`, `split-window`/`select-layout` target `<session>:<window>`, and
@@ -256,6 +261,12 @@ type Options struct {
 	// Tier is the fab agent tier resolved for the launcher (`fab agent <tier>
 	// -o yaml`). Empty = the default tier (`fab agent -o yaml`, today's path).
 	Tier string
+	// AgentPreset is the explicit agent-preset pick (a name fab lists, or the
+	// reserved "none"), validated by the caller. Empty falls through to the
+	// target session's, then the server's, agent-preset option. Ignored when
+	// ResumeSessionRef is set: a resumed or forked conversation keeps its own
+	// agent.
+	AgentPreset string
 	// ResumeSessionRef identifies the conversation to fork (or resume with
 	// ResumePlain). Validated again at the launcher composition seam.
 	ResumeSessionRef string
@@ -334,9 +345,14 @@ func SpawnObserved(ctx context.Context, opts Options, prepare func(context.Conte
 		return Result{}, ValidationErr("run-kit riff: worktree subdir %q must be a local relative path", opts.WorktreeSubdir)
 	}
 
+	presetName, err := spawnAgentPreset(ctx, opts)
+	if err != nil {
+		return Result{}, err
+	}
+
 	// Preserve configured launcher options when they match the source provider.
 	// A fork must never hand a source session ID to another provider.
-	agent := ResolveAgent(ctx, opts.RepoRoot, opts.Tier)
+	agent := ResolveAgent(ctx, opts.RepoRoot, opts.Tier, presetName)
 	if opts.ForkProvider != "" {
 		if opts.ResumePlain || !sessionUUIDRe.MatchString(opts.ResumeSessionRef) {
 			return Result{}, ValidationErr("run-kit riff: fork requires a valid session UUID and fork mode")
@@ -383,6 +399,7 @@ func SpawnObserved(ctx context.Context, opts Options, prepare func(context.Conte
 		return Result{}, err
 	}
 	spec.Launcher = launcher
+	spec.AgentPreset = presetName
 	spec.Server = opts.Server
 	spec.Session = opts.Session
 	spec.RepoRoot = opts.RepoRoot
@@ -463,6 +480,22 @@ func SpawnObserved(ctx context.Context, opts Options, prepare func(context.Conte
 		BaseSHA:      created.BaseSHA,
 		Init:         created.Init,
 	}, nil
+}
+
+// spawnAgentPreset resolves the one agent-preset name a fresh spawn carries.
+// A resume/fork spawn (ResumeSessionRef set) resolves nothing, so its launcher
+// and panes stay exactly as before; an explicit pick failing the identifier
+// allowlist is a validation error (nothing is created).
+func spawnAgentPreset(ctx context.Context, opts Options) (string, error) {
+	if opts.ResumeSessionRef != "" {
+		return "", nil
+	}
+	if opts.AgentPreset != "" {
+		if msg := validate.ValidateAgentPresetName(opts.AgentPreset); msg != "" {
+			return "", ValidationErr("run-kit riff: %s", msg)
+		}
+	}
+	return ResolveAgentPreset(ctx, opts.AgentPreset, opts.Server, opts.Session, ""), nil
 }
 
 // worktreeWindowRoot returns worktreePath/subdir when subdir names an existing
@@ -566,8 +599,8 @@ var defaultResolvedAgent = ResolvedAgent{Launcher: DefaultLauncher, SkillPrefix:
 // ResolveAgent). Best-effort and never errors: on ANY failure (fab absent,
 // non-zero exit, timeout, empty / whitespace-only / multi-line stdout) it
 // falls back silently to DefaultLauncher.
-func ResolveLauncher(parent context.Context, repoRoot, tier string) string {
-	return ResolveAgent(parent, repoRoot, tier).Launcher
+func ResolveLauncher(parent context.Context, repoRoot, tier, preset string) string {
+	return ResolveAgent(parent, repoRoot, tier, preset).Launcher
 }
 
 // ResolveAgent resolves the launcher AND the provider's skill-invocation prefix
@@ -588,12 +621,12 @@ func ResolveLauncher(parent context.Context, repoRoot, tier string) string {
 //     fine; degrading them to the default would be an unrelated regression) →
 //     {printed, "/"}.
 //  3. both fail → {DefaultLauncher, "/"}.
-func ResolveAgent(parent context.Context, repoRoot, tier string) ResolvedAgent {
-	out, err := runFabAgent(parent, repoRoot, fabAgentYAMLArgs(tier))
+func ResolveAgent(parent context.Context, repoRoot, tier, preset string) ResolvedAgent {
+	out, err := runFabAgent(parent, repoRoot, fabAgentYAMLArgs(tier), preset)
 	if agent, ok := parseFabAgentYAML(string(out), err); ok {
 		return agent
 	}
-	out, err = runFabAgent(parent, repoRoot, fabAgentArgs(tier))
+	out, err = runFabAgent(parent, repoRoot, fabAgentArgs(tier), preset)
 	if launcher, ok := parseFabAgentOutput(string(out), err); ok {
 		return ResolvedAgent{Launcher: launcher, SkillPrefix: "/"}
 	}
@@ -608,8 +641,8 @@ func ResolveAgent(parent context.Context, repoRoot, tier string) ResolvedAgent {
 // predating --headless have no headless launcher to retry for. The result is
 // provider-opaque and meant to run as `sh -c '<launcher>'` with the prompt on
 // stdin.
-func ResolveHeadlessAgent(parent context.Context, repoRoot, tier string) string {
-	out, err := runFabAgent(parent, repoRoot, fabAgentHeadlessArgs(tier))
+func ResolveHeadlessAgent(parent context.Context, repoRoot, tier, preset string) string {
+	out, err := runFabAgent(parent, repoRoot, fabAgentHeadlessArgs(tier), preset)
 	if agent, ok := parseFabAgentYAML(string(out), err); ok {
 		return agent.Launcher
 	}
@@ -628,16 +661,26 @@ func fabAgentHeadlessArgs(tier string) []string {
 
 // runFabAgent runs one `fab` argv with the FabTimeout bound and Dir=repoRoot
 // (when non-empty). Output() (not CombinedOutput()) so stderr can't pollute
-// the parsed fields.
-func runFabAgent(parent context.Context, repoRoot string, argv []string) ([]byte, error) {
+// the parsed fields. A non-empty preset is appended to the inherited env as
+// FAB_AGENT_PRESET (a later duplicate wins, so it beats an ambient value); an
+// empty one leaves cmd.Env nil, i.e. the exec is exactly as it was before
+// presets existed.
+func runFabAgent(parent context.Context, repoRoot string, argv []string, preset string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(parent, FabTimeout)
 	defer cancel()
+	return fabAgentCmd(ctx, repoRoot, argv, preset).Output()
+}
 
+// fabAgentCmd builds the `fab` exec for runFabAgent. Pure (nothing runs).
+func fabAgentCmd(ctx context.Context, repoRoot string, argv []string, preset string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "fab", argv...)
 	if repoRoot != "" {
 		cmd.Dir = repoRoot
 	}
-	return cmd.Output()
+	if preset != "" {
+		cmd.Env = append(os.Environ(), AgentPresetEnvEntry(preset))
+	}
+	return cmd
 }
 
 // fabAgentYAMLArgs builds the `fab` argv for agent resolution: `agent -o yaml`

@@ -50,6 +50,9 @@ type serverInfo struct {
 	// @rk_srv_managed provenance mark (rk-born or adopted). Read at request
 	// time; a read failure or a server gone mid-walk yields false.
 	Managed bool `json:"managed"`
+	// AgentPreset is the workspace's agent preset (@rk_srv_agent_preset);
+	// omitted when unset, unreadable, or the server is gone mid-walk.
+	AgentPreset string `json:"agent_preset,omitempty"`
 }
 
 func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
@@ -84,6 +87,7 @@ func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
 	ephemeral := make(map[string]bool, len(names))
 	protected := make(map[string]bool, len(names))
 	managed := make(map[string]bool, len(names))
+	agentPresets := make(map[string]string, len(names))
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	for _, name := range names {
@@ -112,6 +116,7 @@ func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
 			ephemeral[name] = marks.Ephemeral
 			protected[name] = marks.Protected || name == daemonServerName
 			managed[name] = marks.Managed || name == daemonServerName
+			agentPresets[name] = marks.AgentPreset
 			mu.Unlock()
 		}(name)
 	}
@@ -119,7 +124,7 @@ func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]serverInfo, 0, len(names))
 	for _, name := range names {
-		out = append(out, serverInfo{Name: name, SessionCount: counts[name], WindowCount: windowCounts[name], Rank: ranks[name], Ephemeral: ephemeral[name], Protected: protected[name], Managed: managed[name]})
+		out = append(out, serverInfo{Name: name, SessionCount: counts[name], WindowCount: windowCounts[name], Rank: ranks[name], Ephemeral: ephemeral[name], Protected: protected[name], Managed: managed[name], AgentPreset: agentPresets[name]})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 

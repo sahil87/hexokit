@@ -13,6 +13,14 @@ import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
 import type { ServerInfo } from "@/api/client";
 import { stubMatchMedia } from "@/test-utils/match-media";
+import { loadMachineAgentPresets, resetAgentPresetCache } from "@/lib/agent-presets";
+
+// The card reads the machine preset list lazily; stub the read so the suite
+// never reaches fetch (the card tests run on fake timers).
+vi.mock("@/lib/agent-presets", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/agent-presets")>();
+  return { ...actual, loadMachineAgentPresets: vi.fn(() => Promise.resolve(undefined)) };
+});
 import { computeRowTints, computeRowBorders, deriveUIColors, DEFAULT_DARK_THEME, type RowTint } from "@/themes";
 
 // jsdom does not implement matchMedia — ThemeProvider + useIsMobile both need it.
@@ -36,6 +44,7 @@ function renderPanel(overrides: {
   onCreateSession?: (server: string) => void;
   onKillServer?: (name: string) => void;
   onToggleServerProtect?: (server: string, next: boolean) => void;
+  onClearServerAgentPreset?: (server: string) => void;
 } = {}) {
   const props = {
     server: overrides.server ?? "default",
@@ -55,6 +64,7 @@ function renderPanel(overrides: {
     onCreateSession: overrides.onCreateSession,
     onKillServer: overrides.onKillServer,
     onToggleServerProtect: overrides.onToggleServerProtect,
+    onClearServerAgentPreset: overrides.onClearServerAgentPreset,
   };
   return render(
     <ThemeProvider>
@@ -631,5 +641,74 @@ describe("ServerPanel", () => {
       });
       expect(workTile.querySelector(".rk-flair-matrix")).not.toBeNull();
     });
+  });
+});
+
+// The workspace's agent preset on the server card (shared by the tile mounted
+// here and the sessions-pane group header): a facts line, `(unknown)` + a Clear
+// agent preset row for a name the machine list lacks, `none (no preset)`.
+describe("server card agent preset", () => {
+  const machineList = [
+    { name: "claude", source: "built-in" },
+    { name: "codex-review", source: "built-in" },
+  ];
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetFlyoutWarmState();
+    resetAgentPresetCache();
+    vi.mocked(loadMachineAgentPresets).mockResolvedValue(machineList);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    resetFlyoutWarmState();
+  });
+
+  async function openTile(agentPreset: string | undefined, onClear?: (server: string) => void) {
+    renderPanel({
+      servers: [{ name: "work", sessionCount: 2, windowCount: 5, agent_preset: agentPreset }],
+      server: "work",
+      onClearServerAgentPreset: onClear,
+    });
+    const tile = screen.getByRole("option", { name: /work/ }).parentElement!;
+    act(() => {
+      fireEvent.pointerEnter(tile, { pointerType: "mouse" });
+      fireEvent.mouseEnter(tile);
+      vi.advanceTimersByTime(FLYOUT_OPEN_DELAY_MS + 50);
+    });
+    await act(async () => {});
+  }
+
+  it("omits the line when the workspace has no agent preset", async () => {
+    await openTile(undefined);
+    expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
+    expect(screen.queryByTestId("row-flyout-agent-preset")).toBeNull();
+  });
+
+  it("shows `agent preset: <name>` for a listed preset", async () => {
+    await openTile("claude", vi.fn());
+    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent("agent preset: claude");
+    expect(screen.queryByTestId("row-flyout-clear-agent-preset-action")).toBeNull();
+  });
+
+  it("marks an unlisted name `(unknown)` and offers Clear agent preset", async () => {
+    const onClear = vi.fn();
+    await openTile("old-preset", onClear);
+    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent("agent preset: old-preset (unknown)");
+    fireEvent.click(screen.getByTestId("row-flyout-clear-agent-preset-action"));
+    expect(onClear).toHaveBeenCalledWith("work");
+  });
+
+  it("renders `none (no preset)` for the reserved opt-out", async () => {
+    await openTile("none", vi.fn());
+    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent("agent preset: none (no preset)");
+    expect(screen.queryByTestId("row-flyout-clear-agent-preset-action")).toBeNull();
+  });
+
+  it("shows the raw name, unmarked, when fab lists no presets", async () => {
+    vi.mocked(loadMachineAgentPresets).mockResolvedValue(undefined);
+    await openTile("old-preset", vi.fn());
+    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent(/^agent preset: old-preset$/);
+    expect(screen.queryByTestId("row-flyout-clear-agent-preset-action")).toBeNull();
   });
 });

@@ -333,3 +333,20 @@ func TestNodeFieldsCapturedFromCobra(t *testing.T) {
 		t.Error("text should be the raw UsageString, byte-for-byte")
 	}
 }
+
+// The dump carries `rk riff --help` verbatim, so the agent-preset flag must
+// appear in both its usage line and its flag table.
+func TestBuildDumpRiffDocumentsAgentPreset(t *testing.T) {
+	riff, ok := childByName(buildDump(rootCmd, displayVersion()).Root, "riff")
+	if !ok {
+		t.Fatal("riff is missing from the help dump")
+	}
+	if !strings.Contains(riff.Usage, "--agent-preset <name>") {
+		t.Errorf("riff usage = %q, want it to name --agent-preset", riff.Usage)
+	}
+	for _, want := range []string{"--agent-preset string", "fab agent presets"} {
+		if !strings.Contains(riff.Text, want) {
+			t.Errorf("riff help text lacks %q:\n%s", want, riff.Text)
+		}
+	}
+}

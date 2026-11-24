@@ -18,7 +18,8 @@ func stubLayoutReads(t *testing.T,
 ) {
 	t.Helper()
 	origSess, origWin, origPane := listLayoutSessions, listLayoutWindows, listLayoutPanes
-	origOrder, origRank := getSessionOrder, getServerRank
+	origOrder, origRank, origPreset := getSessionOrder, getServerRank, getServerAgentPreset
+	getServerAgentPreset = func(ctx context.Context, server string) (string, error) { return "", nil }
 	listLayoutSessions = func(ctx context.Context, server string) ([]tmux.LayoutSession, error) {
 		return sessions, sessErr
 	}
@@ -36,7 +37,7 @@ func stubLayoutReads(t *testing.T,
 	}
 	t.Cleanup(func() {
 		listLayoutSessions, listLayoutWindows, listLayoutPanes = origSess, origWin, origPane
-		getSessionOrder, getServerRank = origOrder, origRank
+		getSessionOrder, getServerRank, getServerAgentPreset = origOrder, origRank, origPreset
 	})
 }
 
@@ -106,6 +107,40 @@ func TestCaptureServerAssemblesSnapshot(t *testing.T) {
 	}
 	if snap.WindowCount() != 3 || snap.SessionCount() != 2 {
 		t.Errorf("counts = %d sessions / %d windows", snap.SessionCount(), snap.WindowCount())
+	}
+}
+
+// Both agent-preset options are captured: the group's per session, the
+// workspace's on the snapshot. A failed server read degrades to unset without
+// sinking the capture.
+func TestCaptureServerAgentPresets(t *testing.T) {
+	stubLayoutReads(t,
+		[]tmux.LayoutSession{
+			{Name: "alpha", Created: 100, AgentPreset: "codex-review"},
+			{Name: "beta", Created: 200},
+		}, nil,
+		[]tmux.LayoutWindow{
+			{Session: "alpha", WindowID: "@1", Index: 0, Name: "a"},
+			{Session: "beta", WindowID: "@2", Index: 0, Name: "b"},
+		}, nil, nil, nil, nil, nil,
+	)
+	getServerAgentPreset = func(context.Context, string) (string, error) { return "claude", nil }
+
+	snap, err := CaptureServer(context.Background(), "kit")
+	if err != nil {
+		t.Fatalf("CaptureServer: %v", err)
+	}
+	if snap.ServerAgentPreset != "claude" {
+		t.Errorf("serverAgentPreset = %q, want claude", snap.ServerAgentPreset)
+	}
+	if snap.Sessions[0].AgentPreset != "codex-review" || snap.Sessions[1].AgentPreset != "" {
+		t.Errorf("session presets = %q, %q; want codex-review, empty", snap.Sessions[0].AgentPreset, snap.Sessions[1].AgentPreset)
+	}
+
+	getServerAgentPreset = func(context.Context, string) (string, error) { return "", errors.New("boom") }
+	snap, err = CaptureServer(context.Background(), "kit")
+	if err != nil || snap.ServerAgentPreset != "" {
+		t.Errorf("failed read: (%q, %v), want an unset field and no error", snap.ServerAgentPreset, err)
 	}
 }
 

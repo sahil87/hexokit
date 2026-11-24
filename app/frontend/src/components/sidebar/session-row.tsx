@@ -11,6 +11,7 @@ import { toSafeSessionName } from "@/lib/names";
 import { abbreviateHomePath, formatDuration } from "@/lib/format";
 import { PaletteIcon, BotIcon, PlusIcon, CloseIcon, NotePencilIcon, PlugIcon } from "./icons";
 import { PopupTitleBar, PopupTitleBarSecondary } from "./popup-title-bar";
+import { AgentPresetClearRow, AgentPresetFact } from "./agent-preset-card";
 import {
   useRowFlyout,
   useRailScrub,
@@ -79,6 +80,10 @@ type SessionRowProps = {
    *  when supplied — the consumer also gates on the server having an operator
    *  window, so no operator ⇒ no row (degrade to absent, never disabled). */
   onUpdateAnnotations?: (server: string, session: string) => void;
+  /** Clear THIS row's group agent preset. Optional (mirrors `onSpawnAgent`): the
+   *  card's Clear agent preset row renders only when supplied AND the stored
+   *  name is unknown to the preset list the UI holds. */
+  onClearAgentPreset?: (server: string, session: string) => void;
   /** Roving-tabindex value: `0` for the single roving-focused tree row, `-1`
    *  otherwise. Defaults to `-1`. Only the two affected rows change this per
    *  arrow keypress, preserving the Wave-2 memo tree. */
@@ -130,6 +135,7 @@ function SessionRowInner({
   onWaitingBadgeClick,
   onSpawnAgent,
   onUpdateAnnotations,
+  onClearAgentPreset,
   tabIndex = -1,
   ariaSetSize,
   ariaPosInSet,
@@ -200,6 +206,7 @@ function SessionRowInner({
           {name}
         </PopupTitleBar>
         {factsLine && <span className="text-text-secondary break-words">{factsLine}</span>}
+        {session.agent_preset && <AgentPresetFact name={session.agent_preset} server={server} session={name} />}
         {showViewers && (
           <span data-testid="row-flyout-viewers" className="text-text-secondary break-words flex flex-col">
             <span>{viewers.length} viewers</span>
@@ -231,6 +238,14 @@ function SessionRowInner({
               label="Spawn agent…"
               testid="row-flyout-spawn-action"
               onClick={() => onSpawnAgent(server, name)}
+            />
+          )}
+          {session.agent_preset && onClearAgentPreset && (
+            <AgentPresetClearRow
+              name={session.agent_preset}
+              server={server}
+              session={name}
+              onClear={() => onClearAgentPreset(server, name)}
             />
           )}
           {onUpdateAnnotations && (

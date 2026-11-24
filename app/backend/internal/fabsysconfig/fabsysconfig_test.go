@@ -1341,3 +1341,64 @@ func TestApply_agentPresetRejectsBeforeExec(t *testing.T) {
 		})
 	}
 }
+
+// ---- repo-scoped preset reader ----
+
+func stubPresetsIn(t *testing.T, fn func(ctx context.Context, dir string) ([]byte, error)) {
+	t.Helper()
+	prev := runPresetsIn
+	runPresetsIn = fn
+	t.Cleanup(func() { runPresetsIn = prev })
+}
+
+func TestListAgentPresets_decodesInTheGivenDir(t *testing.T) {
+	var gotDir string
+	stubPresetsIn(t, func(_ context.Context, dir string) ([]byte, error) {
+		gotDir = dir
+		return []byte(presetsFixture), nil
+	})
+	presets, err := ListAgentPresets(context.Background(), "/repo/root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotDir != "/repo/root" {
+		t.Errorf("dir = %q, want /repo/root", gotDir)
+	}
+	if got := presetNames(presets); strings.Join(got, ",") != "claude,codex-review,codex-workers" {
+		t.Errorf("names = %v", got)
+	}
+}
+
+func TestListAgentPresets_failuresAreUnsupported(t *testing.T) {
+	cases := map[string]struct {
+		out string
+		err error
+	}{
+		"fab fails":   {err: errors.New("exit 1")},
+		"not json":    {out: "usage: fab agent"},
+		"json object": {out: `{"presets":[]}`},
+		"json null":   {out: "null"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			stubPresetsIn(t, func(context.Context, string) ([]byte, error) { return []byte(tc.out), tc.err })
+			presets, err := ListAgentPresets(context.Background(), "/repo")
+			if !errors.Is(err, ErrPresetsUnsupported) || presets != nil {
+				t.Errorf("got (%v, %v), want ErrPresetsUnsupported", presets, err)
+			}
+		})
+	}
+}
+
+func TestCheckPresetMember(t *testing.T) {
+	presets := []AgentPreset{{Name: "claude"}, {Name: "team"}}
+	for _, name := range []string{"claude", "team", PresetNone} {
+		if err := CheckPresetMember(name, presets); err != nil {
+			t.Errorf("CheckPresetMember(%q) = %v, want nil", name, err)
+		}
+	}
+	err := CheckPresetMember("bogus", presets)
+	if err == nil || err.Error() != `unknown agent preset "bogus" (available: claude, team)` {
+		t.Errorf("err = %v", err)
+	}
+}

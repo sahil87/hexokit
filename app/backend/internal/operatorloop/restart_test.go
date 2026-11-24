@@ -111,7 +111,7 @@ func TestRestartSurvival(t *testing.T) {
 	prevSelf, prevResolve := selfPathFn, resolveLauncherFn
 	t.Cleanup(func() { selfPathFn, resolveLauncherFn = prevSelf, prevResolve })
 	selfPathFn = func() (string, error) { return self, nil }
-	resolveLauncherFn = func(context.Context, string, string) string {
+	resolveLauncherFn = func(context.Context, string, string, string) string {
 		return "cat >/dev/null; sleep 2; " + shellq.QuoteArgv([]string{self, "note", statePath, "pr-1", "stub acted"}) +
 			"; echo 'outcome: stub acted'"
 	}
@@ -255,7 +255,7 @@ func TestIsolatedSocketMechanicalOnlyRun(t *testing.T) {
 	t.Cleanup(func() { selfPathFn, resolveLauncherFn = prevSelf, prevResolve })
 	selfPathFn = func() (string, error) { return self, nil }
 	launcherMarker := filepath.Join(t.TempDir(), "launcher-called")
-	resolveLauncherFn = func(context.Context, string, string) string {
+	resolveLauncherFn = func(context.Context, string, string, string) string {
 		return "touch " + shellq.QuoteArgv([]string{launcherMarker}) + "; echo 'outcome: model called'"
 	}
 	tick := func() {

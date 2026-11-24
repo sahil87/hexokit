@@ -26,6 +26,8 @@ type LayoutSession struct {
 	Created int64
 	// Color is the raw @rk_ses_color option value ("" when unset).
 	Color string
+	// AgentPreset is the raw @rk_ses_agent_preset option value ("" when unset).
+	AgentPreset string
 }
 
 // LayoutWindow is one window in a layout snapshot read, keyed to its non-pin
@@ -75,11 +77,13 @@ type LayoutPane struct {
 	Active  bool
 }
 
-// layoutSessionFormat lists name, creation time, and the raw session color.
+// layoutSessionFormat lists name, creation time, the raw session color, and
+// the raw session agent preset.
 var layoutSessionFormat = strings.Join([]string{
 	"#{session_name}",
 	"#{session_created}",
 	"#{" + SessionColorOption + "}",
+	"#{" + SessionAgentPresetOption + "}",
 }, listDelim)
 
 // layoutWindowFormat lists the owning session plus everything needed to
@@ -170,11 +174,15 @@ func parseLayoutSessions(lines []string) []LayoutSession {
 		if err != nil {
 			continue
 		}
-		out = append(out, LayoutSession{
+		ls := LayoutSession{
 			Name:    name,
 			Created: created,
 			Color:   strings.TrimSpace(parts[2]),
-		})
+		}
+		if len(parts) >= 4 {
+			ls.AgentPreset = strings.TrimSpace(parts[3])
+		}
+		out = append(out, ls)
 	}
 	return out
 }
