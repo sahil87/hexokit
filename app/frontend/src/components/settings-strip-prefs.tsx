@@ -25,7 +25,7 @@ const EFFECT_LABEL: Record<StripEffect, string> = {
   hex: "Hex mesh",
   scan: "Scanlines",
   edge: "Edge light",
-  flat: "Flat (today)",
+  flat: "Flat",
 };
 
 const EFFECT_NOTE: Record<StripEffect, string> = {
