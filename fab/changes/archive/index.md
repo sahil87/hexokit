@@ -1,5 +1,6 @@
 # Archived Changes
 
+- **261124-itlc-host-cycle-accelerators** — Cycle hosts with ⌥⌘←/⌥⌘→ (Alt+PageUp/PageDown on Windows/Linux)
 - **261124-gwem-shell-strip-host-squares** — Desktop-shell titlebar host strip — colour squares, host nameplate, and a lit band
 - **261007-xyk8-demo-recording-pr-evidence** — Demo Recordings for PR Evidence
 - **261007-vqkk-mcp-endpoint-tailscale-serve-settings** — MCP Endpoint Behind Tailscale Serve + Settings Row
