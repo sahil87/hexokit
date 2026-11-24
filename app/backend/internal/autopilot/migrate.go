@@ -8,7 +8,7 @@ import (
 
 var engineScopeKeys = []string{
 	scopeQueue, scopeMergeMode, scopeSpawning, scopeRespawned, scopeSkipped,
-	scopeEscalated, scopeTask, scopeBare, scopeProjected, "worktree",
+	scopeEscalated, scopeTask, scopeBare, scopeProjected, scopePRTracked, "worktree",
 }
 
 // legacyQueueItem is only the migration predicate. Runtime queue membership

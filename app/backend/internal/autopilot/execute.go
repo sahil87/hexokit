@@ -20,7 +20,7 @@ func (e *engine) execute(ctx context.Context, ds []Decision) error {
 		var err error
 		switch d.Action {
 		case ActionRecordDone:
-			err = e.recordDone(d)
+			err = e.recordDone(ctx, d)
 		case ActionSpawn:
 			err = e.spawn(ctx, d)
 		case ActionRespawn:
@@ -115,16 +115,28 @@ func (e *engine) writeFailed(id, what string, err error) {
 	e.escalate(id, what+": "+err.Error())
 }
 
-func (e *engine) recordDone(d Decision) error {
-	now := e.env.now().UTC().Format(time.RFC3339)
-	if err := e.guarded(d.Item, d.fp, func(t *operator.TrackedItem) { t.DoneAt = &now }); err != nil {
-		e.writeFailed(d.Item, "completion marker not written", err)
-		if errors.Is(err, errItemChanged) {
-			return nil
-		}
-		return err
+// recordDone writes the item's completion once, then tracks a merge-auto
+// item's PR until it is marked. A retry pass reports no completion.
+func (e *engine) recordDone(ctx context.Context, d Decision) error {
+	_, it, ok := e.reread(d)
+	if !ok {
+		return nil
 	}
-	e.act(ActDone, d.Item, "completion observed")
+	c := &ruleCtx{it: it}
+	if doneAtUnset(c) {
+		now := e.env.now().UTC().Format(time.RFC3339)
+		if err := e.guarded(d.Item, d.fp, func(t *operator.TrackedItem) { t.DoneAt = &now }); err != nil {
+			e.writeFailed(d.Item, "completion marker not written", err)
+			if errors.Is(err, errItemChanged) {
+				return nil
+			}
+			return err
+		}
+		e.act(ActDone, d.Item, "completion observed")
+	}
+	if needsPRTrack(c) {
+		return e.trackPR(ctx, d)
+	}
 	return nil
 }
 

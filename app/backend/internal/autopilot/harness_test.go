@@ -186,10 +186,12 @@ type ghSim struct {
 	t   *testing.T
 	prs map[int]*simPR
 	run *scriptRunner
+	// nwo answers `gh repo view --json nameWithOwner`.
+	nwo string
 }
 
 func newGHSim(t *testing.T, run *scriptRunner) *ghSim {
-	g := &ghSim{t: t, prs: map[int]*simPR{}, run: run}
+	g := &ghSim{t: t, prs: map[int]*simPR{}, run: run, nwo: "owner/name"}
 	run.on("gh ", g.handle)
 	return g
 }
@@ -217,13 +219,18 @@ func (g *ghSim) handle(dir string, argv []string) (string, error) {
 	args := argv[1:]
 	switch {
 	case len(args) >= 2 && args[0] == "repo" && args[1] == "view":
+		for _, a := range args {
+			if a == "nameWithOwner" {
+				return g.nwo + "\n", nil
+			}
+		}
 		return "main\n", nil
 	case len(args) >= 3 && args[0] == "pr" && args[1] == "view":
 		p := g.find(args[2])
 		if p == nil {
 			return "", ghErr(argv, "no pull requests found for "+args[2])
 		}
-		b, _ := json.Marshal(map[string]interface{}{"url": p.URL, "state": p.State})
+		b, _ := json.Marshal(map[string]interface{}{"number": p.Number, "url": p.URL, "state": p.State})
 		return string(b), nil
 	case len(args) >= 3 && args[0] == "pr" && args[1] == "checks":
 		p := g.find(args[2])

@@ -54,6 +54,33 @@ func TestJudgmentSetReasonKinds(t *testing.T) {
 	}
 }
 
+// The engine-projected PR item is an ordinary github-pr ledger item: its
+// `changed` and `done` deltas are judgment, while the owned pane item that
+// shipped it reaches done mechanically.
+func TestJudgmentSetCoversTheProjectedPRItem(t *testing.T) {
+	then := "merge-auto: ready and merge this PR when its required checks are green"
+	state := &operator.State{Tracked: []operator.TrackedItem{
+		{ID: "pr-41", Kind: operator.KindGitHubPR, Then: &then,
+			Scope: map[string]interface{}{"repo": "/r", "pr": 41, "change": "", "item": "a"}},
+		{ID: "a", Kind: operator.KindPane},
+	}}
+	owned := map[string]bool{"a": true}
+	cases := []struct {
+		id, reason string
+		want       bool
+	}{
+		{"pr-41", "changed mergeStateStatus", true},
+		{"pr-41", "done", true},
+		{"a", "done", false},
+	}
+	for _, tc := range cases {
+		got := judgmentSet([]ChangeRecord{{ID: tc.id, Reasons: []string{tc.reason}}}, nil, state, owned)
+		if (len(got) == 1) != tc.want {
+			t.Errorf("%s %q: judgment = %+v, want %v", tc.id, tc.reason, got, tc.want)
+		}
+	}
+}
+
 func TestJudgmentSetAddsEscalationsAndNewInstructionsOnce(t *testing.T) {
 	then := ""
 	state := &operator.State{Tracked: []operator.TrackedItem{

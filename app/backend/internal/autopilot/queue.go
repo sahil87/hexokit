@@ -36,6 +36,9 @@ const (
 	scopeEscalated = "escalated"
 	scopeMergeMode = "merge_mode"
 	scopeProjected = "projected"
+	// scopePRTracked records that a merge-auto item's PR was handled: the id of
+	// the ledger item that tracks it, or the PR's terminal state.
+	scopePRTracked = "pr_tracked"
 	// scopeEngineDone distinguishes the engine file's own done_at from an
 	// overlaid projection timestamp in the decision snapshot.
 	scopeEngineDone = "engine_done_at"
