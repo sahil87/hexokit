@@ -150,3 +150,59 @@ describe("InstanceAccentProvider setColor", () => {
     await waitFor(() => expect(readInstanceColorEcho()).toBeNull());
   });
 });
+
+// In the desktop shell the host color displays as the nearest Host color set
+// member (the stored value is untouched), and the theme-color meta — which
+// paints the Windows/Linux window-controls overlay — stays neutral chrome
+// under any light effect but Flat.
+describe("InstanceAccentProvider in the desktop shell", () => {
+  afterEach(() => {
+    delete window.runkitShell;
+  });
+
+  function shellWithPrefs(effect: string) {
+    window.runkitShell = {
+      version: "1.0.0",
+      platform: "linux",
+      prefs: {
+        get: () => Promise.resolve({ ok: true, prefs: { strip: { effect, motion: "slide" } } }),
+        set: () => Promise.resolve({ ok: true }),
+      },
+    };
+  }
+
+  const meta = () => document.querySelector('meta[name="theme-color"]')?.getAttribute("content");
+
+  it("snaps an out-of-set stored color to its nearest member for display, never rewriting it", async () => {
+    window.runkitShell = { version: "1.0.0", platform: "linux" };
+    vi.mocked(getInstanceColor).mockResolvedValue("1+3"); // orange → red
+    renderProvider();
+    const red = deriveAccentHexes("red", DEFAULT_DARK_THEME)?.stripeHex;
+    await waitFor(() => expect(screen.getByTestId("stripe").textContent).toBe(red));
+    expect(screen.getByTestId("color").textContent).toBe("1+3");
+    expect(setInstanceColor).not.toHaveBeenCalled();
+  });
+
+  it("outside the shell the stored value renders as stored (no snapping)", async () => {
+    vi.mocked(getInstanceColor).mockResolvedValue("1+3");
+    renderProvider();
+    const orange = deriveAccentHexes("1+3", DEFAULT_DARK_THEME)?.stripeHex;
+    await waitFor(() => expect(screen.getByTestId("stripe").textContent).toBe(orange));
+  });
+
+  it("keeps the theme-color meta neutral under a non-Flat effect", async () => {
+    shellWithPrefs("glow");
+    vi.mocked(getInstanceColor).mockResolvedValue("4");
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId("color").textContent).toBe("4"));
+    expect(meta()).not.toBe(deriveAccentHexes("blue", DEFAULT_DARK_THEME)?.titlebarHex);
+  });
+
+  it("tints the theme-color meta with the titlebar blend under Flat", async () => {
+    shellWithPrefs("flat");
+    vi.mocked(getInstanceColor).mockResolvedValue("4");
+    renderProvider();
+    const blend = deriveAccentHexes("blue", DEFAULT_DARK_THEME)?.titlebarHex;
+    await waitFor(() => expect(meta()).toBe(blend));
+  });
+});

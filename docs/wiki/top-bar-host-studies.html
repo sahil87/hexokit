@@ -1,0 +1,1038 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Top Bar Host Studies</title>
+<style>
+:root, html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-primary: #0f1117;
+  --bg-card: #171b24;
+  --bg-raise: #1b202b;
+  --bg-inset: #0a0c12;
+  --chrome: #161a22;
+  --titlebar: #0b0d12;
+  --text-primary: #e8eaf0;
+  --text-secondary: #7a8394;
+  --border: #454d66;
+  --card-border: color-mix(in srgb, var(--border) 55%, transparent);
+  --accent-green: #22c55e;
+  --signal-yellow: #facc15;
+  --signal-amber: #f59e0b;
+  --signal-blue: #60a5fa;
+  --signal-red: #f87171;
+  --page: #0b0d13;
+  --shadow: 0 14px 40px rgba(0,0,0,.45);
+}
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg-primary: #f6f7f9;
+  --bg-card: #ffffff;
+  --bg-raise: #ffffff;
+  --bg-inset: #e8eaef;
+  --chrome: #eceef2;
+  --titlebar: #dcdfe6;
+  --text-primary: #1a1d24;
+  --text-secondary: #6b7280;
+  --border: #c4c9d2;
+  --card-border: color-mix(in srgb, var(--border) 70%, transparent);
+  --accent-green: #16a34a;
+  --signal-yellow: #ca8a04;
+  --signal-amber: #d97706;
+  --signal-blue: #2563eb;
+  --signal-red: #dc2626;
+  --page: #e4e7ec;
+  --shadow: 0 14px 40px rgba(20,24,34,.18);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--page); color: var(--text-primary);
+  font-family: "MonaspiceNe Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px; line-height: 1.55;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 28px 16px 80px; }
+header.page { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+h1 { font-size: 19px; margin: 0 0 4px; letter-spacing: -0.01em; }
+.sub { color: var(--text-secondary); font-size: 12px; max-width: 84ch; margin: 0; }
+.toolbar { display: flex; gap: 6px; }
+button.tb, .cseg button {
+  font: inherit; font-size: 11px; padding: 4px 9px; border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text-secondary); cursor: pointer;
+}
+button.tb { border-radius: 4px; }
+button.tb[aria-pressed="true"], .cseg button[aria-pressed="true"] { color: var(--accent-green); border-color: var(--accent-green); position: relative; z-index: 1; }
+.cseg { display: inline-flex; flex-wrap: wrap; }
+.cseg button { margin-left: -1px; }
+.cseg button:first-child { border-radius: 4px 0 0 4px; margin-left: 0; }
+.cseg button:last-child { border-radius: 0 4px 4px 0; }
+h2 { font-size: 14px; margin: 48px 0 4px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+h2 .num { color: var(--accent-green); margin-right: 8px; }
+h3 { font-size: 12.5px; margin: 22px 0 6px; }
+p { margin: 8px 0; max-width: 90ch; }
+p.note, .note { color: var(--text-secondary); font-size: 12px; }
+code { background: var(--bg-inset); padding: 1px 5px; border-radius: 3px; font-size: 11.5px; }
+kbd { font: inherit; font-size: 10.5px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; color: var(--text-secondary); }
+.tag { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 3px; border: 1px solid; vertical-align: 1px; white-space: nowrap; }
+.tag.rec { color: var(--accent-green); border-color: var(--accent-green); }
+.tag.rej { color: var(--signal-red); border-color: var(--signal-red); }
+.tag.open { color: var(--signal-yellow); border-color: var(--signal-yellow); }
+table { border-collapse: collapse; width: 100%; font-size: 12px; margin: 10px 0; }
+th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--card-border); }
+th { color: var(--text-secondary); font-weight: normal; font-size: 11px; }
+td.k { color: var(--accent-green); white-space: nowrap; }
+td.good { color: var(--accent-green); } td.bad { color: var(--signal-red); } td.meh { color: var(--signal-yellow); }
+.tablewrap { overflow-x: auto; }
+.verdict { border-left: 3px solid var(--accent-green); padding: 6px 12px; background: color-mix(in srgb, var(--accent-green) 6%, transparent); margin: 12px 0; max-width: 92ch; }
+.row { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+.col { flex: 1 1 320px; min-width: 0; }
+.cap { font-size: 11px; color: var(--text-secondary); margin: 6px 2px 0; }
+
+/* ------------------------------------------------ mock controls */
+.controls { display: grid; grid-template-columns: max-content 1fr; gap: 7px 14px; align-items: center; margin: 14px 0 12px; font-size: 11.5px; }
+.controls > label { color: var(--text-secondary); }
+.controls input[type=range] { width: min(320px, 60vw); accent-color: var(--accent-green); vertical-align: middle; }
+.controls .val { margin-left: 8px; font-size: 11px; color: var(--text-primary); }
+.readout { font-size: 11px; color: var(--text-secondary); margin: 8px 2px 0; min-height: 1.5em; }
+.readout b { color: var(--text-primary); font-weight: normal; }
+.readout .f { color: var(--signal-yellow); }
+.fit { width: 100%; overflow: hidden; padding: 0; }
+.fit > .win { transform-origin: 0 0; }
+
+/* ------------------------------------------------ the window */
+.win { position: relative; background: var(--bg-primary); border: 1px solid var(--card-border); border-radius: 10px; overflow: hidden; font-size: 12px; color: var(--text-secondary); box-shadow: var(--shadow); user-select: none; }
+.win svg { display: block; }
+.bchrome { height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 10px; background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--text-secondary) 9%, var(--titlebar)) 0 6px, var(--titlebar) 6px 12px); border-bottom: 1px solid var(--card-border); font-size: 11px; }
+.bchrome .url { flex: 1; max-width: 460px; background: var(--bg-primary); border-radius: 14px; padding: 3px 12px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bchrome .lbl { margin-left: auto; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+.lights { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); display: flex; gap: 8px; z-index: 2; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+.lights i.r { background: #ff5f57; } .lights i.y { background: #febc2e; } .lights i.g { background: #28c840; }
+.lpad { flex: none; width: 66px; height: 1px; }
+.wctl { position: absolute; right: 0; top: 0; bottom: 0; display: flex; z-index: 2; color: var(--text-primary); }
+.wctl span { width: 46px; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+
+.strip { position: relative; height: 28px; display: flex; align-items: center; justify-content: center; color: var(--text-primary); }
+.stl { font: inherit; font-size: 12px; background: transparent; border: 0; color: inherit; padding: 1px 8px; border-radius: 4px; cursor: pointer; }
+.stl:hover { background: color-mix(in srgb, currentColor 15%, transparent); }
+.stripe { height: 2px; }
+
+.tabs { position: relative; height: 34px; background: var(--titlebar); }
+.tabrow { display: flex; align-items: flex-end; height: 100%; gap: 2px; }
+.htab { font: inherit; font-size: 11.5px; height: 28px; flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 0; border-radius: 8px 8px 0 0; background: transparent; color: var(--text-secondary); cursor: pointer; min-width: 0; position: relative; }
+.htab:hover { background: color-mix(in srgb, var(--chrome) 55%, transparent); color: var(--text-primary); }
+.htab.on { background: var(--chrome); color: var(--text-primary); }
+.htab .tn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.htab .w, .hchip .w, .mrow .w, .agg { color: var(--signal-amber); font-size: 10.5px; white-space: nowrap; }
+.htab .w { margin-left: auto; }
+.tplus { font: inherit; width: 26px; height: 24px; margin: 0 0 2px 4px; flex: none; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); cursor: pointer; font-size: 15px; }
+.tplus:hover { background: var(--bg-card); color: var(--text-primary); }
+.more { margin: 0 0 2px 4px; height: 24px !important; }
+
+.bar { position: relative; height: 47px; display: flex; align-items: center; background: var(--chrome); border-bottom: 3px solid var(--border); }
+.head { flex: none; height: 100%; display: flex; align-items: center; gap: 6px; padding: 0 8px 0 12px; overflow: hidden; }
+.main { flex: 1; min-width: 0; height: 100%; display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); align-items: center; gap: 10px; padding: 0 10px; }
+.main.wpad { padding-right: 148px; }
+.bl { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; }
+.bc { color: var(--text-primary); white-space: nowrap; font-size: 13px; padding: 2px 6px; border-radius: 4px; }
+.br { display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; overflow: hidden; }
+.btn { font: inherit; flex: none; height: 28px; min-width: 28px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; border: 1px solid var(--border); border-radius: 4px; color: var(--text-primary); padding: 0 6px; background: transparent; font-size: 12px; cursor: pointer; }
+.btn:hover, .crumb:hover, .hchip:hover { background: var(--bg-card); }
+.mseg { display: inline-flex; flex: none; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; height: 28px; color: var(--text-primary); }
+.mseg > span { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; padding: 0 6px; white-space: nowrap; cursor: pointer; }
+.mseg > span + span { border-left: 1px solid var(--border); }
+.mseg.green { border-color: var(--accent-green); color: var(--accent-green); background: color-mix(in srgb, var(--accent-green) 8%, transparent); }
+.mseg.green > span + span { border-left-color: color-mix(in srgb, var(--accent-green) 50%, transparent); }
+.mseg > span.on { color: var(--accent-green); position: relative; }
+.mseg > span.on::after { content: ""; position: absolute; top: 3px; right: 3px; width: 4px; height: 4px; border-radius: 50%; background: var(--accent-green); }
+.hist { display: inline-flex; gap: 4px; flex: none; }
+.vsep { flex: none; width: 1px; height: 20px; background: var(--card-border); }
+.brand { flex: none; display: inline-flex; align-items: center; gap: 8px; color: var(--text-primary); padding: 0 4px; }
+.brand .wm { font-size: 13px; letter-spacing: .02em; }
+.crumb { font: inherit; flex: none; height: 28px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--card-border); border-radius: 4px; padding: 0 8px; white-space: nowrap; color: var(--text-primary); background: transparent; font-size: 12.5px; cursor: default; }
+.crumb.host { cursor: pointer; border-color: var(--border); }
+.crumb .caret, .bc .caret { color: var(--text-secondary); font-size: 10px; }
+.sep { flex: none; color: var(--text-secondary); }
+.gl { position: relative; flex: none; display: inline-flex; color: var(--text-secondary); }
+.crumb.host .gl, .htab.on .gl { color: var(--text-primary); }
+.cdot { position: absolute; right: -3px; bottom: -2px; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--chrome); }
+.hm, .hm2 { display: none; }
+.agg { display: none; align-items: center; margin-left: 2px; }
+.win.m-badge .agg, .win.f-chips .agg { display: inline-flex; }
+.chips { flex: none; display: flex; align-items: center; gap: 4px; padding-right: 8px; margin-right: 2px; border-right: 1px solid var(--card-border); }
+.hchip { font: inherit; height: 26px; display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; border-radius: 13px; border: 1px solid var(--card-border); color: var(--text-secondary); background: transparent; cursor: pointer; white-space: nowrap; font-size: 11.5px; }
+.hchip:hover { color: var(--text-primary); }
+
+/* fold ladder */
+.win.f-mono .hchip .nm { display: none; } .win.f-mono .hchip .hm2 { display: inline; }
+.win.f-chips .chips { display: none; }
+.win.f-ws .ws { display: none; }
+.win.f-hist .hist { display: none; }
+.win.h-plus .tabw { display: none; }
+.win.h-mono .host .hn { display: none; } .win.h-mono .host .hm { display: inline; }
+.win.h-glyph .host .hn, .win.h-glyph .host .hm { display: none; }
+.win.f-layout .layout, .win.f-refresh .refresh, .win.f-open .open, .win.f-op .op, .win.f-surf .surf { display: none; }
+
+/* body */
+.body { display: flex; height: 190px; }
+.sbar { flex: none; border-right: 3px solid var(--border); overflow: hidden; padding: 6px 0; font-size: 11px; }
+.rail { display: flex; gap: 6px; padding: 2px 10px 8px; border-bottom: 3px solid var(--border); }
+.rail span { width: 20px; height: 18px; border: 1px solid var(--card-border); border-radius: 3px; }
+.rail span:first-child { border-color: var(--accent-green); }
+.sech { padding: 6px 10px 4px; letter-spacing: .08em; color: var(--text-primary); white-space: nowrap; }
+.wstiles { display: flex; gap: 4px; padding: 2px 10px; flex-wrap: wrap; }
+.wst { border: 1px solid var(--card-border); border-radius: 3px; padding: 3px 7px; min-width: 64px; color: var(--text-primary); }
+.wst.on { background: var(--bg-card); border-color: var(--text-secondary); }
+.wst .c { color: var(--text-secondary); font-size: 10px; }
+.tilewrap { flex: 1; min-width: 0; padding: 6px; }
+.tile { height: 100%; border: 1px solid var(--card-border); border-radius: 6px; background: var(--bg-inset); overflow: hidden; }
+.tile.flash { animation: flash .5s ease-out; }
+@keyframes flash { from { opacity: .25; } to { opacity: 1; } }
+.th { padding: 5px 10px; border-bottom: 1px solid var(--card-border); color: var(--text-primary); font-size: 11.5px; }
+.tb { padding: 10px; font-size: 11.5px; color: var(--text-primary); }
+.pl { display: flex; white-space: nowrap; overflow: hidden; }
+.pl span { padding: 0 8px; color: #fff; }
+.pl .p1 { background: #4f7be8; } .pl .p2 { background: #c98a2e; } .pl .p3 { background: #3fa95a; }
+.ln { margin-top: 10px; color: var(--text-secondary); }
+.ln b { color: var(--text-primary); font-weight: normal; }
+.cur { display: inline-block; width: 7px; height: 13px; background: var(--text-primary); vertical-align: -2px; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* host menu */
+.hmenu { position: absolute; z-index: 5; width: 380px; background: var(--bg-raise); border: 1px solid var(--border); border-radius: 6px; box-shadow: var(--shadow); padding: 4px; font-size: 12px; }
+.mrow { font: inherit; width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 0; border-radius: 4px; background: transparent; color: var(--text-primary); cursor: pointer; text-align: left; }
+.mrow:hover { background: var(--bg-card); }
+.mrow .ck { width: 12px; color: var(--accent-green); flex: none; }
+.mrow .mn { flex: none; }
+.mrow .mo { color: var(--text-secondary); font-size: 10.5px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mrow .kb { color: var(--text-secondary); font-size: 10.5px; flex: none; width: 34px; text-align: right; }
+.mrow.foot { color: var(--text-secondary); }
+.msep { height: 1px; background: var(--card-border); margin: 4px 2px; }
+.mfoot { color: var(--text-secondary); font-size: 10.5px; padding: 2px 8px 4px; }
+
+/* drag-region visualizer */
+.win.showdrag .drag { background-image: repeating-linear-gradient(135deg, color-mix(in srgb, var(--signal-yellow) 22%, transparent) 0 5px, transparent 5px 11px) !important; }
+.win.showdrag .nd { outline: 1.5px dashed var(--accent-green); outline-offset: -1px; background-color: var(--chrome); }
+.win.showdrag .strip .nd { background-color: transparent; }
+
+/* ------------------------------------------------ option C: colour blocks + nameplate */
+@property --ax { syntax: "<length>"; inherits: true; initial-value: 0px; }
+@property --dx { syntax: "<length>"; inherits: true; initial-value: 0px; }
+@property --acc { syntax: "<color>"; inherits: true; initial-value: #888888; }
+.ctitle { position: relative; height: 32px; background: var(--titlebar); overflow: hidden; transition: --ax .6s cubic-bezier(.2,.8,.2,1), --dx .6s cubic-bezier(.2,.8,.2,1), --acc .6s ease; }
+.ctitle.notrans { transition: none; }
+.ctreat, .ctreat::before, .ctreat::after { position: absolute; inset: 0; pointer-events: none; }
+.ctreat::before, .ctreat::after { content: ""; }
+.crow { position: relative; z-index: 1; height: 100%; display: flex; align-items: center; gap: 16px; }
+.blocks { display: flex; align-items: center; gap: 7px; flex: none; }
+.blk { position: relative; flex: none; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px; background: var(--c); cursor: pointer; font: inherit; font-size: 10.5px; font-weight: bold; line-height: 1; color: rgba(0,0,0,.72); display: inline-flex; align-items: center; justify-content: center; transition: transform .15s, box-shadow .2s; }
+.blk:hover { transform: scale(1.18); }
+.blk.on { box-shadow: 0 0 0 2px var(--titlebar), 0 0 0 3.5px var(--text-primary); }
+.win.c-letters .blk { width: 26px; font-size: 9.5px; }
+.blk .bw { position: absolute; top: -3px; right: -3px; width: 7px; height: 7px; border-radius: 50%; background: var(--signal-amber); box-shadow: 0 0 0 1.5px var(--titlebar); }
+.blk.add { background: transparent; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-secondary) 70%, transparent); color: var(--text-secondary); font-size: 11px; font-weight: normal; }
+.cdet { flex: 1; min-width: 0; display: flex; align-items: center; overflow: hidden; white-space: nowrap; font-size: 11.5px; color: var(--text-primary); }
+.cdet > span { flex: none; display: inline-flex; align-items: center; gap: 5px; }
+.cdet > span + span::before { content: "·"; margin: 0 9px; color: var(--text-secondary); }
+.cdet .dn { font-weight: bold; font-size: 12px; }
+.cdet .d-m, .cdet .d-os, .cdet .d-link, .cdet .d-ag { color: color-mix(in srgb, var(--text-primary) 72%, transparent); }
+.cdet .gl { color: inherit; }
+.cdet.peek { opacity: .62; }
+.tr-halftone .cdet, .tr-hex .cdet, .tr-scan .cdet { text-shadow: 0 0 2px var(--titlebar), 0 0 5px var(--titlebar), 0 0 9px var(--titlebar), 0 0 14px var(--titlebar); }
+.cdet.peek .dn::before { content: "→ "; font-weight: normal; }
+.win.c-os .d-os, .win.c-link .d-link, .win.c-ag .d-ag, .win.c-m .d-m { display: none; }
+
+.tr-flat .ctreat { background: color-mix(in srgb, var(--acc) 35%, transparent); }
+.tr-glow .ctreat { background: radial-gradient(ellipse 320px 72px at var(--ax) 50%, color-mix(in srgb, var(--acc) 62%, transparent) 0%, color-mix(in srgb, var(--acc) 20%, transparent) 42%, transparent 78%); }
+.tr-livery .ctreat { background: linear-gradient(100deg,
+  color-mix(in srgb, var(--acc) 40%, transparent) 0, color-mix(in srgb, var(--acc) 24%, transparent) var(--dx), transparent var(--dx),
+  transparent calc(var(--dx) + 6px), color-mix(in srgb, var(--acc) 80%, transparent) calc(var(--dx) + 6px), color-mix(in srgb, var(--acc) 80%, transparent) calc(var(--dx) + 10px), transparent calc(var(--dx) + 10px),
+  transparent calc(var(--dx) + 15px), color-mix(in srgb, var(--acc) 45%, transparent) calc(var(--dx) + 15px), color-mix(in srgb, var(--acc) 45%, transparent) calc(var(--dx) + 17px), transparent calc(var(--dx) + 17px)); }
+.tr-halftone .ctreat { background: radial-gradient(ellipse 260px 60px at var(--ax) 50%, color-mix(in srgb, var(--acc) 18%, transparent), transparent 75%); }
+.tr-halftone .ctreat::before { background: radial-gradient(circle, var(--acc) 1.5px, transparent 2px) 0 0 / 6px 6px; mask-image: radial-gradient(ellipse 210px 60px at var(--ax) 50%, #000 0, #000 30%, transparent 88%); }
+.tr-halftone .ctreat::after { background: radial-gradient(circle, var(--acc) .8px, transparent 1.25px) 3px 3px / 6px 6px; mask-image: radial-gradient(ellipse 620px 90px at var(--ax) 50%, #000 0, rgba(0,0,0,.75) 40%, transparent 92%); }
+.tr-hex .ctreat { background: radial-gradient(ellipse 240px 60px at var(--ax) 50%, color-mix(in srgb, var(--acc) 24%, transparent), transparent 75%); }
+.tr-hex .ctreat::before { background: var(--acc); mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='13.86'%3E%3Cpath d='M0 6.93 4 0h8l4 6.93-4 6.93H4zM16 6.93h8' fill='none' stroke='%23000' stroke-width='1.1'/%3E%3C/svg%3E") 0 0 / 24px 13.86px repeat, radial-gradient(ellipse 460px 80px at var(--ax) 50%, #000 0, rgba(0,0,0,.55) 45%, transparent 85%); mask-composite: intersect; }
+.tr-scan .ctreat { background: repeating-linear-gradient(180deg, color-mix(in srgb, var(--acc) 60%, transparent) 0 1px, transparent 1px 3px); mask-image: linear-gradient(90deg, #000 0, #000 calc(var(--ax) + 30px), transparent calc(var(--ax) + 540px)); }
+.tr-scan .ctreat::before { background: linear-gradient(90deg, color-mix(in srgb, var(--acc) 22%, transparent), transparent 75%); }
+.tr-edge .ctreat { background: radial-gradient(ellipse 230px 42px at var(--ax) 100%, color-mix(in srgb, var(--acc) 38%, transparent), transparent 80%); }
+.tr-edge .ctreat::after { top: auto; height: 2px; background: linear-gradient(90deg, transparent 0, transparent calc(var(--ax) - 440px), var(--acc) var(--ax), transparent calc(var(--ax) + 440px)); }
+.csweep { position: absolute; top: 0; bottom: 0; left: 0; width: 180px; pointer-events: none; opacity: 0; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--acc) 65%, #fff), transparent); mix-blend-mode: screen; }
+html[data-theme="light"] .csweep { mix-blend-mode: normal; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--acc) 55%, transparent), transparent); }
+.csweep.go { animation: csweep .9s cubic-bezier(.2,.7,.3,1) forwards; }
+@keyframes csweep { 0% { opacity: .95; transform: translateX(calc(var(--from) - 90px)); } 100% { opacity: 0; transform: translateX(calc(var(--from) + 760px)); } }
+.kpill { visibility: hidden; flex: none; margin-right: -6px; height: 18px; padding: 0 6px; border-radius: 9px; border: 1px solid color-mix(in srgb, var(--text-secondary) 55%, transparent); color: var(--text-secondary); background: color-mix(in srgb, var(--titlebar) 70%, transparent); display: inline-flex; align-items: center; font-size: 10.5px; letter-spacing: .05em; cursor: default; }
+.ctitle:hover .kpill, .ctitle.hold .kpill, .ctitle.showkeys .kpill, .ctitle.dragging .kpill { visibility: visible; }
+.ctitle.dragging .blk .kd { display: inline; }
+.ctitle.dragging .blk .lt { display: none; }
+.ctitle.dragging .blk { cursor: grabbing; }
+.blk.lifted { transition: none; z-index: 3; cursor: grabbing; box-shadow: 0 0 0 2px var(--titlebar), 0 0 0 3.5px var(--text-primary), 0 4px 10px rgba(0,0,0,.45); }
+.kpill:hover, .ctitle.hold .kpill { color: var(--text-primary); border-color: var(--text-primary); }
+.blk .kd { display: none; }
+.ctitle.showkeys .blk .kd, .ctitle:has(.kpill:hover) .blk .kd, .ctitle.hold .blk .kd { display: inline; }
+.ctitle.showkeys .blk .lt, .ctitle:has(.kpill:hover) .blk .lt, .ctitle.hold .blk .lt { display: none; }
+
+/* settings dialog mock */
+.sdlg { max-width: 920px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-raise); box-shadow: var(--shadow); overflow: hidden; font-size: 12px; margin-top: 10px; }
+.stop { display: flex; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--card-border); color: var(--text-primary); font-size: 13px; }
+.stop .x { margin-left: auto; color: var(--text-secondary); }
+.sbody { display: flex; }
+.srail { flex: none; width: 140px; padding: 8px; border-right: 1px solid var(--card-border); display: flex; flex-direction: column; gap: 2px; }
+.srail span { padding: 5px 8px; border-radius: 4px; color: var(--text-secondary); }
+.srail span.on { background: color-mix(in srgb, var(--signal-blue) 15%, transparent); color: var(--text-primary); }
+.spanel { flex: 1; min-width: 0; padding: 2px 18px 16px; }
+.scope { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); padding: 16px 0 4px; }
+.scope b { font-weight: normal; letter-spacing: .08em; text-transform: uppercase; font-size: 11px; color: var(--text-primary); }
+.scope span { color: var(--text-secondary); font-size: 10.5px; text-align: right; }
+.prow2 { display: grid; grid-template-columns: 190px minmax(0,1fr); gap: 6px 24px; padding: 10px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent); align-items: start; }
+.prow2.fresh { box-shadow: inset 2px 0 0 var(--accent-green); padding-left: 10px; }
+.prow2 .lab { color: var(--text-primary); }
+.prow2 .lab small { display: block; color: var(--text-secondary); font-size: 10.5px; margin-top: 2px; line-height: 1.4; }
+.prow2 .lab code { font-size: 10px; }
+.chipset { display: inline-flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.chip2 { font: inherit; font-size: 11.5px; padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border); background: transparent; color: var(--text-secondary); cursor: pointer; }
+.chip2[aria-pressed="true"] { color: var(--accent-green); border-color: var(--accent-green); background: color-mix(in srgb, var(--accent-green) 10%, transparent); }
+.tcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; max-width: 600px; }
+.tcard { font: inherit; text-align: left; border: 1px solid var(--card-border); border-radius: 6px; padding: 5px; background: var(--bg-card); color: var(--text-secondary); cursor: pointer; }
+.tcard:hover { border-color: var(--text-secondary); }
+.tcard[aria-pressed="true"] { border-color: var(--accent-green); color: var(--accent-green); box-shadow: 0 0 0 1px var(--accent-green); }
+.tcard .mini { border-radius: 4px; overflow: hidden; pointer-events: none; }
+.tcard .mini .ctitle { height: 28px; }
+.tcard .nm2 { font-size: 11px; margin-top: 4px; display: block; }
+.swatches { display: flex; gap: 8px; flex-wrap: wrap; padding-bottom: 6px; }
+.sw { position: relative; width: 24px; height: 24px; border-radius: 5px; border: 0; cursor: pointer; padding: 0; }
+.sw.on { box-shadow: 0 0 0 2px var(--bg-raise), 0 0 0 3.5px var(--text-primary); }
+.sw .used { position: absolute; bottom: -7px; right: -8px; font-size: 8.5px; line-height: 1.3; padding: 0 3px; border-radius: 3px; background: var(--bg-raise); border: 1px solid var(--border); color: var(--text-secondary); }
+.swarn { color: var(--signal-yellow); font-size: 11px; margin-top: 6px; min-height: 1.2em; }
+.mtheme { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; color: var(--text-primary); }
+.mtheme i { width: 28px; height: 10px; border-radius: 2px; background: linear-gradient(90deg, #1a1b26 0 25%, #7aa2f7 25% 50%, #bb9af7 50% 75%, #9ece6a 75%); }
+@media (max-width: 600px) { .prow2 { grid-template-columns: 1fr; } .srail { display: none; } }
+.gal { display: grid; gap: 14px; margin-top: 10px; }
+.gal .win { box-shadow: none; border-radius: 8px; }
+.gal .gt { font-size: 12px; color: var(--text-primary); margin-bottom: 4px; }
+.gal .gt span { color: var(--text-secondary); font-size: 11.5px; }
+
+/* annotations */
+.hl { box-shadow: inset 0 0 0 2px var(--signal-yellow) !important; border-radius: 4px; }
+ol.ann { padding-left: 0; list-style: none; counter-reset: i; max-width: 96ch; }
+ol.ann li { counter-increment: i; position: relative; padding: 3px 8px 3px 34px; margin: 4px 0; border-radius: 4px; cursor: default; }
+ol.ann li:hover { background: color-mix(in srgb, var(--signal-yellow) 8%, transparent); }
+ol.ann li::before { content: counter(i); position: absolute; left: 6px; top: 5px; width: 18px; height: 18px; border-radius: 50%; background: var(--signal-yellow); color: #1a1400; font-size: 10.5px; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+
+/* identity grid */
+.idt td { vertical-align: middle; }
+.band { width: 120px; height: 20px; border-radius: 3px; }
+.idname { color: var(--text-primary); }
+.idk { display: inline-flex; align-items: center; gap: 6px; color: var(--text-primary); }
+.mono { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 22px; padding: 0 5px; border-radius: 5px; border: 1px solid var(--border); color: var(--text-primary); font-size: 11px; letter-spacing: .04em; }
+.legend3 { display: flex; gap: 18px; flex-wrap: wrap; font-size: 11.5px; margin: 8px 0; }
+.legend3 span { display: inline-flex; gap: 6px; align-items: center; }
+
+/* phones */
+.phone { width: 320px; flex: none; border: 1px solid var(--card-border); border-radius: 16px; overflow: hidden; background: var(--bg-primary); font-size: 12px; color: var(--text-secondary); box-shadow: var(--shadow); }
+.pbar { display: flex; align-items: center; gap: 6px; height: 46px; padding: 0 6px; background: var(--chrome); border-bottom: 3px solid var(--border); }
+.pbar .h { color: var(--text-primary); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pbody { display: flex; height: 300px; }
+.pdrawer { width: 250px; border-right: 3px solid var(--border); background: var(--bg-primary); }
+.prow { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-bottom: 1px solid var(--card-border); color: var(--text-primary); }
+.prow .sp { flex: 1; }
+.plist .mrow { padding: 8px 10px; }
+.pdim { flex: 1; background: color-mix(in srgb, var(--bg-inset) 70%, transparent); }
+.hamb { position: relative; }
+.hamb .adot { position: absolute; right: 2px; top: 2px; width: 7px; height: 7px; border-radius: 50%; background: var(--signal-amber); border: 1.5px solid var(--chrome); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="cvd-deutan"><feColorMatrix type="matrix" values="0.625 0.375 0 0 0  0.7 0.3 0 0 0  0 0.3 0.7 0 0  0 0 0 1 0"/></filter>
+  <filter id="cvd-protan"><feColorMatrix type="matrix" values="0.567 0.433 0 0 0  0.558 0.442 0 0 0  0 0.242 0.758 0 0  0 0 0 1 0"/></filter>
+  <filter id="cvd-gray"><feColorMatrix type="saturate" values="0"/></filter>
+</svg>
+<div class="wrap">
+
+<header class="page">
+  <div>
+    <h1>Top Bar Host Studies: one bar, host as the root crumb</h1>
+    <p class="sub">Design study (261124 discussion). The goals are to use the space at the top of the window better, make switching hosts easier, and stop relying on the host accent colour as the only way to tell hosts apart. §1 is how the shell window looks today. §2 compares ways to show which host you're on. §3 and §4 are the two layout options as live mocks: <b>A</b> merges the titlebar strip into the top bar, <b>B</b> turns the strip into a row of host tabs. §5 is <b>option C</b> from the review: a row of colour squares with a host nameplate. §6 covers the crowded macOS left edge, §7 covers browser and phone, §8 compares the costs, and §9 has the recommendation. All host data is made up.</p>
+  </div>
+  <div class="toolbar">
+    <button class="tb" data-theme-btn="dark" aria-pressed="true">dark</button>
+    <button class="tb" data-theme-btn="light" aria-pressed="false">light</button>
+  </div>
+</header>
+
+<!-- =============================================================== 1 -->
+<h2><span class="num">1</span>Today: two bars, with colour as the host identity</h2>
+<p>This is the desktop shell window as it looks today. The native titlebar is hidden, and the SPA draws a 28px strip above its top bar. Hover a numbered note to highlight the part it describes. Click <code>ws-01 ▾</code> to open today's host menu.</p>
+<div id="m-today"></div>
+<ol class="ann" id="ann-today">
+  <li data-ann="strip">The <b>strip</b> is a full-width, 28px band with one control in it. Apart from the traffic lights and the label, it's a drag surface painted with a 35% blend of the host colour. Every view pays that height. Turn on <i>drag regions</i> to see how much of it is empty.</li>
+  <li data-ann="stl">The <b>only place the host name appears</b> is centred in the strip, a whole bar away from the breadcrumb that names everything below the host.</li>
+  <li data-ann="brand">The <b>HexoKit wordmark</b> sits where the root of the hierarchy should go (Host › Workspace › Group › Tab). After the first launch it tells you nothing.</li>
+  <li data-ann="names"><b>The same word four times:</b> the workspace, group and tab are all called <code>hexokit</code>, and the wordmark makes four.</li>
+  <li data-ann="stripe">The <b>2px stripe and 6.5% wash</b> repeat the host colour on the bar itself. Colour is the only signal of which host you're on.</li>
+  <li data-ann="stl"><b>Background hosts that need you stay hidden</b> until you open the menu. Today that's mac-mini with 2 waiting and laptop with 1.</li>
+</ol>
+
+<!-- =============================================================== 2 -->
+<h2><span class="num">2</span>How to show which host you're on: colour, name, kind, monogram</h2>
+<p>The instance accent comes from a palette of about ten families, blends included, so hosts end up with neighbouring hues. With 3 hosts you learn the colours. With 6 or 7, purple, violet and indigo stop being different hosts. Use the vision filter to see the table as people with red–green colour blindness see it, or in greyscale (roughly what peripheral vision gets). The text columns still work. The colour column doesn't.</p>
+<div class="controls" id="id-controls"></div>
+<div class="tablewrap"><table class="idt" id="id-table"></table></div>
+<div class="legend3" id="kind-legend"></div>
+<p class="note">The kind glyph needs no setup: it's worked out from the host's origin (Constitution VII). A loopback address on a port in <code>3100–3199</code> is an <code>rk remote</code> SSH tunnel. Any other loopback address is this machine. Anything else is a network host (Tailscale or LAN). Monograms are initials, and a numeric suffix keeps its number (<code>ws-01</code> → <code>W1</code>). They only show up as a fallback when the bar runs short of space.</p>
+<div class="verdict">Lead with the <b>name</b>, and add the <b>kind glyph</b> as a second, automatic signal. Colour either goes or shrinks to an optional 7px dot on the glyph. Keep the accent for the dock icon and favicon, which are the only cues visible in Cmd-Tab and the browser's tab strip.</div>
+
+<!-- =============================================================== 3 -->
+<h2><span class="num">3</span>Option A: one bar, with the host as the root crumb</h2>
+<p>The strip goes away and the top bar becomes the window's titlebar. The traffic lights (or the Windows <code>─ ▢ ✕</code> overlay) sit on the bar, and the gaps between controls are the drag surface. One CSS rule exempts every interactive element from dragging, so no per-control bookkeeping is needed. Turn on <i>drag regions</i> to see it. The host becomes the first breadcrumb, using the same <code>▾</code> switcher style as every other level. Background hosts appear as chips when there's room and fold down to a <code>●N</code> badge when there isn't. Drag the width slider to watch the fold. Click a chip or a menu row to switch hosts.</p>
+<div id="m-a"></div>
+<p class="note">The fold order is approximate. It extends the bar's existing measured overflow. On the left: host chips → monograms → badge, then the workspace crumb, the history arrows, <code>+ Tab</code> → <code>+</code>, and finally the host crumb shrinks to its monogram, then to its glyph. The host crumb is never removed. On the right, controls move into the <code>▾</code> overflow in their usual order. <b>Refresh</b> is already in the overflow menu in A. It reloads the whole page and is the bar's least-used button.</p>
+<p class="note"><b>Finding:</b> because the heading is truly centred, the left half of the bar gets only <code>(bar − heading) / 2</code>. With a 260px sidebar, chips with full names need a window about 1650px wide. Around 1300–1600px they show as monograms (<code>MM ●2</code>), and below that they become the badge. On most laptops, then, A works as "monogram chips or a badge", which is why the badge is the real default and the chips are a bonus.</p>
+
+<!-- =============================================================== 4 -->
+<h2><span class="num">4</span>Option B: keep the strip, turn it into host tabs</h2>
+<p>The titlebar row stays, but now it shows every host as a browser-style tab, with its kind glyph and waiting count. The active tab joins the bar below it. Switching is always one click, and you can always see which background host needs you. The trade-off: the row stays, at 34px it's 6px taller than today's strip, and tabs shrink to monograms or scroll once you have a lot of hosts.</p>
+<div id="m-b"></div>
+<p class="note">There's no <code>×</code> on host tabs. Closing a tab would mean removing a host, which shouldn't be one stray click away. Remove stays in the host menu with its confirmation. In a plain browser, B would need an extra row inside the page, because a browser page has no titlebar to put tabs in.</p>
+
+<!-- =============================================================== C -->
+<h2><span class="num">5</span>Option C: colour squares + host nameplate (review direction)</h2>
+<p>This is the direction from the 261124 review. It keeps a titlebar row but doesn't turn it into browser tabs. Each connected host is a <b>coloured square</b>, and clicking a square switches to that host. To the right of the squares sits a <b>nameplate</b> for the active host: its name, <code>user@machine</code>, OS and kind, connection type, and agent count. Selecting a square doesn't flood the band with a flat tint. The band <b>lights up starting from that square</b>, and the light slides over when you switch. Colour gives the quick "which one", and the nameplate confirms it in words. Hover a square to preview its host in the nameplate (dimmed, with <code>→</code>) without switching.</p>
+<div id="m-c"></div>
+<div class="row" style="margin-top:6px">
+  <div class="col"><h3>Why it doesn't read as a browser</h3><p class="note">There are no tab shapes and no per-host titles, and nothing joins the bar below the way an active tab does. The strip is a single identity panel: a palette next to a nameplate. Seven hosts take about 150px, not seven tab widths, and no host is ever squeezed into a monogram tab.</p></div>
+  <div class="col"><h3>Making colour hold up</h3><p class="note">The nameplate always names the active host. Squares use <b>well-separated hues</b>. Today's accents don't work here: §2 shows ws-01, mac-mini and loom-box blurring together. The colour picker below only offers well-separated hues and labels any hue that another connected host already uses. A background host that's waiting gets an amber corner dot.</p></div>
+</div>
+<div class="row">
+  <div class="col"><h3>Key hints: the <code>⌥⌘</code> pill, with no layout shift</h3><p class="note">A small <code>⌥⌘</code> pill (<code>Alt</code> on Windows and Linux) sits to the left of the squares. Its space is <b>always reserved</b>, and it only becomes visible when you hover the title bar, so nothing moves when it appears. <b>Holding ⌥⌘</b> (or hovering the pill) shows each square's number. The squares are a <b>fixed 18px</b>, big enough for a digit, so numbers appear inside them without anything resizing. The active square is marked by a ring, not a bigger size. Try it above: hover the strip, then hold ⌥⌘ (Alt on Windows/Linux) and press 1–4 to switch. The pill's tooltip also mentions <kbd>⇧⌘H</kbd>, which moves focus to the squares.</p></div>
+  <div class="col"><h3>Reordering: drag a square</h3><p class="note">Drag a square left or right. The others move aside, and while you drag every square shows its number, which updates live, so you can see the shortcut you're assigning. Dropping saves the order (the shell's existing <code>reorderShellHosts(id, toIndex)</code>, one call per drop). The same order drives <kbd>⌥⌘1–9</kbd> and the native Hosts menu. Clicking without moving still switches hosts. With the keyboard, focus a square (<kbd>⇧⌘H</kbd>) and press <kbd>⌥←</kbd> / <kbd>⌥→</kbd>. The squares don't drag the window, so moving them is never mistaken for moving the window.</p></div>
+</div>
+<div class="row">
+  <div class="col"><h3>Why these settings are "This app", not "This device"</h3><p class="note">In the desktop app each host is a separate origin, so browser localStorage is separate per host. An effect chosen while viewing ws-01 would be gone when you switch to mac-mini. The two new settings go in the shell's own store (next to the host list, its order and the host colours), read and written over the bridge (e.g. <code>prefs:get</code>/<code>prefs:set</code>). Every host view gets a change event, so the strip updates on all hosts at once. A plain browser has no strip, so these rows are hidden there.</p></div>
+</div>
+<p class="note">Where the data comes from: the name is the shell's display name. <code>user@machine</code> is the <code>sshUser@hostname</code> already worked out for deeplinks, and the OS, kind and link are derived. Background hosts' details come from their still-running views. Each host's SPA would report them to the shell the same way it reports its accent over <code>accent:set</code>, which means adding fields to the <code>servers:list</code> projection. The light effect is pure CSS: the gradients read three <code>@property</code>-registered variables (square position, nameplate end, colour), so switching just transitions those variables.</p>
+<h3>Settings → Appearance (live: drives the mock above)</h3>
+<p class="note">Both new settings go in Appearance, under a third scope group, <b>This app</b>, between This host and This device. The strip effect is chosen from preview cards drawn with the real effect, not from a text list. <b>Host colour</b> replaces the instance-accent row. It's still a This-host setting, because a host's colour is part of its identity and every device should see the same colour. Rows marked with a green edge are new or changed. Click a card, an On-switch chip or a swatch, and the mock above updates.</p>
+<div id="settings-mock"></div>
+<h3>Band treatment gallery: every treatment for the host currently active above</h3>
+<div class="gal" id="c-gallery"></div>
+
+<!-- =============================================================== 5 -->
+<h2><span class="num">6</span>The macOS left edge: traffic lights + host + <code>+ Tab</code> + toggle</h2>
+<p>This is the main risk with A. On macOS, the traffic lights take about 66px of the sidebar head. The two rows below show the head alone at the same width, once with the host in the head (replacing the wordmark) and once with the host as the first crumb (the head keeps just the logo). Drag the slider down to the narrowest sidebar width you actually use.</p>
+<div class="controls" id="sq-controls"></div>
+<div id="sq-rows"></div>
+<div class="verdict">With the host as the <b>first crumb</b>, the head fits at every width with the logo, <code>+ Tab</code> and the toggle. With the host <b>in the head</b>, the name gets squeezed: it falls back to a monogram on narrow sidebars. Putting it in the crumb also completes the breadcrumb: <code>ws-01 › hexokit › …</code>, with the tab as the centred heading.</div>
+
+<!-- =============================================================== 6 -->
+<h2><span class="num">7</span>Browser and phone</h2>
+<p>In a browser there's no titlebar, so A's bar is just today's bar with a host crumb in it. To try it, set <i>Platform → Browser</i> in §3. One thing is still undecided: <b>where a browser gets its list of hosts</b>. The shell keeps that list in its own store, but a browser tab has nothing to read. Switching hosts in a browser also means going to another origin, not the shell's instant view swap.</p>
+<div class="tablewrap"><table>
+<tr><th>Host-list source for browsers</th><th>What switching does</th><th>Cost</th><th></th></tr>
+<tr><td class="k">Shell only</td><td>In a browser the crumb just shows the host name, with no <code>▾</code></td><td>None. Browsers keep today's behaviour minus the colour.</td><td><span class="tag rec">v1</span></td></tr>
+<tr><td class="k">Daemon-served list</td><td><code>GET /api/hosts</code> combines <code>remotes.yaml</code> with hosts added by hand. A row opens that host's origin.</td><td>New endpoint and a store for the hand-added hosts. Your other hosts' URLs become visible to anyone who can open this one.</td><td><span class="tag open">open</span></td></tr>
+<tr><td class="k">Per-browser list</td><td>Hosts added in a browser are saved in its localStorage</td><td>Different on every device, and a phone starts with nothing</td><td><span class="tag rej">rejected</span></td></tr>
+</table></div>
+<h3>Phone (375px)</h3>
+<p>A phone has no room for a host crumb in the bar. Below <code>sm</code> every crumb is already hidden. So the host moves into the drawer: the drawer's brand row, which shows the wordmark today, becomes the host switcher. A background host that's waiting puts an amber dot on the hamburger, so you can see it with the drawer closed.</p>
+<div class="row" id="phones"></div>
+
+<!-- =============================================================== 7 -->
+<h2><span class="num">8</span>Comparison</h2>
+<div class="tablewrap"><table>
+<tr><th></th><th>Today</th><th>A: merged bar</th><th>B: host tabs</th><th>C: squares + nameplate</th></tr>
+<tr><td class="k">Chrome above content (shell)</td><td>28 strip + 2 stripe + 47 bar = <b>77px</b></td><td class="good"><b>47px</b> (≈ 2 more terminal rows at 13px)</td><td class="meh">34 tabs + 47 bar = <b>81px</b></td><td class="meh">32 strip + 47 bar = <b>79px</b> (could stay at 28)</td></tr>
+<tr><td class="k">Rows of chrome</td><td>2</td><td class="good">1</td><td>2</td><td>2</td></tr>
+<tr><td class="k">How you tell hosts apart</td><td class="bad">colour (wash, stripe, strip)</td><td class="good">name + kind glyph, where the breadcrumb starts</td><td class="good">name + kind glyph, one tab per host</td><td class="good">colour square for a quick read; the nameplate confirms in words</td></tr>
+<tr><td class="k">Clicks to switch</td><td>2 (open the menu, pick)</td><td>1 by chip when there's room, otherwise 2</td><td class="good">1, always</td><td class="good">1, always (hover previews)</td></tr>
+<tr><td class="k">Waiting on a background host</td><td class="bad">hidden until the menu opens</td><td class="good">count on the chip, or <code>●N</code> on the crumb</td><td class="good">count on the tab</td><td class="good">amber dot on the square</td></tr>
+<tr><td class="k">Drag surface</td><td>the strip minus the label</td><td class="meh">gaps in the bar; needs a generic <code>no-drag</code> rule for controls</td><td>the strip minus the tabs</td><td class="good">the strip minus the squares; the nameplate can still be dragged</td></tr>
+<tr><td class="k">Browser</td><td>wash + stripe</td><td class="good">the same bar with a host crumb</td><td class="bad">an extra row inside the page</td><td class="meh">no strip; the squares need a home (top-bar head or HOST panel)</td></tr>
+<tr><td class="k">Phone</td><td>wordmark in the drawer</td><td colspan="3">host row in the drawer + amber dot on the hamburger (the same for all three)</td></tr>
+<tr><td class="k">Looks like</td><td>a tinted window</td><td>an app toolbar</td><td class="bad">a browser</td><td class="good">an identity panel: palette + nameplate</td></tr>
+<tr><td class="k">Build cost</td><td></td><td class="meh">titlebar merge: <code>trafficLightPosition</code>, overlay height = bar height, left/right insets, crumb + chip fold</td><td>new tab strip; the strip's bridge code stays</td><td class="good">replaces the strip's label; CSS-only light effect; adds fields to <code>servers:list</code></td></tr>
+<tr><td class="k">Reverses a recorded decision</td><td></td><td class="meh">yes: "the titlebar is a strip, not merged" (desktop-shell); the record leaves the merge open</td><td class="meh">yes: "the strip has exactly one no-drag island"</td><td class="meh">yes: the same one-island rule (it becomes N squares)</td></tr>
+</table></div>
+
+<!-- =============================================================== 8 -->
+<h2><span class="num">9</span>Recommendation</h2>
+<div class="verdict"><b>Updated after the review: Option C.</b> Keep a titlebar row and make it the host switcher: one coloured square per connected host plus a nameplate for the active one. The band lights up from the selected square instead of a flat tint. Colour stays (you asked to keep it) but never has to work alone, because the nameplate always says the name. <b>Option A</b> is still the alternative if reclaiming vertical space ever matters more than colour. <b>B</b> is out: it looks like a browser.</div>
+<div class="tablewrap"><table>
+<tr><th>#</th><th>Decision</th><th></th></tr>
+<tr><td>1</td><td>Keep the shell titlebar strip. Replace its centred label with squares (one per connected host, in host-list order, which is also the <kbd>⌥⌘1–9</kbd> order) and a nameplate next to them.</td><td><span class="tag rec">proposed</span></td></tr>
+<tr><td>2</td><td>Clicking a square switches hosts, and hovering previews the host in the nameplate. Dragging a square left or right reorders hosts, which renumbers <kbd>⌥⌘1–9</kbd>; with a square focused (<kbd>⇧⌘H</kbd>), <kbd>⌥←/→</kbd> does the same. Edit, remove and add stay in the existing host menu, opened from <code>+</code> or by right-clicking a square.</td><td><span class="tag rec">proposed</span></td></tr>
+<tr><td>3</td><td>Selecting a square lights the band up from that square. The effect (<code>strip.effect</code>: Glow, Livery, Halftone, Hex mesh, Scanlines, Edge light, Flat) and the switch motion (<code>strip.motion</code>: Light slides, Slide + sweep, Cut) are user settings in <b>Settings → Appearance → This app</b>, saved in the desktop app's store and applied to every host. Defaults: <b>Glow</b> (decided, so it's what people see after upgrading) and Light slides.</td><td><span class="tag rec">decided</span></td></tr>
+<tr><td>3b</td><td>An <code>⌥⌘</code> / <code>Alt</code> pill sits to the left of the squares. Hovering it or holding the chord shows the digits in the squares.</td><td><span class="tag rec">proposed</span></td></tr>
+<tr><td>4</td><td>Remove the top-bar wash and stripe, so colour lives only in the strip. Keep it on the dock icon, favicon and PWA titlebar.</td><td><span class="tag rec">proposed</span></td></tr>
+<tr><td>5</td><td>Host colours are <b>host-owned only</b>: stored in the host's settings (<code>instance_color</code>), so a host has the same colour on every device, and there's no per-device or per-app override. The colours come from a set of well-separated hues (the Host colour row in Appearance → This host replaces the instance-accent row). A hue another connected host already uses is labelled, with a warning that's advisory only.</td><td><span class="tag rec">decided</span></td></tr>
+<tr><td>5b</td><td>Squares are plain colour, with no monogram letters. Numbers appear in them only while hints are showing.</td><td><span class="tag rec">decided</span></td></tr>
+<tr><td>6</td><td>Nameplate fields: name · user@machine · OS + kind · link · agents, folding from the right. Needs extra fields in the <code>servers:list</code> projection.</td><td><span class="tag rec">proposed</span></td></tr>
+<tr><td>7</td><td>Strip height: keep 28px or allow 32px.</td><td><span class="tag open">open</span></td></tr>
+<tr><td>8</td><td>Carried over from A: show one crumb when the workspace and group have the same name, and move Refresh into the overflow menu.</td><td><span class="tag rec">proposed</span></td></tr>
+<tr><td>9</td><td>Browser: there's no strip, so the squares move into the top bar's sidebar head or the HOST panel.</td><td><span class="tag open">open</span></td></tr>
+<tr><td>10</td><td>Option A (merged bar) is the fallback if vertical space wins; option B (host tabs) is rejected because it looks like a browser.</td><td><span class="tag rej">not chosen</span></td></tr>
+</table></div>
+
+</div>
+
+<script>
+(() => {
+"use strict";
+const HOSTS = [
+  { machine: "sahil@ws-01", os: "linux", agents: 11, name: "ws-01",     origin: "http://ws-01.tail1f2.ts.net:6123",    color: "#c678dd", waiting: 0, ws: [["loom",17],["loom2",9],["hexokit",11]], cur: ["hexokit","hexokit","hexokit"], cwd: "hexokit.worktrees/vital-fjord", branch: "vital-fjord" },
+  { machine: "sahil@Sahils-Mac-mini", os: "macOS", agents: 10, name: "mac-mini",  origin: "http://mac-mini.tail1f2.ts.net:6123", color: "#8f7fe6", waiting: 2, ws: [["design",4],["infra",6]], cur: ["infra","terraform","plan-apply"], cwd: "infra/terraform", branch: "main" },
+  { machine: "sahil@build-7f3a", os: "linux", agents: 3, name: "gcp-build", origin: "http://127.0.0.1:3100",               color: "#61afef", waiting: 0, ws: [["ci",3]], cur: ["ci","nightly","e2e-shard-3"], cwd: "hexokit", branch: "nightly" },
+  { machine: "sahil@MacBook-Pro", os: "macOS", agents: 7, name: "laptop",    origin: "http://127.0.0.1:6123",               color: "#98c379", waiting: 1, ws: [["notes",2],["hexokit",5]], cur: ["notes","notes","journal"], cwd: "notes", branch: "main" },
+  { machine: "sahil@loom", os: "linux", agents: 8, name: "loom-box",  origin: "http://loom-box.tail1f2.ts.net:6123", color: "#7c8cf0", waiting: 0, ws: [["loom",8]], cur: ["loom","render","frames"], cwd: "loom", branch: "render" },
+  { machine: "runner@ci-04", os: "linux", agents: 12, name: "ci-runner", origin: "http://127.0.0.1:3101",               color: "#56b6c2", waiting: 3, ws: [["ci",12]], cur: ["ci","gh","runner-4"], cwd: "actions-runner", branch: "-" },
+  { machine: "pi@raspberrypi", os: "linux", agents: 2, name: "pi-lab",    origin: "http://pi-lab.local:6123",            color: "#e06c75", waiting: 0, ws: [["lab",2]], cur: ["lab","lab","sensors"], cwd: "sensors", branch: "main" },
+];
+const SVG = (inner, w = 14) => `<svg viewBox="0 0 16 16" width="${w}" height="${w}" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
+const ICON = {
+  logo: SVG(`<path d="M8 1.5 14 5v6l-6 3.5L2 11V5z"/><path d="M8 8v6.5M8 8l6-3M8 8 2 5"/>`, 18),
+  local: SVG(`<rect x="3" y="3.5" width="10" height="7" rx="1"/><path d="M1.5 13h13"/>`),
+  net: SVG(`<rect x="2.5" y="2.5" width="11" height="4.5" rx="1"/><rect x="2.5" y="9" width="11" height="4.5" rx="1"/><path d="M5 4.75h.01M5 11.25h.01"/>`),
+  tunnel: SVG(`<path d="M2 13.5V8a6 6 0 0 1 12 0v5.5"/><path d="M5.5 13.5V8.5a2.5 2.5 0 0 1 5 0v5"/><path d="M1 13.5h14"/>`),
+  side: SVG(`<rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6 3v10"/>`),
+  layout: SVG(`<rect x="2" y="3" width="12" height="10" rx="1"/><path d="M8 3v10M2 8h6"/>`),
+  refresh: SVG(`<path d="M13 8a5 5 0 1 1-1.5-3.6"/><path d="M13 2.5v3h-3"/>`),
+  gear: SVG(`<circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M3.6 12.4 5 11M11 5l1.4-1.4"/>`),
+  op: SVG(`<circle cx="8" cy="6" r="2.5"/><path d="M3.5 14a4.5 4.5 0 0 1 9 0"/>`),
+};
+const KIND_LABEL = { local: "this machine", net: "network host (Tailscale / LAN)", tunnel: "rk remote · SSH tunnel" };
+function kindOf(h) {
+  const u = new URL(h.origin);
+  const lo = u.hostname === "127.0.0.1" || u.hostname === "localhost";
+  const p = +u.port;
+  if (lo && p >= 3100 && p <= 3199) return "tunnel";
+  return lo ? "local" : "net";
+}
+function mono(name) {
+  const t = name.split(/[-_.]/).filter(Boolean);
+  if (t.length > 1) {
+    const last = t[t.length - 1];
+    if (/^\d+$/.test(last)) return (t[0][0] + String(+last)).toUpperCase();
+    return (t[0][0] + last[0]).toUpperCase();
+  }
+  return name.slice(0, 2).toUpperCase();
+}
+const glyph = (h, dot) => `<span class="gl" title="${KIND_LABEL[kindOf(h)]}">${ICON[kindOf(h)]}${dot ? `<i class="cdot" style="background:${h.color}"></i>` : ""}</span>`;
+const LIGHTS = `<span class="lights" data-ann="lights"><i class="r"></i><i class="y"></i><i class="g"></i></span>`;
+const WCTL = `<span class="wctl"><span>─</span><span>▢</span><span>✕</span></span>`;
+const DISTINCT = { "ws-01": "#b57edc", "mac-mini": "#4f9cf0", "gcp-build": "#e0626e", "laptop": "#6cc070", "loom-box": "#3fb8c4", "ci-runner": "#e874b8", "pi-lab": "#a0a8b8" };
+const colorOf = (h) => DISTINCT[h.name];
+function linkOf(h) {
+  const k = kindOf(h), u = new URL(h.origin);
+  if (k === "tunnel") return "ssh tunnel :" + u.port;
+  if (k === "local") return "local";
+  return /ts\.net$/.test(u.hostname) ? "tailscale" : "lan";
+}
+function detailsHTML(h) {
+  return `<span class="dn">${h.name}</span><span class="d-m">${h.machine}</span><span class="d-os">${ICON[kindOf(h)]}${h.os}</span><span class="d-link">${linkOf(h)}</span><span class="d-ag">${h.agents} agents</span>`;
+}
+function cTitle(st, hs, act) {
+  const mac = st.platform === "mac", winp = st.platform === "win";
+  const padL = mac ? 80 : 12, padR = winp ? 146 : 12;
+  const mini = !!st.mini;
+  const inner = (h, i) => `${st.letters === "on" ? `<span class="lt">${mono(h.name)}</span>` : ""}${i < 9 ? `<span class="kd">${i + 1}</span>` : ""}`;
+  const pill = !mini && st.keys !== "off" ? `<span class="kpill nd" title="${mac ? "⌥⌘" : "Alt+"}1–9 switches host · ${mac ? "⇧⌘H" : "⇧Ctrl+H"} focuses the squares">${mac ? "⌥⌘" : "Alt"}</span>` : "";
+  return `<div class="ctitle drag tr-${st.treat} ${st.keys === "always" ? "showkeys" : ""}"><div class="ctreat"></div><div class="csweep"></div>${mac ? LIGHTS : ""}<div class="crow" style="padding-left:${mini ? 10 : padL}px;padding-right:${padR}px">${pill}<div class="blocks">${hs.map((h, i) => `<button class="blk nd ${h === act ? "on" : ""}" data-act="switch" data-id="${h.name}" style="--c:${colorOf(h, st)}" title="${h.name}${i < 9 ? " · " + hint(st, i) : ""}">${inner(h, i)}${h !== act && h.waiting ? `<i class="bw"></i>` : ""}</button>`).join("")}${mini ? "" : `<button class="blk add nd" title="Add host">+</button>`}</div><div class="cdet">${mini ? `<span class="dn">${act.name}</span>` : detailsHTML(act)}</div></div>${winp ? WCTL : ""}</div>`;
+}
+function lightC(ct, st, act, animate, sweep) {
+  const blk = ct.querySelector(".blk.on"), det = ct.querySelector(".cdet");
+  const kids = [...det.children].filter(c => getComputedStyle(c).display !== "none");
+  const last = kids[kids.length - 1];
+  const ax = blk.offsetLeft + blk.offsetWidth / 2;
+  const dx = last ? last.offsetLeft + last.offsetWidth + 22 : ax + 40;
+  const acc = colorOf(act, st);
+  const setv = (a, d, c) => { ct.style.setProperty("--ax", a + "px"); ct.style.setProperty("--dx", d + "px"); ct.style.setProperty("--acc", c); };
+  const prev = st._prev;
+  ct.classList.add("notrans");
+  if (animate && prev) {
+    setv(prev.ax, prev.dx, prev.acc);
+    void ct.offsetWidth;
+    ct.classList.remove("notrans");
+    setv(ax, dx, acc);
+    if (sweep) { const sw = ct.querySelector(".csweep"); sw.style.setProperty("--from", ax + "px"); sw.classList.add("go"); }
+  } else setv(ax, dx, acc);
+  return { ax, dx, acc };
+}
+const hostOf = (st) => { const hs = HOSTS.slice(0, st.n); return { hs, act: hs.find(h => h.name === st.active) || hs[0] }; };
+
+function hint(st, i) {
+  if (i >= 9) return "";
+  if (st.platform === "mac") return `⌥⌘${i + 1}`;
+  if (st.platform === "win") return `Alt+${i + 1}`;
+  return "↗";
+}
+
+function renderMenu(st, hs, act) {
+  return `<div class="hmenu" role="menu">${hs.map((h, i) => `<button class="mrow" data-act="switch" data-id="${h.name}"><span class="ck">${h === act ? "✓" : ""}</span>${glyph(h, st.dot === "on")}<span class="mn">${h.name}</span><span class="mo">${new URL(h.origin).host}</span>${h !== act && h.waiting ? `<span class="w">● ${h.waiting}</span>` : ""}<span class="kb">${hint(st, i)}</span></button>`).join("")}<div class="msep"></div><div class="mrow foot">+ Add host…</div><div class="mfoot">${st.platform === "mac" ? "⇧⌘H" : "⇧Ctrl+H"} opens · 1–9 picks · ⌥↑↓ reorders</div></div>`;
+}
+
+function renderWin(st) {
+  const { hs, act } = hostOf(st);
+  const bg = hs.filter(h => h !== act);
+  const agg = bg.reduce((s, h) => s + h.waiting, 0);
+  const mac = st.platform === "mac", winp = st.platform === "win", brw = st.platform === "browser";
+  const sbOpen = st.sidebar === "open";
+  const v = st.variant;
+  const dot = st.dot === "on";
+  let out = "";
+
+  if (brw) out += `<div class="bchrome"><span>‹ › ⟳</span><span class="url">${act.origin.replace("http://", "")}/hexokit/@3</span><span class="lbl">browser chrome</span></div>`;
+
+  if (v === "today" && !brw) {
+    out += `<div class="strip drag" data-ann="strip" style="background:color-mix(in srgb, ${act.color} 35%, var(--chrome))">${mac ? LIGHTS : ""}<button class="stl nd" data-act="menu" data-ann="stl">${act.name} ▾</button>${winp ? WCTL : ""}</div>`;
+  }
+  if (v === "B") {
+    const padL = mac ? 78 : 8, padR = winp ? 146 : 8;
+    const avail = st.w - padL - padR - 40;
+    let per = Math.min(184, Math.floor(avail / hs.length) - 2);
+    let shown = hs, more = 0;
+    if (per < 54) {
+      per = 54;
+      const cap = Math.max(1, Math.floor((avail - 56) / (per + 2)));
+      shown = hs.slice(0, cap);
+      if (!shown.includes(act)) shown[cap - 1] = act;
+      more = hs.length - shown.length;
+    }
+    const compact = per < 104;
+    out += `<div class="tabs drag">${mac ? LIGHTS : ""}<div class="tabrow" style="padding-left:${padL}px;padding-right:${padR}px">${shown.map(h => `<button class="htab nd ${h === act ? "on" : ""}" data-act="switch" data-id="${h.name}" style="width:${per}px" title="${h.name} · ${KIND_LABEL[kindOf(h)]}">${glyph(h, dot)}<span class="tn">${compact ? mono(h.name) : h.name}</span>${h.waiting && h !== act ? `<span class="w">●${h.waiting}</span>` : ""}</button>`).join("")}${more ? `<button class="btn nd more" data-act="menu" data-mk="more">+${more} ▾</button>` : ""}<button class="tplus nd" title="Add host">+</button></div>${winp ? WCTL : ""}</div>`;
+  }
+  if (v === "C" && !brw) out += cTitle(st, hs, act);
+  if (v === "today") out += `<div class="stripe" data-ann="stripe" style="background:${act.color}"></div>`;
+
+  const tabSplit = (iconOnly) => `<span class="mseg green nd"><span>+${iconOnly ? "" : `<span class="tabw">&nbsp;Tab</span>`}</span><span>▾</span></span>`;
+  const toggle = `<button class="btn nd" title="Toggle sidebar">${ICON.side}</button>`;
+  const hostCrumb = `<button class="crumb host nd" data-act="menu" data-mk="host" data-ann="host" title="${act.name} · ${KIND_LABEL[kindOf(act)]}">${glyph(act, dot)}<span class="hn">${act.name}</span><span class="hm">${mono(act.name)}</span><span class="caret">▾</span>${agg && st.chips !== "none" ? `<span class="agg" title="${bg.filter(h => h.waiting).map(h => `${h.name}: ${h.waiting} waiting`).join(" · ")}">● ${agg}</span>` : ""}</button>`;
+  const brand = v === "today"
+    ? `<span class="brand" data-ann="brand">${ICON.logo}<span class="wm">HexoKit</span></span>`
+    : `<span class="brand" title="HexoKit">${ICON.logo}</span>`;
+  const lightsInBar = v === "A" && mac;
+  const hostInHead = v === "A" && st.place === "head";
+
+  const headItems = (closed) => [
+    lightsInBar ? `<span class="lpad"></span>` : "",
+    hostInHead ? hostCrumb : brand,
+    closed ? "" : tabSplit(false),
+    toggle,
+    closed ? tabSplit(true) : "",
+  ].join("");
+
+  const [wsN, grpN, tabN] = act.cur;
+  const dedupe = v === "A" && st.dedupe === "on" && wsN === grpN;
+  const crumbs = [
+    v === "A" && st.place === "crumb" ? hostCrumb + `<span class="sep">›</span>` : "",
+    dedupe
+      ? `<span class="crumb" data-ann="names" title="workspace and group">${wsN}</span>`
+      : `<span class="crumb ws" data-ann="names">${wsN}</span><span class="sep ws">›</span><span class="crumb" data-ann="names">${grpN}</span>`,
+  ].join("");
+  const chips = v === "A" && st.chips === "chips" && bg.length
+    ? `<span class="chips">${bg.map(h => `<button class="hchip nd" data-act="switch" data-id="${h.name}" title="${h.name} · ${KIND_LABEL[kindOf(h)]}">${glyph(h, dot)}<span class="nm">${h.name}</span><span class="hm2">${mono(h.name)}</span>${h.waiting ? `<span class="w">●${h.waiting}</span>` : ""}</button>`).join("")}</span>`
+    : "";
+
+  const refreshInBar = v !== "A";
+  const right = [
+    `<button class="btn nd op" title="Operator">${ICON.op}</button>`,
+    `<span class="vsep surf"></span>`,
+    `<span class="mseg nd surf"><span class="on">&gt;_</span><span>{}</span><span>://</span><span>[]</span></span>`,
+    `<span class="mseg nd open"><span>Open</span><span>▾</span></span>`,
+    `<button class="btn nd layout" title="Layout">${ICON.layout}</button>`,
+    refreshInBar ? `<button class="btn nd refresh" title="Refresh">${ICON.refresh}</button>` : "",
+    `<button class="btn nd" title="Settings">${ICON.gear}</button>`,
+    `<button class="btn nd" title="More">▾</button>`,
+  ].join("");
+
+  const barDrag = v === "A" && !brw ? "drag" : "";
+  const wash = v === "today" ? `style="background:color-mix(in srgb, ${act.color} 6.5%, var(--chrome))"` : "";
+  out += `<div class="bar ${barDrag}" ${wash}>`;
+  if (lightsInBar) out += LIGHTS;
+  if (sbOpen) out += `<div class="head" style="width:${st.sbw}px">${headItems(false)}</div>`;
+  out += `<div class="main ${v === "A" && winp ? "wpad" : ""}"><div class="bl">${sbOpen ? "" : headItems(true)}${chips}<span class="hist"><button class="btn nd">‹</button><button class="btn nd">›</button></span>${crumbs}</div><div class="bc nd" data-ann="names">${tabN} <span class="caret">▾</span></div><div class="br">${right}</div></div>`;
+  if (v === "A" && winp) out += WCTL;
+  out += `</div>`;
+
+  const sb = sbOpen ? `<div class="sbar" style="width:${st.sbw}px"><div class="rail"><span></span><span></span><span></span><span></span></div><div class="sech">▸ BOARDS</div><div class="sech">▾ WORKSPACES</div><div class="wstiles">${act.ws.map(([n, c]) => `<div class="wst ${n === wsN ? "on" : ""}"><div>${n}</div><div class="c">${c}</div></div>`).join("")}</div></div>` : "";
+  out += `<div class="body">${sb}<div class="tilewrap"><div class="tile ${st.flash ? "flash" : ""}"><div class="th">○ &gt;_ Terminal</div><div class="tb"><div class="pl"><span class="p1">${act.cwd}</span><span class="p2">⎇ ${act.branch}</span><span class="p3">claude</span></div><div class="ln">sahil@<b>${act.name}</b> ❯ <span class="cur"></span></div></div></div></div></div>`;
+
+  if (st.menu) out += renderMenu(st, hs, act);
+  return out;
+}
+
+const FOLD = {
+  head: [["h-plus", "+ Tab → +", ".tabw"], ["h-mono", "host → monogram", ".host"], ["h-glyph", "host → glyph", ".host"]],
+  left: [["f-mono", "chips → monograms", ".chips"], ["f-chips", "chips → ●N badge", ".chips"], ["f-ws", "workspace crumb hidden", ".ws"], ["f-hist", "history arrows hidden", ".hist"], ["h-plus", "+ Tab → +", ".tabw"], ["h-mono", "host → monogram", ".host"], ["h-glyph", "host → glyph", ".host"]],
+  cdet: [["c-os", "OS hidden", ".d-os"], ["c-link", "link hidden", ".d-link"], ["c-ag", "agent count hidden", ".d-ag"], ["c-m", "machine name hidden", ".d-m"]],
+  right: [["f-layout", "layout → overflow", ".layout"], ["f-refresh", "refresh → overflow", ".refresh"], ["f-open", "Open → overflow", ".open"], ["f-op", "operator → overflow", ".op"], ["f-surf", "surface toggles → overflow", ".surf"]],
+};
+function overflowing(el) {
+  if (!el) return false;
+  const cs = getComputedStyle(el);
+  const kids = [...el.children].filter(c => { const k = getComputedStyle(c); return k.display !== "none" && k.position !== "absolute"; });
+  const gap = parseFloat(cs.columnGap) || 0;
+  const need = kids.reduce((s, c) => s + c.getBoundingClientRect().width, 0) + gap * Math.max(0, kids.length - 1) + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+  return need > el.clientWidth + 1;
+}
+function fold(win) {
+  const applied = [];
+  const regions = { head: win.querySelector(".head"), left: win.querySelector(".bl"), right: win.querySelector(".br"), cdet: win.querySelector(".cdet") };
+  for (const [k, steps] of Object.entries(FOLD)) {
+    const el = regions[k];
+    if (!el) continue;
+    for (const [cls, label, sel] of steps) {
+      if (!overflowing(el)) break;
+      if (win.classList.contains(cls) || !win.querySelector(sel)) continue;
+      win.classList.add(cls);
+      applied.push(label);
+    }
+  }
+  return applied;
+}
+
+function placeMenu(win, st) {
+  const m = win.querySelector(".hmenu");
+  if (!m) return;
+  const anchors = [...win.querySelectorAll("[data-act=menu]")].filter(a => a.offsetParent !== null);
+  const a = anchors.find(x => (x.dataset.mk || "") === (st.mk || "")) || anchors[0];
+  if (!a) return;
+  const wr = win.getBoundingClientRect(), ar = a.getBoundingClientRect();
+  const s = wr.width / win.offsetWidth || 1;
+  let left = (ar.left - wr.left) / s;
+  left = Math.max(8, Math.min(left, win.offsetWidth - m.offsetWidth - 8));
+  m.style.left = left + "px";
+  m.style.top = ((ar.bottom - wr.top) / s + 6) + "px";
+}
+
+function cseg(key, opts, st) {
+  return `<span class="cseg" data-key="${key}">${opts.map(([v, l]) => `<button data-v="${v}" aria-pressed="${String(st[key]) === String(v)}">${l}</button>`).join("")}</span>`;
+}
+function controlsHTML(defs, st) {
+  return defs.map(d => d.range
+    ? `<label>${d.label}</label><span><input type="range" min="${d.min}" max="${d.max}" step="${d.step || 10}" value="${st[d.key]}" data-key="${d.key}" data-unit="${d.unit || ""}"><span class="val">${st[d.key]}${d.unit || ""}</span></span>`
+    : `<label>${d.label}</label>${cseg(d.key, d.opts, st)}`).join("");
+}
+function bindControls(ctl, st, defs, draw) {
+  const redraw = () => { ctl.innerHTML = controlsHTML(defs, st); };
+  ctl.addEventListener("click", e => {
+    const b = e.target.closest("button[data-v]");
+    if (!b) return;
+    const k = b.parentElement.dataset.key;
+    const def = defs.find(d => d.key === k);
+    st[k] = def && def.num ? +b.dataset.v : b.dataset.v;
+    st.menu = false;
+    redraw(); draw();
+  });
+  ctl.addEventListener("input", e => {
+    const k = e.target.dataset.key;
+    if (!k) return;
+    st[k] = +e.target.value;
+    e.target.nextElementSibling.textContent = st[k] + e.target.dataset.unit;
+    draw();
+  });
+  redraw();
+  return redraw;
+}
+
+const mocks = [];
+function makeMock(el, st, defs, extraReadout, afterDraw) {
+  el.innerHTML = `<div class="controls"></div><div class="fit"><div class="win"></div></div><div class="readout"></div>`;
+  const ctl = el.querySelector(".controls"), fit = el.querySelector(".fit"), win = el.querySelector(".win"), ro = el.querySelector(".readout");
+  function draw() {
+    win.className = `win m-${st.chips || "none"} ${st.drag === "on" ? "showdrag" : ""} ${st.letters === "on" ? "c-letters" : ""}`;
+    win.style.width = st.w + "px";
+    win.style.transform = "";
+    win.innerHTML = renderWin(st);
+    st.flash = false;
+    const applied = fold(win);
+    const ct = win.querySelector(".ctitle");
+    if (ct && st._hold) ct.classList.add("hold");
+    if (ct) { st._prev = lightC(ct, st, hostOf(st).act, st.motion !== "none" && st._switched, st.motion === "sweep" && st._switched); st._switched = false; }
+    const s = Math.min(1, fit.clientWidth / (st.w + 2));
+    win.style.transform = `scale(${s})`;
+    fit.style.height = Math.ceil(win.offsetHeight * s + 2) + "px";
+    placeMenu(win, st);
+    const body = win.querySelector(".body"), bc = win.querySelector(".bchrome");
+    const chromeH = body.offsetTop - (bc ? bc.offsetHeight : 0);
+    if (afterDraw) afterDraw(st);
+    ro.innerHTML = `HexoKit chrome above the content: <b>${chromeH}px</b> · fold: ${applied.length ? applied.map(a => `<span class="f">${a}</span>`).join(" → ") : "nothing folded"} · shown at ${Math.round(s * 100)}%${extraReadout ? " · " + extraReadout(st) : ""}`;
+  }
+  win.addEventListener("click", e => {
+    const a = e.target.closest("[data-act]");
+    if (!a) { if (st.menu) { st.menu = false; draw(); } return; }
+    e.stopPropagation();
+    if (a.dataset.act === "menu") { st.mk = a.dataset.mk || ""; st.menu = !st.menu; draw(); }
+    else if (a.dataset.act === "switch") { if (st.active !== a.dataset.id) { st.flash = true; st._switched = true; } st.active = a.dataset.id; st.menu = false; draw(); }
+  });
+  document.addEventListener("click", e => { if (st.menu && !win.contains(e.target)) { st.menu = false; draw(); } });
+  win.addEventListener("mouseover", e => {
+    const b = e.target.closest(".blk[data-id]"), det = win.querySelector(".cdet");
+    if (!b || !det) return;
+    det.classList.toggle("peek", !b.classList.contains("on"));
+    det.innerHTML = detailsHTML(HOSTS.find(x => x.name === b.dataset.id));
+  });
+  win.addEventListener("mouseout", e => {
+    const b = e.target.closest(".blk[data-id]"), det = win.querySelector(".cdet");
+    if (!b || !det || (e.relatedTarget && b.contains(e.relatedTarget))) return;
+    det.classList.remove("peek");
+    det.innerHTML = detailsHTML(hostOf(st).act);
+  });
+  const refresh = bindControls(ctl, st, defs, draw);
+  draw();
+  mocks.push(draw);
+  return { draw, win, st, refresh };
+}
+
+const PLATFORM = { key: "platform", label: "Platform", opts: [["mac", "macOS"], ["win", "Windows / Linux"], ["browser", "Browser"]] };
+const PLATFORM_SHELL = { key: "platform", label: "Platform", opts: [["mac", "macOS"], ["win", "Windows / Linux"]] };
+const SIDEBAR = { key: "sidebar", label: "Sidebar", opts: [["open", "open"], ["closed", "closed"]] };
+const DRAG = { key: "drag", label: "Drag regions", opts: [["off", "hide"], ["on", "show"]] };
+const DOT = { key: "dot", label: "Colour dot", opts: [["off", "off"], ["on", "on (7px on glyph)"]] };
+const N = { key: "n", label: "Hosts", num: true, opts: [[2, "2"], [3, "3"], [4, "4"], [5, "5"], [7, "7"]] };
+const W = { key: "w", label: "Window width", range: true, min: 640, max: 1600, unit: "px" };
+
+const today = makeMock(document.getElementById("m-today"),
+  { variant: "today", platform: "mac", sidebar: "open", sbw: 300, w: 1280, n: 4, active: "ws-01", drag: "off", dot: "off" },
+  [PLATFORM_SHELL, SIDEBAR, DRAG, W]);
+document.querySelectorAll("#ann-today li").forEach(li => {
+  li.addEventListener("mouseenter", () => today.win.querySelectorAll(`[data-ann="${li.dataset.ann}"]`).forEach(n => n.classList.add("hl")));
+  li.addEventListener("mouseleave", () => today.win.querySelectorAll(".hl").forEach(n => n.classList.remove("hl")));
+});
+
+makeMock(document.getElementById("m-a"),
+  { variant: "A", platform: "mac", sidebar: "open", sbw: 260, w: 1500, n: 4, active: "ws-01", place: "crumb", chips: "chips", dedupe: "on", drag: "off", dot: "off" },
+  [PLATFORM, { key: "place", label: "Host crumb", opts: [["crumb", "first crumb"], ["head", "in the sidebar head"]] },
+   { key: "chips", label: "Background hosts", opts: [["chips", "chips → badge (fold)"], ["badge", "●N badge only"], ["none", "nothing"]] },
+   { key: "dedupe", label: "Same-name crumbs", opts: [["on", "merge"], ["off", "show both"]] },
+   N, SIDEBAR, DOT, DRAG, W]);
+
+makeMock(document.getElementById("m-b"),
+  { variant: "B", platform: "mac", sidebar: "open", sbw: 300, w: 1280, n: 4, active: "ws-01", drag: "off", dot: "off" },
+  [PLATFORM_SHELL, N, SIDEBAR, DOT, DRAG, W]);
+
+const TREATS = [
+  ["glow", "Glow", "A radial light centred on the active square that fades out across the band. The far end stays neutral, so the window controls and the drag area stay calm."],
+  ["livery", "Livery", "A colour panel behind the squares and the nameplate, ending in a slanted cut with two pinstripes, like a racing livery. It frames the identity zone and leaves the rest of the strip neutral."],
+  ["halftone", "Halftone", "Two dot grids, dense at the square and thinning outwards. Fits the terminal/CRT look the app already uses (glitch, boot-sweep, CRT glint)."],
+  ["hex", "Hex mesh", "The brand's hexagon as a honeycomb texture, fading out from the square over a faint glow."],
+  ["scan", "Scanlines", "CRT scanlines in the host colour, solid up to the square and fading out across the band."],
+  ["edge", "Edge light", "The band stays neutral. Light rises from the bottom edge under the square, and a 2px rule in the host colour fades out from it in both directions."],
+  ["flat", "Flat (today)", "A 35% fill across the whole band. Loud, and it doesn't point at which square is active."],
+];
+function drawGallery(src) {
+  const g = document.getElementById("c-gallery");
+  const st = { ...src, menu: false, _prev: null };
+  const { hs, act } = hostOf(st);
+  g.innerHTML = TREATS.map(([k, label, desc]) => `<div><div class="gt">${label} <span>${desc}</span></div><div class="win" data-tr="${k}">${cTitle({ ...st, treat: k }, hs, act)}</div></div>`).join("");
+  g.querySelectorAll(".win").forEach(w => lightC(w.querySelector(".ctitle"), st, act, false, false));
+}
+let cm = null;
+cm = makeMock(document.getElementById("m-c"),
+  { variant: "C", platform: "mac", sidebar: "open", sbw: 260, w: 1280, n: 4, active: "ws-01", treat: "glow", motion: "slide", letters: "off", keys: "pill", drag: "off", dot: "off" },
+  [PLATFORM_SHELL,
+   { key: "treat", label: "Band treatment", opts: TREATS.map(([k, l]) => [k, l]) },
+   { key: "motion", label: "On switch", opts: [["slide", "light slides"], ["sweep", "slide + sweep"], ["none", "cut"]] },
+   { key: "keys", label: "Key hints", opts: [["pill", "pill on title-bar hover"], ["always", "always shown"], ["off", "off"]] },
+   { key: "n", label: "Hosts", num: true, opts: [[2, "2"], [3, "3"], [4, "4"], [5, "5"], [7, "7"]] },
+   SIDEBAR, DRAG, W],
+  null, (st) => { drawGallery(st); drawSettings(); });
+
+/* ---- holding the chord shows digits; chord + digit switches (in this page) */
+function chordHeld(e) { return cm.st.platform === "mac" ? e.altKey && e.metaKey : e.altKey; }
+function setHold(on) {
+  if (cm.st.keys === "off") on = false;
+  if (cm.st._hold === on) return;
+  cm.st._hold = on;
+  const ct = cm.win.querySelector(".ctitle");
+  if (ct) ct.classList.toggle("hold", on);
+}
+document.addEventListener("keydown", e => {
+  setHold(chordHeld(e));
+  const m = /^Digit([1-9])$/.exec(e.code);
+  if (m && chordHeld(e)) {
+    const { hs } = hostOf(cm.st);
+    const h = hs[+m[1] - 1];
+    if (h) { e.preventDefault(); if (cm.st.active !== h.name) { cm.st._switched = true; cm.st.flash = true; } cm.st.active = h.name; cm.draw(); }
+  }
+});
+document.addEventListener("keyup", e => setHold(chordHeld(e)));
+window.addEventListener("blur", () => setHold(false));
+
+/* ---- drag a square left/right to reorder (renumbers ⌥⌘n); ⌥←/⌥→ on a focused square */
+let drag = null, suppressClick = false;
+cm.win.addEventListener("pointerdown", e => {
+  const b = e.target.closest(".blocks .blk[data-id]");
+  if (!b || e.button !== 0) return;
+  const blocks = [...cm.win.querySelectorAll(".blocks .blk[data-id]")];
+  const s = cm.win.getBoundingClientRect().width / cm.win.offsetWidth || 1;
+  drag = { el: b, blocks, from: blocks.indexOf(b), to: blocks.indexOf(b), x0: e.clientX, s,
+    c0: blocks[0].offsetLeft + blocks[0].offsetWidth / 2,
+    slot: blocks.length > 1 ? blocks[1].offsetLeft - blocks[0].offsetLeft : 25, moved: false };
+  b.setPointerCapture(e.pointerId);
+});
+cm.win.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const dx = (e.clientX - drag.x0) / drag.s;
+  if (!drag.moved && Math.abs(dx) < 4) return;
+  if (!drag.moved) { drag.moved = true; cm.win.querySelector(".ctitle").classList.add("dragging"); drag.el.classList.add("lifted"); }
+  const n = drag.blocks.length;
+  const minDx = -drag.from * drag.slot - 6, maxDx = (n - 1 - drag.from) * drag.slot + 6;
+  const cdx = Math.max(minDx, Math.min(maxDx, dx));
+  const to = Math.max(0, Math.min(n - 1, Math.round((drag.from * drag.slot + cdx) / drag.slot)));
+  drag.to = to;
+  drag.blocks.forEach((x, i) => {
+    if (x === drag.el) { x.style.transform = `translateX(${cdx}px) scale(1.12)`; return; }
+    let shift = 0;
+    if (drag.from < to && i > drag.from && i <= to) shift = -drag.slot;
+    if (drag.from > to && i >= to && i < drag.from) shift = drag.slot;
+    x.style.transform = shift ? `translateX(${shift}px)` : "";
+  });
+  const order = drag.blocks.filter(x => x !== drag.el);
+  order.splice(to, 0, drag.el);
+  order.forEach((x, i) => { const kd = x.querySelector(".kd"); if (kd) kd.textContent = i < 9 ? String(i + 1) : ""; });
+});
+function moveHost(from, to) {
+  if (from === to) return;
+  const [h] = HOSTS.splice(from, 1);
+  HOSTS.splice(to, 0, h);
+}
+function endDrag() {
+  if (!drag) return;
+  const d = drag; drag = null;
+  if (!d.moved) return;
+  suppressClick = true;
+  moveHost(d.from, d.to);
+  mocks.forEach(f => f());
+}
+cm.win.addEventListener("pointerup", endDrag);
+cm.win.addEventListener("pointercancel", endDrag);
+cm.win.addEventListener("click", e => { if (suppressClick) { suppressClick = false; e.stopImmediatePropagation(); e.preventDefault(); } }, true);
+cm.win.addEventListener("keydown", e => {
+  const b = e.target.closest(".blocks .blk[data-id]");
+  if (!b || !e.altKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+  e.preventDefault();
+  const n = hostOf(cm.st).hs.length, id = b.dataset.id;
+  const from = HOSTS.findIndex(h => h.name === id);
+  const to = Math.max(0, Math.min(n - 1, from + (e.key === "ArrowLeft" ? -1 : 1)));
+  if (to === from) return;
+  moveHost(from, to);
+  mocks.forEach(f => f());
+  const nb = cm.win.querySelector(`.blk[data-id="${id}"]`);
+  if (nb) nb.focus();
+});
+
+/* ---- Settings → Appearance mock (drives the C mock) */
+const SPACED = ["#b57edc", "#4f9cf0", "#e0626e", "#6cc070", "#3fb8c4", "#e874b8", "#a0a8b8", "#c8b27a"];
+function drawSettings() {
+  const el = document.getElementById("settings-mock");
+  if (!cm || !el) return;
+  const st = cm.st;
+  const { hs, act } = hostOf(st);
+  const cur = DISTINCT[act.name];
+  const usedBy = c => hs.filter(h => h !== act && DISTINCT[h.name] === c);
+  const clash = usedBy(cur);
+  let mh = hs.slice(0, 4);
+  if (!mh.includes(act)) mh = [...mh.slice(0, 3), act];
+  const card = ([k, l]) => `<div class="tcard" role="button" tabindex="0" data-treat="${k}" aria-pressed="${st.treat === k}"><div class="mini">${cTitle({ ...st, treat: k, mini: true, platform: "none", keys: "off", letters: "off" }, mh, act)}</div><span class="nm2">${l}</span></div>`;
+  const ch = (key, v, l) => `<button class="chip2" data-${key}="${v}" aria-pressed="${st[key] === v}">${l}</button>`;
+  el.innerHTML = `<div class="sdlg"><div class="stop">Settings<span class="x">✕</span></div><div class="sbody">
+  <div class="srail"><span>General</span><span class="on">Appearance</span><span>Agents</span><span>Shortcuts</span><span>All settings</span></div>
+  <div class="spanel">
+    <div class="scope"><b>This host</b><span>stored on ${act.name}, shared by every device</span></div>
+    <div class="prow2"><div class="lab">Theme</div><div class="chipset"><span class="mtheme"><i></i>Tokyo Night ▾</span><button class="chip2" aria-pressed="false">System</button><button class="chip2" aria-pressed="true">Dark</button><button class="chip2" aria-pressed="false">Light</button></div></div>
+    <div class="prow2 fresh"><div class="lab">Host colour<small>This host's square and strip light, seen from every device. Spaced hues only. A hue another connected host already uses is labelled with that host's monogram.</small><small><code>instance_color</code></small></div><div><div class="swatches">${SPACED.map(c => { const u = usedBy(c); return `<button class="sw ${c === cur ? "on" : ""}" data-sw="${c}" style="background:${c}" title="${u.length ? "used by " + u.map(h => h.name).join(", ") : c}">${u.length ? `<span class="used">${mono(u[0].name)}</span>` : ""}</button>`; }).join("")}</div><div class="swarn">${clash.length ? `Same colour as ${clash.map(h => h.name).join(", ")}. Pick another so the squares stay distinct.` : ""}</div></div></div>
+    <div class="scope"><b>This app</b><span>stored in HexoKit Desktop · applies to every host you open in it</span></div>
+    <div class="prow2 fresh"><div class="lab">Host strip effect<small>How the titlebar lights up for the active host.</small><small><code>strip.effect</code></small></div><div class="tcards">${TREATS.map(card).join("")}</div></div>
+    <div class="prow2 fresh"><div class="lab">On switch<small>Reduced motion always uses Cut.</small><small><code>strip.motion</code></small></div><div class="chipset">${ch("motion", "slide", "Light slides")}${ch("motion", "sweep", "Slide + sweep")}${ch("motion", "none", "Cut")}</div></div>
+    <div class="scope"><b>This device</b><span>stored in this browser only</span></div>
+    <div class="prow2"><div class="lab">Terminal font size</div><div class="chipset"><button class="chip2">−</button><span style="color:var(--text-primary)">13px</span><button class="chip2">+</button><button class="chip2">Reset</button></div></div>
+    <div class="prow2"><div class="lab">Quake terminal opacity<small>Desktop quake terminal background; 100% turns off the blur</small></div><div class="chipset"><input type="range" min="50" max="100" value="95" style="accent-color:var(--accent-green)"><span>95%</span></div></div>
+  </div></div></div>`;
+  el.querySelectorAll(".mini .ctitle").forEach(ct => lightC(ct, { ...st, _prev: null }, act, false, false));
+}
+document.getElementById("settings-mock").addEventListener("click", e => {
+  const t = e.target.closest("[data-treat]"), mo = e.target.closest("[data-motion]"), sw = e.target.closest("[data-sw]");
+  if (t) cm.st.treat = t.dataset.treat;
+  else if (mo) cm.st.motion = mo.dataset.motion;
+  else if (sw) DISTINCT[hostOf(cm.st).act.name] = sw.dataset.sw;
+  else return;
+  cm.refresh();
+  cm.draw();
+});
+drawSettings();
+
+/* ---- §2 identity table */
+const idState = { n: 7, cvd: "none" };
+const idCtl = document.getElementById("id-controls");
+const idDefs = [{ key: "n", label: "Hosts", num: true, opts: [[3, "3"], [5, "5"], [7, "7"]] },
+  { key: "cvd", label: "Vision", opts: [["none", "normal"], ["deutan", "deuteranopia"], ["protan", "protanopia"], ["gray", "greyscale"]] }];
+function drawId() {
+  const t = document.getElementById("id-table");
+  t.style.filter = idState.cvd === "none" ? "" : `url(#cvd-${idState.cvd})`;
+  t.innerHTML = `<tr><th>Colour only (today's strip)</th><th>Name</th><th>Kind + name</th><th>Monogram</th></tr>` +
+    HOSTS.slice(0, idState.n).map(h => `<tr><td><div class="band" style="background:color-mix(in srgb, ${h.color} 35%, var(--chrome))"></div></td><td class="idname">${h.name}</td><td><span class="idk">${glyph(h, false)}${h.name}</span></td><td><span class="mono">${mono(h.name)}</span></td></tr>`).join("");
+}
+bindControls(idCtl, idState, idDefs, drawId);
+drawId();
+document.getElementById("kind-legend").innerHTML = ["local", "net", "tunnel"].map(k => `<span>${ICON[k]} ${KIND_LABEL[k]}</span>`).join("");
+
+/* ---- §5 squeeze */
+const sq = { sbw: 240, platform: "mac" };
+const sqDefs = [{ key: "sbw", label: "Sidebar width", range: true, min: 170, max: 400, unit: "px" }];
+function drawSq() {
+  const rows = document.getElementById("sq-rows");
+  rows.innerHTML = "";
+  for (const place of ["head", "crumb"]) {
+    const st = { variant: "A", platform: "mac", sidebar: "open", sbw: sq.sbw, w: sq.sbw + 2, n: 4, active: "ws-01", place, chips: "badge", dedupe: "on", drag: "off", dot: "off" };
+    const wrap = document.createElement("div");
+    wrap.style.margin = "10px 0 14px";
+    wrap.innerHTML = `<div class="cap" style="margin-bottom:6px">${place === "head" ? "Host in the sidebar head (replaces the wordmark)" : "Host as the first crumb (the head keeps only the logo)"}</div><div class="win" style="width:${sq.sbw + 2}px;box-shadow:none"></div><div class="readout"></div>`;
+    rows.appendChild(wrap);
+    const win = wrap.querySelector(".win");
+    win.className = "win m-badge";
+    win.innerHTML = renderWin(st);
+    win.querySelector(".body").remove();
+    win.querySelector(".main").style.display = "none";
+    const head = win.querySelector(".head");
+    head.style.width = sq.sbw + "px";
+    const applied = [];
+    for (const [cls, label, sel] of FOLD.head) {
+      if (!overflowing(head)) break;
+      if (!win.querySelector(sel)) continue;
+      win.classList.add(cls); applied.push(label);
+    }
+    const still = overflowing(head);
+    wrap.querySelector(".readout").innerHTML = applied.length || still
+      ? `fold: ${applied.map(a => `<span class="f">${a}</span>`).join(" → ")}${still ? ` → <span class="f" style="color:var(--signal-red)">still clipped</span>` : ""}`
+      : "fits: nothing folded";
+  }
+}
+bindControls(document.getElementById("sq-controls"), sq, sqDefs, drawSq);
+drawSq();
+
+/* ---- §6 phones */
+function phone(variant) {
+  const act = HOSTS[0], bg = HOSTS.slice(1, 4);
+  const agg = bg.reduce((s, h) => s + h.waiting, 0);
+  const brandRow = variant === "today"
+    ? `<div class="prow">${ICON.logo}<span style="letter-spacing:.06em">HexoKit</span><span class="sp"></span><span class="mseg green"><span>+</span><span>▾</span></span></div>`
+    : `<div class="prow"><span class="crumb host" style="height:30px">${glyph(act, false)}<span>${act.name}</span><span class="caret">▾</span><span class="agg" style="display:inline-flex">● ${agg}</span></span><span class="sp"></span><span class="mseg green"><span>+</span><span>▾</span></span></div>`;
+  const list = variant === "today" ? `<div class="sech" style="margin-top:8px">▾ WORKSPACES</div><div class="wstiles">${act.ws.map(([n, c]) => `<div class="wst ${n === "hexokit" ? "on" : ""}"><div>${n}</div><div class="c">${c}</div></div>`).join("")}</div>`
+    : `<div class="plist">${HOSTS.slice(0, 4).map((h, i) => `<button class="mrow"><span class="ck">${i === 0 ? "✓" : ""}</span>${glyph(h, false)}<span class="mn">${h.name}</span><span class="mo"></span>${i && h.waiting ? `<span class="w">● ${h.waiting}</span>` : ""}</button>`).join("")}<div class="msep"></div><div class="mrow foot">+ Add host…</div></div>`;
+  return `<div><div class="phone"><div class="pbar"><button class="btn hamb">${ICON.side}${variant === "today" ? "" : `<i class="adot"></i>`}</button><span class="h">hexokit ▾</span><button class="btn">${ICON.op}</button><span class="mseg"><span class="on">&gt;_</span><span>▾</span></span></div><div class="pbody"><div class="pdrawer">${brandRow}${list}</div><div class="pdim"></div></div></div><div class="cap">${variant === "today" ? "Today: the drawer's brand row is the wordmark" : "Proposed: the brand row is the host switcher (shown open); amber dot on the hamburger"}</div></div>`;
+}
+document.getElementById("phones").innerHTML = phone("today") + phone("proposed");
+
+/* ---- theme */
+document.querySelectorAll("[data-theme-btn]").forEach(b => b.addEventListener("click", () => {
+  document.documentElement.dataset.theme = b.dataset.themeBtn;
+  document.querySelectorAll("[data-theme-btn]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  mocks.forEach(d => d());
+}));
+let rt;
+window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { mocks.forEach(d => d()); drawSq(); }, 80); });
+})();
+</script>
+</body>
+</html>

@@ -299,7 +299,18 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // hide claim, so the shifted tier is the chord everywhere. Global scope, but
   // the handler is component-local to ShellTitlebarStrip (shell-only mount), so
   // in a browser host the chord resolves to no handler and falls through.
-  { actionId: "host-menu-open", code: "KeyH", tier: "shifted", scope: "global", kind: "builtin", label: "Host switcher", description: "open the hosts menu", mapLabel: "hosts" },
+  // ⇧⌘H/⇧Ctrl+H moves focus to the desktop-shell strip's host squares (roving
+  // ←/→, Enter/Space switch, digits, ⌥←/⌥→ reorder). No mac refinement: ⌘H is
+  // the mac shell's hide accelerator and the mac-browser system hide claim, so
+  // the chord stays on the shifted tier. Global scope, but the handler is
+  // component-local to ShellTitlebarStrip (shell-only mount), so in a browser
+  // the chord resolves to no handler and falls through.
+  { actionId: "host-strip-focus", code: "KeyH", tier: "shifted", scope: "global", kind: "builtin", label: "Focus host squares", description: "move focus to the titlebar host squares", mapLabel: "hosts" },
+  // The hosts menu (rows with edit/remove/reorder, Add Host…) is opened from
+  // the strip's `+` square, a right-click on a square, or the palette — keyless
+  // default (the app-window pair precedent), so it is palette-only unless the
+  // user binds it.
+  { actionId: "host-menu-open", code: "", tier: "shifted", scope: "global", kind: "builtin", label: "Host switcher", description: "open the hosts menu", mapLabel: "hosts menu" },
   { actionId: "shortcuts-overlay", code: "Slash", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Keyboard shortcuts", description: "toggle this cheatsheet", mapLabel: "cheatsheet", ignoreInputs: true },
   // ⌘,/⇧Ctrl+, settings (260801-mqim): the mac default is the OS-conventional
   // ⌘, via `macTier`; ⌘, unshifted is browser Preferences (claimed data

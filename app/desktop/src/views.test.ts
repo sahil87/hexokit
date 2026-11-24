@@ -18,11 +18,14 @@ import {
   ERR_ABORTED,
   findViewByWebContentsId,
   getView,
+  hostNameplate,
   nextLoadFailed,
+  parseNameplateReport,
   removeHostViews,
   removeView,
   removeWindowViews,
   setViewBadge,
+  setViewNameplate,
   setViewThemeColor,
   switchPaint,
   ViewsState,
@@ -361,4 +364,66 @@ test("a heal-retry that fails again keeps the flag through the full event cycle"
   }
   failed = nextLoadFailed(failed, { kind: "did-navigate", isInterstitial: false });
   assert.equal(failed, false);
+});
+
+// ── nameplate report (strip hover preview) ───────────────────────────────────
+
+test("a fresh view has no nameplate report", () => {
+  assert.equal(getView(seeded(), WIN1, "host-a")?.nameplate, null);
+  assert.equal(hostNameplate(seeded(), "host-a"), null);
+});
+
+test("setViewNameplate caches the report on its view only", () => {
+  const state = setViewNameplate(seeded(), WIN1, "host-a", { machine: "sahil@ws-01", agents: 3 });
+  assert.deepEqual(hostNameplate(state, "host-a"), { machine: "sahil@ws-01", agents: 3 });
+  assert.equal(hostNameplate(state, "host-b"), null);
+});
+
+test("setViewNameplate for an unknown pair is a no-op", () => {
+  const before = seeded();
+  assert.equal(setViewNameplate(before, WIN1, "nope", { agents: 1 }), before);
+});
+
+test("hostNameplate reads the first live view of the host that has reported", () => {
+  let state = addView(seeded(), 2, "host-a", "view-a2", 33);
+  state = setViewNameplate(state, 2, "host-a", { agents: 7 });
+  assert.deepEqual(hostNameplate(state, "host-a"), { agents: 7 });
+  state = setViewNameplate(state, WIN1, "host-a", { agents: 2 });
+  assert.deepEqual(hostNameplate(state, "host-a"), { agents: 2 });
+});
+
+test("parseNameplateReport accepts any non-empty combination of the three fields", () => {
+  assert.deepEqual(parseNameplateReport({ machine: "sahil@ws-01", os: "linux", agents: 11 }), {
+    machine: "sahil@ws-01",
+    os: "linux",
+    agents: 11,
+  });
+  assert.deepEqual(parseNameplateReport({ agents: 0 }), { agents: 0 });
+  assert.deepEqual(parseNameplateReport({ os: "darwin" }), { os: "darwin" });
+});
+
+test("parseNameplateReport rejects the whole payload on any malformed field", () => {
+  const bad: unknown[] = [
+    null,
+    "x",
+    [],
+    {},
+    { extra: 1 },
+    { machine: "" },
+    { machine: "a".repeat(257) },
+    { machine: "bad\u0007bell" },
+    { machine: 7 },
+    { os: "lin ux" },
+    { os: "a".repeat(33) },
+    { os: 3 },
+    { agents: -1 },
+    { agents: 1.5 },
+    { agents: "3" },
+    { agents: 100_001 },
+    { machine: "ok", agents: -1 },
+    { machine: "ok", extra: true },
+  ];
+  for (const payload of bad) {
+    assert.equal(parseNameplateReport(payload), null, JSON.stringify(payload));
+  }
 });

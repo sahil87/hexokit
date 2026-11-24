@@ -139,16 +139,20 @@ import {
   ERR_ABORTED,
   findViewByWebContentsId,
   getView,
+  hostNameplate,
   LoadFlagEvent,
   nextLoadFailed,
+  parseNameplateReport,
   removeHostViews,
   removeWindowViews,
   setViewBadge,
+  setViewNameplate,
   setViewThemeColor,
   switchPaint,
   ViewEntry,
   ViewsState,
 } from "./views";
+import { loadPrefs, setPref } from "./prefs";
 import {
   addWebView,
   adoptParkedWebView,
@@ -1087,6 +1091,7 @@ function createHostView(win: BrowserWindow, hostId: string): WebContentsView {
     // silently covers it. Unchanged values short-circuit (no write).
     if (color !== null && !rawAccentReported.get(key)) {
       setHostAccentColor(userDataDir(), hostId, color);
+      notifyServersChanged();
     }
     if (activeHostForWindow(views, windowId) === hostId && !win.isDestroyed()) {
       applyOverlayColor(color ?? DEFAULT_STRIP_COLOR, win);
@@ -1192,6 +1197,12 @@ function attachHostView(
   entry.handle.webContents.focus();
   blankWelcomeUnderlay(win);
   setWindowTitle(win);
+  // A warm flip shows a view whose SPA is already running: tell it which host
+  // it replaced so its strip can slide the light from that square. A view
+  // created just now is still loading (no listener), so it simply cuts.
+  if (!created && current && current.hostId !== host.id && !entry.handle.webContents.isDestroyed()) {
+    entry.handle.webContents.send("strip:attached", { previousId: current.hostId });
+  }
 }
 
 /**
@@ -1477,6 +1488,36 @@ function destroyWebView(entry: WebViewEntry<WebContentsView>): void {
   if (!entry.handle.webContents.isDestroyed()) entry.handle.webContents.close();
 }
 
+// ─── Live renderer broadcasts ───────────────────────────────────────────────
+//
+// The strip's squares are always visible, so their projection (order, names,
+// colors, waiting dots, nameplate preview fields) must stay current without
+// the SPA polling. Main pushes payload-free `servers:changed` pings to every
+// host view in every window; the SPA refetches `servers:list` on each. Pings
+// coalesce — a burst of store writes and registry reports sends one.
+
+/** Coalescing window for `servers:changed` pings. */
+const SERVERS_CHANGED_COALESCE_MS = 50;
+
+let serversChangedTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Send a channel to every live host view (every window, attached or not —
+ *  a detached view's SPA keeps running and must stay current). */
+function broadcastToHostViews(channel: string, payload?: unknown): void {
+  for (const entry of views.entries) {
+    const contents = entry.handle.webContents;
+    if (!contents.isDestroyed()) contents.send(channel, payload);
+  }
+}
+
+function notifyServersChanged(): void {
+  if (serversChangedTimer !== null) return;
+  serversChangedTimer = setTimeout(() => {
+    serversChangedTimer = null;
+    broadcastToHostViews("servers:changed");
+  }, SERVERS_CHANGED_COALESCE_MS);
+}
+
 // ─── Menu ───────────────────────────────────────────────────────────────────
 
 /**
@@ -1519,6 +1560,9 @@ function openAddHost(win: BrowserWindow): IpcResult {
 }
 
 function rebuildMenu(): void {
+  // Every store mutation rebuilds the menu, so this is the one seam that
+  // also tells the strips their projection changed.
+  notifyServersChanged();
   const list = loadHosts(userDataDir());
   const focused = focusedWindow();
   const focusedHostId = focused ? activeHostForWindow(views, focused.id) : null;
@@ -2511,17 +2555,25 @@ function registerIpcHandlers(): void {
   // entries are hosts shell-side.
   ipcMain.handle("servers:list", (event): ServersListResult => {
     if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
-    // Join the store projection with the view registry's cached badge counts:
-    // a host with a live view (in ANY window) whose last `badge:set` report
-    // was > 0 carries `waiting` (the switcher menu's amber ● N); never-
-    // visited hosts (no view) and zero counts omit the field. The menu
-    // refetches on every open, so this open-time snapshot needs no
-    // subscription.
+    // Join the store projection with the view registry: a host with a live
+    // view (in ANY window) whose last `badge:set` report was > 0 carries
+    // `waiting` (the amber dot on its square); `nameplate:set` reports join
+    // as `machine`/`os`/`agents` for the hover preview; `current` marks the
+    // host the ASKING view shows (the cosmetic `active` record can name
+    // another window's host). Never-visited hosts and zero counts omit the
+    // fields. The strips refetch on `servers:changed`.
+    const asker = findViewByWebContentsId(views, event.sender.id);
     const servers = hostInfos(loadHosts(userDataDir())).map((info) => {
       const max = views.entries
         .filter((e) => e.hostId === info.id)
         .reduce((best, e) => Math.max(best, e.badgeCount), 0);
-      return max > 0 ? { ...info, waiting: max } : info;
+      const report = hostNameplate(views, info.id);
+      return {
+        ...info,
+        ...(max > 0 ? { waiting: max } : {}),
+        ...(report ?? {}),
+        ...(asker ? { current: asker.hostId === info.id } : {}),
+      };
     });
     return { ok: true, servers };
   });
@@ -2735,7 +2787,46 @@ function registerIpcHandlers(): void {
     if (entry) {
       views = setViewBadge(views, entry.windowId, entry.hostId, count);
       repaintBadge(); // a cache change moves the aggregate when that host is displayed
+      notifyServersChanged(); // the host's square shows the count as an amber dot
     }
+    return { ok: true };
+  });
+
+  // nameplate:set — the SPA's report of its host's machine/os/agent count for
+  // the strip's hover preview of a BACKGROUND host (the badge:set shape:
+  // sender-gated, view-resolved, cached in memory on the view entry, never
+  // persisted). Strictly validated whole-or-nothing; non-view senders cache
+  // nothing.
+  ipcMain.handle("nameplate:set", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    const report = parseNameplateReport(payload);
+    if (report === null) return { ok: false, error: "Invalid request" };
+    const entry = findViewByWebContentsId(views, event.sender.id);
+    if (entry) {
+      views = setViewNameplate(views, entry.windowId, entry.hostId, report);
+      notifyServersChanged();
+    }
+    return { ok: true };
+  });
+
+  // prefs:* — the desktop app's own preferences (strip effect/motion), gated
+  // like `servers:*`. `prefs:set` validates against the closed sets, persists
+  // to prefs.json, then broadcasts the full prefs to EVERY host view in every
+  // window so all strips update live (a choice made on one host applies to
+  // all of them).
+  ipcMain.handle("prefs:get", (event): { ok: true; prefs: ReturnType<typeof loadPrefs> } | { ok: false; error: string } => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    return { ok: true, prefs: loadPrefs(userDataDir()) };
+  });
+
+  ipcMain.handle("prefs:set", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    if (typeof payload !== "object" || payload === null || !("key" in payload) || !("value" in payload)) {
+      return { ok: false, error: "Invalid request" };
+    }
+    const next = setPref(userDataDir(), payload.key, payload.value);
+    if (next === null) return { ok: false, error: "Invalid request" };
+    broadcastToHostViews("prefs:changed", next);
     return { ok: true };
   });
 
@@ -2759,6 +2850,7 @@ function registerIpcHandlers(): void {
     if (entry) {
       setHostAccentColor(userDataDir(), entry.hostId, hex);
       rawAccentReported.set(viewKey(entry.windowId, entry.hostId), true);
+      notifyServersChanged(); // the host's square repaints in every strip
     }
     return { ok: true };
   });

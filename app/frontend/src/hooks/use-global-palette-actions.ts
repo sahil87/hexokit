@@ -17,7 +17,7 @@ import { HELP_TOPICS, helpTopicActionId, helpTopicPaletteLabel, openHelpTopic } 
 import { withShortcutHints } from "@/lib/keybindings";
 import { canCloseShellWindow, canNewShellWindow, closeShellWindow, newShellWindow } from "@/lib/shell";
 import { focusSidebarCurrentRow } from "@/lib/sidebar-events";
-import { HOST_MENU_OPEN_EVENT } from "@/lib/shell-strip";
+import { HOST_MENU_OPEN_EVENT, HOST_STRIP_FOCUS_EVENT } from "@/lib/shell-strip";
 import { buildNavActions, type NavMode } from "@/lib/palette/nav";
 import { buildOperatorCheckNowAction, buildQuakeTerminalAction, buildQuakeTerminalActivityAction, buildQuakeTerminalCronAction, buildQuakeTerminalOpenAsTabAction, buildQuakeTerminalPinAction, buildQuakeTerminalResetSizeAction, buildQuakeTerminalTasksAction, buildOperatorStartAction } from "@/lib/palette/quake-terminal";
 import { useQuakeMachineState, useQuakePinned, useQuakeTerminalContext } from "@/lib/quake-terminal";
@@ -460,19 +460,24 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     [quakeCtx.server, addToast],
   );
 
-  // Host switcher (260820-nv0o) — opens the desktop-shell titlebar strip's
-  // hosts menu through the HOST_MENU_OPEN_EVENT document seam (the strip
-  // mounts in AppLayout, out of this hook's reach). The id IS the
-  // `host-menu-open` registry actionId, so the effective ⇧⌘H/⇧Ctrl+H hint
-  // renders on the row. Gated on a non-empty bridge list — the same
-  // non-empty condition as the strip's own switcher trigger
-  // (`stripSwitcherEnabled`); `useShellServers` resolves [] in a plain
+  // Host strip actions — reach the desktop-shell titlebar strip through
+  // document CustomEvent seams (the strip mounts in AppLayout, out of this
+  // hook's reach). The ids ARE the `host-strip-focus` / `host-menu-open`
+  // registry actionIds, so the effective ⇧⌘H/⇧Ctrl+H hint renders on the
+  // focus row (the menu is palette-only, keyless by default). Gated on a
+  // non-empty bridge list — the same non-empty condition as the strip's own
+  // squares (`stripSwitcherEnabled`); `useShellServers` resolves [] in a plain
   // browser and on older shells, so no separate isShell() pre-check.
   const shellServers = useShellServers();
   const hostMenuActions: PaletteAction[] = useMemo(
     () =>
       shellServers.length > 0
         ? [
+            {
+              id: "host-strip-focus",
+              label: "Host: Focus Squares",
+              onSelect: () => document.dispatchEvent(new CustomEvent(HOST_STRIP_FOCUS_EVENT)),
+            },
             {
               id: "host-menu-open",
               label: "Host: Switcher",

@@ -2,6 +2,9 @@ import { createContext, useContext, useState, useEffect, useCallback, useMemo, u
 import { useTheme } from "@/contexts/theme-context";
 import { useToast } from "@/components/toast";
 import { getInstanceColor, setInstanceColor as setInstanceColorApi } from "@/api/client";
+import { useStripPrefs } from "@/hooks/use-strip-prefs";
+import { snapHostColor } from "@/lib/host-colors";
+import { isShell } from "@/lib/shell";
 import {
   readInstanceColorEcho,
   writeInstanceColorEcho,
@@ -70,24 +73,39 @@ export function InstanceAccentProvider({ children }: { children: React.ReactNode
   const resolved = explicit === undefined ? echoSeed : explicit;
   const authoritative = explicit !== undefined;
 
+  // In the desktop shell a stored color outside the Host color set DISPLAYS as
+  // the nearest set member (square, strip light, reported edge color); the
+  // stored value is never rewritten until the user picks again.
+  const displayed = useMemo(
+    () => (resolved != null && isShell() ? (snapHostColor(resolved) ?? resolved) : resolved),
+    [resolved],
+  );
+
   const hexes = useMemo(
-    () => (resolved != null ? deriveAccentHexes(resolved, theme) : null),
-    [resolved, theme],
+    () => (displayed != null ? deriveAccentHexes(displayed, theme) : null),
+    [displayed, theme],
   );
 
   // Bridge: keep the theme-color meta and the localStorage echo in sync with
   // the resolved accent under the active theme. The meta (installed-PWA
   // titlebar) carries the subtle titlebar blend — NOT the full-hue stripeHex —
   // so the 2px stripe below the titlebar stays visible (mock parity).
+  //
+  // In the desktop shell the meta paints the Windows/Linux window-controls
+  // overlay beside the strip: under any light effect other than Flat the
+  // strip's right end is neutral chrome, so the meta stays the bare chrome
+  // (no accent tint) to match it; Flat keeps the 35% titlebar blend.
+  const { effect: stripEffect } = useStripPrefs();
+  const neutralMeta = isShell() && stripEffect !== "flat";
   useEffect(() => {
     if (resolved != null && hexes != null) {
-      setAccentThemeColor(hexes.titlebarHex);
+      setAccentThemeColor(neutralMeta ? null : hexes.titlebarHex);
       writeInstanceColorEcho({ value: resolved, hex: hexes.titlebarHex });
     } else if (authoritative) {
       setAccentThemeColor(null);
       writeInstanceColorEcho(null);
     }
-  }, [resolved, hexes, authoritative]);
+  }, [resolved, hexes, authoritative, neutralMeta]);
 
   // Clear the accent meta on unmount so a torn-down provider (tests) doesn't
   // leak module state into the next mount.

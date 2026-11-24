@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"testing"
 
 	"rk/internal/portpolicy"
@@ -310,4 +311,24 @@ func TestHealthEndpointTunnel(t *testing.T) {
 			t.Errorf("body.forwardProxy present (%v), want absent", body["forwardProxy"])
 		}
 	})
+}
+
+// The os field is the daemon's runtime.GOOS — derived, always present, so the
+// desktop shell's host nameplate can label the machine without configuration.
+func TestHealthEndpointOS(t *testing.T) {
+	isolateSettings(t)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	router := NewTestRouter(logger, nil, nil, "test-host")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	var body map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if body["os"] != runtime.GOOS {
+		t.Errorf("body.os = %v, want %q", body["os"], runtime.GOOS)
+	}
 }

@@ -79,7 +79,8 @@ describe("DEFAULT_BINDINGS integrity", () => {
       "go-back": "BracketLeft",
       "go-forward": "BracketRight",
       "agent-next-waiting": "KeyA",
-      "host-menu-open": "KeyH",
+      "host-strip-focus": "KeyH",
+      "host-menu-open": "",
       "shortcuts-overlay": "Slash",
       "settings-open": "Comma",
       "sidebar-toggle": "KeyB",
@@ -577,30 +578,41 @@ describe("DEFAULT_BINDINGS integrity", () => {
     }
   });
 
-  it("host-menu-open: ⇧⌘H/⇧Ctrl+H — shifted KeyH everywhere, global, no mac refinement", () => {
-    const def = DEFAULT_BINDINGS.find((b) => b.actionId === "host-menu-open");
+  it("host-strip-focus: ⇧⌘H/⇧Ctrl+H — shifted KeyH everywhere, global, no mac refinement", () => {
+    const def = DEFAULT_BINDINGS.find((b) => b.actionId === "host-strip-focus");
     // Full-row equality: the no-refinement shape is a do-not-move constraint —
     // ⌘H is the mac shell's hide accelerator and the mac-browser system
     // hide claim, so the chord must stay on the shifted tier on mac.
     expect(def).toEqual({
-      actionId: "host-menu-open",
+      actionId: "host-strip-focus",
       code: "KeyH",
       tier: "shifted",
       scope: "global",
       kind: "builtin",
-      label: "Host switcher",
-      description: "open the hosts menu",
+      label: "Focus host squares",
+      description: "move focus to the titlebar host squares",
       mapLabel: "hosts",
     });
     // Shifted KeyH carries no claim in any host, so the binding resolves
     // enabled everywhere (the handler-presence gate — the strip's shell-only
     // mount — is what keeps the chord inert in browsers, not a reservation).
     for (const host of ALL_HOSTS) {
-      expect(byId(resolved(host), "host-menu-open")).toMatchObject({
+      expect(byId(resolved(host), "host-strip-focus")).toMatchObject({
         code: "KeyH",
         tier: "shifted",
         enabled: true,
         isDefault: true,
+      });
+    }
+  });
+
+  it("host-menu-open: keyless default on every host (palette-only until the user binds it)", () => {
+    const def = DEFAULT_BINDINGS.find((b) => b.actionId === "host-menu-open");
+    expect(def).toMatchObject({ actionId: "host-menu-open", code: "", kind: "builtin" });
+    for (const host of ALL_HOSTS) {
+      expect(byId(resolved(host), "host-menu-open")).toMatchObject({
+        enabled: false,
+        disabledReason: "user",
       });
     }
   });
@@ -822,6 +834,7 @@ describe("palette parity invariant", () => {
     "go-back": ["go-back"], // Go: Back
     "go-forward": ["go-forward"], // Go: Forward
     "agent-next-waiting": ["agent-next-waiting"], // Agent: Next waiting
+    "host-strip-focus": ["host-strip-focus"], // Host: Focus Squares
     "host-menu-open": ["host-menu-open"], // Host: Switcher
     "shortcuts-overlay": ["shortcuts-overlay"], // Help: Keyboard Shortcuts
     "settings-open": ["settings-open"], // Settings: Open
@@ -1725,7 +1738,7 @@ describe("per-platform default tiers — 260730-n789", () => {
     for (const id of ["create-window", "kill-window", "go-back", "go-forward", "shortcuts-overlay", "window-prev", "window-next"]) {
       expect(byId(bindings, id)).toMatchObject({ tier: "cmd", enabled: true, isDefault: true });
     }
-    for (const id of ["agent-next-waiting", "host-menu-open"]) {
+    for (const id of ["agent-next-waiting", "host-strip-focus"]) {
       expect(byId(bindings, id)).toMatchObject({ tier: "shifted", enabled: true, isDefault: true });
     }
     // Letters constant — only the modifier tier varies (the macCode rows —
@@ -1822,7 +1835,7 @@ describe("per-platform default tiers — 260730-n789", () => {
     for (const id of ["window-prev", "window-next"]) {
       expect(byId(bindings, id)).toMatchObject({ tier: "cmd", enabled: true });
     }
-    for (const id of ["session-prev", "session-next", "agent-next-waiting", "host-menu-open"]) {
+    for (const id of ["session-prev", "session-next", "agent-next-waiting", "host-strip-focus"]) {
       expect(byId(bindings, id)).toMatchObject({ tier: "shifted", enabled: true });
     }
     // The app-window pair gains its canonical ⌘N/⇧⌘W here too — reserved,

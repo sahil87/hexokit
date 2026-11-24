@@ -193,11 +193,365 @@ summary {
   -webkit-app-region: drag;
 }
 
-/* Scoped drag carve-out (260731-4bqi): the strip's host-switcher trigger (and
-   its open menu) is the band's ONLY interactive island — everything else in
-   the band stays a drag surface. Same CSS-utility rationale as above. */
+/* Scoped drag carve-out: the strip's interactive islands — each host square,
+   the `+` square, the key-hint pill, and the open host menu — are no-drag;
+   everything else in the band (the nameplate, the gutters) stays a drag
+   surface. Same CSS-utility rationale as above. */
 .rk-shell-no-drag {
   -webkit-app-region: no-drag;
+}
+
+/* ── Desktop-shell strip: host squares, key-hint pill, lit band ───────────────
+   Geometry is FIXED: squares are 18×18, the pill's space is always reserved
+   (visibility, never display), the digit sits inside the square's own box, and
+   the active square is a ring (box-shadow), not a size — so nothing here ever
+   moves a square or the nameplate. The light is three @property-registered
+   variables the treatments read, so a host switch just transitions them. */
+@property --rk-ax {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+@property --rk-dx {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+@property --rk-acc {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #888888;
+}
+
+.rk-strip {
+  position: relative;
+  overflow: visible;
+  --rk-strip-ring: var(--color-text-primary);
+}
+.rk-strip-motion-slide,
+.rk-strip-motion-sweep {
+  transition:
+    --rk-ax 0.6s cubic-bezier(0.2, 0.8, 0.2, 1),
+    --rk-dx 0.6s cubic-bezier(0.2, 0.8, 0.2, 1),
+    --rk-acc 0.6s ease;
+}
+/* Suspended for one frame while the cross-view slide re-seats the light at the
+   previous host's square. */
+.rk-strip.rk-strip-notrans {
+  transition: none;
+}
+
+.rk-strip-layer,
+.rk-strip-layer::before,
+.rk-strip-layer::after {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.rk-strip-layer::before,
+.rk-strip-layer::after {
+  content: "";
+}
+.rk-strip-row {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.rk-strip-fx-flat .rk-strip-layer {
+  background: color-mix(in srgb, var(--rk-acc) 35%, transparent);
+}
+.rk-strip-fx-glow .rk-strip-layer {
+  background: radial-gradient(
+    ellipse 320px 72px at var(--rk-ax) 50%,
+    color-mix(in srgb, var(--rk-acc) 62%, transparent) 0%,
+    color-mix(in srgb, var(--rk-acc) 20%, transparent) 42%,
+    transparent 78%
+  );
+}
+.rk-strip-fx-livery .rk-strip-layer {
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--rk-acc) 40%, transparent) 0,
+    color-mix(in srgb, var(--rk-acc) 24%, transparent) var(--rk-dx),
+    transparent var(--rk-dx),
+    transparent calc(var(--rk-dx) + 6px),
+    color-mix(in srgb, var(--rk-acc) 80%, transparent) calc(var(--rk-dx) + 6px),
+    color-mix(in srgb, var(--rk-acc) 80%, transparent) calc(var(--rk-dx) + 10px),
+    transparent calc(var(--rk-dx) + 10px),
+    transparent calc(var(--rk-dx) + 15px),
+    color-mix(in srgb, var(--rk-acc) 45%, transparent) calc(var(--rk-dx) + 15px),
+    color-mix(in srgb, var(--rk-acc) 45%, transparent) calc(var(--rk-dx) + 17px),
+    transparent calc(var(--rk-dx) + 17px)
+  );
+}
+.rk-strip-fx-halftone .rk-strip-layer {
+  background: radial-gradient(
+    ellipse 260px 60px at var(--rk-ax) 50%,
+    color-mix(in srgb, var(--rk-acc) 18%, transparent),
+    transparent 75%
+  );
+}
+.rk-strip-fx-halftone .rk-strip-layer::before {
+  background: radial-gradient(circle, var(--rk-acc) 1.5px, transparent 2px) 0 0 / 6px 6px;
+  mask-image: radial-gradient(ellipse 210px 60px at var(--rk-ax) 50%, #000 0, #000 30%, transparent 88%);
+}
+.rk-strip-fx-halftone .rk-strip-layer::after {
+  background: radial-gradient(circle, var(--rk-acc) 0.8px, transparent 1.25px) 3px 3px / 6px 6px;
+  mask-image: radial-gradient(
+    ellipse 620px 90px at var(--rk-ax) 50%,
+    #000 0,
+    rgba(0, 0, 0, 0.75) 40%,
+    transparent 92%
+  );
+}
+.rk-strip-fx-hex .rk-strip-layer {
+  background: radial-gradient(
+    ellipse 240px 60px at var(--rk-ax) 50%,
+    color-mix(in srgb, var(--rk-acc) 24%, transparent),
+    transparent 75%
+  );
+}
+.rk-strip-fx-hex .rk-strip-layer::before {
+  background: var(--rk-acc);
+  mask:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='13.86'%3E%3Cpath d='M0 6.93 4 0h8l4 6.93-4 6.93H4zM16 6.93h8' fill='none' stroke='%23000' stroke-width='1.1'/%3E%3C/svg%3E")
+      0 0 / 24px 13.86px repeat,
+    radial-gradient(ellipse 460px 80px at var(--rk-ax) 50%, #000 0, rgba(0, 0, 0, 0.55) 45%, transparent 85%);
+  mask-composite: intersect;
+}
+.rk-strip-fx-scan .rk-strip-layer {
+  background: repeating-linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--rk-acc) 60%, transparent) 0 1px,
+    transparent 1px 3px
+  );
+  mask-image: linear-gradient(
+    90deg,
+    #000 0,
+    #000 calc(var(--rk-ax) + 30px),
+    transparent calc(var(--rk-ax) + 540px)
+  );
+}
+.rk-strip-fx-scan .rk-strip-layer::before {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--rk-acc) 22%, transparent), transparent 75%);
+}
+.rk-strip-fx-edge .rk-strip-layer {
+  background: radial-gradient(
+    ellipse 230px 42px at var(--rk-ax) 100%,
+    color-mix(in srgb, var(--rk-acc) 38%, transparent),
+    transparent 80%
+  );
+}
+.rk-strip-fx-edge .rk-strip-layer::after {
+  top: auto;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0,
+    transparent calc(var(--rk-ax) - 440px),
+    var(--rk-acc) var(--rk-ax),
+    transparent calc(var(--rk-ax) + 440px)
+  );
+}
+
+/* Reduced motion needs no media query here: the strip resolves `cut` for
+   those users (`effectiveMotion`), so neither the transition class nor the
+   sweep ever applies. */
+
+/* Textured treatments halo the nameplate so its text stays legible. */
+.rk-strip-fx-halftone .rk-strip-nameplate,
+.rk-strip-fx-hex .rk-strip-nameplate,
+.rk-strip-fx-scan .rk-strip-nameplate {
+  text-shadow:
+    0 0 2px var(--rk-strip-bg),
+    0 0 5px var(--rk-strip-bg),
+    0 0 9px var(--rk-strip-bg),
+    0 0 14px var(--rk-strip-bg);
+}
+
+/* One-shot sweep highlight on a host switch (motion: sweep). */
+.rk-strip-sweep {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 180px;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--rk-acc) 65%, #fff),
+    transparent
+  );
+  mix-blend-mode: screen;
+}
+html[data-theme="light"] .rk-strip-sweep {
+  mix-blend-mode: normal;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--rk-acc) 55%, transparent), transparent);
+}
+.rk-strip-sweep.rk-strip-sweep-go {
+  animation: rk-strip-sweep 0.9s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+@keyframes rk-strip-sweep {
+  0% {
+    opacity: 0.95;
+    transform: translateX(calc(var(--rk-from) - 90px));
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(calc(var(--rk-from) + 760px));
+  }
+}
+
+/* Host squares. */
+.rk-strip-sq {
+  position: relative;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: var(--rk-sq, color-mix(in srgb, var(--color-text-secondary) 35%, transparent));
+  cursor: pointer;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: bold;
+  line-height: 1;
+  color: rgba(0, 0, 0, 0.72);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Only the drag/slide transform animates; hover changes no geometry. */
+  transition: transform 0.15s;
+}
+/* A host with no color: a neutral fill (distinct from the outlined `+`). */
+.rk-strip-sq-uncolored {
+  background: color-mix(in srgb, var(--color-text-secondary) 35%, transparent);
+  color: var(--color-text-primary);
+}
+.rk-strip-sq-on {
+  box-shadow:
+    0 0 0 2px var(--rk-strip-bg),
+    0 0 0 3.5px var(--rk-strip-ring);
+}
+.rk-strip-sq:focus-visible {
+  outline: 2px solid var(--color-accent-green, #4fa5f8);
+  outline-offset: 3px;
+}
+.rk-strip-sq-lifted {
+  transition: none;
+  z-index: 3;
+  cursor: grabbing;
+  box-shadow:
+    0 0 0 2px var(--rk-strip-bg),
+    0 0 0 3.5px var(--rk-strip-ring),
+    0 4px 10px rgba(0, 0, 0, 0.45);
+}
+.rk-strip-sq-add {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text-secondary) 70%, transparent);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: normal;
+}
+.rk-strip-sq-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-amber-600, #d97706);
+  box-shadow: 0 0 0 1.5px var(--rk-strip-bg);
+  pointer-events: none;
+}
+/* Digits live inside the square's own box, so showing them moves nothing. */
+.rk-strip-digit {
+  visibility: hidden;
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.rk-strip[data-hints="on"] .rk-strip-digit,
+.rk-strip[data-dragging="true"] .rk-strip-digit {
+  visibility: visible;
+}
+
+/* Key-hint pill: its space is always reserved; only visibility changes. */
+.rk-strip-pill {
+  visibility: hidden;
+  flex: none;
+  margin-right: -6px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--color-text-secondary) 55%, transparent);
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--rk-strip-bg) 70%, transparent);
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  cursor: default;
+}
+.rk-strip:hover .rk-strip-pill,
+.rk-strip[data-hints="on"] .rk-strip-pill,
+.rk-strip[data-dragging="true"] .rk-strip-pill {
+  visibility: visible;
+}
+.rk-strip-pill:hover,
+.rk-strip[data-hold="true"] .rk-strip-pill {
+  color: var(--color-text-primary);
+  border-color: var(--color-text-primary);
+}
+
+.rk-strip[data-dragging="true"] .rk-strip-sq {
+  cursor: grabbing;
+}
+
+/* Nameplate. */
+.rk-strip-nameplate {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--color-text-primary);
+}
+.rk-strip-nameplate[data-peek="true"] {
+  opacity: 0.62;
+}
+/* The name never folds; with every field folded it truncates with an ellipsis. */
+.rk-strip-np-name {
+  flex: 0 1 auto;
+  font-weight: bold;
+  white-space: nowrap;
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rk-strip-np-field {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: color-mix(in srgb, var(--color-text-primary) 72%, transparent);
+}
+.rk-strip-np-field::before {
+  content: "·";
+  margin: 0 9px;
+  color: var(--color-text-secondary);
 }
 
 /* ── Scrollbars: reserved gutter, bar only while the pointer (or focus) is in ──

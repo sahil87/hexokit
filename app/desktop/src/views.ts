@@ -32,6 +32,74 @@ export interface ViewEntry<H> {
   badgeCount: number;
   /** Last theme color observed from this view (null = none observed yet). */
   themeColor: string | null;
+  /** Last `nameplate:set` report from this view's page (null = none yet).
+   *  In-memory only — never persisted; the hover preview of a host that has
+   *  no live view simply shows its name. */
+  nameplate: NameplateReport | null;
+}
+
+/** What a host's own SPA reports for the strip's nameplate preview. */
+export interface NameplateReport {
+  /** `${sshUser}@${hostname}` (or the hostname alone). */
+  machine?: string;
+  /** The daemon's `runtime.GOOS`. */
+  os?: string;
+  /** Tabs with an agent, in any state. */
+  agents?: number;
+}
+
+const NAMEPLATE_MACHINE_MAX = 256;
+const NAMEPLATE_OS_MAX = 32;
+const NAMEPLATE_AGENTS_MAX = 100_000;
+const NAMEPLATE_OS_SHAPE = /^[A-Za-z0-9_-]+$/;
+// Printable text only: the value is rendered into the strip, so control
+// characters are rejected outright rather than stripped.
+const NAMEPLATE_MACHINE_SHAPE = /^[^\p{Cc}\p{Cf}]+$/u;
+
+/**
+ * Strict validation of a `nameplate:set` payload — a plain object carrying
+ * at least one of `machine` (bounded printable string), `os` (short token),
+ * `agents` (bounded non-negative integer), and nothing else. Anything else is
+ * null (rejected whole, never partially applied).
+ */
+export function parseNameplateReport(payload: unknown): NameplateReport | null {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return null;
+  const report: NameplateReport = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (key === "machine") {
+      if (
+        typeof value !== "string" ||
+        value.length === 0 ||
+        value.length > NAMEPLATE_MACHINE_MAX ||
+        !NAMEPLATE_MACHINE_SHAPE.test(value)
+      ) {
+        return null;
+      }
+      report.machine = value;
+    } else if (key === "os") {
+      if (
+        typeof value !== "string" ||
+        value.length > NAMEPLATE_OS_MAX ||
+        !NAMEPLATE_OS_SHAPE.test(value)
+      ) {
+        return null;
+      }
+      report.os = value;
+    } else if (key === "agents") {
+      if (
+        typeof value !== "number" ||
+        !Number.isInteger(value) ||
+        value < 0 ||
+        value > NAMEPLATE_AGENTS_MAX
+      ) {
+        return null;
+      }
+      report.agents = value;
+    } else {
+      return null;
+    }
+  }
+  return Object.keys(report).length === 0 ? null : report;
 }
 
 export interface ViewsState<H> {
@@ -97,7 +165,7 @@ export function addView<H>(
     ...state,
     entries: [
       ...state.entries,
-      { windowId, hostId, webContentsId, handle, badgeCount: 0, themeColor: null },
+      { windowId, hostId, webContentsId, handle, badgeCount: 0, themeColor: null, nameplate: null },
     ],
   };
 }
@@ -218,6 +286,34 @@ export function setViewThemeColor<H>(
       e.windowId === windowId && e.hostId === hostId ? { ...e, themeColor: color } : e,
     ),
   };
+}
+
+/** Record a `nameplate:set` report for a view. Unknown pair is a no-op. */
+export function setViewNameplate<H>(
+  state: ViewsState<H>,
+  windowId: number,
+  hostId: string,
+  report: NameplateReport,
+): ViewsState<H> {
+  if (getView(state, windowId, hostId) === null) return state;
+  return {
+    ...state,
+    entries: state.entries.map((e) =>
+      e.windowId === windowId && e.hostId === hostId ? { ...e, nameplate: report } : e,
+    ),
+  };
+}
+
+/**
+ * A host's nameplate report for the `servers:list` projection: the first
+ * live view (any window, first-visit order) that has reported. Two views of
+ * one host read the same daemon, so any deterministic pick is correct.
+ */
+export function hostNameplate<H>(state: ViewsState<H>, hostId: string): NameplateReport | null {
+  for (const e of state.entries) {
+    if (e.hostId === hostId && e.nameplate !== null) return e.nameplate;
+  }
+  return null;
 }
 
 /**

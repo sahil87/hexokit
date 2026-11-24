@@ -136,6 +136,7 @@ import { WEB_NATIVE_ENGINE_DEFAULT, WEB_NATIVE_ENGINE_PREF_KEY, selectWebEngineK
 import { ShellTitlebarStrip } from "@/components/desktop-shell/titlebar-strip";
 import { ShellAccentReporter } from "@/components/desktop-shell/accent-reporter";
 import { ShellBadgeReporter } from "@/components/desktop-shell/badge-reporter";
+import { ShellNameplateReporter } from "@/components/desktop-shell/nameplate-reporter";
 import { useShellServers } from "@/hooks/use-shell-servers";
 import { readLastPinnedBoard } from "@/lib/last-pinned-board";
 import { buildOpenActions, buildOpenLastUsedAction, buildOpenPrAction } from "@/lib/palette/open";
@@ -534,6 +535,7 @@ function AppLayoutContent() {
       {isShell() && <ShellTitlebarStrip title={popoutChromeless ? (popoutTitle ?? undefined) : undefined} />}
       {isShell() && <ShellBadgeReporter />}
       {isShell() && <ShellAccentReporter />}
+      {isShell() && <ShellNameplateReporter />}
       {/* Plain `div`, not `header`: `TopBar` already renders its own `<header>`
           (the banner landmark), so wrapping it in a second `<header>` would
           nest two `role="banner"` landmarks. This wrapper owns the
@@ -544,9 +546,11 @@ function AppLayoutContent() {
           background of its own, so one element carrying class + inline wash
           keeps the wash on top. While zen mode applies the BAR is not
           rendered (the wrapper collapses to zero height — the stripe/wash
-          above are chrome identity and stay). */}
-      <div className="shrink-0 bg-bg-chrome" style={washHex ? { backgroundColor: washHex } : undefined}>
-        {stripeHex && (
+          above are chrome identity and stay). In the desktop shell the strip
+          above is the identity surface, so the wash and stripe render only in
+          a browser. */}
+      <div className="shrink-0 bg-bg-chrome" style={!isShell() && washHex ? { backgroundColor: washHex } : undefined}>
+        {!isShell() && stripeHex && (
           <div aria-hidden="true" style={{ height: "2px", backgroundColor: stripeHex }} />
         )}
         {!hideTopBar && <RootTopBar />}

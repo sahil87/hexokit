@@ -8,12 +8,13 @@ import {
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
 import { deriveUIColors, DEFAULT_DARK_THEME } from "@/themes";
-import { HOST_MENU_OPEN_EVENT, SHELL_STRIP_MARKER_CLASS } from "@/lib/shell-strip";
+import { HOST_MENU_OPEN_EVENT, HOST_STRIP_FOCUS_EVENT, SHELL_STRIP_MARKER_CLASS } from "@/lib/shell-strip";
 
 // ThemeProvider makes no real HTTP calls in tests.
 vi.mock("@/api/client", () => ({
   getThemePreference: vi.fn().mockRejectedValue(new Error("no API in test")),
   setThemePreference: vi.fn().mockResolvedValue(undefined),
+  getHealth: vi.fn().mockResolvedValue({ status: "ok", hostname: "box", sshUser: "sahil", os: "linux" }),
 }));
 
 function mockMatchMedia() {
@@ -113,8 +114,8 @@ const hosts = [
   { id: "b", name: "lab", url: "http://b:3000", active: false },
 ];
 
-/** Render with a populated bridge and wait for the mount fetch to enable the
- *  switcher trigger. */
+/** Render with a populated bridge and wait for the mount fetch to render the
+ *  host squares (the `+` menu opener is the readiness probe). */
 async function renderInteractive(
   list: unknown[] = hosts,
   platform = "darwin",
@@ -139,7 +140,7 @@ async function renderInteractive(
   );
   renderStrip();
   await waitFor(() => {
-    expect(screen.getByRole("button", { name: "Switch host" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Host menu" })).toBeInTheDocument();
   });
   return bridge;
 }
@@ -165,11 +166,11 @@ describe("ShellTitlebarStrip", () => {
     expect(document.documentElement.classList.contains(SHELL_STRIP_MARKER_CLASS)).toBe(false);
   });
 
-  it("shows the active shell host's name from servers.list", async () => {
+  it("names the active shell host in the nameplate from servers.list", async () => {
     shellBridge(hosts);
     renderStrip();
     await waitFor(() => {
-      expect(screen.getByText("studio-mac")).toBeInTheDocument();
+      expect(screen.getByTestId("shell-nameplate-name")).toHaveTextContent("studio-mac");
     });
   });
 
@@ -181,24 +182,37 @@ describe("ShellTitlebarStrip", () => {
     });
   });
 
-  it("uses the accent titlebar blend as the background when an accent is set", () => {
+  it("paints the interactive band neutral chrome — the host color is the light, not the fill", async () => {
+    await renderInteractive();
+    const strip = screen.getByTestId("shell-titlebar-strip");
+    const chrome = deriveUIColors(DEFAULT_DARK_THEME.palette, "dark").bgChrome;
+    const n = parseInt(chrome.slice(1), 16);
+    expect(strip.style.backgroundColor).toBe(`rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`);
+    expect(strip.className).toContain("rk-shell-drag");
+  });
+
+  it("keeps today's accent blend on the degraded (no switcher) band", () => {
     shellBridge([]);
     renderStrip(accentValue({ color: "4", titlebarHex: "#3a2b4c" }));
     const strip = screen.getByTestId("shell-titlebar-strip");
     expect(strip.style.backgroundColor).toBe("rgb(58, 43, 76)");
   });
 
-  it("falls back to the derived chrome (still draggable) when no accent is set", () => {
+  it("falls back to the derived chrome (still draggable) on the degraded band when no accent is set", () => {
     shellBridge([]);
     renderStrip();
     const strip = screen.getByTestId("shell-titlebar-strip");
-    // No accent → the chrome hex (the top bar's material — the palette's
-    // terminal background would read as a seam above it), and the band stays
-    // a drag region.
     const chrome = deriveUIColors(DEFAULT_DARK_THEME.palette, "dark").bgChrome;
     const n = parseInt(chrome.slice(1), 16);
     expect(strip.style.backgroundColor).toBe(`rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`);
     expect(strip.className).toContain("rk-shell-drag");
+  });
+
+  it("insets the row 80px from the left on darwin (traffic lights) and keeps a right gutter", async () => {
+    await renderInteractive();
+    const strip = screen.getByTestId("shell-titlebar-strip");
+    expect(strip.style.paddingLeft).toBe("80px");
+    expect(strip.style.paddingRight).toBe("12px");
   });
 });
 
@@ -215,7 +229,7 @@ describe("ShellTitlebarStrip in a popout window", () => {
       "beta #2 \u2014 session main \u00b7 server work",
     );
     expect(screen.queryByText("studio-mac")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Switch host" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Host menu" })).not.toBeInTheDocument();
   });
 });
 
@@ -238,22 +252,18 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("renders the label as a no-drag dropdown trigger when hosts are registered", async () => {
+  it("renders the `+` square as the menu opener — a no-drag island with haspopup", async () => {
     await renderInteractive();
-    const trigger = screen.getByRole("button", { name: "Switch host" });
-    expect(trigger).toHaveAttribute("aria-haspopup", "menu");
-    expect(trigger).toHaveAttribute("aria-expanded", "false");
-    expect(trigger.textContent).toContain("studio-mac");
-    expect(trigger.textContent).toContain("▾");
-    // The trigger island (button's wrapper) is the band's only no-drag carve-out.
-    expect(trigger.parentElement?.className).toContain("rk-shell-no-drag");
+    const plus = screen.getByRole("button", { name: "Host menu" });
+    expect(plus).toHaveAttribute("aria-haspopup", "menu");
+    expect(plus.parentElement?.className).toContain("rk-shell-no-drag");
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
   it("opens the menu on click and refetches the host list (fresh servers.list call)", async () => {
     const bridge = await renderInteractive();
     expect(bridge.list).toHaveBeenCalledTimes(1); // mount fetch (label + gate)
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     expect(bridge.list).toHaveBeenCalledTimes(2); // refetch on open
     expect(screen.getByRole("menu")).toBeInTheDocument();
     expect(screen.getAllByRole("menuitemradio")).toHaveLength(2);
@@ -261,7 +271,7 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
 
   it("renders row anatomy: accent ✓ on the active host, dimmed origin, darwin accelerator hints", async () => {
     await renderInteractive();
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     const rows = screen.getAllByRole("menuitemradio");
     // Active row: ✓ marker + accent color + name + origin + ⌥⌘1, with the
     // single-select state exposed to AT via aria-checked (menuitemradio).
@@ -282,7 +292,7 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
 
   it("renders Alt hints on non-darwin platforms (from the bridge's platform field)", async () => {
     await renderInteractive(hosts, "win32");
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     const rows = screen.getAllByRole("menuitemradio");
     expect(rows[0].textContent).toContain("Alt+1");
     expect(rows[1].textContent).toContain("Alt+2");
@@ -290,19 +300,17 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
 
   it("selecting a host closes the menu and hands off to servers.switch (no optimistic UI)", async () => {
     const bridge = await renderInteractive();
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     fireEvent.click(screen.getAllByRole("menuitemradio")[1]);
     expect(bridge.switch).toHaveBeenCalledWith("b");
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-    // The label still names the active host — the page swap is shell-side.
-    expect(screen.getByRole("button", { name: "Switch host" }).textContent).toContain(
-      "studio-mac",
-    );
+    // The nameplate still names the active host — the page swap is shell-side.
+    expect(screen.getByTestId("shell-nameplate-name")).toHaveTextContent("studio-mac");
   });
 
   it("closes on Escape and returns focus to the trigger", async () => {
     await renderInteractive();
-    const trigger = screen.getByRole("button", { name: "Switch host" });
+    const trigger = screen.getByRole("button", { name: "Host menu" });
     fireEvent.click(trigger);
     expect(screen.getByRole("menu")).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
@@ -312,7 +320,7 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
 
   it("moves focus with ArrowDown, wrapping over the row set", async () => {
     await renderInteractive();
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     const rows = screen.getAllByRole("menuitemradio");
     // Focus lands on the active row (index 0) on open.
     await waitFor(() => {
@@ -326,7 +334,7 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
 
   it("closes on an outside mousedown", async () => {
     await renderInteractive();
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     expect(screen.getByRole("menu")).toBeInTheDocument();
     fireEvent.mouseDown(document.body);
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
@@ -346,9 +354,9 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
     };
     renderStrip();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Switch host" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Host menu" })).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     expect(list).toHaveBeenCalledTimes(2);
     // The denied refetch resolves null shell-wrapper-side; the menu keeps the
     // mount-time rows rather than blanking.
@@ -378,9 +386,9 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
     };
     renderStrip();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Switch host" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Host menu" })).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     await waitFor(() => {
       expect(screen.getAllByRole("menuitemradio")).toHaveLength(1);
     });
@@ -405,9 +413,9 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
     };
     renderStrip();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Switch host" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Host menu" })).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     // The emptied list downgrades the strip to the static label AND releases
     // the open state (no phantom open menu, review cycle 1, must-fix b).
     await waitFor(() => {
@@ -440,7 +448,7 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
     await act(async () => {
       resolvers[0]({ ok: true, servers: hosts });
     });
-    const trigger = screen.getByRole("button", { name: "Switch host" });
+    const trigger = screen.getByRole("button", { name: "Host menu" });
     // Open #1 leaves its refetch in flight; close; open #2 refetches again.
     fireEvent.click(trigger);
     fireEvent.click(trigger);
@@ -470,9 +478,9 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
     };
     renderStrip();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Switch host" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Host menu" })).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     fireEvent.click(screen.getAllByRole("menuitemradio")[1]);
     await waitFor(() => {
       expect(screen.getByText("Host switch failed")).toBeInTheDocument();
@@ -481,14 +489,14 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
 
   it("omits the Add Host footer when the bridge lacks the add invoker (older shell)", async () => {
     await renderInteractive();
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     expect(screen.getByRole("menu")).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "Add Host…" })).not.toBeInTheDocument();
   });
 
   it("renders the Add Host footer when the bridge carries add; click closes and invokes it", async () => {
     const bridge = await renderInteractive(hosts, "darwin", true);
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     const footer = screen.getByRole("menuitem", { name: "Add Host…" });
     fireEvent.click(footer);
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
@@ -496,25 +504,26 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
     expect(bridge.switch).not.toHaveBeenCalled();
   });
 
-  it("includes the Add Host footer in the arrow-key roving cycle", async () => {
+  it("includes the Add Host footer in the arrow-key roving cycle (the `+` opener seats it first)", async () => {
     await renderInteractive(hosts, "darwin", true);
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     const rows = screen.getAllByRole("menuitemradio");
     const footer = screen.getByRole("menuitem", { name: "Add Host…" });
+    // `+` opens with the footer focused when an add path exists.
     await waitFor(() => {
-      expect(document.activeElement).toBe(rows[0]);
+      expect(document.activeElement).toBe(footer);
     });
-    // ArrowUp from the first row wraps to the footer (the cycle's last stop).
-    fireEvent.keyDown(document, { key: "ArrowUp" });
-    expect(document.activeElement).toBe(footer);
+    // ArrowDown from the footer (the cycle's last stop) wraps to the first row.
     fireEvent.keyDown(document, { key: "ArrowDown" });
     expect(document.activeElement).toBe(rows[0]);
+    fireEvent.keyDown(document, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(footer);
   });
 
   it("surfaces an error toast when the add call is denied", async () => {
     const bridge = await renderInteractive(hosts, "darwin", true);
     bridge.add.mockResolvedValue({ ok: false });
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Add Host…" }));
     await waitFor(() => {
       expect(screen.getByText("Shell add host failed")).toBeInTheDocument();
@@ -525,7 +534,7 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
     const bridge = await renderInteractive(
       hosts, "darwin", false, false, false, false, false, false, true,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     // The union gate renders the footer without the `add` invoker.
     const footer = screen.getByRole("menuitem", { name: "Add Host…" });
     fireEvent.click(footer);
@@ -541,7 +550,7 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
     const bridge = await renderInteractive(
       hosts, "darwin", false, false, false, false, false, false, true,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Add Host…" }));
     const dialog = screen.getByRole("dialog", { name: "Add host" });
     fireEvent.change(within(dialog).getByRole("textbox", { name: "URL" }), {
@@ -561,7 +570,7 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
       hosts, "darwin", false, false, false, false, false, false, true,
     );
     bridge.addDirect.mockResolvedValue({ ok: false, error: "No response from http://c:3000 within 5s" });
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Add Host…" }));
     const dialog = screen.getByRole("dialog", { name: "Add host" });
     fireEvent.change(within(dialog).getByRole("textbox", { name: "URL" }), {
@@ -579,7 +588,7 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
     const bridge = await renderInteractive(
       hosts, "darwin", true, false, false, false, false, false, true,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Add Host…" }));
     expect(screen.getByRole("dialog", { name: "Add host" })).toBeInTheDocument();
     expect(bridge.add).not.toHaveBeenCalled();
@@ -587,12 +596,12 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
 
   it("closing the menu also closes the add dialog", async () => {
     await renderInteractive(hosts, "darwin", false, false, false, false, false, false, true);
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Add Host…" }));
     expect(screen.getByRole("dialog", { name: "Add host" })).toBeInTheDocument();
     fireEvent.mouseDown(document.body); // outside close while the dialog is up
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
@@ -606,7 +615,7 @@ describe("ShellTitlebarStrip host menu — accent bars, waiting counts, reorder 
 
   it("renders the accent edge bar for hosts with a color, none for colorless rows", async () => {
     await renderInteractive(coloredHosts);
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     const rows = screen.getAllByRole("menuitemradio");
     const barA = rows[0].querySelector("[data-testid='shell-host-accent-bar']");
     expect(barA).not.toBeNull();
@@ -623,7 +632,7 @@ describe("ShellTitlebarStrip host menu — accent bars, waiting counts, reorder 
     await renderInteractive([
       { id: "a", name: "evil", url: "http://a:3000", active: true, accentColor: "javascript:alert(1)" },
     ]);
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     expect(screen.queryByTestId("shell-host-accent-bar")).not.toBeInTheDocument();
   });
 
@@ -633,7 +642,7 @@ describe("ShellTitlebarStrip host menu — accent bars, waiting counts, reorder 
       { id: "b", name: "lab", url: "http://b:3000", active: false, waiting: 3 },
       { id: "c", name: "quiet", url: "http://c:3000", active: false },
     ]);
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     const rows = screen.getAllByRole("menuitemradio");
     // Active row: the count is suppressed (the dock badge is its surface).
     expect(rows[0].textContent).not.toContain("●");
@@ -656,7 +665,7 @@ describe("ShellTitlebarStrip host menu — accent bars, waiting counts, reorder 
       { id: "d", name: "delta", url: "http://d:3000", active: false },
     ];
     const bridge = await renderInteractive(four, "darwin", false, true);
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     let rows = screen.getAllByRole("menuitemradio");
     await waitFor(() => {
       expect(document.activeElement).toBe(rows[0]); // active row seeded
@@ -679,7 +688,7 @@ describe("ShellTitlebarStrip host menu — accent bars, waiting counts, reorder 
 
   it("⌥↑/⌥↓ at the list edges is a no-op (no invoke, no wrap, key swallowed)", async () => {
     const bridge = await renderInteractive(hosts, "darwin", false, true);
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     const rows = screen.getAllByRole("menuitemradio");
     await waitFor(() => {
       expect(document.activeElement).toBe(rows[0]);
@@ -696,7 +705,7 @@ describe("ShellTitlebarStrip host menu — accent bars, waiting counts, reorder 
 
   it("⌥↑/⌥↓ on the Add-Host footer falls through to the roving cycle (footer not movable)", async () => {
     const bridge = await renderInteractive(hosts, "darwin", true, true);
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.contextMenu(screen.getAllByTestId("shell-host-square")[0]);
     const rows = screen.getAllByRole("menuitemradio");
     const footer = screen.getByRole("menuitem", { name: "Add Host…" });
     await waitFor(() => {
@@ -711,7 +720,7 @@ describe("ShellTitlebarStrip host menu — accent bars, waiting counts, reorder 
 
   it("without the reorder capability, ⌥↑/⌥↓ fall through to today's roving focus (no grips)", async () => {
     await renderInteractive(hosts); // no reorder invoker
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     const rows = screen.getAllByRole("menuitemradio");
     await waitFor(() => {
       expect(document.activeElement).toBe(rows[0]);
@@ -730,7 +739,7 @@ describe("ShellTitlebarStrip host menu — accent bars, waiting counts, reorder 
       { id: "d", name: "delta", url: "http://d:3000", active: false },
     ];
     const bridge = await renderInteractive(four, "darwin", false, true);
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     // Grips render (hover-revealed) and rows are draggable.
     expect(screen.getAllByText("⋮⋮")).toHaveLength(4);
     const rows = screen.getAllByRole("menuitemradio");
@@ -764,7 +773,7 @@ describe("ShellTitlebarStrip host menu — accent bars, waiting counts, reorder 
       { id: "d", name: "delta", url: "http://d:3000", active: false },
     ];
     const bridge = await renderInteractive(four, "darwin", false, true);
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     const grips = screen.getAllByTestId("shell-host-grip");
     expect(grips).toHaveLength(4);
     // The grip must be draggable itself and must NOT swallow pointer events:
@@ -797,7 +806,7 @@ describe("ShellTitlebarStrip host menu — accent bars, waiting counts, reorder 
   it("a denied drag-drop reorder surfaces the error toast and refetches the list", async () => {
     const bridge = await renderInteractive(hosts, "darwin", false, true);
     bridge.reorder.mockResolvedValue({ ok: false });
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     expect(bridge.list).toHaveBeenCalledTimes(2); // mount + open refetch
     const rows = screen.getAllByRole("menuitemradio");
     const dataTransfer = {
@@ -818,7 +827,7 @@ describe("ShellTitlebarStrip host menu — accent bars, waiting counts, reorder 
   it("older-shell degradation: a plain 4-field projection renders today's menu with no affordances", async () => {
     // list/switch only (no add, no reorder), entries without accentColor/waiting.
     await renderInteractive(hosts);
-    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
     const rows = screen.getAllByRole("menuitemradio");
     expect(rows).toHaveLength(2);
     expect(rows[0].textContent).toContain("✓");
@@ -837,7 +846,9 @@ describe("ShellTitlebarStrip host menu — Remove + Edit Host dialog", () => {
   const renderFull = (list: unknown[] = hosts) =>
     renderInteractive(list, "darwin", true, true, true, true);
 
-  const openMenu = () => fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+  // Right-click the first square: the menu opens with that host's row focused
+  // (the `+` opener seats the Add Host footer first on a shell with an add path).
+  const openMenu = () => fireEvent.contextMenu(screen.getAllByTestId("shell-host-square")[0]);
 
   it("renders the Edit and Remove icons per row when the bridge carries both invokers", async () => {
     await renderFull();
@@ -1136,7 +1147,7 @@ describe("ShellTitlebarStrip host menu — Remove + Edit Host dialog", () => {
     };
     renderStrip();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Switch host" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Host menu" })).toBeInTheDocument();
     });
     openMenu();
     let rows = screen.getAllByRole("menuitemradio");
@@ -1171,7 +1182,7 @@ describe("ShellTitlebarStrip host menu — Remove + Edit Host dialog", () => {
     };
     renderStrip();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Switch host" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Host menu" })).toBeInTheDocument();
     });
     openMenu();
     fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]);
@@ -1183,60 +1194,14 @@ describe("ShellTitlebarStrip host menu — Remove + Edit Host dialog", () => {
       expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     });
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: "Switch host" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Host menu" })).not.toBeInTheDocument();
     });
     expect(fireEvent.keyDown(document, { key: "ArrowDown" })).toBe(true);
   });
 });
 
-describe("ShellTitlebarStrip host-menu-open chord + digit select (260820-nv0o)", () => {
-  const openMenu = () => fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
-  // The shifted tier matches Shift + (Meta OR Ctrl) on every platform, so the
-  // Ctrl spelling works regardless of the jsdom-detected host platform.
-  const chord = () =>
-    fireEvent.keyDown(document, { key: "H", code: "KeyH", shiftKey: true, ctrlKey: true });
-
-  it("⇧⌘H opens the closed menu and focus lands on the active row", async () => {
-    await renderInteractive();
-    chord();
-    expect(screen.getByRole("menu")).toBeInTheDocument();
-    const rows = screen.getAllByRole("menuitemradio");
-    await waitFor(() => {
-      expect(document.activeElement).toBe(rows[0]);
-    });
-  });
-
-  it("⇧⌘H on an open menu closes it and returns focus to the trigger (toggle)", async () => {
-    await renderInteractive();
-    const trigger = screen.getByRole("button", { name: "Switch host" });
-    openMenu();
-    expect(screen.getByRole("menu")).toBeInTheDocument();
-    chord();
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-    expect(document.activeElement).toBe(trigger);
-  });
-
-  it("falls through untouched when the switcher is not interactive (empty list)", async () => {
-    shellBridge([]);
-    renderStrip();
-    await waitFor(() => {
-      expect(screen.getByText(window.location.hostname)).toBeInTheDocument();
-    });
-    // fireEvent returns false when a handler preventDefaulted the event — a
-    // non-interactive strip must release the chord.
-    expect(chord()).toBe(true);
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-  });
-
-  it("suppresses the chord while a real text input outside the strip owns focus", async () => {
-    await renderInteractive();
-    const input = document.createElement("input");
-    document.body.appendChild(input);
-    input.focus();
-    fireEvent.keyDown(input, { key: "H", code: "KeyH", shiftKey: true, ctrlKey: true });
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-    input.remove();
-  });
+describe("ShellTitlebarStrip host-menu seams + digit select inside the menu", () => {
+  const openMenu = () => fireEvent.click(screen.getByRole("button", { name: "Host menu" }));
 
   it("the HOST_MENU_OPEN_EVENT document seam opens the menu (the palette body's path)", async () => {
     await renderInteractive();
@@ -1312,5 +1277,655 @@ describe("ShellTitlebarStrip host-menu-open chord + digit select (260820-nv0o)",
       document.querySelector('[class*="group-has-[:focus-visible]:invisible"]'),
     ).not.toBeNull();
     expect(document.querySelector('[class*="group-focus-within"]')).toBeNull();
+  });
+});
+
+// ── Host squares, nameplate, key hints, lit band ─────────────────────────────
+
+const threeHosts = [
+  { id: "a", name: "studio-mac", url: "http://a:3000", active: true },
+  { id: "b", name: "lab", url: "http://b:3000", active: false },
+  { id: "c", name: "ws-01", url: "http://c:3000", active: false },
+];
+
+interface SquaresBridgeOptions {
+  servers?: unknown[];
+  platform?: string;
+  reorder?: boolean;
+  add?: boolean;
+  onChanged?: boolean;
+  onAttached?: boolean;
+  prefs?: { effect: string; motion: string };
+}
+
+/** A bridge for the squares/light suites: the base `servers` group plus the
+ *  optional reorder/add invokers, the push subscriptions, and the prefs group,
+ *  each capturing its callback so a test can fire it. */
+function squaresBridge(opts: SquaresBridgeOptions = {}) {
+  const list = vi.fn(() => Promise.resolve({ ok: true, servers: opts.servers ?? threeHosts }));
+  const switchFn = vi.fn(() => Promise.resolve({ ok: true }));
+  const reorder = vi.fn((): Promise<unknown> => Promise.resolve({ ok: true }));
+  const add = vi.fn(() => Promise.resolve({ ok: true }));
+  const pushed: { changed?: () => void; attached?: (p: unknown) => void } = {};
+  const off = vi.fn();
+  const servers = {
+    list,
+    switch: switchFn,
+    ...(opts.reorder ? { reorder } : {}),
+    ...(opts.add ? { add } : {}),
+    ...(opts.onChanged
+      ? {
+          onChanged: (cb: () => void) => {
+            pushed.changed = cb;
+            return off;
+          },
+        }
+      : {}),
+    ...(opts.onAttached
+      ? {
+          onAttached: (cb: (p: unknown) => void) => {
+            pushed.attached = cb;
+            return off;
+          },
+        }
+      : {}),
+  };
+  window.runkitShell = {
+    version: "1.2.3",
+    platform: opts.platform ?? "darwin",
+    servers,
+    ...(opts.prefs
+      ? {
+          prefs: {
+            get: () => Promise.resolve({ ok: true, prefs: { strip: opts.prefs } }),
+            set: vi.fn(() => Promise.resolve({ ok: true })),
+          },
+        }
+      : {}),
+  };
+  return { list, switch: switchFn, reorder, add, pushed, off };
+}
+
+async function renderSquares(opts: SquaresBridgeOptions = {}, accent: InstanceAccent = accentValue()) {
+  const bridge = squaresBridge(opts);
+  renderStrip(accent);
+  await waitFor(() => {
+    expect(screen.getAllByTestId("shell-host-square").length).toBeGreaterThan(0);
+  });
+  return bridge;
+}
+
+const squareEls = () => screen.getAllByTestId("shell-host-square");
+const labels = () => squareEls().map((el) => el.getAttribute("aria-label"));
+
+/** jsdom's matchMedia with an explicit reduced-motion answer. */
+function stubReducedMotion(reduced: boolean) {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => ({
+      matches: query.includes("prefers-reduced-motion") ? reduced : true,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      onchange: null,
+      dispatchEvent: vi.fn(),
+    })),
+  );
+}
+
+describe("ShellTitlebarStrip host squares", () => {
+  it("renders one square per host in list order inside a labelled toolbar, the active one ringed", async () => {
+    await renderSquares();
+    expect(screen.getByRole("toolbar", { name: "Hosts" })).toBeInTheDocument();
+    expect(labels()).toEqual(["studio-mac", "lab", "ws-01"]);
+    const [a, b] = squareEls();
+    expect(a).toHaveAttribute("aria-current", "true");
+    expect(a.className).toContain("rk-strip-sq-on");
+    expect(b).not.toHaveAttribute("aria-current");
+    expect(b.className).not.toContain("rk-strip-sq-on");
+  });
+
+  it("never draws monogram letters in a square (digits only, revealed on demand)", async () => {
+    await renderSquares();
+    for (const el of squareEls()) {
+      expect(el.textContent).toMatch(/^\d?$/);
+    }
+    expect(squareEls().map((el) => el.textContent)).toEqual(["1", "2", "3"]);
+  });
+
+  it("past the ninth host a square carries no digit (no accelerator)", async () => {
+    const many = Array.from({ length: 11 }, (_, i) => ({
+      id: `h${i}`,
+      name: `host-${i}`,
+      url: `http://h${i}:3000`,
+      active: i === 0,
+    }));
+    await renderSquares({ servers: many });
+    const digits = squareEls().map((el) => el.textContent);
+    expect(digits.slice(0, 9)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+    expect(digits.slice(9)).toEqual(["", ""]);
+  });
+
+  it("fills a square with the host's projected color, outlined and neutral when it has none or a non-hex one", async () => {
+    await renderSquares({
+      servers: [
+        { ...threeHosts[0], accentColor: "#8b7ff0" },
+        { ...threeHosts[1], accentColor: "#ff00ff" },
+        { ...threeHosts[2], accentColor: "red; background: url(x)" },
+      ],
+    });
+    const [a, b, c] = squareEls();
+    expect(b.style.backgroundColor).toBe("rgb(255, 0, 255)");
+    expect(a.style.backgroundColor).toBe("rgb(139, 127, 240)");
+    expect(c.className).toContain("rk-strip-sq-uncolored");
+    expect(c.style.backgroundColor).toBe("");
+  });
+
+  it("paints THIS view's own square with the live accent so a Settings pick repaints at once", async () => {
+    await renderSquares(
+      { servers: [{ ...threeHosts[0], accentColor: "#8b7ff0" }, threeHosts[1]] },
+      accentValue({ stripeHex: "#112233" }),
+    );
+    expect(squareEls()[0].style.backgroundColor).toBe("rgb(17, 34, 51)");
+  });
+
+  it("marks only background hosts that are waiting with an amber dot and names the count for AT", async () => {
+    await renderSquares({
+      servers: [
+        { ...threeHosts[0], waiting: 5 },
+        { ...threeHosts[1], waiting: 3 },
+        threeHosts[2],
+      ],
+    });
+    const dots = screen.getAllByTestId("shell-host-waiting-dot");
+    expect(dots).toHaveLength(1);
+    expect(squareEls()[1]).toContainElement(dots[0]);
+    expect(labels()).toEqual(["studio-mac", "lab, 3 waiting", "ws-01"]);
+  });
+
+  it("makes the squares and `+` no-drag islands while the nameplate stays part of the drag band", async () => {
+    await renderSquares();
+    expect(screen.getByTestId("shell-host-squares").className).toContain("rk-shell-no-drag");
+    expect(screen.getByTestId("shell-titlebar-strip").className).toContain("rk-shell-drag");
+    expect(screen.getByTestId("shell-nameplate").className).toContain("rk-shell-drag");
+    expect(screen.getByTestId("shell-key-hint-pill").className).toContain("rk-shell-no-drag");
+  });
+
+  it("resolves the ringed square from the per-view `current` flag, not the cosmetic `active` record", async () => {
+    await renderSquares({
+      servers: [
+        { ...threeHosts[0], active: true, current: false },
+        { ...threeHosts[1], active: false, current: true },
+      ],
+    });
+    expect(squareEls()[1]).toHaveAttribute("aria-current", "true");
+    expect(squareEls()[0]).not.toHaveAttribute("aria-current");
+    expect(screen.getByTestId("shell-nameplate-name")).toHaveTextContent("lab");
+  });
+
+  it("clicking a square hands off to servers.switch once; a denial surfaces the error toast", async () => {
+    const bridge = await renderSquares();
+    fireEvent.click(squareEls()[1]);
+    expect(bridge.switch).toHaveBeenCalledTimes(1);
+    expect(bridge.switch).toHaveBeenCalledWith("b");
+    bridge.switch.mockResolvedValueOnce({ ok: false });
+    fireEvent.click(squareEls()[2]);
+    await waitFor(() => {
+      expect(screen.getByText("Host switch failed")).toBeInTheDocument();
+    });
+  });
+
+  it("hovering a square previews that host in the nameplate (dimmed, `→` prefix) without switching", async () => {
+    const bridge = await renderSquares();
+    const nameplate = screen.getByTestId("shell-nameplate");
+    expect(nameplate).toHaveAttribute("data-peek", "false");
+    fireEvent.pointerEnter(squareEls()[1]);
+    expect(nameplate).toHaveAttribute("data-peek", "true");
+    expect(screen.getByTestId("shell-nameplate-name").textContent).toBe("→ lab");
+    fireEvent.pointerLeave(screen.getByTestId("shell-host-squares"));
+    expect(nameplate).toHaveAttribute("data-peek", "false");
+    expect(screen.getByTestId("shell-nameplate-name").textContent).toBe("studio-mac");
+    expect(bridge.switch).not.toHaveBeenCalled();
+  });
+
+  it("previews a host's reported machine/os/agents beside its name, the bare name when it reported none", async () => {
+    await renderSquares({
+      servers: [
+        threeHosts[0],
+        { ...threeHosts[1], machine: "sahil@lab-box", os: "darwin", agents: 3 },
+        threeHosts[2],
+      ],
+    });
+    fireEvent.pointerEnter(squareEls()[1]);
+    const nameplate = screen.getByTestId("shell-nameplate");
+    expect(nameplate).toHaveTextContent("sahil@lab-box");
+    expect(nameplate).toHaveTextContent("macOS");
+    expect(nameplate).toHaveTextContent("3 agents");
+    fireEvent.pointerEnter(squareEls()[2]);
+    expect(screen.getByTestId("shell-nameplate")).not.toHaveTextContent("agents");
+  });
+
+  it("shows the active host's own facts: user@machine from health, OS, a labelled kind glyph and the link", async () => {
+    await renderSquares({ servers: [{ ...threeHosts[0], url: "http://127.0.0.1:3142" }, threeHosts[1]] });
+    await waitFor(() => {
+      expect(screen.getByTestId("shell-nameplate")).toHaveTextContent("sahil@box");
+    });
+    const nameplate = screen.getByTestId("shell-nameplate");
+    expect(nameplate).toHaveTextContent("linux");
+    expect(nameplate).toHaveTextContent("ssh tunnel :3142");
+    expect(within(nameplate).getAllByRole("img", { name: "rk remote · SSH tunnel" }).length).toBeGreaterThan(0);
+  });
+});
+
+describe("ShellTitlebarStrip key hints", () => {
+  it("always renders the pill (space reserved) with the platform's chord label", async () => {
+    await renderSquares();
+    expect(screen.getByTestId("shell-key-hint-pill")).toHaveTextContent("⌥⌘");
+    expect(screen.getByTestId("shell-titlebar-strip")).toHaveAttribute("data-hints", "off");
+    cleanup();
+    await renderSquares({ platform: "win32" });
+    expect(screen.getByTestId("shell-key-hint-pill")).toHaveTextContent("Alt");
+  });
+
+  it("holding ⌥⌘ on darwin turns the hints on; keyup and window blur turn them off", async () => {
+    await renderSquares();
+    const strip = screen.getByTestId("shell-titlebar-strip");
+    fireEvent.keyDown(window, { key: "Alt", altKey: true });
+    expect(strip).toHaveAttribute("data-hints", "off"); // Option alone is not the chord
+    fireEvent.keyDown(window, { key: "Meta", altKey: true, metaKey: true });
+    expect(strip).toHaveAttribute("data-hints", "on");
+    expect(strip).toHaveAttribute("data-hold", "true");
+    fireEvent.keyUp(window, { key: "Meta", altKey: true, metaKey: false });
+    expect(strip).toHaveAttribute("data-hints", "off");
+    fireEvent.keyDown(window, { key: "Meta", altKey: true, metaKey: true });
+    expect(strip).toHaveAttribute("data-hints", "on");
+    fireEvent.blur(window);
+    expect(strip).toHaveAttribute("data-hints", "off");
+  });
+
+  it("holding bare Alt turns the hints on off-darwin", async () => {
+    await renderSquares({ platform: "linux" });
+    const strip = screen.getByTestId("shell-titlebar-strip");
+    fireEvent.keyDown(window, { key: "Alt", altKey: true });
+    expect(strip).toHaveAttribute("data-hints", "on");
+    fireEvent.keyUp(window, { key: "Alt", altKey: false });
+    expect(strip).toHaveAttribute("data-hints", "off");
+  });
+
+  it("hovering the pill shows the digits too", async () => {
+    await renderSquares();
+    const strip = screen.getByTestId("shell-titlebar-strip");
+    fireEvent.pointerEnter(screen.getByTestId("shell-key-hint-pill"));
+    expect(strip).toHaveAttribute("data-hints", "on");
+    fireEvent.pointerLeave(screen.getByTestId("shell-key-hint-pill"));
+    expect(strip).toHaveAttribute("data-hints", "off");
+  });
+
+  it("revealing the hints re-renders no square and no nameplate — the same elements stay in place", async () => {
+    await renderSquares();
+    const before = [...squareEls(), screen.getByTestId("shell-nameplate")];
+    fireEvent.keyDown(window, { key: "Meta", altKey: true, metaKey: true });
+    fireEvent.pointerEnter(screen.getByTestId("shell-key-hint-pill"));
+    const after = [...squareEls(), screen.getByTestId("shell-nameplate")];
+    expect(after).toEqual(before);
+    after.forEach((el, i) => expect(el).toBe(before[i]));
+  });
+});
+
+describe("ShellTitlebarStrip focus-the-squares chord and keys", () => {
+  // The shifted tier matches Shift + (Meta OR Ctrl) on every platform, so the
+  // Ctrl spelling works regardless of the jsdom-detected host platform.
+  const chord = (target: Document | Element = document) =>
+    fireEvent.keyDown(target, { key: "H", code: "KeyH", shiftKey: true, ctrlKey: true });
+
+  it("⇧⌘H focuses the active square; a second press returns focus to where it was", async () => {
+    await renderSquares();
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    outside.focus();
+    chord();
+    expect(document.activeElement).toBe(squareEls()[0]);
+    chord();
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
+  });
+
+  it("the chord falls through untouched when the strip is not interactive (empty list)", async () => {
+    shellBridge([]);
+    renderStrip();
+    await waitFor(() => {
+      expect(screen.getByText(window.location.hostname)).toBeInTheDocument();
+    });
+    expect(chord()).toBe(true);
+  });
+
+  it("the chord is suppressed while a real text input owns focus", async () => {
+    await renderSquares();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+    fireEvent.keyDown(input, { key: "H", code: "KeyH", shiftKey: true, ctrlKey: true });
+    expect(document.activeElement).toBe(input);
+    input.remove();
+  });
+
+  it("the HOST_STRIP_FOCUS_EVENT seam (the palette's Host: Focus Squares) focuses the squares", async () => {
+    await renderSquares();
+    act(() => {
+      document.dispatchEvent(new CustomEvent(HOST_STRIP_FOCUS_EVENT));
+    });
+    expect(document.activeElement).toBe(squareEls()[0]);
+  });
+
+  it("arrows and Home/End rove focus with no wrap, Escape releases it", async () => {
+    await renderSquares();
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    outside.focus();
+    chord();
+    const [a, b, c] = squareEls();
+    fireEvent.keyDown(a, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(b);
+    fireEvent.keyDown(b, { key: "End" });
+    expect(document.activeElement).toBe(c);
+    fireEvent.keyDown(c, { key: "ArrowRight" }); // no wrap
+    expect(document.activeElement).toBe(c);
+    fireEvent.keyDown(c, { key: "Home" });
+    expect(document.activeElement).toBe(a);
+    fireEvent.keyDown(a, { key: "Escape" });
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
+  });
+
+  it("a plain digit on a focused square switches to the Nth host; modified digits and out-of-range ones do not", async () => {
+    const bridge = await renderSquares();
+    squareEls()[0].focus();
+    fireEvent.keyDown(squareEls()[0], { key: "3", code: "Digit3" });
+    expect(bridge.switch).toHaveBeenCalledWith("c");
+    bridge.switch.mockClear();
+    fireEvent.keyDown(squareEls()[0], { key: "2", code: "Digit2", altKey: true, metaKey: true });
+    expect(fireEvent.keyDown(squareEls()[0], { key: "9", code: "Digit9" })).toBe(true);
+    expect(bridge.switch).not.toHaveBeenCalled();
+  });
+
+  it("Enter/Space activate natively: a click on the focused square switches", async () => {
+    const bridge = await renderSquares();
+    fireEvent.click(squareEls()[2]);
+    expect(bridge.switch).toHaveBeenCalledWith("c");
+  });
+
+  it("Shift+F10 and ContextMenu open the host menu with the focused host's row focused", async () => {
+    await renderSquares();
+    squareEls()[1].focus();
+    fireEvent.keyDown(squareEls()[1], { key: "F10", shiftKey: true });
+    const rows = await screen.findAllByRole("menuitemradio");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(rows[1]);
+    });
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(squareEls()[1]);
+    fireEvent.keyDown(squareEls()[1], { key: "ContextMenu" });
+    expect(await screen.findByRole("menu")).toBeInTheDocument();
+  });
+});
+
+describe("ShellTitlebarStrip host menu anchors", () => {
+  it("right-clicking a square opens the menu focused on that host's row", async () => {
+    await renderSquares({ add: true });
+    fireEvent.contextMenu(squareEls()[2]);
+    const rows = await screen.findAllByRole("menuitemradio");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(rows[2]);
+    });
+  });
+
+  it("right-clicking another square re-anchors the open menu on that row", async () => {
+    await renderSquares();
+    fireEvent.contextMenu(squareEls()[0]);
+    await screen.findByRole("menu");
+    fireEvent.contextMenu(squareEls()[1]);
+    const rows = await screen.findAllByRole("menuitemradio");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(rows[1]);
+    });
+    expect(screen.getAllByRole("menu")).toHaveLength(1);
+  });
+
+  it("the `+` square toggles the menu, and an outside mousedown on a square does not double-close it", async () => {
+    await renderSquares();
+    const plus = screen.getByRole("button", { name: "Host menu" });
+    fireEvent.click(plus);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    fireEvent.mouseDown(plus); // an anchor: not an "outside" click
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    fireEvent.click(plus);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+});
+
+describe("ShellTitlebarStrip reorder (squares)", () => {
+  it("⌥→ moves the focused square one slot: one commit per keypress, optimistic order, focus follows", async () => {
+    const bridge = await renderSquares({ reorder: true });
+    squareEls()[0].focus();
+    fireEvent.keyDown(squareEls()[0], { key: "ArrowRight", altKey: true });
+    expect(bridge.reorder).toHaveBeenCalledTimes(1);
+    expect(bridge.reorder).toHaveBeenCalledWith("a", 1);
+    expect(labels()).toEqual(["lab", "studio-mac", "ws-01"]);
+    expect(squareEls().map((el) => el.textContent)).toEqual(["1", "2", "3"]);
+    await waitFor(() => {
+      expect(document.activeElement).toBe(squareEls()[1]);
+    });
+  });
+
+  it("⌥←/⌥→ at the row's edges swallow the key without invoking the shell (no wrap)", async () => {
+    const bridge = await renderSquares({ reorder: true });
+    fireEvent.keyDown(squareEls()[0], { key: "ArrowLeft", altKey: true });
+    fireEvent.keyDown(squareEls()[2], { key: "ArrowRight", altKey: true });
+    expect(bridge.reorder).not.toHaveBeenCalled();
+    expect(labels()).toEqual(["studio-mac", "lab", "ws-01"]);
+  });
+
+  it("a pointer drag past the 4px threshold commits exactly ONE reorder at drop and suppresses the trailing click", async () => {
+    const bridge = await renderSquares({ reorder: true });
+    const strip = screen.getByTestId("shell-titlebar-strip");
+    const a = squareEls()[0];
+    fireEvent.pointerDown(a, { clientX: 100, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(a, { clientX: 102, pointerId: 1 });
+    expect(strip).toHaveAttribute("data-dragging", "false"); // under the threshold
+    fireEvent.pointerMove(a, { clientX: 152, pointerId: 1 });
+    expect(strip).toHaveAttribute("data-dragging", "true");
+    // Digits renumber live as the drop slot changes: studio-mac now sits third.
+    expect(a.textContent).toBe("3");
+    expect(squareEls()[1].textContent).toBe("1");
+    expect(bridge.reorder).not.toHaveBeenCalled();
+    fireEvent.pointerUp(a, { clientX: 152, pointerId: 1 });
+    expect(bridge.reorder).toHaveBeenCalledTimes(1);
+    expect(bridge.reorder).toHaveBeenCalledWith("a", 2);
+    expect(strip).toHaveAttribute("data-dragging", "false");
+    expect(labels()).toEqual(["lab", "ws-01", "studio-mac"]);
+    fireEvent.click(squareEls()[2]); // the click that ends a drag is swallowed
+    expect(bridge.switch).not.toHaveBeenCalled();
+  });
+
+  it("a press-release under the threshold is a click: it switches and never reorders", async () => {
+    const bridge = await renderSquares({ reorder: true });
+    const b = squareEls()[1];
+    fireEvent.pointerDown(b, { clientX: 100, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(b, { clientX: 103, pointerId: 1 });
+    fireEvent.pointerUp(b, { clientX: 103, pointerId: 1 });
+    fireEvent.click(b);
+    expect(bridge.reorder).not.toHaveBeenCalled();
+    expect(bridge.switch).toHaveBeenCalledWith("b");
+  });
+
+  it("dropping back on the original slot commits nothing", async () => {
+    const bridge = await renderSquares({ reorder: true });
+    const a = squareEls()[0];
+    fireEvent.pointerDown(a, { clientX: 100, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(a, { clientX: 130, pointerId: 1 });
+    fireEvent.pointerMove(a, { clientX: 101, pointerId: 1 });
+    fireEvent.pointerMove(a, { clientX: 106, pointerId: 1 });
+    fireEvent.pointerUp(a, { clientX: 106, pointerId: 1 });
+    expect(bridge.reorder).not.toHaveBeenCalled();
+  });
+
+  it("without the reorder invoker squares neither drag nor ⌥-move, and click still switches", async () => {
+    const bridge = await renderSquares();
+    const strip = screen.getByTestId("shell-titlebar-strip");
+    const a = squareEls()[0];
+    fireEvent.pointerDown(a, { clientX: 100, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(a, { clientX: 160, pointerId: 1 });
+    fireEvent.pointerUp(a, { clientX: 160, pointerId: 1 });
+    expect(strip).toHaveAttribute("data-dragging", "false");
+    fireEvent.keyDown(a, { key: "ArrowRight", altKey: true });
+    expect(labels()).toEqual(["studio-mac", "lab", "ws-01"]);
+    fireEvent.click(squareEls()[1]);
+    expect(bridge.switch).toHaveBeenCalledWith("b");
+  });
+
+  it("a denied commit surfaces the error toast and refetches the list", async () => {
+    const bridge = await renderSquares({ reorder: true });
+    bridge.reorder.mockResolvedValueOnce({ ok: false });
+    const callsBefore = bridge.list.mock.calls.length;
+    fireEvent.keyDown(squareEls()[0], { key: "ArrowRight", altKey: true });
+    await waitFor(() => {
+      expect(screen.getByText("Shell host reorder failed")).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(bridge.list.mock.calls.length).toBeGreaterThan(callsBefore);
+    });
+  });
+});
+
+describe("ShellTitlebarStrip lit band", () => {
+  const lit = accentValue({ stripeHex: "#7d9afb" });
+
+  it("lights the band with the default Glow + Light slides from the active square's host color", async () => {
+    stubReducedMotion(false);
+    await renderSquares({}, lit);
+    const strip = screen.getByTestId("shell-titlebar-strip");
+    expect(strip.className).toContain("rk-strip-fx-glow");
+    expect(strip.className).toContain("rk-strip-motion-slide");
+    expect(strip.style.getPropertyValue("--rk-acc")).toBe("#7d9afb");
+    expect(strip.style.getPropertyValue("--rk-ax")).not.toBe("");
+    expect(strip.style.getPropertyValue("--rk-dx")).not.toBe("");
+    expect(strip.style.getPropertyValue("--rk-strip-bg")).toMatch(/^#/);
+  });
+
+  it("applies no treatment when the host has no color — the band stays neutral chrome", async () => {
+    stubReducedMotion(false);
+    await renderSquares();
+    expect(screen.getByTestId("shell-titlebar-strip").className).not.toMatch(/rk-strip-fx-/);
+  });
+
+  it("follows the shell's stored effect and motion", async () => {
+    stubReducedMotion(false);
+    await renderSquares({ prefs: { effect: "hex", motion: "sweep" } }, lit);
+    await waitFor(() => {
+      expect(screen.getByTestId("shell-titlebar-strip").className).toContain("rk-strip-fx-hex");
+    });
+    expect(screen.getByTestId("shell-titlebar-strip").className).toContain("rk-strip-motion-sweep");
+  });
+
+  it("prefers-reduced-motion forces Cut whatever the stored motion", async () => {
+    stubReducedMotion(true);
+    await renderSquares({ prefs: { effect: "glow", motion: "sweep" } }, lit);
+    await waitFor(() => {
+      expect(screen.getByTestId("shell-titlebar-strip").className).toContain("rk-strip-motion-cut");
+    });
+    expect(screen.getByTestId("shell-titlebar-strip").className).not.toContain("rk-strip-motion-sweep");
+  });
+
+  it("a cross-view attach signal re-seats the light at the previous square and (with Slide + sweep) fires the sweep", async () => {
+    stubReducedMotion(false);
+    const bridge = await renderSquares({ onAttached: true, prefs: { effect: "glow", motion: "sweep" } }, lit);
+    await waitFor(() => {
+      expect(screen.getByTestId("shell-titlebar-strip").className).toContain("rk-strip-motion-sweep");
+    });
+    await waitFor(() => {
+      expect(bridge.pushed.attached).toBeDefined();
+    });
+    act(() => bridge.pushed.attached?.({ previousId: "c" }));
+    const sweep = document.querySelector(".rk-strip-sweep");
+    expect(sweep?.classList.contains("rk-strip-sweep-go")).toBe(true);
+    expect(sweep instanceof HTMLElement && sweep.style.getPropertyValue("--rk-from")).not.toBe("");
+    // The no-transition seat is released again.
+    expect(screen.getByTestId("shell-titlebar-strip").classList.contains("rk-strip-notrans")).toBe(false);
+  });
+
+  it("after seating the previous host's colour, an attach signal restores THIS host's colour so it transitions too", async () => {
+    stubReducedMotion(false);
+    const bridge = await renderSquares(
+      {
+        onAttached: true,
+        servers: [threeHosts[0], { ...threeHosts[1], accentColor: "#ff0000" }],
+      },
+      lit,
+    );
+    await waitFor(() => {
+      expect(bridge.pushed.attached).toBeDefined();
+    });
+    act(() => bridge.pushed.attached?.({ previousId: "b" }));
+    expect(screen.getByTestId("shell-titlebar-strip").style.getPropertyValue("--rk-acc")).toBe("#7d9afb");
+  });
+
+  it("an attach signal for an unknown host is ignored (degrades to a cut)", async () => {
+    stubReducedMotion(false);
+    const bridge = await renderSquares({ onAttached: true }, lit);
+    await waitFor(() => {
+      expect(bridge.pushed.attached).toBeDefined();
+    });
+    expect(() => act(() => bridge.pushed.attached?.({ previousId: "gone" }))).not.toThrow();
+    expect(document.querySelector(".rk-strip-sweep-go")).toBeNull();
+  });
+});
+
+describe("ShellTitlebarStrip live projection", () => {
+  it("refetches the list once per servers:changed push and unsubscribes on unmount", async () => {
+    const bridge = await renderSquares({ onChanged: true });
+    await waitFor(() => {
+      expect(bridge.pushed.changed).toBeDefined();
+    });
+    const before = bridge.list.mock.calls.length;
+    act(() => bridge.pushed.changed?.());
+    await waitFor(() => {
+      expect(bridge.list.mock.calls.length).toBe(before + 1);
+    });
+    cleanup();
+    expect(bridge.off).toHaveBeenCalled();
+  });
+
+  it("an older shell without the push refetches when the window regains focus", async () => {
+    const bridge = await renderSquares();
+    const before = bridge.list.mock.calls.length;
+    fireEvent.focus(window);
+    await waitFor(() => {
+      expect(bridge.list.mock.calls.length).toBe(before + 1);
+    });
+  });
+});
+
+describe("ShellTitlebarStrip degraded branches", () => {
+  it("a popout window renders only the title: no squares, no pill, no nameplate", async () => {
+    squaresBridge();
+    renderStrip(accentValue(), "beta #2 — session main · server work");
+    expect(screen.getByTestId("shell-titlebar-popout-title")).toBeInTheDocument();
+    expect(screen.queryByTestId("shell-host-square")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("shell-key-hint-pill")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("shell-nameplate")).not.toBeInTheDocument();
+  });
+
+  it("without the servers group the band shows the static name: no squares or pill, still draggable", async () => {
+    window.runkitShell = { version: "0.9.0", platform: "darwin" };
+    renderStrip();
+    await waitFor(() => {
+      expect(screen.getByTestId("shell-titlebar-host-name")).toHaveTextContent(window.location.hostname);
+    });
+    expect(screen.queryByTestId("shell-host-square")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("shell-key-hint-pill")).not.toBeInTheDocument();
+    expect(screen.getByTestId("shell-titlebar-strip").className).toContain("rk-shell-drag");
   });
 });

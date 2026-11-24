@@ -43,3 +43,22 @@ export function countWaitingAcrossServers(
   for (const sessions of sessionsByServer.values()) n += countWaitingInSessions(sessions);
   return n;
 }
+
+/** True when the window carries any rolled-up agent state (busy, waiting or
+ *  idle) — an agent is present, whatever it is doing. */
+export function hasAgent(win: Pick<WindowInfo, "agentState">): boolean {
+  return win.agentState !== undefined && win.agentState !== "";
+}
+
+/** Agent count across every attached server's sessions: windows (tabs) with
+ *  an agent in any state — the host nameplate's `N agents`. Derived from the
+ *  SSE session data already in the client. */
+export function countAgentsAcrossServers(
+  sessionsByServer: ReadonlyMap<string, ProjectSession[]>,
+): number {
+  let n = 0;
+  for (const sessions of sessionsByServer.values()) {
+    for (const s of sessions) for (const w of s.windows) if (hasAgent(w)) n++;
+  }
+  return n;
+}

@@ -70,15 +70,15 @@ describe("SwatchPopover", () => {
     vi.unstubAllGlobals();
   });
 
-  it("color-only variant: 30 swatches + the color header − + panel − + ✕ (no flair band)", () => {
+  it("color-only variant: 33 swatches + the color header − + panel − + ✕ (no flair band)", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
 
-    // 30 family/shade swatches + the color band's header − + the panel-level
+    // 33 family/shade swatches + the color band's header − + the panel-level
     // − (Clear all — rendered on every variant; degenerates to clear-color
     // here) + the ✕ close cell (options-as-commands, ARIA-valid children).
-    expect(screen.getAllByRole("option")).toHaveLength(33);
+    expect(screen.getAllByRole("option")).toHaveLength(36);
     expect(screen.getByRole("option", { name: "Clear all" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: /^Flair / })).toBeNull();
     expect(screen.getByRole("listbox").getAttribute("aria-label")).toBe("Color picker");
@@ -198,11 +198,11 @@ describe("SwatchPopover", () => {
     expect(document.activeElement).toBe(screen.getByRole("listbox"));
   });
 
-  it("the 30 picker values are the families in TRIPLET shade order (light | normal | dark per family)", () => {
+  it("the 33 picker values are the families in TRIPLET shade order (light | normal | dark per family)", () => {
     expect(PICKER_COLOR_VALUES).toEqual(
       HUE_FAMILIES.flatMap((f) => [`${f.name}-light`, f.name, `${f.name}-dark`]),
     );
-    expect(PICKER_COLOR_VALUES).toHaveLength(30);
+    expect(PICKER_COLOR_VALUES).toHaveLength(33);
   });
 
   // ── Universal square style (maya): the ONLY style — no `square` prop. ──
@@ -359,9 +359,9 @@ describe("SwatchPopover", () => {
       return { onSelect, onSelectFlair, onClose, ...utils };
     }
 
-    it("full variant: 30 colors + 16 flairs + 2 header − + panel − + ✕ = 50 options, labelled Label picker", () => {
+    it("full variant: 33 colors + 16 flairs + 2 header − + panel − + ✕ = 53 options, labelled Label picker", () => {
       renderLabelPicker();
-      expect(screen.getAllByRole("option")).toHaveLength(50);
+      expect(screen.getAllByRole("option")).toHaveLength(53);
       expect(screen.getByRole("listbox").getAttribute("aria-label")).toBe("Label picker");
       for (const state of FLAIR_NAMED) {
         expect(screen.getByRole("option", { name: `Flair ${state}` })).toBeTruthy();
@@ -565,11 +565,11 @@ describe("SwatchPopover", () => {
       expect(listbox.querySelectorAll(".ring-text-secondary")).toHaveLength(1);
     });
 
-    it("initial focus lands on the selected swatch (magenta — normal row, family column 9)", () => {
+    it("initial focus lands on the selected swatch (magenta — normal row, family column 9 of 11)", () => {
       const { onSelect, enter } = renderFull({ selectedColor: "magenta" });
       enter();
       expect(onSelect).toHaveBeenLastCalledWith(legacyOf("magenta"));
-      expect(PICKER_COLOR_VALUES[25]).toBe("magenta");
+      expect(PICKER_COLOR_VALUES[28]).toBe("magenta");
     });
 
     it("ArrowRight walks a color band row across family columns and clamps at its right edge", () => {
@@ -582,7 +582,7 @@ describe("SwatchPopover", () => {
       arrow("ArrowRight", 2);
       enter();
       expect(onSelect).toHaveBeenLastCalledWith("amber-light");
-      // Clamp: 10 family columns — past col 9 ArrowRight is a no-op.
+      // Clamp: 11 family columns — past col 10 ArrowRight is a no-op.
       arrow("ArrowRight", 20);
       enter();
       expect(onSelect).toHaveBeenLastCalledWith("slate-light");
@@ -621,7 +621,7 @@ describe("SwatchPopover", () => {
     it("vertical moves preserve the column as a goal column, clamped to the target row's extent", () => {
       const { onSelect, onSelectFlair, enter, arrow } = renderFull();
       arrow("ArrowDown"); // light row, col 0
-      arrow("ArrowRight", 9); // col 9 (slate-light)
+      arrow("ArrowRight", 10); // col 10 (slate-light)
       // Down into the flair band: the raw column rides THROUGH the
       // single-cell header − row at the goal column and clamps to 7, ironman,
       // on the 8-cell flair row 1.
@@ -629,7 +629,7 @@ describe("SwatchPopover", () => {
       enter();
       expect(onSelectFlair).toHaveBeenLastCalledWith("ironman");
       // Back up: flair row 1 → header − → dark shade row, the raw column
-      // restored (col 9 = slate-dark).
+      // restored (col 10 = slate-dark).
       arrow("ArrowUp", 2);
       enter();
       expect(onSelect).toHaveBeenLastCalledWith("slate-dark");
@@ -696,5 +696,50 @@ describe("SwatchPopover", () => {
       expect(onSelect).toHaveBeenCalledWith(legacyOf("orange"));
       expect(legacyOf("orange")).toBe("1+3");
     });
+  });
+});
+
+// The instance-accent ("Host color") pickers narrow the color band to the
+// well-separated hue set: one row of normal shades, nothing else changes.
+describe("SwatchPopover hostColorSet", () => {
+  beforeEach(() => {
+    mockMatchMedia();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("offers only the nine Host color hues (normal shade), plus the clear cells and ✕", () => {
+    renderWithTheme(<SwatchPopover hostColorSet onSelect={vi.fn()} onClose={vi.fn()} />);
+    const swatches = screen
+      .getAllByRole("option")
+      .map((el) => el.getAttribute("data-color-value"))
+      .filter((v): v is string => v !== null);
+    expect(swatches).toEqual(["purple", "violet", "blue", "red", "green", "teal", "magenta", "slate", "amber"]);
+    // 9 swatches + color header − + panel − + ✕.
+    expect(screen.getAllByRole("option")).toHaveLength(12);
+  });
+
+  it("writes the legacy descriptor — violet is 4+5", () => {
+    const onSelect = vi.fn();
+    renderWithTheme(<SwatchPopover hostColorSet onSelect={onSelect} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole("option", { name: "Color violet" }));
+    expect(onSelect).toHaveBeenCalledWith("4+5");
+  });
+
+  it("highlights the nearest member for an out-of-set stored value", () => {
+    renderWithTheme(<SwatchPopover hostColorSet selectedColor="1+3" onSelect={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByRole("option", { name: "Color red" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("arrow keys walk the single color row", () => {
+    const onSelect = vi.fn();
+    renderWithTheme(<SwatchPopover hostColorSet onSelect={onSelect} onClose={vi.fn()} />);
+    const listbox = screen.getByRole("listbox");
+    fireEvent.keyDown(listbox, { key: "ArrowDown" });
+    fireEvent.keyDown(listbox, { key: "ArrowRight" });
+    fireEvent.keyDown(listbox, { key: "Enter" });
+    expect(onSelect).toHaveBeenLastCalledWith("4+5");
   });
 });

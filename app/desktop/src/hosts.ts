@@ -340,6 +340,14 @@ export interface HostInfo {
    *  (this module is store-pure); the `servers:list` handler in main.ts
    *  joins it in. */
   waiting?: number;
+  /** Nameplate preview fields a host's own SPA reported (view registry,
+   *  in-memory) — joined by main.ts like `waiting`, never filled here. */
+  machine?: string;
+  os?: string;
+  agents?: number;
+  /** True on the entry for the host the ASKING view shows — resolved by the
+   *  `servers:list` handler from the sender's view, never filled here. */
+  current?: boolean;
 }
 
 /**

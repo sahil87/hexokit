@@ -14,6 +14,7 @@
  */
 
 import { getHealth } from "@/api/client";
+import { parseStripPrefs, type StripPrefs } from "./shell-strip";
 import { daemonLoopbackOrigin, type WebNativeMode } from "./web-url";
 
 export interface RunkitShell {
@@ -33,6 +34,17 @@ export interface ShellServer {
   /** The host's cached waiting-agent count (newer shells; absent when the
    *  host has no live view or a zero count). */
   waiting?: number;
+  /** The machine hostname the host's own SPA reported to the shell
+   *  (nameplate hover preview; absent until that host has been visited). */
+  machine?: string;
+  /** The host's operating system (`runtime.GOOS`), as reported. */
+  os?: string;
+  /** The host's agent count, as reported. */
+  agents?: number;
+  /** True on the entry for the host THIS view shows — resolved shell-side
+   *  from the asking view (absent on older shells; callers fall back to
+   *  `active`). */
+  current?: boolean;
 }
 
 /** The bridge's `servers` group — thin IPC invokers resolving unknown shapes. */
@@ -108,7 +120,11 @@ function isShellServer(value: unknown): value is ShellServer {
     // own shell, which omits fields rather than mistyping them — absence is
     // always valid (older shells), a wrong-typed present field rejects.
     (!("accentColor" in value) || typeof value.accentColor === "string") &&
-    (!("waiting" in value) || typeof value.waiting === "number")
+    (!("waiting" in value) || typeof value.waiting === "number") &&
+    (!("machine" in value) || typeof value.machine === "string") &&
+    (!("os" in value) || typeof value.os === "string") &&
+    (!("agents" in value) || typeof value.agents === "number") &&
+    (!("current" in value) || typeof value.current === "boolean")
   );
 }
 
@@ -695,6 +711,128 @@ export async function setShellAccent(hex: string): Promise<boolean> {
   return (
     typeof result === "object" && result !== null && "ok" in result && result.ok === true
   );
+}
+
+// ── Strip subscriptions, nameplate report, app prefs ─────────────────────────
+// Every member below is additive and optional (the optional-invoker pattern):
+// structural narrowing, `false`/`null`/no-op disposer on absence, rejection or
+// a malformed payload — never a throw.
+
+/** Narrow a bridge group member to a function without asserting. */
+function bridgeGroup(name: string): Record<string, unknown> | null {
+  const candidate = typeof window === "undefined" ? undefined : window.runkitShell;
+  if (typeof candidate !== "object" || candidate === null || !(name in candidate)) return null;
+  const group: unknown = Reflect.get(candidate, name);
+  if (typeof group !== "object" || group === null) return null;
+  return Object.fromEntries(Object.entries(group));
+}
+
+/** Subscribe through a group's `on…` member; the disposer is ALWAYS callable. */
+function subscribe(
+  groupName: string,
+  member: string,
+  listener: (payload: unknown) => void,
+): () => void {
+  const group = bridgeGroup(groupName);
+  const on = group?.[member];
+  if (typeof on !== "function") return () => {};
+  let dispose: unknown;
+  try {
+    dispose = on(listener);
+  } catch {
+    return () => {};
+  }
+  return () => {
+    if (typeof dispose !== "function") return;
+    try {
+      dispose();
+    } catch {
+      // A failed teardown leaves nothing the page can act on.
+    }
+  };
+}
+
+/** True when the shell pushes `servers:changed` (the strip then skips its
+ *  focus/mount refetch fallbacks). */
+export function canSubscribeShellServers(): boolean {
+  return typeof bridgeGroup("servers")?.onChanged === "function";
+}
+
+/** Subscribe to host-list projection changes. Returns the unsubscribe. */
+export function onShellServersChanged(handler: () => void): () => void {
+  return subscribe("servers", "onChanged", () => handler());
+}
+
+/** Subscribe to "this view was just attached over another host" — the
+ *  previous host's id, when the payload is well-formed. Returns the unsubscribe. */
+export function onShellAttached(handler: (previousId: string) => void): () => void {
+  return subscribe("servers", "onAttached", (payload) => {
+    if (typeof payload !== "object" || payload === null || !("previousId" in payload)) return;
+    if (typeof payload.previousId === "string") handler(payload.previousId);
+  });
+}
+
+/** What a host's SPA reports for the strip's hover preview of it. */
+export interface ShellNameplateReport {
+  machine?: string;
+  os?: string;
+  agents?: number;
+}
+
+/** Report this host's nameplate fields to the shell. Resolves `false` in a
+ *  browser, on a shell without the `nameplate` group, or on rejection. */
+export async function setShellNameplate(report: ShellNameplateReport): Promise<boolean> {
+  const set = bridgeGroup("nameplate")?.set;
+  if (typeof set !== "function") return false;
+  try {
+    return isOkResult(await set(report));
+  } catch {
+    return false;
+  }
+}
+
+/** True when the shell carries the app-prefs invokers (`prefs.get` + `set`). */
+export function canUseShellPrefs(): boolean {
+  const group = bridgeGroup("prefs");
+  return typeof group?.get === "function" && typeof group?.set === "function";
+}
+
+/** The desktop app's strip prefs, or null off-shell / on rejection / when the
+ *  payload is malformed. */
+export async function getShellStripPrefs(): Promise<StripPrefs | null> {
+  const get = bridgeGroup("prefs")?.get;
+  if (typeof get !== "function") return null;
+  let result: unknown;
+  try {
+    result = await get();
+  } catch {
+    return null;
+  }
+  if (typeof result !== "object" || result === null || !("ok" in result) || result.ok !== true) {
+    return null;
+  }
+  return "prefs" in result ? parseStripPrefs(result.prefs) : null;
+}
+
+/** Persist one app pref (the shell validates against its closed sets).
+ *  Resolves `false` off-shell, on rejection, or when the shell refuses it. */
+export async function setShellPref(key: "strip.effect" | "strip.motion", value: string): Promise<boolean> {
+  const set = bridgeGroup("prefs")?.set;
+  if (typeof set !== "function") return false;
+  try {
+    return isOkResult(await set(key, value));
+  } catch {
+    return false;
+  }
+}
+
+/** Subscribe to app-prefs changes (every host view in every window gets the
+ *  broadcast). Malformed payloads are dropped. Returns the unsubscribe. */
+export function onShellPrefsChange(handler: (prefs: StripPrefs) => void): () => void {
+  return subscribe("prefs", "onChange", (payload) => {
+    const prefs = parseStripPrefs(payload);
+    if (prefs) handler(prefs);
+  });
 }
 
 /** One reclaimable chord spec uploaded to a guest (`web:chords`) — the

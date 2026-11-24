@@ -454,21 +454,21 @@ describe("deriveXtermTheme", () => {
 });
 
 describe("owned hue families", () => {
-  it("defines exactly 10 families in the documented order with unique names/hues", () => {
+  it("defines exactly 11 families in the documented order with unique names/hues", () => {
     expect(HUE_FAMILIES.map((f) => f.name)).toEqual([
-      "red", "orange", "amber", "olive", "green", "teal", "blue", "purple", "magenta", "slate",
+      "red", "orange", "amber", "olive", "green", "teal", "blue", "violet", "purple", "magenta", "slate",
     ]);
-    // The picker values are the 30 family/shade values in family-TRIPLET order —
+    // The picker values are the 33 family/shade values in family-TRIPLET order —
     // light, normal, dark per family, so the banded picker's column-flow strip
     // renders one family per column with its three shades as rows.
     expect(PICKER_COLOR_VALUES).toEqual([
       "red-light", "red", "red-dark", "orange-light", "orange", "orange-dark",
       "amber-light", "amber", "amber-dark", "olive-light", "olive", "olive-dark",
       "green-light", "green", "green-dark", "teal-light", "teal", "teal-dark",
-      "blue-light", "blue", "blue-dark", "purple-light", "purple", "purple-dark",
+      "blue-light", "blue", "blue-dark", "violet-light", "violet", "violet-dark", "purple-light", "purple", "purple-dark",
       "magenta-light", "magenta", "magenta-dark", "slate-light", "slate", "slate-dark",
     ]);
-    expect(new Set(HUE_FAMILIES.map((f) => f.name)).size).toBe(10);
+    expect(new Set(HUE_FAMILIES.map((f) => f.name)).size).toBe(11);
     // slate is the only near-neutral family.
     expect(HUE_FAMILIES.filter((f) => f.neutral).map((f) => f.name)).toEqual(["slate"]);
   });
@@ -476,7 +476,7 @@ describe("owned hue families", () => {
   it("maps every legacy color value 1:1 onto its family", () => {
     const legacyMap: Record<string, string> = {
       "1": "red", "1+3": "orange", "3": "amber", "1+2": "olive", "2": "green",
-      "6": "teal", "4": "blue", "1+4": "purple", "5": "magenta", "3+4": "slate",
+      "6": "teal", "4": "blue", "4+5": "violet", "1+4": "purple", "5": "magenta", "3+4": "slate",
     };
     for (const [legacy, name] of Object.entries(legacyMap)) {
       expect(resolveFamily(legacy)?.name).toBe(name);

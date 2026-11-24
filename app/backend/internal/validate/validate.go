@@ -86,7 +86,7 @@ func SessionNameFromPath(p string) string {
 }
 
 // colorFamilyNames is the closed set of owned-palette family-name color values
-// accepted alongside the numeric vocabulary: the 10 hue-family names defined by
+// accepted alongside the numeric vocabulary: the 11 hue-family names defined by
 // the frontend (themes.ts HUE_FAMILIES) plus their "-dark"/"-light" shade
 // variants ("blue-dark", "blue-light"). Normal-shade picks are still written in
 // the legacy numeric vocabulary by the frontend write seam (familyToLegacy),
@@ -95,7 +95,7 @@ func SessionNameFromPath(p string) string {
 // exactly as the numeric rule does — the value flows into `tmux set-option`
 // and the settings file.
 var colorFamilyNames = func() map[string]bool {
-	families := []string{"red", "orange", "amber", "olive", "green", "teal", "blue", "purple", "magenta", "slate"}
+	families := []string{"red", "orange", "amber", "olive", "green", "teal", "blue", "violet", "purple", "magenta", "slate"}
 	m := make(map[string]bool, len(families)*3)
 	for _, f := range families {
 		m[f] = true

@@ -25,6 +25,14 @@
  *     hex string) persisted per host for the switcher's edge bars — the
  *     full-strength color the theme-color meta's 35% titlebar blend cannot
  *     carry. Gated and validated exactly like `badge:*` main-side.
+ *   - `nameplate`: the SPA's report (`nameplate:set`, `{machine?, os?,
+ *     agents?}`, strictly validated main-side) of its host's identity for the
+ *     strip's hover preview of a background host; joined into `servers:list`.
+ *     Gated and view-resolved exactly like `badge:*`.
+ *   - `prefs`: the desktop app's own preferences (strip effect/motion) —
+ *     `get`, `set(key, value)` (closed-set validated main-side), and
+ *     `onChange` on the `prefs:changed` broadcast every host view receives.
+ *     Gated like `servers:*`. Additive: older SPAs never call it.
  *   - `web`: the web tile's native engine — create/destroy/park/bounds/
  *     visible/load/reload plus the parity invokers back/forward/find/
  *     stopFind/zoom/chords/devtools for the `web:*` channels, the per-host
@@ -90,6 +98,22 @@ contextBridge.exposeInMainWorld("runkitShell", {
       ipcRenderer.invoke("servers:set-url", { id, url }),
     rename: (id: string, name: string): Promise<unknown> =>
       ipcRenderer.invoke("servers:rename", { id, name }),
+    // Payload-free push: the host list's projection changed (store mutation,
+    // badge/nameplate/accent report, window host switch) — the strip
+    // refetches `list`. Returns the unsubscribe.
+    onChanged: (handler: () => void): (() => void) => {
+      const listener = (): void => handler();
+      ipcRenderer.on("servers:changed", listener);
+      return () => ipcRenderer.removeListener("servers:changed", listener);
+    },
+    // This view's host was just attached over another host's view in its
+    // window: `{ previousId }` lets the strip slide the light from the
+    // previous square. Returns the unsubscribe.
+    onAttached: (handler: (payload: unknown) => void): (() => void) => {
+      const listener = (_event: unknown, payload: unknown): void => handler(payload);
+      ipcRenderer.on("strip:attached", listener);
+      return () => ipcRenderer.removeListener("strip:attached", listener);
+    },
   },
   badge: {
     set: (count: number): Promise<unknown> => ipcRenderer.invoke("badge:set", count),
@@ -112,6 +136,20 @@ contextBridge.exposeInMainWorld("runkitShell", {
   },
   accent: {
     set: (hex: string): Promise<unknown> => ipcRenderer.invoke("accent:set", hex),
+  },
+  nameplate: {
+    set: (report: { machine?: string; os?: string; agents?: number }): Promise<unknown> =>
+      ipcRenderer.invoke("nameplate:set", report),
+  },
+  prefs: {
+    get: (): Promise<unknown> => ipcRenderer.invoke("prefs:get"),
+    set: (key: string, value: string): Promise<unknown> =>
+      ipcRenderer.invoke("prefs:set", { key, value }),
+    onChange: (handler: (payload: unknown) => void): (() => void) => {
+      const listener = (_event: unknown, payload: unknown): void => handler(payload);
+      ipcRenderer.on("prefs:changed", listener);
+      return () => ipcRenderer.removeListener("prefs:changed", listener);
+    },
   },
   web: {
     // create: `identity` is the optional retention identity (see the group
