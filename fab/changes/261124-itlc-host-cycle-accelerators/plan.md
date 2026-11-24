@@ -91,7 +91,7 @@ A shell-lane demo spec under `app/desktop/tests/demo/` MUST register ≥3 hosts 
 
 ### Phase 2: Desktop wiring
 
-- [x] T003 `app/desktop/src/menu.ts`: render cycle items in `hostsMenu`, add `MenuCallbacks.onCycleHost`, update header policy comment <!-- R3 R4 -->
+- [x] T003 `app/desktop/src/menu.ts`: render cycle items in `hostsMenu`, add `MenuCallbacks.onCycleHost`, update header policy comment <!-- R3 R4 --> <!-- rework: menu.ts policy comment — move the Alt+PageUp/PageDown note out of the "Shell tier … ⇧Ctrl on win/linux" bullet to beside the Alt+digits note (SF-1); add ⌥⌘←/⌥⌘→ to the "shell's only other ⌥⌘ bindings" list (SF-2) -->
 - [x] T004 `app/desktop/src/main.ts`: add `onCycleHost` callback in `rebuildMenu` using `adjacentHostId` + `switchToHost` <!-- R5 -->
 
 ### Phase 3: Frontend
@@ -104,8 +104,8 @@ A shell-lane demo spec under `app/desktop/tests/demo/` MUST register ≥3 hosts 
 
 ### Phase 4: Evidence and verification
 
-- [x] T010 Add `app/desktop/tests/demo/host-cycle-accelerators.demo.ts` (shell lane) with Test Intent Comments <!-- R10 -->
-- [x] T011 Run `just check`, `just test-frontend`, desktop node:test, and a desktop e2e/demo smoke; fix failures <!-- R1 R2 R3 R5 R6 R7 R8 R9 R10 -->
+- [x] T010 Add `app/desktop/tests/demo/host-cycle-accelerators.demo.ts` (shell lane) with Test Intent Comments <!-- R10 --> <!-- rework: host-cycle.spec.ts wrap assertions (steps 4–5) cannot fail — warm views always mark their own host current; assert the window's ATTACHED host after each press (e.g. expect.poll over the topmost visible view origin / app.evaluate) (MF-1); same weakness in the demo step() for revisited hosts; _shell.ts pressXChord execFileSync gets a timeout (SF-3); _xkey.py releases keys in try/finally (NH-2); spec header documents that injection targets the inherited DISPLAY (NH-1) -->
+- [x] T011 Run `just check`, `just test-frontend`, desktop node:test, and a desktop e2e/demo smoke; fix failures <!-- R1 R2 R3 R5 R6 R7 R8 R9 R10 --> <!-- rework: re-run gates after the fixes (desktop e2e host-cycle must still pass and now be able to fail) -->
 
 ## Execution Order
 
@@ -117,40 +117,40 @@ A shell-lane demo spec under `app/desktop/tests/demo/` MUST register ≥3 hosts 
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `adjacentHostId` wraps and returns null as specified, node:test green
-- [ ] A-002 R2: `hostCycleMenuItems` yields the exact per-platform accelerator strings and `[]` below 2 hosts
-- [ ] A-003 R3: Hosts menu shows Previous/Next Host after the radios with separators only at ≥2 hosts; `onCycleHost` is invoked with the direction
-- [ ] A-004 R4: menu.ts header lists host cycling in all three places and records the Alt+PageUp/PageDown rationale
-- [ ] A-005 R5: main.ts `onCycleHost` resolves at click time and goes through `switchToHost`
-- [ ] A-006 R6: palette `Host: Previous` / `Host: Next` appear only at ≥2 servers with literal hints and select-time fresh-list resolution
-- [ ] A-007 R7: `keyHintTip` copy matches the spec on both platforms
-- [ ] A-008 R8: Settings → Shortcuts shows the two new locked rows with correct caps on both displays
-- [ ] A-009 R9: keybindings docs updated and mac-shell ⌥⌘←/→ claims present; none for win/linux
-- [ ] A-010 R10: demo spec cycles through the wrap with a real chord
+- [x] A-001 R1: `adjacentHostId` wraps and returns null as specified, node:test green
+- [x] A-002 R2: `hostCycleMenuItems` yields the exact per-platform accelerator strings and `[]` below 2 hosts
+- [x] A-003 R3: Hosts menu shows Previous/Next Host after the radios with separators only at ≥2 hosts; `onCycleHost` is invoked with the direction
+- [x] A-004 R4: menu.ts header lists host cycling in all three places and records the Alt+PageUp/PageDown rationale
+- [x] A-005 R5: main.ts `onCycleHost` resolves at click time and goes through `switchToHost`
+- [x] A-006 R6: palette `Host: Previous` / `Host: Next` appear only at ≥2 servers with literal hints and select-time fresh-list resolution
+- [x] A-007 R7: `keyHintTip` copy matches the spec on both platforms
+- [x] A-008 R8: Settings → Shortcuts shows the two new locked rows with correct caps on both displays
+- [x] A-009 R9: keybindings docs updated and mac-shell ⌥⌘←/→ claims present; none for win/linux
+- [x] A-010 R10: demo spec cycles through the wrap with a real chord
 
 ### Behavioral Correctness
 
-- [ ] A-011 R5: a focused popout window ignores the chord via `switchToHost`'s refusal
+- [x] A-011 R5: a focused popout window ignores the chord via `switchToHost`'s refusal
 
 ### Scenario Coverage
 
-- [ ] A-012 R1: unknown/null current id yields first (next) / last (previous)
-- [ ] A-013 R6: `adjacentShellServer` uses `isSelfHost` with the same wrap semantics
+- [x] A-012 R1: unknown/null current id yields first (next) / last (previous)
+- [x] A-013 R6: `adjacentShellServer` uses `isSelfHost` with the same wrap semantics
 
 ### Edge Cases & Error Handling
 
-- [ ] A-014 R6: a failed `switchShellServer` toasts "Host switch failed"; a null list from `listShellServers` is a no-op
-- [ ] A-015 R3: 0/1-host Hosts menu layout is unchanged
+- [x] A-014 R6: a failed `switchShellServer` toasts "Host switch failed"; a null list from `listShellServers` is a no-op
+- [x] A-015 R3: 0/1-host Hosts menu layout is unchanged
 
 ### Removal Verification
 
-- [ ] A-016: nothing deprecated; ⌥⌘1–9 / Alt+1–9 radios, reorder chord and browser behaviour are unchanged
+- [x] A-016: nothing deprecated; ⌥⌘1–9 / Alt+1–9 radios, reorder chord and browser behaviour are unchanged
 
 ### Code Quality
 
-- [ ] A-017 Pattern consistency: New code follows naming and structural patterns of surrounding code
-- [ ] A-018 No unnecessary duplication: Existing utilities reused (`isSelfHost`, `switchToHost`, `activeHostForWindow`); only the intended wrap-math duplication
-- [ ] A-019 Anti-patterns: no comment narration, no magic strings, tests colocated, Playwright `test()` carries Proves/Steps comments
+- [x] A-017 Pattern consistency: New code follows naming and structural patterns of surrounding code
+- [x] A-018 No unnecessary duplication: Existing utilities reused (`isSelfHost`, `switchToHost`, `activeHostForWindow`); only the intended wrap-math duplication
+- [x] A-019 Anti-patterns: no comment narration, no magic strings, tests colocated, Playwright `test()` carries Proves/Steps comments
 
 ## Notes
 
@@ -171,3 +171,7 @@ A shell-lane demo spec under `app/desktop/tests/demo/` MUST register ≥3 hosts 
 | 5 | Confident | Win/linux compact spelling `Alt+PgUp`/`Alt+PgDn` in palette hints, pill tip and caps | Intake open question chose compact keycap spelling | S:65 R:95 A:75 D:65 |
 
 7 assumptions (2 certain, 5 confident, 0 tentative).
+
+## Deletion Candidates
+
+None — this change adds new functionality without making existing code redundant.

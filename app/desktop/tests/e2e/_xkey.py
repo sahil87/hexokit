@@ -39,12 +39,17 @@ def keycode(name: str) -> int:
 
 key, *modifiers = sys.argv[1:]
 codes = [keycode(m) for m in modifiers] + [keycode(key)]
-for code in codes:
-    xtst.XTestFakeKeyEvent(display, code, 1, 0)
-    x11.XFlush(display)
-    time.sleep(0.03)
-for code in reversed(codes):
-    xtst.XTestFakeKeyEvent(display, code, 0, 0)
-    x11.XFlush(display)
-    time.sleep(0.03)
-x11.XCloseDisplay(display)
+pressed = []
+try:
+    for code in codes:
+        xtst.XTestFakeKeyEvent(display, code, 1, 0)
+        pressed.append(code)
+        x11.XFlush(display)
+        time.sleep(0.03)
+finally:
+    # Never leave a modifier stuck down on the shared display.
+    for code in reversed(pressed):
+        xtst.XTestFakeKeyEvent(display, code, 0, 0)
+        x11.XFlush(display)
+        time.sleep(0.03)
+    x11.XCloseDisplay(display)

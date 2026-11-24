@@ -16,8 +16,9 @@
  *     (macOS: ⌘; Windows/Linux: Ctrl) belongs to the SPA.
  *   - Shell tier — ⌥⌘ on mac, ⇧Ctrl on win/linux: shell chrome MAY claim
  *     keys here, sparingly. The mac claims are the Hosts switcher (1–9) and
- *     host cycling (←/→); the win/linux claims are Alt+PageUp/PageDown host
- *     cycling, ⇧Ctrl+R force-reload and ⇧Ctrl+I devtools.
+ *     host cycling (←/→); the win/linux claims are ⇧Ctrl+R force-reload and
+ *     ⇧Ctrl+I devtools. The win/linux Hosts switcher (Alt+1–9) and host
+ *     cycling (Alt+PageUp/PageDown) sit on plain Alt, outside this tier.
  *     On mac, ⇧⌘ therefore also belongs to the page (the SPA's own shifted
  *     action tier lives there), with the documented carve-outs ⇧⌘R
  *     (forceReload role) and ⇧⌘Z (Edit redo role). On win/linux the SPA
@@ -31,8 +32,9 @@
  * never claim: the SPA keybinding registry deliberately excludes Option
  * from every chord tier (macOS composes characters with it — see
  * `app/frontend/src/lib/keybindings.ts`), and the shell's only other ⌥⌘
- * bindings are the ⌥⌘H hideOthers and ⌥⌘I devtools roles. Windows/Linux
- * reach the same unclaimability with plain Alt+digits: the registry
+ * bindings are the ⌥⌘H hideOthers and ⌥⌘I devtools roles and the ⌥⌘←/⌥⌘→
+ * Previous/Next Host items. Windows/Linux reach the same unclaimability
+ * with plain Alt+digits: the registry
  * excludes Alt from every chord tier too, while Ctrl+Alt stays off the
  * table (AltGr on many European layouts — Ctrl+Alt+digit would steal
  * character typing in a terminal app). A menu accelerator wins over the

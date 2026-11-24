@@ -19,7 +19,7 @@
  * half is not recordable on this Linux display.
  */
 import { test, expect, beat, READY_TIMEOUT } from "./_demo";
-import { E2E_PORT, pageByOrigin, pressXChord } from "../e2e/_shell";
+import { attachedOrigin, E2E_PORT, pageByOrigin, pressXChord } from "../e2e/_shell";
 
 test.use({
   extraHosts: [{ id: "e2e-c", name: "e2e C", url: `http://c.localhost:${E2E_PORT}` }],
@@ -33,8 +33,8 @@ test.describe("host cycle accelerators demo", () => {
    *
    * Steps:
    * 1. Wait for the three squares with the first host active; `beat()`.
-   * 2. Press Alt+PageDown twice, waiting for each host's page and nameplate
-   *    (second, then third host); `beat()` after each.
+   * 2. Press Alt+PageDown twice, waiting for the window's attached host and
+   *    its nameplate (second, then third host); `beat()` after each.
    * 3. Press Alt+PageDown once more — the wrap back to the first host; `beat()`.
    * 4. Press Alt+PageUp — the wrap to the last host; `beat()`.
    * 5. Press Alt+PageUp again to step back to the second host; `beat()`.
@@ -49,21 +49,28 @@ test.describe("host cycle accelerators demo", () => {
     await beat(hostPage);
 
     const origin = (host: string) => `http://${host}:${E2E_PORT}`;
+    // Warm host views outlive a switch and each strip marks only its own host
+    // current, so the nameplate of a revisited page cannot show where the
+    // window went; the ATTACHED (topmost visible) view's origin does.
     const step = async (key: string, host: string, name: string) => {
       pressXChord(key, "Alt_L");
+      await expect.poll(() => attachedOrigin(app), { timeout: READY_TIMEOUT }).toBe(origin(host));
       const page = await pageByOrigin(app, origin(host), READY_TIMEOUT);
       await expect(nameplate(page)).toHaveText(name, { timeout: READY_TIMEOUT });
       await beat(page);
     };
 
     pressXChord("Next", "Alt_L");
-    const moved = await pageByOrigin(app, origin("localhost"), 3_000).then(
-      () => true,
-      () => false,
-    );
+    const moved = await expect
+      .poll(() => attachedOrigin(app), { timeout: 3_000 })
+      .toBe(origin("localhost"))
+      .then(
+        () => true,
+        () => false,
+      );
     if (!moved) {
-      // Base ref: the chord is unbound — the first host stays showing.
-      await expect(nameplate(hostPage)).toHaveText("e2e A");
+      // Base ref: the chord is unbound — the first host stays attached.
+      expect(await attachedOrigin(app)).toBe(origin("127.0.0.1"));
       await beat(hostPage);
       return;
     }

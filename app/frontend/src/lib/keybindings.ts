@@ -530,8 +530,9 @@ const MAC_BROWSER_CMD_CLAIMS: ClaimedKey[] = [
  * ⇧CmdOrCtrl+R force reload everywhere; both Hosts switchers — mac ⌥⌘1–9,
  * win/linux Alt+1–9 — and both host-cycling chords — mac ⌥⌘←/→, win/linux
  * Alt+PageUp/PageDown — live outside the shifted tier, Alt being no tier
- * (the mac ⌥⌘ precedent, 260731-nv5r); only the mac cycle chords are
- * capturable as `optcmd` combos, so only they carry claim rows) and system claims (⇧⌘Q macOS
+ * (the mac ⌥⌘ precedent, 260731-nv5r); capture admits ⌥⌘ + any key as an
+ * `optcmd` combo, but only the mac cycle chords carry claim rows so far —
+ * ⌥⌘1–9/⌥⌘H/⌥⌘I have none yet) and system claims (⇧⌘Q macOS
  * logout; ⇧⌘3/4/5 macOS screenshots; ⇧Ctrl+C/V terminal copy/paste
  * convention on win/linux) apply in both hosts; browser claims (N/T/W —
  * incognito / reopen-tab / close-window) apply only outside the desktop
