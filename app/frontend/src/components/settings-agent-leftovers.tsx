@@ -1,15 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { clearLeftoverSettings, moveLeftoverSettings, type FabAgentPreset, type ServerInfo } from "@/api/client";
-import { NameForm } from "@/components/settings-agent-preset-forms";
+import { ConfirmBar, NameForm } from "@/components/settings-agent-preset-forms";
 import type { RunOp } from "@/components/settings-agent-presets";
 import {
   SettingsSection,
-  dangerButtonClass,
-  errorMessage,
   smallButtonClass,
   type Document,
 } from "@/components/settings-agents-shared";
-import { TextSettingError } from "@/components/text-setting-core";
 import {
   MOVE_DEFAULT_DESCRIPTION,
   MOVE_DEFAULT_NAME,
@@ -34,65 +31,6 @@ function disclosure(losses: InheritanceLoss[]): string | undefined {
   if (losses.length === 0) return undefined;
   const parts = losses.map((l) => `${l.entity}: ${l.losses.join(", ")}`);
   return `These have their own preset and will stop inheriting the loose values — ${parts.join("; ")}.`;
-}
-
-function ClearConfirm({
-  count,
-  note,
-  onConfirm,
-  onCancel,
-}: {
-  count: number;
-  note: string | undefined;
-  onConfirm: () => Promise<void>;
-  onCancel: () => void;
-}) {
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const cancelRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    cancelRef.current?.focus();
-  }, []);
-  const confirm = async () => {
-    setBusy(true);
-    setError("");
-    try {
-      await onConfirm();
-    } catch (err) {
-      setError(errorMessage(err));
-      setBusy(false);
-    }
-  };
-  return (
-    <div
-      role="alertdialog"
-      aria-label="Clear leftover settings"
-      onKeyDown={(e) => {
-        if (e.key === "Escape") {
-          e.preventDefault();
-          e.stopPropagation();
-          onCancel();
-        }
-      }}
-      className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border border-signal-red rounded p-2 text-xs text-text-primary"
-    >
-      <span className="flex-1 basis-[220px] min-w-0">
-        Clear {count === 1 ? "this setting" : `these ${count} settings`}? Nothing is moved into a preset.
-        {note && ` ${note}`}
-      </span>
-      <button type="button" disabled={busy} onClick={() => void confirm()} className={dangerButtonClass}>
-        Clear
-      </button>
-      <button ref={cancelRef} type="button" disabled={busy} onClick={onCancel} className={smallButtonClass}>
-        Cancel
-      </button>
-      {error && (
-        <div className="basis-full">
-          <TextSettingError error={error} />
-        </div>
-      )}
-    </div>
-  );
 }
 
 export function LeftoverSettings({
@@ -148,9 +86,10 @@ export function LeftoverSettings({
         />
       )}
       {mode === "clear" && (
-        <ClearConfirm
-          count={count}
-          note={note}
+        <ConfirmBar
+          label="Clear leftover settings"
+          verb="Clear"
+          message={`Clear ${count === 1 ? "this setting" : `these ${count} settings`}? Nothing is moved into a preset.${note ? ` ${note}` : ""}`}
           onConfirm={async () => {
             await runOp(() => clearLeftoverSettings());
           }}

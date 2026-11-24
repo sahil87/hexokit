@@ -571,7 +571,7 @@ Accepted keys: the scalar keys (`agent.preset`, `agent.session`, `agent.workers`
 | `agent_presets.<name>.profiles.<role>.{model,effort}` | free text (single line, ≤ 128, no `#`, no leading `-`); `""` or `null` unsets | `set` / `unset` |
 | `agent_presets.<name>` | `null` only | `unset` (removes the whole preset) |
 
-Preset keys are validated before any exec: `<name>` passes `validate.ValidateAgentPresetName` (`^[a-zA-Z0-9_][a-zA-Z0-9_-]*$`, ≤ 64), is not `none`, and is not a built-in's name (`source == "built-in"`); `<role>` is one of `default operator doing fast hydrate review`; `profiles.<role>.tool` / `.provider` are refused (a preset spells it `cli`). A patch whose unsets would leave a listed preset with no field is a `400` (`a preset needs at least one setting — delete it instead`), because fab deletes a preset whose last leaf is unset; removing a preset is the whole-preset `null`, alone.
+Preset keys are validated before any exec: `<name>` passes `validate.ValidateAgentPresetName` (`^[a-zA-Z0-9_][a-zA-Z0-9_-]*$`, ≤ 64), is not `none`, and is not a listed preset defined outside the system config (`source` `built-in`, `env` or `project`); an empty field after the dot (`agent_presets.<name>.`) is refused; `<role>` is one of `default operator doing fast hydrate review`; `profiles.<role>.tool` / `.provider` are refused (a preset spells it `cli`). A patch whose unsets would leave a listed preset with no field is a `400` (`a preset needs at least one setting — delete it instead`), because fab deletes a preset whose last leaf is unset; removing a preset is the whole-preset `null`, alone.
 
 #### `POST /api/fab-config/presets/duplicate`
 
@@ -595,7 +595,7 @@ Preset keys are validated before any exec: `<name>` passes `validate.ValidateAge
 
 #### Multi-write failures
 
-fab has no multi-key transaction, so duplicate, rename, delete and the leftover operations stop at the first failing step and answer `502` with `{"error", "landed": [...], "failed": "<step>"}` — `landed` names the writes already durable (e.g. `set agent_presets.late-shift.description Overnight`, `repoint workspace default`), `failed` the one that did not, and `error` carries fab's or tmux's message plus the landed steps. The SPA re-reads the document so it shows the real state. When `agent.preset` is set in the daemon's environment it cannot be repointed or cleared: the operation proceeds for the system layer and the tmux options and the response document's `warnings` carries a note.
+fab has no multi-key transaction, so duplicate, rename, delete and the leftover operations stop at the first failing step and answer `502` with `{"error", "landed": [...], "failed": "<step>"}` — `landed` names the writes already durable (e.g. `set agent_presets.late-shift.description Overnight`, `repoint workspace default`), `failed` the one that did not, and `error` carries fab's or tmux's message plus the landed steps. The SPA re-reads the document so it shows the real state. Rename and delete list the workspace and group options naming the preset before their first write; a listing failure (other than a server that is gone, which is skipped) answers `502` `{"error": "…nothing was changed…"}` with no write made. When `agent.preset` is set in the daemon's environment it cannot be repointed or cleared: the operation proceeds for the system layer and the tmux options and the response document's `warnings` carries a note.
 
 #### `GET /api/fab-config/presets/resolve?name=<preset>`
 

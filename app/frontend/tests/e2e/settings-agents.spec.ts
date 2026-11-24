@@ -358,70 +358,79 @@ test.describe("Settings dialog — Agents tab, presets", () => {
     await expect(page.getByRole("listbox", { name: "Presets" }).getByText("default", { exact: true })).toHaveCount(0);
   });
 
-  /**
-   * Proves: a preset can be created, edited, duplicated, renamed and deleted
-   * from the Presets section, each step one request (a leaf write, or one
-   * duplicate / rename / delete operation), with the editor following the
-   * result.
-   *
-   * Steps:
-   * 1. Stub with presets; open the Agents tab; click `+ New preset`.
-   * 2. Type `night-shift` and a description; press Enter. Assert the single
-   *    description write and that the editor now reads `Editing night-shift`
-   *    tagged `yours`.
-   * 3. Set the review CLI to codex; assert the write targets
-   *    `agent_presets.night-shift.profiles.review.cli` (never an
-   *    `agent.profiles` key).
-   * 4. Click Duplicate and press Enter on the prefilled `night-shift-copy`;
-   *    assert the duplicate request and that the copy keeps the review CLI.
-   * 5. Click Rename, type `late-shift`, press Enter; assert the rename request
-   *    and the list.
-   * 6. Click Delete, confirm; assert the delete request, that `late-shift` is
-   *    gone and the first preset is open.
-   */
-  test("creates, edits, duplicates, renames and deletes a preset", async ({ page }) => {
-    const posts = await stubFabConfig(page, { presets: true });
-    await openAgentsTab(page);
+  for (const viewport of [
+    { name: "desktop", size: { width: 1280, height: 800 } },
+    { name: "phone", size: { width: 375, height: 812 } },
+  ]) {
+    /**
+     * Proves: a preset can be created, edited, duplicated, renamed and deleted
+     * from the Presets section, each step one request (a leaf write, or one
+     * duplicate / rename / delete operation), with the editor following the
+     * result.
+     *
+     * The flow runs at a desktop (1280x800) and a phone (375x812) viewport.
+     *
+     * Steps:
+     * 1. Stub with presets; set the viewport; open the Agents tab; click
+     *    `+ New preset`.
+     * 2. Type `night-shift` and a description; press Enter. Assert the single
+     *    description write and that the editor now reads `Editing night-shift`
+     *    tagged `yours`.
+     * 3. Set the review CLI to codex; assert the write targets
+     *    `agent_presets.night-shift.profiles.review.cli` (never an
+     *    `agent.profiles` key).
+     * 4. Click Duplicate and press Enter on the prefilled `night-shift-copy`;
+     *    assert the duplicate request and that the copy keeps the review CLI.
+     * 5. Click Rename, type `late-shift`, press Enter; assert the rename request
+     *    and the list.
+     * 6. Click Delete, confirm; assert the delete request, that `late-shift` is
+     *    gone and the first preset is open.
+     */
+    test(`creates, edits, duplicates, renames and deletes a preset (${viewport.name})`, async ({ page }) => {
+      const posts = await stubFabConfig(page, { presets: true });
+      await page.setViewportSize(viewport.size);
+      await openAgentsTab(page);
 
-    await page.getByRole("button", { name: "+ New preset" }).click();
-    await expect(page.getByLabel("Preset name")).toBeFocused();
-    await page.getByLabel("Preset name").fill("night-shift");
-    await page.getByLabel("Preset description").fill("Overnight runs");
-    await page.keyboard.press("Enter");
-    await expect(editor(page)).toContainText("Editing night-shift");
-    await expect(editor(page)).toContainText("yours");
-    expect(posts).toEqual([{ "agent_presets.night-shift.description": "Overnight runs" }]);
+      await page.getByRole("button", { name: "+ New preset" }).click();
+      await expect(page.getByLabel("Preset name")).toBeFocused();
+      await page.getByLabel("Preset name").fill("night-shift");
+      await page.getByLabel("Preset description").fill("Overnight runs");
+      await page.keyboard.press("Enter");
+      await expect(editor(page)).toContainText("Editing night-shift");
+      await expect(editor(page)).toContainText("yours");
+      expect(posts).toEqual([{ "agent_presets.night-shift.description": "Overnight runs" }]);
 
-    await editor(page).getByLabel("review CLI").selectOption("codex");
-    await expect(editor(page).getByLabel("review CLI")).toHaveValue("codex");
-    const write = posts.at(-1) as Record<string, unknown>;
-    expect(write["agent_presets.night-shift.profiles.review.cli"]).toBe("codex");
-    expect(Object.keys(write).filter((k) => k.startsWith("agent.profiles"))).toEqual([]);
+      await editor(page).getByLabel("review CLI").selectOption("codex");
+      await expect(editor(page).getByLabel("review CLI")).toHaveValue("codex");
+      const write = posts.at(-1) as Record<string, unknown>;
+      expect(write["agent_presets.night-shift.profiles.review.cli"]).toBe("codex");
+      expect(Object.keys(write).filter((k) => k.startsWith("agent.profiles"))).toEqual([]);
 
-    await editor(page).getByRole("button", { name: "Duplicate" }).click();
-    await expect(page.getByLabel("Preset name")).toHaveValue("night-shift-copy");
-    await page.keyboard.press("Enter");
-    await expect(editor(page)).toContainText("Editing night-shift-copy");
-    await expect(editor(page).getByLabel("review CLI")).toHaveValue("codex");
-    expect(posts.ops[0]).toEqual({
-      path: "presets/duplicate",
-      body: { from: "night-shift", to: "night-shift-copy", description: "Overnight runs" },
+      await editor(page).getByRole("button", { name: "Duplicate" }).click();
+      await expect(page.getByLabel("Preset name")).toHaveValue("night-shift-copy");
+      await page.keyboard.press("Enter");
+      await expect(editor(page)).toContainText("Editing night-shift-copy");
+      await expect(editor(page).getByLabel("review CLI")).toHaveValue("codex");
+      expect(posts.ops[0]).toEqual({
+        path: "presets/duplicate",
+        body: { from: "night-shift", to: "night-shift-copy", description: "Overnight runs" },
+      });
+
+      await editor(page).getByRole("button", { name: "Rename" }).click();
+      await page.getByLabel("Preset name").fill("late-shift");
+      await page.keyboard.press("Enter");
+      await expect(editor(page)).toContainText("Editing late-shift");
+      expect(posts.ops[1]).toEqual({ path: "presets/rename", body: { from: "night-shift-copy", to: "late-shift" } });
+      await expect(page.getByRole("listbox", { name: "Presets" }).getByRole("option")).toHaveCount(5);
+
+      await editor(page).getByRole("button", { name: "Delete" }).click();
+      await page.getByRole("alertdialog", { name: "Delete preset" }).getByRole("button", { name: "Delete" }).click();
+      await expect.poll(() => posts.ops.length).toBe(3);
+      expect(posts.ops[2]).toEqual({ path: "presets/delete", body: { name: "late-shift" } });
+      await expect(option(page, "late-shift")).toHaveCount(0);
+      await expect(editor(page)).toContainText("Editing claude");
     });
-
-    await editor(page).getByRole("button", { name: "Rename" }).click();
-    await page.getByLabel("Preset name").fill("late-shift");
-    await page.keyboard.press("Enter");
-    await expect(editor(page)).toContainText("Editing late-shift");
-    expect(posts.ops[1]).toEqual({ path: "presets/rename", body: { from: "night-shift-copy", to: "late-shift" } });
-    await expect(page.getByRole("listbox", { name: "Presets" }).getByRole("option")).toHaveCount(5);
-
-    await editor(page).getByRole("button", { name: "Delete" }).click();
-    await page.getByRole("alertdialog", { name: "Delete preset" }).getByRole("button", { name: "Delete" }).click();
-    await expect.poll(() => posts.ops.length).toBe(3);
-    expect(posts.ops[2]).toEqual({ path: "presets/delete", body: { name: "late-shift" } });
-    await expect(option(page, "late-shift")).toHaveCount(0);
-    await expect(editor(page)).toContainText("Editing claude");
-  });
+  }
 
   /**
    * Proves: a built-in preset renders read-only with only Duplicate enabled,

@@ -218,6 +218,7 @@ export function PresetsSection({
         <div className="grid grid-cols-1 min-[641px]:grid-cols-[220px_minmax(0,1fr)] gap-2.5">
           <PresetList presets={presets} selected={current.name} machineDefault={machineDefault} onSelect={choose} listRef={listRef} />
           <PresetEditor
+            key={current.name}
             doc={doc}
             preset={current}
             usedBy={usedBy}

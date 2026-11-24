@@ -133,14 +133,18 @@ export function NameForm({
   );
 }
 
-export function DeleteConfirm({
-  name,
-  usedBy,
+/** An inline destructive confirm: the message, a danger button and Cancel,
+ *  with focus on Cancel and Escape closing only the confirm. */
+export function ConfirmBar({
+  label,
+  message,
+  verb,
   onConfirm,
   onCancel,
 }: {
-  name: string;
-  usedBy: string[];
+  label: string;
+  message: React.ReactNode;
+  verb: string;
   onConfirm: () => Promise<void>;
   onCancel: () => void;
 }) {
@@ -166,7 +170,7 @@ export function DeleteConfirm({
   return (
     <div
       role="alertdialog"
-      aria-label="Delete preset"
+      aria-label={label}
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.preventDefault();
@@ -176,13 +180,9 @@ export function DeleteConfirm({
       }}
       className={`flex flex-wrap items-center gap-x-2 gap-y-1.5 border border-signal-red rounded p-2 text-xs text-text-primary ${INPUT_FOCUS}`}
     >
-      <span className="flex-1 basis-[220px] min-w-0">
-        Delete <b>{name}</b>?
-        {usedBy.length > 0 &&
-          ` It is used by ${usedBy.join(", ")}. Their choice is cleared, and tabs already running with it fall back to the default.`}
-      </span>
+      <span className="flex-1 basis-[220px] min-w-0">{message}</span>
       <button type="button" disabled={busy} onClick={() => void confirm()} className={dangerButtonClass}>
-        Delete
+        {verb}
       </button>
       <button ref={cancelRef} type="button" disabled={busy} onClick={onCancel} className={smallButtonClass}>
         Cancel
@@ -193,5 +193,33 @@ export function DeleteConfirm({
         </div>
       )}
     </div>
+  );
+}
+
+export function DeleteConfirm({
+  name,
+  usedBy,
+  onConfirm,
+  onCancel,
+}: {
+  name: string;
+  usedBy: string[];
+  onConfirm: () => Promise<void>;
+  onCancel: () => void;
+}) {
+  return (
+    <ConfirmBar
+      label="Delete preset"
+      verb="Delete"
+      message={
+        <>
+          Delete <b>{name}</b>?
+          {usedBy.length > 0 &&
+            ` It is used by ${usedBy.join(", ")}. Their choice is cleared, and tabs already running with it fall back to the default.`}
+        </>
+      }
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+    />
   );
 }

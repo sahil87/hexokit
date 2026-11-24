@@ -241,6 +241,20 @@ describe("editor", () => {
     expect(within(ed).getByRole("button", { name: "Delete" })).toBeEnabled();
   });
 
+  it("does not carry a description draft to the next selected preset", async () => {
+    vi.mocked(postFabConfig).mockResolvedValue(makeDoc());
+    await renderPanel(makeDoc());
+    choosePreset("night-shift");
+    const draft = within(editor()).getByLabelText("Description");
+    fireEvent.change(draft, { target: { value: "Typed for night-shift" } });
+    choosePreset("codex-review");
+    expect(within(editor()).getByLabelText("Description")).toHaveValue("Only the review role on Codex");
+    choosePreset("night-shift");
+    expect(within(editor()).getByLabelText("Description")).toHaveValue("Overnight");
+    fireEvent.blur(within(editor()).getByLabelText("Description"));
+    expect(postFabConfig).not.toHaveBeenCalled();
+  });
+
   it("lists the six roles with their tier, and shows what applies for an unset Session CLI", async () => {
     await renderPanel(makeDoc());
     choosePreset("night-shift");

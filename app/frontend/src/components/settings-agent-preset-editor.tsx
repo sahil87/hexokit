@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { resolveAgentPreset, type FabAgentPreset, type FabRoleCell } from "@/api/client";
+import { resolveAgentPreset, type FabAgentPreset, type FabResolvedRoles, type FabRoleCell } from "@/api/client";
 import { RoleSelect, RoleTable, presetRoleKey } from "@/components/settings-agent-roles";
 import {
   dangerButtonClass,
@@ -16,7 +16,6 @@ import {
   isBuiltIn,
   presetKey,
   presetRoleRows,
-  type ResolvedRoles,
 } from "@/lib/agent-presets-editor";
 
 /** The editor pane of the Presets section: one preset's description, Session
@@ -34,8 +33,8 @@ export const isReadOnlyPreset = (preset: FabAgentPreset) => preset.source !== "s
 /** fab's per-role resolution of the preset, fetched for the preset on screen and
  *  again whenever the document changes (an edit anywhere can move what applies).
  *  A failed read leaves the dimmed values blank — it never breaks the editor. */
-function useResolvedRoles(name: string, doc: Document): ResolvedRoles | undefined {
-  const [state, setState] = useState<{ name: string; roles: ResolvedRoles } | null>(null);
+function useResolvedRoles(name: string, doc: Document): FabResolvedRoles | undefined {
+  const [state, setState] = useState<{ name: string; roles: FabResolvedRoles } | null>(null);
   useEffect(() => {
     let cancelled = false;
     resolveAgentPreset(name)

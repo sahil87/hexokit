@@ -1,4 +1,4 @@
-import type { FabAgentPreset, FabRole, FabRoleCell, FabConfigDocument, ServerInfo } from "@/api/client";
+import type { FabAgentPreset, FabConfigDocument, FabResolvedRoles, FabRole, FabRoleCell, ServerInfo } from "@/api/client";
 import type { ProjectSession } from "@/types";
 
 /** Pure rules behind the Settings > Agents preset editor: name checks, the
@@ -136,12 +136,10 @@ export function depthKnobApplies(doc: Document, depth: "session" | "workers"): s
   return explicit && typeof field.value === "string" && field.value !== "" ? field.value : DEFAULT_TOOL;
 }
 
-export type ResolvedRoles = Record<string, { cli: string; model: string; effort: string }>;
-
 /** The role table's rows for one preset: an override is the preset's own leaf;
  *  an unset leaf carries what applies (fab's resolution for model and effort,
  *  the depth knob for the CLI). */
-export function presetRoleRows(doc: Document, preset: FabAgentPreset, resolved: ResolvedRoles | undefined): FabRole[] {
+export function presetRoleRows(doc: Document, preset: FabAgentPreset, resolved: FabResolvedRoles | undefined): FabRole[] {
   return doc.roles.map((role) => {
     const leaves = preset.profiles?.[role.role] ?? {};
     const knob = preset[role.depth] || depthKnobApplies(doc, role.depth);

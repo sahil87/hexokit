@@ -64,6 +64,16 @@ func (e *PartialWriteError) Error() string {
 	return msg
 }
 
+// BindingsError reports a failure to list the tmux options naming a preset
+// (HTTP 502). It is raised before any write, so nothing changed.
+type BindingsError struct{ Err error }
+
+func (e *BindingsError) Error() string {
+	return "could not list the workspace and group agent-preset options; nothing was changed: " + e.Err.Error()
+}
+
+func (e *BindingsError) Unwrap() error { return e.Err }
+
 // PresetBinding is one tmux option naming an agent preset: a workspace's
 // (@rk_srv_agent_preset) when Session is empty, else a group's
 // (@rk_ses_agent_preset).
@@ -141,8 +151,14 @@ func checkPresetName(name string, presets presetList) error {
 	if !presets.ok {
 		return ErrPresetsUnsupported
 	}
-	if p, ok := findPreset(presets.presets, name); ok && p.Source == sourceBuiltIn {
-		return errors.New(errBuiltInReadOnly)
+	if p, ok := findPreset(presets.presets, name); ok {
+		switch p.Source {
+		case sourceBuiltIn:
+			return errors.New(errBuiltInReadOnly)
+		case originSystem:
+		default:
+			return errors.New(errNotInSystemConfig)
+		}
 	}
 	return nil
 }
@@ -171,6 +187,9 @@ func findPreset(presets []AgentPreset, name string) (AgentPreset, bool) {
 // validatePresetKey validates one agent_presets.* patch entry into an op.
 func validatePresetKey(key string, raw json.RawMessage, tools []string, presets presetList) (op, error) {
 	name, field := splitPresetKey(key)
+	if strings.HasSuffix(key, ".") {
+		return op{}, errors.New("unknown preset field")
+	}
 	if err := checkPresetName(name, presets); err != nil {
 		return op{}, err
 	}
@@ -445,7 +464,7 @@ func listBindings(ctx context.Context, bindings PresetBindings, name string) ([]
 	}
 	all, err := bindings.List(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list tmux agent-preset options: %w", err)
+		return nil, &BindingsError{Err: err}
 	}
 	var out []PresetBinding
 	for _, b := range all {

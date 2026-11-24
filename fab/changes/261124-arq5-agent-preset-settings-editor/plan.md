@@ -210,70 +210,80 @@ The palette SHALL gain `Settings: Agent presets` (open Settings > Agents, scroll
 - [x] T020 Spec: document the new routes and body contracts in `docs/specs/api.md` (fab-config section). <!-- R9 -->
 - [x] T021 Run the verification gates via `just` recipes (`just test-backend`, `just test-frontend`, frontend type check, relevant `just test-e2e`/`just pw test settings-agents`, `just build`); fix failures. If the shared Control primitive was touched, regenerate control-gallery baselines. <!-- R1, R10 -->
 
+### Phase 5: Review rework (cycle 1)
+
+- [x] T022 Key the editor by preset name in `app/frontend/src/components/settings-agent-presets.tsx` (`<PresetEditor key={current.name} …>`) so description/custom-model drafts and row errors never carry to another preset; add a Vitest test in `settings-agent-presets.test.tsx` that opens a description draft on one preset, selects another, and asserts the second shows its own description and no write targets it. <!-- R12 -->
+- [x] T023 Run the create → edit → duplicate → rename → delete e2e flow (`app/frontend/tests/e2e/settings-agents.spec.ts`) at the 375px mobile viewport as well as desktop (parameterise the existing test over both viewports; keep Proves/Steps comments accurate). <!-- R14 -->
+- [x] T024 In `app/backend/api/fab_config.go` `tmuxPresetBindings.List`, stop swallowing per-server `GetServerAgentPreset`/`ListSessions` errors: return the error (tolerating only the "server gone" case the tmux wrappers already classify) so rename/delete stop before any write; map a binding-list/tmux failure to 502 consistently with `docs/specs/api.md`. Add API tests. <!-- R4, R5, R6 -->
+- [x] T025 In `app/backend/internal/fabsysconfig/presets.go` `checkPresetName` (patch path), refuse writes to a LISTED preset whose source is not `system` (built-in, env, project); unlisted names (New) stay allowed. Also refuse a preset key with an empty field after the dot (`agent_presets.foo.`). Add Go tests. <!-- R1 -->
+- [x] T026 Extract one parameterised `ConfirmBar` (label, message, verb, busy/error, Escape, Cancel autofocus) into `app/frontend/src/components/settings-agent-preset-forms.tsx` and use it for both `DeleteConfirm` and the leftovers `ClearConfirm` (`settings-agent-leftovers.tsx`); replace the duplicate `ResolvedRoles` type in `app/frontend/src/lib/agent-presets-editor.ts` with the client's `FabResolvedRoles`. Keep tests green. <!-- R15, R16 -->
+- [x] T027 Re-run gates via `just` (`just test-backend`, `just test-frontend`, `npx tsc --noEmit`, `just test-e2e settings-agents`, `just build`). <!-- R1, R10 -->
+
 ## Execution Order
 
 - T001–T004 before T006; T006 before T008; T008 before T009–T016.
 - T009 (section restructure + new file) precedes T010–T015.
-- T017–T019 after the frontend tasks; T021 last.
+- T017–T019 after the frontend tasks; T021 last among T001–T021.
+- Phase 5 (T022–T026) in any order; T027 last.
 
 ## Acceptance
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `agent_presets.<name>.<field>` leaves and whole-preset `null` are accepted, validated before exec, and written via `fab config set|unset … --system`; built-in names, `none`, bad charset, unknown fields/roles, `tool` leaves and empty descriptions are refused with 400.
-- [ ] A-002 R2: An unset that would empty a user preset is rejected with 400 and no exec.
-- [ ] A-003 R3: Duplicate copies every field of the source (incl. built-ins) to the new name in one request.
-- [ ] A-004 R4: Rename writes the new preset, repoints system `agent.preset` and every matching server/session option, then removes the old preset — in that order, in one request.
-- [ ] A-005 R5: Delete clears the machine default and matching server/session options, then unsets the preset; built-ins refused.
-- [ ] A-006 R7: Move creates the overlay preset (legacy tool → cli), makes it the machine default, and unsets the loose keys; Clear unsets the loose keys.
-- [ ] A-007 R8: The resolve endpoint returns per-role cli/model/effort from `fab agent <role> --preset <name> -o yaml`, tolerating per-role errors.
-- [ ] A-008 R9: The six routes exist with the documented verbs and bodies and are documented in `docs/specs/api.md`.
-- [ ] A-009 R10: The Agents tab shows Leftover settings (conditional) → Use a preset → Presets → Dispatch as boxed sections with header job lines; no Customize disclosure or override note remains when presets are supported.
-- [ ] A-010 R11: The list shows every machine preset with `default` and `built-in`/`yours` tags; "+ New preset" sits in the section header.
-- [ ] A-011 R12: The editor reads and writes `agent_presets.<name>.*` with no Save button, dims unset fields with `↳` values, and is read-only for built-ins with the study's notes.
-- [ ] A-012 R13: The usage note names the machine default, workspaces and groups that use the preset.
-- [ ] A-013 R14: The name form handles New/Duplicate/Rename with the specified prefill, messages and description requirement.
-- [ ] A-014 R15: Delete confirms with the usage wording before deleting.
-- [ ] A-015 R16: The Leftover box lists loose values, states the real precedence, offers Move/Clear, discloses affected groups/workspaces, and disappears when none remain.
-- [ ] A-016 R17: The five palette entries exist and open the section/form/confirm without writing.
+- [x] A-001 R1: `agent_presets.<name>.<field>` leaves and whole-preset `null` are accepted, validated before exec, and written via `fab config set|unset … --system`; built-in names, `none`, bad charset, unknown fields/roles, `tool` leaves and empty descriptions are refused with 400.
+- [x] A-002 R2: An unset that would empty a user preset is rejected with 400 and no exec.
+- [x] A-003 R3: Duplicate copies every field of the source (incl. built-ins) to the new name in one request.
+- [x] A-004 R4: Rename writes the new preset, repoints system `agent.preset` and every matching server/session option, then removes the old preset — in that order, in one request.
+- [x] A-005 R5: Delete clears the machine default and matching server/session options, then unsets the preset; built-ins refused.
+- [x] A-006 R7: Move creates the overlay preset (legacy tool → cli), makes it the machine default, and unsets the loose keys; Clear unsets the loose keys.
+- [x] A-007 R8: The resolve endpoint returns per-role cli/model/effort from `fab agent <role> --preset <name> -o yaml`, tolerating per-role errors.
+- [x] A-008 R9: The six routes exist with the documented verbs and bodies and are documented in `docs/specs/api.md`.
+- [x] A-009 R10: The Agents tab shows Leftover settings (conditional) → Use a preset → Presets → Dispatch as boxed sections with header job lines; no Customize disclosure or override note remains when presets are supported.
+- [x] A-010 R11: The list shows every machine preset with `default` and `built-in`/`yours` tags; "+ New preset" sits in the section header.
+- [ ] A-011 R12: The editor reads and writes `agent_presets.<name>.*` with no Save button, dims unset fields with `↳` values, and is read-only for built-ins with the study's notes. <!-- review: not met — PresetEditor is not keyed by preset name, so a description (or custom model) draft typed for one preset survives switching to another and can be committed to it (settings-agent-presets.tsx:220) -->
+- [x] A-012 R13: The usage note names the machine default, workspaces and groups that use the preset.
+- [x] A-013 R14: The name form handles New/Duplicate/Rename with the specified prefill, messages and description requirement.
+- [x] A-014 R15: Delete confirms with the usage wording before deleting.
+- [x] A-015 R16: The Leftover box lists loose values, states the real precedence, offers Move/Clear, discloses affected groups/workspaces, and disappears when none remain.
+- [x] A-016 R17: The five palette entries exist and open the section/form/confirm without writing.
 
 ### Behavioral Correctness
 
-- [ ] A-017 R10: The machine default dropdown keeps its provenance chip, reset link, env-shadow warning and `none`/unknown options under its new "Machine default" label; `Settings: Agent preset…` still focuses it.
-- [ ] A-018 R12: Role-table behaviors carried over (model lists, searchable list, Custom…, tool-default marker, effort capability, tool-change model drop, stale-pin note) work against preset leaves.
+- [x] A-017 R10: The machine default dropdown keeps its provenance chip, reset link, env-shadow warning and `none`/unknown options under its new "Machine default" label; `Settings: Agent preset…` still focuses it.
+- [x] A-018 R12: Role-table behaviors carried over (model lists, searchable list, Custom…, tool-default marker, effort capability, tool-change model drop, stale-pin note) work against preset leaves.
 
 ### Removal Verification
 
-- [ ] A-019 R10: `CustomizeDisclosure`, `PresetOverrideNote`, `presetOverrideCount` and the loose-value editing UI are gone (no dead code), except the documented no-presets fallback.
+- [x] A-019 R10: `CustomizeDisclosure`, `PresetOverrideNote`, `presetOverrideCount` and the loose-value editing UI are gone (no dead code), except the documented no-presets fallback.
 
 ### Scenario Coverage
 
-- [ ] A-020 R4: A Go test renames a preset used by the machine default, a workspace and a group across two servers and asserts every repoint.
-- [ ] A-021 R7: A Go test moves loose values (incl. a legacy `tool` leaf) over a machine default preset and asserts the resulting preset, default and unsets.
-- [ ] A-022 R14: e2e covers create → edit → duplicate → rename → delete on desktop and mobile.
-- [ ] A-023 R16: e2e covers leftover Move and Clear, including the disclosure when a group has its own preset.
+- [x] A-020 R4: A Go test renames a preset used by the machine default, a workspace and a group across two servers and asserts every repoint.
+- [x] A-021 R7: A Go test moves loose values (incl. a legacy `tool` leaf) over a machine default preset and asserts the resulting preset, default and unsets.
+- [ ] A-022 R14: e2e covers create → edit → duplicate → rename → delete on desktop and mobile. <!-- review: not met — the flow test runs at the default desktop viewport only; mobile has only the stacking/overflow test -->
+- [x] A-023 R16: e2e covers leftover Move and Clear, including the disclosure when a group has its own preset. <!-- review: e2e exercises the disclosure through a workspace's own preset; the group path is covered in settings-agent-presets.test.tsx -->
 
 ### Edge Cases & Error Handling
 
-- [ ] A-024 R6: A mid-operation fab failure returns 502 naming landed and failed steps, never removes the old preset before the new one exists, and the panel re-reads and shows the error inline.
-- [ ] A-025 R6: An env-origin `agent.preset` is not written; the response and panel carry a warning.
-- [ ] A-026 R8: A preset naming a CLI without dispatch capability renders blank dimmed values without breaking the panel.
-- [ ] A-027 R10: With a fab that cannot list presets, the panel renders the knobs and role table as before.
+- [x] A-024 R6: A mid-operation fab failure returns 502 naming landed and failed steps, never removes the old preset before the new one exists, and the panel re-reads and shows the error inline.
+- [x] A-025 R6: An env-origin `agent.preset` is not written; the response and panel carry a warning.
+- [x] A-026 R8: A preset naming a CLI without dispatch capability renders blank dimmed values without breaking the panel.
+- [x] A-027 R10: With a fab that cannot list presets, the panel renders the knobs and role table as before.
 
 ### Code Quality
 
-- [ ] A-028 Pattern consistency: New code follows naming and structural patterns of surrounding code (fabsysconfig validation/op style, panel row/write patterns, palette entry style).
-- [ ] A-029 No unnecessary duplication: Existing utilities reused — `ValidateAgentPresetName`, `checkFreeText`, tmux agent-preset wrappers, role-table components, `useRowWrite`.
-- [ ] A-030 Subprocess safety: every new exec uses `exec.CommandContext`/the `Runner` seam with `FabTimeout` and argv slices; names validated before any exec (Constitution I).
-- [ ] A-031 Durable before acknowledged: every operation's writes reach fab/tmux before the request succeeds; no in-memory-only state (Constitution II).
-- [ ] A-032 No god functions: new Go and TSX functions stay focused; the presets UI lives in its own component file rather than growing `settings-agents-panel.tsx`.
-- [ ] A-033 No comment narration or change-ID citations in code comments.
-- [ ] A-034 Keyboard-first: every new control is keyboard-reachable and registered via the palette entries (Constitution V).
-- [ ] A-035 Tests: Go, Vitest and e2e cover the new behavior; e2e tests carry Proves/Steps intent comments; tests never touch the real `~/.fab-kit/config.yaml`.
+- [x] A-028 Pattern consistency: New code follows naming and structural patterns of surrounding code (fabsysconfig validation/op style, panel row/write patterns, palette entry style).
+- [x] A-029 No unnecessary duplication: Existing utilities reused — `ValidateAgentPresetName`, `checkFreeText`, tmux agent-preset wrappers, role-table components, `useRowWrite`.
+- [x] A-030 Subprocess safety: every new exec uses `exec.CommandContext`/the `Runner` seam with `FabTimeout` and argv slices; names validated before any exec (Constitution I).
+- [x] A-031 Durable before acknowledged: every operation's writes reach fab/tmux before the request succeeds; no in-memory-only state (Constitution II).
+- [x] A-032 No god functions: new Go and TSX functions stay focused; the presets UI lives in its own component file rather than growing `settings-agents-panel.tsx`.
+- [x] A-033 No comment narration or change-ID citations in code comments.
+- [x] A-034 Keyboard-first: every new control is keyboard-reachable and registered via the palette entries (Constitution V).
+- [x] A-035 Tests: Go, Vitest and e2e cover the new behavior; e2e tests carry Proves/Steps intent comments; tests never touch the real `~/.fab-kit/config.yaml`.
 
 ### Security
 
-- [ ] A-036 R1: Preset names and values reach fab only as argv elements after validation (no leading `-`, identifier charset), never via shell strings.
+- [x] A-036 R1: Preset names and values reach fab only as argv elements after validation (no leading `-`, identifier charset), never via shell strings.
 
 ## Notes
 
@@ -281,6 +291,11 @@ The palette SHALL gain `Settings: Agent presets` (open Settings > Agents, scroll
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
 - PR evidence (before/after `just demo` recordings, desktop + mobile) is produced at ship, not apply; apply must leave the demo specs runnable.
+
+## Deletion Candidates
+
+- `app/frontend/src/components/settings-agent-leftovers.tsx:39` `ClearConfirm` — near-copy of `DeleteConfirm` (`settings-agent-preset-forms.tsx:136`): same alertdialog shell, Escape handling, busy/error state and Cancel focus; one parameterised confirm bar would replace both.
+- `app/frontend/src/lib/agent-presets-editor.ts:139` `ResolvedRoles` — structurally identical to `FabResolvedRoles` in `api/client.ts`; use the client type.
 
 ## Assumptions
 

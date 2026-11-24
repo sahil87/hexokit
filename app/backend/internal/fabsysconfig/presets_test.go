@@ -20,7 +20,8 @@ var onlyDescriptionFixture = strings.TrimSuffix(presetsFixture, "]") +
 func presetFake(t *testing.T, rows ...string) *fakeFab {
 	t.Helper()
 	f := newFake(t, rows...)
-	f.presets = userPresetsFixture
+	f.presets = strings.TrimSuffix(userPresetsFixture, "]") +
+		`,{"name":"from-env","description":"d","source":"env","workers":"codex"},{"name":"from-repo","description":"d","source":"project"}]`
 	return f
 }
 
@@ -105,6 +106,9 @@ func TestApply_presetKeysRejectBeforeExec(t *testing.T) {
 		"dash in effort":    {`{"agent_presets.p.profiles.review.effort":"-x"}`, "agent_presets.p.profiles.review.effort: must not start with '-'"},
 		"not a string":      {`{"agent_presets.p.description":3}`, "agent_presets.p.description: must be a string"},
 		"whole non-null":    {`{"agent_presets.p":"x"}`, "agent_presets.p: a whole preset can only be removed (null)"},
+		"trailing dot":      {`{"agent_presets.night-shift.":null}`, "agent_presets.night-shift.: unknown preset field"},
+		"env-source name":   {`{"agent_presets.from-env.workers":"codex"}`, "agent_presets.from-env.workers: " + errNotInSystemConfig},
+		"project-source":    {`{"agent_presets.from-repo":null}`, "agent_presets.from-repo: " + errNotInSystemConfig},
 		"remove and edit":   {`{"agent_presets.night-shift":null,"agent_presets.night-shift.workers":"claude"}`, "agent_presets.night-shift: a preset is removed alone, not together with changes to its fields"},
 	}
 	for name, tc := range cases {

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -272,5 +273,59 @@ func TestPresetRoutes_verbs(t *testing.T) {
 	router.ServeHTTP(post, httptest.NewRequest(http.MethodPost, "/api/fab-config/presets/resolve", nil))
 	if post.Code < 400 {
 		t.Errorf("POST resolve = %d, want a refusal (the read is GET-only)", post.Code)
+	}
+}
+
+// brokenSessionsTmux fails the group listing of one server.
+type brokenSessionsTmux struct {
+	twoServerTmux
+	failServer string
+	err        error
+}
+
+func (p brokenSessionsTmux) ListSessions(ctx context.Context, server string) ([]tmux.SessionInfo, error) {
+	if server == p.failServer {
+		return nil, p.err
+	}
+	return p.twoServerTmux.ListSessions(ctx, server)
+}
+
+func TestPresetOps_aTmuxListingFailureIs502BeforeAnyWrite(t *testing.T) {
+	for name, h := range map[string]struct {
+		call func(*Server) http.HandlerFunc
+		body string
+	}{
+		"rename": {func(s *Server) http.HandlerFunc { return s.handleRenameAgentPreset }, `{"from":"night-shift","to":"late-shift"}`},
+		"delete": {func(s *Server) http.HandlerFunc { return s.handleDeleteAgentPreset }, `{"name":"night-shift"}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			stub := &fabStub{presets: presetsWithYours, show: showWithDefault}
+			ops := brokenSessionsTmux{twoServerTmux: newTwoServerTmux(), failServer: "work", err: errors.New("protocol error")}
+			s := presetOpServer(stub, ops)
+			rec := post(h.call(s), "/x", h.body)
+			if rec.Code != http.StatusBadGateway {
+				t.Fatalf("status = %d, want 502; body=%s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), "nothing was changed") || !strings.Contains(rec.Body.String(), "work") {
+				t.Errorf("body = %s", rec.Body.String())
+			}
+			if m := stub.mutations(); len(m) != 0 {
+				t.Errorf("mutations = %v, want none", m)
+			}
+		})
+	}
+}
+
+func TestPresetOps_aGoneServerIsSkippedWhenListingOptions(t *testing.T) {
+	stub := &fabStub{presets: presetsWithYours, show: showWithDefault}
+	base := newTwoServerTmux()
+	ops := brokenSessionsTmux{twoServerTmux: base, failServer: "work", err: errors.New("no server running on /tmp/tmux-1000/work")}
+	s := presetOpServer(stub, ops)
+	rec := post(s.handleDeleteAgentPreset, "/x", `{"name":"night-shift"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if len(base.agentPresetCalls) != 2 {
+		t.Errorf("tmux calls = %v, want the workspace and group on the live server", base.agentPresetCalls)
 	}
 }

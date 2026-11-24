@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"rk/internal/fabsysconfig"
+	"rk/internal/tmux"
 )
 
 // fabSysClient returns the injected fab wrapper, or the real one.
@@ -62,12 +64,16 @@ func (s *Server) writeFabConfigError(w http.ResponseWriter, err error) {
 	var ve *fabsysconfig.ValidationError
 	var ce *fabsysconfig.CommandError
 	var pe *fabsysconfig.PartialWriteError
+	var be *fabsysconfig.BindingsError
 	switch {
 	case errors.As(err, &ve):
 		writeError(w, http.StatusBadRequest, ve.Msg)
 	case errors.As(err, &pe):
 		s.logger.Warn("fab config operation stopped part-way", "failed", pe.Failed, "landed", pe.Landed, "stderr", pe.Stderr)
 		writeJSON(w, http.StatusBadGateway, partialWriteBody{Error: pe.Error(), Landed: pe.Landed, Failed: pe.Failed})
+	case errors.As(err, &be):
+		s.logger.Warn("agent-preset option listing failed", "error", be.Err)
+		writeError(w, http.StatusBadGateway, be.Error())
 	case errors.Is(err, fabsysconfig.ErrNotInstalled):
 		writeError(w, http.StatusServiceUnavailable, "fab is not installed on this host")
 	case errors.As(err, &ce):
@@ -218,12 +224,19 @@ func (b tmuxPresetBindings) List(ctx context.Context) ([]fabsysconfig.PresetBind
 	}
 	var out []fabsysconfig.PresetBinding
 	for _, server := range servers {
-		if name, err := b.s.tmux.GetServerAgentPreset(ctx, server); err == nil && name != "" {
+		name, err := b.s.tmux.GetServerAgentPreset(ctx, server)
+		if err != nil {
+			return nil, fmt.Errorf("read workspace %s: %w", server, err)
+		}
+		if name != "" {
 			out = append(out, fabsysconfig.PresetBinding{Server: server, Preset: name})
 		}
 		sessions, err := b.s.tmux.ListSessions(ctx, server)
 		if err != nil {
-			continue
+			if tmux.IsServerGone(err) {
+				continue
+			}
+			return nil, fmt.Errorf("list groups on %s: %w", server, err)
 		}
 		for _, si := range sessions {
 			if si.AgentPreset != "" {

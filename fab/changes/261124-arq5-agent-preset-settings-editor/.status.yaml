@@ -13,9 +13,9 @@ progress:
     review-pr: pending
 plan:
     generated: true
-    task_count: 21
+    task_count: 27
     acceptance_count: 36
-    acceptance_completed: 0
+    acceptance_completed: 34
 confidence:
     certain: 9
     confident: 7
@@ -30,25 +30,25 @@ confidence:
         disambiguation: 75.9
 stage_metrics:
     intake: {started_at: "2026-11-24T14:31:16Z", driver: fab-new, iterations: 1, completed_at: "2026-11-24T14:47:29Z"}
-    apply: {started_at: "2026-11-24T14:47:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T15:29:39Z"}
-    review: {started_at: "2026-11-24T15:29:39Z", driver: fab-fff, iterations: 1}
+    apply: {started_at: "2026-11-24T15:37:54Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-24T15:46:03Z"}
+    review: {started_at: "2026-11-24T15:46:03Z", driver: fab-fff, iterations: 2}
 prs: []
 change_type_source: explicit
 base_branch: 261124-hsob-agent-preset-card-controls
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 6594
+    deleted: 1248
+    net: 5346
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 5982
+        deleted: 1248
+        net: 4734
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-11-24T15:29:39Z"
+        added: 1742
+        deleted: 71
+        net: 1671
+    computed_at: "2026-11-24T15:46:03Z"
     computed_at_stage: apply
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-24T15:29:39Z
+last_updated: 2026-11-24T15:46:03Z
