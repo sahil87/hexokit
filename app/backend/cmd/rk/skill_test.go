@@ -527,3 +527,22 @@ func TestOperatorTopicLoadsToolBundles(t *testing.T) {
 		}
 	}
 }
+
+// The operator topic's worktree commands match the run rules: wt makes and
+// removes temporary worktrees, hand spawns pass their base through riff, and
+// raw git worktree commands never appear.
+func TestOperatorTopicWorktreeCommands(t *testing.T) {
+	topic := string(skillTopics["operator"])
+	for _, want := range []string{
+		"rk riff -L <server> -- --base origin/<branch> --fetch", "--kind pane",
+		"wt create --temp <observed-head-sha> --fetch --json", "wt delete <tmp-name> --non-interactive",
+		"rk riff -L <server> -- --pr <n>", "`wt` refuses `--reuse` together with `--base` or `--fetch`",
+	} {
+		if !strings.Contains(topic, want) {
+			t.Errorf("operator topic missing %q", want)
+		}
+	}
+	if strings.Contains(topic, "git worktree") {
+		t.Error("operator topic still carries a raw `git worktree` command")
+	}
+}
