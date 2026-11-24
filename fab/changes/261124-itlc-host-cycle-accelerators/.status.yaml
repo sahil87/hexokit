@@ -9,7 +9,7 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
+    ship: done
     review-pr: pending
 plan:
     generated: true
@@ -33,14 +33,15 @@ stage_metrics:
     apply: {started_at: "2026-11-24T09:34:47Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-24T09:38:24Z"}
     review: {started_at: "2026-11-24T09:38:24Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-24T09:44:35Z"}
     hydrate: {started_at: "2026-11-24T09:44:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T09:47:42Z"}
-    ship: {started_at: "2026-11-24T09:47:42Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-11-24T09:47:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T09:50:46Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1193
 base_branch: main
 change_type_source: explicit
 true_impact:
-    added: 1233
-    deleted: 24
-    net: 1209
+    added: 1297
+    deleted: 43
+    net: 1254
     excluding:
         added: 721
         deleted: 24
@@ -49,9 +50,9 @@ true_impact:
         added: 259
         deleted: 1
         net: 258
-    computed_at: "2026-11-24T09:47:42Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-11-24T09:50:47Z"
+    computed_at_stage: ship
 summary: 'Host cycling: Previous/Next Host Hosts-menu items (⌥⌘←/→, Alt+PageUp/PageDown), host-cycle.ts, onCycleHost, Host: Previous/Next palette entries, pill tip, Shortcuts rows, mac optcmd claims, XTest e2e chord injection'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-24T09:47:42Z
+last_updated: 2026-11-24T09:50:47Z
