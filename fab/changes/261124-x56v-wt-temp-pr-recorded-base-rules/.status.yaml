@@ -8,8 +8,8 @@ progress:
     intake: done
     apply: done
     review: done
-    hydrate: active
-    ship: pending
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
@@ -32,24 +32,26 @@ stage_metrics:
     intake: {started_at: "2026-11-24T04:38:13Z", driver: fab-new, iterations: 1, completed_at: "2026-11-24T04:43:46Z"}
     apply: {started_at: "2026-11-24T04:43:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T04:51:32Z"}
     review: {started_at: "2026-11-24T04:51:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T04:59:30Z"}
-    hydrate: {started_at: "2026-11-24T04:59:30Z", driver: fab-fff, iterations: 1}
+    hydrate: {started_at: "2026-11-24T04:59:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T05:03:03Z"}
+    ship: {started_at: "2026-11-24T05:03:03Z", driver: fab-fff, iterations: 1}
 prs: []
 change_type_source: explicit
 base_branch: main
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 514
+    deleted: 42
+    net: 472
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 73
+        deleted: 37
+        net: 36
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-11-24T04:51:32Z"
-    computed_at_stage: apply
+        added: 23
+        deleted: 2
+        net: 21
+    computed_at: "2026-11-24T05:03:03Z"
+    computed_at_stage: hydrate
+summary: Run rules and the operator chat skill make restack/conflict worktrees with wt create --temp (cleanup wt delete), spawn red-check recoveries with rk riff -- --pr <n>, read a plain item's PR base from wt list --json, and hand-spawn with rk riff -- --base origin/<b> --fetch tracked via track add
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-24T04:59:30Z
+last_updated: 2026-11-24T05:03:03Z
