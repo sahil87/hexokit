@@ -120,8 +120,9 @@ import { zoomedHostSize } from "@/lib/gui-posture";
  *   arrives as ctrl+wheel) and swallows the event so neither the browser's
  *   page zoom nor noVNC's wheel handler sees it; a wheel without Ctrl passes
  *   to noVNC untouched. With the capture latch set, a ctrl-wheel is the
- *   guest's instead: it passes to noVNC (which sends the scroll buttons)
- *   while rk holds Control_L in the guest, released PINCH_CTRL_RELEASE_MS
+ *   guest's instead: default-prevented (no page zoom) but not stopped, it
+ *   passes to noVNC (which sends the scroll buttons) while rk holds
+ *   Control_L in the guest, released PINCH_CTRL_RELEASE_MS
  *   after the gesture's last event — unless a held ⌘ or a physical Control
  *   already holds it.
  * - **Chord gate**: a capture-phase keydown on the canvas wrapper intercepts
@@ -134,7 +135,9 @@ import { zoomedHostSize } from "@/lib/gui-posture";
  *   the capture latch set, Cmd (and a Shift pressed after it) is held in the
  *   guest by rk as Control_L/Shift, released on focusout, unlatch, and
  *   teardown; and ⌘V hands the host clipboard text to the guest before its
- *   V, so it pastes what was copied on the Mac. No steal guard: noVNC grabs
+ *   V, so it pastes what was copied on the Mac. A captured pinch's Control_L
+ *   (see the wheel bullet) is released before any other key, a Mac ⌘ aside,
+ *   reaches noVNC. No steal guard: noVNC grabs
  *   focus only on click (`focusOnClick`), never programmatically.
  * - **Stats overlay**: the per-viewer `statsVisible` posture
  *   (`rk-gui-stats-visible`) mounts `GuiStatsOverlay` (gui-stats-overlay.tsx)
@@ -404,6 +407,11 @@ export default function GuiSurface({
     pinchOwnsCtrlRef.current = false;
     return owned;
   };
+  const releasePinchCtrl = () => {
+    if (yieldPinchCtrl() && heldRef.current.delete("ControlLeft")) {
+      rfbRef.current?.sendKey(KEYSYM_CONTROL_L, "ControlLeft", false);
+    }
+  };
 
   useEffect(() => {
     if (!capture) {
@@ -645,9 +653,11 @@ export default function GuiSurface({
   }, []);
 
   // Ctrl+wheel zoom — a NATIVE capture-phase non-passive listener (React
-  // attaches wheel passively, where preventDefault is ignored). The event is
-  // swallowed before noVNC's canvas wheel handler or the browser's page zoom
-  // can see it; a wheel without Ctrl passes through untouched. The delta→step
+  // attaches wheel passively, where preventDefault is ignored). Released, the
+  // event is swallowed before noVNC's canvas wheel handler or the browser's
+  // page zoom can see it; captured, it is only default-prevented and goes on
+  // to noVNC as the guest's Ctrl+scroll; a wheel without Ctrl passes through
+  // untouched. The delta→step
   // reduction (sub-threshold deltas — mac trackpad pinch — accumulate into
   // single steps; a direction flip drops the leftover) is the shared
   // zoom-gesture accumulator; the ladder itself is stepGuiZoom.
@@ -661,7 +671,10 @@ export default function GuiSurface({
         // Captured: the pinch is the guest's Ctrl+scroll zoom. A trackpad
         // pinch carries ctrlKey with no Control keydown, so rk holds
         // Control_L in the guest while noVNC's own wheel handler sends the
-        // scroll buttons (it also prevents the browser's page zoom).
+        // scroll buttons. preventDefault stays rk's: noVNC blocks page zoom
+        // only when connected, not view-only, and over the canvas, and it
+        // ignores defaultPrevented, so the scroll still goes through.
+        e.preventDefault();
         const rfb = rfbRef.current;
         const held = heldRef.current;
         if (!rfb) return;
@@ -672,10 +685,7 @@ export default function GuiSurface({
         }
         if (!pinchOwnsCtrlRef.current) return;
         if (pinchTimerRef.current) clearTimeout(pinchTimerRef.current);
-        pinchTimerRef.current = setTimeout(() => {
-          yieldPinchCtrl();
-          if (heldRef.current.delete("ControlLeft")) rfbRef.current?.sendKey(KEYSYM_CONTROL_L, "ControlLeft", false);
-        }, PINCH_CTRL_RELEASE_MS);
+        pinchTimerRef.current = setTimeout(releasePinchCtrl, PINCH_CTRL_RELEASE_MS);
         return;
       }
       e.preventDefault();
@@ -1041,12 +1051,12 @@ export default function GuiSurface({
       }}
       onKeyDownCapture={(e) => {
         onInteractRef.current?.();
-        if (e.code === "ControlLeft" || e.code === "ControlRight") {
-          physicalCtrlRef.current.add(e.code);
-          // noVNC's Control down/up now owns the guest's Control: drop the
-          // pinch's hold without a release the user's key would undo.
-          if (yieldPinchCtrl()) heldRef.current.delete("ControlLeft");
-        }
+        if (e.code === "ControlLeft" || e.code === "ControlRight") physicalCtrlRef.current.add(e.code);
+        // Any key but a Mac ⌘ (which takes the pinch's Control_L over below)
+        // ends the pinch's hold first, so the key never lands as Ctrl+key and a
+        // physical Control re-presses through noVNC after this release.
+        const macCmd = (e.code === "MetaLeft" || e.code === "MetaRight") && detectPlatform() === "mac";
+        if (!macCmd) releasePinchCtrl();
         if (!reclaimRef.current?.(e.nativeEvent)) {
           // noVNC maps Cmd to Alt_L on macOS; while captured the guest gets
           // Control_L instead, and noVNC's meta-held press+release of the

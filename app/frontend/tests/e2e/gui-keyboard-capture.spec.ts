@@ -22,6 +22,10 @@ import { GUI_ON_ICEWM, mockGuiBackend } from "./_gui-mock";
 // `test.use({ viewport: 1280x800 })`: the capture verb is fine-pointer only,
 // and 1280 is wide enough that no ladder item folds, so the pinned block's
 // reserve is exercised without the fold confusing the assertions.
+// The pinch case dispatches a ctrlKey WheelEvent on the canvas (Chromium's
+// trackpad-pinch shape: no Control keydown). noVNC's wheel handler returns
+// early without the handshake, so the case counts wheels at the canvas
+// target and reads routing from that count plus the zoom badge.
 
 /** The gui canvas wrapper + the noVNC canvas inside it. */
 const canvasWrap = (page: Page) => page.getByTestId("gui-surface-canvas");
@@ -212,8 +216,10 @@ test.describe("gui keyboard capture — mocked signal, desktop (1280px)", () => 
    * 1. Mock the reachable icewm backend; open @2; focus the canvas.
    * 2. Pinch on the canvas; assert the canvas saw no wheel and the zoom badge
    *    shows 100%.
-   * 3. Wait for the badge to hide; latch capture via the pinned verb.
-   * 4. Pinch again; assert the canvas saw the wheel and no zoom badge appears.
+   * 3. Wait for the badge to hide; latch capture via the pinned verb; assert
+   *    the meta chip reads `keys → desktop`.
+   * 4. Refocus the canvas; pinch again; assert the canvas saw the wheel and no
+   *    zoom badge appears.
    */
   test("a pinch zooms the viewer when released and reaches the guest when latched", async ({ page }) => {
     await mockGuiBackend(page, GUI_ON_ICEWM);

@@ -1519,7 +1519,8 @@ describe("GuiSurface — pinch under capture is the guest's Ctrl+scroll", () => 
     const { props } = renderGui({ capture: true, zoom: 100 });
     const wheelSpy = vi.fn();
     host().addEventListener("wheel", wheelSpy);
-    expect(pinch()).toBe(true);
+    // Default-prevented (no browser page zoom) yet still delivered to noVNC.
+    expect(pinch()).toBe(false);
     pinch();
     pinch(-120);
     expect(wheelSpy).toHaveBeenCalledTimes(3);
@@ -1578,12 +1579,21 @@ describe("GuiSurface — pinch under capture is the guest's Ctrl+scroll", () => 
     expect(latestRfb().sendKey).not.toHaveBeenCalled();
   });
 
-  it("a physical Control pressed mid-pinch takes over: no release from rk", () => {
-    renderGui({ capture: true });
+  it.each([
+    ["ControlLeft", "Control"],
+    ["ControlRight", "Control"],
+    ["KeyA", "a"],
+  ])("%s pressed mid-pinch releases the pinch's Control_L first, once", (code, key) => {
+    renderGui({ capture: true, shouldReclaimChord: () => false });
+    const inner = vi.fn();
+    host().addEventListener("keydown", inner);
     pinch();
-    fireEvent.keyDown(screen.getByTestId("gui-surface-canvas"), { key: "Control", code: "ControlLeft", ctrlKey: true });
+    fireEvent.keyDown(host(), { key, code, ctrlKey: true });
+    expect(latestRfb().sendKey.mock.calls).toEqual([CTRL_DOWN, CTRL_UP]);
+    // The key itself still reaches noVNC, after the release.
+    expect(inner).toHaveBeenCalledOnce();
     act(() => vi.advanceTimersByTime(1000));
-    expect(latestRfb().sendKey.mock.calls).toEqual([CTRL_DOWN]);
+    expect(latestRfb().sendKey).toHaveBeenCalledTimes(2);
   });
 
   it("uncaptured, a pinch still steps the viewer zoom and never reaches noVNC", () => {

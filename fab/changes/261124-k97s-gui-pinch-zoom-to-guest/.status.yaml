@@ -7,15 +7,15 @@ issues: []
 progress:
     intake: done
     apply: done
-    review: active
-    hydrate: pending
+    review: done
+    hydrate: active
     ship: pending
     review-pr: pending
 plan:
     generated: true
-    task_count: 5
-    acceptance_count: 14
-    acceptance_completed: 0
+    task_count: 6
+    acceptance_count: 15
+    acceptance_completed: 15
 confidence:
     certain: 2
     confident: 5
@@ -30,25 +30,26 @@ confidence:
         disambiguation: 70.0
 stage_metrics:
     intake: {started_at: "2026-11-24T17:23:25Z", driver: fab-new, iterations: 1, completed_at: "2026-11-24T17:27:54Z"}
-    apply: {started_at: "2026-11-24T17:27:54Z", driver: fab-ff, iterations: 1, completed_at: "2026-11-24T17:33:57Z"}
-    review: {started_at: "2026-11-24T17:33:57Z", driver: fab-ff, iterations: 1}
+    apply: {started_at: "2026-11-24T17:41:03Z", driver: fab-ff, iterations: 2, completed_at: "2026-11-24T17:42:47Z"}
+    review: {started_at: "2026-11-24T17:42:47Z", driver: fab-ff, iterations: 2, completed_at: "2026-11-24T17:48:58Z"}
+    hydrate: {started_at: "2026-11-24T17:48:58Z", driver: fab-ff, iterations: 1}
 prs: []
 change_type_source: explicit
 base_branch: main
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 522
+    deleted: 4
+    net: 518
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 244
+        deleted: 3
+        net: 241
     tests:
-        added: 0
+        added: 52
         deleted: 0
-        net: 0
-    computed_at: "2026-11-24T17:33:57Z"
+        net: 52
+    computed_at: "2026-11-24T17:42:48Z"
     computed_at_stage: apply
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-24T17:33:57Z
+last_updated: 2026-11-24T17:48:58Z
