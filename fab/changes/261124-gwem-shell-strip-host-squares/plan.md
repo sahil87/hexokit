@@ -135,7 +135,7 @@ Pure helpers have vitest coverage; the strip component has vitest coverage per R
 - [x] T001 [P] Add `os` (`runtime.GOOS`) to the `/api/health` response in `app/backend/api/` (+ Go test) and `os?: string` to `HealthResponse` in `app/frontend/src/api/client.ts` <!-- R8 -->
 - [x] T002 [P] Add violet `{ name: "violet", hue: 270, legacy: "4+5" }` to `HUE_FAMILIES` in `app/frontend/src/themes.ts` and fix count-sensitive tests/layouts <!-- R14 -->
 - [x] T003 [P] Create `app/desktop/src/prefs.ts` (+ `prefs.test.ts`): defaults, closed-set validation, atomic load/save of `<userData>/prefs.json` <!-- R11 -->
-- [x] T004 Extend `app/frontend/src/lib/shell-strip.ts` (+ `shell-strip.test.ts`): new `stripInsets`, kind/link derivation, monogram, pill label/tip, nameplate field model + fold order, reorder index math, light-geometry helpers, prefs value parsing, effect/motion constants <!-- R1 R5 R7 R9 -->
+- [x] T004 Extend `app/frontend/src/lib/shell-strip.ts` (+ `shell-strip.test.ts`): new `stripInsets`, kind/link derivation, monogram, pill label/tip, nameplate field model + fold order, reorder index math, light-geometry helpers, prefs value parsing, effect/motion constants <!-- R1 R5 R7 R9 --> <!-- rework: delete zero-call-site TEXTURED_STRIP_EFFECTS (shell-strip.ts:430); drop the double-counted NAMEPLATE_SEPARATOR_PX in visibleFieldCount (the ::before separator is already inside each field width) + update shell-strip.test.ts expectations -->
 - [x] T005 [P] Create `app/frontend/src/lib/host-colors.ts` (+ test): 9-hue Host color set, snap-to-nearest, used-hue classification by OKLCH hue <!-- R14 -->
 - [x] T006 [P] Add agent-count derivation to `app/frontend/src/lib/waiting.ts` (+ test) <!-- R8 -->
 
@@ -152,12 +152,12 @@ Pure helpers have vitest coverage; the strip component has vitest coverage per R
 
 ### Phase 4: Strip UI
 
-- [x] T012 Add `@property` registrations, `rk-strip-fx-*` treatments, halo, sweep keyframes, square/pill utility classes to `app/frontend/src/globals.css` <!-- R9 R2 R5 -->
+- [x] T012 Add `@property` registrations, `rk-strip-fx-*` treatments, halo, sweep keyframes, square/pill utility classes to `app/frontend/src/globals.css` <!-- R9 R2 R5 --> <!-- rework: uncoloured square uses the intake-specified neutral color-mix(text-secondary 35%) fill so it is distinct from the + square -->
 - [x] T013 Create `components/desktop-shell/host-menu.tsx` (extract the dropdown from `titlebar-strip.tsx`, keep behavior, anchor-prop driven) <!-- R6 -->
 - [x] T014 Create `components/desktop-shell/host-squares.tsx` (squares, `+`, waiting dot, drag/keyboard reorder, roving focus) <!-- R2 R3 R4 R6 -->
-- [x] T015 Create `components/desktop-shell/nameplate.tsx` and `key-hint-pill.tsx` (fields, fold, preview, pill + Tip, chord hold) <!-- R5 R7 -->
-- [x] T016 Rewrite `components/desktop-shell/titlebar-strip.tsx` composing the above; light-geometry measurement; no-shift layout; popout/older-shell branches <!-- R1 R9 -->
-- [x] T017 Create `components/desktop-shell/nameplate-reporter.tsx` (health + agent count → `nameplate:set`) and mount it in `app.tsx`; gate wash/stripe on `!isShell()` <!-- R7 R10 -->
+- [x] T015 Create `components/desktop-shell/nameplate.tsx` and `key-hint-pill.tsx` (fields, fold, preview, pill + Tip, chord hold) <!-- R5 R7 --> <!-- rework: nameplate fold measure — clone must include the peek "→ " prefix; align with the de-duplicated separator width -->
+- [x] T016 Rewrite `components/desktop-shell/titlebar-strip.tsx` composing the above; light-geometry measurement; no-shift layout; popout/older-shell branches <!-- R1 R9 --> <!-- rework: attach handler restores --rk-acc to this host stripeHex after seating the previous host, so the cross-view slide does not depend on the servers:changed re-render timing -->
+- [x] T017 Create `components/desktop-shell/nameplate-reporter.tsx` (health + agent count → `nameplate:set`) and mount it in `app.tsx`; gate wash/stripe on `!isShell()` <!-- R7 R10 --> <!-- rework: use-host-nameplate omits machine when hostname is empty (an empty machine makes views.ts drop the whole report) -->
 - [x] T018 Add `host-strip-focus` to `lib/keybindings.ts`, retarget ⇧⌘H, make `host-menu-open` palette-only, register palette entry in `use-global-palette-actions.ts`, update `settings-shortcuts-panel.tsx` rows <!-- R6 -->
 - [x] T019 In-shell theme-color neutral under non-flat effect (`instance-accent.ts` / its context consumer) <!-- R10 -->
 
@@ -167,10 +167,10 @@ Pure helpers have vitest coverage; the strip component has vitest coverage per R
 
 ### Phase 6: Tests & evidence
 
-- [x] T021 Component tests: update `titlebar-strip.test.tsx` and add squares/nameplate/pill/menu tests; settings-dialog tests for This app + Host color <!-- R1 R2 R3 R4 R5 R6 R13 R14 -->
+- [x] T021 Component tests: update `titlebar-strip.test.tsx` and add squares/nameplate/pill/menu tests; settings-dialog tests for This app + Host color <!-- R1 R2 R3 R4 R5 R6 R13 R14 --> <!-- rework: fix stale titlebar-strip.test.tsx:118 helper doc; cover the acc restore and fold-width fixes -->
 - [x] T022 Shell e2e `app/desktop/tests/e2e/strip-no-shift.spec.ts` (bounding-box equality at rest/hover/chord/pill hover) with intent comments <!-- R5 R15 -->
 - [x] T023 Shell demo spec `app/desktop/tests/demo/shell-strip-host-squares.demo.ts` <!-- R15 -->
-- [x] T024 Run `just test-backend`, `just test-frontend`, desktop node tests, and typecheck; fix failures <!-- R15 -->
+- [x] T024 Run `just test-backend`, `just test-frontend`, desktop node tests, and typecheck; fix failures <!-- R15 --> <!-- rework: re-run gates after the fixes -->
 
 ## Execution Order
 
@@ -183,48 +183,48 @@ Pure helpers have vitest coverage; the strip component has vitest coverage per R
 
 ### Functional Completeness
 
-- [ ] A-001 R1: Shell strip renders the left-aligned row; popout and older-shell branches behave as specified
-- [ ] A-002 R2: Squares render per spec (18px, ring, dot, no letters, islands, ARIA)
-- [ ] A-003 R3: Click switches and hover previews without switching
-- [ ] A-004 R4: Drag commits exactly one reorder; ⌥←/⌥→ reorders; failure toasts + refetches
-- [ ] A-005 R5: Pill space is reserved and the chord/pill-hover reveals digits
-- [ ] A-006 R6: `+`/right-click open the menu; ⇧⌘H focuses squares with the roving keys; palette + shortcuts updated
-- [ ] A-007 R7: Nameplate fields, kind/link derivation and right-to-left folding work; background preview fields join via `nameplate:set`
-- [ ] A-008 R8: `/api/health` carries `os`; agent count derived from SSE data
-- [ ] A-009 R9: Seven treatments, three motions, reduced-motion cut, cross-view slide signal
-- [ ] A-010 R10: Wash/stripe gated to non-shell; theme-color neutral under non-flat in the shell
-- [ ] A-011 R11: Prefs store + bridge group + broadcast
-- [ ] A-012 R12: `servers:changed` drives refetch; additive projection fields validated
-- [ ] A-013 R13: This app group present only in the shell with invokers
-- [ ] A-014 R14: 9-hue Host color set, violet family, snap-to-nearest, used-hue labels + advisory
+- [x] A-001 R1: Shell strip renders the left-aligned row; popout and older-shell branches behave as specified
+- [x] A-002 R2: Squares render per spec (18px, ring, dot, no letters, islands, ARIA)
+- [x] A-003 R3: Click switches and hover previews without switching
+- [x] A-004 R4: Drag commits exactly one reorder; ⌥←/⌥→ reorders; failure toasts + refetches
+- [x] A-005 R5: Pill space is reserved and the chord/pill-hover reveals digits
+- [x] A-006 R6: `+`/right-click open the menu; ⇧⌘H focuses squares with the roving keys; palette + shortcuts updated
+- [x] A-007 R7: Nameplate fields, kind/link derivation and right-to-left folding work; background preview fields join via `nameplate:set`
+- [x] A-008 R8: `/api/health` carries `os`; agent count derived from SSE data
+- [x] A-009 R9: Seven treatments, three motions, reduced-motion cut, cross-view slide signal
+- [x] A-010 R10: Wash/stripe gated to non-shell; theme-color neutral under non-flat in the shell
+- [x] A-011 R11: Prefs store + bridge group + broadcast
+- [x] A-012 R12: `servers:changed` drives refetch; additive projection fields validated
+- [x] A-013 R13: This app group present only in the shell with invokers
+- [x] A-014 R14: 9-hue Host color set, violet family, snap-to-nearest, used-hue labels + advisory
 
 ### Behavioral Correctness
 
-- [ ] A-015 R5: Square and nameplate boxes are identical at rest, band hover, chord held, pill hover
-- [ ] A-016 R10: Browser behaviour unchanged (wash/stripe/PWA tint)
+- [x] A-015 R5: Square and nameplate boxes are identical at rest, band hover, chord held, pill hover
+- [x] A-016 R10: Browser behaviour unchanged (wash/stripe/PWA tint)
 
 ### Removal Verification
 
-- [ ] A-017 R1: The centred `<host> ▾` trigger and "single no-drag island" claims are gone from code and comments
+- [x] A-017 R1: The centred `<host> ▾` trigger and "single no-drag island" claims are gone from code and comments
 
 ### Scenario Coverage
 
-- [ ] A-018 R15: Vitest, node:test, e2e and demo specs exist and cover the scenarios above
+- [x] A-018 R15: Vitest, node:test, e2e and demo specs exist and cover the scenarios above
 
 ### Edge Cases & Error Handling
 
-- [ ] A-019 R11: Every new bridge invoker returns false/null on absence, rejection or malformed payloads and never throws
-- [ ] A-020 R4: Without the reorder invoker squares do not drag and click still switches
+- [x] A-019 R11: Every new bridge invoker returns false/null on absence, rejection or malformed payloads and never throws
+- [x] A-020 R4: Without the reorder invoker squares do not drag and click still switches
 
 ### Code Quality
 
-- [ ] A-021 Pattern consistency: New code follows naming and structural patterns of surrounding code
-- [ ] A-022 No unnecessary duplication: Existing utilities reused where applicable
-- [ ] A-023 No god functions: the strip is split into focused components (no >50-line functions without reason)
-- [ ] A-024 No magic numbers/strings: named constants for geometry, MIME-less channel names, closed sets
-- [ ] A-025 No polling: live updates ride events/SSE, not intervals
-- [ ] A-026 Comment hygiene: comments state constraints, never narrate history or cite change IDs
-- [ ] A-027 Type narrowing over assertions in new frontend code
+- [x] A-021 Pattern consistency: New code follows naming and structural patterns of surrounding code
+- [x] A-022 No unnecessary duplication: Existing utilities reused where applicable
+- [x] A-023 No god functions: the strip is split into focused components (no >50-line functions without reason)
+- [x] A-024 No magic numbers/strings: named constants for geometry, MIME-less channel names, closed sets
+- [x] A-025 No polling: live updates ride events/SSE, not intervals
+- [x] A-026 Comment hygiene: comments state constraints, never narrate history or cite change IDs
+- [x] A-027 Type narrowing over assertions in new frontend code
 
 ## Notes
 
@@ -248,3 +248,7 @@ Pure helpers have vitest coverage; the strip component has vitest coverage per R
 | 11 | Confident | Prefers-reduced-motion needs no CSS media query for the strip: the strip resolves `cut` in JS (`effectiveMotion`), so no transition class or sweep ever applies | The flair compositing lint pins the first reduced-motion block to flair rules; JS resolution is the single source | S:55 R:85 A:75 D:65 |
 
 11 assumptions (0 certain, 8 confident, 3 tentative).
+
+## Deletion Candidates
+
+- `app/frontend/src/globals.css:420` `var(--rk-sq, …)` — `--rk-sq` is never set (squares colour via inline `backgroundColor`), so the custom-property indirection is dead and `.rk-strip-sq-uncolored`'s `background` (globals.css:435) repeats the same fallback value

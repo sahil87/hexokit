@@ -114,8 +114,8 @@ const hosts = [
   { id: "b", name: "lab", url: "http://b:3000", active: false },
 ];
 
-/** Render with a populated bridge and wait for the mount fetch to enable the
- *  switcher trigger. */
+/** Render with a populated bridge and wait for the mount fetch to render the
+ *  host squares (the `+` menu opener is the readiness probe). */
 async function renderInteractive(
   list: unknown[] = hosts,
   platform = "darwin",
@@ -1854,6 +1854,22 @@ describe("ShellTitlebarStrip lit band", () => {
     expect(sweep instanceof HTMLElement && sweep.style.getPropertyValue("--rk-from")).not.toBe("");
     // The no-transition seat is released again.
     expect(screen.getByTestId("shell-titlebar-strip").classList.contains("rk-strip-notrans")).toBe(false);
+  });
+
+  it("after seating the previous host's colour, an attach signal restores THIS host's colour so it transitions too", async () => {
+    stubReducedMotion(false);
+    const bridge = await renderSquares(
+      {
+        onAttached: true,
+        servers: [threeHosts[0], { ...threeHosts[1], accentColor: "#ff0000" }],
+      },
+      lit,
+    );
+    await waitFor(() => {
+      expect(bridge.pushed.attached).toBeDefined();
+    });
+    act(() => bridge.pushed.attached?.({ previousId: "b" }));
+    expect(screen.getByTestId("shell-titlebar-strip").style.getPropertyValue("--rk-acc")).toBe("#7d9afb");
   });
 
   it("an attach signal for an unknown host is ignored (degrades to a cut)", async () => {

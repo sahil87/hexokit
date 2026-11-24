@@ -22,8 +22,9 @@ export function useHostNameplate(): ShellNameplateReport {
     void getHealth()
       .then((h) => {
         if (!live) return;
-        const machine = h.sshUser ? `${h.sshUser}@${h.hostname}` : h.hostname;
-        setHealthFacts({ machine, os: h.os });
+        // An empty machine would make the shell drop the whole report, so omit it.
+        const machine = h.hostname ? (h.sshUser ? `${h.sshUser}@${h.hostname}` : h.hostname) : undefined;
+        setHealthFacts({ ...(machine !== undefined ? { machine } : {}), os: h.os });
       })
       .catch(() => {
         // Health is best-effort chrome: the nameplate degrades to the name.

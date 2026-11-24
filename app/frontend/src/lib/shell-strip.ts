@@ -356,14 +356,12 @@ export function nameplateFields(data: NameplateData): NameplateField[] {
   return fields;
 }
 
-/** Width of the `·` separator plus its padding between nameplate fields. */
-export const NAMEPLATE_SEPARATOR_PX = 14;
-
 /**
  * How many post-name fields fit: fold right-to-left from the full set until
  * the name plus the kept fields fit `available`. The name itself never folds
  * (it truncates), so the result is at least 0. `fieldWidths` are the fields'
- * natural widths in display order.
+ * natural widths in display order — each already includes its leading `·`
+ * separator (the separator is the field's own `::before`).
  */
 export function visibleFieldCount(
   nameWidth: number,
@@ -373,7 +371,7 @@ export function visibleFieldCount(
   let used = nameWidth;
   let count = 0;
   for (const w of fieldWidths) {
-    const next = used + NAMEPLATE_SEPARATOR_PX + w;
+    const next = used + w;
     if (next > available) break;
     used = next;
     count++;
@@ -425,9 +423,6 @@ export type StripMotion = (typeof STRIP_MOTIONS)[number];
 
 export const DEFAULT_STRIP_EFFECT: StripEffect = "glow";
 export const DEFAULT_STRIP_MOTION: StripMotion = "slide";
-
-/** Textured treatments need a halo behind the nameplate text to stay legible. */
-export const TEXTURED_STRIP_EFFECTS: readonly StripEffect[] = ["halftone", "hex", "scan"];
 
 export function isStripEffect(value: unknown): value is StripEffect {
   return typeof value === "string" && STRIP_EFFECTS.some((e) => e === value);

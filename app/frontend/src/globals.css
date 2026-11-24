@@ -430,10 +430,10 @@ html[data-theme="light"] .rk-strip-sweep {
   /* Only the drag/slide transform animates; hover changes no geometry. */
   transition: transform 0.15s;
 }
+/* A host with no color: a neutral fill (distinct from the outlined `+`). */
 .rk-strip-sq-uncolored {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text-secondary) 70%, transparent);
-  background: transparent;
-  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-text-secondary) 35%, transparent);
+  color: var(--color-text-primary);
 }
 .rk-strip-sq-on {
   box-shadow:

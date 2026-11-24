@@ -357,6 +357,9 @@ export function ShellTitlebarStrip({ title }: { title?: string } = {}) {
       if (previousColor !== undefined) root.style.setProperty("--rk-acc", previousColor);
       void root.offsetWidth; // commit the seat before re-enabling the transition
       root.classList.remove("rk-strip-notrans");
+      // Slide position AND colour to this host's own values, independent of any
+      // servers:changed re-render.
+      if (stripeHex !== null) root.style.setProperty("--rk-acc", stripeHex);
       measureLight();
       const sweep = sweepRef.current;
       if (appliedMotion === "sweep" && sweep) {
@@ -366,7 +369,7 @@ export function ShellTitlebarStrip({ title }: { title?: string } = {}) {
         sweep.classList.add("rk-strip-sweep-go");
       }
     });
-  }, [appliedMotion, measureLight, servers]);
+  }, [appliedMotion, measureLight, servers, stripeHex]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 

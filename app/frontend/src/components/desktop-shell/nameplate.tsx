@@ -92,7 +92,7 @@ export function Nameplate({ data, peek = false, onLayout }: NameplateProps) {
     observer.observe(root);
     return () => observer.disconnect();
     // `data` identity changes every render; its content is what the clone lays out.
-  }, [fieldCount, data.name, data.userMachine, data.os, data.kind, data.link, data.agents]);
+  }, [fieldCount, peek, data.name, data.userMachine, data.os, data.kind, data.link, data.agents]);
 
   useLayoutEffect(() => {
     onLayout?.();
@@ -123,6 +123,7 @@ export function Nameplate({ data, peek = false, onLayout }: NameplateProps) {
         className="pointer-events-none invisible absolute left-0 top-0 flex whitespace-nowrap"
       >
         <span data-np-name className="rk-strip-np-name">
+          {peek ? "→ " : ""}
           {data.name}
         </span>
         {fields.map((field) => (

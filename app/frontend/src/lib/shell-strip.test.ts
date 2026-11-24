@@ -299,7 +299,7 @@ describe("nameplate model", () => {
     // Everything fits.
     expect(visibleFieldCount(name, widths, 10_000)).toBe(4);
     // Not enough for agents (last) -> three fields.
-    const three = name + 3 * 14 + 100 + 80 + 60;
+    const three = name + 100 + 80 + 60;
     expect(visibleFieldCount(name, widths, three)).toBe(3);
     // Only the name fits.
     expect(visibleFieldCount(name, widths, name)).toBe(0);

@@ -39,6 +39,13 @@ describe("ShellNameplateReporter", () => {
     await waitFor(() => expect(set).toHaveBeenCalledWith({ machine: "ws-01" }));
   });
 
+  it("omits an empty machine so the shell never drops the whole report", async () => {
+    vi.mocked(getHealth).mockResolvedValue({ status: "ok", hostname: "", sshUser: "sahil", os: "linux" });
+    const set = bridge();
+    render(<ShellNameplateReporter />);
+    await waitFor(() => expect(set).toHaveBeenCalledWith({ os: "linux" }));
+  });
+
   it("adds the agent count derived from the session stream and re-reports on change", async () => {
     vi.mocked(getHealth).mockResolvedValue({ status: "ok", hostname: "ws-01", os: "linux" });
     const set = bridge();

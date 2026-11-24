@@ -47,23 +47,23 @@ describe("Nameplate", () => {
   });
 
   it("folds right-to-left as the band narrows: agents, then link, then OS, then user@machine — never the name", () => {
-    // name 50 + 4 separators (14 each) + 100 + 60 + 70 + 80 = 416 → all fit at 416.
-    stubLayout(416, widths);
+    // name 50 + 100 + 60 + 70 + 80 = 360 (field widths include their own separator) → all fit at 360.
+    stubLayout(360, widths);
     render(<Nameplate data={data} />);
     expect(shownKeys()).toEqual(["userMachine", "os", "link", "agents"]);
 
     cleanup();
-    stubLayout(415, widths);
+    stubLayout(359, widths);
     render(<Nameplate data={data} />);
     expect(shownKeys()).toEqual(["userMachine", "os", "link"]);
 
     cleanup();
-    stubLayout(50 + 14 + 100 + 14 + 60 + 5, widths);
+    stubLayout(50 + 100 + 60 + 5, widths);
     render(<Nameplate data={data} />);
     expect(shownKeys()).toEqual(["userMachine", "os"]);
 
     cleanup();
-    stubLayout(50 + 14 + 100 + 5, widths);
+    stubLayout(50 + 100 + 5, widths);
     render(<Nameplate data={data} />);
     expect(shownKeys()).toEqual(["userMachine"]);
 
