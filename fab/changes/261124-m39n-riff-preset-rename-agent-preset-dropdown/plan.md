@@ -228,51 +228,51 @@ A command-palette action `Settings: Agent preset…` (id `settings-agent-preset`
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `rk riff --riff-preset <name>` and `--list-riff-presets` work identically to the old flags; help and errors say "riff preset"
-- [ ] A-002 R2: `--preset`/`--list-presets` are hidden, deprecated (stderr notice), functional; a conflicting `--preset`/`--riff-preset` pair exits 2
-- [ ] A-003 R3: `POST /api/riff` uses `riff_preset`, falls back to `preset`, and 400s on disagreement before any subprocess
-- [ ] A-004 R4: `GET /api/riff/presets` returns `riff_presets` (no `presets` key) and the SPA consumes it
-- [ ] A-005 R5: MCP `riff` tool exposes `riff_preset` at positional 1; `preset` is rejected as unknown
-- [ ] A-006 R6: Spawn dialog shows `Riff preset (optional):`; macros use `riff_preset`, legacy entries load, run and are written back
-- [ ] A-007 R7: Settings registry text, doctor row, operator prompt and docs use "riff preset"; unrelated presets untouched
-- [ ] A-008 R8: A backlog entry tracks removal of the deprecated spellings; rk-riff memory documents the window
-- [ ] A-009 R9: `GET /api/fab-config` returns `agent_presets` and `fields["agent.preset"]` with env-shadow `systemValue`
-- [ ] A-010 R10: A failing/old `fab agent presets` omits `agent_presets` without failing the read
-- [ ] A-011 R11: Preset-supplied rows carry `preset` and never `override`
-- [ ] A-012 R12: `agent.preset` writes are validated against fab's list (or `none`) before any write; null unsets
-- [ ] A-013 R13: The Agent preset dropdown renders with None/presets/`none`/unknown handling and posts set/null
-- [ ] A-014 R14: The override note shows the correct count and offers no clearing action
-- [ ] A-015 R15: The Customize disclosure shows the explicit count and defaults open iff count > 0; absent on older fab
-- [ ] A-016 R16: Preset-supplied knobs/cells show a `preset` chip, inherited styling and no reset link
-- [ ] A-017 R17: `Settings: Agent preset…` opens Settings > Agents with the dropdown focused
+- [x] A-001 R1: `rk riff --riff-preset <name>` and `--list-riff-presets` work identically to the old flags; help and errors say "riff preset"
+- [x] A-002 R2: `--preset`/`--list-presets` are hidden, deprecated (stderr notice), functional; a conflicting `--preset`/`--riff-preset` pair exits 2
+- [x] A-003 R3: `POST /api/riff` uses `riff_preset`, falls back to `preset`, and 400s on disagreement before any subprocess
+- [x] A-004 R4: `GET /api/riff/presets` returns `riff_presets` (no `presets` key) and the SPA consumes it
+- [x] A-005 R5: MCP `riff` tool exposes `riff_preset` at positional 1; `preset` is rejected as unknown
+- [x] A-006 R6: Spawn dialog shows `Riff preset (optional):`; macros use `riff_preset`, legacy entries load, run and are written back
+- [x] A-007 R7: Settings registry text, doctor row, operator prompt and docs use "riff preset"; unrelated presets untouched
+- [x] A-008 R8: A backlog entry tracks removal of the deprecated spellings; rk-riff memory documents the window — backlog entry `[for3]` is in `fab/backlog.md`; the rk-riff memory text lands at hydrate (memory still names `--preset`, see review notes)
+- [x] A-009 R9: `GET /api/fab-config` returns `agent_presets` and `fields["agent.preset"]` with env-shadow `systemValue`
+- [x] A-010 R10: A failing/old `fab agent presets` omits `agent_presets` without failing the read
+- [x] A-011 R11: Preset-supplied rows carry `preset` and never `override`
+- [x] A-012 R12: `agent.preset` writes are validated against fab's list (or `none`) before any write; null unsets
+- [x] A-013 R13: The Agent preset dropdown renders with None/presets/`none`/unknown handling and posts set/null
+- [x] A-014 R14: The override note shows the correct count and offers no clearing action
+- [x] A-015 R15: The Customize disclosure shows the explicit count and defaults open iff count > 0; absent on older fab
+- [x] A-016 R16: Preset-supplied knobs/cells show a `preset` chip, inherited styling and no reset link
+- [x] A-017 R17: `Settings: Agent preset…` opens Settings > Agents with the dropdown focused — via `lib/agent-preset-focus.ts` (DOM wait); e2e `settings-agents.spec.ts` asserts the select is focused
 
 ### Scenario Coverage
 
-- [ ] A-018 R2: Go tests cover each kept CLI spelling (`--preset`, `--list-presets`) and the conflict case
-- [ ] A-019 R3: Go tests cover legacy-body spawn and the disagreement 400 with nothing created
-- [ ] A-020 R6: Vitest covers legacy macro parse/re-projection and write-back
-- [ ] A-021 R12: Go tests cover known/none/null/unknown/no-list validation with no write exec on rejection
-- [ ] A-022 R13: Playwright `settings-agents.spec.ts` exercises choose preset → Customize reflects it → None, and the palette action
+- [x] A-018 R2: Go tests cover each kept CLI spelling (`--preset`, `--list-presets`) and the conflict case
+- [x] A-019 R3: Go tests cover legacy-body spawn and the disagreement 400 with nothing created
+- [x] A-020 R6: Vitest covers legacy macro parse/re-projection and write-back
+- [x] A-021 R12: Go tests cover known/none/null/unknown/no-list validation with no write exec on rejection
+- [x] A-022 R13: Playwright `settings-agents.spec.ts` exercises choose preset → Customize reflects it → None, and the palette action
 
 ### Edge Cases & Error Handling
 
-- [ ] A-023 R10: Non-JSON and non-zero `fab agent presets` outputs both fall back without error (tested)
-- [ ] A-024 R13: A stale system `agent.preset` naming an undefined preset renders as `<name> (unknown)` and can be set to None
+- [x] A-023 R10: Non-JSON and non-zero `fab agent presets` outputs both fall back without error (tested)
+- [x] A-024 R13: A stale system `agent.preset` naming an undefined preset renders as `<name> (unknown)` and can be set to None
 
 ### Code Quality
 
-- [ ] A-025 Pattern consistency: New code follows naming and structural patterns of surrounding code (fabsysconfig helpers, FabRow affordances, palette builders)
-- [ ] A-026 No unnecessary duplication: Existing utilities reused (`checkFreeText`, `warningLines`, `ProvenanceChip`, `FabRow`, `openSettings`)
-- [ ] A-027 Subprocess discipline: every new fab exec uses `exec.CommandContext` with a timeout via the Runner seam, argv slices only
-- [ ] A-028 Frontend type narrowing: no new `as` casts where an `if` guard or discriminated union works
-- [ ] A-029 Tests included: every added/changed behavior has Go, Vitest or Playwright coverage; Playwright tests carry JSDoc Proves/Steps
-- [ ] A-030 No comment narration: comments state constraints, never change IDs or reviewer-addressed narration
-- [ ] A-031 No god functions: new functions stay focused (< ~50 lines without reason)
+- [x] A-025 Pattern consistency: New code follows naming and structural patterns of surrounding code (fabsysconfig helpers, FabRow affordances, palette builders)
+- [x] A-026 No unnecessary duplication: Existing utilities reused (`checkFreeText`, `warningLines`, `ProvenanceChip`, `FabRow`, `openSettings`)
+- [x] A-027 Subprocess discipline: every new fab exec uses `exec.CommandContext` with a timeout via the Runner seam, argv slices only
+- [x] A-028 Frontend type narrowing: no new `as` casts where an `if` guard or discriminated union works
+- [x] A-029 Tests included: every added/changed behavior has Go, Vitest or Playwright coverage; Playwright tests carry JSDoc Proves/Steps
+- [x] A-030 No comment narration: comments state constraints, never change IDs or reviewer-addressed narration
+- [x] A-031 No god functions: new functions stay focused (< ~50 lines without reason)
 
 ### Security
 
-- [ ] A-032 R12: `agent.preset` values are validated (free-text guard + list membership) before reaching any `fab config set` argv
-- [ ] A-033 R3: The legacy/disagreement checks happen before repo derivation or any subprocess
+- [x] A-032 R12: `agent.preset` values are validated (free-text guard + list membership) before reaching any `fab config set` argv
+- [x] A-033 R3: The legacy/disagreement checks happen before repo derivation or any subprocess
 
 ## Notes
 
@@ -280,6 +280,10 @@ A command-palette action `Settings: Agent preset…` (id `settings-agent-preset`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
 - PR evidence (plan Rule 7): `just demo agent-preset-dropdown --before` on desktop + mobile — produced at ship, not by apply
+
+## Deletion Candidates
+
+None — this change adds new functionality without making existing code redundant. The old `isMacroTarget`/`isMacroAction` guards and the `presets` response key were already removed in the diff. The deprecated-alias code it adds (`riffLegacyPresetFlag`/`riffLegacyListPresetsFlag` and `mergeLegacyRiffPresetFlags` in `app/backend/cmd/rk/riff.go`, `LegacyPreset` in `app/backend/api/riff.go`, `storedRiffPreset`'s `preset` branch, `hasLegacyRiffMacro` and `migrateLegacyMacros` in `app/frontend/src/lib/macros.ts`) is intentionally kept for one release. Its removal is tracked by backlog `[for3]`.
 
 ## Assumptions
 
