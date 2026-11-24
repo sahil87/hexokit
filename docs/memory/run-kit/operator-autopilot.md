@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The Go queue engine behind `rk operator autopilot` in `internal/autopilot`: pass-locked queue-only engine file, pane projections in the ledger, derived queue statuses, the X0/X1/Q1–Q5 rule table, readiness (including the merge-auto merged-PR barrier), three-mode spawn where wt fetches and pins the base and its receipt is the record, with per-entry `plain`/`base`, one respawn, completion, and escalations as notes plus notify. PR work belongs to the operator run."
+description: "The Go queue engine behind `rk operator autopilot` in `internal/autopilot`: pass-locked queue-only engine file, pane projections in the ledger, derived statuses, the X0/X1/Q1–Q5 rule table, readiness (merge-auto merged-PR barrier), wt-pinned spawn (the receipt is the record), one respawn, completion, tracking a done merge-auto item's open PR as a `pr-<n>` ledger item, and escalations as notes plus notify. Merging belongs to the operator run."
 ---
 # Operator Autopilot
 
@@ -10,7 +10,7 @@ description: "The Go queue engine behind `rk operator autopilot` in `internal/au
 
 `internal/autopilot` (`app/backend/internal/autopilot`, CLI in `cmd/rk/operator_autopilot.go` and `operator_autopilot_admin.go`) is the operator's deterministic queue engine: the readiness, wt-fetched spawn, one respawn and completion choreography that has exactly one right answer. The engine owns its intent in its own file, `<slug>.autopilot.yaml` beside the operator ledger, written only by `rk operator autopilot` verbs while they hold the pass lock. The ledger ([operator-state](/run-kit/operator-state.md)) holds only **projection items** for engine work: the pane binding and identity a user sees in `track list`, the notes, and the facts `rk operator check` records. Every pass re-derives what to do from the engine file, the projections and facts read from tmux, git and GitHub, then acts. Statuses are derived, never stored; behaviour is a row in one data table. The operator-loop wrapper runs a pass before any model call ([operator-loop](/run-kit/operator-loop.md)), and chat runs the same verbs; the daemon never runs one. An escalation is a `by: run` note on the item's projection plus a notification.
 
-The engine does queue work only. Readying, arming, merging and restacking PRs and fixing red CI or conflicts are the operator run's work; a queue's merge mode shapes how the engine spawns each item and tells the run its merge authority (§ Merge mode).
+The engine does queue work only, plus one read-only tracking step: a done `merge-auto` item's open PR becomes a `github-pr` ledger item the loop can observe (§ Projection items). Readying, arming, merging and restacking PRs and fixing red CI or conflicts are the operator run's work and the engine never acts on a PR; a queue's merge mode shapes how the engine spawns each item and tells the run its merge authority (§ Merge mode).
 
 ## Requirements
 
@@ -22,9 +22,9 @@ The engine does queue work only. Readying, arming, merging and restacking PRs an
 
 ### Requirement: Engine state file
 
-The engine's stored state lives in `<state>/hexokit/operator/<slug>.autopilot.yaml`, derived from `Env.StatePath` the way `<slug>.autopilot.lock` is. It is written with mode `0600` through `internal/fsatomic`, and only by the lock-holding verbs (`queue`, `step`, `stop`, `rm`, `resume`, `pause`); no write path exists outside a held lock, and `--dry-run` writes nothing. The file carries `version: 1`, `migrated` once the one-time move has completed, and one ordered list, `queue`, whose order is execution order. A **queue item** is keyed by `id` and carries `queue` (the queue id), `merge_mode`, `task` | `change` | `bare`, `plain`, `base`, `repo`, `stop_stage`, `depends_on`, `paused`, `spawning`, `respawned`, `skipped`, the spawn binding `pane`/`session`/`branch`/`worktree`, `base_sha` (the commit wt cut the branch from, optional), `spawned_by`, `projected`, `done_at`, `escalated`, `added_at` and `updated_at`.
+The engine's stored state lives in `<state>/hexokit/operator/<slug>.autopilot.yaml`, derived from `Env.StatePath` the way `<slug>.autopilot.lock` is. It is written with mode `0600` through `internal/fsatomic`, and only by the lock-holding verbs (`queue`, `step`, `stop`, `rm`, `resume`, `pause`); no write path exists outside a held lock, and `--dry-run` writes nothing. The file carries `version: 1`, `migrated` once the one-time move has completed, and one ordered list, `queue`, whose order is execution order. A **queue item** is keyed by `id` and carries `queue` (the queue id), `merge_mode`, `task` | `change` | `bare`, `plain`, `base`, `repo`, `stop_stage`, `depends_on`, `paused`, `spawning`, `respawned`, `skipped`, the spawn binding `pane`/`session`/`branch`/`worktree`, `base_sha` (the commit wt cut the branch from, optional), `spawned_by`, `projected`, `pr_tracked`, `done_at`, `escalated`, `added_at` and `updated_at`. `pr_tracked` (omitted when empty) is the marker that a `merge-auto` item's PR was handled: the id of the ledger item that tracks it, or `merged` / `closed` when the PR had already ended and no item was added. It is intent, not a read-back of PR state, and is never copied into a ledger item's scope.
 
-Reads are tolerant in both directions — unknown fields are ignored, an item without `base_sha` loads, and `status --json` never carries the key — and a missing file reads as an empty engine; `status` on a server with no file reports an empty queue and creates nothing. A file that still carries `prs:` or `fixes:` lists, or item keys no longer in the schema, loads without error and the next locked write drops them. Non-monotone facts — PR state, merged, checks — are never stored; they are read fresh every pass. Writes are durable before a verb returns (Constitution II). Engine decisions read a ledger item only for the projection facts below, never its `scope` for anything else. `OwnedIDs` returns queue item ids only, so any other ledger item — a `github-pr` item named `pr-<n>` included — is an ordinary ledger item that `track` verbs and the judgment set treat as such.
+Reads are tolerant in both directions — unknown fields are ignored, an item without `base_sha` loads, and `status --json` never carries the key — and a missing file reads as an empty engine; `status` on a server with no file reports an empty queue and creates nothing. A file that still carries `prs:` or `fixes:` lists, or item keys no longer in the schema, loads without error and the next locked write drops them. Non-monotone facts — PR state, merged, checks — are never stored; they are read fresh every pass (`pr_tracked` records what handled the PR, and no decision reads PR state back from it). Writes are durable before a verb returns (Constitution II). Engine decisions read a ledger item only for the projection facts below, never its `scope` for anything else. `OwnedIDs` returns queue item ids only, so any other ledger item — a `github-pr` item named `pr-<n>` included — is an ordinary ledger item that `track` verbs and the judgment set treat as such.
 
 **One-time move.** Every lock-holding verb runs the migration until it has completed once; the engine file's `migrated: true` marks completion, and from then on a ledger scope key written later (`queue`, `merge_mode`) never creates engine work. The move absorbs ledger `pane` items carrying `scope.queue` or a non-null `scope.merge_mode`; an ordinary pane item with a `depends_on` edge is never absorbed, and a `github-pr` item stays in the ledger untouched whatever its scope. Their engine keys and `depends_on` are copied into the engine file (an id already present keeps the engine file's values), the engine file is written first, then one locked ledger write strips the engine keys, sets `depends_on: []`, and drops a migrated queue item that has no pane and no notes. A crash between the two writes is repaired by the next verb; a ledger with nothing to move writes nothing to it.
 
@@ -40,7 +40,7 @@ Reads are tolerant in both directions — unknown fields are ignored, an item wi
 
 ### Requirement: Projection items
 
-The ledger holds only projections of engine work. A `pane` projection (id = the queue item id) is added when a spawn or respawn attaches a pane, carrying `pane`, `session`, `repo`, `change`, `branch`, `stop_stage`, `spawned_by`, and no engine key, with `depends_on: []`. The engine's view of an item (`engineView`) overlays onto the engine record the pane facts only the check learns (`overlayPaneFacts`): the `change` a raw-task spawn acquired from `/fab-new`, the `stage`, and the branch `branch_map[<change>]` records — `/fab-new` renames the spawn-time branch to the change name, so the engine's own `branch` goes stale and every reader (respawn, cherry-pick sources, status, the projection write-back) takes the view's. After a successful projection write the engine records `projected: true` on its item; a spawned engine item with `projected` unset and no ledger item is re-projected idempotently (row X1). The engine writes nothing to a ledger item except the projection keys and escalation notes. `rk operator check` fields (`reported`, `done_at`, conditions) are facts the engine reads and never writes.
+The ledger holds only projections of engine work. A `pane` projection (id = the queue item id) is added when a spawn or respawn attaches a pane, carrying `pane`, `session`, `repo`, `change`, `branch`, `stop_stage`, `spawned_by`, and no engine key, with `depends_on: []`. The engine's view of an item (`engineView`) overlays onto the engine record the pane facts only the check learns (`overlayPaneFacts`): the `change` a raw-task spawn acquired from `/fab-new`, the `stage`, and the branch `branch_map[<change>]` records — `/fab-new` renames the spawn-time branch to the change name, so the engine's own `branch` goes stale and every reader (respawn, cherry-pick sources, status, the projection write-back) takes the view's. After a successful projection write the engine records `projected: true` on its item; a spawned engine item with `projected` unset and no ledger item is re-projected idempotently (row X1). The engine writes nothing to a ledger item except the projection keys and escalation notes; the one other ledger write is adding a tracked-PR item (below). `rk operator check` fields (`reported`, `done_at`, conditions) are facts the engine reads and never writes.
 
 The engine observes projections as external facts:
 
@@ -49,10 +49,33 @@ The engine observes projections as external facts:
 - **Identity-only** — an escalation on a queue item with no projection yet first adds a `pane` projection with no `pane` key to hold the note; the later spawn binds the pane onto that same item.
 - **Completion** — pane liveness for `spawned`, `dead` and `spawn-unknown` reads the engine file's own binding; completion reads rk's pane map and the projection's `done_at`. An observed completion from either source is cached as `done_at` in the engine file, and Q1's guard keys on the engine file's own `done_at`, never on the overlaid view, so removing a projection after its pane closed never turns a finished item into `dead` or respawns it.
 
+**Tracked PR (`pr-<n>`).** Row Q1's executor adds one `github-pr` ledger item for a done `merge-auto` item whose branch has an open PR. It is built with `operator.NewGitHubPRItem` and then given these values:
+
+- `id: pr-<n>`; `kind: github-pr`; `depends_on: []`; `scope {repo, pr, change, item}` — `repo` is the queue item's repo, `change` its view change (may be empty), `item` the queue item id, which is the run's merge authority ([operator-brief](/run-kit/operator-brief.md) § Merging).
+- Probe `mode: shell`, argv `gh pr view <n> --repo <owner/name> --json state,mergedAt,mergeable,isDraft,mergeStateStatus`, fields `state, mergedAt, mergeable, isDraft, mergeStateStatus`. `--repo` is required because a shell probe runs from the caller's cwd; `owner/name` comes from `gh repo view --json nameWithOwner -q .nameWithOwner` through the engine runner, validated, and cached per repo for the pass. `mergeStateStatus` is the one scalar that moves when required checks turn green; `state`, `mergeable` and `isDraft` do not.
+- `check_every: 5m`, `done_when: state == "MERGED"`, `then: merge-auto: ready and merge this PR when its required checks are green`.
+
+The item is added in one locked ledger write that refuses (`changed externally; skipped`, no marker) when the source queue item left the engine file. If any `github-pr` item already tracks the same `scope.pr` in the same repo (`samePath`), nothing is added and the marker names that item. Otherwise the id is `pr-<n>`; when any ledger or queue item holds it, `pr-<repo base name>-<n>`, then that with `-2`, `-3`, … until free (a ledger item sharing a queue item's id would overlay its facts onto the queue item). After the write the executor sets `pr_tracked` and reports a `pr-tracked` action naming the queue item and the new id; a failed ledger write escalates and leaves the marker unset.
+
+The branch is the engine view's (`itemBranch`), read with `gh pr view <branch> --json number,url,state` in the item's repo. Outcomes: no PR (`no pull requests found`) — nothing happens and Q1 matches again next pass; `MERGED` / `CLOSED` — marker only; `OPEN` — the item above; any other state — nothing, retried. Failures escalate once per reason and leave the marker unset so a later pass retries: `cannot track PR: no repo recorded` / `no branch recorded`, `PR lookup failed: <stderr>`, `PR repo lookup failed: <stderr>` (a failed or malformed `nameWithOwner` read), `PR item not written` (a failed ledger write).
+
+The item is an ordinary ledger item: it is not in the engine file's `queue`, `OwnedIDs`, `QueueEntries` and `status` never list it, `autopilot rm pr-<n>` stays a usage error, and `track` verbs manage it. Because `pr_tracked` is set, a user `track rm` of it is never undone. Only `merge-auto` items are tracked; `cherry-pick-ladder` and `stacked-prs` items record done and read no PR, since merges there are on the user's word.
+
 #### Scenario: Removed projection
 - **GIVEN** a spawned queue item whose projection the user removed with `track rm`
 - **WHEN** a pass runs twice
 - **THEN** one `projection removed: …` escalation is notified on the first pass only, and no projection is re-added
+
+#### Scenario: Tracked PR
+- **GIVEN** a done `merge-auto` queue item `a` on branch `a-branch` whose PR #41 is `OPEN` in `owner/name`
+- **WHEN** `step` runs
+- **THEN** the ledger holds `pr-41` with the probe, `check_every`, `done_when`, `then` and scope above, `a`'s `pr_tracked` is `pr-41`, the result has a `pr-tracked` action for `a`, and a second `step` reads no PR for `a` and adds nothing
+
+#### Scenario: No PR yet, or an ended PR
+- **GIVEN** a done `merge-auto` item whose branch has no PR
+- **WHEN** `step` runs
+- **THEN** nothing is added, no marker is written and nothing is escalated; the next pass reads the PR again and tracks it once it exists
+- **AND** a PR that reads `MERGED` or `CLOSED` adds no item and sets `pr_tracked` to `merged` or `closed`
 
 ### Requirement: Single-writer pass lock
 
@@ -70,7 +93,7 @@ The engine observes projections as external facts:
 3. **Decide** — `decide(state, facts)` is pure (no I/O, no `ctx`) and walks the package-level rule table; at most one decision per item, first matching row in table order, in engine order. Every (merge mode, queue status) has a row or an explicit entry in the wait table; a combination with neither is reported as `unmatched` and never acted on (a table test enumerates every reachable combination).
 4. **Execute** — one executor per typed action (`record-done`, `spawn`, `respawn`, `skip`, `escalate`, `re-project`) in engine order. No action sees another's effect through a status: a successor acts on the next pass. A hard error in one executor does not stop later actions; the errors are joined.
 
-**Executors act on a re-read item.** Before acting, an executor re-reads the engine item and its projection (for paused, removed and done facts) and skips it with `item <id> changed externally; skipped` when it vanished or changed since observe. A non-idempotent action (`spawn`, `respawn`, `skip`, `escalate`) writes its intent to the engine file first (`spawning`; `respawned` with `spawning`; `skipped`; the `escalated` key). An idempotent one (`record-done`, `re-project`) writes nothing the next pass cannot re-derive.
+**Executors act on a re-read item.** Before acting, an executor re-reads the engine item and its projection (for paused, removed and done facts) and skips it with `item <id> changed externally; skipped` when it vanished or changed since observe. A non-idempotent action (`spawn`, `respawn`, `skip`, `escalate`) writes its intent to the engine file first (`spawning`; `respawned` with `spawning`; `skipped`; the `escalated` key). An idempotent one (`record-done`, `re-project`) writes nothing the next pass cannot re-derive; `record-done` writes `done_at` only while it is unset, so a retry pass reports no completion, and its `pr_tracked` marker is an engine-file write with no fingerprint, made only after the ledger item exists.
 
 ### Requirement: Derived statuses
 
@@ -84,13 +107,13 @@ The rule table is the whole of autopilot behaviour. A behaviour is a status case
 |---|---|---|---|
 | X0 | any | engine item `projected: true`, no ledger item, not done, not yet escalated | `escalate` `projection removed: <id>` |
 | X1 | any | engine item has a pane binding, `projected` unset, no ledger item | `re-project` |
-| Q1 | `done` | engine `done_at` unset | `record-done` |
+| Q1 | `done` | engine `done_at` unset, or the item is `merge-auto` and its `pr_tracked` is empty | `record-done` (writes `done_at` when unset, then tracks a `merge-auto` item's PR) |
 | Q2 | `pending` | — | `spawn` (writes `spawning`) |
 | Q3 | `spawn-unknown` | not yet escalated | `escalate` `spawn interrupted: …` |
 | Q4 | `dead` | respawn unspent | `respawn` (writes `respawned` and `spawning`) |
 | Q5 | `dead` | respawn spent | `skip` (writes `skipped`, then escalates) |
 
-Every other status is an explicit wait: `done` once recorded, `paused`, `skipped`, `held`, `spawn-unknown` after Q3, and `spawned` (the agent is working; no age or queue-duration condition escalates it — stuck agents surface through `operator.Check`'s `agent_aged`, [operator-state](/run-kit/operator-state.md)).
+Q1's guard reads only the engine item, so `decide` stays pure; it fires again on a done `merge-auto` item until its PR is handled, which is how a PR that does not exist yet is retried. Every other status is an explicit wait: `done` once recorded (and, for a `merge-auto` item, its PR tracked), `paused`, `skipped`, `held`, `spawn-unknown` after Q3, and `spawned` (the agent is working; no age or queue-duration condition escalates it — stuck agents surface through `operator.Check`'s `agent_aged`, [operator-state](/run-kit/operator-state.md)).
 
 **Escalate-once** rows (X0, Q3) guard on and write the engine item's `escalated` map keyed by reason. A persisting condition decides an explicit `wait` on later passes and appears in `StepResult.Escalations` only on its first sighting. Note text is written for humans and the brief but never read by an engine decision.
 
@@ -98,7 +121,7 @@ Every other status is an explicit wait: `done` once recorded, `paused`, `skipped
 
 An `escalate` action, on the first sighting of its dedupe key only, appends a note `by: run` with text `escalated: <reason>` (capped at `operator.NoteTextCap`) to the item's projection and sends a fail-silent notification through `Env.Notify` (title = the item id, or `autopilot` for an item-less escalation; body = the reason). Notes are always `by: run`; there is no `--by` flag on `queue` or `step`. An escalation with no ledger item able to hold it (item `""`, or a removed projection) is notify plus `StepResult.Escalations` only. The dedupe map lives on the engine item, so a note and its key never land on an item that changed since observe. `StepResult.Escalations` remains for CLI output and for the wrapper's judgment set ([operator-loop](/run-kit/operator-loop.md)).
 
-A `step` pass reports its decided actions in engine order: `spawned`, `respawned`, `cherry-picked`, `paused`, `done`, `removed`, `resumed`, and escalations.
+A `step` pass reports its decided actions in engine order: `spawned`, `respawned`, `cherry-picked`, `paused`, `done`, `pr-tracked`, `removed`, `resumed`, and escalations. `pr-tracked` is reported only when a ledger item exists, new or already tracking the PR.
 
 ### Requirement: Queue
 
@@ -175,7 +198,7 @@ For each `pending`, unpaused queue item in queue order the engine:
 
 ### Requirement: Merge mode
 
-A queue's merge mode (`cherry-pick-ladder`, `stacked-prs`, `merge-auto`) has two halves. It shapes **spawn** (§ Spawn: ladder cherry-pick, stacked base with `set-base-branch`, merge-auto unchained with the merged-PR barrier), and it tells the **operator run** its merge authority: `merge-auto` means merge green PRs without asking; the other two mean merge only on the user's word. The engine acts on the first half only. The setting description in `operator.merge_mode` states both halves ([configuration](/run-kit/configuration.md)).
+A queue's merge mode (`cherry-pick-ladder`, `stacked-prs`, `merge-auto`) has two halves. It shapes **spawn** (§ Spawn: ladder cherry-pick, stacked base with `set-base-branch`, merge-auto unchained with the merged-PR barrier), and it tells the **operator run** its merge authority: `merge-auto` means merge green PRs without asking; the other two mean merge only on the user's word. The engine acts on the first half only, with one read-only addition under `merge-auto`: it tracks each shipped item's PR as a `pr-<n>` ledger item (§ Projection items) so the run is woken to merge it and the successor's barrier is re-evaluated when it merges; it never readies or merges. The setting description in `operator.merge_mode` states both halves ([configuration](/run-kit/configuration.md)).
 
 ### Requirement: Status
 
@@ -183,7 +206,7 @@ A queue's merge mode (`cherry-pick-ladder`, `stacked-prs`, `merge-auto`) has two
 
 ### Requirement: Out of scope
 
-- Readying, arming, merging, restacking and rebasing PRs, CI-fix and conflict recovery, and fix items do not exist in the engine, behind a flag or otherwise; the operator run does that work.
+- Readying, arming, merging, restacking and rebasing PRs, CI-fix and conflict recovery, and fix items do not exist in the engine, behind a flag or otherwise; the operator run does that work. The engine's only PR calls are the reads `gh pr view` and `gh repo view`.
 - Daemon-driven passes and MCP tools for the verbs do not exist; the pass runs in the run wrapper and in CLI verbs.
 - Hardening against hand edits of the engine file is out of scope: the file has one writer by contract.
 - No code in the engine claims, leases or compare-and-sets work: the pass lock and `spawning` marker are the whole concurrency model, and pane identity is recorded only by the spawn's attach write.
@@ -191,10 +214,16 @@ A queue's merge mode (`cherry-pick-ladder`, `stacked-prs`, `merge-auto`) has two
 ## Design Decisions
 
 ### PR work returned to the operator
-**Decision**: The engine keeps only queue work (X0, X1, Q1–Q5: readiness, wt-pinned spawn with the three modes' chaining, one respawn, completion). Readying, arming, merging, restacking, CI-fix and conflict recovery belong to the operator run; a merge mode keeps shaping spawn and becomes the run's merge authority. The deleted PR half is recoverable only from git history.
+**Decision**: The engine keeps only queue work (X0, X1, Q1–Q5: readiness, wt-pinned spawn with the three modes' chaining, one respawn, completion, and the read-only tracking of a `merge-auto` item's PR). Readying, arming, merging, restacking, CI-fix and conflict recovery belong to the operator run; a merge mode keeps shaping spawn and becomes the run's merge authority. The deleted PR half is recoverable only from git history.
 **Why**: The PR rows never armed a PR on gh 2.103 (`autoMergeAllowed` is not a field there), and their escalations became model runs that could only re-explain them. The PR half has the widest outcome space (conflicts, red CI, retargets), which is where judgment pays; the queue half has one right answer, and keeping it in Go is what makes "item done → next starts" free. With both halves active, the engine and a run would also fight over the same PRs once the run holds merge authority (`fab/plans/sahil/26-11-20-operator-triggers.md`).
 **Rejected**: Fixing `autoMergeAllowed` in place and keeping the table — keeps the widest outcome space in fixed rows; keeping the executors behind a flag or dormant path — the plan's Rule 7, deleting code is the point; slow-stage and queue-open escalations — noise with no action behind them, since `operator.Check` already reports stuck agents.
 *Introduced by*: 261120-7uqm-engine-rescope-pr-work-to-operator
+
+### merge-auto tracks, the run merges
+**Decision**: When a `merge-auto` queue item is done, Q1 `record-done` projects its branch's open PR as an ordinary `github-pr` ledger item `pr-<n>` (`then: merge-auto …`, `scope.item` = the queue item, `done_when: state == "MERGED"`, `check_every 5m`), retrying each pass until the PR exists, and records `pr_tracked` in the engine file. The engine never readies or merges; the item's `changed` / `done` deltas launch the run that merges it, and its MERGED fire runs the pass that spawns the successor. `cherry-pick-ladder` and `stacked-prs` items project nothing.
+**Why**: With the PR rows gone, nothing tracked a shipped item's PR: a queue item's `done` is not judgment and a done pane yields no further edge, so no run merged the green PR, and a merge is not an edge, so the successor's barrier waited for an unrelated fire. A `github-pr` ledger item is the existing way to make a PR observable, and its deltas are already judgment, so one projected item closes both holes with no change to the loop. Tracking is a read, so it keeps the engine out of PR action. The probe adds `mergeStateStatus` because it is the one scalar that moves when required checks turn green, and `scope.item` ties the merge authority to the queue item's mode instead of the editable `then` text.
+**Rejected**: Restoring Q7 and the P rows (contradicts "PR work returned to the operator"); making a queue item's `done` a judgment reason (one shot, and a merge still is not an edge); a per-PR `gh pr checks --watch` (rejected by the plan's PR-trigger decision); storing the PR state in the engine file (non-monotone facts are read fresh).
+*Introduced by*: 261124-au93-merge-auto-projects-shipped-pr
 
 ### merge-auto barrier reads the dependency's PR directly
 **Decision**: A merge-auto successor waits until its dependency is done and the dependency branch's PR reads `MERGED` via `gh pr view <branch> --json url,state` in the dependency's repo, a per-pass fact beside the PR-exists read; the read reuses the engine's `viewPR` and `noPRFound` helpers.
