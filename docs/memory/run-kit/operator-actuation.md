@@ -384,9 +384,9 @@ non-empty `AgentSessionRef` whose `transcript.Path` resolves fills
 agent session) leaves it empty and delivery proceeds — no transcript-related
 404 is reachable on this path (the load-bearing difference from the
 `requiresAgentSessionRef` templates, whose 404-class behavior is unchanged).
-The one such template, `user-message`, renders no transcript line whether or
-not the fill succeeded (its requirement below); the fill is shared plumbing
-the render simply does not consume.
+The `user-message` template renders no transcript line. For `fix-tab-name`,
+an empty transcript path requires a live agent pane. If neither source is
+available, delivery returns 404.
 
 Resolution spans six provider adapters — every registered provider except
 copilot, which deliberately has none (identity + lifecycle only, so its
@@ -508,11 +508,12 @@ the SSE hub: rk mutated no tmux state, and the operator's later actuation (e.g.
 
 ### Requirement: The `fix-tab-name` template
 The registry's `fix-tab-name` entry SHALL declare
-`requiresAgentSessionRef: true` and render a self-contained prompt (the
-operator needs no rk-specific knowledge) that names the subject by `@N` (an id
-that survives moves and is collision-proof vs name targets), hands the operator
-the transcript path to read (the session JSONL, never capture-pane — agent TUIs
-run alt-screen with zero scrollback), gives the worktree and — only when
+`requiresAgentContext: true` and render a self-contained prompt that names
+the subject by stable window ID `@N`. The prompt gives the operator the
+transcript path when available. Otherwise it names the resolved agent pane
+for a bounded `tmux capture-pane` read of its visible output and asks the
+operator to leave the name alone if the available context is inconclusive.
+The prompt gives the worktree and, only when
 `FabChange` is non-empty — the fab change + stage context, names the exact
 actuation command
 (`tmux rename-window -t {windowId} "<new-name>"`, 2-4 words, kebab-case
@@ -541,7 +542,8 @@ rolled-up `AgentState` and detects the per-window transition **busy → idle**
 a `""`→`idle` tick is not a transition). A candidate SHALL be dropped unless
 ALL hold, derived from the same tick's snapshot with NO second `FetchSessions`:
 the server HAS an operator window (`Role == "operator"`), the subject is NOT
-the operator window, and the subject carries a non-empty `AgentSessionRef`.
+the operator window, and the subject carries an agent session ref or a live
+agent pane.
 Rate
 limits: a 15-minute per-window cooldown (`autoNameCooldown`), a 60-second
 per-server min-gap (`autoNameMinGap` — the operator's `AgentState` lags a
@@ -929,36 +931,19 @@ quake terminal's lane fork, subject resolution, and context chip are documented 
   in shape and delivery still proceeds — no 404.
 
 ### Requirement: Frontend availability — degrade to ABSENT, never disabled
-The window-scoped operator affordances — the flyout's `FixTabNameActionRow`
-([ui/status-signals](/run-kit/ui/status-signals.md) § Row-hover register flyout
-card) and the palette's `Tab: Fix name (ask operator)` / `Operator: Annotate
-tab` entries
-([ui/keyboard-and-palette](/run-kit/ui/keyboard-and-palette.md) § Command
-Palette Actions) — SHALL render only when (a) the server has an operator window
-(`role === "operator"` present in the sessions payload), (b) the subject
-window's server-derived `conversationAvailable` capability is `true` — a
-`WindowInfo` field derived once per identified window per fetch (the window
-rollup seam, never per-pane): the window's rolled-up reconciled agent identity
-is present AND its provider has a registered transcript adapter AND the
-provider's bounded availability check succeeds (opencode answers through a
-cheap `ConversationChecker` probe — a well-formed native ref plus `opencode`
-on PATH; every other provider resolves for real via its bounded glob/index
-lookup; every failure class — absent identity, unregistered provider, invalid
-ref, missing transcript — degrades to `false`, and the derive tick never
-spawns a subprocess) (nnqu),
-and (c) the subject is not itself the operator window (the pure
-`canRequestWindowOperatorAction(win, hasOperator)` rule in
-`row-flyout-card.tsx`, ONE predicate serving both actions). All
-three facts already ride the sessions payload; an unavailable action is
-OMITTED, never disabled. An identity-only provider (copilot — identity +
-lifecycle, no transcript adapter) never advertises Fix tab name / Annotate
-tab, and a direct POST against such a subject still surfaces the
-`ErrNoAdapter` 404 naming the provider (the fact pre-derivation requirement
-above); request-time revalidation in the POST handler and fresh-`FetchSessions`
-revalidation at queue drain are the backstops behind the gate (nnqu). The window flyout card carries NO annotate row — the
-`annotate-tab` verb is palette-only (the palette is the action registry of
-record, Constitution V); the card keeps only the note DISPLAY line
-(`NoteLine`). The fix-name and annotate client call is
+The flyout’s Fix tab name and the palette’s `Tab: Fix name (ask operator)`
+use `canFixTabName(win, hasOperator)`. Both require an operator window on
+the server and a subject with a reconciled agent provider or lifecycle
+state. The subject must be a different window from the operator.
+
+The palette’s `Operator: Annotate tab` uses
+`canRequestWindowOperatorAction(win, hasOperator)` and requires a readable
+conversation. The server derives `conversationAvailable` once per identified
+window per fetch using the provider’s bounded transcript lookup or its cheap
+`ConversationChecker` probe. Delivery checks the required context again at
+request time and when draining the queue. The flyout displays the note through
+`NoteLine`.
+The fix-name and annotate client call is
 `sendOperatorRequest(server, windowId, template)` (`api/client.ts` — the
 `withServer` + `throwOnError` shape, so the structured 409/404 messages surface
 as the thrown Error's message), fired once per click cycle behind the row's
@@ -1004,14 +989,13 @@ inspect/cancel affordance (Constitution IV) — and no SSE payload change.
 
 #### Scenario: Gating and single-flight
 - **GIVEN** a window row on a server with an operator and a subject whose
-  `conversationAvailable` is `true`
+  agent session identity or lifecycle is known
 - **WHEN** the flyout opens and "Fix tab name" is clicked
 - **THEN** exactly one `sendOperatorRequest` fires (re-clicks during flight are
   no-ops) and a success toast appears.
 - **AND GIVEN** no operator on the server, OR a subject whose
-  `conversationAvailable` is `false` (no reconciled identity, no registered
-  adapter, or a failed availability check), OR the operator's own row, **THEN**
-  the row and the palette entry are absent (not disabled).
+  agent session identity and lifecycle are both unknown, OR the operator’s
+  own row, **THEN** the row and the palette entry are absent.
 - **AND GIVEN** no operator on the server, **THEN** neither
   update-annotations fire surface renders (omitted, not disabled).
 - **AND GIVEN** a busy operator and a tap on "Fix tab name", **WHEN** the

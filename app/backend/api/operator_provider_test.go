@@ -13,13 +13,6 @@ import (
 	"rk/internal/tmux"
 )
 
-// operator_provider_test.go — cross-provider compatibility for the shared
-// identity/transcript seam: a codex subject is treated exactly like claude by
-// the operator-request path (render carries the resolved rollout path), an
-// identity-only provider (copilot) keeps the honest 404-class no-adapter
-// error, and the server fact tables / auto-name eligibility stay
-// provider-neutral.
-
 const testCodexRef = "01a06319-6a63-7791-84df-86736cd58e2e"
 
 // stageCodexTranscript writes a fixture rollout under an isolated $CODEX_HOME.
@@ -54,8 +47,7 @@ func codexOperatorSessions() []sessions.ProjectSession {
 }
 
 // TestOperatorRequestCodexSubject: the fix-tab-name request for a codex
-// subject resolves the codex rollout and delivers a prompt carrying its path —
-// no provider-adapter error.
+// subject resolves the codex rollout and delivers a prompt carrying its path.
 func TestOperatorRequestCodexSubject(t *testing.T) {
 	rollout := stageCodexTranscript(t, testCodexRef)
 	stageFixtureTranscript(t, testTranscriptRef) // the operator's own transcript seam
@@ -74,36 +66,39 @@ func TestOperatorRequestCodexSubject(t *testing.T) {
 	if !strings.Contains(ops.setAgentBufferText, rollout) {
 		t.Errorf("delivered prompt must carry the codex rollout path %q, got: %s", rollout, ops.setAgentBufferText)
 	}
+	if strings.Contains(ops.setAgentBufferText, "capture-pane") {
+		t.Errorf("prompt used pane capture despite a readable transcript: %s", ops.setAgentBufferText)
+	}
 }
 
-// TestOperatorRequestCopilotSubjectNoAdapter: an identity-only provider
-// (copilot has hooks but no transcript adapter) keeps the honest 404-class
-// no-adapter error — never a fabricated path, never a 500.
-func TestOperatorRequestCopilotSubjectNoAdapter(t *testing.T) {
+func TestOperatorRequestCopilotSubjectUsesAgentPane(t *testing.T) {
+	fastAgentSendProbe(t)
 	sf := &mockSessionFetcher{result: []sessions.ProjectSession{
 		{Name: "s", Windows: []tmux.WindowInfo{
 			{WindowID: "@1", Name: "copilot", AgentProvider: "copilot", AgentSessionRef: "0dd0cf59-31dd-4565-9973-3b34f665b354",
-				Panes: []tmux.PaneInfo{{PaneID: "%1", IsActive: true, AgentProvider: "copilot", AgentSessionRef: "0dd0cf59-31dd-4565-9973-3b34f665b354"}}},
+				Panes: []tmux.PaneInfo{
+					{PaneID: "%2", IsActive: true},
+					{PaneID: "%1", AgentProvider: "copilot", AgentSessionRef: "0dd0cf59-31dd-4565-9973-3b34f665b354", AltScreen: true},
+				}},
 		}},
 		{Name: "_rk-operator", Windows: []tmux.WindowInfo{
 			{WindowID: "@9", Role: "operator", AgentState: "idle",
 				Panes: []tmux.PaneInfo{{PaneID: "%9", IsActive: true, AgentProvider: "claude", AgentSessionRef: testTranscriptRef}}},
 		}},
 	}}
-	ops := &mockTmuxOps{}
+	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]", "working"}}
 	router := NewTestRouter(slog.Default(), sf, ops, "host")
 
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, operatorReq(`{"template":"fix-tab-name"}`))
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	// The JSON-encoded body escapes the quotes around the provider name.
-	if !strings.Contains(rec.Body.String(), "no adapter for provider") || !strings.Contains(rec.Body.String(), "copilot") {
-		t.Errorf("404 body = %s, want the no-adapter message naming copilot", rec.Body.String())
+	if !strings.Contains(ops.setAgentBufferText, "tmux capture-pane -p -t %1 -S -30") {
+		t.Errorf("prompt must target the agent pane in the split: %s", ops.setAgentBufferText)
 	}
-	if len(ops.agentSendCalls) != 0 {
-		t.Errorf("injection ran (%v) for an identity-only provider", ops.agentSendCalls)
+	if ops.pasteAgentPaneID != "%9" {
+		t.Errorf("prompt delivered to %q, want operator pane %%9", ops.pasteAgentPaneID)
 	}
 }
 

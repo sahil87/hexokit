@@ -312,9 +312,11 @@ func TestOperatorQueueWiring(t *testing.T) {
 
 func TestOperatorQueueDeliveryRendersFromFreshSnapshot(t *testing.T) {
 	fastAgentSendProbe(t)
-	stageFixtureTranscript(t, testTranscriptRef)
 	fresh := operatorSessions(tmux.AgentStateIdle)
-	fresh[0].Windows[0].Name = "fresh-name"
+	subject := &fresh[0].Windows[0]
+	subject.Name = "fresh-name"
+	subject.AgentProvider, subject.AgentSessionRef = "", ""
+	subject.Panes = []tmux.PaneInfo{{PaneID: "%3", AgentState: tmux.AgentStateIdle}}
 	fetcher := &operatorQueueSessionFetcher{result: fresh}
 	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]", "working"}}
 	server := &Server{logger: slog.Default(), sessions: fetcher, tmux: ops, hostname: "host"}
@@ -330,7 +332,8 @@ func TestOperatorQueueDeliveryRendersFromFreshSnapshot(t *testing.T) {
 	if got := fetcher.callCount(); got != 1 {
 		t.Fatalf("fresh fetch calls = %d, want 1", got)
 	}
-	if !strings.Contains(ops.setAgentBufferText, `currently "fresh-name"`) {
+	if !strings.Contains(ops.setAgentBufferText, `currently "fresh-name"`) ||
+		!strings.Contains(ops.setAgentBufferText, "tmux capture-pane -p -t %3 -S -30") {
 		t.Fatalf("prompt did not use fresh snapshot facts:\n%s", ops.setAgentBufferText)
 	}
 	if strings.Contains(ops.setAgentBufferText, "tick-name") {
@@ -366,11 +369,15 @@ func TestOperatorQueueDeliveryRevalidatesGates(t *testing.T) {
 		}
 	})
 
-	t.Run("agent session ref broke", func(t *testing.T) {
+	t.Run("subject lost agent context", func(t *testing.T) {
 		snapshot := operatorSessions(tmux.AgentStateIdle)
-		snapshot[0].Windows[0].AgentSessionRef = ""
-		if err := deliver(snapshot, queuedOperatorRequest{template: "fix-tab-name", windowID: "@1"}); err == nil {
-			t.Fatal("sessionless subject was delivered")
+		subject := &snapshot[0].Windows[0]
+		subject.AgentProvider, subject.AgentSessionRef = "", ""
+		subject.Panes = []tmux.PaneInfo{{PaneID: "%1"}}
+		err := deliver(snapshot, queuedOperatorRequest{template: "fix-tab-name", windowID: "@1"})
+		var rejection *operatorReject
+		if !errors.As(err, &rejection) || rejection.msg != "no agent pane or transcript for this window" {
+			t.Fatalf("want an agent context rejection, got %v", err)
 		}
 	})
 

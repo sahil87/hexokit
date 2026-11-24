@@ -267,8 +267,8 @@ export type WindowInfo = {
   /** Window-level rollup of the panes' `@rk_pane_agent_session` pane option
    *  (active-pane-first, else first pane) — the window's agent session
    *  identity. `agentProvider` is the routing key (e.g. `claude`) and the
-   *  gate for the fork action; `agentSessionRef` is the provider session id
-   *  (the operator-action gate). Both are emitted by the backend on every
+   *  gate for the fork action; `agentSessionRef` is the provider session id.
+   *  Both are emitted by the backend on every
    *  `/api/sessions` response and SSE `sessions` event (rollupAgentSession,
    *  internal/sessions/sessions.go). Empty/absent = no agent session for this
    *  window. */
@@ -277,11 +277,8 @@ export type WindowInfo = {
   /** Server-derived conversation-access capability (deriveConversationAvailable,
    *  internal/sessions): true when the window's reconciled agent identity
    *  resolves to a readable conversation — the provider has a transcript
-   *  adapter AND the bounded lookup succeeded. This is the gate for the
-   *  transcript-backed operator actions (Fix tab name / Annotate tab) in both
-   *  the flyout and the palette, so identity-only providers (no transcript
-   *  adapter) never advertise an action that would predictably 404. Absent =
-   *  false. */
+   *  adapter and a successful availability check. Annotate tab requires this
+   *  capability. Absent = false. */
   conversationAvailable?: boolean;
   /** True when the ACTIVE pane's application is on tmux's alternate screen
    *  (rollup of the pane's `alternate_on`, derived server-side in
