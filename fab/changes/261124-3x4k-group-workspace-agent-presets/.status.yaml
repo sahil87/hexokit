@@ -7,15 +7,15 @@ issues: []
 progress:
     intake: done
     apply: done
-    review: active
-    hydrate: pending
+    review: done
+    hydrate: active
     ship: pending
     review-pr: pending
 plan:
     generated: true
     task_count: 21
     acceptance_count: 29
-    acceptance_completed: 0
+    acceptance_completed: 29
 confidence:
     certain: 8
     confident: 12
@@ -30,25 +30,26 @@ confidence:
         disambiguation: 74.0
 stage_metrics:
     intake: {started_at: "2026-11-24T05:54:42Z", driver: fab-new, iterations: 1, completed_at: "2026-11-24T06:03:24Z"}
-    apply: {started_at: "2026-11-24T06:03:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T06:37:16Z"}
-    review: {started_at: "2026-11-24T06:37:16Z", driver: fab-fff, iterations: 1}
+    apply: {started_at: "2026-11-24T06:43:36Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-24T06:48:22Z"}
+    review: {started_at: "2026-11-24T06:48:22Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-24T06:52:24Z"}
+    hydrate: {started_at: "2026-11-24T06:52:24Z", driver: fab-fff, iterations: 1}
 prs: []
 change_type_source: explicit
 base_branch: 261124-m39n-riff-preset-rename-agent-preset-dropdown
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 4110
+    deleted: 164
+    net: 3946
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 3531
+        deleted: 160
+        net: 3371
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-11-24T06:37:16Z"
+        added: 1858
+        deleted: 51
+        net: 1807
+    computed_at: "2026-11-24T06:48:22Z"
     computed_at_stage: apply
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-24T06:37:16Z
+last_updated: 2026-11-24T06:52:24Z

@@ -5,7 +5,7 @@ import { controlClass } from "@/components/control";
 import { INPUT_COARSE, INPUT_FOCUS } from "@/components/controls";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { finalizeSafeName, toSafeWorktreeName } from "@/lib/names";
-import { rememberRepoAgentPresets } from "@/lib/agent-presets";
+import { NO_AGENT_PRESET, rememberRepoAgentPresets } from "@/lib/agent-presets";
 
 type SpawnAgentDialogProps = {
   /** The target tmux server — the server that OWNS the target session. Supplied
@@ -27,9 +27,6 @@ type SpawnAgentDialogProps = {
  *  mockup's `Agent [ default ▾ ]`. Selecting it yields a byte-identical launcher
  *  to the shipped (tier-less) path. */
 const DEFAULT_TIER = "default";
-
-/** fab's reserved agent-preset name for "no preset, even the machine default". */
-const NO_AGENT_PRESET = "none";
 
 /** The inherit option's label: the group's/workspace's preset when one is set,
  *  else the machine setting. */

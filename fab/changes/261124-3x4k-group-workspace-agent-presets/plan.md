@@ -173,7 +173,7 @@ Memory files (`rk-riff`, `tmux-sessions` registry, `layout-snapshots`, `api-and-
 ### Phase 1: Setup
 
 - [x] T001 [P] Add `ValidateAgentPresetName` to `app/backend/internal/validate/validate.go` (delegating to `ValidateIdentifier(name, "Agent preset name")`) with table tests in `validate_test.go` <!-- R3 -->
-- [x] T002 [P] Extract a repo-scoped preset reader from `listPresets` in `app/backend/internal/fabsysconfig/fabsysconfig.go` — e.g. exported `ListAgentPresets(ctx, dir string) ([]AgentPreset, error)` used by both the existing `Client` path (`Dir=$HOME`) and new callers, plus a `PresetNames`/membership helper that accepts reserved `none`; keep H1 behavior and tests green; add tests for dir-scoped decode and older-fab error <!-- R4 -->
+- [x] T002 [P] Extract a repo-scoped preset reader from `listPresets` in `app/backend/internal/fabsysconfig/fabsysconfig.go` — e.g. exported `ListAgentPresets(ctx, dir string) ([]AgentPreset, error)` used by both the existing `Client` path (`Dir=$HOME`) and new callers, plus a `PresetNames`/membership helper that accepts reserved `none`; keep H1 behavior and tests green; add tests for dir-scoped decode and older-fab error <!-- R4 --> <!-- rework: delete now-unused presetList.names() (zero call sites) -->
 - [x] T003 Add `SessionAgentPresetOption`/`ServerAgentPresetOption` constants and `SetSessionAgentPreset`/`UnsetSessionAgentPreset`/`SetServerAgentPreset`/`UnsetServerAgentPreset` plus a spawn-time getter (reading both values for a server+session, CLI path supported via the caller's `$TMUX`) in `app/backend/internal/tmux/tmux.go`; unit tests for argv builders <!-- R1 -->
 
 ### Phase 2: Core Implementation
@@ -192,7 +192,7 @@ Memory files (`rk-riff`, `tmux-sessions` registry, `layout-snapshots`, `api-and-
 - [x] T012 Operator: `internal/operatorloop/runner.go` `openRunWindow` resolves the ladder for `_rk-operator` on the server, passes it to `resolveLauncherFn`, and `tmux.LaunchOperatorRunWindow`/`buildRunWindowArgs` (`internal/tmux/operator_run.go`) gain an env list emitting `-e` only when non-empty; `cmd/rk/operator.go` chat window does the same; tests including unchanged-when-unset for `buildRunWindowArgs` <!-- R8, R10 -->
 - [x] T013 Snapshots: `Session.AgentPreset` (`json:"agentPreset,omitempty"`) via the layout session read (`tmux.ListLayoutSessions` format/`LayoutSession`), `Snapshot.ServerAgentPreset` read best-effort, restore re-applies both via new `restoreOps` setters with report notes on failure; round-trip and old-snapshot tests in `internal/snapshot` <!-- R16 -->
 - [x] T014 Frontend API/types: `src/types.ts` `ProjectSession.agentPreset` mapped from `agent_preset` (follow `sessionColor`/`flair` mapping), `ServerInfo.agent_preset`, `getRiffPresets` returning `agentPresets`/`agentPresetInherited`, `spawnRiff` `agentPreset` → body `agent_preset`, `setSessionAgentPreset`/`setServerAgentPreset` in `src/api/client.ts`; client tests <!-- R2, R5, R12 -->
-- [x] T015 Spawn dialog "Agent preset" field in `src/components/spawn-agent-dialog.tsx` with Vitest coverage (inherit labels, hidden without presets, sends only on explicit pick, `none` option) <!-- R13 -->
+- [x] T015 Spawn dialog "Agent preset" field in `src/components/spawn-agent-dialog.tsx` with Vitest coverage (inherit labels, hidden without presets, sends only on explicit pick, `none` option) <!-- R13 --> <!-- rework: import NO_AGENT_PRESET from lib/agent-presets.ts instead of redefining it -->
 - [x] T016 Card lines in `src/components/sidebar/row-flyout-card.tsx` (session card) and `src/components/sidebar/server-card.tsx` (`ServerCardContent`), unknown marker + "Clear agent preset" action row, `none (no preset)`; Vitest coverage <!-- R14 -->
 - [x] T017 Palette actions `Group: Set/Clear Agent Preset` and `Workspace: Set/Clear Agent Preset` in `src/app.tsx` / `src/hooks/use-global-palette-actions.ts` using the existing chooser pattern; Vitest coverage <!-- R15 -->
 
@@ -200,7 +200,7 @@ Memory files (`rk-riff`, `tmux-sessions` registry, `layout-snapshots`, `api-and-
 
 - [x] T018 Playwright: extend `tests/e2e/spawn-agent.spec.ts` (stub `agent_presets` + `agent_preset_inherited`; field and inherit label; submitted body) and add palette set/clear coverage (new or existing spec), each `test()` with JSDoc Proves/Steps and file header per Constitution <!-- R13, R15 -->
 - [x] T019 Demo spec `app/frontend/tests/demo/group-agent-preset.demo.ts`: set a group preset via palette, show the card line, open the spawn dialog showing `Group default: …`; run it once via `just demo group-agent-preset --desktop-only` to confirm it records (full `--before` desktop+mobile recording happens at ship) <!-- R13, R14, R15 -->
-- [x] T020 Docs in apply: `docs/specs/ui-state.md` option inventory; `rk skill` bundle (`app/backend/cmd/rk/skill/*.md` page documenting `rk riff`) `--agent-preset`; one line in `app/backend/cmd/rk/skill/operator.md`; help-dump fixtures/tests (`cmd/rk/help_dump_test.go`, `app/frontend/tests/e2e/help-topics.spec.ts` if covering `rk riff`) <!-- R17 -->
+- [x] T020 Docs in apply: `docs/specs/ui-state.md` option inventory; `rk skill` bundle (`app/backend/cmd/rk/skill/*.md` page documenting `rk riff`) `--agent-preset`; one line in `app/backend/cmd/rk/skill/operator.md`; help-dump fixtures/tests (`cmd/rk/help_dump_test.go`, `app/frontend/tests/e2e/help-topics.spec.ts` if covering `rk riff`) <!-- R17 --> <!-- rework: add an Agent presets subsection to docs/site/workflows.md mirroring rk riff --help -->
 - [x] T021 Run gates: `just test-backend`, `just test-frontend`, `cd app/frontend && npx tsc --noEmit`, the touched e2e specs via `just test-e2e "<spec>"`, and `just build`; fix failures <!-- R8 -->
 
 ## Execution Order
@@ -215,56 +215,61 @@ Memory files (`rk-riff`, `tmux-sessions` registry, `layout-snapshots`, `api-and-
 
 ### Functional Completeness
 
-- [ ] A-001 R1: Both option constants exist with set/unset helpers in `internal/tmux`, wired through `TmuxOps`
-- [ ] A-002 R2: Sessions SSE carries `agent_preset` per session and `GET /api/servers` carries `agent_preset` per server, both omitted when unset, with no extra tmux exec for servers
-- [ ] A-003 R3: `ValidateAgentPresetName` exists and runs before any subprocess on every surface that accepts a name
-- [ ] A-004 R4: One shared decoder for `fab agent presets --json` serves both the machine-wide and repo-scoped reads
-- [ ] A-005 R5: Both POST routes set/clear their option, validate membership in the right scope, accept `none`, and write nothing on 400
-- [ ] A-006 R6: The engine resolves explicit > session option > server option > nothing, once per spawn
-- [ ] A-007 R7: With a name, the fab exec env carries `FAB_AGENT_PRESET=<name>` and `new-window` plus each `split-window` carry `-e FAB_AGENT_PRESET=<name>`
-- [ ] A-008 R10: Web UI, `rk riff`, autopilot (incl. skill prefix), operator run and `rk operator` chat all use the ladder
-- [ ] A-009 R11: `POST /api/riff` `agent_preset` and `rk riff --agent-preset` validate charset and membership before creating anything
-- [ ] A-010 R12: `GET /api/riff/presets` returns `agent_presets` (omitted on fab failure) and `agent_preset_inherited`
-- [ ] A-011 R13: The dialog's Agent preset field shows the inherit label, preset options and `none`, hides without presets, and sends `agent_preset` only on explicit pick
-- [ ] A-012 R14: Session flyout and server card show the preset line, `(unknown)` with a clear action, and `none (no preset)`
-- [ ] A-013 R15: The four palette actions exist, with Clear shown only when set and Set hidden without presets
-- [ ] A-014 R16: Snapshots capture and restore both options
-- [ ] A-015 R17: `ui-state.md`, the `rk skill` pages, and help-dump fixtures document the options and `--agent-preset`
+- [x] A-001 R1: Both option constants exist with set/unset helpers in `internal/tmux`, wired through `TmuxOps`
+- [x] A-002 R2: Sessions SSE carries `agent_preset` per session and `GET /api/servers` carries `agent_preset` per server, both omitted when unset, with no extra tmux exec for servers
+- [x] A-003 R3: `ValidateAgentPresetName` exists and runs before any subprocess on every surface that accepts a name
+- [x] A-004 R4: One shared decoder for `fab agent presets --json` serves both the machine-wide and repo-scoped reads
+- [x] A-005 R5: Both POST routes set/clear their option, validate membership in the right scope, accept `none`, and write nothing on 400
+- [x] A-006 R6: The engine resolves explicit > session option > server option > nothing, once per spawn
+- [x] A-007 R7: With a name, the fab exec env carries `FAB_AGENT_PRESET=<name>` and `new-window` plus each `split-window` carry `-e FAB_AGENT_PRESET=<name>`
+- [x] A-008 R10: Web UI, `rk riff`, autopilot (incl. skill prefix), operator run and `rk operator` chat all use the ladder
+- [x] A-009 R11: `POST /api/riff` `agent_preset` and `rk riff --agent-preset` validate charset and membership before creating anything
+- [x] A-010 R12: `GET /api/riff/presets` returns `agent_presets` (omitted on fab failure) and `agent_preset_inherited`
+- [x] A-011 R13: The dialog's Agent preset field shows the inherit label, preset options and `none`, hides without presets, and sends `agent_preset` only on explicit pick
+- [x] A-012 R14: Session flyout and server card show the preset line, `(unknown)` with a clear action, and `none (no preset)`
+- [x] A-013 R15: The four palette actions exist, with Clear shown only when set and Set hidden without presets
+- [x] A-014 R16: Snapshots capture and restore both options
+- [x] A-015 R17: `ui-state.md`, the `rk skill` pages, and help-dump fixtures document the options and `--agent-preset`
 
 ### Behavioral Correctness
 
-- [ ] A-016 R8: With no resolved name, `cmd.Env` is nil and every spawn argv (riff new-window/split-window, run window) is byte-identical to the base branch — asserted by golden tests
-- [ ] A-017 R9: Fork, closed restore and cron session respawn pass no preset even when a group/workspace preset is set
+- [x] A-016 R8: With no resolved name, `cmd.Env` is nil and every spawn argv (riff new-window/split-window, run window) is byte-identical to the base branch — asserted by golden tests
+- [x] A-017 R9: Fork, closed restore and cron session respawn pass no preset even when a group/workspace preset is set
 
 ### Scenario Coverage
 
-- [ ] A-018 R6: A Go table test covers explicit/session/server/none precedence and the garbage-option skip
-- [ ] A-019 R16: A snapshot round-trip test re-sets both options; an old snapshot without the fields restores unchanged
-- [ ] A-020 R13: Playwright covers the dialog field and the palette set/clear actions with intent comments
+- [x] A-018 R6: A Go table test covers explicit/session/server/none precedence and the garbage-option skip
+- [x] A-019 R16: A snapshot round-trip test re-sets both options; an old snapshot without the fields restores unchanged
+- [x] A-020 R13: Playwright covers the dialog field and the palette set/clear actions with intent comments
 
 ### Edge Cases & Error Handling
 
-- [ ] A-021 R6: A stale option name still spawns (no membership check at spawn), and a failed option read never fails the spawn
-- [ ] A-022 R5: On an older/failing fab, setting a preset returns 400 while clearing still works; the dialog field and Set palette actions are hidden
+- [x] A-021 R6: A stale option name still spawns (no membership check at spawn), and a failed option read never fails the spawn
+- [x] A-022 R5: On an older/failing fab, setting a preset returns 400 while clearing still works; the dialog field and Set palette actions are hidden
 
 ### Code Quality
 
-- [ ] A-023 Pattern consistency: New handlers, setters and UI follow the color/flair/protect patterns and existing palette/card structure
-- [ ] A-024 No unnecessary duplication: The preset-list decoder and validator are shared, not copied
-- [ ] A-025: All subprocess calls use `exec.CommandContext` with timeouts and argv slices; all tmux interaction goes through `internal/tmux` (no inline tmux construction)
-- [ ] A-026: No magic strings — option names, the env var name and the `none` value are named constants
-- [ ] A-027: No client polling — UI updates arrive via SSE / the existing servers refresh
-- [ ] A-028: New functions stay under ~50 lines without clear reason; comments state constraints, not narration or change IDs
+- [x] A-023 Pattern consistency: New handlers, setters and UI follow the color/flair/protect patterns and existing palette/card structure
+- [x] A-024 No unnecessary duplication: The preset-list decoder and validator are shared, not copied
+- [x] A-025: All subprocess calls use `exec.CommandContext` with timeouts and argv slices; all tmux interaction goes through `internal/tmux` (no inline tmux construction)
+- [x] A-026: No magic strings — option names, the env var name and the `none` value are named constants
+- [x] A-027: No client polling — UI updates arrive via SSE / the existing servers refresh
+- [x] A-028: New functions stay under ~50 lines without clear reason; comments state constraints, not narration or change IDs
 
 ### Security
 
-- [ ] A-029 R3: Preset names reach tmux/fab argv or env only after passing the identifier allowlist; option-sourced garbage is skipped, not passed
+- [x] A-029 R3: Preset names reach tmux/fab argv or env only after passing the identifier allowlist; option-sourced garbage is skipped, not passed
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- `app/backend/internal/fabsysconfig/fabsysconfig.go:731` `presetList.names()` — its only callers (validatePreset) now go through `CheckPresetMember`/`namesOf`; zero call sites remain
+- `app/backend/internal/fabsysconfig/fabsysconfig.go` `runPresetsIn` exec body — near-copy of `Client.execRunner` (same timeout/argv/Dir shape, minus stderr); a dir-parameterised runner could serve both
 
 ## Assumptions
 

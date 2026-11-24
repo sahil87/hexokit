@@ -728,8 +728,6 @@ func namesOf(presets []AgentPreset) []string {
 	return names
 }
 
-func (l presetList) names() []string { return namesOf(l.presets) }
-
 // presetOf is the preset name an origin_detail of "preset <name>" carries,
 // else "".
 func presetOf(originDetail string) string {
