@@ -9,7 +9,7 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
+    ship: done
     review-pr: pending
 plan:
     generated: true
@@ -33,14 +33,15 @@ stage_metrics:
     apply: {started_at: "2026-11-24T13:48:39Z", driver: fab-fff, iterations: 3, completed_at: "2026-11-24T13:58:29Z"}
     review: {started_at: "2026-11-24T13:58:29Z", driver: fab-fff, iterations: 3, completed_at: "2026-11-24T14:09:53Z"}
     hydrate: {started_at: "2026-11-24T14:09:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T14:12:50Z"}
-    ship: {started_at: "2026-11-24T14:12:50Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-11-24T14:12:50Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T14:17:06Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1201
 change_type_source: explicit
 base_branch: main
 true_impact:
-    added: 2044
-    deleted: 127
-    net: 1917
+    added: 2103
+    deleted: 138
+    net: 1965
     excluding:
         added: 1534
         deleted: 127
@@ -49,9 +50,9 @@ true_impact:
         added: 424
         deleted: 0
         net: 424
-    computed_at: "2026-11-24T14:12:50Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-11-24T14:17:06Z"
+    computed_at_stage: ship
 summary: Group and workspace cards show an always-present agent preset line with its source, an Agent preset… row opening an anchored chooser popover, and an own-preset chip on group rows, workspace tiles and the GROUPS header
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-24T14:12:50Z
+last_updated: 2026-11-24T14:17:06Z
