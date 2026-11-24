@@ -9,7 +9,7 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
+    ship: done
     review-pr: pending
 plan:
     generated: true
@@ -33,14 +33,15 @@ stage_metrics:
     apply: {started_at: "2026-11-24T05:06:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T05:41:21Z"}
     review: {started_at: "2026-11-24T05:41:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T05:55:48Z"}
     hydrate: {started_at: "2026-11-24T05:55:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T06:00:36Z"}
-    ship: {started_at: "2026-11-24T06:00:36Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-11-24T06:00:36Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T06:02:31Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1190
 change_type_source: explicit
 base_branch: main
 true_impact:
-    added: 1465
-    deleted: 944
-    net: 521
+    added: 1520
+    deleted: 1002
+    net: 518
     excluding:
         added: 1019
         deleted: 944
@@ -49,9 +50,9 @@ true_impact:
         added: 339
         deleted: 230
         net: 109
-    computed_at: "2026-11-24T06:00:36Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-11-24T06:02:32Z"
+    computed_at_stage: ship
 summary: Viewed window on the home-tab terminal route is a projection of tmux's active window; UI switches are selectWindow requests behind a bounded switch overlay (confirm / post-settle snapshot / rejection / 5 s deadline), replacing the pending-intent lock, failure bounce and receipt-tick freshness verdict
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-24T06:00:36Z
+last_updated: 2026-11-24T06:02:32Z
