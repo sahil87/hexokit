@@ -292,7 +292,7 @@ func reasonFor(d operator.CheckDelta) string {
 		detail = d.Error
 	case operator.DeltaUnknownDep:
 		detail = d.Dep
-	case operator.DeltaNote:
+	case operator.DeltaNote, operator.DeltaFailed:
 		detail = d.At
 	}
 	if detail == "" {

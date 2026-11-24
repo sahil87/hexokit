@@ -78,6 +78,7 @@ const (
 	DeltaDue            = "due"
 	DeltaUnknownDep     = "unknown_dep"
 	DeltaNote           = "note"
+	DeltaFailed         = "failed"
 	NoticeProbeError    = "probe_error"
 	NoticeSkipped       = "skipped"
 	NoticeGHUnavailable = "gh_unavailable"
@@ -117,7 +118,8 @@ type CheckDelta struct {
 	To          *string
 	Duration    *string
 	Dep         string
-	// At is a note delta's instruction note time.
+	// At is a note delta's instruction note time, or a failed delta's failure
+	// note time.
 	At string
 }
 
@@ -186,7 +188,7 @@ func (d CheckDelta) MarshalJSON() ([]byte, error) {
 		add("duration", d.Duration)
 	case DeltaUnknownDep:
 		add("dep", d.Dep)
-	case DeltaNote:
+	case DeltaNote, DeltaFailed:
 		add("at", d.At)
 	}
 	var buf bytes.Buffer

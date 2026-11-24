@@ -164,7 +164,7 @@ func checkDetail(d operator.CheckDelta) string {
 		return d.Age + " — " + d.Instruction
 	case operator.DeltaUnknownDep:
 		return d.Dep
-	case operator.DeltaNote:
+	case operator.DeltaNote, operator.DeltaFailed:
 		return d.At
 	}
 	return ""

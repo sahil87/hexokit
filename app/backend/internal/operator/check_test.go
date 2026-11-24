@@ -303,6 +303,7 @@ func TestCheckDelta_MarshalPinsKeysPerKind(t *testing.T) {
 		{CheckDelta{Kind: DeltaPaused, ID: "a", Error: "boom", Failures: 3, Paused: true}, `{"kind":"paused","id":"a","error":"boom","failures":3,"paused":true}`},
 		{CheckDelta{Kind: DeltaUnknownDep, ID: "a", Dep: "x"}, `{"kind":"unknown_dep","id":"a","dep":"x"}`},
 		{CheckDelta{Kind: DeltaNote, ID: "a", At: "2026-11-11T12:00:00Z"}, `{"kind":"note","id":"a","at":"2026-11-11T12:00:00Z"}`},
+		{CheckDelta{Kind: DeltaFailed, ID: "a", At: "2026-11-11T12:00:00Z"}, `{"kind":"failed","id":"a","at":"2026-11-11T12:00:00Z"}`},
 		{CheckDelta{Kind: DeltaChanged, ID: "a", Fields: map[string]FieldChange{"state": {From: "OPEN", To: "MERGED"}, "n": {To: 1}}},
 			`{"kind":"changed","id":"a","fields":{"n":{"from":null,"to":1},"state":{"from":"OPEN","to":"MERGED"}}}`},
 	}
@@ -563,6 +564,109 @@ func TestPendingInstruction(t *testing.T) {
 		if at != tc.wantAt || ok != tc.wantOK {
 			t.Errorf("%s: PendingInstruction = %q, %v; want %q, %v", tc.name, at, ok, tc.wantAt, tc.wantOK)
 		}
+	}
+}
+
+func TestPendingFailure(t *testing.T) {
+	fail := func(at string) Note { return Note{At: at, By: ByRun, Text: FailureNotePrefix + "exit 1 — x"} }
+	run := func(at string) Note { return Note{At: at, By: ByRun, Text: "retried after failure: ok"} }
+	other := func(at, by string) Note { return Note{At: at, By: by, Text: "x"} }
+	cases := []struct {
+		name   string
+		notes  []Note
+		wantAt string
+		wantOK bool
+	}{
+		{"no notes", nil, "", false},
+		{"failure only", []Note{fail("2026-11-11T10:00:00Z")}, "2026-11-11T10:00:00Z", true},
+		{"user note then failure", []Note{other("2026-11-11T10:00:00Z", ByUser), fail("2026-11-11T10:05:00Z")}, "2026-11-11T10:05:00Z", true},
+		{"later run note clears", []Note{fail("2026-11-11T10:05:00Z"), run("2026-11-11T10:10:00Z")}, "", false},
+		{"failure after a success sets it again", []Note{run("2026-11-11T10:00:00Z"), fail("2026-11-11T10:05:00Z")}, "2026-11-11T10:05:00Z", true},
+		{"second failure moves at", []Note{fail("2026-11-11T10:00:00Z"), fail("2026-11-11T10:05:00Z")}, "2026-11-11T10:05:00Z", true},
+		{"later user note does not clear", []Note{fail("2026-11-11T10:00:00Z"), other("2026-11-11T10:05:00Z", ByUser)}, "2026-11-11T10:00:00Z", true},
+		{"later chat note does not clear", []Note{fail("2026-11-11T10:00:00Z"), other("2026-11-11T10:05:00Z", ByChat)}, "2026-11-11T10:00:00Z", true},
+		{"newest run note by time, not position", []Note{run("2026-11-11T10:10:00Z"), fail("2026-11-11T10:05:00Z")}, "", false},
+		{"same second, success appended last, clears", []Note{fail("2026-11-11T10:00:00Z"), run("2026-11-11T10:00:00Z")}, "", false},
+		{"same second, failure appended last, holds", []Note{run("2026-11-11T10:00:00Z"), fail("2026-11-11T10:00:00Z")}, "2026-11-11T10:00:00Z", true},
+		{"unparseable at ignored", []Note{fail("garbage")}, "", false},
+		{"unparseable success does not clear", []Note{fail("2026-11-11T10:00:00Z"), run("garbage")}, "2026-11-11T10:00:00Z", true},
+	}
+	for _, tc := range cases {
+		at, ok := PendingFailure(tc.notes)
+		if at != tc.wantAt || ok != tc.wantOK {
+			t.Errorf("%s: PendingFailure = %q, %v; want %q, %v", tc.name, at, ok, tc.wantAt, tc.wantOK)
+		}
+	}
+}
+
+func TestCheck_FailedRunIsAConditionThatFiresOncePerFailure(t *testing.T) {
+	e := newCheckEnv(t)
+	e.seed(baseItem("n", KindNote, probeNone))
+	wantKinds(t, "no notes", e.run().Changes)
+
+	e.advance(time.Minute)
+	if err := AddNote(e.path, "n", ByRun, FailureNotePrefix+"exit 1 — Not logged in"); err != nil {
+		t.Fatal(err)
+	}
+	firstAt := e.now.UTC().Format(time.RFC3339)
+	first := e.run()
+	wantKinds(t, "first changes", first.Changes, "n:failed")
+	if d := first.Changes[0]; d.At != firstAt || !first.Changed {
+		t.Errorf("failed delta = %+v changed=%v, want at %s", d, first.Changed, firstAt)
+	}
+	second := e.run()
+	wantKinds(t, "second changes", second.Changes)
+	wantKinds(t, "second open", second.Open, "n:failed")
+	if second.Changed {
+		t.Error("an open failed condition must not set changed")
+	}
+
+	e.advance(time.Minute)
+	if err := AddNote(e.path, "n", ByRun, FailureNotePrefix+"exit 1 — Not logged in"); err != nil {
+		t.Fatal(err)
+	}
+	refailed := e.run()
+	wantKinds(t, "refailed changes", refailed.Changes, "n:failed")
+	if d := refailed.Changes[0]; d.At != e.now.UTC().Format(time.RFC3339) {
+		t.Errorf("second failure at = %s", d.At)
+	}
+
+	e.advance(time.Minute)
+	if err := AddNote(e.path, "n", ByRun, "retried after failure: nothing to do"); err != nil {
+		t.Fatal(err)
+	}
+	cleared := e.run()
+	wantKinds(t, "cleared changes", cleared.Changes)
+	wantKinds(t, "cleared open", cleared.Open)
+	if got := e.item("n").Reported; len(got) != 0 {
+		t.Errorf("Reported = %v, want it cleared", got)
+	}
+}
+
+func TestCheck_DoneAndPausedItemsStillReportAFailedRun(t *testing.T) {
+	e := newCheckEnv(t)
+	doneAt := "2026-11-11T11:30:00Z"
+	done := baseItem("d", KindTask, probeNone)
+	done.DoneAt = &doneAt
+	paused := baseItem("p", KindTask, probeNone)
+	paused.Paused = true
+	e.seed(done, paused)
+	e.advance(time.Minute)
+	for _, id := range []string{"d", "p"} {
+		if err := AddNote(e.path, id, ByRun, FailureNotePrefix+"exit 1 — boom"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first := e.run()
+	wantKinds(t, "changes", first.Changes, "d:done", "d:failed", "p:failed")
+	if d := findDelta(t, first.Changes, DeltaFailed); d.At != e.now.UTC().Format(time.RFC3339) {
+		t.Errorf("failed delta at = %s", d.At)
+	}
+	second := e.run()
+	wantKinds(t, "second changes", second.Changes)
+	wantKinds(t, "second open", second.Open, "d:done", "d:failed", "p:failed")
+	if second.Changed {
+		t.Error("open failed conditions must not set changed")
 	}
 }
 

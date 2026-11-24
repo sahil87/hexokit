@@ -26,6 +26,9 @@ const (
 	// condNotePrefix is completed with the unanswered instruction note's own
 	// `at`, so a newer user or chat note is a new condition.
 	condNotePrefix = "note@"
+	// condFailedPrefix is completed with the unanswered failure note's own
+	// `at`, so a second failure is a new condition.
+	condFailedPrefix = "failed@"
 )
 
 // agentAgedAfter is how long an agent may stay waiting or idle before the
@@ -76,12 +79,16 @@ func (c condDelta) openDelta() CheckDelta {
 }
 
 // itemConditions derives the item's current condition set, in emission order:
-// the state conditions, then the unanswered-note condition, which every item
-// carries — a user instruction is never inert, whatever the item's state.
+// the state conditions, then the unanswered-note and unanswered-failure
+// conditions, which every item carries — a user instruction or a failed run is
+// never inert, whatever the item's state.
 func itemConditions(items []TrackedItem, it TrackedItem, pane []condDelta, now time.Time) []condDelta {
 	conds := stateConditions(items, it, pane, now)
 	if at, ok := PendingInstruction(it.Notes); ok {
 		conds = append(conds, condDelta{condNotePrefix + at, CheckDelta{Kind: DeltaNote, ID: it.ID, At: at}})
+	}
+	if at, ok := PendingFailure(it.Notes); ok {
+		conds = append(conds, condDelta{condFailedPrefix + at, CheckDelta{Kind: DeltaFailed, ID: it.ID, At: at}})
 	}
 	return conds
 }

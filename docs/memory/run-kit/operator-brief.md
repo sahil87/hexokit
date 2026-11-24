@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The operator run brief — `rk operator brief` and `operator.RenderBrief`: the six-section Markdown a judgment run is handed (affected set, memo line, user/chat notes always shown, 100 KB cap), the embedded run rules (PR tools inside the confirmation tiers, a Merging section per queue mode, `track show` re-reads, server-addressed commands carry `-L <server>`), the exit contract (no note when nothing was done), and the static `rk skill operator` chat topic that owns \"merge all\"."
+description: "The operator run brief — `rk operator brief` and `operator.RenderBrief`: the six-section Markdown a judgment run is handed (affected set, memo line, user/chat notes shown, 100 KB cap), the embedded run rules (PR tools inside the confirmation tiers, a Merging section per queue mode, `track show` re-reads, `-L <server>` on every command), the exit contract (no note when nothing was done, except `retried after failure:`), and the static `rk skill operator` chat topic that owns \"merge all\"."
 ---
 # Operator Run Brief
 
@@ -58,7 +58,7 @@ The Rules section also carries one line stating the contract: every such command
 
 ### Requirement: Exit contract
 
-The Exit contract instructs the run to append a note on each item it acted on with `rk operator track note -L <server> <id> "<text>" --by run` (rendered with the run's server) and states "A run that did nothing writes no note."; it then prints exactly one final stdout line `outcome: <one-line summary>`, and nothing after it. The run wrapper reads the LAST stdout line matching `^outcome: (.*)$`; a run that exits non-zero or prints none is a failed run, and the wrapper leaves a `run failed` note on each changed item ([operator-loop](/run-kit/operator-loop.md) § The `rk operator run-exec` wrapper).
+The Exit contract instructs the run to append a note on each item it acted on with `rk operator track note -L <server> <id> "<text>" --by run` (rendered with the run's server) and states "A run that did nothing writes no note." with one exception: an item listed with a `failed <at>` reason was offered again because an earlier run failed on it, and the run notes it either way — `retried after failure: <what you found or did>` — even when nothing needed doing, because until a run note follows the failure note the item stays flagged; it then prints exactly one final stdout line `outcome: <one-line summary>`, and nothing after it. The run wrapper reads the LAST stdout line matching `^outcome: (.*)$`; a run that exits non-zero or prints none is a failed run, and the wrapper leaves a `run failed` note on each changed item ([operator-loop](/run-kit/operator-loop.md) § The `rk operator run-exec` wrapper).
 
 ### Requirement: `rk operator brief`
 
@@ -107,9 +107,9 @@ The chat topic is the static page `docs/site/skill/operator.md` (exempt from the
 *Introduced by*: 261120-jt0z-operator-brief-tools-merging-diet
 
 ### A run that did nothing writes no note
-**Decision**: The exit contract asks for a note only on items the run acted on; a no-op run prints only its `outcome:` line.
+**Decision**: The exit contract asks for a note only on items the run acted on; a no-op run prints only its `outcome:` line. The one exception is an item listed with a `failed <at>` reason, which gets a `retried after failure:` note even when nothing needed doing.
 **Why**: No-op observation notes were 74 of 118 run notes and pushed the user's own notes out of the brief's newest-ten window; the run's outcome line already records that it looked.
-**Rejected**: A note on the most relevant item on every run (the dilution being removed).
+**Rejected**: A note on the most relevant item on every run (the dilution being removed); dropping the exception (a retried item with no note keeps its failure note newest, so the same `failed@<at>` stays open and the item is flagged forever).
 *Introduced by*: 261120-jt0z-operator-brief-tools-merging-diet
 
 ### One-item re-read with `track show`
