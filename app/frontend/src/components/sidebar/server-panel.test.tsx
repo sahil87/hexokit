@@ -13,13 +13,17 @@ import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
 import type { ServerInfo } from "@/api/client";
 import { stubMatchMedia } from "@/test-utils/match-media";
-import { loadMachineAgentPresets, resetAgentPresetCache } from "@/lib/agent-presets";
+import { loadMachineAgentPresetInfo, loadMachineAgentPresets, resetAgentPresetCache } from "@/lib/agent-presets";
 
 // The card reads the machine preset list lazily; stub the read so the suite
 // never reaches fetch (the card tests run on fake timers).
 vi.mock("@/lib/agent-presets", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/agent-presets")>();
-  return { ...actual, loadMachineAgentPresets: vi.fn(() => Promise.resolve(undefined)) };
+  return {
+    ...actual,
+    loadMachineAgentPresets: vi.fn(() => Promise.resolve(undefined)),
+    loadMachineAgentPresetInfo: vi.fn(() => Promise.resolve({})),
+  };
 });
 import { computeRowTints, computeRowBorders, deriveUIColors, DEFAULT_DARK_THEME, type RowTint } from "@/themes";
 
@@ -45,6 +49,7 @@ function renderPanel(overrides: {
   onKillServer?: (name: string) => void;
   onToggleServerProtect?: (server: string, next: boolean) => void;
   onClearServerAgentPreset?: (server: string) => void;
+  onSetServerAgentPreset?: (server: string, name: string | null) => void;
 } = {}) {
   const props = {
     server: overrides.server ?? "default",
@@ -65,6 +70,7 @@ function renderPanel(overrides: {
     onKillServer: overrides.onKillServer,
     onToggleServerProtect: overrides.onToggleServerProtect,
     onClearServerAgentPreset: overrides.onClearServerAgentPreset,
+    onSetServerAgentPreset: overrides.onSetServerAgentPreset,
   };
   return render(
     <ThemeProvider>
@@ -395,7 +401,7 @@ describe("ServerPanel", () => {
     expect(testName).not.toHaveClass("text-text-primary");
 
     // Regular name stays primary.
-    const workName = screen.getByText("work", { selector: "div" });
+    const workName = screen.getByText("work");
     expect(workName).toHaveClass("text-text-primary");
     expect(workName).not.toHaveClass("text-text-secondary");
   });
@@ -436,13 +442,13 @@ describe("ServerPanel", () => {
       });
 
       expect(screen.getByTestId("external-ext")).toBeInTheDocument();
-      const extName = screen.getByText("ext", { selector: "div" });
+      const extName = screen.getByText("ext");
       expect(extName).toHaveClass("text-text-secondary");
       expect(extName).not.toHaveClass("text-text-primary");
 
       for (const name of ["own", "old"]) {
         expect(screen.queryByTestId(`external-${name}`)).not.toBeInTheDocument();
-        const nameDiv = screen.getByText(name, { selector: "div" });
+        const nameDiv = screen.getByText(name);
         expect(nameDiv).toHaveClass("text-text-primary");
         expect(nameDiv).not.toHaveClass("text-text-secondary");
       }
@@ -454,7 +460,7 @@ describe("ServerPanel", () => {
         servers: [{ name: "ext", sessionCount: 1, windowCount: 1, managed: false, protected: true }],
       });
 
-      const nameDiv = screen.getByText("ext", { selector: "div" });
+      const nameDiv = screen.getByText("ext").parentElement!;
       const glyphs = nameDiv.querySelectorAll("[data-testid^='shield-'], [data-testid^='external-']");
       expect([...glyphs].map((g) => g.getAttribute("data-testid"))).toEqual([
         "shield-ext",
@@ -644,9 +650,8 @@ describe("ServerPanel", () => {
   });
 });
 
-// The workspace's agent preset on the server card (shared by the tile mounted
-// here and the sessions-pane group header): a facts line, `(unknown)` + a Clear
-// agent preset row for a name the machine list lacks, `none (no preset)`.
+// The workspace card and tile share the machine preset list; the marker is
+// present only for a preset set on the workspace itself.
 describe("server card agent preset", () => {
   const machineList = [
     { name: "claude", source: "built-in" },
@@ -658,17 +663,23 @@ describe("server card agent preset", () => {
     resetFlyoutWarmState();
     resetAgentPresetCache();
     vi.mocked(loadMachineAgentPresets).mockResolvedValue(machineList);
+    vi.mocked(loadMachineAgentPresetInfo).mockResolvedValue({ presets: machineList });
   });
   afterEach(() => {
     vi.useRealTimers();
     resetFlyoutWarmState();
   });
 
-  async function openTile(agentPreset: string | undefined, onClear?: (server: string) => void) {
+  async function openTile(
+    agentPreset: string | undefined,
+    options: { onClear?: (server: string) => void; onSet?: (server: string, name: string | null) => void } = {},
+  ) {
     renderPanel({
       servers: [{ name: "work", sessionCount: 2, windowCount: 5, agent_preset: agentPreset }],
       server: "work",
-      onClearServerAgentPreset: onClear,
+      onClearServerAgentPreset: options.onClear,
+      onSetServerAgentPreset: options.onSet,
+      onServerColorChange: vi.fn(),
     });
     const tile = screen.getByRole("option", { name: /work/ }).parentElement!;
     act(() => {
@@ -679,36 +690,73 @@ describe("server card agent preset", () => {
     await act(async () => {});
   }
 
-  it("omits the line when the workspace has no agent preset", async () => {
+  it("shows fab's defaults when nothing is set", async () => {
     await openTile(undefined);
-    expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
-    expect(screen.queryByTestId("row-flyout-agent-preset")).toBeNull();
+    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent("agent preset: none · fab's defaults");
   });
 
-  it("shows `agent preset: <name>` for a listed preset", async () => {
-    await openTile("claude", vi.fn());
-    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent("agent preset: claude");
+  it("shows a listed own preset with its source", async () => {
+    await openTile("claude", { onClear: vi.fn() });
+    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent("agent preset: claude · set here");
     expect(screen.queryByTestId("row-flyout-clear-agent-preset-action")).toBeNull();
   });
 
-  it("marks an unlisted name `(unknown)` and offers Clear agent preset", async () => {
+  it("keeps the unknown-name clear row", async () => {
     const onClear = vi.fn();
-    await openTile("old-preset", onClear);
-    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent("agent preset: old-preset (unknown)");
+    await openTile("old-preset", { onClear });
+    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent(
+      "agent preset: old-preset (unknown) · set here",
+    );
     fireEvent.click(screen.getByTestId("row-flyout-clear-agent-preset-action"));
     expect(onClear).toHaveBeenCalledWith("work");
   });
 
-  it("renders `none (no preset)` for the reserved opt-out", async () => {
-    await openTile("none", vi.fn());
-    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent("agent preset: none (no preset)");
-    expect(screen.queryByTestId("row-flyout-clear-agent-preset-action")).toBeNull();
+  it("renders none (no preset) for the reserved opt-out", async () => {
+    await openTile("none", { onClear: vi.fn() });
+    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent("agent preset: none (no preset) · set here");
   });
 
-  it("shows the raw name, unmarked, when fab lists no presets", async () => {
+  it("hides the line and action when fab reports no presets", async () => {
     vi.mocked(loadMachineAgentPresets).mockResolvedValue(undefined);
-    await openTile("old-preset", vi.fn());
-    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent(/^agent preset: old-preset$/);
-    expect(screen.queryByTestId("row-flyout-clear-agent-preset-action")).toBeNull();
+    vi.mocked(loadMachineAgentPresetInfo).mockResolvedValue({});
+    await openTile("old-preset", { onSet: vi.fn() });
+    expect(screen.queryByTestId("row-flyout-agent-preset")).toBeNull();
+    expect(screen.queryByTestId("row-flyout-agent-preset-action")).toBeNull();
+  });
+
+  it("places the action immediately after Change color and sends a pick", async () => {
+    const onSet = vi.fn();
+    await openTile("claude", { onSet });
+    const actions = screen.getByTestId("row-flyout-actions");
+    expect(actions.children[0]).toHaveTextContent("Change color…");
+    expect(actions.children[1]).toHaveTextContent("Agent preset…claude");
+    fireEvent.click(actions.children[1]);
+    expect(screen.queryByTestId("row-flyout-card")).toBeNull();
+    await act(async () => { await vi.runAllTimersAsync(); });
+    const group = screen.getByRole("radiogroup", { name: "Agent preset for work" });
+    fireEvent.click(within(group).getByRole("radio", { name: /^none/ }));
+    expect(onSet).toHaveBeenCalledWith("work", "none");
+  });
+
+  it("marks only an own preset on the tile", () => {
+    renderPanel({ servers: [{ name: "work", sessionCount: 1 }] });
+    expect(screen.queryByTestId("agent-preset-marker")).toBeNull();
+    cleanup();
+    renderPanel({ servers: [{ name: "work", sessionCount: 1, agent_preset: "codex-review" }] });
+    expect(screen.getByTestId("agent-preset-marker")).toHaveTextContent("codex-review");
+  });
+
+  it("puts the preset marker on the count row, leaving the name line to the name and its glyphs", () => {
+    const longName = "a-workspace-name-that-is-far-too-long-for-the-tile";
+    renderPanel({
+      servers: [{ name: longName, sessionCount: 1, protected: true, managed: false, agent_preset: "codex-review" }],
+    });
+    const nameSpan = screen.getByText(longName);
+    expect(nameSpan).toHaveClass("min-w-0", "flex-1", "truncate");
+    const marker = screen.getByTestId("agent-preset-marker");
+    expect(marker).toHaveTextContent("codex-review");
+    expect(marker).toHaveClass("min-w-[3ch]", "shrink");
+    expect(nameSpan.parentElement).not.toContainElement(marker);
+    expect(screen.getByTestId(`shield-${longName}`).parentElement).toBe(nameSpan.parentElement);
   });
 });

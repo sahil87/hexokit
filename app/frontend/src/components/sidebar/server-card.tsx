@@ -3,7 +3,7 @@ import { DAEMON_SERVER } from "@/api/client";
 import { CloseIcon, PaletteIcon, PlusIcon } from "./icons";
 import { PopupTitleBar, PopupTitleBarSecondary } from "./popup-title-bar";
 import { ACTION_ROW_CLASS, CardActionList, CardActionRow } from "./row-flyout-card";
-import { AgentPresetClearRow, AgentPresetFact } from "./agent-preset-card";
+import { AgentPresetActionRow, AgentPresetClearRow, AgentPresetLine } from "./agent-preset-card";
 import {
   SWITCH_KNOB_OFF,
   SWITCH_KNOB_ON,
@@ -28,6 +28,7 @@ export function ServerCardContent({
   serverProtected = false,
   agentPreset,
   onClearAgentPreset,
+  onAgentPresetAction,
   onChangeColorAction,
   onCreateSession,
   onKillServer,
@@ -44,6 +45,7 @@ export function ServerCardContent({
   /** Clears the workspace's agent preset — offered only when the stored name is
    *  one the machine-wide preset list does not know. */
   onClearAgentPreset?: () => void;
+  onAgentPresetAction?: () => void;
   /** The card's `Change color…` row — first on every tier's card. The
    *  consumer closes the card BEFORE opening its SwatchPopover mount (the
    *  close-then-open idiom) and holds popover-over-card precedence via the
@@ -69,11 +71,8 @@ export function ServerCardContent({
         {`tmux -L ${server} · ${sessionCount} group${sessionCount === 1 ? "" : "s"}`}
         {external && " · external — not started by HexoKit"}
       </span>
-      {agentPreset && <AgentPresetFact name={agentPreset} />}
+      <AgentPresetLine own={agentPreset} />
       <CardActionList>
-        {agentPreset && onClearAgentPreset && (
-          <AgentPresetClearRow name={agentPreset} onClear={onClearAgentPreset} />
-        )}
         {onChangeColorAction && (
           <CardActionRow
             icon={<PaletteIcon />}
@@ -81,6 +80,10 @@ export function ServerCardContent({
             testid="row-flyout-color-action"
             onClick={onChangeColorAction}
           />
+        )}
+        <AgentPresetActionRow own={agentPreset} onAction={onAgentPresetAction} />
+        {agentPreset && onClearAgentPreset && (
+          <AgentPresetClearRow name={agentPreset} onClear={onClearAgentPreset} />
         )}
         {onCreateSession && (
           <CardActionRow
@@ -140,6 +143,7 @@ export function ServerCardContent({
 export function useAnchoredPopoverPos(
   open: boolean,
   anchorRef: RefObject<HTMLElement | null>,
+  approxPopoverHeight = 100,
 ): { top: number; right: number } | null {
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
   useLayoutEffect(() => {
@@ -149,13 +153,12 @@ export function useAnchoredPopoverPos(
       return;
     }
     const rect = anchor.getBoundingClientRect();
-    const approxPopoverHeight = 100; // rough; fine for the flip heuristic
     const below = rect.bottom + 4;
     const fitsBelow = below + approxPopoverHeight <= window.innerHeight;
     setPos({
       top: fitsBelow ? below : Math.max(4, rect.top - approxPopoverHeight - 4),
       right: Math.max(4, window.innerWidth - rect.right),
     });
-  }, [open, anchorRef]);
+  }, [open, anchorRef, approxPopoverHeight]);
   return pos;
 }

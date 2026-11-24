@@ -1,5 +1,5 @@
 ---
-description: "Component conventions; modal dialogs and popup surfaces, incl. the folder-first New sheet and shared create hooks, the Settings dialog's Agents tab (inherit-first role model list), the spring-loaded marker pad, and the GUI off-/restart-confirms; the overlay-presence registry (modal + click-opened-menu counts — the hide signal for unpaintable surfaces) and status-bar toasts; clipboard and e2e host-state rules; the Zustand window store, optimistic mutation feedback, recently-closed mirror."
+description: "Component conventions; modal dialogs and popup surfaces, incl. the folder-first New sheet and shared create hooks, the Settings dialog's Agents tab (inherit-first role model list), the sidebar agent-preset chooser popover, the spring-loaded marker pad, and the GUI off-/restart-confirms; the overlay-presence registry (the hide signal for unpaintable surfaces), status-bar toasts; clipboard and e2e host-state rules; the Zustand window store, optimistic mutation feedback, recently-closed mirror."
 type: memory
 ---
 # run-kit UI — Dialogs & Client State
@@ -259,6 +259,20 @@ The strip is the only consumer (the edit pencil / F2 path in edit mode, the `+ A
 The popup fits the measured sidebar width through `markerPadPopoverLayout`: at the 160px sidebar minimum it uses `{width: 152, cellPx: 22, labelPx: 42}`; with room it caps at `{width: 180, cellPx: 26, labelPx: 54}`. `placeMarkerPad` returns row-relative coordinates, vertically centers when unconstrained, and clamps the popup inside every sidebar edge.
 
 Open state is row-local, with a module-scoped `activeMarkerPad` registry enforcing exactly one open pad across all rows, following the `activeFlyout` idiom. A capture-phase document `pointerdown` listener dismisses outside presses while ignoring the pad and its own strip. Pointer and keyboard movement live-preview cells on the row; Escape previews the committed value before cancelling, so dismissal cannot leave a walked highlight painted.
+
+## Agent-Preset Chooser
+
+`app/frontend/src/components/sidebar/agent-preset-chooser.tsx` — a popover that picks the fab agent preset a group's or workspace's new tabs launch with. It is opened by the `Agent preset…` card row (the close-then-open idiom of `Change color…`, [sidebar](/run-kit/ui/sidebar.md) § Agent-Preset Controls on Cards and Rows) from three anchors — the group row, the Workspaces-panel tile and the GROUPS-pane workspace header — on fine and coarse pointers alike. The entity names the heading `Agent preset · Group <name>` / `Agent preset · Workspace <name>`.
+
+**Entries**, built by the pure `buildAgentPresetChoices({ presets, own, inherited })` (`lib/agent-presets.ts`): `inherit` first, described `uses <name> (<source>)` from the *inherited* rungs only (group: workspace → machine default → fab's defaults; workspace: machine default → fab's defaults; `none` when nothing is set, e.g. `uses none (fab's defaults)`); then each preset in the list with its `description` (omitted when absent); then `none` described `no preset, even the machine default` (the palette's wording). The **current choice** is marked — `inherit` when the entity has no own value, the matching preset, or `none` when own is `none`; an own **unknown** name matches no entry, so nothing is marked. Markup is `role="radiogroup"` (`aria-label="Agent preset for <name>"`) of `role="radio"` buttons with `aria-checked` and a `●`/`○` glyph; rows are 32 px, 36 px on coarse. A footer reads `Applies to tabs created from now on. Running tabs keep theirs.`
+
+**List source.** A workspace chooser uses the machine list. A group chooser renders any held list immediately (the remembered repo-scoped list, else the machine list), then loads the group's repo-scoped list through `loadGroupAgentPresets(server, session)` (`getRiffPresets` → `rememberRepoAgentPresets` → machine-list fallback) — the one loader the palette's `Group: Set Agent Preset…` also uses — so a project-defined preset appears once the repo list arrives.
+
+**Picking** calls `onPick(value)` — `null` for `inherit`, `"none"` for none, the name otherwise — then closes. The sidebar's set handlers POST the existing routes (`setSessionAgentPreset(server, session, value)` / `setServerAgentPreset(server, value)`) and toast on error; the chooser itself holds no API state.
+
+**Keyboard and dismissal.** The group is a roving-tabindex list: ArrowDown/ArrowUp move focus between entries and wrap, Enter and Space pick the focused entry, Escape closes without a change (a capture-phase document handler that stops propagation), and a `mousedown` outside closes (armed one tick after mount, the color popover's pattern). Initial focus lands on the current choice, falling back to `inherit` when nothing is marked; for an own named preset it waits until the list has settled so focus lands on the right entry, and a later list update moves focus only when the focused entry disappeared. Every close — pick, Escape, outside — returns focus to the anchoring row/tile/header button. The surface registers `useOccludes("transient")` while open ([Overlay Presence](#overlay-presence)). The palette's Set/Clear actions remain the keyboard path that needs no card.
+
+**Viewport fit.** `AnchoredAgentPresetChooser` portals the chooser to `document.body` as a fixed element positioned by `useAnchoredPopoverPos(open, anchorRef, height)` — below the anchor, right-aligned to its right edge, flipping above when the popover does not fit below. The flip uses the chooser's measured height (a `ResizeObserver` reports it; 380 px before the first measure), and `maxHeight = max(80, innerHeight - top - 4)` with `overflow-y-auto` clamps it inside the viewport; width is `min(320px, 100vw - 8px)`, so it fits a 375×812 viewport.
 
 ## Overlay Presence
 
@@ -594,6 +608,12 @@ which does not fit the cell width — the gloss is retained as the headings' acc
 **Why**: the two config homes have different owners and write paths (the registry serializer vs. the `fab config` CLI, which preserves comments and its reference fence and validates keys) — one tab per owner keeps provenance (system/env/default chips, env-shadow warnings) honest and Constitution IV's single settings surface intact; no cache because fab-kit, the user's shell and `fab config upgrade` write the same file (Constitution II, external writes win).
 **Rejected**: a second settings dialog or page (Constitution IV); merging fab keys into the All-settings table (two owners, two sources); an "Open fab config in the code tile" footer link (no seam opens an arbitrary absolute path — a copy-path control stands in).
 *Introduced by*: 261030-wf1x-fab-system-config-agents-tab
+
+### The preset chooser only picks a preset
+**Decision**: The chooser offers `inherit`, the presets and `none` — one choice per entity — with no per-role breakdown, no editing and no save-as; role-level and preset management live in Settings > Agents.
+**Why**: A card is a quick-action surface; the effective result of a choice is already named by the entry descriptions and the card line, and a second place to edit roles would let the two surfaces drift.
+**Rejected**: Showing each preset's per-role resolution in the chooser (duplicates Settings > Agents and makes the popover tall on phones); a free-text name field (invites unknown names the card line then marks `(unknown)`).
+*Introduced by*: 261124-hsob-agent-preset-card-controls
 
 ### Choosing an agent preset never offers to clear overrides
 **Decision**: the preset dropdown writes only `agent.preset`; explicit fields that override parts of the chosen preset are reported by a one-line note, and the Customize disclosure opens whenever any value is set explicitly. There is no clear-overrides button or confirm.

@@ -14,6 +14,8 @@ import { FlairOverlay } from "@/components/flair-overlay";
 import { SwatchPopover } from "@/components/swatch-popover";
 import { useRowFlyout } from "./row-flyout-card";
 import { ServerCardContent, useAnchoredPopoverPos } from "./server-card";
+import { AgentPresetMarker } from "./agent-preset-card";
+import { AnchoredAgentPresetChooser } from "./agent-preset-chooser";
 
 type ServerPanelProps = {
   server: string;
@@ -44,6 +46,7 @@ type ServerPanelProps = {
   onToggleServerProtect?: (server: string, next: boolean) => void;
   /** Clears a tile's stale agent preset (the card's Clear agent preset row). */
   onClearServerAgentPreset?: (server: string) => void;
+  onSetServerAgentPreset?: (server: string, name: string | null) => void;
   /** Forwarded to CollapsiblePanel's corner affordance. When supplied, a corner
    *  element renders at the bottom-right of the drag handle and initiates a
    *  sidebar-width drag in addition to the panel's vertical resize. */
@@ -65,6 +68,7 @@ export function ServerPanel({
   onKillServer,
   onToggleServerProtect,
   onClearServerAgentPreset,
+  onSetServerAgentPreset,
   onSidebarResizeStart,
 }: ServerPanelProps) {
   const [refreshing, setRefreshing] = useState(false);
@@ -190,6 +194,7 @@ export function ServerPanel({
                 onToggleServerProtect={onToggleServerProtect}
                 agentPreset={info.agent_preset}
                 onClearServerAgentPreset={onClearServerAgentPreset}
+                onSetServerAgentPreset={onSetServerAgentPreset}
               />
             );
           })}
@@ -245,6 +250,7 @@ type ServerTileProps = {
   /** The workspace's agent preset and the seam that clears a stale one. */
   agentPreset?: string;
   onClearServerAgentPreset?: (server: string) => void;
+  onSetServerAgentPreset?: (server: string, name: string | null) => void;
 };
 
 function ServerTile({
@@ -273,6 +279,7 @@ function ServerTile({
   onToggleServerProtect,
   agentPreset,
   onClearServerAgentPreset,
+  onSetServerAgentPreset,
 }: ServerTileProps) {
   // Body background follows the window-row convention:
   //   - Colored: tint.selected (active) or tint.base (not active)
@@ -298,10 +305,11 @@ function ServerTile({
   // suppresses the card (popover-over-card precedence).
   const coarse = useCoarsePointer();
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [showPresetChooser, setShowPresetChooser] = useState(false);
   const tileAnchorRef = useRef<HTMLElement | null>(null);
   const popoverPos = useAnchoredPopoverPos(showColorPicker, tileAnchorRef);
   const flyout = useRowFlyout({
-    suppressed: coarse || showColorPicker,
+    suppressed: coarse || showColorPicker || showPresetChooser,
     // Tiles sit in a multi-column grid, not full-bleed like rows: without the
     // edge anchor the card opens mid-panel over sibling tiles, and the pointer
     // path to it would hover-steal across them.
@@ -314,6 +322,10 @@ function ServerTile({
         serverProtected={isProtected}
         agentPreset={agentPreset}
         onClearAgentPreset={onClearServerAgentPreset ? () => onClearServerAgentPreset(name) : undefined}
+        onAgentPresetAction={onSetServerAgentPreset ? () => {
+          close();
+          setShowPresetChooser(true);
+        } : undefined}
         onToggleProtect={
           onToggleServerProtect ? () => onToggleServerProtect(name, !isProtected) : undefined
         }
@@ -391,12 +403,12 @@ function ServerTile({
         />
         {/* Body */}
         <div className="px-1.5 pt-0.5 pb-1.5">
-          <div className={`text-[11px] leading-tight font-medium ${nameClass} whitespace-nowrap overflow-hidden text-ellipsis`}>
+          <div className={`flex min-w-0 items-center gap-1 text-[11px] leading-tight font-medium ${nameClass} whitespace-nowrap overflow-hidden text-ellipsis`}>
             {isProtected && (
               <span
                 role="img"
                 aria-label={`${name} is protected`}
-                className="inline-flex align-[-2px] mr-0.5"
+                className="inline-flex shrink-0 align-[-2px]"
                 data-testid={`shield-${name}`}
               >
                 <ShieldGlyph />
@@ -406,13 +418,13 @@ function ServerTile({
               <span
                 role="img"
                 aria-label={`${name} is external`}
-                className="inline-flex align-[-2px] mr-0.5"
+                className="inline-flex shrink-0 align-[-2px]"
                 data-testid={`external-${name}`}
               >
                 <ExternalGlyph />
               </span>
             )}
-            {name}
+            <span className={`min-w-0 flex-1 truncate ${nameClass}`}>{name}</span>
           </div>
           {/* Window count + waiting rollup (260708-4li7): a bare window-count
               number with the badge right-aligned on the same flex row — the
@@ -422,12 +434,17 @@ function ServerTile({
           {/* h-3.5 reserves the badge's full height even when no badge renders:
               the pill is taller than the count text, so without the reserve the
               tile (and its whole grid row) would jump in height every time an
-              agent starts/stops waiting. */}
-          <div className="flex h-3.5 items-center justify-between mt-0.5">
-            <div className="text-[10px] leading-tight text-text-secondary">
+              agent starts/stops waiting. The own-preset chip rides this row,
+              not the name line: the name line also carries the protected and
+              external glyphs, which leave no room for a chip in a 72px tile. */}
+          <div className="flex h-3.5 min-w-0 items-center gap-1 mt-0.5">
+            <div className="shrink-0 text-[10px] leading-tight text-text-secondary">
               {windowCount}
             </div>
-            <WaitingBadge count={waitingCount} />
+            <AgentPresetMarker name={agentPreset} tile />
+            <span className="ml-auto flex shrink-0 items-center">
+              <WaitingBadge count={waitingCount} />
+            </span>
           </div>
         </div>
       </button>
@@ -453,6 +470,16 @@ function ServerTile({
         </div>,
         document.body,
       )}
+      <AnchoredAgentPresetChooser
+        open={showPresetChooser && Boolean(onSetServerAgentPreset)}
+        kind="Workspace"
+        entityName={name}
+        own={agentPreset}
+        server={name}
+        anchorRef={tileAnchorRef}
+        onPick={(value) => onSetServerAgentPreset?.(name, value)}
+        onClose={() => setShowPresetChooser(false)}
+      />
       {/* The server card — portalled to document.body, mounted ONLY while
           open (the shared shell's perf contract). */}
       {flyout.card}
