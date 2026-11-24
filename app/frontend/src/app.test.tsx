@@ -2250,6 +2250,33 @@ describe("top-bar wash wrapper — chrome paint + inline wash precedence", () =>
   afterEach(() => {
     cleanup();
     localStorage.clear();
+    delete window.runkitShell;
+  });
+
+  const accented: InstanceAccent = {
+    ...noAccent,
+    color: "4",
+    isExplicit: true,
+    washHex: "#112233",
+    stripeHex: "#334455",
+    titlebarHex: "#223344",
+  };
+
+  it("in a browser the accent stripe renders above the bar", async () => {
+    renderLayout(accented);
+    const wrapper = await washWrapper();
+    const stripe = wrapper.querySelector<HTMLElement>('[style*="height: 2px"]');
+    expect(stripe?.style.height).toBe("2px");
+    expect(stripe?.style.backgroundColor).toBe("rgb(51, 68, 85)");
+  });
+
+  it("in the desktop shell neither the wash nor the stripe renders (the strip is the identity surface)", async () => {
+    window.runkitShell = { version: "1.0.0", platform: "darwin" };
+    renderLayout(accented);
+    const wrapper = await washWrapper();
+    expect(wrapper.className).toContain("bg-bg-chrome");
+    expect(wrapper.style.backgroundColor).toBe("");
+    expect(wrapper.querySelector('[style*="height: 2px"]')).toBeNull();
   });
 
   it("paints bg-bg-chrome with no inline background when no instance accent is set", async () => {

@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"runtime"
 
 	"rk/internal/settings"
 )
@@ -35,6 +36,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		// build and its absence marks an older server. Startup-seeded — the
 		// bound listener cannot move mid-run.
 		"tunnel": s.listenPort,
+		// The daemon's operating system (runtime.GOOS — derived, never
+		// configured) feeds the desktop shell's host nameplate.
+		"os": runtime.GOOS,
 	}
 	stored := settings.Load()
 	if stored.SSHHost != "" {

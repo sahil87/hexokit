@@ -7,6 +7,7 @@ import { ChromeProvider } from "@/contexts/chrome-context";
 import { InstanceAccentValueProvider, type InstanceAccent } from "@/contexts/instance-accent-context";
 import { InstanceNameValueProvider, type InstanceName } from "@/contexts/instance-name-context";
 import { SettingsDialogProvider, useSettingsDialog } from "@/contexts/settings-dialog-context";
+import { colorValueToHex, DEFAULT_DARK_THEME } from "@/themes";
 import { SettingsDialog } from "./settings-dialog";
 
 // Mock the API client module so no real HTTP calls happen in tests. Includes
@@ -336,7 +337,7 @@ describe("SettingsDialog", () => {
     expect(screen.getByText("Notifications")).toBeInTheDocument();
   });
 
-  it("the Appearance tab carries the theme control + accent (This host) and terminal font (This device)", () => {
+  it("the Appearance tab carries the theme control + host color (This host) and terminal font (This device)", () => {
     renderDialog();
     selectTab("Appearance");
     expect(screen.getByRole("tab", { name: "Appearance" })).toHaveAttribute("aria-selected", "true");
@@ -350,8 +351,10 @@ describe("SettingsDialog", () => {
     expect(screen.queryByRole("combobox", { name: "Search themes" })).not.toBeInTheDocument();
     expect(screen.queryByRole("listbox", { name: "Themes" })).not.toBeInTheDocument();
     expect(document.querySelector("select")).toBeNull();
-    expect(screen.getByRole("button", { name: "Set instance color" })).toBeInTheDocument();
+    expect(screen.getByRole("radiogroup", { name: "Host color" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Increase terminal font" })).toBeInTheDocument();
+    // THIS APP is shell-only: a browser has no desktop-app prefs.
+    expect(screen.queryByText("This app")).not.toBeInTheDocument();
   });
 
   it("the quake-terminal-opacity row is a localStorage-backed This-device resident — no settings API call", () => {
@@ -645,12 +648,130 @@ describe("SettingsDialog", () => {
     expect(screen.getByText("13px")).toBeInTheDocument();
   });
 
-  it("opens the color-only SwatchPopover from the accent control", async () => {
-    renderDialog();
-    selectTab("Appearance");
-    fireEvent.click(screen.getByRole("button", { name: "Set instance color" }));
-    // The popover's color band header − is the color-only marker ("Clear color" + ✕).
-    expect(await screen.findByRole("option", { name: "Clear color" })).toBeInTheDocument();
+  describe("Host color row (This host)", () => {
+    function renderWithAccent(accent: Partial<InstanceAccent>) {
+      return render(
+        <ThemeProvider>
+          <ToastProvider>
+            <ChromeProvider>
+              <InstanceAccentValueProvider value={{ ...NULL_ACCENT, ...accent }}>
+                <InstanceNameValueProvider value={makeInstanceName()}>
+                  <SettingsDialogProvider>
+                    <OpenOnMount tab="appearance" />
+                    <SettingsDialog />
+                  </SettingsDialogProvider>
+                </InstanceNameValueProvider>
+              </InstanceAccentValueProvider>
+            </ChromeProvider>
+          </ToastProvider>
+        </ThemeProvider>,
+      );
+    }
+
+    it("offers the nine spaced hues (violet included) plus None, as an inline swatch row", () => {
+      renderDialog(undefined, "appearance");
+      const group = screen.getByRole("radiogroup", { name: "Host color" });
+      const names = within(group)
+        .getAllByRole("radio")
+        .map((el) => el.getAttribute("data-color-value"));
+      expect(names).toEqual(["purple", "violet", "blue", "red", "green", "teal", "magenta", "slate", "amber"]);
+      expect(within(group).getByRole("button", { name: "No host color" })).toBeInTheDocument();
+    });
+
+    it("a pick writes the legacy descriptor through setColor; None clears", () => {
+      const setColor = vi.fn();
+      renderWithAccent({ setColor });
+      fireEvent.click(screen.getByRole("radio", { name: "Color violet" }));
+      expect(setColor).toHaveBeenLastCalledWith("4+5");
+      fireEvent.click(screen.getByRole("radio", { name: "Color blue" }));
+      expect(setColor).toHaveBeenLastCalledWith("4");
+      fireEvent.click(screen.getByRole("button", { name: "No host color" }));
+      expect(setColor).toHaveBeenLastCalledWith(null);
+    });
+
+    it("an out-of-set stored value (orange, 1+3) displays as its nearest member without being rewritten", () => {
+      const setColor = vi.fn();
+      renderWithAccent({ color: "1+3", isExplicit: true, setColor });
+      expect(screen.getByRole("radio", { name: "Color red" })).toHaveAttribute("aria-checked", "true");
+      expect(setColor).not.toHaveBeenCalled();
+    });
+
+    it("in the shell, a hue another host uses is labelled with its monogram and a clashing pick shows an advisory (never blocking)", async () => {
+      const blueHex = colorValueToHex("blue", DEFAULT_DARK_THEME.palette) ?? "#4fa5f8";
+      window.runkitShell = {
+        version: "1.0.0",
+        platform: "linux",
+        servers: {
+          list: () =>
+            Promise.resolve({
+              ok: true,
+              servers: [
+                { id: "me", name: "this-host", url: "http://127.0.0.1:3000", active: true, current: true },
+                { id: "ws", name: "ws-01", url: "http://ws:3000", active: false, current: false, accentColor: blueHex },
+              ],
+            }),
+          switch: () => Promise.resolve({ ok: true }),
+        },
+      };
+      const setColor = vi.fn();
+      renderWithAccent({ color: "4", isExplicit: true, setColor });
+      const blue = await screen.findByRole("radio", { name: "Color blue, used by ws-01" });
+      expect(blue).toHaveTextContent("W1");
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Same color as ws-01. Pick another so the squares stay distinct.",
+      );
+      fireEvent.click(blue);
+      expect(setColor).toHaveBeenLastCalledWith("4");
+    });
+  });
+
+  describe("This app group (desktop shell only)", () => {
+    function shellWithPrefs(prefs = { strip: { effect: "glow", motion: "slide" } }) {
+      const set = vi.fn().mockResolvedValue({ ok: true });
+      window.runkitShell = {
+        version: "1.0.0",
+        platform: "linux",
+        prefs: { get: () => Promise.resolve({ ok: true, prefs }), set },
+      };
+      return set;
+    }
+
+    it("renders between This host and This device with seven effect cards and three motion chips", async () => {
+      shellWithPrefs();
+      renderDialog(undefined, "appearance");
+      const group = await screen.findByRole("group", { name: "Host strip effect" });
+      expect(within(group).getAllByRole("button")).toHaveLength(7);
+      expect(screen.getByRole("group", { name: "On switch" })).toBeInTheDocument();
+      const headings = screen.getAllByText(/^This (host|app|device)$/).map((el) => el.textContent);
+      expect(headings).toEqual(["This host", "This app", "This device"]);
+      await waitFor(() =>
+        expect(within(group).getByRole("button", { name: "Glow" })).toHaveAttribute("aria-pressed", "true"),
+      );
+    });
+
+    it("picking an effect card or a motion chip writes the pref through the shell", async () => {
+      const set = shellWithPrefs();
+      renderDialog(undefined, "appearance");
+      fireEvent.click(await screen.findByRole("button", { name: "Hex mesh" }));
+      expect(set).toHaveBeenCalledWith("strip.effect", "hex");
+      fireEvent.click(screen.getByRole("button", { name: "Cut" }));
+      expect(set).toHaveBeenCalledWith("strip.motion", "cut");
+    });
+
+    it("arrow keys move focus across the effect cards", async () => {
+      shellWithPrefs();
+      renderDialog(undefined, "appearance");
+      const glow = await screen.findByRole("button", { name: "Glow" });
+      glow.focus();
+      fireEvent.keyDown(glow, { key: "ArrowRight" });
+      expect(screen.getByRole("button", { name: "Livery" })).toHaveFocus();
+    });
+
+    it("is hidden on a shell without the prefs invokers (defaults apply)", () => {
+      window.runkitShell = { version: "1.0.0", platform: "linux" };
+      renderDialog(undefined, "appearance");
+      expect(screen.queryByText("This app")).not.toBeInTheDocument();
+    });
   });
 
   it("uses the xl dialog variant (fixed height, max-w-4xl) with the 190px/1fr preference-row grid (260724-6j1v)", () => {

@@ -36,6 +36,8 @@ func TestResolve_ownedDescriptors(t *testing.T) {
 		{" slate-light ", "#c1cedd", "slate-light"},
 		{"orange", "#e58439", "orange"},
 		{"orange-light", "#febc8f", "orange-light"},
+		{"4+5", "#7d9afb", "4+5"},
+		{"violet-dark", "#556ecc", "violet-dark"},
 	}
 	for _, tc := range cases {
 		hex, canonical, ok := Resolve(tc.in)
@@ -61,9 +63,9 @@ func TestResolve_unownedAndMalformed(t *testing.T) {
 }
 
 func TestResolve_coversAllFamiliesAndShades(t *testing.T) {
-	legacy := []string{"1", "1+3", "3", "1+2", "2", "6", "4", "1+4", "5", "3+4"}
-	names := []string{"red", "orange", "amber", "olive", "green", "teal", "blue", "purple", "magenta", "slate"}
-	// 10 legacy + 10 names + 10 dark variants + 10 light variants.
+	legacy := []string{"1", "1+3", "3", "1+2", "2", "6", "4", "4+5", "1+4", "5", "3+4"}
+	names := []string{"red", "orange", "amber", "olive", "green", "teal", "blue", "violet", "purple", "magenta", "slate"}
+	// 11 legacy + 11 names + 11 dark variants + 11 light variants.
 	if want := len(legacy) + 3*len(names); len(familyHexByValue) != want {
 		t.Fatalf("familyHexByValue has %d entries, want %d", len(familyHexByValue), want)
 	}

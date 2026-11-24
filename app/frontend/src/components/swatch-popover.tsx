@@ -15,6 +15,7 @@ import {
   formatColorValue,
   familyToLegacy,
 } from "@/themes";
+import { HOST_COLOR_FAMILIES, snapHostColor } from "@/lib/host-colors";
 
 type SwatchPopoverProps = {
   /** Currently-selected color value — a family/shade name ("orange" /
@@ -48,7 +49,14 @@ type SwatchPopoverProps = {
    *  itself has no picker affordance). */
   selectedFlair?: string;
   onSelectFlair?: (flair: string) => void;
+  /** Host color mode (the instance accent pickers): the color band narrows to
+   *  the well-separated Host color hue set, normal shade only, in one row; a
+   *  stored value outside the set highlights its nearest member. */
+  hostColorSet?: boolean;
 };
+
+/** The Host color band: the set's hues in one row (normal shades only). */
+const HOST_COLOR_ROW: readonly string[] = HOST_COLOR_FAMILIES;
 
 /** Cell geometry: every band cell is an 18px square on a 3px gap on fine
  *  pointers — a documented dense-picker exception to the 24px fine tappable
@@ -147,6 +155,7 @@ export function SwatchPopover({
   rowName,
   selectedFlair,
   onSelectFlair,
+  hostColorSet = false,
 }: SwatchPopoverProps) {
   const { theme } = useTheme();
   // Mounts only while open, so the registration is unconditional — popovers
@@ -171,8 +180,13 @@ export function SwatchPopover({
   // Normalize the selection to its canonical display value so a legacy-stored
   // value ("1+3") highlights its family swatch and a dark-stored value
   // highlights the DARK swatch (not its normal sibling).
-  const parsedSelected = parseColorValue(selectedColor);
+  const parsedSelected = parseColorValue(hostColorSet ? snapHostColor(selectedColor) : selectedColor);
   const selectedValue = parsedSelected ? formatColorValue(parsedSelected) : undefined;
+  // The color band's rows (light/normal/dark, or the single Host color row).
+  const colorRows: readonly (readonly string[])[] = hostColorSet
+    ? [HOST_COLOR_ROW]
+    : [COLOR_ROW_LIGHT, COLOR_ROW_NORMAL, COLOR_ROW_DARK];
+  const colorValues: readonly string[] = hostColorSet ? HOST_COLOR_ROW : PICKER_COLOR_VALUES;
 
   // Preview state for the band cells + composite preview row. A pick updates
   // the local override so the previews repaint immediately regardless of
@@ -232,9 +246,11 @@ export function SwatchPopover({
     const rows: string[][] = [
       [cellId("clear-all"), cellId("close")],
       [cellId("clear-color")],
-      COLOR_ROW_LIGHT.map((v) => cellId("color", v)),
-      COLOR_ROW_NORMAL.map((v) => cellId("color", v)),
-      COLOR_ROW_DARK.map((v) => cellId("color", v)),
+      ...(hostColorSet
+        ? [HOST_COLOR_ROW.map((v) => cellId("color", v))]
+        : [COLOR_ROW_LIGHT, COLOR_ROW_NORMAL, COLOR_ROW_DARK].map((row) =>
+            row.map((v) => cellId("color", v)),
+          )),
     ];
     if (showFlair) {
       rows.push(
@@ -244,18 +260,16 @@ export function SwatchPopover({
       );
     }
     return rows;
-  }, [showFlair]);
+  }, [showFlair, hostColorSet]);
 
   // Initial focus FOLLOWS SELECTION: the selected swatch, or the color band's
   // header − clear cell when uncolored — never an arbitrary swatch, whose focus ring
   // would read as a phantom selection.
   const [focus, setFocus] = useState<GridPos>(() => {
-    const light = COLOR_ROW_LIGHT.indexOf(selectedValue ?? "");
-    if (light >= 0) return { row: 2, col: light };
-    const normal = COLOR_ROW_NORMAL.indexOf(selectedValue ?? "");
-    if (normal >= 0) return { row: 3, col: normal };
-    const dark = COLOR_ROW_DARK.indexOf(selectedValue ?? "");
-    if (dark >= 0) return { row: 4, col: dark };
+    for (let i = 0; i < colorRows.length; i++) {
+      const col = colorRows[i].indexOf(selectedValue ?? "");
+      if (col >= 0) return { row: 2 + i, col };
+    }
     return { row: 1, col: 0 };
   });
   // The focus ring renders only after the first arrow key: the listbox
@@ -495,8 +509,14 @@ export function SwatchPopover({
       />
       <div className="rk-band-fade">
         <div className="rk-band-scroll">
-          <div className="grid grid-flow-col grid-rows-[18px_18px_18px] coarse:grid-rows-[28px_28px_28px] auto-cols-[18px] coarse:auto-cols-[28px] gap-[3px] w-max">
-            {PICKER_COLOR_VALUES.map((value) => {
+          <div
+            className={`grid grid-flow-col ${
+              hostColorSet
+                ? "grid-rows-[18px] coarse:grid-rows-[28px]"
+                : "grid-rows-[18px_18px_18px] coarse:grid-rows-[28px_28px_28px]"
+            } auto-cols-[18px] coarse:auto-cols-[28px] gap-[3px] w-max`}
+          >
+            {colorValues.map((value) => {
               const tint = rowTints.get(value);
               const fallback = colorValueToHex(value, theme.palette) ?? theme.palette.foreground;
               // One solid fill (the value's selected-tint blend); the ring + ✓

@@ -456,10 +456,10 @@ func TestValidateColorValue(t *testing.T) {
 	// matching the frontend parseColorValue), plus leading-zero indices. The
 	// legacy numeric vocabulary remains valid forever (read + write).
 	valid := []string{"0", "4", "15", "1+3", "0+15", "1+2", " 4 ", " 1 + 3 ", "01"}
-	// The owned-palette family-name vocabulary: all 10 names + their -dark and
+	// The owned-palette family-name vocabulary: all 11 names + their -dark and
 	// -light shade variants (surrounding whitespace tolerated, matching the
 	// frontend resolveFamily trim rule).
-	families := []string{"red", "orange", "amber", "olive", "green", "teal", "blue", "purple", "magenta", "slate"}
+	families := []string{"red", "orange", "amber", "olive", "green", "teal", "blue", "violet", "purple", "magenta", "slate"}
 	for _, f := range families {
 		valid = append(valid, f, f+"-dark", f+"-light")
 	}

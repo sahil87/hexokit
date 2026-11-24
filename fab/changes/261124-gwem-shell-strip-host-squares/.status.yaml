@@ -1,0 +1,54 @@
+id: gwem
+name: 261124-gwem-shell-strip-host-squares
+created: 2026-11-24T05:21:31Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: active
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 24
+    acceptance_count: 27
+    acceptance_completed: 0
+confidence:
+    certain: 13
+    confident: 14
+    tentative: 3
+    unresolved: 0
+    score: 0.0
+    fuzzy: true
+    dimensions:
+        signal: 74.2
+        reversibility: 74.8
+        competence: 70.7
+        disambiguation: 66.8
+stage_metrics:
+    intake: {started_at: "2026-11-24T05:21:31Z", driver: fab-new, iterations: 1, completed_at: "2026-11-24T06:42:02Z"}
+    apply: {started_at: "2026-11-24T06:42:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T07:23:52Z"}
+    review: {started_at: "2026-11-24T07:23:52Z", driver: fab-fff, iterations: 1}
+prs: []
+base_branch: main
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-11-24T07:23:53Z"
+    computed_at_stage: apply
+change_type_source: explicit
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-24T07:24:07Z

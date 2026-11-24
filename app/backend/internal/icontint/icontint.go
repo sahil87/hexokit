@@ -33,7 +33,7 @@ import (
 //
 // Descriptors that validate but map to no owned family (e.g. "7", "2+5")
 // deliberately resolve to nothing — mirroring the frontend's resolveFamily,
-// which renders no accent for values outside the 10 owned families.
+// which renders no accent for values outside the 11 owned families.
 var familyHexByValue = map[string]string{
 	"1": "#ee7871", "red": "#ee7871", "red-dark": "#bd4c48", "red-light": "#feb8b2", // hue 25
 	"1+3": "#e58439", "orange": "#e58439", "orange-dark": "#b15c0e", "orange-light": "#febc8f", // hue 55
@@ -42,6 +42,7 @@ var familyHexByValue = map[string]string{
 	"2": "#51b96d", "green": "#51b96d", "green-dark": "#198d44", "green-light": "#80e798", // hue 150
 	"6": "#00b9aa", "teal": "#00b9aa", "teal-dark": "#0f887e", "teal-light": "#16ebd9", // hue 185
 	"4": "#4fa5f8", "blue": "#4fa5f8", "blue-dark": "#1d79c8", "blue-light": "#a7d1fd", // hue 250
+	"4+5": "#7d9afb", "violet": "#7d9afb", "violet-dark": "#556ecc", "violet-light": "#b9cbff", // hue 270
 	"1+4": "#a08ef5", "purple": "#a08ef5", "purple-dark": "#7763c5", "purple-light": "#cbc4ff", // hue 290
 	"5": "#d37ccb", "magenta": "#d37ccb", "magenta-dark": "#a5519f", "magenta-light": "#feabf6", // hue 330
 	"3+4": "#95a2b0", "slate": "#95a2b0", "slate-dark": "#6b7885", "slate-light": "#c1cedd", // hue 250, near-neutral chroma

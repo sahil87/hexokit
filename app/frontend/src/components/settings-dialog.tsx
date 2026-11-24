@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useMatches } from "@tanstack/react-router";
 import { Dialog } from "@/components/dialog";
 import { Tip, TipGroup } from "@/components/tip";
-import { SwatchPopover } from "@/components/swatch-popover";
+import { HostColorControl } from "@/components/settings-host-color";
+import { SettingsStripPrefs } from "@/components/settings-strip-prefs";
 import {
   SettingsShortcutsPanel,
   type MacroPaletteTarget,
@@ -10,7 +11,6 @@ import {
 import { useSettingsDialog, type SettingsTab } from "@/contexts/settings-dialog-context";
 import { useGuiOffRequest } from "@/contexts/gui-off-context";
 import { useInstanceName } from "@/contexts/instance-name-context";
-import { useInstanceAccent } from "@/contexts/instance-accent-context";
 import { useSessionContext } from "@/contexts/session-context";
 import { usePaletteActions } from "@/contexts/palette-actions-context";
 import { useChromeState, useChromeDispatch, TERMINAL_FONT_BOUNDS } from "@/contexts/chrome-context";
@@ -46,11 +46,11 @@ import { OpenAIMCPSettingsRows } from "@/components/settings-openai-mcp";
  * exists on every page — server routes, terminals, boards, and the host page.
  *
  * Four topic tabs — **General** (instance name, SSH host, MCP endpoint, notifications),
- * **Appearance** (theme pair, accent color, terminal font size), **Agents**
+ * **Appearance** (theme pair, host color, desktop-app strip prefs, terminal font size), **Agents**
  * (fab-kit's machine-wide config via the fab CLI, `SettingsAgentsPanel`),
  * **Shortcuts** (the ported shortcuts-overlay body, `SettingsShortcutsPanel`) — each keeping
  * the persistence-scope `ScopeHeading` groups inside the tab (both General and
- * Appearance mix This host / This device). The tab list is ONE
+ * Appearance mix This host / This app / This device). The tab list is ONE
  * `role="tablist"` markup with roving-tabindex arrow-key nav: a vertical left
  * rail at ≥480px, a horizontal scrollable strip under the title below (the
  * `min-[480px]:` variant — ONE code path, no mobile fork). The dialog rides
@@ -58,8 +58,8 @@ import { OpenAIMCPSettingsRows } from "@/components/settings-openai-mcp";
  * the short General tab and the tall Shortcuts tab; each tab panel owns its
  * own internal scroll.
  *
- * Controls REUSE the existing models rather than rebuilding them: the accent
- * picker is the HOST-panel `SwatchPopover` + descriptor model, the theme pair
+ * Controls REUSE the existing models rather than rebuilding them: the host
+ * color picker shares the HOST-panel's Host color hue set and descriptor model, the theme pair
  * drives the existing `setTheme()` wiring, the font stepper is the shared
  * `ChromeContext` control, and the Notifications block is
  * `usePushSubscription`. Open/close/tab state lives in
@@ -160,46 +160,6 @@ function ThemePairControl() {
           cancelOnLeave
           collapsible
         />
-      </div>
-    </PreferenceRow>
-  );
-}
-
-/** Instance accent color: the HOST-panel picker's descriptor model on a
- *  dialog-local anchor. Color-only `SwatchPopover` (its Clear row clears). */
-function AccentColorControl() {
-  const { color, isExplicit, stripeHex, setColor } = useInstanceAccent();
-  const [showPicker, setShowPicker] = useState(false);
-
-  return (
-    <PreferenceRow label="Accent color">
-      <div className="relative">
-        <Tip label="Set instance color">
-          <button
-            type="button"
-            onClick={() => setShowPicker((v) => !v)}
-            aria-label="Set instance color"
-            aria-expanded={showPicker}
-            className="flex items-center gap-2 px-2 py-1 border border-border rounded text-xs text-text-primary hover:border-text-secondary transition-colors"
-          >
-            <span
-              aria-hidden="true"
-              className="inline-block w-3.5 h-3.5 rounded-sm border border-border"
-              style={stripeHex ? { backgroundColor: stripeHex } : undefined}
-            />
-            {stripeHex ? "Change…" : "None — choose…"}
-          </button>
-        </Tip>
-        {showPicker && (
-          <div className="absolute left-0 top-full mt-1 z-50">
-            <SwatchPopover
-              selectedColor={isExplicit && color != null ? color : undefined}
-              // Selection does NOT close (the picker's dismissal contract).
-              onSelect={(c) => setColor(c)}
-              onClose={() => setShowPicker(false)}
-            />
-          </div>
-        )}
       </div>
     </PreferenceRow>
   );
@@ -600,9 +560,11 @@ function AppearancePanel() {
         <ScopeHeading label="This host" hint="stored on this instance, shared by every device" />
         <div className="divide-y divide-border/40">
           <ThemePairControl />
-          <AccentColorControl />
+          <HostColorControl />
         </div>
       </section>
+
+      <SettingsStripPrefs />
 
       <section aria-label="This device settings" className="mt-4">
         <ScopeHeading label="This device" hint="stored in this browser only" />

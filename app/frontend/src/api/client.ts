@@ -62,6 +62,9 @@ export interface HealthResponse {
    *  Composes the derived deeplink host when ssh_host is unset; absent
    *  when the lookup failed (the `user@` prefix is omitted then). */
   sshUser?: string;
+  /** The daemon's operating system (`runtime.GOOS`: darwin, linux, windows),
+   *  derived server-side; absent on older daemons. */
+  os?: string;
   /** Optional instance display-name override (settings.yaml `instance_name`).
    *  Display surfaces prefer it over `hostname`; absent when unset. The real
    *  hostname stays authoritative for the accent hash and SSH deeplinks. */

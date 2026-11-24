@@ -14,15 +14,21 @@ import {
   canReorderShellHosts,
   canShellPopout,
   canShellWeb,
+  canSubscribeShellServers,
+  canUseShellPrefs,
   closeShellWindow,
   createShellWebView,
   destroyShellWebView,
   findShellWebView,
+  getShellStripPrefs,
   goBackShellWebView,
   goForwardShellWebView,
   isShell,
   listShellServers,
   loadShellWebView,
+  onShellAttached,
+  onShellPrefsChange,
+  onShellServersChanged,
   onShellWebEvent,
   openShellWebViewDevTools,
   parkShellWebView,
@@ -41,6 +47,8 @@ import {
   reorderShellHosts,
   setShellAccent,
   setShellBadge,
+  setShellNameplate,
+  setShellPref,
   shellInfo,
   shellPopout,
   shellWebMode,
@@ -480,13 +488,13 @@ describe("listShellServers optional fields", () => {
           ok: true,
           servers: [
             { ...serverA, accentColor: "#8b7ff0", waiting: 3 },
-            serverB,
+            { ...serverB, machine: "sahil@ws-01", os: "linux", agents: 4, current: true },
           ],
         }),
     });
     expect(await listShellServers()).toEqual([
       { ...serverA, accentColor: "#8b7ff0", waiting: 3 },
-      serverB,
+      { ...serverB, machine: "sahil@ws-01", os: "linux", agents: 4, current: true },
     ]);
   });
 
@@ -494,6 +502,10 @@ describe("listShellServers optional fields", () => {
     for (const entry of [
       { ...serverA, accentColor: 42 },
       { ...serverA, waiting: "3" },
+      { ...serverA, machine: 7 },
+      { ...serverA, os: false },
+      { ...serverA, agents: "3" },
+      { ...serverA, current: "yes" },
     ]) {
       bridgeWith({
         ...baseServersBridge,
@@ -948,5 +960,166 @@ describe("onShellWebEvent", () => {
     expect(handler).toHaveBeenCalledWith({ tabKey: "web-1", kind: "title", title: "GitHub" });
     off();
     expect(disposer).toHaveBeenCalledTimes(1);
+  });
+});
+
+function shellWith(extra: object): void {
+  window.runkitShell = { version: "1.0.0", platform: "linux", ...extra };
+}
+
+// The strip's subscriptions, nameplate report and app prefs are additive
+// optional members: each degrades to false / null / a callable no-op disposer
+// when absent, rejecting, or malformed, and none ever throws.
+describe("strip subscriptions", () => {
+  it("returns callable no-op disposers outside the shell and on bare bridges", () => {
+    expect(onShellServersChanged(() => {})).toBeTypeOf("function");
+    expect(onShellServersChanged(() => {})()).toBeUndefined();
+    shellWith({ servers: baseServersBridge });
+    expect(canSubscribeShellServers()).toBe(false);
+    expect(() => onShellServersChanged(() => {})()).not.toThrow();
+    expect(() => onShellAttached(() => {})()).not.toThrow();
+    expect(() => onShellPrefsChange(() => {})()).not.toThrow();
+  });
+
+  it("forwards servers:changed pings and tears the listener down", () => {
+    const off = vi.fn();
+    let pushed: (() => void) | undefined;
+    shellWith({
+      servers: {
+        ...baseServersBridge,
+        onChanged: (cb: () => void) => {
+          pushed = cb;
+          return off;
+        },
+      },
+    });
+    expect(canSubscribeShellServers()).toBe(true);
+    const handler = vi.fn();
+    const dispose = onShellServersChanged(handler);
+    pushed?.();
+    expect(handler).toHaveBeenCalledTimes(1);
+    dispose();
+    expect(off).toHaveBeenCalledTimes(1);
+  });
+
+  it("delivers a well-formed attach payload and drops malformed ones", () => {
+    let push: ((payload: unknown) => void) | undefined;
+    shellWith({
+      servers: {
+        ...baseServersBridge,
+        onAttached: (cb: (payload: unknown) => void) => {
+          push = cb;
+          return () => {};
+        },
+      },
+    });
+    const handler = vi.fn();
+    onShellAttached(handler);
+    push?.({ previousId: "host-a" });
+    push?.({ previousId: 7 });
+    push?.(null);
+    push?.({});
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith("host-a");
+  });
+
+  it("survives a subscribe or teardown that throws", () => {
+    shellWith({
+      servers: {
+        ...baseServersBridge,
+        onChanged: () => {
+          throw new Error("boom");
+        },
+        onAttached: () => () => {
+          throw new Error("boom");
+        },
+      },
+    });
+    expect(() => onShellServersChanged(() => {})()).not.toThrow();
+    expect(() => onShellAttached(() => {})()).not.toThrow();
+  });
+});
+
+describe("setShellNameplate", () => {
+  it("is false in a browser and on a shell without the nameplate group", async () => {
+    expect(await setShellNameplate({ agents: 1 })).toBe(false);
+    shellWith({});
+    expect(await setShellNameplate({ agents: 1 })).toBe(false);
+  });
+
+  it("reports ok and degrades on rejection or a refusal", async () => {
+    const set = vi.fn().mockResolvedValue({ ok: true });
+    shellWith({ nameplate: { set } });
+    expect(await setShellNameplate({ machine: "a@b", os: "linux", agents: 2 })).toBe(true);
+    expect(set).toHaveBeenCalledWith({ machine: "a@b", os: "linux", agents: 2 });
+    shellWith({ nameplate: { set: () => Promise.reject(new Error("x")) } });
+    expect(await setShellNameplate({ agents: 1 })).toBe(false);
+    shellWith({ nameplate: { set: () => Promise.resolve({ ok: false }) } });
+    expect(await setShellNameplate({ agents: 1 })).toBe(false);
+  });
+});
+
+describe("shell app prefs", () => {
+  const good = { ok: true, prefs: { strip: { effect: "hex", motion: "cut" } } };
+
+  it("is absent in a browser and on a shell without the prefs group", async () => {
+    expect(canUseShellPrefs()).toBe(false);
+    expect(await getShellStripPrefs()).toBeNull();
+    expect(await setShellPref("strip.effect", "hex")).toBe(false);
+    shellWith({ prefs: { get: () => Promise.resolve(good) } });
+    expect(canUseShellPrefs()).toBe(false); // set is missing
+  });
+
+  it("reads parsed prefs and writes one key", async () => {
+    const set = vi.fn().mockResolvedValue({ ok: true });
+    shellWith({ prefs: { get: () => Promise.resolve(good), set } });
+    expect(canUseShellPrefs()).toBe(true);
+    expect(await getShellStripPrefs()).toEqual({ effect: "hex", motion: "cut" });
+    expect(await setShellPref("strip.motion", "sweep")).toBe(true);
+    expect(set).toHaveBeenCalledWith("strip.motion", "sweep");
+  });
+
+  it("degrades to null/false on rejection, refusal and malformed payloads", async () => {
+    for (const result of [
+      { ok: false, error: "Not allowed" },
+      { ok: true },
+      { ok: true, prefs: { strip: { effect: "plaid", motion: "cut" } } },
+      "nope",
+      null,
+    ]) {
+      bridgeWith({
+        version: "1.0.0",
+        platform: "linux",
+        prefs: { get: () => Promise.resolve(result), set: () => Promise.resolve(result) },
+      });
+      expect(await getShellStripPrefs()).toBeNull();
+      expect(await setShellPref("strip.effect", "hex")).toBe(false);
+    }
+    shellWith({
+      prefs: { get: () => Promise.reject(new Error("x")), set: () => Promise.reject(new Error("x")) },
+    });
+    expect(await getShellStripPrefs()).toBeNull();
+    expect(await setShellPref("strip.effect", "hex")).toBe(false);
+  });
+
+  it("forwards well-formed change broadcasts only", () => {
+    let push: ((payload: unknown) => void) | undefined;
+    shellWith({
+      prefs: {
+        get: () => Promise.resolve(good),
+        set: () => Promise.resolve({ ok: true }),
+        onChange: (cb: (payload: unknown) => void) => {
+          push = cb;
+          return () => {};
+        },
+      },
+    });
+    const handler = vi.fn();
+    onShellPrefsChange(handler);
+    push?.({ strip: { effect: "scan", motion: "slide" } });
+    push?.({ strip: { effect: "scan" } });
+    push?.(undefined);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith({ effect: "scan", motion: "slide" });
   });
 });

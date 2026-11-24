@@ -470,7 +470,7 @@ export type HueFamily = {
  *  gap parked in teal→blue where human hue discrimination is weakest. `legacy`
  *  is the old ANSI-derived color value that resolves onto this family (zero
  *  migration): red←1, orange←1+3, amber←3, olive←1+2, green←2, teal←6, blue←4,
- *  purple←1+4, magenta←5, slate←3+4. */
+ *  violet←4+5, purple←1+4, magenta←5, slate←3+4. */
 export const HUE_FAMILIES: readonly HueFamily[] = [
   { name: "red", hue: 25, legacy: "1" },
   { name: "orange", hue: 55, legacy: "1+3" },
@@ -479,6 +479,7 @@ export const HUE_FAMILIES: readonly HueFamily[] = [
   { name: "green", hue: 150, legacy: "2" },
   { name: "teal", hue: 185, legacy: "6" },
   { name: "blue", hue: 250, legacy: "4" },
+  { name: "violet", hue: 270, legacy: "4+5" },
   { name: "purple", hue: 290, legacy: "1+4" },
   { name: "magenta", hue: 330, legacy: "5" },
   { name: "slate", hue: 250, legacy: "3+4", neutral: true },
