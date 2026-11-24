@@ -11,9 +11,13 @@
 > **Done** — T1 #1162 · T2 #1164 · T3 #1166 · T4 #1167 · T5 #1169 (feature off: `operator.pr_hooks` unset — the account is
 > not admin) · T6 #1171 · T7 #1172 · **R1** 2026-11-20 as v3.23.10 (installed binary now v3.23.11). Direct fixes since: #1176
 > (a manual trigger waives the idle floor), #1177 (same-repo `depends_on` in `merge-auto` is the barrier, not a misfit).
-> **Pending** — **T8** plain spawn + `base` (not queued) · **T9** adopt `wt` v0.1.8 receipt (not queued) · **T10** `--temp`/`--pr`
-> in the run rules (not queued) · **R2** roll-out (cron entry `00g2` armed on `hexokit2`, waits for T8–T10) · **M1** report
-> (cron entry `qd4p`, fires 2026-11-27).
+> **Done (2026-11-24)** — **T8** #1179 (plain spawn + `base`).
+> **Pending** — **T9** adopt `wt` v0.1.8 receipt (spawned) · **T10** `--temp`/`--pr` in the run rules (held) · **T11** merge-auto
+> projects the shipped PR (not queued) · **T12** retry after a failed run (not queued) · **R2** roll-out (cron entry `kykr`
+> armed, waits for T8–T12) · **M1** report (cron entry `qd4p`, fires 2026-11-27).
+> **Found 2026-11-24**: the `claude -p` launcher on this box was logged out from 18:44Z 11-23 — every run failed in 2 s
+> (`Not logged in`); and under `merge-auto` no run is launched to merge a shipped item's green PR, nor does its merge
+> re-trigger the successor's barrier — nothing tracks the PR since T3. T11 and T12 are the fixes.
 **Your involvement.** None until the end. PRs merge when green (`merge-auto`); the operator runs the
 one release itself (step **R1**) and notifies you before the daemon restart and after verification.
 You hear from it only on a halt, at R1, and when the one-week report (**M1**) lands. If you want to
@@ -163,10 +167,12 @@ decided mechanically. Everything the Go side still does is cheap, deterministic,
 | **T6** | ✓ done #1171 · run-kit | Activity tab + Check now + `GET /api/operator/activity` + brief/log endpoints; loop rows hidden in Cron Log | T2, T4 | L | — |
 | **T7** | ✓ done #1172 · run-kit | Tasks Needs-you band + note composer calls wake; Cron List + Cron Log merge into one Cron tab; mobile `?tab=` | T6 | M | — |
 | **R1** | ✓ done 2026-11-20 (v3.23.10) · — | Release and roll out: `just release patch`, wait for CI, `rk update`, restart each live daemon, verify one trigger → check → run cycle, notify | T5 (re-landed as #1169), T7 | S | operator chat, cron-woken |
-| **T8** | ○ pending · run-kit | Plain spawn in a fab repo: `plain: true` queue entries run a task as a plain agent (no `/fab-new`); `base: <branch>` picks the start point and PR base; the chat skill's spawn table gains both; scratch tabs via `rk riff` are allowed when asked | — (added 2026-11-20 after R1) | M | — |
+| **T8** | ✓ done #1179 · run-kit | Plain spawn in a fab repo: `plain: true` queue entries run a task as a plain agent (no `/fab-new`); `base: <branch>` picks the start point and PR base; the chat skill's spawn table gains both; scratch tabs via `rk riff` are allowed when asked | — (added 2026-11-20 after R1) | M | — |
 | **T9** | ○ pending · run-kit | Adopt `wt` v0.1.8 in riff and the engine: `wt create --fetch --json`, the receipt replaces `Path:` parsing and the engine's own fetch/`rev-parse`/branch copy; respawn unchanged | T8 | M | — |
 | **T10** | ○ pending · run-kit | Run rules and chat skill use `wt create --temp <sha>` / `--pr <n>` for restacks and conflict work, and `rk riff -- --base origin/<b> --fetch` for hand spawns; `wt list --json` `base` is the recorded PR base | T9 | S | — |
-| **R2** | ○ pending · — | Roll-out after T8–T10 merge: `rk update`, `rk daemon restart`, verify one plain spawn with a base, notify (CI auto-tags) | T10 | S | operator chat, cron-woken |
+| **T11** | ○ pending · run-kit | merge-auto: when a queue item is recorded done, the engine projects its branch's PR as a `github-pr` ledger item (`pr-<n>`, `then: merge under merge-auto`), so the check polls it, a run merges it when green, and its merge re-triggers the successor's barrier | — | S | — |
+| **T12** | ○ pending · run-kit | Retry after a failed run: a `failed@<at>` condition (an item whose newest run note is a failure note) is a judgment reason, cleared by a later successful run note; the failure ladder bounds the rate | — | S | — |
+| **R2** | ○ pending · — | Roll-out after T8–T12 merge: `rk update`, `rk daemon restart`, verify one plain spawn with a base, notify (CI auto-tags) | T10, T11, T12 | S | operator chat, cron-woken |
 | **M1** | ○ pending · — | Report one week after R1: model runs/day, no-op share, tokens/run, failure streaks, PR-trigger latency; one note + notify | R1 | S | operator chat, cron-woken |
 
 ```
@@ -417,7 +423,61 @@ and the engine do around `wt create` today exists to compensate for their absenc
   from the rules; skill drift guards.
 - Docs: `operator-brief.md`, `docs/site/skill/operator.md` + sync.
 
-### R2 — Roll-out after T8–T10 (operator chat, cron-woken, no fab change)
+### T11 — merge-auto projects the shipped item's PR (run-kit) — added 2026-11-24
+
+**Problem.** T3 deleted the PR rows and with them Q7 (`track-pr`), so nothing tracks a shipped item's PR.
+Under `merge-auto` that leaves two holes, both seen on `hexokit` on 11-23/24 with `ot-t8` → `ot-t9`:
+a queue item's `done` is not a judgment reason (`operatorloop/judgment.go`: only a `github-pr` item or
+an item with `then`) and a done item yields no `agent:idle` edge, so no run is launched to merge the
+green PR; and a PR merging is not an edge, so the successor's merged-PR barrier is never re-evaluated
+until some unrelated run happens (the chat had to force `autopilot step`). No merge-auto queue has
+merged a PR by itself under the new engine.
+
+- **Engine** (`internal/autopilot`): the Q1 `record-done` executor, for a `merge-auto` item whose
+  branch has a PR (`gh pr view <branch> --json number,url` — the read the barrier already does),
+  adds a `github-pr` ledger item `pr-<n>` through the projection path: `scope {repo, pr, change}`,
+  probe `gh pr view <n> --json state,mergedAt,mergeable,isDraft`, `check_every 5m`,
+  `done_when: state == "MERGED"`, `then: "merge-auto: ready and merge this PR when its required
+  checks are green"`; the existing `pr-<n>` collision rule applies; no PR yet ⇒ nothing projected and
+  the next pass retries (the item stays `done`). The engine never arms, readies or merges — it tracks.
+  `cherry-pick-ladder` and `stacked-prs` items project nothing (merges are on the user's word; the chat
+  tracks PRs when asked).
+- **Loop**: unchanged — a `changed` probe delta (checks, draft, mergeable) or `done` (MERGED) on a
+  `github-pr` item is already judgment; the run's Merging rules already say merge each green PR; the
+  MERGED run's mechanical pass sees the successor's barrier satisfied and spawns it.
+- **Brief**: the `then:` text is what the run reads; add one line to § Merging: a `pr-<n>` item carrying
+  `then: merge-auto …` is the PR to ready and merge when green, `gh pr merge --squash
+  --match-head-commit <observed-head-sha>`; red checks follow the fix-request rule.
+- Tests: `record-done` projects the item once (a second pass is idempotent); no PR ⇒ no item; the
+  judgment-set table gains the `pr-<n>` `changed`/`done` cases; a loop integration case: merge-auto
+  item done → PR item → MERGED → successor spawned on the next pass.
+- Docs: `operator-autopilot.md` (Q1, projection items, a Design Decision "merge-auto tracks, the run
+  merges"), `operator-loop.md` § judgment set, `operator-brief.md` § Merging.
+
+### T12 — Retry after a failed run (run-kit) — added 2026-11-24
+
+**Problem.** `operator.Check` consumes the edges it reports; a run that then fails (launcher logged
+out, a crash, no outcome line) leaves only a `run failed` note. The condition stays `open`, nothing
+re-offers it, and a done item yields no further edge — so a failure on the `done` fire is terminal
+(26 quiet checks after the 19:19Z failure on `ot-t8`).
+
+- **Check** (`internal/operator`): a `failed@<at>` condition, derived like `note@<at>`
+  (`PendingFailure`): the item's newest `by: run` note is a failure note (`FailureNotePrefix`) and no
+  later `by: run` note exists; `<at>` is that note's time, so each failure is one edge. Derived for every
+  item, done and paused included. A later successful run writes a note (the exit contract) and clears
+  it; a run that did nothing on the item writes no note, so the run SHALL note the item it was retried
+  for (`retried after failure: <what it found>`), or the condition stays open — add that line to the exit
+  contract.
+- **Loop** (`operatorloop/judgment.go`): `failed` is a judgment reason, rendered `failed <at>`. The
+  failure-streak ladder (T2) already spaces the retries; nothing else changes.
+- **Wrapper**: unchanged (it already writes the failure note).
+- Tests: condition derivation (failure note newest ⇒ condition; later run note ⇒ cleared; a second
+  failure ⇒ a new key); judgment case; an integration case: failing launcher → note → fixed launcher →
+  the next fire launches a run for the item with reason `failed`.
+- Docs: `operator-state.md` (conditions table, a Design Decision "a failed run is retried, not
+  forgotten"), `operator-loop.md`, `operator-brief.md` (exit contract line).
+
+### R2 — Roll-out after T8–T12 (operator chat, cron-woken, no fab change)
 
 CI auto-tags on merge, so there is no release step; the chat, woken by a cron entry like R1's, runs
 `rk update`, `rk daemon restart`, verifies one `plain: true` spawn with a `base` on a scratch queue
@@ -425,7 +485,7 @@ CI auto-tags on merge, so there is no release step; the chat, woken by a cron en
 
 ```sh
 rk cron add -L hexokit2 --name "r2 wt adoption" --cron "30 */4 * * *" --role operator --deliver when-idle \
-  "operator: plan fab/plans/sahil/26-11-20-operator-triggers.md, step R2 — once the PRs of ot-t8, ot-t9 and ot-t10 all show MERGED, execute R2 as its brief says (rk update, rk daemon restart with the 2-minute notice, verify, note, notify), then rk cron rm this entry; otherwise reply 'R2: not yet' and do nothing else."
+  "operator: plan fab/plans/sahil/26-11-20-operator-triggers.md, step R2 — once the PRs of ot-t8, ot-t9, ot-t10, ot-t11 and ot-t12 all show MERGED, execute R2 as its brief says (rk update, rk daemon restart with the 2-minute notice, verify, note, notify), then rk cron rm this entry; otherwise reply 'R2: not yet' and do nothing else."
 ```
 
 ### R1 — Release and roll out (operator chat, cron-woken, no fab change)
