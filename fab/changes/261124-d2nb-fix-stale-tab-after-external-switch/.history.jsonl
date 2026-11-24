@@ -1,0 +1,7 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-24T04:56:45Z"}
+{"args":"Fix: Compose/URL/heading keep targeting the old tab after an external tmux window switch (rk riff); single-owner viewed-window state","cmd":"fab-new","event":"command","ts":"2026-11-24T04:56:45Z"}
+{"delta":"+3.6","event":"confidence","score":3.6,"trigger":"calc-score","ts":"2026-11-24T04:58:32Z"}
+{"delta":"+0.9","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-11-24T04:59:43Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-24T05:06:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-24T05:06:48Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-24T05:41:21Z"}

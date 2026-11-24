@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor, act, within } from "@testing-library/react";
 import { createRoot, type Root } from "react-dom/client";
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import {
   createMemoryHistory,
   createRootRoute,
@@ -38,7 +38,7 @@ import { OptimisticProvider } from "@/contexts/optimistic-context";
 import { TopBarSlotProvider, useTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { FocusedPaneProvider } from "@/contexts/focused-pane-context";
 import { ServerDialogsProvider } from "@/contexts/server-dialogs-context";
-import { NewSheetProvider } from "@/contexts/new-sheet-context";
+import { NewSheetProvider, useNewSheet } from "@/contexts/new-sheet-context";
 import { PaletteActionsProvider } from "@/contexts/palette-actions-context";
 import { GuiOffRequestProvider } from "@/contexts/gui-off-context";
 import {
@@ -65,6 +65,7 @@ vi.mock("@xterm/addon-unicode-graphemes", () => ({
 const surfaceLayoutSpy = vi.hoisted(() => ({
   mounts: [] as Array<"mount" | "unmount">,
   props: vi.fn(),
+  clearOnWindowChange: vi.fn(),
 }));
 vi.mock("@/components/surface-layout", async () => {
   const tree = await vi.importActual<typeof import("@/lib/layout-tree")>(
@@ -75,6 +76,7 @@ vi.mock("@/components/surface-layout", async () => {
     SurfaceLayout: (props: {
       server: string;
       windowId: string;
+      clearOnWindowChange?: boolean;
       layout?: import("@/lib/layout-tree").LayoutNode;
       revealedPoppedIds?: string[];
       layoutRectsRef?: { current: (() => Map<string, import("@/lib/layout-tree").Rect>) | null };
@@ -82,6 +84,7 @@ vi.mock("@/components/surface-layout", async () => {
       onFocusedLeafChange?: (leafId: string) => void;
     }) => {
       surfaceLayoutSpy.props({ server: props.server, windowId: props.windowId });
+      surfaceLayoutSpy.clearOnWindowChange(props.windowId, props.clearOnWindowChange);
       const { layout, layoutRectsRef, onFocusedKindChange, onFocusedLeafChange, windowId } =
         props;
       // The child's per-window seams, simulated: refill the rects getter and
@@ -151,6 +154,7 @@ vi.mock("@/contexts/session-context", async (importOriginal) => {
 // resolve a benign `{ ok: true }`.
 const apiSpies = vi.hoisted(() => ({
   setWindowOptions: vi.fn(),
+  selectWindow: vi.fn((..._args: unknown[]): Promise<unknown> => Promise.resolve({ ok: true })),
 }));
 vi.mock("@/api/client", async (importOriginal) => {
   const mod = await importOriginal<typeof import("@/api/client")>();
@@ -163,7 +167,7 @@ vi.mock("@/api/client", async (importOriginal) => {
     listClosedWindows: () => Promise.resolve([]),
     getSessions: () => Promise.resolve([]),
     getDirectories: () => Promise.resolve([]),
-    selectWindow: ok,
+    selectWindow: (...args: unknown[]) => apiSpies.selectWindow(...args),
     setWindowOptions: (...args: unknown[]) => {
       apiSpies.setWindowOptions(...args);
       return ok();
@@ -1504,7 +1508,89 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
   // first real snapshot.
   let sessionCtxOverride: Partial<import("@/contexts/session-context").SessionContextType> = {};
 
+  // Stable across renders: the root route re-renders on every router update,
+  // and a fresh sessions array per render would read as a new snapshot.
+  const terminalRouteSessions = new Map([
+    [
+      "srv",
+      [
+        makeSession({
+          name: "alpha",
+          windows: [
+            makeWindow({
+              windowId: "@0",
+              index: 0,
+              isActiveWindow: true,
+              layout: "h(tty,web)",
+            }),
+            makeWindow({
+              windowId: "@1",
+              index: 1,
+              layout: "h(tty,web)",
+            }),
+            makeWindow({
+              windowId: "@2",
+              index: 2,
+              codeRoot: "/home/user/code/run-kit",
+              layout: "h(tty,code)",
+            }),
+          ],
+        }),
+      ],
+    ],
+    [
+      "other",
+      [
+        makeSession({
+          name: "beta",
+          windows: [
+            makeWindow({
+              windowId: "@1",
+              index: 0,
+              isActiveWindow: true,
+            }),
+          ],
+        }),
+      ],
+    ],
+  ]);
+
+  // The live sessions snapshot, published like the SSE slice: a new Map identity
+  // per published snapshot, stable across unrelated re-renders.
+  let sessionsSnapshot = terminalRouteSessions;
+  const sessionsListeners = new Set<() => void>();
+  const subscribeSessions = (listener: () => void) => {
+    sessionsListeners.add(listener);
+    return () => {
+      sessionsListeners.delete(listener);
+    };
+  };
+  const readSessions = () => sessionsSnapshot;
+  function publishActiveWindow(activeId: string) {
+    sessionsSnapshot = new Map(
+      [...terminalRouteSessions].map(([server, sessions]) => [
+        server,
+        sessions.map((sess) =>
+          makeSession({
+            name: sess.name,
+            windows: sess.windows.map((w) =>
+              makeWindow({ ...w, isActiveWindow: server === "srv" ? w.windowId === activeId : w.isActiveWindow }),
+            ),
+          }),
+        ),
+      ]),
+    );
+    for (const listener of sessionsListeners) listener();
+  }
+
+  const newSheetRef: { current: ReturnType<typeof useNewSheet> | null } = { current: null };
+  function NewSheetProbe() {
+    newSheetRef.current = useNewSheet();
+    return null;
+  }
+
   function TerminalRouteRoot() {
+    const sessionsByServer = useSyncExternalStore(subscribeSessions, readSessions);
     return (
       <ThemeProvider>
         <ToastProvider>
@@ -1518,6 +1604,7 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
                       <TopBarSlotProbe />
                       <FocusedPaneProvider>
                         <ServerDialogsProvider><NewSheetProvider>
+                          <NewSheetProbe />
                           <PaletteActionsProvider globalActions={[]}>
                             <GuiOffRequestProvider value={undefined}>
                               <MetricsProvider value={null}>
@@ -1532,50 +1619,7 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
                                     { name: "other", sessionCount: 1 },
                                   ] as ServerInfo[],
                                   serversLoaded: true,
-                                  sessionsByServer: new Map([
-                                    [
-                                      "srv",
-                                      [
-                                        makeSession({
-                                          name: "alpha",
-                                          windows: [
-                                            makeWindow({
-                                              windowId: "@0",
-                                              index: 0,
-                                              isActiveWindow: true,
-                                              layout: "h(tty,web)",
-                                            }),
-                                            makeWindow({
-                                              windowId: "@1",
-                                              index: 1,
-                                              layout: "h(tty,web)",
-                                            }),
-                                            makeWindow({
-                                              windowId: "@2",
-                                              index: 2,
-                                              codeRoot: "/home/user/code/run-kit",
-                                              layout: "h(tty,code)",
-                                            }),
-                                          ],
-                                        }),
-                                      ],
-                                    ],
-                                    [
-                                      "other",
-                                      [
-                                        makeSession({
-                                          name: "beta",
-                                          windows: [
-                                            makeWindow({
-                                              windowId: "@1",
-                                              index: 0,
-                                              isActiveWindow: true,
-                                            }),
-                                          ],
-                                        }),
-                                      ],
-                                    ],
-                                  ]),
+                                  sessionsByServer,
                                   isConnectedByServer: new Map([
                                     ["srv", true],
                                     ["other", true],
@@ -1629,7 +1673,9 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
     cleanup();
     surfaceLayoutSpy.mounts.length = 0;
     surfaceLayoutSpy.props.mockClear();
+    surfaceLayoutSpy.clearOnWindowChange.mockClear();
     sessionCtxOverride = {};
+    sessionsSnapshot = terminalRouteSessions;
   });
 
   it("a same-server window switch does NOT remount the grid; a server change does", async () => {
@@ -2007,6 +2053,112 @@ describe("terminal route grid key — SurfaceLayout keyed by server", () => {
       );
       expect(screen.getByTestId("mock-surface-layout").dataset.revealed).toBe("code");
       expect(apiSpies.setWindowOptions).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("the viewed window follows tmux", () => {
+    // The home-tab URL projects tmux's active window (the SSE snapshot); a
+    // UI/deep-link switch holds the URL only until the snapshot catches up.
+    // Snapshots are published through `publishActiveWindow`, one new Map per
+    // snapshot, the way the SSE slice delivers them.
+    const defaultSelectWindow = () => Promise.resolve({ ok: true });
+    afterEach(() => {
+      apiSpies.selectWindow.mockReset();
+      apiSpies.selectWindow.mockImplementation(defaultSelectWindow);
+      vi.useRealTimers();
+    });
+
+    async function renderAt(path: string) {
+      const router = createRouter({
+        routeTree: testRouteTree,
+        history: createMemoryHistory({ initialEntries: [path] }),
+      });
+      render(<RouterProvider router={router} />);
+      await waitFor(() => screen.getByTestId("mock-surface-layout"));
+      return router;
+    }
+    const pathOf = (r: { state: { location: { pathname: string } } }) => r.state.location.pathname;
+    const flush = () => act(async () => {});
+
+    it("an external switch after a switch confirmed before any byte moves the URL", async () => {
+      const router = await renderAt("/srv/1");
+      await flush();
+      expect(apiSpies.selectWindow).toHaveBeenCalledWith("srv", "@1");
+      expect(pathOf(router)).toBe("/srv/1");
+
+      await act(async () => publishActiveWindow("@1"));
+      await flush();
+      expect(pathOf(router)).toBe("/srv/1");
+
+      await act(async () => publishActiveWindow("@2"));
+      await waitFor(() => expect(pathOf(router)).toBe("/srv/2"));
+    });
+
+    it("a 200 before the confirming snapshot does not bounce the URL; the next snapshot wins", async () => {
+      const router = await renderAt("/srv/1");
+      await flush();
+      // The POST has settled and the client still holds the pre-select snapshot.
+      expect(pathOf(router)).toBe("/srv/1");
+
+      // An external switch (a third window) lands before tmux echoes the select.
+      await act(async () => publishActiveWindow("@2"));
+      await waitFor(() => expect(pathOf(router)).toBe("/srv/2"));
+    });
+
+    it("a dialog open during an external switch catches up on close", async () => {
+      const router = await renderAt("/srv/0");
+      await flush();
+      act(() => newSheetRef.current!.openNewSheet({ level: "tab" }));
+
+      await act(async () => publishActiveWindow("@2"));
+      await flush();
+      expect(pathOf(router)).toBe("/srv/0");
+
+      act(() => newSheetRef.current!.closeNewSheet());
+      await waitFor(() => expect(pathOf(router)).toBe("/srv/2"));
+    });
+
+    it("clearOnWindowChange is true for an overlay-held ride and false for an SSE-driven one", async () => {
+      const router = await renderAt("/srv/1");
+      await flush();
+      expect(surfaceLayoutSpy.clearOnWindowChange).toHaveBeenCalledWith("@1", true);
+
+      await act(async () => publishActiveWindow("@2"));
+      await waitFor(() => expect(pathOf(router)).toBe("/srv/2"));
+      const forTarget = surfaceLayoutSpy.clearOnWindowChange.mock.calls.filter(
+        ([windowId]) => windowId === "@2",
+      );
+      expect(forTarget.length).toBeGreaterThan(0);
+      expect(forTarget.every(([, clear]) => clear === false)).toBe(true);
+    });
+
+    it("a rejected POST returns the URL to the active window with the failure toast", async () => {
+      apiSpies.selectWindow.mockImplementation(() => Promise.reject(new Error("boom")));
+      const router = await renderAt("/srv/1");
+      await waitFor(() => expect(pathOf(router)).toBe("/srv/0"));
+      expect(
+        await screen.findByText("Tab switch didn't confirm — back to the active tab"),
+      ).toBeTruthy();
+    });
+
+    it("a hanging POST ends the overlay at the deadline without a toast", async () => {
+      apiSpies.selectWindow.mockImplementation(() => new Promise(() => {}));
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+      const router = createRouter({
+        routeTree: testRouteTree,
+        history: createMemoryHistory({ initialEntries: ["/srv/1"] }),
+      });
+      render(<RouterProvider router={router} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      expect(pathOf(router)).toBe("/srv/1");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+      expect(pathOf(router)).toBe("/srv/0");
+      expect(screen.queryByText("Tab switch didn't confirm — back to the active tab")).toBeNull();
     });
   });
 });

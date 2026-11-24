@@ -289,48 +289,6 @@ describe("SessionProvider — single state socket, per-server subscriptions", ()
     expect(result.current.sessionOrderByServer.get("work") ?? []).toEqual([]);
   });
 
-  it("getServerReceiptTick reads 0 for a server never seen and is ref-backed (no re-render subscription)", async () => {
-    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
-    setMockMatches([{ params: { server: "runkit" } }]);
-    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
-    await settle();
-
-    expect(result.current.getServerReceiptTick("never-seen")).toBe(0);
-    // The accessor is a stable imperative read — its identity never changes.
-    const first = result.current.getServerReceiptTick;
-    expect(result.current.getServerReceiptTick).toBe(first);
-  });
-
-  it("bumps the receipt tick on both ack snapshots and server events (260823-ke9i)", async () => {
-    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }, { name: "work", sessionCount: 0 }]);
-    setMockMatches([{ params: { server: "runkit" } }]);
-    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
-    await settle();
-
-    // The subscribe ack snapshot alone bumps the tick.
-    act(() => {
-      MockWebSocket.current!.ack("server", "runkit", []);
-    });
-    const afterAck = result.current.getServerReceiptTick("runkit");
-    expect(afterAck).toBeGreaterThan(0);
-
-    // A server event bumps it again.
-    act(() => {
-      WS.forServer("runkit")!.emit("session-order", { server: "runkit", order: ["main"] });
-    });
-    expect(result.current.getServerReceiptTick("runkit")).toBeGreaterThan(afterAck);
-
-    // Events for another server do not bump this server's tick.
-    const before = result.current.getServerReceiptTick("runkit");
-    act(() => {
-      result.current.attachServer("work");
-    });
-    act(() => {
-      WS.forServer("work")!.emit("session-order", { server: "work", order: ["x"] });
-    });
-    expect(result.current.getServerReceiptTick("runkit")).toBe(before);
-  });
-
   it("re-sorts ctx.servers on a server-order event without a listServers refetch", async () => {
     vi.mocked(listServers).mockResolvedValue([
       { name: "runkit", sessionCount: 0 },

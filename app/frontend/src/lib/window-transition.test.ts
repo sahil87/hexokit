@@ -16,12 +16,8 @@ import {
   subscribeMaskState,
   isMaskExemptKey,
   isRedundantSwitch,
-  isSamePendingTarget,
   nextDirectionToken,
   isLatestDirectionToken,
-  postConfirmsSwitch,
-  resolvePendingSwitchPost,
-  resolvePendingSwitchVerdict,
 } from "./window-transition";
 
 describe("windowSwitchDirection", () => {
@@ -404,7 +400,7 @@ describe("pending-switch mask signal (260715-38kg)", () => {
     expect(getMaskState()).toBe("masked");
   });
 
-  it("tearDownMask clears an armed mask (failure/bounce path)", async () => {
+  it("tearDownMask clears an armed mask (rejection path)", async () => {
     vi.useFakeTimers();
     const gate = beginWindowSwitchGate({ gated: true });
     gate.openForNotify();
@@ -417,7 +413,7 @@ describe("pending-switch mask signal (260715-38kg)", () => {
   });
 
   it("tearDownMask from the masked state is idempotent (fresh-switch teardown — 260719-h0x4)", async () => {
-    // beginPendingSwitch calls the bare tearDownMask() at every fresh switch
+    // beginSwitch calls the bare tearDownMask() at every fresh switch
     // start to clear a leftover mask a prior timed-out switch left showing. It
     // must clear a masked state AND be a harmless no-op on a second bare call
     // (the gated paths reach it after already tearing down).
@@ -435,7 +431,7 @@ describe("pending-switch mask signal (260715-38kg)", () => {
   });
 
   it("bare tearDownMask does NOT settle a still-pending gate (260719-h0x4 R2)", async () => {
-    // The animated path reaches beginPendingSwitch's fresh-switch tearDownMask
+    // The animated path reaches beginSwitch's fresh-switch tearDownMask
     // while its OWN just-opened gate is current. The bare teardown must leave
     // that gate pending so its first-write settle still plays the earned slide
     // — the contrast with abandonSwitchFeedback (which settles "superseded").
@@ -669,7 +665,7 @@ describe("non-VT / reduced-motion grace mask (260715-38kg, R3)", () => {
     expect(getMaskState()).toBe("masked");
   });
 
-  it("tearDownMask cancels a pending grace timer (failure/bounce before threshold)", () => {
+  it("tearDownMask cancels a pending grace timer (rejection before threshold)", () => {
     vi.useFakeTimers();
     armGraceMask(300);
     tearDownMask();
@@ -938,21 +934,21 @@ describe("isMaskExemptKey (rework F2 — global chords survive the masked swallo
   });
 });
 
-describe("abandonSwitchFeedback (rework G2 — bounce/teardown can never be re-masked)", () => {
+describe("abandonSwitchFeedback (rework G2 — rejection/teardown can never be re-masked)", () => {
   afterEach(() => {
     vi.useRealTimers();
     forceSwitchArrived();
   });
 
   it("settles a still-pending gate as 'superseded' so its timer can never re-mask", async () => {
-    // The fast-rejection bounce: a selectWindow rejection INSIDE the 300ms
-    // budget bounces while the gate is still pending. A bare tearDownMask would
+    // The fast rejection: a selectWindow rejection INSIDE the 300ms
+    // budget ends the switch while the gate is still pending. A bare tearDownMask would
     // let the gate's timer fire moments later and arm a mask with NO lift path
     // (liftAccepting stays false after a rejected POST) — permanently stuck.
     vi.useFakeTimers();
     const gate = beginWindowSwitchGate({ gated: true });
     const wait = gate.waitForFirstWrite(300);
-    // The bounce fires at t=50ms, well inside the budget.
+    // The rejection lands at t=50ms, well inside the budget.
     vi.advanceTimersByTime(50);
     abandonSwitchFeedback();
     await expect(wait).resolves.toBe("superseded");
@@ -1012,34 +1008,6 @@ describe("isRedundantSwitch (rework G3 — same-window click arms nothing)", () 
   });
 });
 
-describe("isSamePendingTarget (rework H1 — server-scoped pending-switch identity)", () => {
-  const pending = { server: "serverA", windowId: "@5" };
-
-  it("matches only the exact {server, windowId} pair", () => {
-    expect(isSamePendingTarget(pending, "serverA", "@5")).toBe(true);
-  });
-
-  it("does NOT match a colliding window id on a DIFFERENT server (the H1 hazard)", () => {
-    // `@5` on serverB is a different window — window ids are only unique per
-    // server. An id-only match would suppress serverB's tmux alignment, keep
-    // serverA's stale tracking alive through the writeback, and let serverA's
-    // 5s bounce yank the user cross-server with a false failure toast.
-    expect(isSamePendingTarget(pending, "serverB", "@5")).toBe(false);
-  });
-
-  it("does NOT match a different window on the same server", () => {
-    expect(isSamePendingTarget(pending, "serverA", "@6")).toBe(false);
-  });
-
-  it("does NOT match when no intent is pending", () => {
-    expect(isSamePendingTarget(null, "serverA", "@5")).toBe(false);
-  });
-
-  it("does NOT match an undefined window id (no window in the URL)", () => {
-    expect(isSamePendingTarget(pending, "serverA", undefined)).toBe(false);
-  });
-});
-
 describe("direction-attribute latest-wins guard (nextDirectionToken / isLatestDirectionToken)", () => {
   it("the freshly minted token is the latest", () => {
     const token = nextDirectionToken();
@@ -1059,185 +1027,5 @@ describe("direction-attribute latest-wins guard (nextDirectionToken / isLatestDi
     const a = nextDirectionToken();
     const b = nextDirectionToken();
     expect(b).toBeGreaterThan(a);
-  });
-});
-
-describe("postConfirmsSwitch (260823-ke9i)", () => {
-  it("confirms when activeWindow matches the target", () => {
-    expect(postConfirmsSwitch({ ok: true, activeWindow: "@2" }, "@2")).toBe(true);
-  });
-
-  it("confirms when activeWindow is absent (older daemon)", () => {
-    expect(postConfirmsSwitch({ ok: true }, "@2")).toBe(true);
-  });
-
-  it("does NOT confirm a mismatched activeWindow (external switch won)", () => {
-    expect(postConfirmsSwitch({ ok: true, activeWindow: "@5" }, "@2")).toBe(false);
-  });
-
-  it("does NOT confirm when ok is false", () => {
-    expect(postConfirmsSwitch({ ok: false, activeWindow: "@2" }, "@2")).toBe(false);
-  });
-});
-
-describe("resolvePendingSwitchVerdict (freshness-gated bounce, 260823-ke9i)", () => {
-  const base = {
-    isConnected: true,
-    tickAtClick: 3,
-    currentTick: 3,
-    postContradiction: false,
-    activeWindowId: "@1" as string | undefined,
-    targetWindowId: "@2",
-  };
-
-  it("sleep/wake: frozen pre-click snapshot + disconnected socket ⇒ rearm (no bounce)", () => {
-    expect(
-      resolvePendingSwitchVerdict({ ...base, isConnected: false }),
-    ).toBe("rearm");
-  });
-
-  it("no post-click evidence (connected but no receipt since the click) ⇒ rearm", () => {
-    // activeWindowId is the frozen pre-click snapshot showing the OLD window —
-    // without a post-click tick it must not render a failure verdict.
-    expect(resolvePendingSwitchVerdict({ ...base })).toBe("rearm");
-  });
-
-  it("a post-click snapshot showing the target active ⇒ confirm", () => {
-    expect(
-      resolvePendingSwitchVerdict({
-        ...base,
-        currentTick: 4,
-        activeWindowId: "@2",
-      }),
-    ).toBe("confirm");
-  });
-
-  it("a post-click snapshot showing a DIFFERENT window active ⇒ bounce", () => {
-    expect(
-      resolvePendingSwitchVerdict({
-        ...base,
-        currentTick: 4,
-        activeWindowId: "@5",
-      }),
-    ).toBe("bounce");
-  });
-
-  it("a mismatched POST activeWindow counts as fresh evidence ⇒ bounce", () => {
-    expect(
-      resolvePendingSwitchVerdict({
-        ...base,
-        postContradiction: true,
-        activeWindowId: "@5",
-      }),
-    ).toBe("bounce");
-  });
-
-  it("postContradiction with the target active ⇒ confirm", () => {
-    expect(
-      resolvePendingSwitchVerdict({
-        ...base,
-        postContradiction: true,
-        activeWindowId: "@2",
-      }),
-    ).toBe("confirm");
-  });
-
-  it("a rearm fires even with post-click evidence when the socket dropped again", () => {
-    expect(
-      resolvePendingSwitchVerdict({
-        ...base,
-        isConnected: false,
-        currentTick: 4,
-        activeWindowId: "@5",
-      }),
-    ).toBe("rearm");
-  });
-
-  it("rejection-as-fresh-evidence: postContradiction with the stale pre-click active window ⇒ bounce", () => {
-    // An explicit POST rejection sets postContradiction at the call site (the
-    // rejection post-dates the click, so it IS fresh evidence). The stale
-    // snapshot still shows the pre-click window — the verdict bounces rather
-    // than re-arming into the failure limbo (SF8).
-    expect(
-      resolvePendingSwitchVerdict({
-        ...base,
-        postContradiction: true,
-        activeWindowId: "@1",
-      }),
-    ).toBe("bounce");
-  });
-});
-
-describe("resolvePendingSwitchPost (POST-settlement seam, 260823-ke9i)", () => {
-  const base = {
-    targetWindowId: "@2",
-    isCurrent: true,
-    intentMatches: true,
-  };
-
-  it("a matching 200 confirms (cancel the bounce timer)", () => {
-    expect(
-      resolvePendingSwitchPost({
-        ...base,
-        outcome: { kind: "resolved", resp: { ok: true, activeWindow: "@2" } },
-      }),
-    ).toBe("confirm");
-  });
-
-  it("a 200 with an absent activeWindow confirms (older daemon)", () => {
-    expect(
-      resolvePendingSwitchPost({
-        ...base,
-        outcome: { kind: "resolved", resp: { ok: true } },
-      }),
-    ).toBe("confirm");
-  });
-
-  it("a mismatched 200 is a contradiction (external switch won)", () => {
-    expect(
-      resolvePendingSwitchPost({
-        ...base,
-        outcome: { kind: "resolved", resp: { ok: true, activeWindow: "@5" } },
-      }),
-    ).toBe("contradiction");
-  });
-
-  it("an explicit rejection is fresh post-click evidence (bounce immediately)", () => {
-    expect(
-      resolvePendingSwitchPost({
-        ...base,
-        outcome: { kind: "rejected" },
-      }),
-    ).toBe("contradiction");
-  });
-
-  it("a superseded switch's late 200 is a no-op (tracked entry no longer current)", () => {
-    expect(
-      resolvePendingSwitchPost({
-        ...base,
-        isCurrent: false,
-        outcome: { kind: "resolved", resp: { ok: true, activeWindow: "@2" } },
-      }),
-    ).toBe("none");
-  });
-
-  it("a settlement whose intent moved on is a no-op (identity mismatch)", () => {
-    expect(
-      resolvePendingSwitchPost({
-        ...base,
-        intentMatches: false,
-        outcome: { kind: "resolved", resp: { ok: true, activeWindow: "@2" } },
-      }),
-    ).toBe("none");
-  });
-
-  it("a superseded switch's late rejection is a no-op (SF8: never bounce the successor)", () => {
-    expect(
-      resolvePendingSwitchPost({
-        ...base,
-        isCurrent: false,
-        outcome: { kind: "rejected" },
-      }),
-    ).toBe("none");
   });
 });

@@ -1,0 +1,54 @@
+id: d2nb
+name: 261124-d2nb-fix-stale-tab-after-external-switch
+created: 2026-11-24T04:56:45Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: active
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 13
+    acceptance_count: 23
+    acceptance_completed: 0
+confidence:
+    certain: 5
+    confident: 7
+    tentative: 0
+    unresolved: 0
+    score: 4.5
+    fuzzy: true
+    dimensions:
+        signal: 82.5
+        reversibility: 77.9
+        competence: 83.3
+        disambiguation: 81.7
+stage_metrics:
+    intake: {started_at: "2026-11-24T04:56:45Z", driver: fab-new, iterations: 1, completed_at: "2026-11-24T05:06:48Z"}
+    apply: {started_at: "2026-11-24T05:06:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T05:41:21Z"}
+    review: {started_at: "2026-11-24T05:41:21Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-11-24T05:41:21Z"
+    computed_at_stage: apply
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-24T05:41:21Z
