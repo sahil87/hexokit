@@ -240,7 +240,7 @@ The palette SHALL gain `Settings: Agent presets` (open Settings > Agents, scroll
 - [x] A-008 R9: The six routes exist with the documented verbs and bodies and are documented in `docs/specs/api.md`.
 - [x] A-009 R10: The Agents tab shows Leftover settings (conditional) → Use a preset → Presets → Dispatch as boxed sections with header job lines; no Customize disclosure or override note remains when presets are supported.
 - [x] A-010 R11: The list shows every machine preset with `default` and `built-in`/`yours` tags; "+ New preset" sits in the section header.
-- [ ] A-011 R12: The editor reads and writes `agent_presets.<name>.*` with no Save button, dims unset fields with `↳` values, and is read-only for built-ins with the study's notes. <!-- review: not met — PresetEditor is not keyed by preset name, so a description (or custom model) draft typed for one preset survives switching to another and can be committed to it (settings-agent-presets.tsx:220) -->
+- [x] A-011 R12: The editor reads and writes `agent_presets.<name>.*` with no Save button, dims unset fields with `↳` values, and is read-only for built-ins with the study's notes.
 - [x] A-012 R13: The usage note names the machine default, workspaces and groups that use the preset.
 - [x] A-013 R14: The name form handles New/Duplicate/Rename with the specified prefill, messages and description requirement.
 - [x] A-014 R15: Delete confirms with the usage wording before deleting.
@@ -260,7 +260,7 @@ The palette SHALL gain `Settings: Agent presets` (open Settings > Agents, scroll
 
 - [x] A-020 R4: A Go test renames a preset used by the machine default, a workspace and a group across two servers and asserts every repoint.
 - [x] A-021 R7: A Go test moves loose values (incl. a legacy `tool` leaf) over a machine default preset and asserts the resulting preset, default and unsets.
-- [ ] A-022 R14: e2e covers create → edit → duplicate → rename → delete on desktop and mobile. <!-- review: not met — the flow test runs at the default desktop viewport only; mobile has only the stacking/overflow test -->
+- [x] A-022 R14: e2e covers create → edit → duplicate → rename → delete on desktop and mobile.
 - [x] A-023 R16: e2e covers leftover Move and Clear, including the disclosure when a group has its own preset. <!-- review: e2e exercises the disclosure through a workspace's own preset; the group path is covered in settings-agent-presets.test.tsx -->
 
 ### Edge Cases & Error Handling
@@ -294,8 +294,7 @@ The palette SHALL gain `Settings: Agent presets` (open Settings > Agents, scroll
 
 ## Deletion Candidates
 
-- `app/frontend/src/components/settings-agent-leftovers.tsx:39` `ClearConfirm` — near-copy of `DeleteConfirm` (`settings-agent-preset-forms.tsx:136`): same alertdialog shell, Escape handling, busy/error state and Cancel focus; one parameterised confirm bar would replace both.
-- `app/frontend/src/lib/agent-presets-editor.ts:139` `ResolvedRoles` — structurally identical to `FabResolvedRoles` in `api/client.ts`; use the client type.
+- None — this change adds new functionality without making existing code redundant (the cycle-1 candidates, `ClearConfirm` and `ResolvedRoles`, were consolidated into `ConfirmBar` and `FabResolvedRoles`).
 
 ## Assumptions
 
