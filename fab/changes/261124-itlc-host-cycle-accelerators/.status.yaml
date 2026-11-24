@@ -8,8 +8,8 @@ progress:
     intake: done
     apply: done
     review: done
-    hydrate: active
-    ship: pending
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
@@ -32,24 +32,26 @@ stage_metrics:
     intake: {started_at: "2026-11-24T09:10:09Z", driver: fab-new, iterations: 1, completed_at: "2026-11-24T09:13:10Z"}
     apply: {started_at: "2026-11-24T09:34:47Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-24T09:38:24Z"}
     review: {started_at: "2026-11-24T09:38:24Z", driver: fab-fff, iterations: 2, completed_at: "2026-11-24T09:44:35Z"}
-    hydrate: {started_at: "2026-11-24T09:44:35Z", driver: fab-fff, iterations: 1}
+    hydrate: {started_at: "2026-11-24T09:44:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T09:47:42Z"}
+    ship: {started_at: "2026-11-24T09:47:42Z", driver: fab-fff, iterations: 1}
 prs: []
 base_branch: main
 change_type_source: explicit
 true_impact:
-    added: 1188
-    deleted: 22
-    net: 1166
+    added: 1233
+    deleted: 24
+    net: 1209
     excluding:
-        added: 688
-        deleted: 22
-        net: 666
+        added: 721
+        deleted: 24
+        net: 697
     tests:
-        added: 258
+        added: 259
         deleted: 1
-        net: 257
-    computed_at: "2026-11-24T09:38:24Z"
-    computed_at_stage: apply
+        net: 258
+    computed_at: "2026-11-24T09:47:42Z"
+    computed_at_stage: hydrate
+summary: 'Host cycling: Previous/Next Host Hosts-menu items (⌥⌘←/→, Alt+PageUp/PageDown), host-cycle.ts, onCycleHost, Host: Previous/Next palette entries, pill tip, Shortcuts rows, mac optcmd claims, XTest e2e chord injection'
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-24T09:44:35Z
+last_updated: 2026-11-24T09:47:42Z
