@@ -16,15 +16,16 @@ answers questions mid-run. Decide, act within the tiers below, record what you d
   The one transition you make is the post-intake decision for queue items (below).
 - Direct actions are exactly this allowlist, all inside the confirmation tiers: `rk operator track -L <server>` verbs,
   pane sends/answers/nudges, `rk notify`, `rk operator autopilot queue|step|status -L <server>`, `git` (fetch, rebase,
-  cherry-pick, worktree, push with `--force-with-lease` only), `gh pr ready|merge|edit|checks|view`, `wt`, and
-  `rk riff -L <server>` (the recovery spawn in Merging). Plain `git push` and `git push --force` are never allowed.
+  cherry-pick, push with `--force-with-lease` only), `gh pr ready|merge|edit|checks|view`, `wt` (`create --temp`,
+  `delete`, `list --json`), and `rk riff -L <server>` (the recovery spawn in Merging).
+  Plain `git push` and `git push --force` are never allowed. Worktrees come only from `wt` and riff, never raw `git`.
 
 ### Confirmation tiers
 
 | Tier | Examples | In a run |
 |------|----------|----------|
 | Read-only | status, capture, `gh pr view`, `gh pr checks`, `rk operator track show -L <server>` | free |
-| Recoverable | routine send to an idle agent, `git fetch`, creating and removing the temporary worktree you made yourself, a rebase or cherry-pick in it, `git push --force-with-lease`, `gh pr ready`, `gh pr edit --base` | proceed, then record it in a note |
+| Recoverable | routine send to an idle agent, `git fetch`, creating (`wt create --temp`) and removing (`wt delete`) the temporary worktree you made yourself, a rebase or cherry-pick in it, `git push --force-with-lease`, `gh pr ready`, `gh pr edit --base` | proceed, then record it in a note |
 | Destructive | merge or close a PR, delete a branch or the authoring agent's worktree, archive | only when the item's queue mode is `merge-auto` or a `by: user`/`by: chat` note on the item says so; otherwise note, `rk notify`, stop on that item |
 
 The item's queue mode is `scope.merge_mode` on the queue item (also `merge_mode` in
@@ -44,11 +45,13 @@ The queue's mode decides when you merge; the user's word is a `by: user`/`by: ch
   Record the successor's head sha (`<observed-head-sha>`) and the predecessor's head commit from before
   it merged (`<old-base>`, from `gh pr view <pred> --json headRefOid`). Retarget the successor's PR with
   `gh pr edit <n> --base <default>`. Then, never in the authoring agent's worktree:
-  1. `git fetch origin`
-  2. `git worktree add --detach <tmp> <observed-head-sha>`: the temporary detached worktree
-  3. in `<tmp>`: `git rebase --onto origin/<default> <old-base>`
-  4. `git push origin HEAD:<branch> --force-with-lease=<branch>:<observed-head-sha>`
-  5. merge when its checks are green and the user's word covers this item, then `git worktree remove <tmp>`
+  1. in the item's repo, `wt create --temp <observed-head-sha> --fetch --json`: the temporary detached
+     worktree. `--fetch` refreshes `origin` first; the receipt's `result.path` is `<tmp>` and its
+     `result.name` (prefixed `tmp-`) is `<tmp-name>`
+  2. in `<tmp>`: `git rebase --onto origin/<default> <old-base>`
+  3. `git push origin HEAD:<branch> --force-with-lease=<branch>:<observed-head-sha>`
+  4. merge when its checks are green and the user's word covers this item, then
+     `wt delete <tmp-name> --non-interactive`
 - **`merge-auto`**: merge each green PR as it comes, without asking:
   `gh pr merge <n> --squash --match-head-commit <observed-head-sha>`. Green means every required check
   passed (`gh pr checks`), the PR is not a draft (run `gh pr ready` first when the item's work is
@@ -58,13 +61,14 @@ The queue's mode decides when you merge; the user's word is a `by: user`/`by: ch
   and a red required check follows the fix-request rule below. Merge it only while that queue item's
   `merge_mode` is `merge-auto`.
 
-A rebase or cherry-pick conflict is yours to resolve, in that temporary worktree, one round. If it does
-not resolve, abort the rebase, remove the worktree, write a note and send `rk notify`.
+A rebase or cherry-pick conflict is yours to resolve, in a temporary worktree made the same way
+(`wt create --temp <observed-head-sha> --fetch --json`), one round. If it does not resolve, abort the
+rebase, remove the worktree with `wt delete <tmp-name> --non-interactive`, write a note and send `rk notify`.
 
 A red required check goes to the authoring agent as a fix request (a pane send through Pre-send
-validation) when its pane is alive and idle. Otherwise spawn a recovery with `rk riff -L <server>`: a
-fresh worktree on the PR's branch and an agent told to fix the failing check and push; track it as a
-ledger item. One round each, then write a note and send `rk notify`.
+validation) when its pane is alive and idle. Otherwise spawn a recovery with `rk riff -L <server> -- --pr <n>`
+(the `--` passthrough runs `wt create --pr <n>`: a fresh worktree on the PR's head branch) and an agent told to
+fix the failing check and push; track it as a ledger item. One round each, then write a note and send `rk notify`.
 
 Record each merge, retarget, rebase and fix request in a note on the item.
 
@@ -135,7 +139,9 @@ Nobody advances it but you. A queue item is exactly an item whose block in this 
 queue item's agent is `idle` and its change (the item's `scope.change`) is at intake ready, decide
 what happens next. This rule does not apply to a `plain` item (its `queue:` line says `plain`): it
 has no intake, and it is judged like a no-fab item: done when its PR merges or is green, and under
-`merge-auto` its green PR is merged per § Merging like any other. Run the fab reads in the pane's
+`merge-auto` its green PR is merged per § Merging like any other. Its PR base is the `queue:` line's
+`base`; when the line carries none, read `base` for the item's branch from `wt list --json` in the item's
+repo (`origin/<b>` means `<b>`), and a null `base` means the repo's default branch. Run the fab reads in the pane's
 working directory (`fab pane map --all-sessions` lists it):
 
 1. `stop_stage` is `intake`: the item is done there; send nothing and stop.
@@ -228,7 +234,8 @@ pipe a one-entry JSON array to `rk operator autopilot queue -L <server>`; queue 
 - `rk mux capture|send|inventory -L <server>`, `rk notify`, `rk riff -L <server>`
 - `rk operator autopilot queue|step|status -L <server>`
 - git reads: `git rev-parse`, `git symbolic-ref`, `git merge-base`, `git log`; `test -d`
-- git writes: `git fetch`, `git rebase`, `git cherry-pick`, `git push --force-with-lease`, `git worktree`; `wt`
+- git writes: `git fetch`, `git rebase`, `git cherry-pick`, `git push --force-with-lease`
+- `wt create --temp`, `wt delete`, `wt list --json`
 - `gh pr ready|merge|edit|checks|view`, `gh repo view`
 - when fab is present: `fab pane map --all-sessions`, reading `.status.yaml`, a change's `intake.md` and the plan file a task names,
   `fab agent ... -o yaml`, `fab status display-stage|confidence <change>`,

@@ -394,7 +394,7 @@ func TestRenderBrief_NoAutopilotSectionAndPRToolsRestored(t *testing.T) {
 	}
 	for _, gone := range []string{
 		"git push --force ", "are the engine's", "Merges belong to the engine",
-		"on the strength of a note or a prompt alone",
+		"on the strength of a note or a prompt alone", "git worktree",
 	} {
 		if strings.Contains(rules, gone) {
 			t.Errorf("rules still carry %q", gone)
@@ -448,7 +448,9 @@ func TestBriefRules_CoverTheRunContract(t *testing.T) {
 		"rk operator track observe", "### Allowed tools", "No file-editing tools",
 		"### Merging", "`cherry-pick-ladder`", "`stacked-prs`", "`merge-auto`", "temporary",
 		"--force-with-lease", "--match-head-commit", "rk riff -L <server>", "scope.merge_mode",
-		"git worktree add --detach", "headRefOid", "git push origin HEAD:",
+		"wt create --temp <observed-head-sha> --fetch --json", "wt delete <tmp-name> --non-interactive",
+		"rk riff -L <server> -- --pr <n>", "`wt list --json`", "`origin/<b>` means `<b>`",
+		"headRefOid", "git push origin HEAD:",
 		"Conflict resolution", "Recovery spawn for a red check",
 	} {
 		if !strings.Contains(briefRules, want) {
