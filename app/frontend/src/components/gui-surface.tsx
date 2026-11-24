@@ -119,7 +119,11 @@ import { zoomedHostSize } from "@/lib/gui-posture";
  *   WHEEL_STEP_THRESHOLD of Ctrl+wheel deltaY (lib/zoom-gesture.ts createWheelAccumulator) (mac trackpad pinch
  *   arrives as ctrl+wheel) and swallows the event so neither the browser's
  *   page zoom nor noVNC's wheel handler sees it; a wheel without Ctrl passes
- *   to noVNC untouched.
+ *   to noVNC untouched. With the capture latch set, a ctrl-wheel is the
+ *   guest's instead: it passes to noVNC (which sends the scroll buttons)
+ *   while rk holds Control_L in the guest, released PINCH_CTRL_RELEASE_MS
+ *   after the gesture's last event — unless a held ⌘ or a physical Control
+ *   already holds it.
  * - **Chord gate**: a capture-phase keydown on the canvas wrapper intercepts
  *   registry chords (`shouldReclaimChord`, bound to kind "gui") BEFORE
  *   noVNC's canvas-attached handler sees them and re-dispatches a synthetic
@@ -162,6 +166,10 @@ const COPIED_FEEDBACK_MS = 1_500;
 
 /** How long the corner zoom badge stays visible after a zoom change. */
 const ZOOM_BADGE_MS = 1_500;
+
+/** Idle gap after the last captured ctrl-wheel before rk releases the
+ *  Control_L it pressed for the pinch (pinch events arrive every ~16 ms). */
+const PINCH_CTRL_RELEASE_MS = 150;
 
 /** Fine-pointer displacement (px) before a held press becomes a pan drag
  *  instead of a replayed click. */
@@ -381,9 +389,27 @@ export default function GuiSurface({
   const captureRef = useRef(capture);
   captureRef.current = capture;
   const heldRef = useRef<HeldKeys>(new Map());
+  // A captured pinch's Control_L lives in heldRef under ControlLeft (so every
+  // releaseHeld path covers it); pinchOwnsCtrlRef says the pinch, not a held
+  // ⌘, put it there — only then may the idle timer release it.
+  const pinchOwnsCtrlRef = useRef(false);
+  const pinchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Physical Control keys down on the viewer — noVNC already holds them in
+  // the guest, so a pinch must neither press nor release Control over them.
+  const physicalCtrlRef = useRef(new Set<string>());
+  const yieldPinchCtrl = () => {
+    if (pinchTimerRef.current) clearTimeout(pinchTimerRef.current);
+    pinchTimerRef.current = null;
+    const owned = pinchOwnsCtrlRef.current;
+    pinchOwnsCtrlRef.current = false;
+    return owned;
+  };
 
   useEffect(() => {
-    if (!capture) releaseHeld(rfbRef.current, heldRef.current);
+    if (!capture) {
+      yieldPinchCtrl();
+      releaseHeld(rfbRef.current, heldRef.current);
+    }
   }, [capture]);
 
   // D7: only the focused fine-pointer viewer on an unlocked host (neither the
@@ -631,6 +657,27 @@ export default function GuiSurface({
     const accumulate = createWheelAccumulator();
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey) return;
+      if (captureRef.current) {
+        // Captured: the pinch is the guest's Ctrl+scroll zoom. A trackpad
+        // pinch carries ctrlKey with no Control keydown, so rk holds
+        // Control_L in the guest while noVNC's own wheel handler sends the
+        // scroll buttons (it also prevents the browser's page zoom).
+        const rfb = rfbRef.current;
+        const held = heldRef.current;
+        if (!rfb) return;
+        if (!held.has("ControlLeft") && physicalCtrlRef.current.size === 0) {
+          rfb.sendKey(KEYSYM_CONTROL_L, "ControlLeft", true);
+          held.set("ControlLeft", KEYSYM_CONTROL_L);
+          pinchOwnsCtrlRef.current = true;
+        }
+        if (!pinchOwnsCtrlRef.current) return;
+        if (pinchTimerRef.current) clearTimeout(pinchTimerRef.current);
+        pinchTimerRef.current = setTimeout(() => {
+          yieldPinchCtrl();
+          if (heldRef.current.delete("ControlLeft")) rfbRef.current?.sendKey(KEYSYM_CONTROL_L, "ControlLeft", false);
+        }, PINCH_CTRL_RELEASE_MS);
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       let steps = accumulate(e.deltaY);
@@ -646,7 +693,11 @@ export default function GuiSurface({
       if (z !== propsRef.current.zoom) onZoomChangeRef.current(z);
     };
     el.addEventListener("wheel", onWheel, { capture: true, passive: false });
-    return () => el.removeEventListener("wheel", onWheel, { capture: true });
+    return () => {
+      el.removeEventListener("wheel", onWheel, { capture: true });
+      // A held pinch Control stays in heldRef for the teardown/blur release.
+      yieldPinchCtrl();
+    };
     // The wrapper exists only in the canvas branch — re-attach on a branch
     // switch (the empty state renders no wrapper).
   }, [enabled, reachable, credEscaped]);
@@ -990,6 +1041,12 @@ export default function GuiSurface({
       }}
       onKeyDownCapture={(e) => {
         onInteractRef.current?.();
+        if (e.code === "ControlLeft" || e.code === "ControlRight") {
+          physicalCtrlRef.current.add(e.code);
+          // noVNC's Control down/up now owns the guest's Control: drop the
+          // pinch's hold without a release the user's key would undo.
+          if (yieldPinchCtrl()) heldRef.current.delete("ControlLeft");
+        }
         if (!reclaimRef.current?.(e.nativeEvent)) {
           // noVNC maps Cmd to Alt_L on macOS; while captured the guest gets
           // Control_L instead, and noVNC's meta-held press+release of the
@@ -1025,6 +1082,8 @@ export default function GuiSurface({
           if (code !== "ControlLeft" && !held.has("ControlLeft")) return;
           e.preventDefault();
           e.stopPropagation();
+          // A ⌘ pressed mid-pinch takes over the pinch's Control_L; its keyup releases it.
+          if (code === "ControlLeft") yieldPinchCtrl();
           const rfb = rfbRef.current;
           if (e.repeat || held.has(code) || !rfb) return;
           rfb.sendKey(keysym, code, true);
@@ -1050,6 +1109,7 @@ export default function GuiSurface({
         );
       }}
       onKeyUpCapture={(e) => {
+        physicalCtrlRef.current.delete(e.code);
         const hold = guestHold(e.code);
         if (!hold || !heldRef.current.has(hold[0])) return;
         e.preventDefault();
@@ -1061,6 +1121,8 @@ export default function GuiSurface({
         // macOS never delivers the Cmd keyup once focus leaves (⌘Tab, a click
         // elsewhere), so a held Control_L would stay down in the guest.
         if (e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return;
+        physicalCtrlRef.current.clear();
+        yieldPinchCtrl();
         releaseHeld(rfbRef.current, heldRef.current);
       }}
     >

@@ -280,7 +280,14 @@ change shows a monospace corner badge (`150%`, `fit`) that hides after 1.5 s.
 Chords on the focused tile — Ctrl+= / Ctrl+- / Ctrl+0 and Ctrl+wheel (a mac
 trackpad pinch arrives as Ctrl+wheel and rides the same path) — step the
 ladder or return to fit; they are ctrl-tier, gui-only registry rows, so under
-a focused terminal the same keys reach the pane. The palette mirrors them:
+a focused terminal the same keys reach the pane. While keyboard capture is
+latched, a fine-pointer Ctrl+wheel (a trackpad pinch) belongs to the guest
+instead: noVNC sends the scroll buttons and rk holds Control_L in the guest
+around them, releasing it 150 ms after the gesture's last event (or at once
+on blur, unlatch, or teardown), so guest apps see their Ctrl+scroll zoom. A
+⌘ held under capture or a physical Control already holds it, so rk adds no
+press or release then. The viewer zoom stays reachable under capture through
+the palette rows and the tile header's zoom control. The palette mirrors them:
 `GUI: Zoom in` / `Zoom out` / `Zoom to fit`, plus `GUI: 1:1` as the alias of
 the 100% step.
 

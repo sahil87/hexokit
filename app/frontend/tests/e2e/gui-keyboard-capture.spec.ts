@@ -64,6 +64,26 @@ function probedKeys(page: Page): Promise<string[]> {
   return page.evaluate(() => (window as unknown as { __guiKeys: string[] }).__guiKeys);
 }
 
+/** Fire a trackpad-pinch-shaped wheel on the noVNC canvas: ctrlKey set with
+ *  no Control keydown (how Chromium reports a pinch), and count the wheels
+ *  that reach the canvas (the guest's door). */
+function pinchOnCanvas(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const canvas = document.querySelector('[data-testid="gui-novnc-host"] canvas');
+    if (!canvas) throw new Error("no canvas");
+    let reached = 0;
+    const count = () => {
+      reached += 1;
+    };
+    canvas.addEventListener("wheel", count);
+    canvas.dispatchEvent(
+      new WheelEvent("wheel", { deltaY: -60, ctrlKey: true, bubbles: true, cancelable: true }),
+    );
+    canvas.removeEventListener("wheel", count);
+    return reached;
+  });
+}
+
 /** The palette's closed state, after a settle beat — the assertion for "rk
  *  did not fire on the captured chord". */
 async function expectPaletteClosed(page: Page): Promise<void> {
@@ -181,5 +201,37 @@ test.describe("gui keyboard capture — mocked signal, desktop (1280px)", () => 
     await expect
       .poll(() => page.evaluate(() => localStorage.getItem("rk-gui-capture")))
       .toBeNull();
+  });
+  /**
+   * Proves: a trackpad pinch (a ctrl-wheel with no Control keydown) zooms
+   * the viewer while capture is off (the zoom badge shows and the canvas
+   * never sees the wheel), and belongs to the guest while capture is latched
+   * (the wheel reaches the noVNC canvas and the viewer zoom stays put).
+   *
+   * Steps:
+   * 1. Mock the reachable icewm backend; open @2; focus the canvas.
+   * 2. Pinch on the canvas; assert the canvas saw no wheel and the zoom badge
+   *    shows 100%.
+   * 3. Wait for the badge to hide; latch capture via the pinned verb.
+   * 4. Pinch again; assert the canvas saw the wheel and no zoom badge appears.
+   */
+  test("a pinch zooms the viewer when released and reaches the guest when latched", async ({ page }) => {
+    await mockGuiBackend(page, GUI_ON_ICEWM);
+    await page.goto("/default/2");
+    await expect(canvasWrap(page)).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(novncCanvas(page)).toBeAttached();
+    const badge = page.getByTestId("gui-zoom-badge");
+
+    await focusCanvas(page);
+    expect(await pinchOnCanvas(page)).toBe(0);
+    await expect(badge).toHaveText("100%");
+    await expect(badge).toHaveCount(0, { timeout: 5_000 });
+
+    await page.getByTestId("gui-capture-toggle").click();
+    await expect(page.getByText("keys → desktop")).toBeVisible();
+    await focusCanvas(page);
+    expect(await pinchOnCanvas(page)).toBe(1);
+    await page.waitForTimeout(300);
+    await expect(badge).toHaveCount(0);
   });
 });

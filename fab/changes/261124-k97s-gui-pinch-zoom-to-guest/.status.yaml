@@ -1,0 +1,54 @@
+id: k97s
+name: 261124-k97s-gui-pinch-zoom-to-guest
+created: 2026-11-24T17:23:25Z
+created_by: arnold-laishram-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: active
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 14
+    acceptance_completed: 0
+confidence:
+    certain: 2
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.3
+    fuzzy: true
+    dimensions:
+        signal: 63.6
+        reversibility: 85.7
+        competence: 77.9
+        disambiguation: 70.0
+stage_metrics:
+    intake: {started_at: "2026-11-24T17:23:25Z", driver: fab-new, iterations: 1, completed_at: "2026-11-24T17:27:54Z"}
+    apply: {started_at: "2026-11-24T17:27:54Z", driver: fab-ff, iterations: 1, completed_at: "2026-11-24T17:33:57Z"}
+    review: {started_at: "2026-11-24T17:33:57Z", driver: fab-ff, iterations: 1}
+prs: []
+change_type_source: explicit
+base_branch: main
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-11-24T17:33:57Z"
+    computed_at_stage: apply
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-24T17:33:57Z
