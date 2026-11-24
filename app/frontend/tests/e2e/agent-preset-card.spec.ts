@@ -35,7 +35,9 @@ function sessionsJson(groupPreset: string | undefined) {
   ]);
 }
 
-async function mockBackend(page: Page, options: { workspacePreset?: string } = {}) {
+type ServerFlags = { protected?: boolean; managed?: boolean };
+
+async function mockBackend(page: Page, options: { workspacePreset?: string; serverFlags?: ServerFlags } = {}) {
   let groupPreset: string | undefined;
   let workspacePreset = options.workspacePreset;
   const groupPosts: Array<Record<string, unknown>> = [];
@@ -45,7 +47,14 @@ async function mockBackend(page: Page, options: { workspacePreset?: string } = {
   await page.route("**/api/boards", (route) => route.fulfill({ json: [] }));
   await page.route("**/api/servers", (route) =>
     route.fulfill({
-      json: [{ name: SERVER, sessionCount: 1, ...(workspacePreset ? { agent_preset: workspacePreset } : {}) }],
+      json: [
+        {
+          name: SERVER,
+          sessionCount: 1,
+          ...options.serverFlags,
+          ...(workspacePreset ? { agent_preset: workspacePreset } : {}),
+        },
+      ],
     }),
   );
   await page.route("**/api/fab-config", (route) =>
@@ -233,8 +242,8 @@ test.describe("agent preset cards", () => {
   });
 
   /**
-   * Proves: a desktop Workspaces tile shares its narrow name line between the
-   * workspace name and its own-preset chip instead of collapsing either one.
+   * Proves: a desktop Workspaces tile keeps both the workspace name and its
+   * own-preset chip rendered instead of collapsing either one.
    *
    * Steps:
    * 1. Use a 1280×720 viewport and a workspace with own codex-review.
@@ -289,7 +298,7 @@ test.describe("agent preset cards on coarse pointers", () => {
 
   /**
    * Proves: the 375px mobile Workspaces tile also keeps both the workspace
-   * name and own-preset chip rendered inside its narrower line.
+   * name and own-preset chip rendered inside the tile.
    *
    * Steps:
    * 1. Mock a coarse pointer and a workspace with own codex-review.
@@ -302,5 +311,34 @@ test.describe("agent preset cards on coarse pointers", () => {
     await page.goto(`/${SERVER}/1`);
     await page.getByRole("button", { name: "Toggle navigation" }).tap();
     await expectWorkspaceTileGeometry(page);
+  });
+
+  /**
+   * Proves: on the 375px mobile Workspaces tile, a workspace that is both
+   * protected and external still shows its own-preset chip — the shield and
+   * external glyphs fill the name line, so the chip must stay visible on the
+   * count row instead of being clipped off the tile.
+   *
+   * Steps:
+   * 1. Mock a coarse pointer and a protected, unmanaged (external) workspace
+   *    with own codex-review.
+   * 2. Open the mobile drawer and assert both glyphs render on the tile.
+   * 3. Assert the name and marker have non-zero width inside the tile's box.
+   * 4. Assert the marker sits on its own row below the name, with at least
+   *    three characters' worth of visible width.
+   */
+  test("mobile protected external tile keeps its preset marker visible", async ({ page }) => {
+    await mockBackend(page, { workspacePreset: "codex-review", serverFlags: { protected: true, managed: false } });
+    await mockCoarsePointer(page);
+    await page.goto(`/${SERVER}/1`);
+    await page.getByRole("button", { name: "Toggle navigation" }).tap();
+    const tile = page.getByRole("listbox", { name: "Workspaces" }).getByRole("option", { name: /default/ });
+    await expect(tile.getByTestId(`shield-${SERVER}`)).toBeVisible();
+    await expect(tile.getByTestId(`external-${SERVER}`)).toBeVisible();
+    await expectWorkspaceTileGeometry(page);
+    const nameBox = (await tile.getByText(SERVER, { exact: true }).boundingBox())!;
+    const markerBox = (await tile.getByTestId("agent-preset-marker").boundingBox())!;
+    expect(markerBox.y).toBeGreaterThanOrEqual(nameBox.y + nameBox.height - 0.5);
+    expect(markerBox.width).toBeGreaterThanOrEqual(18);
   });
 });

@@ -746,11 +746,17 @@ describe("server card agent preset", () => {
     expect(screen.getByTestId("agent-preset-marker")).toHaveTextContent("codex-review");
   });
 
-  it("truncates a long workspace name without squashing the preset marker", () => {
+  it("puts the preset marker on the count row, leaving the name line to the name and its glyphs", () => {
     const longName = "a-workspace-name-that-is-far-too-long-for-the-tile";
-    renderPanel({ servers: [{ name: longName, sessionCount: 1, agent_preset: "codex-review" }] });
-    expect(screen.getByText(longName)).toHaveClass("min-w-[3ch]", "flex-1", "truncate");
-    expect(screen.getByTestId("agent-preset-marker")).toHaveTextContent("codex-review");
-    expect(screen.getByTestId("agent-preset-marker")).toHaveClass("min-w-[3ch]", "max-w-1/2", "shrink");
+    renderPanel({
+      servers: [{ name: longName, sessionCount: 1, protected: true, managed: false, agent_preset: "codex-review" }],
+    });
+    const nameSpan = screen.getByText(longName);
+    expect(nameSpan).toHaveClass("min-w-0", "flex-1", "truncate");
+    const marker = screen.getByTestId("agent-preset-marker");
+    expect(marker).toHaveTextContent("codex-review");
+    expect(marker).toHaveClass("min-w-[3ch]", "shrink");
+    expect(nameSpan.parentElement).not.toContainElement(marker);
+    expect(screen.getByTestId(`shield-${longName}`).parentElement).toBe(nameSpan.parentElement);
   });
 });

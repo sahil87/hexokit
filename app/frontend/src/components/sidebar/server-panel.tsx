@@ -424,8 +424,7 @@ function ServerTile({
                 <ExternalGlyph />
               </span>
             )}
-            <span className={`min-w-[3ch] flex-1 truncate ${nameClass}`}>{name}</span>
-            <AgentPresetMarker name={agentPreset} tile />
+            <span className={`min-w-0 flex-1 truncate ${nameClass}`}>{name}</span>
           </div>
           {/* Window count + waiting rollup (260708-4li7): a bare window-count
               number with the badge right-aligned on the same flex row — the
@@ -435,12 +434,17 @@ function ServerTile({
           {/* h-3.5 reserves the badge's full height even when no badge renders:
               the pill is taller than the count text, so without the reserve the
               tile (and its whole grid row) would jump in height every time an
-              agent starts/stops waiting. */}
-          <div className="flex h-3.5 items-center justify-between mt-0.5">
-            <div className="text-[10px] leading-tight text-text-secondary">
+              agent starts/stops waiting. The own-preset chip rides this row,
+              not the name line: the name line also carries the protected and
+              external glyphs, which leave no room for a chip in a 72px tile. */}
+          <div className="flex h-3.5 min-w-0 items-center gap-1 mt-0.5">
+            <div className="shrink-0 text-[10px] leading-tight text-text-secondary">
               {windowCount}
             </div>
-            <WaitingBadge count={waitingCount} />
+            <AgentPresetMarker name={agentPreset} tile />
+            <span className="ml-auto flex shrink-0 items-center">
+              <WaitingBadge count={waitingCount} />
+            </span>
           </div>
         </div>
       </button>
