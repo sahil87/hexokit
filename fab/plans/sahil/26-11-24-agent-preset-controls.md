@@ -1,10 +1,11 @@
 # Agent preset controls — set a group's or workspace's preset by mouse, and make your own presets
 
-> Plan doc, written 2026-11-24 from a `/fab-discuss` session in hexokit. It follows
-> `26-11-24-agent-presets.md`, whose three code steps have landed (fab-kit #711 in v2.31.1; hexokit #1189
-> and #1191). Design study: `docs/wiki/agent-preset-controls-studies.html` (a clickable mock of step C1
-> and a static sketch of step C2). Facts below were verified the same day against hexokit `main`
-> (`7fb53092`) and the installed fab 2.31.1. Every step is in this repo.
+> Plan doc, written 2026-11-24 from a `/fab-discuss` session in hexokit, and revised the same day after
+> the Settings page was redesigned in the mock (step C2 below replaces the earlier "Save as preset…" /
+> "Manage…" version). It follows `26-11-24-agent-presets.md`, whose three code steps have landed (fab-kit
+> #711 in v2.31.1; hexokit #1189 and #1191). Design study:
+> `docs/wiki/agent-preset-controls-studies.html` (a clickable mock of both steps). Facts below were
+> verified against hexokit `main` and the installed fab 2.31.1. Every step is in this repo.
 
 **Your involvement.** None beyond merging, under whatever queue mode you confirm with the operator.
 
@@ -16,24 +17,29 @@
 2. **Nothing shows on the row.** You have to open a card to learn that a group runs on a different preset.
 3. **You cannot make a preset in the UI.** fab ships three (`claude`, `codex-workers`, `codex-review`).
    Anything else means hand-editing `agent_presets` in `~/.fab-kit/config.yaml`.
+4. **Settings > Agents mixes three ideas.** It picks the machine preset, and its Customize grid sets loose
+   machine-wide values that belong to no preset. Those override the machine default but lose to a group's
+   or workspace's preset, which is hard to predict.
 
 ---
 
 ## Goal
 
+Using a preset is only ever a selection. Creating, editing, renaming and deleting presets happens in one
+place.
+
 ```
-group / workspace card      agent preset: codex-review · set here         always shown, with its source
-                            ⚙ Agent preset…                codex-review   new row, opens the chooser
+SELECT (four places, same list)
+  one new tab        spawn dialog                              exists
+  group / workspace  sidebar card → "Agent preset…" → chooser  step C1
+  machine            Settings > Agents → "Use a preset"        step C2 (moves the existing dropdown)
 
-chooser                     ○ inherit        uses codex-workers (workspace)
-                            ○ claude         All roles on Claude (today's defaults)
-                            ● codex-review   Only the review role on Codex
-                            ○ codex-workers  Pipeline workers on Codex; session on Claude
-                            ○ none           no preset, even the machine default
-
-sidebar row                 hexokit                          3  [codex-review]   name shown when set here
-
-Settings > Agent            Agent preset [codex-review ▾]  [Save as preset…]  [Manage…]
+EDIT (one place)
+  Settings > Agents → "Presets"                                step C2
+    all presets │ Editing night-shift   [Rename] [Duplicate] [Delete]
+    claude      │ description, Session CLI, Worker CLI
+    codex-review│ role table: CLI · model · effort per role
+    night-shift │
 ```
 
 ---
@@ -42,13 +48,20 @@ Settings > Agent            Agent preset [codex-review ▾]  [Save as preset…]
 
 | Decision | Choice | Why |
 |---|---|---|
-| Where the control lives | An "Agent preset…" row on the group card and the workspace card, next to "Change color…" | The cards already hold every other per-group and per-workspace action; the palette stays as the keyboard path |
-| What the chooser shows | Preset name and its one-line description, plus `inherit` and `none`. No per-role breakdown | The chooser only picks a preset; what a preset contains is shown in Settings > Agent |
-| Row marker | The preset name, shown on a group or workspace row only when that group or workspace has its own preset | You can see which groups differ without opening a card; inherited values add no marker |
-| The preset line on the card | Always present when fab reports presets, showing the preset new tabs will use and where it comes from | Today the line appears only when a preset is set here, so an inheriting group looks like it has none |
-| Making presets | In Settings > Agent: "Save as preset…" and "Manage…" (rename, delete). Built-in presets are locked | Settings > Agent is the one surface for fab's machine-wide config (Constitution IV); no new page |
+| Selecting is separate from editing | A preset is picked in the spawn dialog, on a group or workspace card, or in Settings > Agents "Use a preset". What a preset contains is edited only in Settings > Agents "Presets" | One mental model: pick by name everywhere, define in one place |
+| Where the group and workspace control lives | An "Agent preset…" row on the group card and the workspace card, next to "Change color…" | The cards already hold every other per-group and per-workspace action; the palette stays as the keyboard path |
+| What the chooser shows | Preset name and its one-line description, plus `inherit` and `none`. No per-role breakdown | The chooser only picks; contents are shown in Settings |
+| Row marker | The preset name, on a group or workspace row only when that entity has its own preset | You can see which groups differ without opening a card |
+| The preset line on the card | Always present when fab reports presets, showing the preset new tabs will use and where it comes from | Today an inheriting group looks like it has none |
+| Settings page layout | Separate boxed sections, each with a header stating its job: "Use a preset" (the machine default dropdown only), "Presets" (list + editor), "Dispatch" (unchanged) | The first mock ran the sections together and it was unclear where one ended |
+| The Customize grid | Retired as a way to set loose machine-wide values. The same role table becomes the preset editor | Removes the third idea in Problem 4 |
+| Loose values that already exist | Shown in a "Leftover settings" box that offers to move them into a new preset or clear them; the box disappears once none remain | Nobody's current behavior changes silently |
+| Saving | No Save button. Each field is written when it changes, as the page does today. A new preset exists as soon as it has a name | Matches fab's one-leaf-per-write model and the page's existing commit-on-change behavior |
+| Built-in presets | Read-only. "Duplicate" makes an editable copy | Keeps the shipped names meaning the same thing on every machine |
+| Naming | "New" and "Duplicate" ask for the name before creating. "Rename" exists for your own presets | A copy must not be stuck with a generated name |
+| Rename and delete of a preset in use | Rename repoints the machine default and every group and workspace that names it. Delete clears them. Both say that tabs already running under the old name fall back to the default | Running tabs hold the name in their environment and cannot be repointed |
 | Who writes the definitions | HexoKit writes `agent_presets.<name>.<field>` only through `fab config set|unset --system` | Constitution III/IV: HexoKit never parses or rewrites fab's file |
-| When a choice applies | Unchanged: at launch. Tabs already running keep their preset | Set by the previous plan |
+| When a choice applies | Unchanged: the preset *name* is fixed at launch. The preset's *definition* is read by fab at each stage dispatch, so editing a preset affects the next stage in every tab launched with it | The editor shows where a preset is used for this reason |
 
 ---
 
@@ -66,10 +79,12 @@ Settings > Agent            Agent preset [codex-review ▾]  [Save as preset…]
   and servers carry `agent_preset` in the state the UI receives.
 - Preset lists: `useMachineAgentPresets()` (machine-wide) and `useAgentPresetList(server, session)` (the
   group's repo-scoped list once its spawn dialog has loaded one, else machine-wide).
-- Settings > Agent (`settings-agents-panel.tsx`) has the preset dropdown, the override note and the
-  Customize grid. Writes go through `fabsysconfig.Client.Apply`: a key allowlist, validation before any
-  exec, then sequential `fab config set|unset --system` under a package mutex. Preset definitions are not
-  in the allowlist.
+- Settings > Agents (`settings-agents-panel.tsx`) has, top to bottom: the Agent preset dropdown, an
+  override note, a Customize disclosure (Session CLI, Worker CLI, and the per-role table of CLI, model and
+  effort, each writing `agent.session`, `agent.workers` or `agent.profiles.<role>.*` at the system
+  layer), then Dispatch. Writes go through `fabsysconfig.Client.Apply`: a key allowlist, validation before
+  any exec, then sequential `fab config set|unset --system` under a package mutex. Preset definitions are
+  not in the allowlist.
 
 **fab 2.31.1** (tested in a throwaway project, against the project file, not `--system`)
 
@@ -81,8 +96,8 @@ Settings > Agent            Agent preset [codex-review ▾]  [Save as preset…]
   CLI names inside a preset are not validated.
 - Deleting a preset that `agent.preset` still names is allowed; fab then warns on every resolve and
   ignores the selector.
-- There is no rename and no multi-key transaction: a preset with N fields is N writes, and a failure
-  part-way leaves a partial preset.
+- There is no rename and no multi-key transaction: copying or renaming a preset with N fields is N
+  writes, and a failure part-way leaves a partial preset.
 - A system file may override single fields of a built-in preset. This plan does not use that.
 
 ---
@@ -110,7 +125,7 @@ Settings > Agent            Agent preset [codex-review ▾]  [Save as preset…]
 | ID | Repo | Step | Depends on | Size | Gate |
 |---|---|---|---|---|---|
 | **C1** | hexokit | Card controls: always-present preset line, "Agent preset…" row and chooser on the group and workspace cards, preset name on the row | — | M | — |
-| **C2** | hexokit | Your own presets in Settings > Agent: "Save as preset…", "Manage…" (rename, delete), built-ins locked | C1 | L | — |
+| **C2** | hexokit | Settings > Agents rebuilt as separate "Use a preset" and "Presets" sections: create, edit, duplicate, rename and delete presets; Customize grid retired with a leftover-settings path | C1 | L | — |
 
 ```
 C1 ── C2
@@ -122,7 +137,8 @@ C1 ── C2
 
 ### C1 — Card controls for the group and workspace agent preset (hexokit)
 
-Frontend only. The routes, the tmux options and the palette actions already exist.
+Frontend only. The routes, the tmux options and the palette actions already exist. Reference: section 1
+of the design study.
 
 - **Preset line.** On the group card and the workspace card, show `agent preset: <name> · <source>`
   whenever fab reports presets, not only when the entity has its own. The source reads "set here", "from
@@ -148,35 +164,58 @@ Frontend only. The routes, the tmux options and the palette actions already exis
   the work touches the shared Control primitive, regenerate the control-gallery baselines.
 - **Docs.** `docs/memory/run-kit/ui/sidebar.md` and `ui/dialogs-and-state.md`.
 
-### C2 — Your own presets in Settings > Agent (hexokit)
+### C2 — Settings > Agents: "Use a preset" and "Presets" (hexokit)
 
-Let the user create, rename and delete presets without editing fab's file.
+Rebuild the Agents tab so picking and editing are visibly separate, and presets can be made in the UI.
+Reference: section 3 of the design study, which is clickable.
 
-- **Backend.** In `internal/fabsysconfig`, extend the patch path to accept preset definitions:
-  `agent_presets.<name>.<field>` leaves for the fields fab allows, and removal of a whole preset
-  (`fab config unset agent_presets.<name> --system`). Validate everything before any exec: the name is a
-  strict identifier (the rule riff preset names use), is not `none`, and is not a built-in preset's name;
-  roles and fields are from fab's closed sets; values follow the existing model/effort/CLI rules. Writes
-  stay sequential under the existing mutex.
-- **Save as preset…** A control beside the preset dropdown. It asks for a name and an optional
-  description and writes a new preset from the current machine-wide assignment (see Open decisions for
-  exactly which fields). Saving over one of your own presets asks first and replaces it whole.
-- **Manage…** Lists every machine-wide preset with its source. Built-ins are shown and locked. Your own
-  presets can be renamed and deleted.
-  - **Delete** asks first and names what still uses the preset: the machine default, and any group or
-    workspace in the state the UI already holds. If the machine default names it, clear the selector in
-    the same patch, so fab does not warn on every resolve.
-  - **Rename** creates the new preset, deletes the old one, and repoints the machine default if it named
-    the old one. fab has no rename, so say plainly in the dialog when a failure leaves both names present.
-- **Partial writes.** A preset is several writes with no transaction. On a failure, report which fields
-  were written, and re-read so the UI shows the real state.
-- **Keyboard.** Palette actions for "Save as preset…" and "Manage…" (Constitution V).
+- **Layout.** Separate boxed sections, each with a header bar naming its job, in this order:
+  1. **Leftover settings**, only while loose machine-wide values exist (see below).
+  2. **Use a preset**: the existing Agent preset dropdown, relabelled "Machine default". Nothing else. Keep
+     its provenance chip, reset link and env-shadow warning.
+  3. **Presets**: a list of every machine-wide preset (built-in and yours, with a marker on the machine
+     default) beside an "Editing <name>" pane. "+ New preset" sits in the section header.
+  4. **Dispatch**: unchanged.
+- **The editor.** The pane shows the selected preset's description, Session CLI, Worker CLI, and the role
+  table (role · tier · CLI · model · effort) that Customize has today, including its model lists, effort
+  rules, tool-change behavior and stale-pin note. It reads and writes that preset's
+  `agent_presets.<name>.*` leaves. An unset field shows the value that applies, dimmed with `↳`, as the
+  table does today. Each change is written when made; there is no Save button. The pane says where the
+  preset is used (machine default, groups, workspaces) and that a change reaches the next stage in every
+  tab launched with it.
+- **Built-ins.** Read-only in the editor. "Duplicate" is the way to change one.
+- **New, Duplicate, Rename.** One inline form asks for the name (Duplicate prefills `<name>-copy` and the
+  description; Rename prefills the current name). Names are strict identifiers (the rule riff preset
+  names use), not `none`, and not already taken; show the reason inline when refused.
+  - *New* writes the description, or the smallest write that makes the preset exist when there is none.
+  - *Duplicate* copies every field to the new name.
+  - *Rename* is one backend request: write the new preset, remove the old one, repoint the machine
+    default if it named the old one, and repoint every group and workspace option that names it on the
+    servers the daemon covers. When the preset is in use, the form says tabs already running under the old
+    name fall back to the default.
+- **Delete.** Asks first and names what uses the preset. On confirm: remove it, clear the machine default
+  if it named it, and clear the group and workspace options that name it.
+- **Leftover settings.** Loose values are the explicit system-layer `agent.session`, `agent.workers` and
+  `agent.profiles.*` keys. While any exist, show a box listing them with two actions. "Move into a new
+  preset" asks for a name, creates a preset holding the current machine default's fields overlaid with
+  the loose values, makes it the machine default, and unsets the loose keys, so the machine-wide result is
+  unchanged. "Clear them" unsets the keys. Remove the Customize disclosure and the override note; values
+  set through the daemon's environment keep the existing env-shadow warning.
+- **Backend.** In `internal/fabsysconfig`, extend the patch path to accept `agent_presets.<name>.<field>`
+  leaves and whole-preset removal (`fab config unset agent_presets.<name> --system`), validated before
+  any exec: name rule above and not a built-in's name; roles and fields from fab's closed sets; values
+  under the existing model, effort and CLI rules. Writes stay sequential under the existing mutex.
+  Multi-write operations (duplicate, rename, move) report which writes landed when one fails, and the
+  panel re-reads so it shows the real state.
+- **Keyboard.** Everything in the section is reachable by keyboard, and the palette gains a way to open
+  Settings > Agents at the Presets section, alongside the existing "Settings: Agent preset…" action.
 - **Verify against a real fab.** The `--system` target was not exercised when this plan was written. At
   intake, confirm create, whole-preset delete and the refusals above with `--system` under an isolated
   home, and record any difference from the project-file behavior.
-- **Tests and evidence.** Go tests for validation, the patch ordering, delete-while-selected and the
-  partial-write report; Vitest for both dialogs; extend `_fab-config-stub.ts` and
-  `settings-agents.spec.ts`; demo recordings on desktop and mobile.
+- **Tests and evidence.** Go tests for validation, patch ordering, rename and delete of a preset in use,
+  the move of leftover settings, and partial-write reports; Vitest for the panel; update
+  `_fab-config-stub.ts`, `settings-agents.spec.ts` and the existing Agents demo specs, which exercise the
+  Customize grid; demo recordings on desktop and mobile.
 - **Docs.** `docs/memory/run-kit/configuration.md` § fab-kit System Config, `ui/dialogs-and-state.md`
   § Agents tab, `api-and-sockets.md`.
 
@@ -188,16 +227,17 @@ Let the user create, rename and delete presets without editing fab's file.
 |---|---|
 | C1 | Whether the chooser is a popover anchored to the row (like the color picker) or a small dialog, on desktop and on mobile |
 | C1 | How the row marker truncates and where it sits relative to the tab count |
-| C2 | Exactly which fields "Save as preset…" captures. Suggested: the selected preset's fields overlaid with the explicit machine-wide fields from the Customize grid, and nothing from fab's defaults or a project file |
-| C2 | After saving, whether to offer switching the machine default to the new preset and clearing the explicit fields it now covers |
-| C2 | On rename, whether to repoint groups and workspaces that name the old preset, or leave them to show as unknown with the existing clear action |
-| C2 | Whether presets defined in a repo's own config appear in Manage as read-only rows |
+| C2 | How the editor gets the dimmed "what applies" values for a preset that is not the active one (for example one `fab agent <role> --preset <name> -o yaml` per role, or derived from the document the panel already loads) |
+| C2 | Whether presets defined in a repo's own config appear in the list as read-only rows |
+| C2 | Whether the palette also gets direct actions for New, Duplicate, Rename and Delete, or only the entry that opens the section |
+| C2 | How the list and editor stack on a phone |
 
 ## Non-goals
 
 - A per-role breakdown in the chooser.
 - Editing or overriding the built-in presets.
-- Changing the preset of a tab that is already running.
+- Changing the preset *name* of a tab that is already running, or repointing running tabs on rename.
 - Any fab-kit change. If C2's intake finds `--system` behaves differently, stop and report instead of
   working around it.
 - Editing a repo's project-level presets from the UI.
+- Changing the Dispatch settings.
