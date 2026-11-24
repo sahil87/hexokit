@@ -472,6 +472,83 @@ describe("useGlobalPaletteActions — Host strip actions", () => {
     expect(seen).toHaveBeenCalledOnce();
     document.removeEventListener(HOST_STRIP_FOCUS_EVENT, seen);
   });
+
+  const shellWith = (
+    servers: { id: string; name: string; current?: boolean }[],
+    list = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        servers: servers.map((s) => ({ ...s, url: `http://${s.id}:3000`, active: !!s.current })),
+      }),
+    ),
+    sw = vi.fn(() => Promise.resolve({ ok: true })),
+  ) => {
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      servers: { list, switch: sw },
+    };
+    return { list, sw };
+  };
+
+  it("registers no Host: Previous/Next with a single shell host", async () => {
+    shellWith([{ id: "a", name: "studio", current: true }]);
+    renderHook();
+    await waitFor(() => expect(ids()).toContain("host-strip-focus"));
+    expect(ids()).not.toContain("shell-host-prev");
+    expect(ids()).not.toContain("shell-host-next");
+  });
+
+  it("Host: Next re-lists at select time and switches to the fresh neighbour", async () => {
+    const mount = [
+      { id: "a", name: "studio", current: true },
+      { id: "b", name: "lab" },
+      { id: "c", name: "box" },
+    ];
+    const { list, sw } = shellWith(mount);
+    renderHook();
+    await waitFor(() => expect(ids()).toContain("shell-host-next"));
+    expect(captured.find((a) => a.id === "shell-host-next")?.shortcut).toBe("Alt+PgDn");
+    // The squares were reordered after mount: c now precedes b.
+    list.mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        servers: [mount[0], mount[2], mount[1]].map((s) => ({
+          ...s,
+          url: `http://${s.id}:3000`,
+          active: !!s.current,
+        })),
+      }),
+    );
+    act(() => captured.find((a) => a.id === "shell-host-next")?.onSelect());
+    await waitFor(() => expect(sw).toHaveBeenCalledWith("c"));
+  });
+
+  it("Host: Previous wraps from the first host to the last", async () => {
+    const { sw } = shellWith([
+      { id: "a", name: "studio", current: true },
+      { id: "b", name: "lab" },
+    ]);
+    renderHook();
+    await waitFor(() => expect(ids()).toContain("shell-host-prev"));
+    act(() => captured.find((a) => a.id === "shell-host-prev")?.onSelect());
+    await waitFor(() => expect(sw).toHaveBeenCalledWith("b"));
+  });
+
+  it("toasts 'Host switch failed' when the cycle switch is refused", async () => {
+    shellWith(
+      [
+        { id: "a", name: "studio", current: true },
+        { id: "b", name: "lab" },
+      ],
+      undefined,
+      vi.fn(() => Promise.resolve({ ok: false })),
+    );
+    renderHook();
+    await waitFor(() => expect(ids()).toContain("shell-host-next"));
+    act(() => captured.find((a) => a.id === "shell-host-next")?.onSelect());
+    expect(await screen.findByText("Host switch failed")).toBeInTheDocument();
+  });
 });
 
 describe("useGlobalPaletteActions — Cron entry actions (wuiu R14)", () => {

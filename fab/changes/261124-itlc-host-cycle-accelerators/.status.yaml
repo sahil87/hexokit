@@ -1,0 +1,54 @@
+id: itlc
+name: 261124-itlc-host-cycle-accelerators
+created: 2026-11-24T09:10:09Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: active
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 11
+    acceptance_count: 19
+    acceptance_completed: 0
+confidence:
+    certain: 9
+    confident: 10
+    tentative: 0
+    unresolved: 0
+    score: 3.2
+    fuzzy: true
+    dimensions:
+        signal: 71.8
+        reversibility: 85.8
+        competence: 77.6
+        disambiguation: 74.5
+stage_metrics:
+    intake: {started_at: "2026-11-24T09:10:09Z", driver: fab-new, iterations: 1, completed_at: "2026-11-24T09:13:10Z"}
+    apply: {started_at: "2026-11-24T09:13:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T09:25:32Z"}
+    review: {started_at: "2026-11-24T09:25:32Z", driver: fab-fff, iterations: 1}
+prs: []
+base_branch: main
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-11-24T09:25:32Z"
+    computed_at_stage: apply
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-24T09:25:32Z

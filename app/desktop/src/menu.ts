@@ -15,8 +15,9 @@
  *     any platform. This is the shell's premise: the tier a browser reserves
  *     (macOS: ⌘; Windows/Linux: Ctrl) belongs to the SPA.
  *   - Shell tier — ⌥⌘ on mac, ⇧Ctrl on win/linux: shell chrome MAY claim
- *     keys here, sparingly. The mac claim is the Hosts switcher (1–9); the
- *     win/linux claims are ⇧Ctrl+R force-reload and ⇧Ctrl+I devtools.
+ *     keys here, sparingly. The mac claims are the Hosts switcher (1–9) and
+ *     host cycling (←/→); the win/linux claims are Alt+PageUp/PageDown host
+ *     cycling, ⇧Ctrl+R force-reload and ⇧Ctrl+I devtools.
  *     On mac, ⇧⌘ therefore also belongs to the page (the SPA's own shifted
  *     action tier lives there), with the documented carve-outs ⇧⌘R
  *     (forceReload role) and ⇧⌘Z (Edit redo role). On win/linux the SPA
@@ -51,7 +52,8 @@
  * webContents, since the equivalent roles are window-bound and would act on
  * the hidden welcome underlay instead of the attached host view); Hosts radios
  * ⌥⌘1–⌥⌘9 (the shell tier — the same modifier family as the ⌥⌘H/⌥⌘I roles
- * above); Window ⌘M minimize. Guaranteed fall-through set (never bind
+ * above); Hosts cycle ⌥⌘← / ⌥⌘→ (Previous/Next Host — the same shell tier);
+ * Window ⌘M minimize. Guaranteed fall-through set (never bind
  * these): ⌘T ⌘W ⌘N ⌘L ⌘K ⌘F ⌘P ⌘1–9 ⌘[ ⌘], plus the freed ⇧⌘1–9 (future
  * page real estate — though ⇧⌘3/4/5 are macOS screenshot system claims the
  * page can't receive either) — the unshifted ⌘ tier is inviolable; the
@@ -75,9 +77,19 @@
  * the unshifted Ctrl tier (reload Ctrl+R, zoom Ctrl+0/±) are
  * accelerator-less plain items, and the shifted-tier pair (force-reload,
  * devtools) is explicit too so it targets the focused view's webContents.
- * Bound there (exhaustive): Alt+1–9 Hosts switcher, ⇧Ctrl+R force-reload,
- * ⇧Ctrl+I devtools, F11 fullscreen. ⇧Ctrl+digits fall through to the page, where
- * the SPA's surface tile chords bind ⇧Ctrl+1/2/3.
+ * Bound there (exhaustive): Alt+1–9 Hosts switcher, Alt+PageUp/Alt+PageDown
+ * host cycling, ⇧Ctrl+R force-reload, ⇧Ctrl+I devtools, F11 fullscreen.
+ * ⇧Ctrl+digits fall through to the page, where the SPA's surface tile chords
+ * bind ⇧Ctrl+1/2/3.
+ *
+ * Why host cycling is Alt+PageUp/PageDown on win/linux, not Alt+←/→: an
+ * accelerator steals its key from every page and terminal, and Alt+←/→ is
+ * word-jump in shells and the focused-square reorder chord (⌥←/→); Ctrl+Alt
+ * is AltGr on European layouts. Alt+PageUp/PageDown is unused by shells and
+ * stays in the Alt+1–9 family. The mac ⌥⌘←/→ never collides with the
+ * ⌥←/→ reorder chord (no ⌘). Arrows and paging keys are named keys, not
+ * character-resolved digits, so the hardware-verify caveat below does not
+ * apply to them.
  *
  * Hardware-verify caveat: digit accelerators are the flakiest accelerator
  * class (Electron resolves accelerators by character, not scancode; AZERTY
@@ -93,6 +105,7 @@ import {
   webContents,
   WebContents,
 } from "electron";
+import { hostCycleMenuItems, type CycleDirection } from "./host-cycle";
 import { HostEntry } from "./hosts";
 import { daemonMenuModel, type DaemonMenuInfo } from "./local-daemon";
 import { updateMenuItems, type UpdateMenuInfo } from "./update-check";
@@ -104,6 +117,8 @@ export interface MenuCallbacks {
   onSwitchHost: (id: string) => void;
   onAddHost: () => void;
   onRemoveHost: (id: string) => void;
+  /** Hosts → Previous/Next Host — main resolves the target at click time (the menu reads no view state). */
+  onCycleHost: (direction: CycleDirection) => void;
   /** Window/File → New Window — duplicates the focused window (accelerator-less). */
   onNewWindow: () => void;
   /** mac Window menu's manual per-window list — focus the clicked window. */
@@ -387,6 +402,15 @@ function hostsMenu(
     click: () => callbacks.onSwitchHost(host.id),
   }));
 
+  // Omitted (not disabled) below 2 hosts — nothing to cycle to.
+  const cycleItems: MenuItemConstructorOptions[] = hostCycleMenuItems(isMac, hosts.length).map(
+    (item) => ({
+      label: item.label,
+      accelerator: item.accelerator,
+      click: () => callbacks.onCycleHost(item.direction),
+    }),
+  );
+
   // Accelerator-less by design — the keyboard-tier seam is untouched.
   const removeItems: MenuItemConstructorOptions[] = hosts.map((host) => ({
     label: `Remove "${host.name}"…`,
@@ -398,6 +422,7 @@ function hostsMenu(
     submenu: [
       ...switcherItems,
       ...(switcherItems.length > 0 ? [separator] : []),
+      ...(cycleItems.length > 0 ? [...cycleItems, separator] : []),
       { label: "Add Host…", click: () => callbacks.onAddHost() },
       ...removeItems,
     ],

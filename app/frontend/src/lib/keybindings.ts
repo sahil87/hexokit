@@ -25,7 +25,7 @@
  * composes characters, so no other tier admits Alt. The mac desktop shell
  * parks its Hosts-switcher accelerators on ⌥⌘1–9 — digits, which this registry
  * never binds; an `optcmd` binding must avoid every shell ⌥⌘ accelerator
- * (⌥⌘H hide-others, ⌥⌘I devtools, ⌥⌘1–9).
+ * (⌥⌘H hide-others, ⌥⌘I devtools, ⌥⌘1–9, ⌥⌘←/→ host cycling).
  */
 
 import type { ViewName } from "./window-view";
@@ -487,6 +487,16 @@ const MAC_SHELL_CMD_CLAIMS: ClaimedKey[] = [
   { code: "Minus", tier: "cmd", label: "zoom", owner: "shell", platform: "mac" },
 ];
 
+/** Mac desktop-shell ⌥⌘ host-cycling accelerators (Hosts → Previous/Next
+ *  Host). `captureFromEvent` admits ⌥⌘ + any key as the `optcmd` tier, so a
+ *  rebind onto these would be silently stolen by the menu; the claims make
+ *  the capture warn. Shell-only: a mac browser does not bind them. Win/linux
+ *  Alt+PageUp/PageDown needs no rows — Alt is uncapturable there. */
+const MAC_SHELL_OPTCMD_CLAIMS: ClaimedKey[] = [
+  { code: "ArrowLeft", tier: "optcmd", label: "prev host", owner: "shell", platform: "mac" },
+  { code: "ArrowRight", tier: "optcmd", label: "next host", owner: "shell", platform: "mac" },
+];
+
 /** Mac BROWSER ⌘-tier reserved keys: browser-owned N/T/W + tab digits are
  *  uninterceptable (they disable resolution, like the shifted browser set);
  *  Q/H/M are OS-level (display-only, owner `system`). ⌘L is deliberately NOT
@@ -518,8 +528,10 @@ const MAC_BROWSER_CMD_CLAIMS: ClaimedKey[] = [
  * The claimed keys for a host, per tier. Shifted tier: shell claims (menu
  * accelerators: ⇧Ctrl+I devtools on win/linux ONLY —
  * ⇧CmdOrCtrl+R force reload everywhere; both Hosts switchers — mac ⌥⌘1–9,
- * win/linux Alt+1–9 — live outside every tier, Alt being no tier (the mac
- * ⌥⌘ precedent, 260731-nv5r)) and system claims (⇧⌘Q macOS
+ * win/linux Alt+1–9 — and both host-cycling chords — mac ⌥⌘←/→, win/linux
+ * Alt+PageUp/PageDown — live outside the shifted tier, Alt being no tier
+ * (the mac ⌥⌘ precedent, 260731-nv5r); only the mac cycle chords are
+ * capturable as `optcmd` combos, so only they carry claim rows) and system claims (⇧⌘Q macOS
  * logout; ⇧⌘3/4/5 macOS screenshots; ⇧Ctrl+C/V terminal copy/paste
  * convention on win/linux) apply in both hosts; browser claims (N/T/W —
  * incognito / reopen-tab / close-window) apply only outside the desktop
@@ -540,7 +552,7 @@ export function claimedKeys(platform: BindingPlatform, shell: boolean): ClaimedK
     { code: "KeyQ", tier: "shifted", label: "logout", owner: "system", platform: "mac" },
     { code: "KeyC", tier: "shifted", label: "copy", owner: "system", platform: "other" },
     { code: "KeyV", tier: "shifted", label: "paste", owner: "system", platform: "other" },
-    ...(shell ? MAC_SHELL_CMD_CLAIMS : MAC_BROWSER_CMD_CLAIMS),
+    ...(shell ? [...MAC_SHELL_CMD_CLAIMS, ...MAC_SHELL_OPTCMD_CLAIMS] : MAC_BROWSER_CMD_CLAIMS),
   ];
   if (!shell) {
     claims.push(

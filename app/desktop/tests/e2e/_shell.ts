@@ -43,6 +43,7 @@
  *   where the name does not exist — exactly a remote host's failure shape.
  */
 import { _electron, type ElectronApplication, type Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 import http from "node:http";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -279,4 +280,15 @@ export function startGuestStub(): Promise<GuestStub> {
       });
     });
   });
+}
+
+/** Press a chord as a REAL X key event on the rig's display (`DISPLAY`).
+ *  Constraint the code cannot show: Playwright's `keyboard.press` dispatches
+ *  over CDP directly into the renderer, which never reaches Electron's native
+ *  menu accelerators — a menu-accelerator chord can only be proven by an event
+ *  entering at the X server. `_xkey.py` drives XTest through libX11/libXtst
+ *  (ctypes), so the rig needs no xdotool. `key` and `modifiers` are X keysym
+ *  names (`Next`, `Alt_L`); modifiers press first, release last. */
+export function pressXChord(key: string, ...modifiers: string[]): void {
+  execFileSync("python3", ["-I", join(__dirname, "_xkey.py"), key, ...modifiers]);
 }
