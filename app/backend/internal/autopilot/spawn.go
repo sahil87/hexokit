@@ -89,12 +89,6 @@ func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.
 		return
 	}
 
-	// A failed fetch stops the spawn: falling through to rev-parse would pin the
-	// stale origin/<default> the main checkout last saw.
-	if _, err := e.git(ctx, repo, "fetch", "origin"); err != nil {
-		e.escalate(id, "git fetch failed, spawn stopped and the item stays pending: "+stderrOf(err))
-		return
-	}
 	def := e.defaultBranch(ctx, repo, id)
 	itemBase := operator.ScopeString(it.Scope, scopeBase)
 	base := def
@@ -121,7 +115,7 @@ func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.
 			return
 		}
 	case operator.MergeModeStackedPRs:
-		b, err := e.stackedBase(ctx, st, repo, deps)
+		b, err := e.stackedBase(ctx, st, repo, deps, false)
 		if err != nil {
 			e.escalate(id, err.Error())
 			return
@@ -161,11 +155,6 @@ func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.
 		}
 	}
 
-	sha, err := e.git(ctx, repo, "rev-parse", baseRef)
-	if err != nil || sha == "" {
-		e.escalate(id, fmt.Sprintf("cannot resolve %s: %s", baseRef, stderrOf(err)))
-		return
-	}
 	session, err := e.env.Session(ctx, repo)
 	if err != nil {
 		e.escalate(id, "no landing session: "+err.Error())
@@ -182,7 +171,7 @@ func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.
 		recordBase = itemBase
 	}
 	req := SpawnRequest{
-		Repo: repo, Session: session, WorktreeName: id, BaseSHA: sha, NewBranch: newBranch,
+		Repo: repo, Session: session, WorktreeName: id, BaseRef: baseRef, NewBranch: newBranch,
 		Prompt: prompt,
 		Note:   id + " · spawned",
 		Prepare: func(ctx context.Context, wt string) error {
@@ -237,12 +226,33 @@ func (e *engine) launchWithPolicy(ctx context.Context, it operator.TrackedItem, 
 		if clearUnopened {
 			e.clearSpawning(id, respawn)
 		}
-		e.escalate(id, "spawn failed: "+err.Error())
+		e.escalate(id, spawnFailure(req, err))
 	case err != nil:
 		e.escalate(id, "spawn: "+err.Error())
 	default:
 		e.act(action, id, fmt.Sprintf("%s in %s", res.PaneID, req.Session))
 	}
+}
+
+// spawnFailure words an escalation for a spawn that opened no window. A failed
+// `wt create` carries wt's exit code: 3 is a failed fetch, 2 an unresolvable
+// base once wt has fetched, 7 an init script that failed after the worktree
+// was made. Anything else, including the wt version gate's refusal, keeps the
+// error's own text, which names its fix.
+func spawnFailure(req SpawnRequest, err error) string {
+	var wtErr *riff.WtCreateError
+	if !errors.As(err, &wtErr) {
+		return "spawn failed: " + err.Error()
+	}
+	switch {
+	case wtErr.Code == 3:
+		return "wt create --fetch failed, spawn stopped and the item stays pending: " + wtErr.Message
+	case wtErr.Code == 2 && req.BaseRef != "":
+		return fmt.Sprintf("%s could not be resolved after the fetch (is the branch on origin? push it before stacking): %s", req.BaseRef, wtErr.Message)
+	case wtErr.Code == 7 && wtErr.KeptPath() != "":
+		return fmt.Sprintf("wt init failed; worktree %s was kept and the item stays pending — remove it (wt delete %s) before the retry: %s", wtErr.KeptPath(), filepath.Base(wtErr.KeptPath()), wtErr.Message)
+	}
+	return "spawn failed: " + err.Error()
 }
 
 // clearSpawning withdraws the marker of a launch that opened no window. A
@@ -313,8 +323,11 @@ func (e *engine) ladderDeps(ctx context.Context, st *operator.State, repo string
 
 // stackedBase picks the single same-repo dependency a stacked-prs branch is cut
 // from ("" when there is none: the first of a stack bases on the default
-// branch).
-func (e *engine) stackedBase(ctx context.Context, st *operator.State, repo string, deps []operator.TrackedItem) (string, error) {
+// branch). verifyOrigin checks the dependency branch against the refs the main
+// checkout last fetched; a spawn skips it because wt fetches and resolves the
+// base itself, and a stale checkout would otherwise refuse a dependency pushed
+// since its last fetch.
+func (e *engine) stackedBase(ctx context.Context, st *operator.State, repo string, deps []operator.TrackedItem, verifyOrigin bool) (string, error) {
 	if len(deps) == 0 {
 		return "", nil
 	}
@@ -325,10 +338,10 @@ func (e *engine) stackedBase(ctx context.Context, st *operator.State, repo strin
 	if len(refs) != 1 {
 		return "", fmt.Errorf("stacked-prs needs exactly one same-repo dependency chain, found %d independent branches", len(refs))
 	}
-	// A stack is cut from the pushed tip: the dependent's worktree starts at the
-	// SHA of origin/<dep-branch>, so the branch must exist on origin.
-	if _, err := e.git(ctx, repo, "rev-parse", "--verify", "-q", "refs/remotes/origin/"+refs[0].branch); err != nil {
-		return "", fmt.Errorf("dependency %s: branch %s is not on origin (push it before stacking)", refs[0].id, refs[0].branch)
+	if verifyOrigin {
+		if _, err := e.git(ctx, repo, "rev-parse", "--verify", "-q", "refs/remotes/origin/"+refs[0].branch); err != nil {
+			return "", fmt.Errorf("dependency %s: branch %s is not on origin (push it before stacking)", refs[0].id, refs[0].branch)
+		}
 	}
 	return refs[0].branch, nil
 }
@@ -503,6 +516,9 @@ func (e *engine) attach(ctx context.Context, it operator.TrackedItem, repo strin
 		if res.Branch != "" {
 			item.Branch = res.Branch
 		}
+		if res.BaseSHA != "" {
+			item.BaseSHA = res.BaseSHA
+		}
 		item.UpdatedAt = operator.NowRFC3339()
 		bound = item.tracked()
 		return nil
@@ -546,7 +562,7 @@ func (e *engine) respawn(ctx context.Context, st *operator.State, it operator.Tr
 	// replaced by one that cuts its change against the default branch.
 	stackedBase := ""
 	if modeOf(it) == operator.MergeModeStackedPRs {
-		b, err := e.stackedBase(ctx, st, repo, sameRepoDeps(st, it))
+		b, err := e.stackedBase(ctx, st, repo, sameRepoDeps(st, it), true)
 		if err != nil {
 			e.escalate(id, "cannot rebuild the stacked base for the respawn: "+err.Error())
 			return

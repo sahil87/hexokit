@@ -261,16 +261,37 @@ func (f *fakePanes) Snapshot(ctx context.Context) (map[string]operator.PaneInfo,
 	return out, nil
 }
 
-// fakeSpawner builds real git worktrees so SHA pinning, upstream tracking and
-// cherry-picks run against git, and runs the engine's Prepare hook exactly the
-// way riff does: a failed hook deletes the worktree.
+// gitTry runs git without failing the test, for the fake's wt-modelled steps
+// whose failure is an outcome (a failed fetch, an unresolvable base).
+func gitTry(dir string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t",
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
+// fakeSpawner stands in for RiffSpawner and the wt it drives: for a new
+// worktree it does what `wt create --base <ref> --fetch` does (fetch origin,
+// resolve the ref to a SHA, add a worktree on a new branch cut from it, no
+// upstream) and reports the receipt's branch and base SHA; a failed fetch or
+// an unresolvable base fails as wt's exit 3 / exit 2 do. The git calls are the
+// fake's own, not the engine runner's, so argv assertions on the runner see
+// only what the engine itself ran. The engine's Prepare hook runs the way riff
+// runs it: a failed hook deletes the worktree.
 type fakeSpawner struct {
 	t        *testing.T
 	root     string
 	reqs     []SpawnRequest
 	n        int
 	failWith error
-	during   func()
+	// initFails makes wt's init script fail after the worktree exists (exit 7):
+	// the worktree is kept and no window opens.
+	initFails bool
+	during    func()
 }
 
 func newFakeSpawner(t *testing.T) *fakeSpawner {
@@ -287,18 +308,35 @@ func (f *fakeSpawner) Spawn(ctx context.Context, req SpawnRequest) (SpawnResult,
 		f.during()
 	}
 	path := req.ExistingWorktree
-	branch := req.CheckoutBranch
+	branch, baseSHA := req.CheckoutBranch, ""
 	if path == "" {
 		path = filepath.Join(f.root, fmt.Sprintf("%s-%d", req.WorktreeName, f.n))
 		switch {
 		case req.CheckoutBranch != "":
 			runGit(f.t, req.Repo, "worktree", "add", path, req.CheckoutBranch)
 		default:
+			if req.BaseRef == "" {
+				f.t.Fatalf("a new worktree needs a BaseRef: %+v", req)
+			}
+			if out, err := gitTry(req.Repo, "fetch", "origin"); err != nil {
+				return SpawnResult{}, &riff.WtCreateError{Code: 3, Message: "Failed to fetch remote 'origin': " + out}
+			}
+			sha, err := gitTry(req.Repo, "rev-parse", "--verify", "-q", req.BaseRef+"^{commit}")
+			if err != nil {
+				return SpawnResult{}, &riff.WtCreateError{Code: 2, Message: "Invalid --base ref: " + req.BaseRef}
+			}
+			baseSHA = sha
 			branch = req.WorktreeName
 			if req.NewBranch != "" {
 				branch = req.NewBranch
 			}
-			runGit(f.t, req.Repo, "worktree", "add", "-b", branch, path, req.BaseSHA)
+			runGit(f.t, req.Repo, "-c", "branch.autoSetupMerge=false", "worktree", "add", "-b", branch, path, req.BaseRef)
+			if f.initFails {
+				return SpawnResult{}, &riff.WtCreateError{
+					Code: 7, Message: "init script exited with status 1",
+					Kept: &riff.KeptWorktree{Path: path, Name: filepath.Base(path), Init: "failed"},
+				}
+			}
 		}
 		if req.Prepare != nil {
 			if err := req.Prepare(ctx, path); err != nil {
@@ -307,13 +345,11 @@ func (f *fakeSpawner) Spawn(ctx context.Context, req SpawnRequest) (SpawnResult,
 			}
 		}
 	}
-	// Like the production adapter, name the branch from the worktree when the
-	// request fixed none (a raw-task or bare spawn).
-	branch, err := openedBranch(ctx, ExecRunner{}, req, path)
+	branch, err := openedBranch(ctx, ExecRunner{}, req, riff.OpenedWindow{WorktreePath: path, Branch: branch})
 	if err != nil {
 		f.t.Fatalf("branch of %s: %v", path, err)
 	}
-	res := SpawnResult{PaneID: fmt.Sprintf("%%%d", 100+f.n), Session: req.Session, WorktreePath: path, Branch: branch}
+	res := SpawnResult{PaneID: fmt.Sprintf("%%%d", 100+f.n), Session: req.Session, WorktreePath: path, Branch: branch, BaseSHA: baseSHA}
 	if req.Opened != nil {
 		if err := req.Opened(res); err != nil {
 			return res, err

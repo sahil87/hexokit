@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"rk/internal/operator"
+	"rk/internal/riff"
 )
 
 func TestSpawnMarkerIsDurableBeforeTheLaunchAndClearedByTheAttach(t *testing.T) {
@@ -133,25 +134,38 @@ func (h *harness) envPatch(id string, kv map[string]interface{}) error {
 	return newEngine(h.env).setScope(id, kv)
 }
 
-// A raw-task or bare spawn fixes no branch: wt names it after the worktree, and
-// only the worktree knows. The window-opened record must still carry it.
-func TestOpenedBranchReadsTheWorktreeWhenTheRequestFixedNone(t *testing.T) {
+// A raw-task or bare spawn fixes no branch: wt names it after the worktree and
+// reports it in its receipt. The window-opened record must still carry it; only
+// a window opened in an existing worktree has no receipt and reads git.
+func TestOpenedBranchTakesTheReceiptWhenTheRequestFixedNone(t *testing.T) {
 	foo := newRepo(t, "foo")
 	wt := filepath.Join(t.TempDir(), "fix-login")
 	runGit(t, foo.Dir, "worktree", "add", "-b", "fix-login", wt, "main")
+	ctx := context.Background()
 
-	got, err := openedBranch(context.Background(), ExecRunner{}, SpawnRequest{Repo: foo.Dir, WorktreeName: "fix-login"}, wt)
+	got, err := openedBranch(ctx, nil, SpawnRequest{Repo: foo.Dir, WorktreeName: "fix-login"}, riff.OpenedWindow{WorktreePath: wt, Branch: "fix-login"})
 	if err != nil || got != "fix-login" {
 		t.Fatalf("branch = %q err %v", got, err)
 	}
-	if got, _ := openedBranch(context.Background(), ExecRunner{}, SpawnRequest{NewBranch: "260101-ab12-folder"}, wt); got != "260101-ab12-folder" {
+	if got, _ := openedBranch(ctx, nil, SpawnRequest{NewBranch: "260101-ab12-folder"}, riff.OpenedWindow{Branch: "fix-login"}); got != "260101-ab12-folder" {
 		t.Fatalf("a fixed branch must win: %q", got)
 	}
+	if _, err := openedBranch(ctx, nil, SpawnRequest{}, riff.OpenedWindow{WorktreePath: wt}); err == nil {
+		t.Fatal("a receipt without a branch (detached or temp) has none to record")
+	}
+	if _, err := openedBranch(ctx, nil, SpawnRequest{}, riff.OpenedWindow{Branch: "bad branch name"}); err == nil {
+		t.Fatal("a receipt branch must pass the branch-name rules")
+	}
+
+	existing := SpawnRequest{ExistingWorktree: wt}
+	if got, err := openedBranch(ctx, ExecRunner{}, existing, riff.OpenedWindow{}); err != nil || got != "fix-login" {
+		t.Fatalf("an existing worktree reads its branch from git: %q err %v", got, err)
+	}
 	runGit(t, wt, "checkout", "--detach")
-	if _, err := openedBranch(context.Background(), ExecRunner{}, SpawnRequest{}, wt); err == nil {
+	if _, err := openedBranch(ctx, ExecRunner{}, existing, riff.OpenedWindow{}); err == nil {
 		t.Fatal("a detached worktree has no branch to record")
 	}
-	if _, err := openedBranch(context.Background(), nil, SpawnRequest{}, wt); err == nil {
+	if _, err := openedBranch(ctx, nil, existing, riff.OpenedWindow{}); err == nil {
 		t.Fatal("no runner, no branch")
 	}
 }

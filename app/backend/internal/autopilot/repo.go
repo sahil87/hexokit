@@ -64,7 +64,8 @@ func samePath(a, b string) bool {
 
 // defaultBranch resolves the repo's default branch: origin/HEAD when it
 // verifies, else the GitHub default, else main or master by which exists on
-// origin. It runs after a successful fetch.
+// origin. It reads the refs the main checkout last fetched: the engine fetches
+// nothing, and the spawn's own fetch happens inside wt.
 func (e *engine) defaultBranch(ctx context.Context, repo, id string) string {
 	if m := e.meta[repo]; m != nil && m.defaultBranch != "" {
 		return m.defaultBranch

@@ -30,7 +30,9 @@
 package riff
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -115,7 +117,7 @@ const (
 // only when Server is empty) restores the CLI caller's $TMUX so bare tmux calls
 // reach the user's current server.
 type EffectiveSpec struct {
-	windowCreated func(context.Context, string, string, string) error
+	windowCreated func(context.Context, OpenedWindow) error
 	Panes         []PaneSpec
 	Layout        string   // canonical name, or "" for single-pane / explicit single-pane no-op
 	Count         int      // number of parallel worktree/window pairs (≥ 1)
@@ -150,6 +152,17 @@ type EffectiveSpec struct {
 	// (HEAD of the repo wt resolves). Ignored in checkout mode. The CLI never
 	// sets this (it forwards --base through Passthrough instead).
 	WorktreeBase string
+	// WorktreeFetch adds `wt create --fetch`: wt fetches the remote before it
+	// resolves and pins WorktreeBase. Worktree mode only, and never with
+	// CheckoutBranch (wt ignores --fetch there). The CLI never sets this; a
+	// hand spawn passes --fetch through Passthrough when it wants one, which
+	// keeps `-- --reuse` free of wt's --fetch/--reuse usage error.
+	WorktreeFetch bool
+	// WorktreeNoUpstream runs wt with branch.autoSetupMerge=false so a
+	// remote-tracking WorktreeBase sets no upstream on the new branch: fab's
+	// /git-pr pushes a branch with no upstream via `push -u origin <branch>`,
+	// where a tracking branch would take a bare `git push` to its base.
+	WorktreeNoUpstream bool
 	// WorktreeBranch, when non-empty in worktree mode, is wt's positional
 	// branch argument: the NEW branch's name (created off WorktreeBase, else
 	// HEAD). Mutually exclusive with CheckoutBranch. Ignored in checkout mode.
@@ -185,6 +198,26 @@ type Result struct {
 	// WorktreePath is the worktree wt created (worktree mode only; "" in
 	// checkout mode). The window itself may be rooted at a subdirectory of it.
 	WorktreePath string
+	// Branch, BaseRef, BaseSHA and Init come from wt's create receipt (worktree
+	// mode only): the worktree's branch, the base it was cut from, that base's
+	// pinned SHA, and the init-script outcome (ok|failed|skipped|not-found).
+	// Each is "" where the receipt carries null.
+	Branch  string
+	BaseRef string
+	BaseSHA string
+	Init    string
+}
+
+// OpenedWindow is delivered to the SpawnObserved hook once the window exists:
+// the new pane and window, the worktree, and wt's receipt facts for it. The
+// receipt fields are empty in checkout mode, where wt never runs.
+type OpenedWindow struct {
+	PaneID       string
+	WindowID     string
+	WorktreePath string
+	Branch       string
+	BaseRef      string
+	BaseSHA      string
 }
 
 // Options are the HTTP handler's inputs for a single (count=1) spawn.
@@ -205,6 +238,10 @@ type Options struct {
 	// created worktree's new branch (`wt create --base`). Ignored in checkout
 	// mode.
 	WorktreeBase string
+	// WorktreeFetch and WorktreeNoUpstream mirror the EffectiveSpec fields of the
+	// same name. Worktree mode only.
+	WorktreeFetch      bool
+	WorktreeNoUpstream bool
 	// WorktreeBranch / CheckoutBranch mirror the EffectiveSpec fields of the
 	// same name: a new branch name for wt's positional argument, or an existing
 	// branch to check out. Worktree mode only.
@@ -289,7 +326,7 @@ func SpawnPrepared(ctx context.Context, opts Options, prepare func(ctx context.C
 // SpawnObserved adds a window-created hook to SpawnPrepared. The hook runs
 // before layout and delivery; errors leave the window for reconciliation.
 // Options remains comparable for callers that use it as a value.
-func SpawnObserved(ctx context.Context, opts Options, prepare func(context.Context, string) error, opened func(context.Context, string, string, string) error) (Result, error) {
+func SpawnObserved(ctx context.Context, opts Options, prepare func(context.Context, string) error, opened func(context.Context, OpenedWindow) error) (Result, error) {
 	if opts.RepoRoot == "" {
 		return Result{}, ValidationErr("run-kit riff: repo root is empty")
 	}
@@ -361,11 +398,15 @@ func SpawnObserved(ctx context.Context, opts Options, prepare func(context.Conte
 	spec.windowCreated = opened
 	spec.WorktreeName = opts.WorktreeName
 	spec.WorktreeBase = opts.WorktreeBase
+	spec.WorktreeFetch = opts.WorktreeFetch
+	spec.WorktreeNoUpstream = opts.WorktreeNoUpstream
 	spec.WorktreeBranch = opts.WorktreeBranch
 	spec.CheckoutBranch = opts.CheckoutBranch
 	if opts.isCheckout() {
 		spec.WorktreeName = ""
 		spec.WorktreeBase = ""
+		spec.WorktreeFetch = false
+		spec.WorktreeNoUpstream = false
 		spec.WorktreeBranch = ""
 		spec.CheckoutBranch = ""
 	}
@@ -385,21 +426,25 @@ func SpawnObserved(ctx context.Context, opts Options, prepare func(context.Conte
 	// (collision naming, new-window/split/select-layout/select-pane, window-id
 	// capture) — is identical, so both paths converge on spawnRiffReturningName.
 	windowRoot := opts.RepoRoot
-	var worktreePath string
+	var created wtCreated
 	if !opts.isCheckout() {
-		worktreePath, err = runWtCreate(ctx, spec, spec.Passthrough)
+		created, err = runWtCreate(ctx, spec, spec.Passthrough)
 		if err != nil {
+			var wtErr *WtCreateError
+			if errors.As(err, &wtErr) && wtErr.Kept != nil {
+				return Result{WorktreePath: wtErr.Kept.Path, Init: wtErr.Kept.Init}, err
+			}
 			return Result{}, err
 		}
-		windowRoot = worktreeWindowRoot(worktreePath, opts.WorktreeSubdir)
+		windowRoot = worktreeWindowRoot(created.Path, opts.WorktreeSubdir)
 		if prepare != nil {
-			if perr := prepare(ctx, worktreePath); perr != nil {
-				rollbackErr := rollbackWorktree(spec, worktreePath)
-				return Result{WorktreePath: worktreePath}, errors.Join(perr, rollbackErr)
+			if perr := prepare(ctx, created.Path); perr != nil {
+				rollbackErr := rollbackWorktree(spec, created.Path)
+				return Result{WorktreePath: created.Path}, errors.Join(perr, rollbackErr)
 			}
 		}
 	}
-	name, windowID, paneID, err := spawnRiffReturningName(ctx, windowRoot, spec)
+	name, windowID, paneID, err := spawnRiffReturningName(ctx, windowRoot, spec, created)
 	if err != nil {
 		return Result{}, err
 	}
@@ -412,7 +457,11 @@ func SpawnObserved(ctx context.Context, opts Options, prepare func(context.Conte
 		WindowName:   name,
 		WindowID:     windowID,
 		PaneID:       paneID,
-		WorktreePath: worktreePath,
+		WorktreePath: created.Path,
+		Branch:       created.Branch,
+		BaseRef:      created.BaseRef,
+		BaseSHA:      created.BaseSHA,
+		Init:         created.Init,
 	}, nil
 }
 
@@ -433,9 +482,8 @@ func worktreeWindowRoot(worktreePath, subdir string) string {
 // SpawnReceipt is one spawned window's identity, returned by Run in index
 // order (one per spawned window for --count N, one for count 1) for the CLI's
 // --json receipt. PaneIDs is every pane of the window (pane 0 first),
-// collected after the split phase; Branch is the worktree's branch. Both
-// derivations are best-effort — a failure leaves PaneIDs as the captured
-// pane-0 id and Branch empty, and never fails the spawn.
+// collected after the split phase (best-effort — a failure leaves the captured
+// pane-0 id); Branch is the worktree's branch from wt's create receipt.
 type SpawnReceipt struct {
 	WindowID     string
 	WindowName   string
@@ -452,11 +500,11 @@ type SpawnReceipt struct {
 // os.Exit).
 func Run(ctx context.Context, spec EffectiveSpec) ([]SpawnReceipt, error) {
 	if spec.Count <= 1 {
-		worktreePath, err := runWtCreate(ctx, spec, spec.Passthrough)
+		created, err := runWtCreate(ctx, spec, spec.Passthrough)
 		if err != nil {
 			return nil, err
 		}
-		name, windowID, paneID, err := spawnRiffReturningName(ctx, worktreePath, spec)
+		name, windowID, paneID, err := spawnRiffReturningName(ctx, created.Path, spec, created)
 		if err != nil {
 			return nil, err
 		}
@@ -468,8 +516,8 @@ func Run(ctx context.Context, spec EffectiveSpec) ([]SpawnReceipt, error) {
 			WindowName:   name,
 			Server:       spec.Server,
 			PaneIDs:      collectPaneIDs(ctx, spec, windowID, paneID),
-			WorktreePath: worktreePath,
-			Branch:       worktreeBranch(ctx, worktreePath),
+			WorktreePath: created.Path,
+			Branch:       created.Branch,
 		}}, nil
 	}
 	return runCount(ctx, spec)
@@ -499,19 +547,6 @@ func collectPaneIDs(parent context.Context, spec EffectiveSpec, windowID, paneID
 		return []string{paneID}
 	}
 	return ids
-}
-
-// worktreeBranch derives the worktree's branch (`git -C <wt> rev-parse
-// --abbrev-ref HEAD`) — wt create prints a Path: line but no branch line.
-// Best-effort: "" on any failure.
-func worktreeBranch(parent context.Context, worktreePath string) string {
-	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "git", "-C", worktreePath, "rev-parse", "--abbrev-ref", "HEAD").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
 }
 
 // ResolvedAgent is fab's fully-resolved agent for a tier: the launcher shell
@@ -683,36 +718,142 @@ func parseFabAgentOutput(stdout string, err error) (string, bool) {
 }
 
 // buildWtCreateArgs returns the argv (after "wt") for worktree creation:
-// `create [--name <name>] [--base <ref>] --non-interactive --open skip
-// <passthrough...>`. A non-empty WorktreeName (worktree mode only) is prepended
-// as `--name <name>` so it skips wt's name prompt; an empty name omits the
-// element and wt generates one. WorktreeBase follows the same rule. The `spec.Where != whereCheckout` guard keeps the helper self-contained
-// (Spawn already blanks a checkout-mode name, and checkout never reaches wt
-// anyway; the CLI/fan-out paths pass no name). Long flag forms keep the argv
-// self-describing; they need wt >= v0.1.0. Pure.
+// `create [--name <name>] [--base <ref>] [--fetch] --json --non-interactive
+// --open skip <passthrough...> [branch]`. A non-empty WorktreeName (worktree
+// mode only) is prepended as `--name <name>` so it skips wt's name prompt; an
+// empty name omits the element and wt generates one. WorktreeBase follows the
+// same rule, and WorktreeFetch adds `--fetch` beside a base only. The
+// `spec.Where != whereCheckout` guard keeps the helper self-contained (Spawn
+// already blanks checkout-mode fields, and checkout never reaches wt anyway;
+// the CLI/fan-out paths pass no name). `--json` is what makes wt print its
+// receipt; it needs wt >= v0.1.8 (see ensureWtVersion). Pure.
 func buildWtCreateArgs(spec EffectiveSpec, passthrough []string) []string {
 	argv := []string{"create"}
-	if spec.Where != whereCheckout && spec.WorktreeName != "" {
+	worktree := spec.Where != whereCheckout
+	if worktree && spec.WorktreeName != "" {
 		argv = append(argv, "--name", spec.WorktreeName)
 	}
-	existing := spec.Where != whereCheckout && spec.CheckoutBranch != ""
+	existing := worktree && spec.CheckoutBranch != ""
 	if existing {
 		argv = append(argv, "--checkout", spec.CheckoutBranch)
-	} else if spec.Where != whereCheckout && spec.WorktreeBase != "" {
+	} else if worktree && spec.WorktreeBase != "" {
 		argv = append(argv, "--base", spec.WorktreeBase)
 	}
-	argv = append(argv, "--non-interactive", "--open", "skip")
+	if worktree && !existing && spec.WorktreeFetch {
+		argv = append(argv, "--fetch")
+	}
+	argv = append(argv, "--json", "--non-interactive", "--open", "skip")
 	argv = append(argv, passthrough...)
-	if !existing && spec.Where != whereCheckout && spec.WorktreeBranch != "" {
+	if !existing && worktree && spec.WorktreeBranch != "" {
 		argv = append(argv, spec.WorktreeBranch)
 	}
 	return argv
 }
 
-// runWtCreate invokes `wt create [--name <name>] --non-interactive --open skip
-// <passthrough...>` (with Dir=RepoRoot when set) and parses the `Path:` line
-// for the worktree path. Returns a SubprocessErr on failure/parse-miss/timeout.
-func runWtCreate(parent context.Context, spec EffectiveSpec, passthrough []string) (string, error) {
+// wtCreated is the decoded `wt create --json` result: the worktree's path and
+// name, its branch, the base it was cut from and that base's pinned SHA, the
+// create mode, and the init outcome. Branch, BaseRef and BaseSHA are "" where
+// the receipt carries null.
+type wtCreated struct {
+	Path    string
+	Name    string
+	Branch  string
+	BaseRef string
+	BaseSHA string
+	Mode    string
+	Init    string
+}
+
+// wtReceipt mirrors wt's one-line `--json` document: `ok` is true exactly when
+// wt exited 0, and `error.code` is the process exit code. A failed create after
+// the worktree exists (init failure, exit 7) also carries `result`.
+type wtReceipt struct {
+	OK     bool `json:"ok"`
+	Result *struct {
+		Path    string  `json:"path"`
+		Name    string  `json:"name"`
+		Branch  *string `json:"branch"`
+		BaseRef *string `json:"base_ref"`
+		BaseSHA *string `json:"base_sha"`
+		Mode    string  `json:"mode"`
+		Init    string  `json:"init"`
+	} `json:"result"`
+	Error *struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+func (r wtReceipt) created() *wtCreated {
+	if r.Result == nil {
+		return nil
+	}
+	deref := func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return *p
+	}
+	res := r.Result
+	return &wtCreated{
+		Path: res.Path, Name: res.Name, Branch: deref(res.Branch), BaseRef: deref(res.BaseRef),
+		BaseSHA: deref(res.BaseSHA), Mode: res.Mode, Init: res.Init,
+	}
+}
+
+// WtCreateError is a `wt create` that reported failure in its receipt. Code is
+// wt's exit code (3 = a failed fetch, 2 = an unusable flag or base, 7 = the
+// init script failed). Kept is the worktree wt left behind, when it created one
+// before failing: riff never deletes it. It unwraps to an ExitSubprocess
+// *ExitCodeError so exit-code and HTTP-status mapping do not change.
+type WtCreateError struct {
+	Code    int
+	Message string
+	Kept    *KeptWorktree
+	stderr  string
+}
+
+// KeptWorktree names a worktree that exists despite a failed create.
+type KeptWorktree struct {
+	Path string
+	Name string
+	Init string
+}
+
+func (e *WtCreateError) Error() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "run-kit riff: wt create failed (exit %d): %s", e.Code, e.Message)
+	if e.Kept != nil {
+		fmt.Fprintf(&b, "; the worktree was kept at %s", e.Kept.Path)
+	}
+	if tail := strings.TrimSpace(e.stderr); tail != "" {
+		fmt.Fprintf(&b, "\n%s", tail)
+	}
+	return b.String()
+}
+
+func (e *WtCreateError) Unwrap() error {
+	return &ExitCodeError{Code: ExitSubprocess, Msg: e.Error()}
+}
+
+// KeptPath is the path of the worktree wt left behind ("" when it created
+// none), exported for callers that must name it.
+func (e *WtCreateError) KeptPath() string {
+	if e.Kept == nil {
+		return ""
+	}
+	return e.Kept.Path
+}
+
+// runWtCreate invokes `wt create` (Dir=RepoRoot when set) after the version
+// gate and decodes the receipt wt prints on stdout. Stderr carries wt's phase
+// output and Error/Why/Fix and is read only to enrich a failure. Returns a
+// *WtCreateError for a reported failure and a SubprocessErr for a missing or
+// non-receipt stdout, a timeout, or a worktree path that is not a directory.
+func runWtCreate(parent context.Context, spec EffectiveSpec, passthrough []string) (wtCreated, error) {
+	if err := ensureWtVersion(parent); err != nil {
+		return wtCreated{}, err
+	}
 	ctx, cancel := context.WithTimeout(parent, WtTimeout)
 	defer cancel()
 
@@ -721,36 +862,58 @@ func runWtCreate(parent context.Context, spec EffectiveSpec, passthrough []strin
 	if spec.RepoRoot != "" {
 		cmd.Dir = spec.RepoRoot
 	}
-	out, runErr := cmd.CombinedOutput()
-	output := string(out)
-	if runErr != nil {
-		return "", SubprocessErr("run-kit riff: wt create failed: %v\n%s", runErr, output)
+	if spec.Where != whereCheckout && spec.WorktreeNoUpstream {
+		cmd.Env = append(os.Environ(), noUpstreamEnv...)
 	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	runErr := cmd.Run()
 
-	path := parseWorktreePath(output)
-	if path == "" {
-		return "", SubprocessErr("run-kit riff: could not find 'Path:' line in wt output:\n%s", output)
+	var receipt wtReceipt
+	if decodeErr := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &receipt); decodeErr != nil {
+		if runErr != nil {
+			return wtCreated{}, SubprocessErr("run-kit riff: wt create failed: %v\n%s", runErr, strings.TrimSpace(stderr.String()))
+		}
+		return wtCreated{}, SubprocessErr("run-kit riff: wt create printed no receipt: %v\n%s", decodeErr, strings.TrimSpace(stderr.String()))
 	}
-	if info, err := os.Stat(path); err != nil || !info.IsDir() {
-		return "", SubprocessErr("run-kit riff: worktree path %q does not exist or is not a directory\n%s", path, output)
+	if !receipt.OK || runErr != nil {
+		werr := &WtCreateError{Code: exitCodeOf(runErr), stderr: stderr.String()}
+		if receipt.Error != nil {
+			werr.Code, werr.Message = receipt.Error.Code, receipt.Error.Message
+		} else {
+			werr.Message = fmt.Sprintf("%v", runErr)
+		}
+		if kept := receipt.created(); kept != nil && kept.Path != "" {
+			werr.Kept = &KeptWorktree{Path: kept.Path, Name: kept.Name, Init: kept.Init}
+		}
+		return wtCreated{}, werr
 	}
-	return path, nil
+	created := receipt.created()
+	if created == nil || created.Path == "" {
+		return wtCreated{}, SubprocessErr("run-kit riff: wt create receipt carries no worktree path\n%s", strings.TrimSpace(stderr.String()))
+	}
+	if info, err := os.Stat(created.Path); err != nil || !info.IsDir() {
+		return wtCreated{}, SubprocessErr("run-kit riff: worktree path %q does not exist or is not a directory", created.Path)
+	}
+	return *created, nil
 }
 
-// parseWorktreePath scans wt's output for `^Path: <path>$`. Returns the path or
-// "" if not found. Pure — testable without a real wt invocation.
-func parseWorktreePath(output string) string {
-	for _, raw := range strings.Split(output, "\n") {
-		line := strings.TrimSpace(raw)
-		if !strings.HasPrefix(line, "Path:") {
-			continue
-		}
-		value := strings.TrimSpace(strings.TrimPrefix(line, "Path:"))
-		if value != "" {
-			return value
-		}
+// exitCodeOf is the process exit code of a failed command, or ExitSubprocess
+// when err is not an exit status.
+func exitCodeOf(err error) int {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
 	}
-	return ""
+	return ExitSubprocess
+}
+
+// noUpstreamEnv is appended to wt's environment when WorktreeNoUpstream is set:
+// git's config-from-environment form of branch.autoSetupMerge=false.
+var noUpstreamEnv = []string{
+	"GIT_CONFIG_COUNT=1",
+	"GIT_CONFIG_KEY_0=branch.autoSetupMerge",
+	"GIT_CONFIG_VALUE_0=false",
 }
 
 // spawnRiffReturningName performs the tmux spawn sequence for one riff window on
@@ -766,7 +929,7 @@ func parseWorktreePath(output string) string {
 // navigate to /$server/$window; a resolve failure is non-fatal (empty id
 // returned — the CLI ignores it, the handler falls back to a name-only response
 // if ever needed). The pane-0 id is the typed task-delivery target.
-func spawnRiffReturningName(ctx context.Context, worktreePath string, spec EffectiveSpec) (string, string, string, error) {
+func spawnRiffReturningName(ctx context.Context, worktreePath string, spec EffectiveSpec, created wtCreated) (string, string, string, error) {
 	existing, err := listWindowNames(ctx, spec)
 	if err != nil {
 		return "", "", "", err
@@ -784,7 +947,14 @@ func spawnRiffReturningName(ctx context.Context, worktreePath string, spec Effec
 
 	if spec.windowCreated != nil {
 		windowID := resolveWindowIDFromPane(ctx, spec, paneID)
-		if err := spec.windowCreated(ctx, paneID, windowID, worktreePath); err != nil {
+		opened := OpenedWindow{
+			PaneID: paneID, WindowID: windowID, WorktreePath: created.Path,
+			Branch: created.Branch, BaseRef: created.BaseRef, BaseSHA: created.BaseSHA,
+		}
+		if opened.WorktreePath == "" {
+			opened.WorktreePath = worktreePath
+		}
+		if err := spec.windowCreated(ctx, opened); err != nil {
 			return resolvedName, windowID, paneID, err
 		}
 	}
@@ -942,6 +1112,7 @@ func resolveWindowName(existing []string, base string) string {
 type fanOutResult struct {
 	Index        int
 	WorktreePath string
+	Branch       string
 	WindowName   string
 	WindowID     string
 	PaneID       string
@@ -982,6 +1153,9 @@ func runCount(ctx context.Context, spec EffectiveSpec) ([]SpawnReceipt, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	if err := ensureWtVersion(ctx); err != nil {
+		return nil, err
+	}
 	results := make([]fanOutResult, n)
 	var wg sync.WaitGroup
 	wg.Add(n)
@@ -1002,16 +1176,16 @@ func runCount(ctx context.Context, spec EffectiveSpec) ([]SpawnReceipt, error) {
 			res := fanOutResult{Index: i}
 			defer func() { results[i] = res }()
 
-			worktreePath, err := runWtCreate(ctx, spec, spec.Passthrough)
+			created, err := runWtCreate(ctx, spec, spec.Passthrough)
 			if err != nil {
 				res.Err = err
 				recordFailure(i, err)
 				cancel()
 				return
 			}
-			res.WorktreePath = worktreePath
+			res.WorktreePath, res.Branch = created.Path, created.Branch
 
-			windowName, windowID, paneID, err := spawnRiffReturningName(ctx, worktreePath, spec)
+			windowName, windowID, paneID, err := spawnRiffReturningName(ctx, created.Path, spec, created)
 			res.WindowName = windowName
 			res.WindowID = windowID
 			res.PaneID = paneID
@@ -1038,7 +1212,7 @@ func runCount(ctx context.Context, spec EffectiveSpec) ([]SpawnReceipt, error) {
 				Server:       spec.Server,
 				PaneIDs:      collectPaneIDs(ctx, spec, res.WindowID, res.PaneID),
 				WorktreePath: res.WorktreePath,
-				Branch:       worktreeBranch(ctx, res.WorktreePath),
+				Branch:       res.Branch,
 			}
 		}
 		return receipts, nil

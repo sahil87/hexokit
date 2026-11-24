@@ -1,0 +1,7 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-24T02:01:24Z"}
+{"args":"Execute step T9 (Adopt wt v0.1.8 in riff and the engine) of the plan at /home/sahil/code/sahil87/hexokit/fab/plans/sahil/26-11-20-operator-triggers.md. Read the whole plan first (Decisions and Rules bind you), then implement only the T9 Brief.","cmd":"fab-new","event":"command","ts":"2026-11-24T02:01:24Z"}
+{"delta":"+0.0","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-11-24T02:03:19Z"}
+{"delta":"+1.1","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-11-24T02:04:35Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-24T02:28:21Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-24T02:28:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-24T02:49:00Z"}

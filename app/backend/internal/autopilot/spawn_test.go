@@ -12,7 +12,34 @@ import (
 	"rk/internal/riff"
 )
 
-func TestSpawnPinsFetchedTipNotStaleLocalHead(t *testing.T) {
+// engineRefPins lists the engine runner's calls that fetch or pin a base ref
+// itself: wt does both now, so a spawn makes none.
+func engineRefPins(h *harness) []string {
+	h.run.mu.Lock()
+	defer h.run.mu.Unlock()
+	var out []string
+	for _, c := range h.run.calls {
+		if strings.HasPrefix(c, "git fetch") || strings.HasPrefix(c, "git rev-parse origin/") || strings.HasPrefix(c, "git rev-parse refs/remotes/origin/") {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func (h *harness) engineItem(id string) engineItem {
+	h.t.Helper()
+	es, err := loadEngineFile(h.env.StatePath)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	it, ok := es.find(id)
+	if !ok {
+		h.t.Fatalf("no engine item %s", id)
+	}
+	return *it
+}
+
+func TestSpawnRecordsTheFetchedOriginTipNotTheStaleLocalHead(t *testing.T) {
 	h := newHarness(t)
 	foo := newRepo(t, "foo")
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "do a"})
@@ -26,8 +53,14 @@ func TestSpawnPinsFetchedTipNotStaleLocalHead(t *testing.T) {
 	if len(h.spawn.reqs) != 1 {
 		t.Fatalf("spawn requests = %d, want 1 (%+v)", len(h.spawn.reqs), res)
 	}
-	if got := h.spawn.reqs[0].BaseSHA; got != tip {
-		t.Fatalf("BaseSHA = %s, want the fetched origin tip %s (local HEAD %s)", got, tip, local)
+	if got := h.spawn.reqs[0].BaseRef; got != "origin/main" {
+		t.Fatalf("BaseRef = %q, want origin/main", got)
+	}
+	if pins := engineRefPins(h); len(pins) != 0 {
+		t.Fatalf("the engine fetched or pinned a ref itself: %v", pins)
+	}
+	if got := h.engineItem("a").BaseSHA; got != tip {
+		t.Fatalf("recorded base_sha = %s, want the fetched origin tip %s (local HEAD %s)", got, tip, local)
 	}
 	if got := runGit(t, foo.Dir, "rev-parse", "a"); got != tip {
 		t.Fatalf("spawned branch at %s, want %s", got, tip)
@@ -41,13 +74,39 @@ func TestSpawnBranchHasNoUpstreamTracking(t *testing.T) {
 	h.step()
 	for _, key := range []string{"remote", "merge"} {
 		if gitOK(foo.Dir, "config", "--get", "branch.a."+key) {
-			t.Errorf("branch a has branch.a.%s set: a ref, not a SHA, was passed as the base", key)
+			t.Errorf("branch a has branch.a.%s set: a spawned branch must carry no upstream", key)
 		}
 	}
 	// The same worktree add with a remote-tracking ref does set it: the check above is live.
 	runGit(t, foo.Dir, "worktree", "add", "-b", "zz", filepath.Join(t.TempDir(), "zz"), "origin/main")
 	if !gitOK(foo.Dir, "config", "--get", "branch.zz.merge") {
 		t.Fatal("sanity: a remote-tracking start point must set upstream tracking")
+	}
+}
+
+func TestSpawnRecordsTheReceiptsBranchAndBaseSHA(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "do a"})
+	tip := foo.advanceOrigin("x.txt", "1\n")
+	h.step()
+
+	it := h.engineItem("a")
+	if it.Branch != "a" || it.BaseSHA != tip {
+		t.Fatalf("engine item branch=%q base_sha=%q, want a / %s", it.Branch, it.BaseSHA, tip)
+	}
+	if got := h.state().BranchMap["a"].Branch; got != "a" {
+		t.Fatalf("branch_map a = %q, want the receipt's branch", got)
+	}
+	if got := operator.ScopeString(h.item("a").Scope, "branch"); got != "a" {
+		t.Fatalf("projection branch = %q", got)
+	}
+	// A later guarded write must not drop the recorded base.
+	if err := newEngine(h.env).setScope("a", map[string]interface{}{"note": "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.engineItem("a").BaseSHA; got != tip {
+		t.Fatalf("base_sha after a later write = %q, want %s", got, tip)
 	}
 }
 
@@ -59,17 +118,56 @@ func TestSpawnFetchFailureStopsTheSpawn(t *testing.T) {
 	h.run.reset()
 
 	res := h.step()
-	if len(h.spawn.reqs) != 0 {
-		t.Fatalf("spawned despite a failed fetch: %+v", h.spawn.reqs)
-	}
-	if !hasEscalation(res, "git fetch failed") {
+	if !hasEscalation(res, "wt create --fetch failed, spawn stopped and the item stays pending") || !hasEscalation(res, "Failed to fetch remote 'origin'") {
 		t.Fatalf("escalations = %+v", res.Escalations)
 	}
-	if n := h.run.called("git rev-parse origin/"); n != 0 {
-		t.Fatalf("rev-parse origin/<default> consulted %d times after a failed fetch: it would return the stale tip", n)
+	if pins := engineRefPins(h); len(pins) != 0 {
+		t.Fatalf("the engine fetched or pinned a ref itself: %v", pins)
 	}
 	if got := h.stateOf(h.item("a")); got != QueuePending || spawningSet(h.item("a")) {
 		t.Fatalf("state = %s spawning=%v, want a pending item with no spawn marker", got, spawningSet(h.item("a")))
+	}
+	if h.engineItem("a").Pane != "" {
+		t.Fatal("a failed fetch must not bind a pane")
+	}
+}
+
+func TestSpawnInitFailureKeepsTheWorktreeAndEscalates(t *testing.T) {
+	h := newHarness(t)
+	foo := newRepo(t, "foo")
+	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "do a"})
+	h.spawn.initFails = true
+
+	res := h.step()
+	kept := h.spawn.lastPath(t)
+	if !hasEscalation(res, "wt init failed; worktree "+kept+" was kept and the item stays pending") || !hasEscalation(res, "wt delete "+filepath.Base(kept)) {
+		t.Fatalf("escalations = %+v", res.Escalations)
+	}
+	if _, err := os.Stat(kept); err != nil {
+		t.Fatalf("the kept worktree is gone: %v", err)
+	}
+	it := h.item("a")
+	if got := h.stateOf(it); got != QueuePending || spawningSet(it) {
+		t.Fatalf("state = %s spawning=%v, want a pending item with no spawn marker", got, spawningSet(it))
+	}
+	if h.engineItem("a").Pane != "" || h.engineItem("a").BaseSHA != "" {
+		t.Fatalf("an init-failed spawn must record nothing: %+v", h.engineItem("a"))
+	}
+}
+
+func TestSpawnFailureTexts(t *testing.T) {
+	with := func(code int, base string) string {
+		return spawnFailure(SpawnRequest{BaseRef: base}, &riff.WtCreateError{Code: code, Message: "wt said so"})
+	}
+	if got := with(2, "origin/dep-branch"); !strings.Contains(got, "origin/dep-branch could not be resolved after the fetch") || !strings.Contains(got, "push it before stacking") || !strings.Contains(got, "wt said so") {
+		t.Errorf("exit 2 = %q", got)
+	}
+	if got := with(2, ""); got != "spawn failed: "+(&riff.WtCreateError{Code: 2, Message: "wt said so"}).Error() {
+		t.Errorf("exit 2 without a base keeps the generic text: %q", got)
+	}
+	gate := &riff.ExitCodeError{Code: riff.ExitPrecondition, Msg: "run-kit riff: wt v0.1.6 is too old — rk needs wt >= v0.1.8 (run: wt update)"}
+	if got := spawnFailure(SpawnRequest{}, gate); got != "spawn failed: "+gate.Msg {
+		t.Errorf("the version gate's text must reach the escalation verbatim: %q", got)
 	}
 }
 
@@ -276,8 +374,11 @@ func TestStackedCutsFromDependencyTipOnOrigin(t *testing.T) {
 	runGit(t, foo.Dir, "worktree", "remove", "--force", wt)
 
 	h.step()
-	if got := h.spawn.reqs[0].BaseSHA; got != pushed {
-		t.Fatalf("BaseSHA = %s, want the SHA of origin/dep-branch %s", got, pushed)
+	if got := h.spawn.reqs[0].BaseRef; got != "origin/dep-branch" {
+		t.Fatalf("BaseRef = %q, want origin/dep-branch", got)
+	}
+	if got := h.engineItem("child").BaseSHA; got != pushed {
+		t.Fatalf("base_sha = %s, want the SHA of origin/dep-branch %s", got, pushed)
 	}
 	if got := runGit(t, foo.Dir, "rev-parse", "child"); got != pushed {
 		t.Fatalf("child branch at %s, want %s", got, pushed)
@@ -333,12 +434,38 @@ func TestStackedRawTextFabEntryCarriesTheBaseInstruction(t *testing.T) {
 	}
 }
 
+// A dependency branch that is on no origin fails at wt's base resolution after
+// its fetch, and the item stays pending.
 func TestStackedDependencyBranchMustBeOnOrigin(t *testing.T) {
 	h, foo := depFixture(t, "stacked-prs")
 	foo.branch("dep-branch", "main", "dep.txt", "x\n") // never pushed
 	res := h.step()
-	if len(h.spawn.reqs) != 0 || !hasEscalation(res, "not on origin") {
+	if !hasEscalation(res, "origin/dep-branch could not be resolved after the fetch") || !hasEscalation(res, "push it before stacking") {
+		t.Fatalf("escalations=%+v", res.Escalations)
+	}
+	if got := h.stateOf(h.item("child")); got != QueuePending || spawningSet(h.item("child")) {
+		t.Fatalf("state = %s, want a pending item with no spawn marker", got)
+	}
+}
+
+// The main checkout's last fetch predates the dependency's push: the engine
+// must not read its stale refs to decide the branch is absent, since wt fetches
+// before it resolves the base.
+func TestStackedDependencyPushedAfterTheLastFetchStillSpawns(t *testing.T) {
+	h, foo := depFixture(t, "stacked-prs")
+	foo.branch("dep-branch", "main", "dep.txt", "pushed\n")
+	runGit(t, foo.Dir, "push", "origin", "dep-branch")
+	runGit(t, foo.Dir, "update-ref", "-d", "refs/remotes/origin/dep-branch")
+	if gitOK(foo.Dir, "rev-parse", "--verify", "-q", "refs/remotes/origin/dep-branch") {
+		t.Fatal("fixture: the checkout must not know origin/dep-branch yet")
+	}
+
+	res := h.step()
+	if hasEscalation(res, "not on origin") || len(h.spawn.reqs) != 1 {
 		t.Fatalf("reqs=%d escalations=%+v", len(h.spawn.reqs), res.Escalations)
+	}
+	if got := h.spawn.reqs[0].BaseRef; got != "origin/dep-branch" {
+		t.Fatalf("BaseRef = %q, want origin/dep-branch", got)
 	}
 }
 
@@ -348,8 +475,11 @@ func TestMergeAutoBasesOnDefaultBranchIndependently(t *testing.T) {
 	h.queue("merge-auto", Entry{ID: "a", Repo: foo.Dir, Task: "a"})
 	tip := foo.advanceOrigin("x.txt", "1\n")
 	h.step()
-	if got := h.spawn.reqs[0].BaseSHA; got != tip {
-		t.Fatalf("BaseSHA = %s, want origin tip %s", got, tip)
+	if got := h.spawn.reqs[0].BaseRef; got != "origin/main" {
+		t.Fatalf("BaseRef = %q, want origin/main", got)
+	}
+	if got := h.engineItem("a").BaseSHA; got != tip {
+		t.Fatalf("base_sha = %s, want origin tip %s", got, tip)
 	}
 }
 
@@ -788,11 +918,14 @@ func TestBaseStartsTheWorktreeAtTheBaseTip(t *testing.T) {
 	h.queue("", Entry{ID: "a", Repo: foo.Dir, Task: "bump deps", Base: "eng-v2"})
 	h.step()
 	req := h.spawn.reqs[0]
-	if req.BaseSHA != tip {
-		t.Fatalf("BaseSHA = %s, want the origin/eng-v2 tip %s", req.BaseSHA, tip)
+	if req.BaseRef != "origin/eng-v2" {
+		t.Fatalf("BaseRef = %q, want origin/eng-v2", req.BaseRef)
 	}
-	if n := h.run.called("git rev-parse origin/eng-v2"); n != 1 {
-		t.Fatalf("rev-parse origin/eng-v2 calls = %d; calls: %v", n, h.run.calls)
+	if got := h.engineItem("a").BaseSHA; got != tip {
+		t.Fatalf("base_sha = %s, want the origin/eng-v2 tip %s", got, tip)
+	}
+	if pins := engineRefPins(h); len(pins) != 0 {
+		t.Fatalf("the engine fetched or pinned a ref itself: %v", pins)
 	}
 	if !strings.Contains(req.Prompt, "open a draft PR against eng-v2") {
 		t.Fatalf("prompt = %q", req.Prompt)
@@ -820,8 +953,11 @@ func TestLadderCherryPicksOnTopOfTheBase(t *testing.T) {
 			child = r
 		}
 	}
-	if child.BaseSHA != tip {
-		t.Fatalf("BaseSHA = %s, want %s", child.BaseSHA, tip)
+	if child.BaseRef != "origin/eng-v2" {
+		t.Fatalf("BaseRef = %q, want origin/eng-v2", child.BaseRef)
+	}
+	if got := h.engineItem("child").BaseSHA; got != tip {
+		t.Fatalf("base_sha = %s, want %s", got, tip)
 	}
 	if n := h.run.called("git cherry-pick --no-commit origin/eng-v2.."); n != 1 {
 		t.Fatalf("cherry-pick must range from origin/eng-v2; calls: %v", h.run.calls)
@@ -866,8 +1002,11 @@ func TestSpawnWithoutBaseIsUnchanged(t *testing.T) {
 	tip := foo.advanceOrigin("x.txt", "1\n")
 	h.queue("", Entry{ID: "ab12", Repo: foo.Dir, Change: "ab12"})
 	h.step()
-	if got := h.spawn.reqs[0].BaseSHA; got != tip {
-		t.Fatalf("BaseSHA = %s, want the origin/main tip %s", got, tip)
+	if got := h.spawn.reqs[0].BaseRef; got != "origin/main" {
+		t.Fatalf("BaseRef = %q, want origin/main", got)
+	}
+	if got := h.engineItem("ab12").BaseSHA; got != tip {
+		t.Fatalf("base_sha = %s, want the origin/main tip %s", got, tip)
 	}
 	if n := h.run.called("fab status set-base-branch"); n != 0 {
 		t.Fatalf("set-base-branch ran without a base: %v", h.run.calls)

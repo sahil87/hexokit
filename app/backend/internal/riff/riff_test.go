@@ -14,68 +14,6 @@ import (
 	"rk/internal/testutil"
 )
 
-func TestParseWorktreePath(t *testing.T) {
-	cases := []struct {
-		name   string
-		output string
-		want   string
-	}{
-		{
-			name:   "simple happy path",
-			output: "Path: /tmp/myrepo.worktrees/alpha\n",
-			want:   "/tmp/myrepo.worktrees/alpha",
-		},
-		{
-			name:   "whitespace trimmed",
-			output: "   Path:    /tmp/myrepo.worktrees/alpha   \n",
-			want:   "/tmp/myrepo.worktrees/alpha",
-		},
-		{
-			name: "Path line among other lines",
-			output: "Created worktree\n" +
-				"Branch: feature/foo\n" +
-				"Path: /tmp/myrepo.worktrees/beta\n" +
-				"Done.\n",
-			want: "/tmp/myrepo.worktrees/beta",
-		},
-		{
-			name:   "no Path line",
-			output: "wt: something went wrong\nhave a nice day\n",
-			want:   "",
-		},
-		{
-			name:   "Path with empty value",
-			output: "Path: \n",
-			want:   "",
-		},
-		{
-			name:   "empty output",
-			output: "",
-			want:   "",
-		},
-		{
-			name: "first Path line wins",
-			output: "Path: /a\n" +
-				"Path: /b\n",
-			want: "/a",
-		},
-		{
-			name:   "path containing spaces preserved",
-			output: "Path: /tmp/has spaces/alpha\n",
-			want:   "/tmp/has spaces/alpha",
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := parseWorktreePath(tc.output)
-			if got != tc.want {
-				t.Errorf("parseWorktreePath(%q) = %q, want %q", tc.output, got, tc.want)
-			}
-		})
-	}
-}
-
 // TestBuildSkillShellString asserts the three-layer skill-pane shell string
 // composition (the task-injection seam the HTTP endpoint reuses). Pure — no
 // tmux/exec. Replaces the old cmd/rk TestBuildNewWindowArgs, which asserted the
@@ -559,8 +497,8 @@ func TestResolveHeadlessAgent_StubFab(t *testing.T) {
 	})
 }
 
-// TestBuildWtCreateArgs covers the worktree naming argv: an empty name yields the
-// plain `create --non-interactive --open skip` argv; a name in worktree mode
+// TestBuildWtCreateArgs covers the worktree argv: every create carries `--json`;
+// an empty name yields the plain `create --json --non-interactive --open skip` argv; a name in worktree mode
 // prepends `--name <name>`; a name in checkout mode is defensively ignored
 // (checkout never reaches wt, and the name is rejected at the API).
 func TestBuildWtCreateArgs(t *testing.T) {
@@ -571,16 +509,54 @@ func TestBuildWtCreateArgs(t *testing.T) {
 		wtBase      string
 		wtBranch    string
 		checkout    string
+		fetch       bool
 		passthrough []string
 		want        []string
 	}{
+		{
+			name:   "fetch rides beside the base",
+			where:  "worktree",
+			wtName: "ab12",
+			wtBase: "origin/main",
+			fetch:  true,
+			want:   []string{"create", "--name", "ab12", "--base", "origin/main", "--fetch", "--json", "--non-interactive", "--open", "skip"},
+		},
+		{
+			name:   "no fetch unless requested",
+			where:  "worktree",
+			wtBase: "origin/main",
+			want:   []string{"create", "--base", "origin/main", "--json", "--non-interactive", "--open", "skip"},
+		},
+		{
+			name:     "fetch is dropped with an existing-branch checkout",
+			where:    "worktree",
+			checkout: "feat/x",
+			fetch:    true,
+			want:     []string{"create", "--checkout", "feat/x", "--json", "--non-interactive", "--open", "skip"},
+		},
+		{
+			name:   "fetch is dropped in checkout mode",
+			where:  "checkout",
+			wtBase: "origin/main",
+			fetch:  true,
+			want:   []string{"create", "--json", "--non-interactive", "--open", "skip"},
+		},
+		{
+			name:        "passthrough follows riff's own flags verbatim and the branch stays last",
+			where:       "worktree",
+			wtBase:      "origin/main",
+			wtBranch:    "feat-y",
+			fetch:       true,
+			passthrough: []string{"--reuse", "--name", "x"},
+			want:        []string{"create", "--base", "origin/main", "--fetch", "--json", "--non-interactive", "--open", "skip", "--reuse", "--name", "x", "feat-y"},
+		},
 		{
 			name:     "new branch rides as the trailing positional",
 			where:    "worktree",
 			wtName:   "ab12",
 			wtBase:   "3c51d29",
 			wtBranch: "260101-ab12-x",
-			want:     []string{"create", "--name", "ab12", "--base", "3c51d29", "--non-interactive", "--open", "skip", "260101-ab12-x"},
+			want:     []string{"create", "--name", "ab12", "--base", "3c51d29", "--json", "--non-interactive", "--open", "skip", "260101-ab12-x"},
 		},
 		{
 			name:     "existing-branch checkout drops base and positional",
@@ -589,54 +565,54 @@ func TestBuildWtCreateArgs(t *testing.T) {
 			wtBase:   "3c51d29",
 			wtBranch: "ignored",
 			checkout: "feat/x",
-			want:     []string{"create", "--name", "ab12", "--checkout", "feat/x", "--non-interactive", "--open", "skip"},
+			want:     []string{"create", "--name", "ab12", "--checkout", "feat/x", "--json", "--non-interactive", "--open", "skip"},
 		},
 		{
 			name:     "checkout mode ignores branch fields",
 			where:    "checkout",
 			wtBranch: "x",
 			checkout: "y",
-			want:     []string{"create", "--non-interactive", "--open", "skip"},
+			want:     []string{"create", "--json", "--non-interactive", "--open", "skip"},
 		},
 		{
 			name: "no name → plain argv",
-			want: []string{"create", "--non-interactive", "--open", "skip"},
+			want: []string{"create", "--json", "--non-interactive", "--open", "skip"},
 		},
 		{
 			name:   "worktree mode with name",
 			where:  "worktree",
 			wtName: "my-agent",
-			want:   []string{"create", "--name", "my-agent", "--non-interactive", "--open", "skip"},
+			want:   []string{"create", "--name", "my-agent", "--json", "--non-interactive", "--open", "skip"},
 		},
 		{
 			name:        "name + passthrough",
 			where:       "worktree",
 			wtName:      "my-agent",
 			passthrough: []string{"--base", "main"},
-			want:        []string{"create", "--name", "my-agent", "--non-interactive", "--open", "skip", "--base", "main"},
+			want:        []string{"create", "--name", "my-agent", "--json", "--non-interactive", "--open", "skip", "--base", "main"},
 		},
 		{
 			name:   "checkout mode ignores name",
 			where:  "checkout",
 			wtName: "ignored",
-			want:   []string{"create", "--non-interactive", "--open", "skip"},
+			want:   []string{"create", "--json", "--non-interactive", "--open", "skip"},
 		},
 		{
 			name:   "worktree mode with base",
 			where:  "worktree",
 			wtBase: "3c51d29",
-			want:   []string{"create", "--base", "3c51d29", "--non-interactive", "--open", "skip"},
+			want:   []string{"create", "--base", "3c51d29", "--json", "--non-interactive", "--open", "skip"},
 		},
 		{
 			name:   "checkout mode ignores base",
 			where:  "checkout",
 			wtBase: "3c51d29",
-			want:   []string{"create", "--non-interactive", "--open", "skip"},
+			want:   []string{"create", "--json", "--non-interactive", "--open", "skip"},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			spec := EffectiveSpec{Where: tc.where, WorktreeName: tc.wtName, WorktreeBase: tc.wtBase, WorktreeBranch: tc.wtBranch, CheckoutBranch: tc.checkout}
+			spec := EffectiveSpec{Where: tc.where, WorktreeName: tc.wtName, WorktreeBase: tc.wtBase, WorktreeBranch: tc.wtBranch, CheckoutBranch: tc.checkout, WorktreeFetch: tc.fetch}
 			got := buildWtCreateArgs(spec, tc.passthrough)
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("buildWtCreateArgs() = %#v\nwant %#v", got, tc.want)
@@ -724,7 +700,7 @@ func TestSpawn_WhereModes(t *testing.T) {
 
 		// wt create prints the `Path:` line the engine parses for the window root.
 		// The marker uses shell redirection (not `touch`) — PATH is stub-only.
-		testutil.WriteStub(t, dir, "wt", "#!/bin/sh\n: > "+wtCalled+"\nprintf 'Path: %s\\n' '"+worktree+"'\n")
+		testutil.WriteStub(t, dir, "wt", wtStubScript(worktree, ": > "+wtCalled, ""))
 		testutil.WriteStub(t, dir, "tmux", stubTmuxScript(newWindowLog))
 		testutil.WriteStub(t, dir, "fab", "#!/bin/sh\necho 'claude'\n")
 		t.Setenv("PATH", dir)
@@ -761,7 +737,7 @@ func TestSpawn_PrepareWorktreeFailureRollsBack(t *testing.T) {
 	}
 	newWindowLog := filepath.Join(dir, "new-window.log")
 	deleteLog := filepath.Join(dir, "wt-delete.log")
-	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\ncase \"$1\" in\n  create) printf 'Path: %s\\n' '"+worktree+"';;\n  delete) echo \"$*\" >> "+deleteLog+";;\nesac\n")
+	testutil.WriteStub(t, dir, "wt", wtStubScript(worktree, "", `echo "$*" >> `+deleteLog))
 	testutil.WriteStub(t, dir, "tmux", stubTmuxScript(newWindowLog))
 	testutil.WriteStub(t, dir, "fab", "#!/bin/sh\necho 'claude'\n")
 	t.Setenv("PATH", dir)
@@ -1989,15 +1965,14 @@ func stubTmuxWithPanesScript(newWindowLog, panes string) string {
 
 // TestRunReceiptCountOne: a count-1 Run returns one SpawnReceipt carrying the
 // resolved window id/name, the full pane list (pane 0 first), the worktree
-// path, and the branch derived from git.
+// path, and the branch from wt's receipt.
 func TestRunReceiptCountOne(t *testing.T) {
 	dir := t.TempDir()
 	worktree := t.TempDir()
 	newWindowLog := filepath.Join(dir, "new-window.log")
 
-	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\nprintf 'Path: %s\\n' '"+worktree+"'\n")
+	testutil.WriteStub(t, dir, "wt", wtStubScript(worktree, "", ""))
 	testutil.WriteStub(t, dir, "tmux", stubTmuxWithPanesScript(newWindowLog, "'%20' '%21'"))
-	testutil.WriteStub(t, dir, "git", "#!/bin/sh\necho 'feature-x'\n")
 	t.Setenv("PATH", dir)
 	stubDeliverTask(t, func(int) error { return nil })
 
@@ -2021,19 +1996,19 @@ func TestRunReceiptCountOne(t *testing.T) {
 	if len(r.PaneIDs) != 2 || r.PaneIDs[0] != "%20" || r.PaneIDs[1] != "%21" {
 		t.Errorf("panes = %v, want [%%20 %%21] (pane 0 first)", r.PaneIDs)
 	}
-	if r.WorktreePath != worktree || r.Branch != "feature-x" {
-		t.Errorf("worktree/branch = %q/%q, want %q/feature-x", r.WorktreePath, r.Branch, worktree)
+	if r.WorktreePath != worktree || r.Branch != filepath.Base(worktree) {
+		t.Errorf("worktree/branch = %q/%q, want %q/%s", r.WorktreePath, r.Branch, worktree, filepath.Base(worktree))
 	}
 }
 
 // TestRunReceiptDegraded: a failed list-panes leaves the captured pane-0 id
-// and a failed git leaves the branch empty — neither fails the spawn.
+// and does not fail the spawn.
 func TestRunReceiptDegraded(t *testing.T) {
 	dir := t.TempDir()
 	worktree := t.TempDir()
 	newWindowLog := filepath.Join(dir, "new-window.log")
 
-	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\nprintf 'Path: %s\\n' '"+worktree+"'\n")
+	testutil.WriteStub(t, dir, "wt", wtStubScript(worktree, "", ""))
 	testutil.WriteStub(t, dir, "tmux", "#!/bin/sh\n"+
 		"case \"$1\" in\n"+
 		"  list-windows) exit 0 ;;\n"+
@@ -2043,7 +2018,6 @@ func TestRunReceiptDegraded(t *testing.T) {
 		"  list-panes) exit 1 ;;\n"+
 		"  *) exit 0 ;;\n"+
 		"esac\n")
-	testutil.WriteStub(t, dir, "git", "#!/bin/sh\nexit 1\n")
 	t.Setenv("PATH", dir)
 	stubDeliverTask(t, func(int) error { return nil })
 
@@ -2055,14 +2029,11 @@ func TestRunReceiptDegraded(t *testing.T) {
 	}
 	receipts, err := Run(context.Background(), spec)
 	if err != nil {
-		t.Fatalf("Run() = %v, want nil (derivation failures never fail the spawn)", err)
+		t.Fatalf("Run() = %v, want nil (a pane-list failure never fails the spawn)", err)
 	}
 	r := receipts[0]
 	if len(r.PaneIDs) != 1 || r.PaneIDs[0] != "%20" {
 		t.Errorf("panes = %v, want the degraded [%%20]", r.PaneIDs)
-	}
-	if r.Branch != "" {
-		t.Errorf("branch = %q, want empty on a git failure", r.Branch)
 	}
 }
 
@@ -2073,9 +2044,8 @@ func TestRunReceiptFanOutOrder(t *testing.T) {
 	worktree := t.TempDir()
 	newWindowLog := filepath.Join(dir, "new-window.log")
 
-	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\nprintf 'Path: %s\\n' '"+worktree+"'\n")
+	testutil.WriteStub(t, dir, "wt", wtStubScript(worktree, "", ""))
 	testutil.WriteStub(t, dir, "tmux", stubTmuxWithPanesScript(newWindowLog, "'%20'"))
-	testutil.WriteStub(t, dir, "git", "#!/bin/sh\necho 'main'\n")
 	t.Setenv("PATH", dir)
 	stubDeliverTask(t, func(int) error { return nil })
 
@@ -2093,7 +2063,7 @@ func TestRunReceiptFanOutOrder(t *testing.T) {
 		t.Fatalf("receipts = %d, want 2", len(receipts))
 	}
 	for i, r := range receipts {
-		if r.WindowID != "@9" || r.WorktreePath != worktree || r.Branch != "main" {
+		if r.WindowID != "@9" || r.WorktreePath != worktree || r.Branch != filepath.Base(worktree) {
 			t.Errorf("receipt %d = %+v", i, r)
 		}
 	}
@@ -2202,10 +2172,10 @@ func TestSpawnObservedRecordsPaneBeforeLaterFailure(t *testing.T) {
 			testutil.WriteStub(t, dir, "fab", "#!/bin/sh\necho 'claude'\n")
 			t.Setenv("PATH", dir)
 			calls := 0
-			_, err := SpawnObserved(context.Background(), Options{RepoRoot: root, Where: "checkout"}, nil, func(_ context.Context, pane, window, path string) error {
+			_, err := SpawnObserved(context.Background(), Options{RepoRoot: root, Where: "checkout"}, nil, func(_ context.Context, w OpenedWindow) error {
 				calls++
-				if pane != "%1" || window != "@7" || path != root {
-					t.Fatalf("opened = %q %q %q", pane, window, path)
+				if w.PaneID != "%1" || w.WindowID != "@7" || w.WorktreePath != root || w.Branch != "" || w.BaseSHA != "" {
+					t.Fatalf("opened = %+v", w)
 				}
 				if _, err := os.Stat(log); err != nil {
 					t.Fatal("callback before window creation")
@@ -2232,7 +2202,7 @@ func TestSpawn_PrepareFailureReportsRollbackFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	newWindowLog := filepath.Join(dir, "new-window.log")
-	testutil.WriteStub(t, dir, "wt", "#!/bin/sh\ncase \"$1\" in\ncreate) printf 'Path: %s\\n' '"+worktree+"';;\ndelete) echo 'cannot delete worktree' >&2; exit 1;;\nesac\n")
+	testutil.WriteStub(t, dir, "wt", wtStubScript(worktree, "", `echo 'cannot delete worktree' >&2; exit 1`))
 	testutil.WriteStub(t, dir, "tmux", stubTmuxScript(newWindowLog))
 	testutil.WriteStub(t, dir, "fab", "#!/bin/sh\necho 'claude'\n")
 	t.Setenv("PATH", dir)
