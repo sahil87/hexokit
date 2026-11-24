@@ -115,38 +115,42 @@ to know run outcomes); a forced re-run (the plan's "No forced run" decision); a 
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `PendingFailure` exists in `schema.go` and its table test covers newest-failure, cleared-by-later-run-note, refailure, user/chat-ignored, unparseable-ignored, same-second tie
-- [ ] A-002 R2: `Check` reports a `failed` delta for done, paused and active items whose newest run note is a failure note; JSON form is `{"kind":"failed","id":…,"at":…}`
-- [ ] A-003 R4: `reasonFor` renders `failed <at>` and `reasonNeedsJudgment` returns true for it regardless of ownership
-- [ ] A-004 R6: the exit contract carries the `retried after failure:` line; golden updated
-- [ ] A-005 R7: `rk operator check` renders a `failed` delta's `at`
+- [x] A-001 R1: `PendingFailure` exists in `schema.go` and its table test covers newest-failure, cleared-by-later-run-note, refailure, user/chat-ignored, unparseable-ignored, same-second tie
+- [x] A-002 R2: `Check` reports a `failed` delta for done, paused and active items whose newest run note is a failure note; JSON form is `{"kind":"failed","id":…,"at":…}`
+- [x] A-003 R4: `reasonFor` renders `failed <at>` and `reasonNeedsJudgment` returns true for it regardless of ownership
+- [x] A-004 R6: the exit contract carries the `retried after failure:` line; golden updated
+- [x] A-005 R7: `rk operator check` renders a `failed` delta's `at`
 
 ### Behavioral Correctness
 
-- [ ] A-006 R3: a second failure yields a new key in `changes`; a later non-failure run note clears the condition from `changes`, `open` and `reported`
+- [x] A-006 R3: a second failure yields a new key in `changes`; a later non-failure run note clears the condition from `changes`, `open` and `reported`
 
 ### Scenario Coverage
 
-- [ ] A-007 R5: the integration test proves failing launcher → retry with reason `failed` → `no change` after the retry's note
+- [x] A-007 R5: the integration test proves failing launcher → retry with reason `failed` → `no change` after the retry's note
 
 ### Edge Cases & Error Handling
 
-- [ ] A-008 R1: a failure note and a success note in the same second resolve by append order
-- [ ] A-009 R4: the wrapper, ladder and push rule are untouched (no diff in `exec.go`, `notes.go`, `internal/cron`)
+- [x] A-008 R1: a failure note and a success note in the same second resolve by append order
+- [x] A-009 R4: the wrapper, ladder and push rule are untouched (no diff in `exec.go`, `notes.go`, `internal/cron`)
 
 ### Code Quality
 
-- [ ] A-010 Pattern consistency: new code mirrors the `note@` / `PendingInstruction` / `DeltaNote` shapes
-- [ ] A-011 No unnecessary duplication: `PendingFailure` is the single owner of the rule; check and nothing else derives it
-- [ ] A-012: Tests cover the added behavior (code-quality: new features and bug fixes MUST include tests)
-- [ ] A-013: Comments state constraints only — no narration, no change IDs or PR numbers
-- [ ] A-014: No magic strings — the `failed@` prefix and delta kind are named constants
+- [x] A-010 Pattern consistency: new code mirrors the `note@` / `PendingInstruction` / `DeltaNote` shapes
+- [x] A-011 No unnecessary duplication: `PendingFailure` is the single owner of the rule; check and nothing else derives it
+- [x] A-012: Tests cover the added behavior (code-quality: new features and bug fixes MUST include tests)
+- [x] A-013: Comments state constraints only — no narration, no change IDs or PR numbers
+- [x] A-014: No magic strings — the `failed@` prefix and delta kind are named constants
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+None — this change adds new functionality without making existing code redundant
 
 ## Assumptions
 
