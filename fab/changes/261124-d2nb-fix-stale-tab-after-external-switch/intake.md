@@ -128,6 +128,7 @@ Tests in `lib/window-transition.test.ts` covering deleted functions are removed 
 ## Affected Memory
 
 - `run-kit/ui/routes-and-shell`: (modify) § URL as Resumable Bookmark — writeback becomes an unconditional projection of tmux's active window with a bounded optimistic overlay; sidebar clicks are requests; the ownership rule (home-tab → tmux, popout/iso → URL); dialog-open suppression re-evaluates on close.
+- `run-kit/api-and-sockets`: (modify) drop the per-server receipt-tick paragraph (`receiptTicksRef` / `getServerReceiptTick`) — the context method was removed with its only consumer, the bounce freshness verdict.
 - `run-kit/ui/terminal`: (modify) window-switch feedback — pending-intent / confirmation timer / failure bounce / freshness verdict replaced by the overlay; paint gate and mask decoupled from ownership; `clearOnRide` reads the overlay; the stale-snapshot flicker note.
 
 ## Impact

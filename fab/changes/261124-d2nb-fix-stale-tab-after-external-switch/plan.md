@@ -151,50 +151,57 @@ Popout posture (`popoutPosture`) SHALL keep its fixed window (no alignment, no w
 
 ### Functional Completeness
 
-- [ ] A-001 R1: On the terminal route an external tmux window switch moves the URL, heading and Compose target to the new window whenever no overlay is live.
-- [ ] A-002 R2: Every UI-initiated same-server switch (sidebar, palette, breadcrumb, SessionTiles, waiting target, alignment) starts an overlay and fires `selectWindow`; the overlay ends on confirm, post-settle snapshot, rejection or the 5 s deadline, and never on byte counting.
-- [ ] A-003 R3: Rejection navigates to the SSE active window with the existing error toast; deadline ends silently.
-- [ ] A-004 R4: Superseded seqs' settlements/deadlines are no-ops; server change, route leave and unmount end the overlay.
-- [ ] A-005 R5: Closing a dialog re-runs the writeback.
-- [ ] A-006 R6: The paint mask cannot outlive the deadline; mask/gate decisions never decide the URL.
-- [ ] A-007 R7: `clearOnWindowChange` is true only for a live overlay matching `{server, windowParam}`.
-- [ ] A-008 R8: Popout posture never aligns, writes back or starts an overlay.
+- [x] A-001 R1: On the terminal route an external tmux window switch moves the URL, heading and Compose target to the new window whenever no overlay is live.
+- [x] A-002 R2: Every UI-initiated same-server switch (sidebar, palette, breadcrumb, SessionTiles, waiting target, alignment) starts an overlay and fires `selectWindow`; the overlay ends on confirm, post-settle snapshot, rejection or the 5 s deadline, and never on byte counting.
+- [x] A-003 R3: Rejection navigates to the SSE active window with the existing error toast; deadline ends silently.
+- [x] A-004 R4: Superseded seqs' settlements/deadlines are no-ops; server change, route leave and unmount end the overlay.
+- [x] A-005 R5: Closing a dialog re-runs the writeback.
+- [x] A-006 R6: The paint mask cannot outlive the deadline; mask/gate decisions never decide the URL.
+- [x] A-007 R7: `clearOnWindowChange` is true only for a live overlay matching `{server, windowParam}`.
+- [x] A-008 R8: Popout posture never aligns, writes back or starts an overlay.
 
 ### Behavioral Correctness
 
-- [ ] A-009 R2: A sidebar click whose POST resolves before the confirming snapshot does not bounce the URL back to the previous window.
-- [ ] A-010 R1: After a cold deep-link to a non-active tab, a subsequent `rk riff`/`tmux new-window` makes Compose send to the new window (the reported bug).
+- [x] A-009 R2: A sidebar click whose POST resolves before the confirming snapshot does not bounce the URL back to the previous window.
+- [x] A-010 R1: After a cold deep-link to a non-active tab, a subsequent `rk riff`/`tmux new-window` makes Compose send to the new window (the reported bug).
 
 ### Removal Verification
 
-- [ ] A-011 R9: No references to `pendingClickRef`, `beginPendingSwitch`, `bouncePendingSwitch`, `clearPendingSwitchTracking`, `resolvePendingSwitchVerdict` remain in `app/frontend/src`; no orphaned exports or stale comments describing them.
+- [x] A-011 R9: No references to `pendingClickRef`, `beginPendingSwitch`, `bouncePendingSwitch`, `clearPendingSwitchTracking`, `resolvePendingSwitchVerdict` remain in `app/frontend/src`; no orphaned exports or stale comments describing them.
 
 ### Scenario Coverage
 
-- [ ] A-012 R2: `switch-overlay.test.ts` covers confirm, 200-before-snapshot, post-settle third window, mismatched 200, rejected, deadline, stale seq and cross-server identity.
-- [ ] A-013 R1: `external-switch-follow.spec.ts` e2e passes via `just test-e2e`, with intent comments per the constitution.
-- [ ] A-014 R1: Existing window-switch e2e specs (`sidebar-window-sync`, `window-switch-transition`, `window-heading`, `top-bar-refresh`, `quake-terminal`, `shortcut-registry`) pass.
+- [x] A-012 R2: `switch-overlay.test.ts` covers confirm, 200-before-snapshot, post-settle third window, mismatched 200, rejected, deadline, stale seq and cross-server identity.
+- [x] A-013 R1: `external-switch-follow.spec.ts` e2e passes via `just test-e2e`, with intent comments per the constitution.
+- [x] A-014 R1: Existing window-switch e2e specs (`sidebar-window-sync`, `window-switch-transition`, `window-heading`, `top-bar-refresh`, `quake-terminal`, `shortcut-registry`) pass.
 
 ### Edge Cases & Error Handling
 
-- [ ] A-015 R2: A hanging `selectWindow` POST ends the overlay at 5 s (no infinite hold).
-- [ ] A-016 R4: Same `@N` on a different server never confirms or suppresses the writeback.
+- [x] A-015 R2: A hanging `selectWindow` POST ends the overlay at 5 s (no infinite hold).
+- [x] A-016 R4: Same `@N` on a different server never confirms or suppresses the writeback.
 
 ### Code Quality
 
-- [ ] A-017 Pattern consistency: New code follows naming and structural patterns of surrounding code (pure helpers in `lib/` with colocated tests).
-- [ ] A-018 No unnecessary duplication: Existing utilities (`selectWindow`, window-transition paint helpers, toast) reused.
-- [ ] A-019 Type narrowing over assertions: no new `as` casts in the overlay module or wiring.
-- [ ] A-020 No client polling: freshness comes from SSE snapshot arrival, not `setInterval` + fetch.
-- [ ] A-021 No magic numbers: the 5 s deadline is a named constant.
-- [ ] A-022 No comment narration: comments state constraints/invariants only, cite no change IDs or PR numbers.
-- [ ] A-023 Verification gates: `just test-frontend`, `npx tsc --noEmit`, and the e2e specs above pass; a `just demo` before/after recording exists for desktop and mobile.
+- [x] A-017 Pattern consistency: New code follows naming and structural patterns of surrounding code (pure helpers in `lib/` with colocated tests).
+- [x] A-018 No unnecessary duplication: Existing utilities (`selectWindow`, window-transition paint helpers, toast) reused.
+- [x] A-019 Type narrowing over assertions: no new `as` casts in the overlay module or wiring.
+- [x] A-020 No client polling: freshness comes from SSE snapshot arrival, not `setInterval` + fetch.
+- [x] A-021 No magic numbers: the 5 s deadline is a named constant.
+- [x] A-022 No comment narration: comments state constraints/invariants only, cite no change IDs or PR numbers.
+- [x] A-023 Verification gates: `just test-frontend`, `npx tsc --noEmit`, and the e2e specs above pass; a `just demo` before/after recording exists for desktop and mobile.
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- `app/frontend/tests/e2e/sidebar-window-sync.spec.ts:206` — intent comment still credits "the pendingClickRef intent guard"; the overlay replaced it.
+- `app/frontend/tests/e2e/top-bar-refresh.spec.ts:37,56` — header comments say a "pending intent holds the URL on `@1`… until SSE confirms"; with a static mock the overlay now holds only until the 5 s deadline.
+- `app/frontend/tests/e2e/_gui-mock.ts:95` / `app/frontend/tests/e2e/window-switch-transition.spec.ts:21-23` — "failure bounces the route back" wording describes the removed bounce.
+- `app/frontend/src/lib/window-transition.ts:483` (`confirmSwitchArrived` doc) and `:418` (`hasCountedIncomingBytes` "tests assert the counting paths") — refer to the removed confirmation-timer rescue / test-only use; the query now has a production caller in `app.tsx` `settleSwitchPaint`.
 
 ## Assumptions
 
