@@ -153,46 +153,51 @@ A branch the engine creates SHALL have no `branch.<b>.remote`/`branch.<b>.merge`
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `buildWtCreateArgs` emits `--json` for every worktree-mode create and `--fetch` only when `WorktreeFetch` is set without `CheckoutBranch`; passthrough is verbatim
-- [ ] A-002 R2: `runWtCreate` decodes the receipt from stdout only; `parseWorktreePath` no longer exists; `ok:false` yields `*WtCreateError` unwrapping to `*ExitCodeError{ExitSubprocess}`
-- [ ] A-003 R3: `riff.Result` has `Branch/BaseRef/BaseSHA/Init`; `worktreeBranch` is gone; the CLI receipt's branch comes from wt; no new CLI JSON keys
-- [ ] A-004 R4: exit 7 reports the kept path, never calls `wt delete`, opens no window
-- [ ] A-005 R5: spawns refuse below v0.1.8 or on unparseable version with the `wt update` message; success cached, failure re-probed
-- [ ] A-006 R6: `WorktreeNoUpstream` injects exactly the three `GIT_CONFIG_*` vars; absent otherwise
-- [ ] A-007 R7: the engine runs no `git fetch` and no `git rev-parse origin/…` during a spawn; `SpawnRequest.BaseRef` is `origin/<b>` per mode
-- [ ] A-008 R8: the engine item records the receipt `branch` and `base_sha`; `branch_map` follows the branch
-- [ ] A-009 R9: exit-3/2/7 escalations use the mapped texts; item stays `pending` with no spawning marker
-- [ ] A-010 R10: spawn-path `stackedBase` makes no origin verify; respawn still does; `defaultBranch` comment corrected
-- [ ] A-011 R11: engine-spawned branches have no upstream; `TestSpawnBranchHasNoUpstreamTracking` passes against the wt-modelling fake
-- [ ] A-012 R12: memory files describe the receipt-based spawn (verified at hydrate)
+- [x] A-001 R1: `buildWtCreateArgs` emits `--json` for every worktree-mode create and `--fetch` only when `WorktreeFetch` is set without `CheckoutBranch`; passthrough is verbatim
+- [x] A-002 R2: `runWtCreate` decodes the receipt from stdout only; `parseWorktreePath` no longer exists; `ok:false` yields `*WtCreateError` unwrapping to `*ExitCodeError{ExitSubprocess}`
+- [x] A-003 R3: `riff.Result` has `Branch/BaseRef/BaseSHA/Init`; `worktreeBranch` is gone; the CLI receipt's branch comes from wt; no new CLI JSON keys
+- [x] A-004 R4: exit 7 reports the kept path, never calls `wt delete`, opens no window
+- [x] A-005 R5: spawns refuse below v0.1.8 or on unparseable version with the `wt update` message; success cached, failure re-probed
+- [x] A-006 R6: `WorktreeNoUpstream` injects exactly the three `GIT_CONFIG_*` vars; absent otherwise
+- [x] A-007 R7: the engine runs no `git fetch` and no `git rev-parse origin/…` during a spawn; `SpawnRequest.BaseRef` is `origin/<b>` per mode
+- [x] A-008 R8: the engine item records the receipt `branch` and `base_sha`; `branch_map` follows the branch
+- [x] A-009 R9: exit-3/2/7 escalations use the mapped texts; item stays `pending` with no spawning marker
+- [x] A-010 R10: spawn-path `stackedBase` makes no origin verify; respawn still does; `defaultBranch` comment corrected
+- [x] A-011 R11: engine-spawned branches have no upstream; `TestSpawnBranchHasNoUpstreamTracking` passes against the wt-modelling fake
+- [x] A-012 **N/A**: hydrate has not run yet — R12: memory files describe the receipt-based spawn (verified at hydrate)
 
 ### Scenario Coverage
 
-- [ ] A-013 R2: tests cover success-with-nulls, exit-3, exit-7, non-JSON receipts
-- [ ] A-014 R10: a test spawns a stacked dependent whose dependency was pushed after the main checkout's last fetch
-- [ ] A-015 R5: a test drives too-old → upgraded within one process
+- [x] A-013 R2: tests cover success-with-nulls, exit-3, exit-7, non-JSON receipts
+- [x] A-014 R10: a test spawns a stacked dependent whose dependency was pushed after the main checkout's last fetch
+- [x] A-015 R5: a test drives too-old → upgraded within one process
 
 ### Edge Cases & Error Handling
 
-- [ ] A-016 R2: a passthrough flag wt rejects at parse time (no document) yields an `ExitSubprocess` error carrying wt's stderr, not a JSON decode panic
-- [ ] A-017 R4: in fan-out, an exit-7 worktree is not rolled back
+- [x] A-016 R2: a passthrough flag wt rejects at parse time (no document) yields an `ExitSubprocess` error carrying wt's stderr, not a JSON decode panic
+- [x] A-017 R4: in fan-out, an exit-7 worktree is not rolled back
 
 ### Code Quality
 
-- [ ] A-018 Pattern consistency: new code follows riff/autopilot naming, error, and `exec.CommandContext`-with-timeout patterns
-- [ ] A-019 No unnecessary duplication: the version gate and receipt decode live once in `internal/riff`; the engine reuses them
-- [ ] A-020 No comment narration: comments state constraints (e.g. why no upstream), never change IDs or next-line narration
-- [ ] A-021 Tests run through `just test-backend`; all backend tests pass (host-only known failures `TestPortPinRowRealPolicyValues`, `TestTerminals_IsoSharedSessionSurvivesFirstClientDeath` excepted)
+- [x] A-018 Pattern consistency: new code follows riff/autopilot naming, error, and `exec.CommandContext`-with-timeout patterns
+- [x] A-019 No unnecessary duplication: the version gate and receipt decode live once in `internal/riff`; the engine reuses them
+- [x] A-020 No comment narration: comments state constraints (e.g. why no upstream), never change IDs or next-line narration
+- [x] A-021 Tests run through `just test-backend`; all backend tests pass (host-only known failures `TestPortPinRowRealPolicyValues`, `TestTerminals_IsoSharedSessionSurvivesFirstClientDeath` excepted)
 
 ### Security
 
-- [ ] A-022 R6: all subprocesses (`wt --version`, `wt create`) use `exec.CommandContext` with a timeout and argument slices; the env injection adds fixed constant values only
+- [x] A-022 R6: all subprocesses (`wt --version`, `wt create`) use `exec.CommandContext` with a timeout and argument slices; the env injection adds fixed constant values only
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- `app/backend/internal/autopilot/spawning_test.go:50`, `spawn_test.go:632`, `passes_test.go:47` `h.run.called("git fetch") != 0` — the engine no longer fetches, so these clauses always pass; the `h.spawn.n`/`reqs` checks beside them carry the assertion
+- `riff.OpenedWindow.BaseRef` (`app/backend/internal/riff/riff.go`) and `wtCreated.Mode` — set from the receipt but read by no caller
 
 ## Assumptions
 
