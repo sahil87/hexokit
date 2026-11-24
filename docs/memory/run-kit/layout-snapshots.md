@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Per-server tmux layout snapshots (`internal/snapshot`): capture set + the hexokit state-home snapshots store (apphome dual-read, one-release legacy window; atomic latest, 10-entry history, content-dedup, zero-session guard, .died-{ts} tombstones), Snapshotter cadence + ephemeral opt-out, the per-window recently-closed ring ({server}.closed/, ClosedRingCap 10; consumers: closed-window routes + cron respawn by AgentRef), restore/reopen engines + rk mux snapshot CLI (no relaunch), recovery reader, and the rk skill restore agent procedure."
+description: "Per-server tmux layout snapshots (`internal/snapshot`): capture set (incl. the group/workspace agent presets) + the hexokit state-home store (atomic latest, 10-entry history, content-dedup, zero-session guard, .died-{ts} tombstones), Snapshotter cadence + ephemeral opt-out, the recently-closed ring ({server}.closed/, cap 10; closed-window routes + cron respawn), restore/reopen engines + rk mux snapshot CLI (no relaunch), recovery reader, rk skill restore procedure."
 ---
 # Layout Snapshots & Restore
 
@@ -20,14 +20,14 @@ The JSON schema (`snapshot.go`):
 
 | Level | Fields |
 |-------|--------|
-| `Snapshot` | `server`, `takenAt`, `serverRank` (nullable, `@rk_srv_rank`), `sessionOrder` (`@rk_srv_session_order`), `sessions[]`, plus tombstone-only `diedAt` / `auditedKill` |
-| `Session` | `name`, `createdAt` (unix seconds), `color` (raw `@rk_ses_color`), `windows[]` |
+| `Snapshot` | `server`, `takenAt`, `serverRank` (nullable, `@rk_srv_rank`), `serverAgentPreset` (`@rk_srv_agent_preset`, omitted when unset), `sessionOrder` (`@rk_srv_session_order`), `sessions[]`, plus tombstone-only `diedAt` / `auditedKill` |
+| `Session` | `name`, `createdAt` (unix seconds), `color` (raw `@rk_ses_color`), `agentPreset` (raw `@rk_ses_agent_preset`, omitted when unset), `windows[]` |
 | `Window` | `index`, `id`, `name`, `active`, `layout` (`#{window_layout}`), `color`, `rkLayout` (`@rk_win_layout` — named `rkLayout` because `layout` already holds the tmux pane layout string), `webTabs` (dense `@rk_win_web_<n>` family), `webRoots` (parallel to `webTabs`, `""` = no root), `webActive` (`@rk_win_web_active`), `codeRoot` (`@rk_win_code_root`), `marker` (normalized `@rk_win_marker` `<mode>[:<stage>]` token), `flair` (`@rk_win_flair`), `role` (`@rk_win_role`), `owner` (`@rk_win_owner`), `note` (`@rk_win_note` — raw `<unix-epoch>:<text>` value), `panes[]` |
 | `Pane` | `id`, `index`, `cwd`, `command`, `active` |
 
 `Pane.Command` is informational only — reported by restore, never relaunched. `Pane.Active` is consumed by restore's active-pane re-select.
 
-Capture assembles from the `internal/tmux` layout reads plus `GetSessionOrder`/`GetServerRank`, grouping windows under their owning sessions with a **deterministic order** (sessions by creation time then name; windows and panes by index). Determinism is load-bearing: the store's write dedup compares serialized content, so equal layouts MUST serialize equally. The two rk option reads are best-effort — a malformed stored value degrades to `slog.Debug` with the field left empty rather than sinking the layout capture. The layout reads themselves are hard errors.
+Capture assembles from the `internal/tmux` layout reads plus `GetSessionOrder`/`GetServerRank`, grouping windows under their owning sessions with a **deterministic order** (sessions by creation time then name; windows and panes by index). Determinism is load-bearing: the store's write dedup compares serialized content, so equal layouts MUST serialize equally. The rk option reads (session order, server rank, the workspace agent preset) are best-effort — a malformed stored value degrades to `slog.Debug` with the field left empty rather than sinking the layout capture. The layout reads themselves are hard errors.
 
 #### Scenario: Dead server never captures as empty
 - **GIVEN** a capture racing its server's death
@@ -40,7 +40,7 @@ Capture assembles from the `internal/tmux` layout reads plus `GetSessionOrder`/`
 
 **Reads** (tab-delimited `-F` formats + pure `parseLayout*` helpers, same shape as `parseSessions`):
 
-- `ListLayoutSessions` — `#{session_name}`, `#{session_created}`, `#{@rk_ses_color}`.
+- `ListLayoutSessions` — `#{session_name}`, `#{session_created}`, `#{@rk_ses_color}`, `#{@rk_ses_agent_preset}`.
 - `ListLayoutWindows` — `list-windows -a`, keyed to the non-hidden owning session, **deduplicated by window id** (a pinned or isolated window is linked into both its home session and its `_rk-pin-*`/`_rk-iso-*` session, so `-a` surfaces it once per link; the first non-hidden occurrence wins).
 - `ListLayoutPanes` — `list-panes -a` grouped into a `windowID → panes` map, deduped by pane id.
 
@@ -146,7 +146,7 @@ Every tmux invocation goes through `internal/tmux` on the explicit server socket
 - **Refusal** — a server alive with ≥1 user-facing session (`ListSessions`, which maps a dead server to `(nil, nil)`) is refused. There is no `--force`: restore is for dead servers.
 - **Sessions** — recreated oldest-first with original names. The first window rides `CreateSessionForRestore` (which births the server with the standard pins) and is renumbered from the born base-index to its stored index when they differ; later windows are created at their explicit stored index.
 - **Panes** — fresh shells at the recorded cwd, appended as sequential detached splits. `select-layout` restores geometry best-effort; a failure is a report note, never fatal. A stored active pane beyond position 0 is re-selected via `SelectPane` (splits are detached, so position 0 needs no call).
-- **Options** — `@rk_srv_rank`, `@rk_srv_session_order`, session color (`@rk_ses_color`), and per-window `@rk_win_color` / `@rk_win_layout` / the web-tab family (`@rk_win_web_<n>` + `@rk_win_web_<n>_root` per dense slot, `@rk_win_web_active` when > 0) / `@rk_win_code_root` / `@rk_win_marker` / `@rk_win_flair` / `@rk_win_role` (never the ephemeral `operator-run` value) / `@rk_win_owner` / `@rk_win_note` are reapplied from the snapshot (empty values are omitted, never unset — the skip-when-empty `add` helper), and each session's stored active window is re-selected. `WindowOptionOps` applies `NormalizeMarker` before constructing the marker write, so snapshots containing flat tokens restore as current tokens. Every failure is a report note. `@rk_win_note` round-trips **verbatim**, epoch prefix included, so the note's relative age stays honest across a restore.
+- **Options** — `@rk_srv_rank`, `@rk_srv_session_order`, session color (`@rk_ses_color`), the group agent preset (`@rk_ses_agent_preset`, applied after the session is recreated), the workspace agent preset (`@rk_srv_agent_preset`, applied beside the rank), and per-window `@rk_win_color` / `@rk_win_layout` / the web-tab family (`@rk_win_web_<n>` + `@rk_win_web_<n>_root` per dense slot, `@rk_win_web_active` when > 0) / `@rk_win_code_root` / `@rk_win_marker` / `@rk_win_flair` / `@rk_win_role` (never the ephemeral `operator-run` value) / `@rk_win_owner` / `@rk_win_note` are reapplied from the snapshot (empty values are omitted, never unset — the skip-when-empty `add` helper), and each session's stored active window is re-selected. `WindowOptionOps` applies `NormalizeMarker` before constructing the marker write, so snapshots containing flat tokens restore as current tokens. Every failure is a report note. `@rk_win_note` round-trips **verbatim**, epoch prefix included, so the note's relative age stays honest across a restore. A failed agent-preset re-apply is a report note, never fatal; a snapshot predating the fields restores unchanged (both are `omitempty`).
 - **Missing cwd** — a deleted worktree falls back to the server default dir (no `-c`) with a note; it never fails the restore.
 - **Report** — what was recreated, what was skipped, per-window notes, and each window's former command so the user can decide what to resume (e.g. `claude -c` per agent window), closing with the attach hint.
 
