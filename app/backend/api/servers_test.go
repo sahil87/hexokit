@@ -1271,3 +1271,32 @@ func TestHandleServerCreate_ListServersFailureSurfaces500(t *testing.T) {
 		t.Error("CreateSession was called after a failed liveness check")
 	}
 }
+
+// agent_preset rides the existing marks dump: present only for a server whose
+// option is set, absent from the JSON otherwise.
+func TestHandleServersList_IncludesAgentPreset(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{
+		servers: []string{"work", "default"},
+		sessions: map[string][]tmux.SessionInfo{
+			"work":    {{Name: "s1"}},
+			"default": {{Name: "s1"}},
+		},
+	}
+	mock.readServerMarksByServer = map[string]tmux.ServerMarks{"work": {AgentPreset: "claude"}}
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest("GET", "/api/servers", nil))
+
+	var raw []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if _, ok := raw[0]["agent_preset"]; ok {
+		t.Errorf("default carries agent_preset, want the key omitted: %v", raw[0])
+	}
+	if raw[1]["agent_preset"] != "claude" {
+		t.Errorf("work agent_preset = %v, want claude", raw[1]["agent_preset"])
+	}
+}

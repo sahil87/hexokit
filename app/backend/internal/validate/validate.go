@@ -474,6 +474,14 @@ func ValidateIdentifier(name, label string) string {
 	return ""
 }
 
+// ValidateAgentPresetName validates an agent-preset name that will reach tmux
+// option values, a `FAB_AGENT_PRESET` env entry and fab argv. It is the
+// identifier allowlist, so the reserved name `none` passes like any other.
+// Returns empty string if valid.
+func ValidateAgentPresetName(name string) string {
+	return ValidateIdentifier(name, "Agent preset name")
+}
+
 // ValidateWorktreeName validates a riff worktree name. It layers riff-seam-only
 // hardening over the shared tmux-safe ValidateName rule (which the session/window
 // callers also use — that shared rule is deliberately left unchanged). The extra

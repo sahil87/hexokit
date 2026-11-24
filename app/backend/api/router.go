@@ -95,6 +95,14 @@ type TmuxOps interface {
 	UnsetSessionColor(session string, server string) error
 	SetSessionFlair(session string, flair string, server string) error
 	UnsetSessionFlair(session string, server string) error
+	// Group/workspace agent presets (@rk_ses_agent_preset / @rk_srv_agent_preset).
+	// The Get* readers back the spawn dialog's inherited value; unset reads "".
+	SetSessionAgentPreset(session string, name string, server string) error
+	UnsetSessionAgentPreset(session string, server string) error
+	GetSessionAgentPreset(ctx context.Context, server, session string) (string, error)
+	SetServerAgentPreset(ctx context.Context, server, name string) error
+	UnsetServerAgentPreset(ctx context.Context, server string) error
+	GetServerAgentPreset(ctx context.Context, server string) (string, error)
 	SetWindowColor(windowID string, colorValue string, server string) error
 	UnsetWindowColor(windowID, server string) error
 	ListServers(ctx context.Context) ([]string, error)
@@ -603,6 +611,24 @@ func (p *prodTmuxOps) SetSessionFlair(session string, flair string, server strin
 func (p *prodTmuxOps) UnsetSessionFlair(session string, server string) error {
 	return tmux.UnsetSessionFlair(session, server)
 }
+func (p *prodTmuxOps) SetSessionAgentPreset(session string, name string, server string) error {
+	return tmux.SetSessionAgentPreset(session, name, server)
+}
+func (p *prodTmuxOps) UnsetSessionAgentPreset(session string, server string) error {
+	return tmux.UnsetSessionAgentPreset(session, server)
+}
+func (p *prodTmuxOps) GetSessionAgentPreset(ctx context.Context, server, session string) (string, error) {
+	return tmux.GetSessionAgentPreset(ctx, server, session)
+}
+func (p *prodTmuxOps) SetServerAgentPreset(ctx context.Context, server, name string) error {
+	return tmux.SetServerAgentPreset(ctx, server, name)
+}
+func (p *prodTmuxOps) UnsetServerAgentPreset(ctx context.Context, server string) error {
+	return tmux.UnsetServerAgentPreset(ctx, server)
+}
+func (p *prodTmuxOps) GetServerAgentPreset(ctx context.Context, server string) (string, error) {
+	return tmux.GetServerAgentPreset(ctx, server)
+}
 func (p *prodTmuxOps) SetWindowColor(windowID string, colorValue string, server string) error {
 	return tmux.SetWindowColor(windowID, colorValue, server)
 }
@@ -1085,6 +1111,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/operator/runs/{server}/{id}/log", s.handleOperatorRunFile(operatorloop.LogPath, true))
 	r.Post("/api/sessions/{session}/color", s.handleSessionColor)
 	r.Post("/api/sessions/{session}/flair", s.handleSessionFlair)
+	r.Post("/api/sessions/{session}/agent-preset", s.handleSessionAgentPreset)
 	r.Post("/api/sessions/{session}/kill", s.handleSessionKill)
 	r.Post("/api/sessions/{session}/rename", s.handleSessionRename)
 	r.Post("/api/sessions/{session}/sort-windows", s.handleSessionSortWindows)
@@ -1168,6 +1195,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/servers/order", s.handleServerOrderPost)
 	r.Post("/api/servers/kill", s.handleServerKill)
 	r.Post("/api/servers/protect", s.handleServerProtect)
+	r.Post("/api/servers/agent-preset", s.handleServerAgentPreset)
 	r.Post("/api/servers/adopt", s.handleServerAdopt)
 	r.Post("/api/servers/wake", s.handleServerWake)
 

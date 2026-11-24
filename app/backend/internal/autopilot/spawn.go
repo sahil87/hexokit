@@ -23,6 +23,10 @@ const confidenceGate = 3.0
 // a var so tests do not reach a real fab.
 var resolveAgentFn = riff.ResolveAgent
 
+// resolvePresetFn runs the agent-preset ladder (group, then workspace option);
+// a var so tests do not reach a real tmux.
+var resolvePresetFn = riff.ResolveAgentPreset
+
 // conflictError is a dependency cherry-pick that conflicted. The spawn is
 // escalated and never skipped.
 type conflictError struct {
@@ -161,7 +165,7 @@ func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.
 		return
 	}
 
-	prompt, err := e.buildPrompt(ctx, it, repo, def, stackedBranch)
+	prompt, err := e.buildPrompt(ctx, it, repo, session, def, stackedBranch)
 	if err != nil {
 		e.escalate(id, err.Error())
 		return
@@ -391,8 +395,9 @@ func (e *engine) belowConfidenceGate(repo, folder string) string {
 // /fab-new, never as raw text; an existing change runs /fab-fff. A bare agent
 // carries no prompt. The PR base is the stacked dependency branch, else the
 // item's base, else the default branch; a fab item with a stacked or item base
-// has that base recorded on its change.
-func (e *engine) buildPrompt(ctx context.Context, it operator.TrackedItem, repo, def, stackedBase string) (string, error) {
+// has that base recorded on its change. session is the item's group session,
+// the target of the agent-preset ladder that picks the skill prefix.
+func (e *engine) buildPrompt(ctx context.Context, it operator.TrackedItem, repo, session, def, stackedBase string) (string, error) {
 	change := operator.ScopeString(it.Scope, "change")
 	task := operator.ScopeString(it.Scope, scopeTask)
 	itemBase := operator.ScopeString(it.Scope, scopeBase)
@@ -411,7 +416,10 @@ func (e *engine) buildPrompt(ctx context.Context, it operator.TrackedItem, repo,
 				recorded = itemBase
 			}
 			if recorded != "" {
-				prefix := resolveAgentFn(ctx, repo, "").SkillPrefix
+				// The prefix follows the preset the spawn itself will resolve
+				// (same ladder, same group session), so a Codex preset gets `$`.
+				preset := resolvePresetFn(ctx, "", e.env.Server, session, "")
+				prefix := resolveAgentFn(ctx, repo, "", preset).SkillPrefix
 				p += fmt.Sprintf("\n\nAfter %s creates the change, run `fab status set-base-branch <new-change> %s`.",
 					riff.RenderSkillRef(prefix, "/fab-new"), recorded)
 			}
@@ -591,7 +599,7 @@ func (e *engine) respawn(ctx context.Context, st *operator.State, it operator.Tr
 		e.escalate(id, err.Error())
 		return
 	}
-	prompt, err := e.buildPrompt(ctx, it, repo, e.defaultBranch(ctx, repo, id), stackedBase)
+	prompt, err := e.buildPrompt(ctx, it, repo, session, e.defaultBranch(ctx, repo, id), stackedBase)
 	if err != nil {
 		e.escalate(id, err.Error())
 		return

@@ -269,6 +269,14 @@ const SessionColorOption = "@rk_ses_color"
 // split from ColorOption — see SetSessionFlair.
 const SessionFlairOption = "@rk_ses_flair"
 
+// SessionAgentPresetOption is the session-scoped user option naming a group's
+// agent preset (one preset name, "" when unset).
+const SessionAgentPresetOption = "@rk_ses_agent_preset"
+
+// ServerAgentPresetOption is the server-scoped (set -s) user option naming a
+// workspace's agent preset (one preset name, "" when unset).
+const ServerAgentPresetOption = "@rk_srv_agent_preset"
+
 // OriginalTMUX captures the TMUX env var before init() strips it.
 // Package-level var init runs before init(), so this sees the original value.
 // Used by cmd/rk/context.go to restore TMUX in child process environments
@@ -1166,6 +1174,9 @@ type SessionInfo struct {
 	// Unknown tokens are dropped to "" by parseSessions (the window-Marker
 	// closed-set idiom).
 	Flair string `json:"flair,omitempty"`
+	// AgentPreset is the group's agent preset, sourced from the
+	// SessionAgentPresetOption session user option; omitted when unset.
+	AgentPreset string `json:"agent_preset,omitempty"`
 	// Windows is the session's window count (#{session_windows}), used for
 	// the per-server rollup on GET /api/servers. Additive JSON key.
 	Windows int `json:"windows"`
@@ -1174,7 +1185,7 @@ type SessionInfo struct {
 // parseSessions parses tmux list-sessions output lines into SessionInfo structs,
 // filtering out session-group copies.
 // Format: name, grouped, group, group_size, @rk_ses_color, windows, @rk_ses_flair,
-// session_id, session_path (9 fields).
+// session_id, @rk_ses_agent_preset, session_path (10 fields).
 // Exported for testing.
 func parseSessions(lines []string) []SessionInfo {
 	type rawEntry struct {
@@ -1186,6 +1197,7 @@ func parseSessions(lines []string) []SessionInfo {
 		windows   int
 		flair     string
 		id        string
+		preset    string
 		path      string
 	}
 
@@ -1242,7 +1254,12 @@ func parseSessions(lines []string) []SessionInfo {
 			e.id = parts[7]
 		}
 		if len(parts) >= 9 {
-			e.path = parts[8]
+			// Reported verbatim (trimmed): a hand-set stale or garbage name
+			// must stay visible so the UI can offer to clear it.
+			e.preset = strings.TrimSpace(parts[8])
+		}
+		if len(parts) >= 10 {
+			e.path = parts[9]
 		}
 		entries = append(entries, e)
 	}
@@ -1275,7 +1292,7 @@ func parseSessions(lines []string) []SessionInfo {
 			keep = true
 		}
 		if keep {
-			si := SessionInfo{Name: e.name, Windows: e.windows, Flair: e.flair, ID: e.id, Path: e.path}
+			si := SessionInfo{Name: e.name, Windows: e.windows, Flair: e.flair, ID: e.id, AgentPreset: e.preset, Path: e.path}
 			// Color is a value descriptor ("4" / "1+3"); normalize the raw
 			// option token, dropping anything malformed.
 			if normalized, ok := validate.NormalizeColorValue(e.colorStr); ok {
@@ -1314,12 +1331,14 @@ func ListPinSessionNames(ctx context.Context, server string) ([]string, error) {
 // ListSessions returns sessions from the specified tmux server,
 // filtering out session-group copies and run-kit's hidden link-target
 // sessions (pin/iso — see IsHiddenLinkSession). Returns nil if no server is running.
-// sessionListFormat is the 9-field list-sessions format string consumed by
+// sessionListFormat is the 10-field list-sessions format string consumed by
 // parseSessions AND buildSessionFacts (session_facts.go) — shared so the two
 // enumerations can never read differently-shaped lines: name, grouped, group,
-// group_size, @rk_ses_color, windows, @rk_ses_flair, session_id, session_path.
+// group_size, @rk_ses_color, windows, @rk_ses_flair, session_id,
+// @rk_ses_agent_preset, session_path. session_path stays last: it is free-form
+// text, safest as the trailing field.
 func sessionListFormat() string {
-	return fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}%s#{session_group_size}%s#{%s}%s#{session_windows}%s#{%s}%s#{session_id}%s#{session_path}", listDelim, listDelim, listDelim, listDelim, SessionColorOption, listDelim, listDelim, SessionFlairOption, listDelim, listDelim)
+	return fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}%s#{session_group_size}%s#{%s}%s#{session_windows}%s#{%s}%s#{session_id}%s#{%s}%s#{session_path}", listDelim, listDelim, listDelim, listDelim, SessionColorOption, listDelim, listDelim, SessionFlairOption, listDelim, listDelim, SessionAgentPresetOption, listDelim)
 }
 
 func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
@@ -3167,16 +3186,36 @@ type WindowBirth struct {
 // shellCmd is one opaque argv element — the caller composes it from quoted
 // tokens; this builder never touches a shell itself (§I). Pure.
 func buildCreateWindowWithCommandArgs(session, name, cwd, shellCmd string, ops []WindowOptionOp) []string {
+	return buildCreateWindowWithEnvArgs(session, name, cwd, shellCmd, nil, ops)
+}
+
+// buildCreateWindowWithEnvArgs is buildCreateWindowWithCommandArgs plus
+// `-e KEY=VALUE` pairs (one per env entry) placed before the shell-command
+// positional. An empty env adds nothing — the argv is then byte-identical to
+// the env-less builder's. Pure.
+func buildCreateWindowWithEnvArgs(session, name, cwd, shellCmd string, env []string, ops []WindowOptionOp) []string {
 	args := []string{"new-window", "-P", "-F",
 		"#{session_name}" + listDelim + "#{window_id}" + listDelim + "#{pane_id}",
 		"-a", "-t", ExactSessionTarget(session), "-n", name}
 	if cwd != "" {
 		args = append(args, "-c", cwd)
 	}
+	args = append(args, NewWindowEnvArgs(env)...)
 	if shellCmd != "" {
 		args = append(args, shellCmd)
 	}
 	return appendOptionOps(args, "", ops)
+}
+
+// NewWindowEnvArgs renders `KEY=VALUE` entries as the `-e KEY=VALUE` pairs
+// new-window/split-window take (placed before the shell command so the pane's
+// process sees them). Nil for no entries. Pure.
+func NewWindowEnvArgs(env []string) []string {
+	var args []string
+	for _, e := range env {
+		args = append(args, "-e", e)
+	}
+	return args
 }
 
 // parseWindowBirth parses the single tab-separated line `new-window -P`
@@ -3381,6 +3420,38 @@ func UnsetSessionFlair(session string, server string) error {
 	defer cancel()
 
 	return unsetSessionOption(ctx, server, session, SessionFlairOption)
+}
+
+// SetSessionAgentPreset sets the SessionAgentPresetOption user option on a
+// session. The name is validated by the caller (validate.ValidateAgentPresetName)
+// and passed as a discrete arg. Mirrors SetSessionColor.
+func SetSessionAgentPreset(session, name, server string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	return setSessionOption(ctx, server, session, SessionAgentPresetOption, name)
+}
+
+// UnsetSessionAgentPreset removes the SessionAgentPresetOption user option from
+// a session. Mirrors UnsetSessionColor.
+func UnsetSessionAgentPreset(session, server string) error {
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	return unsetSessionOption(ctx, server, session, SessionAgentPresetOption)
+}
+
+// GetSessionAgentPreset reads a session's agent-preset option. An unset
+// option or a dead/absent server reads as ("", nil); other failures propagate.
+func GetSessionAgentPreset(ctx context.Context, server, session string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	out, err := showSessionOption(ctx, server, session, SessionAgentPresetOption)
+	if err != nil && IsServerGone(err) {
+		return "", nil
+	}
+	return out, err
 }
 
 // SetWindowColor sets the ColorOption user option on a window by its window
@@ -4159,6 +4230,8 @@ type ServerMarks struct {
 	Ephemeral bool // @rk_srv_ephemeral, legacy @rk_ephemeral
 	Protected bool // @rk_srv_protected, legacy @rk_protected
 	Managed   bool // @rk_srv_managed (no legacy name)
+	// AgentPreset is @rk_srv_agent_preset; "" when unset.
+	AgentPreset string
 }
 
 // ReadServerMarks reads all of a server's rk marks in ONE `show-options -s`
@@ -4210,6 +4283,7 @@ func parseServerMarks(dump string) (ServerMarks, error) {
 	marks.Ephemeral = dumpMarkDual(values, EphemeralOption, LegacyEphemeralOption)
 	marks.Protected = dumpMarkDual(values, ProtectedOption, LegacyProtectedOption)
 	marks.Managed = strings.TrimSpace(values[ManagedOption]) != ""
+	marks.AgentPreset = values[ServerAgentPresetOption]
 	return marks, nil
 }
 
@@ -4289,6 +4363,85 @@ func UnmarkServerProtected(ctx context.Context, server string) error {
 		}
 	}
 	return nil
+}
+
+// ReadAgentPresetOptions reads a spawn target's group and workspace agent
+// presets in two bounded execs. A non-empty server addresses that socket with
+// -L (the daemon path, session named explicitly); an empty server is the CLI
+// path: no -L, with callerTMUX restored into the child env so the caller's own
+// server is targeted, and an empty session then means the caller's current
+// session. Any read failure (unset option, gone server, tmux absent) reads as
+// "" — a spawn never fails on a preset lookup — and is logged at debug.
+func ReadAgentPresetOptions(ctx context.Context, server, session, callerTMUX string) (sessionPreset, serverPreset string) {
+	var prefix []string
+	var env []string
+	if server != "" {
+		prefix = serverArgs(server)
+	} else {
+		if callerTMUX == "" {
+			return "", ""
+		}
+		env = append(os.Environ(), "TMUX="+callerTMUX)
+	}
+	read := func(args ...string) string {
+		ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+		defer cancel()
+		out, err := RunOutput(ctx, append(append([]string(nil), prefix...), args...), RunOpts{Env: env})
+		if err != nil {
+			slog.Debug("agent preset option read failed", "args", args, "err", err)
+			return ""
+		}
+		return strings.TrimSpace(string(out))
+	}
+	sessionArgs := []string{"show-options", "-v"}
+	if session != "" {
+		sessionArgs = append(sessionArgs, "-t", ExactSessionTarget(session))
+	}
+	sessionPreset = read(append(sessionArgs, SessionAgentPresetOption)...)
+	serverPreset = read("show-option", "-sv", ServerAgentPresetOption)
+	return sessionPreset, serverPreset
+}
+
+// SetServerAgentPreset writes the ServerAgentPresetOption server-scoped on the
+// named server. The name is validated by the caller. Requires a live server —
+// server-scoped options need a running tmux process.
+func SetServerAgentPreset(ctx context.Context, server, name string) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	_, err := tmuxExecRawServer(ctx, server, "set-option", "-s", ServerAgentPresetOption, name)
+	return err
+}
+
+// UnsetServerAgentPreset removes the ServerAgentPresetOption from the named
+// server (set-option -s -u). Already-unset is success.
+func UnsetServerAgentPreset(ctx context.Context, server string) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	if _, err := tmuxExecRawServer(ctx, server, "set-option", "-s", "-u", ServerAgentPresetOption); err != nil {
+		if isUnsetOptionErr(err) {
+			return nil
+		}
+		return fmt.Errorf("unset %s: %w", ServerAgentPresetOption, err)
+	}
+	return nil
+}
+
+// GetServerAgentPreset reads the workspace's agent-preset option. An unset
+// option or a dead/absent server reads as ("", nil); other failures propagate.
+func GetServerAgentPreset(ctx context.Context, server string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	out, err := tmuxExecRawServer(ctx, server, "show-option", "-sv", ServerAgentPresetOption)
+	if err != nil {
+		if isUnsetOptionErr(err) || IsServerGone(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read %s: %w", ServerAgentPresetOption, err)
+	}
+	return strings.TrimSpace(out), nil
 }
 
 // IsGuardedServer is the combined kill-guard predicate: true when name is the

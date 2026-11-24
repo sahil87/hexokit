@@ -141,13 +141,17 @@ Starting point: the scope-naming plan's target map (22 options → 21 after
 `@rk_ctl_keepalive` deletes). This spec **adds** the rows marked *new*,
 **renames** two, and **retires** one.
 
-### Server (`@rk_srv_*`) — unchanged
+### Server (`@rk_srv_*`)
 
-`@rk_srv_session_order` · `@rk_srv_rank` · `@rk_srv_origin` · `@rk_srv_managed` · `@rk_srv_ephemeral` · `@rk_srv_protected`
+`@rk_srv_session_order` · `@rk_srv_rank` · `@rk_srv_origin` · `@rk_srv_managed` · `@rk_srv_ephemeral` · `@rk_srv_protected` · **`@rk_srv_agent_preset`**
 
-### Session (`@rk_ses_*`) — unchanged
+`@rk_srv_agent_preset` (*new*) — one fab agent-preset name (or the reserved `none`) for the whole workspace; written by the UI and `POST /api/servers/agent-preset`, unset when empty. A spawn without a group or explicit preset hands it to fab as `FAB_AGENT_PRESET`.
 
-`@rk_ses_color` · `@rk_ses_flair` · `@rk_ses_pin_board` · `@rk_ses_pin_home` · `@rk_ses_pin_order`
+### Session (`@rk_ses_*`)
+
+`@rk_ses_color` · `@rk_ses_flair` · `@rk_ses_pin_board` · `@rk_ses_pin_home` · `@rk_ses_pin_order` · **`@rk_ses_agent_preset`**
+
+`@rk_ses_agent_preset` (*new*) — one fab agent-preset name (or `none`) for a group; written by the UI and `POST /api/sessions/{session}/agent-preset`, unset when empty. It beats the workspace's `@rk_srv_agent_preset` and loses to an explicit pick at spawn. It is read at launch only: resume, fork and restore spawns ignore both options.
 
 ### Window = tab (`@rk_win_*`)
 

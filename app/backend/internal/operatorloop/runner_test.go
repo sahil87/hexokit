@@ -3,6 +3,7 @@ package operatorloop
 import (
 	"context"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -17,15 +18,16 @@ import (
 type launchCall struct {
 	server, name, cwd, shellCmd, runID string
 	recordExisted, briefExisted        bool
+	env                                []string
 }
 
 func stubLaunch(t *testing.T, r *rig, err error) *[]launchCall {
 	t.Helper()
 	var calls []launchCall
-	launchWindowFn = func(ctx context.Context, server, name, cwd, shellCmd, runID string) (tmux.WindowBirth, error) {
+	launchWindowFn = func(ctx context.Context, server, name, cwd, shellCmd, runID string, env []string) (tmux.WindowBirth, error) {
 		recPath := mustRecordPath(t, r, runID)
 		briefPath, _ := BriefPath(r.runsDir(), runID)
-		calls = append(calls, launchCall{server, name, cwd, shellCmd, runID, exists(t, recPath), exists(t, briefPath)})
+		calls = append(calls, launchCall{server, name, cwd, shellCmd, runID, exists(t, recPath), exists(t, briefPath), env})
 		if err != nil {
 			return tmux.WindowBirth{}, err
 		}
@@ -180,7 +182,7 @@ func TestRunLauncherAndRootResolution(t *testing.T) {
 	rootDir := t.TempDir()
 	operatorRootFn = func(context.Context, string) (string, error) { return rootDir, nil }
 	var gotRoot, gotTier string
-	resolveLauncherFn = func(_ context.Context, root, tier string) string {
+	resolveLauncherFn = func(_ context.Context, root, tier, _ string) string {
 		gotRoot, gotTier = root, tier
 		return "fab-resolved -p"
 	}
@@ -316,5 +318,47 @@ func TestDefaultWrapperBinaryIsTheRunningExecutable(t *testing.T) {
 	}
 	if launcher, err := selfpath.Launcher(); err == nil && strings.HasPrefix(got, filepath.Dir(launcher)) {
 		t.Errorf("wrapper path %q is inside the launcher directory", got)
+	}
+}
+
+// TestRunCarriesTheWorkspaceAgentPreset: the ladder runs for the hidden
+// operator session on the fired server, and its name reaches the headless
+// resolver and the run window's env; with no name the window gets no env.
+func TestRunCarriesTheWorkspaceAgentPreset(t *testing.T) {
+	for _, tc := range []struct {
+		name, preset string
+		wantEnv      []string
+	}{
+		{"preset set", "codex-review", []string{"FAB_AGENT_PRESET=codex-review"}},
+		{"none resolved", "", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRig(t)
+			r.addNoteItem("a")
+			checkFn = changedCheck("a")
+			var ladderServer, ladderSession, gotPreset string
+			resolvePresetFn = func(_ context.Context, explicit, server, session, _ string) string {
+				if explicit != "" {
+					t.Errorf("explicit pick = %q, want none", explicit)
+				}
+				ladderServer, ladderSession = server, session
+				return tc.preset
+			}
+			resolveLauncherFn = func(_ context.Context, _, _, preset string) string {
+				gotPreset = preset
+				return "fab-resolved -p"
+			}
+			calls := stubLaunch(t, r, nil)
+			Run(context.Background(), fire())
+			if ladderServer != testServer || ladderSession != tmux.OperatorSessionName {
+				t.Errorf("ladder target = %q/%q, want %q/%q", ladderServer, ladderSession, testServer, tmux.OperatorSessionName)
+			}
+			if gotPreset != tc.preset {
+				t.Errorf("headless resolver preset = %q, want %q", gotPreset, tc.preset)
+			}
+			if got := (*calls)[0].env; !reflect.DeepEqual(got, tc.wantEnv) {
+				t.Errorf("run window env = %v, want %v", got, tc.wantEnv)
+			}
+		})
 	}
 }

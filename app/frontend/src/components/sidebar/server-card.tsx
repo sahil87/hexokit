@@ -3,6 +3,7 @@ import { DAEMON_SERVER } from "@/api/client";
 import { CloseIcon, PaletteIcon, PlusIcon } from "./icons";
 import { PopupTitleBar, PopupTitleBarSecondary } from "./popup-title-bar";
 import { ACTION_ROW_CLASS, CardActionList, CardActionRow } from "./row-flyout-card";
+import { AgentPresetClearRow, AgentPresetFact } from "./agent-preset-card";
 import {
   SWITCH_KNOB_OFF,
   SWITCH_KNOB_ON,
@@ -15,8 +16,9 @@ import {
  * server surfaces (the sessions-pane group header and the SERVER panel tile)
  * so the two mounts cannot drift: the `Server <name>` title bar, the
  * `tmux -L <name> · N sessions` facts line (external servers append the
- * provenance suffix), and the fixed Change color… → New session → Protect
- * toggle → Kill server rows, each bound to the caller's seams. A row whose
+ * provenance suffix), the optional `agent preset: <name>` line (with a Clear
+ * agent preset row for a name fab no longer lists), and the fixed Change color…
+ * → New session → Protect toggle → Kill server rows, each bound to the caller's seams. A row whose
  * seam the consumer did not wire renders nothing (the optional-handler gate).
  */
 export function ServerCardContent({
@@ -24,6 +26,8 @@ export function ServerCardContent({
   sessionCount,
   external = false,
   serverProtected = false,
+  agentPreset,
+  onClearAgentPreset,
   onChangeColorAction,
   onCreateSession,
   onKillServer,
@@ -35,6 +39,11 @@ export function ServerCardContent({
    *  the facts line. */
   external?: boolean;
   serverProtected?: boolean;
+  /** The workspace's agent preset (`@rk_srv_agent_preset`); absent when unset. */
+  agentPreset?: string;
+  /** Clears the workspace's agent preset — offered only when the stored name is
+   *  one the machine-wide preset list does not know. */
+  onClearAgentPreset?: () => void;
   /** The card's `Change color…` row — first on every tier's card. The
    *  consumer closes the card BEFORE opening its SwatchPopover mount (the
    *  close-then-open idiom) and holds popover-over-card precedence via the
@@ -60,7 +69,11 @@ export function ServerCardContent({
         {`tmux -L ${server} · ${sessionCount} group${sessionCount === 1 ? "" : "s"}`}
         {external && " · external — not started by HexoKit"}
       </span>
+      {agentPreset && <AgentPresetFact name={agentPreset} />}
       <CardActionList>
+        {agentPreset && onClearAgentPreset && (
+          <AgentPresetClearRow name={agentPreset} onClear={onClearAgentPreset} />
+        )}
         {onChangeColorAction && (
           <CardActionRow
             icon={<PaletteIcon />}

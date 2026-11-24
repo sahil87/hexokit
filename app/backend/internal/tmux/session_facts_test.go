@@ -29,9 +29,41 @@ func TestSessionRole(t *testing.T) {
 }
 
 // factsLine builds one sessionListFormat line: name, grouped, group,
-// group_size, color, windows, flair, id, path.
+// group_size, color, windows, flair, id, agent preset, path.
 func factsLine(name, grouped, group, groupSize, windows, id, path string) string {
-	return strings.Join([]string{name, grouped, group, groupSize, "", windows, "", id, path}, listDelim)
+	return strings.Join([]string{name, grouped, group, groupSize, "", windows, "", id, "", path}, listDelim)
+}
+
+// TestSessionListFormatFields pins the shared 10-field shape: the agent preset
+// precedes the free-form session_path, which stays last.
+func TestSessionListFormatFields(t *testing.T) {
+	fields := strings.Split(sessionListFormat(), listDelim)
+	if len(fields) != 10 {
+		t.Fatalf("sessionListFormat has %d fields, want 10", len(fields))
+	}
+	if fields[8] != "#{"+SessionAgentPresetOption+"}" || fields[9] != "#{session_path}" {
+		t.Errorf("fields[8:] = %q, want agent preset then session_path", fields[8:])
+	}
+}
+
+func TestParseSessions_agentPreset(t *testing.T) {
+	line := strings.Join([]string{"proj", "0", "", "0", "", "2", "", "$1", "codex-review", "/p"}, listDelim)
+	got := parseSessions([]string{line})
+	if len(got) != 1 || got[0].AgentPreset != "codex-review" || got[0].Path != "/p" {
+		t.Fatalf("parseSessions = %+v, want agent preset codex-review and path /p", got)
+	}
+	unset := strings.Join([]string{"proj", "0", "", "0", "", "2", "", "$1", "", "/p"}, listDelim)
+	if got := parseSessions([]string{unset}); got[0].AgentPreset != "" {
+		t.Errorf("unset option = %q, want empty", got[0].AgentPreset)
+	}
+}
+
+func TestBuildSessionFacts_pathWithPreset(t *testing.T) {
+	line := strings.Join([]string{"proj", "0", "", "0", "", "2", "", "$1", "claude", "/p"}, listDelim)
+	got := buildSessionFacts([]string{line}, nil)
+	if len(got) != 1 || got[0].Path != "/p" {
+		t.Fatalf("buildSessionFacts = %+v, want path /p", got)
+	}
 }
 
 // TestBuildSessionFacts covers the fold in one fixture: user rows follow the

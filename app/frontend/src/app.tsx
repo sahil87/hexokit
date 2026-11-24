@@ -126,6 +126,9 @@ import { buildServerKillActions } from "@/lib/palette/server-kill";
 import { buildServerProtectActions } from "@/lib/palette/server-protect";
 import { buildServerAdoptActions } from "@/lib/palette/server-adopt";
 import { buildServerSetColorAction } from "@/lib/palette/server-color";
+import { buildAgentPresetActions } from "@/lib/palette/agent-preset";
+import { loadMachineAgentPresets, rememberRepoAgentPresets } from "@/lib/agent-presets";
+import { useMachineAgentPresets } from "@/hooks/use-machine-agent-presets";
 import { buildShellServerActions } from "@/lib/palette/shell";
 import { buildWebEngineActions, buildWebInspectActions } from "@/lib/palette/web-engine";
 import { canCloseShellWindow, canNewShellWindow, canShellPopout, canShellWeb, closeShellWindow, isShell, newShellWindow, switchShellServer } from "@/lib/shell";
@@ -245,7 +248,7 @@ import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 import type { ProjectSession, WindowInfo } from "@/types";
 
-import { selectWindow, createWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, borrowLayout, returnLayout, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, launchGuiApp, getSettingsEntries, fetchGuiStatus, resizeGui, fetchCodeBridge, restartCodeServer, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
+import { selectWindow, createWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, borrowLayout, returnLayout, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, setSessionAgentPreset as setSessionAgentPresetApi, setServerAgentPreset as setServerAgentPresetApi, getRiffPresets, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, launchGuiApp, getSettingsEntries, fetchGuiStatus, resizeGui, fetchCodeBridge, restartCodeServer, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
 import { useCronData } from "@/hooks/use-cron";
 import { buildCronActions, type CronActionHandlers } from "@/lib/palette/cron";
 import { buildDataTableActions } from "@/lib/palette/data-table";
@@ -4847,6 +4850,72 @@ function AppShell() {
     [servers, server, handleSwitchServer, currentRegularIdx, regularOrder, moveCurrentServer, requestKillServer, requestAdoptServer, copyPaletteEntry, instanceDisplayName, windowParam, navigate],
   );
 
+  // Agent-preset palette actions (Constitution V): set/clear the current group's
+  // and workspace's agent preset. Set is hidden when fab reports no presets
+  // (the machine list is the availability signal — one cached read, no
+  // polling); Clear needs no fab. The writes wake the SSE hub backend-side, so
+  // the card lines repaint from the stream; the servers refresh covers the
+  // one-time-fetched list. A 400 (unknown preset / older fab) surfaces as a toast.
+  const machineAgentPresets = useMachineAgentPresets();
+  const currentServerInfo = servers.find((s) => s.name === server);
+  const refreshServers = ctx.refreshServers;
+  const groupAgentPreset = currentSession?.agent_preset;
+  const workspaceAgentPreset = currentServerInfo?.agent_preset;
+  const agentPresetActions: PaletteAction[] = useMemo(
+    () =>
+      buildAgentPresetActions({
+        presetsAvailable: (machineAgentPresets?.length ?? 0) > 0,
+        group: {
+          present: Boolean(server && sessionName),
+          current: groupAgentPreset,
+          // The group's own repo can define presets the machine list lacks, so
+          // the chooser loads that list on entry (falling back to the machine's).
+          load: async () => {
+            if (server && sessionName) {
+              try {
+                const flight = await getRiffPresets(server, sessionName);
+                rememberRepoAgentPresets(server, sessionName, flight.agentPresets);
+                if (flight.agentPresets) return flight.agentPresets;
+              } catch {
+                // fall through to the machine list
+              }
+            }
+            return loadMachineAgentPresets();
+          },
+          onSet: (name) => {
+            if (!server || !sessionName) return;
+            setSessionAgentPresetApi(server, sessionName, name).catch((err: Error) =>
+              addToast(err.message || "Failed to set group agent preset", "error"),
+            );
+          },
+          onClear: () => {
+            if (!server || !sessionName) return;
+            setSessionAgentPresetApi(server, sessionName, null).catch((err: Error) =>
+              addToast(err.message || "Failed to clear group agent preset", "error"),
+            );
+          },
+        },
+        workspace: {
+          present: Boolean(server),
+          current: workspaceAgentPreset,
+          load: loadMachineAgentPresets,
+          onSet: (name) => {
+            if (!server) return;
+            setServerAgentPresetApi(server, name)
+              .then(() => refreshServers())
+              .catch((err: Error) => addToast(err.message || "Failed to set workspace agent preset", "error"));
+          },
+          onClear: () => {
+            if (!server) return;
+            setServerAgentPresetApi(server, null)
+              .then(() => refreshServers())
+              .catch((err: Error) => addToast(err.message || "Failed to clear workspace agent preset", "error"));
+          },
+        },
+      }),
+    [machineAgentPresets, server, sessionName, groupAgentPreset, workspaceAgentPreset, refreshServers, addToast],
+  );
+
   // Desktop-shell server switching (Constitution V): `Server: Switch to
   // "<name>"` — one entry per SHELL-registered rk server (quoted name; whole
   // rk instances by URL, distinct from the tmux entries above), active one
@@ -5203,11 +5272,11 @@ function AppShell() {
           // formatted per platform and reflecting overrides; disabled bindings
           // (user-disabled or browser-reserved) render no hint.
           withShortcutHints(
-            [...sessionActions, ...sessionsScopeActions, ...windowActions, ...reopenActions, ...windowCycleActions, ...sessionJumpActions, ...boardActions, ...selectionActions, ...viewActions, ...guiActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...webEngineActions, ...webInspectActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...operatorComposeActions, ...cronActions, ...buildDataTableActions(mountedDataTables), ...macroPaletteActions],
+            [...sessionActions, ...agentPresetActions, ...sessionsScopeActions, ...windowActions, ...reopenActions, ...windowCycleActions, ...sessionJumpActions, ...boardActions, ...selectionActions, ...viewActions, ...guiActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...webEngineActions, ...webInspectActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...operatorComposeActions, ...cronActions, ...buildDataTableActions(mountedDataTables), ...macroPaletteActions],
             bindingByAction,
             bindingHost.platform,
           ),
-    [popoutPosture, sessionActions, sessionsScopeActions, windowActions, reopenActions, windowCycleActions, sessionJumpActions, boardActions, selectionActions, viewActions, guiActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, webEngineActions, webInspectActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, operatorComposeActions, cronActions, mountedDataTables, macroPaletteActions, bindingByAction, bindingHost],
+    [popoutPosture, sessionActions, agentPresetActions, sessionsScopeActions, windowActions, reopenActions, windowCycleActions, sessionJumpActions, boardActions, selectionActions, viewActions, guiActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, webEngineActions, webInspectActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, operatorComposeActions, cronActions, mountedDataTables, macroPaletteActions, bindingByAction, bindingHost],
   );
   // Publish this route's (already shortcut-decorated) list into the
   // palette-actions slot — the single layout-mounted CommandPalette renders

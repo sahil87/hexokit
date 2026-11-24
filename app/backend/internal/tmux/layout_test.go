@@ -40,6 +40,17 @@ func TestParseLayoutSessions(t *testing.T) {
 			},
 		},
 		{
+			name: "agent preset field is parsed; a 3-field line leaves it empty",
+			lines: []string{
+				"grp\t1750000004\t2\tcodex-review",
+				"old\t1750000005\t3",
+			},
+			want: []LayoutSession{
+				{Name: "grp", Created: 1750000004, Color: "2", AgentPreset: "codex-review"},
+				{Name: "old", Created: 1750000005, Color: "3"},
+			},
+		},
+		{
 			name: "malformed lines skipped",
 			lines: []string{
 				"short\t123",           // too few fields

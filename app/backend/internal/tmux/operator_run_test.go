@@ -3,6 +3,7 @@ package tmux
 import (
 	"context"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -73,7 +74,7 @@ func TestRunWindowsFormatCarriesStamps(t *testing.T) {
 // stamps it, targeting the new window by its unique exact name (a detached
 // window is not the invocation's current window).
 func TestBuildRunWindowArgs(t *testing.T) {
-	args := buildRunWindowArgs("run-ab12", "/home/u", "'rk' 'operator' 'run-exec'", "20261112T101500-ab12")
+	args := buildRunWindowArgs("run-ab12", "/home/u", "'rk' 'operator' 'run-exec'", "20261112T101500-ab12", nil)
 	if len(args) < 2 || args[0] != "new-window" || args[1] != "-d" {
 		t.Fatalf("argv = %v, want new-window -d first", args)
 	}
@@ -94,6 +95,27 @@ func TestBuildRunWindowArgs(t *testing.T) {
 	}
 	if n := strings.Count(joined, " ; "); n != 3 {
 		t.Errorf("argv has %d chained commands after new-window, want 3 set-options", n)
+	}
+}
+
+// TestBuildRunWindowArgsEnv: an env entry becomes `-e KEY=VALUE` before the
+// shell command, and with no env the argv is byte-identical to the env-less
+// builder's — the run window of a spawn without a preset never changes.
+func TestBuildRunWindowArgsEnv(t *testing.T) {
+	const shell = "'rk' 'operator' 'run-exec'"
+	without := buildRunWindowArgs("run-ab12", "/home/u", shell, "20261112T101500-ab12", nil)
+	base := buildCreateWindowWithCommandArgs(OperatorSessionName, "run-ab12", "/home/u", shell, nil)
+	if got := without[2:2+len(base)-1]; !reflect.DeepEqual(got, base[1:]) {
+		t.Errorf("env-less run window argv = %v, want the shared builder's %v", got, base[1:])
+	}
+	if slices.Contains(without, "-e") {
+		t.Errorf("argv %v carries -e without an env", without)
+	}
+
+	with := buildRunWindowArgs("run-ab12", "/home/u", shell, "20261112T101500-ab12", []string{"FAB_AGENT_PRESET=codex-review"})
+	joined := strings.Join(with, " ")
+	if want := "-c /home/u -e FAB_AGENT_PRESET=codex-review " + shell; !strings.Contains(joined, want) {
+		t.Errorf("argv %q missing %q (env before the shell command)", joined, want)
 	}
 }
 
@@ -120,7 +142,7 @@ func TestLaunchOperatorRunWindowCreatesSessionWithOnlyTheRunWindow(t *testing.T)
 	server := withSessionOrderTmux(t)
 	ctx := context.Background()
 
-	birth, err := LaunchOperatorRunWindow(ctx, server, "run-ab12", t.TempDir(), "sleep 30", "20261112T101500-ab12")
+	birth, err := LaunchOperatorRunWindow(ctx, server, "run-ab12", t.TempDir(), "sleep 30", "20261112T101500-ab12", nil)
 	if err != nil {
 		t.Fatalf("LaunchOperatorRunWindow: %v", err)
 	}
@@ -148,7 +170,7 @@ func TestLaunchOperatorRunWindowLeavesAdoptedSessionAndFocusAlone(t *testing.T) 
 	}
 	chat := wins[0].WindowID
 
-	birth, err := LaunchOperatorRunWindow(ctx, server, "run-cd34", t.TempDir(), "sleep 30", "20261112T102000-cd34")
+	birth, err := LaunchOperatorRunWindow(ctx, server, "run-cd34", t.TempDir(), "sleep 30", "20261112T102000-cd34", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +209,7 @@ func TestLaunchOperatorRunWindowStampsAtomicallyAndPinsRemainOnExit(t *testing.T
 	}
 
 	const id = "20261112T101500-ab12"
-	birth, err := LaunchOperatorRunWindow(ctx, server, "run-ab12", t.TempDir(), "sleep 1", id)
+	birth, err := LaunchOperatorRunWindow(ctx, server, "run-ab12", t.TempDir(), "sleep 1", id, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

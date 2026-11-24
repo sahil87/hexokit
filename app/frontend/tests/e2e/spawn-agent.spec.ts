@@ -33,6 +33,9 @@ import { mockStateSocket } from "./_state-socket-mock";
 // openViaNewMenu clicks the New split button's caret then its `Agent tab…`
 // menu row. openViaSidebarCard hovers the session row to open its flyout
 // card, then clicks the card's `Spawn agent…` action row.
+// The Agent preset field rides the same presets response: `agent_presets` /
+// `agent_preset_inherited` are added only when a test sets them on the RiffMock
+// (absent = an older fab, which hides the field).
 // OK_SPAWN is the success mock: POST /api/riff → 200
 // {server, session:"dev", window:"riff-swift-fox", windowId:"@7"}.
 
@@ -68,6 +71,9 @@ type RiffMock = {
   riffPresets: unknown[];
   // Tiers returned by GET /api/riff/presets (defaults to the built-ins).
   tiers?: string[];
+  // fab's agent presets and the inherited pick, returned when set.
+  agentPresets?: unknown[];
+  agentPresetInherited?: { name: string; from: "group" | "workspace" };
 };
 
 async function mockBackend(page: Page, riff: RiffMock): Promise<{ spawnBodies: () => Record<string, unknown>[] }> {
@@ -93,7 +99,12 @@ async function mockBackend(page: Page, riff: RiffMock): Promise<{ spawnBodies: (
     route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ riff_presets: riff.riffPresets, tiers: riff.tiers ?? BUILTIN_TIERS }),
+      body: JSON.stringify({
+        riff_presets: riff.riffPresets,
+        tiers: riff.tiers ?? BUILTIN_TIERS,
+        ...(riff.agentPresets ? { agent_presets: riff.agentPresets } : {}),
+        ...(riff.agentPresetInherited ? { agent_preset_inherited: riff.agentPresetInherited } : {}),
+      }),
     }),
   );
 
@@ -421,5 +432,106 @@ test.describe("Web-UI Spawn Agent", () => {
 
     await expect(page.getByRole("dialog", { name: "Spawn agent in dev" })).toBeVisible({ timeout: 5_000 });
     await expect(page.getByLabel("Task")).toBeVisible();
+  });
+
+  const AGENT_PRESETS = [
+    { name: "claude", description: "All roles on Claude", source: "built-in" },
+    { name: "codex-review", description: "Only the review role on Codex", source: "built-in" },
+  ];
+
+  /**
+   * Proves: when the group carries an agent preset, the dialog's Agent preset
+   * field defaults to the inherit option labelled with that group default, and
+   * submitting without touching it sends no `agent_preset` (the backend
+   * resolves the group's option itself).
+   *
+   * Steps:
+   * 1. Mock the backend with agent presets and agent_preset_inherited
+   *    { name: "codex-review", from: "group" }; gotoTerminal; openViaPalette.
+   * 2. Assert the `Agent preset` select shows `Group default: codex-review`
+   *    and lists both presets plus `none`.
+   * 3. Fill the Task field and press Enter.
+   * 4. Assert the URL navigated to /default/7 and the POST body carries the
+   *    task but no `agent_preset`.
+   */
+  test("the Agent preset field inherits the group default and sends nothing until a pick", async ({ page }) => {
+    const { spawnBodies } = await mockBackend(page, {
+      ...OK_SPAWN,
+      agentPresets: AGENT_PRESETS,
+      agentPresetInherited: { name: "codex-review", from: "group" },
+    });
+    await gotoTerminal(page);
+
+    await openViaPalette(page);
+    const field = page.getByLabel("Agent preset");
+    await expect(field).toBeVisible({ timeout: 5_000 });
+    await expect(field.locator("option:checked")).toHaveText("Group default: codex-review");
+    await expect(field.locator("option")).toHaveText([
+      "Group default: codex-review",
+      "claude — All roles on Claude",
+      "codex-review — Only the review role on Codex",
+      "none — no preset, even the machine default",
+    ]);
+
+    const task = page.getByLabel("Task");
+    await task.fill("review the diff");
+    await task.press("Enter");
+
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/7(?:$|[/?#])`), { timeout: 5_000 });
+    await expect.poll(() => spawnBodies().length).toBeGreaterThan(0);
+    expect(spawnBodies()[0]).toMatchObject({ task: "review the diff", session: "dev" });
+    expect(spawnBodies()[0]).not.toHaveProperty("agent_preset");
+  });
+
+  /**
+   * Proves: an explicit pick in the Agent preset field — including `none` —
+   * is sent as `agent_preset` in the spawn body, and a workspace default is
+   * labelled as such.
+   *
+   * Steps:
+   * 1. Mock the backend with agent presets and agent_preset_inherited
+   *    { name: "claude", from: "workspace" }; gotoTerminal; openViaPalette.
+   * 2. Assert the inherit option reads `Workspace default: claude`.
+   * 3. Select `none`, fill the Task field, press Enter.
+   * 4. Assert the POST body carries agent_preset "none".
+   */
+  test("an explicit Agent preset pick (none) is carried as agent_preset", async ({ page }) => {
+    const { spawnBodies } = await mockBackend(page, {
+      ...OK_SPAWN,
+      agentPresets: AGENT_PRESETS,
+      agentPresetInherited: { name: "claude", from: "workspace" },
+    });
+    await gotoTerminal(page);
+
+    await openViaPalette(page);
+    const field = page.getByLabel("Agent preset");
+    await expect(field.locator("option:checked")).toHaveText("Workspace default: claude", { timeout: 5_000 });
+    await field.selectOption("none");
+    const task = page.getByLabel("Task");
+    await task.fill("no preset please");
+    await task.press("Enter");
+
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/7(?:$|[/?#])`), { timeout: 5_000 });
+    await expect.poll(() => spawnBodies().length).toBeGreaterThan(0);
+    expect(spawnBodies()[0]).toMatchObject({ task: "no preset please", session: "dev", agent_preset: "none" });
+  });
+
+  /**
+   * Proves: when fab reports no agent presets (an older fab omits the key), the
+   * Agent preset field is absent while the rest of the dialog works.
+   *
+   * Steps:
+   * 1. Mock the backend with the default presets response (no agent_presets);
+   *    gotoTerminal; openViaPalette.
+   * 2. Assert the Task field is visible and the `Agent preset` control has
+   *    count 0.
+   */
+  test("hides the Agent preset field when fab lists no presets", async ({ page }) => {
+    await mockBackend(page, OK_SPAWN);
+    await gotoTerminal(page);
+
+    await openViaPalette(page);
+    await expect(page.getByLabel("Task")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByLabel("Agent preset")).toHaveCount(0);
   });
 });

@@ -231,6 +231,8 @@ var (
 		return tmux.RunOutput(ctx, args, tmux.RunOpts{Env: env})
 	})
 	operatorResolveAgentFn = riff.ResolveAgent
+	// operatorResolvePresetFn runs the agent-preset ladder for the chat window.
+	operatorResolvePresetFn = riff.ResolveAgentPreset
 	// operatorGetRootFn reads the server's recorded operator launch directory
 	// (@rk_srv_operator_root) for the -L path's stored rung; tests stub it to
 	// drive the stored/home rungs tmux-free. An unset option or a read error
@@ -411,7 +413,11 @@ func runOperator(cmd *cobra.Command) error {
 	// Agent resolution never errors — any failure (fab absent, non-zero,
 	// timeout, malformed output) degrades silently to the default launcher
 	// with the claude-syntax prefix.
-	agent := operatorResolveAgentFn(ctx, root, operatorTier)
+	// The agent preset follows the same ladder as any spawn, aimed at the hidden
+	// operator session (in practice the workspace's option); the name reaches
+	// the fab exec and the window's env.
+	agentPreset := operatorResolvePresetFn(ctx, "", operatorServerFlag, tmux.OperatorSessionName, originalTMUX)
+	agent := operatorResolveAgentFn(ctx, root, operatorTier, agentPreset)
 	// Bare launcher (empty prompt): the kickoff is typed after boot, below.
 	shellCmd := operatorShellCommand(agent.Launcher, operatorWorkersFlag)
 
@@ -428,7 +434,11 @@ func runOperator(cmd *cobra.Command) error {
 			return operatorRunOutputFn(ctx, append(serverPrefix, args...), env)
 		}
 	}
-	paneID, err := createMarkedOperatorWindow(ctx, runOutput, env, socketPrefix, windowDir, shellCmd)
+	var windowEnv []string
+	if agentPreset != "" {
+		windowEnv = []string{riff.AgentPresetEnvEntry(agentPreset)}
+	}
+	paneID, err := createMarkedOperatorWindow(ctx, runOutput, env, socketPrefix, windowDir, shellCmd, windowEnv)
 	if err != nil {
 		return &riff.ExitCodeError{Code: riff.ExitSubprocess, Msg: "run-kit operator: " + err.Error()}
 	}
@@ -531,11 +541,14 @@ func operatorServerPrefix(server string) []string {
 // exists unmarked. Returns the new pane's id — the kickoff delivery's target.
 // Error texts are caller-prefixed ("run-kit operator: "), so they carry no
 // command name of their own.
-func createMarkedOperatorWindow(ctx context.Context, runOutput operatorRunOutputFunc, env, socketPrefix []string, windowDir, shellCmd string) (string, error) {
+func createMarkedOperatorWindow(ctx context.Context, runOutput operatorRunOutputFunc, env, socketPrefix []string, windowDir, shellCmd string, windowEnv []string) (string, error) {
 	// -P -F captures the new pane's id — the typed delivery's send/capture
 	// target (pane-id targeting, like window-id, is exempt from name
-	// resolution).
-	paneOut, err := runOutput(ctx, []string{"new-window", "-P", "-F", "#{pane_id}", "-c", windowDir, "-n", operatorWindowName, shellCmd}, env)
+	// resolution). windowEnv entries become `-e KEY=VALUE` before the shell
+	// command; none leaves the argv exactly as it always was.
+	newWindow := []string{"new-window", "-P", "-F", "#{pane_id}", "-c", windowDir, "-n", operatorWindowName}
+	newWindow = append(newWindow, tmux.NewWindowEnvArgs(windowEnv)...)
+	paneOut, err := runOutput(ctx, append(newWindow, shellCmd), env)
 	if err != nil {
 		return "", fmt.Errorf("tmux new-window failed: %w", err)
 	}

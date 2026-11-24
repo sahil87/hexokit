@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
 import { NewSplitButton } from "@/components/new-split-button";
 import { useTopBarMode } from "@/hooks/use-top-bar-mode";
-import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowsBefore, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, getAllServerColors, setServerColor as setServerColorApi, getAllServerFlairs, setServerFlair as setServerFlairApi, setSessionOrder, setServerProtected, isExternalServer, DAEMON_SERVER, type ForkWhere, type ServerInfo } from "@/api/client";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowsBefore, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, setSessionAgentPreset as setSessionAgentPresetApi, setServerAgentPreset as setServerAgentPresetApi, getAllServerColors, setServerColor as setServerColorApi, getAllServerFlairs, setServerFlair as setServerFlairApi, setSessionOrder, setServerProtected, isExternalServer, DAEMON_SERVER, type ForkWhere, type ServerInfo } from "@/api/client";
 import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useFocusedPane } from "@/contexts/focused-pane-context";
 import { thinWindowFromFocusedPane } from "@/lib/focused-pane-window";
@@ -1769,6 +1769,25 @@ export function Sidebar({
     );
   }, [addToast]);
 
+  // Clear a stale group agent preset (the session card's Clear agent preset
+  // row). The POST wakes the SSE hub backend-side, so the card repaints from the
+  // stream.
+  const handleSessionAgentPresetClear = useCallback((server: string, name: string) => {
+    setSessionAgentPresetApi(server, name, null).catch((err) =>
+      addToast(err.message || "Failed to clear group agent preset"),
+    );
+  }, [addToast]);
+
+  // Same for a workspace (the server card's Clear agent preset row); the list
+  // refresh is belt-and-braces for the one-time-fetched servers list.
+  const handleServerAgentPresetClear = useCallback((targetServer: string) => {
+    setServerAgentPresetApi(targetServer, null)
+      .then(() => refreshServers())
+      .catch((err: unknown) => {
+        addToast(err instanceof Error ? err.message : "Failed to clear workspace agent preset");
+      });
+  }, [refreshServers, addToast]);
+
   // Server color write seam — the SINGLE implementation both the SERVER-panel
   // tiles and the session-tree group headers funnel through (x4sf): optimistic
   // `serverColors` update (the local repaint — server user-option mutations
@@ -1869,6 +1888,7 @@ export function Sidebar({
         onCreateSession={onCreateSession}
         onKillServer={onKillServer}
         onToggleServerProtect={handleServerProtectToggle}
+        onClearServerAgentPreset={handleServerAgentPresetClear}
         onSidebarResizeStart={onSidebarResizeStart}
       />
       )}
@@ -2008,6 +2028,7 @@ export function Sidebar({
                 onKillServer={onKillServer}
                 onWindowColorChange={handleWindowColorChange}
                 onSessionFlairChange={handleSessionFlairChange}
+                onSessionAgentPresetClear={handleSessionAgentPresetClear}
                 onWindowFlairChange={handleWindowFlairChange}
                 onWindowMarkerChange={onWindowMarkerChange}
                 onForkWindow={onForkWindow}
@@ -2456,6 +2477,7 @@ type ServerGroupProps = {
   /** Flair write seams — the picker's flair section funnels through these.
    *  Both are stable identity-argument callbacks. */
   onSessionFlairChange: (server: string, name: string, flair: string | null) => void;
+  onSessionAgentPresetClear: (server: string, name: string) => void;
   onWindowFlairChange: (server: string, session: string, windowId: string, flair: string | null) => void;
   /** Forwarded to each `WindowRow` → its row flyout's fork affordance. Optional
    *  (the board-route sidebar passes none) — see `SidebarProps.onForkWindow`. */
@@ -2549,6 +2571,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     onWindowColorChange,
     onWindowMarkerChange,
     onSessionFlairChange,
+    onSessionAgentPresetClear,
     onWindowFlairChange,
     onForkWindow,
     onFixTabName,
@@ -2616,6 +2639,14 @@ function ServerGroupInner(props: ServerGroupProps) {
         addGroupToast(err instanceof Error ? err.message : "Failed to update workspace protection");
       });
   }, [server, serverProtected, refreshServers, addGroupToast]);
+
+  const handleAgentPresetClear = useCallback(() => {
+    void setServerAgentPresetApi(server, null)
+      .then(() => refreshServers())
+      .catch((err: unknown) => {
+        addGroupToast(err instanceof Error ? err.message : "Failed to clear workspace agent preset");
+      });
+  }, [server, refreshServers, addGroupToast]);
 
   const orderedSessions = useMemo(() => {
     const effectiveOrder = localOrder ?? sessionOrder;
@@ -2823,6 +2854,8 @@ function ServerGroupInner(props: ServerGroupProps) {
         server={server}
         sessionCount={sessions.length}
         serverProtected={serverProtected}
+        agentPreset={serverInfo?.agent_preset}
+        onClearAgentPreset={handleAgentPresetClear}
         onToggleProtect={handleProtectToggle}
         // Close-then-open (the Pin-row idiom): the card closes BEFORE the
         // group's color popover opens; `suppressed` includes
@@ -3205,6 +3238,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                     onDrop={onSessionDrop}
                     onColorChange={onSessionColorChange}
                     onFlairChange={onSessionFlairChange}
+                    onClearAgentPreset={onSessionAgentPresetClear}
                     onSpawnAgent={onSpawnAgent}
                     onUpdateAnnotations={hasOperator ? onUpdateAnnotations : undefined}
                   />

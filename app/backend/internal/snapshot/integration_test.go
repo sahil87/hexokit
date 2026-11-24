@@ -90,6 +90,8 @@ func TestCaptureRestoreRoundTripLiveTmux(t *testing.T) {
 	tmuxCmd(t, socket, "set-option", "-w", "-t", "=alpha:agent", "@rk_win_web_active", "2")
 	tmuxCmd(t, socket, "set-option", "-w", "-t", "=alpha:agent", "@rk_win_code_root", "/w")
 	tmuxCmd(t, socket, "set-option", "-s", "@rk_srv_rank", "7")
+	tmuxCmd(t, socket, "set-option", "-t", "=alpha:", "@rk_ses_agent_preset", "codex-review")
+	tmuxCmd(t, socket, "set-option", "-s", "@rk_srv_agent_preset", "claude")
 
 	before, err := CaptureServer(context.Background(), socket)
 	if err != nil {
@@ -98,6 +100,10 @@ func TestCaptureRestoreRoundTripLiveTmux(t *testing.T) {
 	if before.SessionCount() != 2 || before.WindowCount() != 3 {
 		t.Fatalf("before counts: %d sessions / %d windows\n%+v",
 			before.SessionCount(), before.WindowCount(), before)
+	}
+
+	if before.ServerAgentPreset != "claude" || before.Sessions[0].AgentPreset != "codex-review" {
+		t.Fatalf("capture missed the agent presets: server %q, alpha %q", before.ServerAgentPreset, before.Sessions[0].AgentPreset)
 	}
 
 	tmuxCmd(t, socket, "kill-server")
@@ -130,6 +136,9 @@ func TestCaptureRestoreRoundTripLiveTmux(t *testing.T) {
 	if after.ServerRank == nil || *after.ServerRank != 7 {
 		t.Errorf("server rank after restore = %v, want 7", after.ServerRank)
 	}
+	if after.ServerAgentPreset != "claude" {
+		t.Errorf("server agent preset after restore = %q, want claude", after.ServerAgentPreset)
+	}
 	for si, sess := range before.Sessions {
 		got := after.Sessions[si]
 		if got.Name != sess.Name {
@@ -138,6 +147,9 @@ func TestCaptureRestoreRoundTripLiveTmux(t *testing.T) {
 		}
 		if got.Color != sess.Color {
 			t.Errorf("session %s color = %q, want %q", sess.Name, got.Color, sess.Color)
+		}
+		if got.AgentPreset != sess.AgentPreset {
+			t.Errorf("session %s agent preset = %q, want %q", sess.Name, got.AgentPreset, sess.AgentPreset)
 		}
 		if len(got.Windows) != len(sess.Windows) {
 			t.Errorf("session %s windows = %d, want %d", sess.Name, len(got.Windows), len(sess.Windows))

@@ -29,6 +29,9 @@ type Snapshot struct {
 	TakenAt time.Time `json:"takenAt"`
 	// ServerRank mirrors the @rk_srv_rank server option (nil when unset).
 	ServerRank *int `json:"serverRank,omitempty"`
+	// ServerAgentPreset mirrors the @rk_srv_agent_preset server option ("" when
+	// unset).
+	ServerAgentPreset string `json:"serverAgentPreset,omitempty"`
 	// SessionOrder mirrors the @rk_srv_session_order server option.
 	SessionOrder []string  `json:"sessionOrder,omitempty"`
 	Sessions     []Session `json:"sessions"`
@@ -46,8 +49,10 @@ type Session struct {
 	// CreatedAt is the session's creation time in unix seconds.
 	CreatedAt int64 `json:"createdAt"`
 	// Color is the raw @rk_ses_color option value ("" when unset).
-	Color   string   `json:"color,omitempty"`
-	Windows []Window `json:"windows"`
+	Color string `json:"color,omitempty"`
+	// AgentPreset is the raw @rk_ses_agent_preset option value ("" when unset).
+	AgentPreset string   `json:"agentPreset,omitempty"`
+	Windows     []Window `json:"windows"`
 }
 
 // Window is one tmux window in a snapshot.
@@ -111,6 +116,8 @@ var (
 	listLayoutPanes    = tmux.ListLayoutPanes
 	getSessionOrder    = tmux.GetSessionOrder
 	getServerRank      = tmux.GetServerRank
+	// getServerAgentPreset reads @rk_srv_agent_preset (best-effort, like rank).
+	getServerAgentPreset = tmux.GetServerAgentPreset
 	// Single-window variants for the kill-seam capture (CaptureWindow) — a kill
 	// must not walk every window on the server.
 	listLayoutWindow         = tmux.ListLayoutWindow
@@ -154,6 +161,11 @@ func CaptureServer(ctx context.Context, server string) (*Snapshot, error) {
 	} else {
 		snap.ServerRank = rank
 	}
+	if preset, err := getServerAgentPreset(ctx, server); err != nil {
+		slog.Debug("snapshot: server agent preset read failed", "server", server, "err", err)
+	} else {
+		snap.ServerAgentPreset = preset
+	}
 
 	// Group windows (and their panes) under their owning sessions,
 	// deterministically ordered: sessions by creation time then name, windows
@@ -184,10 +196,11 @@ func CaptureServer(ctx context.Context, server string) (*Snapshot, error) {
 			continue
 		}
 		sess := Session{
-			Name:      ls.Name,
-			CreatedAt: ls.Created,
-			Color:     ls.Color,
-			Windows:   bySession[ls.Name],
+			Name:        ls.Name,
+			CreatedAt:   ls.Created,
+			Color:       ls.Color,
+			AgentPreset: ls.AgentPreset,
+			Windows:     bySession[ls.Name],
 		}
 		sort.Slice(sess.Windows, func(i, j int) bool { return sess.Windows[i].Index < sess.Windows[j].Index })
 		snap.Sessions = append(snap.Sessions, sess)

@@ -43,7 +43,7 @@ func TestFailedRunIsRetriedOnTheNextFire(t *testing.T) {
 	t.Cleanup(func() { selfPathFn, resolveLauncherFn = prevSelf, prevResolve })
 	selfPathFn = func() (string, error) { return self, nil }
 	launcher := "cat >/dev/null; echo 'Not logged in' >&2; exit 1"
-	resolveLauncherFn = func(context.Context, string, string) string { return launcher }
+	resolveLauncherFn = func(context.Context, string, string, string) string { return launcher }
 
 	fire := cron.Fire{Server: server, Entry: cron.Entry{ID: "lp01", Run: cron.RunOperatorLoop}, Reason: cron.FireSchedule}
 	dir, err := Dir(ctx, server)

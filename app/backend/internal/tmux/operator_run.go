@@ -91,7 +91,7 @@ func ListOperatorRunWindows(ctx context.Context, server string) ([]RunWindow, er
 // tmux's placeholder default-shell window is killed once the run window
 // exists, so the session holds only run windows and stays hidden. shellCmd is
 // one opaque argv element the caller composes from quoted tokens.
-func LaunchOperatorRunWindow(ctx context.Context, server, name, cwd, shellCmd, runID string) (WindowBirth, error) {
+func LaunchOperatorRunWindow(ctx context.Context, server, name, cwd, shellCmd, runID string, env []string) (WindowBirth, error) {
 	prefix := serverArgs(server)
 	ensureCtx, ensureCancel := context.WithTimeout(ctx, TmuxTimeout)
 	placeholder, err := ensureSessionCapturingPlaceholder(ensureCtx, prefix, OperatorSessionName)
@@ -101,7 +101,7 @@ func LaunchOperatorRunWindow(ctx context.Context, server, name, cwd, shellCmd, r
 	}
 	createCtx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
-	lines, err := tmuxExecServer(createCtx, server, buildRunWindowArgs(name, cwd, shellCmd, runID)...)
+	lines, err := tmuxExecServer(createCtx, server, buildRunWindowArgs(name, cwd, shellCmd, runID, env)...)
 	if err == nil && len(lines) == 0 {
 		err = fmt.Errorf("new-window -P returned no output, want session, window id, pane id")
 	}
@@ -134,8 +134,8 @@ func runWindowTarget(name string) string {
 // with -d added (the window is created without becoming the session's current
 // window), chained with the set-options that stamp it and pin remain-on-exit
 // off, each aimed at the window by name. Pure.
-func buildRunWindowArgs(name, cwd, shellCmd, runID string) []string {
-	args := buildCreateWindowWithCommandArgs(OperatorSessionName, name, cwd, shellCmd, nil)
+func buildRunWindowArgs(name, cwd, shellCmd, runID string, env []string) []string {
+	args := buildCreateWindowWithEnvArgs(OperatorSessionName, name, cwd, shellCmd, env, nil)
 	args = append([]string{args[0], "-d"}, args[1:]...)
 	role, run, off := RoleOperatorRun, runID, "off"
 	return appendOptionOps(args, runWindowTarget(name), []WindowOptionOp{

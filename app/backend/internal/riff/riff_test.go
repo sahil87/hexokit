@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -383,10 +384,10 @@ func TestResolveLauncher_StubFab(t *testing.T) {
 		dir := stubFab(t, "#!/bin/sh\nprintf 'command: %s\\nskill_prefix: %s\\n' 'stub-launcher --effort xhigh' '/'\n")
 		t.Setenv("PATH", dir)
 		want := ResolvedAgent{Launcher: "stub-launcher --effort xhigh", SkillPrefix: "/"}
-		if got := ResolveAgent(context.Background(), "", ""); got != want {
+		if got := ResolveAgent(context.Background(), "", "", ""); got != want {
 			t.Errorf("ResolveAgent() = %+v, want %+v", got, want)
 		}
-		if got := ResolveLauncher(context.Background(), "", ""); got != want.Launcher {
+		if got := ResolveLauncher(context.Background(), "", "", ""); got != want.Launcher {
 			t.Errorf("ResolveLauncher() = %q, want %q", got, want.Launcher)
 		}
 	})
@@ -395,7 +396,7 @@ func TestResolveLauncher_StubFab(t *testing.T) {
 		dir := stubFab(t, "#!/bin/sh\nprintf 'command: %s\\nskill_prefix: %s\\n' 'codex --yolo' '$'\n")
 		t.Setenv("PATH", dir)
 		want := ResolvedAgent{Launcher: "codex --yolo", SkillPrefix: "$"}
-		if got := ResolveAgent(context.Background(), "", ""); got != want {
+		if got := ResolveAgent(context.Background(), "", "", ""); got != want {
 			t.Errorf("ResolveAgent() = %+v, want %+v", got, want)
 		}
 	})
@@ -404,7 +405,7 @@ func TestResolveLauncher_StubFab(t *testing.T) {
 		dir := stubFab(t, "#!/bin/sh\nprintf 'command: %s\\n' 'claude --model x'\n")
 		t.Setenv("PATH", dir)
 		want := ResolvedAgent{Launcher: "claude --model x", SkillPrefix: "/"}
-		if got := ResolveAgent(context.Background(), "", ""); got != want {
+		if got := ResolveAgent(context.Background(), "", "", ""); got != want {
 			t.Errorf("ResolveAgent() = %+v, want %+v", got, want)
 		}
 	})
@@ -414,7 +415,7 @@ func TestResolveLauncher_StubFab(t *testing.T) {
 		// positional reaches fab as `agent <tier> -o yaml`.
 		dir := stubFab(t, "#!/bin/sh\nprintf 'command: args: %s\\nskill_prefix: /\\n' \"$*\"\n")
 		t.Setenv("PATH", dir)
-		got := ResolveAgent(context.Background(), "", "doing")
+		got := ResolveAgent(context.Background(), "", "doing", "")
 		if want := "args: agent doing -o yaml"; got.Launcher != want {
 			t.Errorf("ResolveAgent(tier=doing).Launcher = %q, want %q", got.Launcher, want)
 		}
@@ -427,7 +428,7 @@ func TestResolveLauncher_StubFab(t *testing.T) {
 		dir := stubFab(t, "#!/bin/sh\nfor a in \"$@\"; do if [ \"$a\" = \"-o\" ]; then exit 1; fi; done\nprintf '%s\\n' 'legacy-launcher --print'\n")
 		t.Setenv("PATH", dir)
 		want := ResolvedAgent{Launcher: "legacy-launcher --print", SkillPrefix: "/"}
-		if got := ResolveAgent(context.Background(), "", "doing"); got != want {
+		if got := ResolveAgent(context.Background(), "", "doing", ""); got != want {
 			t.Errorf("ResolveAgent() = %+v, want %+v", got, want)
 		}
 	})
@@ -435,17 +436,17 @@ func TestResolveLauncher_StubFab(t *testing.T) {
 	t.Run("stub fab exits non-zero falls back", func(t *testing.T) {
 		dir := stubFab(t, "#!/bin/sh\necho boom >&2\nexit 1\n")
 		t.Setenv("PATH", dir)
-		if got := ResolveAgent(context.Background(), "", ""); got != defaultResolvedAgent {
+		if got := ResolveAgent(context.Background(), "", "", ""); got != defaultResolvedAgent {
 			t.Errorf("ResolveAgent() = %+v, want %+v (fallback)", got, defaultResolvedAgent)
 		}
 	})
 
 	t.Run("fab absent from PATH falls back", func(t *testing.T) {
 		t.Setenv("PATH", t.TempDir())
-		if got := ResolveAgent(context.Background(), "", "doing"); got != defaultResolvedAgent {
+		if got := ResolveAgent(context.Background(), "", "doing", ""); got != defaultResolvedAgent {
 			t.Errorf("ResolveAgent() = %+v, want %+v (fallback)", got, defaultResolvedAgent)
 		}
-		if got := ResolveLauncher(context.Background(), "", "doing"); got != DefaultLauncher {
+		if got := ResolveLauncher(context.Background(), "", "doing", ""); got != DefaultLauncher {
 			t.Errorf("ResolveLauncher() = %q, want %q (fallback)", got, DefaultLauncher)
 		}
 	})
@@ -457,7 +458,7 @@ func TestResolveHeadlessAgent_StubFab(t *testing.T) {
 	t.Run("stub fab prints YAML", func(t *testing.T) {
 		dir := stubFab(t, "#!/bin/sh\nprintf 'selector: operator\\ncommand: %s\\ndispatch:\\n    command: %s\\n' 'claude -p --model x' 'pane-launcher'\n")
 		t.Setenv("PATH", dir)
-		if got := ResolveHeadlessAgent(context.Background(), "", "operator"); got != "claude -p --model x" {
+		if got := ResolveHeadlessAgent(context.Background(), "", "operator", ""); got != "claude -p --model x" {
 			t.Errorf("ResolveHeadlessAgent() = %q", got)
 		}
 	})
@@ -465,7 +466,7 @@ func TestResolveHeadlessAgent_StubFab(t *testing.T) {
 	t.Run("tier and --headless reach fab", func(t *testing.T) {
 		dir := stubFab(t, "#!/bin/sh\nprintf 'command: args: %s\\n' \"$*\"\n")
 		t.Setenv("PATH", dir)
-		if got, want := ResolveHeadlessAgent(context.Background(), "", "operator"), "args: agent operator --headless -o yaml"; got != want {
+		if got, want := ResolveHeadlessAgent(context.Background(), "", "operator", ""), "args: agent operator --headless -o yaml"; got != want {
 			t.Errorf("ResolveHeadlessAgent() = %q, want %q", got, want)
 		}
 	})
@@ -473,7 +474,7 @@ func TestResolveHeadlessAgent_StubFab(t *testing.T) {
 	t.Run("non-zero exit falls back", func(t *testing.T) {
 		dir := stubFab(t, "#!/bin/sh\nexit 1\n")
 		t.Setenv("PATH", dir)
-		if got := ResolveHeadlessAgent(context.Background(), "", "operator"); got != DefaultHeadlessLauncher {
+		if got := ResolveHeadlessAgent(context.Background(), "", "operator", ""); got != DefaultHeadlessLauncher {
 			t.Errorf("ResolveHeadlessAgent() = %q, want default", got)
 		}
 	})
@@ -481,14 +482,14 @@ func TestResolveHeadlessAgent_StubFab(t *testing.T) {
 	t.Run("no command key falls back", func(t *testing.T) {
 		dir := stubFab(t, "#!/bin/sh\nprintf 'provider: claude\\n'\n")
 		t.Setenv("PATH", dir)
-		if got := ResolveHeadlessAgent(context.Background(), "", "operator"); got != DefaultHeadlessLauncher {
+		if got := ResolveHeadlessAgent(context.Background(), "", "operator", ""); got != DefaultHeadlessLauncher {
 			t.Errorf("ResolveHeadlessAgent() = %q, want default", got)
 		}
 	})
 
 	t.Run("fab absent falls back", func(t *testing.T) {
 		t.Setenv("PATH", t.TempDir())
-		if got := ResolveHeadlessAgent(context.Background(), "", ""); got != DefaultHeadlessLauncher {
+		if got := ResolveHeadlessAgent(context.Background(), "", "", ""); got != DefaultHeadlessLauncher {
 			t.Errorf("ResolveHeadlessAgent() = %q, want default", got)
 		}
 		if DefaultHeadlessLauncher != "claude -p --dangerously-skip-permissions" {
@@ -1852,6 +1853,61 @@ func TestParsePaneID(t *testing.T) {
 				t.Errorf("parsePaneID(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+// With a preset every pane of the tab is created with `-e FAB_AGENT_PRESET=…`
+// placed before the shell command; without one the argv carries no `-e` at all
+// (the unchanged-when-unset goldens are the sibling subtests above).
+func TestBuildSpawnArgvsAgentPreset(t *testing.T) {
+	worktree, name := "/tmp/wt/alpha", "riff-alpha"
+	spec := EffectiveSpec{
+		Panes:       []PaneSpec{{Kind: PaneKindSkill, Value: "/a"}, {Kind: PaneKindCmd, Value: "just dev"}},
+		Layout:      "even-horizontal",
+		Launcher:    "claude",
+		Session:     "work",
+		AgentPreset: "codex-workers",
+	}
+	got := buildSpawnArgvs(worktree, name, spec)
+	if len(got) != 3 {
+		t.Fatalf("got %d argvs, want new-window + split-window + select-layout", len(got))
+	}
+	wantNew := []string{"new-window", "-t", "=work:", "-n", name, "-c", worktree,
+		"-e", "FAB_AGENT_PRESET=codex-workers", taskPaneShellString(spec.Launcher, spec.Panes[0])}
+	if !reflect.DeepEqual(got[0], wantNew) {
+		t.Errorf("new-window =\n  %#v\nwant\n  %#v", got[0], wantNew)
+	}
+	wantSplit := []string{"split-window", "-h", "-t", "=work:" + name, "-c", worktree,
+		"-e", "FAB_AGENT_PRESET=codex-workers", paneShellString(spec.Launcher, spec.Panes[1])}
+	if !reflect.DeepEqual(got[1], wantSplit) {
+		t.Errorf("split-window =\n  %#v\nwant\n  %#v", got[1], wantSplit)
+	}
+	for _, argv := range got[2:] {
+		if argv[0] != "select-layout" || slices.Contains(argv, "-e") {
+			t.Errorf("select-layout argv = %v, want no env", argv)
+		}
+	}
+
+	spec.AgentPreset = ""
+	for _, argv := range buildSpawnArgvs(worktree, name, spec) {
+		if slices.Contains(argv, "-e") {
+			t.Errorf("no preset, but argv carries -e: %v", argv)
+		}
+	}
+}
+
+func TestBuildNewWindowCaptureArgsAgentPreset(t *testing.T) {
+	spec := EffectiveSpec{
+		Panes:       []PaneSpec{{Kind: PaneKindSkill, Value: "/fab-discuss"}},
+		Launcher:    "claude",
+		Session:     "work",
+		AgentPreset: "codex-review",
+	}
+	got := buildNewWindowCaptureArgs("/tmp/wt/alpha", "riff-alpha", spec)
+	want := []string{"new-window", "-P", "-F", "#{pane_id}", "-t", "=work:", "-n", "riff-alpha", "-c", "/tmp/wt/alpha",
+		"-e", "FAB_AGENT_PRESET=codex-review", taskPaneShellString("claude", spec.Panes[0])}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("buildNewWindowCaptureArgs =\n  %#v\nwant\n  %#v", got, want)
 	}
 }
 

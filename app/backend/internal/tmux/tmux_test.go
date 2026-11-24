@@ -1443,10 +1443,10 @@ func TestParseSessionsFlair(t *testing.T) {
 	}
 }
 
-// sessionLineIDPath builds a full 9-field tab-delimited tmux line including
-// the trailing #{session_id} and #{session_path} fields.
+// sessionLineIDPath builds a full 10-field tab-delimited tmux line including
+// #{session_id}, an empty agent preset and the trailing #{session_path}.
 func sessionLineIDPath(name, grouped, group, id, path string) string {
-	return strings.Join([]string{name, grouped, group, "0", "", "1", "", id, path}, listDelim)
+	return strings.Join([]string{name, grouped, group, "0", "", "1", "", id, "", path}, listDelim)
 }
 
 func TestParseSessionsIDPath(t *testing.T) {
@@ -1456,7 +1456,7 @@ func TestParseSessionsIDPath(t *testing.T) {
 		wantID   string
 		wantPath string
 	}{
-		{"9-field line parses id and path", sessionLineIDPath("alpha", "0", "alpha", "$4", "/home/user/code/x"), "$4", "/home/user/code/x"},
+		{"10-field line parses id and path", sessionLineIDPath("alpha", "0", "alpha", "$4", "/home/user/code/x"), "$4", "/home/user/code/x"},
 		{"7-field line (no id/path) leaves both empty", sessionLineFlair("alpha", "0", "alpha", ""), "", ""},
 		{"8-field line parses id only", strings.Join([]string{"alpha", "0", "alpha", "0", "", "1", "", "$4"}, listDelim), "$4", ""},
 	}
@@ -4662,6 +4662,16 @@ func TestParseServerMarks(t *testing.T) {
 			dump: "activity-action other\nassume-paste-time 1\nbuffer-limit 20\n",
 			want: ServerMarks{},
 		},
+		{
+			name: "agent preset is read from the dump",
+			dump: "@rk_srv_agent_preset claude\n",
+			want: ServerMarks{AgentPreset: "claude"},
+		},
+		{
+			name: "quoted agent preset is stripped",
+			dump: "@rk_srv_agent_preset \"codex-review\"\n",
+			want: ServerMarks{AgentPreset: "codex-review"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -4688,8 +4698,80 @@ func TestParseServerMarks(t *testing.T) {
 			if got.Managed != tc.want.Managed {
 				t.Errorf("Managed = %v, want %v", got.Managed, tc.want.Managed)
 			}
+			if got.AgentPreset != tc.want.AgentPreset {
+				t.Errorf("AgentPreset = %q, want %q", got.AgentPreset, tc.want.AgentPreset)
+			}
 		})
 	}
+}
+
+// TestAgentPresetOptions round-trips both agent-preset options through a real
+// tmux server: set, read back (getter, session list, server dump), unset, and
+// the unset/absent states reading empty.
+func TestAgentPresetOptions(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	t.Run("unset reads empty", func(t *testing.T) {
+		if got, err := GetSessionAgentPreset(ctx, server, "boot"); err != nil || got != "" {
+			t.Errorf("GetSessionAgentPreset = (%q, %v), want empty", got, err)
+		}
+		if got, err := GetServerAgentPreset(ctx, server); err != nil || got != "" {
+			t.Errorf("GetServerAgentPreset = (%q, %v), want empty", got, err)
+		}
+	})
+
+	t.Run("session option round trips", func(t *testing.T) {
+		if err := SetSessionAgentPreset("boot", "codex-review", server); err != nil {
+			t.Fatalf("SetSessionAgentPreset: %v", err)
+		}
+		if got, err := GetSessionAgentPreset(ctx, server, "boot"); err != nil || got != "codex-review" {
+			t.Errorf("GetSessionAgentPreset = (%q, %v), want codex-review", got, err)
+		}
+		sessions, err := ListSessions(ctx, server)
+		if err != nil || len(sessions) == 0 || sessions[0].AgentPreset != "codex-review" {
+			t.Errorf("ListSessions = (%+v, %v), want AgentPreset codex-review", sessions, err)
+		}
+		if err := UnsetSessionAgentPreset("boot", server); err != nil {
+			t.Fatalf("UnsetSessionAgentPreset: %v", err)
+		}
+		if got, _ := GetSessionAgentPreset(ctx, server, "boot"); got != "" {
+			t.Errorf("after unset = %q, want empty", got)
+		}
+	})
+
+	t.Run("server option round trips", func(t *testing.T) {
+		if err := SetServerAgentPreset(ctx, server, "claude"); err != nil {
+			t.Fatalf("SetServerAgentPreset: %v", err)
+		}
+		if got, err := GetServerAgentPreset(ctx, server); err != nil || got != "claude" {
+			t.Errorf("GetServerAgentPreset = (%q, %v), want claude", got, err)
+		}
+		marks, err := ReadServerMarks(ctx, server)
+		if err != nil || marks.AgentPreset != "claude" {
+			t.Errorf("ReadServerMarks = (%+v, %v), want AgentPreset claude", marks, err)
+		}
+		if err := UnsetServerAgentPreset(ctx, server); err != nil {
+			t.Fatalf("UnsetServerAgentPreset: %v", err)
+		}
+		if err := UnsetServerAgentPreset(ctx, server); err != nil {
+			t.Errorf("unsetting an already-unset option = %v, want nil", err)
+		}
+		if got, _ := GetServerAgentPreset(ctx, server); got != "" {
+			t.Errorf("after unset = %q, want empty", got)
+		}
+	})
+
+	t.Run("dead server reads empty", func(t *testing.T) {
+		dead := testSocketName("unit-dead")
+		if got, err := GetServerAgentPreset(ctx, dead); err != nil || got != "" {
+			t.Errorf("GetServerAgentPreset(dead) = (%q, %v), want empty", got, err)
+		}
+		if got, err := GetSessionAgentPreset(ctx, dead, "x"); err != nil || got != "" {
+			t.Errorf("GetSessionAgentPreset(dead) = (%q, %v), want empty", got, err)
+		}
+	})
 }
 
 // TestReadServerMarks exercises the exported reader end-to-end: a dead server

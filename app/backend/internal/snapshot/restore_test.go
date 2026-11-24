@@ -27,6 +27,8 @@ type fakeRestore struct {
 	failSplit error
 	// failLayout makes selectLayout fail.
 	failLayout error
+	// failAgentPreset makes both agent-preset setters fail.
+	failAgentPreset error
 	// missingDirs marks cwds that no longer exist.
 	missingDirs map[string]bool
 	// bornIndex is the index new sessions' first windows are born at
@@ -93,6 +95,20 @@ func (f *fakeRestore) ops() restoreOps {
 			f.calls = append(f.calls, fmt.Sprintf("session-color %s=%s", session, color))
 			return nil
 		},
+		setSessionAgentPreset: func(session, name, server string) error {
+			if f.failAgentPreset != nil {
+				return f.failAgentPreset
+			}
+			f.calls = append(f.calls, fmt.Sprintf("session-agent-preset %s=%s", session, name))
+			return nil
+		},
+		setServerAgentPreset: func(ctx context.Context, server, name string) error {
+			if f.failAgentPreset != nil {
+				return f.failAgentPreset
+			}
+			f.calls = append(f.calls, fmt.Sprintf("server-agent-preset %s", name))
+			return nil
+		},
 		setWindowOpts: func(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error {
 			keys := make([]string, 0, len(ops))
 			for _, op := range ops {
@@ -118,13 +134,14 @@ func (f *fakeRestore) trace() string { return strings.Join(f.calls, "\n") }
 func restoreFixture() *Snapshot {
 	rank := 3
 	return &Snapshot{
-		Server:       "kit",
-		TakenAt:      time.Now().UTC(),
-		ServerRank:   &rank,
-		SessionOrder: []string{"beta", "alpha"},
+		Server:            "kit",
+		TakenAt:           time.Now().UTC(),
+		ServerRank:        &rank,
+		SessionOrder:      []string{"beta", "alpha"},
+		ServerAgentPreset: "claude",
 		Sessions: []Session{
 			{
-				Name: "alpha", CreatedAt: 100, Color: "4",
+				Name: "alpha", CreatedAt: 100, Color: "4", AgentPreset: "codex-review",
 				Windows: []Window{
 					{Index: 1, ID: "@10", Name: "serve", Layout: "l1", Color: "2", Marker: "manual:1", Flair: "onepiece", Role: "operator", Owner: "operator",
 						Note: "1756036800:blocked on flaky e2e",
@@ -163,11 +180,13 @@ func TestRestoreRecreatesFullLayout(t *testing.T) {
 		`new-window alpha:3 -n agent -c "/agent" -> @2`,
 		`select-window alpha:@2`, // stored active window @11 → new id @2
 		`session-color alpha=4`,
+		`session-agent-preset alpha=codex-review`,
 		`new-session beta -n b -c "/b" -> @3`,
 		`renumber-window beta:@3 -> 0`, // born at 1, stored index 0
 		`select-window beta:@3`,
 		`session-order beta,alpha`,
 		`server-rank 3`,
+		`server-agent-preset claude`,
 	}
 	if got := f.trace(); got != strings.Join(wantCalls, "\n") {
 		t.Errorf("call trace mismatch:\ngot:\n%s\n\nwant:\n%s", got, strings.Join(wantCalls, "\n"))
@@ -379,6 +398,56 @@ func TestOldFormatSnapshotDecodesAndNormalizesMarker(t *testing.T) {
 	}
 	if !strings.Contains(f.trace(), "@rk_win_marker=manual:1") {
 		t.Errorf("normalized marker not restored:\n%s", f.trace())
+	}
+	if strings.Contains(f.trace(), "agent-preset") {
+		t.Errorf("a snapshot without agent presets must restore none:\n%s", f.trace())
+	}
+}
+
+// A snapshot with both agent-preset options survives serialization and
+// restores them onto a fresh server; the JSON keys are the documented
+// camelCase and are omitted when unset.
+func TestSnapshotAgentPresetsRoundTrip(t *testing.T) {
+	data, err := json.Marshal(restoreFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{`"serverAgentPreset":"claude"`, `"agentPreset":"codex-review"`} {
+		if !strings.Contains(string(data), key) {
+			t.Errorf("serialized snapshot lacks %s", key)
+		}
+	}
+	if strings.Count(string(data), `"agentPreset"`) != 1 {
+		t.Errorf("agentPreset must be omitted for the session without one: %s", data)
+	}
+	var snap Snapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeRestore{bornIndex: 1}
+	if _, err := restore(context.Background(), "kit", &snap, f.ops()); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	for _, want := range []string{"session-agent-preset alpha=codex-review", "server-agent-preset claude"} {
+		if !strings.Contains(f.trace(), want) {
+			t.Errorf("restore trace lacks %q:\n%s", want, f.trace())
+		}
+	}
+}
+
+// A failing agent-preset setter becomes a report note and never fails the
+// restore.
+func TestRestoreAgentPresetFailureIsANote(t *testing.T) {
+	f := &fakeRestore{bornIndex: 1, failAgentPreset: errors.New("no server running")}
+	report, err := restore(context.Background(), "kit", restoreFixture(), f.ops())
+	if err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	notes := strings.Join(report.Notes, "\n")
+	for _, want := range []string{`session "alpha": agent preset not reapplied`, "server agent preset not reapplied"} {
+		if !strings.Contains(notes, want) {
+			t.Errorf("notes lack %q: %q", want, notes)
+		}
 	}
 }
 

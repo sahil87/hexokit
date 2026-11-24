@@ -225,4 +225,79 @@ describe("SpawnAgentDialog", () => {
       expect(spawnRiff).toHaveBeenCalledWith("otherbox", "mysess", expect.objectContaining({ task: "cross" })),
     );
   });
+
+  describe("Agent preset field", () => {
+    const PRESETS = [
+      { name: "claude", description: "All roles on Claude", source: "built-in" },
+      { name: "codex-review", description: "Only the review role on Codex", source: "built-in" },
+    ];
+
+    it("is hidden when the preflight carries no agent presets", async () => {
+      renderDialog();
+      await waitFor(() => expect(getRiffPresets).toHaveBeenCalled());
+      expect(screen.queryByLabelText("Agent preset")).not.toBeInTheDocument();
+    });
+
+    it("labels the inherit option with the machine setting when nothing is inherited", async () => {
+      getRiffPresets.mockResolvedValue({ riffPresets: [], tiers: BUILTIN_TIERS, agentPresets: PRESETS });
+      renderDialog();
+      const select = (await screen.findByLabelText("Agent preset")) as HTMLSelectElement;
+      expect(select.selectedOptions[0].textContent).toBe("Default (machine setting)");
+      expect(Array.from(select.options).map((o) => o.textContent)).toEqual([
+        "Default (machine setting)",
+        "claude — All roles on Claude",
+        "codex-review — Only the review role on Codex",
+        "none — no preset, even the machine default",
+      ]);
+    });
+
+    it.each([
+      ["group", "Group default: codex-review"],
+      ["workspace", "Workspace default: codex-review"],
+    ] as const)("labels the inherit option with the %s default", async (from, label) => {
+      getRiffPresets.mockResolvedValue({
+        riffPresets: [],
+        tiers: BUILTIN_TIERS,
+        agentPresets: PRESETS,
+        agentPresetInherited: { name: "codex-review", from },
+      });
+      renderDialog();
+      const select = (await screen.findByLabelText("Agent preset")) as HTMLSelectElement;
+      expect(select.selectedOptions[0].textContent).toBe(label);
+    });
+
+    it("sends no agent preset while the inherit option is selected", async () => {
+      getRiffPresets.mockResolvedValue({
+        riffPresets: [],
+        tiers: BUILTIN_TIERS,
+        agentPresets: PRESETS,
+        agentPresetInherited: { name: "codex-review", from: "group" },
+      });
+      renderDialog();
+      await screen.findByLabelText("Agent preset");
+      fireEvent.click(screen.getByRole("button", { name: /spawn/i }));
+      await waitFor(() => expect(spawnRiff).toHaveBeenCalled());
+      expect(spawnRiff.mock.calls[0][2].agentPreset).toBeUndefined();
+    });
+
+    it("sends an explicit pick, including none", async () => {
+      getRiffPresets.mockResolvedValue({ riffPresets: [], tiers: BUILTIN_TIERS, agentPresets: PRESETS });
+      renderDialog();
+      const select = await screen.findByLabelText("Agent preset");
+      fireEvent.change(select, { target: { value: "claude" } });
+      fireEvent.click(screen.getByRole("button", { name: /spawn/i }));
+      await waitFor(() => expect(spawnRiff).toHaveBeenCalledTimes(1));
+      expect(spawnRiff.mock.calls[0][2].agentPreset).toBe("claude");
+    });
+
+    it("sends none when the none option is picked", async () => {
+      getRiffPresets.mockResolvedValue({ riffPresets: [], tiers: BUILTIN_TIERS, agentPresets: PRESETS });
+      renderDialog();
+      const select = await screen.findByLabelText("Agent preset");
+      fireEvent.change(select, { target: { value: "none" } });
+      fireEvent.click(screen.getByRole("button", { name: /spawn/i }));
+      await waitFor(() => expect(spawnRiff).toHaveBeenCalledTimes(1));
+      expect(spawnRiff.mock.calls[0][2].agentPreset).toBe("none");
+    });
+  });
 });

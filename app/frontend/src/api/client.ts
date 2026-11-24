@@ -1454,6 +1454,41 @@ export async function setSessionFlair(
   return res.json();
 }
 
+/** Set (or clear) the group's agent preset (`@rk_ses_agent_preset`). `name` is a
+ *  preset fab lists for the group's repo, or "none"; null clears. A 400 carries
+ *  the reason (unknown preset, or fab too old to list presets). */
+export async function setSessionAgentPreset(
+  server: string,
+  session: string,
+  name: string | null,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    withServer(`/api/sessions/${encodeURIComponent(session)}/agent-preset`, server),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agent_preset: name }),
+    },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** Set (or clear) the workspace's agent preset (`@rk_srv_agent_preset`); `name`
+ *  is a preset in fab's machine-wide list, or "none"; null clears. */
+export async function setServerAgentPreset(
+  server: string,
+  name: string | null,
+): Promise<{ ok: boolean }> {
+  const res = await fetch("/api/servers/agent-preset", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: server, agent_preset: name }),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 // --- Server management ---
 
 export type ServerInfo = {
@@ -1481,6 +1516,8 @@ export type ServerInfo = {
    *  render NO external treatment, so consumers gate on `managed === false`,
    *  never on absence. */
   managed?: boolean;
+  /** The workspace's agent preset (@rk_srv_agent_preset); absent when unset. */
+  agent_preset?: string;
 };
 
 /** The tmux server socket hosting the run-kit daemon itself (infrastructure,
@@ -2019,6 +2056,12 @@ export type RiffWhere = "worktree" | "checkout";
 export type RiffPreflight = {
   riffPresets: RiffPreset[];
   tiers: string[];
+  /** fab's agent presets resolved in the session's repo; absent when fab cannot
+   *  list presets (older fab / failure) — the dialog then hides its field. */
+  agentPresets?: FabAgentPreset[];
+  /** The preset a spawn would use with no explicit pick, and which option it
+   *  comes from; absent when neither the group nor the workspace sets one. */
+  agentPresetInherited?: { name: string; from: "group" | "workspace" };
 };
 
 /** The mockup-v2 spawn-shaping options. All optional and additive over the
@@ -2030,6 +2073,9 @@ export type SpawnRiffOptions = {
   where?: RiffWhere;
   worktreeName?: string;
   tier?: string;
+  /** Explicit agent-preset pick (sent as `agent_preset`); omit to inherit the
+   *  group's, then the workspace's. "none" opts out of every preset. */
+  agentPreset?: string;
 };
 
 /** Spawn a riff agent window in `session`'s repo. `opts.task` (optional) becomes
@@ -2055,6 +2101,7 @@ export async function spawnRiff(
   // "default" resolves the same tier as an omitted value — omit it so the
   // defaults-only body matches the shipped path exactly.
   if (opts.tier && opts.tier !== "default") body.tier = opts.tier;
+  if (opts.agentPreset) body.agent_preset = opts.agentPreset;
   const res = await fetch(withServer("/api/riff", server), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -2105,8 +2152,18 @@ export async function getRiffPresets(
     withServer(`/api/riff/presets?session=${encodeURIComponent(session)}`, server),
   );
   if (!res.ok) await throwOnError(res);
-  const data: { riff_presets?: RiffPreset[]; tiers?: string[] } = await res.json();
-  return { riffPresets: data.riff_presets ?? [], tiers: data.tiers ?? [] };
+  const data: {
+    riff_presets?: RiffPreset[];
+    tiers?: string[];
+    agent_presets?: FabAgentPreset[];
+    agent_preset_inherited?: { name: string; from: "group" | "workspace" };
+  } = await res.json();
+  return {
+    riffPresets: data.riff_presets ?? [],
+    tiers: data.tiers ?? [],
+    agentPresets: data.agent_presets,
+    agentPresetInherited: data.agent_preset_inherited,
+  };
 }
 
 // --- Cron (the operator clock: entries + derived fire facts + delivery log) ---

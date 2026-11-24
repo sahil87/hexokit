@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"rk/internal/fabsysconfig"
 	"rk/internal/riff"
 	"rk/internal/settings"
 	"rk/internal/tmux"
@@ -585,4 +586,156 @@ func writeFabConfig(t *testing.T, repo, body string) {
 	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(body), 0o644); err != nil {
 		t.Fatalf("write config.yaml: %v", err)
 	}
+}
+
+// agent_preset on POST /api/riff: an explicit pick is charset-checked, then
+// checked against fab's list in the session's repo (or "none") BEFORE the
+// engine runs, and a valid one reaches riff.Options.AgentPreset.
+func TestRiffSpawnAgentPreset(t *testing.T) {
+	t.Run("valid pick reaches the engine, membership read in the repo root", func(t *testing.T) {
+		repo := gitRepoDir(t)
+		dirs := stubAgentPresets(t, testAgentPresets, nil)
+		ops := &mockTmuxOps{listWindowsResult: windowsWithActivePaneCwd(repo)}
+		engine := &mockRiffEngine{result: riff.Result{Server: "work", Session: "s", WindowName: "riff-x", WindowID: "@1"}}
+		rec := postRiff(t, ops, engine, `{"session":"s","agent_preset":"codex-review"}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		if engine.gotOpts.AgentPreset != "codex-review" {
+			t.Errorf("Options.AgentPreset = %q, want codex-review", engine.gotOpts.AgentPreset)
+		}
+		if len(*dirs) != 1 || (*dirs)[0] != repo {
+			t.Errorf("membership read in %v, want the repo root %q", *dirs, repo)
+		}
+	})
+
+	t.Run("none is accepted", func(t *testing.T) {
+		repo := gitRepoDir(t)
+		stubAgentPresets(t, testAgentPresets, nil)
+		ops := &mockTmuxOps{listWindowsResult: windowsWithActivePaneCwd(repo)}
+		engine := &mockRiffEngine{result: riff.Result{Server: "work", Session: "s", WindowName: "riff-x", WindowID: "@1"}}
+		if rec := postRiff(t, ops, engine, `{"session":"s","agent_preset":"none"}`); rec.Code != http.StatusOK || engine.gotOpts.AgentPreset != "none" {
+			t.Fatalf("status %d preset %q, want 200 and none", rec.Code, engine.gotOpts.AgentPreset)
+		}
+	})
+
+	t.Run("absent pick sends nothing and never consults fab", func(t *testing.T) {
+		repo := gitRepoDir(t)
+		dirs := stubAgentPresets(t, testAgentPresets, nil)
+		ops := &mockTmuxOps{listWindowsResult: windowsWithActivePaneCwd(repo)}
+		engine := &mockRiffEngine{result: riff.Result{Server: "work", Session: "s", WindowName: "riff-x", WindowID: "@1"}}
+		if rec := postRiff(t, ops, engine, `{"session":"s"}`); rec.Code != http.StatusOK {
+			t.Fatalf("status = %d", rec.Code)
+		}
+		if engine.gotOpts.AgentPreset != "" || len(*dirs) != 0 {
+			t.Errorf("preset %q, fab reads %v; want none", engine.gotOpts.AgentPreset, *dirs)
+		}
+	})
+
+	rejects := []struct {
+		name    string
+		presets []fabsysconfig.AgentPreset
+		err     error
+		body    string
+		wantMsg string
+		fabRuns int
+	}{
+		{"bad charset (no fab read)", testAgentPresets, nil, `{"session":"s","agent_preset":"a;b"}`, "alphanumeric", 0},
+		{"leading hyphen (no fab read)", testAgentPresets, nil, `{"session":"s","agent_preset":"--x"}`, "must not start with a hyphen", 0},
+		{"unknown", testAgentPresets, nil, `{"session":"s","agent_preset":"bogus"}`, "unknown agent preset", 1},
+		{"older fab", nil, fabsysconfig.ErrPresetsUnsupported, `{"session":"s","agent_preset":"claude"}`, "not supported by the installed fab", 1},
+	}
+	for _, tc := range rejects {
+		t.Run("400 "+tc.name+": nothing created", func(t *testing.T) {
+			repo := gitRepoDir(t)
+			dirs := stubAgentPresets(t, tc.presets, tc.err)
+			ops := &mockTmuxOps{listWindowsResult: windowsWithActivePaneCwd(repo)}
+			engine := &mockRiffEngine{}
+			rec := postRiff(t, ops, engine, tc.body)
+			if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), tc.wantMsg) {
+				t.Fatalf("status %d body %s, want 400 containing %q", rec.Code, rec.Body.String(), tc.wantMsg)
+			}
+			if engine.called {
+				t.Error("the engine ran on a 400 — a worktree/window would have been created")
+			}
+			if len(*dirs) != tc.fabRuns {
+				t.Errorf("fab consulted %d times, want %d", len(*dirs), tc.fabRuns)
+			}
+		})
+	}
+}
+
+// GET /api/riff/presets carries the dialog's agent-preset data: the repo-scoped
+// list (omitted when fab cannot list presets) and the pick the ladder would make
+// with no explicit pick.
+func TestRiffPresetsAgentPresetFields(t *testing.T) {
+	decode := func(t *testing.T, rec *httptest.ResponseRecorder) map[string]json.RawMessage {
+		t.Helper()
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d; body=%s", rec.Code, rec.Body.String())
+		}
+		var keys map[string]json.RawMessage
+		if err := json.Unmarshal(rec.Body.Bytes(), &keys); err != nil {
+			t.Fatal(err)
+		}
+		return keys
+	}
+
+	t.Run("workspace default and the repo-scoped list", func(t *testing.T) {
+		repo := gitRepoDir(t)
+		dirs := stubAgentPresets(t, testAgentPresets, nil)
+		ops := &mockTmuxOps{
+			listWindowsResult:  windowsWithActivePaneCwd(repo),
+			agentPresetOptions: map[string]string{"server:work": "claude"},
+		}
+		keys := decode(t, getRiffPresets(t, ops, "proj"))
+		if got := string(keys["agent_preset_inherited"]); got != `{"from":"workspace","name":"claude"}` {
+			t.Errorf("agent_preset_inherited = %s", got)
+		}
+		var presets []fabsysconfig.AgentPreset
+		if err := json.Unmarshal(keys["agent_presets"], &presets); err != nil || len(presets) != 2 || presets[0].Name != "claude" {
+			t.Errorf("agent_presets = %s (%v)", keys["agent_presets"], err)
+		}
+		if len(*dirs) != 1 || (*dirs)[0] != repo {
+			t.Errorf("list read in %v, want the repo root %q", *dirs, repo)
+		}
+	})
+
+	t.Run("group beats workspace", func(t *testing.T) {
+		repo := gitRepoDir(t)
+		stubAgentPresets(t, testAgentPresets, nil)
+		ops := &mockTmuxOps{
+			listWindowsResult:  windowsWithActivePaneCwd(repo),
+			agentPresetOptions: map[string]string{"server:work": "claude", "session:work/proj": "codex-review"},
+		}
+		keys := decode(t, getRiffPresets(t, ops, "proj"))
+		if got := string(keys["agent_preset_inherited"]); got != `{"from":"group","name":"codex-review"}` {
+			t.Errorf("agent_preset_inherited = %s", got)
+		}
+	})
+
+	t.Run("nothing set and an older fab: both keys omitted", func(t *testing.T) {
+		repo := gitRepoDir(t)
+		stubAgentPresets(t, nil, fabsysconfig.ErrPresetsUnsupported)
+		ops := &mockTmuxOps{listWindowsResult: windowsWithActivePaneCwd(repo)}
+		keys := decode(t, getRiffPresets(t, ops, "proj"))
+		for _, k := range []string{"agent_presets", "agent_preset_inherited"} {
+			if _, ok := keys[k]; ok {
+				t.Errorf("key %s present, want it omitted: %s", k, keys[k])
+			}
+		}
+	})
+
+	t.Run("garbage option is not offered as inherited", func(t *testing.T) {
+		repo := gitRepoDir(t)
+		stubAgentPresets(t, testAgentPresets, nil)
+		ops := &mockTmuxOps{
+			listWindowsResult:  windowsWithActivePaneCwd(repo),
+			agentPresetOptions: map[string]string{"session:work/proj": "a;b"},
+		}
+		keys := decode(t, getRiffPresets(t, ops, "proj"))
+		if _, ok := keys["agent_preset_inherited"]; ok {
+			t.Errorf("garbage option surfaced as inherited: %s", keys["agent_preset_inherited"])
+		}
+	})
 }

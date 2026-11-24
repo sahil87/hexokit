@@ -42,6 +42,8 @@ type ServerPanelProps = {
   /** Protect toggle for the tile card's switch row, called with the NEW
    *  state. */
   onToggleServerProtect?: (server: string, next: boolean) => void;
+  /** Clears a tile's stale agent preset (the card's Clear agent preset row). */
+  onClearServerAgentPreset?: (server: string) => void;
   /** Forwarded to CollapsiblePanel's corner affordance. When supplied, a corner
    *  element renders at the bottom-right of the drag handle and initiates a
    *  sidebar-width drag in addition to the panel's vertical resize. */
@@ -62,6 +64,7 @@ export function ServerPanel({
   onCreateSession,
   onKillServer,
   onToggleServerProtect,
+  onClearServerAgentPreset,
   onSidebarResizeStart,
 }: ServerPanelProps) {
   const [refreshing, setRefreshing] = useState(false);
@@ -185,6 +188,8 @@ export function ServerPanel({
                 onCreateSession={onCreateSession}
                 onKillServer={onKillServer}
                 onToggleServerProtect={onToggleServerProtect}
+                agentPreset={info.agent_preset}
+                onClearServerAgentPreset={onClearServerAgentPreset}
               />
             );
           })}
@@ -237,6 +242,9 @@ type ServerTileProps = {
   onCreateSession?: (server: string) => void;
   onKillServer?: (name: string) => void;
   onToggleServerProtect?: (server: string, next: boolean) => void;
+  /** The workspace's agent preset and the seam that clears a stale one. */
+  agentPreset?: string;
+  onClearServerAgentPreset?: (server: string) => void;
 };
 
 function ServerTile({
@@ -263,6 +271,8 @@ function ServerTile({
   onCreateSession,
   onKillServer,
   onToggleServerProtect,
+  agentPreset,
+  onClearServerAgentPreset,
 }: ServerTileProps) {
   // Body background follows the window-row convention:
   //   - Colored: tint.selected (active) or tint.base (not active)
@@ -302,6 +312,8 @@ function ServerTile({
         sessionCount={sessionCount}
         external={isExternal}
         serverProtected={isProtected}
+        agentPreset={agentPreset}
+        onClearAgentPreset={onClearServerAgentPreset ? () => onClearServerAgentPreset(name) : undefined}
         onToggleProtect={
           onToggleServerProtect ? () => onToggleServerProtect(name, !isProtected) : undefined
         }

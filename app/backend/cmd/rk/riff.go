@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"rk/internal/config"
+	"rk/internal/fabsysconfig"
 	"rk/internal/riff"
 	"rk/internal/settings"
 	"rk/internal/tmux"
@@ -39,6 +40,7 @@ var (
 	riffLayoutFlag          string
 	riffCountFlag           int
 	riffRiffPresetFlag      string
+	riffAgentPresetFlag     string
 	riffListRiffPresetsFlag bool
 	riffServerFlag          string
 	riffSessionFlag         string
@@ -64,7 +66,7 @@ type riffWindowReceipt struct {
 }
 
 var riffCmd = &cobra.Command{
-	Use:   "riff [riff-preset] [--skill <skill>...] [--cmd <cmd>...] [--layout <name>] [--count <N>] [--riff-preset <name>] [--list-riff-presets] [-- <wt-flags>...]",
+	Use:   "riff [riff-preset] [--skill <skill>...] [--cmd <cmd>...] [--layout <name>] [--count <N>] [--riff-preset <name>] [--agent-preset <name>] [--list-riff-presets] [-- <wt-flags>...]",
 	Short: "Create a worktree, tmux window, and Claude Code session",
 	Long: `Create a git worktree via wt, open a new tmux window in it, and launch
 a Claude Code session with a skill or slash-command. Supports multi-pane
@@ -94,6 +96,14 @@ Launcher resolution:
   fab-kit's fully-resolved default-tier agent (command + skill prefix). If
   'fab' is not on PATH or the call fails, falls back to
   'claude --dangerously-skip-permissions' with the '/' skill prefix.
+
+Agent presets:
+  --agent-preset <name> picks the fab agent preset (a name from 'fab agent
+  presets', or 'none' for no preset) the new window's agent resolves under;
+  every pane of the window runs with FAB_AGENT_PRESET set to it. Without the
+  flag the current session's @rk_ses_agent_preset applies, then the server's
+  @rk_srv_agent_preset, then fab's own configuration. Needs fab with agent
+  presets; an unknown name exits 2 before anything is created.
 
 Riff presets:
   Named invocations like 'run-kit riff incognito' or 'run-kit riff
@@ -163,6 +173,7 @@ func init() {
 	riffCmd.Flags().StringVar(&riffLayoutFlag, "layout", "auto", layoutFlagUsage())
 	riffCmd.Flags().IntVarP(&riffCountFlag, "count", "N", 1, "Spawn N worktree/window pairs in parallel (N >= 1)")
 	riffCmd.Flags().StringVar(&riffRiffPresetFlag, "riff-preset", "", "Named riff preset from run-kit's riff_presets (built-ins: discuss, incognito, blank)")
+	riffCmd.Flags().StringVar(&riffAgentPresetFlag, "agent-preset", "", "Fab agent preset for this spawn (a name from 'fab agent presets', or 'none'); default: the session's, then the server's agent preset")
 	riffCmd.Flags().BoolVar(&riffListRiffPresetsFlag, "list-riff-presets", false, "List defined riff presets and exit")
 	riffCmd.Flags().StringVar(&riffLegacyPresetFlag, "preset", "", "Deprecated spelling of --riff-preset")
 	riffCmd.Flags().BoolVar(&riffLegacyListPresetsFlag, "list-presets", false, "Deprecated spelling of --list-riff-presets")
@@ -198,6 +209,7 @@ func runRiffWithExitCode(cmd *cobra.Command, args []string) error {
 	riffLayoutFlag = "auto"
 	riffCountFlag = 1
 	riffRiffPresetFlag = ""
+	riffAgentPresetFlag = ""
 	riffListRiffPresetsFlag = false
 	riffLegacyPresetFlag = ""
 	riffLegacyListPresetsFlag = false
@@ -311,6 +323,12 @@ func runRiff(cmd *cobra.Command, args, wtArgs []string) error {
 		session = name
 	}
 
+	if riffAgentPresetFlag != "" {
+		if msg := validate.ValidateAgentPresetName(riffAgentPresetFlag); msg != "" {
+			return usageError(fmt.Errorf("--agent-preset: %s", msg))
+		}
+	}
+
 	// Step 1: --list-riff-presets is a pure read + print. Must short-circuit
 	// BEFORE preconditions — a user outside tmux should still be able to list
 	// riff presets.
@@ -352,11 +370,21 @@ func runRiff(cmd *cobra.Command, args, wtArgs []string) error {
 		return &riff.ExitCodeError{Code: riff.ExitValidation, Msg: err.Error()}
 	}
 
+	// Step 4c: an explicit --agent-preset must name a preset fab lists in this
+	// repo (or "none") — checked before anything is created.
+	if err := checkRiffAgentPreset(ctx, repoRoot); err != nil {
+		return err
+	}
+
 	// Step 5: agent resolution via the engine helper (rooted at the repo root
 	// so fab resolves this repo). An empty tier = the default tier (`fab
 	// agent -o yaml`), preserving today's CLI behavior — the per-tier picker is
-	// a web-UI-only affordance. Never errors — falls back to the default.
-	agent := riff.ResolveAgent(ctx, repoRoot, "")
+	// a web-UI-only affordance. The agent preset is resolved once — explicit
+	// pick, else the current session's option, else the server's — and rides
+	// both the fab exec and the window's panes. Never errors — falls back to
+	// the default.
+	agentPreset := riffResolveAgentPresetFn(ctx, riffAgentPresetFlag, riffServerFlag, session, tmux.OriginalTMUX)
+	agent := riff.ResolveAgent(ctx, repoRoot, "", agentPreset)
 
 	// Step 6: riff-preset resolution against run-kit's riff_presets (built-ins +
 	// user) — not repo-scoped.
@@ -379,6 +407,7 @@ func runRiff(cmd *cobra.Command, args, wtArgs []string) error {
 		return err
 	}
 	spec.Launcher = agent.Launcher
+	spec.AgentPreset = agentPreset
 	// Empty server label → target the user's current tmux server via the
 	// restored $TMUX (captured before internal/tmux's init() stripped it); an
 	// explicit -L targets that server with the -L argv prefix.
@@ -399,6 +428,30 @@ func runRiff(cmd *cobra.Command, args, wtArgs []string) error {
 	}
 	if riffJSONFlag {
 		printRiffReceipts(cmd, receipts)
+	}
+	return nil
+}
+
+// riffListAgentPresetsFn and riffResolveAgentPresetFn are the fab and tmux
+// seams behind --agent-preset (tests stub both).
+var (
+	riffListAgentPresetsFn   = fabsysconfig.ListAgentPresets
+	riffResolveAgentPresetFn = riff.ResolveAgentPreset
+)
+
+// checkRiffAgentPreset validates an explicit --agent-preset against the preset
+// list fab resolves in repoRoot (the reserved "none" is always accepted). An
+// older fab that cannot list presets rejects any pick; both are exit 2.
+func checkRiffAgentPreset(ctx context.Context, repoRoot string) error {
+	if riffAgentPresetFlag == "" {
+		return nil
+	}
+	presets, err := riffListAgentPresetsFn(ctx, repoRoot)
+	if err != nil {
+		return &riff.ExitCodeError{Code: riff.ExitValidation, Msg: "run-kit riff: " + err.Error()}
+	}
+	if err := fabsysconfig.CheckPresetMember(riffAgentPresetFlag, presets); err != nil {
+		return &riff.ExitCodeError{Code: riff.ExitValidation, Msg: "run-kit riff: " + err.Error()}
 	}
 	return nil
 }

@@ -109,10 +109,13 @@ func windowCwd(win tmux.WindowInfo) string {
 //
 //	POST /api/riff?server=<name>
 //	body: {"task"?: string, "riff_preset"?: string, "session": string,
-//	       "where"?: "worktree"|"checkout", "worktreeName"?: string, "tier"?: string}
+//	       "where"?: "worktree"|"checkout", "worktreeName"?: string, "tier"?: string,
+//	       "agent_preset"?: string}
 //	200: {"server","session","window","windowId"}
 //	400: invalid session; unknown where; worktreeName+checkout; forbidden
-//	     worktreeName/tier chars; non-repo cwd; unknown riff preset; or a legacy
+//	     worktreeName/tier chars; non-repo cwd; unknown riff preset; an
+//	     agent_preset failing the identifier allowlist, unknown to fab's list in
+//	     the session's repo (or fab too old to list presets); or a legacy
 //	     "preset" that disagrees with "riff_preset" (nothing created)
 //
 // The legacy body field "preset" is read when "riff_preset" is absent and is
@@ -130,6 +133,7 @@ func (s *Server) handleRiffSpawn(w http.ResponseWriter, r *http.Request) {
 		Where        string `json:"where"`
 		WorktreeName string `json:"worktreeName"`
 		Tier         string `json:"tier"`
+		AgentPreset  string `json:"agent_preset"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid JSON body")
@@ -173,6 +177,12 @@ func (s *Server) handleRiffSpawn(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if body.AgentPreset != "" {
+		if errMsg := validate.ValidateAgentPresetName(body.AgentPreset); errMsg != "" {
+			writeError(w, http.StatusBadRequest, errMsg)
+			return
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), riffRepoRootTimeout)
 	repoRoot, cwd, err := deriveRepoRoot(ctx, s.tmux, server, body.Session)
@@ -186,6 +196,15 @@ func (s *Server) handleRiffSpawn(w http.ResponseWriter, r *http.Request) {
 	if repoRoot == "" {
 		writeError(w, http.StatusBadRequest, riffNonRepoMsg(body.Session, cwd, "riff needs a repo to create a worktree. Open the session in a git checkout and try again."))
 		return
+	}
+	// An explicit pick must name a preset fab lists in this repo (or "none"):
+	// checked before the engine creates anything. Absent, the engine resolves
+	// the group's then the workspace's option itself.
+	if body.AgentPreset != "" {
+		if status, msg := s.checkPresetMembership(r.Context(), body.AgentPreset, repoRoot); msg != "" {
+			writeError(w, status, msg)
+			return
+		}
 	}
 
 	// Guard the optional engine (NewTestRouter leaves it nil; only NewProdRouter /
@@ -212,6 +231,7 @@ func (s *Server) handleRiffSpawn(w http.ResponseWriter, r *http.Request) {
 		Where:        where,
 		WorktreeName: body.WorktreeName,
 		Tier:         body.Tier,
+		AgentPreset:  body.AgentPreset,
 	})
 	if err != nil {
 		writeError(w, riffStatusForError(err), err.Error())
@@ -240,12 +260,17 @@ var loadRiffPresets = settings.LoadRiffPresets
 // handleRiffPresets lists the riff presets the spawn dialog offers.
 //
 //	GET /api/riff/presets?server=<name>&session=<name>
-//	200: {"riff_presets":[{"name","layout","paneCount"}], "tiers":[...]}
+//	200: {"riff_presets":[{"name","layout","paneCount"}], "tiers":[...],
+//	      "agent_presets"?:[...], "agent_preset_inherited"?:{"name","from"}}
 //	     (presets come from run-kit's riff_presets — the built-ins plus user
 //	     entries in ~/.config/hexokit/config.yaml — never empty; every row is
 //	     one skill pane: layout "", paneCount 1; tiers gated on
 //	     fabconfig.IsFabProject — fab-kit built-ins ∪ the repo's agent.tiers
-//	     ("default" first) for a fab project, [] for a non-fab repo)
+//	     ("default" first) for a fab project, [] for a non-fab repo;
+//	     agent_presets is fab's preset list resolved in the session's repo,
+//	     omitted when fab cannot list presets; agent_preset_inherited is what the
+//	     spawn ladder would pick with no explicit pick — from "group" or
+//	     "workspace" — omitted when neither option is set)
 //	400: invalid session or non-repo cwd
 func (s *Server) handleRiffPresets(w http.ResponseWriter, r *http.Request) {
 	server := serverFromRequest(r)
@@ -287,7 +312,23 @@ func (s *Server) handleRiffPresets(w http.ResponseWriter, r *http.Request) {
 	if fabconfig.IsFabProject(repoRoot) {
 		tiers = fabconfig.ReadTiers(repoRoot)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"riff_presets": presets, "tiers": tiers})
+	resp := map[string]any{"riff_presets": presets, "tiers": tiers}
+	s.addAgentPresetFields(r.Context(), resp, server, session, repoRoot)
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// addAgentPresetFields adds the dialog's agent-preset preflight data: the
+// repo-scoped list (omitted when fab cannot list presets, so the dialog hides
+// the field) and the inherited pick. Option read failures degrade to "unset".
+func (s *Server) addAgentPresetFields(ctx context.Context, resp map[string]any, server, session, repoRoot string) {
+	if presets, err := listAgentPresets(ctx, repoRoot); err == nil {
+		resp["agent_presets"] = presets
+	}
+	sessionOpt, _ := s.tmux.GetSessionAgentPreset(ctx, server, session)
+	serverOpt, _ := s.tmux.GetServerAgentPreset(ctx, server)
+	if name, from := riff.PickAgentPreset("", sessionOpt, serverOpt); name != "" {
+		resp["agent_preset_inherited"] = map[string]string{"name": name, "from": from}
+	}
 }
 
 // riffPresetSummary is the per-preset shape returned by GET /api/riff/presets —

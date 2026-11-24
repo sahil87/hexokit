@@ -67,8 +67,11 @@ type ProjectSession struct {
 	// validate.FlairValues closed set), sourced from the @rk_ses_flair tmux
 	// session option (scope-split from the window @rk_win_flair — see
 	// tmux.SetSessionFlair).
-	Flair   string            `json:"flair,omitempty"`
-	Windows []tmux.WindowInfo `json:"windows"`
+	Flair string `json:"flair,omitempty"`
+	// AgentPreset is the group's agent preset ("" = unset), sourced from the
+	// @rk_ses_agent_preset tmux session option (tmux.SetSessionAgentPreset).
+	AgentPreset string            `json:"agent_preset,omitempty"`
+	Windows     []tmux.WindowInfo `json:"windows"`
 	// Hidden is the content-conditional operator-home marker, computed at the
 	// FetchSessions join (post window fan-out): true only for the operator
 	// session (tmux.OperatorSessionName) while it holds ≥1 window and EVERY
@@ -966,7 +969,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 			}
 		}
 
-		result[i] = ProjectSession{Name: sd.info.Name, SessionColor: sd.info.Color, SessionID: sd.info.ID, SessionPath: sd.info.Path, Flair: sd.info.Flair, Windows: sd.windows, Hidden: operatorSessionHidden(sd.info.Name, sd.windows), Viewers: viewers[sd.info.Name], OperatorLastTickAt: operatorLastTickAt, OperatorStale: operatorStale, OperatorTracked: operatorTracked}
+		result[i] = ProjectSession{Name: sd.info.Name, SessionColor: sd.info.Color, SessionID: sd.info.ID, SessionPath: sd.info.Path, Flair: sd.info.Flair, AgentPreset: sd.info.AgentPreset, Windows: sd.windows, Hidden: operatorSessionHidden(sd.info.Name, sd.windows), Viewers: viewers[sd.info.Name], OperatorLastTickAt: operatorLastTickAt, OperatorStale: operatorStale, OperatorTracked: operatorTracked}
 	}
 
 	return result, nil
