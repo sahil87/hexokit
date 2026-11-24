@@ -130,41 +130,41 @@ The `queue` command's `Use`, Long (flag list, a paragraph on `--group`, Exit cod
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `queue --group g` stamps `group: g` on every engine item of that call, persisted and reloaded; other calls' items unaffected
-- [ ] A-002 R2: invalid or reserved group names are usage errors (exit 2) before any write, under `--dry-run` too
-- [ ] A-003 R3: the receipt shows the group in human and JSON forms
-- [ ] A-004 R4: spawn and respawn pass the item's group as `SpawnRequest.Session` with `EnsureSession: true`; ungrouped items still use `Env.Session`
-- [ ] A-005 R5: `RiffSpawner` ensures the session via the exported `internal/tmux` wrapper, joins an existing one, and kills only the placeholder it created
-- [ ] A-006 R6: `status` human row and `--json` carry the group, omitted when unset
-- [ ] A-007 R7: `queue` and `status` help text document `--group`
-- [ ] A-008 R8: skill § Plans updated and synced copy byte-identical
-- [ ] A-009 R9: `fab/project/operator.md` no longer instructs moving plan-queue lanes to `completed`
+- [x] A-001 R1: `queue --group g` stamps `group: g` on every engine item of that call, persisted and reloaded; other calls' items unaffected
+- [x] A-002 R2: invalid or reserved group names are usage errors (exit 2) before any write, under `--dry-run` too
+- [x] A-003 R3: the receipt shows the group in human and JSON forms
+- [x] A-004 R4: spawn and respawn pass the item's group as `SpawnRequest.Session` with `EnsureSession: true`; ungrouped items still use `Env.Session`
+- [x] A-005 R5: `RiffSpawner` ensures the session via the exported `internal/tmux` wrapper, joins an existing one, and kills only the placeholder it created
+- [x] A-006 R6: `status` human row and `--json` carry the group, omitted when unset
+- [x] A-007 R7: `queue` and `status` help text document `--group`
+- [x] A-008 R8: skill § Plans updated and synced copy byte-identical
+- [x] A-009 R9: `fab/project/operator.md` no longer instructs moving plan-queue lanes to `completed`
 
 ### Behavioral Correctness
 
-- [ ] A-010 R4: a queue without `--group` produces byte-identical engine items and spawn requests to before (existing tests unchanged and green)
+- [x] A-010 R4: a queue without `--group` produces byte-identical engine items and spawn requests to before (existing tests unchanged and green)
 
 ### Scenario Coverage
 
-- [ ] A-011 R4: a test drives a grouped item through spawn and a respawn and asserts the recorded `Session`
-- [ ] A-012 R2: a table test covers `_rk-` prefix, space, `:`, `.`, forbidden char, explicit empty
+- [x] A-011 R4: a test drives a grouped item through spawn and a respawn and asserts the recorded `Session`
+- [x] A-012 R2: a table test covers `_rk-` prefix, space, `:`, `.`, forbidden char, explicit empty
 
 ### Edge Cases & Error Handling
 
-- [ ] A-013 R5: an ensure failure fails the spawn with no worktree/window and the item stays pending (spawning cleared) with an escalation
-- [ ] A-014 R5: a spawn failure after a fresh session creation leaves no empty session (placeholder killed ⇒ session gone)
+- [x] A-013 R5: an ensure failure fails the spawn with no worktree/window and the item stays pending (spawning cleared) with an escalation
+- [x] A-014 R5: a spawn failure after a fresh session creation leaves no empty session (placeholder killed ⇒ session gone)
 
 ### Code Quality
 
-- [ ] A-015 Pattern consistency: new fields/flags follow the `plain`/`base`/`merge_mode` patterns (scope constants, omitempty, status suffix)
-- [ ] A-016 No unnecessary duplication: session creation reuses `ensureSessionCapturingPlaceholder`; no new tmux create path; tmux calls stay in `internal/tmux`
-- [ ] A-017 Process execution: every new tmux call is bounded by a context timeout and uses argv slices
-- [ ] A-018 No comment narration: comments state constraints only, no change IDs/PR numbers
-- [ ] A-019 Tests: new behavior covered by Go unit tests; `cd app/backend && go test ./internal/autopilot/... ./internal/tmux/... ./cmd/rk/...` green apart from the plan's known host-only failures
+- [x] A-015 Pattern consistency: new fields/flags follow the `plain`/`base`/`merge_mode` patterns (scope constants, omitempty, status suffix)
+- [x] A-016 No unnecessary duplication: session creation reuses `ensureSessionCapturingPlaceholder`; no new tmux create path; tmux calls stay in `internal/tmux`
+- [x] A-017 Process execution: every new tmux call is bounded by a context timeout and uses argv slices
+- [x] A-018 No comment narration: comments state constraints only, no change IDs/PR numbers
+- [x] A-019 Tests: new behavior covered by Go unit tests; `cd app/backend && go test ./internal/autopilot/... ./internal/tmux/... ./cmd/rk/...` green apart from the plan's known host-only failures
 
 ### Security
 
-- [ ] A-020 R2: the group name is validated before it reaches any tmux argv (Constitution I)
+- [x] A-020 R2: the group name is validated before it reaches any tmux argv (Constitution I)
 
 ## Notes
 
@@ -172,6 +172,10 @@ The `queue` command's `Use`, Long (flag list, a paragraph on `--group`, Exit cod
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
 - Known host-only failures (plan § Current state): `cmd/rk` `TestPortPinRowRealPolicyValues`, `rk/api` `TestTerminals_IsoSharedSessionSurvivesFirstClientDeath`.
+
+## Deletion Candidates
+
+- None — this change adds new functionality without making existing code redundant (the `completed`-group move in `fab/project/operator.md` stays for ungrouped lanes; `ensureDetachedSession` is untouched and still used by `EnsureOperatorSession`)
 
 ## Assumptions
 
