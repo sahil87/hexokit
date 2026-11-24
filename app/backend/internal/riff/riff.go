@@ -67,11 +67,11 @@ const (
 //
 // The numeric values conform to the shll toolkit exit-code convention
 // (Principle 4): 1 = operational failure, 2 = usage error, 3 = the documented
-// subprocess class. ExitValidation (usage: bad flags/args/preset/layout/count)
+// subprocess class. ExitValidation (usage: bad flags/args/riff preset/layout/count)
 // is 2; ExitPrecondition (operational: $TMUX unset, wt missing, not in a git
 // repo) is 1.
 const (
-	ExitValidation   = 2 // usage: unknown layout, invalid count, unknown/conflicting preset (CLI flag-parse errors are tagged usageError in cmd/rk/riff.go, not emitted here)
+	ExitValidation   = 2 // usage: unknown layout, invalid count, unknown/conflicting riff preset (CLI flag-parse errors are tagged usageError in cmd/rk/riff.go, not emitted here)
 	ExitPrecondition = 1 // operational: $TMUX unset, wt not on PATH, not in a git repo (CLI-only preconditions)
 	ExitSubprocess   = 3 // operational: wt/tmux non-zero exit, output parse failure, timeouts
 )
@@ -222,11 +222,11 @@ type OpenedWindow struct {
 
 // Options are the HTTP handler's inputs for a single (count=1) spawn.
 type Options struct {
-	Server   string // tmux server label (non-empty for the daemon path)
-	Session  string // target session the window is created in (scopes tmux window ops)
-	RepoRoot string // repo root for wt create / launcher resolution (required)
-	Task     string // optional task text → launcher positional arg (auto-submits)
-	Preset   string // optional preset name from run-kit's riff_presets (built-ins + user)
+	Server     string // tmux server label (non-empty for the daemon path)
+	Session    string // target session the window is created in (scopes tmux window ops)
+	RepoRoot   string // repo root for wt create / launcher resolution (required)
+	Task       string // optional task text → launcher positional arg (auto-submits)
+	RiffPreset string // optional riff preset name from run-kit's riff_presets (built-ins + user)
 	// Where selects isolation: "checkout" opens the window directly in RepoRoot
 	// (no worktree); "worktree" or "" (default) creates a worktree first.
 	Where string
@@ -362,14 +362,14 @@ func SpawnObserved(ctx context.Context, opts Options, prepare func(context.Conte
 		return Result{}, err
 	}
 
-	var preset *Preset
-	if opts.Preset != "" {
+	var preset *RiffPreset
+	if opts.RiffPreset != "" {
 		available := settings.RiffPresetMap(loadRiffPresets())
-		skill, ok := available[opts.Preset]
+		skill, ok := available[opts.RiffPreset]
 		if !ok {
-			return Result{}, ValidationErr("run-kit riff: unknown preset %q (defined: %s)", opts.Preset, joinPresetNames(available))
+			return Result{}, ValidationErr("run-kit riff: unknown riff preset %q (defined: %s)", opts.RiffPreset, joinRiffPresetNames(available))
 		}
-		preset = &Preset{Name: opts.Preset, Skill: skill}
+		preset = &RiffPreset{Name: opts.RiffPreset, Skill: skill}
 	}
 
 	// composePanes maps the (task, preset) pair to the endpoint's CLI-pane input

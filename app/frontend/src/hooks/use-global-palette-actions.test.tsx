@@ -55,6 +55,11 @@ vi.mock("@/lib/clipboard", () => ({
 }));
 import { copyToClipboard } from "@/lib/clipboard";
 
+// Focusing the dropdown is a DOM wait on the panel's own fetch; the entry's only
+// contract here is that it asks for it.
+vi.mock("@/lib/agent-preset-focus", () => ({ focusAgentPresetSelect: vi.fn() }));
+import { focusAgentPresetSelect } from "@/lib/agent-preset-focus";
+
 vi.mock("@/lib/help-topics", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/help-topics")>();
   return { ...actual, openHelpTopic: vi.fn() };
@@ -152,6 +157,7 @@ describe("useGlobalPaletteActions", () => {
       "settings-open",
       "settings-appearance",
       "settings-agents",
+      "settings-agent-preset",
       "settings-all",
     ];
     expect(order.slice(0, expectInOrder.length)).toEqual(expectInOrder);
@@ -222,6 +228,16 @@ describe("useGlobalPaletteActions", () => {
     expect(entry?.label).toBe("Settings: Agents");
     act(() => entry?.onSelect());
     expect(dialogState).toEqual({ isOpen: true, activeTab: "agents" });
+  });
+
+  it("Settings: Agent preset… opens the Agents tab and focuses the dropdown (id settings-agent-preset)", () => {
+    vi.mocked(focusAgentPresetSelect).mockClear();
+    renderHook();
+    const entry = captured.find((a) => a.id === "settings-agent-preset");
+    expect(entry?.label).toBe("Settings: Agent preset…");
+    act(() => entry?.onSelect());
+    expect(dialogState).toEqual({ isOpen: true, activeTab: "agents" });
+    expect(focusAgentPresetSelect).toHaveBeenCalledTimes(1);
   });
 
   it("Settings: All deep-links the All settings tab (id settings-all)", () => {

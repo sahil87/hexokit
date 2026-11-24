@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   getFabConfig,
   postFabConfig,
+  type FabAgentPreset,
   type FabConfigDocument,
   type FabField,
   type FabModelSuggestion,
@@ -9,6 +10,7 @@ import {
   type FabRole,
   type FabRoleCell,
 } from "@/api/client";
+import { AGENT_PRESET_SELECT_ID } from "@/lib/agent-preset-focus";
 import { controlClass } from "@/components/control";
 import { INPUT_FOCUS } from "@/components/controls";
 import { BoolToggle, CopyValueButton } from "@/components/settings-all-panel";
@@ -33,6 +35,7 @@ type Document = Extract<FabConfigDocument, { installed: true }>;
 type Patch = Record<string, string | number | boolean | null>;
 type Write = (patch: Patch) => Promise<void>;
 
+const KEY_PRESET = "agent.preset";
 const KEY_SESSION = "agent.session";
 const KEY_WORKERS = "agent.workers";
 const KEY_MODE = "dispatch.mode";
@@ -41,6 +44,9 @@ const KEY_MIN_COLS = "dispatch.min_cols";
 const KEY_MIN_ROWS = "dispatch.min_rows";
 const KEY_REAP_DONE = "dispatch.reap_done";
 const DISPATCH_MODES = ["pane", "native", "headless"];
+// fab's reserved preset name: select no preset, even one a project defines.
+const PRESET_NONE = "none";
+const PRESET_NONE_OPTION_LABEL = "none (opts out of project presets)";
 const SYSTEM_CONFIG_FALLBACK_PATH = "~/.fab-kit/config.yaml";
 const INHERIT_FALLBACK = "tool default";
 const NO_EFFORT_TITLE = "this tool takes no effort setting";
@@ -57,8 +63,25 @@ function errorMessage(err: unknown): string {
   return err instanceof Error && err.message ? err.message : "Failed to save";
 }
 
+/** A preset-supplied value is inherited from the preset, never an override. */
 function hasSystemOverride(field: FabField | undefined): boolean {
-  return field !== undefined && (field.origin === "system" || field.systemValue !== undefined);
+  return (
+    field !== undefined &&
+    field.preset === undefined &&
+    (field.origin === "system" || field.systemValue !== undefined)
+  );
+}
+
+/** A value set explicitly (the system file or the environment) rather than
+ *  inherited from a default or supplied by a preset. */
+function isExplicitField(field: FabField | undefined): boolean {
+  return (
+    field !== undefined && field.preset === undefined && (field.origin === "system" || field.origin === "env")
+  );
+}
+
+function isExplicitCell(cell: FabRoleCell): boolean {
+  return cell.preset === undefined && (cell.override !== null || cell.origin === "env");
 }
 
 /** The tool leaf is neutral: the backend writes it in the installed fab's
@@ -69,7 +92,18 @@ function profileKey(role: string, leaf: "tool" | "model" | "effort"): string {
 
 /** Provenance chip: which tier the effective value comes from. `env` renders
  *  amber (it shadows the saved value); `project` is read-only informational. */
-function ProvenanceChip({ origin, detail }: { origin: FabOrigin | ""; detail?: string }) {
+function ProvenanceChip({ origin, detail, preset }: { origin: FabOrigin | ""; detail?: string; preset?: string }) {
+  if (preset !== undefined) {
+    return (
+      <span
+        data-testid="provenance-chip"
+        title={`preset ${preset}`}
+        className="px-1 py-px border rounded text-[9px] uppercase tracking-wide text-text-secondary border-border"
+      >
+        preset
+      </span>
+    );
+  }
   if (origin === "") return null;
   const tone = origin === "env" ? "text-signal-yellow border-signal-yellow" : "text-text-secondary border-border";
   return (
@@ -208,11 +242,11 @@ function FabRow({
       <PreferenceRow label={label} sublabel={sublabel} meta={fieldKey}>
         <div className="flex flex-wrap items-center gap-2">
           {children}
-          {field && <ProvenanceChip origin={field.origin} detail={field.originDetail} />}
+          {field && <ProvenanceChip origin={field.origin} detail={field.originDetail} preset={field.preset} />}
           <ModifiedDot modified={modified} />
           {modified && <ResetLink label={`Reset ${fieldKey}`} onReset={onReset} busy={busy} />}
         </div>
-        {field?.origin === "env" && (
+        {field?.origin === "env" && field.preset === undefined && (
           <EnvShadowWarning detail={field.originDetail} systemValue={field.systemValue} />
         )}
         <TextSettingError error={error} />
@@ -942,6 +976,12 @@ function toolChangePatch(
   return patch;
 }
 
+/** Provenance for a role leaf a preset supplied; nothing for any other leaf. */
+function PresetCellChip({ cell }: { cell: FabRoleCell }) {
+  if (cell.preset === undefined) return null;
+  return <ProvenanceChip origin={cell.origin} detail={cell.originDetail} preset={cell.preset} />;
+}
+
 function RoleRow({
   role,
   tools,
@@ -970,7 +1010,7 @@ function RoleRow({
   // A saved value shadowed by an env var still counts: reset is the only way
   // to clear it from here.
   const overridden = [role.tool, role.model, role.effort].some(
-    (cell) => cell.override !== null || cell.systemValue !== undefined,
+    (cell) => cell.preset === undefined && (cell.override !== null || cell.systemValue !== undefined),
   );
   return (
     <>
@@ -986,7 +1026,8 @@ function RoleRow({
               disabled={busy}
               onChange={(v) => void run(toolChangePatch(role, v, depthTool, modelSuggestions, toolDefaults, efforts, effortCapable))}
             />
-            {role.tool.origin === "env" && (
+            <PresetCellChip cell={role.tool} />
+            {role.tool.origin === "env" && role.tool.preset === undefined && (
               <span
                 role="img"
                 aria-label="CLI set by an environment variable"
@@ -999,25 +1040,31 @@ function RoleRow({
           </span>
         </td>
         <td className="py-1.5 pr-2">
-          <RoleModelCell
-            role={role.role}
-            cell={role.model}
-            suggestions={suggestions}
-            toolDefault={toolDefault}
-            busy={busy}
-            pick={(v) => void run({ [profileKey(role.role, "model")]: v })}
-            commit={(v) => write({ [profileKey(role.role, "model")]: v })}
-          />
+          <span className="inline-flex items-center gap-1">
+            <RoleModelCell
+              role={role.role}
+              cell={role.model}
+              suggestions={suggestions}
+              toolDefault={toolDefault}
+              busy={busy}
+              pick={(v) => void run({ [profileKey(role.role, "model")]: v })}
+              commit={(v) => write({ [profileKey(role.role, "model")]: v })}
+            />
+            <PresetCellChip cell={role.model} />
+          </span>
         </td>
         <td className="py-1.5 pr-2">
-          <RoleSelect
-            label={`${role.role} effort`}
-            cell={role.effort}
-            options={modelEfforts(role, suggestions, toolDefault, efforts)}
-            disabled={busy || !effortOK}
-            title={effortOK ? undefined : NO_EFFORT_TITLE}
-            onChange={(v) => void run({ [profileKey(role.role, "effort")]: v })}
-          />
+          <span className="inline-flex items-center gap-1">
+            <RoleSelect
+              label={`${role.role} effort`}
+              cell={role.effort}
+              options={modelEfforts(role, suggestions, toolDefault, efforts)}
+              disabled={busy || !effortOK}
+              title={effortOK ? undefined : NO_EFFORT_TITLE}
+              onChange={(v) => void run({ [profileKey(role.role, "effort")]: v })}
+            />
+            <PresetCellChip cell={role.effort} />
+          </span>
         </td>
         <td className="py-1.5">
           {overridden && (
@@ -1104,6 +1151,117 @@ function RoleTable({ doc, write }: { doc: Document; write: Write }) {
   );
 }
 
+/** The preset dropdown. None unsets `agent.preset`; a `none` set from a shell
+ *  and a name fab no longer lists stay visible so they remain clearable. */
+function AgentPresetRow({
+  field,
+  presets,
+  write,
+}: {
+  field: FabField | undefined;
+  presets: FabAgentPreset[];
+  write: Write;
+}) {
+  const { busy, error, run } = useRowWrite(write);
+  const current = stringValue(field);
+  const listed = presets.some((p) => p.name === current);
+  return (
+    <FabRow
+      fieldKey={KEY_PRESET}
+      label="Agent preset"
+      sublabel="One named role assignment for this machine"
+      field={field}
+      busy={busy}
+      error={error}
+      onReset={() => void run({ [KEY_PRESET]: null })}
+    >
+      <select
+        id={AGENT_PRESET_SELECT_ID}
+        data-testid="agent-preset-select"
+        aria-label="Agent preset"
+        value={current}
+        disabled={busy}
+        onChange={(e) => void run({ [KEY_PRESET]: e.target.value === "" ? null : e.target.value })}
+        className={`${roleSelectBase} max-w-[16rem] ${current === "" ? "text-text-secondary" : ""}`}
+      >
+        <option value="">None</option>
+        {current === PRESET_NONE && <option value={PRESET_NONE}>{PRESET_NONE_OPTION_LABEL}</option>}
+        {current !== "" && current !== PRESET_NONE && !listed && (
+          <option value={current}>{current} (unknown)</option>
+        )}
+        {presets.map((p) => (
+          <option key={p.name} value={p.name}>
+            {p.description ? `${p.name} — ${p.description}` : p.name}
+          </option>
+        ))}
+      </select>
+    </FabRow>
+  );
+}
+
+/** How many explicit values sit on keys the selected preset also sets: the
+ *  depth knobs it names and the role leaves under `profiles`. A role's `cli`
+ *  leaf is that role's tool cell. */
+function presetOverrideCount(doc: Document, preset: FabAgentPreset): number {
+  let count = 0;
+  if (preset.session !== undefined && isExplicitField(doc.fields[KEY_SESSION])) count++;
+  if (preset.workers !== undefined && isExplicitField(doc.fields[KEY_WORKERS])) count++;
+  for (const [roleName, leaves] of Object.entries(preset.profiles ?? {})) {
+    const role = doc.roles.find((r) => r.role === roleName);
+    if (!role) continue;
+    for (const leaf of Object.keys(leaves)) {
+      const cell = leaf === "cli" ? role.tool : leaf === "model" ? role.model : leaf === "effort" ? role.effort : undefined;
+      if (cell !== undefined && isExplicitCell(cell)) count++;
+    }
+  }
+  return count;
+}
+
+/** Note only — never an offer to clear: the per-row reset links stay the way. */
+function PresetOverrideNote({ count }: { count: number }) {
+  if (count === 0) return null;
+  return (
+    <p data-testid="agent-preset-override-note" className="text-[10px] text-text-secondary pb-2 leading-relaxed">
+      {count} explicit {count === 1 ? "field overrides" : "fields override"} parts of this preset — see Customize
+    </p>
+  );
+}
+
+/** Explicit values across both depth knobs and every role cell. */
+function explicitCount(doc: Document): number {
+  const knobs = [doc.fields[KEY_SESSION], doc.fields[KEY_WORKERS]].filter(isExplicitField).length;
+  const cells = doc.roles.flatMap((r) => [r.tool, r.model, r.effort]).filter(isExplicitCell).length;
+  return knobs + cells;
+}
+
+/** The knobs and role grid behind a keyboard-operable toggle: collapsed while
+ *  nothing is set explicitly, open otherwise so an existing override is never
+ *  hidden. */
+function CustomizeDisclosure({ count, children }: { count: number; children: React.ReactNode }) {
+  const [open, setOpen] = useState(count > 0);
+  const panelId = useId();
+  return (
+    <div data-testid="agent-customize">
+      <button
+        type="button"
+        data-testid="agent-customize-toggle"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((o) => !o)}
+        className={`w-full text-left py-2.5 text-xs text-text-primary hover:text-accent ${INPUT_FOCUS}`}
+      >
+        <span aria-hidden className="inline-block w-3 text-text-secondary">
+          {open ? "▾" : "▸"}
+        </span>
+        Customize · {count} set explicitly
+      </button>
+      <div id={panelId} hidden={!open} className="divide-y divide-border/40">
+        {open && children}
+      </div>
+    </div>
+  );
+}
+
 function AgentsContent({
   doc,
   write,
@@ -1114,6 +1272,29 @@ function AgentsContent({
   warnings: string[];
 }) {
   const f = doc.fields;
+  const presets = doc.agent_presets;
+  const selected = presets?.find((p) => p.name === stringValue(f[KEY_PRESET]));
+  const knobs = (
+    <>
+      <ChipRow
+        fieldKey={KEY_SESSION}
+        label="Session CLI"
+        sublabel="What you talk to: fab agent, operator, batch"
+        options={doc.tools}
+        field={f[KEY_SESSION]}
+        write={write}
+      />
+      <ChipRow
+        fieldKey={KEY_WORKERS}
+        label="Worker CLI"
+        sublabel="What pipeline stages dispatch to"
+        options={doc.tools}
+        field={f[KEY_WORKERS]}
+        write={write}
+      />
+      <RoleTable doc={doc} write={write} />
+    </>
+  );
   return (
     <>
       <section aria-label="Agent CLIs">
@@ -1122,23 +1303,17 @@ function AgentsContent({
           hint={`${doc.systemPath || SYSTEM_CONFIG_FALLBACK_PATH} · machine-wide, outranks project files`}
         />
         <div className="divide-y divide-border/40">
-          <ChipRow
-            fieldKey={KEY_SESSION}
-            label="Session CLI"
-            sublabel="What you talk to: fab agent, operator, batch"
-            options={doc.tools}
-            field={f[KEY_SESSION]}
-            write={write}
-          />
-          <ChipRow
-            fieldKey={KEY_WORKERS}
-            label="Worker CLI"
-            sublabel="What pipeline stages dispatch to"
-            options={doc.tools}
-            field={f[KEY_WORKERS]}
-            write={write}
-          />
-          <RoleTable doc={doc} write={write} />
+          {presets ? (
+            <>
+              <div>
+                <AgentPresetRow field={f[KEY_PRESET]} presets={presets} write={write} />
+                {selected && <PresetOverrideNote count={presetOverrideCount(doc, selected)} />}
+              </div>
+              <CustomizeDisclosure count={explicitCount(doc)}>{knobs}</CustomizeDisclosure>
+            </>
+          ) : (
+            knobs
+          )}
         </div>
       </section>
 

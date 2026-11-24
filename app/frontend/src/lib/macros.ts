@@ -26,7 +26,7 @@ import type { KeyBinding } from "@/lib/keybindings";
 
 /** What a macro executes. A discriminated union — never a shell string. */
 export type MacroTarget =
-  | { type: "riff"; preset: string }
+  | { type: "riff"; riff_preset: string }
   | { type: "palette"; paletteActionId: string };
 
 export type MacroAction = {
@@ -47,59 +47,88 @@ export function isMacroActionId(actionId: string): boolean {
   return actionId.startsWith(MACRO_ID_PREFIX);
 }
 
-function isMacroTarget(value: unknown): value is MacroTarget {
-  if (typeof value !== "object" || value === null || !("type" in value)) return false;
-  if (value.type === "riff") {
-    return "preset" in value && typeof value.preset === "string" && value.preset.length > 0;
-  }
-  if (value.type === "palette") {
-    return (
-      "paletteActionId" in value &&
-      typeof value.paletteActionId === "string" &&
-      value.paletteActionId.length > 0
-    );
-  }
-  return false;
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
 }
 
-function isMacroAction(value: unknown): value is MacroAction {
-  if (typeof value !== "object" || value === null) return false;
-  if (!("actionId" in value) || !("label" in value) || !("target" in value)) return false;
-  return (
-    typeof value.actionId === "string" &&
-    isMacroActionId(value.actionId) &&
-    typeof value.label === "string" &&
-    value.label.length > 0 &&
-    isMacroTarget(value.target)
-  );
+/** The riff-preset name a stored riff target carries: `riff_preset`, or the
+ *  legacy `preset` key written before the rename (dual-read). */
+function storedRiffPreset(target: object): string | null {
+  if ("riff_preset" in target && nonEmptyString(target.riff_preset)) return target.riff_preset;
+  if ("preset" in target && nonEmptyString(target.preset)) return target.preset;
+  return null;
+}
+
+/** Validate a stored target and re-project it to the current shape (a legacy
+ *  riff `preset` becomes `riff_preset`); null when it is not a valid target. */
+function parseMacroTarget(value: unknown): MacroTarget | null {
+  if (typeof value !== "object" || value === null || !("type" in value)) return null;
+  if (value.type === "riff") {
+    const riffPreset = storedRiffPreset(value);
+    return riffPreset === null ? null : { type: "riff", riff_preset: riffPreset };
+  }
+  if (value.type === "palette") {
+    return "paletteActionId" in value && nonEmptyString(value.paletteActionId)
+      ? { type: "palette", paletteActionId: value.paletteActionId }
+      : null;
+  }
+  return null;
+}
+
+function parseStoredList(raw: string | null): unknown[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 /** Tolerant parse of the stored macro list: malformed JSON, a non-array root,
  *  or garbage entries degrade to dropped/empty (the `parseOverrides` posture). */
 export function parseMacros(raw: string | null): MacroAction[] {
-  if (!raw) return [];
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(parsed)) return [];
   const macros: MacroAction[] = [];
-  for (const entry of parsed) {
-    if (!isMacroAction(entry)) continue;
+  for (const entry of parseStoredList(raw)) {
+    if (typeof entry !== "object" || entry === null) continue;
+    if (!("actionId" in entry) || !("label" in entry) || !("target" in entry)) continue;
+    const { actionId, label } = entry;
+    if (typeof actionId !== "string" || !isMacroActionId(actionId)) continue;
+    if (!nonEmptyString(label)) continue;
+    const target = parseMacroTarget(entry.target);
+    if (target === null) continue;
     // Re-project the valid fields (drops unknown keys, pins kind).
-    macros.push({
-      actionId: entry.actionId,
-      kind: "macro",
-      label: entry.label,
-      target:
-        entry.target.type === "riff"
-          ? { type: "riff", preset: entry.target.preset }
-          : { type: "palette", paletteActionId: entry.target.paletteActionId },
-    });
+    macros.push({ actionId, kind: "macro", label, target });
   }
   return macros;
+}
+
+/** Whether the stored list still holds a riff target in the legacy `preset`
+ *  shape (no `riff_preset`), i.e. one `migrateLegacyMacros` should rewrite. */
+export function hasLegacyRiffMacro(raw: string | null): boolean {
+  return parseStoredList(raw).some((entry) => {
+    if (typeof entry !== "object" || entry === null || !("target" in entry)) return false;
+    const target = entry.target;
+    if (typeof target !== "object" || target === null) return false;
+    return (
+      "type" in target &&
+      target.type === "riff" &&
+      "preset" in target &&
+      !("riff_preset" in target)
+    );
+  });
+}
+
+/** Rewrite stored macros once in the current shape when any riff entry still
+ *  uses the legacy `preset` key. No-op otherwise; best-effort like every other
+ *  localStorage access here. */
+export function migrateLegacyMacros(): void {
+  try {
+    const raw = localStorage.getItem(MACROS_STORAGE_KEY);
+    if (hasLegacyRiffMacro(raw)) writeStoredMacros(parseMacros(raw));
+  } catch {
+    /* noop — best-effort persistence */
+  }
 }
 
 /** Read the persisted macros; `[]` when absent or localStorage is unavailable. */
@@ -164,9 +193,9 @@ export function macroToBinding(macro: MacroAction): KeyBinding {
 }
 
 /** The overlay row's resolved-command preview (per the g40a mock's macro-cmd
- *  chip): `rk riff --preset discuss` / `palette: {actionId}`. */
+ *  chip): `rk riff --riff-preset discuss` / `palette: {actionId}`. */
 export function macroCommandPreview(target: MacroTarget): string {
   return target.type === "riff"
-    ? `rk riff --preset ${target.preset}`
+    ? `rk riff --riff-preset ${target.riff_preset}`
     : `palette: ${target.paletteActionId}`;
 }

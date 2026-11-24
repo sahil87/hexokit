@@ -6,55 +6,55 @@ import (
 	"strings"
 )
 
-// Preset is one resolved riff preset: a name and the single skill it renders
+// RiffPreset is one resolved riff preset: a name and the single skill it renders
 // into one skill pane. An empty Skill is the bare launcher.
-type Preset struct {
+type RiffPreset struct {
 	Name  string
 	Skill string
 }
 
 // Panes renders the preset as its single skill pane.
-func (p Preset) Panes() []PaneSpec {
+func (p RiffPreset) Panes() []PaneSpec {
 	return []PaneSpec{{Kind: PaneKindSkill, Value: p.Skill}}
 }
 
-// ResolveActivePreset determines which preset (if any) applies to a CLI
-// invocation. Returns the preset, the remaining positional args after any
-// preset consumption, and an error on ambiguous/unknown inputs. Exported so the
+// ResolveActiveRiffPreset determines which riff preset (if any) applies to a CLI
+// invocation. Returns the riff preset, the remaining positional args after any
+// riff-preset consumption, and an error on ambiguous/unknown inputs. Exported so the
 // CLI (which owns positional/flag parsing) can call it.
 //
 // Rules:
-//   - Both --preset and a matching positional → error (mutually exclusive).
-//   - --preset provided and unknown → error (lists defined presets).
-//   - Positional matches a defined preset exactly → consume arg[0].
-//   - Else no preset applies; args returned untouched.
-func ResolveActivePreset(args []string, positionalCandidate, presetFlag string, available map[string]string) (*Preset, []string, error) {
-	positionalMatch := positionalCandidate != "" && hasPreset(available, positionalCandidate)
+//   - Both --riff-preset and a matching positional → error (mutually exclusive).
+//   - --riff-preset provided and unknown → error (lists defined riff presets).
+//   - Positional matches a defined riff preset exactly → consume arg[0].
+//   - Else no riff preset applies; args returned untouched.
+func ResolveActiveRiffPreset(args []string, positionalCandidate, riffPresetFlag string, available map[string]string) (*RiffPreset, []string, error) {
+	positionalMatch := positionalCandidate != "" && hasRiffPreset(available, positionalCandidate)
 
-	if presetFlag != "" && positionalMatch {
-		return nil, args, fmt.Errorf("run-kit riff: positional preset %q and --preset %q are mutually exclusive", positionalCandidate, presetFlag)
+	if riffPresetFlag != "" && positionalMatch {
+		return nil, args, fmt.Errorf("run-kit riff: positional riff preset %q and --riff-preset %q are mutually exclusive", positionalCandidate, riffPresetFlag)
 	}
-	if presetFlag != "" {
-		skill, ok := available[presetFlag]
+	if riffPresetFlag != "" {
+		skill, ok := available[riffPresetFlag]
 		if !ok {
-			return nil, args, fmt.Errorf("run-kit riff: unknown preset %q (defined: %s)", presetFlag, joinPresetNames(available))
+			return nil, args, fmt.Errorf("run-kit riff: unknown riff preset %q (defined: %s)", riffPresetFlag, joinRiffPresetNames(available))
 		}
-		return &Preset{Name: presetFlag, Skill: skill}, args, nil
+		return &RiffPreset{Name: riffPresetFlag, Skill: skill}, args, nil
 	}
 	if positionalMatch {
-		return &Preset{Name: positionalCandidate, Skill: available[positionalCandidate]}, args[1:], nil
+		return &RiffPreset{Name: positionalCandidate, Skill: available[positionalCandidate]}, args[1:], nil
 	}
 	return nil, args, nil
 }
 
-func hasPreset(available map[string]string, name string) bool {
+func hasRiffPreset(available map[string]string, name string) bool {
 	_, ok := available[name]
 	return ok
 }
 
-// joinPresetNames returns a comma-separated sorted list of preset names, or
-// `(none)` if the map is empty.
-func joinPresetNames(m map[string]string) string {
+// joinRiffPresetNames returns a comma-separated sorted list of riff preset
+// names, or `(none)` if the map is empty.
+func joinRiffPresetNames(m map[string]string) string {
 	if len(m) == 0 {
 		return "(none)"
 	}
@@ -66,7 +66,7 @@ func joinPresetNames(m map[string]string) string {
 	return strings.Join(names, ", ")
 }
 
-// composePanes maps the HTTP endpoint's (task, preset) pair to the CLI-pane
+// composePanes maps the HTTP endpoint's (task, riff preset) pair to the CLI-pane
 // input for ResolveEffectiveSpec — the endpoint's task-injection composition
 // rules (R6/R7), as a pure, table-testable seam:
 //
@@ -81,7 +81,7 @@ func joinPresetNames(m map[string]string) string {
 //
 // A nil returned slice means "let the preset/default decide"; a non-nil slice
 // means "these panes replace the preset's".
-func composePanes(task string, preset *Preset) []PaneSpec {
+func composePanes(task string, preset *RiffPreset) []PaneSpec {
 	switch {
 	case task != "":
 		return []PaneSpec{{Kind: PaneKindSkill, Value: task}}
@@ -110,7 +110,7 @@ func composePanes(task string, preset *Preset) []PaneSpec {
 // cliPanes (a bare or task skill pane) BEFORE calling this, so it never reaches
 // that fallback — the endpoint's blank-agent default is a bare launcher, not
 // /fab-discuss.
-func ResolveEffectiveSpec(cliPanes []PaneSpec, layoutExplicit bool, layoutCanonical string, cliCount int, preset *Preset, passthrough []string) (EffectiveSpec, error) {
+func ResolveEffectiveSpec(cliPanes []PaneSpec, layoutExplicit bool, layoutCanonical string, cliCount int, preset *RiffPreset, passthrough []string) (EffectiveSpec, error) {
 	spec := EffectiveSpec{Count: cliCount}
 
 	switch {

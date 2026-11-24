@@ -11,11 +11,19 @@
 //	fab config show <key> --origin --json  one key's tier stack, winner first
 //	fab config explain --json              per-key {key, default, description, scope, advertise}
 //	fab agent models --json                per-(tool, model) {cli|provider, id, label, efforts, default, source}
+//	fab agent presets --json               per-preset {name, description, source, session?, workers?, profiles?}
 //
 // The model rows are the tools' own offering; a fab without the verb (or a
 // failing discovery) falls back to the fill values in `fab config show`. A
 // tool's reserved row (source "reserved") is not a model: it is the value that
 // asks for the tool's own default, carried apart from the suggestions.
+//
+// The preset list is optional: a fab without `agent presets`, or one whose
+// call fails or prints something other than a JSON array, leaves the document
+// without agent_presets and every other field unchanged. A leaf a preset
+// supplied keeps the layer that chose the preset as its origin and carries an
+// origin_detail of "preset <name>"; it is surfaced as Preset and is never an
+// override (resetting it would unset nothing).
 //
 // Writes validate the patch in full first (§I — fab itself rejects most bad
 // values but the daemon must not rely on it for subprocess input), then run
@@ -54,6 +62,7 @@ const FabTimeout = 10 * time.Second
 
 // Config key names the UI surfaces.
 const (
+	KeyAgentPreset      = "agent.preset"
 	KeyAgentSession     = "agent.session"
 	KeyAgentWorkers     = "agent.workers"
 	KeyDispatchMode     = "dispatch.mode"
@@ -84,11 +93,15 @@ const (
 	headlessCmdLeaf     = ".headless_command"
 	effortToken         = "{effort}"
 	sourceReserved      = "reserved"
+	// presetOriginPrefix starts the origin_detail of a leaf a preset supplied.
+	presetOriginPrefix = "preset "
+	// presetNone is fab's reserved name that selects no preset; fab never lists it.
+	presetNone = "none"
 )
 
 // ScalarKeys are the v1 non-profile keys, in display order.
 var ScalarKeys = []string{
-	KeyAgentSession, KeyAgentWorkers,
+	KeyAgentPreset, KeyAgentSession, KeyAgentWorkers,
 	KeyDispatchMode, KeyDispatchColWidth, KeyDispatchMinCols, KeyDispatchMinRows, KeyDispatchReapDone,
 }
 
@@ -211,11 +224,15 @@ type Field struct {
 	// SystemValue is the system-tier value shadowed by an env winner.
 	SystemValue any    `json:"systemValue,omitempty"`
 	Description string `json:"description,omitempty"`
+	// Preset names the preset that supplied this value; such a value is never
+	// an override.
+	Preset string `json:"preset,omitempty"`
 }
 
 // Cell is one role leaf (tool, model or effort).
 type Cell struct {
-	// Override is set only when the leaf's origin is the system tier.
+	// Override is set only when the system tier itself set the leaf — never
+	// for a value a preset supplied.
 	Override     *string `json:"override"`
 	Effective    string  `json:"effective"`
 	Source       string  `json:"source"`
@@ -227,6 +244,8 @@ type Cell struct {
 	Inherited string `json:"inherited"`
 	// SystemValue is the system-tier value shadowed by an env winner.
 	SystemValue *string `json:"systemValue,omitempty"`
+	// Preset names the preset that supplied this leaf.
+	Preset string `json:"preset,omitempty"`
 }
 
 // Role is one row of the per-role override table.
@@ -240,9 +259,12 @@ type Role struct {
 
 // Document is the GET /api/fab-config payload.
 type Document struct {
-	Installed         bool                         `json:"installed"`
-	SystemPath        string                       `json:"systemPath,omitempty"`
-	Tools             []string                     `json:"tools,omitempty"`
+	Installed  bool     `json:"installed"`
+	SystemPath string   `json:"systemPath,omitempty"`
+	Tools      []string `json:"tools,omitempty"`
+	// AgentPresets is `fab agent presets --json`; omitted when the installed
+	// fab cannot list presets.
+	AgentPresets      []AgentPreset                `json:"agent_presets,omitempty"`
 	Fields            map[string]Field             `json:"fields,omitempty"`
 	Roles             []Role                       `json:"roles,omitempty"`
 	ModelSuggestions  map[string][]ModelSuggestion `json:"modelSuggestions,omitempty"`
@@ -258,6 +280,19 @@ type Document struct {
 	// Warnings are fab's stderr warning lines: discovery warnings on every
 	// Read, plus the write calls' warnings on an Apply.
 	Warnings []string `json:"warnings,omitempty"`
+}
+
+// AgentPreset is one named role assignment from `fab agent presets --json`.
+// Fields a preset does not set are omitted.
+type AgentPreset struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// Source is built-in | system | project | env.
+	Source  string `json:"source"`
+	Session string `json:"session,omitempty"`
+	Workers string `json:"workers,omitempty"`
+	// Profiles maps role → {cli, model, effort}.
+	Profiles map[string]map[string]string `json:"profiles,omitempty"`
 }
 
 // ModelSuggestion is one model a tool offers, as `fab agent models` reports it.
@@ -394,10 +429,13 @@ func (c *Client) Read(ctx context.Context) (*Document, error) {
 	// config reads and is joined before suggestions are built.
 	discovered := make(chan discovery, 1)
 	go func() { discovered <- c.discoverModels(ctx) }()
+	listed := make(chan presetList, 1)
+	go func() { listed <- c.listPresets(ctx) }()
 
 	rows, err := c.loadRows(ctx)
 	if err != nil {
 		<-discovered
+		<-listed
 		return nil, err
 	}
 	byKey := indexRows(rows)
@@ -419,6 +457,10 @@ func (c *Client) Read(ctx context.Context) (*Document, error) {
 		doc.ToolDefaults = discoveredToolDefaults(found.rows, doc.Tools)
 		doc.Warnings = found.warnings
 	}
+	if presets := <-listed; presets.ok {
+		doc.AgentPresets = presets.presets
+		doc.Warnings = appendUnique(doc.Warnings, presets.warnings)
+	}
 	for _, t := range doc.Tools {
 		if !found.ok {
 			doc.ModelSuggestions[t] = modelSuggestions(rows, t)
@@ -437,7 +479,8 @@ func (c *Client) Read(ctx context.Context) (*Document, error) {
 			OriginDetail: row.OriginDetail,
 			Description:  descriptions[key],
 		}
-		if row.Origin == originEnv {
+		f.Preset = presetOf(row.OriginDetail)
+		if row.Origin == originEnv && f.Preset == "" {
 			f.SystemValue = c.systemValue(ctx, key)
 		}
 		doc.Fields[key] = f
@@ -450,7 +493,7 @@ func (c *Client) Read(ctx context.Context) (*Document, error) {
 			profileKeyPrefix + rd.Name + "." + profileLeafModel:  &role.Model,
 			profileKeyPrefix + rd.Name + "." + profileLeafEffort: &role.Effort,
 		} {
-			if cell.Origin != originEnv {
+			if cell.Origin != originEnv || cell.Preset != "" {
 				continue
 			}
 			if v := c.systemValue(ctx, key); v != nil {
@@ -595,6 +638,57 @@ func (c *Client) discoverModels(ctx context.Context) discovery {
 	return discovery{rows: rows, warnings: warningLines(stderr), ok: true}
 }
 
+// presetList is the outcome of one `fab agent presets --json` call; ok is
+// false when it failed for any reason (a fab without the verb is the expected
+// one, so a failure is silent).
+type presetList struct {
+	presets  []AgentPreset
+	warnings []string
+	ok       bool
+}
+
+func (c *Client) listPresets(ctx context.Context) presetList {
+	stdout, stderr, err := c.run(ctx, "agent", "presets", "--json")
+	if err != nil {
+		return presetList{}
+	}
+	var presets []AgentPreset
+	// A JSON null decodes without error; it is not a list, so fall back too.
+	if json.Unmarshal(stdout, &presets) != nil || presets == nil {
+		return presetList{}
+	}
+	return presetList{presets: presets, warnings: warningLines(stderr), ok: true}
+}
+
+func (l presetList) names() []string {
+	names := make([]string, 0, len(l.presets))
+	for _, p := range l.presets {
+		names = append(names, p.Name)
+	}
+	return names
+}
+
+// presetOf is the preset name an origin_detail of "preset <name>" carries,
+// else "".
+func presetOf(originDetail string) string {
+	name, _ := strings.CutPrefix(originDetail, presetOriginPrefix)
+	if name == originDetail {
+		return ""
+	}
+	return name
+}
+
+// appendUnique appends the lines of extra that dst does not already hold: fab
+// repeats a config-level warning on every call it makes.
+func appendUnique(dst, extra []string) []string {
+	for _, line := range extra {
+		if !contains(dst, line) {
+			dst = append(dst, line)
+		}
+	}
+	return dst
+}
+
 // discoveredSuggestions keys fab's rows by tool in fab's order. Only tools in
 // tools are kept, each with an entry; reserved rows, empty ids and repeated
 // ids (first wins) are dropped.
@@ -730,16 +824,16 @@ func cellFor(byKey map[string]showRow, key, fallbackKey string) Cell {
 	row, ok := byKey[key]
 	if !ok {
 		if fb, ok := byKey[fallbackKey]; ok && fallbackKey != "" {
-			return Cell{Effective: valueString(fb.Value), Source: fallbackKey, Origin: fb.Origin, OriginDetail: fb.OriginDetail}
+			return Cell{Effective: valueString(fb.Value), Source: fallbackKey, Origin: fb.Origin, OriginDetail: fb.OriginDetail, Preset: presetOf(fb.OriginDetail)}
 		}
 		return Cell{Source: ""}
 	}
 	val := valueString(row.Value)
-	cell := Cell{Effective: val, Source: key, Origin: row.Origin, OriginDetail: row.OriginDetail}
+	cell := Cell{Effective: val, Source: key, Origin: row.Origin, OriginDetail: row.OriginDetail, Preset: presetOf(row.OriginDetail)}
 	if row.DerivedFrom != nil && row.DerivedFrom.Key != "" {
 		cell.Source = row.DerivedFrom.Key
 	}
-	if row.Origin == originSystem {
+	if row.Origin == originSystem && cell.Preset == "" {
 		cell.Override = &val
 	}
 	return cell
@@ -791,8 +885,9 @@ func (o op) argv() []string {
 
 // validate turns a raw patch into ops sorted by the key fab will write, or a
 // ValidationError. Nothing is exec'd here. tools is the effective tool set;
-// toolLeaf is the installed fab's spelling every role tool leaf is written as.
-func validate(patch map[string]json.RawMessage, tools []string, toolLeaf string) ([]op, error) {
+// toolLeaf is the installed fab's spelling every role tool leaf is written as;
+// presets is fab's current preset list, consulted only for an agent.preset set.
+func validate(patch map[string]json.RawMessage, tools []string, toolLeaf string, presets presetList) ([]op, error) {
 	keys := make([]string, 0, len(patch))
 	for k := range patch {
 		keys = append(keys, k)
@@ -815,7 +910,7 @@ func validate(patch map[string]json.RawMessage, tools []string, toolLeaf string)
 			ops = append(ops, op{key: target})
 			continue
 		}
-		val, err := validateValue(key, raw, tools)
+		val, err := validateValue(key, raw, tools, presets)
 		if err != nil {
 			return nil, &ValidationError{Msg: key + ": " + err.Error()}
 		}
@@ -838,7 +933,7 @@ func writeKey(key, toolLeaf string) string {
 	return key[:strings.LastIndex(key, ".")+1] + toolLeaf
 }
 
-func validateValue(key string, raw json.RawMessage, tools []string) (*string, error) {
+func validateValue(key string, raw json.RawMessage, tools []string, presets presetList) (*string, error) {
 	switch key {
 	case KeyDispatchReapDone:
 		var b bool
@@ -866,6 +961,9 @@ func validateValue(key string, raw json.RawMessage, tools []string) (*string, er
 	}
 	s = strings.TrimSpace(s)
 
+	if key == KeyAgentPreset {
+		return validatePreset(s, presets)
+	}
 	if key == KeyDispatchMode {
 		if !contains(DispatchModes, s) {
 			return nil, fmt.Errorf("must be one of %s", strings.Join(DispatchModes, ", "))
@@ -888,6 +986,27 @@ func validateValue(key string, raw json.RawMessage, tools []string) (*string, er
 		return nil, err
 	}
 	return &s, nil
+}
+
+// validatePreset accepts a preset fab lists, or its reserved "none". Without a
+// readable list (a fab that predates presets) nothing can be set.
+func validatePreset(name string, presets presetList) (*string, error) {
+	if err := checkFreeText(name); err != nil {
+		return nil, err
+	}
+	if !presets.ok {
+		return nil, errors.New("agent presets are not supported by the installed fab")
+	}
+	if name != presetNone && !contains(presets.names(), name) {
+		return nil, fmt.Errorf("unknown agent preset %q (available: %s)", name, strings.Join(presets.names(), ", "))
+	}
+	return &name, nil
+}
+
+// patchSetsPreset reports whether the patch sets (not unsets) agent.preset.
+func patchSetsPreset(patch map[string]json.RawMessage) bool {
+	raw, ok := patch[KeyAgentPreset]
+	return ok && string(bytes.TrimSpace(raw)) != "null"
 }
 
 // isToolKey reports whether key names a tool: a depth knob or any accepted
@@ -985,7 +1104,13 @@ func (c *Client) write(ctx context.Context, patch map[string]json.RawMessage) ([
 		return nil, err
 	}
 	c.writeToolLeaf = probeToolLeaf(rows, nil)
-	ops, err := validate(patch, toolNames(rows), c.writeToolLeaf)
+	// The list is fetched here, under applyMu and before any write, so a
+	// preset another process removed since the SPA's read is rejected up front.
+	var presets presetList
+	if patchSetsPreset(patch) {
+		presets = c.listPresets(ctx)
+	}
+	ops, err := validate(patch, toolNames(rows), c.writeToolLeaf, presets)
 	if err != nil {
 		return nil, err
 	}

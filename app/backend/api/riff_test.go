@@ -336,14 +336,61 @@ func TestRiffSpawnSessionReadError(t *testing.T) {
 }
 
 // TestRiffSpawnUnknownPreset: the engine returns a validation-class ExitCodeError
-// for an unknown preset; the handler maps it to 400.
+// for an unknown riff preset; the handler maps it to 400.
 func TestRiffSpawnUnknownPreset(t *testing.T) {
 	repo := gitRepoDir(t)
 	ops := &mockTmuxOps{listWindowsResult: windowsWithActivePaneCwd(repo)}
-	engine := &mockRiffEngine{err: riff.ValidationErr("run-kit riff: unknown preset %q (defined: %s)", "nope", "blank, discuss, incognito")}
-	rec := postRiff(t, ops, engine, `{"preset":"nope","session":"mysess"}`)
+	engine := &mockRiffEngine{err: riff.ValidationErr("run-kit riff: unknown riff preset %q (defined: %s)", "nope", "blank, discuss, incognito")}
+	rec := postRiff(t, ops, engine, `{"riff_preset":"nope","session":"mysess"}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestRiffSpawnRiffPresetBodyField: the body field `riff_preset` reaches the
+// engine as Options.RiffPreset; the legacy `preset` field is read when
+// `riff_preset` is absent and accepted alongside it when the two agree.
+func TestRiffSpawnRiffPresetBodyField(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"riff_preset", `{"session":"mysess","riff_preset":"discuss"}`, "discuss"},
+		{"legacy preset only", `{"session":"mysess","preset":"discuss"}`, "discuss"},
+		{"both equal", `{"session":"mysess","preset":"discuss","riff_preset":"discuss"}`, "discuss"},
+		{"neither", `{"session":"mysess"}`, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := gitRepoDir(t)
+			ops := &mockTmuxOps{listWindowsResult: windowsWithActivePaneCwd(repo)}
+			engine := &mockRiffEngine{result: riff.Result{Server: "work", Session: "mysess", WindowName: "riff-x", WindowID: "@7"}}
+			rec := postRiff(t, ops, engine, tc.body)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+			}
+			if engine.gotOpts.RiffPreset != tc.want {
+				t.Errorf("engine RiffPreset = %q, want %q", engine.gotOpts.RiffPreset, tc.want)
+			}
+		})
+	}
+}
+
+// TestRiffSpawnPresetDisagreement: a legacy `preset` that differs from
+// `riff_preset` is a 400 before the repo root is derived or the engine runs.
+func TestRiffSpawnPresetDisagreement(t *testing.T) {
+	ops := &mockTmuxOps{listWindowsResult: windowsWithActivePaneCwd(gitRepoDir(t))}
+	engine := &mockRiffEngine{}
+	rec := postRiff(t, ops, engine, `{"session":"mysess","preset":"a","riff_preset":"b"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "riff_preset and preset disagree") {
+		t.Errorf("body = %s, want the disagreement message", rec.Body.String())
+	}
+	if engine.called {
+		t.Error("engine.Spawn ran despite the disagreement")
 	}
 }
 
@@ -395,8 +442,18 @@ func TestRiffPresetsSuccess(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &keys); err != nil {
+		t.Fatalf("unmarshal keys: %v", err)
+	}
+	if _, ok := keys["riff_presets"]; !ok {
+		t.Errorf("response keys = %v, want riff_presets", keys)
+	}
+	if _, ok := keys["presets"]; ok {
+		t.Errorf("response carries a legacy presets key: %s", rec.Body.String())
+	}
 	var got struct {
-		Presets []riffPresetSummary `json:"presets"`
+		Presets []riffPresetSummary `json:"riff_presets"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -433,7 +490,7 @@ func TestRiffPresetsTiers(t *testing.T) {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 	var got struct {
-		Presets []riffPresetSummary `json:"presets"`
+		Presets []riffPresetSummary `json:"riff_presets"`
 		Tiers   []string            `json:"tiers"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
@@ -464,7 +521,7 @@ func TestRiffPresetsBuiltinsOnly(t *testing.T) {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 	var got struct {
-		Presets []riffPresetSummary `json:"presets"`
+		Presets []riffPresetSummary `json:"riff_presets"`
 		Tiers   []string            `json:"tiers"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {

@@ -8,15 +8,17 @@ import { mockStateSocket } from "./_state-socket-mock";
 //
 // Macro shortcut bindings over riff presets: the CUSTOM section of the
 // settings dialog's Shortcuts tab — add-macro flow, command preview,
-// missing-preset badge — macro chords dispatching `POST /api/riff` with the
-// PRESET NAME only, success toast + navigation to the spawned window, the
+// missing-riff-preset badge — macro chords dispatching `POST /api/riff` with the
+// RIFF PRESET NAME only (body key `riff_preset`), success toast + navigation to the spawned window, the
 // kind-tagged `Macro:` palette entry with its effective-combo hint, and the
-// 400-toast path for a preset gone from fabconfig (no silent fallback).
+// 400-toast path for a riff preset gone from settings (no silent fallback), and a
+// legacy stored macro (`target.preset`) that still runs and is rewritten once in
+// the `riff_preset` shape.
 //
 // Route globs carry a trailing `*` — the client appends `?server=` (and the
-// presets GET a `?session=`), so a bare glob would silently miss.
+// riff-presets GET a `?session=`), so a bare glob would silently miss.
 // `**/api/servers` → a single server `default`; `**/api/riff/presets*` → one
-// preset `discuss` (deck-h, 2 panes), tier `default` — the preflight the
+// riff preset `discuss` (deck-h, 2 panes), tier `default` — the preflight the
 // Shortcuts tab fetches while visible; `**/api/riff?*` → the spawn seam, each
 // POST body captured for assertion (200 riff-swift-fox `@9` or a 400 per
 // test). The state socket's session `dev` carries windows `@1` "win-one"
@@ -35,7 +37,7 @@ const DISCUSS_MACRO = {
   actionId: "macro:riff-discuss",
   kind: "macro",
   label: "riff: discuss",
-  target: { type: "riff", preset: "discuss" },
+  target: { type: "riff", riff_preset: "discuss" },
 };
 
 function sessionsPayload() {
@@ -91,7 +93,7 @@ async function mockBackend(page: Page, spawn: SpawnBehavior = SPAWN_OK) {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        presets: [{ name: "discuss", layout: "deck-h", paneCount: 2 }],
+        riff_presets: [{ name: "discuss", layout: "deck-h", paneCount: 2 }],
         tiers: ["default"],
       }),
     }),
@@ -143,12 +145,12 @@ test.describe("overlay add-macro flow", () => {
    *    pre-fills with the target label; click `add + capture key`.
    * 4. Capture arms on the fresh row (`press keys…`); press Shift+Ctrl+D.
    * 5. Assert `hexokit-macros` holds the definition (`macro:riff-discuss` →
-   *    preset `discuss`) and `hexokit-keybindings` holds
+   *    riff preset `discuss`) and `hexokit-keybindings` holds
    *    `{code: "KeyD", tier: "shifted"}`; the row shows the preview
-   *    `rk riff --preset discuss`.
+   *    `rk riff --riff-preset discuss`.
    * 6. Escape closes the dialog; press Shift+Ctrl+D.
-   * 7. Assert exactly one POST with body `{session: "dev", preset: "discuss"}`
-   *    (preset name only — no shell text), the `Spawned riff-swift-fox` toast,
+   * 7. Assert exactly one POST with body `{session: "dev", riff_preset: "discuss"}`
+   *    (riff preset name only — no shell text), the `Spawned riff-swift-fox` toast,
    *    and navigation to `/default/9`.
    */
   test("add a riff-preset macro, capture a key, and the chord spawns + navigates", async ({ page }) => {
@@ -179,15 +181,15 @@ test.describe("overlay add-macro flow", () => {
       "macro:riff-discuss": { code: "KeyD", tier: "shifted" },
     });
     // The row renders the resolved-command preview.
-    await expect(panel.getByText("rk riff --preset discuss")).toBeVisible();
+    await expect(panel.getByText("rk riff --riff-preset discuss")).toBeVisible();
 
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog", { name: "Settings" })).toHaveCount(0);
 
-    // The chord POSTs the preset name only and navigates to the spawned window.
+    // The chord POSTs the riff preset name only and navigates to the spawned window.
     await page.keyboard.press("Shift+Control+KeyD");
     await expect(page.getByText("Spawned riff-swift-fox")).toBeVisible();
-    expect(spawnBodies).toEqual([{ session: "dev", preset: "discuss" }]);
+    expect(spawnBodies).toEqual([{ session: "dev", riff_preset: "discuss" }]);
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/9(?:$|[/?#])`));
   });
 });
@@ -206,7 +208,7 @@ test.describe("palette exposure", () => {
    * 3. Assert `Macro: riff: discuss` is listed with the hint `Shift+Ctrl+D`
    *    (non-mac host formatting).
    * 4. Press Enter to select it; assert the spawn toast and the single POST
-   *    body `{session: "dev", preset: "discuss"}`.
+   *    body `{session: "dev", riff_preset: "discuss"}`.
    */
   test("a seeded macro appears as a kind-tagged Macro: entry with its hint and executes", async ({ page }) => {
     await seedMacro(page, DISCUSS_MACRO, "KeyD");
@@ -221,26 +223,26 @@ test.describe("palette exposure", () => {
 
     await page.keyboard.press("Enter");
     await expect(page.getByText("Spawned riff-swift-fox")).toBeVisible();
-    expect(spawnBodies).toEqual([{ session: "dev", preset: "discuss" }]);
+    expect(spawnBodies).toEqual([{ session: "dev", riff_preset: "discuss" }]);
   });
 });
 
-test.describe("missing preset — no silent fallback", () => {
+test.describe("missing riff preset — no silent fallback", () => {
   /**
-   * Proves: a macro whose preset no longer exists in fabconfig is never a
-   * silent no-op — the CUSTOM row shows a `missing preset` badge once the
-   * fetched preset list is known, and pressing the chord still POSTs (the
+   * Proves: a macro whose riff preset no longer exists in settings is never a
+   * silent no-op — the CUSTOM row shows a `missing riff preset` badge once the
+   * fetched riff-preset list is known, and pressing the chord still POSTs (the
    * backend validates authoritatively) with the 400 error text surfacing as a
    * toast and no navigation.
    *
    * Steps:
-   * 1. Seed a macro targeting preset `gone` bound to ⇧Ctrl+G; mock the
-   *    backend with the spawn route returning 400 `unknown preset "gone" …`.
+   * 1. Seed a macro targeting riff preset `gone` bound to ⇧Ctrl+G; mock the
+   *    backend with the spawn route returning 400 `unknown riff preset "gone" …`.
    * 2. Open `/default/1`; open the Shortcuts tab (⇧Ctrl+/).
-   * 3. Assert the `missing preset` badge renders on the macro row (the mocked
+   * 3. Assert the `missing riff preset` badge renders on the macro row (the mocked
    *    preflight defines only `discuss`); Escape closes the dialog.
    * 4. Press Shift+Ctrl+G; assert the error toast with the backend message,
-   *    the single POST body `{session: "dev", preset: "gone"}`, and that the
+   *    the single POST body `{session: "dev", riff_preset: "gone"}`, and that the
    *    URL stays `/default/1`.
    */
   test("the overlay flags the row and the chord surfaces the backend 400 as a toast", async ({ page }) => {
@@ -248,28 +250,74 @@ test.describe("missing preset — no silent fallback", () => {
       ...DISCUSS_MACRO,
       actionId: "macro:gone",
       label: "riff: gone",
-      target: { type: "riff", preset: "gone" },
+      target: { type: "riff", riff_preset: "gone" },
     };
     await seedMacro(page, GONE_MACRO, "KeyG");
     const spawnBodies = await mockBackend(page, {
       status: 400,
-      body: { error: 'unknown preset "gone" (defined: discuss)' },
+      body: { error: 'unknown riff preset "gone" (defined: discuss)' },
     });
     await gotoWindowOne(page);
 
-    // The CUSTOM row carries the error badge once the preset list is known.
+    // The CUSTOM row carries the error badge once the riff-preset list is known.
     await page.keyboard.press("Shift+Control+Slash");
     const panel = page.getByTestId("settings-shortcuts-panel");
     await expect(panel).toBeVisible();
-    await expect(panel.getByText("missing preset")).toBeVisible();
+    await expect(panel.getByText("missing riff preset")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog", { name: "Settings" })).toHaveCount(0);
 
     // The chord still POSTs (the backend is authoritative) and the 400
     // surfaces as an error toast; nothing navigates.
     await page.keyboard.press("Shift+Control+KeyG");
-    await expect(page.getByText(/unknown preset "gone"/)).toBeVisible();
-    expect(spawnBodies).toEqual([{ session: "dev", preset: "gone" }]);
+    await expect(page.getByText(/unknown riff preset "gone"/)).toBeVisible();
+    expect(spawnBodies).toEqual([{ session: "dev", riff_preset: "gone" }]);
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/1(?:$|[/?#])`));
+  });
+});
+
+test.describe("legacy stored macro", () => {
+  /**
+   * Proves: a macro saved before the riff-preset rename (`target.preset`)
+   * still runs from its chord with the new `riff_preset` body key, and the
+   * stored definition is rewritten once in the new shape on load — nothing a
+   * user saved stops working.
+   *
+   * Steps:
+   * 1. Seed the `discuss` macro in the legacy shape (`target: {type: "riff",
+   *    preset: "discuss"}`) bound to ⇧Ctrl+D; mock the backend; open
+   *    `/default/1`.
+   * 2. Assert `hexokit-macros` now holds the definition with `riff_preset`
+   *    and no `preset` key.
+   * 3. Open the Shortcuts tab (⇧Ctrl+/); assert the macro row previews
+   *    `rk riff --riff-preset discuss`; Escape closes the dialog.
+   * 4. Press Shift+Ctrl+D; assert the spawn toast and the single POST body
+   *    `{session: "dev", riff_preset: "discuss"}`.
+   */
+  test("a legacy macro runs with riff_preset and is rewritten in the new shape", async ({ page }) => {
+    await seedMacro(
+      page,
+      { ...DISCUSS_MACRO, target: { type: "riff", preset: "discuss" } },
+      "KeyD",
+    );
+    const spawnBodies = await mockBackend(page);
+    await gotoWindowOne(page);
+
+    await expect
+      .poll(async () =>
+        JSON.parse((await page.evaluate(() => localStorage.getItem("hexokit-macros"))) ?? "[]"),
+      )
+      .toEqual([DISCUSS_MACRO]);
+
+    // The row renders from the re-projected target, so the macro is live.
+    await page.keyboard.press("Shift+Control+Slash");
+    const panel = page.getByTestId("settings-shortcuts-panel");
+    await expect(panel.getByText("rk riff --riff-preset discuss")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "Settings" })).toHaveCount(0);
+
+    await page.keyboard.press("Shift+Control+KeyD");
+    await expect(page.getByText("Spawned riff-swift-fox")).toBeVisible();
+    expect(spawnBodies).toEqual([{ session: "dev", riff_preset: "discuss" }]);
   });
 });

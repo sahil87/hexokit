@@ -430,7 +430,7 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
     actionId: "macro:discuss",
     kind: "macro",
     label: "riff: discuss",
-    target: { type: "riff", preset: "discuss" },
+    target: { type: "riff", riff_preset: "discuss" },
   };
 
   function renderWithTargets(opts?: {
@@ -455,25 +455,25 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
     renderWithTargets();
     expect(screen.getByText("CUSTOM")).toBeInTheDocument();
     expect(screen.getByText("riff: discuss")).toBeInTheDocument();
-    expect(screen.getByText("rk riff --preset discuss")).toBeInTheDocument();
+    expect(screen.getByText("rk riff --riff-preset discuss")).toBeInTheDocument();
     // No combo diff stored → unbound affordance.
     expect(screen.getByTitle("unbound — click to bind")).toBeInTheDocument();
-    expect(screen.queryByText("missing preset")).toBeNull();
+    expect(screen.queryByText("missing riff preset")).toBeNull();
   });
 
-  it("shows the missing-preset badge when the preset is absent from the known list", () => {
+  it("shows the missing-riff-preset badge when the preset is absent from the known list", () => {
     localStorage.setItem(
       "hexokit-macros",
-      JSON.stringify([{ ...DISCUSS, target: { type: "riff", preset: "gone" } }]),
+      JSON.stringify([{ ...DISCUSS, target: { type: "riff", riff_preset: "gone" } }]),
     );
     renderWithTargets({ presets: ["discuss"] });
-    expect(screen.getByText("missing preset")).toBeInTheDocument();
+    expect(screen.getByText("missing riff preset")).toBeInTheDocument();
   });
 
-  it("shows no missing-preset badge when the preset list is unknown (null)", () => {
+  it("shows no missing-riff-preset badge when the preset list is unknown (null)", () => {
     localStorage.setItem("hexokit-macros", JSON.stringify([DISCUSS]));
     renderWithTargets({ presets: null });
-    expect(screen.queryByText("missing preset")).toBeNull();
+    expect(screen.queryByText("missing riff preset")).toBeNull();
   });
 
   it("add flow: pick a target, name it, add — macro persists and capture arms", () => {
@@ -494,7 +494,7 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
         actionId: "macro:riff-discuss",
         kind: "macro",
         label: "riff: discuss",
-        target: { type: "riff", preset: "discuss" },
+        target: { type: "riff", riff_preset: "discuss" },
       },
     ]);
     // Capture armed on the fresh row.
@@ -514,7 +514,7 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
     );
     renderWithTargets();
     fireEvent.click(screen.getByLabelText("Delete macro riff: discuss"));
-    expect(screen.queryByText("rk riff --preset discuss")).toBeNull();
+    expect(screen.queryByText("rk riff --riff-preset discuss")).toBeNull();
     expect(localStorage.getItem("hexokit-macros")).toBeNull();
     expect(localStorage.getItem(KEYBINDINGS_STORAGE_KEY)).toBeNull();
   });
@@ -536,7 +536,7 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
     localStorage.setItem("hexokit-macros", JSON.stringify([DISCUSS]));
     renderPanel();
     // Rows still render (view/rebind/delete), but no add flow.
-    expect(screen.getByText("rk riff --preset discuss")).toBeInTheDocument();
+    expect(screen.getByText("rk riff --riff-preset discuss")).toBeInTheDocument();
     expect(
       screen.queryByText("+ bind a key to a palette action or riff preset…"),
     ).toBeNull();

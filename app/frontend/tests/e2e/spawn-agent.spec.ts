@@ -7,7 +7,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // `Agent: Spawn`, the New split button's `Agent tab…` row, and the sidebar
 // session flyout card's `Spawn agent…` row), renders the mockup-v2 field set (Where radio /
 // Worktree name / Agent tier) with the correct defaults and conditional
-// Worktree visibility, hides the Agent Tier field when the presets endpoint
+// Worktree visibility, carries a chosen riff preset as `riff_preset`, hides the Agent Tier field when the riff-presets endpoint
 // returns `tiers: []` (a non-fab repo), carries `where`/`tier` in the POST
 // body on a checkout + tier task-submit, and renders a 400's error in-dialog
 // without navigating.
@@ -17,9 +17,9 @@ import { mockStateSocket } from "./_state-socket-mock";
 // `**/api/windows/*/select*` → 200; `/ws/state` (state socket, via
 // mockStateSocket) → the subscribe ack + `sessions` event carry the mocked
 // payload: session `dev` with one active window `@1` "main";
-// `**/api/riff/presets*` → `{presets: [...], tiers: [...]}` (empty presets +
+// `**/api/riff/presets*` → `{riff_presets: [...], tiers: [...]}` (empty riff presets +
 // the fab-kit built-in tiers by default); `**/api/riff*` → intercepts POST
-// only (falls back otherwise so the presets GET, which also matches this
+// only (falls back otherwise so the riff-presets GET, which also matches this
 // glob, is not swallowed), captures the request body and fulfills with the
 // mock's status/body; the terminals mux WebSocket (`/ws/terminals`) is
 // stubbed. The riff-endpoint mocks use TRAILING `*` globs because the
@@ -64,8 +64,8 @@ type RiffMock = {
   // When set, POST /api/riff fulfills with this status + body.
   spawnStatus: number;
   spawnBody: string;
-  // Presets list returned by GET /api/riff/presets.
-  presets: unknown[];
+  // Riff presets list returned by GET /api/riff/presets.
+  riffPresets: unknown[];
   // Tiers returned by GET /api/riff/presets (defaults to the built-ins).
   tiers?: string[];
 };
@@ -93,7 +93,7 @@ async function mockBackend(page: Page, riff: RiffMock): Promise<{ spawnBodies: (
     route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ presets: riff.presets, tiers: riff.tiers ?? BUILTIN_TIERS }),
+      body: JSON.stringify({ riff_presets: riff.riffPresets, tiers: riff.tiers ?? BUILTIN_TIERS }),
     }),
   );
 
@@ -157,7 +157,7 @@ async function openViaSidebarCard(page: Page, session: string) {
 const OK_SPAWN: RiffMock = {
   spawnStatus: 200,
   spawnBody: JSON.stringify({ server: SERVER, session: "dev", window: "riff-swift-fox", windowId: "@7" }),
-  presets: [],
+  riffPresets: [],
 };
 
 test.describe("Web-UI Spawn Agent", () => {
@@ -310,6 +310,41 @@ test.describe("Web-UI Spawn Agent", () => {
   });
 
   /**
+   * Proves: the dialog's preset field is the riff preset — labelled `Riff
+   * preset (optional):`, filled from the `riff_presets` list, and its choice
+   * rides the POST body as `riff_preset`.
+   *
+   * Steps:
+   * 1. Mock the backend with one riff preset `discuss`; gotoTerminal;
+   *    openViaPalette.
+   * 2. Assert the `Riff preset (optional):` label and the `Riff preset` select
+   *    are visible.
+   * 3. Select `discuss`, fill the `Task` field with "talk it through" and
+   *    press Enter.
+   * 4. Assert the captured POST body carries `riff_preset: "discuss"` and no
+   *    `preset` key.
+   */
+  test("the Riff preset field sends the choice as riff_preset", async ({ page }) => {
+    const { spawnBodies } = await mockBackend(page, {
+      ...OK_SPAWN,
+      riffPresets: [{ name: "discuss", layout: "", paneCount: 1 }],
+    });
+    await gotoTerminal(page);
+
+    await openViaPalette(page);
+    await expect(page.getByRole("dialog", { name: "Spawn agent in dev" })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("Riff preset (optional):")).toBeVisible();
+    await page.getByLabel("Riff preset", { exact: true }).selectOption("discuss");
+    const task = page.getByLabel("Task");
+    await task.fill("talk it through");
+    await task.press("Enter");
+
+    await expect.poll(() => spawnBodies().length).toBeGreaterThan(0);
+    expect(spawnBodies()[0]).toMatchObject({ task: "talk it through", session: "dev", riff_preset: "discuss" });
+    expect(spawnBodies()[0]).not.toHaveProperty("preset");
+  });
+
+  /**
    * Proves: a 400 (e.g. non-repo cwd) renders the error message inside the
    * still-open dialog and performs no navigation (nothing was created).
    *
@@ -324,7 +359,7 @@ test.describe("Web-UI Spawn Agent", () => {
     await mockBackend(page, {
       spawnStatus: 400,
       spawnBody: JSON.stringify({ error: "The session's working directory is not inside a git repository" }),
-      presets: [],
+      riffPresets: [],
     });
     await gotoTerminal(page);
 

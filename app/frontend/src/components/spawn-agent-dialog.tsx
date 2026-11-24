@@ -32,7 +32,7 @@ const DEFAULT_TIER = "default";
  * extended to the full mockup in 260714-q9cg). Fields in mockup order:
  *
  *   Task      — free text, optional (empty = blank agent session)
- *   Preset    — dropdown, optional (only shown when the repo defines presets)
+ *   Riff preset — dropdown, optional (only shown when riff presets are defined)
  *   Where     — radio: new worktree (default) | this checkout
  *   Worktree  — editable name, blank = auto-named; hidden when "this checkout"
  *   Agent     — tier dropdown (built-ins ∪ repo agent.tiers), default = "default"
@@ -51,8 +51,8 @@ const DEFAULT_TIER = "default";
  */
 export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnAgentDialogProps) {
   const [task, setTask] = useState("");
-  const [preset, setPreset] = useState("");
-  const [presets, setPresets] = useState<RiffPreset[]>([]);
+  const [riffPreset, setRiffPreset] = useState("");
+  const [riffPresets, setRiffPresets] = useState<RiffPreset[]>([]);
   const [where, setWhere] = useState<RiffWhere>("worktree");
   const [worktreeName, setWorktreeName] = useState("");
   const [tier, setTier] = useState(DEFAULT_TIER);
@@ -70,7 +70,7 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
     };
   }, []);
 
-  // Fetch presets + tiers on open — best-effort.
+  // Fetch riff presets + tiers on open — best-effort.
   //
   // The tier list is FAB-GATED at the backend (gsmu): a fab project returns the
   // built-ins ∪ its `agent.tiers`; a non-fab repo returns `tiers: []`. We mirror
@@ -87,12 +87,12 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
     getRiffPresets(server, session)
       .then((data) => {
         if (cancelled) return;
-        setPresets(data.presets);
+        setRiffPresets(data.riffPresets);
         setTiers(data.tiers);
       })
       .catch(() => {
         if (!cancelled) {
-          setPresets([]);
+          setRiffPresets([]);
           setTiers([DEFAULT_TIER]);
         }
       });
@@ -115,7 +115,7 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
     setError("");
     spawnRiff(server, session, {
       task: task.trim() || undefined,
-      preset: preset || undefined,
+      riffPreset: riffPreset || undefined,
       where,
       // Worktree name only applies to worktree mode; the backend rejects it with
       // checkout, so drop it there. Commit-time finalize trims the trailing
@@ -140,7 +140,7 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
         setBusy(false);
         setError(err.message || "Failed to spawn agent");
       });
-  }, [busy, server, session, task, preset, where, worktreeName, tier, tiers, onClose, onSpawned]);
+  }, [busy, server, session, task, riffPreset, where, worktreeName, tier, tiers, onClose, onSpawned]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter") {
@@ -170,21 +170,21 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
         />
       </div>
 
-      {/* Preset — hidden only when the preflight fetch failed; a live backend
+      {/* Riff preset — hidden only when the preflight fetch failed; a live backend
           always returns the riff_presets built-ins. */}
-      {presets.length > 0 && (
+      {riffPresets.length > 0 && (
         <div className="mb-3">
-          <p className="text-xs text-text-secondary mb-1.5">Preset (optional):</p>
+          <p className="text-xs text-text-secondary mb-1.5">Riff preset (optional):</p>
           <select
-            value={preset}
-            onChange={(e) => setPreset(e.target.value)}
+            value={riffPreset}
+            onChange={(e) => setRiffPreset(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={busy}
-            aria-label="Preset"
+            aria-label="Riff preset"
             className="w-full bg-bg-primary text-text-primary p-2 border border-border rounded outline-none disabled:opacity-50"
           >
             <option value="">None</option>
-            {presets.map((p) => (
+            {riffPresets.map((p) => (
               <option key={p.name} value={p.name}>
                 {p.name}
                 {p.layout ? ` — ${p.layout}` : ""}

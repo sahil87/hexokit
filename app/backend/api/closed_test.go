@@ -345,7 +345,7 @@ func TestClosedResumeSuccess(t *testing.T) {
 		got.RepoRoot != repo || got.ResumeSessionRef != testForkRef || got.WindowNameBase != "agent" {
 		t.Errorf("engine options = %+v, want fork-identical wiring", got)
 	}
-	if got.WorktreeName != "" || got.Tier != "" || got.Task != "" || got.Preset != "" {
+	if got.WorktreeName != "" || got.Tier != "" || got.Task != "" || got.RiffPreset != "" {
 		t.Errorf("engine got unexpected spawn-shaping inputs: %+v", got)
 	}
 	// The record's @rk_win_* set is re-stamped onto the SPAWNED window.

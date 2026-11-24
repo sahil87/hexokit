@@ -5224,10 +5224,10 @@ function AppShell() {
   // Macro execution. Palette targets dispatch the existing palette action
   // body in-place (id lookup — the `fromPalette` convention; `macro:` ids are
   // never resolved as targets, so no macro→macro recursion). Riff targets
-  // POST the existing validated spawn seam with the PRESET NAME only (no
+  // POST the existing validated spawn seam with the RIFF PRESET NAME only (no
   // shell text, no new exec surface — Constitution I): success toasts and
   // navigates to the spawned window (the spawn dialog's falsy-windowId guard
-  // preserved); failure — incl. a 400 for a preset gone from fabconfig —
+  // preserved); failure — incl. a 400 for a riff preset gone from settings —
   // surfaces as an error toast. No fire-and-forget. The imperative
   // `getAllActions` resolves targets against the MERGED list (route actions +
   // the layout-level globals, 260811-239r) at call time, breaking the
@@ -5242,7 +5242,7 @@ function AppShell() {
         return;
       }
       if (!sessionName) return;
-      spawnRiff(server, sessionName, { preset: macro.target.preset })
+      spawnRiff(server, sessionName, { riffPreset: macro.target.riff_preset })
         .then((res) => {
           addToast(`Spawned ${res.window}`, "info");
           if (res.windowId) navigateToWindow(res.windowId);

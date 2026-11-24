@@ -6,6 +6,14 @@ import type { Page } from "@playwright/test";
 // own Go tests. The stub is stateful: a POST applies set/unset (null) to an
 // in-memory system tier, and every GET/POST response serves the resulting
 // document, so set → re-render → reset round-trips through the real SPA.
+//
+// With `presets: true` the stub also behaves like a fab that lists agent
+// presets: the document carries `agent_presets` (fab 2.31.1's three built-ins),
+// `agent.preset` is writable, and the chosen preset's leaves are applied BELOW
+// explicit system/env values — they keep the choosing layer as their origin and
+// carry `originDetail: "preset <name>"` plus `preset`, never an override.
+// Without it the stub models a fab that cannot list presets, which is what the
+// pre-preset specs and demos run against.
 
 type Scalar = string | number | boolean;
 
@@ -55,12 +63,40 @@ const TOOL_DEFAULTS = {
   kimi: { id: "tool-default", label: "tool default (openrouter/moonshotai/kimi-k3.1-pro)", efforts: ["low", "high", "max"] },
 };
 
+type StubField = { value: Scalar; origin: string; originDetail?: string; systemValue?: Scalar; preset?: string };
+
+/** The built-in presets `fab agent presets --json` lists, in fab's order. */
+const AGENT_PRESETS = [
+  { name: "claude", description: "All roles on Claude (today's defaults)", source: "built-in", session: "claude", workers: "claude" },
+  { name: "codex-review", description: "Only the review role on Codex", source: "built-in", profiles: { review: { cli: "codex" } } },
+  { name: "codex-workers", description: "Pipeline workers on Codex; session on Claude", source: "built-in", workers: "codex" },
+];
+
+/** A preset's leaves by the stub's config keys (a role's `cli` is its `tool`). */
+function presetLeaves(preset: (typeof AGENT_PRESETS)[number]): Record<string, string> {
+  const leaves: Record<string, string> = {};
+  if (preset.session) leaves["agent.session"] = preset.session;
+  if (preset.workers) leaves["agent.workers"] = preset.workers;
+  for (const [role, profile] of Object.entries(preset.profiles ?? {})) {
+    for (const [leaf, value] of Object.entries(profile)) {
+      leaves[`agent.profiles.${role}.${leaf === "cli" ? "tool" : leaf}`] = value;
+    }
+  }
+  return leaves;
+}
+
 /** Installs the stub (call before `page.goto`); returns the POST bodies seen.
  *  `system` seeds extra system-tier values; `env` keys win over system as
  *  origin `env` from `FAB_TEST_ENV`, carrying the shadowed `systemValue`. */
 export async function stubFabConfig(
   page: Page,
-  opts: { installed?: boolean; systemPath?: string; system?: Record<string, Scalar>; env?: Record<string, Scalar> } = {},
+  opts: {
+    installed?: boolean;
+    systemPath?: string;
+    system?: Record<string, Scalar>;
+    env?: Record<string, Scalar>;
+    presets?: boolean;
+  } = {},
 ): Promise<Array<Record<string, unknown>>> {
   const systemPath = opts.systemPath ?? "/home/e2e/.fab-kit/config.yaml";
   const posts: Array<Record<string, unknown>> = [];
@@ -69,15 +105,29 @@ export async function stubFabConfig(
   const envDetail = "FAB_TEST_ENV";
 
   const document = () => {
-    const fields = Object.fromEntries(
-      Object.entries(DEFAULTS).map(([key, def]) => {
+    // The chosen preset and the layer that chose it (env outranks system).
+    const chooser = opts.presets ? ("agent.preset" in env ? "env" : system.has("agent.preset") ? "system" : null) : null;
+    const chosenName = chooser === "env" ? String(env["agent.preset"]) : chooser === "system" ? String(system.get("agent.preset")) : "";
+    const chosen = AGENT_PRESETS.find((p) => p.name === chosenName);
+    const supplied = chosen ? presetLeaves(chosen) : {};
+    const presetOrigin = { origin: chooser ?? "default", originDetail: `preset ${chosenName}`, preset: chosenName };
+
+    const fields: Record<string, StubField> = Object.fromEntries(
+      Object.entries(DEFAULTS).map(([key, def]): [string, StubField] => {
         const sys = system.get(key);
         if (key in env) {
           return [key, { value: env[key], origin: "env", originDetail: envDetail, ...(sys !== undefined ? { systemValue: sys } : {}) }];
         }
-        return [key, sys !== undefined ? { value: sys, origin: "system", originDetail: systemPath } : { value: def, origin: "default" }];
+        if (sys !== undefined) return [key, { value: sys, origin: "system", originDetail: systemPath }];
+        if (key in supplied) return [key, { value: supplied[key], ...presetOrigin }];
+        return [key, { value: def, origin: "default" }];
       }),
     );
+    if (chooser) {
+      fields["agent.preset"] = chooser === "env"
+        ? { value: chosenName, origin: "env", originDetail: "FAB_AGENT_PRESET", ...(system.has("agent.preset") ? { systemValue: system.get("agent.preset") } : {}) }
+        : { value: chosenName, origin: "system", originDetail: systemPath };
+    }
     const roles = ROLES.map(([role, depth]) => {
       const tierKey = `agent.${depth}`;
       const cell = (leaf: string, inherited: string, source: string) => {
@@ -94,9 +144,13 @@ export async function stubFabConfig(
             ...(sys !== undefined ? { systemValue: String(sys) } : {}),
           };
         }
-        return sys !== undefined
-          ? { override: String(sys), effective: String(sys), source: key, origin: "system", originDetail: systemPath, inherited }
-          : { override: null, effective: inherited, source, origin: "default", inherited };
+        if (sys !== undefined) {
+          return { override: String(sys), effective: String(sys), source: key, origin: "system", originDetail: systemPath, inherited };
+        }
+        if (key in supplied) {
+          return { override: null, effective: supplied[key], source: key, ...presetOrigin, inherited };
+        }
+        return { override: null, effective: inherited, source, origin: "default", inherited };
       };
       const tool = cell("tool", String(fields[tierKey].value), tierKey);
       // `provider` mirrors `tool` so `just demo --before` can replay this
@@ -115,6 +169,7 @@ export async function stubFabConfig(
       toolDefaults: TOOL_DEFAULTS,
       effortSuggestions: EFFORTS,
       effortCapable: { agy: false, claude: true, codex: true, kimi: false },
+      ...(opts.presets ? { agent_presets: AGENT_PRESETS } : {}),
     };
   };
 

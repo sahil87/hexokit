@@ -108,11 +108,15 @@ func windowCwd(win tmux.WindowInfo) string {
 // handleRiffSpawn spawns a riff window in the target session's repo.
 //
 //	POST /api/riff?server=<name>
-//	body: {"task"?: string, "preset"?: string, "session": string,
+//	body: {"task"?: string, "riff_preset"?: string, "session": string,
 //	       "where"?: "worktree"|"checkout", "worktreeName"?: string, "tier"?: string}
 //	200: {"server","session","window","windowId"}
 //	400: invalid session; unknown where; worktreeName+checkout; forbidden
-//	     worktreeName/tier chars; non-repo cwd; or unknown preset (nothing created)
+//	     worktreeName/tier chars; non-repo cwd; unknown riff preset; or a legacy
+//	     "preset" that disagrees with "riff_preset" (nothing created)
+//
+// The legacy body field "preset" is read when "riff_preset" is absent and is
+// accepted alongside it only when the two agree.
 //
 // See the file header for the documented 5s-review-rule timeout exception.
 func (s *Server) handleRiffSpawn(w http.ResponseWriter, r *http.Request) {
@@ -120,7 +124,8 @@ func (s *Server) handleRiffSpawn(w http.ResponseWriter, r *http.Request) {
 
 	var body struct {
 		Task         string `json:"task"`
-		Preset       string `json:"preset"`
+		RiffPreset   string `json:"riff_preset"`
+		LegacyPreset string `json:"preset"`
 		Session      string `json:"session"`
 		Where        string `json:"where"`
 		WorktreeName string `json:"worktreeName"`
@@ -132,6 +137,13 @@ func (s *Server) handleRiffSpawn(w http.ResponseWriter, r *http.Request) {
 	}
 	if errMsg := validate.ValidateName(body.Session, "Session name"); errMsg != "" {
 		writeError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+	riffPreset := body.RiffPreset
+	if riffPreset == "" {
+		riffPreset = body.LegacyPreset
+	} else if body.LegacyPreset != "" && body.LegacyPreset != riffPreset {
+		writeError(w, http.StatusBadRequest, "riff_preset and preset disagree")
 		return
 	}
 	// Validate the mockup-v2 fields BEFORE deriving the repo root or touching any
@@ -196,7 +208,7 @@ func (s *Server) handleRiffSpawn(w http.ResponseWriter, r *http.Request) {
 		Session:      body.Session,
 		RepoRoot:     repoRoot,
 		Task:         body.Task,
-		Preset:       body.Preset,
+		RiffPreset:   riffPreset,
 		Where:        where,
 		WorktreeName: body.WorktreeName,
 		Tier:         body.Tier,
@@ -228,7 +240,7 @@ var loadRiffPresets = settings.LoadRiffPresets
 // handleRiffPresets lists the riff presets the spawn dialog offers.
 //
 //	GET /api/riff/presets?server=<name>&session=<name>
-//	200: {"presets":[{"name","layout","paneCount"}], "tiers":[...]}
+//	200: {"riff_presets":[{"name","layout","paneCount"}], "tiers":[...]}
 //	     (presets come from run-kit's riff_presets — the built-ins plus user
 //	     entries in ~/.config/hexokit/config.yaml — never empty; every row is
 //	     one skill pane: layout "", paneCount 1; tiers gated on
@@ -275,7 +287,7 @@ func (s *Server) handleRiffPresets(w http.ResponseWriter, r *http.Request) {
 	if fabconfig.IsFabProject(repoRoot) {
 		tiers = fabconfig.ReadTiers(repoRoot)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"presets": presets, "tiers": tiers})
+	writeJSON(w, http.StatusOK, map[string]any{"riff_presets": presets, "tiers": tiers})
 }
 
 // riffPresetSummary is the per-preset shape returned by GET /api/riff/presets —

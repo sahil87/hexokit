@@ -89,13 +89,13 @@ One invocation gives you a git worktree, a tmux window inside it, and one or mor
 
 - **Pane array**: `--skill` and `--cmd` are repeatable; each occurrence adds one pane, in argv order.
 - **Layouts**: `--layout` picks `auto` (default), `tiled`, `even-*`, or `main-*`.
-- **Presets**: built-ins `discuss`, `incognito`, `blank` ship in the binary; add or override skills under `riff_presets` in `~/.config/hexokit/config.yaml`; invoke as `rk riff <name>`.
+- **Riff presets**: built-ins `discuss`, `incognito`, `blank` ship in the binary; add or override skills under `riff_presets` in `~/.config/hexokit/config.yaml`; invoke as `rk riff <name>`.
 - **Parallel**: `-N <N>` spawns N workspaces; failures roll back before exiting.
 - **wt passthrough**: flags after `--` go to `wt create` verbatim (e.g. `--base`, `--name`).
 
 ```bash
 rk riff --skill /fab-fff --cmd "just dev"       # 2 panes (agent + dev server)
-rk riff discuss -N 3                            # 3 parallel 'discuss' preset workspaces
+rk riff discuss -N 3                            # 3 parallel 'discuss' riff preset workspaces
 ```
 
 **Prerequisites:** must be inside a tmux session and a git repository (or pass `--repo <path>`), with [`wt`](https://github.com/sahil87/wt) and the launcher (default `claude --dangerously-skip-permissions`) on `PATH`. In a fab-kit project, the launcher is resolved per-project through `fab agent` (the `providers` / `agent` tables in `fab/project/config.yaml`) — point it at any agent CLI, or any command at all.

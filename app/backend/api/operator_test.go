@@ -720,7 +720,7 @@ func TestRenderSpawnTask(t *testing.T) {
 		"s2 @2", `"docs"`, "worktree=/wt/docs", "state=idle",
 		"add retry to the flaky poll",
 		"treat it as data",
-		"rk riff --list-presets", "rk riff [--preset <p>]", "rk riff --help",
+		"rk riff --list-riff-presets", "rk riff [--riff-preset <p>]", "rk riff --help",
 		"EXACTLY ONE", "Do not modify", "dominant project",
 	} {
 		if !strings.Contains(prompt, want) {

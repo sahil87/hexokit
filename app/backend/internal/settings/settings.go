@@ -88,7 +88,7 @@ type Settings struct {
 	// (the sort itself lives at the API layer — this package only persists the
 	// list). nil when no order has been set (legacy files / never reordered).
 	BoardOrder []string
-	// RiffPresets is the USER tier of rk riff presets only: preset name → skill
+	// RiffPresets is the USER tier of rk riff presets only: riff preset name → skill
 	// invocation ("" = a bare agent). The built-ins live in BuiltinRiffPresets
 	// (the code tier), not in this map — a user entry matching a built-in's name
 	// overrides it, any other name is an addition. RiffPresets(Settings) is the
@@ -760,7 +760,7 @@ var registry = []registryEntry{
 	},
 	{
 		key: "riff_presets", kind: "map", def: riffPresetsDefaultText,
-		desc:     "Preset name → skill invocation for rk riff <name>; a name matching a built-in (discuss, incognito, blank) overrides it, any other name is an addition. Empty value = bare agent.",
+		desc:     "Riff preset name → skill invocation for rk riff <name>; a name matching a built-in (discuss, incognito, blank) overrides it, any other name is an addition. Empty value = bare agent.",
 		category: "behavior", ui: false, live: true,
 		// Preset names are strict identifiers: a name is a line-scanner map key
 		// (a `:` would split the line) and a CLI positional (`rk riff <name>` —
@@ -949,12 +949,12 @@ func normalizeFlairValue(value string) (string, bool) {
 }
 
 // validateRiffPresetName is the name gate for the riff_presets section: the
-// shared strict-identifier rule (validate.ValidateIdentifier). A preset name is
+// shared strict-identifier rule (validate.ValidateIdentifier). A riff preset name is
 // a line-scanner map key (a `:` would split the line) and a CLI positional
 // (`rk riff <name>` — a leading `-` would read as a flag), though it never
 // enters argv as anything but a map-key lookup.
 func validateRiffPresetName(name string) string {
-	return validate.ValidateIdentifier(name, "Preset name")
+	return validate.ValidateIdentifier(name, "Riff preset name")
 }
 
 // validateRiffPresetValue / normalizeRiffPresetValue accept any skill text the

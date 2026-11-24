@@ -214,7 +214,7 @@ func runDoctorChecks() doctorReport {
 		}
 	}
 
-	// Stale project riff: block — the preset layer moved to run-kit's own
+	// Stale project riff: block — the riff preset layer moved to run-kit's own
 	// riff_presets setting, so a leftover top-level riff: key in the cwd repo's
 	// fab/project/config.yaml is silently ignored at spawn. Advisory only,
 	// WARN-shaped (the removedEnvCheck "second return false → no row" pattern,
@@ -452,7 +452,7 @@ func removedEnvCheck() (doctorCheck, bool) {
 }
 
 // riffPresetsBlockCheck advises when the repo's fab/project/config.yaml still
-// carries a top-level riff: key — rk no longer reads it (presets live under
+// carries a top-level riff: key — rk no longer reads it (riff presets live under
 // riff_presets in ~/.config/hexokit/config.yaml). WARN-shaped: OK with a Note,
 // never a verdict flipper. The second return value is false when the key is
 // absent — no row, no noise (the removedEnvCheck pattern).
@@ -463,7 +463,7 @@ func riffPresetsBlockCheck(repoRoot string, hasKey func(string, string) bool) (d
 	return doctorCheck{
 		Name: "riff presets",
 		OK:   true,
-		Note: "fab/project/config.yaml has a riff: block that rk no longer reads — define presets under riff_presets in ~/.config/hexokit/config.yaml",
+		Note: "fab/project/config.yaml has a riff: block that rk no longer reads — define riff presets under riff_presets in ~/.config/hexokit/config.yaml",
 	}, true
 }
 

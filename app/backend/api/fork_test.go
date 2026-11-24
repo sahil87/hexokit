@@ -100,7 +100,7 @@ func TestForkSuccess(t *testing.T) {
 		t.Errorf("engine WindowNameBase = %q, want feature-work-fork", got.WindowNameBase)
 	}
 	// A fork never creates a worktree and never carries a tier (v1 = default tier).
-	if got.WorktreeName != "" || got.Tier != "" || got.Task != "" || got.Preset != "" {
+	if got.WorktreeName != "" || got.Tier != "" || got.Task != "" || got.RiffPreset != "" {
 		t.Errorf("engine got unexpected spawn-shaping inputs: %+v", got)
 	}
 
