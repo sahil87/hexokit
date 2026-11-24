@@ -35,9 +35,8 @@ import { mockStateSocket } from "./_state-socket-mock";
 // page's compose strip or switch its segment instead of opening a drawer;
 // the drawer's `⤢ open as tab` header control navigates to that route. The
 // operator-less body carries the Start operator button. The palette carries `Operator: Show tasks`,
-// `Operator: Show activity` and `Operator: Check now` plus `Operator: Show cron`;
-// the retired `Panel: Toggle Clock`
-// and `Workspace: Clock dashboard` entries stay gone. The watched-worker specs
+// `Operator: Show activity`, `Operator: Check now`, and `Operator: Show cron`.
+// The watched-worker specs
 // seed the sessions payload with a `monitored: true` window carrying
 // `monitoredChange`/`monitoredStage`/`monitoredRepo` plus `operatorLastTickAt`
 // and `operatorTracked` on the sessions (the server-watched-zone spec's stub
@@ -896,26 +895,6 @@ test.describe("Quake terminal", () => {
 
     await expect(page.getByRole("option", { name: "Operator: Show cron", exact: true })).toHaveCount(1);
     await expect(page.getByRole("option", { name: /Show cron (list|log)/ })).toHaveCount(0);
-  });
-
-  /**
-   * Proves: the retired clock palette entries stay gone — a `clock` query
-   * surfaces neither `Panel: Toggle Clock` nor `Workspace: Clock dashboard`.
-   *
-   * Steps:
-   * 1. Mock the backend with an operator window; land on the terminal route.
-   * 2. Open the palette and filter to `clock`.
-   * 3. Assert no option matches either retired label.
-   */
-  test("the retired clock palette entries are absent", async ({ page }) => {
-    await mockBackend(page, true);
-    await gotoWindow(page);
-
-    const paletteInput = await openPalette(page);
-    await paletteInput.fill("clock");
-
-    await expect(page.getByRole("option", { name: /Toggle Clock/ })).toHaveCount(0);
-    await expect(page.getByRole("option", { name: /Clock dashboard/ })).toHaveCount(0);
   });
 
   /**

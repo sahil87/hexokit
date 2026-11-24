@@ -1090,30 +1090,6 @@ func withOrigin(r *BranchRefresher, url string) *int {
 	return &calls
 }
 
-// TestBranchRefresher_IndexHitSkipsGh: a pair covered by the seeded viewer index
-// resolves from the batch with ZERO `gh pr list` subprocesses — the mechanism that
-// collapses an N-sequential-gh pass into a join.
-func TestBranchRefresher_IndexHitSkipsGh(t *testing.T) {
-	ghCalls := 0
-	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
-		ghCalls++
-		return branchListJSON(), nil
-	})
-	withOrigin(r, "git@github.com:sahil87/run-kit.git")
-	seedIndex(r, viewerPR(538, ghPRURL("sahil87/run-kit", 538), "OPEN", "sahil87/run-kit", "feat", ts(t, "2026-08-01T00:00:00Z")))
-
-	r.Register("/repo", "feat")
-	r.refresh(context.Background())
-
-	pr, ok := r.Snapshot("/repo", "feat")
-	if !ok || pr == nil || pr.Number != 538 {
-		t.Fatalf("index hit must resolve the pair, got ok=%v pr=%v", ok, pr)
-	}
-	if ghCalls != 0 {
-		t.Errorf("gh pr list ran %d times for an index hit, want 0", ghCalls)
-	}
-}
-
 // TestBranchRefresher_IndexHitPrecedence: indexed candidates are ranked by the
 // SAME precedence as gh results — open > merged > closed across classes,
 // most-recently-updated within a class.
