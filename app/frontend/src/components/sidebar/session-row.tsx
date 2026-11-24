@@ -1,5 +1,4 @@
 import { useState, useMemo, useCallback, useRef, memo } from "react";
-import { createPortal } from "react-dom";
 import type { ProjectSession } from "@/types";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import type { RowTint } from "@/themes";
@@ -13,8 +12,7 @@ import { abbreviateHomePath, formatDuration } from "@/lib/format";
 import { PaletteIcon, BotIcon, PlusIcon, CloseIcon, NotePencilIcon, PlugIcon } from "./icons";
 import { PopupTitleBar, PopupTitleBarSecondary } from "./popup-title-bar";
 import { AgentPresetActionRow, AgentPresetClearRow, AgentPresetLine, AgentPresetMarker } from "./agent-preset-card";
-import { AgentPresetChooser } from "./agent-preset-chooser";
-import { useAnchoredPopoverPos } from "./server-card";
+import { AnchoredAgentPresetChooser } from "./agent-preset-chooser";
 import {
   useRowFlyout,
   useRailScrub,
@@ -153,7 +151,6 @@ function SessionRowInner({
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showPresetChooser, setShowPresetChooser] = useState(false);
   const rowAnchorRef = useRef<HTMLElement | null>(null);
-  const presetChooserPos = useAnchoredPopoverPos(showPresetChooser, rowAnchorRef, 380);
   const coarse = useCoarsePointer();
   // Ghost (optimistic, mid-create) sessions get no rail and a suppressed card
   // — the window row's ghost-row rule.
@@ -575,29 +572,18 @@ function SessionRowInner({
           />
         </div>
       )}
-      {showPresetChooser && onSetAgentPreset && presetChooserPos && createPortal(
-        <div
-          style={{
-            position: "fixed",
-            top: presetChooserPos.top,
-            right: presetChooserPos.right,
-            zIndex: 100,
-          }}
-        >
-          <AgentPresetChooser
-            kind="Group"
-            entityName={name}
-            own={session.agent_preset}
-            workspace={workspaceAgentPreset}
-            server={server}
-            session={name}
-            anchorRef={rowAnchorRef}
-            onPick={(value) => onSetAgentPreset(server, name, value)}
-            onClose={() => setShowPresetChooser(false)}
-          />
-        </div>,
-        document.body,
-      )}
+      <AnchoredAgentPresetChooser
+        open={showPresetChooser && Boolean(onSetAgentPreset)}
+        kind="Group"
+        entityName={name}
+        own={session.agent_preset}
+        workspace={workspaceAgentPreset}
+        server={server}
+        session={name}
+        anchorRef={rowAnchorRef}
+        onPick={(value) => onSetAgentPreset?.(server, name, value)}
+        onClose={() => setShowPresetChooser(false)}
+      />
       {/* The session card — portalled to document.body, mounted ONLY while
           open (the shared shell's perf contract). */}
       {flyout.card}

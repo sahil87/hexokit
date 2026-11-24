@@ -13,7 +13,8 @@ import { SettingsDialogProvider } from "@/contexts/settings-dialog-context";
 import { ToastProvider } from "@/components/toast";
 import { useWindowStore } from "@/store/window-store";
 import { useSelectionStore } from "@/store/selection-store";
-import { getAllServerColors, setServerColor, getAllServerFlairs, setServerFlair, setServerProtected, moveWindowToSession, moveWindowsBefore, DAEMON_SERVER } from "@/api/client";
+import { getAllServerColors, setServerColor, getAllServerFlairs, setServerFlair, setServerProtected, setServerAgentPreset, getFabConfig, moveWindowToSession, moveWindowsBefore, DAEMON_SERVER } from "@/api/client";
+import { resetAgentPresetCache } from "@/lib/agent-presets";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import { resetFlyoutWarmState } from "./row-flyout-card";
 import { focusSidebarCurrentRow, registerWindowFocusRestorer } from "@/lib/sidebar-events";
@@ -77,6 +78,8 @@ vi.mock("@/api/client", async (importOriginal) => {
     getAllServerFlairs: vi.fn().mockResolvedValue({}),
     setServerFlair: vi.fn().mockResolvedValue({ ok: true }),
     setServerProtected: vi.fn().mockResolvedValue({ ok: true }),
+    setServerAgentPreset: vi.fn(),
+    getFabConfig: vi.fn(),
     moveWindowToSession: vi.fn().mockResolvedValue({ ok: true }),
     moveWindowsBefore: vi.fn().mockResolvedValue({ ok: true }),
   };
@@ -128,7 +131,7 @@ type RenderOpts = {
    *  expanded regardless of its collapsed exception (derived expand). */
   currentSession?: string | null;
   currentWindowId?: string | null;
-  servers?: { name: string; sessionCount: number; protected?: boolean; managed?: boolean }[];
+  servers?: { name: string; sessionCount: number; protected?: boolean; managed?: boolean; agent_preset?: string }[];
   /** Wrap the tree in <StrictMode> to surface impure state updaters (the
    *  double-invocation the real app gets via main.tsx). Off by default so the
    *  coupling tests keep their single-pass render. */
@@ -151,6 +154,7 @@ type RenderOpts = {
   /** Override the Sidebar's onKillServer prop (x4sf) — the header ✕ routes
    *  through it; tests assert the invocation, never a direct kill call. */
   onKillServer?: (name: string) => void;
+  agentPresetControls?: boolean;
   /** Override the Sidebar's onCreateSession prop — the header + and the
    *  server card's New group row route through it. */
   onCreateSession?: (server: string) => void;
@@ -218,6 +222,7 @@ function sidebarTree(opts: RenderOpts = {}) {
                         onCreateSession={opts.onCreateSession ?? vi.fn()}
                         onWindowMarkerChange={opts.onWindowMarkerChange}
                         onKillServer={opts.onKillServer ?? vi.fn()}
+                        agentPresetControls={opts.agentPresetControls}
                         onOperatorPlaceholder={opts.onOperatorPlaceholder}
                       />
                     </SettingsDialogProvider>
@@ -254,6 +259,9 @@ function getServerGroupHeader(name: string): HTMLElement | null {
 
 beforeEach(() => {
   localStorage.clear();
+  resetAgentPresetCache();
+  vi.mocked(getFabConfig).mockResolvedValue({ installed: false });
+  vi.mocked(setServerAgentPreset).mockResolvedValue({ ok: true });
 });
 
 afterEach(() => {
@@ -2732,6 +2740,41 @@ describe("Sidebar — server-group rail + server card (260817-ve5m)", () => {
       const header = getServerGroupHeader(name)!;
       expect(within(header).getByText(name)).not.toHaveClass("text-text-secondary");
     }
+  });
+
+  it("keeps the header preset chip case-sensitive and exposes it in the toggle's accessible name", async () => {
+    renderSidebar({ servers: [{ name: "primary", sessionCount: 1, agent_preset: "Codex-Review" }] });
+    await act(async () => {});
+
+    const marker = within(getServerGroupHeader("primary")!).getByTestId("agent-preset-marker");
+    expect(marker).toHaveTextContent("Codex-Review");
+    expect(marker).toHaveClass("normal-case", "tracking-normal", "font-normal");
+    expect(getServerGroupHeader("primary")).toHaveAccessibleName(
+      "Collapse primary groups, agent preset: Codex-Review",
+    );
+  });
+
+  it("toasts a failed workspace preset write", async () => {
+    resetAgentPresetCache();
+    vi.mocked(getFabConfig).mockResolvedValue({
+      installed: true,
+      systemPath: "/tmp/fab-config.yaml",
+      tools: [],
+      agent_presets: [{ name: "claude", source: "built-in" }],
+      fields: {},
+      roles: [],
+      modelSuggestions: {},
+      effortSuggestions: [],
+    });
+    vi.mocked(setServerAgentPreset).mockRejectedValue(new Error("fab write failed"));
+    renderSidebar({ agentPresetControls: true });
+    await act(async () => {});
+
+    tapRail("primary");
+    fireEvent.click(await screen.findByTestId("row-flyout-agent-preset-action"));
+    fireEvent.click(await screen.findByRole("radio", { name: /^claude/ }));
+    expect(await screen.findByText("fab write failed")).toBeInTheDocument();
+    expect(setServerAgentPreset).toHaveBeenCalledWith("primary", "claude");
   });
 
   it("renders both glyphs shield-first when an external server is also protected; nested session rows untouched", async () => {

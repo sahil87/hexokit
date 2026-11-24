@@ -122,4 +122,27 @@ describe("AgentPresetChooser", () => {
     expect(await screen.findByRole("radio", { name: /team/ })).toBeInTheDocument();
     expect(getRiffPresets).toHaveBeenCalledWith("srv", "proj");
   });
+
+  it("does not steal focus when the repo list arrives", async () => {
+    let resolveRepo!: (value: { riffPresets: []; tiers: []; agentPresets: FabAgentPreset[] }) => void;
+    const repoFlight = new Promise<{ riffPresets: []; tiers: []; agentPresets: FabAgentPreset[] }>((resolve) => {
+      resolveRepo = resolve;
+    });
+    vi.mocked(getRiffPresets).mockReturnValue(repoFlight);
+    renderChooser({ own: "codex-review", session: "proj" });
+
+    const current = await screen.findByRole("radio", { name: /^codex-review/ });
+    await waitFor(() => expect(current).toHaveFocus());
+    fireEvent.keyDown(current, { key: "ArrowDown" });
+    const next = screen.getByRole("radio", { name: /^codex-workers/ });
+    expect(next).toHaveFocus();
+
+    resolveRepo({
+      riffPresets: [],
+      tiers: [],
+      agentPresets: [...PRESETS, { name: "team", source: "project" }],
+    });
+    expect(await screen.findByRole("radio", { name: /^team/ })).toBeInTheDocument();
+    expect(next).toHaveFocus();
+  });
 });

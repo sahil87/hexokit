@@ -127,7 +127,7 @@ import { buildServerProtectActions } from "@/lib/palette/server-protect";
 import { buildServerAdoptActions } from "@/lib/palette/server-adopt";
 import { buildServerSetColorAction } from "@/lib/palette/server-color";
 import { buildAgentPresetActions } from "@/lib/palette/agent-preset";
-import { loadMachineAgentPresets, rememberRepoAgentPresets } from "@/lib/agent-presets";
+import { loadGroupAgentPresets, loadMachineAgentPresets } from "@/lib/agent-presets";
 import { useMachineAgentPresets } from "@/hooks/use-machine-agent-presets";
 import { buildShellServerActions } from "@/lib/palette/shell";
 import { buildWebEngineActions, buildWebInspectActions } from "@/lib/palette/web-engine";
@@ -249,7 +249,7 @@ import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 import type { ProjectSession, WindowInfo } from "@/types";
 
-import { selectWindow, createWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, borrowLayout, returnLayout, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, setSessionAgentPreset as setSessionAgentPresetApi, setServerAgentPreset as setServerAgentPresetApi, getRiffPresets, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, launchGuiApp, getSettingsEntries, fetchGuiStatus, resizeGui, fetchCodeBridge, restartCodeServer, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
+import { selectWindow, createWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, borrowLayout, returnLayout, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, setSessionAgentPreset as setSessionAgentPresetApi, setServerAgentPreset as setServerAgentPresetApi, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, sortSessionWindows, addWebTab, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, postSettings, restartGui, launchGuiApp, getSettingsEntries, fetchGuiStatus, resizeGui, fetchCodeBridge, restartCodeServer, DAEMON_SERVER, ApiError, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
 import { useCronData } from "@/hooks/use-cron";
 import { buildCronActions, type CronActionHandlers } from "@/lib/palette/cron";
 import { buildDataTableActions } from "@/lib/palette/data-table";
@@ -4870,15 +4870,7 @@ function AppShell() {
           // The group's own repo can define presets the machine list lacks, so
           // the chooser loads that list on entry (falling back to the machine's).
           load: async () => {
-            if (server && sessionName) {
-              try {
-                const flight = await getRiffPresets(server, sessionName);
-                rememberRepoAgentPresets(server, sessionName, flight.agentPresets);
-                if (flight.agentPresets) return flight.agentPresets;
-              } catch {
-                // fall through to the machine list
-              }
-            }
+            if (server && sessionName) return loadGroupAgentPresets(server, sessionName);
             return loadMachineAgentPresets();
           },
           onSet: (name) => {

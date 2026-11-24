@@ -56,7 +56,7 @@ import { HostPanel } from "./host-panel";
 import { KillDialog } from "./kill-dialog";
 import { ServerPanel } from "./server-panel";
 import { AgentPresetMarker } from "./agent-preset-card";
-import { AgentPresetChooser } from "./agent-preset-chooser";
+import { AnchoredAgentPresetChooser } from "./agent-preset-chooser";
 import { SessionRow } from "./session-row";
 import { WindowPanel } from "./status-panel";
 import { WindowRow } from "./window-row";
@@ -2864,7 +2864,6 @@ function ServerGroupInner(props: ServerGroupProps) {
   const [showPresetChooser, setShowPresetChooser] = useState(false);
   const headerRef = useRef<HTMLElement | null>(null);
   const popoverPos = useAnchoredPopoverPos(showColorPicker, headerRef);
-  const presetChooserPos = useAnchoredPopoverPos(showPresetChooser, headerRef, 380);
 
   // The server card: the SAME shared card shell as the window flyout (one
   // placement/containment/held implementation), on BOTH pointer classes —
@@ -2872,8 +2871,8 @@ function ServerGroupInner(props: ServerGroupProps) {
   // (`openNow`) on coarse. The content is the shared ServerCardContent (the
   // SERVER-panel tile mounts the same implementation), bound to the EXISTING
   // stable identity-arg seams (`onServerColorChange`/`onCreateSession`/
-  // `onKillServer` — no new props, so the R6a memo contract is untouched; all
-  // card state is group-local).
+  // `onKillServer`). Preset inputs are stable primitives or identity-arg
+  // callbacks too, so the R6a memo contract holds; all card state is local.
   const flyout = useRowFlyout({
     suppressed: showColorPicker || showPresetChooser,
     content: ({ close }) => (
@@ -2982,7 +2981,7 @@ function ServerGroupInner(props: ServerGroupProps) {
           type="button"
           onClick={() => onToggleOpen(server)}
           aria-expanded={isOpen}
-          aria-label={isOpen ? `Collapse ${server} groups` : `Expand ${server} groups`}
+          aria-label={`${isOpen ? `Collapse ${server} groups` : `Expand ${server} groups`}${serverInfo?.agent_preset ? `, agent preset: ${serverInfo.agent_preset}` : ""}`}
           className={`flex-1 min-w-0 flex items-center gap-1.5 pl-2 pr-1.5 text-left text-[10px] uppercase tracking-wider font-semibold min-h-[26px] coarse:min-h-[28px] transition-colors ${
             isCurrent ? "text-text-primary" : ""
           }`}
@@ -3081,27 +3080,16 @@ function ServerGroupInner(props: ServerGroupProps) {
           </div>,
           document.body,
         )}
-        {showPresetChooser && agentPresetControls && presetChooserPos && createPortal(
-          <div
-            style={{
-              position: "fixed",
-              top: presetChooserPos.top,
-              right: presetChooserPos.right,
-              zIndex: 100,
-            }}
-          >
-            <AgentPresetChooser
-              kind="Workspace"
-              entityName={server}
-              own={serverInfo?.agent_preset}
-              server={server}
-              anchorRef={headerRef}
-              onPick={handleAgentPresetSet}
-              onClose={() => setShowPresetChooser(false)}
-            />
-          </div>,
-          document.body,
-        )}
+        <AnchoredAgentPresetChooser
+          open={showPresetChooser && agentPresetControls}
+          kind="Workspace"
+          entityName={server}
+          own={serverInfo?.agent_preset}
+          server={server}
+          anchorRef={headerRef}
+          onPick={handleAgentPresetSet}
+          onClose={() => setShowPresetChooser(false)}
+        />
         {/* The server card — portalled to document.body, mounted ONLY while
             open (the shared shell's perf contract). */}
         {flyout.card}

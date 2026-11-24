@@ -401,7 +401,7 @@ describe("ServerPanel", () => {
     expect(testName).not.toHaveClass("text-text-primary");
 
     // Regular name stays primary.
-    const workName = screen.getByText("work", { selector: "div" });
+    const workName = screen.getByText("work");
     expect(workName).toHaveClass("text-text-primary");
     expect(workName).not.toHaveClass("text-text-secondary");
   });
@@ -442,13 +442,13 @@ describe("ServerPanel", () => {
       });
 
       expect(screen.getByTestId("external-ext")).toBeInTheDocument();
-      const extName = screen.getByText("ext", { selector: "div" });
+      const extName = screen.getByText("ext");
       expect(extName).toHaveClass("text-text-secondary");
       expect(extName).not.toHaveClass("text-text-primary");
 
       for (const name of ["own", "old"]) {
         expect(screen.queryByTestId(`external-${name}`)).not.toBeInTheDocument();
-        const nameDiv = screen.getByText(name, { selector: "div" });
+        const nameDiv = screen.getByText(name);
         expect(nameDiv).toHaveClass("text-text-primary");
         expect(nameDiv).not.toHaveClass("text-text-secondary");
       }
@@ -460,7 +460,7 @@ describe("ServerPanel", () => {
         servers: [{ name: "ext", sessionCount: 1, windowCount: 1, managed: false, protected: true }],
       });
 
-      const nameDiv = screen.getByText("ext", { selector: "div" });
+      const nameDiv = screen.getByText("ext").parentElement!;
       const glyphs = nameDiv.querySelectorAll("[data-testid^='shield-'], [data-testid^='external-']");
       expect([...glyphs].map((g) => g.getAttribute("data-testid"))).toEqual([
         "shield-ext",
@@ -744,5 +744,13 @@ describe("server card agent preset", () => {
     cleanup();
     renderPanel({ servers: [{ name: "work", sessionCount: 1, agent_preset: "codex-review" }] });
     expect(screen.getByTestId("agent-preset-marker")).toHaveTextContent("codex-review");
+  });
+
+  it("truncates a long workspace name without squashing the preset marker", () => {
+    const longName = "a-workspace-name-that-is-far-too-long-for-the-tile";
+    renderPanel({ servers: [{ name: longName, sessionCount: 1, agent_preset: "codex-review" }] });
+    expect(screen.getByText(longName)).toHaveClass("min-w-[3ch]", "flex-1", "truncate");
+    expect(screen.getByTestId("agent-preset-marker")).toHaveTextContent("codex-review");
+    expect(screen.getByTestId("agent-preset-marker")).toHaveClass("min-w-[3ch]", "max-w-1/2", "shrink");
   });
 });

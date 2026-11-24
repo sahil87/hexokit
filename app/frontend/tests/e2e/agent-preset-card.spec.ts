@@ -35,9 +35,9 @@ function sessionsJson(groupPreset: string | undefined) {
   ]);
 }
 
-async function mockBackend(page: Page) {
+async function mockBackend(page: Page, options: { workspacePreset?: string } = {}) {
   let groupPreset: string | undefined;
-  let workspacePreset: string | undefined;
+  let workspacePreset = options.workspacePreset;
   const groupPosts: Array<Record<string, unknown>> = [];
   const workspacePosts: Array<Record<string, unknown>> = [];
 
@@ -101,6 +101,25 @@ async function openWorkspaceChooser(page: Page) {
   await card.getByTestId("row-flyout-agent-preset-action").click();
   await expect(card).toHaveCount(0);
   return page.getByRole("radiogroup", { name: "Agent preset for default" });
+}
+
+async function expectWorkspaceTileGeometry(page: Page) {
+  const tile = page.getByRole("listbox", { name: "Workspaces" }).getByRole("option", { name: /default/ });
+  const name = tile.getByText("default", { exact: true });
+  const marker = tile.getByTestId("agent-preset-marker");
+  await expect(name).toBeVisible();
+  await expect(marker).toBeVisible();
+  const tileBox = (await tile.boundingBox())!;
+  const nameBox = (await name.boundingBox())!;
+  const markerBox = (await marker.boundingBox())!;
+  expect(nameBox.width).toBeGreaterThan(0);
+  expect(markerBox.width).toBeGreaterThan(0);
+  for (const box of [nameBox, markerBox]) {
+    expect(box.x).toBeGreaterThanOrEqual(tileBox.x);
+    expect(box.x + box.width).toBeLessThanOrEqual(tileBox.x + tileBox.width + 0.5);
+    expect(box.y).toBeGreaterThanOrEqual(tileBox.y);
+    expect(box.y + box.height).toBeLessThanOrEqual(tileBox.y + tileBox.height + 0.5);
+  }
 }
 
 function mockCoarsePointer(page: Page) {
@@ -212,6 +231,22 @@ test.describe("agent preset cards", () => {
     expect(workspacePosts[2]).toEqual({ name: SERVER, agent_preset: null });
     await expect(tile.getByTestId("agent-preset-marker")).toHaveCount(0);
   });
+
+  /**
+   * Proves: a desktop Workspaces tile shares its narrow name line between the
+   * workspace name and its own-preset chip instead of collapsing either one.
+   *
+   * Steps:
+   * 1. Use a 1280×720 viewport and a workspace with own codex-review.
+   * 2. Locate the workspace name and marker on its tile.
+   * 3. Assert both have non-zero width and stay inside the tile's box.
+   */
+  test("desktop tile keeps the workspace name and preset marker visible", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await mockBackend(page, { workspacePreset: "codex-review" });
+    await gotoTerminal(page);
+    await expectWorkspaceTileGeometry(page);
+  });
 });
 
 test.describe("agent preset cards on coarse pointers", () => {
@@ -250,5 +285,22 @@ test.describe("agent preset cards on coarse pointers", () => {
     await none.tap();
     await expect.poll(() => groupPosts.length).toBe(1);
     expect(groupPosts[0]).toEqual({ agent_preset: "none" });
+  });
+
+  /**
+   * Proves: the 375px mobile Workspaces tile also keeps both the workspace
+   * name and own-preset chip rendered inside its narrower line.
+   *
+   * Steps:
+   * 1. Mock a coarse pointer and a workspace with own codex-review.
+   * 2. Open the mobile drawer and locate the tile's name and marker.
+   * 3. Assert both have non-zero width and stay inside the tile's box.
+   */
+  test("mobile tile keeps the workspace name and preset marker visible", async ({ page }) => {
+    await mockBackend(page, { workspacePreset: "codex-review" });
+    await mockCoarsePointer(page);
+    await page.goto(`/${SERVER}/1`);
+    await page.getByRole("button", { name: "Toggle navigation" }).tap();
+    await expectWorkspaceTileGeometry(page);
   });
 });

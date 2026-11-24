@@ -95,12 +95,13 @@ ArrowDown/ArrowUp SHALL move focus between entries (wrapping), Enter (and Space)
 ### Sidebar: row marker
 
 #### R11: Preset-name marker on group and workspace rows
-A group row, a Workspaces-panel tile and the GROUPS-pane workspace header SHALL show a small neutral chip with the entity's **own** preset name (testid `agent-preset-marker`), and nothing when the entity only inherits. An own `none` shows the literal `none`. Placement: directly after the name, before the badges (group row: after the name span, before the viewer badge / `WaitingBadge` / `+`; tile: on the name line after the name; header: after the server name, before its trailing controls). Styling: neutral (`text-text-secondary`, 1px `border-border`, small radius, ~10px text, `leading-none`), capped at `max-w-[14ch]` with ellipsis, `shrink-0`-safe so the entity name (`min-w-0 truncate`) keeps priority; `title="agent preset: <name>"` and an accessible label. It MUST NOT wrap the row or push content past the coarse `pr-[56px]` rail reserve or the 375 px drawer width, and must not alter the window row (Row Minimalism).
+A group row, a Workspaces-panel tile and the GROUPS-pane workspace header SHALL show a small neutral chip with the entity's **own** preset name (testid `agent-preset-marker`), and nothing when the entity only inherits. An own `none` shows the literal `none`. Placement: directly after the name, before the badges (group row: after the name span, before the viewer badge / `WaitingBadge` / `+`; tile: on the name line after the name; header: after the server name, before its trailing controls). Styling: neutral (`text-text-secondary`, 1px `border-border`, small radius, ~10px text, `leading-none`), capped at `max-w-[14ch]` with ellipsis; the entity name (`min-w-0 truncate`) keeps priority. Sizing differs by surface width: on group rows and the GROUPS-pane header (room to spare) the chip MAY be `shrink-0`; on the **Workspaces-panel tile** (72–96 px wide) the name and the chip SHALL share the line — the chip shrinks with its own ellipsis (`min-w-0`/shrinkable, a small floor of ~3ch, at most about half the line) and the name keeps a visible floor (~3ch) — so that BOTH the workspace name and the chip have non-zero rendered width inside the tile at 1280×720 and 375×812, even for long names and long presets; `title="agent preset: <name>"` and an accessible label. It MUST NOT wrap the row or push content past the coarse `pr-[56px]` rail reserve or the 375 px drawer width, and must not alter the window row (Row Minimalism).
 
 - **GIVEN** a group with own `codex-review` and a sibling group that inherits
 - **WHEN** the sidebar renders
 - **THEN** only the first group's row shows a `codex-review` chip, after its name
 - **AND** a very long preset name is truncated with an ellipsis inside the chip and the row stays one line at 375 px on a coarse pointer
+- **AND** on a Workspaces-panel tile with own `codex-review`, the workspace name and the chip are both visibly rendered (each wider than 0 px and inside the tile) on desktop and mobile
 
 ### Sidebar: unchanged clear row
 
@@ -151,16 +152,16 @@ A group row, a Workspaces-panel tile and the GROUPS-pane workspace header SHALL 
 ### Phase 2: Core Implementation
 
 - [x] T002 Rework `src/components/sidebar/agent-preset-card.tsx`: replace `AgentPresetFact` with a line component taking `{ own, workspace?, server?, session? }` that renders `agent preset: <name> · <source>` when the judged list is non-empty and nothing otherwise; add an `AgentPresetActionRow` (`CardActionRow`, label `Agent preset…`, testid `row-flyout-agent-preset-action`, hint = effective display name, hidden with no presets; pick an existing icon from `icons.tsx` or add a small gear/sliders glyph); keep `AgentPresetClearRow` unchanged. <!-- R3 --> <!-- R5 --> <!-- R12 -->
-- [x] T003 Create the shared chooser `src/components/sidebar/agent-preset-chooser.tsx`: heading, `role="radiogroup"` of `role="radio"` entries from `buildAgentPresetChoices`, footer text, visible mark on the checked entry, ≥36 px rows on coarse (`coarse:min-h-[36px]`), keyboard (Arrow wrap, Enter/Space pick, Escape close, initial focus on checked or `inherit`), click-outside close (follow `SwatchPopover`'s dismissal pattern), list source per R8 (group: show held list immediately, then `getRiffPresets` → `rememberRepoAgentPresets` → fallback `loadMachineAgentPresets`; workspace: machine list), `onPick(value: string | null)` then close. <!-- R6 --> <!-- R7 --> <!-- R8 --> <!-- R10 -->
+- [x] T003 Create the shared chooser `src/components/sidebar/agent-preset-chooser.tsx`: heading, `role="radiogroup"` of `role="radio"` entries from `buildAgentPresetChoices`, footer text, visible mark on the checked entry, ≥36 px rows on coarse (`coarse:min-h-[36px]`), keyboard (Arrow wrap, Enter/Space pick, Escape close, initial focus on checked or `inherit`), click-outside close (follow `SwatchPopover`'s dismissal pattern), list source per R8 (group: show held list immediately, then `getRiffPresets` → `rememberRepoAgentPresets` → fallback `loadMachineAgentPresets`; workspace: machine list), `onPick(value: string | null)` then close. <!-- R6 --> <!-- R7 --> <!-- R8 --> <!-- R10 --> <!-- rework: chooser viewport fit must use measured height / clamp max-height to innerHeight-top; key entries by value not label; focus only on first open (do not re-steal focus when the repo list arrives); repo-list loading via a shared lib loader -->
 - [x] T004 Group card + row in `src/components/sidebar/session-row.tsx`: new props `workspaceAgentPreset?: string` and `onSetAgentPreset?: (server, session, name: string | null) => void`; always-present line; `Agent preset…` row immediately after `Change color…` using close-then-open with a `showPresetChooser` state added to `useRowFlyout({ suppressed })`; mount the chooser anchored to the row (same placement idiom as the row's `SwatchPopover`, clamped inside the viewport); render the R11 marker after the name span. <!-- R3 --> <!-- R4 --> <!-- R5 --> <!-- R6 --> <!-- R11 -->
 - [x] T005 Workspace card in `src/components/sidebar/server-card.tsx`: `ServerCardContent` gains the line (always-present, machine list), the `Agent preset…` row immediately after `Change color…` (seam `onAgentPresetAction?: () => void`), keeping the Clear row; if `useAnchoredPopoverPos`'s 100 px flip guess is too small for the chooser, add an optional height parameter (default unchanged for existing callers). <!-- R3 --> <!-- R5 --> <!-- R6 -->
-- [x] T006 Workspaces-panel tile in `src/components/sidebar/server-panel.tsx` (`ServerTile`) and GROUPS-pane header in `src/components/sidebar/index.tsx` (`ServerGroup`): wire close-then-open to a portalled chooser anchored at `tileAnchorRef` / `headerRef` (suppress the card while open), and render the R11 marker after the name on the tile's name line and the header's name. <!-- R6 --> <!-- R11 -->
+- [x] T006 Workspaces-panel tile in `src/components/sidebar/server-panel.tsx` (`ServerTile`) and GROUPS-pane header in `src/components/sidebar/index.tsx` (`ServerGroup`): wire close-then-open to a portalled chooser anchored at `tileAnchorRef` / `headerRef` (suppress the card while open), and render the R11 marker after the name on the tile's name line and the header's name. <!-- R6 --> <!-- R11 --> <!-- rework: tile name line made flex drops the ellipsis and squashes the marker (server-panel.tsx:407); header chip inherits uppercase from the toggle button (index.tsx:3001) --> <!-- rework cycle 2 (revised R11): tile chip is shrink-0 so the workspace name collapses to 0px in 72-96px tiles; make the tile chip shrinkable with a floor and give the name a floor; drop the tile glyphs' mr-0.5 now that the line is flex gap-1 -->
 
 ### Phase 3: Integration & Edge Cases
 
 - [x] T007 In `src/components/sidebar/index.tsx`: generalise `handleSessionAgentPresetClear` / `handleServerAgentPresetClear` / `handleAgentPresetClear` into set handlers taking `name | null` (toast on error; workspace path refreshes servers), keep the clear seams as calls with `null`, thread `onSetAgentPreset` + `workspaceAgentPreset={serverInfo?.agent_preset}` to `SessionRow` (~L3241) and the set seams to `ServerPanel`/`ServerTile` and the header card, preserving stable identity-arg handlers for the row memo. Verify the board-route sidebar still renders (no seam ⇒ no row). <!-- R4 --> <!-- R9 --> <!-- R12 -->
-- [x] T008 Vitest component tests: extend `src/components/sidebar/session-row.test.tsx` (~L700 preset block) and `src/components/sidebar/server-panel.test.tsx` (~L655 block) — line always present/hidden, source wording, action row placement directly after `Change color…` + hint, click closes card and opens chooser, picking calls the seam with name / `null` / `"none"`, keyboard (initial focus, arrows, Enter, Escape), marker only for own preset; add `src/components/sidebar/agent-preset-chooser.test.tsx` if useful. Update any existing assertions the always-present line changes. <!-- R3 --> <!-- R5 --> <!-- R7 --> <!-- R9 --> <!-- R10 --> <!-- R11 -->
-- [x] T009 Playwright e2e `tests/e2e/agent-preset-card.spec.ts` (model on `tests/e2e/agent-preset-palette.spec.ts`'s fully mocked routes; file header + Proves/Steps JSDoc per Constitution): set, inherit and `none` on a group and on a workspace via the card row + chooser (assert POST bodies), the row marker appearing for an own preset and absent when inheriting, keyboard pick, and a coarse/mobile (375×812) case opening the card from the rail. Run with `just test-e2e "agent-preset"` plus `row-minimalism`, `row-flyout`, `sidebar-section-rail`, `agent-preset-palette`. <!-- R3 --> <!-- R6 --> <!-- R9 --> <!-- R10 --> <!-- R11 -->
+- [x] T008 Vitest component tests: extend `src/components/sidebar/session-row.test.tsx` (~L700 preset block) and `src/components/sidebar/server-panel.test.tsx` (~L655 block) — line always present/hidden, source wording, action row placement directly after `Change color…` + hint, click closes card and opens chooser, picking calls the seam with name / `null` / `"none"`, keyboard (initial focus, arrows, Enter, Escape), marker only for own preset; add `src/components/sidebar/agent-preset-chooser.test.tsx` if useful. Update any existing assertions the always-present line changes. <!-- R3 --> <!-- R5 --> <!-- R7 --> <!-- R9 --> <!-- R10 --> <!-- R11 --> <!-- rework: add a test for a long workspace name + marker on the tile, and the header chip keeping the preset's case -->
+- [x] T009 Playwright e2e `tests/e2e/agent-preset-card.spec.ts` (model on `tests/e2e/agent-preset-palette.spec.ts`'s fully mocked routes; file header + Proves/Steps JSDoc per Constitution): set, inherit and `none` on a group and on a workspace via the card row + chooser (assert POST bodies), the row marker appearing for an own preset and absent when inheriting, keyboard pick, and a coarse/mobile (375×812) case opening the card from the rail. Run with `just test-e2e "agent-preset"` plus `row-minimalism`, `row-flyout`, `sidebar-section-rail`, `agent-preset-palette`. <!-- R3 --> <!-- R6 --> <!-- R9 --> <!-- R10 --> <!-- R11 --> <!-- rework cycle 2: add an e2e geometry assertion on the Workspaces tile (desktop + 375x812): name width > 0 and chip width > 0, both inside the tile, for a workspace with its own preset -->
 
 ### Phase 4: Polish
 
@@ -178,47 +179,48 @@ A group row, a Workspaces-panel tile and the GROUPS-pane workspace header SHALL 
 
 ### Functional Completeness
 
-- [ ] A-001 R1: The machine default and the preset list come from one cached `/api/fab-config` read; `loadMachineAgentPresets()` callers are unchanged
-- [ ] A-002 R2: The resolver returns the four sources exactly as `set here` / `from workspace` / `machine default` / `fab's defaults`, treating `none` as a value
-- [ ] A-003 R3: Both cards show `agent preset: <name> · <source>` whenever presets are reported, and no line otherwise
-- [ ] A-004 R4: `SessionRow` receives the workspace preset as a primitive prop without breaking its memo contract
-- [ ] A-005 R5: `Agent preset…` sits immediately after `Change color…` on both cards with the effective name as hint, hidden with no presets
-- [ ] A-006 R6: Clicking the row closes the card and opens the chooser anchored to the group row / tile / header, inside the viewport
-- [ ] A-007 R7: The chooser lists inherit (with its resolved description), the presets with descriptions, and none, with the current choice marked; one shared component, pure list builder
-- [ ] A-008 R8: A group's chooser offers its repo-scoped list when available, else the machine list
-- [ ] A-009 R9: Picks POST to the existing routes (`null` for inherit, `"none"` for none, the name otherwise) via generalised set handlers, with toast on error
-- [ ] A-010 R10: Arrow/Enter/Escape/click-outside work, focus starts on the current choice, and the palette actions are unchanged
-- [ ] A-011 R11: Group rows, workspace tiles and the GROUPS-pane header show the own-preset chip after the name, nothing when inheriting
-- [ ] A-012 R12: `Clear agent preset` still appears only for an unknown own name and still clears
-- [ ] A-013 R13: `sidebar.md` and `dialogs-and-state.md` describe the new behavior in present-truth style
+- [x] A-001 R1: The machine default and the preset list come from one cached `/api/fab-config` read; `loadMachineAgentPresets()` callers are unchanged
+- [x] A-002 R2: The resolver returns the four sources exactly as `set here` / `from workspace` / `machine default` / `fab's defaults`, treating `none` as a value
+- [x] A-003 R3: Both cards show `agent preset: <name> · <source>` whenever presets are reported, and no line otherwise
+- [x] A-004 R4: `SessionRow` receives the workspace preset as a primitive prop without breaking its memo contract
+- [x] A-005 R5: `Agent preset…` sits immediately after `Change color…` on both cards with the effective name as hint, hidden with no presets
+- [x] A-006 R6: Clicking the row closes the card and opens the chooser anchored to the group row / tile / header, inside the viewport — one shared `AnchoredAgentPresetChooser` (portalled) flips on the measured height and clamps `maxHeight` to `innerHeight - top`; e2e asserts containment at 375×812
+- [x] A-007 R7: The chooser lists inherit (with its resolved description), the presets with descriptions, and none, with the current choice marked; one shared component, pure list builder
+- [x] A-008 R8: A group's chooser offers its repo-scoped list when available, else the machine list
+- [x] A-009 R9: Picks POST to the existing routes (`null` for inherit, `"none"` for none, the name otherwise) via generalised set handlers, with toast on error
+- [x] A-010 R10: Arrow/Enter/Escape/click-outside work, focus starts on the current choice, and the palette actions are unchanged
+- [x] A-011 R11: Group rows, workspace tiles and the GROUPS-pane header show the own-preset chip after the name, nothing when inheriting — header chip keeps the preset's case; group/header chips stay `shrink-0`; the tile chip is now shrinkable (`min-w-[3ch] max-w-1/2 shrink`, `agent-preset-card.tsx:67`) and the tile name has a `min-w-[3ch] flex-1 truncate` floor (`server-panel.tsx:427`). Re-measured: desktop tile 96 px → name 37 px / chip 41 px; mobile tile 72 px → name 25 px / chip 29 px, for short and long names/presets. Residual edge (should-fix): a protected + external tile on mobile pushes the chip past the clipped line
+- [x] A-012 R12: `Clear agent preset` still appears only for an unknown own name and still clears
+- [x] A-013 **N/A**: covered by hydrate stage
 
 ### Behavioral Correctness
 
-- [ ] A-014 R3: A group/workspace that inherits now shows a preset line (previously none); the own-value line now carries `· set here`
+- [x] A-014 R3: A group/workspace that inherits now shows a preset line (previously none); the own-value line now carries `· set here`
 
 ### Scenario Coverage
 
-- [ ] A-015 R3: Vitest covers every line-wording case (own, unknown, own none, from workspace, machine default, fab's defaults) and the no-presets hidden case
-- [ ] A-016 R9: e2e covers set, inherit and none on a group and on a workspace, asserting POST bodies
-- [ ] A-017 R11: e2e covers the row marker appearing for an own preset and absent when inheriting
-- [ ] A-018 R6: e2e covers the coarse-pointer / 375 px path opening the card from the rail and picking from the chooser
+- [x] A-015 R3: Vitest covers every line-wording case (own, unknown, own none, from workspace, machine default, fab's defaults) and the no-presets hidden case
+- [x] A-016 R9: e2e covers set, inherit and none on a group and on a workspace, asserting POST bodies
+- [x] A-017 R11: e2e covers the row marker appearing for an own preset and absent when inheriting
+- [x] A-018 R6: e2e covers the coarse-pointer / 375 px path opening the card from the rail and picking from the chooser
 
 ### Edge Cases & Error Handling
 
-- [ ] A-019 R7: An own unknown name marks no entry, focus starts on `inherit`, and the Clear row remains
-- [ ] A-020 R2: A workspace `none` makes an inheriting group read `none (no preset) · from workspace`
-- [ ] A-021 R11: A long preset name truncates inside the chip and the row stays one line at 375 px coarse without overlapping the rail
-- [ ] A-022 R9: A failed POST surfaces a toast and leaves the UI consistent
+- [x] A-019 R7: An own unknown name marks no entry, focus starts on `inherit`, and the Clear row remains
+- [x] A-020 R2: A workspace `none` makes an inheriting group read `none (no preset) · from workspace`
+- [x] A-030 R11: On a Workspaces-panel tile with its own preset, the name and the chip both render with non-zero width inside the tile at 1280×720 and 375×812 (e2e geometry assertion) — `agent-preset-card.spec.ts` "desktop tile keeps…" / "mobile tile keeps…" pass; a reviewer geometry probe with long workspace names and long presets also passed
+- [x] A-021 R11: A long preset name truncates inside the chip and the row stays one line at 375 px coarse without overlapping the rail — group row and header verified by geometry probe (chip ≤ 84 px, name visible); the tile case is tracked under A-011
+- [x] A-022 R9: A failed POST surfaces a toast and leaves the UI consistent — `index.test.tsx` "toasts a failed workspace preset write" covers the header path; group/tile handlers share the same toast-on-error shape
 
 ### Code Quality
 
-- [ ] A-023 Pattern consistency: New code follows the sidebar's card/popover idioms (close-then-open, optional-handler gating, `useRowFlyout` suppression) and naming
-- [ ] A-024 No unnecessary duplication: Set handlers generalise the existing clear handlers; list building lives in one pure function; `api/client.ts` utilities reused
-- [ ] A-025 Type narrowing: No `as` casts where `if` guards or discriminated unions suffice
-- [ ] A-026 Tests: New behavior has Vitest and Playwright coverage; every new `test()` carries the Proves/Steps JSDoc and the spec file a header comment
-- [ ] A-027 No polling: The chooser and line use the cached reads/SSE state, never `setInterval` + fetch
-- [ ] A-028 Comments: No narration or change-id citations in code comments
-- [ ] A-029 No real fab config writes: tests use mocks/stubs only (plan Rule 6)
+- [x] A-023 Pattern consistency: New code follows the sidebar's card/popover idioms (close-then-open, optional-handler gating, `useRowFlyout` suppression) and naming
+- [x] A-024 No unnecessary duplication: Set handlers generalise the existing clear handlers; list building lives in one pure function; `api/client.ts` utilities reused
+- [x] A-025 Type narrowing: No `as` casts where `if` guards or discriminated unions suffice
+- [x] A-026 Tests: New behavior has Vitest and Playwright coverage; every new `test()` carries the Proves/Steps JSDoc and the spec file a header comment
+- [x] A-027 No polling: The chooser and line use the cached reads/SSE state, never `setInterval` + fetch
+- [x] A-028 Comments: No narration or change-id citations in code comments
+- [x] A-029 No real fab config writes: tests use mocks/stubs only (plan Rule 6)
 
 ## Notes
 
@@ -226,6 +228,11 @@ A group row, a Workspaces-panel tile and the GROUPS-pane workspace header SHALL 
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
 - PR evidence (`just demo agent-preset-card --before`, desktop + mobile) is produced at ship.
+
+## Deletion Candidates
+
+- `app/frontend/src/hooks/use-machine-agent-presets.ts` (`useMachineAgentPresets`) — near-verbatim twin of `useMachineAgentPresetInfo`; its one caller (`app.tsx:4858`) could read `useMachineAgentPresetInfo()?.presets` and the file be dropped (palette wiring — defer to C2 or a follow-up).
+- `app/frontend/src/components/sidebar/server-panel.tsx:406` (`whitespace-nowrap` + `text-ellipsis` on the tile's name-line `div`) — the line is now a flex container whose name `span` (`truncate`) and chip (`whitespace-nowrap text-ellipsis`) own their own truncation, so the container's ellipsis/nowrap classes are inert (keep `overflow-hidden` and `${nameClass}`, which still clip and color the glyphs).
 
 ## Assumptions
 

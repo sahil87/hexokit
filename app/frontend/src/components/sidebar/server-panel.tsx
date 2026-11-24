@@ -15,7 +15,7 @@ import { SwatchPopover } from "@/components/swatch-popover";
 import { useRowFlyout } from "./row-flyout-card";
 import { ServerCardContent, useAnchoredPopoverPos } from "./server-card";
 import { AgentPresetMarker } from "./agent-preset-card";
-import { AgentPresetChooser } from "./agent-preset-chooser";
+import { AnchoredAgentPresetChooser } from "./agent-preset-chooser";
 
 type ServerPanelProps = {
   server: string;
@@ -308,7 +308,6 @@ function ServerTile({
   const [showPresetChooser, setShowPresetChooser] = useState(false);
   const tileAnchorRef = useRef<HTMLElement | null>(null);
   const popoverPos = useAnchoredPopoverPos(showColorPicker, tileAnchorRef);
-  const presetChooserPos = useAnchoredPopoverPos(showPresetChooser, tileAnchorRef, 380);
   const flyout = useRowFlyout({
     suppressed: coarse || showColorPicker || showPresetChooser,
     // Tiles sit in a multi-column grid, not full-bleed like rows: without the
@@ -409,7 +408,7 @@ function ServerTile({
               <span
                 role="img"
                 aria-label={`${name} is protected`}
-                className="inline-flex align-[-2px] mr-0.5"
+                className="inline-flex shrink-0 align-[-2px]"
                 data-testid={`shield-${name}`}
               >
                 <ShieldGlyph />
@@ -419,14 +418,14 @@ function ServerTile({
               <span
                 role="img"
                 aria-label={`${name} is external`}
-                className="inline-flex align-[-2px] mr-0.5"
+                className="inline-flex shrink-0 align-[-2px]"
                 data-testid={`external-${name}`}
               >
                 <ExternalGlyph />
               </span>
             )}
-            {name}
-            <AgentPresetMarker name={agentPreset} />
+            <span className={`min-w-[3ch] flex-1 truncate ${nameClass}`}>{name}</span>
+            <AgentPresetMarker name={agentPreset} tile />
           </div>
           {/* Window count + waiting rollup (260708-4li7): a bare window-count
               number with the badge right-aligned on the same flex row — the
@@ -467,27 +466,16 @@ function ServerTile({
         </div>,
         document.body,
       )}
-      {showPresetChooser && onSetServerAgentPreset && presetChooserPos && createPortal(
-        <div
-          style={{
-            position: "fixed",
-            top: presetChooserPos.top,
-            right: presetChooserPos.right,
-            zIndex: 100,
-          }}
-        >
-          <AgentPresetChooser
-            kind="Workspace"
-            entityName={name}
-            own={agentPreset}
-            server={name}
-            anchorRef={tileAnchorRef}
-            onPick={(value) => onSetServerAgentPreset(name, value)}
-            onClose={() => setShowPresetChooser(false)}
-          />
-        </div>,
-        document.body,
-      )}
+      <AnchoredAgentPresetChooser
+        open={showPresetChooser && Boolean(onSetServerAgentPreset)}
+        kind="Workspace"
+        entityName={name}
+        own={agentPreset}
+        server={name}
+        anchorRef={tileAnchorRef}
+        onPick={(value) => onSetServerAgentPreset?.(name, value)}
+        onClose={() => setShowPresetChooser(false)}
+      />
       {/* The server card — portalled to document.body, mounted ONLY while
           open (the shared shell's perf contract). */}
       {flyout.card}

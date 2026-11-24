@@ -1,4 +1,4 @@
-import { getFabConfig, type FabAgentPreset } from "@/api/client";
+import { getFabConfig, getRiffPresets, type FabAgentPreset } from "@/api/client";
 
 /** fab's reserved agent-preset name: "no preset here, even the machine default". */
 export const NO_AGENT_PRESET = "none";
@@ -73,6 +73,20 @@ export function rememberRepoAgentPresets(server: string, session: string, list: 
 
 export function recallRepoAgentPresets(server: string, session: string): FabAgentPreset[] | undefined {
   return repoLists.get(repoKey(server, session));
+}
+
+export async function loadGroupAgentPresets(
+  server: string,
+  session: string,
+): Promise<FabAgentPreset[] | undefined> {
+  try {
+    const flight = await getRiffPresets(server, session);
+    rememberRepoAgentPresets(server, session, flight.agentPresets);
+    if (flight.agentPresets) return flight.agentPresets;
+  } catch {
+    // Fall through to the machine list.
+  }
+  return loadMachineAgentPresets();
 }
 
 /** Test seam: forget every cached list. */

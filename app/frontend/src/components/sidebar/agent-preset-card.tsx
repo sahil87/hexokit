@@ -62,14 +62,15 @@ export function AgentPresetActionRow({
   );
 }
 
-export function AgentPresetMarker({ name }: { name?: string }) {
+export function AgentPresetMarker({ name, tile = false }: { name?: string; tile?: boolean }) {
   if (!name) return null;
+  const sizing = tile ? "min-w-[3ch] max-w-1/2 shrink" : "min-w-0 max-w-[14ch] shrink-0";
   return (
     <span
       data-testid="agent-preset-marker"
       aria-label={`agent preset: ${name}`}
       title={`agent preset: ${name}`}
-      className="min-w-0 max-w-[14ch] shrink overflow-hidden text-ellipsis whitespace-nowrap rounded-sm border border-border px-1 py-0.5 text-[10px] leading-none text-text-secondary"
+      className={`${sizing} overflow-hidden text-ellipsis whitespace-nowrap rounded-sm border border-border px-1 py-0.5 text-[10px] font-normal normal-case leading-none tracking-normal text-text-secondary`}
     >
       {name}
     </span>
