@@ -5,7 +5,8 @@
  * other host, the Alt key-hint pill and digits appearing without anything
  * moving, a click switching hosts with the light moving to the new square, a
  * drag reordering the squares (digits renumbering live), and Settings →
- * Appearance → This app switching the strip effect.
+ * Appearance giving the host a color and then stepping the strip through its
+ * lit effects, each shown across the full 1280px band with the dialog closed.
  *
  * Runs only under `just demo shell-strip-host-squares` (app/desktop's
  * playwright.demo.config.ts — testDir ./tests/demo), against the throwaway e2e
@@ -30,9 +31,13 @@ test.describe("shell strip host squares demo", () => {
    * 2. Hover the second square to preview its host in the nameplate; `beat()`.
    * 3. Hold Alt to reveal the digits; `beat()`; release.
    * 4. Drag the second square left of the first; `beat()`.
-   * 5. Open Settings → Appearance and pick the Hex mesh effect in This app;
-   *    `beat()`.
-   * 6. Click the other host's square and wait for the page to swap; `beat()`.
+   * 5. Open Settings with the top bar's settings button and pick a blue Host
+   *    color under Appearance (the seeded hosts have none, and a host with no
+   *    color gets no light); close the dialog; `beat()` on the default Glow.
+   * 6. For each other lit effect (Halftone, Hex mesh, Scanlines, Edge light,
+   *    then back to Glow): open Settings, pick the effect under Appearance →
+   *    This app, close the dialog so the whole band is unobscured; `beat()`.
+   * 7. Click the other host's square and wait for the page to swap; `beat()`.
    */
   test("squares, hover preview, key hints, reorder, effect and switch", async ({ hostPage }) => {
     const squares = hostPage.getByTestId("shell-host-square");
@@ -66,11 +71,23 @@ test.describe("shell strip host squares demo", () => {
     }
     await beat(hostPage);
 
-    await hostPage.keyboard.press("Control+Shift+Comma");
-    await hostPage.getByRole("tab", { name: "Appearance" }).click();
-    await hostPage.getByRole("button", { name: "Hex mesh" }).click();
-    await beat(hostPage, 1_800);
+    const openAppearance = async () => {
+      await hostPage.getByRole("button", { name: "Open settings" }).click();
+      await hostPage.getByRole("tab", { name: "Appearance" }).click();
+    };
+    await openAppearance();
+    await hostPage.getByRole("radio", { name: /^Color blue/ }).click();
+    await pace(hostPage);
     await hostPage.keyboard.press("Escape");
+    await beat(hostPage, 1_800);
+
+    for (const effect of ["Halftone", "Hex mesh", "Scanlines", "Edge light", "Glow"]) {
+      await openAppearance();
+      await hostPage.getByRole("button", { name: effect, exact: true }).click();
+      await pace(hostPage);
+      await hostPage.keyboard.press("Escape");
+      await beat(hostPage, 1_800);
+    }
 
     await hostPage.locator('[data-testid="shell-host-square"]:not([aria-current="true"])').click();
     await beat(hostPage);
