@@ -94,8 +94,8 @@ The queue's mode decides when you merge; the user's word is a `by: user`/`by: ch
   it merged (`<old-base>`, from `gh pr view <pred> --json headRefOid`). Retarget the successor's PR with
   `gh pr edit <n> --base <default>`. Then, never in the authoring agent's worktree:
   1. in the item's repo, `wt create --temp <observed-head-sha> --fetch --json`: the temporary detached
-     worktree. `--fetch` refreshes `origin` first; the receipt's `path` is `<tmp>` and its `name`
-     (prefixed `tmp-`) is `<tmp-name>`
+     worktree. `--fetch` refreshes `origin` first; the receipt's `result.path` is `<tmp>` and its
+     `result.name` (prefixed `tmp-`) is `<tmp-name>`
   2. in `<tmp>`: `git rebase --onto origin/<default> <old-base>`
   3. `git push origin HEAD:<branch> --force-with-lease=<branch>:<observed-head-sha>`
   4. merge when its checks are green and the user's word covers this item, then

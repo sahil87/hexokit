@@ -125,36 +125,40 @@ plain-item base, the chat hand-spawn clause) and carry a Design Decision "Tempor
 
 ### Functional Completeness
 
-- [ ] A-001 R1: `brief_rules.md` § Merging uses `wt create --temp <observed-head-sha> --fetch --json` and `wt delete <name> --non-interactive`; no `git worktree add|remove`; no separate `git fetch origin` restack step
-- [ ] A-002 R2: the red-check recovery spawn reads `rk riff -L <server> -- --pr <n>`
-- [ ] A-003 R3: neither the allowlist nor § Allowed tools lists `git worktree`; both list the `wt` verbs
-- [ ] A-004 R4: the plain-item rule states the `queue:` line → `wt list --json` `base` (`origin/` stripped) → default-branch order
-- [ ] A-005 R5: the skill's hand-spawn paragraph names `rk riff -L <server> -- --base origin/<branch> --fetch` and `track add … --kind pane`, and says nothing may depend on it
-- [ ] A-006 R6: the skill § Merging has the same `wt` commands as the rules and no `git worktree`
-- [ ] A-007 R7: § Gotchas carries the `--reuse` + `--base`/`--fetch` bullet
-- [ ] A-008 R9: `operator-brief.md` reflects the new commands and carries the Design Decision
+- [x] A-001 R1: `brief_rules.md` § Merging uses `wt create --temp <observed-head-sha> --fetch --json` and `wt delete <name> --non-interactive`; no `git worktree add|remove`; no separate `git fetch origin` restack step
+- [x] A-002 R2: the red-check recovery spawn reads `rk riff -L <server> -- --pr <n>`
+- [x] A-003 R3: neither the allowlist nor § Allowed tools lists `git worktree`; both list the `wt` verbs
+- [x] A-004 R4: the plain-item rule states the `queue:` line → `wt list --json` `base` (`origin/` stripped) → default-branch order
+- [x] A-005 R5: the skill's hand-spawn paragraph names `rk riff -L <server> -- --base origin/<branch> --fetch` and `track add … --kind pane`, and says nothing may depend on it
+- [x] A-006 R6: the skill § Merging has the same `wt` commands as the rules and no `git worktree`
+- [x] A-007 R7: § Gotchas carries the `--reuse` + `--base`/`--fetch` bullet
+- [x] A-008 **N/A**: memory is written at hydrate (R9 "Done at hydrate"); hydrate verifies it — R9: `operator-brief.md` reflects the new commands and carries the Design Decision
 
 ### Scenario Coverage
 
-- [ ] A-009 R8: tests assert presence of the new text and absence of `git worktree` in rules and operator topic; `go test ./internal/operator/ ./cmd/rk/` passes; the skill copy is byte-identical to the canonical file
+- [x] A-009 R8: tests assert presence of the new text and absence of `git worktree` in rules and operator topic; `go test ./internal/operator/ ./cmd/rk/` passes; the skill copy is byte-identical to the canonical file
 
 ### Edge Cases & Error Handling
 
-- [ ] A-010 R1: the conflict-failure path removes the temp worktree with `wt delete` (no stray left by the documented flow)
-- [ ] A-011 R3: the rules file stays ≤ 40 960 bytes
+- [x] A-010 R1: the conflict-failure path removes the temp worktree with `wt delete` (no stray left by the documented flow)
+- [x] A-011 R3: the rules file stays ≤ 40 960 bytes
 
 ### Code Quality
 
-- [ ] A-012 Pattern consistency: new rule text follows the existing `-L <server>` convention and tier wording
-- [ ] A-013 No unnecessary duplication: the skill mirrors the rules without adding a second, divergent procedure
-- [ ] A-014 New features and bug fixes include tests covering the changed behavior (text guards in both packages)
-- [ ] A-015 No comment narration or change-ID citations in test comments
+- [x] A-012 Pattern consistency: new rule text follows the existing `-L <server>` convention and tier wording
+- [x] A-013 No unnecessary duplication: the skill mirrors the rules without adding a second, divergent procedure
+- [x] A-014 New features and bug fixes include tests covering the changed behavior (text guards in both packages)
+- [x] A-015 No comment narration or change-ID citations in test comments
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- None — this change adds new functionality without making existing code redundant
 
 ## Assumptions
 
