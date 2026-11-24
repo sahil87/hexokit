@@ -8,8 +8,8 @@ progress:
     intake: done
     apply: done
     review: done
-    hydrate: active
-    ship: pending
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
     generated: true
@@ -32,24 +32,26 @@ stage_metrics:
     intake: {started_at: "2026-11-24T17:23:25Z", driver: fab-new, iterations: 1, completed_at: "2026-11-24T17:27:54Z"}
     apply: {started_at: "2026-11-24T17:41:03Z", driver: fab-ff, iterations: 2, completed_at: "2026-11-24T17:42:47Z"}
     review: {started_at: "2026-11-24T17:42:47Z", driver: fab-ff, iterations: 2, completed_at: "2026-11-24T17:48:58Z"}
-    hydrate: {started_at: "2026-11-24T17:48:58Z", driver: fab-ff, iterations: 1}
+    hydrate: {started_at: "2026-11-24T17:48:58Z", driver: fab-ff, iterations: 1, completed_at: "2026-11-24T17:49:41Z"}
+    ship: {started_at: "2026-11-24T17:49:41Z", driver: fab-ff, iterations: 1}
 prs: []
 change_type_source: explicit
 base_branch: main
 true_impact:
-    added: 522
-    deleted: 4
-    net: 518
+    added: 575
+    deleted: 7
+    net: 568
     excluding:
-        added: 244
-        deleted: 3
-        net: 241
+        added: 274
+        deleted: 7
+        net: 267
     tests:
-        added: 52
+        added: 58
         deleted: 0
-        net: 52
-    computed_at: "2026-11-24T17:42:48Z"
-    computed_at_stage: apply
+        net: 58
+    computed_at: "2026-11-24T17:49:41Z"
+    computed_at_stage: hydrate
+summary: Under GUI keyboard capture, a trackpad pinch reaches the Linux guest as Ctrl+scroll (rk holds Control_L around noVNC's scroll buttons)
 # base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-11-24T17:48:58Z
+last_updated: 2026-11-24T17:49:41Z
