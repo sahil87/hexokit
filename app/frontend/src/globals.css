@@ -309,12 +309,12 @@ summary {
     0 50% / calc(var(--rk-ax) + max(260px, 75%)) 120px no-repeat;
 }
 .rk-strip-fx-halftone .rk-strip-layer::before {
-  background: radial-gradient(circle, var(--rk-acc) 1.5px, transparent 2px) 0 0 / 6px 6px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--rk-acc) 75%, transparent) 1px, transparent 1.4px) 0 0 / 4px 4px;
   mask: radial-gradient(farthest-side at var(--rk-ax) 50%, #000 0, #000 30%, transparent 88%) 0 50% /
     calc(var(--rk-ax) + max(210px, 35%)) 120px no-repeat;
 }
 .rk-strip-fx-halftone .rk-strip-layer::after {
-  background: radial-gradient(circle, var(--rk-acc) 0.8px, transparent 1.25px) 3px 3px / 6px 6px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--rk-acc) 60%, transparent) 0.6px, transparent 0.95px) 2px 2px / 4px 4px;
   mask: radial-gradient(farthest-side at var(--rk-ax) 50%, #000 0, rgba(0, 0, 0, 0.75) 40%, transparent 100%) 0 50% /
     calc(var(--rk-ax) + max(620px, 75%)) 180px no-repeat;
 }
@@ -330,8 +330,8 @@ summary {
 .rk-strip-fx-hex .rk-strip-layer::before {
   background: var(--rk-acc);
   mask:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='13.86'%3E%3Cpath d='M0 6.93 4 0h8l4 6.93-4 6.93H4zM16 6.93h8' fill='none' stroke='%23000' stroke-width='1.1'/%3E%3C/svg%3E")
-      0 0 / 24px 13.86px repeat,
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 13.86' width='16' height='9.24' preserveAspectRatio='none'%3E%3Cpath d='M0 6.93 4 0h8l4 6.93-4 6.93H4zM16 6.93h8' fill='none' stroke='%23000' stroke-width='1.35'/%3E%3C/svg%3E")
+      0 0 / 16px 9.24px repeat,
     radial-gradient(
         farthest-side at var(--rk-ax) 50%,
         #000 0,
