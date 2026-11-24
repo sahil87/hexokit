@@ -264,13 +264,24 @@ summary {
 .rk-strip-fx-flat .rk-strip-layer {
   background: color-mix(in srgb, var(--rk-acc) 35%, transparent);
 }
+/* The lit effects scale with the band: each reach R is max(<px floor>, <% of
+   the band>), so the light spans ~75% of a wide window while narrow bands and
+   the Settings preview cards keep the floor. The right ~25% stays neutral
+   chrome — the Windows/Linux controls overlay is bare chrome under every
+   effect but Flat. Blink rejects px/% math in a radial-gradient's own size, so
+   each radial light is drawn in a no-repeat tile R past the square (size
+   `calc(var(--rk-ax) + R) <2 × vertical radius>`, vertically centred on its
+   anchor line) with `farthest-side at var(--rk-ax)`, whose radii are then
+   exactly R × the vertical radius. Linear stops take the px/% max() directly. */
 .rk-strip-fx-glow .rk-strip-layer {
   background: radial-gradient(
-    ellipse 320px 72px at var(--rk-ax) 50%,
-    color-mix(in srgb, var(--rk-acc) 62%, transparent) 0%,
-    color-mix(in srgb, var(--rk-acc) 20%, transparent) 42%,
-    transparent 78%
-  );
+      farthest-side at var(--rk-ax) 50%,
+      color-mix(in srgb, var(--rk-acc) 60%, transparent) 0%,
+      color-mix(in srgb, var(--rk-acc) 34%, transparent) 30%,
+      color-mix(in srgb, var(--rk-acc) 14%, transparent) 65%,
+      transparent 100%
+    )
+    0 50% / calc(var(--rk-ax) + max(320px, 75%)) 144px no-repeat;
 }
 .rk-strip-fx-livery .rk-strip-layer {
   background: linear-gradient(
@@ -290,37 +301,45 @@ summary {
 }
 .rk-strip-fx-halftone .rk-strip-layer {
   background: radial-gradient(
-    ellipse 260px 60px at var(--rk-ax) 50%,
-    color-mix(in srgb, var(--rk-acc) 18%, transparent),
-    transparent 75%
-  );
+      farthest-side at var(--rk-ax) 50%,
+      color-mix(in srgb, var(--rk-acc) 18%, transparent) 0%,
+      color-mix(in srgb, var(--rk-acc) 8%, transparent) 60%,
+      transparent 100%
+    )
+    0 50% / calc(var(--rk-ax) + max(260px, 75%)) 120px no-repeat;
 }
 .rk-strip-fx-halftone .rk-strip-layer::before {
   background: radial-gradient(circle, var(--rk-acc) 1.5px, transparent 2px) 0 0 / 6px 6px;
-  mask-image: radial-gradient(ellipse 210px 60px at var(--rk-ax) 50%, #000 0, #000 30%, transparent 88%);
+  mask: radial-gradient(farthest-side at var(--rk-ax) 50%, #000 0, #000 30%, transparent 88%) 0 50% /
+    calc(var(--rk-ax) + max(210px, 35%)) 120px no-repeat;
 }
 .rk-strip-fx-halftone .rk-strip-layer::after {
   background: radial-gradient(circle, var(--rk-acc) 0.8px, transparent 1.25px) 3px 3px / 6px 6px;
-  mask-image: radial-gradient(
-    ellipse 620px 90px at var(--rk-ax) 50%,
-    #000 0,
-    rgba(0, 0, 0, 0.75) 40%,
-    transparent 92%
-  );
+  mask: radial-gradient(farthest-side at var(--rk-ax) 50%, #000 0, rgba(0, 0, 0, 0.75) 40%, transparent 100%) 0 50% /
+    calc(var(--rk-ax) + max(620px, 75%)) 180px no-repeat;
 }
 .rk-strip-fx-hex .rk-strip-layer {
   background: radial-gradient(
-    ellipse 240px 60px at var(--rk-ax) 50%,
-    color-mix(in srgb, var(--rk-acc) 24%, transparent),
-    transparent 75%
-  );
+      farthest-side at var(--rk-ax) 50%,
+      color-mix(in srgb, var(--rk-acc) 24%, transparent) 0%,
+      color-mix(in srgb, var(--rk-acc) 10%, transparent) 55%,
+      transparent 100%
+    )
+    0 50% / calc(var(--rk-ax) + max(240px, 75%)) 120px no-repeat;
 }
 .rk-strip-fx-hex .rk-strip-layer::before {
   background: var(--rk-acc);
   mask:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='13.86'%3E%3Cpath d='M0 6.93 4 0h8l4 6.93-4 6.93H4zM16 6.93h8' fill='none' stroke='%23000' stroke-width='1.1'/%3E%3C/svg%3E")
       0 0 / 24px 13.86px repeat,
-    radial-gradient(ellipse 460px 80px at var(--rk-ax) 50%, #000 0, rgba(0, 0, 0, 0.55) 45%, transparent 85%);
+    radial-gradient(
+        farthest-side at var(--rk-ax) 50%,
+        #000 0,
+        rgba(0, 0, 0, 0.55) 40%,
+        rgba(0, 0, 0, 0.2) 75%,
+        transparent 100%
+      )
+      0 50% / calc(var(--rk-ax) + max(460px, 75%)) 160px no-repeat;
   mask-composite: intersect;
 }
 .rk-strip-fx-scan .rk-strip-layer {
@@ -333,18 +352,22 @@ summary {
     90deg,
     #000 0,
     #000 calc(var(--rk-ax) + 30px),
-    transparent calc(var(--rk-ax) + 540px)
+    transparent max(calc(var(--rk-ax) + 540px), 75%)
   );
 }
 .rk-strip-fx-scan .rk-strip-layer::before {
   background: linear-gradient(90deg, color-mix(in srgb, var(--rk-acc) 22%, transparent), transparent 75%);
 }
+/* Anchored on the bottom edge: the tile's centre line sits at the band's
+   bottom (tile bottom 42px below it). */
 .rk-strip-fx-edge .rk-strip-layer {
   background: radial-gradient(
-    ellipse 230px 42px at var(--rk-ax) 100%,
-    color-mix(in srgb, var(--rk-acc) 38%, transparent),
-    transparent 80%
-  );
+      farthest-side at var(--rk-ax) 50%,
+      color-mix(in srgb, var(--rk-acc) 38%, transparent) 0%,
+      color-mix(in srgb, var(--rk-acc) 16%, transparent) 50%,
+      transparent 100%
+    )
+    left 0 bottom -42px / calc(var(--rk-ax) + max(230px, 75%)) 84px no-repeat;
 }
 .rk-strip-fx-edge .rk-strip-layer::after {
   top: auto;
@@ -354,7 +377,7 @@ summary {
     transparent 0,
     transparent calc(var(--rk-ax) - 440px),
     var(--rk-acc) var(--rk-ax),
-    transparent calc(var(--rk-ax) + 440px)
+    transparent max(calc(var(--rk-ax) + 440px), 75%)
   );
 }
 
