@@ -93,14 +93,61 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .cap { color: var(--dim); font-size: 11px; margin-bottom: 6px; }
 ul { margin: 0; padding-left: 18px; max-width: 72ch; }
 li { margin: 3px 0; }
-.panel { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 12px; display: flex; flex-direction: column; gap: 8px; max-width: 520px; }
-.field { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.select { border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; background: var(--inset); min-width: 150px; display: inline-flex; justify-content: space-between; gap: 12px; }
+/* settings page mock */
+.dialog { background: var(--card); border: 1px solid var(--border); border-radius: 8px; max-width: 840px; font-size: 12px; overflow: hidden; }
+.tabs { display: flex; flex-wrap: wrap; gap: 2px; padding: 6px 8px 0; background: var(--chrome); border-bottom: 1px solid var(--border); }
+.tabs span { padding: 4px 10px; color: var(--dim); border: 1px solid transparent; border-bottom: 0; border-radius: 5px 5px 0 0; }
+.tabs .on { color: var(--text); background: var(--card); border-color: var(--border); }
+.dbody { padding: 14px; display: flex; flex-direction: column; gap: 18px; background: var(--bg); }
+.sec { background: var(--card); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.sec-h { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 8px 10px; background: var(--chrome); border-bottom: 1px solid var(--border); }
+.sec-h b { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
+.sec-h small { color: var(--dim); font-size: 11px; flex: 1 1 260px; min-width: 0; }
+.sec-b { padding: 12px 10px; display: flex; flex-direction: column; gap: 10px; }
+.sec.notice { border-color: var(--yellow); }
+.sec.notice .sec-h b { color: var(--yellow); }
+.sec.muted { opacity: .7; }
+.pane { border: 1px solid var(--border); border-radius: 5px; overflow: hidden; min-width: 0; }
+.pane-h { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 5px 8px; background: var(--inset); border-bottom: 1px solid var(--border); color: var(--dim); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; min-height: 32px; }
+.pane-h b, .pane-h .tag, .pane-h .btn { text-transform: none; letter-spacing: 0; }
+.pane-h b { color: var(--text); font-size: 13px; }
+.pane-h .btn { font-size: 12px; }
+.pane-h .ops { margin-left: auto; display: flex; gap: 6px; }
+.pane-b { padding: 10px 8px; display: flex; flex-direction: column; gap: 8px; }
+.prow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.prow .lab { flex: 1 1 220px; min-width: 0; }
+.prow .lab small { display: block; color: var(--dim); font-size: 11px; }
+select, input[type="text"] { font: inherit; color: var(--text); background: var(--inset); border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; max-width: 100%; }
+select:disabled, input:disabled { opacity: .6; }
 .btn { border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; color: var(--dim); }
-.btn.newb { border-color: var(--green); color: var(--green); background: var(--new); }
-.mrow { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-top: 1px solid var(--border); }
-.mrow .src { color: var(--dim); font-size: 10px; border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px; }
-.mrow .ops { margin-left: auto; color: var(--dim); display: flex; gap: 10px; }
+.btn:hover:not(:disabled) { color: var(--text); border-color: var(--green); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn.danger:hover:not(:disabled) { color: var(--red); border-color: var(--red); }
+.pgrid { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 12px; align-items: start; }
+.plist { background: var(--card); }
+.pitem { display: flex; align-items: center; gap: 6px; width: 100%; padding: 5px 8px; border-left: 2px solid transparent; border-bottom: 1px solid var(--border); color: var(--dim); }
+.pitem:last-child { border-bottom: 0; }
+.pitem:hover { color: var(--text); }
+.pitem[aria-selected="true"] { color: var(--text); border-left-color: var(--green); background: var(--hover); }
+.pitem .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tags { margin-left: auto; display: flex; gap: 4px; flex: none; }
+.tag { font-size: 10px; line-height: 1; padding: 2px 4px; border: 1px solid var(--border); border-radius: 4px; color: var(--dim); }
+.tag.def { color: var(--green); border-color: var(--green); }
+.tblwrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 5px; }
+table { border-collapse: collapse; width: 100%; font-size: 12px; }
+th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th { color: var(--dim); font-weight: 400; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+tr:last-child td { border-bottom: 0; }
+td.tier { color: var(--dim); }
+.note { color: var(--dim); font-size: 11px; }
+.warn, .confirm { border: 1px solid var(--yellow); border-radius: 5px; padding: 6px 8px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.confirm { border-color: var(--red); }
+.warn span, .confirm span { flex: 1 1 260px; min-width: 0; }
+.form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; border: 1px solid var(--green); border-radius: 5px; padding: 8px; }
+.form input { flex: 1 1 180px; min-width: 0; }
+.form .err { flex: 1 1 100%; }
+.err { color: var(--red); font-size: 11px; }
+@media (max-width: 640px) { .pgrid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 560px) { .sidebar { flex: 1 1 100%; width: 100%; } }
 </style>
 </head>
@@ -156,31 +203,26 @@ li { margin: 3px 0; }
     </div>
   </section>
 
-  <section aria-labelledby="h-later">
-    <h2 id="h-later">3 · Later — making your own presets in Settings &gt; Agent (static sketch)</h2>
-    <div class="cols">
-      <div class="panel" aria-label="Settings Agent panel sketch">
-        <div class="field">
-          <span>Agent preset</span>
-          <span class="select"><span>codex-review</span><span>▾</span></span>
-          <span class="btn newb">Save as preset…</span>
-          <span class="btn newb">Manage…</span>
-        </div>
-        <div style="color:var(--dim);font-size:11px">2 explicit fields override parts of this preset — see Customize</div>
-        <div class="field"><span class="btn">▸ Customize</span><span style="color:var(--dim);font-size:11px">the six-role grid, as today</span></div>
-        <div>
-          <div class="mrow"><span>claude</span><span class="src">built-in</span><span class="ops">locked</span></div>
-          <div class="mrow"><span>codex-workers</span><span class="src">built-in</span><span class="ops">locked</span></div>
-          <div class="mrow"><span>codex-review</span><span class="src">built-in</span><span class="ops">locked</span></div>
-          <div class="mrow"><span>night-shift</span><span class="src">yours</span><span class="ops"><span>rename</span><span>delete</span></span></div>
-        </div>
-      </div>
-      <ul>
-        <li><b>Save as preset…</b> names the current Customize grid as a new preset.</li>
-        <li><b>Manage…</b> lists every preset; yours can be renamed or deleted, built-ins are locked.</li>
-        <li>This is a separate, larger change. It depends on <code>fab config set</code> being able to write preset definitions, which is not checked yet.</li>
-      </ul>
+  <section aria-labelledby="h-settings">
+    <h2 id="h-settings">3 · Settings &gt; Agents — pick the machine default; create, edit and delete presets</h2>
+    <p class="lede" style="margin-bottom:10px">The page does two separate things. Picking is one dropdown. What a preset contains lives only in the Presets section. A preset made here shows up in the chooser in section 1.</p>
+    <div class="dialog" aria-label="Settings dialog mock">
+      <div class="tabs"><span>General</span><span class="on">Agents</span><span>Shortcuts</span><span>All settings</span></div>
+      <div class="dbody" id="settings"></div>
     </div>
+  </section>
+
+  <section aria-labelledby="h-moves">
+    <h2 id="h-moves">4 · What changes on the Settings page</h2>
+    <ul>
+      <li><b>Picking and editing are separate.</b> "Default preset" only selects. The role table only edits the preset chosen in the list beside it.</li>
+      <li><b>The Customize grid becomes the preset editor.</b> Today's table of roles (CLI, model, effort) is kept, but it edits a named preset instead of loose machine-wide settings.</li>
+      <li><b>Loose machine-wide settings stop being a third thing.</b> If some exist, the page says so and offers to move them into a preset or clear them. They are confusing today: they override the machine default but lose to a group's or workspace's preset.</li>
+      <li><b>No Save button.</b> Each field is written when you change it, as on the page today. A new preset exists as soon as it has a name.</li>
+      <li><b>Built-in presets are read-only.</b> Duplicate one to change it.</li>
+      <li><b>Duplicate and rename ask for a name.</b> A rename repoints the machine default and any group or workspace using the preset. Tabs already running remember the old name and fall back to the default, and the rename form says so.</li>
+      <li><b>Dispatch settings stay as they are.</b></li>
+    </ul>
   </section>
 
   <section aria-labelledby="h-open">
@@ -188,17 +230,28 @@ li { margin: 3px 0; }
     <ul>
       <li>Row marker: the preset name.</li>
       <li>The chooser picks a preset only; no role breakdown.</li>
-      <li>Section 3 (making your own presets in Settings) is wanted, as a second change.</li>
+      <li>Selection (machine, workspace, group, one tab) is separate from creating, editing and deleting presets, which happens only in Settings &gt; Agents.</li>
     </ul>
   </section>
 </main>
 
 <script>
-const PRESETS = {
-  "claude":        { desc: "All roles on Claude (today's defaults)" },
-  "codex-review":  { desc: "Only the review role on Codex" },
-  "codex-workers": { desc: "Pipeline workers on Codex; session on Claude" },
+const TOOLS = ["claude", "codex"];
+const ROLE_ROWS = [["default", "session"], ["operator", "session"], ["doing", "workers"], ["review", "workers"], ["hydrate", "workers"], ["fast", "workers"]];
+// What each CLI uses for a role when the preset says nothing: [model, effort].
+const FILLS = {
+  claude: { default: ["opus", "high"], operator: ["sonnet", "medium"], doing: ["sonnet", "high"], review: ["opus", "high"], hydrate: ["sonnet", "high"], fast: ["sonnet", "medium"] },
+  codex: { default: ["gpt-6-astra", "high"], operator: ["gpt-5.6-luna", "medium"], doing: ["gpt-6-astra", "high"], review: ["gpt-5.6-sol", "xhigh"], hydrate: ["gpt-5.6-sol", "high"], fast: ["gpt-5.6-luna", "low"] },
 };
+const MODELS = { claude: ["opus", "sonnet", "haiku"], codex: ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna"] };
+const EFFORTS = ["low", "medium", "high", "xhigh"];
+const builtins = () => ({
+  "claude": { desc: "All roles on Claude (today's defaults)", builtin: true, session: "claude", workers: "claude", roles: {} },
+  "codex-review": { desc: "Only the review role on Codex", builtin: true, roles: { review: { cli: "codex" } } },
+  "codex-workers": { desc: "Pipeline workers on Codex; session on Claude", builtin: true, workers: "codex", roles: {} },
+});
+let PRESETS = builtins();
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const GROUPS = [
   { name: "hexokit", color: "#5b8af0", tabs: [["jade-marsh", "green"], ["agent-presets", "yellow"], ["scratch", "dim"]] },
   { name: "fab-kit", color: "#c084fc", tabs: [["presets-f1", "green"], ["docs", "dim"]] },
@@ -206,6 +259,7 @@ const GROUPS = [
 ];
 const INITIAL = { machine: "claude", workspace: "codex-workers", groups: { hexokit: "codex-review", "fab-kit": null, ops: "none" } };
 let state, selected = { kind: "group", name: "hexokit" }, choosing = false;
+let editing = "codex-review", form = null, deleting = false, loose = true;
 
 const $ = (id) => document.getElementById(id);
 const own = (sel) => sel.kind === "workspace" ? state.workspace : state.groups[sel.name];
@@ -261,7 +315,7 @@ function renderCard() {
 function renderChooser() {
   const cur = own(selected), inh = inherited(selected), noun = selected.kind === "group" ? "Group" : "Workspace";
   const opts = [{ value: null, label: "inherit", desc: `uses ${show(inh.name)} (${inh.from})` }]
-    .concat(Object.keys(PRESETS).map((n) => ({ value: n, label: n, desc: PRESETS[n].desc })))
+    .concat(Object.keys(PRESETS).map((n) => ({ value: n, label: n, desc: esc(PRESETS[n].desc) })))
     .concat([{ value: "none", label: "none", desc: "no preset, even the machine default" }]);
   $("popup").innerHTML = `<div class="card" role="radiogroup" aria-label="Agent preset for ${selected.name}">
       <div class="card-head"><span class="sec">Agent preset · ${noun} </span>${selected.name}</div>
@@ -290,11 +344,134 @@ function renderLadder() {
   $("ladder-cap").textContent = grp ? `A new tab in ${grp} launches with the first of these that has a value:` : "A new tab in a group with no preset of its own launches with the first of these that has a value:";
   $("ladder").innerHTML = rungs.map((r, i) => `${i ? '<span class="arrow">›</span>' : ""}<span class="rung ${i === win ? "win" : i > win ? "skip" : ""}">${r[0]}<small>${r[1] === "-" ? "built-in" : r[1] ? show(r[1]) : i === 0 ? "optional, one tab" : "not set"}</small></span>`).join("");
 }
+
+// ---- Settings > Agents ----
+function usage(name) {
+  const u = [];
+  if (state.machine === name) u.push("the machine default");
+  if (state.workspace === name) u.push("workspace loom");
+  for (const g of GROUPS) if (state.groups[g.name] === name) u.push("group " + g.name);
+  return u;
+}
+const opt = (value, label, sel) => `<option value="${value}"${sel ? " selected" : ""}>${label}</option>`;
+function uniqueName(base) { let n = base, i = 2; while (PRESETS[n]) n = `${base}-${i++}`; return n; }
+function renderSettings() {
+  const names = Object.keys(PRESETS);
+  if (!PRESETS[editing]) editing = names[0];
+  const p = PRESETS[editing], dis = p.builtin ? " disabled" : "", used = usage(editing);
+  const list = names.map((n) => `<button type="button" class="pitem" role="option" id="s-item-${n}" aria-selected="${n === editing}" data-preset="${n}">
+      <span class="nm">${n}</span><span class="tags">${state.machine === n ? '<span class="tag def">default</span>' : ""}<span class="tag">${PRESETS[n].builtin ? "built-in" : "yours"}</span></span></button>`).join("");
+  const knob = (tier, label) => `<label class="prow"><span class="lab">${label}<small>${tier === "session" ? "what you talk to" : "what pipeline stages dispatch to"}</small></span>
+      <select id="s-knob-${tier}" data-knob="${tier}"${dis}>${opt("", "↳ claude", !p[tier])}${TOOLS.map((x) => opt(x, x, p[tier] === x)).join("")}</select></label>`;
+  const rows = ROLE_ROWS.map(([role, tier]) => {
+    const r = p.roles[role] || {}, base = p[tier] || "claude", cli = r.cli || base, fill = FILLS[cli][role];
+    const sel = (leaf, first, values) => `<select id="s-${role}-${leaf}" data-role="${role}" data-leaf="${leaf}" aria-label="${role} ${leaf}"${dis}>${opt("", "↳ " + first, !r[leaf])}${values.map((x) => opt(x, x, r[leaf] === x)).join("")}</select>`;
+    return `<tr><td>${role}</td><td class="tier">${tier}</td><td>${sel("cli", base, TOOLS)}</td><td>${sel("model", fill[0], MODELS[cli])}</td><td>${sel("effort", fill[1], EFFORTS)}</td></tr>`;
+  }).join("");
+  const titles = { new: "New preset", dup: `Duplicate ${editing} as`, rename: `Rename ${editing} to` }, verbs = { new: "Create", dup: "Duplicate", rename: "Rename" };
+  const createForm = form ? `<div class="form"><b>${titles[form.mode]}</b>
+      <input type="text" id="s-new-name" value="${esc(form.name)}" placeholder="name, e.g. night-shift" aria-label="Preset name" maxlength="64">
+      ${form.mode === "rename" ? "" : `<input type="text" id="s-new-desc" value="${esc(form.desc)}" placeholder="one-line description (optional)" aria-label="Preset description">`}
+      <button type="button" class="btn" id="s-create">${verbs[form.mode]}</button><button type="button" class="btn" id="s-cancel-new">Cancel</button>
+      ${form.err ? `<span class="err" role="alert">${form.err}</span>` : ""}
+      ${form.mode === "rename" && used.length ? `<span class="note" style="flex:1 1 100%">Used by ${used.join(", ")}; they follow the new name. Tabs already running under the old name fall back to the default.</span>` : ""}</div>` : "";
+  const confirm = deleting ? `<div class="confirm" role="alertdialog" aria-label="Delete preset"><span>Delete <b>${editing}</b>? ${used.length ? "It is used by " + used.join(", ") + ". Their choice is cleared, and tabs already running with it fall back to the default." : "Nothing uses it."}</span>
+      <button type="button" class="btn danger" id="s-delete-yes">Delete</button><button type="button" class="btn" id="s-delete-no">Cancel</button></div>` : "";
+  $("settings").innerHTML = `
+    ${loose ? `<div class="sec notice"><div class="sec-h"><b>Leftover settings</b><small>From the old Customize grid. This box goes away once they are moved or cleared.</small></div>
+      <div class="sec-b"><div class="prow"><span class="lab">2 settings are set outside any preset: review CLI = codex, review effort = xhigh.<small>They override the machine default, but not a group's or workspace's preset.</small></span>
+        <button type="button" class="btn" id="s-loose-move">Move into a new preset</button><button type="button" class="btn" id="s-loose-clear">Clear them</button></div></div></div>` : ""}
+
+    <div class="sec"><div class="sec-h"><b>Use a preset</b><small>Pick which preset this machine uses. Nothing here changes what a preset contains.</small></div>
+      <div class="sec-b">
+        <label class="prow"><span class="lab">Machine default<small>used when a workspace or group does not pick its own</small></span>
+          <select id="s-default" aria-label="Default agent preset">${opt("", "None — fab's defaults", !state.machine)}${names.map((n) => opt(n, `${n} — ${esc(PRESETS[n].desc || "no description")}`, state.machine === n)).join("")}</select></label>
+        <div class="note">Workspaces and groups pick theirs from their sidebar card. A single new tab can pick one in the spawn dialog.</div>
+      </div></div>
+
+    <div class="sec"><div class="sec-h"><b>Presets</b><small>Create, edit and delete presets. Nothing here changes which preset is in use.</small>
+        <button type="button" class="btn" id="s-new"${form ? " disabled" : ""}>+ New preset</button></div>
+      <div class="sec-b">${createForm}
+        <div class="pgrid">
+          <div class="pane"><div class="pane-h">All presets</div><div class="plist" role="listbox" aria-label="Presets">${list}</div></div>
+          <div class="pane"><div class="pane-h">Editing <b>${editing}</b><span class="tag">${p.builtin ? "built-in · read-only" : "yours"}</span>
+              <span class="ops"><button type="button" class="btn" id="s-ren"${dis}>Rename</button><button type="button" class="btn" id="s-dup">Duplicate</button><button type="button" class="btn danger" id="s-del"${dis}>Delete</button></span></div>
+            <div class="pane-b">${confirm}
+              <label class="prow"><span class="lab">Description<small>shown wherever a preset is picked</small></span>
+                <input type="text" id="s-desc" value="${esc(p.desc || "")}" aria-label="Description"${dis} style="flex:1 1 260px"></label>
+              ${knob("session", "Session CLI")}${knob("workers", "Worker CLI")}
+              <div class="tblwrap"><table><thead><tr><th>role</th><th>tier</th><th>CLI</th><th>model</th><th>effort</th></tr></thead><tbody>${rows}</tbody></table></div>
+              <div class="note">${p.builtin ? "Built-in presets are read-only. Duplicate this one to change it." : "↳ means the field is not set and the value shown is what applies. Each change is saved as you make it."}</div>
+              <div class="note">${used.length ? "Used by " + used.join(", ") + "." : "Not used anywhere yet."} A change applies to the next stage dispatched in every tab launched with this preset.</div>
+            </div></div>
+        </div></div></div>
+
+    <div class="sec muted"><div class="sec-h"><b>Dispatch</b><small>How worker stages are launched. Unchanged by this design.</small></div>
+      <div class="sec-b"><div class="note">mode · column width · minimum pane size · reap finished workers</div></div></div>`;
+
+  $("s-default").onchange = (e) => { state.machine = e.target.value || null; render(); };
+  document.querySelectorAll("#settings .pitem").forEach((b) => b.onclick = () => { editing = b.dataset.preset; deleting = false; form = null; render(); });
+  const openForm = (mode, name, desc) => { form = { mode, name, desc, err: "" }; deleting = false; render(); const i = $("s-new-name"); i.focus(); i.select(); };
+  $("s-new").onclick = () => openForm("new", "", "");
+  $("s-dup").onclick = () => openForm("dup", uniqueName(editing + "-copy"), p.desc || "");
+  $("s-ren").onclick = () => openForm("rename", editing, "");
+  if (form) {
+    const submit = () => {
+      const name = $("s-new-name").value.trim(), desc = $("s-new-desc") ? $("s-new-desc").value.trim() : "";
+      form.name = name; form.desc = desc;
+      if (form.mode === "rename" && name === editing) { form = null; render(); return; }
+      form.err = !/^[A-Za-z0-9_][A-Za-z0-9_-]*$/.test(name) ? "Use letters, digits, - and _ only; no spaces."
+        : name === "none" ? '"none" is reserved; it means no preset.'
+        : PRESETS[name] ? `A preset named ${name} already exists.` : "";
+      if (form.err) { render(); $("s-new-name").focus(); return; }
+      if (form.mode === "new") PRESETS[name] = { desc, roles: {} };
+      if (form.mode === "dup") PRESETS[name] = { desc, session: p.session, workers: p.workers, roles: JSON.parse(JSON.stringify(p.roles)) };
+      if (form.mode === "rename") {
+        const next = {};
+        for (const k of Object.keys(PRESETS)) next[k === editing ? name : k] = PRESETS[k];
+        PRESETS = next;
+        if (state.machine === editing) state.machine = name;
+        if (state.workspace === editing) state.workspace = name;
+        for (const g of GROUPS) if (state.groups[g.name] === editing) state.groups[g.name] = name;
+      }
+      editing = name; form = null; render();
+    };
+    $("s-create").onclick = submit;
+    document.querySelectorAll("#settings .form input").forEach((i) => i.onkeydown = (e) => { if (e.key === "Enter") submit(); if (e.key === "Escape") { form = null; render(); } });
+    $("s-cancel-new").onclick = () => { form = null; render(); };
+  }
+  $("s-del").onclick = () => { deleting = true; render(); };
+  if (deleting) {
+    $("s-delete-no").onclick = () => { deleting = false; render(); };
+    $("s-delete-yes").onclick = () => {
+      if (state.machine === editing) state.machine = null;
+      if (state.workspace === editing) state.workspace = null;
+      for (const g of GROUPS) if (state.groups[g.name] === editing) state.groups[g.name] = null;
+      delete PRESETS[editing]; deleting = false; render();
+    };
+  }
+  $("s-desc").onchange = (e) => { p.desc = e.target.value.trim(); render(); };
+  document.querySelectorAll("#settings [data-knob]").forEach((s) => s.onchange = () => { if (s.value) p[s.dataset.knob] = s.value; else delete p[s.dataset.knob]; render(); });
+  document.querySelectorAll("#settings [data-role]").forEach((s) => s.onchange = () => {
+    const role = s.dataset.role, leaf = s.dataset.leaf, r = p.roles[role] || (p.roles[role] = {});
+    if (s.value) r[leaf] = s.value; else delete r[leaf];
+    // A CLI change drops a pinned model the new CLI does not offer.
+    if (leaf === "cli") { const tier = ROLE_ROWS.find((x) => x[0] === role)[1], cli = r.cli || p[tier] || "claude"; if (r.model && !MODELS[cli].includes(r.model)) delete r.model; }
+    if (!Object.keys(r).length) delete p.roles[role];
+    render();
+  });
+  if (loose) {
+    $("s-loose-move").onclick = () => { const n = uniqueName("my-overrides"); PRESETS[n] = { desc: "Moved from loose machine-wide settings", roles: { review: { cli: "codex", effort: "xhigh" } } }; editing = n; loose = false; render(); };
+    $("s-loose-clear").onclick = () => { loose = false; render(); };
+  }
+}
 function render() {
-  renderSidebar(); choosing ? renderChooser() : renderCard(); renderLadder();
+  const focusId = document.activeElement && document.activeElement.id;
+  renderSidebar(); choosing ? renderChooser() : renderCard(); renderLadder(); renderSettings();
+  if (focusId && focusId.startsWith("s-") && $(focusId)) $(focusId).focus({ preventScroll: true });
   document.querySelectorAll("#sidebar button.row").forEach((b) => b.onclick = () => { selected = { kind: b.dataset.kind, name: b.dataset.name }; choosing = false; render(); });
 }
-$("reset").onclick = () => { state = JSON.parse(JSON.stringify(INITIAL)); choosing = false; render(); };
+$("reset").onclick = () => { state = JSON.parse(JSON.stringify(INITIAL)); PRESETS = builtins(); choosing = deleting = false; form = null; loose = true; editing = "codex-review"; render(); };
 state = JSON.parse(JSON.stringify(INITIAL));
 render();
 </script>
