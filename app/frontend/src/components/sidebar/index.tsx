@@ -55,6 +55,8 @@ import { SectionRail } from "./section-rail";
 import { HostPanel } from "./host-panel";
 import { KillDialog } from "./kill-dialog";
 import { ServerPanel } from "./server-panel";
+import { AgentPresetMarker } from "./agent-preset-card";
+import { AgentPresetChooser } from "./agent-preset-chooser";
 import { SessionRow } from "./session-row";
 import { WindowPanel } from "./status-panel";
 import { WindowRow } from "./window-row";
@@ -167,6 +169,9 @@ export type SidebarProps = {
    *  Optional (mirrors `SessionRow.onSpawnAgent`): when omitted (e.g. the
    *  board-route sidebar) the per-row bot button is hidden. */
   onSpawnAgent?: (server: string, session: string) => void;
+  /** Enables the card-based preset setters. Board routes leave this off; the
+   *  command palette remains their preset-control path. */
+  agentPresetControls?: boolean;
   /** Ask the server's operator window to write/refresh one-line @rk_win_note
    *  annotations for the session's tabs (the update-annotations template's
    *  session scope — 260827-8n6k). Optional (mirrors `onSpawnAgent`): when
@@ -226,6 +231,7 @@ export function Sidebar({
   onCreateWindow,
   onCreateSession,
   onSpawnAgent,
+  agentPresetControls = false,
   onUpdateAnnotations,
   onWindowMarkerChange,
   onForkWindow,
@@ -1772,21 +1778,29 @@ export function Sidebar({
   // Clear a stale group agent preset (the session card's Clear agent preset
   // row). The POST wakes the SSE hub backend-side, so the card repaints from the
   // stream.
-  const handleSessionAgentPresetClear = useCallback((server: string, name: string) => {
-    setSessionAgentPresetApi(server, name, null).catch((err) =>
-      addToast(err.message || "Failed to clear group agent preset"),
+  const handleSessionAgentPresetSet = useCallback((server: string, name: string, preset: string | null) => {
+    setSessionAgentPresetApi(server, name, preset).catch((err) =>
+      addToast(err.message || `Failed to ${preset === null ? "clear" : "set"} group agent preset`),
     );
   }, [addToast]);
 
+  const handleSessionAgentPresetClear = useCallback((server: string, name: string) => {
+    handleSessionAgentPresetSet(server, name, null);
+  }, [handleSessionAgentPresetSet]);
+
   // Same for a workspace (the server card's Clear agent preset row); the list
   // refresh is belt-and-braces for the one-time-fetched servers list.
-  const handleServerAgentPresetClear = useCallback((targetServer: string) => {
-    setServerAgentPresetApi(targetServer, null)
+  const handleServerAgentPresetSet = useCallback((targetServer: string, preset: string | null) => {
+    setServerAgentPresetApi(targetServer, preset)
       .then(() => refreshServers())
       .catch((err: unknown) => {
-        addToast(err instanceof Error ? err.message : "Failed to clear workspace agent preset");
+        addToast(err instanceof Error ? err.message : `Failed to ${preset === null ? "clear" : "set"} workspace agent preset`);
       });
   }, [refreshServers, addToast]);
+
+  const handleServerAgentPresetClear = useCallback((targetServer: string) => {
+    handleServerAgentPresetSet(targetServer, null);
+  }, [handleServerAgentPresetSet]);
 
   // Server color write seam — the SINGLE implementation both the SERVER-panel
   // tiles and the session-tree group headers funnel through (x4sf): optimistic
@@ -1889,6 +1903,7 @@ export function Sidebar({
         onKillServer={onKillServer}
         onToggleServerProtect={handleServerProtectToggle}
         onClearServerAgentPreset={handleServerAgentPresetClear}
+        onSetServerAgentPreset={agentPresetControls ? handleServerAgentPresetSet : undefined}
         onSidebarResizeStart={onSidebarResizeStart}
       />
       )}
@@ -2011,6 +2026,7 @@ export function Sidebar({
                 onCreateWindow={onCreateWindow}
                 onCreateSession={onCreateSession}
                 onSpawnAgent={onSpawnAgent}
+                agentPresetControls={agentPresetControls}
                 onUpdateAnnotations={onUpdateAnnotations}
                 onSessionRowKill={handleSessionRowKill}
                 onWindowRowKill={handleWindowRowKill}
@@ -2029,6 +2045,7 @@ export function Sidebar({
                 onWindowColorChange={handleWindowColorChange}
                 onSessionFlairChange={handleSessionFlairChange}
                 onSessionAgentPresetClear={handleSessionAgentPresetClear}
+                onSessionAgentPresetSet={agentPresetControls ? handleSessionAgentPresetSet : undefined}
                 onWindowFlairChange={handleWindowFlairChange}
                 onWindowMarkerChange={onWindowMarkerChange}
                 onForkWindow={onForkWindow}
@@ -2443,6 +2460,7 @@ type ServerGroupProps = {
   onCreateWindow: (server: string, session: string) => void;
   onCreateSession: (server: string) => void;
   onSpawnAgent?: (server: string, session: string) => void;
+  agentPresetControls: boolean;
   /** Forwarded to each `SessionRow` → its coarse session card's Update
    *  annotations row. Optional (the board-route sidebar passes none) — see
    *  `SidebarProps.onUpdateAnnotations`. */
@@ -2478,6 +2496,7 @@ type ServerGroupProps = {
    *  Both are stable identity-argument callbacks. */
   onSessionFlairChange: (server: string, name: string, flair: string | null) => void;
   onSessionAgentPresetClear: (server: string, name: string) => void;
+  onSessionAgentPresetSet?: (server: string, name: string, preset: string | null) => void;
   onWindowFlairChange: (server: string, session: string, windowId: string, flair: string | null) => void;
   /** Forwarded to each `WindowRow` → its row flyout's fork affordance. Optional
    *  (the board-route sidebar passes none) — see `SidebarProps.onForkWindow`. */
@@ -2553,6 +2572,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     onCreateWindow,
     onCreateSession,
     onSpawnAgent,
+    agentPresetControls,
     onUpdateAnnotations,
     onSessionRowKill,
     onWindowRowKill,
@@ -2572,6 +2592,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     onWindowMarkerChange,
     onSessionFlairChange,
     onSessionAgentPresetClear,
+    onSessionAgentPresetSet,
     onWindowFlairChange,
     onForkWindow,
     onFixTabName,
@@ -2640,13 +2661,17 @@ function ServerGroupInner(props: ServerGroupProps) {
       });
   }, [server, serverProtected, refreshServers, addGroupToast]);
 
-  const handleAgentPresetClear = useCallback(() => {
-    void setServerAgentPresetApi(server, null)
+  const handleAgentPresetSet = useCallback((preset: string | null) => {
+    void setServerAgentPresetApi(server, preset)
       .then(() => refreshServers())
       .catch((err: unknown) => {
-        addGroupToast(err instanceof Error ? err.message : "Failed to clear workspace agent preset");
+        addGroupToast(err instanceof Error ? err.message : `Failed to ${preset === null ? "clear" : "set"} workspace agent preset`);
       });
   }, [server, refreshServers, addGroupToast]);
+
+  const handleAgentPresetClear = useCallback(() => {
+    handleAgentPresetSet(null);
+  }, [handleAgentPresetSet]);
 
   const orderedSessions = useMemo(() => {
     const effectiveOrder = localOrder ?? sessionOrder;
@@ -2836,8 +2861,10 @@ function ServerGroupInner(props: ServerGroupProps) {
   // document.body with fixed coordinates anchored at the header element,
   // escaping the session list's overflow-y clip (the shared flip heuristic).
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [showPresetChooser, setShowPresetChooser] = useState(false);
   const headerRef = useRef<HTMLElement | null>(null);
   const popoverPos = useAnchoredPopoverPos(showColorPicker, headerRef);
+  const presetChooserPos = useAnchoredPopoverPos(showPresetChooser, headerRef, 380);
 
   // The server card: the SAME shared card shell as the window flyout (one
   // placement/containment/held implementation), on BOTH pointer classes —
@@ -2848,7 +2875,7 @@ function ServerGroupInner(props: ServerGroupProps) {
   // `onKillServer` — no new props, so the R6a memo contract is untouched; all
   // card state is group-local).
   const flyout = useRowFlyout({
-    suppressed: showColorPicker,
+    suppressed: showColorPicker || showPresetChooser,
     content: ({ close }) => (
       <ServerCardContent
         server={server}
@@ -2856,6 +2883,10 @@ function ServerGroupInner(props: ServerGroupProps) {
         serverProtected={serverProtected}
         agentPreset={serverInfo?.agent_preset}
         onClearAgentPreset={handleAgentPresetClear}
+        onAgentPresetAction={agentPresetControls ? () => {
+          close();
+          setShowPresetChooser(true);
+        } : undefined}
         onToggleProtect={handleProtectToggle}
         // Close-then-open (the Pin-row idiom): the card closes BEFORE the
         // group's color popover opens; `suppressed` includes
@@ -2966,7 +2997,8 @@ function ServerGroupInner(props: ServerGroupProps) {
           </span>
           {/* Server-name span — de-emphasized (grey) when the server is
               external; the truncate keeps the class composition stable. */}
-          <span className={`truncate ${serverExternal ? "text-text-secondary" : ""}`}>{server}</span>
+          <span className={`min-w-0 truncate ${serverExternal ? "text-text-secondary" : ""}`}>{server}</span>
+          <AgentPresetMarker name={serverInfo?.agent_preset} />
           {/* Protected-class marker: rk-daemon derives protected client-side
               (the same ∨ the flyout toggle computes above); unmarked servers
               render nothing — no layout shift. */}
@@ -3045,6 +3077,27 @@ function ServerGroupInner(props: ServerGroupProps) {
               selectedFlair={serverFlair ?? ""}
               onSelectFlair={(f) => onServerFlairChange(server, f === "" ? null : f)}
               onClose={() => setShowColorPicker(false)}
+            />
+          </div>,
+          document.body,
+        )}
+        {showPresetChooser && agentPresetControls && presetChooserPos && createPortal(
+          <div
+            style={{
+              position: "fixed",
+              top: presetChooserPos.top,
+              right: presetChooserPos.right,
+              zIndex: 100,
+            }}
+          >
+            <AgentPresetChooser
+              kind="Workspace"
+              entityName={server}
+              own={serverInfo?.agent_preset}
+              server={server}
+              anchorRef={headerRef}
+              onPick={handleAgentPresetSet}
+              onClose={() => setShowPresetChooser(false)}
             />
           </div>,
           document.body,
@@ -3239,6 +3292,8 @@ function ServerGroupInner(props: ServerGroupProps) {
                     onColorChange={onSessionColorChange}
                     onFlairChange={onSessionFlairChange}
                     onClearAgentPreset={onSessionAgentPresetClear}
+                    workspaceAgentPreset={serverInfo?.agent_preset}
+                    onSetAgentPreset={onSessionAgentPresetSet}
                     onSpawnAgent={onSpawnAgent}
                     onUpdateAnnotations={hasOperator ? onUpdateAnnotations : undefined}
                   />

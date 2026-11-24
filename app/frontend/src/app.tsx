@@ -5836,6 +5836,7 @@ function AppShell() {
       onCreateWindow={handleSidebarCreateWindow}
       onCreateSession={handleSidebarCreateSession}
       onSpawnAgent={handleOpenSpawnAgent}
+      agentPresetControls
       onUpdateAnnotations={hasOperatorWindow ? handleUpdateAnnotations : undefined}
       onWindowMarkerChange={handleWindowMarkerChange}
       onForkWindow={handleForkWindow}

@@ -1,20 +1,30 @@
 import { describe, it, expect, afterEach, vi, beforeEach } from "vitest";
 import { useState } from "react";
-import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, act, fireEvent, within } from "@testing-library/react";
 import { SessionRow } from "./session-row";
 import { FLYOUT_OPEN_DELAY_MS, resetFlyoutWarmState } from "./row-flyout-card";
 import type { ProjectSession } from "@/types";
+import { getRiffPresets } from "@/api/client";
 import { makeSession, makeWindow } from "@/test-utils/fixtures";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { computeRowTints, deriveUIColors, DEFAULT_DARK_THEME } from "@/themes";
-import { loadMachineAgentPresets, resetAgentPresetCache, rememberRepoAgentPresets } from "@/lib/agent-presets";
+import { loadMachineAgentPresetInfo, loadMachineAgentPresets, resetAgentPresetCache, rememberRepoAgentPresets } from "@/lib/agent-presets";
+
+vi.mock("@/api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/client")>();
+  return { ...actual, getRiffPresets: vi.fn() };
+});
 
 // The card reads the machine preset list lazily; stub the read so the suite
 // never reaches fetch (the fake-timer describes below cannot await msw).
 vi.mock("@/lib/agent-presets", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/agent-presets")>();
-  return { ...actual, loadMachineAgentPresets: vi.fn(() => Promise.resolve(undefined)) };
+  return {
+    ...actual,
+    loadMachineAgentPresets: vi.fn(() => Promise.resolve(undefined)),
+    loadMachineAgentPresetInfo: vi.fn(() => Promise.resolve({})),
+  };
 });
 
 afterEach(() => {
@@ -688,9 +698,8 @@ describe("SessionRow", () => {
   });
 });
 
-// The group's agent preset on the session card: a facts line, an `(unknown)`
-// marker with a Clear agent preset row for a name the known list lacks, and
-// `none (no preset)` for the reserved opt-out.
+// The group's card resolves its effective preset and opens the shared chooser;
+// the row marker reflects only a preset set on the group itself.
 describe("session card agent preset", () => {
   const machineList = [
     { name: "claude", source: "built-in" },
@@ -702,6 +711,8 @@ describe("session card agent preset", () => {
     resetFlyoutWarmState();
     resetAgentPresetCache();
     vi.mocked(loadMachineAgentPresets).mockResolvedValue(machineList);
+    vi.mocked(loadMachineAgentPresetInfo).mockResolvedValue({ presets: machineList });
+    vi.mocked(getRiffPresets).mockResolvedValue({ riffPresets: [], tiers: [], agentPresets: machineList });
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -709,8 +720,22 @@ describe("session card agent preset", () => {
     delete (window as { matchMedia?: unknown }).matchMedia;
   });
 
-  async function openCard(session: ProjectSession, onClearAgentPreset?: (server: string, name: string) => void) {
-    render(<SessionRow {...rowProps(session)} onClearAgentPreset={onClearAgentPreset} />);
+  async function openCard(
+    session: ProjectSession,
+    options: {
+      onClear?: (server: string, name: string) => void;
+      onSet?: (server: string, name: string, preset: string | null) => void;
+      workspace?: string;
+    } = {},
+  ) {
+    render(
+      <SessionRow
+        {...rowProps(session)}
+        onClearAgentPreset={options.onClear}
+        onSetAgentPreset={options.onSet}
+        workspaceAgentPreset={options.workspace}
+      />,
+    );
     const row = screen.getByRole("treeitem");
     act(() => {
       fireEvent.pointerEnter(row, { pointerType: "mouse" });
@@ -720,45 +745,77 @@ describe("session card agent preset", () => {
     await act(async () => {});
   }
 
-  it("omits the line when the group has no agent preset", async () => {
-    await openCard(makeSession({ name: "proj" }));
-    expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
-    expect(screen.queryByTestId("row-flyout-agent-preset")).toBeNull();
+  it("shows the inherited source even when the group has no own preset", async () => {
+    await openCard(makeSession({ name: "proj" }), { workspace: "codex-review" });
+    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent(
+      "agent preset: codex-review · from workspace",
+    );
   });
 
-  it("shows `agent preset: <name>` for a listed preset, with no clear row", async () => {
-    await openCard(makeSession({ name: "proj", agent_preset: "codex-review" }), vi.fn());
-    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent("agent preset: codex-review");
+  it("shows fab's defaults when nothing is set anywhere", async () => {
+    await openCard(makeSession({ name: "proj" }));
+    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent("agent preset: none · fab's defaults");
+  });
+
+  it("shows a listed own preset with its source and no clear row", async () => {
+    await openCard(makeSession({ name: "proj", agent_preset: "codex-review" }), { onClear: vi.fn() });
+    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent("agent preset: codex-review · set here");
     expect(screen.queryByTestId("row-flyout-clear-agent-preset-action")).toBeNull();
   });
 
-  it("marks a name missing from the list `(unknown)` and its Clear row clears the group", async () => {
+  it("keeps the unknown-name clear row", async () => {
     const onClear = vi.fn();
-    await openCard(makeSession({ name: "proj", agent_preset: "old-preset" }), onClear);
-    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent("agent preset: old-preset (unknown)");
-    const clear = screen.getByTestId("row-flyout-clear-agent-preset-action");
-    expect(clear).toHaveTextContent("Clear agent preset");
-    fireEvent.click(clear);
+    await openCard(makeSession({ name: "proj", agent_preset: "old-preset" }), { onClear });
+    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent(
+      "agent preset: old-preset (unknown) · set here",
+    );
+    fireEvent.click(screen.getByTestId("row-flyout-clear-agent-preset-action"));
     expect(onClear).toHaveBeenCalledWith("srv", "proj");
   });
 
-  it("renders `none (no preset)` for the reserved opt-out, never unknown", async () => {
-    await openCard(makeSession({ name: "proj", agent_preset: "none" }), vi.fn());
-    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent("agent preset: none (no preset)");
+  it("renders none (no preset) for the reserved opt-out", async () => {
+    await openCard(makeSession({ name: "proj", agent_preset: "none" }), { onClear: vi.fn() });
+    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent("agent preset: none (no preset) · set here");
     expect(screen.queryByTestId("row-flyout-clear-agent-preset-action")).toBeNull();
   });
 
-  it("shows the raw name with no marker when no list is available", async () => {
+  it("hides the line and action when fab reports no presets", async () => {
     vi.mocked(loadMachineAgentPresets).mockResolvedValue(undefined);
-    await openCard(makeSession({ name: "proj", agent_preset: "old-preset" }), vi.fn());
-    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent(/^agent preset: old-preset$/);
-    expect(screen.queryByTestId("row-flyout-clear-agent-preset-action")).toBeNull();
+    vi.mocked(loadMachineAgentPresetInfo).mockResolvedValue({});
+    await openCard(makeSession({ name: "proj", agent_preset: "old-preset" }), { onSet: vi.fn() });
+    expect(screen.queryByTestId("row-flyout-agent-preset")).toBeNull();
+    expect(screen.queryByTestId("row-flyout-agent-preset-action")).toBeNull();
+  });
+
+  it("places the action immediately after Change color with the effective name", async () => {
+    await openCard(makeSession({ name: "proj", agent_preset: "codex-review" }), { onSet: vi.fn() });
+    const actions = screen.getByTestId("row-flyout-actions");
+    expect(actions.children[0]).toHaveTextContent("Change color…");
+    expect(actions.children[1]).toHaveTextContent("Agent preset…codex-review");
+  });
+
+  it("closes the card, opens the chooser and sends the picked value", async () => {
+    const onSet = vi.fn();
+    await openCard(makeSession({ name: "proj" }), { onSet });
+    fireEvent.click(screen.getByTestId("row-flyout-agent-preset-action"));
+    expect(screen.queryByTestId("row-flyout-card")).toBeNull();
+    await act(async () => { await vi.runAllTimersAsync(); });
+    const group = screen.getByRole("radiogroup", { name: "Agent preset for proj" });
+    fireEvent.click(within(group).getByRole("radio", { name: /codex-review/ }));
+    expect(onSet).toHaveBeenCalledWith("srv", "proj", "codex-review");
   });
 
   it("judges a project preset against the repo-scoped list the spawn dialog loaded", async () => {
     rememberRepoAgentPresets("srv", "proj", [{ name: "team", source: "project" }]);
-    await openCard(makeSession({ name: "proj", agent_preset: "team" }), vi.fn());
-    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent(/^agent preset: team$/);
+    await openCard(makeSession({ name: "proj", agent_preset: "team" }), { onClear: vi.fn() });
+    expect(screen.getByTestId("row-flyout-agent-preset")).toHaveTextContent("agent preset: team · set here");
     expect(loadMachineAgentPresets).not.toHaveBeenCalled();
+  });
+
+  it("marks only an own preset on the row", () => {
+    const { rerender } = render(<SessionRow {...rowProps(makeSession({ name: "proj" }))} workspaceAgentPreset="claude" />);
+    expect(screen.queryByTestId("agent-preset-marker")).toBeNull();
+    rerender(<SessionRow {...rowProps(makeSession({ name: "proj", agent_preset: "none" }))} workspaceAgentPreset="claude" />);
+    expect(screen.getByTestId("agent-preset-marker")).toHaveTextContent("none");
   });
 });

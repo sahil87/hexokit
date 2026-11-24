@@ -1,4 +1,5 @@
-import { useState, useMemo, memo } from "react";
+import { useState, useMemo, useCallback, useRef, memo } from "react";
+import { createPortal } from "react-dom";
 import type { ProjectSession } from "@/types";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import type { RowTint } from "@/themes";
@@ -11,7 +12,9 @@ import { toSafeSessionName } from "@/lib/names";
 import { abbreviateHomePath, formatDuration } from "@/lib/format";
 import { PaletteIcon, BotIcon, PlusIcon, CloseIcon, NotePencilIcon, PlugIcon } from "./icons";
 import { PopupTitleBar, PopupTitleBarSecondary } from "./popup-title-bar";
-import { AgentPresetClearRow, AgentPresetFact } from "./agent-preset-card";
+import { AgentPresetActionRow, AgentPresetClearRow, AgentPresetLine, AgentPresetMarker } from "./agent-preset-card";
+import { AgentPresetChooser } from "./agent-preset-chooser";
+import { useAnchoredPopoverPos } from "./server-card";
 import {
   useRowFlyout,
   useRailScrub,
@@ -84,6 +87,8 @@ type SessionRowProps = {
    *  card's Clear agent preset row renders only when supplied AND the stored
    *  name is unknown to the preset list the UI holds. */
   onClearAgentPreset?: (server: string, session: string) => void;
+  workspaceAgentPreset?: string;
+  onSetAgentPreset?: (server: string, session: string, name: string | null) => void;
   /** Roving-tabindex value: `0` for the single roving-focused tree row, `-1`
    *  otherwise. Defaults to `-1`. Only the two affected rows change this per
    *  arrow keypress, preserving the Wave-2 memo tree. */
@@ -136,6 +141,8 @@ function SessionRowInner({
   onSpawnAgent,
   onUpdateAnnotations,
   onClearAgentPreset,
+  workspaceAgentPreset,
+  onSetAgentPreset,
   tabIndex = -1,
   ariaSetSize,
   ariaPosInSet,
@@ -144,6 +151,9 @@ function SessionRowInner({
 }: SessionRowProps) {
   const name = session.name;
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [showPresetChooser, setShowPresetChooser] = useState(false);
+  const rowAnchorRef = useRef<HTMLElement | null>(null);
+  const presetChooserPos = useAnchoredPopoverPos(showPresetChooser, rowAnchorRef, 380);
   const coarse = useCoarsePointer();
   // Ghost (optimistic, mid-create) sessions get no rail and a suppressed card
   // — the window row's ghost-row rule.
@@ -198,7 +208,7 @@ function SessionRowInner({
   // fine-pointer hover/focus at the sidebar's right edge, and the coarse
   // rail's tap/scrub (`openNow`). Title + one facts line + the action rows.
   const flyout = useRowFlyout({
-    suppressed: ghost || showColorPicker,
+    suppressed: ghost || showColorPicker || showPresetChooser,
     content: ({ close }) => (
       <>
         <PopupTitleBar>
@@ -206,7 +216,12 @@ function SessionRowInner({
           {name}
         </PopupTitleBar>
         {factsLine && <span className="text-text-secondary break-words">{factsLine}</span>}
-        {session.agent_preset && <AgentPresetFact name={session.agent_preset} server={server} session={name} />}
+        <AgentPresetLine
+          own={session.agent_preset}
+          workspace={workspaceAgentPreset}
+          server={server}
+          session={name}
+        />
         {showViewers && (
           <span data-testid="row-flyout-viewers" className="text-text-secondary break-words flex flex-col">
             <span>{viewers.length} viewers</span>
@@ -232,6 +247,16 @@ function SessionRowInner({
               }}
             />
           )}
+          <AgentPresetActionRow
+            own={session.agent_preset}
+            workspace={workspaceAgentPreset}
+            server={server}
+            session={name}
+            onAction={onSetAgentPreset ? () => {
+              close();
+              setShowPresetChooser(true);
+            } : undefined}
+          />
           {onSpawnAgent && (
             <CardActionRow
               icon={<BotIcon />}
@@ -318,6 +343,14 @@ function SessionRowInner({
     return undefined;
   }, [isSessionDropTarget, tint]);
 
+  const setRowRefs = useCallback(
+    (node: HTMLElement | null) => {
+      flyout.setReference(node);
+      rowAnchorRef.current = node;
+    },
+    [flyout.setReference],
+  );
+
   return (
     <div
       // W3C-APG tree node (level 1). `aria-expanded` mirrors the chevron's own
@@ -376,7 +409,7 @@ function SessionRowInner({
       // placement "right" → the sidebar's right edge; the coarse card's
       // bottom-start. getReferenceProps CHAINS the card's hover/focus wiring
       // with the row's own tint mouse-enter/leave (floating-ui merges them).
-      ref={flyout.setReference}
+      ref={setRowRefs}
       {...flyout.getReferenceProps({
         onMouseEnter: tint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.hover; } : undefined,
         onMouseLeave: tint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.base; } : undefined,
@@ -446,6 +479,7 @@ function SessionRowInner({
             </span>
           )}
         </button>
+        <AgentPresetMarker name={session.agent_preset} />
         {/* Attached-viewer count chip (informational, neutral — the muted
             sibling of WaitingBadge's geometry WITHOUT the signal-yellow
             attention treatment): shown only at ≥2 sized viewers. Display-only
@@ -540,6 +574,29 @@ function SessionRowInner({
             onClose={() => setShowColorPicker(false)}
           />
         </div>
+      )}
+      {showPresetChooser && onSetAgentPreset && presetChooserPos && createPortal(
+        <div
+          style={{
+            position: "fixed",
+            top: presetChooserPos.top,
+            right: presetChooserPos.right,
+            zIndex: 100,
+          }}
+        >
+          <AgentPresetChooser
+            kind="Group"
+            entityName={name}
+            own={session.agent_preset}
+            workspace={workspaceAgentPreset}
+            server={server}
+            session={name}
+            anchorRef={rowAnchorRef}
+            onPick={(value) => onSetAgentPreset(server, name, value)}
+            onClose={() => setShowPresetChooser(false)}
+          />
+        </div>,
+        document.body,
       )}
       {/* The session card — portalled to document.body, mounted ONLY while
           open (the shared shell's perf contract). */}

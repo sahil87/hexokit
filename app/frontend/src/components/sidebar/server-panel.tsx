@@ -14,6 +14,8 @@ import { FlairOverlay } from "@/components/flair-overlay";
 import { SwatchPopover } from "@/components/swatch-popover";
 import { useRowFlyout } from "./row-flyout-card";
 import { ServerCardContent, useAnchoredPopoverPos } from "./server-card";
+import { AgentPresetMarker } from "./agent-preset-card";
+import { AgentPresetChooser } from "./agent-preset-chooser";
 
 type ServerPanelProps = {
   server: string;
@@ -44,6 +46,7 @@ type ServerPanelProps = {
   onToggleServerProtect?: (server: string, next: boolean) => void;
   /** Clears a tile's stale agent preset (the card's Clear agent preset row). */
   onClearServerAgentPreset?: (server: string) => void;
+  onSetServerAgentPreset?: (server: string, name: string | null) => void;
   /** Forwarded to CollapsiblePanel's corner affordance. When supplied, a corner
    *  element renders at the bottom-right of the drag handle and initiates a
    *  sidebar-width drag in addition to the panel's vertical resize. */
@@ -65,6 +68,7 @@ export function ServerPanel({
   onKillServer,
   onToggleServerProtect,
   onClearServerAgentPreset,
+  onSetServerAgentPreset,
   onSidebarResizeStart,
 }: ServerPanelProps) {
   const [refreshing, setRefreshing] = useState(false);
@@ -190,6 +194,7 @@ export function ServerPanel({
                 onToggleServerProtect={onToggleServerProtect}
                 agentPreset={info.agent_preset}
                 onClearServerAgentPreset={onClearServerAgentPreset}
+                onSetServerAgentPreset={onSetServerAgentPreset}
               />
             );
           })}
@@ -245,6 +250,7 @@ type ServerTileProps = {
   /** The workspace's agent preset and the seam that clears a stale one. */
   agentPreset?: string;
   onClearServerAgentPreset?: (server: string) => void;
+  onSetServerAgentPreset?: (server: string, name: string | null) => void;
 };
 
 function ServerTile({
@@ -273,6 +279,7 @@ function ServerTile({
   onToggleServerProtect,
   agentPreset,
   onClearServerAgentPreset,
+  onSetServerAgentPreset,
 }: ServerTileProps) {
   // Body background follows the window-row convention:
   //   - Colored: tint.selected (active) or tint.base (not active)
@@ -298,10 +305,12 @@ function ServerTile({
   // suppresses the card (popover-over-card precedence).
   const coarse = useCoarsePointer();
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [showPresetChooser, setShowPresetChooser] = useState(false);
   const tileAnchorRef = useRef<HTMLElement | null>(null);
   const popoverPos = useAnchoredPopoverPos(showColorPicker, tileAnchorRef);
+  const presetChooserPos = useAnchoredPopoverPos(showPresetChooser, tileAnchorRef, 380);
   const flyout = useRowFlyout({
-    suppressed: coarse || showColorPicker,
+    suppressed: coarse || showColorPicker || showPresetChooser,
     // Tiles sit in a multi-column grid, not full-bleed like rows: without the
     // edge anchor the card opens mid-panel over sibling tiles, and the pointer
     // path to it would hover-steal across them.
@@ -314,6 +323,10 @@ function ServerTile({
         serverProtected={isProtected}
         agentPreset={agentPreset}
         onClearAgentPreset={onClearServerAgentPreset ? () => onClearServerAgentPreset(name) : undefined}
+        onAgentPresetAction={onSetServerAgentPreset ? () => {
+          close();
+          setShowPresetChooser(true);
+        } : undefined}
         onToggleProtect={
           onToggleServerProtect ? () => onToggleServerProtect(name, !isProtected) : undefined
         }
@@ -391,7 +404,7 @@ function ServerTile({
         />
         {/* Body */}
         <div className="px-1.5 pt-0.5 pb-1.5">
-          <div className={`text-[11px] leading-tight font-medium ${nameClass} whitespace-nowrap overflow-hidden text-ellipsis`}>
+          <div className={`flex min-w-0 items-center gap-1 text-[11px] leading-tight font-medium ${nameClass} whitespace-nowrap overflow-hidden text-ellipsis`}>
             {isProtected && (
               <span
                 role="img"
@@ -413,6 +426,7 @@ function ServerTile({
               </span>
             )}
             {name}
+            <AgentPresetMarker name={agentPreset} />
           </div>
           {/* Window count + waiting rollup (260708-4li7): a bare window-count
               number with the badge right-aligned on the same flex row — the
@@ -449,6 +463,27 @@ function ServerTile({
             // Selection does NOT close (the picker's dismissal contract).
             onSelect={(c) => onServerColorChange(name, c)}
             onClose={() => setShowColorPicker(false)}
+          />
+        </div>,
+        document.body,
+      )}
+      {showPresetChooser && onSetServerAgentPreset && presetChooserPos && createPortal(
+        <div
+          style={{
+            position: "fixed",
+            top: presetChooserPos.top,
+            right: presetChooserPos.right,
+            zIndex: 100,
+          }}
+        >
+          <AgentPresetChooser
+            kind="Workspace"
+            entityName={name}
+            own={agentPreset}
+            server={name}
+            anchorRef={tileAnchorRef}
+            onPick={(value) => onSetServerAgentPreset(name, value)}
+            onClose={() => setShowPresetChooser(false)}
           />
         </div>,
         document.body,

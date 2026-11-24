@@ -1,0 +1,8 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-24T11:49:18Z"}
+{"args":"Execute step C1 (Card controls: always-present preset line, \"Agent preset…\" row and chooser on the group and workspace cards, preset name on the row) of the plan at /home/sahil/code/sahil87/hexokit/fab/plans/sahil/26-11-24-agent-preset-controls.md","cmd":"fab-new","event":"command","ts":"2026-11-24T11:49:18Z"}
+{"delta":"+0.0","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-11-24T11:50:47Z"}
+{"delta":"+0.0","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-11-24T11:50:52Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-24T11:54:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-24T11:54:38Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-11-24T11:57:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-24T12:56:15Z"}
