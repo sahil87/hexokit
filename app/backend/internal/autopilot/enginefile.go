@@ -40,6 +40,7 @@ type engineItem struct {
 	Pane      string                 `yaml:"pane,omitempty" json:"pane,omitempty"`
 	Session   string                 `yaml:"session,omitempty" json:"session,omitempty"`
 	Projected bool                   `yaml:"projected,omitempty" json:"projected,omitempty"`
+	PRTracked string                 `yaml:"pr_tracked,omitempty" json:"pr_tracked,omitempty"`
 	DoneAt    *string                `yaml:"done_at" json:"done_at"`
 	Escalated map[string]interface{} `yaml:"escalated" json:"escalated"`
 	AddedAt   string                 `yaml:"added_at,omitempty" json:"added_at,omitempty"`
@@ -162,7 +163,7 @@ func engineItemFromTracked(it operator.TrackedItem, projected bool) engineItem {
 		Branch: operator.ScopeString(it.Scope, "branch"), MergeMode: operator.ScopeString(it.Scope, scopeMergeMode), StopStage: operator.ScopeString(it.Scope, "stop_stage"),
 		DependsOn: append([]string{}, it.DependsOn...), Paused: it.Paused, Spawning: operator.ScopeString(it.Scope, scopeSpawning),
 		Respawned: scopeBool(it, scopeRespawned), Skipped: skipped(it), Pane: operator.ScopeString(it.Scope, "pane"),
-		Session: operator.ScopeString(it.Scope, "session"), Projected: projected,
+		Session: operator.ScopeString(it.Scope, "session"), Projected: projected, PRTracked: operator.ScopeString(it.Scope, scopePRTracked),
 		DoneAt: it.DoneAt, AddedAt: it.AddedAt, UpdatedAt: it.UpdatedAt, SpawnedBy: operator.ScopeString(it.Scope, "spawned_by"),
 		Escalated: map[string]interface{}{},
 	}
@@ -199,6 +200,9 @@ func (it engineItem) tracked() operator.TrackedItem {
 	}
 	if it.Group != "" {
 		scope[scopeGroup] = it.Group
+	}
+	if it.PRTracked != "" {
+		scope[scopePRTracked] = it.PRTracked
 	}
 	if it.StopStage != "" {
 		scope["stop_stage"] = it.StopStage

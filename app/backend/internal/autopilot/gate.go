@@ -44,8 +44,9 @@ func isPlainAgent(st *operator.State, it operator.TrackedItem) (bool, error) {
 
 // prView is the subset of `gh pr view` the engine reads.
 type prView struct {
-	URL   string `json:"url"`
-	State string `json:"state"`
+	Number int    `json:"number"`
+	URL    string `json:"url"`
+	State  string `json:"state"`
 }
 
 // viewPR runs `gh pr view <ref> --json <fields>` in the repo.

@@ -283,7 +283,7 @@ func TestIsolatedSocketMechanicalOnlyRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec.Outcome != "mechanical · 1 actions" || rec.Pass == nil || rec.Pass.Actions != 1 {
+	if rec.Outcome != "mechanical · 2 actions" || rec.Pass == nil || rec.Pass.Actions != 2 {
 		ledger, _ := operator.Load(statePath)
 		t.Fatalf("record = %+v, pass = %+v, ledger = %+v", rec, rec.Pass, ledger.Tracked)
 	}
@@ -304,7 +304,7 @@ func TestIsolatedSocketMechanicalOnlyRun(t *testing.T) {
 	tick()
 	logPath, _ := cron.LogPath(cronDir, server)
 	lines := cron.ReadLog(logPath)
-	if len(lines) != 1 || !regexp.MustCompile(`^ran · mechanical · 1 actions · \d+s$`).MatchString(lines[0].Outcome) {
+	if len(lines) != 1 || !regexp.MustCompile(`^ran · mechanical · 2 actions · \d+s$`).MatchString(lines[0].Outcome) {
 		t.Fatalf("mechanical log = %+v", lines)
 	}
 }
@@ -401,8 +401,8 @@ case "$*" in
   *"pr view a1-branch"*)
     printf '%s\n' '{"number":41,"url":"https://example.test/pull/41","state":"OPEN","isDraft":false,"mergedAt":null,"mergeable":"MERGEABLE","headRefOid":"abc","autoMergeRequest":null}'
     ;;
-  *"repo view"*)
-    printf '%s\n' '{"nameWithOwner":"o/a1"}'
+  *"repo view"*"nameWithOwner"*)
+    printf '%s\n' 'o/a1'
     ;;
   *)
     printf 'unexpected gh call: %s\n' "$*" >&2

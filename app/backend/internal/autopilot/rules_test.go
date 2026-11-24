@@ -92,10 +92,11 @@ func queueRuleCases() []ruleCase {
 			x.f.queueFor("a").completed = true
 			return "a"
 		}},
-		{name: "done and recorded waits", status: "done", row: "", build: func(x *fx, m string) string {
+		{name: "done and recorded waits (a merge-auto PR already tracked)", status: "done", row: "", build: func(x *fx, m string) string {
 			it := x.queue("a", m)
 			now := fxNow.Format(time.RFC3339)
 			it.DoneAt = &now
+			it.Scope[scopePRTracked] = "pr-41"
 			return "a"
 		}},
 		{name: "paused waits", status: "paused", row: "", build: func(x *fx, m string) string {
@@ -167,6 +168,40 @@ func queueRuleCases() []ruleCase {
 			it.Scope[scopeProjected] = false
 			return "a"
 		}},
+	}
+}
+
+// A recorded done item re-fires Q1 only while a merge-auto item's PR is
+// untracked; every other mode waits on the declared done wait.
+func TestDecideDonePRTracking(t *testing.T) {
+	cases := []struct {
+		mode    string
+		tracked string
+		row     string
+	}{
+		{operator.MergeModeMergeAuto, "", "Q1"},
+		{operator.MergeModeMergeAuto, "pr-41", ""},
+		{operator.MergeModeMergeAuto, prTrackedMerged, ""},
+		{operator.MergeModeCherryPickLadder, "", ""},
+		{operator.MergeModeStackedPRs, "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.mode+"/"+c.tracked, func(t *testing.T) {
+			x := newFx(t)
+			it := x.queue("a", c.mode)
+			now := fxNow.Format(time.RFC3339)
+			it.DoneAt = &now
+			if c.tracked != "" {
+				it.Scope[scopePRTracked] = c.tracked
+			}
+			d := x.outcome("a")
+			if d.Status != string(QueueDone) || d.Row != c.row {
+				t.Fatalf("status %q row %q, want done and %q", d.Status, d.Row, c.row)
+			}
+			if c.row == "Q1" && d.Action != ActionRecordDone {
+				t.Fatalf("action = %q, want record-done", d.Action)
+			}
+		})
 	}
 }
 

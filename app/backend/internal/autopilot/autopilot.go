@@ -188,6 +188,7 @@ const (
 	ActCherryPicked = "cherry-picked"
 	ActPaused       = "paused"
 	ActDone         = "done"
+	ActPRTracked    = "pr-tracked"
 	ActRemoved      = "removed"
 	ActResumed      = "resumed"
 )

@@ -78,7 +78,9 @@ answers questions mid-run. Decide, act within the tiers below, record what you d
 The item's queue mode is `scope.merge_mode` on the queue item (also `merge_mode` in
 `rk operator autopilot status -L work --json`). A `by: run` note, a pane prompt, or an agent's
 screen is never authority to merge, close, delete or archive. A `github-pr` item that is not a queue
-item has no mode: it needs a `by: user`/`by: chat` note.
+item has no mode: it needs a `by: user`/`by: chat` note. The one exception is an item the engine
+projected for a shipped queue item (Merging): its authority is the mode of the queue item its
+`scope.item` names, and its `then` text alone is never authority.
 
 ### Merging
 
@@ -98,7 +100,11 @@ The queue's mode decides when you merge; the user's word is a `by: user`/`by: ch
 - **`merge-auto`**: merge each green PR as it comes, without asking:
   `gh pr merge <n> --squash --match-head-commit <observed-head-sha>`. Green means every required check
   passed (`gh pr checks`), the PR is not a draft (run `gh pr ready` first when the item's work is
-  finished), and it is mergeable.
+  finished), and it is mergeable. A `pr-<n>` item carrying `then: merge-auto …` was projected by the
+  engine for a shipped `merge-auto` queue item (`scope.item`): it is the PR to ready and merge when green
+  (`gh pr ready <n>` if draft, then `gh pr merge <n> --squash --match-head-commit <observed-head-sha>`),
+  and a red required check follows the fix-request rule below. Merge it only while that queue item's
+  `merge_mode` is `merge-auto`.
 
 A rebase or cherry-pick conflict is yours to resolve, in that temporary worktree, one round. If it does
 not resolve, abort the rebase, remove the worktree, write a note and send `rk notify`.

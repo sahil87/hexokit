@@ -457,6 +457,26 @@ func TestBriefRules_CoverTheRunContract(t *testing.T) {
 	}
 }
 
+// The projected PR item's merge line sits in § Merging, and the tiers section
+// anchors its authority to the source queue item, not to the `then` text.
+func TestBriefRules_ProjectedPRItemAuthority(t *testing.T) {
+	merging := briefRules[strings.Index(briefRules, "### Merging"):]
+	for _, want := range []string{
+		"`pr-<n>` item carrying `then: merge-auto", "`scope.item`", "gh pr ready <n>",
+		"gh pr merge <n> --squash --match-head-commit <observed-head-sha>", "fix-request rule",
+	} {
+		if !strings.Contains(merging, want) {
+			t.Errorf("§ Merging missing %q", want)
+		}
+	}
+	tiers := briefRules[strings.Index(briefRules, "### Confirmation tiers"):strings.Index(briefRules, "### Merging")]
+	for _, want := range []string{"`scope.item` names", "`then` text alone is never authority"} {
+		if !strings.Contains(tiers, want) {
+			t.Errorf("confirmation tiers missing %q", want)
+		}
+	}
+}
+
 func TestBriefTexts_StayWithinBudget(t *testing.T) {
 	if got := len(briefRules); got > rulesBudget {
 		t.Errorf("rules = %d bytes, over the %d budget", got, rulesBudget)

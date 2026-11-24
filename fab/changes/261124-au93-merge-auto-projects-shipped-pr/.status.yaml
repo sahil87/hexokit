@@ -1,0 +1,57 @@
+id: au93
+name: 261124-au93-merge-auto-projects-shipped-pr
+created: 2026-11-24T02:14:25Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 12
+    acceptance_count: 21
+    acceptance_completed: 21
+confidence:
+    certain: 7
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    fuzzy: true
+    dimensions:
+        signal: 74.6
+        reversibility: 84.6
+        competence: 85.4
+        disambiguation: 80.4
+stage_metrics:
+    intake: {started_at: "2026-11-24T02:14:25Z", driver: fab-new, iterations: 1, completed_at: "2026-11-24T02:28:12Z"}
+    apply: {started_at: "2026-11-24T02:28:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T02:44:10Z"}
+    review: {started_at: "2026-11-24T02:44:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T02:54:09Z"}
+    hydrate: {started_at: "2026-11-24T02:54:09Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T02:56:38Z"}
+    ship: {started_at: "2026-11-24T02:56:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-11-24T02:58:03Z"}
+prs:
+    - https://github.com/sahil87/hexokit/pull/1184
+base_branch: main
+true_impact:
+    added: 1480
+    deleted: 48
+    net: 1432
+    excluding:
+        added: 785
+        deleted: 30
+        net: 755
+    tests:
+        added: 503
+        deleted: 7
+        net: 496
+    computed_at: "2026-11-24T02:58:03Z"
+    computed_at_stage: ship
+summary: 'merge-auto: Q1 record-done projects a shipped item''s open PR as a pr-<n> github-pr ledger item (pr_tracked marker); engine tracks, run merges'
+# base_branch: written by /git-branch or /fab-new when the change's branch is created (no placeholder here).
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-11-24T02:58:03Z

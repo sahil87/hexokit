@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-24T02:14:25Z"}
+{"args":"Execute step T11 (merge-auto projects the shipped item's PR) of the plan at fab/plans/sahil/26-11-20-operator-triggers.md. Read the whole plan first (Decisions and Rules bind you), then implement only the T11 Brief.","cmd":"fab-new","event":"command","ts":"2026-11-24T02:14:26Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-11-24T02:15:59Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-11-24T02:28:03Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-11-24T02:28:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-11-24T02:44:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-11-24T02:54:09Z"}
+{"event":"review","result":"passed","ts":"2026-11-24T02:54:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-11-24T02:56:38Z"}

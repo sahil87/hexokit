@@ -17,6 +17,7 @@ import (
 // repoMeta is what the engine learns once per repo per verb.
 type repoMeta struct {
 	defaultBranch string
+	nwo           string
 }
 
 // cleanRepo normalizes a repo path for comparison.

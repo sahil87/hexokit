@@ -92,6 +92,13 @@ func doneAtUnset(c *ruleCtx) bool {
 	return false
 }
 
+// needsPRTrack reports a merge-auto item whose PR has not been handled yet.
+// Every other mode records done and tracks nothing: merges there are the
+// user's word.
+func needsPRTrack(c *ruleCtx) bool {
+	return modeOf(c.it) == operator.MergeModeMergeAuto && operator.ScopeString(c.it.Scope, scopePRTracked) == ""
+}
+
 func escalatedAlready(c *ruleCtx, key string) bool { return escalatedSeen(c.it, key) }
 
 func projectionRemoved(c *ruleCtx) bool {
@@ -125,11 +132,12 @@ func spawnInterruptedText(c *ruleCtx) (string, string) {
 // ruleTable is the whole of autopilot behaviour. Rows are tried in order and
 // the first match wins, at most one per item. Rows act only on the status
 // they name; every other (item, status) is a wait (waitTable). Q5's escalation
-// is part of its skip executor.
+// is part of its skip executor. Q1 matches a done item until its done_at is
+// written, and a merge-auto item again until its PR is tracked.
 var ruleTable = []rule{
 	{id: "X0", all: true, guard: removedProjectionGuard, action: ActionEscalate, text: projectionRemovedText},
 	{id: "X1", all: true, guard: needsProjection, action: ActionReProject},
-	{id: "Q1", queue: QueueDone, guard: doneAtUnset, action: ActionRecordDone},
+	{id: "Q1", queue: QueueDone, guard: func(c *ruleCtx) bool { return doneAtUnset(c) || needsPRTrack(c) }, action: ActionRecordDone},
 	{id: "Q2", queue: QueuePending, action: ActionSpawn},
 	{id: "Q3", queue: QueueSpawnUnknown, action: ActionEscalate, text: spawnInterruptedText,
 		guard: func(c *ruleCtx) bool { key, _ := spawnInterruptedText(c); return !escalatedAlready(c, key) }},
@@ -148,7 +156,7 @@ type wait struct {
 // outcome of an unmatched combination is a declared wait and not an accident. A
 // status absent here must have an unconditional row.
 var waitTable = []wait{
-	{queue: QueueDone, reason: "recorded; nothing left to track"},
+	{queue: QueueDone, reason: "recorded, and any merge-auto PR tracked; nothing left to track"},
 	{queue: QueuePaused, reason: "paused by the user or by stop"},
 	{queue: QueueSkipped, reason: "skipped after its one respawn; dependents stay held"},
 	{queue: QueueHeld, reason: "a dependency is not satisfied"},
