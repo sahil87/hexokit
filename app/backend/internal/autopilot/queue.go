@@ -11,6 +11,8 @@ import (
 
 	"rk/internal/operator"
 	"rk/internal/settings"
+	"rk/internal/tmux"
+	"rk/internal/validate"
 )
 
 // Mode sources reported with the resolved merge mode.
@@ -25,6 +27,7 @@ const (
 	scopeTask      = "task"
 	scopePlain     = "plain"
 	scopeBase      = "base"
+	scopeGroup     = "group"
 	scopeBare      = "bare"
 	scopeRespawned = "respawned"
 	scopeSkipped   = "skipped"
@@ -90,12 +93,18 @@ type QueueOptions struct {
 	// Mode is the --mode flag ("" = not given).
 	Mode    string
 	ModeSet bool
+	// Group is the --group flag: the tmux session every item of the call
+	// spawns into ("" = not given). GroupSet distinguishes an explicit empty
+	// value, which is refused.
+	Group    string
+	GroupSet bool
 }
 
 // QueueReceipt reports what Enqueue stored.
 type QueueReceipt struct {
 	Mode        string       `json:"mode"`
 	Source      string       `json:"source"`
+	Group       string       `json:"group,omitempty"`
 	Items       []string     `json:"items"`
 	Misfits     []string     `json:"misfits"`
 	Actions     []Action     `json:"actions"`
@@ -158,16 +167,19 @@ func enqueue(ctx context.Context, env Env, entries []Entry, opts QueueOptions, s
 		if opts.ModeSet && opts.Mode == "" {
 			return nil, operatorInvalid("--mode must not be empty")
 		}
+		if err := validateGroup(opts); err != nil {
+			return nil, err
+		}
 		mode, source, err := ResolveMode(opts.Mode, settingValue)
 		if err != nil {
 			return nil, err
 		}
-		rec.Mode, rec.Source = mode, source
+		rec.Mode, rec.Source, rec.Group = mode, source, opts.Group
 		st, err := e.load()
 		if err != nil {
 			return nil, err
 		}
-		items, misfits, err := e.buildQueue(ctx, st, entries, mode)
+		items, misfits, err := e.buildQueue(ctx, st, entries, mode, opts.Group)
 		if err != nil {
 			return nil, err
 		}
@@ -219,9 +231,28 @@ func enqueue(ctx context.Context, env Env, entries []Entry, opts QueueOptions, s
 	return rec, nil
 }
 
+// validateGroup refuses a --group that is not a usable new session name or
+// that sits in the reserved session namespace. Group names reach tmux argv, so
+// this runs before anything is written.
+func validateGroup(opts QueueOptions) error {
+	if opts.GroupSet && opts.Group == "" {
+		return operatorInvalid("--group must not be empty")
+	}
+	if opts.Group == "" {
+		return nil
+	}
+	if msg := validate.ValidateNewName(opts.Group, "Group name"); msg != "" {
+		return operatorInvalid("invalid --group %q: %s", opts.Group, msg)
+	}
+	if strings.HasPrefix(opts.Group, tmux.ReservedSessionPrefix) {
+		return operatorInvalid("invalid --group %q: a group may not start with %s", opts.Group, tmux.ReservedSessionPrefix)
+	}
+	return nil
+}
+
 // buildQueue validates the entries against the loaded state and returns the
 // items with implicit chaining applied.
-func (e *engine) buildQueue(ctx context.Context, st *operator.State, entries []Entry, mode string) ([]operator.TrackedItem, []string, error) {
+func (e *engine) buildQueue(ctx context.Context, st *operator.State, entries []Entry, mode, group string) ([]operator.TrackedItem, []string, error) {
 	byID := map[string]Entry{}
 	pos := map[string]int{}
 	for i, en := range entries {
@@ -288,6 +319,9 @@ func (e *engine) buildQueue(ctx context.Context, st *operator.State, entries []E
 		}
 		if en.Base != "" {
 			scope[scopeBase] = en.Base
+		}
+		if group != "" {
+			scope[scopeGroup] = group
 		}
 		if en.StopStage != nil && *en.StopStage != "" {
 			scope["stop_stage"] = *en.StopStage

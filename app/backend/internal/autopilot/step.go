@@ -98,6 +98,9 @@ type StatusItem struct {
 	// the item starts from and its PR targets. Each is omitted when unset.
 	Plain bool   `json:"plain,omitempty"`
 	Base  string `json:"base,omitempty"`
+	// Group is the tmux session the item's agent window lands in; omitted
+	// when the queue named none.
+	Group string `json:"group,omitempty"`
 }
 
 // StatusResult is the read-only queue view. Summary is the Queue Completion
@@ -144,6 +147,7 @@ func Status(ctx context.Context, env Env) (StatusResult, error) {
 			Task:  operator.ScopeString(it.Scope, scopeTask), Change: operator.ScopeString(it.Scope, "change"),
 			StopStage: operator.ScopeString(it.Scope, "stop_stage"),
 			Plain:     scopeBool(it, scopePlain), Base: operator.ScopeString(it.Scope, scopeBase),
+			Group: operator.ScopeString(it.Scope, scopeGroup),
 		}
 		res.Items = append(res.Items, row)
 	}

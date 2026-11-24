@@ -103,7 +103,7 @@ spawned and tell the operator its merge authority:
 }
 
 var operatorAutopilotQueueCmd = &cobra.Command{
-	Use:   "queue [--mode <mode>] [--dry-run] [--all] [--json] < entries.json",
+	Use:   "queue [--mode <mode>] [--group <name>] [--dry-run] [--all] [--json] < entries.json",
 	Short: "Persist a queue of pending pane items from JSON entries on stdin",
 	Long: `Persist a queue as N pending items in one engine-file write under the pass
 lock, then run one pass. If another pass holds the lock, nothing is written:
@@ -136,6 +136,15 @@ cherry-pick-ladder, and is stamped on every item; the receipt prints it as
 "mode: <name> (flag|setting|default)". An invalid setting value is an error,
 never a silent fallback.
 
+--group <name> puts every item of this call in one tmux session, a group: each
+spawn and respawn opens its agent window there, and status shows it. The
+session is created when absent and joined when present, and a session the
+engine creates holds only agent tabs. The name must be a valid new session name
+(no spaces, ':' or '.') and may not start with _rk-; it is checked before
+anything is written, also under --dry-run. Items of other queue calls keep their
+own group, or none. Without --group, spawns land in the usual landing session.
+The receipt prints "group: <name>" when set.
+
 Every entry after the first depends on the nearest earlier entry in its repo,
 else on the previous entry (an ordering-only barrier across repos). An explicit
 depends_on replaces that. In merge-auto each entry depends on the previous one as
@@ -145,6 +154,7 @@ once with --mode.
 
 Flags:
   --mode          merge mode: cherry-pick-ladder, stacked-prs, merge-auto
+  --group         tmux session (group) every item spawns into
   --dry-run       validate and report without writing
   -L, --server    tmux server (default: the caller's own server from $TMUX)
   --all           show every entry (human lists default to 20 entries each)
@@ -153,13 +163,14 @@ Flags:
 Examples:
   echo '[{"id":"ab12","repo":"/src/app","change":"ab12"}]' | rk operator autopilot queue
   rk operator autopilot queue --mode stacked-prs < queue.json
+  rk operator autopilot queue --group operator-triggers < queue.json
 
 Exit codes:
   0  queued
   1  operational failure (another pass holds the lock; queue not written,
      state file busy or unreadable, a state write failed)
   2  usage error (bad entries, id already tracked, invalid mode or setting,
-                  bare dependency, forward or cyclic dependency, relative or
+                  invalid group, bare dependency, forward or cyclic dependency, relative or
                   non-git repo, plain with a change or stop_stage, base that
                   is invalid, not on origin, set on a stacked-prs entry
                   with a same-repo dependency, or differing from a
@@ -258,7 +269,7 @@ Flags:
   -L, --server    tmux server (default: the caller's own server from $TMUX)
   --all           show every entry (human lists default to 20 entries each)
   --json          complete machine-readable envelope on stdout (items carry
-                  state, mode, task, change and stop_stage)
+                  state, mode, task, change, stop_stage and group)
 
 Examples:
   rk operator autopilot status
@@ -278,6 +289,7 @@ func init() {
 
 	f := operatorAutopilotQueueCmd.Flags()
 	f.String("mode", "", "merge mode: "+strings.Join(operator.MergeModes, ", ")+" (default: the operator.merge_mode setting, else cherry-pick-ladder)")
+	f.String("group", "", "tmux session every item spawns into (created when absent, joined when present; a valid new session name not starting with _rk-)")
 	f.Bool("dry-run", false, "validate and report without writing")
 	f.Bool("json", false, "emit the machine-readable envelope (exactly one JSON document on stdout)")
 
@@ -331,6 +343,7 @@ func autopilotFinish(cmd *cobra.Command, result any, render func(outputSink), er
 func runAutopilotQueue(cmd *cobra.Command, args []string) error {
 	dry, _ := cmd.Flags().GetBool("dry-run")
 	mode, _ := cmd.Flags().GetString("mode")
+	group, _ := cmd.Flags().GetString("group")
 	raw, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), autopilotStdinCap+1))
 	if err != nil {
 		return autopilotFinish(cmd, nil, nil, fmt.Errorf("read entries from stdin: %w", err))
@@ -346,9 +359,12 @@ func runAutopilotQueue(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return autopilotFinish(cmd, nil, nil, err)
 	}
-	rec, err := autopilot.Enqueue(operatorTrackContext(cmd), env, entries, autopilot.QueueOptions{Mode: mode, ModeSet: cmd.Flags().Changed("mode")}, autopilotSettingsFn())
+	rec, err := autopilot.Enqueue(operatorTrackContext(cmd), env, entries, autopilot.QueueOptions{Mode: mode, ModeSet: cmd.Flags().Changed("mode"), Group: group, GroupSet: cmd.Flags().Changed("group")}, autopilotSettingsFn())
 	return autopilotFinish(cmd, rec, func(s outputSink) {
 		s.Dataf("mode: %s (%s)\n", rec.Mode, rec.Source)
+		if rec.Group != "" {
+			s.Dataf("group: %s\n", rec.Group)
+		}
 		verb := "queued"
 		if rec.DryRun {
 			verb = "would queue"
@@ -429,6 +445,9 @@ func runAutopilotStatus(cmd *cobra.Command, args []string) error {
 			}
 			if it.Base != "" {
 				line += " · base " + it.Base
+			}
+			if it.Group != "" {
+				line += " · group " + it.Group
 			}
 			s.Dataf("%s\n", line)
 		}

@@ -146,7 +146,7 @@ echo '[
 ]' | rk operator autopilot queue --dry-run
 ```
 
-Add `--mode stacked-prs` (or another mode) to the call when the user named one.
+Add `--mode stacked-prs` (or another mode) to the call when the user named one. `--group <name>` puts every item of the call in one tmux session (a group): spawns and respawns open their tab there, creating the session when absent and joining it when present. It is for plan queues (§ Plans); an ad-hoc queue gets no group unless the user asks for one. A bad name (spaces, `:`, `.`, a leading `_rk-`) is refused before anything is written, dry-run included.
 
 An entry names an existing change (`change`), raw text (`task`), or neither (a bare agent — nothing may depend on it). `base` names the branch an entry (`change` or `task`) starts from and its PR targets, and `plain: true` runs a `task` entry as a plain agent even in a fab repo (§ Spawning agents). A `task` entry without `plain` in a fab repo starts with `/fab-new` and stops at its intake; a run reviews the intake against the task and sends `/fab-fff`, or leaves it there with a note and a notification when it does not match. When the user decides what such an item should do, record it as a `--by chat` note; the next run follows it. `queue` writes the engine file and runs a pass; `step` forces another pass and `status` is the read-only queue view. Every writing verb takes the per-server pass lock; `busy` means retry later.
 
@@ -181,7 +181,9 @@ Build the entries from the Steps table, in table order:
 - A step whose Repo cell is `both` or `—` without a user-action gate: ask which repo it belongs in, or split it.
 - A plan already partly executed: a step is done when the user says so or its PR is merged (the plan does not record it, so ask when unsure); queue only the rest and name the ones you skipped. "Run F1 and D1 only" or "everything except the hexokit steps" is the same flow with fewer entries.
 
-Then the queue flow above: dry-run, confirm (mode plus one line per step: `id · repo · deps · gate`), one live `queue` call. Report `Queued N steps from <plan>; <ids> wait on you; <ids> wait on a release.` Spawn nothing yourself and never send a step's brief to an existing pane.
+A plan queue is a group: pass `--group <slug>` on every `queue` call of the plan — the plan file's name without its date prefix and extension (`26-11-20-operator-triggers.md` → `operator-triggers`), or the name the user gives it. Several calls for one plan (held steps queued later, a parallel step queued as its own call) all pass the same `--group`. Its tabs then sit together in that sidebar group instead of mixing with other plans'. A lane's tab stays in its group after its PR merges; the done marker is the signal, and the group empties when its tabs are closed.
+
+Then the queue flow above: dry-run, confirm (mode, group, plus one line per step: `id · repo · deps · gate`), one live `queue` call. Report `Queued N steps from <plan> in group <group>; <ids> wait on you; <ids> wait on a release.` Spawn nothing yourself and never send a step's brief to an existing pane.
 
 ## Status
 

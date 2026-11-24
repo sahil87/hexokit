@@ -4940,3 +4940,45 @@ func TestRefreshDefaultConfigPath(t *testing.T) {
 		}
 	})
 }
+
+func TestEnsureSessionOnServer(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	t.Run("absent session is created and its placeholder is reported", func(t *testing.T) {
+		placeholder, err := EnsureSessionOnServer(ctx, server, "plan-a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(placeholder, "@") || !HasSession(ctx, server, "plan-a") {
+			t.Fatalf("placeholder = %q, session present = %v", placeholder, HasSession(ctx, server, "plan-a"))
+		}
+		// Killing the placeholder of a session nothing else joined removes the
+		// session, so a failed spawn leaves no empty group behind.
+		if err := KillWindow(placeholder, server); err != nil {
+			t.Fatal(err)
+		}
+		if HasSession(ctx, server, "plan-a") {
+			t.Fatal("the session outlived its only window")
+		}
+	})
+
+	t.Run("existing session is joined without a placeholder", func(t *testing.T) {
+		if _, err := EnsureSessionOnServer(ctx, server, "plan-b"); err != nil {
+			t.Fatal(err)
+		}
+		before, err := ListWindows(ctx, "plan-b", server)
+		if err != nil {
+			t.Fatal(err)
+		}
+		placeholder, err := EnsureSessionOnServer(ctx, server, "plan-b")
+		if err != nil || placeholder != "" {
+			t.Fatalf("placeholder = %q err = %v, want none for an existing session", placeholder, err)
+		}
+		after, err := ListWindows(ctx, "plan-b", server)
+		if err != nil || len(after) != len(before) {
+			t.Fatalf("windows before %d after %d (%v)", len(before), len(after), err)
+		}
+	})
+}

@@ -107,9 +107,13 @@ type Panes interface {
 
 // SpawnRequest is one agent window: a worktree of Repo, prepared, then a tab.
 type SpawnRequest struct {
-	Repo         string
-	Session      string
-	WorktreeName string
+	Repo    string
+	Session string
+	// EnsureSession asks the spawner to create Session when it is absent and
+	// join it when present; unset, Session is a landing session that already
+	// exists.
+	EnsureSession bool
+	WorktreeName  string
 	// BaseRef is the new branch's start point, `origin/<base>`: the spawner has
 	// wt fetch and resolve it, and the SHA wt pinned comes back as
 	// SpawnResult.BaseSHA. wt sets upstream tracking on a branch cut from a
