@@ -25,6 +25,7 @@ type engineItem struct {
 	Task      string                 `yaml:"task,omitempty" json:"task,omitempty"`
 	Plain     bool                   `yaml:"plain,omitempty" json:"plain,omitempty"`
 	Base      string                 `yaml:"base,omitempty" json:"base,omitempty"`
+	Group     string                 `yaml:"group,omitempty" json:"group,omitempty"`
 	Bare      bool                   `yaml:"bare,omitempty" json:"bare,omitempty"`
 	Branch    string                 `yaml:"branch,omitempty" json:"branch,omitempty"`
 	Worktree  string                 `yaml:"worktree,omitempty" json:"worktree,omitempty"`
@@ -157,6 +158,7 @@ func engineItemFromTracked(it operator.TrackedItem, projected bool) engineItem {
 		Repo:   operator.ScopeString(it.Scope, "repo"),
 		Change: operator.ScopeString(it.Scope, "change"), Task: operator.ScopeString(it.Scope, scopeTask), Bare: isBare(it),
 		Plain: scopeBool(it, scopePlain), Base: operator.ScopeString(it.Scope, scopeBase),
+		Group:  operator.ScopeString(it.Scope, scopeGroup),
 		Branch: operator.ScopeString(it.Scope, "branch"), MergeMode: operator.ScopeString(it.Scope, scopeMergeMode), StopStage: operator.ScopeString(it.Scope, "stop_stage"),
 		DependsOn: append([]string{}, it.DependsOn...), Paused: it.Paused, Spawning: operator.ScopeString(it.Scope, scopeSpawning),
 		Respawned: scopeBool(it, scopeRespawned), Skipped: skipped(it), Pane: operator.ScopeString(it.Scope, "pane"),
@@ -194,6 +196,9 @@ func (it engineItem) tracked() operator.TrackedItem {
 	}
 	if it.Base != "" {
 		scope[scopeBase] = it.Base
+	}
+	if it.Group != "" {
+		scope[scopeGroup] = it.Group
 	}
 	if it.StopStage != "" {
 		scope["stop_stage"] = it.StopStage

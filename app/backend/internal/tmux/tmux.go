@@ -2903,6 +2903,18 @@ func ensureDetachedSession(ctx context.Context, prefix []string, session string)
 	return Run(ctx, newDetachedSessionArgv(prefix, session, ServerBirthDir()), RunOpts{})
 }
 
+// EnsureSessionOnServer guarantees session exists on the named server,
+// creating it detached when absent. It returns the id of the placeholder window
+// tmux put in a session it just created, and "" when the session already
+// existed (an adopted session keeps all its windows). The caller kills a
+// non-empty placeholder once the window it is placing exists, so the session
+// ends holding only that window.
+func EnsureSessionOnServer(ctx context.Context, server, session string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+	return ensureSessionCapturingPlaceholder(ctx, serverArgs(server), session)
+}
+
 // EnsureOperatorSession guarantees OperatorSessionName exists on the target
 // server, creating it detached (anchored to ServerBirthDir) when missing.
 // Idempotent: an existing session is a no-op, and a pre-existing user-created

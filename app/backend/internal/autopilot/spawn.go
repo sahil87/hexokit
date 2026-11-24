@@ -155,7 +155,7 @@ func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.
 		}
 	}
 
-	session, err := e.env.Session(ctx, repo)
+	session, ensure, err := e.landingSession(ctx, it, repo)
 	if err != nil {
 		e.escalate(id, "no landing session: "+err.Error())
 		return
@@ -171,7 +171,7 @@ func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.
 		recordBase = itemBase
 	}
 	req := SpawnRequest{
-		Repo: repo, Session: session, WorktreeName: id, BaseRef: baseRef, NewBranch: newBranch,
+		Repo: repo, Session: session, EnsureSession: ensure, WorktreeName: id, BaseRef: baseRef, NewBranch: newBranch,
 		Prompt: prompt,
 		Note:   id + " · spawned",
 		Prepare: func(ctx context.Context, wt string) error {
@@ -179,6 +179,18 @@ func (e *engine) spawnItem(ctx context.Context, st *operator.State, it operator.
 		},
 	}
 	e.launch(ctx, it, fp, req, ActSpawned, false)
+}
+
+// landingSession is the tmux session an item's window opens in. An item queued
+// with a group lands in that session, which the spawner creates when absent
+// (ensure); any other item lands where the environment's seam points, in a
+// session that already exists.
+func (e *engine) landingSession(ctx context.Context, it operator.TrackedItem, repo string) (session string, ensure bool, err error) {
+	if g := operator.ScopeString(it.Scope, scopeGroup); g != "" {
+		return g, true, nil
+	}
+	session, err = e.env.Session(ctx, repo)
+	return session, false, err
 }
 
 // launch is the ordinary window-opening path. A launch that fails before a
@@ -569,7 +581,7 @@ func (e *engine) respawn(ctx context.Context, st *operator.State, it operator.Tr
 		}
 		stackedBase = b
 	}
-	session, err := e.env.Session(ctx, repo)
+	session, ensure, err := e.landingSession(ctx, it, repo)
 	if err != nil {
 		e.escalate(id, "no landing session: "+err.Error())
 		return
@@ -585,7 +597,7 @@ func (e *engine) respawn(ctx context.Context, st *operator.State, it operator.Tr
 		return
 	}
 	req := SpawnRequest{
-		Repo: repo, Session: session, WorktreeName: id, CheckoutBranch: branch,
+		Repo: repo, Session: session, EnsureSession: ensure, WorktreeName: id, CheckoutBranch: branch,
 		ExistingWorktree: wt,
 		Prompt:           prompt,
 		Note:             id + " · respawned",

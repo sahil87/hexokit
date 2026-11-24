@@ -62,7 +62,7 @@ For operators coordinating lane agents in this repo; `/fab-operator` loads it at
 - **Spawning**: e2e slots default to 2 per machine. More lanes than that in their test phase just queue — stagger spawns rather than piling on.
 - **Red on main**: when a lane reports a failure that also happens on `main`, assign the fix to exactly one lane (or spawn a dedicated one) and tell the others to rebase once it merges.
 - **Notes**: write each lane's L5 final report as a note on its tracked item. That note is the evidence ledger — don't keep a separate list.
-- **After merge**: move the lane's tab (tmux window) to the `completed` group (tmux session), creating the group if it doesn't exist:
+- **After merge**: a lane spawned by a grouped queue (a plan queue, `queue --group`) stays in its group; the done marker is the signal, and the tab is not moved. Only a lane without a group (an ad-hoc queue or a hand spawn) moves to the `completed` group (tmux session), creating the group if it doesn't exist:
 
   ```sh
   tmux has-session -t '=completed' 2>/dev/null || tmux new-session -d -s completed

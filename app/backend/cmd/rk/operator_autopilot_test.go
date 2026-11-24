@@ -448,6 +448,105 @@ func TestAutopilotQueueRejectsExplicitEmptyMode(t *testing.T) {
 	wantExit(t, err, 2, "--mode")
 }
 
+func TestAutopilotQueueGroupReachesTheEngineAndTheReceipt(t *testing.T) {
+	path, _ := autopilotSandbox(t, "")
+	repo := t.TempDir()
+	out, err := autopilotCLI(t, queueJSON(repo, repo), "queue", "--group", "operator-triggers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "mode: cherry-pick-ladder (default)\ngroup: operator-triggers\n") {
+		t.Fatalf("human receipt = %q", out)
+	}
+	for _, it := range readCLIEngine(t, path).Queue {
+		if it.Group != "operator-triggers" {
+			t.Errorf("item %s group = %q", it.ID, it.Group)
+		}
+	}
+
+	autopilotSandbox(t, "")
+	out, err = autopilotCLI(t, queueJSON(repo), "queue", "--group", "g", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env struct {
+		Result struct {
+			Group string `json:"group"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(out), &env); err != nil || env.Result.Group != "g" {
+		t.Fatalf("json receipt = %s (%v)", out, err)
+	}
+
+	autopilotSandbox(t, "")
+	out, err = autopilotCLI(t, queueJSON(repo), "queue")
+	if err != nil || strings.Contains(out, "group") {
+		t.Fatalf("a queue without --group mentions a group: %q (%v)", out, err)
+	}
+}
+
+func TestAutopilotQueueGroupUsageErrorsWriteNothing(t *testing.T) {
+	repo := t.TempDir()
+	for _, dry := range []bool{false, true} {
+		for _, group := range []string{"_rk-x", "a b", "a:b", "a.b", "a;b", ""} {
+			t.Run(fmt.Sprintf("%q dry=%v", group, dry), func(t *testing.T) {
+				path, _ := autopilotSandbox(t, "")
+				args := []string{"queue", "--group", group}
+				if dry {
+					args = append(args, "--dry-run")
+				}
+				_, err := autopilotCLI(t, queueJSON(repo), args...)
+				wantExit(t, err, 2, "--group")
+				if _, statErr := os.Stat(path); statErr == nil {
+					t.Fatal("a rejected group wrote the state file")
+				}
+			})
+		}
+	}
+}
+
+func TestAutopilotStatusRowShowsGroupOnlyWhenSet(t *testing.T) {
+	autopilotSandbox(t, "")
+	repo := t.TempDir()
+	if _, err := autopilotCLI(t, `[{"id":"g1","repo":"`+repo+`","task":"a","plain":true}]`, "queue", "--group", "plan-a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := autopilotCLI(t, `[{"id":"u1","repo":"`+repo+`","task":"b","depends_on":[]}]`, "queue"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := autopilotCLI(t, "", "status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) < 2 || !strings.HasSuffix(lines[0], " · plain · group plan-a") {
+		t.Fatalf("status = %q", out)
+	}
+	if strings.Contains(lines[1], "group") {
+		t.Fatalf("an ungrouped item shows a group: %q", lines[1])
+	}
+}
+
+func TestAutopilotHelpDocumentsTheGroupFlag(t *testing.T) {
+	help, err := autopilotCLI(t, "", "queue", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flat := strings.Join(strings.Fields(help), " ")
+	for _, want := range []string{
+		"--group <name>", "created when absent and joined when present", "may not start with _rk-", "invalid group",
+		`prints "group: <name>" when set`,
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("queue help lacks %q:\n%s", want, help)
+		}
+	}
+	help, err = autopilotCLI(t, "", "status", "--help")
+	if err != nil || !strings.Contains(strings.Join(strings.Fields(help), " "), "stop_stage and group") {
+		t.Fatalf("status help = %s (%v)", help, err)
+	}
+}
+
 // holdAutopilotPassLock takes the pass lock the way another running pass does:
 // an exclusive flock on <state file stem>.autopilot.lock.
 func holdAutopilotPassLock(t *testing.T, statePath string) (release func()) {
@@ -753,6 +852,7 @@ func TestAutopilotStatusGitHubFailureMatchesTheHelp(t *testing.T) {
 type cliEngineItem struct {
 	ID        string   `yaml:"id"`
 	MergeMode string   `yaml:"merge_mode"`
+	Group     string   `yaml:"group"`
 	Paused    bool     `yaml:"paused"`
 	DoneAt    *string  `yaml:"done_at"`
 	Pane      string   `yaml:"pane"`

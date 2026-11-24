@@ -62,6 +62,18 @@ func (s RiffSpawner) Spawn(ctx context.Context, req SpawnRequest) (SpawnResult, 
 		res := SpawnResult{PaneID: pane, WindowID: w.WindowID, Session: req.Session, WorktreePath: w.WorktreePath, Branch: branch, BaseSHA: w.BaseSHA}
 		return persistOpened(req, res, closeWindow)
 	}
+	if req.EnsureSession {
+		placeholder, err := tmux.EnsureSessionOnServer(ctx, s.Server, req.Session)
+		if err != nil {
+			return SpawnResult{}, fmt.Errorf("group session %s: %w", req.Session, err)
+		}
+		// A session this call created holds only tmux's placeholder window; it
+		// goes once the attempt ends, so the group keeps agent tabs only and a
+		// failed spawn leaves no empty session behind.
+		if placeholder != "" {
+			defer func() { _ = tmux.KillWindow(placeholder, s.Server) }()
+		}
+	}
 	res, err := riff.SpawnObserved(ctx, opts, prepare, opened)
 	if err != nil {
 		return SpawnResult{}, err
