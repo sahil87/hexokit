@@ -13,8 +13,8 @@
 > (a manual trigger waives the idle floor), #1177 (same-repo `depends_on` in `merge-auto` is the barrier, not a misfit).
 > **Done (2026-11-24)** — **T8** #1179 (plain spawn + `base`).
 > **Pending** — **T9** adopt `wt` v0.1.8 receipt (spawned) · **T10** `--temp`/`--pr` in the run rules (held) · **T11** merge-auto
-> projects the shipped PR (not queued) · **T12** retry after a failed run (not queued) · **R2** roll-out (cron entry `kykr`
-> armed, waits for T8–T12) · **M1** report (cron entry `qd4p`, fires 2026-11-27).
+> projects the shipped PR (not queued) · **T12** retry after a failed run (not queued) · **T13** one group per plan (not queued) · **R2** roll-out
+> (cron entry `rjs7` armed, waits for T8–T13) · **M1** report (cron entry `qd4p`, fires 2026-11-27).
 > **Found 2026-11-24**: the `claude -p` launcher on this box was logged out from 18:44Z 11-23 — every run failed in 2 s
 > (`Not logged in`); and under `merge-auto` no run is launched to merge a shipped item's green PR, nor does its merge
 > re-trigger the successor's barrier — nothing tracks the PR since T3. T11 and T12 are the fixes.
@@ -172,7 +172,8 @@ decided mechanically. Everything the Go side still does is cheap, deterministic,
 | **T10** | ○ pending · run-kit | Run rules and chat skill use `wt create --temp <sha>` / `--pr <n>` for restacks and conflict work, and `rk riff -- --base origin/<b> --fetch` for hand spawns; `wt list --json` `base` is the recorded PR base | T9 | S | — |
 | **T11** | ○ pending · run-kit | merge-auto: when a queue item is recorded done, the engine projects its branch's PR as a `github-pr` ledger item (`pr-<n>`, `then: merge under merge-auto`), so the check polls it, a run merges it when green, and its merge re-triggers the successor's barrier | — | S | — |
 | **T12** | ○ pending · run-kit | Retry after a failed run: a `failed@<at>` condition (an item whose newest run note is a failure note) is a judgment reason, cleared by a later successful run note; the failure ladder bounds the rate | — | S | — |
-| **R2** | ○ pending · — | Roll-out after T8–T12 merge: `rk update`, `rk daemon restart`, verify one plain spawn with a base, notify (CI auto-tags) | T10, T11, T12 | S | operator chat, cron-woken |
+| **T13** | ○ pending · run-kit | One group per plan: `queue --group <name>` stamps the queue; spawn and respawn land in tmux session `<name>`; `status` shows it; the chat's Plans rule names the group after the plan | — | S | — |
+| **R2** | ○ pending · — | Roll-out after T8–T13 merge: `rk update`, `rk daemon restart`, verify one plain spawn with a base, notify (CI auto-tags) | T10, T11, T12, T13 | S | operator chat, cron-woken |
 | **M1** | ○ pending · — | Report one week after R1: model runs/day, no-op share, tokens/run, failure streaks, PR-trigger latency; one note + notify | R1 | S | operator chat, cron-woken |
 
 ```
@@ -477,7 +478,37 @@ re-offers it, and a done item yields no further edge — so a failure on the `do
 - Docs: `operator-state.md` (conditions table, a Design Decision "a failed run is retried, not
   forgotten"), `operator-loop.md`, `operator-brief.md` (exit contract line).
 
-### R2 — Roll-out after T8–T12 (operator chat, cron-woken, no fab change)
+### T13 — One group per plan (run-kit) — added 2026-11-24
+
+**Problem.** Agents spawned for a plan land wherever the engine's landing-session seam
+(`autopilot.Env.Session`, `spawn.go`) points — today a role-aware default — so two plans running in
+parallel interleave their tabs in one group and nothing in the sidebar says which plan a tab belongs
+to. The UI already calls a tmux session a **Group**; a plan should be one.
+
+- **Engine**: `rk operator autopilot queue --group <name>` stamps `group` on every item of that queue
+  (stored — structure, like `queue` and `merge_mode`); `<name>` passes `validate.ValidateSessionName`
+  and may not start with `_rk-`. Spawn and respawn pass the item's `group` as the `SpawnRequest.Session`
+  when set, creating the session through the existing ensure helper when absent (an existing session of
+  that name is joined, never an error); without `--group` the seam's default stands. `status` and
+  `status --json` show `group`. Cross-repo entries of one queue share the group (sessions are not
+  repo-bound; worktrees still sit beside each repo). The engine never reads the plan file.
+- **Chat skill** (`rk skill operator` § Plans): the group is the plan file's slug without its date
+  prefix (`26-11-20-operator-triggers.md` → `operator-triggers`), or what the user names; it goes on the
+  one `queue` call. Ad-hoc queues get no group unless asked. A queued plan's confirmation line names the
+  group.
+- **After merge**: a finished lane's tab **stays in its plan's group**; the sidebar's done marker is the
+  signal, and the group empties only when its tabs are closed. The operator addendum's "move to the
+  `completed` group" rule is retired for plan queues in the same change (`fab/project/operator.md`).
+- Tests: `queue --group` stamping and validation; spawn/respawn land in the named session (riff fake
+  records `Session`); `status` output; a queue without `--group` is unchanged.
+- Docs: `operator-autopilot.md` (Entry, spawn, status, a Design Decision "a plan is a group"),
+  `docs/site/skill/operator.md` + sync, `fab/project/operator.md`.
+- **Parallel**: no dependency, so queue it as its **own `queue` call** (a `merge-auto` queue chains each
+  entry to its predecessor as a barrier; a separate queue, or an explicit `"depends_on": []`, runs it
+  beside T9–T12). It shares `queue.go`/`spawn.go`/`status.go` with T9 and T11; whichever ships second
+  rebases at `/git-pr`, as the pipeline already does.
+
+### R2 — Roll-out after T8–T13 (operator chat, cron-woken, no fab change)
 
 CI auto-tags on merge, so there is no release step; the chat, woken by a cron entry like R1's, runs
 `rk update`, `rk daemon restart`, verifies one `plain: true` spawn with a `base` on a scratch queue
@@ -485,7 +516,7 @@ CI auto-tags on merge, so there is no release step; the chat, woken by a cron en
 
 ```sh
 rk cron add -L hexokit2 --name "r2 wt adoption" --cron "30 */4 * * *" --role operator --deliver when-idle \
-  "operator: plan fab/plans/sahil/26-11-20-operator-triggers.md, step R2 — once the PRs of ot-t8, ot-t9, ot-t10, ot-t11 and ot-t12 all show MERGED, execute R2 as its brief says (rk update, rk daemon restart with the 2-minute notice, verify, note, notify), then rk cron rm this entry; otherwise reply 'R2: not yet' and do nothing else."
+  "operator: plan fab/plans/sahil/26-11-20-operator-triggers.md, step R2 — once the PRs of ot-t8, ot-t9, ot-t10, ot-t11, ot-t12 and ot-t13 all show MERGED, execute R2 as its brief says (rk update, rk daemon restart with the 2-minute notice, verify, note, notify), then rk cron rm this entry; otherwise reply 'R2: not yet' and do nothing else."
 ```
 
 ### R1 — Release and roll out (operator chat, cron-woken, no fab change)
@@ -554,6 +585,7 @@ then `rk notify`.
 | T3 | Whether `autopilot status` keeps listing the former PR projections, or leaves them to `track list` only |
 | T5 | Receiver port derivation (port policy block) |
 | T6 | Brief/log endpoints as rendered text vs raw files with the frontend rendering |
+| T13 | Finished tabs stay in the plan's group (chosen) vs move to `<group>-done` — revisit if a long plan's group gets crowded |
 | R1 | Whether to roll out to `loom` and `fab_kit` in the same pass or one server first — same pass unless the verification on `hexokit` fails |
 
 ## Non-goals
