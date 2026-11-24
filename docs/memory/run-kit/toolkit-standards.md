@@ -1651,7 +1651,7 @@ replicate ever more cobra internals to reproduce what `Args: nil` gives for free
 **Why**: both the CLI `os.Exit` wrapper and the HTTP `riffStatusForError` map key
 on the **constant identity** (`ExitValidation` → 400), never the literal value, so
 the value swap propagates to every consumer with zero mapping edits — the HTTP
-`400` for an unknown preset is unchanged. A locking test (`TestRiffExitClassMapping`)
+`400` for an unknown riff preset is unchanged. A locking test (`TestRiffExitClassMapping`)
 pins the new numeric values so a future accidental re-swap is caught.
 **Rejected**: leaving riff's codes inverted (permanent P4 nonconformance for the
 one command already using explicit codes); adding a numeric translation layer at
