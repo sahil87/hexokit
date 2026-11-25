@@ -99,7 +99,7 @@ describe("AgentPresetChooser", () => {
     renderChooser({ own: "claude", onPick });
     fireEvent.click(await screen.findByRole("radio", { name: /inherit/ }));
     expect(onPick).toHaveBeenLastCalledWith(null);
-    fireEvent.click(screen.getByRole("radio", { name: /none/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /^none/ }));
     expect(onPick).toHaveBeenLastCalledWith("none");
   });
 

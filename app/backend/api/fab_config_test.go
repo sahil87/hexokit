@@ -25,6 +25,11 @@ type fabStub struct {
 	// presets is the stdout of `agent presets --json`; empty exits non-zero,
 	// like a fab without the verb.
 	presets string
+	// show overrides the `config show --origin --json` rows when set.
+	show string
+	// resolved is the stdout of `agent <role> --preset <name> -o yaml`, keyed
+	// "<role> <name>".
+	resolved map[string]string
 }
 
 const fabStubShow = `[
@@ -45,7 +50,15 @@ func (f *fabStub) run(_ context.Context, argv ...string) ([]byte, []byte, error)
 	}
 	switch {
 	case joined == "config show --origin --json":
+		if f.show != "" {
+			return []byte(f.show), nil, nil
+		}
 		return []byte(fabStubShow), nil, nil
+	case len(argv) == 6 && argv[0] == "agent" && argv[2] == "--preset":
+		if out, ok := f.resolved[argv[1]+" "+argv[3]]; ok {
+			return []byte(out), nil, nil
+		}
+		return nil, []byte("no dispatch mode is available"), errors.New("exit 1")
 	case joined == "config explain --json":
 		return []byte(`[]`), nil, nil
 	case joined == "agent presets --json" && f.presets != "":

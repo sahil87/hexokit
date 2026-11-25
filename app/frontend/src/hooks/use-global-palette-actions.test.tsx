@@ -59,6 +59,7 @@ import { copyToClipboard } from "@/lib/clipboard";
 // contract here is that it asks for it.
 vi.mock("@/lib/agent-preset-focus", () => ({ focusAgentPresetSelect: vi.fn() }));
 import { focusAgentPresetSelect } from "@/lib/agent-preset-focus";
+import { resetPresetsIntent, takePresetsIntent } from "@/lib/agent-presets-intent";
 
 vi.mock("@/lib/help-topics", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/help-topics")>();
@@ -158,6 +159,11 @@ describe("useGlobalPaletteActions", () => {
       "settings-appearance",
       "settings-agents",
       "settings-agent-preset",
+      "settings-agent-presets",
+      "settings-new-agent-preset",
+      "settings-duplicate-agent-preset",
+      "settings-rename-agent-preset",
+      "settings-delete-agent-preset",
       "settings-all",
     ];
     expect(order.slice(0, expectInOrder.length)).toEqual(expectInOrder);
@@ -238,6 +244,20 @@ describe("useGlobalPaletteActions", () => {
     act(() => entry?.onSelect());
     expect(dialogState).toEqual({ isOpen: true, activeTab: "agents" });
     expect(focusAgentPresetSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("the Presets entries open the Agents tab and record what the section should open", () => {
+    resetPresetsIntent();
+    renderHook();
+    const entry = (id: string) => captured.find((a) => a.id === id);
+    expect(entry("settings-agent-presets")?.label).toBe("Settings: Agent presets");
+    act(() => entry("settings-agent-presets")?.onSelect());
+    expect(dialogState).toEqual({ isOpen: true, activeTab: "agents" });
+    expect(takePresetsIntent()).toEqual({ action: "focus" });
+
+    expect(entry("settings-new-agent-preset")?.label).toBe("Settings: New agent preset…");
+    act(() => entry("settings-new-agent-preset")?.onSelect());
+    expect(takePresetsIntent()).toEqual({ action: "new" });
   });
 
   it("Settings: All deep-links the All settings tab (id settings-all)", () => {

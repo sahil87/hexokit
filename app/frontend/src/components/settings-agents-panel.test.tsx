@@ -8,8 +8,14 @@ import { SettingsAgentsPanel } from "./settings-agents-panel";
 vi.mock("@/api/client", () => ({
   getFabConfig: vi.fn(),
   postFabConfig: vi.fn(),
+  resolveAgentPreset: vi.fn(),
+  duplicateAgentPreset: vi.fn(),
+  renameAgentPreset: vi.fn(),
+  deleteAgentPreset: vi.fn(),
+  moveLeftoverSettings: vi.fn(),
+  clearLeftoverSettings: vi.fn(),
 }));
-import { getFabConfig, postFabConfig } from "@/api/client";
+import { getFabConfig, postFabConfig, resolveAgentPreset } from "@/api/client";
 
 vi.mock("@/lib/clipboard", () => ({ copyToClipboard: vi.fn().mockResolvedValue(true) }));
 import { copyToClipboard } from "@/lib/clipboard";
@@ -117,6 +123,7 @@ function pickCustom(roleName: string) {
 beforeEach(() => {
   vi.mocked(getFabConfig).mockReset();
   vi.mocked(postFabConfig).mockReset();
+  vi.mocked(resolveAgentPreset).mockReset().mockResolvedValue({});
   vi.mocked(copyToClipboard).mockClear();
 });
 
@@ -1204,31 +1211,21 @@ describe("SettingsAgentsPanel — agent presets", () => {
   }
 
   const select = () => screen.getByTestId("agent-preset-select") as HTMLSelectElement;
-  const toggle = () => screen.getByTestId("agent-customize-toggle");
 
   /** The doc fab reports with a system-chosen preset: leaves the preset supplied keep the system origin. */
   function withSystemPreset(name: string, doc: Doc = presetDoc()): Doc {
     return withField(doc, "agent.preset", field(name, "system"));
   }
 
-  const presetCell = (effective: string, preset: string): FabRoleCell => ({
-    override: null,
-    effective,
-    source: "agent.profiles.review.cli",
-    origin: "system",
-    originDetail: `preset ${preset}`,
-    inherited: "claude",
-    preset,
-  });
-
   describe("dropdown", () => {
-    it("is the first row, above Session CLI, with None then one option per preset", async () => {
+    it("is the only row of the Use a preset section, relabelled Machine default, with None then one option per preset", async () => {
       await renderPanel(presetDoc());
-      const rows = within(screen.getByRole("region", { name: "Agent CLIs" })).getAllByTestId(/^fab-row-/);
-      expect(rows[0]).toHaveAttribute("data-testid", "fab-row-agent.preset");
-      expect(within(row("agent.preset")).getByText("Agent preset")).toBeInTheDocument();
+      const section = screen.getByRole("region", { name: "Use a preset" });
+      expect(within(section).getAllByTestId(/^fab-row-/)).toEqual([row("agent.preset")]);
+      expect(within(row("agent.preset")).getByText("Machine default")).toBeInTheDocument();
+      expect(within(row("agent.preset")).getByText("used when a workspace or group does not pick its own")).toBeInTheDocument();
       expect(optionTexts(select())).toEqual([
-        "None",
+        "None — fab's defaults",
         "claude — All roles on Claude",
         "codex-review — Only the review role on Codex",
         "codex-workers — Pipeline workers on Codex",
@@ -1307,173 +1304,14 @@ describe("SettingsAgentsPanel — agent presets", () => {
       expect(select()).toHaveValue("");
     });
 
-    it("is hidden, with no Customize disclosure, when the installed fab lists no presets", async () => {
+    it("is hidden, with no preset sections, when the installed fab lists no presets", async () => {
       await renderPanel(makeDoc());
       expect(screen.queryByTestId("agent-preset-select")).not.toBeInTheDocument();
-      expect(screen.queryByTestId("agent-customize")).not.toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: "Presets" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: "Use a preset" })).not.toBeInTheDocument();
       // The knobs and the role grid render exactly as before.
       expect(within(row("agent.session")).getByRole("group", { name: "Session CLI" })).toBeInTheDocument();
       expect(screen.getByTestId("role-row-review")).toBeInTheDocument();
-    });
-  });
-
-  describe("override note", () => {
-    it("counts explicit values on keys the selected preset sets", async () => {
-      const doc = withRole(withSystemPreset("codex-review"), "review", {
-        tool: overridden("claude", "agent.profiles.review.cli", "claude"),
-      });
-      await renderPanel(doc);
-      expect(screen.getByTestId("agent-preset-override-note")).toHaveTextContent(
-        "1 explicit field overrides parts of this preset — see Customize",
-      );
-    });
-
-    it("pluralises, counting depth knobs and role leaves together", async () => {
-      const doc = withRole(
-        withField(withSystemPreset("claude"), "agent.workers", field("kimi", "system")),
-        "default",
-        { tool: overridden("codex", "agent.profiles.default.cli", "claude") },
-      );
-      // claude sets session + workers; the explicit session is system-origin, workers is system-origin.
-      await renderPanel(withField(doc, "agent.session", field("codex", "system")));
-      expect(screen.getByTestId("agent-preset-override-note")).toHaveTextContent(
-        "2 explicit fields override parts of this preset — see Customize",
-      );
-    });
-
-    it("ignores explicit values on keys the preset does not set", async () => {
-      const doc = withRole(withSystemPreset("codex-workers"), "review", {
-        model: overridden("claude-opus-5-5", "agent.profiles.review.model"),
-      });
-      await renderPanel(doc);
-      expect(screen.queryByTestId("agent-preset-override-note")).not.toBeInTheDocument();
-    });
-
-    it("ignores preset-supplied values", async () => {
-      const doc = withRole(withSystemPreset("codex-review"), "review", { tool: presetCell("codex", "codex-review") });
-      await renderPanel(doc);
-      expect(screen.queryByTestId("agent-preset-override-note")).not.toBeInTheDocument();
-    });
-
-    it("is absent with no preset selected, and offers no clearing action", async () => {
-      const doc = withRole(presetDoc(), "review", {
-        tool: overridden("codex", "agent.profiles.review.cli", "claude"),
-      });
-      await renderPanel(doc);
-      expect(screen.queryByTestId("agent-preset-override-note")).not.toBeInTheDocument();
-
-      cleanup();
-      await renderPanel(
-        withRole(withSystemPreset("codex-review"), "review", {
-          tool: overridden("claude", "agent.profiles.review.cli", "claude"),
-        }),
-      );
-      const note = screen.getByTestId("agent-preset-override-note");
-      expect(within(note).queryByRole("button")).toBeNull();
-      expect(postFabConfig).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("Customize disclosure", () => {
-    it("is collapsed with `0 set explicitly` when nothing is explicit", async () => {
-      await renderPanel(presetDoc());
-      expect(toggle()).toHaveTextContent("Customize · 0 set explicitly");
-      expect(toggle()).toHaveAttribute("aria-expanded", "false");
-      expect(screen.queryByTestId("role-row-review")).not.toBeInTheDocument();
-      expect(screen.queryByRole("group", { name: "Session CLI" })).not.toBeInTheDocument();
-    });
-
-    it("opens and closes from the keyboard-operable toggle", async () => {
-      await renderPanel(presetDoc());
-      fireEvent.click(toggle());
-      expect(toggle()).toHaveAttribute("aria-expanded", "true");
-      expect(screen.getByTestId("role-row-review")).toBeInTheDocument();
-      expect(screen.getByRole("group", { name: "Session CLI" })).toBeInTheDocument();
-      fireEvent.click(toggle());
-      expect(toggle()).toHaveAttribute("aria-expanded", "false");
-      expect(screen.queryByTestId("role-row-review")).not.toBeInTheDocument();
-    });
-
-    it("is expanded when something is set explicitly, and counts it", async () => {
-      const doc = withRole(presetDoc(), "review", {
-        tool: overridden("codex", "agent.profiles.review.cli", "claude"),
-      });
-      await renderPanel(doc);
-      expect(toggle()).toHaveTextContent("Customize · 1 set explicitly");
-      expect(toggle()).toHaveAttribute("aria-expanded", "true");
-      expect(screen.getByTestId("role-row-review")).toBeInTheDocument();
-    });
-
-    it("counts knobs and every role cell, and not preset-supplied or default values", async () => {
-      let doc = withField(presetDoc(), "agent.session", field("claude", "system"));
-      doc = withField(doc, "agent.workers", field("codex", "system", { preset: "codex-workers", originDetail: "preset codex-workers" }));
-      doc = withRole(doc, "doing", { model: overridden("claude-sonnet-5-5", "agent.profiles.doing.model") });
-      doc = withRole(doc, "review", { tool: presetCell("codex", "codex-review"), effort: overridden("high", "agent.profiles.review.effort") });
-      await renderPanel(doc);
-      expect(toggle()).toHaveTextContent("Customize · 3 set explicitly");
-    });
-
-    it("counts an env-set value", async () => {
-      const doc = withField(presetDoc(), "agent.workers", field("kimi", "env", { originDetail: "FAB_AGENT_WORKERS" }));
-      await renderPanel(doc);
-      expect(toggle()).toHaveTextContent("Customize · 1 set explicitly");
-    });
-  });
-
-  describe("preset-supplied values", () => {
-    it("shows a supplied knob with a preset chip and no reset link", async () => {
-      const doc = withField(
-        withSystemPreset("codex-workers"),
-        "agent.workers",
-        field("codex", "system", { preset: "codex-workers", originDetail: "preset codex-workers" }),
-      );
-      await renderPanel(doc);
-      fireEvent.click(toggle());
-      const workers = row("agent.workers");
-      expect(within(workers).getByRole("button", { name: "codex" })).toHaveAttribute("aria-pressed", "true");
-      const chip = within(workers).getByTestId("provenance-chip");
-      expect(chip).toHaveTextContent("preset");
-      expect(chip).toHaveAttribute("title", "preset codex-workers");
-      expect(within(workers).queryByRole("button", { name: "Reset agent.workers" })).not.toBeInTheDocument();
-      expect(within(workers).getByTestId("modified-dot")).toHaveAttribute("aria-hidden", "true");
-      expect(toggle()).toHaveTextContent("Customize · 0 set explicitly");
-    });
-
-    it("shows a supplied role cell as inherited, with a preset chip and no reset link", async () => {
-      const doc = withRole(withSystemPreset("codex-review"), "review", { tool: presetCell("codex", "codex-review") });
-      await renderPanel(doc);
-      fireEvent.click(toggle());
-      const reviewRow = screen.getByTestId("role-row-review");
-      const cli = within(reviewRow).getByLabelText("review CLI") as HTMLSelectElement;
-      expect(cli).toHaveValue("");
-      expect(cli.options[0].textContent).toBe("↳ codex");
-      const chip = within(reviewRow).getByTestId("provenance-chip");
-      expect(chip).toHaveTextContent("preset");
-      expect(chip).toHaveAttribute("title", "preset codex-review");
-      expect(within(reviewRow).queryByRole("button", { name: "Reset review overrides" })).not.toBeInTheDocument();
-    });
-
-    it("shows no env warning on a leaf an env-chosen preset supplied", async () => {
-      const supplied: FabRoleCell = { ...presetCell("codex", "codex-review"), origin: "env", originDetail: "preset codex-review" };
-      await renderPanel(withRole(presetDoc(), "review", { tool: supplied }));
-      fireEvent.click(toggle());
-      expect(within(screen.getByTestId("role-row-review")).queryByRole("img", { name: /CLI set by an environment variable/ })).toBeNull();
-    });
-
-    it("still resets an explicit override sitting beside a preset", async () => {
-      vi.mocked(postFabConfig).mockResolvedValue(withSystemPreset("codex-review"));
-      const doc = withRole(withSystemPreset("codex-review"), "review", {
-        tool: overridden("claude", "agent.profiles.review.cli", "claude"),
-      });
-      await renderPanel(doc);
-      fireEvent.click(within(screen.getByTestId("role-row-review")).getByRole("button", { name: "Reset review overrides" }));
-      await waitFor(() =>
-        expect(postFabConfig).toHaveBeenCalledWith({
-          "agent.profiles.review.tool": null,
-          "agent.profiles.review.model": null,
-          "agent.profiles.review.effort": null,
-        }),
-      );
     });
   });
 });

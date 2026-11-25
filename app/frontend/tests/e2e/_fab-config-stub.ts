@@ -14,6 +14,13 @@ import type { Page } from "@playwright/test";
 // carry `originDetail: "preset <name>"` plus `preset`, never an override.
 // Without it the stub models a fab that cannot list presets, which is what the
 // pre-preset specs and demos run against.
+//
+// In presets mode the stub also keeps a table of user-defined presets
+// (`userPresets` seeds it) and answers the editor's routes: `agent_presets.*`
+// leaf writes on `POST /api/fab-config` (an unset of a preset's last leaf
+// removes it, like fab), `presets/{duplicate,rename,delete}`,
+// `leftovers/{move,clear}` and `GET presets/resolve`. Every multi-write
+// request is recorded on the returned array's `ops`.
 
 type Scalar = string | number | boolean;
 
@@ -63,6 +70,13 @@ const TOOL_DEFAULTS = {
   kimi: { id: "tool-default", label: "tool default (openrouter/moonshotai/kimi-k3.1-pro)", efforts: ["low", "high", "max"] },
 };
 
+export type StubPreset = {
+  description?: string;
+  session?: string;
+  workers?: string;
+  profiles?: Record<string, Record<string, string>>;
+};
+
 type StubField = { value: Scalar; origin: string; originDetail?: string; systemValue?: Scalar; preset?: string };
 
 /** The built-in presets `fab agent presets --json` lists, in fab's order. */
@@ -73,7 +87,7 @@ const AGENT_PRESETS = [
 ];
 
 /** A preset's leaves by the stub's config keys (a role's `cli` is its `tool`). */
-function presetLeaves(preset: (typeof AGENT_PRESETS)[number]): Record<string, string> {
+function presetLeaves(preset: StubPreset): Record<string, string> {
   const leaves: Record<string, string> = {};
   if (preset.session) leaves["agent.session"] = preset.session;
   if (preset.workers) leaves["agent.workers"] = preset.workers;
@@ -96,11 +110,27 @@ export async function stubFabConfig(
     system?: Record<string, Scalar>;
     env?: Record<string, Scalar>;
     presets?: boolean;
+    /** Presets already defined in the system file (presets mode only). */
+    userPresets?: Record<string, StubPreset>;
   } = {},
-): Promise<Array<Record<string, unknown>>> {
+): Promise<StubPosts> {
   const systemPath = opts.systemPath ?? "/home/e2e/.fab-kit/config.yaml";
-  const posts: Array<Record<string, unknown>> = [];
-  const system = new Map<string, Scalar>([["agent.session", "claude"], ...Object.entries(opts.system ?? {})]);
+  // `ops` is non-enumerable so a spec can still `toEqual` the bare patch list.
+  const posts = Object.defineProperty([] as Array<Record<string, unknown>>, "ops", {
+    value: [] as StubOp[],
+    enumerable: false,
+  }) as StubPosts;
+  // A fab that lists presets starts with nothing set explicitly: an explicit
+  // session CLI would be a leftover setting.
+  const seeded: Array<[string, Scalar]> = opts.presets ? [] : [["agent.session", "claude"]];
+  const system = new Map<string, Scalar>([...seeded, ...Object.entries(opts.system ?? {})]);
+  const userPresets = new Map<string, StubPreset>(
+    Object.entries(opts.userPresets ?? {}).map(([name, p]) => [name, structuredClone(p)]),
+  );
+  const listed = () => [
+    ...AGENT_PRESETS,
+    ...[...userPresets].map(([name, p]) => ({ name, source: "system", ...p })),
+  ];
   const env = opts.env ?? {};
   const envDetail = "FAB_TEST_ENV";
 
@@ -108,7 +138,7 @@ export async function stubFabConfig(
     // The chosen preset and the layer that chose it (env outranks system).
     const chooser = opts.presets ? ("agent.preset" in env ? "env" : system.has("agent.preset") ? "system" : null) : null;
     const chosenName = chooser === "env" ? String(env["agent.preset"]) : chooser === "system" ? String(system.get("agent.preset")) : "";
-    const chosen = AGENT_PRESETS.find((p) => p.name === chosenName);
+    const chosen = listed().find((p) => p.name === chosenName);
     const supplied = chosen ? presetLeaves(chosen) : {};
     const presetOrigin = { origin: chooser ?? "default", originDetail: `preset ${chosenName}`, preset: chosenName };
 
@@ -169,8 +199,60 @@ export async function stubFabConfig(
       toolDefaults: TOOL_DEFAULTS,
       effortSuggestions: EFFORTS,
       effortCapable: { agy: false, claude: true, codex: true, kimi: false },
-      ...(opts.presets ? { agent_presets: AGENT_PRESETS } : {}),
+      ...(opts.presets ? { agent_presets: listed() } : {}),
     };
+  };
+
+  const unsetLoose = () => {
+    for (const key of [...system.keys()]) {
+      if (key === "agent.session" || key === "agent.workers" || key.startsWith("agent.profiles.")) system.delete(key);
+    }
+  };
+
+  /** Applies one `agent_presets.<name>[.<field>]` write; a preset left with no
+   *  field is removed, as fab does. */
+  const applyPresetKey = (key: string, value: Scalar | null) => {
+    const [, name, ...rest] = key.split(".");
+    const field = rest.join(".");
+    if (field === "") {
+      if (value === null) userPresets.delete(name);
+      return;
+    }
+    const preset = userPresets.get(name) ?? {};
+    const [head, role, leaf] = field.split(".");
+    if (head === "profiles") {
+      const profiles = { ...(preset.profiles ?? {}) };
+      const roleLeaves = { ...(profiles[role] ?? {}) };
+      if (value === null) delete roleLeaves[leaf];
+      else roleLeaves[leaf] = String(value);
+      if (Object.keys(roleLeaves).length > 0) profiles[role] = roleLeaves;
+      else delete profiles[role];
+      preset.profiles = Object.keys(profiles).length > 0 ? profiles : undefined;
+    } else if (head === "description" || head === "session" || head === "workers") {
+      preset[head] = value === null ? undefined : String(value);
+    }
+    const empty = !preset.description && !preset.session && !preset.workers && !preset.profiles;
+    if (empty) userPresets.delete(name);
+    else userPresets.set(name, JSON.parse(JSON.stringify(preset)));
+  };
+
+  const fieldsOf = (name: string): StubPreset => {
+    const p = listed().find((x) => x.name === name) as StubPreset | undefined;
+    return structuredClone({ description: p?.description, session: p?.session, workers: p?.workers, profiles: p?.profiles });
+  };
+
+  /** What `fab agent <role> --preset <name>` resolves: the preset's leaf, else
+   *  the explicit system value, else the depth knob. */
+  const resolve = (name: string) => {
+    const preset = fieldsOf(name);
+    return Object.fromEntries(
+      ROLES.map(([role, depth]) => {
+        const leaves = preset.profiles?.[role] ?? {};
+        const knob = preset[depth] ?? String(system.get(`agent.${depth}`) ?? "claude");
+        const loose = (leaf: string) => (system.has(`agent.profiles.${role}.${leaf}`) ? String(system.get(`agent.profiles.${role}.${leaf}`)) : "");
+        return [role, { cli: leaves.cli ?? (loose("tool") || knob), model: leaves.model ?? loose("model"), effort: leaves.effort ?? loose("effort") }];
+      }),
+    );
   };
 
   await page.route("**/api/fab-config", async (route) => {
@@ -183,11 +265,58 @@ export async function stubFabConfig(
       const patch = request.postDataJSON() as Record<string, Scalar | null>;
       posts.push(patch);
       for (const [key, value] of Object.entries(patch)) {
-        if (value === null) system.delete(key);
+        if (key.startsWith("agent_presets.")) applyPresetKey(key, value);
+        else if (value === null) system.delete(key);
         else system.set(key, value);
       }
     }
     await route.fulfill({ json: document() });
   });
+
+  await page.route("**/api/fab-config/**", async (route) => {
+    const url = new URL(route.request().url());
+    const op = url.pathname.replace(/^.*\/api\/fab-config\//, "");
+    if (op === "presets/resolve") {
+      await route.fulfill({ json: { roles: resolve(url.searchParams.get("name") ?? "") } });
+      return;
+    }
+    const body = (route.request().postDataJSON() ?? {}) as Record<string, string>;
+    posts.ops.push({ path: op, body });
+    if (op === "presets/duplicate") {
+      const copy = fieldsOf(body.from);
+      if (body.description) copy.description = body.description;
+      userPresets.set(body.to, JSON.parse(JSON.stringify(copy)));
+    } else if (op === "presets/rename") {
+      const moved = userPresets.get(body.from);
+      if (moved) userPresets.set(body.to, moved);
+      userPresets.delete(body.from);
+      if (system.get("agent.preset") === body.from) system.set("agent.preset", body.to);
+    } else if (op === "presets/delete") {
+      userPresets.delete(body.name);
+      if (system.get("agent.preset") === body.name) system.delete("agent.preset");
+    } else if (op === "leftovers/move") {
+      const base = fieldsOf(String(system.get("agent.preset") ?? ""));
+      const moved: StubPreset = { ...base, description: body.description, profiles: { ...(base.profiles ?? {}) } };
+      for (const [key, value] of system) {
+        if (key === "agent.session" || key === "agent.workers") moved[key === "agent.session" ? "session" : "workers"] = String(value);
+        const m = /^agent\.profiles\.([^.]+)\.(tool|cli|provider|model|effort)$/.exec(key);
+        if (m && moved.profiles) {
+          const leaf = m[2] === "model" || m[2] === "effort" ? m[2] : "cli";
+          moved.profiles[m[1]] = { ...(moved.profiles[m[1]] ?? {}), [leaf]: String(value) };
+        }
+      }
+      userPresets.set(body.name, JSON.parse(JSON.stringify(moved)));
+      unsetLoose();
+      system.set("agent.preset", body.name);
+    } else if (op === "leftovers/clear") {
+      unsetLoose();
+    }
+    await route.fulfill({ json: document() });
+  });
   return posts;
 }
+
+/** One multi-write request the stub saw: the path under `/api/fab-config/`. */
+export type StubOp = { path: string; body: Record<string, string> };
+/** The `POST /api/fab-config` bodies, with the multi-write requests on `ops`. */
+export type StubPosts = Array<Record<string, unknown>> & { ops: StubOp[] };

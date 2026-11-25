@@ -1,26 +1,39 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getFabConfig,
   postFabConfig,
   type FabAgentPreset,
   type FabConfigDocument,
   type FabField,
-  type FabModelSuggestion,
-  type FabOrigin,
-  type FabRole,
-  type FabRoleCell,
+  type ServerInfo,
 } from "@/api/client";
 import { AGENT_PRESET_SELECT_ID } from "@/lib/agent-preset-focus";
+import { invalidateMachineAgentPresets } from "@/lib/agent-presets";
 import { controlClass } from "@/components/control";
 import { INPUT_FOCUS } from "@/components/controls";
 import { BoolToggle, CopyValueButton } from "@/components/settings-all-panel";
+import { LeftoverSettings } from "@/components/settings-agent-leftovers";
+import { PresetsSection, type RunOp } from "@/components/settings-agent-presets";
+import { RoleTable, machineRoleKey } from "@/components/settings-agent-roles";
+import {
+  ProvenanceChip,
+  ResetLink,
+  SettingsSection,
+  errorMessage,
+  roleSelectBase,
+  stringValue,
+  useRowWrite,
+  type Document,
+  type Patch,
+  type Write,
+} from "@/components/settings-agents-shared";
 import {
   PreferenceRow,
   ScopeHeading,
   TextSettingError,
-  textSettingInputClass,
   useTextSettingDraft,
 } from "@/components/text-setting-core";
+import type { ProjectSession } from "@/types";
 
 /**
  * The Agents tab — a curated surface over fab-kit's machine-wide config
@@ -29,11 +42,12 @@ import {
  * the document is fetched on every mount (opening the dialog on Agents, or
  * switching to the tab) and replaced by whatever each POST returns, so an
  * external edit (the user's shell, `fab config upgrade`) always wins.
+ *
+ * With presets available the tab is four boxed sections: Leftover settings
+ * (only while loose machine-wide values exist), Use a preset (the machine
+ * default), Presets (list + editor) and Dispatch. A fab that cannot list
+ * presets keeps the plain CLI knobs and role table.
  */
-
-type Document = Extract<FabConfigDocument, { installed: true }>;
-type Patch = Record<string, string | number | boolean | null>;
-type Write = (patch: Patch) => Promise<void>;
 
 const KEY_PRESET = "agent.preset";
 const KEY_SESSION = "agent.session";
@@ -47,21 +61,11 @@ const DISPATCH_MODES = ["pane", "native", "headless"];
 // fab's reserved preset name: select no preset, even one a project defines.
 const PRESET_NONE = "none";
 const PRESET_NONE_OPTION_LABEL = "none (opts out of project presets)";
+const PRESET_UNSET_LABEL = "None — fab's defaults";
 const SYSTEM_CONFIG_FALLBACK_PATH = "~/.fab-kit/config.yaml";
-const INHERIT_FALLBACK = "tool default";
-const NO_EFFORT_TITLE = "this tool takes no effort setting";
-const MODEL_TEXT_SEPARATOR = " · ";
-const DEFAULT_MODEL_MARKER = "tool default";
-// Above this many suggestions (kimi lists hundreds) the model cell is a
-// searchable list instead of a native select.
-const SEARCHABLE_MODEL_THRESHOLD = 30;
 
 const NOT_INSTALLED_MESSAGE =
   "fab isn't installed on this host. Install fab-kit to manage agent defaults here.";
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error && err.message ? err.message : "Failed to save";
-}
 
 /** A preset-supplied value is inherited from the preset, never an override. */
 function hasSystemOverride(field: FabField | undefined): boolean {
@@ -69,51 +73,6 @@ function hasSystemOverride(field: FabField | undefined): boolean {
     field !== undefined &&
     field.preset === undefined &&
     (field.origin === "system" || field.systemValue !== undefined)
-  );
-}
-
-/** A value set explicitly (the system file or the environment) rather than
- *  inherited from a default or supplied by a preset. */
-function isExplicitField(field: FabField | undefined): boolean {
-  return (
-    field !== undefined && field.preset === undefined && (field.origin === "system" || field.origin === "env")
-  );
-}
-
-function isExplicitCell(cell: FabRoleCell): boolean {
-  return cell.preset === undefined && (cell.override !== null || cell.origin === "env");
-}
-
-/** The tool leaf is neutral: the backend writes it in the installed fab's
- *  spelling (`cli`, or `provider` before fab's rename). */
-function profileKey(role: string, leaf: "tool" | "model" | "effort"): string {
-  return `agent.profiles.${role}.${leaf}`;
-}
-
-/** Provenance chip: which tier the effective value comes from. `env` renders
- *  amber (it shadows the saved value); `project` is read-only informational. */
-function ProvenanceChip({ origin, detail, preset }: { origin: FabOrigin | ""; detail?: string; preset?: string }) {
-  if (preset !== undefined) {
-    return (
-      <span
-        data-testid="provenance-chip"
-        title={`preset ${preset}`}
-        className="px-1 py-px border rounded text-[9px] uppercase tracking-wide text-text-secondary border-border"
-      >
-        preset
-      </span>
-    );
-  }
-  if (origin === "") return null;
-  const tone = origin === "env" ? "text-signal-yellow border-signal-yellow" : "text-text-secondary border-border";
-  return (
-    <span
-      data-testid="provenance-chip"
-      title={detail || undefined}
-      className={`px-1 py-px border rounded text-[9px] uppercase tracking-wide ${tone}`}
-    >
-      {origin}
-    </span>
   );
 }
 
@@ -125,20 +84,6 @@ function ModifiedDot({ modified }: { modified: boolean }) {
       title={modified ? "set in the system config" : undefined}
       className={`w-1.5 h-1.5 rounded-full flex-none ${modified ? "bg-accent" : "bg-transparent"}`}
     />
-  );
-}
-
-function ResetLink({ label, onReset, busy }: { label: string; onReset: () => void; busy: boolean }) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      disabled={busy}
-      onClick={onReset}
-      className="text-[10px] text-accent hover:underline disabled:opacity-40"
-    >
-      reset
-    </button>
   );
 }
 
@@ -190,28 +135,6 @@ function ChipGroup({
       ))}
     </div>
   );
-}
-
-/** Row-scoped write state: a failed write shows fab's message on THAT row; the
- *  panel then re-reads fab rather than trusting the values it showed before. */
-function useRowWrite(write: Write) {
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const run = useCallback(
-    async (patch: Patch) => {
-      setBusy(true);
-      setError("");
-      try {
-        await write(patch);
-      } catch (err) {
-        setError(errorMessage(err));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [write],
-  );
-  return { error, busy, run };
 }
 
 /** Everything a scalar-key row shares: label, control slot, provenance chip,
@@ -330,10 +253,6 @@ function NumberInput({
   );
 }
 
-function stringValue(field: FabField | undefined): string {
-  return typeof field?.value === "string" ? field.value : "";
-}
-
 function numberValue(field: FabField | undefined): number | null {
   return typeof field?.value === "number" ? field.value : null;
 }
@@ -441,718 +360,8 @@ function ReapDoneRow({ field, write }: { field: FabField | undefined; write: Wri
   );
 }
 
-const roleSelectBase = `bg-transparent text-text-primary p-1 border border-border rounded text-xs ${INPUT_FOCUS}`;
-const roleSelectClass = `${roleSelectBase} max-w-[9rem]`;
-const modelSelectClass = `${roleSelectBase} max-w-[12rem]`;
-
-/** Whether a model value is the tool's reserved "use the tool's own default"
- *  value. Only fab names it, so a tool without one recognises nothing. */
-function isToolDefault(value: string, toolDefault: FabModelSuggestion | undefined): boolean {
-  return toolDefault !== undefined && value === toolDefault.id;
-}
-
-/** What a leaf's inherit option stands for — what is in effect now, or while
- *  an override is set, what clearing it would restore. A model leaf's reserved
- *  tool-default value reads like an empty one: the tool's own default applies. */
-function inheritedValue(cell: FabRoleCell, toolDefault?: FabModelSuggestion): string {
-  const value = cell.override === null ? cell.effective : cell.inherited;
-  return isToolDefault(value, toolDefault) ? INHERIT_FALLBACK : value || INHERIT_FALLBACK;
-}
-
-function inheritedLabel(cell: FabRoleCell, toolDefault?: FabModelSuggestion): string {
-  return `↳ ${inheritedValue(cell, toolDefault)}`;
-}
-
-/** A closed-set select whose first option is "inherit" (→ null). */
-function RoleSelect({
-  label,
-  cell,
-  options,
-  disabled,
-  title,
-  onChange,
-}: {
-  label: string;
-  cell: FabRoleCell;
-  options: string[];
-  disabled: boolean;
-  title?: string;
-  onChange: (value: string | null) => void;
-}) {
-  const withOverride = cell.override !== null && !options.includes(cell.override) ? [...options, cell.override] : options;
-  return (
-    <select
-      aria-label={label}
-      value={cell.override ?? ""}
-      disabled={disabled}
-      title={title}
-      onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}
-      className={`${roleSelectClass} ${cell.override === null ? "text-text-secondary" : ""}`}
-    >
-      <option value="">{inheritedLabel(cell)}</option>
-      {withOverride.map((o) => (
-        <option key={o} value={o}>
-          {o}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-// The model list's sentinel values. Inherit is "" (an empty model is never a
-// pin — the daemon treats it as unset); custom carries a NUL, which no model
-// id can, so neither collides with a real model.
-const MODEL_INHERIT = "";
-const MODEL_CUSTOM = "\u0000custom";
-const CUSTOM_LABEL = "Custom…";
-// Claude Code accepts any full model id, so an unlisted claude pin is stale
-// (it stops tracking newer models), not invalid.
-const CLAUDE_TOOL = "claude";
-
-/** The model list in its fixed order — inherit, the tool's own default, the
- *  tool's suggestions, the saved override when the tool doesn't offer it, then
- *  free text. Renderers map over this, so the order and what each kind commits
- *  stay put when the control changes shape. A suggestion's `value` is its id,
- *  `name` its display name, and `label` the one-line text a native option
- *  shows. */
-type ModelOption =
-  | { kind: "inherit"; value: typeof MODEL_INHERIT; label: string }
-  | { kind: "toolDefault"; value: string; label: string }
-  | { kind: "suggestion"; value: string; name: string; label: string; isDefault: boolean }
-  | { kind: "stale"; value: string; label: string }
-  | { kind: "custom"; value: typeof MODEL_CUSTOM; label: string };
-
-function suggestionOption(s: FabModelSuggestion): ModelOption {
-  const name = s.label || s.id;
-  const isDefault = s.default === true;
-  const text = name === s.id ? s.id : `${name}${MODEL_TEXT_SEPARATOR}${s.id}`;
-  return {
-    kind: "suggestion",
-    value: s.id,
-    name,
-    label: isDefault ? `${text}${MODEL_TEXT_SEPARATOR}${DEFAULT_MODEL_MARKER}` : text,
-    isDefault,
-  };
-}
-
-function offersModel(suggestions: FabModelSuggestion[], id: string): boolean {
-  return suggestions.some((s) => s.id === id);
-}
-
-function modelOptions(
-  cell: FabRoleCell,
-  suggestions: FabModelSuggestion[],
-  toolDefault: FabModelSuggestion | undefined,
-): ModelOption[] {
-  const options: ModelOption[] = [
-    { kind: "inherit", value: MODEL_INHERIT, label: `↳ inherit (${inheritedValue(cell, toolDefault)})` },
-  ];
-  if (toolDefault) {
-    options.push({ kind: "toolDefault", value: toolDefault.id, label: `↳ ${toolDefault.label || toolDefault.id}` });
-  }
-  options.push(...suggestions.map(suggestionOption));
-  if (cell.override !== null && !offersModel(suggestions, cell.override) && !isToolDefault(cell.override, toolDefault)) {
-    // An empty list says nothing about what the tool offers.
-    const label = suggestions.length > 0 ? `${cell.override} (not offered)` : cell.override;
-    options.push({ kind: "stale", value: cell.override, label });
-  }
-  options.push({ kind: "custom", value: MODEL_CUSTOM, label: CUSTOM_LABEL });
-  return options;
-}
-
-/** A pin the tool doesn't offer: the override is not an id in the list fab
- *  discovered for the role's tool (the kit's fills when discovery is
- *  unavailable), nor the tool's reserved default value. An empty list flags
- *  nothing. */
-function isStalePin(
-  cell: FabRoleCell,
-  suggestions: FabModelSuggestion[],
-  toolDefault: FabModelSuggestion | undefined,
-): boolean {
-  return (
-    cell.override !== null &&
-    suggestions.length > 0 &&
-    !offersModel(suggestions, cell.override) &&
-    !isToolDefault(cell.override, toolDefault)
-  );
-}
-
-/** The closed searchable control's text: a suggestion's display name, else the
- *  option's own label. */
-function optionName(o: ModelOption): string {
-  return o.kind === "suggestion" ? o.name : o.label;
-}
-
-/** Whether an option survives the filter. Inherit, the tool default and
- *  Custom… always do — they are the commit paths a filter must never strand. */
-function matchesModelFilter(o: ModelOption, query: string): boolean {
-  if (o.kind === "inherit" || o.kind === "toolDefault" || o.kind === "custom") return true;
-  const q = query.trim().toLowerCase();
-  return o.value.toLowerCase().includes(q) || optionName(o).toLowerCase().includes(q);
-}
-
-/** Free-text model entry: Enter/blur commit (blank unsets), and the cell goes
- *  back to the list on a successful commit, an unchanged draft, or Escape. A
- *  failed commit keeps the draft and shows fab's message. */
-function CustomModelInput({
-  role,
-  cell,
-  toolDefault,
-  commit,
-  onDone,
-}: {
-  role: string;
-  cell: FabRoleCell;
-  toolDefault: FabModelSuggestion | undefined;
-  commit: (value: string | null) => Promise<void>;
-  onDone: () => void;
-}) {
-  const value = cell.override ?? "";
-  const inputRef = useRef<HTMLInputElement>(null);
-  // Unmounting a focused input can fire blur; once leaving, that blur must not
-  // commit the discarded draft.
-  const leaving = useRef(false);
-  const leave = () => {
-    leaving.current = true;
-    onDone();
-  };
-  const { draft, error, handleCommit, onChange } = useTextSettingDraft(value, async (trimmed) => {
-    await commit(trimmed === "" ? null : trimmed);
-    leave();
-  });
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-  const finish = () => {
-    if (leaving.current) return;
-    if (draft.trim() === value.trim()) leave();
-    else handleCommit();
-  };
-  return (
-    <span className="inline-flex flex-col">
-      <input
-        ref={inputRef}
-        type="text"
-        aria-label={`${role} model`}
-        value={draft}
-        placeholder={inheritedLabel(cell, toolDefault)}
-        onChange={onChange}
-        onBlur={finish}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            finish();
-          } else if (e.key === "Escape") {
-            // Back to the list, not out of the dialog.
-            e.stopPropagation();
-            leave();
-          }
-        }}
-        className={`${textSettingInputClass} max-w-[12rem] p-1 text-xs`}
-      />
-      <TextSettingError error={error} />
-    </span>
-  );
-}
-
-/** The over-threshold model list: a trigger that opens a filter field above the
- *  same options the native select lists. It opens unfiltered whatever is saved
- *  (a pre-filled filter would hide the rest of the list), and renders inline
- *  rather than as a popover so the table's scroll wrapper cannot clip it. */
-function SearchableModelList({
-  role,
-  cell,
-  options,
-  busy,
-  onChoose,
-}: {
-  role: string;
-  cell: FabRoleCell;
-  options: ModelOption[];
-  busy: boolean;
-  onChoose: (value: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [active, setActive] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-  const refocusTrigger = useRef(false);
-  const listId = useId();
-
-  const current = options.find((o) => o.value === (cell.override ?? MODEL_INHERIT));
-  const visible = options.filter((o) => matchesModelFilter(o, query));
-  const optionId = (i: number) => `${listId}-option-${i}`;
-
-  useEffect(() => {
-    if (open) inputRef.current?.focus();
-    else if (refocusTrigger.current) {
-      refocusTrigger.current = false;
-      triggerRef.current?.focus();
-    }
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const el = listRef.current?.querySelector('[aria-selected="true"]');
-    if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "nearest" });
-  }, [open, active]);
-
-  const openList = () => {
-    setQuery("");
-    setActive(Math.max(0, options.indexOf(current ?? options[0])));
-    setOpen(true);
-  };
-  const closeList = (refocus: boolean) => {
-    refocusTrigger.current = refocus;
-    setOpen(false);
-  };
-  const choose = (o: ModelOption | undefined) => {
-    if (!o) return;
-    closeList(true);
-    onChoose(o.value);
-  };
-  const changeQuery = (value: string) => {
-    setQuery(value);
-    // Enter after typing should land on a match, not on the always-present inherit.
-    const next = options.filter((o) => matchesModelFilter(o, value));
-    setActive(Math.max(0, next.findIndex((o) => o.kind === "suggestion" || o.kind === "stale")));
-  };
-
-  if (!open) {
-    return (
-      <button
-        ref={triggerRef}
-        type="button"
-        aria-label={`${role} model`}
-        aria-haspopup="listbox"
-        aria-expanded={false}
-        disabled={busy}
-        onClick={openList}
-        className={`${modelSelectClass} inline-flex items-center gap-1 text-left disabled:opacity-40 ${
-          cell.override === null ? "text-text-secondary" : ""
-        }`}
-      >
-        <span className="flex-1 min-w-0 truncate">{current ? optionName(current) : (cell.override ?? "")}</span>
-        <span aria-hidden="true">▾</span>
-      </button>
-    );
-  }
-  return (
-    <div
-      className="flex flex-col max-w-[16rem]"
-      onBlur={(e) => {
-        if (!(e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget))) closeList(false);
-      }}
-    >
-      <input
-        ref={inputRef}
-        type="text"
-        role="combobox"
-        aria-label={`Search ${role} models`}
-        aria-autocomplete="list"
-        aria-expanded
-        aria-controls={listId}
-        aria-activedescendant={visible.length > 0 ? optionId(Math.min(active, visible.length - 1)) : undefined}
-        value={query}
-        onChange={(e) => changeQuery(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            // Close the list, not the dialog.
-            e.preventDefault();
-            e.stopPropagation();
-            closeList(true);
-          } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-            e.preventDefault();
-            if (visible.length === 0) return;
-            const step = e.key === "ArrowDown" ? 1 : -1;
-            setActive((i) => (Math.min(i, visible.length - 1) + step + visible.length) % visible.length);
-          } else if (e.key === "Enter") {
-            e.preventDefault();
-            choose(visible[Math.min(active, visible.length - 1)]);
-          }
-        }}
-        placeholder="Search models…"
-        className={`${textSettingInputClass} p-1 text-xs`}
-      />
-      <div
-        id={listId}
-        ref={listRef}
-        role="listbox"
-        aria-label={`${role} models`}
-        // Keep focus in the filter while clicking, or the blur would close the
-        // list before the click lands.
-        onMouseDown={(e) => e.preventDefault()}
-        className="max-h-48 overflow-y-auto border border-border rounded mt-1 py-0.5"
-      >
-        {visible.map((o, i) => (
-          <div
-            key={`${o.kind}:${o.value}`}
-            id={optionId(i)}
-            role="option"
-            aria-selected={i === Math.min(active, visible.length - 1)}
-            onClick={() => choose(o)}
-            onMouseEnter={() => setActive(i)}
-            className={`px-1.5 py-1 text-xs cursor-pointer flex items-baseline gap-1.5 ${
-              i === Math.min(active, visible.length - 1) ? "bg-bg-card text-text-primary" : "text-text-secondary"
-            }`}
-          >
-            <span className="truncate">{optionName(o)}</span>
-            {o.kind === "suggestion" && o.name !== o.value && (
-              <span className="text-[10px] text-text-secondary/70 truncate">{o.value}</span>
-            )}
-            {o.kind === "suggestion" && o.isDefault && (
-              <span className="text-[10px] text-text-secondary/70 flex-none">{DEFAULT_MODEL_MARKER}</span>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function RoleModelCell({
-  role,
-  cell,
-  suggestions,
-  toolDefault,
-  busy,
-  pick,
-  commit,
-}: {
-  role: string;
-  cell: FabRoleCell;
-  suggestions: FabModelSuggestion[];
-  toolDefault: FabModelSuggestion | undefined;
-  busy: boolean;
-  /** List pick — goes through the row's write state. */
-  pick: (value: string | null) => void;
-  /** Free-text commit — rejects so the input keeps the draft and the error. */
-  commit: (value: string | null) => Promise<void>;
-}) {
-  const [custom, setCustom] = useState(false);
-  if (custom) {
-    return (
-      <CustomModelInput
-        role={role}
-        cell={cell}
-        toolDefault={toolDefault}
-        commit={commit}
-        onDone={() => setCustom(false)}
-      />
-    );
-  }
-  const options = modelOptions(cell, suggestions, toolDefault);
-  const choose = (v: string) => {
-    if (v === MODEL_CUSTOM) setCustom(true);
-    else pick(v === MODEL_INHERIT ? null : v);
-  };
-  if (suggestions.length > SEARCHABLE_MODEL_THRESHOLD) {
-    return <SearchableModelList role={role} cell={cell} options={options} busy={busy} onChoose={choose} />;
-  }
-  // A native select lists every option whatever is selected — unlike a
-  // datalist, which filters by the input's saved text.
-  return (
-    <select
-      aria-label={`${role} model`}
-      value={cell.override ?? MODEL_INHERIT}
-      disabled={busy}
-      onChange={(e) => choose(e.target.value)}
-      className={`${modelSelectClass} ${cell.override === null ? "text-text-secondary" : ""}`}
-    >
-      {options.map((o) => (
-        <option key={`${o.kind}:${o.value}`} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-/** A pin the role's tool doesn't offer (per the list fab discovered, not the
- *  kit's fills), with a one-click way back to inheriting. */
-function StaleModelNote({
-  role,
-  tool,
-  cell,
-  toolDefault,
-  busy,
-  onInherit,
-}: {
-  role: string;
-  tool: string;
-  cell: FabRoleCell;
-  toolDefault: FabModelSuggestion | undefined;
-  busy: boolean;
-  onInherit: () => void;
-}) {
-  const inherited = inheritedValue(cell, toolDefault);
-  const action = (
-    <button
-      type="button"
-      aria-label={`Inherit ${inherited} for ${role} model`}
-      disabled={busy}
-      onClick={onInherit}
-      className="text-accent hover:underline disabled:opacity-40"
-    >
-      inherit <code>{inherited}</code>
-    </button>
-  );
-  return (
-    <p data-testid={`stale-model-${role}`} className="text-[10px] text-signal-yellow leading-relaxed">
-      pinned to <code>{cell.override}</code>
-      {tool === CLAUDE_TOOL ? (
-        <>, not in the list — {action} to track the latest</>
-      ) : (
-        <>
-          , which <code>{tool}</code> doesn&apos;t offer — {action} instead?
-        </>
-      )}
-    </p>
-  );
-}
-
-/** Whether a tool's command carries {effort}. A tool the daemon didn't
- *  classify counts as capable, so missing data never locks the select. */
-function takesEffort(effortCapable: Record<string, boolean> | undefined, tool: string): boolean {
-  return effortCapable?.[tool] !== false;
-}
-
-/** The efforts a tool's models take: the union across its suggestions in
- *  first-seen order. Empty when no suggestion reports any. */
-function toolEfforts(suggestions: FabModelSuggestion[]): string[] {
-  return [...new Set(suggestions.flatMap((s) => s.efforts ?? []))];
-}
-
-/** A row's effort options: the effective model's own efforts when known (the
- *  tool's default model when none is set or the tool default is), else the
- *  tool's set, else the global list. */
-function modelEfforts(
-  role: FabRole,
-  suggestions: FabModelSuggestion[],
-  toolDefault: FabModelSuggestion | undefined,
-  fallback: string[],
-): string[] {
-  const effective = role.model.effective;
-  const usesToolDefault = effective === "" || isToolDefault(effective, toolDefault);
-  if (usesToolDefault && toolDefault?.efforts && toolDefault.efforts.length > 0) return toolDefault.efforts;
-  const model = usesToolDefault
-    ? suggestions.find((s) => s.default === true)
-    : suggestions.find((s) => s.id === effective);
-  if (model?.efforts && model.efforts.length > 0) return model.efforts;
-  const tool = toolEfforts(suggestions);
-  return tool.length > 0 ? tool : fallback;
-}
-
-/** One POST for a tool change: a model or effort override the new tool doesn't
- *  offer is unset with it, so no cross-tool pair (`claude --model gpt-…`) is
- *  ever left behind. A write that keeps the same effective tool touches only
- *  the tool key — the overrides were already chosen for that tool. */
-function toolChangePatch(
-  role: FabRole,
-  next: string | null,
-  depthTool: string,
-  modelSuggestions: Record<string, FabModelSuggestion[]>,
-  toolDefaults: Record<string, FabModelSuggestion> | undefined,
-  fallbackEfforts: string[],
-  effortCapable: Record<string, boolean> | undefined,
-): Patch {
-  const patch: Patch = { [profileKey(role.role, "tool")]: next };
-  const nextTool = next ?? depthTool;
-  if (nextTool === role.tool.effective) return patch;
-  const suggestions = modelSuggestions[nextTool] ?? [];
-  const toolDefault = toolDefaults?.[nextTool];
-  const model = role.model.override;
-  if (model === null || !(offersModel(suggestions, model) || isToolDefault(model, toolDefault))) {
-    patch[profileKey(role.role, "model")] = null;
-  }
-  const nextEfforts = [...new Set([...toolEfforts(suggestions), ...(toolDefault?.efforts ?? [])])];
-  const efforts = nextEfforts.length > 0 ? nextEfforts : fallbackEfforts;
-  const effort = role.effort.override;
-  if (effort === null || !efforts.includes(effort) || !takesEffort(effortCapable, nextTool)) {
-    patch[profileKey(role.role, "effort")] = null;
-  }
-  return patch;
-}
-
-/** Provenance for a role leaf a preset supplied; nothing for any other leaf. */
-function PresetCellChip({ cell }: { cell: FabRoleCell }) {
-  if (cell.preset === undefined) return null;
-  return <ProvenanceChip origin={cell.origin} detail={cell.originDetail} preset={cell.preset} />;
-}
-
-function RoleRow({
-  role,
-  tools,
-  depthTool,
-  modelSuggestions,
-  toolDefaults,
-  efforts,
-  effortCapable,
-  write,
-}: {
-  role: FabRole;
-  tools: string[];
-  /** The depth knob's tool — what the row resolves to with no tool override. */
-  depthTool: string;
-  modelSuggestions: Record<string, FabModelSuggestion[]>;
-  toolDefaults: Record<string, FabModelSuggestion> | undefined;
-  efforts: string[];
-  effortCapable: Record<string, boolean> | undefined;
-  write: Write;
-}) {
-  const { busy, error, run } = useRowWrite(write);
-  const suggestions = modelSuggestions[role.tool.effective] ?? [];
-  const toolDefault = toolDefaults?.[role.tool.effective];
-  const effortOK = takesEffort(effortCapable, role.tool.effective);
-  const inheritModel = () => void run({ [profileKey(role.role, "model")]: null });
-  // A saved value shadowed by an env var still counts: reset is the only way
-  // to clear it from here.
-  const overridden = [role.tool, role.model, role.effort].some(
-    (cell) => cell.preset === undefined && (cell.override !== null || cell.systemValue !== undefined),
-  );
-  return (
-    <>
-      <tr data-testid={`role-row-${role.role}`} className="border-b border-border/40 align-top">
-        <td className="py-1.5 pr-2 text-text-primary">{role.role}</td>
-        <td className="py-1.5 pr-2 text-text-secondary">{role.depth}</td>
-        <td className="py-1.5 pr-2">
-          <span className="inline-flex items-center gap-1">
-            <RoleSelect
-              label={`${role.role} CLI`}
-              cell={role.tool}
-              options={tools}
-              disabled={busy}
-              onChange={(v) => void run(toolChangePatch(role, v, depthTool, modelSuggestions, toolDefaults, efforts, effortCapable))}
-            />
-            <PresetCellChip cell={role.tool} />
-            {role.tool.origin === "env" && role.tool.preset === undefined && (
-              <span
-                role="img"
-                aria-label="CLI set by an environment variable"
-                title={`${role.tool.originDetail ?? "An environment variable"} sets this CLI — changes here won't take effect until it is unset`}
-                className="text-signal-yellow"
-              >
-                ⚠
-              </span>
-            )}
-          </span>
-        </td>
-        <td className="py-1.5 pr-2">
-          <span className="inline-flex items-center gap-1">
-            <RoleModelCell
-              role={role.role}
-              cell={role.model}
-              suggestions={suggestions}
-              toolDefault={toolDefault}
-              busy={busy}
-              pick={(v) => void run({ [profileKey(role.role, "model")]: v })}
-              commit={(v) => write({ [profileKey(role.role, "model")]: v })}
-            />
-            <PresetCellChip cell={role.model} />
-          </span>
-        </td>
-        <td className="py-1.5 pr-2">
-          <span className="inline-flex items-center gap-1">
-            <RoleSelect
-              label={`${role.role} effort`}
-              cell={role.effort}
-              options={modelEfforts(role, suggestions, toolDefault, efforts)}
-              disabled={busy || !effortOK}
-              title={effortOK ? undefined : NO_EFFORT_TITLE}
-              onChange={(v) => void run({ [profileKey(role.role, "effort")]: v })}
-            />
-            <PresetCellChip cell={role.effort} />
-          </span>
-        </td>
-        <td className="py-1.5">
-          {overridden && (
-            <ResetLink
-              label={`Reset ${role.role} overrides`}
-              busy={busy}
-              onReset={() =>
-                void run({
-                  [profileKey(role.role, "tool")]: null,
-                  [profileKey(role.role, "model")]: null,
-                  [profileKey(role.role, "effort")]: null,
-                })
-              }
-            />
-          )}
-        </td>
-      </tr>
-      {isStalePin(role.model, suggestions, toolDefault) && (
-        <tr>
-          <td colSpan={6} className="pb-1.5">
-            <StaleModelNote
-              role={role.role}
-              tool={role.tool.effective}
-              cell={role.model}
-              toolDefault={toolDefault}
-              busy={busy}
-              onInherit={inheritModel}
-            />
-          </td>
-        </tr>
-      )}
-      {error && (
-        <tr>
-          <td colSpan={6}>
-            <TextSettingError error={error} />
-          </td>
-        </tr>
-      )}
-    </>
-  );
-}
-
-function RoleTable({ doc, write }: { doc: Document; write: Write }) {
-  return (
-    <div className="py-2.5">
-      <p className="text-xs text-text-primary">Per-role overrides</p>
-      <p className="text-[10px] text-text-secondary mt-0.5 mb-1.5">
-        Optional. Change one role without moving the whole tier.{" "}
-        <span className="font-mono text-text-secondary/70">agent.profiles.&lt;role&gt;</span>
-      </p>
-      {/* The wrapper owns horizontal scroll so the table never widens the page. */}
-      <div className="overflow-x-auto" data-testid="role-table-wrap">
-        <table className="min-w-[620px] w-full text-xs">
-          <thead>
-            <tr className="text-left text-[10px] uppercase tracking-wider text-text-secondary border-b border-border">
-              <th className="py-1 pr-2 font-medium">Role</th>
-              <th className="py-1 pr-2 font-medium">Tier</th>
-              <th className="py-1 pr-2 font-medium">CLI</th>
-              <th className="py-1 pr-2 font-medium">Model</th>
-              <th className="py-1 pr-2 font-medium">Effort</th>
-              <th className="py-1 font-medium">
-                <span className="sr-only">Reset</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {doc.roles.map((role) => (
-              <RoleRow
-                key={role.role}
-                role={role}
-                tools={doc.tools}
-                depthTool={role.tool.inherited || stringValue(doc.fields[`agent.${role.depth}`])}
-                modelSuggestions={doc.modelSuggestions}
-                toolDefaults={doc.toolDefaults}
-                efforts={doc.effortSuggestions}
-                effortCapable={doc.effortCapable}
-                write={write}
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-/** The preset dropdown. None unsets `agent.preset`; a `none` set from a shell
- *  and a name fab no longer lists stay visible so they remain clearable. */
+/** The machine default dropdown. None unsets `agent.preset`; a `none` set from a
+ *  shell and a name fab no longer lists stay visible so they remain clearable. */
 function AgentPresetRow({
   field,
   presets,
@@ -1168,8 +377,8 @@ function AgentPresetRow({
   return (
     <FabRow
       fieldKey={KEY_PRESET}
-      label="Agent preset"
-      sublabel="One named role assignment for this machine"
+      label="Machine default"
+      sublabel="used when a workspace or group does not pick its own"
       field={field}
       busy={busy}
       error={error}
@@ -1184,7 +393,7 @@ function AgentPresetRow({
         onChange={(e) => void run({ [KEY_PRESET]: e.target.value === "" ? null : e.target.value })}
         className={`${roleSelectBase} max-w-[16rem] ${current === "" ? "text-text-secondary" : ""}`}
       >
-        <option value="">None</option>
+        <option value="">{PRESET_UNSET_LABEL}</option>
         {current === PRESET_NONE && <option value={PRESET_NONE}>{PRESET_NONE_OPTION_LABEL}</option>}
         {current !== "" && current !== PRESET_NONE && !listed && (
           <option value={current}>{current} (unknown)</option>
@@ -1199,83 +408,18 @@ function AgentPresetRow({
   );
 }
 
-/** How many explicit values sit on keys the selected preset also sets: the
- *  depth knobs it names and the role leaves under `profiles`. A role's `cli`
- *  leaf is that role's tool cell. */
-function presetOverrideCount(doc: Document, preset: FabAgentPreset): number {
-  let count = 0;
-  if (preset.session !== undefined && isExplicitField(doc.fields[KEY_SESSION])) count++;
-  if (preset.workers !== undefined && isExplicitField(doc.fields[KEY_WORKERS])) count++;
-  for (const [roleName, leaves] of Object.entries(preset.profiles ?? {})) {
-    const role = doc.roles.find((r) => r.role === roleName);
-    if (!role) continue;
-    for (const leaf of Object.keys(leaves)) {
-      const cell = leaf === "cli" ? role.tool : leaf === "model" ? role.model : leaf === "effort" ? role.effort : undefined;
-      if (cell !== undefined && isExplicitCell(cell)) count++;
-    }
-  }
-  return count;
-}
+type Context = {
+  servers: readonly ServerInfo[];
+  sessionsByServer: ReadonlyMap<string, readonly ProjectSession[]>;
+};
 
-/** Note only — never an offer to clear: the per-row reset links stay the way. */
-function PresetOverrideNote({ count }: { count: number }) {
-  if (count === 0) return null;
-  return (
-    <p data-testid="agent-preset-override-note" className="text-[10px] text-text-secondary pb-2 leading-relaxed">
-      {count} explicit {count === 1 ? "field overrides" : "fields override"} parts of this preset — see Customize
-    </p>
-  );
-}
-
-/** Explicit values across both depth knobs and every role cell. */
-function explicitCount(doc: Document): number {
-  const knobs = [doc.fields[KEY_SESSION], doc.fields[KEY_WORKERS]].filter(isExplicitField).length;
-  const cells = doc.roles.flatMap((r) => [r.tool, r.model, r.effort]).filter(isExplicitCell).length;
-  return knobs + cells;
-}
-
-/** The knobs and role grid behind a keyboard-operable toggle: collapsed while
- *  nothing is set explicitly, open otherwise so an existing override is never
- *  hidden. */
-function CustomizeDisclosure({ count, children }: { count: number; children: React.ReactNode }) {
-  const [open, setOpen] = useState(count > 0);
-  const panelId = useId();
-  return (
-    <div data-testid="agent-customize">
-      <button
-        type="button"
-        data-testid="agent-customize-toggle"
-        aria-expanded={open}
-        aria-controls={panelId}
-        onClick={() => setOpen((o) => !o)}
-        className={`w-full text-left py-2.5 text-xs text-text-primary hover:text-accent ${INPUT_FOCUS}`}
-      >
-        <span aria-hidden className="inline-block w-3 text-text-secondary">
-          {open ? "▾" : "▸"}
-        </span>
-        Customize · {count} set explicitly
-      </button>
-      <div id={panelId} hidden={!open} className="divide-y divide-border/40">
-        {open && children}
-      </div>
-    </div>
-  );
-}
-
-function AgentsContent({
-  doc,
-  write,
-  warnings,
-}: {
-  doc: Document;
-  write: Write;
-  warnings: string[];
-}) {
+/** The CLI knobs and role table over the loose machine-wide keys — kept only
+ *  for a fab that cannot list presets, where there is no preset to move them
+ *  into. */
+function PlainKnobs({ doc, write }: { doc: Document; write: Write }) {
   const f = doc.fields;
-  const presets = doc.agent_presets;
-  const selected = presets?.find((p) => p.name === stringValue(f[KEY_PRESET]));
-  const knobs = (
-    <>
+  return (
+    <div className="divide-y divide-border/40">
       <ChipRow
         fieldKey={KEY_SESSION}
         label="Session CLI"
@@ -1292,47 +436,87 @@ function AgentsContent({
         field={f[KEY_WORKERS]}
         write={write}
       />
-      <RoleTable doc={doc} write={write} />
-    </>
+      <RoleTable
+        doc={doc}
+        roles={doc.roles}
+        write={write}
+        keyOf={machineRoleKey}
+        title="Per-role overrides"
+        hint={
+          <>
+            Optional. Change one role without moving the whole tier.{" "}
+            <span className="font-mono text-text-secondary/70">agent.profiles.&lt;role&gt;</span>
+          </>
+        }
+      />
+    </div>
   );
+}
+
+function DispatchSection({ doc, write }: { doc: Document; write: Write }) {
+  const f = doc.fields;
+  return (
+    <SettingsSection title="Dispatch" job="How worker stages are launched." testId="dispatch-section">
+      <div className="divide-y divide-border/40">
+        <ChipRow
+          fieldKey={KEY_MODE}
+          label="Dispatch mode"
+          sublabel="Preference ceiling: pane → native → headless"
+          options={DISPATCH_MODES}
+          field={f[KEY_MODE]}
+          write={write}
+        />
+        <ColumnWidthRow field={f[KEY_COLUMN_WIDTH]} write={write} />
+        <SplitFloorRow colsField={f[KEY_MIN_COLS]} rowsField={f[KEY_MIN_ROWS]} write={write} />
+        <ReapDoneRow field={f[KEY_REAP_DONE]} write={write} />
+      </div>
+    </SettingsSection>
+  );
+}
+
+function AgentsContent({
+  doc,
+  write,
+  runOp,
+  warnings,
+  context,
+}: {
+  doc: Document;
+  write: Write;
+  runOp: RunOp;
+  warnings: string[];
+  context: Context;
+}) {
+  const presets = doc.agent_presets;
   return (
     <>
-      <section aria-label="Agent CLIs">
-        <ScopeHeading
-          label="Agents"
-          hint={`${doc.systemPath || SYSTEM_CONFIG_FALLBACK_PATH} · machine-wide, outranks project files`}
-        />
-        <div className="divide-y divide-border/40">
-          {presets ? (
-            <>
-              <div>
-                <AgentPresetRow field={f[KEY_PRESET]} presets={presets} write={write} />
-                {selected && <PresetOverrideNote count={presetOverrideCount(doc, selected)} />}
-              </div>
-              <CustomizeDisclosure count={explicitCount(doc)}>{knobs}</CustomizeDisclosure>
-            </>
-          ) : (
-            knobs
-          )}
-        </div>
-      </section>
-
-      <section aria-label="Dispatch" className="mt-4">
-        <ScopeHeading label="Dispatch" hint="how worker stages are launched" />
-        <div className="divide-y divide-border/40">
-          <ChipRow
-            fieldKey={KEY_MODE}
-            label="Dispatch mode"
-            sublabel="Preference ceiling: pane → native → headless"
-            options={DISPATCH_MODES}
-            field={f[KEY_MODE]}
-            write={write}
-          />
-          <ColumnWidthRow field={f[KEY_COLUMN_WIDTH]} write={write} />
-          <SplitFloorRow colsField={f[KEY_MIN_COLS]} rowsField={f[KEY_MIN_ROWS]} write={write} />
-          <ReapDoneRow field={f[KEY_REAP_DONE]} write={write} />
-        </div>
-      </section>
+      <ScopeHeading
+        label="Agents"
+        hint={`${doc.systemPath || SYSTEM_CONFIG_FALLBACK_PATH} · machine-wide, outranks project files`}
+      />
+      <div className="flex flex-col gap-3 mt-2">
+        {presets ? (
+          <>
+            <LeftoverSettings doc={doc} presets={presets} runOp={runOp} {...context} />
+            <SettingsSection
+              title="Use a preset"
+              job="Pick which preset this machine uses. Nothing here changes what a preset contains."
+              testId="use-preset-section"
+            >
+              <AgentPresetRow field={doc.fields[KEY_PRESET]} presets={presets} write={write} />
+              <p className="text-[10px] text-text-secondary leading-relaxed">
+                Workspaces and groups pick theirs from their sidebar card. A single new tab can pick one in the spawn dialog.
+              </p>
+            </SettingsSection>
+            <PresetsSection doc={doc} presets={presets} write={write} runOp={runOp} {...context} />
+          </>
+        ) : (
+          <section aria-label="Agent CLIs">
+            <PlainKnobs doc={doc} write={write} />
+          </section>
+        )}
+        <DispatchSection doc={doc} write={write} />
+      </div>
 
       {warnings.length > 0 && (
         <div data-testid="fab-warnings" role="status" className="mt-3 text-[10px] text-signal-yellow space-y-0.5">
@@ -1360,13 +544,27 @@ function AgentsContent({
   );
 }
 
-export function SettingsAgentsPanel() {
+const NO_SERVERS: readonly ServerInfo[] = [];
+const NO_SESSIONS: ReadonlyMap<string, readonly ProjectSession[]> = new Map();
+
+/** `servers` and `sessionsByServer` are the streamed state the usage notes and
+ *  the leftover disclosure read; without them (a bare mount) no preset shows as
+ *  used by a group or workspace. */
+export function SettingsAgentsPanel({
+  servers = NO_SERVERS,
+  sessionsByServer = NO_SESSIONS,
+}: {
+  servers?: readonly ServerInfo[];
+  sessionsByServer?: ReadonlyMap<string, readonly ProjectSession[]>;
+}) {
   const [doc, setDoc] = useState<FabConfigDocument | null>(null);
   const [loadError, setLoadError] = useState("");
   const [warnings, setWarnings] = useState<string[]>([]);
 
-  // Every document — GET or POST — carries the warnings to show with it.
+  // Every document — GET or POST — carries the warnings to show with it, and
+  // makes the cached machine preset list (card choosers, palette) stale.
   const show = useCallback((d: FabConfigDocument) => {
+    invalidateMachineAgentPresets();
     setDoc(d);
     setWarnings(d.installed ? (d.warnings ?? []) : []);
   }, []);
@@ -1388,15 +586,15 @@ export function SettingsAgentsPanel() {
   }, [show]);
 
   // Rejects on failure (the calling row shows the message); on success the
-  // whole panel re-renders from the fresh document the POST returns.
-  const apply = useCallback(async (patch: Patch) => {
+  // whole panel re-renders from the fresh document the request returns.
+  const apply = useCallback(async (op: () => Promise<FabConfigDocument>) => {
     setWarnings([]);
     let next: FabConfigDocument;
     try {
-      next = await postFabConfig(patch);
+      next = await op();
     } catch (err) {
-      // A multi-key write can fail after earlier keys were applied, so re-read
-      // fab instead of keeping the pre-write document.
+      // A multi-key or multi-step write can fail after earlier steps landed,
+      // so re-read fab instead of keeping the pre-write document.
       await getFabConfig()
         .then(show)
         .catch(() => {});
@@ -1408,14 +606,15 @@ export function SettingsAgentsPanel() {
   // Writes run one at a time: every response is a whole document, so an
   // overlapping older response could otherwise land after a newer one.
   const queue = useRef<Promise<void>>(Promise.resolve());
-  const write = useCallback<Write>(
-    (patch) => {
-      const run = queue.current.then(() => apply(patch));
+  const runOp = useCallback<RunOp>(
+    (op) => {
+      const run = queue.current.then(() => apply(op));
       queue.current = run.catch(() => {});
       return run;
     },
     [apply],
   );
+  const write = useCallback<Write>((patch: Patch) => runOp(() => postFabConfig(patch)), [runOp]);
 
   if (loadError) {
     return (
@@ -1437,5 +636,7 @@ export function SettingsAgentsPanel() {
       </section>
     );
   }
-  return <AgentsContent doc={doc} write={write} warnings={warnings} />;
+  return (
+    <AgentsContent doc={doc} write={write} runOp={runOp} warnings={warnings} context={{ servers, sessionsByServer }} />
+  );
 }
