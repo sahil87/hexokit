@@ -160,6 +160,8 @@ test.describe("agent preset cards", () => {
    *
    * Steps:
    * 1. Open the group card and assert the machine-default line and hint.
+   *    Open the chooser and assert it sits fully inside the viewport (it is
+   *    wider than the sidebar row it anchors to).
    * 2. Arrow to codex-review and press Enter; assert its POST and marker.
    * 3. Pick none; assert its POST and literal none marker.
    * 4. Pick inherit; assert a null POST and the marker disappears.
@@ -178,6 +180,10 @@ test.describe("agent preset cards", () => {
     const chooser = page.getByRole("radiogroup", { name: "Agent preset for dev" });
     await expect(chooser.getByRole("radio", { name: /^codex-review/ })).toBeVisible();
     await expect(chooser.getByRole("radio", { name: /inherit/ })).toBeFocused();
+    const chooserBox = (await chooser.boundingBox())!;
+    const viewport = page.viewportSize()!;
+    expect(chooserBox.x).toBeGreaterThanOrEqual(0);
+    expect(chooserBox.x + chooserBox.width).toBeLessThanOrEqual(viewport.width);
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("ArrowDown");
     await expect(chooser.getByRole("radio", { name: /^codex-review/ })).toBeFocused();
@@ -205,7 +211,9 @@ test.describe("agent preset cards", () => {
    * set / none / inherit to the workspace route with the workspace name.
    *
    * Steps:
-   * 1. Open the workspace card and assert its machine-default line.
+   * 1. Open the workspace card and assert its machine-default line. Open the
+   *    chooser and assert it sits fully inside the viewport (it is wider than
+   *    the tile it anchors to).
    * 2. Pick codex-review; assert the route body and own-preset tile marker.
    * 3. Pick none; assert the route body and literal none marker.
    * 4. Pick inherit; assert the null body and marker removal.
@@ -221,8 +229,12 @@ test.describe("agent preset cards", () => {
       "agent preset: claude · machine default",
     );
     await card.getByTestId("row-flyout-agent-preset-action").click();
-    await page.getByRole("radiogroup", { name: "Agent preset for default" })
-      .getByRole("radio", { name: /^codex-review/ }).click();
+    const first = page.getByRole("radiogroup", { name: "Agent preset for default" });
+    await expect(first).toBeVisible();
+    const firstBox = (await first.boundingBox())!;
+    expect(firstBox.x).toBeGreaterThanOrEqual(0);
+    expect(firstBox.x + firstBox.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    await first.getByRole("radio", { name: /^codex-review/ }).click();
     await expect.poll(() => workspacePosts.length).toBe(1);
     expect(workspacePosts[0]).toEqual({ name: SERVER, agent_preset: "codex-review" });
     const tile = page.getByRole("listbox", { name: "Workspaces" }).getByRole("option", { name: /default/ });

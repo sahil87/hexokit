@@ -12,6 +12,21 @@ import {
 } from "@/lib/agent-presets";
 import { useAnchoredPopoverPos } from "./server-card";
 
+// Must match the container's `w-[min(320px,calc(100vw-8px))]` class.
+const CHOOSER_MAX_WIDTH = 320;
+const VIEWPORT_MARGIN = 4;
+
+/**
+ * The fixed `right` offset that keeps the chooser's left edge on screen. The
+ * anchor resolver right-aligns to the anchor, which suits a popover narrower
+ * than its anchor; the chooser is wider than a sidebar row, so an anchor near
+ * the left viewport edge would push it off screen.
+ */
+export function fitChooserRight(anchoredRight: number, viewportWidth: number): number {
+  const width = Math.min(CHOOSER_MAX_WIDTH, viewportWidth - 2 * VIEWPORT_MARGIN);
+  return Math.max(VIEWPORT_MARGIN, Math.min(anchoredRight, viewportWidth - width - VIEWPORT_MARGIN));
+}
+
 type AgentPresetChooserProps = {
   kind: "Group" | "Workspace";
   entityName: string;
@@ -250,7 +265,7 @@ export function AnchoredAgentPresetChooser({
       style={{
         position: "fixed",
         top: pos.top,
-        right: pos.right,
+        right: fitChooserRight(pos.right, window.innerWidth),
         zIndex: 100,
       }}
     >
