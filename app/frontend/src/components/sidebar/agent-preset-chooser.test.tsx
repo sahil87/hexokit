@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { getRiffPresets, type FabAgentPreset } from "@/api/client";
 import { loadMachineAgentPresetInfo, loadMachineAgentPresets, resetAgentPresetCache } from "@/lib/agent-presets";
-import { AgentPresetChooser } from "./agent-preset-chooser";
+import { AgentPresetChooser, fitChooserRight } from "./agent-preset-chooser";
 
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
@@ -144,5 +144,25 @@ describe("AgentPresetChooser", () => {
     });
     expect(await screen.findByRole("radio", { name: /^team/ })).toBeInTheDocument();
     expect(next).toHaveFocus();
+  });
+});
+
+describe("fitChooserRight", () => {
+  it("keeps the anchor's right edge when the chooser fits to its left", () => {
+    // anchor right edge at x=900 on a 1280 viewport → left edge at 580
+    expect(fitChooserRight(380, 1280)).toBe(380);
+  });
+
+  it("pulls the chooser back on screen for an anchor narrower than it near the left edge", () => {
+    // sidebar row ending at x=272: right-aligned, the left edge would be at -48
+    const right = fitChooserRight(1280 - 272, 1280);
+    expect(1280 - right - 320).toBe(4);
+  });
+
+  it("stays inside a viewport narrower than the chooser", () => {
+    // 375 wide: the chooser is 320 wide, so both edges keep at least the margin
+    const right = fitChooserRight(2, 375);
+    expect(right).toBeGreaterThanOrEqual(4);
+    expect(375 - right - 320).toBeGreaterThanOrEqual(4);
   });
 });
