@@ -284,6 +284,16 @@ a focused terminal the same keys reach the pane. The palette mirrors them:
 `GUI: Zoom in` / `Zoom out` / `Zoom to fit`, plus `GUI: 1:1` as the alias of
 the 100% step.
 
+While keyboard capture is latched, a fine-pointer Ctrl+wheel (a trackpad
+pinch) belongs to the guest instead: noVNC sends the scroll buttons and rk
+holds Control_L in the guest around them (still preventing the browser's page
+zoom), releasing it 150 ms after the gesture's last event, at once on blur,
+unlatch, or teardown, or just before any other key is pressed, so guest apps
+see their Ctrl+scroll zoom. A ⌘ held under capture or a physical Control
+already holds it, so rk adds no press or release then. The viewer zoom stays
+reachable under capture through the palette rows and the tile header's zoom
+control.
+
 When the scaled desktop exceeds the tile, the viewport pans, clamped so the
 canvas always covers the tile: a fine pointer drags on the canvas (no mouse
 drag reaches the guest); a coarse pointer in `touch` mode drags one finger

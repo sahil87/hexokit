@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-11-24T17:23:25Z"}
+{"args":"Forward Mac trackpad pinch to the Linux GUI guest as Ctrl+scroll (zoom in/out in guest apps) while keyboard capture is latched","cmd":"fab-new","event":"command","ts":"2026-11-24T17:23:25Z"}
+{"delta":"+0.0","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-11-24T17:24:11Z"}
+{"delta":"+0.0","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-11-24T17:24:17Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"apply","ts":"2026-11-24T17:27:54Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"review","ts":"2026-11-24T17:33:57Z"}
+{"event":"review","result":"failed","ts":"2026-11-24T17:41:03Z"}
+{"action":"re-entry","driver":"fab-ff","event":"stage-transition","stage":"apply","ts":"2026-11-24T17:41:03Z"}
+{"action":"re-entry","driver":"fab-ff","event":"stage-transition","stage":"review","ts":"2026-11-24T17:42:47Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"hydrate","ts":"2026-11-24T17:48:58Z"}
+{"event":"review","result":"passed","ts":"2026-11-24T17:48:58Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"ship","ts":"2026-11-24T17:49:41Z"}

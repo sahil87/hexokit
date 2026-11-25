@@ -1501,3 +1501,140 @@ describe("GuiSurface — captured Cmd is Control_L on a Mac", () => {
     }
   });
 });
+
+describe("GuiSurface — pinch under capture is the guest's Ctrl+scroll", () => {
+  const CTRL_DOWN = [0xffe3, "ControlLeft", true];
+  const CTRL_UP = [0xffe3, "ControlLeft", false];
+  const host = () => screen.getByTestId("gui-novnc-host");
+  const pinch = (deltaY = -4) => fireEvent.wheel(host(), { deltaY, ctrlKey: true });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("passes the ctrl-wheel to noVNC, never steps the viewer zoom, and holds Control_L once", () => {
+    const { props } = renderGui({ capture: true, zoom: 100 });
+    const wheelSpy = vi.fn();
+    host().addEventListener("wheel", wheelSpy);
+    // Default-prevented (no browser page zoom) yet still delivered to noVNC.
+    expect(pinch()).toBe(false);
+    pinch();
+    pinch(-120);
+    expect(wheelSpy).toHaveBeenCalledTimes(3);
+    expect(props.onZoomChange).not.toHaveBeenCalled();
+    expect(latestRfb().sendKey.mock.calls).toEqual([CTRL_DOWN]);
+  });
+
+  it("releases Control_L once the gesture has been idle for 150 ms", () => {
+    renderGui({ capture: true });
+    pinch();
+    act(() => vi.advanceTimersByTime(100));
+    pinch();
+    act(() => vi.advanceTimersByTime(149));
+    expect(latestRfb().sendKey.mock.calls).toEqual([CTRL_DOWN]);
+    act(() => vi.advanceTimersByTime(1));
+    expect(latestRfb().sendKey.mock.calls).toEqual([CTRL_DOWN, CTRL_UP]);
+    act(() => vi.advanceTimersByTime(1000));
+    expect(latestRfb().sendKey).toHaveBeenCalledTimes(2);
+  });
+
+  it("focus leaving the canvas releases it at once; the timer sends nothing later", () => {
+    renderGui({ capture: true });
+    pinch();
+    fireEvent.focusOut(host(), { relatedTarget: null });
+    expect(latestRfb().sendKey.mock.calls).toEqual([CTRL_DOWN, CTRL_UP]);
+    act(() => vi.advanceTimersByTime(1000));
+    expect(latestRfb().sendKey).toHaveBeenCalledTimes(2);
+  });
+
+  it("turning capture off mid-pinch releases it at once", () => {
+    const { rerender, props } = renderGui({ capture: true });
+    pinch();
+    rerender(<GuiSurface {...props} capture={false} />);
+    expect(latestRfb().sendKey.mock.calls).toEqual([CTRL_DOWN, CTRL_UP]);
+    act(() => vi.advanceTimersByTime(1000));
+    expect(latestRfb().sendKey).toHaveBeenCalledTimes(2);
+  });
+
+  it("unmounting mid-pinch releases it before disconnecting", () => {
+    const { unmount } = renderGui({ capture: true });
+    pinch();
+    const rfb = latestRfb();
+    unmount();
+    expect(rfb.sendKey.mock.calls).toEqual([CTRL_DOWN, CTRL_UP]);
+    act(() => vi.advanceTimersByTime(1000));
+    expect(rfb.sendKey).toHaveBeenCalledTimes(2);
+  });
+
+  it("a physical Control held by the user is left alone", () => {
+    renderGui({ capture: true });
+    const inner = screen.getByTestId("gui-surface-canvas");
+    fireEvent.keyDown(inner, { key: "Control", code: "ControlLeft", ctrlKey: true });
+    pinch();
+    act(() => vi.advanceTimersByTime(1000));
+    fireEvent.keyUp(inner, { key: "Control", code: "ControlLeft" });
+    expect(latestRfb().sendKey).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["ControlLeft", "Control"],
+    ["ControlRight", "Control"],
+    ["KeyA", "a"],
+  ])("%s pressed mid-pinch releases the pinch's Control_L first, once", (code, key) => {
+    renderGui({ capture: true, shouldReclaimChord: () => false });
+    const inner = vi.fn();
+    host().addEventListener("keydown", inner);
+    pinch();
+    fireEvent.keyDown(host(), { key, code, ctrlKey: true });
+    expect(latestRfb().sendKey.mock.calls).toEqual([CTRL_DOWN, CTRL_UP]);
+    // The key itself still reaches noVNC, after the release.
+    expect(inner).toHaveBeenCalledOnce();
+    act(() => vi.advanceTimersByTime(1000));
+    expect(latestRfb().sendKey).toHaveBeenCalledTimes(2);
+  });
+
+  it("uncaptured, a pinch still steps the viewer zoom and never reaches noVNC", () => {
+    const { props } = renderGui({ capture: false, zoom: 100 });
+    const wheelSpy = vi.fn();
+    host().addEventListener("wheel", wheelSpy);
+    expect(pinch(-60)).toBe(false);
+    expect(props.onZoomChange).toHaveBeenCalledWith(125);
+    expect(wheelSpy).not.toHaveBeenCalled();
+    expect(latestRfb().sendKey).not.toHaveBeenCalled();
+  });
+
+  describe("on a Mac", () => {
+    let platform: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => {
+      platform = vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
+    });
+    afterEach(() => {
+      platform.mockRestore();
+    });
+
+    it("⌘ already held as Control_L: the pinch adds no press or release", () => {
+      renderGui({ capture: true, shouldReclaimChord: () => false });
+      const inner = screen.getByTestId("gui-surface-canvas");
+      fireEvent.keyDown(inner, { key: "Meta", code: "MetaLeft", metaKey: true });
+      pinch();
+      act(() => vi.advanceTimersByTime(1000));
+      expect(latestRfb().sendKey.mock.calls).toEqual([CTRL_DOWN]);
+      fireEvent.keyUp(inner, { key: "Meta", code: "MetaLeft" });
+      expect(latestRfb().sendKey.mock.calls).toEqual([CTRL_DOWN, CTRL_UP]);
+    });
+
+    it("⌘ pressed mid-pinch takes over the Control_L; its keyup releases it once", () => {
+      renderGui({ capture: true, shouldReclaimChord: () => false });
+      const inner = screen.getByTestId("gui-surface-canvas");
+      pinch();
+      fireEvent.keyDown(inner, { key: "Meta", code: "MetaLeft", metaKey: true });
+      act(() => vi.advanceTimersByTime(1000));
+      expect(latestRfb().sendKey.mock.calls).toEqual([CTRL_DOWN]);
+      fireEvent.keyUp(inner, { key: "Meta", code: "MetaLeft" });
+      expect(latestRfb().sendKey.mock.calls).toEqual([CTRL_DOWN, CTRL_UP]);
+    });
+  });
+});
